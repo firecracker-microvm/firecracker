@@ -40,7 +40,12 @@ pub struct GicVcpuState {
     pub icc: VgicSysRegsState,
 }
 
-impl<T: Versionize> Versionize for GicRegState<T> {
+impl<T: Versionize + Debug> Versionize for GicRegState<T> {
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(self, writer, version_map, app_version)
+    )]
     fn serialize<W: std::io::Write>(
         &self,
         writer: &mut W,
@@ -52,6 +57,7 @@ impl<T: Versionize> Versionize for GicRegState<T> {
         Versionize::serialize(chunks, writer, version_map, app_version)
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(reader, version_map, app_version))]
     fn deserialize<R: std::io::Read>(
         reader: &mut R,
         version_map: &VersionMap,
@@ -62,6 +68,7 @@ impl<T: Versionize> Versionize for GicRegState<T> {
         Ok(Self { chunks })
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn version() -> u16 {
         1
     }
@@ -169,7 +176,7 @@ pub(crate) trait VgicRegEngine {
 }
 
 /// Structure representing a simple register.
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub(crate) struct SimpleReg {
     /// The offset from the component address. The register is memory mapped here.
     offset: u64,
@@ -184,6 +191,7 @@ impl SimpleReg {
 }
 
 impl MmioReg for SimpleReg {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn range(&self) -> Range<u64> {
         self.offset..self.offset + u64::from(self.size)
     }

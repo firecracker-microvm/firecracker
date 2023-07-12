@@ -10,6 +10,7 @@ use super::{RemoveRegionError, MAX_PAGE_COMPACT_BUFFER};
 /// This takes a vector of page frame numbers, and compacts them
 /// into ranges of consecutive pages. The result is a vector
 /// of (start_page_frame_number, range_length) pairs.
+#[tracing::instrument(level = "debug", ret(skip), skip(v))]
 pub(crate) fn compact_page_frame_numbers(v: &mut [u32]) -> Vec<(u32, u32)> {
     if v.is_empty() {
         return vec![];
@@ -64,6 +65,7 @@ pub(crate) fn compact_page_frame_numbers(v: &mut [u32]) -> Vec<(u32, u32)> {
     result
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(guest_memory, range, restored))]
 pub(crate) fn remove_range(
     guest_memory: &GuestMemoryMmap,
     range: (GuestAddress, u64),
@@ -265,6 +267,7 @@ mod tests {
     use crate::devices::virtio::test_utils::single_region_mem;
 
     #[allow(clippy::let_with_type_underscore)]
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn random_pfn_u32_max() -> impl Strategy<Value = Vec<u32>> {
         // Create a randomly sized vec (max MAX_PAGE_COMPACT_BUFFER elements) filled with random u32
         // elements.
@@ -272,6 +275,7 @@ mod tests {
     }
 
     #[allow(clippy::let_with_type_underscore)]
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn random_pfn_100() -> impl Strategy<Value = Vec<u32>> {
         // Create a randomly sized vec (max MAX_PAGE_COMPACT_BUFFER/8) filled with random u32
         // elements (0 - 100).
@@ -280,6 +284,7 @@ mod tests {
 
     // The uncompactor will output deduplicated and sorted elements as compaction algorithm
     // guarantees it.
+    #[tracing::instrument(level = "debug", ret(skip), skip(compacted))]
     fn uncompact(compacted: Vec<(u32, u32)>) -> Vec<u32> {
         let mut result = Vec::new();
         for (start, len) in compacted {
@@ -288,6 +293,7 @@ mod tests {
         result
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(v))]
     fn sort_and_dedup<T: Ord + Clone + Debug>(v: &[T]) -> Vec<T> {
         let mut sorted_v = v.to_vec();
         sorted_v.sort_unstable();

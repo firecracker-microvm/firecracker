@@ -57,6 +57,7 @@ impl Persist<'_> for Queue {
     type ConstructorArgs = ();
     type Error = ();
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn save(&self) -> Self::State {
         QueueState {
             max_size: self.max_size,
@@ -71,6 +72,7 @@ impl Persist<'_> for Queue {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(state))]
     fn restore(
         _: Self::ConstructorArgs,
         state: &Self::State,
@@ -103,6 +105,7 @@ pub struct VirtioDeviceState {
 }
 
 impl VirtioDeviceState {
+    #[tracing::instrument(level = "debug", ret(skip), skip(device))]
     pub fn from_device(device: &dyn VirtioDevice) -> Self {
         VirtioDeviceState {
             device_type: device.device_type(),
@@ -116,6 +119,17 @@ impl VirtioDeviceState {
 
     /// Does sanity checking on the `self` state against expected values
     /// and builds queues from state.
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(
+            self,
+            mem,
+            expected_device_type,
+            expected_num_queues,
+            expected_queue_max_size
+        )
+    )]
     pub fn build_queues_checked(
         &self,
         mem: &GuestMemoryMmap,
@@ -188,6 +202,7 @@ impl Persist<'_> for MmioTransport {
     type ConstructorArgs = MmioTransportConstructorArgs;
     type Error = ();
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn save(&self) -> Self::State {
         MmioTransportState {
             features_select: self.features_select,
@@ -198,6 +213,7 @@ impl Persist<'_> for MmioTransport {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(constructor_args, state))]
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
@@ -225,6 +241,7 @@ mod tests {
 
     const DEFAULT_QUEUE_MAX_SIZE: u16 = 256;
     impl Default for QueueState {
+        #[tracing::instrument(level = "debug", ret(skip), skip())]
         fn default() -> QueueState {
             QueueState {
                 max_size: DEFAULT_QUEUE_MAX_SIZE,
@@ -337,6 +354,7 @@ mod tests {
     }
 
     impl PartialEq for MmioTransport {
+        #[tracing::instrument(level = "debug", ret(skip), skip(self, other))]
         fn eq(&self, other: &MmioTransport) -> bool {
             let self_dev_type = self.device().lock().unwrap().device_type();
             self.acked_features_select == other.acked_features_select &&
@@ -351,6 +369,7 @@ mod tests {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(mmio_transport, mem, device))]
     fn generic_mmiotransport_persistence_test(
         mmio_transport: MmioTransport,
         mem: GuestMemoryMmap,
@@ -374,6 +393,7 @@ mod tests {
         assert_eq!(restored_mmio_transport, mmio_transport);
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn default_block() -> (MmioTransport, GuestMemoryMmap, Arc<Mutex<Block>>) {
         let mem = default_mem();
 
@@ -390,6 +410,7 @@ mod tests {
         (mmio_transport, mem, block)
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn default_net() -> (MmioTransport, GuestMemoryMmap, Arc<Mutex<Net>>) {
         let mem = default_mem();
         let net = Arc::new(Mutex::new(net::test_utils::default_net()));
@@ -398,6 +419,7 @@ mod tests {
         (mmio_transport, mem, net)
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn default_vsock() -> (
         MmioTransport,
         GuestMemoryMmap,

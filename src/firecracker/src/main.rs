@@ -38,6 +38,7 @@ const MMDS_CONTENT_ARG: &str = "metadata";
 
 #[cfg(target_arch = "aarch64")]
 /// Enable SSBD mitigation through `prctl`.
+#[tracing::instrument(level = "debug", ret(skip), skip())]
 pub fn enable_ssbd_mitigation() {
     // Parameters for `prctl`
     // TODO: generate bindings for these from the kernel sources.
@@ -72,6 +73,7 @@ pub fn enable_ssbd_mitigation() {
     }
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip())]
 fn main_exitable() -> FcExitCode {
     if let Err(err) = register_signal_handlers() {
         error!("Failed to register signal handlers: {}", err);
@@ -420,6 +422,7 @@ fn main_exitable() -> FcExitCode {
     }
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip())]
 fn main() {
     // This idiom is the prescribed way to get a clean shutdown of Rust (that will report
     // no leaks in Valgrind or sanitizers).  Calling `unsafe { libc::exit() }` does no
@@ -436,6 +439,7 @@ fn main() {
 }
 
 // Exit gracefully with a generic error code.
+#[tracing::instrument(level = "debug", ret(skip), skip(msg))]
 fn generic_error_exit(msg: &str) -> FcExitCode {
     error!("{}", msg);
     vmm::FcExitCode::GenericError
@@ -443,9 +447,11 @@ fn generic_error_exit(msg: &str) -> FcExitCode {
 
 // Log a warning for any usage of deprecated parameters.
 #[allow(unused)]
+#[tracing::instrument(level = "debug", ret(skip), skip())]
 fn warn_deprecated_parameters() {}
 
 // Print supported snapshot data format versions.
+#[tracing::instrument(level = "debug", ret(skip), skip())]
 fn print_supported_snapshot_versions() {
     let mut snapshot_versions_str = "Supported snapshot data format versions:".to_string();
     let mut snapshot_versions: Vec<String> = FC_VERSION_TO_SNAP_VERSION
@@ -462,6 +468,7 @@ fn print_supported_snapshot_versions() {
 }
 
 // Print data format of provided snapshot state file.
+#[tracing::instrument(level = "debug", ret(skip), skip(snapshot_path))]
 fn print_snapshot_data_format(snapshot_path: &str) {
     let mut snapshot_reader = File::open(snapshot_path).unwrap_or_else(|err| {
         process::exit(
@@ -489,6 +496,19 @@ fn print_snapshot_data_format(snapshot_path: &str) {
 }
 
 // Configure and start a microVM as described by the command-line JSON.
+#[tracing::instrument(
+    level = "debug",
+    ret(skip),
+    skip(
+        seccomp_filters,
+        event_manager,
+        config_json,
+        instance_info,
+        boot_timer_enabled,
+        mmds_size_limit,
+        metadata_json
+    )
+)]
 fn build_microvm_from_json(
     seccomp_filters: &BpfThreadMap,
     event_manager: &mut EventManager,
@@ -523,6 +543,18 @@ fn build_microvm_from_json(
     Ok((vm_resources, vmm))
 }
 
+#[tracing::instrument(
+    level = "debug",
+    ret(skip),
+    skip(
+        seccomp_filters,
+        config_json,
+        instance_info,
+        bool_timer_enabled,
+        mmds_size_limit,
+        metadata_json
+    )
+)]
 fn run_without_api(
     seccomp_filters: &BpfThreadMap,
     config_json: Option<String>,

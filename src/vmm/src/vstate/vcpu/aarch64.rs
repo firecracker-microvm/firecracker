@@ -62,6 +62,7 @@ impl KvmVcpu {
     ///
     /// * `index` - Represents the 0-based CPU index between [0, max vcpus).
     /// * `vm` - The vm to which this vcpu will get attached.
+    #[tracing::instrument(level = "debug", ret(skip), skip(index, vm))]
     pub fn new(index: u8, vm: &Vm) -> Result<Self, Error> {
         let kvm_vcpu = vm
             .fd()
@@ -77,6 +78,7 @@ impl KvmVcpu {
     }
 
     /// Gets the MPIDR register value.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn get_mpidr(&self) -> u64 {
         self.mpidr
     }
@@ -88,6 +90,11 @@ impl KvmVcpu {
     /// * `guest_mem` - The guest memory used by this microvm.
     /// * `kernel_load_addr` - Offset from `guest_mem` at which the kernel is loaded.
     /// * `vcpu_config` - The vCPU configuration.
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(self, guest_mem, kernel_load_addr, vcpu_config)
+    )]
     pub fn configure(
         &mut self,
         guest_mem: &GuestMemoryMmap,
@@ -118,6 +125,7 @@ impl KvmVcpu {
     /// # Arguments
     ///
     /// * `vm_fd` - The kvm `VmFd` for this microvm.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, vm_fd))]
     pub fn init(&self, vm_fd: &VmFd) -> Result<(), Error> {
         let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
 
@@ -135,6 +143,7 @@ impl KvmVcpu {
     }
 
     /// Save the KVM internal state.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn save_state(&self) -> Result<VcpuState, Error> {
         let mut state = VcpuState {
             mp_state: get_mpstate(&self.fd).map_err(Error::SaveState)?,
@@ -146,6 +155,7 @@ impl KvmVcpu {
     }
 
     /// Use provided state to populate KVM internal state.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, state))]
     pub fn restore_state(&self, state: &VcpuState) -> Result<(), Error> {
         set_registers(&self.fd, &state.regs).map_err(Error::RestoreState)?;
         set_mpstate(&self.fd, state.mp_state).map_err(Error::RestoreState)?;
@@ -153,6 +163,7 @@ impl KvmVcpu {
     }
 
     /// Dumps CPU configuration.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn dump_cpu_config(&self) -> Result<CpuConfiguration, Error> {
         let mut reg_list = get_all_registers_ids(&self.fd).map_err(Error::DumpCpuConfig)?;
 
@@ -171,6 +182,7 @@ impl KvmVcpu {
     /// Runs the vCPU in KVM context and handles the kvm exit reason.
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, exit))]
     pub fn run_arch_emulation(&self, exit: VcpuExit) -> Result<VcpuEmulation, VcpuError> {
         METRICS.vcpu.failures.inc();
         // TODO: Are we sure we want to finish running a vcpu upon
@@ -195,10 +207,12 @@ pub struct VcpuState {
 }
 
 impl VcpuState {
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn default_old_regs(_: u16) -> Vec<Aarch64RegisterOld> {
         Vec::default()
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, _source_version))]
     fn de_regs(&mut self, _source_version: u16) -> VersionizeResult<()> {
         let mut regs = Aarch64RegisterVec::default();
         for reg in self.old_regs.iter() {
@@ -211,6 +225,7 @@ impl VcpuState {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, _target_version))]
     fn ser_regs(&mut self, _target_version: u16) -> VersionizeResult<()> {
         self.old_regs = self
             .regs
@@ -237,6 +252,7 @@ mod tests {
     use crate::vstate::vm::tests::setup_vm;
     use crate::vstate::vm::Vm;
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(mem_size))]
     fn setup_vcpu(mem_size: usize) -> (Vm, KvmVcpu, GuestMemoryMmap) {
         let (mut vm, vm_mem) = setup_vm(mem_size);
         let vcpu = KvmVcpu::new(0, &vm).unwrap();
@@ -246,6 +262,7 @@ mod tests {
         (vm, vcpu, vm_mem)
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(vcpu, vm))]
     fn init_vcpu(vcpu: &VcpuFd, vm: &VmFd) {
         let mut kvi = kvm_bindings::kvm_vcpu_init::default();
         vm.get_preferred_target(&mut kvi).unwrap();

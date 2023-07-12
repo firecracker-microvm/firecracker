@@ -55,6 +55,7 @@ impl MuxerKillQ {
     const SIZE: usize = defs::MUXER_KILLQ_SIZE;
 
     /// Trivial kill queue constructor.
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     pub fn new() -> Self {
         Self {
             q: VecDeque::with_capacity(Self::SIZE),
@@ -66,6 +67,7 @@ impl MuxerKillQ {
     /// set to expire at some point in the future.
     /// Note: if more than `Self::SIZE` connections are found, the queue will be created in an
     ///       out-of-sync state, and will be discarded after it is emptied.
+    #[tracing::instrument(level = "debug", ret(skip), skip(conn_map))]
     pub fn from_conn_map(conn_map: &HashMap<ConnMapKey, MuxerConnection>) -> Self {
         let mut q_buf: Vec<MuxerKillQItem> = Vec::with_capacity(Self::SIZE);
         let mut synced = true;
@@ -91,6 +93,7 @@ impl MuxerKillQ {
 
     /// Push a connection key to the queue, scheduling it for termination at
     /// `CONN_SHUTDOWN_TIMEOUT_MS` from now (the push time).
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, key, kill_time))]
     pub fn push(&mut self, key: ConnMapKey, kill_time: Instant) {
         if !self.is_synced() || self.is_full() {
             self.synced = false;
@@ -103,6 +106,7 @@ impl MuxerKillQ {
     ///
     /// This will succeed and return a connection key, only if the connection at the front of
     /// the queue has expired. Otherwise, `None` is returned.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn pop(&mut self) -> Option<ConnMapKey> {
         if let Some(item) = self.q.front() {
             if Instant::now() > item.kill_time {
@@ -113,16 +117,19 @@ impl MuxerKillQ {
     }
 
     /// Check if the kill queue is synchronized with the connection pool.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn is_synced(&self) -> bool {
         self.synced
     }
 
     /// Check if the kill queue is empty, obviously.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn is_empty(&self) -> bool {
         self.q.len() == 0
     }
 
     /// Check if the kill queue is full.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn is_full(&self) -> bool {
         self.q.len() == Self::SIZE
     }

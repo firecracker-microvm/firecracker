@@ -80,6 +80,7 @@ impl<'a, T: NetworkBytes + Debug> EthIPv4ArpFrame<'a, T> {
     /// This method does not panic, but further method calls on the resulting object may panic if
     /// `bytes` contains invalid input.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(bytes))]
     pub fn from_bytes_unchecked(bytes: T) -> Self {
         EthIPv4ArpFrame {
             bytes: InnerBytes::new(bytes),
@@ -90,6 +91,7 @@ impl<'a, T: NetworkBytes + Debug> EthIPv4ArpFrame<'a, T> {
     ///
     /// If no error occurs, it guarantees accessor methods (which make use of various `_unchecked`
     /// functions) are safe to call on the result, because all predefined offsets will be valid.
+    #[tracing::instrument(level = "debug", ret(skip), skip(bytes))]
     pub fn request_from_bytes(bytes: T) -> Result<Self, Error> {
         // This kind of frame has a fixed length, so we know what to expect.
         if bytes.len() != ETH_IPV4_FRAME_LEN {
@@ -124,60 +126,70 @@ impl<'a, T: NetworkBytes + Debug> EthIPv4ArpFrame<'a, T> {
 
     /// Returns the hardware type of the frame.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn htype(&self) -> u16 {
         self.bytes.ntohs_unchecked(HTYPE_OFFSET)
     }
 
     /// Returns the protocol type of the frame.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn ptype(&self) -> u16 {
         self.bytes.ntohs_unchecked(PTYPE_OFFSET)
     }
 
     /// Returns the hardware address length of the frame.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn hlen(&self) -> u8 {
         self.bytes[HLEN_OFFSET]
     }
 
     /// Returns the protocol address length of the frame.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn plen(&self) -> u8 {
         self.bytes[PLEN_OFFSET]
     }
 
     /// Returns the type of operation within the frame.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn operation(&self) -> u16 {
         self.bytes.ntohs_unchecked(OPER_OFFSET)
     }
 
     /// Returns the sender hardware address.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn sha(&self) -> MacAddr {
         MacAddr::from_bytes_unchecked(&self.bytes[SHA_OFFSET..ETH_IPV4_SPA_OFFSET])
     }
 
     /// Returns the sender protocol address.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn spa(&self) -> Ipv4Addr {
         Ipv4Addr::from(self.bytes.ntohl_unchecked(ETH_IPV4_SPA_OFFSET))
     }
 
     /// Returns the target hardware address.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn tha(&self) -> MacAddr {
         MacAddr::from_bytes_unchecked(&self.bytes[ETH_IPV4_THA_OFFSET..ETH_IPV4_TPA_OFFSET])
     }
 
     /// Returns the target protocol address.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn tpa(&self) -> Ipv4Addr {
         Ipv4Addr::from(self.bytes.ntohl_unchecked(ETH_IPV4_TPA_OFFSET))
     }
 
     /// Returns the length of the frame.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn len(&self) -> usize {
         // This might as well return ETH_IPV4_FRAME_LEN directly, since we check this is the actual
         // length in request_from_bytes(). For some reason it seems nicer leaving it as is.
@@ -187,6 +199,11 @@ impl<'a, T: NetworkBytes + Debug> EthIPv4ArpFrame<'a, T> {
 
 impl<'a, T: NetworkBytesMut + Debug> EthIPv4ArpFrame<'a, T> {
     #[allow(clippy::too_many_arguments)]
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(buf, htype, ptype, hlen, plen, operation, sha, spa, tha, tpa)
+    )]
     fn write_raw(
         buf: T,
         htype: u16,
@@ -222,6 +239,7 @@ impl<'a, T: NetworkBytesMut + Debug> EthIPv4ArpFrame<'a, T> {
     /// Attempts to write an ARP request to `buf`, based on the specified hardware and protocol
     /// addresses.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(buf, sha, spa, tha, tpa))]
     pub fn write_request(
         buf: T,
         sha: MacAddr,
@@ -246,6 +264,7 @@ impl<'a, T: NetworkBytesMut + Debug> EthIPv4ArpFrame<'a, T> {
     /// Attempts to write an ARP reply to `buf`, based on the specified hardware and protocol
     /// addresses.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(buf, sha, spa, tha, tpa))]
     pub fn write_reply(
         buf: T,
         sha: MacAddr,
@@ -269,42 +288,49 @@ impl<'a, T: NetworkBytesMut + Debug> EthIPv4ArpFrame<'a, T> {
 
     /// Sets the hardware type of the frame.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, value))]
     pub fn set_htype(&mut self, value: u16) {
         self.bytes.htons_unchecked(HTYPE_OFFSET, value);
     }
 
     /// Sets the protocol type of the frame.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, value))]
     pub fn set_ptype(&mut self, value: u16) {
         self.bytes.htons_unchecked(PTYPE_OFFSET, value);
     }
 
     /// Sets the hardware address length of the frame.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, value))]
     pub fn set_hlen(&mut self, value: u8) {
         self.bytes[HLEN_OFFSET] = value;
     }
 
     /// Sets the protocol address length of the frame.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, value))]
     pub fn set_plen(&mut self, value: u8) {
         self.bytes[PLEN_OFFSET] = value;
     }
 
     /// Sets the operation within the frame.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, value))]
     pub fn set_operation(&mut self, value: u16) {
         self.bytes.htons_unchecked(OPER_OFFSET, value);
     }
 
     /// Sets the sender hardware address.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, addr))]
     pub fn set_sha(&mut self, addr: MacAddr) {
         self.bytes[SHA_OFFSET..ETH_IPV4_SPA_OFFSET].copy_from_slice(addr.get_bytes());
     }
 
     /// Sets the sender protocol address.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, addr))]
     pub fn set_spa(&mut self, addr: Ipv4Addr) {
         self.bytes
             .htonl_unchecked(ETH_IPV4_SPA_OFFSET, u32::from(addr));
@@ -312,12 +338,14 @@ impl<'a, T: NetworkBytesMut + Debug> EthIPv4ArpFrame<'a, T> {
 
     /// Sets the target hardware address.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, addr))]
     pub fn set_tha(&mut self, addr: MacAddr) {
         self.bytes[ETH_IPV4_THA_OFFSET..ETH_IPV4_TPA_OFFSET].copy_from_slice(addr.get_bytes());
     }
 
     /// Sets the target protocol address.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, addr))]
     pub fn set_tpa(&mut self, addr: Ipv4Addr) {
         self.bytes
             .htonl_unchecked(ETH_IPV4_TPA_OFFSET, u32::from(addr));
@@ -327,6 +355,7 @@ impl<'a, T: NetworkBytesMut + Debug> EthIPv4ArpFrame<'a, T> {
 /// This function checks if `buf` may hold an Ethernet frame which encapsulates an
 /// `EthIPv4ArpRequest` for the given address. Cannot produce false negatives.
 #[inline]
+#[tracing::instrument(level = "debug", ret(skip), skip(buf, addr))]
 pub fn test_speculative_tpa(buf: &[u8], addr: Ipv4Addr) -> bool {
     // The unchecked methods are safe because we actually check the buffer length beforehand.
     if buf.len() >= ethernet::PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN {

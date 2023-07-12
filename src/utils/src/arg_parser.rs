@@ -39,17 +39,20 @@ pub struct ArgParser<'a> {
 
 impl<'a> ArgParser<'a> {
     /// Create a new ArgParser instance.
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     pub fn new() -> Self {
         ArgParser::default()
     }
 
     /// Add an argument with its associated `Argument` in `arguments`.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, argument))]
     pub fn arg(mut self, argument: Argument<'a>) -> Self {
         self.arguments.insert_arg(argument);
         self
     }
 
     /// Parse the command line arguments.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn parse_from_cmdline(&mut self) -> Result<()> {
         self.arguments.parse_from_cmdline()
     }
@@ -57,6 +60,7 @@ impl<'a> ArgParser<'a> {
     /// Concatenate the `help` information of every possible argument
     /// in a message that represents the correct command line usage
     /// for the application.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn formatted_help(&self) -> String {
         let mut help_builder = vec![];
 
@@ -81,12 +85,14 @@ impl<'a> ArgParser<'a> {
     }
 
     /// Return a reference to `arguments` field.
+    #[tracing::instrument(level = "debug", skip(self))]
     pub fn arguments(&self) -> &Arguments {
         &self.arguments
     }
 
     // Filter arguments by whether or not it is required.
     // Align arguments by setting width to length of the longest argument.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, is_required))]
     fn format_arguments(&self, is_required: bool) -> String {
         let filtered_arguments = self
             .arguments
@@ -125,6 +131,7 @@ pub struct Argument<'a> {
 
 impl<'a> Argument<'a> {
     /// Create a new `Argument` that keeps the necessary information for an argument.
+    #[tracing::instrument(level = "debug", ret(skip), skip(name))]
     pub fn new(name: &'a str) -> Argument<'a> {
         Argument {
             name,
@@ -140,18 +147,21 @@ impl<'a> Argument<'a> {
     }
 
     /// Set if the argument *must* be provided by user.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, required))]
     pub fn required(mut self, required: bool) -> Self {
         self.required = required;
         self
     }
 
     /// Add `other_arg` as a required parameter when `self` is specified.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, other_arg))]
     pub fn requires(mut self, other_arg: &'a str) -> Self {
         self.requires = Some(other_arg);
         self
     }
 
     /// Add `other_arg` as a forbidden parameter when `self` is specified.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, args))]
     pub fn forbids(mut self, args: Vec<&'a str>) -> Self {
         self.forbids = args;
         self
@@ -159,6 +169,7 @@ impl<'a> Argument<'a> {
 
     /// If `takes_value` is true, then the user *must* provide a value for the
     /// argument, otherwise that argument is a flag.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, takes_value))]
     pub fn takes_value(mut self, takes_value: bool) -> Self {
         self.takes_value = takes_value;
         self
@@ -167,6 +178,7 @@ impl<'a> Argument<'a> {
     /// If `allow_multiple` is true, then the user can provide multiple values for the
     /// argument (e.g --arg val1 --arg val2). It sets the `takes_value` option to true,
     /// so the user must provides at least one value.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, allow_multiple))]
     pub fn allow_multiple(mut self, allow_multiple: bool) -> Self {
         if allow_multiple {
             self.takes_value = true;
@@ -177,6 +189,7 @@ impl<'a> Argument<'a> {
 
     /// Keep a default value which will be used if the user didn't provide a value for
     /// the argument.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, default_value))]
     pub fn default_value(mut self, default_value: &'a str) -> Self {
         self.default_value = Some(Value::Single(String::from(default_value)));
         self
@@ -184,11 +197,13 @@ impl<'a> Argument<'a> {
 
     /// Set the information that will be displayed for the argument when user passes
     /// `--help` flag.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, help))]
     pub fn help(mut self, help: &'a str) -> Self {
         self.help = Some(help);
         self
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, arg_width))]
     fn format_help(&self, arg_width: usize) -> String {
         let mut help_builder = vec![];
 
@@ -212,6 +227,7 @@ impl<'a> Argument<'a> {
         help_builder.concat()
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn format_name(&self) -> String {
         if self.takes_value {
             format!("  --{name} <{name}>", name = self.name)
@@ -230,6 +246,7 @@ pub enum Value {
 }
 
 impl Value {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn as_single_value(&self) -> Option<&String> {
         match self {
             Value::Single(s) => Some(s),
@@ -237,10 +254,12 @@ impl Value {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn as_flag(&self) -> bool {
         matches!(self, Value::Flag)
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn as_multiple(&self) -> Option<&[String]> {
         match self {
             Value::Multiple(v) => Some(v),
@@ -250,6 +269,7 @@ impl Value {
 }
 
 impl fmt::Display for Value {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Value::Flag => write!(f, "true"),
@@ -270,11 +290,13 @@ pub struct Arguments<'a> {
 
 impl<'a> Arguments<'a> {
     /// Add an argument with its associated `Argument` in `args`.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, argument))]
     fn insert_arg(&mut self, argument: Argument<'a>) {
         self.args.insert(argument.name, argument);
     }
 
     /// Get the value for the argument specified by `arg_name`.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, arg_name))]
     fn value_of(&self, arg_name: &'static str) -> Option<&Value> {
         self.args.get(arg_name).and_then(|argument| {
             argument
@@ -286,12 +308,14 @@ impl<'a> Arguments<'a> {
 
     /// Return the value of an argument if the argument exists and has the type
     /// String. Otherwise return None.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, arg_name))]
     pub fn single_value(&self, arg_name: &'static str) -> Option<&String> {
         self.value_of(arg_name)
             .and_then(|arg_value| arg_value.as_single_value())
     }
 
     /// Return whether an `arg_name` argument of type flag exists.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, arg_name))]
     pub fn flag_present(&self, arg_name: &'static str) -> bool {
         match self.value_of(arg_name) {
             Some(v) => v.as_flag(),
@@ -301,18 +325,21 @@ impl<'a> Arguments<'a> {
 
     /// Return the value of an argument if the argument exists and has the type
     /// vector. Otherwise return None.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, arg_name))]
     pub fn multiple_values(&self, arg_name: &'static str) -> Option<&[String]> {
         self.value_of(arg_name)
             .and_then(|arg_value| arg_value.as_multiple())
     }
 
     /// Get the extra arguments (all arguments after `--`).
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn extra_args(&self) -> Vec<String> {
         self.extra_args.clone()
     }
 
     // Split `args` in two slices: one with the actual arguments of the process and the other with
     // the extra arguments, meaning all parameters specified after `--`.
+    #[tracing::instrument(level = "debug", ret(skip), skip(args))]
     fn split_args(args: &[String]) -> (&[String], &[String]) {
         if let Some(index) = args.iter().position(|arg| arg == ARG_SEPARATOR) {
             return (&args[..index], &args[index + 1..]);
@@ -322,6 +349,7 @@ impl<'a> Arguments<'a> {
     }
 
     /// Collect the command line arguments and the values provided for them.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn parse_from_cmdline(&mut self) -> Result<()> {
         let args: Vec<String> = env::args().collect();
 
@@ -330,6 +358,7 @@ impl<'a> Arguments<'a> {
 
     /// Clear split between the actual arguments of the process, the extra arguments if any
     /// and the `--help` and `--version` arguments if present.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, args))]
     pub fn parse(&mut self, args: &[String]) -> Result<()> {
         // Skipping the first element of `args` as it is the name of the binary.
         let (args, extra_args) = Arguments::split_args(&args[1..]);
@@ -361,6 +390,7 @@ impl<'a> Arguments<'a> {
 
     // Check if `required`, `requires` and `forbids` field rules are indeed followed by every
     // argument.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, args))]
     fn validate_requirements(&self, args: &[String]) -> Result<()> {
         for argument in self.args.values() {
             // The arguments that are marked `required` must be provided by user.
@@ -390,6 +420,7 @@ impl<'a> Arguments<'a> {
     }
 
     // Does a general validation of `arg` command line argument.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, arg))]
     fn validate_arg(&self, arg: &str) -> Result<()> {
         if !arg.starts_with(ARG_PREFIX) {
             return Err(Error::UnexpectedArgument(arg.to_string()));
@@ -411,6 +442,7 @@ impl<'a> Arguments<'a> {
 
     /// Validate the arguments provided by user and their values. Insert those
     /// values in the `Argument` instances of the corresponding arguments.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, args))]
     fn populate_args(&mut self, args: &[String]) -> Result<()> {
         let mut iter = args.iter();
 
@@ -463,6 +495,7 @@ mod tests {
     use super::*;
     use crate::arg_parser::Value;
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn build_arg_parser() -> ArgParser<'static> {
         ArgParser::new()
             .arg(

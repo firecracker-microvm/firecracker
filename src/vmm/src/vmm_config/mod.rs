@@ -10,15 +10,18 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Mutex;
 
+use clippy_tracing_attributes::clippy_tracing_skip;
 use libc::O_NONBLOCK;
 use rate_limiter::{BucketUpdate, RateLimiter, TokenBucket};
 use serde::{Deserialize, Serialize};
-use tracing_core::{Event, Subscriber};
-use tracing_flame::FlameLayer;
+use tracing::{Collect, Event};
+use tracing_flame::FlameSubscriber;
+use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::fmt::format::{self, FormatEvent, FormatFields};
-use tracing_subscriber::fmt::{FmtContext, Layer};
-use tracing_subscriber::prelude::*;
+use tracing_subscriber::fmt::{FmtContext, Subscriber};
 use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::subscribe::CollectExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 /// Wrapper for configuring the balloon device.
 pub mod balloon;
@@ -295,15 +298,19 @@ pub enum LoggerConfigError {
     /// Failed to write initialization message.
     #[error("Failed to write initialization message: {0}")]
     Write(std::io::Error),
+    /// Failed to initialize flame layer.
+    #[error("Failed to   flame layer.")]
+    Flame,
 }
 
 macro_rules! registry {
     ($($x:expr),*) => {
         {
-            tracing_subscriber::registry()
-            $(
-                .with($x)
-            )*
+                tracing_subscriber::registry::Registry::default()
+                $(
+                    .with($x)
+                )*
+                .try_init()
         }
     }
 }
@@ -312,9 +319,10 @@ impl LoggerConfig {
     const INIT_MESSAGE: &str = concat!("Running Firecracker v", env!("FIRECRACKER_VERSION"), "\n");
 
     /// Initializes the logger.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn init(&self) -> std::result::Result<(), LoggerConfigError> {
         let level = tracing::Level::from(self.level.unwrap_or_default());
-        let filter = tracing_subscriber::filter::LevelFilter::from_level(level);
+        let filter = LevelFilter::from_level(level);
 
         // In case we open a FIFO, in order to not block the instance if nobody is consuming the
         // message that is flushed to the two pipes, we are opening it with `O_NONBLOCK` flag.
@@ -335,13 +343,26 @@ impl LoggerConfig {
         let writer = Mutex::new(LineWriter::new(file));
 
         match (self.new_format.unwrap_or_default(), &self.profile_file) {
-            (true, Some(p)) => registry!(filter, new_log(self, writer), flame(p)).try_init(),
-            (false, Some(p)) => registry!(filter, old_log(self, writer), flame(p)).try_init(),
-            (true, None) => registry!(filter, new_log(self, writer)).try_init(),
-            (false, None) => registry!(filter, old_log(self, writer)).try_init(),
+            (true, Some(p)) => registry!(
+                filter,
+                new_log(self, writer),
+                flame(p).map_err(|_| LoggerConfigError::Flame)?
+            ),
+            (false, Some(p)) => registry!(
+                filter,
+                old_log(self, writer),
+                flame(p).map_err(|_| LoggerConfigError::Flame)?
+            ),
+            (true, None) => registry!(filter, new_log(self, writer)),
+            (false, None) => registry!(filter, old_log(self, writer)),
         }
         .map_err(LoggerConfigError::Init)?;
 
+        tracing::error!(
+            "testing level: {}, {:?}",
+            level,
+            LevelFilter::current().into_level()
+        );
         tracing::error!("Error level logs enabled.");
         tracing::warn!("Warn level logs enabled.");
         tracing::info!("Info level logs enabled.");
@@ -354,22 +375,26 @@ impl LoggerConfig {
 
 type FormatWriter = Mutex<LineWriter<File>>;
 
-fn new_log<S: Subscriber + for<'span> LookupSpan<'span>>(
+#[clippy_tracing_skip]
+fn new_log<C: Collect + for<'span> LookupSpan<'span>>(
     config: &LoggerConfig,
     writer: FormatWriter,
-) -> Layer<S, format::DefaultFields, format::Format, FormatWriter> {
+) -> Subscriber<C, format::DefaultFields, format::Format, FormatWriter> {
     let show_origin = config.show_log_origin.unwrap_or_default();
-    Layer::new()
+    Subscriber::new()
+        .with_thread_names(true)
         .with_level(config.show_level.unwrap_or_default())
         .with_file(show_origin)
         .with_line_number(show_origin)
         .with_writer(writer)
 }
-fn old_log<S: Subscriber + for<'span> LookupSpan<'span>>(
+
+#[clippy_tracing_skip]
+fn old_log<C: Collect + for<'span> LookupSpan<'span>>(
     config: &LoggerConfig,
     writer: FormatWriter,
-) -> Layer<S, format::DefaultFields, OldLoggerFormatter, FormatWriter> {
-    Layer::new()
+) -> Subscriber<C, format::DefaultFields, OldLoggerFormatter, FormatWriter> {
+    Subscriber::new()
         .event_format(OldLoggerFormatter {
             show_level: config.show_level.unwrap_or_default(),
             show_log_origin: config.show_log_origin.unwrap_or_default(),
@@ -377,16 +402,19 @@ fn old_log<S: Subscriber + for<'span> LookupSpan<'span>>(
         .with_writer(writer)
 }
 
-fn flame<S: Subscriber + for<'span> LookupSpan<'span>>(
+#[clippy_tracing_skip]
+fn flame<C: Collect + for<'span> LookupSpan<'span>>(
     profile_file: &PathBuf,
-) -> FlameLayer<S, BufWriter<File>> {
+) -> std::result::Result<FlameSubscriber<C, BufWriter<File>>, ()> {
     // We can discard the flush guard as
     // > This type is only needed when using
     // > `tracing::subscriber::set_global_default`, which prevents the drop
     // > implementation of layers from running when the program exits.
     // See https://docs.rs/tracing-flame/0.2.0/tracing_flame/struct.FlushGuard.html
-    let (flame_layer, _guard) = FlameLayer::with_file(profile_file).unwrap();
-    flame_layer
+    // TODO Don't drop the error.
+    FlameSubscriber::with_file(profile_file)
+        .map(|(layer, _)| layer)
+        .map_err(drop)
 }
 
 // use std::sync::atomic::AtomicUsize;
@@ -408,9 +436,10 @@ struct OldLoggerFormatter {
 
 impl<S, N> FormatEvent<S, N> for OldLoggerFormatter
 where
-    S: Subscriber + for<'a> LookupSpan<'a>,
+    S: Collect + for<'a> LookupSpan<'a>,
     N: for<'a> FormatFields<'a> + 'static,
 {
+    #[clippy_tracing_skip]
     fn format_event(
         &self,
         ctx: &FmtContext<'_, S, N>,

@@ -112,6 +112,7 @@ impl<T: Serialize + Debug, M: Write + Send + Debug> Metrics<T, M> {
     /// # Arguments
     ///
     /// * `metrics_dest` - Buffer for JSON formatted metrics. Needs to implement `Write` and `Send`.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, metrics_dest))]
     pub fn init(&self, metrics_dest: M) -> Result<(), MetricsError> {
         self.metrics_buf
             .set(Mutex::new(metrics_dest))
@@ -137,6 +138,7 @@ impl<T: Serialize + Debug, M: Write + Send + Debug> Metrics<T, M> {
     /// important metric in this case is the signal one.
     /// The alternative is to hold a Mutex over the entire function call, but this increases the
     /// known deadlock potential.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn write(&self) -> Result<bool, MetricsError> {
         if let Some(lock) = self.metrics_buf.get() {
             match serde_json::to_string(&self.app_metrics) {
@@ -172,6 +174,7 @@ impl<T: Serialize + Debug, M: Write + Send + Debug> Metrics<T, M> {
 impl<T: Serialize + Debug, M: Write + Send + Debug> Deref for Metrics<T, M> {
     type Target = T;
 
+    #[tracing::instrument(level = "debug", skip(self))]
     fn deref(&self) -> &Self::Target {
         &self.app_metrics
     }
@@ -251,20 +254,24 @@ impl IncMetric for SharedIncMetric {
     // be an asm "LOCK; something" and thus atomic across multiple threads, simply because of the
     // fetch_and_add (as opposed to "store(load() + 1)") implementation for atomics.
     // TODO: would a stronger ordering make a difference here?
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, value))]
     fn add(&self, value: usize) {
         self.0.fetch_add(value, Ordering::Relaxed);
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn count(&self) -> usize {
         self.0.load(Ordering::Relaxed)
     }
 }
 
 impl StoreMetric for SharedStoreMetric {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn fetch(&self) -> usize {
         self.0.load(Ordering::Relaxed)
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, value))]
     fn store(&self, value: usize) {
         self.0.store(value, Ordering::Relaxed);
     }
@@ -274,6 +281,7 @@ impl Serialize for SharedIncMetric {
     /// Reset counters of each metrics. Here we suppose that Serialize's goal is to help with the
     /// flushing of metrics.
     /// !!! Any print of the metrics will also reset them. Use with caution !!!
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, serializer))]
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         // There's no serializer.serialize_usize() for some reason :(
         let snapshot = self.0.load(Ordering::Relaxed);
@@ -287,6 +295,7 @@ impl Serialize for SharedIncMetric {
 }
 
 impl Serialize for SharedStoreMetric {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, serializer))]
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_u64(self.0.load(Ordering::Relaxed) as u64)
     }
@@ -306,6 +315,11 @@ pub struct ProcessTimeReporter {
 
 impl ProcessTimeReporter {
     /// Constructor for the process time-related reporter.
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(start_time_us, start_time_cpu_us, parent_cpu_time_us)
+    )]
     pub fn new(
         start_time_us: Option<u64>,
         start_time_cpu_us: Option<u64>,
@@ -319,6 +333,7 @@ impl ProcessTimeReporter {
     }
 
     /// Obtain process start time in microseconds.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn report_start_time(&self) {
         if let Some(start_time) = self.start_time_us {
             let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time;
@@ -330,6 +345,7 @@ impl ProcessTimeReporter {
     }
 
     /// Obtain process CPU start time in microseconds.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn report_cpu_start_time(&self) {
         if let Some(cpu_start_time) = self.start_time_cpu_us {
             let delta_us = utils::time::get_time_us(utils::time::ClockType::ProcessCpu)
@@ -881,12 +897,14 @@ impl RTCDeviceMetrics {
 
 #[cfg(target_arch = "aarch64")]
 impl RtcEvents for RTCDeviceMetrics {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn invalid_read(&self) {
         self.missed_read_count.inc();
         self.error_count.inc();
         warn!("Guest read at invalid offset.")
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn invalid_write(&self) {
         self.missed_write_count.inc();
         self.error_count.inc();
@@ -896,10 +914,12 @@ impl RtcEvents for RTCDeviceMetrics {
 
 #[cfg(target_arch = "aarch64")]
 impl RtcEvents for &'static RTCDeviceMetrics {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn invalid_read(&self) {
         RTCDeviceMetrics::invalid_read(self);
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn invalid_write(&self) {
         RTCDeviceMetrics::invalid_write(self);
     }
@@ -1146,6 +1166,7 @@ impl SerializeToUtcTimestampMs {
 }
 
 impl Serialize for SerializeToUtcTimestampMs {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, serializer))]
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_i64(
             utils::time::get_time_ns(utils::time::ClockType::Real) as i64 / 1_000_000,

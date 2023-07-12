@@ -11,6 +11,7 @@ use crate::arch::aarch64::gic::regs::{GicState, GicVcpuState};
 use crate::arch::aarch64::gic::{Error, Result};
 
 /// Save the state of the GIC device.
+#[tracing::instrument(level = "debug", ret(skip), skip(fd, mpidrs))]
 pub fn save_state(fd: &DeviceFd, mpidrs: &[u64]) -> Result<GicState> {
     // Flush redistributors pending tables to guest RAM.
     super::save_pending_tables(fd)?;
@@ -30,6 +31,7 @@ pub fn save_state(fd: &DeviceFd, mpidrs: &[u64]) -> Result<GicState> {
 }
 
 /// Restore the state of the GIC device.
+#[tracing::instrument(level = "debug", ret(skip), skip(fd, mpidrs, state))]
 pub fn restore_state(fd: &DeviceFd, mpidrs: &[u64], state: &GicState) -> Result<()> {
     dist_regs::set_dist_regs(fd, &state.dist)?;
 

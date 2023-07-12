@@ -132,6 +132,11 @@ pub struct VmResources {
 
 impl VmResources {
     /// Configures Vmm resources as described by the `config_json` param.
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(config_json, instance_info, mmds_size_limit, metadata_json)
+    )]
     pub fn from_json(
         config_json: &str,
         instance_info: &InstanceInfo,
@@ -201,6 +206,7 @@ impl VmResources {
     }
 
     /// If not initialised, create the mmds data store with the default config.
+    #[tracing::instrument(level = "debug", skip(self))]
     pub fn mmds_or_default(&mut self) -> &Arc<Mutex<Mmds>> {
         self.mmds
             .get_or_insert(Arc::new(Mutex::new(Mmds::default_with_limit(
@@ -209,6 +215,7 @@ impl VmResources {
     }
 
     /// If not initialised, create the mmds data store with the default config.
+    #[tracing::instrument(level = "debug", skip(self))]
     pub fn locked_mmds_or_default(&mut self) -> MutexGuard<'_, Mmds> {
         let mmds = self.mmds_or_default();
         mmds.lock().expect("Poisoned lock")
@@ -216,6 +223,7 @@ impl VmResources {
 
     /// Updates the resources from a restored device (used for configuring resources when
     /// restoring from a snapshot).
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, device))]
     pub fn update_from_restored_device(&mut self, device: SharedDeviceType) {
         match device {
             SharedDeviceType::Block(block) => {
@@ -240,22 +248,26 @@ impl VmResources {
     }
 
     /// Returns whether dirty page tracking is enabled or not.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn track_dirty_pages(&self) -> bool {
         self.vm_config.track_dirty_pages
     }
 
     /// Configures the dirty page tracking functionality of the microVM.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, dirty_page_tracking))]
     pub fn set_track_dirty_pages(&mut self, dirty_page_tracking: bool) {
         self.vm_config.track_dirty_pages = dirty_page_tracking;
     }
 
     /// Add a custom CPU template to the VM resources
     /// to configure vCPUs.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, cpu_template))]
     pub fn set_custom_cpu_template(&mut self, cpu_template: CustomCpuTemplate) {
         self.vm_config.set_custom_cpu_template(cpu_template);
     }
 
     /// Updates the configuration of the microVM.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, update))]
     pub fn update_vm_config(
         &mut self,
         update: &MachineConfigUpdate,
@@ -280,6 +292,7 @@ impl VmResources {
 
     // Repopulate the MmdsConfig based on information from the data store
     // and the associated net devices.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn mmds_config(&self) -> Option<MmdsConfig> {
         // If the data store is not initialised, we can be sure that the user did not configure
         // mmds.
@@ -317,16 +330,19 @@ impl VmResources {
     }
 
     /// Gets a reference to the boot source configuration.
+    #[tracing::instrument(level = "debug", skip(self))]
     pub fn boot_source_config(&self) -> &BootSourceConfig {
         &self.boot_source.config
     }
 
     /// Gets a reference to the boot source builder.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn boot_source_builder(&self) -> Option<&BootConfig> {
         self.boot_source.builder.as_ref()
     }
 
     /// Sets a balloon device to be attached when the VM starts.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, config))]
     pub fn set_balloon_device(
         &mut self,
         config: BalloonDeviceConfig,
@@ -341,6 +357,7 @@ impl VmResources {
     }
 
     /// Obtains the boot source hooks (kernel fd, command line creation and validation).
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, boot_source_cfg))]
     pub fn build_boot_source(
         &mut self,
         boot_source_cfg: BootSourceConfig,
@@ -351,6 +368,7 @@ impl VmResources {
     }
 
     /// Set the boot source configuration (contains raw kernel config details).
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, boot_source_cfg))]
     pub fn set_boot_source_config(&mut self, boot_source_cfg: BootSourceConfig) {
         self.boot_source.config = boot_source_cfg;
     }
@@ -358,6 +376,7 @@ impl VmResources {
     /// Inserts a block to be attached when the VM starts.
     // Only call this function as part of user configuration.
     // If the drive_id does not exist, a new Block Device Config is added to the list.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, block_device_config))]
     pub fn set_block_device(
         &mut self,
         block_device_config: BlockDeviceConfig,
@@ -366,6 +385,7 @@ impl VmResources {
     }
 
     /// Builds a network device to be attached when the VM starts.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, body))]
     pub fn build_net_device(
         &mut self,
         body: NetworkInterfaceConfig,
@@ -375,11 +395,13 @@ impl VmResources {
     }
 
     /// Sets a vsock device to be attached when the VM starts.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, config))]
     pub fn set_vsock_device(&mut self, config: VsockDeviceConfig) -> Result<VsockConfigError> {
         self.vsock.insert(config)
     }
 
     /// Builds an entropy device to be attached when the VM starts.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, body))]
     pub fn build_entropy_device(
         &mut self,
         body: EntropyDeviceConfig,
@@ -388,6 +410,7 @@ impl VmResources {
     }
 
     /// Setter for mmds config.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, config, instance_id))]
     pub fn set_mmds_config(
         &mut self,
         config: MmdsConfig,
@@ -400,6 +423,7 @@ impl VmResources {
     }
 
     /// Updates MMDS version.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, version, instance_id))]
     pub fn set_mmds_version(
         &mut self,
         version: MmdsVersion,
@@ -416,6 +440,7 @@ impl VmResources {
 
     // Updates MMDS Network Stack for network interfaces to allow forwarding
     // requests to MMDS (or not).
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, config))]
     fn set_mmds_network_stack_config(&mut self, config: &MmdsConfig) -> Result<MmdsConfigError> {
         // Check IPv4 address validity.
         let ipv4_addr = match config.ipv4_addr() {
@@ -460,6 +485,7 @@ impl VmResources {
 }
 
 impl From<&VmResources> for VmmConfig {
+    #[tracing::instrument(level = "debug", ret(skip), skip(resources))]
     fn from(resources: &VmResources) -> Self {
         VmmConfig {
             balloon_device: resources.balloon.get_config().ok(),
@@ -502,6 +528,7 @@ mod tests {
     use crate::vmm_config::RateLimiterConfig;
     use crate::HTTP_MAX_PAYLOAD_SIZE;
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn default_net_cfg() -> NetworkInterfaceConfig {
         NetworkInterfaceConfig {
             iface_id: "net_if1".to_string(),
@@ -519,6 +546,7 @@ mod tests {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn default_net_builder() -> NetBuilder {
         let mut net_builder = NetBuilder::new();
         net_builder.build(default_net_cfg()).unwrap();
@@ -526,6 +554,7 @@ mod tests {
         net_builder
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn default_block_cfg() -> (BlockDeviceConfig, TempFile) {
         let tmp_file = TempFile::new().unwrap();
         (
@@ -543,6 +572,7 @@ mod tests {
         )
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn default_blocks() -> BlockBuilder {
         let mut blocks = BlockBuilder::new();
         let (cfg, _file) = default_block_cfg();
@@ -550,6 +580,7 @@ mod tests {
         blocks
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn default_boot_cfg() -> BootSource {
         let kernel_cmdline =
             linux_loader::cmdline::Cmdline::try_from(DEFAULT_KERNEL_CMDLINE, 4096).unwrap();
@@ -564,6 +595,7 @@ mod tests {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn default_vm_resources() -> VmResources {
         VmResources {
             vm_config: VmConfig::default(),
@@ -580,6 +612,7 @@ mod tests {
     }
 
     impl PartialEq for BootConfig {
+        #[tracing::instrument(level = "debug", ret(skip), skip(self, other))]
         fn eq(&self, other: &Self) -> bool {
             self.cmdline.eq(&other.cmdline)
                 && self.kernel_file.metadata().unwrap().st_ino()

@@ -46,6 +46,7 @@ pub enum SeccompConfig {
 
 impl SeccompConfig {
     /// Given the relevant command line args, return the appropriate config type.
+    #[tracing::instrument(level = "debug", ret(skip), skip(no_seccomp, seccomp_filter))]
     pub fn from_args<T: AsRef<Path> + Debug>(
         no_seccomp: bool,
         seccomp_filter: Option<T>,
@@ -64,6 +65,7 @@ impl SeccompConfig {
 }
 
 /// Retrieve the appropriate filters, based on the SeccompConfig.
+#[tracing::instrument(level = "debug", ret(skip), skip(config))]
 pub fn get_filters(config: SeccompConfig) -> Result<BpfThreadMap, FilterError> {
     match config {
         SeccompConfig::None => Ok(get_empty_filters()),
@@ -74,6 +76,7 @@ pub fn get_filters(config: SeccompConfig) -> Result<BpfThreadMap, FilterError> {
 
 /// Retrieve the default filters containing the syscall rules required by `Firecracker`
 /// to function. The binary file is generated via the `build.rs` script of this crate.
+#[tracing::instrument(level = "debug", ret(skip), skip())]
 fn get_default_filters() -> Result<BpfThreadMap, FilterError> {
     // Retrieve, at compile-time, the serialized binary filter generated with seccompiler.
     let bytes: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/seccomp_filter.bpf"));
@@ -83,6 +86,7 @@ fn get_default_filters() -> Result<BpfThreadMap, FilterError> {
 }
 
 /// Retrieve custom seccomp filters.
+#[tracing::instrument(level = "debug", ret(skip), skip(reader))]
 fn get_custom_filters<R: Read + Debug>(reader: R) -> Result<BpfThreadMap, FilterError> {
     let map = deserialize_binary(BufReader::new(reader), DESERIALIZATION_BYTES_LIMIT)
         .map_err(FilterError::Deserialization)?;
@@ -90,6 +94,7 @@ fn get_custom_filters<R: Read + Debug>(reader: R) -> Result<BpfThreadMap, Filter
 }
 
 /// Return an error if the BpfThreadMap contains invalid thread categories.
+#[tracing::instrument(level = "debug", ret(skip), skip(map))]
 fn filter_thread_categories(map: BpfThreadMap) -> Result<BpfThreadMap, FilterError> {
     let (filters, invalid_filters): (BpfThreadMap, BpfThreadMap) = map
         .into_iter()

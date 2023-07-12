@@ -147,6 +147,7 @@ pub enum MmdsVersionState {
 }
 
 impl From<MmdsVersionState> for MmdsVersion {
+    #[tracing::instrument(level = "debug", ret(skip), skip(state))]
     fn from(state: MmdsVersionState) -> Self {
         match state {
             MmdsVersionState::V1 => MmdsVersion::V1,
@@ -156,6 +157,7 @@ impl From<MmdsVersionState> for MmdsVersion {
 }
 
 impl From<MmdsVersion> for MmdsVersionState {
+    #[tracing::instrument(level = "debug", ret(skip), skip(version))]
     fn from(version: MmdsVersion) -> Self {
         match version {
             MmdsVersion::V1 => MmdsVersionState::V1,
@@ -200,6 +202,7 @@ pub enum SharedDeviceType {
 }
 
 impl DeviceStates {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, target_version))]
     fn balloon_serialize(&mut self, target_version: u16) -> VersionizeResult<()> {
         if target_version < 2 && self.balloon_device.is_some() {
             return Err(VersionizeError::Semantic(
@@ -210,6 +213,7 @@ impl DeviceStates {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, target_version))]
     fn mmds_version_serialize(&mut self, target_version: u16) -> VersionizeResult<()> {
         if target_version < 3 && self.mmds_version.is_some() {
             warn!(
@@ -221,6 +225,7 @@ impl DeviceStates {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, target_version))]
     fn entropy_serialize(&mut self, target_version: u16) -> VersionizeResult<()> {
         if target_version < 4 && self.entropy_device.is_some() {
             return Err(VersionizeError::Semantic(
@@ -241,6 +246,7 @@ pub struct MMIODevManagerConstructorArgs<'a> {
     pub instance_id: &'a str,
 }
 impl fmt::Debug for MMIODevManagerConstructorArgs<'_> {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("MMIODevManagerConstructorArgs")
             .field("mem", &self.mem)
@@ -258,6 +264,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
     type ConstructorArgs = MMIODevManagerConstructorArgs<'a>;
     type Error = Error;
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn save(&self) -> Self::State {
         let mut states = DeviceStates {
             balloon_device: None,
@@ -383,6 +390,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         states
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(constructor_args, state))]
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
@@ -634,6 +642,7 @@ mod tests {
     use crate::vmm_config::vsock::VsockDeviceConfig;
 
     impl PartialEq for ConnectedBalloonState {
+        #[tracing::instrument(level = "debug", ret(skip), skip(self, other))]
         fn eq(&self, other: &ConnectedBalloonState) -> bool {
             // Actual device state equality is checked by the device's tests.
             self.transport_state == other.transport_state && self.device_info == other.device_info
@@ -641,6 +650,7 @@ mod tests {
     }
 
     impl PartialEq for ConnectedBlockState {
+        #[tracing::instrument(level = "debug", ret(skip), skip(self, other))]
         fn eq(&self, other: &ConnectedBlockState) -> bool {
             // Actual device state equality is checked by the device's tests.
             self.transport_state == other.transport_state && self.device_info == other.device_info
@@ -648,6 +658,7 @@ mod tests {
     }
 
     impl PartialEq for ConnectedNetState {
+        #[tracing::instrument(level = "debug", ret(skip), skip(self, other))]
         fn eq(&self, other: &ConnectedNetState) -> bool {
             // Actual device state equality is checked by the device's tests.
             self.transport_state == other.transport_state && self.device_info == other.device_info
@@ -655,6 +666,7 @@ mod tests {
     }
 
     impl PartialEq for ConnectedVsockState {
+        #[tracing::instrument(level = "debug", ret(skip), skip(self, other))]
         fn eq(&self, other: &ConnectedVsockState) -> bool {
             // Actual device state equality is checked by the device's tests.
             self.transport_state == other.transport_state && self.device_info == other.device_info
@@ -662,6 +674,7 @@ mod tests {
     }
 
     impl PartialEq for DeviceStates {
+        #[tracing::instrument(level = "debug", ret(skip), skip(self, other))]
         fn eq(&self, other: &DeviceStates) -> bool {
             self.balloon_device == other.balloon_device
                 && self.block_devices == other.block_devices
@@ -671,6 +684,7 @@ mod tests {
     }
 
     impl MMIODeviceManager {
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         fn soft_clone(&self) -> Self {
             let dummy_mmio_base = 0;
             let dummy_irq_range = (0, 0);
@@ -689,6 +703,7 @@ mod tests {
     }
 
     impl PartialEq for MMIODeviceManager {
+        #[tracing::instrument(level = "debug", ret(skip), skip(self, other))]
         fn eq(&self, other: &MMIODeviceManager) -> bool {
             // We only care about the device hashmap.
             if self.id_to_dev_info.len() != other.id_to_dev_info.len() {

@@ -60,12 +60,14 @@ pub struct MachineConfig {
 }
 
 impl Default for MachineConfig {
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn default() -> Self {
         Self::from(&VmConfig::default())
     }
 }
 
 impl fmt::Display for MachineConfig {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -114,6 +116,7 @@ impl MachineConfigUpdate {
     /// Checks if the update request contains any data.
     /// Returns `true` if all fields are set to `None` which means that there is nothing
     /// to be updated.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn is_empty(&self) -> bool {
         if self.vcpu_count.is_none()
             && self.mem_size_mib.is_none()
@@ -129,6 +132,7 @@ impl MachineConfigUpdate {
 }
 
 impl From<MachineConfig> for MachineConfigUpdate {
+    #[tracing::instrument(level = "debug", ret(skip), skip(cfg))]
     fn from(cfg: MachineConfig) -> Self {
         MachineConfigUpdate {
             vcpu_count: Some(cfg.vcpu_count),
@@ -157,6 +161,7 @@ pub struct VmConfig {
 
 impl VmConfig {
     /// Sets cpu tempalte field to `CpuTemplateType::Custom(cpu_template)`.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, cpu_template))]
     pub fn set_custom_cpu_template(&mut self, cpu_template: CustomCpuTemplate) {
         self.cpu_template = Some(CpuTemplateType::Custom(cpu_template));
     }
@@ -165,6 +170,7 @@ impl VmConfig {
     /// Mapping for cpu tempalte update:
     /// StaticCpuTemplate::None -> None
     /// StaticCpuTemplate::Other -> Some(CustomCpuTemplate::Static(Other))
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, update))]
     pub fn update(&mut self, update: &MachineConfigUpdate) -> Result<(), VmConfigError> {
         let vcpu_count = update.vcpu_count.unwrap_or(self.vcpu_count);
 
@@ -207,6 +213,7 @@ impl VmConfig {
 }
 
 impl Default for VmConfig {
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn default() -> Self {
         Self {
             vcpu_count: 1,
@@ -219,6 +226,7 @@ impl Default for VmConfig {
 }
 
 impl From<&VmConfig> for MachineConfig {
+    #[tracing::instrument(level = "debug", ret(skip), skip(value))]
     fn from(value: &VmConfig) -> Self {
         Self {
             vcpu_count: value.vcpu_count,
@@ -234,6 +242,7 @@ impl From<&VmConfig> for MachineConfig {
 /// This is called only when `vcpu_num` is present in the JSON configuration.
 /// `T` can be either `u8` or `Option<u8>` which both support ordering if `vcpu_num` is
 /// present in the JSON.
+#[tracing::instrument(level = "debug", ret(skip), skip(d))]
 fn deserialize_vcpu_num<'de, D, T>(d: D) -> std::result::Result<T, D::Error>
 where
     D: de::Deserializer<'de>,
@@ -259,6 +268,7 @@ where
 
 /// Deserialization function for the `smt` field in `MachineConfig` and `MachineConfigUpdate`.
 /// This is called only when `smt` is present in the JSON configuration.
+#[tracing::instrument(level = "debug", ret(skip), skip(d))]
 fn deserialize_smt<'de, D, T>(d: D) -> std::result::Result<T, D::Error>
 where
     D: de::Deserializer<'de>,

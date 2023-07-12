@@ -49,6 +49,7 @@ static VGIC_DIST_REGS: &[DistReg] = &[
 /// Some registers have variable lengths since they dedicate a specific number of bits to
 /// each interrupt. So, their length depends on the number of interrupts.
 /// (i.e the ones that are represented as GICD_REG<n>) in the documentation mentioned above.
+#[derive(Debug)]
 pub struct SharedIrqReg {
     /// The offset from the component address. The register is memory mapped here.
     offset: u64,
@@ -57,6 +58,7 @@ pub struct SharedIrqReg {
 }
 
 impl MmioReg for SharedIrqReg {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn range(&self) -> Range<u64> {
         // The ARM® TrustZone® implements a protection logic which contains a
         // read-as-zero/write-ignore (RAZ/WI) policy.
@@ -74,6 +76,7 @@ impl MmioReg for SharedIrqReg {
     }
 }
 
+#[derive(Debug)]
 enum DistReg {
     Simple(SimpleReg),
     SharedIrq(SharedIrqReg),
@@ -93,6 +96,7 @@ impl DistReg {
 }
 
 impl MmioReg for DistReg {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn range(&self) -> Range<u64> {
         match self {
             DistReg::Simple(reg) => reg.range(),
@@ -107,19 +111,23 @@ impl VgicRegEngine for DistRegEngine {
     type Reg = DistReg;
     type RegChunk = u32;
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn group() -> u32 {
         KVM_DEV_ARM_VGIC_GRP_DIST_REGS
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn mpidr_mask() -> u64 {
         0
     }
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(fd))]
 pub(crate) fn get_dist_regs(fd: &DeviceFd) -> Result<Vec<GicRegState<u32>>> {
     DistRegEngine::get_regs_data(fd, Box::new(VGIC_DIST_REGS.iter()), 0)
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(fd, state))]
 pub(crate) fn set_dist_regs(fd: &DeviceFd, state: &[GicRegState<u32>]) -> Result<()> {
     DistRegEngine::set_regs_data(fd, Box::new(VGIC_DIST_REGS.iter()), state, 0)
 }

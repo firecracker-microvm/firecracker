@@ -33,6 +33,7 @@ pub enum BalloonConfigError {
 }
 
 impl fmt::Display for BalloonConfigError {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter) -> std::fmt::Result {
         use self::BalloonConfigError::*;
         match self {
@@ -71,6 +72,7 @@ pub struct BalloonDeviceConfig {
 }
 
 impl From<BalloonConfig> for BalloonDeviceConfig {
+    #[tracing::instrument(level = "debug", ret(skip), skip(state))]
     fn from(state: BalloonConfig) -> Self {
         BalloonDeviceConfig {
             amount_mib: state.amount_mib,
@@ -109,12 +111,14 @@ pub struct BalloonBuilder {
 
 impl BalloonBuilder {
     /// Creates an empty Balloon Store.
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     pub fn new() -> Self {
         Self { inner: None }
     }
 
     /// Inserts a Balloon device in the store.
     /// If an entry already exists, it will overwrite it.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, cfg))]
     pub fn set(&mut self, cfg: BalloonDeviceConfig) -> Result<()> {
         self.inner = Some(Arc::new(Mutex::new(Balloon::new(
             cfg.amount_mib,
@@ -129,16 +133,19 @@ impl BalloonBuilder {
     }
 
     /// Inserts an existing balloon device.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, balloon))]
     pub fn set_device(&mut self, balloon: MutexBalloon) {
         self.inner = Some(balloon);
     }
 
     /// Provides a reference to the Balloon if present.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn get(&self) -> Option<&MutexBalloon> {
         self.inner.as_ref()
     }
 
     /// Returns the same structure that was used to configure the device.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn get_config(&self) -> Result<BalloonDeviceConfig> {
         self.get()
             .ok_or(BalloonConfigError::DeviceNotFound)
@@ -149,6 +156,7 @@ impl BalloonBuilder {
 
 #[cfg(test)]
 impl Default for BalloonBuilder {
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn default() -> BalloonBuilder {
         let mut balloon = BalloonBuilder::new();
         assert!(balloon.set(BalloonDeviceConfig::default()).is_ok());
@@ -160,6 +168,7 @@ impl Default for BalloonBuilder {
 pub(crate) mod tests {
     use super::*;
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     pub(crate) fn default_config() -> BalloonDeviceConfig {
         BalloonDeviceConfig {
             amount_mib: 0,

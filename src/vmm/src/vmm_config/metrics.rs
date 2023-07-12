@@ -25,6 +25,7 @@ pub enum MetricsConfigError {
 }
 
 /// Configures the metrics as described in `metrics_cfg`.
+#[tracing::instrument(level = "debug", ret(skip), skip(metrics_cfg))]
 pub fn init_metrics(metrics_cfg: MetricsConfig) -> std::result::Result<(), MetricsConfigError> {
     let writer = FcLineWriter::new(
         open_file_nonblock(&metrics_cfg.metrics_path)

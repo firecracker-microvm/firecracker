@@ -37,6 +37,11 @@ const GUARD_PAGE_COUNT: usize = 1;
 /// This results in a border of `GUARD_PAGE_COUNT` pages on either side of the region, which
 /// acts as a safety net for accessing out-of-bounds addresses that are not allocated for the
 /// guest's memory.
+#[tracing::instrument(
+    level = "debug",
+    ret(skip),
+    skip(maybe_file_offset, size, prot, flags, track_dirty_pages)
+)]
 fn build_guarded_region(
     maybe_file_offset: Option<FileOffset>,
     size: usize,
@@ -110,6 +115,7 @@ fn build_guarded_region(
 }
 
 /// Helper for creating the guest memory.
+#[tracing::instrument(level = "debug", ret(skip), skip(regions, track_dirty_pages))]
 pub fn create_guest_memory(
     regions: &[(Option<FileOffset>, GuestAddress, usize)],
     track_dirty_pages: bool,
@@ -133,6 +139,7 @@ pub fn create_guest_memory(
     GuestMemoryMmap::from_regions(mmap_regions)
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(mem, addr, len))]
 pub fn mark_dirty_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: usize) {
     let _ = mem.try_access(len, addr, |_total, count, caddr, region| {
         if let Some(bitmap) = region.bitmap() {
@@ -246,6 +253,7 @@ pub trait WriteVolatile: Debug {
 // "an upstream crate could implement AsRawFd for &mut [u8]`.
 
 impl ReadVolatile for std::fs::File {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, buf))]
     fn read_volatile<B: BitmapSlice>(
         &mut self,
         buf: &mut VolatileSlice<B>,
@@ -255,6 +263,7 @@ impl ReadVolatile for std::fs::File {
 }
 
 impl ReadVolatile for std::os::unix::net::UnixStream {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, buf))]
     fn read_volatile<B: BitmapSlice>(
         &mut self,
         buf: &mut VolatileSlice<B>,
@@ -267,6 +276,7 @@ impl ReadVolatile for std::os::unix::net::UnixStream {
 /// the given [`VolatileSlice`].
 ///
 /// Returns the numbers of bytes read.
+#[tracing::instrument(level = "debug", ret(skip), skip(raw_fd, buf))]
 fn read_volatile_raw_fd<Fd: AsRawFd + Debug>(
     raw_fd: &mut Fd,
     buf: &mut VolatileSlice<impl BitmapSlice>,
@@ -292,6 +302,7 @@ fn read_volatile_raw_fd<Fd: AsRawFd + Debug>(
 }
 
 impl WriteVolatile for std::fs::File {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, buf))]
     fn write_volatile<B: BitmapSlice>(
         &mut self,
         buf: &VolatileSlice<B>,
@@ -301,6 +312,7 @@ impl WriteVolatile for std::fs::File {
 }
 
 impl WriteVolatile for std::os::unix::net::UnixStream {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, buf))]
     fn write_volatile<B: BitmapSlice>(
         &mut self,
         buf: &VolatileSlice<B>,
@@ -313,6 +325,7 @@ impl WriteVolatile for std::os::unix::net::UnixStream {
 /// data stored in the given [`VolatileSlice`].
 ///
 /// Returns the numbers of bytes written.
+#[tracing::instrument(level = "debug", ret(skip), skip(raw_fd, buf))]
 fn write_volatile_raw_fd<Fd: AsRawFd + Debug>(
     raw_fd: &mut Fd,
     buf: &VolatileSlice<impl BitmapSlice>,
@@ -333,6 +346,7 @@ fn write_volatile_raw_fd<Fd: AsRawFd + Debug>(
 }
 
 impl WriteVolatile for &mut [u8] {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, buf))]
     fn write_volatile<B: BitmapSlice>(
         &mut self,
         buf: &VolatileSlice<B>,
@@ -348,6 +362,7 @@ impl WriteVolatile for &mut [u8] {
         Ok(read)
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, buf))]
     fn write_all_volatile<B: BitmapSlice>(
         &mut self,
         buf: &VolatileSlice<B>,
@@ -365,6 +380,7 @@ impl WriteVolatile for &mut [u8] {
 }
 
 impl ReadVolatile for &[u8] {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, buf))]
     fn read_volatile<B: BitmapSlice>(
         &mut self,
         buf: &mut VolatileSlice<B>,
@@ -380,6 +396,7 @@ impl ReadVolatile for &[u8] {
         Ok(written)
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, buf))]
     fn read_exact_volatile<B: BitmapSlice>(
         &mut self,
         buf: &mut VolatileSlice<B>,
@@ -404,6 +421,7 @@ pub mod test_utils {
     /// uses MmapRegionBuilder::build_raw() for setting up the memory with guard pages, which would
     /// error if the size is not a multiple of the page size.
     /// There are unit tests which need a custom memory size, not a multiple of the page size.
+    #[tracing::instrument(level = "debug", ret(skip), skip(regions, track_dirty_pages))]
     pub fn create_guest_memory_unguarded(
         regions: &[(GuestAddress, usize)],
         track_dirty_pages: bool,
@@ -433,6 +451,7 @@ pub mod test_utils {
 
     /// Test helper used to initialize the guest memory, without the option of file-backed mmap.
     /// It is just a little syntactic sugar that helps deduplicate test code.
+    #[tracing::instrument(level = "debug", ret(skip), skip(regions, track_dirty_pages))]
     pub fn create_anon_guest_memory(
         regions: &[(GuestAddress, usize)],
         track_dirty_pages: bool,
@@ -460,6 +479,7 @@ mod tests {
     }
 
     impl AddrOp {
+        #[tracing::instrument(level = "debug", ret(skip), skip(self, addr))]
         fn apply_on_addr(&self, addr: *mut u8) {
             match self {
                 AddrOp::Read => {
@@ -474,6 +494,7 @@ mod tests {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(function, expect_sigsegv))]
     fn fork_and_run(function: &dyn Fn(), expect_sigsegv: bool) {
         let pid = unsafe { libc::fork() };
         match pid {
@@ -500,6 +521,7 @@ mod tests {
         };
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(region))]
     fn validate_guard_region(region: &GuestMmapRegion) {
         let page_size = get_page_size().unwrap();
 
@@ -522,6 +544,7 @@ mod tests {
         fork_and_run(&|| AddrOp::Write.apply_on_addr(right_border), true);
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(region))]
     fn loop_guard_region_to_sigsegv(region: &GuestMmapRegion) {
         let page_size = get_page_size().unwrap();
         let right_page_guard = region.as_ptr() as usize + region.size();

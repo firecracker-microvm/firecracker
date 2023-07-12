@@ -14,6 +14,7 @@ unsafe impl ByteValued for io_uring_sqe {}
 pub(crate) struct Sqe(pub(crate) io_uring_sqe);
 
 impl fmt::Debug for Sqe {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Sqe").finish()
     }
@@ -21,6 +22,7 @@ impl fmt::Debug for Sqe {
 
 impl Sqe {
     /// Construct a new sqe.
+    #[tracing::instrument(level = "debug", ret(skip), skip(inner))]
     pub(crate) fn new(inner: io_uring_sqe) -> Self {
         Self(inner)
     }
@@ -30,6 +32,7 @@ impl Sqe {
     /// # Safety
     /// Safe only if you guarantee that this is a valid pointer to some memory where there is a
     /// value of type T created from a Box<T>.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub(crate) unsafe fn user_data<T: Debug>(self) -> T {
         *Box::from_raw(self.0.user_data as *mut T)
     }

@@ -188,6 +188,7 @@ impl KvmVcpu {
     ///
     /// * `index` - Represents the 0-based CPU index between [0, max vcpus).
     /// * `vm` - The vm to which this vcpu will get attached.
+    #[tracing::instrument(level = "debug", ret(skip), skip(index, vm))]
     pub fn new(index: u8, vm: &Vm) -> Result<Self> {
         let kvm_vcpu = vm.fd().create_vcpu(index.into()).map_err(Error::VcpuFd)?;
 
@@ -208,6 +209,11 @@ impl KvmVcpu {
     /// * `kernel_start_addr` - Offset from `guest_mem` at which the kernel starts.
     /// * `vcpu_config` - The vCPU configuration.
     /// * `cpuid` - The capabilities exposed by this vCPU.
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(self, guest_mem, kernel_start_addr, vcpu_config)
+    )]
     pub fn configure(
         &mut self,
         guest_mem: &GuestMemoryMmap,
@@ -280,6 +286,7 @@ impl KvmVcpu {
     }
 
     /// Sets a Port Mapped IO bus for this vcpu.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, pio_bus))]
     pub fn set_pio_bus(&mut self, pio_bus: crate::devices::Bus) {
         self.pio_bus = Some(pio_bus);
     }
@@ -289,6 +296,7 @@ impl KvmVcpu {
     /// # Errors
     ///
     /// When [`kvm_ioctls::VcpuFd::get_tsc_khz`] errrors.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn get_tsc_khz(&self) -> std::result::Result<u32, GetTscError> {
         let res = self.fd.get_tsc_khz()?;
         Ok(res)
@@ -303,6 +311,7 @@ impl KvmVcpu {
     /// # Errors
     ///
     /// * When [`kvm_ioctls::VcpuFd::get_cpuid2`] returns errors.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn get_cpuid(&self) -> Result<kvm_bindings::CpuId> {
         let mut cpuid = self
             .fd
@@ -334,6 +343,7 @@ impl KvmVcpu {
     /// * When [`kvm_ioctls::VcpuFd::get_msrs`] returns errors.
     /// * When the return value of [`kvm_ioctls::VcpuFd::get_msrs`] (the number of entries that
     ///   could be gotten) is less than expected.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, msr_index_list))]
     fn get_msr_chunks(&self, msr_index_list: &[u32]) -> Result<Vec<Msrs>> {
         let mut msr_chunks: Vec<Msrs> = Vec::new();
 
@@ -366,6 +376,7 @@ impl KvmVcpu {
     /// # Errors
     ///
     /// * When `KvmVcpu::get_msr_chunks()` returns errors.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, msr_index_list))]
     pub fn get_msrs(&self, msr_index_list: &[u32]) -> Result<HashMap<u32, u64>> {
         let mut msrs: HashMap<u32, u64> = HashMap::new();
         self.get_msr_chunks(msr_index_list)?
@@ -379,6 +390,7 @@ impl KvmVcpu {
     }
 
     /// Save the KVM internal state.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn save_state(&self) -> Result<VcpuState> {
         // Ordering requirements:
         //
@@ -440,6 +452,7 @@ impl KvmVcpu {
     ///
     /// Opposed to `save_state()`, this dumps all the supported and dumpable MSRs not limited to
     /// serializable ones.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn dump_cpu_config(&self) -> Result<CpuConfiguration> {
         let cpuid = cpuid::Cpuid::try_from(self.get_cpuid()?)?;
         let kvm = kvm_ioctls::Kvm::new().unwrap();
@@ -453,6 +466,7 @@ impl KvmVcpu {
     /// # Errors
     ///
     /// When
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, state_tsc_freq))]
     pub fn is_tsc_scaling_required(
         &self,
         state_tsc_freq: u32,
@@ -468,11 +482,13 @@ impl KvmVcpu {
     }
 
     // Scale the TSC frequency of this vCPU to the one provided as a parameter.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, tsc_freq))]
     pub fn set_tsc_khz(&self, tsc_freq: u32) -> std::result::Result<(), SetTscError> {
         self.fd.set_tsc_khz(tsc_freq).map_err(SetTscError)
     }
 
     /// Use provided state to populate KVM internal state.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, state))]
     pub fn restore_state(&self, state: &VcpuState) -> Result<()> {
         // Ordering requirements:
         //
@@ -530,6 +546,7 @@ impl KvmVcpu {
     /// Runs the vCPU in KVM context and handles the kvm exit reason.
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, exit))]
     pub fn run_arch_emulation(&self, exit: VcpuExit) -> super::Result<VcpuEmulation> {
         match exit {
             VcpuExit::IoIn(addr, data) => {
@@ -582,11 +599,13 @@ pub struct VcpuState {
 }
 
 impl VcpuState {
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn default_tsc_khz(_: u16) -> Option<u32> {
         warn!("CPU TSC freq not found in snapshot");
         None
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, _target_version))]
     fn ser_tsc(&mut self, _target_version: u16) -> VersionizeResult<()> {
         // v0.24 and older versions do not support TSC scaling.
         warn!(
@@ -599,12 +618,14 @@ impl VcpuState {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(_source_version))]
     fn default_msrs(_source_version: u16) -> Msrs {
         // Safe to unwrap since Msrs::new() only returns an error if the number
         // of elements exceeds KVM_MAX_MSR_ENTRIES
         Msrs::new(0).unwrap()
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, source_version))]
     fn de_saved_msrs(&mut self, source_version: u16) -> VersionizeResult<()> {
         if source_version < 3 {
             self.saved_msrs.push(self.msrs.clone());
@@ -612,6 +633,7 @@ impl VcpuState {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, target_version))]
     fn ser_saved_msrs(&mut self, target_version: u16) -> VersionizeResult<()> {
         match self.saved_msrs.len() {
             0 => Err(VersionizeError::Serialize(
@@ -656,6 +678,7 @@ mod tests {
     use crate::vstate::vm::Vm;
 
     impl Default for VcpuState {
+        #[tracing::instrument(level = "debug", ret(skip), skip())]
         fn default() -> Self {
             VcpuState {
                 cpuid: CpuId::new(1).unwrap(),
@@ -674,6 +697,7 @@ mod tests {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(mem_size))]
     fn setup_vcpu(mem_size: usize) -> (Vm, KvmVcpu, GuestMemoryMmap) {
         let (vm, vm_mem) = setup_vm(mem_size);
         vm.setup_irqchip().unwrap();
@@ -681,6 +705,7 @@ mod tests {
         (vm, vcpu, vm_mem)
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn is_at_least_cascade_lake() -> bool {
         CpuModel::get_cpu_model()
             >= (CpuModel {
@@ -692,6 +717,7 @@ mod tests {
             })
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(vm, vcpu, template))]
     fn create_vcpu_config(
         vm: &Vm,
         vcpu: &KvmVcpu,

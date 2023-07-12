@@ -63,6 +63,7 @@ pub enum CpuTemplateType {
 }
 
 impl From<&Option<CpuTemplateType>> for StaticCpuTemplate {
+    #[tracing::instrument(level = "debug", ret(skip), skip(value))]
     fn from(value: &Option<CpuTemplateType>) -> Self {
         match value {
             Some(CpuTemplateType::Static(template)) => *template,
@@ -89,6 +90,7 @@ where
 {
     /// Applies filter to the value
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, value))]
     pub fn apply(&self, value: V) -> V {
         (value & !self.filter) | self.value
     }
@@ -146,6 +148,7 @@ where
     V: Numeric + Debug,
 {
     /// Serialize combination of value and filter into a single tri state string
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, serializer))]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -182,6 +185,7 @@ where
     ///     filter: 1110
     ///     value: 0100
     /// }
+    #[tracing::instrument(level = "debug", ret(skip), skip(deserializer))]
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,

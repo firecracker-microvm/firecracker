@@ -16,5 +16,5 @@ serde = { version = "1.0.136", features = ["derive", "rc"] }
 serde_json = "1.0.78"
 thiserror = "1.0.32"
 vm-superio = "0.7.0"
-tracing = { version = "0.1.37", features = ["attributes"] }
+tracing = { git = "https://github.com/JonathanWoollett-Light/tracing", rev = "9b13dbf9ab6022bdcd0c6800d8d77767ccc67348", features = ["attributes"] }
 utils = { path = "../utils" }

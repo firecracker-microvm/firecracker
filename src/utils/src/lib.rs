@@ -24,6 +24,7 @@ pub mod vm_memory;
 use std::result::Result;
 
 /// Return the default page size of the platform, in bytes.
+#[tracing::instrument(level = "debug", ret(skip), skip())]
 pub fn get_page_size() -> Result<usize, errno::Error> {
     // SAFETY: Safe because the parameters are valid.
     match unsafe { libc::sysconf(libc::_SC_PAGESIZE) } {

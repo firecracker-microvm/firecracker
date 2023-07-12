@@ -37,10 +37,12 @@ impl VgicRegEngine for VgicSysRegEngine {
     type Reg = SimpleReg;
     type RegChunk = u64;
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn group() -> u32 {
         KVM_DEV_ARM_VGIC_GRP_CPU_REGS
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(offset, val, cpuid))]
     fn kvm_device_attr(offset: u64, val: &mut Self::RegChunk, cpuid: u64) -> kvm_device_attr {
         kvm_device_attr {
             group: Self::group(),
@@ -54,6 +56,7 @@ impl VgicRegEngine for VgicSysRegEngine {
     }
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(fd, mpidr))]
 pub(crate) fn get_icc_regs(fd: &DeviceFd, mpidr: u64) -> Result<VgicSysRegsState> {
     let main_icc_regs =
         VgicSysRegEngine::get_regs_data(fd, Box::new(MAIN_VGIC_ICC_REGS.iter()), mpidr)?;
@@ -64,6 +67,7 @@ pub(crate) fn get_icc_regs(fd: &DeviceFd, mpidr: u64) -> Result<VgicSysRegsState
     })
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(fd, mpidr, state))]
 pub(crate) fn set_icc_regs(fd: &DeviceFd, mpidr: u64, state: &VgicSysRegsState) -> Result<()> {
     VgicSysRegEngine::set_regs_data(
         fd,

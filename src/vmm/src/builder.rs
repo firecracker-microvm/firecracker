@@ -140,12 +140,25 @@ pub enum StartMicrovmError {
 /// It's convenient to automatically convert `linux_loader::cmdline::Error`s
 /// to `StartMicrovmError`s.
 impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
+    #[tracing::instrument(level = "debug", ret(skip), skip(err))]
     fn from(err: linux_loader::cmdline::Error) -> StartMicrovmError {
         StartMicrovmError::KernelCmdline(err.to_string())
     }
 }
 
 #[cfg_attr(target_arch = "aarch64", allow(unused))]
+#[tracing::instrument(
+    level = "debug",
+    ret(skip),
+    skip(
+        instance_info,
+        event_manager,
+        guest_memory,
+        uffd,
+        track_dirty_pages,
+        vcpu_count
+    )
+)]
 fn create_vmm_and_vcpus(
     instance_info: &InstanceInfo,
     event_manager: &mut EventManager,
@@ -238,6 +251,11 @@ fn create_vmm_and_vcpus(
 /// The built microVM and all the created vCPUs start off in the paused state.
 /// To boot the microVM and run those vCPUs, `Vmm::resume_vm()` needs to be
 /// called.
+#[tracing::instrument(
+    level = "debug",
+    ret(skip),
+    skip(instance_info, vm_resources, event_manager, seccomp_filters)
+)]
 pub fn build_microvm_for_boot(
     instance_info: &InstanceInfo,
     vm_resources: &super::resources::VmResources,
@@ -350,6 +368,11 @@ pub fn build_microvm_for_boot(
 ///
 /// An `Arc` reference of the built `Vmm` is also plugged in the `EventManager`, while another
 /// is returned.
+#[tracing::instrument(
+    level = "debug",
+    ret(skip),
+    skip(instance_info, vm_resources, event_manager, seccomp_filters)
+)]
 pub fn build_and_boot_microvm(
     instance_info: &InstanceInfo,
     vm_resources: &super::resources::VmResources,
@@ -424,6 +447,20 @@ pub enum BuildMicrovmFromSnapshotError {
 /// An `Arc` reference of the built `Vmm` is also plugged in the `EventManager`, while another
 /// is returned.
 #[allow(clippy::too_many_arguments)]
+#[tracing::instrument(
+    level = "debug",
+    ret(skip),
+    skip(
+        instance_info,
+        event_manager,
+        microvm_state,
+        guest_memory,
+        uffd,
+        track_dirty_pages,
+        seccomp_filters,
+        vm_resources
+    )
+)]
 pub fn build_microvm_from_snapshot(
     instance_info: &InstanceInfo,
     event_manager: &mut EventManager,
@@ -526,6 +563,7 @@ pub fn build_microvm_from_snapshot(
 }
 
 /// Creates GuestMemory of `mem_size_mib` MiB in size.
+#[tracing::instrument(level = "debug", ret(skip), skip(mem_size_mib, track_dirty_pages))]
 pub fn create_guest_memory(
     mem_size_mib: usize,
     track_dirty_pages: bool,
@@ -543,6 +581,7 @@ pub fn create_guest_memory(
     .map_err(StartMicrovmError::GuestMemoryMmap)
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(boot_config, guest_memory))]
 fn load_kernel(
     boot_config: &BootConfig,
     guest_memory: &GuestMemoryMmap,
@@ -573,6 +612,7 @@ fn load_kernel(
     Ok(entry_addr.kernel_load)
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(boot_cfg, vm_memory))]
 fn load_initrd_from_config(
     boot_cfg: &BootConfig,
     vm_memory: &GuestMemoryMmap,
@@ -594,6 +634,7 @@ fn load_initrd_from_config(
 /// * `image` - The initrd image.
 ///
 /// Returns the result of initrd loading
+#[tracing::instrument(level = "debug", ret(skip), skip(vm_memory, image))]
 fn load_initrd<F: Debug>(
     vm_memory: &GuestMemoryMmap,
     image: &mut F,
@@ -636,6 +677,7 @@ where
     })
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(guest_memory, track_dirty_pages))]
 pub(crate) fn setup_kvm_vm(
     guest_memory: &GuestMemoryMmap,
     track_dirty_pages: bool,
@@ -653,6 +695,7 @@ pub(crate) fn setup_kvm_vm(
 
 /// Sets up the irqchip for a x86_64 microVM.
 #[cfg(target_arch = "x86_64")]
+#[tracing::instrument(level = "debug", ret(skip), skip(vm))]
 pub fn setup_interrupt_controller(vm: &mut Vm) -> std::result::Result<(), StartMicrovmError> {
     vm.setup_irqchip()
         .map_err(Error::Vm)
@@ -661,6 +704,7 @@ pub fn setup_interrupt_controller(vm: &mut Vm) -> std::result::Result<(), StartM
 
 /// Sets up the irqchip for a aarch64 microVM.
 #[cfg(target_arch = "aarch64")]
+#[tracing::instrument(level = "debug", ret(skip), skip(vm, vcpu_count))]
 pub fn setup_interrupt_controller(
     vm: &mut Vm,
     vcpu_count: u8,
@@ -671,6 +715,7 @@ pub fn setup_interrupt_controller(
 }
 
 /// Sets up the serial device.
+#[tracing::instrument(level = "debug", ret(skip), skip(event_manager, input, out))]
 pub fn setup_serial_device(
     event_manager: &mut EventManager,
     input: std::io::Stdin,
@@ -694,6 +739,7 @@ pub fn setup_serial_device(
 }
 
 #[cfg(target_arch = "aarch64")]
+#[tracing::instrument(level = "debug", ret(skip), skip(event_manager, vmm, cmdline))]
 fn attach_legacy_devices_aarch64(
     event_manager: &mut EventManager,
     vmm: &mut Vmm,
@@ -725,6 +771,7 @@ fn attach_legacy_devices_aarch64(
         .map_err(Error::RegisterMMIODevice)
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(vm, vcpu_count, exit_evt))]
 fn create_vcpus(vm: &Vm, vcpu_count: u8, exit_evt: &EventFd) -> super::Result<Vec<Vcpu>> {
     let mut vcpus = Vec::with_capacity(vcpu_count as usize);
     for cpu_idx in 0..vcpu_count {
@@ -741,6 +788,11 @@ fn create_vcpus(vm: &Vm, vcpu_count: u8, exit_evt: &EventFd) -> super::Result<Ve
 
 /// Configures the system for booting Linux.
 #[cfg_attr(target_arch = "aarch64", allow(unused))]
+#[tracing::instrument(
+    level = "debug",
+    ret(skip),
+    skip(vmm, vcpus, vm_config, entry_addr, initrd, boot_cmdline)
+)]
 pub fn configure_system_for_boot(
     vmm: &Vmm,
     vcpus: &mut [Vcpu],
@@ -838,6 +890,11 @@ pub fn configure_system_for_boot(
 }
 
 /// Attaches a VirtioDevice device to the device manager and event manager.
+#[tracing::instrument(
+    level = "debug",
+    ret(skip),
+    skip(event_manager, vmm, id, device, cmdline)
+)]
 fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
     event_manager: &mut EventManager,
     vmm: &mut Vmm,
@@ -857,6 +914,7 @@ fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
         .map(|_| ())
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(vmm, request_ts))]
 pub(crate) fn attach_boot_timer_device(
     vmm: &mut Vmm,
     request_ts: TimestampUs,
@@ -872,6 +930,11 @@ pub(crate) fn attach_boot_timer_device(
     Ok(())
 }
 
+#[tracing::instrument(
+    level = "debug",
+    ret(skip),
+    skip(vmm, cmdline, entropy_device, event_manager)
+)]
 fn attach_entropy_device(
     vmm: &mut Vmm,
     cmdline: &mut LoaderKernelCmdline,
@@ -887,6 +950,7 @@ fn attach_entropy_device(
     attach_virtio_device(event_manager, vmm, id, entropy_device.clone(), cmdline)
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(vmm, cmdline, blocks, event_manager))]
 fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
     vmm: &mut Vmm,
     cmdline: &mut LoaderKernelCmdline,
@@ -915,6 +979,11 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
     Ok(())
 }
 
+#[tracing::instrument(
+    level = "debug",
+    ret(skip),
+    skip(vmm, cmdline, net_devices, event_manager)
+)]
 fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
     vmm: &mut Vmm,
     cmdline: &mut LoaderKernelCmdline,
@@ -929,6 +998,11 @@ fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
     Ok(())
 }
 
+#[tracing::instrument(
+    level = "debug",
+    ret(skip),
+    skip(vmm, cmdline, unix_vsock, event_manager)
+)]
 fn attach_unixsock_vsock_device(
     vmm: &mut Vmm,
     cmdline: &mut LoaderKernelCmdline,
@@ -940,6 +1014,7 @@ fn attach_unixsock_vsock_device(
     attach_virtio_device(event_manager, vmm, id, unix_vsock.clone(), cmdline)
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(vmm, cmdline, balloon, event_manager))]
 fn attach_balloon_device(
     vmm: &mut Vmm,
     cmdline: &mut LoaderKernelCmdline,
@@ -952,6 +1027,7 @@ fn attach_balloon_device(
 }
 
 // Adds `O_NONBLOCK` to the stdout flags.
+#[tracing::instrument(level = "debug", ret(skip), skip())]
 pub(crate) fn set_stdout_nonblocking() {
     // SAFETY: Call is safe since parameters are valid.
     let flags = unsafe { libc::fcntl(libc::STDOUT_FILENO, libc::F_GETFL, 0) };
@@ -998,6 +1074,11 @@ pub mod tests {
     }
 
     impl CustomBlockConfig {
+        #[tracing::instrument(
+            level = "debug",
+            ret(skip),
+            skip(drive_id, is_root_device, partuuid, is_read_only, cache_type)
+        )]
         pub(crate) fn new(
             drive_id: String,
             is_root_device: bool,
@@ -1015,6 +1096,7 @@ pub mod tests {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn default_mmio_device_manager() -> MMIODeviceManager {
         MMIODeviceManager::new(
             crate::arch::MMIO_MEM_START,
@@ -1024,6 +1106,7 @@ pub mod tests {
         .unwrap()
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(cmdline, slug))]
     fn cmdline_contains(cmdline: &Cmdline, slug: &str) -> bool {
         // The following unwraps can never fail; the only way any of these methods
         // would return an `Err` is if one of the following conditions is met:
@@ -1043,6 +1126,7 @@ pub mod tests {
             .contains(slug)
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     pub(crate) fn default_kernel_cmdline() -> Cmdline {
         linux_loader::cmdline::Cmdline::try_from(
             DEFAULT_KERNEL_CMDLINE,
@@ -1051,6 +1135,7 @@ pub mod tests {
         .unwrap()
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     pub(crate) fn default_vmm() -> Vmm {
         let guest_memory = create_guest_memory(128, false).unwrap();
 
@@ -1102,6 +1187,11 @@ pub mod tests {
         }
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(vmm, cmdline, event_manager, custom_block_cfgs)
+    )]
     pub(crate) fn insert_block_devices(
         vmm: &mut Vmm,
         cmdline: &mut Cmdline,
@@ -1135,6 +1225,11 @@ pub mod tests {
         block_files
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(vmm, cmdline, event_manager, net_config)
+    )]
     pub(crate) fn insert_net_device(
         vmm: &mut Vmm,
         cmdline: &mut Cmdline,
@@ -1148,6 +1243,11 @@ pub mod tests {
         assert!(res.is_ok());
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(vmm, cmdline, event_manager, net_config, mmds_version)
+    )]
     pub(crate) fn insert_net_device_with_mmds(
         vmm: &mut Vmm,
         cmdline: &mut Cmdline,
@@ -1168,6 +1268,11 @@ pub mod tests {
         attach_net_devices(vmm, cmdline, net_builder.iter(), event_manager).unwrap();
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(vmm, cmdline, event_manager, vsock_config)
+    )]
     pub(crate) fn insert_vsock_device(
         vmm: &mut Vmm,
         cmdline: &mut Cmdline,
@@ -1186,6 +1291,11 @@ pub mod tests {
             .is_some());
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(vmm, cmdline, event_manager, entropy_config)
+    )]
     pub(crate) fn insert_entropy_device(
         vmm: &mut Vmm,
         cmdline: &mut Cmdline,
@@ -1203,6 +1313,11 @@ pub mod tests {
             .is_some());
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(vmm, cmdline, event_manager, balloon_config)
+    )]
     pub(crate) fn insert_balloon_device(
         vmm: &mut Vmm,
         cmdline: &mut Cmdline,
@@ -1221,20 +1336,24 @@ pub mod tests {
             .is_some());
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn make_test_bin() -> Vec<u8> {
         let mut fake_bin = Vec::new();
         fake_bin.resize(1_000_000, 0xAA);
         fake_bin
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(at, size))]
     fn create_guest_mem_at(at: GuestAddress, size: usize) -> GuestMemoryMmap {
         utils::vm_memory::test_utils::create_guest_memory_unguarded(&[(at, size)], false).unwrap()
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(size))]
     pub(crate) fn create_guest_mem_with_size(size: usize) -> GuestMemoryMmap {
         create_guest_mem_at(GuestAddress(0x0), size)
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(mem))]
     fn is_dirty_tracking_enabled(mem: &GuestMemoryMmap) -> bool {
         mem.iter().all(|r| r.bitmap().is_some())
     }

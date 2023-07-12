@@ -30,6 +30,7 @@ pub struct MacAddr {
 }
 
 impl fmt::Display for MacAddr {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let b = &self.bytes;
         write!(
@@ -41,12 +42,14 @@ impl fmt::Display for MacAddr {
 }
 
 impl From<[u8; 6]> for MacAddr {
+    #[tracing::instrument(level = "debug", ret(skip), skip(bytes))]
     fn from(bytes: [u8; 6]) -> Self {
         Self { bytes }
     }
 }
 
 impl From<MacAddr> for [u8; 6] {
+    #[tracing::instrument(level = "debug", ret(skip), skip(mac))]
     fn from(mac: MacAddr) -> Self {
         mac.bytes
     }
@@ -67,6 +70,7 @@ impl FromStr for MacAddr {
     /// use self::utils::net::mac::MacAddr;
     /// MacAddr::from_str("12:34:56:78:9a:BC").unwrap();
     /// ```
+    #[tracing::instrument(level = "debug", ret(skip), skip(s))]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let v: Vec<&str> = s.split(':').collect();
         let mut bytes = [0u8; MAC_ADDR_LEN];
@@ -100,6 +104,7 @@ impl MacAddr {
     /// println!("{}", mac.to_string());
     /// ```
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(src))]
     pub fn from_bytes_unchecked(src: &[u8]) -> MacAddr {
         // TODO: using something like std::mem::uninitialized could avoid the extra initialization,
         // if this ever becomes a performance bottleneck.
@@ -118,12 +123,14 @@ impl MacAddr {
     /// assert_eq!([0x01, 0x02, 0x03, 0x04, 0x05, 0x06], mac.get_bytes());
     /// ```
     #[inline]
+    #[tracing::instrument(level = "debug", skip(self))]
     pub fn get_bytes(&self) -> &[u8] {
         &self.bytes
     }
 }
 
 impl Serialize for MacAddr {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, serializer))]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -133,6 +140,7 @@ impl Serialize for MacAddr {
 }
 
 impl<'de> Deserialize<'de> for MacAddr {
+    #[tracing::instrument(level = "debug", ret(skip), skip(deserializer))]
     fn deserialize<D>(deserializer: D) -> Result<MacAddr, D::Error>
     where
         D: Deserializer<'de>,

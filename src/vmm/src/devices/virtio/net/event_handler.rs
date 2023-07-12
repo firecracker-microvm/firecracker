@@ -12,6 +12,7 @@ use crate::devices::virtio::net::device::Net;
 use crate::devices::virtio::{VirtioDevice, RX_INDEX, TX_INDEX};
 
 impl Net {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, ops))]
     fn register_runtime_events(&self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::new(&self.queue_evts[RX_INDEX], EventSet::IN)) {
             error!("Failed to register rx queue event: {}", err);
@@ -33,12 +34,14 @@ impl Net {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, ops))]
     fn register_activate_event(&self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::new(&self.activate_evt, EventSet::IN)) {
             error!("Failed to register activate event: {}", err);
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, ops))]
     fn process_activate_event(&self, ops: &mut EventOps) {
         tracing::debug!("net: activate event");
         if let Err(err) = self.activate_evt.read() {
@@ -52,6 +55,7 @@ impl Net {
 }
 
 impl MutEventSubscriber for Net {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, event, ops))]
     fn process(&mut self, event: Events, ops: &mut EventOps) {
         let source = event.fd();
         let event_set = event.event_set();
@@ -96,6 +100,7 @@ impl MutEventSubscriber for Net {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, ops))]
     fn init(&mut self, ops: &mut EventOps) {
         // This function can be called during different points in the device lifetime:
         //  - shortly after device creation,

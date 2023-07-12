@@ -8,6 +8,7 @@ use crate::template::strip::{strip_common, Error};
 use crate::utils::aarch64::RegModifierMap;
 
 #[allow(dead_code)]
+#[tracing::instrument(level = "debug", ret(skip), skip(templates))]
 pub fn strip(templates: Vec<CustomCpuTemplate>) -> Result<Vec<CustomCpuTemplate>, Error> {
     // Convert `Vec<CustomCpuTemplate>` to `Vec<HashMap<_>>`.
     let mut reg_modifiers_maps = templates
@@ -43,7 +44,7 @@ mod tests {
     // * An addr 0x1 modifier exists in all the templates and its value is same.
     // * An addr 0x2 modifier only exist in the third template.
     #[rustfmt::skip]
-    fn build_input_templates() -> Vec<CustomCpuTemplate> {
+#[tracing::instrument(level = "debug", ret(skip), skip())]    fn build_input_templates() -> Vec<CustomCpuTemplate> {
         vec![
             CustomCpuTemplate {
                 reg_modifiers: vec![
@@ -68,7 +69,7 @@ mod tests {
     }
 
     #[rustfmt::skip]
-    fn build_expected_templates() -> Vec<CustomCpuTemplate> {
+#[tracing::instrument(level = "debug", ret(skip), skip())]    fn build_expected_templates() -> Vec<CustomCpuTemplate> {
         vec![
             CustomCpuTemplate {
                 reg_modifiers: vec![

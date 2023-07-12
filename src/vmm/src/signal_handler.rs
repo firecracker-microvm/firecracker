@@ -20,6 +20,7 @@ const SI_OFF_SYSCALL: isize = 6;
 const SYS_SECCOMP_CODE: i32 = 1;
 
 #[inline]
+#[tracing::instrument(level = "debug", ret(skip), skip(exit_code))]
 fn exit_with_code(exit_code: FcExitCode) {
     // Write the metrics before exiting.
     if let Err(err) = METRICS.write() {
@@ -59,6 +60,7 @@ macro_rules! generate_handler {
     };
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(si_code, info))]
 fn log_sigsys_err(si_code: c_int, info: *mut siginfo_t) {
     if si_code != SYS_SECCOMP_CODE {
         // We received a SIGSYS for a reason other than `bad syscall`.
@@ -75,6 +77,7 @@ fn log_sigsys_err(si_code: c_int, info: *mut siginfo_t) {
     );
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(_si_code, _info))]
 fn empty_fn(_si_code: c_int, _info: *mut siginfo_t) {}
 
 generate_handler!(
@@ -133,6 +136,7 @@ generate_handler!(
 );
 
 #[inline(always)]
+#[tracing::instrument(level = "debug", ret(skip), skip(num, info, _unused))]
 extern "C" fn sigpipe_handler(num: c_int, info: *mut siginfo_t, _unused: *mut c_void) {
     // Just record the metric and allow the process to continue, the EPIPE error needs
     // to be handled at caller level.
@@ -156,6 +160,7 @@ extern "C" fn sigpipe_handler(num: c_int, info: *mut siginfo_t, _unused: *mut c_
 ///
 /// Custom handlers are installed for: `SIGBUS`, `SIGSEGV`, `SIGSYS`
 /// `SIGXFSZ` `SIGXCPU` `SIGPIPE` `SIGHUP` and `SIGILL`.
+#[tracing::instrument(level = "debug", ret(skip), skip())]
 pub fn register_signal_handlers() -> utils::errno::Result<()> {
     // Call to unsafe register_signal_handler which is considered unsafe because it will
     // register a signal handler which will be called in the current thread and will interrupt
@@ -249,6 +254,7 @@ mod tests {
         assert!(METRICS.signals.sigill.fetch() >= 1);
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn make_test_seccomp_bpf_filter() -> Vec<sock_filter> {
         // Create seccomp filter that allows all syscalls, except for `SYS_mkdirat`.
         // For some reason, directly calling `SYS_kill` with SIGSYS, like we do with the

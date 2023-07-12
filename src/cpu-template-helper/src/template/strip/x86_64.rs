@@ -8,6 +8,7 @@ use crate::template::strip::{strip_common, Error};
 use crate::utils::x86_64::{CpuidModifierMap, MsrModifierMap};
 
 #[allow(dead_code)]
+#[tracing::instrument(level = "debug", ret(skip), skip(templates))]
 pub fn strip(templates: Vec<CustomCpuTemplate>) -> Result<Vec<CustomCpuTemplate>, Error> {
     // Convert `Vec<CustomCpuTemplate>` to two `Vec<HashMap<_>>` of modifiers.
     let (mut cpuid_modifiers_maps, mut msr_modifiers_maps): (Vec<_>, Vec<_>) = templates
@@ -61,7 +62,7 @@ mod tests {
     // * A CPUID leaf 0x2 / subleaf 0x1 modifier exists in all the templates, but EAX value is same
     //   and EBX value is different across them.
     #[rustfmt::skip]
-    fn build_input_cpuid_templates() -> Vec<CustomCpuTemplate> {
+#[tracing::instrument(level = "debug", ret(skip), skip())]    fn build_input_cpuid_templates() -> Vec<CustomCpuTemplate> {
         vec![
             CustomCpuTemplate {
                 cpuid_modifiers: vec![
@@ -106,7 +107,7 @@ mod tests {
     }
 
     #[rustfmt::skip]
-    fn build_expected_cpuid_templates() -> Vec<CustomCpuTemplate> {
+#[tracing::instrument(level = "debug", ret(skip), skip())]    fn build_expected_cpuid_templates() -> Vec<CustomCpuTemplate> {
         vec![
             CustomCpuTemplate {
                 cpuid_modifiers: vec![
@@ -143,7 +144,7 @@ mod tests {
     // * An addr 0x1 modifier exists in all the templates and its value is same.
     // * An addr 0x2 modifier only exists in the third template.
     #[rustfmt::skip]
-    fn build_input_msr_templates() -> Vec<CustomCpuTemplate> {
+#[tracing::instrument(level = "debug", ret(skip), skip())]    fn build_input_msr_templates() -> Vec<CustomCpuTemplate> {
         vec![
             CustomCpuTemplate {
                 cpuid_modifiers: vec![],
@@ -171,7 +172,7 @@ mod tests {
     }
 
     #[rustfmt::skip]
-    fn build_expected_msr_templates() -> Vec<CustomCpuTemplate> {
+#[tracing::instrument(level = "debug", ret(skip), skip())]    fn build_expected_msr_templates() -> Vec<CustomCpuTemplate> {
         vec![
             CustomCpuTemplate {
                 cpuid_modifiers: vec![],

@@ -72,33 +72,39 @@ pub struct VmInfo {
 }
 
 impl VmInfo {
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn def_smt(_: u16) -> bool {
         warn!("SMT field not found in snapshot.");
         false
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, _target_version))]
     fn ser_smt(&mut self, _target_version: u16) -> VersionizeResult<()> {
         // v1.1 and older versions do not include smt info.
         warn!("Saving to older snapshot version, SMT information will not be saved.");
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn def_cpu_template(_: u16) -> StaticCpuTemplate {
         warn!("CPU template field not found in snapshot.");
         StaticCpuTemplate::default()
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, _target_version))]
     fn ser_cpu_template(&mut self, _target_version: u16) -> VersionizeResult<()> {
         // v1.1 and older versions do not include cpu template info.
         warn!("Saving to older snapshot version, CPU template information will not be saved.");
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn def_boot_source(_: u16) -> BootSourceConfig {
         warn!("Boot source information not found in snapshot.");
         BootSourceConfig::default()
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, _target_version))]
     fn ser_boot_source(&mut self, _target_version: u16) -> VersionizeResult<()> {
         // v1.1 and older versions do not include boot source info.
         warn!("Saving to older snapshot version, boot source information will not be saved.");
@@ -107,6 +113,7 @@ impl VmInfo {
 }
 
 impl From<&VmResources> for VmInfo {
+    #[tracing::instrument(level = "debug", ret(skip), skip(value))]
     fn from(value: &VmResources) -> Self {
         Self {
             mem_size_mib: value.vm_config.mem_size_mib as u64,
@@ -230,6 +237,7 @@ pub enum CreateSnapshotError {
 }
 
 /// Creates a Microvm snapshot.
+#[tracing::instrument(level = "debug", ret(skip), skip(vmm, vm_info, params, version_map))]
 pub fn create_snapshot(
     vmm: &mut Vmm,
     vm_info: &VmInfo,
@@ -255,6 +263,11 @@ pub fn create_snapshot(
     Ok(())
 }
 
+#[tracing::instrument(
+    level = "debug",
+    ret(skip),
+    skip(microvm_state, snapshot_path, snapshot_data_version, version_map)
+)]
 fn snapshot_state_to_file(
     microvm_state: &MicrovmState,
     snapshot_path: &Path,
@@ -281,6 +294,7 @@ fn snapshot_state_to_file(
         .map_err(|err| SnapshotBackingFile("sync_all", err))
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(vmm, mem_file_path, snapshot_type))]
 fn snapshot_memory_to_file(
     vmm: &Vmm,
     mem_file_path: &Path,
@@ -315,6 +329,7 @@ fn snapshot_memory_to_file(
 }
 
 /// Validate the microVM version and translate it to its corresponding snapshot data format.
+#[tracing::instrument(level = "debug", ret(skip), skip(maybe_fc_version, version_map, vmm))]
 pub fn get_snapshot_data_version(
     maybe_fc_version: &Option<String>,
     version_map: &VersionMap,
@@ -376,6 +391,7 @@ pub enum ValidateCpuVendorError {
 /// - Failed to read host vendor.
 /// - Failed to read snapshot vendor.
 #[cfg(target_arch = "x86_64")]
+#[tracing::instrument(level = "debug", ret(skip), skip(microvm_state))]
 pub fn validate_cpu_vendor(
     microvm_state: &MicrovmState,
 ) -> std::result::Result<bool, ValidateCpuVendorError> {
@@ -420,6 +436,7 @@ pub enum ValidateCpuManufacturerIdError {
 /// - Failed to read host vendor.
 /// - Failed to read snapshot vendor.
 #[cfg(target_arch = "aarch64")]
+#[tracing::instrument(level = "debug", ret(skip), skip(microvm_state))]
 pub fn validate_cpu_manufacturer_id(
     microvm_state: &MicrovmState,
 ) -> std::result::Result<bool, ValidateCpuManufacturerIdError> {
@@ -462,6 +479,7 @@ pub enum SnapShotStateSanityCheckError {
 }
 
 /// Performs sanity checks against the state file and returns specific errors.
+#[tracing::instrument(level = "debug", ret(skip), skip(microvm_state))]
 pub fn snapshot_state_sanity_check(
     microvm_state: &MicrovmState,
 ) -> std::result::Result<(), SnapShotStateSanityCheckError> {
@@ -516,6 +534,18 @@ pub enum RestoreFromSnapshotGuestMemoryError {
 }
 
 /// Loads a Microvm snapshot producing a 'paused' Microvm.
+#[tracing::instrument(
+    level = "debug",
+    ret(skip),
+    skip(
+        instance_info,
+        event_manager,
+        seccomp_filters,
+        params,
+        version_map,
+        vm_resources
+    )
+)]
 pub fn restore_from_snapshot(
     instance_info: &InstanceInfo,
     event_manager: &mut EventManager,
@@ -576,6 +606,7 @@ pub enum SnapshotStateFromFileError {
     Load(#[from] snapshot::Error),
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(snapshot_path, version_map))]
 fn snapshot_state_from_file(
     snapshot_path: &Path,
     version_map: VersionMap,
@@ -599,6 +630,11 @@ pub enum GuestMemoryFromFileError {
     Restore(#[from] crate::memory_snapshot::Error),
 }
 
+#[tracing::instrument(
+    level = "debug",
+    ret(skip),
+    skip(mem_file_path, mem_state, track_dirty_pages)
+)]
 fn guest_memory_from_file(
     mem_file_path: &Path,
     mem_state: &GuestMemoryState,
@@ -629,6 +665,11 @@ pub enum GuestMemoryFromUffdError {
     Send(#[from] utils::errno::Error),
 }
 
+#[tracing::instrument(
+    level = "debug",
+    ret(skip),
+    skip(mem_uds_path, mem_state, track_dirty_pages, enable_balloon)
+)]
 fn guest_memory_from_uffd(
     mem_uds_path: &Path,
     mem_state: &GuestMemoryState,
@@ -709,6 +750,7 @@ fn guest_memory_from_uffd(
 }
 
 #[cfg(target_arch = "x86_64")]
+#[tracing::instrument(level = "debug", ret(skip), skip(device_number))]
 fn validate_devices_number(device_number: usize) -> std::result::Result<(), CreateSnapshotError> {
     use self::CreateSnapshotError::TooManyDevices;
     if device_number > FC_V0_23_MAX_DEVICES as usize {
@@ -717,6 +759,7 @@ fn validate_devices_number(device_number: usize) -> std::result::Result<(), Crea
     Ok(())
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(version))]
 fn validate_fc_version_format(version: &str) -> Result<(), CreateSnapshotError> {
     let v: Vec<_> = version.match_indices('.').collect();
     if v.len() != 2
@@ -756,6 +799,7 @@ mod tests {
     #[cfg(target_arch = "aarch64")]
     const FC_VERSION_0_23_0: &str = "0.23.0";
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn default_vmm_with_devices() -> Vmm {
         let mut event_manager = EventManager::new().expect("Cannot create EventManager");
         let mut vmm = default_vmm();

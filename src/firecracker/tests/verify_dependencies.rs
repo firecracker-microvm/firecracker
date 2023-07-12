@@ -44,6 +44,7 @@ fn test_no_comparison_requirements() {
 /// requirements.
 ///
 /// The return value maps the name of violating dependencies to the specified version
+#[tracing::instrument(level = "debug", ret(skip), skip(path))]
 fn violating_dependencies_of_cargo_toml<T: AsRef<Path> + Debug>(
     path: T,
 ) -> HashMap<String, String> {
@@ -62,6 +63,7 @@ fn violating_dependencies_of_cargo_toml<T: AsRef<Path> + Debug>(
 ///
 /// The iterator produces tuples of the form (violating dependency, specified version)
 #[allow(clippy::let_with_type_underscore)]
+#[tracing::instrument(level = "debug", ret(skip), skip(depsset))]
 fn violating_dependencies_of_depsset(depsset: DepsSet) -> impl Iterator<Item = (String, String)> {
     depsset.into_iter().filter_map(|(name, dependency)| {
         match dependency {

@@ -24,6 +24,7 @@ pub enum Error {
     ShellCommand(String, String),
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(vmm))]
 pub fn dump(vmm: Arc<Mutex<Vmm>>) -> Result<Fingerprint, Error> {
     Ok(Fingerprint {
         firecracker_version: crate::utils::CPU_TEMPLATE_HELPER_VERSION.to_string(),
@@ -46,6 +47,7 @@ pub fn dump(vmm: Arc<Mutex<Vmm>>) -> Result<Fingerprint, Error> {
     })
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip())]
 fn get_kernel_version() -> Result<String, Error> {
     // SAFETY: An all-zeroed value for `libc::utsname` is valid.
     let mut name: libc::utsname = unsafe { std::mem::zeroed() };
@@ -63,11 +65,13 @@ fn get_kernel_version() -> Result<String, Error> {
     Ok(version.to_string())
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(path))]
 fn read_sysfs_file(path: &str) -> Result<String, Error> {
     let s = read_to_string(path).map_err(|err| Error::ReadSysfsFile(path.to_string(), err))?;
     Ok(s.trim_end_matches('\n').to_string())
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(cmd))]
 fn run_shell_command(cmd: &str) -> Result<String, Error> {
     let output = std::process::Command::new("bash")
         .args(["-c", cmd])

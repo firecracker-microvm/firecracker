@@ -8,11 +8,13 @@ use super::super::VmmAction;
 use crate::parsed_request::{method_to_error, Error, ParsedRequest};
 use crate::request::{Body, Method};
 
+#[tracing::instrument(level = "debug", ret(skip), skip())]
 pub(crate) fn parse_get_machine_config() -> Result<ParsedRequest, Error> {
     METRICS.get_api_requests.machine_cfg_count.inc();
     Ok(ParsedRequest::new_sync(VmmAction::GetVmMachineConfig))
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(body))]
 pub(crate) fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.machine_cfg_count.inc();
     let config = serde_json::from_slice::<MachineConfig>(body.raw()).map_err(|err| {
@@ -27,6 +29,7 @@ pub(crate) fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Err
     )))
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(body))]
 pub(crate) fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.patch_api_requests.machine_cfg_count.inc();
     let config_update =

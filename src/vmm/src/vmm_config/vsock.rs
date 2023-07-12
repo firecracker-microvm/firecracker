@@ -21,6 +21,7 @@ pub enum VsockConfigError {
 }
 
 impl fmt::Display for VsockConfigError {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::VsockConfigError::*;
         match *self {
@@ -56,6 +57,7 @@ struct VsockAndUnixPath {
 }
 
 impl From<&VsockAndUnixPath> for VsockDeviceConfig {
+    #[tracing::instrument(level = "debug", ret(skip), skip(vsock))]
     fn from(vsock: &VsockAndUnixPath) -> Self {
         let vsock_lock = vsock.vsock.lock().unwrap();
         VsockDeviceConfig {
@@ -74,11 +76,13 @@ pub struct VsockBuilder {
 
 impl VsockBuilder {
     /// Creates an empty Vsock with Unix backend Store.
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     pub fn new() -> Self {
         Self { inner: None }
     }
 
     /// Inserts an existing vsock device.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, device))]
     pub fn set_device(&mut self, device: Arc<Mutex<Vsock<VsockUnixBackend>>>) {
         self.inner = Some(VsockAndUnixPath {
             uds_path: device
@@ -93,6 +97,7 @@ impl VsockBuilder {
 
     /// Inserts a Unix backend Vsock in the store.
     /// If an entry already exists, it will overwrite it.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, cfg))]
     pub fn insert(&mut self, cfg: VsockDeviceConfig) -> Result<()> {
         // Make sure to drop the old one and remove the socket before creating a new one.
         if let Some(existing) = self.inner.take() {
@@ -106,11 +111,13 @@ impl VsockBuilder {
     }
 
     /// Provides a reference to the Vsock if present.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn get(&self) -> Option<&MutexVsockUnix> {
         self.inner.as_ref().map(|pair| &pair.vsock)
     }
 
     /// Creates a Vsock device from a VsockDeviceConfig.
+    #[tracing::instrument(level = "debug", ret(skip), skip(cfg))]
     pub fn create_unixsock_vsock(cfg: VsockDeviceConfig) -> Result<Vsock<VsockUnixBackend>> {
         let backend = VsockUnixBackend::new(u64::from(cfg.guest_cid), cfg.uds_path)?;
 
@@ -118,6 +125,7 @@ impl VsockBuilder {
     }
 
     /// Returns the structure used to configure the vsock device.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn config(&self) -> Option<VsockDeviceConfig> {
         self.inner.as_ref().map(VsockDeviceConfig::from)
     }
@@ -130,6 +138,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(tmp_sock_file))]
     pub(crate) fn default_config(tmp_sock_file: &TempFile) -> VsockDeviceConfig {
         VsockDeviceConfig {
             vsock_id: None,

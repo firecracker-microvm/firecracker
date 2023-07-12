@@ -25,6 +25,7 @@ impl<T: Debug> Cqe<T> {
     /// Unsafe because we assume full ownership of the inner.user_data address.
     /// We assume that it points to a valid address created with a Box<T>, with the correct type T,
     /// and that ownership of that address is passed to this function.
+    #[tracing::instrument(level = "debug", ret(skip), skip(inner))]
     pub(crate) unsafe fn new(inner: io_uring_cqe) -> Self {
         Self {
             res: inner.res,
@@ -33,11 +34,13 @@ impl<T: Debug> Cqe<T> {
     }
 
     /// Return the number of bytes successfully transferred by this operation.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn count(&self) -> u32 {
         u32::try_from(self.res).unwrap_or(0)
     }
 
     /// Return the result associated to the IO operation.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn result(&self) -> Result<u32, std::io::Error> {
         let res = self.res;
 
@@ -49,6 +52,7 @@ impl<T: Debug> Cqe<T> {
     }
 
     /// Create a new Cqe, applying the passed function to the user_data.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, op))]
     pub fn map_user_data<U: Debug, F: FnOnce(T) -> U>(self, op: F) -> Cqe<U> {
         Cqe {
             res: self.res,
@@ -57,6 +61,7 @@ impl<T: Debug> Cqe<T> {
     }
 
     /// Consume the object and return the user_data.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn user_data(self) -> T {
         *self.user_data
     }

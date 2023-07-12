@@ -16,6 +16,7 @@ pub struct StateMachine<T> {
     function: Option<StateFn<T>>,
 }
 impl<T> Debug for StateMachine<T> {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, f))]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StateMachine")
             .field("function", &self.function.map(|f| f as usize))
@@ -33,6 +34,7 @@ impl<T: Debug> StateMachine<T> {
     /// # Arguments
     ///
     /// `function` - the state handler for this state.
+    #[tracing::instrument(level = "debug", ret(skip), skip(function))]
     pub fn new(function: Option<StateFn<T>>) -> StateMachine<T> {
         StateMachine { function }
     }
@@ -42,6 +44,7 @@ impl<T: Debug> StateMachine<T> {
     /// # Arguments
     ///
     /// `function` - the state handler for this state.
+    #[tracing::instrument(level = "debug", ret(skip), skip(function))]
     pub fn next(function: StateFn<T>) -> StateMachine<T> {
         StateMachine::new(Some(function))
     }
@@ -52,6 +55,7 @@ impl<T: Debug> StateMachine<T> {
     /// # Arguments
     ///
     /// `function` - the state handler for this last state.
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     pub fn finish() -> StateMachine<T> {
         StateMachine::new(None)
     }
@@ -63,6 +67,7 @@ impl<T: Debug> StateMachine<T> {
     /// `machine` - a mutable reference to the object running through the various states.
     /// `starting_state_fn` - a `fn(&mut T) -> StateMachine<T>` that should be the handler for
     ///                       the initial state.
+    #[tracing::instrument(level = "debug", ret(skip), skip(machine, starting_state_fn))]
     pub fn run(machine: &mut T, starting_state_fn: StateFn<T>) {
         // Start off in the `starting_state` state.
         let mut state_machine = StateMachine::new(Some(starting_state_fn));
@@ -87,6 +92,7 @@ mod tests {
     }
 
     impl DummyMachine {
+        #[tracing::instrument(level = "debug", ret(skip), skip())]
         fn new() -> Self {
             DummyMachine {
                 private_data_s1: false,
@@ -98,6 +104,7 @@ mod tests {
         // DummyMachine functions here.
 
         // Simple state-machine: start->s1->s2->s3->done.
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         fn run(&mut self) {
             // Verify the machine has not run yet.
             assert!(!self.private_data_s1);
@@ -113,6 +120,7 @@ mod tests {
             assert!(self.private_data_s3);
         }
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         fn s1(&mut self) -> StateMachine<Self> {
             // Verify private data mutates along with the states.
             assert!(!self.private_data_s1);
@@ -120,6 +128,7 @@ mod tests {
             StateMachine::next(Self::s2)
         }
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         fn s2(&mut self) -> StateMachine<Self> {
             // Verify private data mutates along with the states.
             assert!(!self.private_data_s2);
@@ -127,6 +136,7 @@ mod tests {
             StateMachine::next(Self::s3)
         }
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         fn s3(&mut self) -> StateMachine<Self> {
             // Verify private data mutates along with the states.
             assert!(!self.private_data_s3);

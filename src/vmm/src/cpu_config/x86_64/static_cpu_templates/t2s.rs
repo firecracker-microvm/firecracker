@@ -16,6 +16,7 @@ use crate::cpu_config::x86_64::custom_cpu_template::{
 /// - Intel SDM: https://cdrdv2.intel.com/v1/dl/getContent/671200
 /// - CPUID Enumeration and Architectural MSRs: https://www.intel.com/content/www/us/en/developer/articles/technical/software-security-guidance/technical-documentation/cpuid-enumeration-and-architectural-msrs.html
 #[allow(clippy::unusual_byte_groupings)]
+#[tracing::instrument(level = "debug", ret(skip), skip())]
 pub fn t2s() -> CustomCpuTemplate {
     CustomCpuTemplate {
         cpuid_modifiers: vec![

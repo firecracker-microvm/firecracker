@@ -22,6 +22,7 @@ struct Diff<'a, T: Serialize> {
     curr: &'a T,
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(prev, curr, filters))]
 pub fn compare(
     prev: Fingerprint,
     curr: Fingerprint,
@@ -98,6 +99,7 @@ mod tests {
 
     use super::*;
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn build_sample_fingerprint() -> Fingerprint {
         Fingerprint {
             firecracker_version: crate::utils::CPU_TEMPLATE_HELPER_VERSION.to_string(),

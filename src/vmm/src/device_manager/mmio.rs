@@ -94,6 +94,7 @@ pub struct MMIODeviceManager {
 
 impl MMIODeviceManager {
     /// Create a new DeviceManager handling mmio devices (virtio net, block).
+    #[tracing::instrument(level = "debug", ret(skip), skip(mmio_base, mmio_size))]
     pub fn new(
         mmio_base: u64,
         mmio_size: u64,
@@ -109,6 +110,7 @@ impl MMIODeviceManager {
     }
 
     /// Allocates resources for a new device to be added.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, irq_count))]
     fn allocate_mmio_resources(&mut self, irq_count: u32) -> Result<MMIODeviceInfo> {
         let irqs = (0..irq_count)
             .map(|_| self.irq_allocator.allocate_id())
@@ -127,6 +129,11 @@ impl MMIODeviceManager {
     }
 
     /// Register a device at some MMIO address.
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(self, identifier, device_info, device)
+    )]
     fn register_mmio_device(
         &mut self,
         identifier: (DeviceType, String),
@@ -141,6 +148,11 @@ impl MMIODeviceManager {
     }
 
     /// Register a virtio-over-MMIO device to be used via MMIO transport at a specific slot.
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(self, vm, device_id, mmio_device, device_info)
+    )]
     pub fn register_mmio_virtio(
         &mut self,
         vm: &VmFd,
@@ -177,6 +189,7 @@ impl MMIODeviceManager {
 
     /// Append a registered virtio-over-MMIO device to the kernel cmdline.
     #[cfg(target_arch = "x86_64")]
+    #[tracing::instrument(level = "debug", ret(skip), skip(cmdline, device_info))]
     pub fn add_virtio_device_to_cmdline(
         cmdline: &mut kernel_cmdline::Cmdline,
         device_info: &MMIODeviceInfo,
@@ -198,6 +211,11 @@ impl MMIODeviceManager {
 
     /// Allocate slot and register an already created virtio-over-MMIO device. Also Adds the device
     /// to the boot cmdline.
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(self, vm, device_id, mmio_device, _cmdline)
+    )]
     pub fn register_mmio_virtio_for_boot(
         &mut self,
         vm: &VmFd,
@@ -215,6 +233,7 @@ impl MMIODeviceManager {
     #[cfg(target_arch = "aarch64")]
     /// Register an early console at the specified MMIO configuration if given as parameter,
     /// otherwise allocate a new MMIO resources for it.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, vm, serial, device_info_opt))]
     pub fn register_mmio_serial(
         &mut self,
         vm: &VmFd,
@@ -248,6 +267,7 @@ impl MMIODeviceManager {
 
     #[cfg(target_arch = "aarch64")]
     /// Append the registered early console to the kernel cmdline.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, cmdline))]
     pub fn add_mmio_serial_to_cmdline(&self, cmdline: &mut kernel_cmdline::Cmdline) -> Result<()> {
         let device_info = self
             .id_to_dev_info
@@ -261,6 +281,7 @@ impl MMIODeviceManager {
     #[cfg(target_arch = "aarch64")]
     /// Create and register a MMIO RTC device at the specified MMIO configuration if
     /// given as parameter, otherwise allocate a new MMIO resources for it.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, rtc, device_info_opt))]
     pub fn register_mmio_rtc(
         &mut self,
         rtc: RTCDevice,
@@ -285,6 +306,7 @@ impl MMIODeviceManager {
     }
 
     /// Register a boot timer device.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, device))]
     pub fn register_mmio_boot_timer(&mut self, device: BootTimer) -> Result<()> {
         // Attach a new boot timer device.
         let device_info = self.allocate_mmio_resources(0)?;
@@ -298,12 +320,14 @@ impl MMIODeviceManager {
     }
 
     /// Gets the information of the devices registered up to some point in time.
+    #[tracing::instrument(level = "debug", skip(self))]
     pub fn get_device_info(&self) -> &HashMap<(DeviceType, String), MMIODeviceInfo> {
         &self.id_to_dev_info
     }
 
     #[cfg(target_arch = "x86_64")]
     /// Gets the number of interrupts used by the devices registered.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn used_irqs_count(&self) -> usize {
         let mut irq_number = 0;
         self.get_device_info()
@@ -313,6 +337,7 @@ impl MMIODeviceManager {
     }
 
     /// Gets the the specified device.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, device_type, device_id))]
     pub fn get_device(
         &self,
         device_type: DeviceType,
@@ -330,6 +355,7 @@ impl MMIODeviceManager {
     }
 
     /// Run fn for each registered device.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, f))]
     pub fn for_each_device<F, E: Debug>(&self, mut f: F) -> std::result::Result<(), E>
     where
         F: FnMut(
@@ -350,6 +376,7 @@ impl MMIODeviceManager {
     }
 
     /// Run fn for each registered virtio device.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, f))]
     pub fn for_each_virtio_device<F, E: Debug>(&self, mut f: F) -> std::result::Result<(), E>
     where
         F: FnMut(
@@ -376,6 +403,7 @@ impl MMIODeviceManager {
     }
 
     /// Run fn `f()` for the virtio device matching `virtio_type` and `id`.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, virtio_type, id, f))]
     pub fn with_virtio_device_with_id<T, F>(&self, virtio_type: u32, id: &str, f: F) -> Result<()>
     where
         T: VirtioDevice + 'static + Debug,
@@ -401,6 +429,7 @@ impl MMIODeviceManager {
     }
 
     /// Artificially kick devices as if they had external events.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn kick_devices(&self) {
         info!("Artificially kick devices.");
         // We only kick virtio devices for now.
@@ -461,12 +490,15 @@ impl MMIODeviceManager {
 
 #[cfg(target_arch = "aarch64")]
 impl DeviceInfoForFDT for MMIODeviceInfo {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn addr(&self) -> u64 {
         self.addr
     }
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn irq(&self) -> u32 {
         self.irqs[0]
     }
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn length(&self) -> u64 {
         self.len
     }
@@ -487,6 +519,11 @@ mod tests {
     const QUEUE_SIZES: &[u16] = &[64];
 
     impl MMIODeviceManager {
+        #[tracing::instrument(
+            level = "debug",
+            ret(skip),
+            skip(self, vm, guest_mem, device, cmdline, dev_id)
+        )]
         fn register_virtio_test_device(
             &mut self,
             vm: &VmFd,
@@ -512,6 +549,7 @@ mod tests {
     }
 
     impl DummyDevice {
+        #[tracing::instrument(level = "debug", ret(skip), skip())]
         pub fn new() -> Self {
             DummyDevice {
                 dummy: 0,
@@ -523,59 +561,73 @@ mod tests {
     }
 
     impl crate::devices::virtio::VirtioDevice for DummyDevice {
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         fn avail_features(&self) -> u64 {
             0
         }
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         fn acked_features(&self) -> u64 {
             0
         }
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         fn set_acked_features(&mut self, _: u64) {}
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         fn device_type(&self) -> u32 {
             0
         }
 
+        #[tracing::instrument(level = "debug", skip(self))]
         fn queues(&self) -> &[Queue] {
             &self.queues
         }
 
+        #[tracing::instrument(level = "debug", skip(self))]
         fn queues_mut(&mut self) -> &mut [Queue] {
             &mut self.queues
         }
 
+        #[tracing::instrument(level = "debug", skip(self))]
         fn queue_events(&self) -> &[EventFd] {
             &self.queue_evts
         }
 
+        #[tracing::instrument(level = "debug", skip(self))]
         fn interrupt_evt(&self) -> &EventFd {
             &self.interrupt_evt
         }
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         fn interrupt_status(&self) -> Arc<AtomicUsize> {
             Arc::new(AtomicUsize::new(0))
         }
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(self, page, value))]
         fn ack_features_by_page(&mut self, page: u32, value: u32) {
             let _ = page;
             let _ = value;
         }
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(self, offset, data))]
         fn read_config(&self, offset: u64, data: &mut [u8]) {
             let _ = offset;
             let _ = data;
         }
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(self, offset, data))]
         fn write_config(&mut self, offset: u64, data: &[u8]) {
             let _ = offset;
             let _ = data;
         }
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         fn activate(&mut self, _: GuestMemoryMmap) -> ActivateResult {
             Ok(())
         }
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         fn is_activated(&self) -> bool {
             false
         }

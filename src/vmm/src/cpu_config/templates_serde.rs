@@ -7,6 +7,7 @@ use serde::de::Error as SerdeError;
 use serde::{Deserialize, Deserializer, Serializer};
 
 /// Serializes number to hex
+#[tracing::instrument(level = "debug", ret(skip), skip(number, serializer))]
 pub fn serialize_to_hex_str<S, N>(number: &N, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
