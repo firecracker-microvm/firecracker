@@ -194,6 +194,7 @@ pub fn t2a() -> CustomCpuTemplate {
                 flags: KvmCpuidFlags(0),
                 modifiers: vec![
                     // ECX:
+                    // - Bit 02: SVM (AMD APM) / Reserved (Intel SDM)
                     // - Bit 06: SSE4A (AMD APM) / Reserved (Intel SDM)
                     // - Bit 07: MisAlignSse (AMD APM) / Reserved (Intel SDM)
                     // - Bit 08: 3DNowPrefetch (AMD APM) / PREFETCHW (Intel SDM)
@@ -201,7 +202,7 @@ pub fn t2a() -> CustomCpuTemplate {
                     CpuidRegisterModifier {
                         register: CpuidRegister::Ecx,
                         bitmap: RegisterValueFilter {
-                            filter: 0b0010_0000_0000_0000_0000_0001_1100_0000,
+                            filter: 0b0010_0000_0000_0000_0000_0001_1100_0100,
                             value: 0b0000_0000_0000_0000_0000_0000_0000_0000,
                         },
                     },
