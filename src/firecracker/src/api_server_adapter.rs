@@ -149,15 +149,20 @@ pub(crate) fn run_with_api(
     let api_thread = thread::Builder::new()
         .name("fc_api".to_owned())
         .spawn(move || {
-            match ApiServer::new(to_vmm, from_vmm, to_vmm_event_fd).bind_and_run(
+            let res = ApiServer::new(to_vmm, from_vmm, to_vmm_event_fd).bind_and_run(
                 &api_bind_path,
                 process_time_reporter,
                 &api_seccomp_filter,
                 api_payload_limit,
                 socket_ready_sender,
-            ) {
-                Ok(_) => (),
-                Err(api_server::Error::ServerCreation(ServerError::IOError(inner)))
+            );
+
+            let Err(err) = res else {
+                return;
+            };
+
+            match err {
+                api_server::Error::ServerCreation(ServerError::IOError(inner))
                     if inner.kind() == std::io::ErrorKind::AddrInUse =>
                 {
                     let sock_path = api_bind_path.display().to_string();
@@ -165,17 +170,18 @@ pub(crate) fn run_with_api(
                         "Failed to open the API socket at: {sock_path}. Check that it is not \
                          already used."
                     );
-                    std::process::exit(vmm::FcExitCode::GenericError as i32);
                 }
-                Err(api_server::Error::ServerCreation(err)) => {
+                api_server::Error::ServerCreation(err) => {
                     error!("Failed to bind and run the HTTP server: {err}");
-                    std::process::exit(vmm::FcExitCode::GenericError as i32);
                 }
             }
+
+            std::process::exit(vmm::FcExitCode::GenericError as i32);
         })
         .expect("API thread spawn failed.");
 
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+
     // Create the firecracker metrics object responsible for periodically printing metrics.
     let firecracker_metrics = Arc::new(Mutex::new(super::metrics::PeriodicMetrics::new()));
     event_manager.add_subscriber(firecracker_metrics.clone());
@@ -199,11 +205,13 @@ pub(crate) fn run_with_api(
                 let req = from_api
                     .recv()
                     .expect("The channel's sending half was disconnected. Cannot receive data.");
+
                 // Also consume the API event along with the message. It is safe to unwrap()
                 // because this event_fd is blocking.
                 api_event_fd
                     .read()
                     .expect("VMM: Failed to read the API event_fd");
+
                 *req
             },
             |response| {

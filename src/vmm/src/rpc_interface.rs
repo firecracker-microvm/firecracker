@@ -380,12 +380,18 @@ impl<'a> PrebootApiController<'a> {
             &mut vm_resources,
             event_manager,
         );
+
         // Configure and start microVM through successive API calls.
         // Iterate through API calls to configure microVm.
         // The loop breaks when a microVM is successfully started, and a running Vmm is built.
         while preboot_controller.built_vmm.is_none() {
-            // Get request, process it, send back the response.
-            respond(preboot_controller.handle_preboot_request(recv_req()));
+            // Get request
+            let req = recv_req();
+            // Process the request.
+            let res = preboot_controller.handle_preboot_request(req);
+            // Send back the response.
+            respond(res);
+
             // If any fatal errors were encountered, break the loop.
             if let Some(exit_code) = preboot_controller.fatal_error {
                 return Err(exit_code);
