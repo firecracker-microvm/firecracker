@@ -98,6 +98,9 @@ pub enum ExtendedTopologyError {
 /// Error type for setting leaf 0x80000006 of Cpuid::normalize().
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum ExtendedCacheFeaturesError {
+    /// Leaf 0x80000005 is missing from CPUID.
+    #[error("Leaf 0x80000005 is missing from CPUID.")]
+    MissingLeaf0x80000005,
     /// Leaf 0x80000006 is missing from CPUID.
     #[error("Leaf 0x80000006 is missing from CPUID.")]
     MissingLeaf0x80000006,
@@ -465,6 +468,13 @@ impl super::Cpuid {
 
     // Update extended cache features entry
     fn update_extended_cache_features(&mut self) -> Result<(), ExtendedCacheFeaturesError> {
+        // Leaf 0x800000005 indicates L1 Cache and TLB Information.
+        let guest_leaf_0x80000005 = self
+            .get_mut(&CpuidKey::leaf(0x80000005))
+            .ok_or(ExtendedCacheFeaturesError::MissingLeaf0x80000005)?;
+        guest_leaf_0x80000005.result = cpuid(0x80000005).into();
+
+        // Leaf 0x80000006 indicates L2 Cache and TLB and L3 Cache Information.
         let guest_leaf_0x80000006 = self
             .get_mut(&CpuidKey::leaf(0x80000006))
             .ok_or(ExtendedCacheFeaturesError::MissingLeaf0x80000006)?;
