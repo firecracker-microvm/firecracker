@@ -106,6 +106,7 @@ const CPU_STEPPING: u32 = 0x600;
 const CPU_FEATURE_APIC: u32 = 0x200;
 const CPU_FEATURE_FPU: u32 = 0x001;
 
+#[tracing::instrument(level = "debug", ret(skip), skip(v))]
 fn compute_checksum<T: Copy + Debug>(v: &T) -> u8 {
     // SAFETY: Safe because we are only reading the bytes within the size of the `T` reference `v`.
     let v_slice = unsafe {
@@ -119,11 +120,13 @@ fn compute_checksum<T: Copy + Debug>(v: &T) -> u8 {
     checksum
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(v))]
 fn mpf_intel_compute_checksum(v: &mpspec::mpf_intel) -> u8 {
     let checksum = compute_checksum(v).wrapping_sub(v.checksum);
     (!checksum).wrapping_add(1)
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(num_cpus))]
 fn compute_mp_size(num_cpus: u8) -> usize {
     mem::size_of::<MpfIntelWrapper>()
         + mem::size_of::<MpcTableWrapper>()
@@ -135,6 +138,7 @@ fn compute_mp_size(num_cpus: u8) -> usize {
 }
 
 /// Performs setup of the MP table for the given `num_cpus`.
+#[tracing::instrument(level = "debug", ret(skip), skip(mem, num_cpus))]
 pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), MptableError> {
     if u32::from(num_cpus) > MAX_SUPPORTED_CPUS {
         return Err(MptableError::TooManyCpus);
@@ -301,6 +305,7 @@ mod tests {
 
     use super::*;
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(type_))]
     fn table_entry_size(type_: u8) -> usize {
         match u32::from(type_) {
             mpspec::MP_PROCESSOR => mem::size_of::<MpcCpuWrapper>(),
@@ -373,12 +378,14 @@ mod tests {
         #[derive(Debug)]
         struct Sum(u8);
         impl io::Write for Sum {
+            #[tracing::instrument(level = "debug", ret(skip), skip(self, buf))]
             fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
                 for v in buf.iter() {
                     self.0 = self.0.wrapping_add(*v);
                 }
                 Ok(buf.len())
             }
+            #[tracing::instrument(level = "debug", ret(skip), skip(self))]
             fn flush(&mut self) -> io::Result<()> {
                 Ok(())
             }

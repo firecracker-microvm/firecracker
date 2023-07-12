@@ -35,18 +35,21 @@ pub struct Incomplete<T> {
 
 impl<T: Debug> Incomplete<T> {
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(inner))]
     fn new(inner: T) -> Self {
         Incomplete { inner }
     }
 
     /// Returns a reference to the wrapped object.
     #[inline]
+    #[tracing::instrument(level = "debug", skip(self))]
     pub fn inner(&self) -> &T {
         &self.inner
     }
 
     /// Returns a mutable reference to the wrapped object.
     #[inline]
+    #[tracing::instrument(level = "debug", skip(self))]
     pub fn inner_mut(&mut self) -> &mut T {
         &mut self.inner
     }
@@ -73,6 +76,7 @@ enum ChecksumProto {
 ///
 /// [here]: https://en.wikipedia.org/wiki/Transmission_Control_Protocol#Checksum_computation
 #[inline]
+#[tracing::instrument(level = "debug", ret(skip), skip(bytes, src_addr, dst_addr, protocol))]
 fn compute_checksum<T: NetworkBytes + Debug>(
     bytes: &T,
     src_addr: Ipv4Addr,

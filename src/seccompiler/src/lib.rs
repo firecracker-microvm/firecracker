@@ -56,6 +56,7 @@ pub enum InstallationError {
 /// memory that we can allocate while performing the deserialization.
 /// It's recommended that the integrator of the library uses this to prevent memory allocations
 /// DOS-es.
+#[tracing::instrument(level = "debug", ret(skip), skip(reader, bytes_limit))]
 pub fn deserialize_binary<R: Read + Debug>(
     reader: R,
     bytes_limit: Option<u64>,
@@ -80,6 +81,7 @@ pub fn deserialize_binary<R: Read + Debug>(
 }
 
 /// Helper function for installing a BPF filter.
+#[tracing::instrument(level = "debug", ret(skip), skip(bpf_filter))]
 pub fn apply_filter(bpf_filter: BpfProgramRef) -> std::result::Result<(), InstallationError> {
     // If the program is empty, don't install the filter.
     if bpf_filter.is_empty() {

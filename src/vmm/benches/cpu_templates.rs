@@ -12,15 +12,18 @@ use vmm::cpu_config::templates::test_utils::{build_test_template, TEST_TEMPLATE_
 use vmm::cpu_config::templates::CustomCpuTemplate;
 
 #[inline]
+#[tracing::instrument(level = "debug", ret(skip), skip(cpu_template))]
 pub fn bench_serialize_cpu_template(cpu_template: &CustomCpuTemplate) {
     let _ = serde_json::to_string(cpu_template);
 }
 
 #[inline]
+#[tracing::instrument(level = "debug", ret(skip), skip(cpu_template_str))]
 pub fn bench_deserialize_cpu_template(cpu_template_str: &str) {
     let _ = serde_json::from_str::<CustomCpuTemplate>(cpu_template_str);
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(c))]
 pub fn cpu_template_benchmark(c: &mut Criterion) {
     println!(
         "Deserialization test - Template size (JSON string): [{}] bytes.",

@@ -1,3 +1,4 @@
+
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -37,7 +38,7 @@ impl Init {
     ///
     /// If the closure returns `true`, the state will be changed to `INITIALIZED`.
     /// If the closure returns `false`, the state will remain `UNINITIALIZED`.
-    pub fn call_init<F>(&self, f: F) -> Result<(), Error>
+#[tracing::instrument(level = "debug", ret(skip), skip(self,f))]    pub fn call_init<F>(&self, f: F) -> Result<(), Error>
     where
         F: FnOnce() -> bool,
     {
@@ -69,7 +70,7 @@ impl Init {
 
     /// Checks if the current state is `INITIALIZED`.
     #[inline]
-    pub fn is_initialized(&self) -> bool {
+#[tracing::instrument(level = "debug", ret(skip), skip(self))]    pub fn is_initialized(&self) -> bool {
         self.state.load(Ordering::Relaxed) == Self::INITIALIZED
     }
 }
@@ -115,3 +116,7 @@ mod tests {
         );
     }
 }
+
+
+
+

@@ -23,6 +23,7 @@ use crate::devices::virtio::IrqType;
 use crate::devices::virtio::{Block, CacheType, Queue, RequestHeader};
 
 /// Create a default Block instance to be used in tests.
+#[tracing::instrument(level = "debug", ret(skip), skip(file_engine_type))]
 pub fn default_block(file_engine_type: FileEngineType) -> Block {
     // Create backing file.
     let f = TempFile::new().unwrap();
@@ -32,6 +33,7 @@ pub fn default_block(file_engine_type: FileEngineType) -> Block {
 }
 
 /// Return the Async FileEngineType if supported by the host, otherwise default to Sync.
+#[tracing::instrument(level = "debug", ret(skip), skip())]
 pub fn default_engine_type_for_kv() -> FileEngineType {
     if KernelVersion::get().unwrap() >= min_kernel_version_for_io_uring() {
         FileEngineType::Async
@@ -41,6 +43,7 @@ pub fn default_engine_type_for_kv() -> FileEngineType {
 }
 
 /// Create a default Block instance using file at the specified path to be used in tests.
+#[tracing::instrument(level = "debug", ret(skip), skip(path, file_engine_type))]
 pub fn default_block_with_path(path: String, file_engine_type: FileEngineType) -> Block {
     // Rate limiting is enabled but with a high operation rate (10 million ops/s).
     let rate_limiter = RateLimiter::new(0, 0, 0, 100_000, 0, 10).unwrap();
@@ -60,19 +63,23 @@ pub fn default_block_with_path(path: String, file_engine_type: FileEngineType) -
     .unwrap()
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(blk, idx, q))]
 pub fn set_queue(blk: &mut Block, idx: usize, q: Queue) {
     blk.queues[idx] = q;
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(blk, rl))]
 pub fn set_rate_limiter(blk: &mut Block, rl: RateLimiter) {
     blk.rate_limiter = rl;
 }
 
+#[tracing::instrument(level = "debug", skip(blk))]
 pub fn rate_limiter(blk: &mut Block) -> &RateLimiter {
     &blk.rate_limiter
 }
 
 #[cfg(test)]
+#[tracing::instrument(level = "debug", ret(skip), skip(b, maybe_expected_irq))]
 pub fn simulate_queue_event(b: &mut Block, maybe_expected_irq: Option<bool>) {
     // Trigger the queue event.
     b.queue_evts[0].write(1).unwrap();
@@ -85,6 +92,7 @@ pub fn simulate_queue_event(b: &mut Block, maybe_expected_irq: Option<bool>) {
 }
 
 #[cfg(test)]
+#[tracing::instrument(level = "debug", ret(skip), skip(b, expected_irq))]
 pub fn simulate_async_completion_event(b: &mut Block, expected_irq: bool) {
     if let FileEngine::Async(engine) = b.disk.file_engine_mut() {
         // Wait for all the async operations to complete.
@@ -100,6 +108,7 @@ pub fn simulate_async_completion_event(b: &mut Block, expected_irq: bool) {
 }
 
 #[cfg(test)]
+#[tracing::instrument(level = "debug", ret(skip), skip(b, expected_irq))]
 pub fn simulate_queue_and_async_completion_events(b: &mut Block, expected_irq: bool) {
     match b.disk.file_engine_mut() {
         FileEngine::Async(_) => {
@@ -130,6 +139,7 @@ impl<'a, 'b> RequestDescriptorChain<'a, 'b> {
     /// memory, respectively, and each have their `len` set to 0x1000.
     ///
     /// The data descriptor is initialized to be write_only
+    #[tracing::instrument(level = "debug", ret(skip), skip(vq))]
     pub fn new(vq: &'b VirtQueue<'a>) -> Self {
         read_blk_req_descriptors(vq);
 
@@ -141,6 +151,7 @@ impl<'a, 'b> RequestDescriptorChain<'a, 'b> {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn header(&self) -> RequestHeader {
         self.header_desc
             .memory()
@@ -148,6 +159,7 @@ impl<'a, 'b> RequestDescriptorChain<'a, 'b> {
             .unwrap()
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, header))]
     pub fn set_header(&self, header: RequestHeader) {
         self.header_desc
             .memory()
@@ -165,6 +177,7 @@ impl<'a, 'b> RequestDescriptorChain<'a, 'b> {
 ///
 /// The head of the chain is made available as the first descriptor to be processed, by
 /// setting avail_idx to 1.
+#[tracing::instrument(level = "debug", ret(skip), skip(vq))]
 pub fn read_blk_req_descriptors(vq: &VirtQueue) {
     let request_type_desc: usize = 0;
     let data_desc: usize = 1;

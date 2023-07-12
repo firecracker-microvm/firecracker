@@ -19,6 +19,7 @@ pub enum GetCpuidError {
 ///
 /// - When the given `leaf` is more than `max_leaf` supported by CPUID.
 /// - When the the CPUID leaf `sub-leaf` is invalid (all its register equal 0).
+#[tracing::instrument(level = "debug", ret(skip), skip(leaf, subleaf))]
 pub fn get_cpuid(leaf: u32, subleaf: u32) -> Result<std::arch::x86_64::CpuidResult, GetCpuidError> {
     let max_leaf =
         // JUSTIFICATION: There is no safe alternative.
@@ -41,6 +42,7 @@ pub fn get_cpuid(leaf: u32, subleaf: u32) -> Result<std::arch::x86_64::CpuidResu
 /// # Errors
 ///
 /// When CPUID leaf 0 is not supported.
+#[tracing::instrument(level = "debug", ret(skip), skip())]
 pub fn get_vendor_id_from_host() -> Result<[u8; 12], GetCpuidError> {
     // JUSTIFICATION: There is no safe alternative.
     // SAFETY: Always safe.
@@ -55,6 +57,7 @@ pub fn get_vendor_id_from_host() -> Result<[u8; 12], GetCpuidError> {
 }
 
 /// Returns MSRs to be saved based on CPUID features that are enabled.
+#[tracing::instrument(level = "debug", ret(skip), skip(cpuid))]
 pub(crate) fn msrs_to_save_by_cpuid(cpuid: &kvm_bindings::CpuId) -> std::collections::HashSet<u32> {
     /// Memory Protection Extensions
     const MPX_BITINDEX: u32 = 14;

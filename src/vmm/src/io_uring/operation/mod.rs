@@ -31,6 +31,7 @@ pub enum OpCode {
 
 // Useful for outputting errors.
 impl From<OpCode> for &'static str {
+    #[tracing::instrument(level = "debug", ret(skip), skip(opcode))]
     fn from(opcode: OpCode) -> Self {
         match opcode {
             OpCode::Read => "read",
@@ -54,6 +55,7 @@ pub struct Operation<T> {
 
 // Needed for proptesting.
 impl<T> fmt::Debug for Operation<T> {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -73,6 +75,7 @@ impl<T> fmt::Debug for Operation<T> {
 #[allow(clippy::len_without_is_empty)]
 impl<T: Debug> Operation<T> {
     /// Construct a read operation.
+    #[tracing::instrument(level = "debug", ret(skip), skip(fd, addr, len, offset, user_data))]
     pub fn read(fd: FixedFd, addr: usize, len: u32, offset: u64, user_data: T) -> Self {
         Self {
             fd,
@@ -86,6 +89,7 @@ impl<T: Debug> Operation<T> {
     }
 
     /// Construct a write operation.
+    #[tracing::instrument(level = "debug", ret(skip), skip(fd, addr, len, offset, user_data))]
     pub fn write(fd: FixedFd, addr: usize, len: u32, offset: u64, user_data: T) -> Self {
         Self {
             fd,
@@ -99,6 +103,7 @@ impl<T: Debug> Operation<T> {
     }
 
     /// Construct a fsync operation.
+    #[tracing::instrument(level = "debug", ret(skip), skip(fd, user_data))]
     pub fn fsync(fd: FixedFd, user_data: T) -> Self {
         Self {
             fd,
@@ -111,17 +116,20 @@ impl<T: Debug> Operation<T> {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub(crate) fn fd(&self) -> FixedFd {
         self.fd
     }
 
     /// Consumes the operation and returns the associated `user_data`.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn user_data(self) -> T {
         *self.user_data
     }
 
     // Needed for proptesting.
     #[cfg(test)]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub(crate) fn set_linked(&mut self) {
         self.flags |= 1 << bindings::IOSQE_IO_LINK_BIT;
     }
@@ -131,6 +139,7 @@ impl<T: Debug> Operation<T> {
     /// # Safety
     /// Unsafe because we turn the Boxed user_data into a raw pointer contained in the sqe.
     /// It's up to the caller to make sure that this value is freed (not leaked).
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub(crate) unsafe fn into_sqe(self) -> Sqe {
         // Safe because all-zero value is valid. The sqe is made up of integers and raw pointers.
         let mut inner: io_uring_sqe = std::mem::zeroed();

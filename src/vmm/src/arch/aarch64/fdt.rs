@@ -63,6 +63,11 @@ pub enum FdtError {
 }
 
 /// Creates the flattened device tree for this aarch64 microVM.
+#[tracing::instrument(
+    level = "debug",
+    ret(skip),
+    skip(guest_mem, vcpu_mpidr, cmdline, device_info, gic_device, initrd)
+)]
 pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher>(
     guest_mem: &GuestMemoryMmap,
     vcpu_mpidr: Vec<u64>,
@@ -110,6 +115,7 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher
 }
 
 // Following are the auxiliary function for creating the different nodes that we append to our FDT.
+#[tracing::instrument(level = "debug", ret(skip), skip(fdt, vcpu_mpidr))]
 fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<(), FdtError> {
     // Since the L1 caches are not shareable among CPUs and they are direct attributes of the
     // cpu in the device tree, we process the L1 and non-L1 caches separately.
@@ -214,6 +220,7 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<(), FdtEr
     Ok(())
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(fdt, guest_mem))]
 fn create_memory_node(fdt: &mut FdtWriter, guest_mem: &GuestMemoryMmap) -> Result<(), FdtError> {
     let mem_size = guest_mem.last_addr().raw_value() - super::layout::DRAM_MEM_START + 1;
     // See https://github.com/torvalds/linux/blob/master/Documentation/devicetree/booting-without-of.txt#L960
@@ -228,6 +235,7 @@ fn create_memory_node(fdt: &mut FdtWriter, guest_mem: &GuestMemoryMmap) -> Resul
     Ok(())
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(fdt, cmdline, initrd))]
 fn create_chosen_node(
     fdt: &mut FdtWriter,
     cmdline: CString,
@@ -254,6 +262,7 @@ fn create_chosen_node(
     Ok(())
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(fdt, gic_device))]
 fn create_gic_node(fdt: &mut FdtWriter, gic_device: &GICDevice) -> Result<(), FdtError> {
     let interrupt = fdt.begin_node("intc")?;
     fdt.property_string("compatible", gic_device.fdt_compatibility())?;
@@ -280,6 +289,7 @@ fn create_gic_node(fdt: &mut FdtWriter, gic_device: &GICDevice) -> Result<(), Fd
     Ok(())
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(fdt))]
 fn create_clock_node(fdt: &mut FdtWriter) -> Result<(), FdtError> {
     // The Advanced Peripheral Bus (APB) is part of the Advanced Microcontroller Bus Architecture
     // (AMBA) protocol family. It defines a low-cost interface that is optimized for minimal power
@@ -295,6 +305,7 @@ fn create_clock_node(fdt: &mut FdtWriter) -> Result<(), FdtError> {
     Ok(())
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(fdt))]
 fn create_timer_node(fdt: &mut FdtWriter) -> Result<(), FdtError> {
     // See
     // https://github.com/torvalds/linux/blob/master/Documentation/devicetree/bindings/interrupt-controller/arch_timer.txt
@@ -317,6 +328,7 @@ fn create_timer_node(fdt: &mut FdtWriter) -> Result<(), FdtError> {
     Ok(())
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(fdt))]
 fn create_psci_node(fdt: &mut FdtWriter) -> Result<(), FdtError> {
     let compatible = "arm,psci-0.2";
 
@@ -331,6 +343,7 @@ fn create_psci_node(fdt: &mut FdtWriter) -> Result<(), FdtError> {
     Ok(())
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(fdt, dev_info))]
 fn create_virtio_node<T: DeviceInfoForFDT + Clone + Debug>(
     fdt: &mut FdtWriter,
     dev_info: &T,
@@ -349,6 +362,7 @@ fn create_virtio_node<T: DeviceInfoForFDT + Clone + Debug>(
     Ok(())
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(fdt, dev_info))]
 fn create_serial_node<T: DeviceInfoForFDT + Clone + Debug>(
     fdt: &mut FdtWriter,
     dev_info: &T,
@@ -368,6 +382,7 @@ fn create_serial_node<T: DeviceInfoForFDT + Clone + Debug>(
     Ok(())
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(fdt, dev_info))]
 fn create_rtc_node<T: DeviceInfoForFDT + Clone + Debug>(
     fdt: &mut FdtWriter,
     dev_info: &T,
@@ -388,6 +403,7 @@ fn create_rtc_node<T: DeviceInfoForFDT + Clone + Debug>(
     Ok(())
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(fdt, dev_info))]
 fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher>(
     fdt: &mut FdtWriter,
     dev_info: &HashMap<(DeviceType, String), T, S>,
@@ -434,18 +450,22 @@ mod tests {
     }
 
     impl DeviceInfoForFDT for MMIODeviceInfo {
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         fn addr(&self) -> u64 {
             self.addr
         }
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         fn irq(&self) -> u32 {
             self.irq
         }
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         fn length(&self) -> u64 {
             LEN
         }
     }
     // The `load` function from the `device_tree` will mistakenly check the actual size
     // of the buffer with the allocated size. This works around that.
+    #[tracing::instrument(level = "debug", ret(skip), skip(buf, pos, val))]
     fn set_size(buf: &mut [u8], pos: usize, val: usize) {
         buf[pos] = ((val >> 24) & 0xff) as u8;
         buf[pos + 1] = ((val >> 16) & 0xff) as u8;

@@ -84,6 +84,7 @@ pub enum SnapshotMemoryError {
 
 impl SnapshotMemory for GuestMemoryMmap {
     /// Describes GuestMemoryMmap through a GuestMemoryState struct.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn describe(&self) -> GuestMemoryState {
         let mut guest_memory_state = GuestMemoryState::default();
         let mut offset = 0;
@@ -100,6 +101,7 @@ impl SnapshotMemory for GuestMemoryMmap {
     }
 
     /// Dumps all contents of GuestMemoryMmap to a writer.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, writer))]
     fn dump<T: WriteVolatile>(&self, writer: &mut T) -> Result<(), SnapshotMemoryError> {
         self.iter()
             .try_for_each(|region| Ok(writer.write_all_volatile(&region.as_volatile_slice()?)?))
@@ -107,6 +109,7 @@ impl SnapshotMemory for GuestMemoryMmap {
     }
 
     /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writer.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, writer, dirty_bitmap))]
     fn dump_dirty<T: WriteVolatile + std::io::Seek>(
         &self,
         writer: &mut T,
@@ -169,6 +172,7 @@ impl SnapshotMemory for GuestMemoryMmap {
 
     /// Creates a GuestMemoryMmap backed by a `file` if present, otherwise backed
     /// by anonymous memory. Memory layout and ranges are described in `state` param.
+    #[tracing::instrument(level = "debug", ret(skip), skip(file, state, track_dirty_pages))]
     fn restore(
         file: Option<&File>,
         state: &GuestMemoryState,

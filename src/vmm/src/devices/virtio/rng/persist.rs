@@ -24,6 +24,7 @@ pub struct EntropyState {
 pub struct EntropyConstructorArgs(GuestMemoryMmap);
 
 impl EntropyConstructorArgs {
+    #[tracing::instrument(level = "debug", ret(skip), skip(mem))]
     pub fn new(mem: GuestMemoryMmap) -> Self {
         Self(mem)
     }
@@ -41,6 +42,7 @@ impl Persist<'_> for Entropy {
     type ConstructorArgs = EntropyConstructorArgs;
     type Error = EntropyPersistError;
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn save(&self) -> Self::State {
         EntropyState {
             virtio_state: VirtioDeviceState::from_device(self),
@@ -48,6 +50,7 @@ impl Persist<'_> for Entropy {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(constructor_args, state))]
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,

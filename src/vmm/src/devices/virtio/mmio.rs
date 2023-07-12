@@ -59,6 +59,7 @@ pub struct MmioTransport {
 
 impl MmioTransport {
     /// Constructs a new MMIO transport for the given virtio device.
+    #[tracing::instrument(level = "debug", ret(skip), skip(mem, device))]
     pub fn new(mem: GuestMemoryMmap, device: Arc<Mutex<dyn VirtioDevice>>) -> MmioTransport {
         let interrupt_status = device.lock().expect("Poisoned lock").interrupt_status();
 
@@ -74,19 +75,23 @@ impl MmioTransport {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn locked_device(&self) -> MutexGuard<dyn VirtioDevice + 'static> {
         self.device.lock().expect("Poisoned lock")
     }
 
     // Gets the encapsulated VirtioDevice.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn device(&self) -> Arc<Mutex<dyn VirtioDevice>> {
         self.device.clone()
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, set, clr))]
     fn check_device_status(&self, set: u32, clr: u32) -> bool {
         self.device_status & (set | clr) == set
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn are_queues_valid(&self) -> bool {
         self.locked_device()
             .queues()
@@ -94,6 +99,7 @@ impl MmioTransport {
             .all(|q| q.is_valid(&self.mem))
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, d, f))]
     fn with_queue<U, F>(&self, d: U, f: F) -> U
     where
         F: FnOnce(&Queue) -> U,
@@ -109,6 +115,7 @@ impl MmioTransport {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, f))]
     fn with_queue_mut<F: FnOnce(&mut Queue)>(&mut self, f: F) -> bool {
         if let Some(queue) = self
             .locked_device()
@@ -122,6 +129,7 @@ impl MmioTransport {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, f))]
     fn update_queue_field<F: FnOnce(&mut Queue)>(&mut self, f: F) {
         if self.check_device_status(
             device_status::FEATURES_OK,
@@ -136,6 +144,7 @@ impl MmioTransport {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn reset(&mut self) {
         if self.locked_device().is_activated() {
             warn!("reset device while it's still in active state");
@@ -162,6 +171,7 @@ impl MmioTransport {
     /// a device status bit. If the driver sets the FAILED bit, the driver MUST later reset
     /// the device before attempting to re-initialize.
     #[allow(unused_assignments)]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, status))]
     fn set_device_status(&mut self, status: u32) {
         use device_status::*;
         // match changed bits
@@ -218,6 +228,7 @@ impl MmioTransport {
 }
 
 impl MmioTransport {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, offset, data))]
     pub fn bus_read(&mut self, offset: u64, data: &mut [u8]) {
         match offset {
             0x00..=0xff if data.len() == 4 => {
@@ -258,11 +269,14 @@ impl MmioTransport {
         };
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, offset, data))]
     pub fn bus_write(&mut self, offset: u64, data: &[u8]) {
+        #[tracing::instrument(level = "debug", ret(skip), skip(v, x))]
         fn hi(v: &mut GuestAddress, x: u32) {
             *v = (*v & 0xffff_ffff) | (u64::from(x) << 32)
         }
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(v, x))]
         fn lo(v: &mut GuestAddress, x: u32) {
             *v = (*v & !0xffff_ffff) | u64::from(x)
         }
@@ -347,6 +361,7 @@ pub(crate) mod tests {
     }
 
     impl DummyDevice {
+        #[tracing::instrument(level = "debug", ret(skip), skip())]
         pub(crate) fn new() -> Self {
             DummyDevice {
                 acked_features: 0,
@@ -363,68 +378,83 @@ pub(crate) mod tests {
             }
         }
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(self, avail_features))]
         fn set_avail_features(&mut self, avail_features: u64) {
             self.avail_features = avail_features;
         }
     }
 
     impl VirtioDevice for DummyDevice {
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         fn avail_features(&self) -> u64 {
             self.avail_features
         }
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         fn acked_features(&self) -> u64 {
             self.acked_features
         }
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(self, acked_features))]
         fn set_acked_features(&mut self, acked_features: u64) {
             self.acked_features = acked_features;
         }
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         fn device_type(&self) -> u32 {
             123
         }
 
+        #[tracing::instrument(level = "debug", skip(self))]
         fn queues(&self) -> &[Queue] {
             &self.queues
         }
 
+        #[tracing::instrument(level = "debug", skip(self))]
         fn queues_mut(&mut self) -> &mut [Queue] {
             &mut self.queues
         }
 
+        #[tracing::instrument(level = "debug", skip(self))]
         fn queue_events(&self) -> &[EventFd] {
             &self.queue_evts
         }
 
+        #[tracing::instrument(level = "debug", skip(self))]
         fn interrupt_evt(&self) -> &EventFd {
             &self.interrupt_evt
         }
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         fn interrupt_status(&self) -> Arc<AtomicUsize> {
             self.interrupt_status.clone()
         }
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(self, offset, data))]
         fn read_config(&self, offset: u64, data: &mut [u8]) {
             data.copy_from_slice(&self.config_bytes[offset as usize..]);
         }
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(self, offset, data))]
         fn write_config(&mut self, offset: u64, data: &[u8]) {
             for (i, item) in data.iter().enumerate() {
                 self.config_bytes[offset as usize + i] = *item;
             }
         }
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         fn activate(&mut self, _: GuestMemoryMmap) -> Result<(), ActivateError> {
             self.device_activated = true;
             Ok(())
         }
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         fn is_activated(&self) -> bool {
             self.device_activated
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(d, status))]
     fn set_device_status(d: &mut MmioTransport, status: u32) {
         let mut buf = vec![0; 4];
         write_le_u32(&mut buf[..], status);
@@ -795,6 +825,7 @@ pub(crate) mod tests {
         assert_eq!(read_le_u32(&buf[..]), 1);
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(d))]
     fn activate_device(d: &mut MmioTransport) {
         set_device_status(d, device_status::ACKNOWLEDGE);
         set_device_status(d, device_status::ACKNOWLEDGE | device_status::DRIVER);

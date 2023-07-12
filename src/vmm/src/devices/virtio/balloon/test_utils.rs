@@ -12,6 +12,7 @@ use crate::devices::virtio::{
 };
 
 #[cfg(test)]
+#[tracing::instrument(level = "debug", ret(skip), skip(b, queue_index))]
 pub fn invoke_handler_for_queue_event(b: &mut Balloon, queue_index: usize) {
     assert!(queue_index < BALLOON_NUM_QUEUES);
     // Trigger the queue event.
@@ -27,6 +28,7 @@ pub fn invoke_handler_for_queue_event(b: &mut Balloon, queue_index: usize) {
     assert!(b.irq_trigger.has_pending_irq(IrqType::Vring));
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(queue, idx, addr, len, flags))]
 pub fn set_request(queue: &VirtQueue, idx: usize, addr: u64, len: u32, flags: u16) {
     // Set the index of the next request.
     queue.avail.idx.set((idx + 1) as u16);
@@ -36,6 +38,7 @@ pub fn set_request(queue: &VirtQueue, idx: usize, addr: u64, len: u32, flags: u1
     queue.dtable[idx].set(addr, len, flags, 1);
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(queue, idx))]
 pub fn check_request_completion(queue: &VirtQueue, idx: usize) {
     // Check that the next used will be idx + 1.
     assert_eq!(queue.used.idx.get(), (idx + 1) as u16);

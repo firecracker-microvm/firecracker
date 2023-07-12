@@ -53,6 +53,7 @@ pub(crate) struct JsonFile(pub BTreeMap<String, Filter>);
 
 // Implement a custom deserializer, that returns an error for duplicate thread keys.
 impl<'de> Deserialize<'de> for JsonFile {
+    #[tracing::instrument(level = "debug", ret(skip), skip(deserializer))]
     fn deserialize<D>(deserializer: D) -> result::Result<Self, D::Error>
     where
         D: de::Deserializer<'de>,
@@ -63,10 +64,12 @@ impl<'de> Deserialize<'de> for JsonFile {
         impl<'d> Visitor<'d> for JsonFileVisitor {
             type Value = BTreeMap<String, Filter>;
 
+            #[tracing::instrument(level = "debug", ret(skip), skip(self, f))]
             fn expecting(&self, f: &mut fmt::Formatter<'_>) -> result::Result<(), fmt::Error> {
                 f.write_str("a map of filters")
             }
 
+            #[tracing::instrument(level = "debug", ret(skip), skip(self, access))]
             fn visit_map<M>(self, mut access: M) -> result::Result<Self::Value, M::Error>
             where
                 M: MapAccess<'d>,
@@ -101,6 +104,7 @@ pub(crate) struct SyscallRule {
 
 impl SyscallRule {
     /// Perform semantic checks after deserialization.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn validate(&self) -> Result<()> {
         // Validate all `SeccompCondition`s.
         if let Some(conditions) = self.conditions.as_ref() {
@@ -129,6 +133,7 @@ pub(crate) struct Filter {
 
 impl Filter {
     /// Perform semantic checks after deserialization.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn validate(&self) -> Result<()> {
         // Doesn't make sense to have equal default and on-match actions.
         if self.default_action == self.filter_action {
@@ -157,6 +162,7 @@ pub(crate) struct Compiler {
 
 impl Compiler {
     /// Create a new `Compiler` instance, for the given target architecture.
+    #[tracing::instrument(level = "debug", ret(skip), skip(arch))]
     pub fn new(arch: TargetArch) -> Self {
         Self {
             arch,
@@ -165,6 +171,7 @@ impl Compiler {
     }
 
     /// Perform semantic checks after deserialization.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, filters))]
     fn validate_filters(&self, filters: &BTreeMap<String, Filter>) -> Result<()> {
         // Validate all `Filter`s.
         filters
@@ -175,6 +182,7 @@ impl Compiler {
     }
 
     /// Main compilation function.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, filters, is_basic))]
     pub fn compile_blob(
         &self,
         filters: BTreeMap<String, Filter>,
@@ -197,6 +205,7 @@ impl Compiler {
     }
 
     /// Transforms the deserialized `Filter` into a `SeccompFilter` (IR language).
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, filter))]
     fn make_seccomp_filter(&self, filter: Filter) -> Result<SeccompFilter> {
         let mut rule_map: SeccompRuleMap = SeccompRuleMap::new();
         let filter_action = &filter.filter_action;
@@ -223,6 +232,7 @@ impl Compiler {
     /// Transforms the deserialized `Filter` into a basic `SeccompFilter` (IR language).
     /// This filter will drop any argument checks and any rule-level action.
     /// All rules will trigger the filter-level `filter_action`.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, filter))]
     fn make_basic_seccomp_filter(&self, filter: Filter) -> Result<SeccompFilter> {
         let mut rule_map: SeccompRuleMap = SeccompRuleMap::new();
         let filter_action = &filter.filter_action;
@@ -263,6 +273,11 @@ mod tests {
     };
 
     impl Filter {
+        #[tracing::instrument(
+            level = "debug",
+            ret(skip),
+            skip(default_action, filter_action, filter)
+        )]
         pub fn new(
             default_action: SeccompAction,
             filter_action: SeccompAction,
@@ -277,6 +292,7 @@ mod tests {
     }
 
     impl SyscallRule {
+        #[tracing::instrument(level = "debug", ret(skip), skip(syscall, conditions))]
         pub fn new(syscall: String, conditions: Option<Vec<Cond>>) -> SyscallRule {
             SyscallRule {
                 syscall,
@@ -286,10 +302,12 @@ mod tests {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(syscall_number, action))]
     fn match_syscall(syscall_number: i64, action: SeccompAction) -> (i64, Vec<SeccompRule>) {
         (syscall_number, vec![SeccompRule::new(vec![], action)])
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(syscall_number, rules))]
     fn match_syscall_if(syscall_number: i64, rules: Vec<SeccompRule>) -> (i64, Vec<SeccompRule>) {
         (syscall_number, rules)
     }

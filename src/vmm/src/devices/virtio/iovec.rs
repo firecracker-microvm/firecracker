@@ -50,6 +50,7 @@ impl<'a> IovVecSubregion<'a> {
     //
     // If the sub-region is within the range of the buffer, i.e. the offset is not past the end of
     // the buffer, it will return an `IovVecSubregion`.
+    #[tracing::instrument(level = "debug", ret(skip), skip(iovecs, len, offset, size))]
     fn new(iovecs: &'a [iovec], len: usize, mut offset: usize, mut size: usize) -> Option<Self> {
         // Out-of-bounds sub-region
         if offset >= len {
@@ -93,6 +94,7 @@ impl<'a> IovVecSubregion<'a> {
     }
 
     #[cfg(test)]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn len(&self) -> usize {
         self.iovecs.iter().fold(0, |acc, iov| acc + iov.iov_len)
     }
@@ -103,6 +105,7 @@ impl<'a> IntoIterator for IovVecSubregion<'a> {
 
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn into_iter(self) -> Self::IntoIter {
         self.iovecs.into_iter()
     }
@@ -123,6 +126,7 @@ pub(crate) struct IoVecBuffer {
 
 impl IoVecBuffer {
     /// Create an `IoVecBuffer` from a `DescriptorChain`
+    #[tracing::instrument(level = "debug", ret(skip), skip(mem, head))]
     pub fn from_descriptor_chain(
         mem: &GuestMemoryMmap,
         head: DescriptorChain,
@@ -156,21 +160,25 @@ impl IoVecBuffer {
     }
 
     /// Get the total length of the memory regions covered by this `IoVecBuffer`
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn len(&self) -> usize {
         self.len
     }
 
     /// Returns a pointer to the memory keeping the `iovec` structs
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn as_iovec_ptr(&self) -> *const iovec {
         self.vecs.as_ptr()
     }
 
     /// Returns the length of the `iovec` array.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn iovec_count(&self) -> usize {
         self.vecs.len()
     }
 
     /// Get a sub-region of the buffer
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, offset, size))]
     fn sub_region(&self, offset: usize, size: usize) -> Option<IovVecSubregion> {
         IovVecSubregion::new(&self.vecs, self.len, offset, size)
     }
@@ -183,6 +191,7 @@ impl IoVecBuffer {
     /// # Returns
     ///
     /// The number of bytes read (if any)
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, buf, offset))]
     pub fn read_at(&self, buf: &mut [u8], offset: usize) -> Option<usize> {
         self.sub_region(offset, buf.len()).map(|sub_region| {
             let mut bytes = 0;
@@ -228,6 +237,7 @@ pub(crate) struct IoVecBufferMut {
 
 impl IoVecBufferMut {
     /// Create an `IoVecBufferMut` from a `DescriptorChain`
+    #[tracing::instrument(level = "debug", ret(skip), skip(mem, head))]
     pub fn from_descriptor_chain(
         mem: &GuestMemoryMmap,
         head: DescriptorChain,
@@ -262,11 +272,13 @@ impl IoVecBufferMut {
     }
 
     /// Get the total length of the memory regions covered by this `IoVecBuffer`
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn len(&self) -> usize {
         self.len
     }
 
     /// Get a sub-region of the buffer
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, offset, size))]
     fn sub_region(&self, offset: usize, size: usize) -> Option<IovVecSubregion> {
         IovVecSubregion::new(&self.vecs, self.len, offset, size)
     }
@@ -280,6 +292,7 @@ impl IoVecBufferMut {
     /// # Returns
     ///
     /// The number of bytes written (if any)
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, buf, offset))]
     pub fn write_at(&mut self, buf: &[u8], offset: usize) -> Option<usize> {
         self.sub_region(offset, buf.len()).map(|sub_region| {
             let mut bytes = 0;
@@ -321,6 +334,7 @@ mod tests {
     use crate::devices::virtio::test_utils::VirtQueue;
 
     impl<'a> From<&'a [u8]> for IoVecBuffer {
+        #[tracing::instrument(level = "debug", ret(skip), skip(buf))]
         fn from(buf: &'a [u8]) -> Self {
             Self {
                 vecs: vec![iovec {
@@ -333,6 +347,7 @@ mod tests {
     }
 
     impl<'a> From<Vec<&'a [u8]>> for IoVecBuffer {
+        #[tracing::instrument(level = "debug", ret(skip), skip(buffer))]
         fn from(buffer: Vec<&'a [u8]>) -> Self {
             let mut len = 0;
             let vecs = buffer
@@ -351,6 +366,7 @@ mod tests {
     }
 
     impl From<&mut [u8]> for IoVecBufferMut {
+        #[tracing::instrument(level = "debug", ret(skip), skip(buf))]
         fn from(buf: &mut [u8]) -> Self {
             Self {
                 vecs: vec![iovec {
@@ -362,6 +378,7 @@ mod tests {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn default_mem() -> GuestMemoryMmap {
         create_anon_guest_memory(
             &[
@@ -374,6 +391,7 @@ mod tests {
         .unwrap()
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(m, is_write_only))]
     fn chain(m: &GuestMemoryMmap, is_write_only: bool) -> (Queue, VirtQueue) {
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
@@ -398,6 +416,7 @@ mod tests {
         (q, vq)
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(mem))]
     fn read_only_chain(mem: &GuestMemoryMmap) -> (Queue, VirtQueue) {
         let v: Vec<u8> = (0..=255).collect();
         mem.write_slice(&v, GuestAddress(0x20000)).unwrap();
@@ -405,6 +424,7 @@ mod tests {
         chain(mem, false)
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(mem))]
     fn write_only_chain(mem: &GuestMemoryMmap) -> (Queue, VirtQueue) {
         let v = vec![0; 256];
         mem.write_slice(&v, GuestAddress(0x20000)).unwrap();

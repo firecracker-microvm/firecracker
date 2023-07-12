@@ -10,6 +10,7 @@ use crate::arch::aarch64::gic::regs::{GicState, GicVcpuState};
 use crate::arch::aarch64::gic::GicError;
 
 /// Save the state of the GIC device.
+#[tracing::instrument(level = "debug", ret(skip), skip(fd, mpidrs))]
 pub fn save_state(fd: &DeviceFd, mpidrs: &[u64]) -> Result<GicState, GicError> {
     let mut vcpu_states = Vec::with_capacity(mpidrs.len());
     for mpidr in mpidrs {
@@ -26,6 +27,7 @@ pub fn save_state(fd: &DeviceFd, mpidrs: &[u64]) -> Result<GicState, GicError> {
 }
 
 /// Restore the state of the GIC device.
+#[tracing::instrument(level = "debug", ret(skip), skip(fd, mpidrs, state))]
 pub fn restore_state(fd: &DeviceFd, mpidrs: &[u64], state: &GicState) -> Result<(), GicError> {
     dist_regs::set_dist_regs(fd, &state.dist)?;
 

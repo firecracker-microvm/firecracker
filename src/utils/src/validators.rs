@@ -16,6 +16,7 @@ pub enum Error {
 
 /// Checks that the instance id only contains alphanumeric chars and hyphens
 /// and that the size is between 1 and 64 characters.
+#[tracing::instrument(level = "debug", ret(skip), skip(input))]
 pub fn validate_instance_id(input: &str) -> Result<(), Error> {
     if input.len() > MAX_INSTANCE_ID_LEN || input.len() < MIN_INSTANCE_ID_LEN {
         return Err(Error::InvalidLen(

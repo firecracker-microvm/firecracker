@@ -28,6 +28,7 @@ pub enum CacheTypeState {
 }
 
 impl From<CacheType> for CacheTypeState {
+    #[tracing::instrument(level = "debug", ret(skip), skip(cache_type))]
     fn from(cache_type: CacheType) -> Self {
         match cache_type {
             CacheType::Unsafe => CacheTypeState::Unsafe,
@@ -37,6 +38,7 @@ impl From<CacheType> for CacheTypeState {
 }
 
 impl From<CacheTypeState> for CacheType {
+    #[tracing::instrument(level = "debug", ret(skip), skip(cache_type_state))]
     fn from(cache_type_state: CacheTypeState) -> Self {
         match cache_type_state {
             CacheTypeState::Unsafe => CacheType::Unsafe,
@@ -56,6 +58,7 @@ pub enum FileEngineTypeState {
 }
 
 impl From<FileEngineType> for FileEngineTypeState {
+    #[tracing::instrument(level = "debug", ret(skip), skip(file_engine_type))]
     fn from(file_engine_type: FileEngineType) -> Self {
         match file_engine_type {
             FileEngineType::Sync => FileEngineTypeState::Sync,
@@ -65,6 +68,7 @@ impl From<FileEngineType> for FileEngineTypeState {
 }
 
 impl From<FileEngineTypeState> for FileEngineType {
+    #[tracing::instrument(level = "debug", ret(skip), skip(file_engine_type_state))]
     fn from(file_engine_type_state: FileEngineTypeState) -> Self {
         match file_engine_type_state {
             FileEngineTypeState::Sync => FileEngineType::Sync,
@@ -96,6 +100,7 @@ pub struct BlockState {
 }
 
 impl BlockState {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, target_version))]
     fn block_cache_type_ser(&mut self, target_version: u16) -> VersionizeResult<()> {
         if target_version < 3 && self.cache_type != CacheTypeState::Unsafe {
             warn!(
@@ -107,6 +112,7 @@ impl BlockState {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(_source_version))]
     fn default_cache_type_flush(_source_version: u16) -> CacheTypeState {
         CacheTypeState::Unsafe
     }
@@ -122,6 +128,7 @@ impl Persist<'_> for Block {
     type ConstructorArgs = BlockConstructorArgs;
     type Error = BlockError;
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn save(&self) -> Self::State {
         // Save device state.
         BlockState {
@@ -136,6 +143,7 @@ impl Persist<'_> for Block {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(constructor_args, state))]
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,

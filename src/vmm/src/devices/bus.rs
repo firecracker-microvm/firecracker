@@ -24,18 +24,21 @@ struct BusRange(u64, u64);
 impl Eq for BusRange {}
 
 impl PartialEq for BusRange {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, other))]
     fn eq(&self, other: &BusRange) -> bool {
         self.0 == other.0
     }
 }
 
 impl Ord for BusRange {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, other))]
     fn cmp(&self, other: &BusRange) -> Ordering {
         self.0.cmp(&other.0)
     }
 }
 
 impl PartialOrd for BusRange {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, other))]
     fn partial_cmp(&self, other: &BusRange) -> Option<Ordering> {
         self.0.partial_cmp(&other.0)
     }
@@ -78,7 +81,9 @@ pub struct DummyDevice;
 
 #[cfg(test)]
 impl DummyDevice {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, _offset, _data))]
     pub fn bus_write(&mut self, _offset: u64, _data: &[u8]) {}
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, _offset, _data))]
     pub fn bus_read(&mut self, _offset: u64, _data: &[u8]) {}
 }
 
@@ -88,12 +93,14 @@ pub struct ConstantDevice;
 
 #[cfg(test)]
 impl ConstantDevice {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, offset, data))]
     pub fn bus_read(&mut self, offset: u64, data: &mut [u8]) {
         for (i, v) in data.iter_mut().enumerate() {
             *v = (offset as u8) + (i as u8);
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, offset, data))]
     fn bus_write(&mut self, offset: u64, data: &[u8]) {
         for (i, v) in data.iter().enumerate() {
             assert_eq!(*v, (offset as u8) + (i as u8))
@@ -102,6 +109,7 @@ impl ConstantDevice {
 }
 
 impl BusDevice {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn i8042_device_ref(&self) -> Option<&I8042Device> {
         match self {
             Self::I8042Device(x) => Some(x),
@@ -109,24 +117,28 @@ impl BusDevice {
         }
     }
     #[cfg(target_arch = "aarch64")]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn rtc_device_ref(&self) -> Option<&RTCDevice> {
         match self {
             Self::RTCDevice(x) => Some(x),
             _ => None,
         }
     }
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn boot_timer_ref(&self) -> Option<&BootTimer> {
         match self {
             Self::BootTimer(x) => Some(x),
             _ => None,
         }
     }
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn mmio_transport_ref(&self) -> Option<&MmioTransport> {
         match self {
             Self::MmioTransport(x) => Some(x),
             _ => None,
         }
     }
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn serial_ref(&self) -> Option<&SerialDevice<std::io::Stdin>> {
         match self {
             Self::Serial(x) => Some(x),
@@ -134,6 +146,7 @@ impl BusDevice {
         }
     }
 
+    #[tracing::instrument(level = "debug", skip(self))]
     pub fn i8042_device_mut(&mut self) -> Option<&mut I8042Device> {
         match self {
             Self::I8042Device(x) => Some(x),
@@ -141,24 +154,28 @@ impl BusDevice {
         }
     }
     #[cfg(target_arch = "aarch64")]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn rtc_device_mut(&mut self) -> Option<&mut RTCDevice> {
         match self {
             Self::RTCDevice(x) => Some(x),
             _ => None,
         }
     }
+    #[tracing::instrument(level = "debug", skip(self))]
     pub fn boot_timer_mut(&mut self) -> Option<&mut BootTimer> {
         match self {
             Self::BootTimer(x) => Some(x),
             _ => None,
         }
     }
+    #[tracing::instrument(level = "debug", skip(self))]
     pub fn mmio_transport_mut(&mut self) -> Option<&mut MmioTransport> {
         match self {
             Self::MmioTransport(x) => Some(x),
             _ => None,
         }
     }
+    #[tracing::instrument(level = "debug", skip(self))]
     pub fn serial_mut(&mut self) -> Option<&mut SerialDevice<std::io::Stdin>> {
         match self {
             Self::Serial(x) => Some(x),
@@ -166,6 +183,7 @@ impl BusDevice {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, offset, data))]
     pub fn read(&mut self, offset: u64, data: &mut [u8]) {
         match self {
             Self::I8042Device(x) => x.bus_read(offset, data),
@@ -181,6 +199,7 @@ impl BusDevice {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, offset, data))]
     pub fn write(&mut self, offset: u64, data: &[u8]) {
         match self {
             Self::I8042Device(x) => x.bus_write(offset, data),
@@ -198,12 +217,14 @@ impl BusDevice {
 }
 
 impl MutEventSubscriber for BusDevice {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, event, ops))]
     fn process(&mut self, event: Events, ops: &mut EventOps) {
         match self {
             Self::Serial(serial) => serial.process(event, ops),
             _ => panic!(),
         }
     }
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, ops))]
     fn init(&mut self, ops: &mut EventOps) {
         match self {
             Self::Serial(serial) => serial.init(ops),
@@ -214,12 +235,14 @@ impl MutEventSubscriber for BusDevice {
 
 impl Bus {
     /// Constructs an a bus with an empty address space.
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     pub fn new() -> Bus {
         Bus {
             devices: BTreeMap::new(),
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, addr))]
     fn first_before(&self, addr: u64) -> Option<(BusRange, &Mutex<BusDevice>)> {
         // for when we switch to rustc 1.17: self.devices.range(..addr).iter().rev().next()
         for (range, dev) in self.devices.iter().rev() {
@@ -230,6 +253,7 @@ impl Bus {
         None
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, addr))]
     pub fn get_device(&self, addr: u64) -> Option<(u64, &Mutex<BusDevice>)> {
         if let Some((BusRange(start, len), dev)) = self.first_before(addr) {
             let offset = addr - start;
@@ -241,6 +265,7 @@ impl Bus {
     }
 
     /// Puts the given device at the given address space.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, device, base, len))]
     pub fn insert(
         &mut self,
         device: Arc<Mutex<BusDevice>>,
@@ -278,6 +303,7 @@ impl Bus {
     /// Reads data from the device that owns the range containing `addr` and puts it into `data`.
     ///
     /// Returns true on success, otherwise `data` is untouched.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, addr, data))]
     pub fn read(&self, addr: u64, data: &mut [u8]) -> bool {
         if let Some((offset, dev)) = self.get_device(addr) {
             // OK to unwrap as lock() failing is a serious error condition and should panic.
@@ -293,6 +319,7 @@ impl Bus {
     /// Writes `data` to the device that owns the range containing `addr`.
     ///
     /// Returns true on success, otherwise `data` is untouched.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, addr, data))]
     pub fn write(&self, addr: u64, data: &[u8]) -> bool {
         if let Some((offset, dev)) = self.get_device(addr) {
             // OK to unwrap as lock() failing is a serious error condition and should panic.

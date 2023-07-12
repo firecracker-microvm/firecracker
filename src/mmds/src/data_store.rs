@@ -28,6 +28,7 @@ pub enum MmdsVersion {
 }
 
 impl Display for MmdsVersion {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, f))]
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             MmdsVersion::V1 => write!(f, "V1"),
@@ -59,12 +60,14 @@ pub enum Error {
 
 // Used for ease of use in tests.
 impl Default for Mmds {
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn default() -> Self {
         Self::default_with_limit(51200)
     }
 }
 
 impl Mmds {
+    #[tracing::instrument(level = "debug", ret(skip), skip(data_store_limit))]
     pub fn default_with_limit(data_store_limit: usize) -> Self {
         Mmds {
             data_store: Value::default(),
@@ -77,6 +80,7 @@ impl Mmds {
     /// This method is needed to check if data store is initialized.
     /// When a PATCH request is made on an uninitialized Mmds structure this method
     /// should return a NotFound error.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn check_data_store_initialized(&self) -> Result<(), Error> {
         if self.is_initialized {
             Ok(())
@@ -86,6 +90,7 @@ impl Mmds {
     }
 
     /// Set the MMDS version.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, version))]
     pub fn set_version(&mut self, version: MmdsVersion) -> Result<(), Error> {
         match version {
             MmdsVersion::V1 => {
@@ -102,6 +107,7 @@ impl Mmds {
     }
 
     /// Return the MMDS version by checking the token authority field.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn version(&self) -> MmdsVersion {
         if self.token_authority.is_none() {
             MmdsVersion::V1
@@ -112,6 +118,7 @@ impl Mmds {
 
     /// Sets the Additional Authenticated Data to be used for encryption and
     /// decryption of the session token when MMDS version 2 is enabled.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, instance_id))]
     pub fn set_aad(&mut self, instance_id: &str) {
         if let Some(ta) = self.token_authority.as_mut() {
             ta.set_aad(instance_id);
@@ -119,6 +126,7 @@ impl Mmds {
     }
 
     /// Checks if the provided token has not expired.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, token))]
     pub fn is_valid_token(&self, token: &str) -> Result<bool, TokenError> {
         self.token_authority
             .as_ref()
@@ -127,6 +135,7 @@ impl Mmds {
     }
 
     /// Generate a new Mmds token using the token authority.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, ttl_seconds))]
     pub fn generate_token(&mut self, ttl_seconds: u32) -> Result<String, TokenError> {
         self.token_authority
             .as_mut()
@@ -134,10 +143,12 @@ impl Mmds {
             .and_then(|ta| ta.generate_token_secret(ttl_seconds))
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, data_store_limit))]
     pub fn set_data_store_limit(&mut self, data_store_limit: usize) {
         self.data_store_limit = data_store_limit;
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, data))]
     pub fn put_data(&mut self, data: Value) -> Result<(), Error> {
         // It is safe to unwrap because any map keys are all strings and
         // we are using default serializer which does not return error.
@@ -151,6 +162,7 @@ impl Mmds {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, patch_data))]
     pub fn patch_data(&mut self, patch_data: Value) -> Result<(), Error> {
         self.check_data_store_initialized()?;
         let mut data_store_clone = self.data_store.clone();
@@ -168,6 +180,7 @@ impl Mmds {
     // We do not check size of data_store before returning a result because due
     // to limit from put/patch the data_store can not be bigger than the limit
     // imposed by the server.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn data_store_value(&self) -> Value {
         self.data_store.clone()
     }
@@ -209,6 +222,7 @@ impl Mmds {
     /// ```
     ///
     /// If the `serde_json::Value` is not supported, an `UnsupportedValueType` error is returned.
+    #[tracing::instrument(level = "debug", ret(skip), skip(json))]
     fn format_imds(json: &Value) -> Result<String, Error> {
         // If the `dict` is Value::Null, Error::NotFound is thrown.
         // If the `dict` is not a dictionary, a Vec with the value corresponding to
@@ -242,6 +256,7 @@ impl Mmds {
 
     /// Returns the subtree located at path. When the path corresponds to a leaf, it returns the
     /// value. Returns Error::NotFound when the path is invalid.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, path, format))]
     pub fn get_value(&self, path: String, format: OutputFormat) -> Result<String, Error> {
         // The pointer function splits the input by "/". With a trailing "/", pointer does not
         // know how to get the object.
@@ -267,6 +282,7 @@ mod tests {
     use super::*;
 
     impl Mmds {
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         pub fn get_data_str(&self) -> String {
             if self.data_store.is_null() {
                 return String::from("{}");

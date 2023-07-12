@@ -40,6 +40,7 @@ impl<B> Vsock<B>
 where
     B: Debug + VsockBackend + 'static,
 {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, evset))]
     pub fn handle_rxq_event(&mut self, evset: EventSet) -> bool {
         debug!("vsock: RX queue event");
 
@@ -60,6 +61,7 @@ where
         raise_irq
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, evset))]
     pub fn handle_txq_event(&mut self, evset: EventSet) -> bool {
         debug!("vsock: TX queue event");
 
@@ -86,6 +88,7 @@ where
         raise_irq
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, evset))]
     pub fn handle_evq_event(&mut self, evset: EventSet) -> bool {
         debug!("vsock: event queue event");
 
@@ -102,6 +105,7 @@ where
         false
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, evset))]
     pub fn notify_backend(&mut self, evset: EventSet) -> bool {
         debug!("vsock: backend event");
 
@@ -118,6 +122,7 @@ where
         raise_irq
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, ops))]
     fn register_runtime_events(&self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::new(&self.queue_events[RXQ_INDEX], EventSet::IN)) {
             error!("Failed to register rx queue event: {}", err);
@@ -133,12 +138,14 @@ where
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, ops))]
     fn register_activate_event(&self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::new(&self.activate_evt, EventSet::IN)) {
             error!("Failed to register activate event: {}", err);
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, ops))]
     fn handle_activate_event(&self, ops: &mut EventOps) {
         debug!("vsock: activate event");
         if let Err(err) = self.activate_evt.read() {
@@ -155,6 +162,7 @@ impl<B> MutEventSubscriber for Vsock<B>
 where
     B: Debug + VsockBackend + 'static,
 {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, event, ops))]
     fn process(&mut self, event: Events, ops: &mut EventOps) {
         let source = event.fd();
         let evset = event.event_set();
@@ -189,6 +197,7 @@ where
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, ops))]
     fn init(&mut self, ops: &mut EventOps) {
         // This function can be called during different points in the device lifetime:
         //  - shortly after device creation,
@@ -411,6 +420,7 @@ mod tests {
     // function for testing error cases, so the asserts always expect is_err() to be true. When
     // desc_idx = 0 we are altering the header (first descriptor in the chain), and when
     // desc_idx = 1 we are altering the packet buffer.
+    #[tracing::instrument(level = "debug", ret(skip), skip(test_ctx, desc_idx, addr, len))]
     fn vsock_bof_helper(test_ctx: &mut TestContext, desc_idx: usize, addr: u64, len: u32) {
         use utils::vm_memory::GuestAddress;
 

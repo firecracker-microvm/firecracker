@@ -56,6 +56,7 @@ const FOLDER_PERMISSIONS: u32 = 0o700;
 const PID_FILE_EXTENSION: &str = ".pid";
 
 // Helper function, since we'll use libc::dup2 a bunch of times for daemonization.
+#[tracing::instrument(level = "debug", ret(skip), skip(old_fd, new_fd))]
 fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
     // SAFETY: This is safe because we are using a library function with valid parameters.
     SyscallReturnCode(unsafe { libc::dup2(old_fd, new_fd) })
@@ -68,6 +69,7 @@ fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
 // not use the CLONE_VM flag, this will result with the original stack replicated, in a similar
 // manner to the fork syscall. The libc wrapper prevents use of a NULL stack pointer, so we will
 // call the syscall directly.
+#[tracing::instrument(level = "debug", ret(skip), skip(child_stack, flags))]
 fn clone(child_stack: *mut libc::c_void, flags: libc::c_int) -> Result<libc::c_int> {
     // Clone parameters order is different between x86_64 and aarch64.
     #[cfg(target_arch = "x86_64")]
@@ -104,6 +106,7 @@ pub struct Env {
 }
 
 impl fmt::Debug for Env {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Env")
             .field("id", &self.id)
@@ -131,6 +134,11 @@ impl fmt::Debug for Env {
 }
 
 impl Env {
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(arguments, start_time_us, start_time_cpu_us)
+    )]
     pub fn new(
         arguments: &arg_parser::Arguments,
         start_time_us: u64,
@@ -253,18 +261,22 @@ impl Env {
         })
     }
 
+    #[tracing::instrument(level = "debug", skip(self))]
     pub fn chroot_dir(&self) -> &Path {
         self.chroot_dir.as_path()
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn gid(&self) -> u32 {
         self.gid
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn uid(&self) -> u32 {
         self.uid
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(exec_file))]
     fn validate_exec_file(exec_file: &str) -> Result<(PathBuf, String)> {
         let exec_file_path = canonicalize(exec_file)
             .map_err(|err| Error::Canonicalize(PathBuf::from(exec_file), err))?;
@@ -288,6 +300,7 @@ impl Env {
         Ok((exec_file_path, exec_file_name))
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(resource_limits, args))]
     fn parse_resource_limits(resource_limits: &mut ResourceLimits, args: &[String]) -> Result<()> {
         for arg in args {
             let (name, value) = arg
@@ -306,6 +319,7 @@ impl Env {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, chroot_exec_file))]
     fn exec_into_new_pid_ns(&mut self, chroot_exec_file: PathBuf) -> Result<()> {
         // Compute jailer's total CPU time up to the current time.
         self.jailer_cpu_time_us =
@@ -332,6 +346,7 @@ impl Env {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, pid, chroot_exec_file))]
     fn save_exec_file_pid(&mut self, pid: i32, chroot_exec_file: PathBuf) -> Result<()> {
         let chroot_exec_file_str = chroot_exec_file
             .to_str()
@@ -348,6 +363,11 @@ impl Env {
         write!(pid_file, "{}", pid).map_err(|err| Error::Write(pid_file_path, err))
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(self, dev_path_str, dev_major, dev_minor)
+    )]
     fn mknod_and_own_dev(
         &self,
         dev_path_str: &'static [u8],
@@ -384,6 +404,7 @@ impl Env {
             .map_err(|err| Error::ChangeFileOwner(PathBuf::from(dev_path.to_str().unwrap()), err))
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, folder))]
     fn setup_jailed_folder(&self, folder: &[u8]) -> Result<()> {
         let folder_cstr = CStr::from_bytes_with_nul(folder).map_err(Error::FromBytesWithNul)?;
 
@@ -404,6 +425,7 @@ impl Env {
             .map_err(|err| Error::ChangeFileOwner(path_buf, err))
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn copy_exec_to_chroot(&mut self) -> Result<OsString> {
         let exec_file_name = self
             .exec_file_path
@@ -432,6 +454,7 @@ impl Env {
         Ok(exec_file_name.to_os_string())
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(path))]
     fn join_netns(path: &str) -> Result<()> {
         // The fd backing the file will be automatically dropped at the end of the scope
         let netns = File::open(path).map_err(|err| Error::FileOpen(PathBuf::from(path), err))?;
@@ -442,6 +465,7 @@ impl Env {
             .map_err(Error::SetNetNs)
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, chroot_exec_file))]
     fn exec_command(&self, chroot_exec_file: PathBuf) -> io::Error {
         Command::new(chroot_exec_file)
             .args(["--id", &self.id])
@@ -458,6 +482,7 @@ impl Env {
     }
 
     #[cfg(target_arch = "aarch64")]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn copy_cache_info(&self) -> Result<()> {
         use crate::{readln_special, to_cstring, writeln_special};
 
@@ -519,6 +544,7 @@ impl Env {
     }
 
     #[cfg(target_arch = "aarch64")]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn copy_midr_el1_info(&self) -> Result<()> {
         use crate::{readln_special, to_cstring, writeln_special};
 
@@ -546,6 +572,7 @@ impl Env {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn run(mut self) -> Result<()> {
         let exec_file_name = self.copy_exec_to_chroot()?;
         let chroot_exec_file = PathBuf::from("/").join(exec_file_name);
@@ -669,6 +696,7 @@ mod tests {
     }
 
     impl ArgVals<'_> {
+        #[tracing::instrument(level = "debug", ret(skip), skip())]
         pub fn new() -> ArgVals<'static> {
             File::create(PSEUDO_EXEC_FILE_PATH).unwrap();
             ArgVals {
@@ -687,6 +715,7 @@ mod tests {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(arg_vals))]
     fn make_args(arg_vals: &ArgVals) -> Vec<String> {
         let mut arg_vec = vec![
             "--binary-name",
@@ -738,14 +767,17 @@ mod tests {
         arg_vec
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(dev))]
     fn get_major(dev: u64) -> u32 {
         unsafe { libc::major(dev) }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(dev))]
     fn get_minor(dev: u64) -> u32 {
         unsafe { libc::minor(dev) }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn create_env() -> Env {
         // Create a standard environment.
         let arg_parser = build_arg_parser();

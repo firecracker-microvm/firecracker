@@ -35,11 +35,13 @@ pub trait ByteBuffer: Index<usize, Output = u8> {
 
 impl ByteBuffer for [u8] {
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn len(&self) -> usize {
         self.len()
     }
 
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, offset, buf))]
     fn read_to_slice(&self, offset: usize, buf: &mut [u8]) {
         let buf_len = buf.len();
         buf.copy_from_slice(&self[offset..offset + buf_len]);
@@ -52,14 +54,17 @@ mod tests {
 
     use super::*;
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(buf))]
     fn bb_len<T: ByteBuffer + ?Sized + Debug>(buf: &T) -> usize {
         buf.len()
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(buf))]
     fn bb_is_empty<T: ByteBuffer + ?Sized + Debug>(buf: &T) -> bool {
         buf.len() == 0
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(src, dst))]
     fn bb_read_from_1<T: ByteBuffer + ?Sized + Debug>(src: &T, dst: &mut [u8]) {
         src.read_to_slice(1, dst);
     }

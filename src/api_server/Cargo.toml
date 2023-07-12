@@ -21,7 +21,7 @@ mmds = { path = "../mmds" }
 seccompiler = { path = "../seccompiler" }
 utils = { path = "../utils" }
 vmm = { path = "../vmm" }
-tracing = { version = "0.1.37", features = ["attributes"] }
+tracing = { git = "https://github.com/JonathanWoollett-Light/tracing", rev = "9b13dbf9ab6022bdcd0c6800d8d77767ccc67348", features = ["attributes"] }
 
 [dev-dependencies]
 libc = "0.2.117"

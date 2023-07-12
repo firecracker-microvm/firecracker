@@ -31,6 +31,7 @@ pub struct NetworkInterfaceConfig {
 }
 
 impl From<&Net> for NetworkInterfaceConfig {
+    #[tracing::instrument(level = "debug", ret(skip), skip(net))]
     fn from(net: &Net) -> Self {
         let rx_rl: RateLimiterConfig = net.rx_rate_limiter().into();
         let tx_rl: RateLimiterConfig = net.tx_rate_limiter().into();
@@ -87,6 +88,7 @@ pub struct NetBuilder {
 
 impl NetBuilder {
     /// Creates an empty list of Network Devices.
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     pub fn new() -> Self {
         NetBuilder {
             /// List of built network devices.
@@ -95,22 +97,26 @@ impl NetBuilder {
     }
 
     /// Returns a immutable iterator over the network devices.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn iter(&self) -> ::std::slice::Iter<Arc<Mutex<Net>>> {
         self.net_devices.iter()
     }
 
     /// Returns a mutable iterator over the network devices.
+    #[tracing::instrument(level = "debug", skip(self))]
     pub fn iter_mut(&mut self) -> ::std::slice::IterMut<Arc<Mutex<Net>>> {
         self.net_devices.iter_mut()
     }
 
     /// Adds an existing network device in the builder.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, device))]
     pub fn add_device(&mut self, device: Arc<Mutex<Net>>) {
         self.net_devices.push(device);
     }
 
     /// Builds a network device based on a network interface config. Keeps a device reference
     /// in the builder's internal list.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, netif_config))]
     pub fn build(
         &mut self,
         netif_config: NetworkInterfaceConfig,
@@ -148,6 +154,7 @@ impl NetBuilder {
     }
 
     /// Creates a Net device from a NetworkInterfaceConfig.
+    #[tracing::instrument(level = "debug", ret(skip), skip(cfg))]
     pub fn create_net(cfg: NetworkInterfaceConfig) -> Result<Net, NetworkInterfaceError> {
         let rx_rate_limiter = cfg
             .rx_rate_limiter
@@ -172,6 +179,7 @@ impl NetBuilder {
     }
 
     /// Returns a vec with the structures used to configure the net devices.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn configs(&self) -> Vec<NetworkInterfaceConfig> {
         let mut ret = vec![];
         for net in &self.net_devices {
@@ -190,15 +198,18 @@ mod tests {
     use super::*;
 
     impl NetBuilder {
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         pub fn len(&self) -> usize {
             self.net_devices.len()
         }
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         pub fn is_empty(&self) -> bool {
             self.net_devices.len() == 0
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(id, name, mac))]
     fn create_netif(id: &str, name: &str, mac: &str) -> NetworkInterfaceConfig {
         NetworkInterfaceConfig {
             iface_id: String::from(id),
@@ -210,6 +221,7 @@ mod tests {
     }
 
     impl Clone for NetworkInterfaceConfig {
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         fn clone(&self) -> Self {
             NetworkInterfaceConfig {
                 iface_id: self.iface_id.clone(),

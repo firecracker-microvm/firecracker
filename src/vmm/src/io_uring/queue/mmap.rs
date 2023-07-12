@@ -12,6 +12,7 @@ pub enum MmapError {
     BuildMmapRegion(MmapRegionError),
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(size, fd, offset))]
 pub(crate) fn mmap(size: usize, fd: RawFd, offset: i64) -> Result<MmapRegion, MmapError> {
     let prot = libc::PROT_READ | libc::PROT_WRITE;
     let flags = libc::MAP_SHARED | libc::MAP_POPULATE;

@@ -38,6 +38,7 @@ pub trait RawIOHandler {
 
 impl<EV: SerialEvents + Debug, W: Write + Debug> RawIOHandler for Serial<EventFdTrigger, EV, W> {
     // This is not used for anything and is basically just a dummy implementation for `raw_input`.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, data))]
     fn raw_input(&mut self, data: &[u8]) -> Result<(), RawIOError> {
         // Fail fast if the serial is serviced with more data than it can buffer.
         if data.len() > self.fifo_capacity() {
@@ -61,18 +62,22 @@ pub struct SerialEventsWrapper {
 }
 
 impl SerialEvents for SerialEventsWrapper {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn buffer_read(&self) {
         METRICS.uart.read_count.inc();
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn out_byte(&self) {
         METRICS.uart.write_count.inc();
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn tx_lost_byte(&self) {
         METRICS.uart.missed_write_count.inc();
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn in_buffer_empty(&self) {
         match self
             .buffer_ready_event_fd
@@ -94,12 +99,14 @@ pub enum SerialOut {
     Stdout(std::io::Stdout),
 }
 impl std::io::Write for SerialOut {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, buf))]
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         match self {
             Self::Sink(sink) => sink.write(buf),
             Self::Stdout(stdout) => stdout.write(buf),
         }
     }
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn flush(&mut self) -> std::io::Result<()> {
         match self {
             Self::Sink(sink) => sink.flush(),
@@ -118,6 +125,7 @@ pub struct SerialWrapper<T: Trigger, EV: SerialEvents, I: Read + AsRawFd + Send>
 }
 
 impl<I: Read + AsRawFd + Send + Debug> SerialWrapper<EventFdTrigger, SerialEventsWrapper, I> {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, ops))]
     fn handle_ewouldblock(&self, ops: &mut EventOps) {
         let buffer_ready_fd = self.buffer_ready_evt_fd();
         let input_fd = self.serial_input_fd();
@@ -140,6 +148,7 @@ impl<I: Read + AsRawFd + Send + Debug> SerialWrapper<EventFdTrigger, SerialEvent
         };
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn recv_bytes(&mut self) -> io::Result<usize> {
         let avail_cap = self.serial.fifo_capacity();
         if avail_cap == 0 {
@@ -162,6 +171,7 @@ impl<I: Read + AsRawFd + Send + Debug> SerialWrapper<EventFdTrigger, SerialEvent
     }
 
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn buffer_ready_evt_fd(&self) -> RawFd {
         self.serial
             .events()
@@ -171,10 +181,12 @@ impl<I: Read + AsRawFd + Send + Debug> SerialWrapper<EventFdTrigger, SerialEvent
     }
 
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn serial_input_fd(&self) -> RawFd {
         self.input.as_ref().map_or(-1, |input| input.as_raw_fd())
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn consume_buffer_ready_event(&self) -> io::Result<u64> {
         self.serial
             .events()
@@ -191,8 +203,10 @@ impl<I: Read + AsRawFd + Send + Debug> MutEventSubscriber
     for SerialWrapper<EventFdTrigger, SerialEventsWrapper, I>
 {
     /// Handle events on the serial input fd.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, event, ops))]
     fn process(&mut self, event: Events, ops: &mut EventOps) {
         #[inline]
+        #[tracing::instrument(level = "debug", ret(skip), skip(ops, source))]
         fn unregister_source<T: AsRawFd + Debug>(ops: &mut EventOps, source: &T) {
             match ops.remove(Events::new(source, EventSet::IN)) {
                 Ok(_) => (),
@@ -261,6 +275,7 @@ impl<I: Read + AsRawFd + Send + Debug> MutEventSubscriber
 
     /// Initial registration of pollable objects.
     /// If serial input is present, register the serial input FD as readable.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, ops))]
     fn init(&mut self, ops: &mut EventOps) {
         if self.input.is_some() && self.serial.events().buffer_ready_event_fd.is_some() {
             let serial_fd = self.serial_input_fd();
@@ -280,6 +295,7 @@ impl<I: Read + AsRawFd + Send + Debug> MutEventSubscriber
 impl<I: Read + AsRawFd + Send + Debug + 'static>
     SerialWrapper<EventFdTrigger, SerialEventsWrapper, I>
 {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, offset, data))]
     pub fn bus_read(&mut self, offset: u64, data: &mut [u8]) {
         if data.len() != 1 {
             METRICS.uart.missed_read_count.inc();
@@ -288,6 +304,7 @@ impl<I: Read + AsRawFd + Send + Debug + 'static>
         data[0] = self.serial.read(offset as u8);
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, offset, data))]
     pub fn bus_write(&mut self, offset: u64, data: &[u8]) {
         if data.len() != 1 {
             METRICS.uart.missed_write_count.inc();

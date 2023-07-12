@@ -12,6 +12,7 @@ pub struct BootTimer {
 }
 
 impl BootTimer {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, offset, data))]
     pub fn bus_write(&mut self, offset: u64, data: &[u8]) {
         // Only handle byte length instructions at a zero offset.
         if data.len() != 1 || offset != 0 {
@@ -32,10 +33,12 @@ impl BootTimer {
             );
         }
     }
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, _offset, _data))]
     pub fn bus_read(&mut self, _offset: u64, _data: &[u8]) {}
 }
 
 impl BootTimer {
+    #[tracing::instrument(level = "debug", ret(skip), skip(start_ts))]
     pub fn new(start_ts: TimestampUs) -> BootTimer {
         BootTimer { start_ts }
     }

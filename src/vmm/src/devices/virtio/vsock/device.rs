@@ -77,6 +77,7 @@ impl<B> Vsock<B>
 where
     B: VsockBackend + Debug,
 {
+    #[tracing::instrument(level = "debug", ret(skip), skip(cid, backend, queues))]
     pub fn with_queues(
         cid: u64,
         backend: B,
@@ -101,6 +102,7 @@ where
     }
 
     /// Create a new virtio-vsock device with the given VM CID and vsock backend.
+    #[tracing::instrument(level = "debug", ret(skip), skip(cid, backend))]
     pub fn new(cid: u64, backend: B) -> Result<Vsock<B>, VsockError> {
         let queues: Vec<VirtQueue> = defs::VSOCK_QUEUE_SIZES
             .iter()
@@ -109,20 +111,24 @@ where
         Self::with_queues(cid, backend, queues)
     }
 
+    #[tracing::instrument(level = "debug", skip(self))]
     pub fn id(&self) -> &str {
         defs::VSOCK_DEV_ID
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn cid(&self) -> u64 {
         self.cid
     }
 
+    #[tracing::instrument(level = "debug", skip(self))]
     pub fn backend(&self) -> &B {
         &self.backend
     }
 
     /// Signal the guest driver that we've used some virtio buffers that it had previously made
     /// available.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn signal_used_queue(&self) -> Result<(), DeviceError> {
         debug!("vsock: raising IRQ");
         self.irq_trigger
@@ -133,6 +139,7 @@ where
     /// Walk the driver-provided RX queue buffers and attempt to fill them up with any data that we
     /// have pending. Return `true` if descriptors have been added to the used ring, and `false`
     /// otherwise.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn process_rx(&mut self) -> bool {
         debug!("vsock: process_rx()");
         // This is safe since we checked in the event handler that the device is activated.
@@ -186,6 +193,7 @@ where
     /// Walk the driver-provided TX queue buffers, package them up as vsock packets, and send them
     /// to the backend for processing. Return `true` if descriptors have been added to the used
     /// ring, and `false` otherwise.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn process_tx(&mut self) -> bool {
         debug!("vsock::process_tx()");
         // This is safe since we checked in the event handler that the device is activated.
@@ -227,6 +235,7 @@ where
     // Send TRANSPORT_RESET_EVENT to driver. According to specs, the driver shuts down established
     // connections and the guest_cid configuration field is fetched again. Existing listen sockets
     // remain but their CID is updated to reflect the current guest_cid.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn send_transport_reset_event(&mut self) -> Result<(), DeviceError> {
         // This is safe since we checked in the caller function that the device is activated.
         let mem = self.device_state.mem().unwrap();
@@ -255,42 +264,52 @@ impl<B> VirtioDevice for Vsock<B>
 where
     B: VsockBackend + Debug + 'static,
 {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn avail_features(&self) -> u64 {
         self.avail_features
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn acked_features(&self) -> u64 {
         self.acked_features
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, acked_features))]
     fn set_acked_features(&mut self, acked_features: u64) {
         self.acked_features = acked_features
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn device_type(&self) -> u32 {
         uapi::VIRTIO_ID_VSOCK
     }
 
+    #[tracing::instrument(level = "debug", skip(self))]
     fn queues(&self) -> &[VirtQueue] {
         &self.queues
     }
 
+    #[tracing::instrument(level = "debug", skip(self))]
     fn queues_mut(&mut self) -> &mut [VirtQueue] {
         &mut self.queues
     }
 
+    #[tracing::instrument(level = "debug", skip(self))]
     fn queue_events(&self) -> &[EventFd] {
         &self.queue_events
     }
 
+    #[tracing::instrument(level = "debug", skip(self))]
     fn interrupt_evt(&self) -> &EventFd {
         &self.irq_trigger.irq_evt
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn interrupt_status(&self) -> Arc<AtomicUsize> {
         self.irq_trigger.irq_status.clone()
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, offset, data))]
     fn read_config(&self, offset: u64, data: &mut [u8]) {
         match offset {
             0 if data.len() == 8 => byte_order::write_le_u64(data, self.cid()),
@@ -311,6 +330,7 @@ where
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, offset, data))]
     fn write_config(&mut self, offset: u64, data: &[u8]) {
         METRICS.vsock.cfg_fails.inc();
         warn!(
@@ -320,6 +340,7 @@ where
         );
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, mem))]
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
         if self.queues.len() != defs::VSOCK_NUM_QUEUES {
             METRICS.vsock.activate_fails.inc();
@@ -342,6 +363,7 @@ where
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
     }

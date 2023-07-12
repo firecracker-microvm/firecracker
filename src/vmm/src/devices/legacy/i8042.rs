@@ -86,6 +86,7 @@ pub struct I8042Device {
 
 impl I8042Device {
     /// Constructs an i8042 device that will signal the given event when the guest requests it.
+    #[tracing::instrument(level = "debug", ret(skip), skip(reset_evt, kbd_interrupt_evt))]
     pub fn new(reset_evt: EventFd, kbd_interrupt_evt: EventFd) -> I8042Device {
         I8042Device {
             reset_evt,
@@ -102,6 +103,7 @@ impl I8042Device {
 
     /// Signal a ctrl-alt-del (reset) event.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn trigger_ctrl_alt_del(&mut self) -> Result<(), I8042Error> {
         // The CTRL+ALT+DEL sequence is 4 bytes in total (1 extended key + 2 normal keys).
         // Fail if we don't have room for the whole sequence.
@@ -114,6 +116,7 @@ impl I8042Device {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn trigger_kbd_interrupt(&self) -> Result<(), I8042Error> {
         if (self.control & CB_KBD_INT) == 0 {
             warn!("Failed to trigger i8042 kbd interrupt (disabled by guest OS)");
@@ -124,6 +127,7 @@ impl I8042Device {
             .map_err(I8042Error::KbdInterruptFailure)
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, key))]
     fn trigger_key(&mut self, key: u16) -> Result<(), I8042Error> {
         if key & 0xff00 != 0 {
             // Check if there is enough room in the buffer, before pushing an extended (2-byte) key.
@@ -141,6 +145,7 @@ impl I8042Device {
     }
 
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, byte))]
     fn push_byte(&mut self, byte: u8) -> Result<(), I8042Error> {
         self.status |= SB_OUT_DATA_AVAIL;
         if self.buf_len() == BUF_SIZE {
@@ -152,6 +157,7 @@ impl I8042Device {
     }
 
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn pop_byte(&mut self) -> Option<u8> {
         if self.buf_len() == 0 {
             return None;
@@ -165,6 +171,7 @@ impl I8042Device {
     }
 
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn flush_buf(&mut self) {
         self.bhead = Wrapping(0usize);
         self.btail = Wrapping(0usize);
@@ -172,12 +179,14 @@ impl I8042Device {
     }
 
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn buf_len(&self) -> usize {
         (self.btail - self.bhead).0
     }
 }
 
 impl I8042Device {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, offset, data))]
     pub fn bus_read(&mut self, offset: u64, data: &mut [u8]) {
         // All our ports are byte-wide. We don't know how to handle any wider data.
         if data.len() != 1 {
@@ -213,6 +222,7 @@ impl I8042Device {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, offset, data))]
     pub fn bus_write(&mut self, offset: u64, data: &[u8]) {
         // All our ports are byte-wide. We don't know how to handle any wider data.
         if data.len() != 1 {
@@ -311,6 +321,7 @@ mod tests {
     use super::*;
 
     impl PartialEq for I8042Error {
+        #[tracing::instrument(level = "debug", ret(skip), skip(self, other))]
         fn eq(&self, other: &I8042Error) -> bool {
             self.to_string() == other.to_string()
         }
@@ -430,6 +441,7 @@ mod tests {
             EventFd::new(libc::EFD_NONBLOCK).unwrap(),
         );
 
+        #[tracing::instrument(level = "debug", ret(skip), skip(i8042, key))]
         fn expect_key(i8042: &mut I8042Device, key: u16) {
             let mut data = [1];
 

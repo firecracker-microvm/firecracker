@@ -13,6 +13,7 @@ use vm_superio::Serial;
 use vmm::devices::legacy::serial::SerialOut;
 use vmm::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
 
+#[tracing::instrument(level = "debug", ret(skip), skip(pipe))]
 fn create_serial(
     pipe: c_int,
 ) -> Arc<Mutex<SerialWrapper<EventFdTrigger, SerialEventsWrapper, Box<MockSerialInput>>>> {
@@ -36,6 +37,7 @@ fn create_serial(
 pub struct MockSerialInput(pub RawFd);
 
 impl std::io::Read for MockSerialInput {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, buf))]
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let count = unsafe { libc::read(self.0, buf.as_mut_ptr().cast(), buf.len()) };
 
@@ -44,6 +46,7 @@ impl std::io::Read for MockSerialInput {
 }
 
 impl AsRawFd for MockSerialInput {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn as_raw_fd(&self) -> RawFd {
         self.0
     }

@@ -74,6 +74,7 @@ enum PendingRx {
 }
 impl PendingRx {
     /// Transform the enum value into a bitmask, that can be used for set operations.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn into_mask(self) -> u16 {
         1u16 << (self as u16)
     }
@@ -87,6 +88,7 @@ struct PendingRxSet {
 
 impl PendingRxSet {
     /// Insert an item into the set.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, it))]
     fn insert(&mut self, it: PendingRx) {
         self.data |= it.into_mask();
     }
@@ -94,6 +96,7 @@ impl PendingRxSet {
     /// Remove an item from the set and return:
     /// - true, if the item was in the set; or
     /// - false, if the item wasn't in the set.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, it))]
     fn remove(&mut self, it: PendingRx) -> bool {
         let ret = self.contains(it);
         self.data &= !it.into_mask();
@@ -101,11 +104,13 @@ impl PendingRxSet {
     }
 
     /// Check if an item is present in this set.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, it))]
     fn contains(&self, it: PendingRx) -> bool {
         self.data & it.into_mask() != 0
     }
 
     /// Check if the set is empty.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn is_empty(&self) -> bool {
         self.data == 0
     }
@@ -113,6 +118,7 @@ impl PendingRxSet {
 
 /// Create a set containing only one item.
 impl From<PendingRx> for PendingRxSet {
+    #[tracing::instrument(level = "debug", ret(skip), skip(it))]
     fn from(it: PendingRx) -> Self {
         Self {
             data: it.into_mask(),

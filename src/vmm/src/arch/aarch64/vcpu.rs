@@ -46,6 +46,7 @@ pub enum VcpuError {
 /// # Arguments
 ///
 /// * `regs` - reference [`Aarch64RegisterVec`] structure with all registers of a VCPU.
+#[tracing::instrument(level = "debug", ret(skip), skip(regs))]
 pub fn get_manufacturer_id_from_state(regs: &Aarch64RegisterVec) -> Result<u32, VcpuError> {
     let midr_el1 = regs.iter().find(|reg| reg.id == MIDR_EL1);
     match midr_el1 {
@@ -58,6 +59,7 @@ pub fn get_manufacturer_id_from_state(regs: &Aarch64RegisterVec) -> Result<u32, 
 
 /// Extract the Manufacturer ID from the host.
 /// The ID is found between bits 24-31 of MIDR_EL1 register.
+#[tracing::instrument(level = "debug", ret(skip), skip())]
 pub fn get_manufacturer_id_from_host() -> Result<u32, VcpuError> {
     let midr_el1_path =
         &PathBuf::from("/sys/devices/system/cpu/cpu0/regs/identification/midr_el1".to_string());
@@ -79,6 +81,7 @@ pub fn get_manufacturer_id_from_host() -> Result<u32, VcpuError> {
 /// * `cpu_id` - Index of current vcpu.
 /// * `boot_ip` - Starting instruction pointer.
 /// * `mem` - Reserved DRAM for current VM.
+#[tracing::instrument(level = "debug", ret(skip), skip(vcpufd, cpu_id, boot_ip, mem))]
 pub fn setup_boot_regs(
     vcpufd: &VcpuFd,
     cpu_id: u8,
@@ -117,6 +120,7 @@ pub fn setup_boot_regs(
 }
 
 /// Read the MPIDR - Multiprocessor Affinity Register.
+#[tracing::instrument(level = "debug", ret(skip), skip(vcpufd))]
 pub fn get_mpidr(vcpufd: &VcpuFd) -> Result<u64, VcpuError> {
     // MPIDR register is 64 bit wide on aarch64
     let mut mpidr = [0_u8; 8];
@@ -131,6 +135,7 @@ pub fn get_mpidr(vcpufd: &VcpuFd) -> Result<u64, VcpuError> {
 /// # Arguments
 ///
 /// * `regs` - Input/Output vector of registers.
+#[tracing::instrument(level = "debug", ret(skip), skip(vcpufd, state))]
 pub fn get_all_registers(vcpufd: &VcpuFd, state: &mut Aarch64RegisterVec) -> Result<(), VcpuError> {
     get_registers(vcpufd, &get_all_registers_ids(vcpufd)?, state)
 }
@@ -141,6 +146,7 @@ pub fn get_all_registers(vcpufd: &VcpuFd, state: &mut Aarch64RegisterVec) -> Res
 ///
 /// * `ids` - Slice of registers ids to save.
 /// * `regs` - Input/Output vector of registers.
+#[tracing::instrument(level = "debug", ret(skip), skip(vcpufd, ids, regs))]
 pub fn get_registers(
     vcpufd: &VcpuFd,
     ids: &[u64],
@@ -158,6 +164,7 @@ pub fn get_registers(
 }
 
 /// Returns all registers ids, including core and system
+#[tracing::instrument(level = "debug", ret(skip), skip(vcpufd))]
 pub fn get_all_registers_ids(vcpufd: &VcpuFd) -> Result<Vec<u64>, VcpuError> {
     // Call KVM_GET_REG_LIST to get all registers available to the guest. For ArmV8 there are
     // less than 500 registers.
@@ -173,6 +180,7 @@ pub fn get_all_registers_ids(vcpufd: &VcpuFd) -> Result<Vec<u64>, VcpuError> {
 /// # Arguments
 ///
 /// * `regs` - Slice of registers to be set.
+#[tracing::instrument(level = "debug", ret(skip), skip(vcpufd, regs))]
 pub fn set_registers(vcpufd: &VcpuFd, regs: &Aarch64RegisterVec) -> Result<(), VcpuError> {
     for reg in regs.iter() {
         vcpufd
@@ -187,6 +195,7 @@ pub fn set_registers(vcpufd: &VcpuFd, regs: &Aarch64RegisterVec) -> Result<(), V
 /// # Arguments
 ///
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
+#[tracing::instrument(level = "debug", ret(skip), skip(vcpufd))]
 pub fn get_mpstate(vcpufd: &VcpuFd) -> Result<kvm_mp_state, VcpuError> {
     vcpufd.get_mp_state().map_err(VcpuError::GetMp)
 }
@@ -197,6 +206,7 @@ pub fn get_mpstate(vcpufd: &VcpuFd) -> Result<kvm_mp_state, VcpuError> {
 ///
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
 /// * `state` - Structure for returning the state of the system registers.
+#[tracing::instrument(level = "debug", ret(skip), skip(vcpufd, state))]
 pub fn set_mpstate(vcpufd: &VcpuFd, state: kvm_mp_state) -> Result<(), VcpuError> {
     vcpufd.set_mp_state(state).map_err(VcpuError::SetMp)
 }

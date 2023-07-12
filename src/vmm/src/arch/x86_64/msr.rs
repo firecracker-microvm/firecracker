@@ -44,6 +44,7 @@ struct MsrRange {
 
 impl MsrRange {
     /// Returns whether `msr` is contained in this MSR range.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, msr))]
     fn contains(&self, msr: u32) -> bool {
         self.base <= msr && msr < self.base + self.nmsrs
     }
@@ -248,6 +249,7 @@ static SERIALIZABLE_MSR_RANGES: &[MsrRange] = &[
 /// # Arguments
 ///
 /// * `index` - The index of the MSR that is checked whether it's needed for serialization.
+#[tracing::instrument(level = "debug", ret(skip), skip(index))]
 pub fn msr_should_serialize(index: u32) -> bool {
     // Denied MSR not exported by Linux: IA32_MCG_CTL
     if index == MSR_IA32_MCG_CTL {
@@ -268,6 +270,7 @@ pub fn msr_should_serialize(index: u32) -> bool {
 ///
 /// When:
 /// - [`kvm_ioctls::Kvm::get_msr_index_list()`] errors.
+#[tracing::instrument(level = "debug", ret(skip), skip(kvm_fd))]
 pub fn get_msrs_to_save(kvm_fd: &Kvm) -> Result<MsrList, MsrError> {
     let mut msr_index_list = kvm_fd
         .get_msr_index_list()
@@ -399,6 +402,7 @@ static UNDUMPABLE_MSR_RANGES: &[MsrRange] = &[
 /// # Arguments
 ///
 /// * `index` - The index of the MSR that is checked whether it's needed for serialization.
+#[tracing::instrument(level = "debug", ret(skip), skip(index))]
 pub fn msr_should_dump(index: u32) -> bool {
     !UNDUMPABLE_MSR_RANGES
         .iter()
@@ -421,6 +425,7 @@ static UNDUMPABLE_MSR_RANGES_AMD: &[MsrRange] = &[
 /// # Arguments
 ///
 /// * `index` - The index of the MSR that is checked whether it's needed for serialization.
+#[tracing::instrument(level = "debug", ret(skip), skip(index))]
 pub fn msr_should_dump_amd(index: u32) -> bool {
     !UNDUMPABLE_MSR_RANGES_AMD
         .iter()
@@ -437,6 +442,7 @@ pub fn msr_should_dump_amd(index: u32) -> bool {
 ///
 /// When:
 /// - [`kvm_ioctls::Kvm::get_msr_index_list()`] errors.
+#[tracing::instrument(level = "debug", ret(skip), skip(kvm_fd))]
 pub fn get_msrs_to_dump(kvm_fd: &Kvm) -> Result<MsrList, MsrError> {
     let mut msr_index_list = kvm_fd
         .get_msr_index_list()
@@ -451,6 +457,7 @@ pub fn get_msrs_to_dump(kvm_fd: &Kvm) -> Result<MsrList, MsrError> {
 }
 
 /// Creates and populates required MSR entries for booting Linux on X86_64.
+#[tracing::instrument(level = "debug", ret(skip), skip())]
 pub fn create_boot_msr_entries() -> Vec<kvm_msr_entry> {
     let msr_entry_default = |msr| kvm_msr_entry {
         index: msr,
@@ -490,6 +497,7 @@ pub fn create_boot_msr_entries() -> Vec<kvm_msr_entry> {
 /// - Failed to create [`vmm_sys_util::fam::FamStructWrapper`] for MSRs.
 /// - [`kvm_ioctls::ioctls::vcpu::VcpuFd::set_msrs`] errors.
 /// - [`kvm_ioctls::ioctls::vcpu::VcpuFd::set_msrs`] fails to write all given MSRs entries.
+#[tracing::instrument(level = "debug", ret(skip), skip(vcpu, msr_entries))]
 pub fn set_msrs(vcpu: &VcpuFd, msr_entries: &[kvm_msr_entry]) -> Result<(), MsrError> {
     let msrs = Msrs::from_entries(msr_entries)?;
     vcpu.set_msrs(&msrs)
@@ -509,6 +517,7 @@ mod tests {
 
     use super::*;
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn create_vcpu() -> VcpuFd {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();

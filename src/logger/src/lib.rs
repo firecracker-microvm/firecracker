@@ -33,6 +33,7 @@ pub static INSTANCE_ID: OnceLock<String> = OnceLock::new();
 
 /// Log a standard warning message indicating a given feature name
 /// is in development preview.
+#[tracing::instrument(level = "debug", ret(skip), skip(feature_name, msg_opt))]
 pub fn log_dev_preview_warning(feature_name: &str, msg_opt: Option<String>) {
     match msg_opt {
         None => warn!("{DEV_PREVIEW_LOG_PREFIX} {feature_name} is in development preview."),
@@ -44,6 +45,7 @@ pub fn log_dev_preview_warning(feature_name: &str, msg_opt: Option<String>) {
 
 /// Helper function for updating the value of a store metric with elapsed time since some time in a
 /// past.
+#[tracing::instrument(level = "debug", ret(skip), skip(metric, start_time_us))]
 pub fn update_metric_with_elapsed_time(metric: &SharedStoreMetric, start_time_us: u64) -> u64 {
     let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time_us;
     metric.store(delta_us as usize);

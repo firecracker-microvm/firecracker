@@ -34,6 +34,7 @@ pub enum BlockIoError {
 }
 
 impl BlockIoError {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn is_throttling_err(&self) -> bool {
         match self {
             BlockIoError::Async(AsyncIoError::IoUring(err)) => err.is_throttling_err(),
@@ -57,6 +58,7 @@ pub enum FileEngine<T> {
 }
 
 impl<T: Debug> FileEngine<T> {
+    #[tracing::instrument(level = "debug", ret(skip), skip(file, engine_type))]
     pub fn from_file(
         file: File,
         engine_type: FileEngineType,
@@ -76,6 +78,7 @@ impl<T: Debug> FileEngine<T> {
     }
 
     #[cfg(test)]
+    #[tracing::instrument(level = "debug", skip(self))]
     pub fn file(&self) -> &File {
         match self {
             FileEngine::Async(engine) => engine.file(),
@@ -83,6 +86,11 @@ impl<T: Debug> FileEngine<T> {
         }
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(self, offset, mem, addr, count, user_data)
+    )]
     pub fn read(
         &mut self,
         offset: u64,
@@ -111,6 +119,11 @@ impl<T: Debug> FileEngine<T> {
         }
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(self, offset, mem, addr, count, user_data)
+    )]
     pub fn write(
         &mut self,
         offset: u64,
@@ -139,6 +152,7 @@ impl<T: Debug> FileEngine<T> {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, user_data))]
     pub fn flush(
         &mut self,
         user_data: T,
@@ -164,6 +178,7 @@ impl<T: Debug> FileEngine<T> {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, discard))]
     pub fn drain(&mut self, discard: bool) -> Result<(), BlockIoError> {
         match self {
             FileEngine::Async(engine) => engine.drain(discard).map_err(BlockIoError::Async),
@@ -171,6 +186,7 @@ impl<T: Debug> FileEngine<T> {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, discard))]
     pub fn drain_and_flush(&mut self, discard: bool) -> Result<(), BlockIoError> {
         match self {
             FileEngine::Async(engine) => {
@@ -236,6 +252,7 @@ pub mod tests {
         };
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(mem, engine, count))]
     fn assert_async_execution(mem: &GuestMemoryMmap, engine: &mut FileEngine<()>, count: u32) {
         if let FileEngine::Async(ref mut engine) = engine {
             engine.drain(false).unwrap();
@@ -243,11 +260,13 @@ pub mod tests {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn create_mem() -> GuestMemoryMmap {
         utils::vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), MEM_LEN)], true)
             .unwrap()
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(mem, addr, len))]
     fn check_dirty_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: u32) {
         let bitmap = mem.find_region(addr).unwrap().bitmap().as_ref().unwrap();
         for offset in addr.0..addr.0 + u64::from(len) {
@@ -255,6 +274,7 @@ pub mod tests {
         }
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(mem, addr, len))]
     fn check_clean_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: u32) {
         let bitmap = mem.find_region(addr).unwrap().bitmap().as_ref().unwrap();
         for offset in addr.0..addr.0 + u64::from(len) {

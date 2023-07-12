@@ -10,6 +10,7 @@ use super::super::VmmAction;
 use crate::parsed_request::{Error, ParsedRequest};
 use crate::request::Body;
 
+#[tracing::instrument(level = "debug", ret(skip), skip(path_second_token))]
 pub(crate) fn parse_get_balloon(path_second_token: Option<&str>) -> Result<ParsedRequest, Error> {
     match path_second_token {
         Some(stats_path) => match stats_path {
@@ -23,12 +24,14 @@ pub(crate) fn parse_get_balloon(path_second_token: Option<&str>) -> Result<Parse
     }
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(body))]
 pub(crate) fn parse_put_balloon(body: &Body) -> Result<ParsedRequest, Error> {
     Ok(ParsedRequest::new_sync(VmmAction::SetBalloonDevice(
         serde_json::from_slice::<BalloonDeviceConfig>(body.raw())?,
     )))
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(body, path_second_token))]
 pub(crate) fn parse_patch_balloon(
     body: &Body,
     path_second_token: Option<&str>,

@@ -31,6 +31,7 @@ pub enum Error {
 /// This function is an arch-agnostic part of CPU template verification. As template formats differ
 /// between x86_64 and aarch64, the arch-specific part converts the structure to an arch-agnostic
 /// `HashMap` implementing `ModifierMapKey` before calling this arch-agnostic function.
+#[tracing::instrument(level = "debug", ret(skip), skip(template, config))]
 pub fn verify_common<K, V>(
     template: HashMap<K, RegisterValueFilter<V>>,
     config: HashMap<K, RegisterValueFilter<V>>,

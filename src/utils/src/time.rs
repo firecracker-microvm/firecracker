@@ -22,6 +22,7 @@ pub enum ClockType {
 }
 
 impl From<ClockType> for libc::clockid_t {
+    #[tracing::instrument(level = "debug", ret(skip), skip(clock_type))]
     fn from(clock_type: ClockType) -> Self {
         match clock_type {
             ClockType::Monotonic => libc::CLOCK_MONOTONIC,
@@ -52,7 +53,10 @@ pub struct LocalTime {
 }
 
 impl LocalTime {
+    // As this is called within `impl FormatEvent for OldLoggerFormatter` it cannot be instrumented
+    // as this would results in an infinite loop.
     /// Returns the [LocalTime](struct.LocalTime.html) structure for the calling moment.
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     pub fn now() -> LocalTime {
         let mut timespec = libc::timespec {
             tv_sec: 0,
@@ -91,6 +95,9 @@ impl LocalTime {
 }
 
 impl fmt::Display for LocalTime {
+    // As this is called within `impl FormatEvent for OldLoggerFormatter` it cannot be instrumented
+    // as this would results in an infinite loop.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -116,6 +123,7 @@ pub struct TimestampUs {
 }
 
 impl Default for TimestampUs {
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn default() -> TimestampUs {
         TimestampUs {
             time_us: get_time_us(ClockType::Monotonic),
@@ -127,6 +135,7 @@ impl Default for TimestampUs {
 /// Returns a timestamp in nanoseconds from a monotonic clock.
 ///
 /// Uses `_rdstc` on `x86_64` and [`get_time`](fn.get_time.html) on other architectures.
+#[tracing::instrument(level = "debug", ret(skip), skip())]
 pub fn timestamp_cycles() -> u64 {
     #[cfg(target_arch = "x86_64")]
     // SAFETY: Safe because there's nothing that can go wrong with this call.
@@ -144,6 +153,7 @@ pub fn timestamp_cycles() -> u64 {
 /// # Arguments
 ///
 /// * `clock_type` - Identifier of the Linux Kernel clock on which to act.
+#[tracing::instrument(level = "debug", ret(skip), skip(clock_type))]
 pub fn get_time_ns(clock_type: ClockType) -> u64 {
     let mut time_struct = libc::timespec {
         tv_sec: 0,
@@ -161,6 +171,7 @@ pub fn get_time_ns(clock_type: ClockType) -> u64 {
 /// # Arguments
 ///
 /// * `clock_type` - Identifier of the Linux Kernel clock on which to act.
+#[tracing::instrument(level = "debug", ret(skip), skip(clock_type))]
 pub fn get_time_us(clock_type: ClockType) -> u64 {
     get_time_ns(clock_type) / 1000
 }
@@ -170,6 +181,7 @@ pub fn get_time_us(clock_type: ClockType) -> u64 {
 /// # Arguments
 ///
 /// * `clock_type` - Identifier of the Linux Kernel clock on which to act.
+#[tracing::instrument(level = "debug", ret(skip), skip(clock_type))]
 pub fn get_time_ms(clock_type: ClockType) -> u64 {
     get_time_ns(clock_type) / NANOS_PER_MILLISECOND
 }
@@ -180,6 +192,7 @@ pub fn get_time_ms(clock_type: ClockType) -> u64 {
 /// # Arguments
 ///
 /// * `value` - Timestamp in seconds.
+#[tracing::instrument(level = "debug", ret(skip), skip(value))]
 pub fn seconds_to_nanoseconds(value: i64) -> Option<i64> {
     value.checked_mul(i64::try_from(NANOS_PER_SECOND).unwrap())
 }

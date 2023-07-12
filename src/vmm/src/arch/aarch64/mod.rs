@@ -39,6 +39,7 @@ pub const MMIO_MEM_SIZE: u64 = layout::DRAM_MEM_START - layout::MAPPED_IO_START;
 
 /// Returns a Vec of the valid memory addresses for aarch64.
 /// See [`layout`](layout) module for a drawing of the specific memory model for this platform.
+#[tracing::instrument(level = "debug", ret(skip), skip(size))]
 pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
     let dram_size = min(size as u64, layout::DRAM_MEM_MAX_SIZE) as usize;
     vec![(GuestAddress(layout::DRAM_MEM_START), dram_size)]
@@ -55,6 +56,18 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
 /// * `device_info` - A hashmap containing the attached devices for building FDT device nodes.
 /// * `gic_device` - The GIC device.
 /// * `initrd` - Information about an optional initrd.
+#[tracing::instrument(
+    level = "debug",
+    ret(skip),
+    skip(
+        guest_mem,
+        cmdline_cstring,
+        vcpu_mpidr,
+        device_info,
+        gic_device,
+        initrd
+    )
+)]
 pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher>(
     guest_mem: &GuestMemoryMmap,
     cmdline_cstring: CString,
@@ -75,11 +88,13 @@ pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::Build
 }
 
 /// Returns the memory address where the kernel could be loaded.
+#[tracing::instrument(level = "debug", ret(skip), skip())]
 pub fn get_kernel_start() -> u64 {
     layout::DRAM_MEM_START
 }
 
 /// Returns the memory address where the initrd could be loaded.
+#[tracing::instrument(level = "debug", ret(skip), skip(guest_mem, initrd_size))]
 pub fn initrd_load_addr(
     guest_mem: &GuestMemoryMmap,
     initrd_size: usize,
@@ -98,6 +113,7 @@ pub fn initrd_load_addr(
 }
 
 // Auxiliary function to get the address where the device tree blob is loaded.
+#[tracing::instrument(level = "debug", ret(skip), skip(mem))]
 fn get_fdt_addr(mem: &GuestMemoryMmap) -> u64 {
     // If the memory allocated is smaller than the size allocated for the FDT,
     // we return the start of the DRAM so that

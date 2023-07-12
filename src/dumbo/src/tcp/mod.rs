@@ -47,6 +47,7 @@ pub enum RstConfig {
 
 impl RstConfig {
     /// Creates a `RstConfig` in response to the given segment.
+    #[tracing::instrument(level = "debug", ret(skip), skip(s))]
     pub fn new<T: NetworkBytes + Debug>(s: &TcpSegment<T>) -> Self {
         if s.flags_after_ns().intersects(TcpFlags::ACK) {
             // If s contains an ACK number, we use that as the sequence number of the RST.
@@ -59,6 +60,7 @@ impl RstConfig {
 
     /// Returns the sequence number, acknowledgement number, and TCP flags (not counting `NS`) that
     /// must be set on the outgoing `RST` segment.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn seq_ack_tcp_flags(self) -> (u32, u32, TcpFlags) {
         match self {
             RstConfig::Seq(seq) => (seq, 0, TcpFlags::RST),
@@ -74,6 +76,7 @@ impl RstConfig {
 /// it's sometimes possible that `seq_after(a, b) || seq_after(b, a) == false`. This is why
 /// `seq_after(a, b)` can't be defined as simply `!seq_at_or_after(b, a)`.
 #[inline]
+#[tracing::instrument(level = "debug", ret(skip), skip(a, b))]
 pub fn seq_after(a: Wrapping<u32>, b: Wrapping<u32>) -> bool {
     a != b && (a - b).0 < MAX_WINDOW_SIZE
 }
@@ -85,6 +88,7 @@ pub fn seq_after(a: Wrapping<u32>, b: Wrapping<u32>) -> bool {
 /// it's sometimes possible that `seq_at_or_after(a, b) || seq_at_or_after(b, a) == false`. This
 /// is why `seq_after(a, b)` can't be defined as simply `!seq_at_or_after(b, a)`.
 #[inline]
+#[tracing::instrument(level = "debug", ret(skip), skip(a, b))]
 pub fn seq_at_or_after(a: Wrapping<u32>, b: Wrapping<u32>) -> bool {
     (a - b).0 < MAX_WINDOW_SIZE
 }
@@ -97,6 +101,7 @@ mod tests {
 
     // In tcp tests, some of the functions require a callback parameter. Since we do not care,
     // for the purpose of those tests, what that callback does, we need to provide a dummy one.
+    #[tracing::instrument(level = "debug", ret(skip), skip(_request))]
     pub fn mock_callback(_request: Request) -> Response {
         Response::new(Version::Http11, StatusCode::OK)
     }

@@ -83,6 +83,7 @@ pub struct TokenAuthority {
 // TODO When https://github.com/RustCrypto/AEADs/pull/532 is merged replace these manual
 // implementation with `#[derive(Debug)]`.
 impl fmt::Debug for TokenAuthority {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TokenAuthority")
             .field("num_encrypted_tokens", &self.num_encrypted_tokens)
@@ -94,6 +95,7 @@ impl fmt::Debug for TokenAuthority {
 
 impl TokenAuthority {
     /// Create a new token authority entity.
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     pub fn new() -> Result<TokenAuthority, Error> {
         let mut file = File::open(Path::new(RANDOMNESS_POOL))?;
 
@@ -107,11 +109,13 @@ impl TokenAuthority {
 
     /// Set Additional Authenticated Data to be used for
     /// encryption and decryption of the session token.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, instance_id))]
     pub fn set_aad(&mut self, instance_id: &str) {
         self.aad = format!("microvmid={}", instance_id);
     }
 
     /// Generate encoded token string using the token time to live provided.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, ttl_seconds))]
     pub fn generate_token_secret(&mut self, ttl_seconds: u32) -> Result<String, Error> {
         // Check number of tokens encrypted under the current key. We need to
         // make sure no more than 2^32 tokens are encrypted with the same key.
@@ -128,6 +132,7 @@ impl TokenAuthority {
     }
 
     /// Create a new Token structure to encrypt.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, ttl_seconds))]
     fn create_token(&mut self, ttl_seconds: u32) -> Result<Token, Error> {
         // Validate token time to live against bounds.
         if !TokenAuthority::check_ttl(ttl_seconds) {
@@ -147,6 +152,7 @@ impl TokenAuthority {
     }
 
     /// Encrypt expiry using AES-GCM block cipher and return payload and tag obtained.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, expiry, iv))]
     fn encrypt_expiry(
         &self,
         expiry: u64,
@@ -174,6 +180,7 @@ impl TokenAuthority {
     /// Attempts to decrypt expiry value within token sequence. Returns false if expiry
     /// cannot be decrypted. If decryption succeeds, returns true if token has not expired
     /// (i.e. current time is greater than expiry) and false otherwise.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, encoded_token))]
     pub fn is_valid(&self, encoded_token: &str) -> bool {
         // Check size of encoded token struct.
         if encoded_token.len() > TOKEN_LENGTH_LIMIT {
@@ -197,6 +204,7 @@ impl TokenAuthority {
     }
 
     /// Decrypt ciphertext composed of payload and tag to obtain the expiry value.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, payload, tag, iv))]
     fn decrypt_expiry(
         &self,
         payload: &mut [u8; PAYLOAD_LEN],
@@ -223,6 +231,7 @@ impl TokenAuthority {
     }
 
     /// Create a new AES-GCM cipher entity.
+    #[tracing::instrument(level = "debug", ret(skip), skip(entropy_pool))]
     fn create_cipher(entropy_pool: &mut File) -> Result<Aes256Gcm, Error> {
         // Randomly generate a 256-bit key to be used for encryption/decryption purposes.
         let mut key = [0u8; KEY_LEN];
@@ -234,6 +243,7 @@ impl TokenAuthority {
 
     /// Make sure to reinitialize the cipher under a new key before reaching
     /// a count of 2^32 encrypted tokens under the same cipher entity.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn check_encryption_count(&mut self) -> Result<(), Error> {
         // Make sure no more than 2^32 - 1 tokens are encrypted under
         // the same encryption key.
@@ -259,12 +269,14 @@ impl TokenAuthority {
     }
 
     /// Validate the token time to live against bounds.
+    #[tracing::instrument(level = "debug", ret(skip), skip(ttl_seconds))]
     fn check_ttl(ttl_seconds: u32) -> bool {
         (MIN_TOKEN_TTL_SECONDS..=MAX_TOKEN_TTL_SECONDS).contains(&ttl_seconds)
     }
 
     /// Compute expiry time in seconds by adding the time to live provided
     /// to the current time measured in milliseconds.
+    #[tracing::instrument(level = "debug", ret(skip), skip(ttl_as_seconds))]
     fn compute_expiry(ttl_as_seconds: u32) -> u64 {
         // Get current time in milliseconds.
         let now_as_milliseconds = get_time_ms(ClockType::Monotonic);
@@ -290,11 +302,13 @@ struct Token {
 
 impl Token {
     /// Create a new token struct.
+    #[tracing::instrument(level = "debug", ret(skip), skip(iv, payload, tag))]
     fn new(iv: [u8; IV_LEN], payload: [u8; PAYLOAD_LEN], tag: [u8; TAG_LEN]) -> Self {
         Token { iv, payload, tag }
     }
 
     /// Encode token structure into a string using base64 encoding.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn base64_encode(&self) -> Result<String, Error> {
         let token_bytes: Vec<u8> = bincode::serialize(self)?;
 
@@ -303,6 +317,7 @@ impl Token {
     }
 
     /// Decode token structure from base64 string.
+    #[tracing::instrument(level = "debug", ret(skip), skip(encoded_token))]
     fn base64_decode(encoded_token: &str) -> Result<Self, Error> {
         let token_bytes = base64::decode_config(encoded_token, base64::STANDARD)
             .map_err(|_| Error::ExpiryExtraction)?;

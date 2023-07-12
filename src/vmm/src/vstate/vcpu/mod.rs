@@ -89,6 +89,7 @@ type VcpuCell = Cell<Option<*const Vcpu>>;
 pub struct StartThreadedError(std::io::Error);
 impl std::error::Error for StartThreadedError {}
 impl fmt::Display for StartThreadedError {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Failed to spawn vCPU thread: {}", self.0)
     }
@@ -124,6 +125,7 @@ impl Vcpu {
     /// It is a prerequisite to successfully run `init_thread_local_data()` before using
     /// `run_on_thread_local()` on the current thread.
     /// This function will return an error if there already is a `Vcpu` present in the TLS.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn init_thread_local_data(&mut self) -> Result<(), VcpuError> {
         Self::TLS_VCPU_PTR.with(|cell: &VcpuCell| {
             if cell.get().is_some() {
@@ -140,6 +142,7 @@ impl Vcpu {
     /// now needs to move to a different thread.
     ///
     /// Fails if `self` was not previously associated with the current thread.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn reset_thread_local_data(&mut self) -> Result<(), VcpuError> {
         // Best-effort to clean up TLS. If the `Vcpu` was moved to another thread
         // _before_ running this, then there is nothing we can do.
@@ -164,6 +167,7 @@ impl Vcpu {
     ///
     /// This is marked unsafe as it allows temporary aliasing through
     /// dereferencing from pointer an already borrowed `Vcpu`.
+    #[tracing::instrument(level = "debug", ret(skip), skip(func))]
     unsafe fn run_on_thread_local<F>(func: F) -> Result<(), VcpuError>
     where
         F: FnOnce(&Vcpu),
@@ -183,7 +187,9 @@ impl Vcpu {
 
     /// Registers a signal handler which makes use of TLS and kvm immediate exit to
     /// kick the vcpu running on the current thread, if there is one.
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     pub fn register_kick_signal_handler() {
+        #[tracing::instrument(level = "debug", ret(skip), skip())]
         extern "C" fn handle_signal(_: c_int, _: *mut siginfo_t, _: *mut c_void) {
             // SAFETY: This is safe because it's temporarily aliasing the `Vcpu` object, but we are
             // only reading `vcpu.fd` which does not change for the lifetime of the `Vcpu`.
@@ -206,6 +212,7 @@ impl Vcpu {
     /// * `index` - Represents the 0-based CPU index between [0, max vcpus).
     /// * `vm` - The vm to which this vcpu will get attached.
     /// * `exit_evt` - An `EventFd` that will be written into when this vcpu exits.
+    #[tracing::instrument(level = "debug", ret(skip), skip(index, vm, exit_evt))]
     pub fn new(index: u8, vm: &Vm, exit_evt: EventFd) -> Result<Self, VcpuError> {
         let (event_sender, event_receiver) = channel();
         let (response_sender, response_receiver) = channel();
@@ -224,12 +231,14 @@ impl Vcpu {
     }
 
     /// Sets a MMIO bus for this vcpu.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, mmio_bus))]
     pub fn set_mmio_bus(&mut self, mmio_bus: crate::devices::Bus) {
         self.kvm_vcpu.mmio_bus = Some(mmio_bus);
     }
 
     /// Moves the vcpu to its own thread and constructs a VcpuHandle.
     /// The handle can be used to control the remote vcpu.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, seccomp_filter, barrier))]
     pub fn start_threaded(
         mut self,
         seccomp_filter: Arc<BpfProgram>,
@@ -260,6 +269,7 @@ impl Vcpu {
     /// Runs the vCPU in KVM context in a loop. Handles KVM_EXITs then goes back in.
     /// Note that the state of the VCPU and associated VM must be setup first for this to do
     /// anything useful.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, seccomp_filter))]
     pub fn run(&mut self, seccomp_filter: BpfProgramRef) {
         // Load seccomp filters for this vCPU thread.
         // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
@@ -276,6 +286,7 @@ impl Vcpu {
     }
 
     // This is the main loop of the `Running` state.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn running(&mut self) -> StateMachine<Self> {
         // This loop is here just for optimizing the emulation path.
         // No point in ticking the state machine if there are no external events.
@@ -348,6 +359,7 @@ impl Vcpu {
     }
 
     // This is the main loop of the `Paused` state.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn paused(&mut self) -> StateMachine<Self> {
         match self.event_receiver.recv() {
             // Paused ---- Resume ----> Running
@@ -424,6 +436,7 @@ impl Vcpu {
     }
 
     // Transition to the exited state and finish on command.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, exit_code))]
     fn exit(&mut self, exit_code: FcExitCode) -> StateMachine<Self> {
         // To avoid cycles, all teardown paths take the following route:
         // +------------------------+----------------------------+------------------------+
@@ -465,6 +478,7 @@ impl Vcpu {
     ///
     /// Blocks until a `VM_EXIT` is received, in which case this function returns a [`VcpuExit`]
     /// containing the reason.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn emulate(&self) -> Result<VcpuExit, errno::Error> {
         self.kvm_vcpu.fd.run()
     }
@@ -472,6 +486,7 @@ impl Vcpu {
     /// Runs the vCPU in KVM context and handles the kvm exit reason.
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     pub fn run_emulation(&self) -> Result<VcpuEmulation, VcpuError> {
         match self.emulate() {
             Ok(run) => match run {
@@ -577,6 +592,7 @@ impl Vcpu {
 }
 
 impl Drop for Vcpu {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn drop(&mut self) {
         let _ = self.reset_thread_local_data();
     }
@@ -620,6 +636,7 @@ pub enum VcpuResponse {
 }
 
 impl fmt::Debug for VcpuResponse {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use crate::VcpuResponse::*;
         match self {
@@ -650,6 +667,7 @@ pub struct VcpuHandle {
 pub struct VcpuSendEventError(pub utils::errno::Error);
 impl std::error::Error for VcpuSendEventError {}
 impl fmt::Display for VcpuSendEventError {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Failed to signal vCPU: {}", self.0)
     }
@@ -662,6 +680,11 @@ impl VcpuHandle {
     /// + `event_sender`: [`Sender`] to communicate [`VcpuEvent`] to control the vcpu.
     /// + `response_received`: [`Received`] from which the vcpu's responses can be read.
     /// + `vcpu_thread`: A [`JoinHandle`] for the vcpu thread.
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(event_sender, response_receiver, vcpu_thread)
+    )]
     pub fn new(
         event_sender: Sender<VcpuEvent>,
         response_receiver: Receiver<VcpuResponse>,
@@ -678,6 +701,7 @@ impl VcpuHandle {
     /// # Errors
     ///
     /// When [`vmm_sys_util::linux::signal::Killable::kill`] errors.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, event))]
     pub fn send_event(&self, event: VcpuEvent) -> Result<(), VcpuSendEventError> {
         // Use expect() to crash if the other thread closed this channel.
         self.event_sender
@@ -693,6 +717,7 @@ impl VcpuHandle {
     }
 
     /// Returns a reference to the [`Received`] from which the vcpu's responses can be read.
+    #[tracing::instrument(level = "debug", skip(self))]
     pub fn response_receiver(&self) -> &Receiver<VcpuResponse> {
         &self.response_receiver
     }
@@ -700,6 +725,7 @@ impl VcpuHandle {
 
 // Wait for the Vcpu thread to finish execution
 impl Drop for VcpuHandle {
+    #[tracing::instrument(level = "debug", ret(skip), skip(self))]
     fn drop(&mut self) {
         // We assume that by the time a VcpuHandle is dropped, other code has run to
         // get the state machine loop to finish so the thread is ready to join.
@@ -741,6 +767,7 @@ pub mod tests {
     use crate::RECV_TIMEOUT_SEC;
 
     impl Vcpu {
+        #[tracing::instrument(level = "debug", ret(skip), skip(self))]
         pub fn emulate(&self) -> Result<VcpuExit, errno::Error> {
             self.test_vcpu_exit_reason
                 .lock()
@@ -875,6 +902,7 @@ pub mod tests {
     }
 
     impl PartialEq for VcpuResponse {
+        #[tracing::instrument(level = "debug", ret(skip), skip(self, other))]
         fn eq(&self, other: &Self) -> bool {
             use crate::VcpuResponse::*;
             // Guard match with no wildcard to make sure we catch new enum variants.
@@ -899,6 +927,7 @@ pub mod tests {
 
     // Auxiliary function being used throughout the tests.
     #[allow(unused_mut)]
+    #[tracing::instrument(level = "debug", ret(skip), skip(mem_size))]
     pub(crate) fn setup_vcpu(mem_size: usize) -> (Vm, Vcpu, GuestMemoryMmap) {
         let (mut vm, gm) = setup_vm(mem_size);
 
@@ -918,6 +947,7 @@ pub mod tests {
         (vm, vcpu, gm)
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(vm_memory))]
     fn load_good_kernel(vm_memory: &GuestMemoryMmap) -> GuestAddress {
         use std::fs::File;
         use std::path::PathBuf;
@@ -946,6 +976,7 @@ pub mod tests {
         entry_addr.unwrap().kernel_load
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip())]
     fn vcpu_configured_for_boot() -> (VcpuHandle, utils::eventfd::EventFd) {
         Vcpu::register_kick_signal_handler();
         // Need enough mem to boot linux.
@@ -1091,6 +1122,7 @@ pub mod tests {
     }
 
     // Sends an event to a vcpu and expects a particular response.
+    #[tracing::instrument(level = "debug", ret(skip), skip(handle, event, response))]
     fn queue_event_expect_response(handle: &VcpuHandle, event: VcpuEvent, response: VcpuResponse) {
         handle
             .send_event(event)

@@ -61,6 +61,11 @@ impl ApiServer {
     /// Constructor for `ApiServer`.
     ///
     /// Returns the newly formed `ApiServer`.
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(api_request_sender, vmm_response_receiver, to_vmm_fd)
+    )]
     pub fn new(
         api_request_sender: mpsc::Sender<ApiRequest>,
         vmm_response_receiver: mpsc::Receiver<ApiResponse>,
@@ -145,6 +150,18 @@ impl ApiServer {
     /// let mut buf: [u8; 100] = [0; 100];
     /// assert!(sock.read(&mut buf[..]).unwrap() > 0);
     /// ```
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(
+            self,
+            path,
+            process_time_reporter,
+            seccomp_filter,
+            api_payload_limit,
+            socket_ready
+        )
+    )]
     pub fn bind_and_run(
         &mut self,
         path: &PathBuf,
@@ -221,6 +238,11 @@ impl ApiServer {
     }
 
     /// Handles an API request received through the associated socket.
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(self, request, request_processing_start_us)
+    )]
     pub fn handle_request(
         &mut self,
         request: &Request,
@@ -250,6 +272,11 @@ impl ApiServer {
         }
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        ret(skip),
+        skip(self, vmm_action, request_processing_start_us)
+    )]
     fn serve_vmm_action_request(
         &mut self,
         vmm_action: Box<VmmAction>,
@@ -292,12 +319,14 @@ impl ApiServer {
     }
 
     /// An HTTP response which also includes a body.
+    #[tracing::instrument(level = "debug", ret(skip), skip(status, body))]
     pub(crate) fn json_response<T: Into<String> + Debug>(status: StatusCode, body: T) -> Response {
         let mut response = Response::new(Version::Http11, status);
         response.set_body(Body::new(body.into()));
         response
     }
 
+    #[tracing::instrument(level = "debug", ret(skip), skip(msg))]
     fn json_fault_message<T: AsRef<str> + serde::Serialize + Debug>(msg: T) -> String {
         json!({ "fault_message": msg }).to_string()
     }

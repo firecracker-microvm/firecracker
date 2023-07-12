@@ -72,6 +72,7 @@ impl PortIODeviceManager {
     const I8042_KDB_DATA_REGISTER_SIZE: u64 = 0x5;
 
     /// Create a new DeviceManager handling legacy devices (uart, i8042).
+    #[tracing::instrument(level = "debug", ret(skip), skip(serial, i8042_reset_evfd))]
     pub fn new(
         serial: Arc<Mutex<BusDevice>>,
         i8042_reset_evfd: EventFd,
@@ -104,6 +105,7 @@ impl PortIODeviceManager {
     }
 
     /// Register supported legacy devices.
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, vm_fd))]
     pub fn register_devices(&mut self, vm_fd: &VmFd) -> Result<(), LegacyDeviceError> {
         let serial_2_4 = Arc::new(Mutex::new(BusDevice::Serial(SerialDevice {
             serial: Serial::with_events(

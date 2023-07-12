@@ -136,12 +136,14 @@ pub trait NetworkBytesMut: NetworkBytes + DerefMut<Target = [u8]> {
 
 impl<'a> NetworkBytes for &'a [u8] {
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, len))]
     fn shrink_unchecked(&mut self, len: usize) {
         *self = &self[..len];
     }
 }
 impl<'a> NetworkBytes for &'a mut [u8] {
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, len))]
     fn shrink_unchecked(&mut self, len: usize) {
         *self = &mut std::mem::take(self)[..len];
     }
@@ -161,6 +163,7 @@ pub(super) struct InnerBytes<'a, T: 'a> {
 impl<'a, T: Debug> InnerBytes<'a, T> {
     /// Creates a new instance as a wrapper around `bytes`.
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(bytes))]
     pub fn new(bytes: T) -> Self {
         InnerBytes {
             bytes,
@@ -173,6 +176,7 @@ impl<'a, T: Deref<Target = [u8]> + Debug> Deref for InnerBytes<'a, T> {
     type Target = [u8];
 
     #[inline]
+    #[tracing::instrument(level = "debug", skip(self))]
     fn deref(&self) -> &[u8] {
         self.bytes.deref()
     }
@@ -180,6 +184,7 @@ impl<'a, T: Deref<Target = [u8]> + Debug> Deref for InnerBytes<'a, T> {
 
 impl<'a, T: DerefMut<Target = [u8]> + Debug> DerefMut for InnerBytes<'a, T> {
     #[inline]
+    #[tracing::instrument(level = "debug", skip(self))]
     fn deref_mut(&mut self) -> &mut [u8] {
         self.bytes.deref_mut()
     }
@@ -187,6 +192,7 @@ impl<'a, T: DerefMut<Target = [u8]> + Debug> DerefMut for InnerBytes<'a, T> {
 
 impl<'a, T: NetworkBytes + Debug> NetworkBytes for InnerBytes<'a, T> {
     #[inline]
+    #[tracing::instrument(level = "debug", ret(skip), skip(self, len))]
     fn shrink_unchecked(&mut self, len: usize) {
         self.bytes.shrink_unchecked(len);
     }

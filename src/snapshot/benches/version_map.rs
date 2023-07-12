@@ -26,11 +26,13 @@ struct Dummy {
 }
 
 #[inline]
+#[tracing::instrument(level = "debug", ret(skip), skip(snapshot_mem, vm))]
 fn restore(mut snapshot_mem: &[u8], vm: VersionMap) {
     Snapshot::unchecked_load::<&[u8], Test>(&mut snapshot_mem, vm).unwrap();
 }
 
 #[inline]
+#[tracing::instrument(level = "debug", ret(skip), skip(snapshot_mem, vm))]
 fn save<W: std::io::Write>(mut snapshot_mem: &mut W, vm: VersionMap) {
     let state = Test {
         a: vec![
@@ -52,6 +54,7 @@ fn save<W: std::io::Write>(mut snapshot_mem: &mut W, vm: VersionMap) {
         .unwrap();
 }
 
+#[tracing::instrument(level = "debug", ret(skip), skip(c))]
 pub fn criterion_benchmark(c: &mut Criterion) {
     let mut snapshot_mem = vec![0u8; 1024 * 1024 * 128];
     let mut vm = VersionMap::new();
