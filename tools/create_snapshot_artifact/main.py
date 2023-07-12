@@ -26,7 +26,6 @@ from framework.utils import (
     run_cmd,
 )
 from framework.utils_cpuid import CpuVendor, get_cpu_vendor
-from host_tools.cargo_build import gcc_compile
 
 # restore directory
 os.chdir("..")
@@ -38,20 +37,6 @@ NET_IFACE_FOR_MMDS = "eth3"
 VM_CONFIG_FILE = "tools/create_snapshot_artifact/complex_vm_config.json"
 # Root directory for the snapshot artifacts.
 SNAPSHOT_ARTIFACTS_ROOT_DIR = "snapshot_artifacts"
-
-
-def compile_file(file_name, dest_path, bin_name):
-    """
-    Compile source file using gcc.
-
-    The resulted executable is placed at `/dest_path/bin_name`.
-    """
-    host_tools_path = os.path.join(os.getcwd(), "tests/host_tools")
-
-    source_file_path = os.path.join(host_tools_path, file_name)
-    bin_file_path = os.path.join(dest_path, bin_name)
-    gcc_compile(source_file_path, bin_file_path)
-    return bin_file_path
 
 
 def populate_mmds(microvm, data_store):
@@ -109,12 +94,7 @@ def main():
     print("Cleanup")
     shutil.rmtree(SNAPSHOT_ARTIFACTS_ROOT_DIR, ignore_errors=True)
     root_path = tempfile.mkdtemp(dir=DEFAULT_TEST_SESSION_ROOT_PATH)
-
-    # Compile new-pid cloner helper.
-    bin_cloner_path = compile_file(
-        file_name="newpid_cloner.c", bin_name="newpid_cloner", dest_path=root_path
-    )
-    vm_factory = MicroVMFactory(root_path, bin_cloner_path)
+    vm_factory = MicroVMFactory(root_path, None)
 
     cpu_templates = ["None"]
     if get_cpu_vendor() == CpuVendor.INTEL:
