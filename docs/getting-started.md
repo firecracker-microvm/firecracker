@@ -67,7 +67,27 @@ our [integration test suite](#running-the-integration-test-suite) does it. This
 guide will not use the [`jailer`](../src/jailer/).
 
 ```bash
+# Clone the firecracker repository
+git clone https://github.com/firecracker-microvm/firecracker
+
+# Start docker
+sudo systemctl start docker
+
 ARCH="$(uname -m)"
+
+API_SOCKET="./firecracker.socket"
+
+# Remove API unix socket
+rm -f $API_SOCKET
+
+# Build firecracker
+#
+# It is possible to build for gnu, by passing the arguments '-l gnu'.
+#
+# This will produce the firecracker and jailer binaries under
+# `./firecracker/build/cargo_target/${toolchain}/debug`.
+#
+sudo ./firecracker/tools/devtool build
 
 # Download a linux kernel binary
 wget https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/${ARCH}/kernels/vmlinux.bin
@@ -81,28 +101,8 @@ wget https://s3.amazonaws.com/spec.ccfc.min/ci-artifacts/disks/${ARCH}/ubuntu-18
 # Set user read permission on the ssh key
 chmod 400 ./ubuntu-18.04.id_rsa
 
-# Clone the firecracker repository
-git clone https://github.com/firecracker-microvm/firecracker
-
-# Start docker
-sudo systemctl start docker
-
-# Build firecracker
-#
-# It is possible to build for gnu, by passing the arguments '-l gnu'.
-#
-# This will produce the firecracker and jailer binaries under
-# `./firecracker/build/cargo_target/${toolchain}/debug`.
-#
-sudo ./firecracker/tools/devtool build
-
-API_SOCKET="./firecracker.socket"
-
-# Remove API unix socket
-rm -f $API_SOCKET
-
 # Run firecracker
-./firecracker/build/cargo_target/${ARCH}-unknown-linux-musl/debug/firecracker \
+sudo ./firecracker/build/cargo_target/${ARCH}-unknown-linux-musl/debug/firecracker \
     --api-sock "${API_SOCKET}"
 ```
 
@@ -133,17 +133,21 @@ sudo iptables -I FORWARD 1 -i tap0 -o eth0 -j ACCEPT
 
 API_SOCKET="./firecracker.socket"
 LOGFILE="./firecracker.log"
+PROFILE_FILE="./firecracker.folded"
 
 # Create log file
+rm -f $LOGFILE
 touch $LOGFILE
 
 # Set log file
-curl -X PUT --unix-socket "${API_SOCKET}" \
+sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     --data "{
         \"log_path\": \"${LOGFILE}\",
-        \"level\": \"Debug\",
+        \"level\": \"Trace\",
         \"show_level\": true,
-        \"show_log_origin\": true
+        \"show_log_origin\": true,
+        \"new_format\": true,
+        \"profile_file\": \"${PROFILE_FILE}\"
     }" \
     "http://localhost/logger"
 
@@ -157,7 +161,7 @@ if [ ${ARCH} = "aarch64" ]; then
 fi
 
 # Set boot source
-curl -X PUT --unix-socket "${API_SOCKET}" \
+sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     --data "{
         \"kernel_image_path\": \"${KERNEL}\",
         \"boot_args\": \"${KERNEL_BOOT_ARGS}\"
@@ -167,7 +171,7 @@ curl -X PUT --unix-socket "${API_SOCKET}" \
 ROOTFS="./ubuntu-18.04.ext4"
 
 # Set rootfs
-curl -X PUT --unix-socket "${API_SOCKET}" \
+sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     --data "{
         \"drive_id\": \"rootfs\",
         \"path_on_host\": \"${ROOTFS}\",
@@ -182,7 +186,7 @@ curl -X PUT --unix-socket "${API_SOCKET}" \
 FC_MAC="06:00:AC:10:00:02"
 
 # Set network interface
-curl -X PUT --unix-socket "${API_SOCKET}" \
+sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     --data "{
         \"iface_id\": \"net1\",
         \"guest_mac\": \"$FC_MAC\",
@@ -195,7 +199,7 @@ curl -X PUT --unix-socket "${API_SOCKET}" \
 sleep 0.015s
 
 # Start microVM
-curl -X PUT --unix-socket "${API_SOCKET}" \
+sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     --data "{
         \"action_type\": \"InstanceStart\"
     }" \
