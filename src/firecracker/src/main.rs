@@ -383,6 +383,7 @@ fn main_exitable() -> FcExitCode {
 
         let process_time_reporter =
             ProcessTimeReporter::new(start_time_us, start_time_cpu_us, parent_cpu_time_us);
+
         api_server_adapter::run_with_api(
             &mut seccomp_filters,
             vmm_config_json,

@@ -79,7 +79,6 @@ def default_lambda_consumer(env_id, workload):
             SnapRestoreBaselinesProvider(env_id, workload, raw_baselines),
         ),
         func=consume_output,
-        func_kwargs={},
     )
 
 
@@ -90,10 +89,10 @@ def get_snap_restore_latency(
     rootfs,
     vcpus,
     mem_size,
-    nets=1,
-    blocks=1,
+    nets=3,
+    blocks=3,
     all_devices=False,
-    iterations=10,
+    iterations=30,
 ):
     """Restore snapshots with various configs to measure latency."""
     scratch_drives = get_scratch_drives()
@@ -174,24 +173,46 @@ def get_snap_restore_latency(
 
     full_snapshot.cleanup()
     vm.jailer.cleanup()
-    return {RESTORE_LATENCY: values}
+    return values
 
 
-def consume_output(cons, result):
+def consume_output(cons, latencies):
     """Consumer function."""
-    restore_latency = result[RESTORE_LATENCY]
-    for value in restore_latency:
+    for value in latencies:
         yield RESTORE_LATENCY, value, "Milliseconds"
         cons.consume_data(RESTORE_LATENCY, value)
 
 
 @pytest.mark.nonci
-@pytest.mark.parametrize("vcpu_count", [1, 2, 4, 8, 10])
-def test_snapshot_scaling_vcpus(
-    bin_cloner_path, microvm_factory, rootfs, guest_kernel, vcpu_count, st_core
+@pytest.mark.parametrize(
+    "mem, vcpus",
+    [
+        (128, 1),
+        (1024, 1),
+        (2048, 2),
+        (4096, 3),
+        (6144, 4),
+        (8192, 5),
+        (10240, 6),
+        (12288, 7),
+    ],
+)
+def test_snapshot_scaling(
+    bin_cloner_path, microvm_factory, rootfs, guest_kernel, st_core, mem, vcpus
 ):
-    """Restore snapshots with variable vcpu count."""
-    guest_config = f"{vcpu_count}vcpu_{BASE_MEM_SIZE_MIB}mb"
+    """
+    Restores snapshots with vcpu/memory configuration, roughly scaling according to mem = (vcpus - 1) * 2048MB,
+    which resembles firecracker production setups.
+
+
+    """
+
+    # The guest kernel does not "participate" in snapshot restore, so just pick some
+    # arbitrary one
+    if "4.14" not in guest_kernel.name():
+        pytest.skip()
+
+    guest_config = f"{vcpus}vcpu_{mem}mb"
     env_id = f"{guest_kernel.name()}/{rootfs.name()}/{guest_config}"
     st_prod = st.producer.LambdaProducer(
         func=get_snap_restore_latency,
@@ -200,91 +221,8 @@ def test_snapshot_scaling_vcpus(
             "microvm_factory": microvm_factory,
             "guest_kernel": guest_kernel,
             "rootfs": rootfs,
-            "vcpus": vcpu_count,
-            "mem_size": BASE_MEM_SIZE_MIB,
-        },
-    )
-    st_cons = default_lambda_consumer(env_id, WORKLOAD)
-    st_core.add_pipe(st_prod, st_cons, f"{env_id}/{WORKLOAD}")
-    st_core.name = TEST_ID
-    st_core.custom["guest_config"] = guest_config
-    st_core.run_exercise()
-
-
-# mem_exponent=7 takes around 100s
-@pytest.mark.nonci
-@pytest.mark.timeout(10 * 60)
-@pytest.mark.parametrize("mem_exponent", range(1, 8))
-def test_snapshot_scaling_mem(
-    bin_cloner_path, microvm_factory, rootfs, guest_kernel, mem_exponent, st_core
-):
-    """Restore snapshots with variable memory size."""
-    mem_mib = BASE_MEM_SIZE_MIB * (2**mem_exponent)
-    guest_config = f"{BASE_VCPU_COUNT}vcpu_{mem_mib}mb"
-    env_id = f"{guest_kernel.name()}/{rootfs.name()}/{guest_config}"
-    st_prod = st.producer.LambdaProducer(
-        func=get_snap_restore_latency,
-        func_kwargs={
-            "vm_builder": MicrovmBuilder(bin_cloner_path),
-            "microvm_factory": microvm_factory,
-            "guest_kernel": guest_kernel,
-            "rootfs": rootfs,
-            "vcpus": BASE_VCPU_COUNT,
-            "mem_size": mem_mib,
-        },
-    )
-    st_cons = default_lambda_consumer(env_id, WORKLOAD)
-    st_core.add_pipe(st_prod, st_cons, f"{env_id}/{WORKLOAD}")
-    st_core.name = TEST_ID
-    st_core.custom["guest_config"] = guest_config
-    st_core.run_exercise()
-
-
-@pytest.mark.nonci
-@pytest.mark.parametrize("net_count", range(1, 4))
-def test_snapshot_scaling_net(
-    bin_cloner_path, microvm_factory, rootfs, guest_kernel, st_core, net_count
-):
-    """Restore snapshots with variable net device count."""
-    guest_config = f"{BASE_NET_COUNT + net_count}net_dev"
-    env_id = f"{guest_kernel.name()}/{rootfs.name()}/{guest_config}"
-    st_prod = st.producer.LambdaProducer(
-        func=get_snap_restore_latency,
-        func_kwargs={
-            "vm_builder": MicrovmBuilder(bin_cloner_path),
-            "microvm_factory": microvm_factory,
-            "guest_kernel": guest_kernel,
-            "rootfs": rootfs,
-            "vcpus": BASE_VCPU_COUNT,
-            "mem_size": BASE_MEM_SIZE_MIB,
-            "nets": BASE_NET_COUNT + net_count,
-        },
-    )
-    st_cons = default_lambda_consumer(env_id, WORKLOAD)
-    st_core.add_pipe(st_prod, st_cons, f"{env_id}/{WORKLOAD}")
-    st_core.name = TEST_ID
-    st_core.custom["guest_config"] = guest_config
-    st_core.run_exercise()
-
-
-@pytest.mark.nonci
-@pytest.mark.parametrize("block_count", range(1, 4))
-def test_snapshot_scaling_block(
-    bin_cloner_path, microvm_factory, rootfs, guest_kernel, st_core, block_count
-):
-    """Restore snapshots with variable block device count."""
-    guest_config = f"{BASE_BLOCK_COUNT + block_count}block_dev"
-    env_id = f"{guest_kernel.name()}/{rootfs.name()}/{guest_config}"
-    st_prod = st.producer.LambdaProducer(
-        func=get_snap_restore_latency,
-        func_kwargs={
-            "vm_builder": MicrovmBuilder(bin_cloner_path),
-            "microvm_factory": microvm_factory,
-            "guest_kernel": guest_kernel,
-            "rootfs": rootfs,
-            "vcpus": BASE_VCPU_COUNT,
-            "mem_size": BASE_MEM_SIZE_MIB,
-            "blocks": BASE_BLOCK_COUNT + block_count,
+            "vcpus": vcpus,
+            "mem_size": mem,
         },
     )
     st_cons = default_lambda_consumer(env_id, WORKLOAD)
@@ -299,6 +237,12 @@ def test_snapshot_all_devices(
     bin_cloner_path, microvm_factory, rootfs, guest_kernel, st_core
 ):
     """Restore snapshots with one of each devices."""
+
+    # The guest kernel does not "participate" in snapshot restore, so just pick some
+    # arbitrary one
+    if "4.14" not in guest_kernel.name():
+        pytest.skip()
+
     guest_config = "all_dev"
     env_id = f"{guest_kernel.name()}/{rootfs.name()}/{guest_config}"
     st_prod = st.producer.LambdaProducer(
@@ -308,6 +252,8 @@ def test_snapshot_all_devices(
             "microvm_factory": microvm_factory,
             "guest_kernel": guest_kernel,
             "rootfs": rootfs,
+            "nets": 1,
+            "blocks": 1,
             "vcpus": BASE_VCPU_COUNT,
             "mem_size": BASE_MEM_SIZE_MIB,
             "all_devices": True,
