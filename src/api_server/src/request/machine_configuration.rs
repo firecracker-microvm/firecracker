@@ -1,21 +1,21 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0<Paste>
 
+use hyper::Method;
 use logger::{IncMetric, METRICS};
 use vmm::vmm_config::machine_config::{MachineConfig, MachineConfigUpdate};
 
 use super::super::VmmAction;
 use crate::parsed_request::{method_to_error, Error, ParsedRequest};
-use crate::request::{Body, Method};
 
 pub(crate) fn parse_get_machine_config() -> Result<ParsedRequest, Error> {
     METRICS.get_api_requests.machine_cfg_count.inc();
     Ok(ParsedRequest::new_sync(VmmAction::GetVmMachineConfig))
 }
 
-pub(crate) fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_put_machine_config(body: serde_json::Value) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.machine_cfg_count.inc();
-    let config = serde_json::from_slice::<MachineConfig>(body.raw()).map_err(|err| {
+    let config = serde_json::from_value::<MachineConfig>(body).map_err(|err| {
         METRICS.put_api_requests.machine_cfg_fails.inc();
         err
     })?;
@@ -27,16 +27,15 @@ pub(crate) fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Err
     )))
 }
 
-pub(crate) fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_patch_machine_config(body: serde_json::Value) -> Result<ParsedRequest, Error> {
     METRICS.patch_api_requests.machine_cfg_count.inc();
-    let config_update =
-        serde_json::from_slice::<MachineConfigUpdate>(body.raw()).map_err(|err| {
-            METRICS.patch_api_requests.machine_cfg_fails.inc();
-            err
-        })?;
+    let config_update = serde_json::from_value::<MachineConfigUpdate>(body).map_err(|err| {
+        METRICS.patch_api_requests.machine_cfg_fails.inc();
+        err
+    })?;
 
     if config_update.is_empty() {
-        return method_to_error(Method::Patch);
+        return method_to_error(Method::PATCH);
     }
 
     Ok(ParsedRequest::new_sync(VmmAction::UpdateVmConfiguration(
@@ -46,6 +45,7 @@ pub(crate) fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, E
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
     use vmm::cpu_config::templates::StaticCpuTemplate;
 
     use super::*;
@@ -60,25 +60,25 @@ mod tests {
     #[test]
     fn test_parse_put_machine_config_request() {
         // 1. Test case for invalid payload.
-        assert!(parse_put_machine_config(&Body::new("invalid_payload")).is_err());
+        assert!(parse_put_machine_config(serde_json::Value::Null).is_err());
         assert!(METRICS.put_api_requests.machine_cfg_fails.count() > 0);
 
         // 2. Test case for mandatory fields.
-        let body = r#"{
-                "mem_size_mib": 1024
-              }"#;
-        assert!(parse_put_machine_config(&Body::new(body)).is_err());
+        let body = json!({
+          "mem_size_mib": 1024
+        });
+        assert!(parse_put_machine_config(body).is_err());
 
-        let body = r#"{
-                "vcpu_count": 8
-                }"#;
-        assert!(parse_put_machine_config(&Body::new(body)).is_err());
+        let body = json!({
+        "vcpu_count": 8
+        });
+        assert!(parse_put_machine_config(body).is_err());
 
         // 3. Test case for success scenarios for both architectures.
-        let body = r#"{
-                "vcpu_count": 8,
-                "mem_size_mib": 1024
-              }"#;
+        let body = json!({
+          "vcpu_count": 8,
+          "mem_size_mib": 1024
+        });
         let expected_config = MachineConfigUpdate {
             vcpu_count: Some(8),
             mem_size_mib: Some(1024),
@@ -87,17 +87,17 @@ mod tests {
             track_dirty_pages: Some(false),
         };
 
-        match vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()) {
+        match vmm_action_from_request(parse_put_machine_config(body).unwrap()) {
             VmmAction::UpdateVmConfiguration(config) => assert_eq!(config, expected_config),
             _ => panic!("Test failed."),
         }
 
-        let body = r#"{
-                "vcpu_count": 8,
-                "mem_size_mib": 1024,
-                "smt": false,
-                "track_dirty_pages": true
-            }"#;
+        let body = json!({
+            "vcpu_count": 8,
+            "mem_size_mib": 1024,
+            "smt": false,
+            "track_dirty_pages": true
+        });
         let expected_config = MachineConfigUpdate {
             vcpu_count: Some(8),
             mem_size_mib: Some(1024),
@@ -106,19 +106,19 @@ mod tests {
             track_dirty_pages: Some(true),
         };
 
-        match vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()) {
+        match vmm_action_from_request(parse_put_machine_config(body).unwrap()) {
             VmmAction::UpdateVmConfiguration(config) => assert_eq!(config, expected_config),
             _ => panic!("Test failed."),
         }
 
         // 4. Test that applying a CPU template is successful on x86_64 while on aarch64, it is not.
-        let body = r#"{
-                "vcpu_count": 8,
-                "mem_size_mib": 1024,
-                "smt": false,
-                "cpu_template": "T2",
-                "track_dirty_pages": true
-              }"#;
+        let body = json!({
+          "vcpu_count": 8,
+          "mem_size_mib": 1024,
+          "smt": false,
+          "cpu_template": "T2",
+          "track_dirty_pages": true
+        });
 
         #[cfg(target_arch = "x86_64")]
         {
@@ -130,7 +130,7 @@ mod tests {
                 track_dirty_pages: Some(true),
             };
 
-            match vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()) {
+            match vmm_action_from_request(parse_put_machine_config(body).unwrap()) {
                 VmmAction::UpdateVmConfiguration(config) => assert_eq!(config, expected_config),
                 _ => panic!("Test failed."),
             }
@@ -138,16 +138,16 @@ mod tests {
 
         #[cfg(target_arch = "aarch64")]
         {
-            assert!(parse_put_machine_config(&Body::new(body)).is_err());
+            assert!(parse_put_machine_config(body).is_err());
         }
 
         // 5. Test that setting `smt: true` is successful on x86_64 while on aarch64, it is not.
-        let body = r#"{
-            "vcpu_count": 8,
-            "mem_size_mib": 1024,
-            "smt": true,
-            "track_dirty_pages": true
-          }"#;
+        let body = json!({
+          "vcpu_count": 8,
+          "mem_size_mib": 1024,
+          "smt": true,
+          "track_dirty_pages": true
+        });
 
         #[cfg(target_arch = "x86_64")]
         {
@@ -159,7 +159,7 @@ mod tests {
                 track_dirty_pages: Some(true),
             };
 
-            match vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()) {
+            match vmm_action_from_request(parse_put_machine_config(body).unwrap()) {
                 VmmAction::UpdateVmConfiguration(config) => assert_eq!(config, expected_config),
                 _ => panic!("Test failed."),
             }
@@ -167,46 +167,46 @@ mod tests {
 
         #[cfg(target_arch = "aarch64")]
         {
-            assert!(parse_put_machine_config(&Body::new(body)).is_err());
+            assert!(parse_put_machine_config(body).is_err());
         }
     }
 
     #[test]
     fn test_parse_patch_machine_config_request() {
         // 1. Test cases for invalid payload.
-        assert!(parse_patch_machine_config(&Body::new("invalid_payload")).is_err());
+        assert!(parse_patch_machine_config(serde_json::Value::Null).is_err());
 
         // 2. Check currently supported fields that can be patched.
-        let body = r#"{
-                "track_dirty_pages": true
-              }"#;
-        assert!(parse_patch_machine_config(&Body::new(body)).is_ok());
+        let body = json!({
+          "track_dirty_pages": true
+        });
+        assert!(parse_patch_machine_config(body).is_ok());
 
         // On aarch64, CPU template is also not patch compatible.
-        let body = r#"{
-                "cpu_template": "T2"
-              }"#;
+        let body = json!({
+          "cpu_template": "T2"
+        });
         #[cfg(target_arch = "aarch64")]
-        assert!(parse_patch_machine_config(&Body::new(body)).is_err());
+        assert!(parse_patch_machine_config(body).is_err());
         #[cfg(target_arch = "x86_64")]
-        assert!(parse_patch_machine_config(&Body::new(body)).is_ok());
+        assert!(parse_patch_machine_config(body).is_ok());
 
-        let body = r#"{
-                "vcpu_count": 8,
-                "mem_size_mib": 1024
-              }"#;
-        assert!(parse_patch_machine_config(&Body::new(body)).is_ok());
+        let body = json!({
+          "vcpu_count": 8,
+          "mem_size_mib": 1024
+        });
+        assert!(parse_patch_machine_config(body).is_ok());
 
         // On aarch64, we allow `smt` to be configured to `false` but not `true`.
-        let body = r#"{
-                "vcpu_count": 8,
-                "mem_size_mib": 1024,
-                "smt": false
-              }"#;
-        assert!(parse_patch_machine_config(&Body::new(body)).is_ok());
+        let body = json!({
+          "vcpu_count": 8,
+          "mem_size_mib": 1024,
+          "smt": false
+        });
+        assert!(parse_patch_machine_config(body).is_ok());
 
         // 3. Check to see if an empty body returns an error.
-        let body = r#"{}"#;
-        assert!(parse_patch_machine_config(&Body::new(body)).is_err());
+        let body = json!({});
+        assert!(parse_patch_machine_config(body).is_err());
     }
 }

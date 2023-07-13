@@ -201,6 +201,27 @@ pub enum VmmActionError {
     VsockConfig(VsockConfigError),
 }
 
+impl TryFrom<VmmActionError> for hyper::Response<hyper::Body> {
+    type Error = http::Error;
+    fn try_from(err: VmmActionError) -> Result<Self, Self::Error> {
+        hyper::Response::builder()
+            .version(hyper::Version::HTTP_11)
+            .status(match err {
+                VmmActionError::MmdsLimitExceeded(_) => {
+                    error!("Received Error. Status code: 413 Payload too large. Message: {err}");
+                    hyper::StatusCode::PAYLOAD_TOO_LARGE
+                }
+                _ => {
+                    error!("Received Error. Status code: 400 Bad Request. Message: {err}");
+                    hyper::StatusCode::BAD_REQUEST
+                }
+            })
+            .body(hyper::Body::from(
+                serde_json::json!({ "fault_message": err.to_string() }).to_string(),
+            ))
+    }
+}
+
 /// The enum represents the response sent by the VMM in case of success. The response is either
 /// empty, when no data needs to be sent, or an internal VMM structure.
 #[allow(clippy::large_enum_variant)]
