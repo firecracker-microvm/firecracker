@@ -429,6 +429,9 @@ def test_consecutive_cpu_config_consistency(
             "msr_modifiers": [],
         }
     elif PLATFORM == "aarch64":
-        empty_cpu_config = {"reg_modifiers": []}
+        empty_cpu_config = {
+            "reg_modifiers": [],
+            "vcpu_features": [],
+        }
     assert json.loads(cpu_config_1.read_text(encoding="utf-8")) == empty_cpu_config
     assert json.loads(cpu_config_2.read_text(encoding="utf-8")) == empty_cpu_config

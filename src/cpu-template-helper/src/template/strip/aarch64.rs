@@ -23,7 +23,10 @@ pub fn strip(templates: Vec<CustomCpuTemplate>) -> Result<Vec<CustomCpuTemplate>
         .into_iter()
         .map(|reg_modifiers_map| {
             let reg_modifiers = Vec::<RegisterModifier>::from(RegModifierMap(reg_modifiers_map));
-            CustomCpuTemplate { reg_modifiers }
+            CustomCpuTemplate {
+                reg_modifiers,
+                ..Default::default()
+            }
         })
         .collect();
 
@@ -50,12 +53,14 @@ mod tests {
                     reg_modifier!(0x0, 0x0),
                     reg_modifier!(0x1, 0x1),
                 ],
+                ..Default::default()
             },
             CustomCpuTemplate {
                 reg_modifiers: vec![
                     reg_modifier!(0x0, 0x1),
                     reg_modifier!(0x1, 0x1),
                 ],
+                ..Default::default()
             },
             CustomCpuTemplate {
                 reg_modifiers: vec![
@@ -63,6 +68,7 @@ mod tests {
                     reg_modifier!(0x1, 0x1),
                     reg_modifier!(0x2, 0x1),
                 ],
+                ..Default::default()
             },
         ]
     }
@@ -74,17 +80,20 @@ mod tests {
                 reg_modifiers: vec![
                     reg_modifier!(0x0, 0x0, 0b11),
                 ],
+                ..Default::default()
             },
             CustomCpuTemplate {
                 reg_modifiers: vec![
                     reg_modifier!(0x0, 0x1, 0b11),
                 ],
+                ..Default::default()
             },
             CustomCpuTemplate {
                 reg_modifiers: vec![
                     reg_modifier!(0x0, 0x2, 0b11),
                     reg_modifier!(0x2, 0x1),
                 ],
+                ..Default::default()
             },
         ]
     }

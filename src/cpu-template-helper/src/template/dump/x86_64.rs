@@ -16,6 +16,7 @@ pub fn config_to_template(cpu_config: &CpuConfiguration) -> CustomCpuTemplate {
     CustomCpuTemplate {
         cpuid_modifiers: cpuid_to_modifiers(&cpu_config.cpuid),
         msr_modifiers: msrs_to_modifier(&cpu_config.msrs),
+        ..Default::default()
     }
 }
 
@@ -147,6 +148,7 @@ mod tests {
         let cpu_template = CustomCpuTemplate {
             cpuid_modifiers: build_expected_cpuid_modifiers(),
             msr_modifiers: build_expected_msr_modifiers(),
+            ..Default::default()
         };
         assert_eq!(config_to_template(&cpu_config), cpu_template);
     }
