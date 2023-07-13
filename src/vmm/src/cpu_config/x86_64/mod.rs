@@ -167,6 +167,7 @@ mod tests {
                     },
                 },
             ],
+            ..Default::default()
         }
     }
 

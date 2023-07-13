@@ -35,6 +35,9 @@ impl GetCpuTemplate for Option<CpuTemplateType> {
 #[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CustomCpuTemplate {
+    /// Modifiers of enabled vcpu features for vcpu.
+    #[serde(default)]
+    pub vcpu_features: Vec<VcpuFeatures>,
     /// Modifiers for registers on Aarch64 CPUs.
     #[serde(default)]
     pub reg_modifiers: Vec<RegisterModifier>,
@@ -76,6 +79,15 @@ impl CustomCpuTemplate {
         }
         Ok(())
     }
+}
+
+/// Struct for defining enabled vcpu features
+#[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct VcpuFeatures {
+    /// Index in the `kvm_bindings::kvm_vcpu_init.features` array.
+    pub index: u32,
+    /// Modifier for the value in the `kvm_bindings::kvm_vcpu_init.features` array.
+    pub bitmap: RegisterValueFilter<u32>,
 }
 
 /// Wrapper of a mask defined as a bitmap to apply
@@ -173,7 +185,31 @@ mod tests {
     }
 
     #[test]
+    fn test_correct_json() {
+        let cpu_config_result = serde_json::from_str::<CustomCpuTemplate>(
+            r#"{
+                    "vcpu_features":[{"index":0,"bitmap":"0b1100000"}],
+                    "reg_modifiers":  [
+                        {
+                            "addr": "0x0030000000000000",
+                            "bitmap": "0bx00100x0x1xxxx01xxx1xxxxxxxxxxx1"
+                        }
+                    ]
+                }"#,
+        );
+        assert!(cpu_config_result.is_ok());
+    }
+
+    #[test]
     fn test_malformed_json() {
+        // Malformed vcpu features
+        let cpu_config_result = serde_json::from_str::<CustomCpuTemplate>(
+            r#"{
+                    "vcpu_features":[{"index":0,"bitmap":"0b11abc00"}]
+                }"#,
+        );
+        assert!(cpu_config_result.is_err());
+
         // Malformed register address
         let cpu_config_result = serde_json::from_str::<CustomCpuTemplate>(
             r#"{
@@ -321,6 +357,7 @@ mod tests {
                     },
                 },
             ],
+            ..Default::default()
         };
         assert!(template.validate().is_ok());
 
@@ -333,6 +370,7 @@ mod tests {
                     value: 0x2,
                 },
             }],
+            ..Default::default()
         };
         assert!(template.validate().is_err());
 
@@ -345,6 +383,7 @@ mod tests {
                     value: 0x100000000,
                 },
             }],
+            ..Default::default()
         };
         assert!(template.validate().is_err());
 
@@ -357,6 +396,7 @@ mod tests {
                     value: 0x2,
                 },
             }],
+            ..Default::default()
         };
         assert!(template.validate().is_err());
     }
