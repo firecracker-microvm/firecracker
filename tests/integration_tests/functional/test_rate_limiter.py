@@ -434,8 +434,8 @@ def _start_iperf_on_guest(test_microvm, hostname):
 def _run_iperf_on_guest(test_microvm, iperf_cmd, hostname):
     """Run a client related iperf command through an SSH connection."""
     test_microvm.ssh_config["hostname"] = hostname
-    _, stdout, stderr = test_microvm.ssh.execute_command(iperf_cmd)
-    assert stderr.read() == ""
+    code, stdout, stderr = test_microvm.ssh.execute_command(iperf_cmd)
+    assert code == 0, f"stdout: {stdout.read()}\nstderr: {stderr.read()}"
 
     out = stdout.read()
     return out
@@ -459,8 +459,10 @@ def _start_local_iperf(netns_cmd_prefix):
 
 def _run_local_iperf(iperf_cmd):
     """Execute a client related iperf command locally."""
-    process = utils.run_cmd(iperf_cmd)
-    return process.stdout
+    code, stdout, stderr = utils.run_cmd(iperf_cmd)
+    assert code == 0, f"stdout: {stdout}\nstderr: {stderr}"
+
+    return stdout
 
 
 def _get_percentage_difference(measured, base):
