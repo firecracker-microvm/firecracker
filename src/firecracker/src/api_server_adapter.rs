@@ -7,9 +7,8 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
-use std::thread;
 
-use api_server::{ApiRequest, ApiResponse, ApiServer, ServerError};
+use api_server::{ApiRequest, ApiResponse};
 use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
 use logger::{error, warn, ProcessTimeReporter};
 use seccompiler::BpfThreadMap;
@@ -116,14 +115,13 @@ impl MutEventSubscriber for ApiServerAdapter {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run_with_api(
+pub(crate) async fn run_with_api(
     seccomp_filters: &mut BpfThreadMap,
     config_json: Option<String>,
     bind_path: PathBuf,
     instance_info: InstanceInfo,
     process_time_reporter: ProcessTimeReporter,
     boot_timer_enabled: bool,
-    api_payload_limit: usize,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
 ) -> FcExitCode {
@@ -146,34 +144,36 @@ pub(crate) fn run_with_api(
         .expect("Missing seccomp filter for API thread.");
 
     // Start the separate API thread.
-    let api_thread = thread::Builder::new()
-        .name("fc_api".to_owned())
-        .spawn(move || {
-            match ApiServer::new(to_vmm, from_vmm, to_vmm_event_fd).bind_and_run(
-                &api_bind_path,
-                process_time_reporter,
-                &api_seccomp_filter,
-                api_payload_limit,
-                socket_ready_sender,
-            ) {
-                Ok(_) => (),
-                Err(api_server::Error::ServerCreation(ServerError::IOError(inner)))
-                    if inner.kind() == std::io::ErrorKind::AddrInUse =>
-                {
-                    let sock_path = api_bind_path.display().to_string();
-                    error!(
-                        "Failed to open the API socket at: {sock_path}. Check that it is not \
-                         already used."
-                    );
-                    std::process::exit(vmm::FcExitCode::GenericError as i32);
-                }
-                Err(api_server::Error::ServerCreation(err)) => {
-                    error!("Failed to bind and run the HTTP server: {err}");
-                    std::process::exit(vmm::FcExitCode::GenericError as i32);
-                }
+
+    let api_thread = tokio::task::spawn(async move {
+        match api_server::bind_and_run(
+            to_vmm,
+            from_vmm,
+            to_vmm_event_fd,
+            &api_bind_path,
+            process_time_reporter,
+            &api_seccomp_filter,
+            socket_ready_sender,
+        )
+        .await
+        {
+            Ok(()) => (),
+            Err(api_server::BindAndRunError::Bind(inner))
+                if inner.kind() == std::io::ErrorKind::AddrInUse =>
+            {
+                let sock_path = api_bind_path.display().to_string();
+                error!(
+                    "Failed to open the API socket at: {sock_path}. Check that it is not already \
+                     used."
+                );
+                std::process::exit(vmm::FcExitCode::GenericError as i32);
             }
-        })
-        .expect("API thread spawn failed.");
+            Err(err) => {
+                error!("Failed to bind and run the HTTP server: {err}");
+                std::process::exit(vmm::FcExitCode::GenericError as i32);
+            }
+        }
+    });
 
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
     // Create the firecracker metrics object responsible for periodically printing metrics.
@@ -258,6 +258,6 @@ pub(crate) fn run_with_api(
     }
     // This call to thread::join() should block until the API thread has processed the
     // shutdown-internal and returns from its function.
-    api_thread.join().unwrap();
+    api_thread.await.unwrap();
     exit_code
 }

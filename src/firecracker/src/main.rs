@@ -71,7 +71,7 @@ pub fn enable_ssbd_mitigation() {
     }
 }
 
-fn main_exitable() -> FcExitCode {
+async fn main_exitable() -> FcExitCode {
     LOGGER
         .configure(Some(DEFAULT_INSTANCE_ID.to_string()))
         .expect("Failed to register logger");
@@ -390,10 +390,10 @@ fn main_exitable() -> FcExitCode {
             instance_info,
             process_time_reporter,
             boot_timer_enabled,
-            api_payload_limit,
             mmds_size_limit,
             metadata_json.as_deref(),
         )
+        .await
     } else {
         let seccomp_filters: BpfThreadMap = seccomp_filters
             .into_iter()
@@ -410,7 +410,8 @@ fn main_exitable() -> FcExitCode {
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // This idiom is the prescribed way to get a clean shutdown of Rust (that will report
     // no leaks in Valgrind or sanitizers).  Calling `unsafe { libc::exit() }` does no
     // cleanup, and std::process::exit() does more--but does not run destructors.  So the
@@ -421,7 +422,7 @@ fn main() {
     //
     // See process_exitable() method of Subscriber trait for what triggers the exit_code.
     //
-    let exit_code = main_exitable();
+    let exit_code = main_exitable().await;
     std::process::exit(exit_code as i32);
 }
 
