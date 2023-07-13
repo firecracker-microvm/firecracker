@@ -71,12 +71,12 @@ RUN cd /tmp/poetry && \
     HOME=. POETRY_VIRTUALENVS_CREATE=false poetry install --only main --no-interaction \
     && rm -rf ~/.cache ~/.local /tmp/poetry
 
-# Install the Rust toolchain
+# Install the Rust toolchain. Kani only work on x86, so only try to install it there.
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOLCHAIN" \
     && rustup target add $ARCH-unknown-linux-musl \
     && rustup component add llvm-tools-preview \
     && cargo install cargo-audit cargo-deny grcov cargo-sort \
-    && (if [ "$ARCH" = "x86_64" ]; then cargo install kani-verifier && cargo kani setup; else true; fi) # Kani only work on x86_64 \
+    && (if [ "$ARCH" = "x86_64" ]; then cargo install kani-verifier && cargo kani setup; else true; fi) \
     && rm -rf "$CARGO_HOME/registry" \
     && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
     && rm -rf "$CARGO_HOME/git" \
