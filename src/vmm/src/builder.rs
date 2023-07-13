@@ -51,7 +51,6 @@ use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{MachineConfigUpdate, VmConfig, VmConfigError};
-use crate::vstate::system::KvmContext;
 use crate::vstate::vcpu::{Vcpu, VcpuConfig};
 use crate::vstate::vm::Vm;
 use crate::{device_manager, EventManager, RestoreVcpusError, Vmm, VmmError};
@@ -159,7 +158,13 @@ fn create_vmm_and_vcpus(
 
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
-    let mut vm = setup_kvm_vm(&guest_memory, track_dirty_pages)?;
+    // TODO use cpu_template.kvm_capabilities here
+    let mut vm = Vm::new()
+        .map_err(VmmError::Vm)
+        .map_err(StartMicrovmError::Internal)?;
+    vm.memory_init(&guest_memory, track_dirty_pages)
+        .map_err(VmmError::Vm)
+        .map_err(StartMicrovmError::Internal)?;
 
     let vcpus_exit_evt = EventFd::new(libc::EFD_NONBLOCK)
         .map_err(VmmError::EventFd)
@@ -637,21 +642,6 @@ where
     })
 }
 
-pub(crate) fn setup_kvm_vm(
-    guest_memory: &GuestMemoryMmap,
-    track_dirty_pages: bool,
-) -> Result<Vm, StartMicrovmError> {
-    use self::StartMicrovmError::Internal;
-    let kvm = KvmContext::new()
-        .map_err(VmmError::KvmContext)
-        .map_err(Internal)?;
-    let mut vm = Vm::new(kvm.fd()).map_err(VmmError::Vm).map_err(Internal)?;
-    vm.memory_init(guest_memory, kvm.max_memslots(), track_dirty_pages)
-        .map_err(VmmError::Vm)
-        .map_err(Internal)?;
-    Ok(vm)
-}
-
 /// Sets up the irqchip for a x86_64 microVM.
 #[cfg(target_arch = "x86_64")]
 pub fn setup_interrupt_controller(vm: &mut Vm) -> Result<(), StartMicrovmError> {
@@ -1057,7 +1047,8 @@ pub mod tests {
             .map_err(StartMicrovmError::Internal)
             .unwrap();
 
-        let mut vm = setup_kvm_vm(&guest_memory, false).unwrap();
+        let mut vm = Vm::new().unwrap();
+        vm.memory_init(&guest_memory, false).unwrap();
         let mmio_device_manager = default_mmio_device_manager();
         #[cfg(target_arch = "x86_64")]
         let pio_device_manager = PortIODeviceManager::new(
@@ -1319,7 +1310,8 @@ pub mod tests {
         let guest_memory = create_guest_memory(128, false).unwrap();
 
         #[allow(unused_mut)]
-        let mut vm = setup_kvm_vm(&guest_memory, false).unwrap();
+        let mut vm = Vm::new().unwrap();
+        vm.memory_init(&guest_memory, false).unwrap();
         let evfd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
 
         #[cfg(target_arch = "x86_64")]

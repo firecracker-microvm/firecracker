@@ -208,10 +208,6 @@ pub enum VmmError {
     /// Cannot access kernel file.
     #[error("Cannot access kernel file: {0}")]
     KernelFile(io::Error),
-    /// Cannot open /dev/kvm. Either the host does not have KVM or Firecracker does not have
-    /// permission to open the file descriptor.
-    #[error("Failed to validate KVM support: {0}")]
-    KvmContext(vstate::system::SystemError),
     /// Cannot add devices to the Legacy I/O Bus.
     #[cfg(target_arch = "x86_64")]
     #[error("Cannot add devices to the legacy I/O Bus. {0}")]
