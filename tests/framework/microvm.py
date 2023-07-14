@@ -214,12 +214,10 @@ class Microvm:
             self._validate_api_response_times()
 
         # Check if Firecracker was launched by the jailer in a new pid ns.
-        fc_pid_in_new_ns = self.pid_in_new_ns
-
-        if fc_pid_in_new_ns:
+        if self.jailer.new_pid_ns:
             # We need to explicitly kill the Firecracker pid, since it's
             # different from the jailer pid that was previously killed.
-            utils.run_cmd(f"kill -9 {fc_pid_in_new_ns}", ignore_return_code=True)
+            utils.run_cmd(f"kill -9 {self.pid_in_new_ns}", ignore_return_code=True)
 
         if self.memory_monitor:
             if self.memory_monitor.is_alive():
@@ -340,20 +338,18 @@ class Microvm:
         return json.loads(self.desc_inst.get().content)["started"]
 
     @property
+    @retry(delay=0.1, tries=5)
     def pid_in_new_ns(self):
         """Get the pid of the Firecracker process in the new namespace.
 
-        Returns None if Firecracker was not launched in a new pid ns.
+        Reads the pid from a file created by jailer with `--new-pid-ns` flag.
         """
-        fc_pid = None
+        # Check if the pid file exists.
+        pid_file_path = Path(f"{self.jailer.chroot_path()}/{FC_PID_FILE_NAME}")
+        assert pid_file_path.exists()
 
-        pid_file_path = f"{self.jailer.chroot_path()}/{FC_PID_FILE_NAME}"
-        if os.path.exists(pid_file_path):
-            # Read the PID stored inside the file.
-            with open(pid_file_path, encoding="utf-8") as file:
-                fc_pid = int(file.readline())
-
-        return fc_pid
+        # Read the PID stored inside the file.
+        return int(pid_file_path.read_text(encoding="ascii"))
 
     def flush_metrics(self, metrics_fifo):
         """Flush the microvm metrics.
