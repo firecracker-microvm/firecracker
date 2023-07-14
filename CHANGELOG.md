@@ -28,6 +28,11 @@ and this project adheres to
   kernels. For older kernels physical counter will still be passed to the guest
   unmodified. See more info
   [here](https://github.com/firecracker-microvm/firecracker/blob/main/docs/prod-host-setup.md#arm-only-vm-physical-counter-behaviour)
+- [#5048](https://github.com/firecracker-microvm/firecracker/pull/5048): Added
+  support for [PVH boot mode](docs/pvh.md). This is used when an x86 kernel
+  provides the appropriate ELF Note to indicate that PVH boot mode is supported.
+  Linux kernels newer than 5.0 compiled with `CONFIG_PVH=y` set this ELF Note,
+  as do FreeBSD kernels.
 
 ### Changed
 
