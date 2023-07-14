@@ -140,6 +140,10 @@ and this project adheres to
   [random for clones](docs/snapshotting/random-for-clones.md) documention for
   more info on VMGenID. VMGenID state is part of the snapshot format of
   Firecracker. As a result, Firecracker snapshot version is now 2.0.0.
+- Added support for PVH boot mode.  This is used when an x86 kernel provides
+  the appropriate ELF Note to indicate that PVH boot mode is supported.
+  Linux kernels compiled with CONFIG_XEN_PVH=y set this ELF Note, as do
+  FreeBSD kernels.
 
 ### Changed
 
