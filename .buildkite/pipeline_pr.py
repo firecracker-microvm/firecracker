@@ -7,7 +7,7 @@
 import subprocess
 from pathlib import Path
 
-from common import COMMON_PARSER, group, pipeline_to_json
+from common import COMMON_PARSER, group, overlay_dict, pipeline_to_json
 
 # Buildkite default job priority is 0. Setting this to 1 prioritizes PRs over
 # scheduled jobs and other batch jobs.
@@ -36,10 +36,9 @@ defaults = {
     # buildkite step parameters
     "priority": DEFAULT_PRIORITY,
     "timeout_in_minutes": 45,
-    "env": dict(args.step_env),
     "artifacts": ["./test_results/**/*"],
 }
-defaults.update(args.step_param)
+defaults = overlay_dict(defaults, args.step_param)
 
 build_grp = group(
     "📦 Build",
@@ -65,12 +64,14 @@ security_grp = group(
     **defaults,
 )
 
-defaults_for_performance = defaults.copy()
-defaults_for_performance.update(
-    # We specify higher priority so the ag=1 jobs get picked up before the ag=n
-    # jobs in ag=1 agents
-    priority=DEFAULT_PRIORITY + 1,
-    agent_tags=["ag=1"],
+defaults_for_performance = overlay_dict(
+    defaults,
+    {
+        # We specify higher priority so the ag=1 jobs get picked up before the ag=n
+        # jobs in ag=1 agents
+        "priority": DEFAULT_PRIORITY + 1,
+        "agents": {"ag": 1},
+    },
 )
 
 performance_grp = group(
@@ -79,13 +80,14 @@ performance_grp = group(
     **defaults_for_performance,
 )
 
-defaults_for_kani = defaults.copy()
-defaults_for_kani.update(
-    # Kani runs fastest on m6i.metal
-    instances=["m6i.metal"],
-    platforms=[("al2", "linux_5.10")],
-    timeout_in_minutes=300,
-    agent_tags=["ag=1"],
+defaults_for_kani = overlay_dict(
+    defaults_for_performance,
+    {
+        # Kani runs fastest on m6i.metal
+        "instances": ["m6i.metal"],
+        "platforms": [("al2", "linux_5.10")],
+        "timeout_in_minutes": 300,
+    },
 )
 
 kani_grp = group(
