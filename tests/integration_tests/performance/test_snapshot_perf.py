@@ -9,6 +9,7 @@ import platform
 import pytest
 
 import host_tools.logging as log_tools
+from framework.artifacts import kernel_params
 from framework.properties import global_props
 from framework.stats import consumer, producer, types
 from framework.utils import CpuMap
@@ -24,6 +25,12 @@ LATENCY_MEASUREMENT = types.MeasurementDef.create_measurement(
     "ms",
     [],
     {},
+)
+
+# The guest kernel does not "participate" in snapshot restore, so just pick
+# some arbitrary one
+only_one_guest_kernel = pytest.mark.parametrize(
+    "guest_kernel", list(kernel_params("vmlinux-4.14*")), indirect=True
 )
 
 
@@ -65,6 +72,7 @@ def snapshot_resume_producer(microvm_factory, snapshot, metrics_fifo):
     return value
 
 
+@only_one_guest_kernel
 def test_older_snapshot_resume_latency(
     microvm_factory,
     guest_kernel,
@@ -79,11 +87,6 @@ def test_older_snapshot_resume_latency(
     With each previous firecracker version, create a snapshot and try to
     restore in current version.
     """
-
-    # The guest kernel does not "participate" in snapshot restore, so just pick
-    # some arbitrary one
-    if "4.14" not in guest_kernel.name:
-        pytest.skip("just test one guest kernel")
 
     # due to bug fixed in commit 8dab78b
     firecracker_version = firecracker_release.version_tuple
@@ -138,6 +141,7 @@ def test_older_snapshot_resume_latency(
     st_core.run_exercise()
 
 
+@only_one_guest_kernel
 def test_snapshot_create_latency(
     microvm_factory,
     guest_kernel,
@@ -145,11 +149,6 @@ def test_snapshot_create_latency(
     st_core,
 ):
     """Measure the latency of creating a Full snapshot"""
-
-    # The guest kernel does not "participate" in snapshot restore, so just pick
-    # some arbitrary one
-    if "4.14" not in guest_kernel.name:
-        pytest.skip("just test one guest kernel")
 
     guest_mem_mib = 512
     vcpus = 2
