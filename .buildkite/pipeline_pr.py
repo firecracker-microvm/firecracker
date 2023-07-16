@@ -40,6 +40,12 @@ defaults = {
 }
 defaults = overlay_dict(defaults, args.step_param)
 
+devtool_build_grp = group(
+    "📦 Devtool Sanity Build",
+    "./tools/devtool -y build",
+    **defaults,
+)
+
 build_grp = group(
     "📦 Build",
     "./tools/devtool -y test -- ../tests/integration_tests/build/",
@@ -100,6 +106,11 @@ for step in kani_grp["steps"]:
 
 steps = [step_style]
 changed_files = get_changed_files("main")
+
+# run sanity build of devtool if Dockerfile is changed
+if any(x.parts[-1] == "Dockerfile" for x in changed_files):
+    steps += [devtool_build_grp]
+
 # run the whole test suite if either of:
 # - any file changed that is not documentation nor GitHub action config file
 # - no files changed
