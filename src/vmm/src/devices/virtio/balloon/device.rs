@@ -15,7 +15,9 @@ use utils::eventfd::EventFd;
 use utils::vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 use virtio_gen::virtio_blk::VIRTIO_F_VERSION_1;
 
-use super::super::{ActivateError, DeviceState, Queue, VirtioDevice, TYPE_BALLOON};
+use super::super::{
+    ActivateError, DeviceState, Queue, VirtioDevice, SUBTYPE_BALLOON, TYPE_BALLOON,
+};
 use super::util::{compact_page_frame_numbers, remove_range};
 use super::{
     BALLOON_DEV_ID, BALLOON_NUM_QUEUES, BALLOON_QUEUE_SIZES, DEFLATE_INDEX, INFLATE_INDEX,
@@ -26,6 +28,7 @@ use super::{
     VIRTIO_BALLOON_S_MEMTOT, VIRTIO_BALLOON_S_MINFLT, VIRTIO_BALLOON_S_SWAP_IN,
     VIRTIO_BALLOON_S_SWAP_OUT,
 };
+use crate::arch::DeviceSubtype;
 use crate::devices::virtio::balloon::BalloonError;
 use crate::devices::virtio::{IrqTrigger, IrqType};
 
@@ -569,6 +572,10 @@ impl VirtioDevice for Balloon {
         TYPE_BALLOON
     }
 
+    fn device_subtype(&self) -> DeviceSubtype {
+        SUBTYPE_BALLOON
+    }
+
     fn queues(&self) -> &[Queue] {
         &self.queues
     }
@@ -612,8 +619,8 @@ impl VirtioDevice for Balloon {
         let end = start.and_then(|s| s.checked_add(data.len()));
         let Some(dst) = start
             .zip(end)
-            .and_then(|(start, end)| config_space_bytes.get_mut(start..end)) else
-        {
+            .and_then(|(start, end)| config_space_bytes.get_mut(start..end))
+        else {
             error!("Failed to write config space");
             return;
         };

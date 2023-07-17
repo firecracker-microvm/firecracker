@@ -25,13 +25,14 @@ use virtio_gen::virtio_blk::{
 };
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 
-use super::super::{ActivateError, DeviceState, Queue, VirtioDevice, TYPE_BLOCK};
+use super::super::{ActivateError, DeviceState, Queue, VirtioDevice, SUBTYPE_BLOCK, TYPE_BLOCK};
 use super::io::async_io;
 use super::request::*;
 use super::{
     io as block_io, BlockError, BLOCK_CONFIG_SPACE_SIZE, BLOCK_QUEUE_SIZES, SECTOR_SHIFT,
     SECTOR_SIZE,
 };
+use crate::arch::DeviceSubtype;
 use crate::devices::virtio::{IrqTrigger, IrqType};
 use crate::rate_limiter::{BucketUpdate, RateLimiter};
 
@@ -553,6 +554,10 @@ impl VirtioDevice for Block {
         TYPE_BLOCK
     }
 
+    fn device_subtype(&self) -> DeviceSubtype {
+        SUBTYPE_BLOCK
+    }
+
     fn queues(&self) -> &[Queue] {
         &self.queues
     }
@@ -593,8 +598,8 @@ impl VirtioDevice for Block {
         let end = start.and_then(|s| s.checked_add(data.len()));
         let Some(dst) = start
             .zip(end)
-            .and_then(|(start, end)| self.config_space.get_mut(start..end)) else
-        {
+            .and_then(|(start, end)| self.config_space.get_mut(start..end))
+        else {
             error!("Failed to write config space");
             METRICS.block.cfg_fails.inc();
             return;

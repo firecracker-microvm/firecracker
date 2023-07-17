@@ -31,6 +31,7 @@ pub use self::persist::*;
 pub use self::queue::*;
 pub use self::rng::*;
 pub use self::vsock::*;
+use crate::arch::DeviceSubtype;
 
 /// When the driver initializes the device, it lets the device know about the
 /// completed stages using the Device Status Field.
@@ -59,6 +60,14 @@ pub const TYPE_BLOCK: u32 = 2;
 pub const TYPE_RNG: u32 = 4;
 /// Virtio balloon device ID.
 pub const TYPE_BALLOON: u32 = 5;
+
+/// Type 0 is not used by virtio. Use it as wildcard for non-virtio devices
+pub const SUBTYPE_NON_VIRTIO: DeviceSubtype = 0;
+pub const SUBTYPE_NET: DeviceSubtype = 1;
+pub const SUBTYPE_BLOCK: DeviceSubtype = 1;
+pub const SUBTYPE_RNG: DeviceSubtype = 1;
+pub const SUBTYPE_BALLOON: DeviceSubtype = 1;
+pub const SUBTYPE_VSOCK: DeviceSubtype = 1;
 
 /// Offset from the base MMIO address of a virtio device used by the guest to notify the device of
 /// queue events.

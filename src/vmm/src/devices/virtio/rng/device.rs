@@ -12,10 +12,12 @@ use utils::vm_memory::{GuestMemoryError, GuestMemoryMmap};
 use virtio_gen::virtio_rng::VIRTIO_F_VERSION_1;
 
 use super::{RNG_NUM_QUEUES, RNG_QUEUE};
+use crate::arch::DeviceSubtype;
 use crate::devices::virtio::device::{IrqTrigger, IrqType};
 use crate::devices::virtio::iovec::IoVecBufferMut;
 use crate::devices::virtio::{
-    ActivateError, DeviceState, Queue, VirtioDevice, FIRECRACKER_MAX_QUEUE_SIZE, TYPE_RNG,
+    ActivateError, DeviceState, Queue, VirtioDevice, FIRECRACKER_MAX_QUEUE_SIZE, SUBTYPE_RNG,
+    TYPE_RNG,
 };
 use crate::devices::DeviceError;
 use crate::rate_limiter::{RateLimiter, TokenType};
@@ -244,6 +246,10 @@ impl Entropy {
 impl VirtioDevice for Entropy {
     fn device_type(&self) -> u32 {
         TYPE_RNG
+    }
+
+    fn device_subtype(&self) -> DeviceSubtype {
+        SUBTYPE_RNG
     }
 
     fn queues(&self) -> &[Queue] {

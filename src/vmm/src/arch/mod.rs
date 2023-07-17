@@ -43,6 +43,9 @@ pub enum DeviceType {
     BootTimer,
 }
 
+/// Subtypes for devices that can get attached to this platform.
+pub type DeviceSubtype = u32;
+
 /// Type for passing information about the initrd in the guest memory.
 #[derive(Debug)]
 pub struct InitrdConfig {

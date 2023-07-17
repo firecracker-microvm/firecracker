@@ -32,13 +32,15 @@ use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 
 const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
 
+use crate::arch::DeviceSubtype;
 use crate::devices::virtio::iovec::IoVecBuffer;
 use crate::devices::virtio::net::tap::Tap;
 use crate::devices::virtio::net::{
     NetError, NetQueue, MAX_BUFFER_SIZE, NET_QUEUE_SIZES, RX_INDEX, TX_INDEX,
 };
 use crate::devices::virtio::{
-    ActivateError, DescriptorChain, DeviceState, IrqTrigger, IrqType, Queue, VirtioDevice, TYPE_NET,
+    ActivateError, DescriptorChain, DeviceState, IrqTrigger, IrqType, Queue, VirtioDevice,
+    SUBTYPE_NET, TYPE_NET,
 };
 use crate::devices::{report_net_event_fail, DeviceError};
 
@@ -771,6 +773,10 @@ impl VirtioDevice for Net {
         TYPE_NET
     }
 
+    fn device_subtype(&self) -> DeviceSubtype {
+        SUBTYPE_NET
+    }
+
     fn queues(&self) -> &[Queue] {
         &self.queues
     }
@@ -814,8 +820,8 @@ impl VirtioDevice for Net {
         let end = start.and_then(|s| s.checked_add(data.len()));
         let Some(dst) = start
             .zip(end)
-            .and_then(|(start, end)| config_space_bytes.get_mut(start..end)) else
-        {
+            .and_then(|(start, end)| config_space_bytes.get_mut(start..end))
+        else {
             error!("Failed to write config space");
             METRICS.net.cfg_fails.inc();
             return;

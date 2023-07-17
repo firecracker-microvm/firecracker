@@ -33,8 +33,10 @@ use super::super::super::DeviceError;
 use super::defs::uapi;
 use super::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
 use super::{defs, VsockBackend};
+use crate::arch::DeviceSubtype;
 use crate::devices::virtio::{
     ActivateError, DeviceState, IrqTrigger, IrqType, Queue as VirtQueue, VirtioDevice, VsockError,
+    SUBTYPE_VSOCK,
 };
 
 pub(crate) const RXQ_INDEX: usize = 0;
@@ -275,6 +277,10 @@ where
 
     fn device_type(&self) -> u32 {
         uapi::VIRTIO_ID_VSOCK
+    }
+
+    fn device_subtype(&self) -> DeviceSubtype {
+        SUBTYPE_VSOCK
     }
 
     fn queues(&self) -> &[VirtQueue] {

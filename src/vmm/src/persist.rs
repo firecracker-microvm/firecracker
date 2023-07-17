@@ -315,8 +315,8 @@ pub fn get_snapshot_data_version(
     }
 
     if data_version < FC_V1_1_SNAP_VERSION {
-        vmm.mmio_device_manager
-            .for_each_virtio_device(|virtio_type, _id, _info, dev| {
+        vmm.mmio_device_manager.for_each_virtio_device(
+            |virtio_type, _virtio_subtype, _id, _info, dev| {
                 // Incompatibility between current version and all versions smaller than 1.0.
                 // Also, incompatibility between v1.1 and v1.0 for VirtIO net device
                 if dev
@@ -330,7 +330,8 @@ pub fn get_snapshot_data_version(
                     ));
                 }
                 Ok(())
-            })?;
+            },
+        )?;
     }
 
     Ok(data_version)

@@ -14,7 +14,7 @@ use utils::vm_memory::{
 };
 use vm_fdt::{Error as VmFdtError, FdtWriter, FdtWriterNode};
 
-use super::super::{DeviceType, InitrdConfig};
+use super::super::{DeviceSubtype, DeviceType, InitrdConfig};
 use super::cache_info::{read_cache_config, CacheEntry};
 use super::get_fdt_addr;
 use super::gic::GICDevice;
@@ -67,7 +67,7 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher
     guest_mem: &GuestMemoryMmap,
     vcpu_mpidr: Vec<u64>,
     cmdline: CString,
-    device_info: &HashMap<(DeviceType, String), T, S>,
+    device_info: &HashMap<(DeviceType, DeviceSubtype, String), T, S>,
     gic_device: &GICDevice,
     initrd: &Option<InitrdConfig>,
 ) -> Result<Vec<u8>, FdtError> {
@@ -390,12 +390,12 @@ fn create_rtc_node<T: DeviceInfoForFDT + Clone + Debug>(
 
 fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher>(
     fdt: &mut FdtWriter,
-    dev_info: &HashMap<(DeviceType, String), T, S>,
+    dev_info: &HashMap<(DeviceType, DeviceSubtype, String), T, S>,
 ) -> Result<(), FdtError> {
     // Create one temp Vec to store all virtio devices
     let mut ordered_virtio_device: Vec<&T> = Vec::new();
 
-    for ((device_type, _device_id), info) in dev_info {
+    for ((device_type, _device_subtype, _device_id), info) in dev_info {
         match device_type {
             DeviceType::BootTimer => (), // since it's not a real device
             DeviceType::Rtc => create_rtc_node(fdt, info)?,
@@ -424,6 +424,7 @@ mod tests {
     use super::*;
     use crate::arch::aarch64::gic::create_gic;
     use crate::arch::aarch64::{arch_memory_regions, layout};
+    use crate::devices::virtio::SUBTYPE_NON_VIRTIO;
 
     const LEN: u64 = 4096;
 
@@ -459,17 +460,25 @@ mod tests {
         let mem = utils::vm_memory::test_utils::create_anon_guest_memory(&regions, false)
             .expect("Cannot initialize memory");
 
-        let dev_info: HashMap<(DeviceType, std::string::String), MMIODeviceInfo> = [
+        let dev_info: HashMap<(DeviceType, DeviceSubtype, std::string::String), MMIODeviceInfo> = [
             (
-                (DeviceType::Serial, DeviceType::Serial.to_string()),
+                (
+                    DeviceType::Serial,
+                    SUBTYPE_NON_VIRTIO,
+                    DeviceType::Serial.to_string(),
+                ),
                 MMIODeviceInfo { addr: 0x00, irq: 1 },
             ),
             (
-                (DeviceType::Virtio(1), "virtio".to_string()),
+                (
+                    DeviceType::Virtio(1),
+                    SUBTYPE_NON_VIRTIO,
+                    "virtio".to_string(),
+                ),
                 MMIODeviceInfo { addr: LEN, irq: 2 },
             ),
             (
-                (DeviceType::Rtc, "rtc".to_string()),
+                (DeviceType::Rtc, SUBTYPE_NON_VIRTIO, "rtc".to_string()),
                 MMIODeviceInfo {
                     addr: 2 * LEN,
                     irq: 3,
@@ -512,7 +521,7 @@ mod tests {
             &mem,
             vec![0],
             CString::new("console=tty0").unwrap(),
-            &HashMap::<(DeviceType, std::string::String), MMIODeviceInfo>::new(),
+            &HashMap::<(DeviceType, DeviceSubtype, std::string::String), MMIODeviceInfo>::new(),
             &gic,
             &None,
         )
@@ -575,7 +584,7 @@ mod tests {
             &mem,
             vec![0],
             CString::new("console=tty0").unwrap(),
-            &HashMap::<(DeviceType, std::string::String), MMIODeviceInfo>::new(),
+            &HashMap::<(DeviceType, DeviceSubtype, std::string::String), MMIODeviceInfo>::new(),
             &gic,
             &Some(initrd),
         )

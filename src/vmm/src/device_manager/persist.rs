@@ -37,7 +37,8 @@ use crate::devices::virtio::vsock::persist::{
 };
 use crate::devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
 use crate::devices::virtio::{
-    MmioTransport, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG, TYPE_VSOCK,
+    MmioTransport, VirtioDevice, SUBTYPE_BALLOON, SUBTYPE_BLOCK, SUBTYPE_NET, SUBTYPE_RNG,
+    SUBTYPE_VSOCK, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG, TYPE_VSOCK,
 };
 use crate::resources::VmResources;
 use crate::vmm_config::mmds::MmdsConfigError;
@@ -270,117 +271,130 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             mmds_version: None,
             entropy_device: None,
         };
-        let _: Result<(), ()> = self.for_each_device(|devtype, devid, device_info, bus_dev| {
-            if *devtype == crate::arch::DeviceType::BootTimer {
-                // No need to save BootTimer state.
-                return Ok(());
-            }
-
-            #[cfg(target_arch = "aarch64")]
-            {
-                if *devtype == DeviceType::Serial || *devtype == DeviceType::Rtc {
-                    states.legacy_devices.push(ConnectedLegacyState {
-                        type_: *devtype,
-                        device_info: device_info.clone(),
-                    });
+        let _: Result<(), ()> =
+            self.for_each_device(|devtype, _devsubtype, devid, device_info, bus_dev| {
+                if *devtype == crate::arch::DeviceType::BootTimer {
+                    // No need to save BootTimer state.
                     return Ok(());
                 }
-            }
 
-            let locked_bus_dev = bus_dev.lock().expect("Poisoned lock");
-
-            let mmio_transport = locked_bus_dev
-                .mmio_transport_ref()
-                .expect("Unexpected device type");
-
-            let transport_state = mmio_transport.save();
-
-            let mut locked_device = mmio_transport.locked_device();
-            match locked_device.device_type() {
-                TYPE_BALLOON => {
-                    let balloon_state = locked_device
-                        .as_any()
-                        .downcast_ref::<Balloon>()
-                        .unwrap()
-                        .save();
-                    states.balloon_device = Some(ConnectedBalloonState {
-                        device_id: devid.clone(),
-                        device_state: balloon_state,
-                        transport_state,
-                        device_info: device_info.clone(),
-                    });
-                }
-                TYPE_BLOCK => {
-                    let block = locked_device.as_mut_any().downcast_mut::<Block>().unwrap();
-                    block.prepare_save();
-                    states.block_devices.push(ConnectedBlockState {
-                        device_id: devid.clone(),
-                        device_state: block.save(),
-                        transport_state,
-                        device_info: device_info.clone(),
-                    });
-                }
-                TYPE_NET => {
-                    let net = locked_device.as_any().downcast_ref::<Net>().unwrap();
-                    if let (Some(mmds_ns), None) =
-                        (net.mmds_ns.as_ref(), states.mmds_version.as_ref())
-                    {
-                        states.mmds_version =
-                            Some(mmds_ns.mmds.lock().expect("Poisoned lock").version().into());
-                    }
-
-                    states.net_devices.push(ConnectedNetState {
-                        device_id: devid.clone(),
-                        device_state: net.save(),
-                        transport_state,
-                        device_info: device_info.clone(),
-                    });
-                }
-                TYPE_VSOCK => {
-                    let vsock = locked_device
-                        .as_mut_any()
-                        // Currently, VsockUnixBackend is the only implementation of VsockBackend.
-                        .downcast_mut::<Vsock<VsockUnixBackend>>()
-                        .unwrap();
-
-                    let vsock_state = VsockState {
-                        backend: vsock.backend().save(),
-                        frontend: vsock.save(),
-                    };
-
-                    // Send Transport event to reset connections if device
-                    // is activated.
-                    if vsock.is_activated() {
-                        vsock.send_transport_reset_event().unwrap_or_else(|err| {
-                            error!("Failed to send reset transport event: {:?}", err);
+                #[cfg(target_arch = "aarch64")]
+                {
+                    if *devtype == DeviceType::Serial || *devtype == DeviceType::Rtc {
+                        states.legacy_devices.push(ConnectedLegacyState {
+                            type_: *devtype,
+                            device_info: device_info.clone(),
                         });
+                        return Ok(());
                     }
-
-                    states.vsock_device = Some(ConnectedVsockState {
-                        device_id: devid.clone(),
-                        device_state: vsock_state,
-                        transport_state,
-                        device_info: device_info.clone(),
-                    });
                 }
-                TYPE_RNG => {
-                    let entropy = locked_device
-                        .as_mut_any()
-                        .downcast_mut::<Entropy>()
-                        .unwrap();
 
-                    states.entropy_device = Some(ConnectedEntropyState {
-                        device_id: devid.clone(),
-                        device_state: entropy.save(),
-                        transport_state,
-                        device_info: device_info.clone(),
-                    });
-                }
-                _ => unreachable!(),
-            };
+                let locked_bus_dev = bus_dev.lock().expect("Poisoned lock");
 
-            Ok(())
-        });
+                let mmio_transport = locked_bus_dev
+                    .mmio_transport_ref()
+                    .expect("Unexpected device type");
+
+                let transport_state = mmio_transport.save();
+
+                let mut locked_device = mmio_transport.locked_device();
+                match locked_device.device_type() {
+                    TYPE_BALLOON => {
+                        if locked_device.device_subtype() == SUBTYPE_BALLOON {
+                            let balloon_state = locked_device
+                                .as_any()
+                                .downcast_ref::<Balloon>()
+                                .unwrap()
+                                .save();
+                            states.balloon_device = Some(ConnectedBalloonState {
+                                device_id: devid.clone(),
+                                device_state: balloon_state,
+                                transport_state,
+                                device_info: device_info.clone(),
+                            });
+                        }
+                    }
+                    TYPE_BLOCK => {
+                        if locked_device.device_subtype() == SUBTYPE_BLOCK {
+                            let block = locked_device.as_mut_any().downcast_mut::<Block>().unwrap();
+                            block.prepare_save();
+                            states.block_devices.push(ConnectedBlockState {
+                                device_id: devid.clone(),
+                                device_state: block.save(),
+                                transport_state,
+                                device_info: device_info.clone(),
+                            });
+                        }
+                    }
+                    TYPE_NET => {
+                        if locked_device.device_subtype() == SUBTYPE_NET {
+                            let net = locked_device.as_any().downcast_ref::<Net>().unwrap();
+                            if let (Some(mmds_ns), None) =
+                                (net.mmds_ns.as_ref(), states.mmds_version.as_ref())
+                            {
+                                states.mmds_version = Some(
+                                    mmds_ns.mmds.lock().expect("Poisoned lock").version().into(),
+                                );
+                            }
+
+                            states.net_devices.push(ConnectedNetState {
+                                device_id: devid.clone(),
+                                device_state: net.save(),
+                                transport_state,
+                                device_info: device_info.clone(),
+                            });
+                        }
+                    }
+                    TYPE_VSOCK => {
+                        if locked_device.device_subtype() == SUBTYPE_VSOCK {
+                            let vsock = locked_device
+                                .as_mut_any()
+                                // Currently, VsockUnixBackend is the only implementation of
+                                // VsockBackend.
+                                .downcast_mut::<Vsock<VsockUnixBackend>>()
+                                .unwrap();
+
+                            let vsock_state = VsockState {
+                                backend: vsock.backend().save(),
+                                frontend: vsock.save(),
+                            };
+
+                            // Send Transport event to reset connections if device
+                            // is activated.
+                            if vsock.is_activated() {
+                                vsock.send_transport_reset_event().unwrap_or_else(|err| {
+                                    error!("Failed to send reset transport event: {:?}", err);
+                                });
+                            }
+
+                            states.vsock_device = Some(ConnectedVsockState {
+                                device_id: devid.clone(),
+                                device_state: vsock_state,
+                                transport_state,
+                                device_info: device_info.clone(),
+                            });
+                        }
+                    }
+                    TYPE_RNG => {
+                        if locked_device.device_subtype() == SUBTYPE_RNG {
+                            let entropy = locked_device
+                                .as_mut_any()
+                                .downcast_mut::<Entropy>()
+                                .unwrap();
+
+                            states.entropy_device = Some(ConnectedEntropyState {
+                                device_id: devid.clone(),
+                                device_state: entropy.save(),
+                                transport_state,
+                                device_info: device_info.clone(),
+                            });
+                        }
+                    }
+                    _ => unreachable!(),
+                };
+
+                Ok(())
+            });
         states
     }
 

@@ -21,7 +21,7 @@ use utils::vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 pub use self::fdt::DeviceInfoForFDT;
 use self::gic::GICDevice;
-use crate::arch::DeviceType;
+use crate::arch::{DeviceSubtype, DeviceType};
 
 /// Errors thrown while configuring aarch64 system.
 #[derive(Debug, derive_more::From)]
@@ -59,7 +59,7 @@ pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::Build
     guest_mem: &GuestMemoryMmap,
     cmdline_cstring: CString,
     vcpu_mpidr: Vec<u64>,
-    device_info: &HashMap<(DeviceType, String), T, S>,
+    device_info: &HashMap<(DeviceType, DeviceSubtype, String), T, S>,
     gic_device: &GICDevice,
     initrd: &Option<super::InitrdConfig>,
 ) -> Result<(), ConfigurationError> {
