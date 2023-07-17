@@ -15,7 +15,8 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use block_io::FileEngine;
-use logger::{error, warn, IncMetric, METRICS};
+use log::{error, warn};
+use logger::{IncMetric, METRICS};
 use serde::{Deserialize, Serialize};
 use utils::eventfd::EventFd;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
@@ -25,7 +26,9 @@ use virtio_gen::virtio_blk::{
 };
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 
-use super::super::{ActivateError, DeviceState, Queue, VirtioDevice, SUBTYPE_BLOCK, TYPE_BLOCK};
+use super::super::super::{
+    ActivateError, DeviceState, Queue, VirtioDevice, SUBTYPE_BLOCK, TYPE_BLOCK,
+};
 use super::io::async_io;
 use super::request::*;
 use super::{
@@ -618,7 +621,7 @@ impl VirtioDevice for Block {
 
         if self.activate_evt.write(1).is_err() {
             error!("Block: Cannot write to activate_evt");
-            return Err(super::super::ActivateError::BadActivate);
+            return Err(super::super::super::ActivateError::BadActivate);
         }
         self.device_state = DeviceState::Activated(mem);
         Ok(())
@@ -662,13 +665,14 @@ mod tests {
 
     use super::*;
     use crate::check_metric_after_block;
-    use crate::devices::virtio::block::test_utils::{
+    use crate::devices::virtio::block::file::test_utils::{
         default_block, default_engine_type_for_kv, read_blk_req_descriptors, set_queue,
         set_rate_limiter, simulate_async_completion_event,
         simulate_queue_and_async_completion_events, simulate_queue_event,
     };
+    use crate::devices::virtio::file::IO_URING_NUM_ENTRIES;
     use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
-    use crate::devices::virtio::{IO_URING_NUM_ENTRIES, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+    use crate::devices::virtio::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::rate_limiter::TokenType;
 
     #[test]

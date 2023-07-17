@@ -43,8 +43,9 @@ use crate::devices::legacy::serial::SerialOut;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
 use crate::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
+use crate::devices::virtio::file::Block;
 use crate::devices::virtio::{
-    Balloon, Block, Entropy, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend,
+    Balloon, Entropy, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend,
 };
 use crate::devices::BusDevice;
 use crate::persist::{MicrovmState, MicrovmStateError};

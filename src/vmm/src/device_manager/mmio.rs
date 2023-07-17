@@ -25,8 +25,9 @@ use crate::arch::{DeviceSubtype, DeviceType};
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
 use crate::devices::pseudo::BootTimer;
+use crate::devices::virtio::file::Block;
 use crate::devices::virtio::{
-    Balloon, Block, Entropy, MmioTransport, Net, VirtioDevice, SUBTYPE_BALLOON, SUBTYPE_BLOCK,
+    Balloon, Entropy, MmioTransport, Net, VirtioDevice, SUBTYPE_BALLOON, SUBTYPE_BLOCK,
     SUBTYPE_NET, SUBTYPE_NON_VIRTIO, SUBTYPE_RNG, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG,
     TYPE_VSOCK,
 };

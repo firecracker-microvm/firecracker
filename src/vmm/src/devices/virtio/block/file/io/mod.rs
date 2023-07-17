@@ -11,7 +11,7 @@ use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 
 pub use self::async_io::{AsyncFileEngine, AsyncIoError};
 pub use self::sync_io::{SyncFileEngine, SyncIoError};
-use crate::devices::virtio::block::device::FileEngineType;
+use crate::devices::virtio::block::file::device::FileEngineType;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct UserDataOk<T> {
@@ -193,8 +193,8 @@ pub mod tests {
     use utils::{skip_if_io_uring_supported, skip_if_io_uring_unsupported};
 
     use super::*;
-    use crate::devices::virtio::block::device::FileEngineType;
-    use crate::devices::virtio::block::request::PendingRequest;
+    use crate::devices::virtio::block::file::device::FileEngineType;
+    use crate::devices::virtio::block::file::request::PendingRequest;
 
     const FILE_LEN: u32 = 1024;
     // 2 pages of memory should be enough to test read/write ops and also dirty tracking.

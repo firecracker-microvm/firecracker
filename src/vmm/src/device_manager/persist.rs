@@ -21,8 +21,8 @@ use super::mmio::*;
 use crate::arch::DeviceType;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::balloon::{Balloon, BalloonError};
-use crate::devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
-use crate::devices::virtio::block::{Block, BlockError};
+use crate::devices::virtio::block::file::persist::{BlockConstructorArgs, BlockState};
+use crate::devices::virtio::block::file::{Block, BlockError};
 use crate::devices::virtio::net::persist::{
     NetConstructorArgs, NetPersistError as NetError, NetState,
 };
@@ -646,7 +646,7 @@ mod tests {
 
     use super::*;
     use crate::builder::tests::*;
-    use crate::devices::virtio::block::CacheType;
+    use crate::devices::virtio::file::device::CacheType;
     use crate::devices::virtio::net::persist::NetConfigSpaceState;
     use crate::resources::VmmConfig;
     use crate::vmm_config::balloon::BalloonDeviceConfig;

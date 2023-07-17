@@ -7,7 +7,7 @@ use log::{error, warn};
 use utils::epoll::EventSet;
 
 use super::io::FileEngine;
-use crate::devices::virtio::block::device::Block;
+use crate::devices::virtio::block::file::device::Block;
 use crate::devices::virtio::VirtioDevice;
 
 impl Block {
@@ -107,8 +107,8 @@ mod tests {
     use virtio_gen::virtio_blk::{VIRTIO_BLK_S_OK, VIRTIO_BLK_T_OUT};
 
     use super::*;
-    use crate::devices::virtio::block::device::FileEngineType;
-    use crate::devices::virtio::block::test_utils::{
+    use crate::devices::virtio::block::file::device::FileEngineType;
+    use crate::devices::virtio::block::file::test_utils::{
         default_block, read_blk_req_descriptors, set_queue, simulate_async_completion_event,
     };
     use crate::devices::virtio::test_utils::{default_mem, VirtQueue};

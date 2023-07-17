@@ -126,11 +126,12 @@ use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET};
 use crate::devices::virtio::balloon::BalloonError;
+use crate::devices::virtio::file::Block;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::virtio::SUBTYPE_NON_VIRTIO;
 use crate::devices::virtio::{
-    Balloon, BalloonConfig, BalloonStats, Block, Net, BALLOON_DEV_ID, SUBTYPE_BALLOON,
-    SUBTYPE_BLOCK, SUBTYPE_NET, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET,
+    Balloon, BalloonConfig, BalloonStats, Net, BALLOON_DEV_ID, SUBTYPE_BALLOON, SUBTYPE_BLOCK,
+    SUBTYPE_NET, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET,
 };
 use crate::memory_snapshot::SnapshotMemory;
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};

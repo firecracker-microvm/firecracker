@@ -229,11 +229,12 @@ mod tests {
     use utils::tempfile::TempFile;
 
     use super::*;
-    use crate::devices::virtio::block::device::FileEngineType;
-    use crate::devices::virtio::block::test_utils::default_block_with_path;
+    use crate::devices::virtio::block::file::device::FileEngineType;
+    use crate::devices::virtio::block::file::test_utils::default_block_with_path;
+    use crate::devices::virtio::file::Block;
     use crate::devices::virtio::mmio::tests::DummyDevice;
     use crate::devices::virtio::test_utils::default_mem;
-    use crate::devices::virtio::{net, Block, Net, Vsock, VsockUnixBackend};
+    use crate::devices::virtio::{net, Net, Vsock, VsockUnixBackend};
 
     const DEFAULT_QUEUE_MAX_SIZE: u16 = 256;
     impl Default for QueueState {

@@ -12,14 +12,15 @@ use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
 use utils::tempfile::TempFile;
 use utils::vm_memory::{Bytes, GuestAddress};
 
-use crate::devices::virtio::block::device::FileEngineType;
+use crate::devices::virtio::block::file::device::{CacheType, FileEngineType};
 #[cfg(test)]
-use crate::devices::virtio::block::io::FileEngine;
+use crate::devices::virtio::block::file::io::FileEngine;
+use crate::devices::virtio::file::{Block, RequestHeader};
 use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
 #[cfg(test)]
 use crate::devices::virtio::IrqType;
-use crate::devices::virtio::{Block, CacheType, Queue, RequestHeader};
+use crate::devices::virtio::Queue;
 use crate::rate_limiter::RateLimiter;
 
 /// Create a default Block instance to be used in tests.

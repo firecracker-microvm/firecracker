@@ -13,8 +13,9 @@ use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 use virtio_gen::virtio_blk::VIRTIO_BLK_F_RO;
 
+use super::device::CacheType;
 use super::*;
-use crate::devices::virtio::block::device::FileEngineType;
+use crate::devices::virtio::block::file::device::FileEngineType;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::{DeviceState, FIRECRACKER_MAX_QUEUE_SIZE, TYPE_BLOCK};
 use crate::rate_limiter::persist::RateLimiterState;
