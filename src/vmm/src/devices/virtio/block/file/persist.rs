@@ -86,7 +86,7 @@ impl From<FileEngineTypeState> for FileEngineType {
 /// Holds info about the block device. Gets saved in snapshot.
 // NOTICE: Any changes to this structure require a snapshot version bump.
 #[derive(Debug, Clone, Versionize)]
-pub struct BlockState {
+pub struct BlockFileState {
     id: String,
     partuuid: Option<String>,
     #[version(
@@ -106,7 +106,7 @@ pub struct BlockState {
     file_engine_type: FileEngineTypeState,
 }
 
-impl BlockState {
+impl BlockFileState {
     fn block_cache_type_ser(&mut self, target_version: u16) -> VersionizeResult<()> {
         if target_version < 3 && self.cache_type != CacheTypeState::Unsafe {
             warn!(
@@ -125,19 +125,19 @@ impl BlockState {
 
 /// Auxiliary structure for creating a device when resuming from a snapshot.
 #[derive(Debug)]
-pub struct BlockConstructorArgs {
+pub struct BlockFileConstructorArgs {
     /// Pointer to guest memory.
     pub mem: GuestMemoryMmap,
 }
 
-impl Persist<'_> for Block {
-    type State = BlockState;
-    type ConstructorArgs = BlockConstructorArgs;
-    type Error = BlockError;
+impl Persist<'_> for BlockFile {
+    type State = BlockFileState;
+    type ConstructorArgs = BlockFileConstructorArgs;
+    type Error = BlockFileError;
 
     fn save(&self) -> Self::State {
         // Save device state.
-        BlockState {
+        BlockFileState {
             id: self.id.clone(),
             partuuid: self.partuuid.clone(),
             cache_type: CacheTypeState::from(self.cache_type()),
@@ -154,10 +154,10 @@ impl Persist<'_> for Block {
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
         let is_disk_read_only = state.virtio_state.avail_features & (1u64 << VIRTIO_BLK_F_RO) != 0;
-        let rate_limiter =
-            RateLimiter::restore((), &state.rate_limiter_state).map_err(BlockError::RateLimiter)?;
+        let rate_limiter = RateLimiter::restore((), &state.rate_limiter_state)
+            .map_err(BlockFileError::RateLimiter)?;
 
-        let mut block = Block::new(
+        let mut block = BlockFile::new(
             state.id.clone(),
             state.partuuid.clone(),
             state.cache_type.into(),
@@ -168,7 +168,9 @@ impl Persist<'_> for Block {
             state.file_engine_type.into(),
         )
         .or_else(|err| match err {
-            BlockError::FileEngine(io::BlockIoError::UnsupportedEngine(FileEngineType::Async)) => {
+            BlockFileError::FileEngine(io::BlockIoError::UnsupportedEngine(
+                FileEngineType::Async,
+            )) => {
                 // If the kernel does not support `Async`, fallback to `Sync`.
                 warn!(
                     "The \"Async\" io_engine is supported for kernels starting with {}. \
@@ -177,8 +179,8 @@ impl Persist<'_> for Block {
                 );
 
                 let rate_limiter = RateLimiter::restore((), &state.rate_limiter_state)
-                    .map_err(BlockError::RateLimiter)?;
-                Block::new(
+                    .map_err(BlockFileError::RateLimiter)?;
+                BlockFile::new(
                     state.id.clone(),
                     state.partuuid.clone(),
                     state.cache_type.into(),
@@ -200,7 +202,7 @@ impl Persist<'_> for Block {
                 BLOCK_NUM_QUEUES,
                 FIRECRACKER_MAX_QUEUE_SIZE,
             )
-            .map_err(BlockError::Persist)?;
+            .map_err(BlockFileError::Persist)?;
         block.irq_trigger.irq_status =
             Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
         block.avail_features = state.virtio_state.avail_features;
@@ -245,11 +247,11 @@ mod tests {
     #[test]
     fn test_default_cache_type_flush() {
         assert_eq!(
-            BlockState::default_cache_type_flush(2),
+            BlockFileState::default_cache_type_flush(2),
             CacheTypeState::Unsafe
         );
         assert_eq!(
-            BlockState::default_cache_type_flush(3),
+            BlockFileState::default_cache_type_flush(3),
             CacheTypeState::Unsafe
         );
     }
@@ -261,7 +263,7 @@ mod tests {
         f.as_file().set_len(0x1000).unwrap();
 
         let id = "test".to_string();
-        let block = Block::new(
+        let block = BlockFile::new(
             id,
             None,
             CacheType::Writeback,
@@ -277,11 +279,11 @@ mod tests {
         let mut mem = vec![0; 4096];
         let version_map = VersionMap::new();
 
-        assert!(<Block as Persist>::save(&block)
+        assert!(<BlockFile as Persist>::save(&block)
             .serialize(&mut mem.as_mut_slice(), &version_map, 2)
             .is_ok());
 
-        assert!(<Block as Persist>::save(&block)
+        assert!(<BlockFile as Persist>::save(&block)
             .serialize(&mut mem.as_mut_slice(), &version_map, 3)
             .is_ok());
     }
@@ -307,13 +309,13 @@ mod tests {
         let mut version_map = VersionMap::new();
         version_map
             .new_version()
-            .set_type_version(BlockState::type_id(), 3);
+            .set_type_version(BlockFileState::type_id(), 3);
 
         if !FileEngineType::Async.is_supported().unwrap() {
             // Test what happens when restoring an Async engine on a kernel that does not support
             // it.
 
-            let block = Block::new(
+            let block = BlockFile::new(
                 "test".to_string(),
                 None,
                 CacheType::Unsafe,
@@ -330,7 +332,7 @@ mod tests {
             // Save the block device.
             let mut mem = vec![0; 4096];
 
-            let mut block_state = <Block as Persist>::save(&block);
+            let mut block_state = <BlockFile as Persist>::save(&block);
             // Overwrite the engine type state with Async.
             block_state.file_engine_type = FileEngineTypeState::Async;
 
@@ -339,9 +341,9 @@ mod tests {
                 .unwrap();
 
             // Restore the block device.
-            let restored_block = Block::restore(
-                BlockConstructorArgs { mem: default_mem() },
-                &BlockState::deserialize(&mut mem.as_slice(), &version_map, 2).unwrap(),
+            let restored_block = BlockFile::restore(
+                BlockFileConstructorArgs { mem: default_mem() },
+                &BlockFileState::deserialize(&mut mem.as_slice(), &version_map, 2).unwrap(),
             )
             .unwrap();
 
@@ -358,7 +360,7 @@ mod tests {
         f.as_file().set_len(0x1000).unwrap();
 
         let id = "test".to_string();
-        let block = Block::new(
+        let block = BlockFile::new(
             id,
             None,
             CacheType::Unsafe,
@@ -375,14 +377,14 @@ mod tests {
         let mut mem = vec![0; 4096];
         let version_map = VersionMap::new();
 
-        <Block as Persist>::save(&block)
+        <BlockFile as Persist>::save(&block)
             .serialize(&mut mem.as_mut_slice(), &version_map, 1)
             .unwrap();
 
         // Restore the block device.
-        let restored_block = Block::restore(
-            BlockConstructorArgs { mem: guest_mem },
-            &BlockState::deserialize(&mut mem.as_slice(), &version_map, 1).unwrap(),
+        let restored_block = BlockFile::restore(
+            BlockFileConstructorArgs { mem: guest_mem },
+            &BlockFileState::deserialize(&mut mem.as_slice(), &version_map, 1).unwrap(),
         )
         .unwrap();
 

@@ -25,9 +25,9 @@ use crate::arch::{DeviceSubtype, DeviceType};
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
 use crate::devices::pseudo::BootTimer;
-use crate::devices::virtio::file::Block;
+use crate::devices::virtio::file::BlockFile;
 use crate::devices::virtio::{
-    Balloon, Entropy, MmioTransport, Net, VirtioDevice, SUBTYPE_BALLOON, SUBTYPE_BLOCK,
+    Balloon, Entropy, MmioTransport, Net, VirtioDevice, SUBTYPE_BALLOON, SUBTYPE_BLOCK_FILE,
     SUBTYPE_NET, SUBTYPE_NON_VIRTIO, SUBTYPE_RNG, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG,
     TYPE_VSOCK,
 };
@@ -461,8 +461,8 @@ impl MMIODeviceManager {
                         }
                     }
                     TYPE_BLOCK => {
-                        if virtio_subtype == SUBTYPE_BLOCK {
-                            let block = virtio.as_mut_any().downcast_mut::<Block>().unwrap();
+                        if virtio_subtype == SUBTYPE_BLOCK_FILE {
+                            let block = virtio.as_mut_any().downcast_mut::<BlockFile>().unwrap();
                             // If device is activated, kick the block queue(s) to make up for
                             // any pending or in-flight epoll
                             // events we may have not captured in snapshot.

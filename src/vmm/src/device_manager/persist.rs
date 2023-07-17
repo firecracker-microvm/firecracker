@@ -21,8 +21,8 @@ use super::mmio::*;
 use crate::arch::DeviceType;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::balloon::{Balloon, BalloonError};
-use crate::devices::virtio::block::file::persist::{BlockConstructorArgs, BlockState};
-use crate::devices::virtio::block::file::{Block, BlockError};
+use crate::devices::virtio::block::file::persist::{BlockFileConstructorArgs, BlockFileState};
+use crate::devices::virtio::block::file::{BlockFile, BlockFileError};
 use crate::devices::virtio::net::persist::{
     NetConstructorArgs, NetPersistError as NetError, NetState,
 };
@@ -37,7 +37,7 @@ use crate::devices::virtio::vsock::persist::{
 };
 use crate::devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
 use crate::devices::virtio::{
-    MmioTransport, VirtioDevice, SUBTYPE_BALLOON, SUBTYPE_BLOCK, SUBTYPE_NET, SUBTYPE_RNG,
+    MmioTransport, VirtioDevice, SUBTYPE_BALLOON, SUBTYPE_BLOCK_FILE, SUBTYPE_NET, SUBTYPE_RNG,
     SUBTYPE_VSOCK, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG, TYPE_VSOCK,
 };
 use crate::resources::VmResources;
@@ -48,7 +48,7 @@ use crate::EventManager;
 #[derive(Debug, derive_more::From)]
 pub enum DevicePersistError {
     Balloon(BalloonError),
-    Block(BlockError),
+    BlockFile(BlockFileError),
     DeviceManager(super::mmio::MmioError),
     MmioTransport,
     #[cfg(target_arch = "aarch64")]
@@ -60,7 +60,7 @@ pub enum DevicePersistError {
     Entropy(EntropyError),
 }
 
-/// Holds the state of a balloon device connected to the MMIO space.
+/// Holds the state of a host-file-backed block device connected to the MMIO space.
 // NOTICE: Any changes to this structure require a snapshot version bump.
 #[derive(Debug, Clone, Versionize)]
 pub struct ConnectedBalloonState {
@@ -77,11 +77,11 @@ pub struct ConnectedBalloonState {
 /// Holds the state of a block device connected to the MMIO space.
 // NOTICE: Any changes to this structure require a snapshot version bump.
 #[derive(Debug, Clone, Versionize)]
-pub struct ConnectedBlockState {
+pub struct ConnectedBlockFileState {
     /// Device identifier.
     pub device_id: String,
     /// Device state.
-    pub device_state: BlockState,
+    pub device_state: BlockFileState,
     /// Mmio transport state.
     pub transport_state: MmioTransportState,
     /// VmmResources.
@@ -174,7 +174,7 @@ pub struct DeviceStates {
     // State of legacy devices in MMIO space.
     pub legacy_devices: Vec<ConnectedLegacyState>,
     /// Block device states.
-    pub block_devices: Vec<ConnectedBlockState>,
+    pub block_devices: Vec<ConnectedBlockFileState>,
     /// Net device states.
     pub net_devices: Vec<ConnectedNetState>,
     /// Vsock device state.
@@ -194,7 +194,7 @@ pub struct DeviceStates {
 /// from a snapshot.
 #[derive(Debug)]
 pub enum SharedDeviceType {
-    Block(Arc<Mutex<Block>>),
+    BlockFile(Arc<Mutex<BlockFile>>),
     Network(Arc<Mutex<Net>>),
     Balloon(Arc<Mutex<Balloon>>),
     Vsock(Arc<Mutex<Vsock<VsockUnixBackend>>>),
@@ -315,10 +315,13 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         }
                     }
                     TYPE_BLOCK => {
-                        if locked_device.device_subtype() == SUBTYPE_BLOCK {
-                            let block = locked_device.as_mut_any().downcast_mut::<Block>().unwrap();
+                        if locked_device.device_subtype() == SUBTYPE_BLOCK_FILE {
+                            let block = locked_device
+                                .as_mut_any()
+                                .downcast_mut::<BlockFile>()
+                                .unwrap();
                             block.prepare_save();
-                            states.block_devices.push(ConnectedBlockState {
+                            states.block_devices.push(ConnectedBlockFileState {
                                 device_id: devid.clone(),
                                 device_state: block.save(),
                                 transport_state,
@@ -520,14 +523,14 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         }
 
         for block_state in &state.block_devices {
-            let device = Arc::new(Mutex::new(Block::restore(
-                BlockConstructorArgs { mem: mem.clone() },
+            let device = Arc::new(Mutex::new(BlockFile::restore(
+                BlockFileConstructorArgs { mem: mem.clone() },
                 &block_state.device_state,
             )?));
 
             (constructor_args.for_each_restored_device)(
                 constructor_args.vm_resources,
-                SharedDeviceType::Block(device.clone()),
+                SharedDeviceType::BlockFile(device.clone()),
             );
 
             restore_helper(
@@ -661,8 +664,8 @@ mod tests {
         }
     }
 
-    impl PartialEq for ConnectedBlockState {
-        fn eq(&self, other: &ConnectedBlockState) -> bool {
+    impl PartialEq for ConnectedBlockFileState {
+        fn eq(&self, other: &ConnectedBlockFileState) -> bool {
             // Actual device state equality is checked by the device's tests.
             self.transport_state == other.transport_state && self.device_info == other.device_info
         }

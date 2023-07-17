@@ -317,7 +317,7 @@ def test_negative_snapshot_permissions(uvm_plain_rw, microvm_factory):
     microvm = microvm_factory.build()
     microvm.spawn()
 
-    expected_err = "Block(BackingFile(Os { code: 13, kind: PermissionDenied"
+    expected_err = "BlockFile(BackingFile(Os { code: 13, kind: PermissionDenied"
     with pytest.raises(RuntimeError, match=re.escape(expected_err)):
         microvm.restore_from_snapshot(snapshot, resume=True)
 

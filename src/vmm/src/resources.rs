@@ -203,7 +203,7 @@ impl VmResources {
     /// restoring from a snapshot).
     pub fn update_from_restored_device(&mut self, device: SharedDeviceType) {
         match device {
-            SharedDeviceType::Block(block) => {
+            SharedDeviceType::BlockFile(block) => {
                 self.block.add_device(block);
             }
 

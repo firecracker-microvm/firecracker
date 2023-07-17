@@ -75,7 +75,7 @@ def test_drive_io_engine(test_microvm_with_api):
         # The Async engine is not supported for older kernels.
         test_microvm.check_log_message(
             "Received Error. Status code: 400 Bad Request. Message: Unable"
-            " to create the block device: FileEngine(UnsupportedEngine(Async))"
+            " to create the block file device: FileEngine(UnsupportedEngine(Async))"
         )
 
         # Now configure the default engine type and check that it works.

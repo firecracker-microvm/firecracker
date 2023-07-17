@@ -11,17 +11,15 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use super::RateLimiterConfig;
-pub use crate::devices::virtio::block::file::device::FileEngineType;
-use crate::devices::virtio::block::file::BlockError;
-pub use crate::devices::virtio::file::device::CacheType;
-use crate::devices::virtio::file::Block;
+pub use crate::devices::virtio::block::file::device::{CacheType, FileEngineType};
+use crate::devices::virtio::block::file::{BlockFile, BlockFileError};
 use crate::VmmError;
 
 /// Errors associated with the operations allowed on a drive.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum DriveError {
-    /// Unable to create the block device: {0:?}
-    CreateBlockDevice(BlockError),
+    /// Unable to create the host-file-backed block device: {0:?}
+    CreateBlockFileDevice(BlockFileError),
     /// Cannot create RateLimiter: {0}
     CreateRateLimiter(io::Error),
     /// Unable to patch the block device: {0}
@@ -62,8 +60,8 @@ pub struct BlockDeviceConfig {
     pub file_engine_type: FileEngineType,
 }
 
-impl From<&Block> for BlockDeviceConfig {
-    fn from(block: &Block) -> Self {
+impl From<&BlockFile> for BlockDeviceConfig {
+    fn from(block: &BlockFile) -> Self {
         let rl: RateLimiterConfig = block.rate_limiter().into();
         BlockDeviceConfig {
             drive_id: block.id().clone(),
@@ -99,14 +97,14 @@ pub struct BlockBuilder {
     // Root Device should be the first in the list whether or not PARTUUID is
     // specified in order to avoid bugs in case of switching from partuuid boot
     // scenarios to /dev/vda boot type.
-    pub list: VecDeque<Arc<Mutex<Block>>>,
+    pub list: VecDeque<Arc<Mutex<BlockFile>>>,
 }
 
 impl BlockBuilder {
     /// Constructor for BlockDevices. It initializes an empty LinkedList.
     pub fn new() -> Self {
         Self {
-            list: VecDeque::<Arc<Mutex<Block>>>::new(),
+            list: VecDeque::<Arc<Mutex<BlockFile>>>::new(),
         }
     }
 
@@ -128,7 +126,7 @@ impl BlockBuilder {
     }
 
     /// Inserts an existing block device.
-    pub fn add_device(&mut self, block_device: Arc<Mutex<Block>>) {
+    pub fn add_device(&mut self, block_device: Arc<Mutex<BlockFile>>) {
         if block_device.lock().expect("Poisoned lock").is_root_device() {
             self.list.push_front(block_device);
         } else {
@@ -150,7 +148,7 @@ impl BlockBuilder {
             return Err(DriveError::RootBlockDeviceAlreadyAdded);
         }
 
-        let block_dev = Arc::new(Mutex::new(Self::create_block(config)?));
+        let block_dev = Arc::new(Mutex::new(Self::create_block_file(config)?));
         // If the id of the drive already exists in the list, the operation is update/overwrite.
         match position {
             // New block device.
@@ -175,8 +173,8 @@ impl BlockBuilder {
         Ok(())
     }
 
-    /// Creates a Block device from a BlockDeviceConfig.
-    fn create_block(block_device_config: BlockDeviceConfig) -> Result<Block, DriveError> {
+    /// Creates a host-file-backed Block device from a BlockDeviceConfig.
+    fn create_block_file(block_device_config: BlockDeviceConfig) -> Result<BlockFile, DriveError> {
         // check if the path exists
         let path_on_host = PathBuf::from(&block_device_config.path_on_host);
         if !path_on_host.exists() {
@@ -192,7 +190,7 @@ impl BlockBuilder {
             .map_err(DriveError::CreateRateLimiter)?;
 
         // Create and return the Block device
-        Block::new(
+        BlockFile::new(
             block_device_config.drive_id,
             block_device_config.partuuid,
             block_device_config.cache_type,
@@ -202,7 +200,7 @@ impl BlockBuilder {
             rate_limiter.unwrap_or_default(),
             block_device_config.file_engine_type,
         )
-        .map_err(DriveError::CreateBlockDevice)
+        .map_err(DriveError::CreateBlockFileDevice)
     }
 
     /// Returns a vec with the structures used to configure the devices.
@@ -612,7 +610,7 @@ mod tests {
         let mut block_devs = BlockBuilder::new();
         let backing_file = TempFile::new().unwrap();
         let block_id = "test_id";
-        let block = Block::new(
+        let block = BlockFile::new(
             block_id.to_string(),
             None,
             CacheType::default(),

@@ -7,10 +7,10 @@ use log::{error, warn};
 use utils::epoll::EventSet;
 
 use super::io::FileEngine;
-use crate::devices::virtio::block::file::device::Block;
+use crate::devices::virtio::block::file::device::BlockFile;
 use crate::devices::virtio::VirtioDevice;
 
-impl Block {
+impl BlockFile {
     fn register_runtime_events(&self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::new(&self.queue_evts[0], EventSet::IN)) {
             error!("Failed to register queue event: {}", err);
@@ -43,7 +43,7 @@ impl Block {
     }
 }
 
-impl MutEventSubscriber for Block {
+impl MutEventSubscriber for BlockFile {
     // Handle an event for queue or rate limiter.
     fn process(&mut self, event: Events, ops: &mut EventOps) {
         let source = event.fd();
