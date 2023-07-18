@@ -9,14 +9,16 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use api_server::{ApiRequest, ApiResponse, ApiServer, ServerError};
+use api_server::{ApiServer, ServerError};
 use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
 use logger::{error, warn, ProcessTimeReporter};
 use seccompiler::BpfThreadMap;
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
 use vmm::resources::VmResources;
-use vmm::rpc_interface::{PrebootApiController, RuntimeApiController, VmmAction};
+use vmm::rpc_interface::{
+    ApiRequest, ApiResponse, PrebootApiController, RuntimeApiController, VmmAction,
+};
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::{EventManager, FcExitCode, Vmm};
 
@@ -201,24 +203,9 @@ pub(crate) fn run_with_api(
             seccomp_filters,
             &mut event_manager,
             instance_info,
-            || {
-                let req = from_api
-                    .recv()
-                    .expect("The channel's sending half was disconnected. Cannot receive data.");
-
-                // Also consume the API event along with the message. It is safe to unwrap()
-                // because this event_fd is blocking.
-                api_event_fd
-                    .read()
-                    .expect("VMM: Failed to read the API event_fd");
-
-                *req
-            },
-            |response| {
-                to_api
-                    .send(Box::new(response))
-                    .expect("one-shot channel closed")
-            },
+            &from_api,
+            &to_api,
+            &api_event_fd,
             boot_timer_enabled,
             mmds_size_limit,
             metadata_json,
