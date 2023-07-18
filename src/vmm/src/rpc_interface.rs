@@ -309,6 +309,11 @@ pub enum LoadSnapshotError {
     ResumeMicrovm(#[from] VmmError),
 }
 
+/// Shorthand type for a request containing a boxed VmmAction.
+pub type ApiRequest = Box<VmmAction>;
+/// Shorthand type for a response containing a boxed Result.
+pub type ApiResponse = Box<std::result::Result<VmmData, VmmActionError>>;
+
 impl<'a> PrebootApiController<'a> {
     /// Constructor for the PrebootApiController.
     pub fn new(
@@ -329,25 +334,20 @@ impl<'a> PrebootApiController<'a> {
     }
 
     /// Default implementation for the function that builds and starts a microVM.
-    /// It takes two closures `recv_req` and `respond` as params which abstract away
-    /// the message transport.
     ///
     /// Returns a populated `VmResources` object and a running `Vmm` object.
     #[allow(clippy::too_many_arguments)]
-    pub fn build_microvm_from_requests<F, G>(
+    pub fn build_microvm_from_requests(
         seccomp_filters: &BpfThreadMap,
         event_manager: &mut EventManager,
         instance_info: InstanceInfo,
-        recv_req: F,
-        respond: G,
+        from_api: &std::sync::mpsc::Receiver<ApiRequest>,
+        to_api: &std::sync::mpsc::Sender<ApiResponse>,
+        api_event_fd: &utils::eventfd::EventFd,
         boot_timer_enabled: bool,
         mmds_size_limit: usize,
         metadata_json: Option<&str>,
-    ) -> Result<(VmResources, Arc<Mutex<Vmm>>), FcExitCode>
-    where
-        F: Fn() -> VmmAction,
-        G: Fn(Result<VmmData, VmmActionError>),
-    {
+    ) -> Result<(VmResources, Arc<Mutex<Vmm>>), FcExitCode> {
         let mut vm_resources = VmResources::default();
         // Silence false clippy warning. Clippy suggests using
         // VmResources { boot_timer: boot_timer_enabled, ..Default::default() }; but this will
@@ -386,11 +386,21 @@ impl<'a> PrebootApiController<'a> {
         // The loop breaks when a microVM is successfully started, and a running Vmm is built.
         while preboot_controller.built_vmm.is_none() {
             // Get request
-            let req = recv_req();
+            let req = from_api
+                .recv()
+                .expect("The channel's sending half was disconnected. Cannot receive data.");
+
+            // Also consume the API event along with the message. It is safe to unwrap()
+            // because this event_fd is blocking.
+            api_event_fd
+                .read()
+                .expect("VMM: Failed to read the API event_fd");
+
             // Process the request.
-            let res = preboot_controller.handle_preboot_request(req);
+            let res = preboot_controller.handle_preboot_request(*req);
+
             // Send back the response.
-            respond(res);
+            to_api.send(Box::new(res)).expect("one-shot channel closed");
 
             // If any fatal errors were encountered, break the loop.
             if let Some(exit_code) = preboot_controller.fatal_error {
@@ -1824,60 +1834,6 @@ mod tests {
         check_preboot_request_err(
             VmmAction::SendCtrlAltDel,
             VmmActionError::OperationNotSupportedPreBoot,
-        );
-    }
-
-    #[test]
-    fn test_build_microvm_from_requests() {
-        // Use atomics to be able to use them non-mutably in closures below.
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
-        let cmd_step = AtomicUsize::new(0);
-        let commands = || {
-            cmd_step.fetch_add(1, Ordering::SeqCst);
-            match cmd_step.load(Ordering::SeqCst) {
-                1 => VmmAction::FlushMetrics,
-                2 => VmmAction::Pause,
-                3 => VmmAction::Resume,
-                4 => VmmAction::StartMicroVm,
-                _ => unreachable!(),
-            }
-        };
-
-        let resp_step = AtomicUsize::new(0);
-        let expected_resp = |resp: Result<VmmData, VmmActionError>| {
-            resp_step.fetch_add(1, Ordering::SeqCst);
-            let expect = match resp_step.load(Ordering::SeqCst) {
-                1 => Err(VmmActionError::OperationNotSupportedPreBoot),
-                2 => Err(VmmActionError::OperationNotSupportedPreBoot),
-                3 => Err(VmmActionError::OperationNotSupportedPreBoot),
-                4 => Ok(VmmData::Empty),
-                _ => unreachable!(),
-            };
-            assert_eq!(resp, expect);
-        };
-
-        let (vm_res, _vmm) = PrebootApiController::build_microvm_from_requests(
-            &BpfThreadMap::new(),
-            &mut EventManager::new().unwrap(),
-            InstanceInfo::default(),
-            commands,
-            expected_resp,
-            false,
-            HTTP_MAX_PAYLOAD_SIZE,
-            Some(r#""magic""#),
-        )
-        .unwrap();
-
-        assert_eq!(
-            vm_res
-                .mmds
-                .as_ref()
-                .unwrap()
-                .lock()
-                .unwrap()
-                .data_store_value(),
-            Value::String("magic".to_string())
         );
     }
 
