@@ -232,11 +232,12 @@ pub fn t2a() -> CustomCpuTemplate {
                     // - Bit 09: WBNOINVD (AMD APM) / WBNOINVD (Intel SDM)
                     // - Bit 18: IbrsPreferred (ADM APM) / Reserved (Intel SDm)
                     // - Bit 19: IbrsSameMode (AMD APM) / Reserved (Intel SDM)
+                    // - Bit 20: EferLmsleUnsupported (AMD APM) / Reserved (Intel SDM)
                     CpuidRegisterModifier {
                         register: CpuidRegister::Ebx,
                         bitmap: RegisterValueFilter {
-                            filter: 0b0000_0000_0000_1100_0000_0010_0000_0101,
-                            value: 0b0000_0000_0000_1100_0000_0000_0000_0000,
+                            filter: 0b0000_0000_0001_1100_0000_0010_0000_0101,
+                            value: 0b0000_0000_0001_1100_0000_0000_0000_0000,
                         },
                     },
                 ],
