@@ -6,9 +6,7 @@
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use log::warn;
-use rate_limiter::persist::RateLimiterState;
-use rate_limiter::RateLimiter;
+use logger::warn;
 use snapshot::Persist;
 use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
@@ -19,6 +17,8 @@ use super::*;
 use crate::devices::virtio::block::device::FileEngineType;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::{DeviceState, TYPE_BLOCK};
+use crate::rate_limiter::persist::RateLimiterState;
+use crate::rate_limiter::RateLimiter;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.

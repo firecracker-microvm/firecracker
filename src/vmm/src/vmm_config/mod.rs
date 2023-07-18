@@ -8,8 +8,9 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 use libc::O_NONBLOCK;
-use rate_limiter::{BucketUpdate, RateLimiter, TokenBucket};
 use serde::{Deserialize, Serialize};
+
+use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenBucket};
 
 /// Wrapper for configuring the balloon device.
 pub mod balloon;

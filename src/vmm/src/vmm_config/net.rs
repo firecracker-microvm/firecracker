@@ -185,9 +185,8 @@ impl NetBuilder {
 mod tests {
     use std::str::FromStr;
 
-    use rate_limiter::RateLimiter;
-
     use super::*;
+    use crate::rate_limiter::RateLimiter;
 
     impl NetBuilder {
         pub fn len(&self) -> usize {

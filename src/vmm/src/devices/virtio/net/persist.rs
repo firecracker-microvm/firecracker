@@ -11,8 +11,6 @@ use log::warn;
 use mmds::data_store::Mmds;
 use mmds::ns::MmdsNetworkStack;
 use mmds::persist::MmdsNetworkStackState;
-use rate_limiter::persist::RateLimiterState;
-use rate_limiter::RateLimiter;
 use snapshot::Persist;
 use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 use utils::vm_memory::GuestMemoryMmap;
@@ -23,6 +21,8 @@ use super::device::Net;
 use super::{NET_NUM_QUEUES, NET_QUEUE_SIZE};
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::{DeviceState, TYPE_NET};
+use crate::rate_limiter::persist::RateLimiterState;
+use crate::rate_limiter::RateLimiter;
 
 #[derive(Debug, Default, Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.

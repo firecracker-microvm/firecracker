@@ -3,46 +3,6 @@
 
 #![deny(missing_docs)]
 
-//! # Rate Limiter
-//!
-//! Provides a rate limiter written in Rust useful for IO operations that need to
-//! be throttled.
-//!
-//! ## Behavior
-//!
-//! The rate limiter starts off as 'unblocked' with two token buckets configured
-//! with the values passed in the `RateLimiter::new()` constructor.
-//! All subsequent accounting is done independently for each token bucket based
-//! on the `TokenType` used. If any of the buckets runs out of budget, the limiter
-//! goes in the 'blocked' state. At this point an internal timer is set up which
-//! will later 'wake up' the user in order to retry sending data. The 'wake up'
-//! notification will be dispatched as an event on the FD provided by the `AsRawFD`
-//! trait implementation.
-//!
-//! The contract is that the user shall also call the `event_handler()` method on
-//! receipt of such an event.
-//!
-//! The token buckets are replenished when a called `consume()` doesn't find enough
-//! tokens in the bucket. The amount of tokens replenished is automatically calculated
-//! to respect the `complete_refill_time` configuration parameter provided by the user.
-//! The token buckets will never replenish above their respective `size`.
-//!
-//! Each token bucket can start off with a `one_time_burst` initial extra capacity
-//! on top of their `size`. This initial extra credit does not replenish and
-//! can be used for an initial burst of data.
-//!
-//! The granularity for 'wake up' events when the rate limiter is blocked is
-//! currently hardcoded to `100 milliseconds`.
-//!
-//! ## Limitations
-//!
-//! This rate limiter implementation relies on the *Linux kernel's timerfd* so its
-//! usage is limited to Linux systems.
-//!
-//! Another particularity of this implementation is that it is not self-driving.
-//! It is meant to be used in an external event loop and thus implements the `AsRawFd`
-//! trait and provides an *event-handler* as part of its API. This *event-handler*
-//! needs to be called by the user on every event on the rate limiter's `AsRawFd` FD.
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 use std::{fmt, io};
@@ -570,7 +530,7 @@ mod verification {
     mod stubs {
         use std::time::Instant;
 
-        use crate::TokenBucket;
+        use crate::rate_limiter::TokenBucket;
 
         // On Unix, the Rust Standard Library defines Instants as
         //

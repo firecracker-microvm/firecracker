@@ -11,7 +11,7 @@ import pytest
 from framework import utils
 
 PLATFORM = platform.machine()
-CRATES_WITH_PROOFS = ["dumbo", "rate_limiter"]
+CRATES_WITH_PROOFS = ["dumbo", "vmm"]
 
 
 @pytest.mark.timeout(1800)
