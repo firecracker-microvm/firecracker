@@ -18,7 +18,6 @@ use log::{error, warn};
 use logger::{IncMetric, METRICS};
 use mmds::data_store::Mmds;
 use mmds::ns::MmdsNetworkStack;
-use rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 use utils::eventfd::EventFd;
 use utils::net::mac::MacAddr;
 use utils::vm_memory::{ByteValued, Bytes, GuestMemoryError, GuestMemoryMmap};
@@ -28,6 +27,8 @@ use virtio_gen::virtio_net::{
     VIRTIO_NET_F_MAC,
 };
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
+
+use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 
 const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
 
@@ -841,7 +842,6 @@ pub mod tests {
     use dumbo::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
     use dumbo::pdu::ethernet::ETHERTYPE_ARP;
     use logger::{IncMetric, METRICS};
-    use rate_limiter::{RateLimiter, TokenBucket, TokenType};
     use utils::net::mac::MAC_ADDR_LEN;
     use utils::vm_memory::{Address, GuestMemory};
     use virtio_gen::virtio_net::{
@@ -864,6 +864,7 @@ pub mod tests {
     use crate::devices::virtio::{
         Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, TYPE_NET, VIRTQ_DESC_F_WRITE,
     };
+    use crate::rate_limiter::{RateLimiter, TokenBucket, TokenType};
 
     impl Net {
         pub(crate) fn read_tap(&mut self) -> io::Result<usize> {

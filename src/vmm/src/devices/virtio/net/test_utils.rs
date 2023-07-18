@@ -15,7 +15,6 @@ use std::sync::{Arc, Mutex};
 
 use mmds::data_store::Mmds;
 use mmds::ns::MmdsNetworkStack;
-use rate_limiter::RateLimiter;
 use utils::net::mac::MacAddr;
 use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 
@@ -25,6 +24,7 @@ use crate::devices::virtio::net::tap::{IfReqBuilder, Tap};
 use crate::devices::virtio::test_utils::VirtQueue;
 use crate::devices::virtio::{Net, Queue, QueueError};
 use crate::devices::DeviceError;
+use crate::rate_limiter::RateLimiter;
 
 static NEXT_INDEX: AtomicUsize = AtomicUsize::new(1);
 

@@ -15,9 +15,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use block_io::FileEngine;
-use log::{error, warn};
-use logger::{IncMetric, METRICS};
-use rate_limiter::{BucketUpdate, RateLimiter};
+use logger::{error, warn, IncMetric, METRICS};
 use serde::{Deserialize, Serialize};
 use utils::eventfd::EventFd;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
@@ -35,6 +33,7 @@ use super::{
     SECTOR_SIZE,
 };
 use crate::devices::virtio::{IrqTrigger, IrqType};
+use crate::rate_limiter::{BucketUpdate, RateLimiter};
 
 /// Configuration options for disk caching.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -639,7 +638,6 @@ mod tests {
     use std::time::Duration;
     use std::{thread, u32};
 
-    use rate_limiter::TokenType;
     use utils::skip_if_io_uring_unsupported;
     use utils::tempfile::TempFile;
     use utils::vm_memory::{Address, Bytes, GuestAddress};
@@ -653,6 +651,7 @@ mod tests {
     };
     use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
     use crate::devices::virtio::{IO_URING_NUM_ENTRIES, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+    use crate::rate_limiter::TokenType;
 
     #[test]
     fn test_disk_backing_file_helper() {

@@ -1190,8 +1190,8 @@ mod tests {
         pub fn update_block_rate_limiter(
             &mut self,
             _: &str,
-            _: rate_limiter::BucketUpdate,
-            _: rate_limiter::BucketUpdate,
+            _: crate::rate_limiter::BucketUpdate,
+            _: crate::rate_limiter::BucketUpdate,
         ) -> Result<(), VmmError> {
             Ok(())
         }
@@ -1199,10 +1199,10 @@ mod tests {
         pub fn update_net_rate_limiters(
             &mut self,
             _: &str,
-            _: rate_limiter::BucketUpdate,
-            _: rate_limiter::BucketUpdate,
-            _: rate_limiter::BucketUpdate,
-            _: rate_limiter::BucketUpdate,
+            _: crate::rate_limiter::BucketUpdate,
+            _: crate::rate_limiter::BucketUpdate,
+            _: crate::rate_limiter::BucketUpdate,
+            _: crate::rate_limiter::BucketUpdate,
         ) -> Result<(), VmmError> {
             if self.force_errors {
                 return Err(VmmError::DeviceManager(
