@@ -82,7 +82,7 @@
       "modifiers": [
         {
           "register": "ebx",
-          "bitmap": "0bxxxxxxxxxxxx11xxxxxxxx0xxxxxx0x0"
+          "bitmap": "0bxxxxxxxxxxx111xxxxxxxx0xxxxxx0x0"
         }
       ]
     }
