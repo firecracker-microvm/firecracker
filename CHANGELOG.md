@@ -41,6 +41,8 @@
 - Fixed the T2A CPU template to disable SVM (nested virtualization).
 - Fixed the T2A CPU template to set EferLmsleUnsupported bit
   (CPUID.80000008h:EBX[20]), which indicates that EFER[LMSLE] is not supported.
+- Fixed the T2A CPU template not to unset the MMX bit (CPUID.80000001h:EDX[23])
+  and the FXSR bit (CPUID.80000001h:EDX[24]).
 
 ## [1.3.0]
 

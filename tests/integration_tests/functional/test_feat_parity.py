@@ -125,8 +125,6 @@ def test_feat_parity_cpuid_inst_set(vm):
         ),
         (0x80000001, 0x0, "edx",
             (1 << 22) | # MmxExt
-            (1 << 23) | # MMX
-            (1 << 24) | # FXSR
             (1 << 25) # FFXSR
         ),
         (0x80000008, 0x0, "ebx",

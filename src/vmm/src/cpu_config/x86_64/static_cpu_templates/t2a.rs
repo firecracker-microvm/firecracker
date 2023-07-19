@@ -208,14 +208,12 @@ pub fn t2a() -> CustomCpuTemplate {
                     },
                     // EDX:
                     // - Bit 22: MmxExt (AMD APM) / Reserved (Intel SDM)
-                    // - Bit 23: MMX (AMD APM) / Reserved (Intel SDM)
-                    // - Bit 24: FSXR (AMD APM) / Reserved (Intel SDM)
                     // - Bit 25: FFXSR (AMD APM) / Reserved (Intel SDM)
                     // - Bit 26: Page1GB (AMD APM) / 1-GByte pages (Intel SDM)
                     CpuidRegisterModifier {
                         register: CpuidRegister::Edx,
                         bitmap: RegisterValueFilter {
-                            filter: 0b0000_0111_1100_0000_0000_0000_0000_0000,
+                            filter: 0b0000_0110_0100_0000_0000_0000_0000_0000,
                             value: 0b0000_0000_0000_0000_0000_0000_0000_0000,
                         },
                     },
