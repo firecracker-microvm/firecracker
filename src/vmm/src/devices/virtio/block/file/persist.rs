@@ -13,44 +13,13 @@ use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 use virtio_gen::virtio_blk::VIRTIO_BLK_F_RO;
 
-use super::device::CacheType;
 use super::*;
 use crate::devices::virtio::block::file::device::FileEngineType;
+use crate::devices::virtio::block::CacheTypeState;
 use crate::devices::virtio::persist::VirtioDeviceState;
-use crate::devices::virtio::{DeviceState, FIRECRACKER_MAX_QUEUE_SIZE, TYPE_BLOCK};
+use crate::devices::virtio::{DeviceState, Disk, FIRECRACKER_MAX_QUEUE_SIZE, TYPE_BLOCK};
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::rate_limiter::RateLimiter;
-
-/// Holds info about block's cache type. Gets saved in snapshot.
-// NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Versionize)]
-pub enum CacheTypeState {
-    /// Flushing mechanic will be advertised to the guest driver, but
-    /// the operation will be a noop.
-    Unsafe,
-    /// Flushing mechanic will be advertised to the guest driver and
-    /// flush requests coming from the guest will be performed using
-    /// `fsync`.
-    Writeback,
-}
-
-impl From<CacheType> for CacheTypeState {
-    fn from(cache_type: CacheType) -> Self {
-        match cache_type {
-            CacheType::Unsafe => CacheTypeState::Unsafe,
-            CacheType::Writeback => CacheTypeState::Writeback,
-        }
-    }
-}
-
-impl From<CacheTypeState> for CacheType {
-    fn from(cache_type_state: CacheTypeState) -> Self {
-        match cache_type_state {
-            CacheTypeState::Unsafe => CacheType::Unsafe,
-            CacheTypeState::Writeback => CacheType::Writeback,
-        }
-    }
-}
 
 /// Holds info about block's file engine type. Gets saved in snapshot.
 // NOTICE: Any changes to this structure require a snapshot version bump.
@@ -138,10 +107,10 @@ impl Persist<'_> for BlockFile {
     fn save(&self) -> Self::State {
         // Save device state.
         BlockFileState {
-            id: self.id.clone(),
-            partuuid: self.partuuid.clone(),
-            cache_type: CacheTypeState::from(self.cache_type()),
-            root_device: self.root_device,
+            id: self.id().clone(),
+            partuuid: self.partuuid().cloned(),
+            cache_type: CacheTypeState::from(self.block().cache_type()),
+            root_device: self.is_root_device(),
             disk_path: self.disk.file_path().clone(),
             virtio_state: VirtioDeviceState::from_device(self),
             rate_limiter_state: self.rate_limiter.save(),
@@ -225,6 +194,7 @@ mod tests {
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::test_utils::default_mem;
+    use crate::devices::virtio::CacheType;
 
     #[test]
     fn test_cache_type_state_from() {

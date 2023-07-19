@@ -649,7 +649,7 @@ mod tests {
 
     use super::*;
     use crate::builder::tests::*;
-    use crate::devices::virtio::file::device::CacheType;
+    use crate::devices::virtio::block::CacheType;
     use crate::devices::virtio::net::persist::NetConfigSpaceState;
     use crate::resources::VmmConfig;
     use crate::vmm_config::balloon::BalloonDeviceConfig;

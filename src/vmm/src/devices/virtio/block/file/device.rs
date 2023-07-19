@@ -29,6 +29,7 @@ use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use super::super::super::{
     ActivateError, DeviceState, Queue, VirtioDevice, SUBTYPE_BLOCK_FILE, TYPE_BLOCK,
 };
+use super::super::DiskAttributes;
 use super::io::async_io;
 use super::request::*;
 use super::{
@@ -36,23 +37,10 @@ use super::{
     SECTOR_SIZE,
 };
 use crate::arch::DeviceSubtype;
-use crate::devices::virtio::{IrqTrigger, IrqType};
+use crate::devices::virtio::block::CacheType;
+use crate::devices::virtio::{Disk, IrqTrigger, IrqType};
 use crate::rate_limiter::{BucketUpdate, RateLimiter};
 
-/// Configuration options for disk caching.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
-pub enum CacheType {
-    /// Flushing mechanic will be advertised to the guest driver, but
-    /// the operation will be a noop.
-    #[default]
-    Unsafe,
-    /// Flushing mechanic will be advertised to the guest driver and
-    /// flush requests coming from the guest will be performed using
-    /// `fsync`.
-    Writeback,
-}
-
-/// The engine file type, either Sync or Async (through io_uring).
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum FileEngineType {
     /// Use an Async engine, based on io_uring.
@@ -80,7 +68,6 @@ impl FileEngineType {
 /// Helper object for setting up all `Block` fields derived from its backing file.
 #[derive(Debug)]
 pub(crate) struct DiskProperties {
-    cache_type: CacheType,
     file_path: String,
     file_engine: FileEngine<PendingRequest>,
     nsectors: u64,
@@ -91,7 +78,6 @@ impl DiskProperties {
     pub fn new(
         disk_image_path: String,
         is_disk_read_only: bool,
-        cache_type: CacheType,
         file_engine_type: FileEngineType,
     ) -> Result<Self, BlockFileError> {
         let mut disk_image = OpenOptions::new()
@@ -114,7 +100,6 @@ impl DiskProperties {
         }
 
         Ok(Self {
-            cache_type,
             nsectors: disk_size >> SECTOR_SHIFT,
             image_id: Self::build_disk_image_id(&disk_image),
             file_path: disk_image_path,
@@ -191,10 +176,6 @@ impl DiskProperties {
         }
         config
     }
-
-    pub fn cache_type(&self) -> CacheType {
-        self.cache_type
-    }
 }
 
 /// Virtio device for exposing block level read/write operations on a host file.
@@ -215,10 +196,10 @@ pub struct BlockFile {
     pub(crate) device_state: DeviceState,
     pub(crate) irq_trigger: IrqTrigger,
 
+    // Disk attributes
+    disk_attrs: DiskAttributes,
+
     // Implementation specific fields.
-    pub(crate) id: String,
-    pub(crate) partuuid: Option<String>,
-    pub(crate) root_device: bool,
     pub(crate) rate_limiter: RateLimiter,
     is_io_engine_throttled: bool,
 }
@@ -250,12 +231,8 @@ impl BlockFile {
         rate_limiter: RateLimiter,
         file_engine_type: FileEngineType,
     ) -> Result<BlockFile, BlockFileError> {
-        let disk_properties = DiskProperties::new(
-            disk_image_path,
-            is_disk_read_only,
-            cache_type,
-            file_engine_type,
-        )?;
+        let disk_properties =
+            DiskProperties::new(disk_image_path, is_disk_read_only, file_engine_type)?;
 
         let mut avail_features = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_RING_F_EVENT_IDX);
 
@@ -271,10 +248,10 @@ impl BlockFile {
 
         let queues = BLOCK_QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect();
 
+        let disk_attrs =
+            DiskAttributes::new(id, partuuid, cache_type, is_disk_read_only, is_disk_root);
+
         Ok(BlockFile {
-            id,
-            root_device: is_disk_root,
-            partuuid,
             rate_limiter,
             config_space: disk_properties.virtio_block_config_space(),
             disk: disk_properties,
@@ -286,6 +263,7 @@ impl BlockFile {
             irq_trigger: IrqTrigger::new().map_err(BlockFileError::IrqTrigger)?,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(BlockFileError::EventFd)?,
             is_io_engine_throttled: false,
+            disk_attrs,
         })
     }
 
@@ -462,7 +440,6 @@ impl BlockFile {
         let disk_properties = DiskProperties::new(
             disk_image_path,
             self.is_read_only(),
-            self.cache_type(),
             self.file_engine_type(),
         )?;
         self.disk = disk_properties;
@@ -480,34 +457,9 @@ impl BlockFile {
         self.rate_limiter.update_buckets(bytes, ops);
     }
 
-    /// Provides the ID of this block device.
-    pub fn id(&self) -> &String {
-        &self.id
-    }
-
     /// Provides backing file path of this block device.
     pub fn file_path(&self) -> &String {
         self.disk.file_path()
-    }
-
-    /// Provides the PARTUUID of this block device.
-    pub fn partuuid(&self) -> Option<&String> {
-        self.partuuid.as_ref()
-    }
-
-    /// Specifies if this block device is read only.
-    pub fn is_read_only(&self) -> bool {
-        self.avail_features & (1u64 << VIRTIO_BLK_F_RO) != 0
-    }
-
-    /// Specifies if this block device is read only.
-    pub fn is_root_device(&self) -> bool {
-        self.root_device
-    }
-
-    /// Specifies block device cache type.
-    pub fn cache_type(&self) -> CacheType {
-        self.disk.cache_type()
     }
 
     /// Provides non-mutable reference to this device's rate limiter.
@@ -539,6 +491,11 @@ impl BlockFile {
         if let FileEngine::Async(_engine) = self.disk.file_engine_mut() {
             self.process_async_completion_queue();
         }
+    }
+
+    /// Provides non-mutable reference to this device's block.
+    pub fn block(&self) -> &DiskAttributes {
+        &self.disk_attrs
     }
 }
 
@@ -638,9 +595,36 @@ impl VirtioDevice for BlockFile {
     }
 }
 
+impl Disk for BlockFile {
+    /// Provides the ID of this block device.
+    fn id(&self) -> &String {
+        self.block().id()
+    }
+
+    /// Provides the PARTUUID of this block device.
+    fn partuuid(&self) -> Option<&String> {
+        self.block().partuuid()
+    }
+
+    /// Specifies if this block device is read only.
+    fn is_read_only(&self) -> bool {
+        self.block().is_read_only()
+    }
+
+    /// Specifies if this block device is a root device.
+    fn is_root_device(&self) -> bool {
+        self.block().is_root_device()
+    }
+
+    /// Specifies block device cache type.
+    fn cache_type(&self) -> CacheType {
+        self.block().cache_type()
+    }
+}
+
 impl Drop for BlockFile {
     fn drop(&mut self) {
-        match self.disk.cache_type {
+        match self.cache_type() {
             CacheType::Unsafe => {
                 if let Err(err) = self.disk.file_engine_mut().drain(true) {
                     error!("Failed to drain ops on drop: {:?}", err);
@@ -687,7 +671,6 @@ mod tests {
         let disk_properties = DiskProperties::new(
             String::from(f.as_path().to_str().unwrap()),
             true,
-            CacheType::Unsafe,
             default_engine_type_for_kv(),
         )
         .unwrap();
@@ -705,7 +688,6 @@ mod tests {
         assert!(DiskProperties::new(
             "invalid-disk-path".to_string(),
             true,
-            CacheType::Unsafe,
             default_engine_type_for_kv(),
         )
         .is_err());

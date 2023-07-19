@@ -11,8 +11,10 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use super::RateLimiterConfig;
-pub use crate::devices::virtio::block::file::device::{CacheType, FileEngineType};
+pub use crate::devices::virtio::block::file::device::FileEngineType;
 use crate::devices::virtio::block::file::{BlockFile, BlockFileError};
+pub use crate::devices::virtio::block::CacheType;
+use crate::devices::virtio::Disk;
 use crate::VmmError;
 
 /// Errors associated with the operations allowed on a drive.

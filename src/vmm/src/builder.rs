@@ -45,7 +45,7 @@ use crate::devices::legacy::RTCDevice;
 use crate::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
 use crate::devices::virtio::file::BlockFile;
 use crate::devices::virtio::{
-    Balloon, Entropy, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend,
+    Balloon, Disk, Entropy, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend,
 };
 use crate::devices::BusDevice;
 use crate::persist::{MicrovmState, MicrovmStateError};
