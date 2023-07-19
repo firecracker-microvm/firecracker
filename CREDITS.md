@@ -17,6 +17,7 @@ written in Rust with a focus on safety and security. Thanks go to:
 
 Contributors to the Firecracker repository:
 
+* Aaqa Ishtyaq <aaqaishtyaq@gmail.com>
 * Aaron Hill <aa1ronham@gmail.com>
 * Aaron O'Mullan <aaron.omullan@gmail.com>
 * Abhijeet Kasurde <akasurde@redhat.com>
@@ -75,6 +76,7 @@ Contributors to the Firecracker repository:
 * Deepesh Pathak <deepshpathak@gmail.com>
 * defunct <defunct@defunct.io>
 * Denis Andrejew <da.colonel@gmail.com>
+* Derek Manwaring <derekmn@amazon.com>
 * Diana Popa <dpopa@amazon.com>
 * Dmitrii <dmitrii.ustiugov@epfl.ch>
 * Eduard Kyvenko <eduard.kyvenko@gmail.com>
@@ -90,6 +92,7 @@ Contributors to the Firecracker repository:
 * Gilad Naaman <gilad@naaman.io>
 * Greg Dunn <gregdunn@amazon.com>
 * Gregory Brzeski <gregory@brzeski.pl>
+* Grzegorz Uriasz <gorbak25@gmail.com>
 * Gulshan Kumar <kumargu@amazon.com>
 * Gábor Lipták <gliptak@gmail.com>
 * hacker65536 <s.hacker65536@gmail.com>
@@ -129,6 +132,7 @@ Contributors to the Firecracker repository:
 * Lorenzo Fontana <fontanalorenz@gmail.com>
 * LOU Xun <aquarhead@ela.build>
 * Lucas Zanela <me@lucaszanella.com>
+* Lukas Schwerdtfeger <lukas.schwerdtfeger@gmail.com>
 * Luminita Voicu <lumivo@amazon.com>
 * maciejhirsz <maciej.hirsz@gmail.com>
 * Malhar Vora <mlvora.2010@gmail.com>
