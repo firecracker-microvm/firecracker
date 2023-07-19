@@ -71,7 +71,7 @@
         },
         {
           "register": "edx",
-          "bitmap": "0bxxxxx00000xxxxxxxxxxxxxxxxxxxxxx"
+          "bitmap": "0bxxxxx00xx0xxxxxxxxxxxxxxxxxxxxxx"
         }
       ]
     },
