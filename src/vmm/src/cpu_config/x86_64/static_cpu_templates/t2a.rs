@@ -108,7 +108,7 @@ pub fn t2a() -> CustomCpuTemplate {
                     CpuidRegisterModifier {
                         register: CpuidRegister::Edx,
                         bitmap: RegisterValueFilter {
-                            filter: 0b00000111110000000000000000000000,
+                            filter: 0b00000110010000000000000000000000,
                             value: 0b00000000000000000000000000000000,
                         },
                     },

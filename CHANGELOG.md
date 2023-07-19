@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed the T2A CPU template not to unset the MMX bit (CPUID.80000001h:EDX[23])
+  and the FXSR bit (CPUID.80000001h:EDX[24]).
+
 ## [1.4.0]
 
 ### Added
