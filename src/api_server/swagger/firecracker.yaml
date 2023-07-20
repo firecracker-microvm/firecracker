@@ -1038,6 +1038,11 @@ definitions:
         enum:
           - File
           - Uffd
+          - UffdPrivileged
+        description: Describes whether guest memory will be served from a file or
+        an external UFFD handler. Use UffdPrivileged if you need to serve page faults
+        in both user-space and the kernel. Use Uffd id you only need to serve page
+        faults in user-space.
       backend_path:
         type: string
         description: Based on 'backend_type' it is either
