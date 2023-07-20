@@ -14,6 +14,8 @@
 
 - Fixed the T2A CPU template not to unset the MMX bit (CPUID.80000001h:EDX[23])
   and the FXSR bit (CPUID.80000001h:EDX[24]).
+- Fixed the T2A CPU template to set the RstrFpErrPtrs bit
+  (CPUID.80000008h:EBX[2]).
 
 ## [1.4.0]
 
