@@ -4,22 +4,34 @@
 
 ### Added
 
-- Added support for custom CPU templates allowing users to adjust vCPU features
-  exposed to the guest via CPUID, MSRs and ARM registers.
-- Introduced V1N1 static CPU template for ARM to represent Neoverse V1 CPU
-  as Neoverse N1.
-- Added a `cpu-template-helper` tool for assisting with creating and managing
-  custom CPU templates.
-- Added support for the `virtio-rng` entropy device. The device is optional. A
-  single device can be enabled per VM using the `/entropy` endpoint.
-
 ### Changed
 
 - Updated deserialization of `bitmap` for custom CPU templates to allow usage
   of '_' as a separator.
+- Changed the strip feature of `cpu-template-helper` tool to operate bitwise.
+
+### Fixed
+
+- Fixed the T2A CPU template not to unset the MMX bit (CPUID.80000001h:EDX[23])
+  and the FXSR bit (CPUID.80000001h:EDX[24]).
+
+## [1.4.0]
+
+### Added
+
+- Added support for custom CPU templates allowing users to adjust vCPU features
+  exposed to the guest via CPUID, MSRs and ARM registers.
+- Introduced V1N1 static CPU template for ARM to represent Neoverse V1 CPU
+  as Neoverse N1.
+- Added support for the `virtio-rng` entropy device. The device is optional. A
+  single device can be enabled per VM using the `/entropy` endpoint.
+- Added a `cpu-template-helper` tool for assisting with creating and managing
+  custom CPU templates.
+
+### Changed
+
 - Set FDP_EXCPTN_ONLY bit (CPUID.7h.0:EBX[6]) and ZERO_FCS_FDS bit
   (CPUID.7h.0:EBX[13]) in Intel's CPUID normalization process.
-- Changed the strip feature of `cpu-template-helper` tool to operate bitwise.
 
 ### Fixed
 
@@ -41,8 +53,6 @@
 - Fixed the T2A CPU template to disable SVM (nested virtualization).
 - Fixed the T2A CPU template to set EferLmsleUnsupported bit
   (CPUID.80000008h:EBX[20]), which indicates that EFER[LMSLE] is not supported.
-- Fixed the T2A CPU template not to unset the MMX bit (CPUID.80000001h:EDX[23])
-  and the FXSR bit (CPUID.80000001h:EDX[24]).
 
 ## [1.3.0]
 
