@@ -254,6 +254,35 @@ mod tests {
 
         body = r#"{
                 "snapshot_path": "foo",
+                "mem_backend": {
+                    "backend_path": "bar",
+                    "backend_type": "UffdPrivileged"
+                },
+                "resume_vm": true
+              }"#;
+
+        expected_cfg = LoadSnapshotParams {
+            snapshot_path: PathBuf::from("foo"),
+            mem_backend: MemBackendConfig {
+                backend_path: PathBuf::from("bar"),
+                backend_type: MemBackendType::UffdPrivileged,
+            },
+            enable_diff_snapshots: false,
+            resume_vm: true,
+        };
+
+        let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
+        assert!(parsed_request
+            .parsing_info()
+            .take_deprecation_message()
+            .is_none());
+        match vmm_action_from_request(parsed_request) {
+            VmmAction::LoadSnapshot(cfg) => assert_eq!(cfg, expected_cfg),
+            _ => panic!("Test failed."),
+        }
+
+        body = r#"{
+                "snapshot_path": "foo",
                 "mem_file_path": "bar",
                 "resume_vm": true
               }"#;

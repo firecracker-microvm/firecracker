@@ -544,6 +544,19 @@ pub fn restore_from_snapshot(
             // We enable the UFFD_FEATURE_EVENT_REMOVE feature only if a balloon device
             // is present in the microVM state.
             microvm_state.device_states.balloon_device.is_some(),
+            // Serve page faults in user-space only
+            true,
+        )
+        .map_err(RestoreFromSnapshotGuestMemoryError::Uffd)?,
+        MemBackendType::UffdPrivileged => guest_memory_from_uffd(
+            mem_backend_path,
+            mem_state,
+            track_dirty_pages,
+            // We enable the UFFD_FEATURE_EVENT_REMOVE feature only if a balloon device
+            // is present in the microVM state.
+            microvm_state.device_states.balloon_device.is_some(),
+            // Serve page faults in the kernel and user-space
+            false,
         )
         .map_err(RestoreFromSnapshotGuestMemoryError::Uffd)?,
     };
@@ -632,6 +645,7 @@ fn guest_memory_from_uffd(
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
     enable_balloon: bool,
+    user_mode_only: bool,
 ) -> Result<(GuestMemoryMmap, Option<Uffd>), GuestMemoryFromUffdError> {
     let guest_memory = GuestMemoryMmap::restore(None, mem_state, track_dirty_pages)?;
 
@@ -646,6 +660,7 @@ fn guest_memory_from_uffd(
     let uffd = uffd_builder
         .close_on_exec(true)
         .non_blocking(true)
+        .user_mode_only(user_mode_only)
         .create()
         .map_err(GuestMemoryFromUffdError::Create)?;
 
