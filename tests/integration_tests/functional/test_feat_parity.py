@@ -133,7 +133,6 @@ def test_feat_parity_cpuid_inst_set(vm):
         ),
         (0x80000008, 0x0, "ebx",
             (1 << 0) | # CLZERO
-            (1 << 2) | # RstrFpErrPtrs
             (1 << 4) | # RDPRU
             (1 << 8) | # MCOMMIT
             (1 << 9) | # WBNOINVD
