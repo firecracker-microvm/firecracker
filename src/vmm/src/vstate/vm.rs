@@ -15,7 +15,7 @@ use kvm_bindings::{
     KVM_MAX_CPUID_ENTRIES, KVM_PIT_SPEAKER_DUMMY,
 };
 use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION, KVM_MEM_LOG_DIRTY_PAGES};
-use kvm_ioctls::{Cap, Kvm, VmFd};
+use kvm_ioctls::{Kvm, VmFd};
 use utils::vm_memory::{Address, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
@@ -24,6 +24,7 @@ use versionize_derive::Versionize;
 use crate::arch::aarch64::gic::GICDevice;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::aarch64::gic::GicState;
+use crate::cpu_config::templates::KvmCapability;
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug, thiserror::Error)]
@@ -32,8 +33,8 @@ pub enum VmError {
     #[error("The host kernel reports an invalid KVM API version: {0}")]
     ApiVersion(i32),
     /// Cannot initialize the KVM context due to missing capabilities.
-    #[error("Missing KVM capabilities: {0:?}")]
-    Capabilities(kvm_ioctls::Cap),
+    #[error("Missing KVM capabilities: {0:x?}")]
+    Capabilities(u32),
     /// Cannot initialize the KVM context.
     #[error("{}", ({
         if .0.errno() == libc::EACCES {
@@ -105,6 +106,18 @@ pub enum VmError {
 #[cfg(target_arch = "x86_64")]
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum RestoreStateError {
+    #[error("{}", ({
+        if .0.errno() == libc::EACCES {
+            format!(
+                "Error creating KVM object. [{}]\nMake sure the user \
+                launching the firecracker process is configured on the /dev/kvm file's ACL.",
+                .0
+            )
+        } else {
+            format!("Error creating KVM object. [{}]", .0)
+        }
+    }))]
+    Kvm(kvm_ioctls::Error),
     #[error("{0}")]
     SetPit2(kvm_ioctls::Error),
     #[error("{0}")]
@@ -115,15 +128,31 @@ pub enum RestoreStateError {
     SetIrqChipPicSlave(kvm_ioctls::Error),
     #[error("{0}")]
     SetIrqChipIoAPIC(kvm_ioctls::Error),
+    #[error("Missing KVM capabilities: {0:x?}")]
+    Capabilities(u32),
 }
 
 /// Error type for [`Vm::restore_state`]
 #[cfg(target_arch = "aarch64")]
 #[derive(Debug, thiserror::Error)]
 pub enum RestoreStateError {
+    #[error("{}", ({
+        if .0.errno() == libc::EACCES {
+            format!(
+                "Error creating KVM object. [{}]\nMake sure the user \
+                launching the firecracker process is configured on the /dev/kvm file's ACL.",
+                .0
+            )
+        } else {
+            format!("Error creating KVM object. [{}]", .0)
+        }
+    }))]
+    Kvm(kvm_ioctls::Error),
     /// GIC Error
     #[error("{0}")]
     GicError(crate::arch::aarch64::gic::GicError),
+    #[error("Missing KVM capabilities: {0:x?}")]
+    Capabilities(u32),
 }
 
 /// A wrapper around creating and using a VM.
@@ -131,6 +160,9 @@ pub enum RestoreStateError {
 pub struct Vm {
     fd: VmFd,
     max_memslots: usize,
+
+    /// Additional capabilities that were specified in cpu template.
+    pub kvm_cap_modifiers: Vec<KvmCapability>,
 
     // X86 specific fields.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -147,18 +179,19 @@ pub struct Vm {
 /// Contains Vm functions that are usable across CPU architectures
 impl Vm {
     /// Constructs a new `Vm` using the given `Kvm` instance.
-    pub fn new() -> Result<Self, VmError> {
+    pub fn new(kvm_cap_modifiers: Vec<KvmCapability>) -> Result<Self, VmError> {
         let kvm = Kvm::new().map_err(VmError::Kvm)?;
 
         // Check that KVM has the correct version.
-        // Safe to caste because this is a constant.
+        // Safe to cast because this is a constant.
         #[allow(clippy::cast_possible_wrap)]
         if kvm.get_api_version() != KVM_API_VERSION as i32 {
             return Err(VmError::ApiVersion(kvm.get_api_version()));
         }
 
+        let total_caps = Self::combine_capabilities(&kvm_cap_modifiers);
         // Check that all desired capabilities are supported.
-        Self::check_capabilities(&kvm, &Self::DEFAULT_CAPABILITIES)?;
+        Self::check_capabilities(&kvm, &total_caps).map_err(VmError::Capabilities)?;
 
         let max_memslots = kvm.get_nr_memslots();
         // Create fd for interacting with kvm-vm specific functions.
@@ -169,6 +202,7 @@ impl Vm {
             Ok(Vm {
                 fd: vm_fd,
                 max_memslots,
+                kvm_cap_modifiers,
                 irqchip_handle: None,
             })
         }
@@ -183,16 +217,37 @@ impl Vm {
             Ok(Vm {
                 fd: vm_fd,
                 max_memslots,
+                kvm_cap_modifiers,
                 supported_cpuid,
                 msrs_to_save,
             })
         }
     }
 
-    fn check_capabilities(kvm: &Kvm, capabilities: &[Cap]) -> Result<(), VmError> {
+    fn combine_capabilities(kvm_cap_modifiers: &[KvmCapability]) -> Vec<u32> {
+        let mut total_caps = Self::DEFAULT_CAPABILITIES.to_vec();
+        for modifier in kvm_cap_modifiers.iter() {
+            match modifier {
+                KvmCapability::Add(cap) => {
+                    if !total_caps.iter().any(|c| c == cap) {
+                        total_caps.push(*cap);
+                    }
+                }
+                KvmCapability::Remove(cap) => {
+                    if let Some(pos) = total_caps.iter().position(|c| c == cap) {
+                        total_caps.remove(pos);
+                    }
+                }
+            }
+        }
+        total_caps
+    }
+
+    fn check_capabilities(kvm: &Kvm, capabilities: &[u32]) -> Result<(), u32> {
         for cap in capabilities {
-            if !kvm.check_extension(*cap) {
-                return Err(VmError::Capabilities(*cap));
+            // If capability is not supported kernel will return 0.
+            if kvm.check_extension_raw(u64::from(*cap)) == 0 {
+                return Err(*cap);
             }
         }
         Ok(())
@@ -253,14 +308,14 @@ impl Vm {
 
 #[cfg(target_arch = "aarch64")]
 impl Vm {
-    const DEFAULT_CAPABILITIES: [Cap; 7] = [
-        Cap::Ioeventfd,
-        Cap::Irqfd,
-        Cap::UserMemory,
-        Cap::ArmPsci02,
-        Cap::DeviceCtrl,
-        Cap::MpState,
-        Cap::OneReg,
+    const DEFAULT_CAPABILITIES: [u32; 7] = [
+        kvm_bindings::KVM_CAP_IOEVENTFD,
+        kvm_bindings::KVM_CAP_IRQFD,
+        kvm_bindings::KVM_CAP_USER_MEMORY,
+        kvm_bindings::KVM_CAP_ARM_PSCI_0_2,
+        kvm_bindings::KVM_CAP_DEVICE_CTRL,
+        kvm_bindings::KVM_CAP_MP_STATE,
+        kvm_bindings::KVM_CAP_ONE_REG,
     ];
 
     /// Creates the GIC (Global Interrupt Controller).
@@ -284,6 +339,7 @@ impl Vm {
                 .get_irqchip()
                 .save_device(mpidrs)
                 .map_err(VmError::SaveGic)?,
+            kvm_cap_modifiers: self.kvm_cap_modifiers.clone(),
         })
     }
 
@@ -292,30 +348,51 @@ impl Vm {
     /// # Errors
     ///
     /// When [`GICDevice::restore_device`] errors.
-    pub fn restore_state(&self, mpidrs: &[u64], state: &VmState) -> Result<(), RestoreStateError> {
+    pub fn restore_state(
+        &mut self,
+        mpidrs: &[u64],
+        state: &VmState,
+    ) -> Result<(), RestoreStateError> {
         self.get_irqchip()
             .restore_device(mpidrs, &state.gic)
-            .map_err(RestoreStateError::GicError)
+            .map_err(RestoreStateError::GicError)?;
+
+        let kvm = Kvm::new().map_err(RestoreStateError::Kvm)?;
+        let total_caps = Self::combine_capabilities(&state.kvm_cap_modifiers);
+        Self::check_capabilities(&kvm, &total_caps).map_err(RestoreStateError::Capabilities)?;
+
+        self.kvm_cap_modifiers = state.kvm_cap_modifiers.clone();
+
+        Ok(())
     }
+}
+
+/// Structure holding an general specific VM state.
+#[cfg(target_arch = "aarch64")]
+#[derive(Debug, Default, Versionize)]
+pub struct VmState {
+    pub gic: GicState,
+    #[version(start = 2, default_fn = "default_caps")]
+    pub kvm_cap_modifiers: Vec<KvmCapability>,
 }
 
 #[cfg(target_arch = "x86_64")]
 impl Vm {
-    const DEFAULT_CAPABILITIES: [Cap; 14] = [
-        Cap::Irqchip,
-        Cap::Ioeventfd,
-        Cap::Irqfd,
-        Cap::UserMemory,
-        Cap::SetTssAddr,
-        Cap::Pit2,
-        Cap::PitState2,
-        Cap::AdjustClock,
-        Cap::Debugregs,
-        Cap::MpState,
-        Cap::VcpuEvents,
-        Cap::Xcrs,
-        Cap::Xsave,
-        Cap::ExtCpuid,
+    const DEFAULT_CAPABILITIES: [u32; 14] = [
+        kvm_bindings::KVM_CAP_IRQCHIP,
+        kvm_bindings::KVM_CAP_IOEVENTFD,
+        kvm_bindings::KVM_CAP_IRQFD,
+        kvm_bindings::KVM_CAP_USER_MEMORY,
+        kvm_bindings::KVM_CAP_SET_TSS_ADDR,
+        kvm_bindings::KVM_CAP_PIT2,
+        kvm_bindings::KVM_CAP_PIT_STATE2,
+        kvm_bindings::KVM_CAP_ADJUST_CLOCK,
+        kvm_bindings::KVM_CAP_DEBUGREGS,
+        kvm_bindings::KVM_CAP_MP_STATE,
+        kvm_bindings::KVM_CAP_VCPU_EVENTS,
+        kvm_bindings::KVM_CAP_XCRS,
+        kvm_bindings::KVM_CAP_XSAVE,
+        kvm_bindings::KVM_CAP_EXT_CPUID,
     ];
 
     /// Returns a ref to the supported `CpuId` for this Vm.
@@ -338,7 +415,7 @@ impl Vm {
     /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
     /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
     /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
-    pub fn restore_state(&self, state: &VmState) -> Result<(), RestoreStateError> {
+    pub fn restore_state(&mut self, state: &VmState) -> Result<(), RestoreStateError> {
         self.fd
             .set_pit2(&state.pitstate)
             .map_err(RestoreStateError::SetPit2)?;
@@ -354,6 +431,13 @@ impl Vm {
         self.fd
             .set_irqchip(&state.ioapic)
             .map_err(RestoreStateError::SetIrqChipIoAPIC)?;
+
+        let kvm = Kvm::new().map_err(RestoreStateError::Kvm)?;
+        let total_caps = Self::combine_capabilities(&state.kvm_cap_modifiers);
+        Self::check_capabilities(&kvm, &total_caps).map_err(RestoreStateError::Capabilities)?;
+
+        self.kvm_cap_modifiers = state.kvm_cap_modifiers.clone();
+
         Ok(())
     }
 
@@ -407,6 +491,7 @@ impl Vm {
             pic_master,
             pic_slave,
             ioapic,
+            kvm_cap_modifiers: self.kvm_cap_modifiers.clone(),
         })
     }
 }
@@ -423,6 +508,15 @@ pub struct VmState {
     // TODO: rename this field to adopt inclusive language once Linux updates it, too.
     pic_slave: kvm_irqchip,
     ioapic: kvm_irqchip,
+
+    #[version(start = 2, default_fn = "default_caps")]
+    pub kvm_cap_modifiers: Vec<KvmCapability>,
+}
+
+impl VmState {
+    fn default_caps(_: u16) -> Vec<KvmCapability> {
+        Vec::default()
+    }
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -436,13 +530,6 @@ impl fmt::Debug for VmState {
             .field("ioapic", &"?")
             .finish()
     }
-}
-
-/// Structure holding an general specific VM state.
-#[cfg(target_arch = "aarch64")]
-#[derive(Debug, Default, Versionize)]
-pub struct VmState {
-    gic: GicState,
 }
 
 #[cfg(test)]
@@ -459,7 +546,7 @@ pub(crate) mod tests {
         )
         .unwrap();
 
-        let vm = Vm::new().expect("Cannot create new vm");
+        let vm = Vm::new(vec![]).expect("Cannot create new vm");
         assert!(vm.memory_init(&gm, false).is_ok());
 
         (vm, gm)
@@ -468,12 +555,30 @@ pub(crate) mod tests {
     #[test]
     fn test_new() {
         // Testing with a valid /dev/kvm descriptor.
-        assert!(Vm::new().is_ok());
+        assert!(Vm::new(vec![]).is_ok());
+    }
+
+    #[test]
+    fn test_combine_capabilities() {
+        // Default caps for x86_64 and aarch64 both have KVM_CAP_IOEVENTFD and don't have
+        // KVM_CAP_IOMMU caps.
+        let additional_capabilities = vec![
+            KvmCapability::Add(kvm_bindings::KVM_CAP_IOMMU),
+            KvmCapability::Remove(kvm_bindings::KVM_CAP_IOEVENTFD),
+        ];
+
+        let combined_caps = Vm::combine_capabilities(&additional_capabilities);
+        assert!(combined_caps
+            .iter()
+            .any(|c| *c == kvm_bindings::KVM_CAP_IOMMU));
+        assert!(!combined_caps
+            .iter()
+            .any(|c| *c == kvm_bindings::KVM_CAP_IOEVENTFD));
     }
 
     #[test]
     fn test_vm_memory_init() {
-        let vm = Vm::new().expect("Cannot create new vm");
+        let vm = Vm::new(vec![]).expect("Cannot create new vm");
 
         // Create valid memory region and test that the initialization is successful.
         let gm = utils::vm_memory::test_utils::create_anon_guest_memory(
@@ -487,7 +592,7 @@ pub(crate) mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_vm_save_restore_state() {
-        let vm = Vm::new().expect("new vm failed");
+        let vm = Vm::new(vec![]).expect("new vm failed");
         // Irqchips, clock and pitstate are not configured so trying to save state should fail.
         assert!(vm.save_state().is_err());
 
@@ -504,7 +609,7 @@ pub(crate) mod tests {
         assert_eq!(vm_state.pic_slave.chip_id, KVM_IRQCHIP_PIC_SLAVE);
         assert_eq!(vm_state.ioapic.chip_id, KVM_IRQCHIP_IOAPIC);
 
-        let (vm, _mem) = setup_vm(0x1000);
+        let (mut vm, _mem) = setup_vm(0x1000);
         vm.setup_irqchip().unwrap();
 
         assert!(vm.restore_state(&vm_state).is_ok());
@@ -519,7 +624,7 @@ pub(crate) mod tests {
         vm.setup_irqchip().unwrap();
         let mut vm_state = vm.save_state().unwrap();
 
-        let (vm, _mem) = setup_vm(0x1000);
+        let (mut vm, _mem) = setup_vm(0x1000);
         vm.setup_irqchip().unwrap();
 
         // Try to restore an invalid PIC Master chip ID
@@ -541,7 +646,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_set_kvm_memory_regions() {
-        let vm = Vm::new().expect("Cannot create new vm");
+        let vm = Vm::new(vec![]).expect("Cannot create new vm");
 
         let gm = utils::vm_memory::test_utils::create_anon_guest_memory(
             &[(GuestAddress(0), 0x1000)],

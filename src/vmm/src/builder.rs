@@ -32,7 +32,8 @@ use crate::arch::InitrdConfig;
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
 use crate::cpu_config::templates::{
-    CpuConfiguration, GetCpuTemplate, GetCpuTemplateError, GuestConfigError,
+    CpuConfiguration, CustomCpuTemplate, GetCpuTemplate, GetCpuTemplateError, GuestConfigError,
+    KvmCapability,
 };
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager::legacy::PortIODeviceManager;
@@ -153,13 +154,13 @@ fn create_vmm_and_vcpus(
     uffd: Option<Uffd>,
     track_dirty_pages: bool,
     vcpu_count: u8,
+    kvm_capabilities: Vec<KvmCapability>,
 ) -> Result<(Vmm, Vec<Vcpu>), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
-    // TODO use cpu_template.kvm_capabilities here
-    let mut vm = Vm::new()
+    let mut vm = Vm::new(kvm_capabilities)
         .map_err(VmmError::Vm)
         .map_err(StartMicrovmError::Internal)?;
     vm.memory_init(&guest_memory, track_dirty_pages)
@@ -267,6 +268,8 @@ pub fn build_microvm_for_boot(
     #[allow(unused_mut)]
     let mut boot_cmdline = boot_config.cmdline.clone();
 
+    let cpu_template = vm_resources.vm_config.cpu_template.get_cpu_template()?;
+
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
         event_manager,
@@ -274,6 +277,7 @@ pub fn build_microvm_for_boot(
         None,
         track_dirty_pages,
         vm_resources.vm_config.vcpu_count,
+        cpu_template.kvm_capabilities.clone(),
     )?;
 
     // The boot timer device needs to be the first device attached in order
@@ -315,6 +319,7 @@ pub fn build_microvm_for_boot(
         &vmm,
         vcpus.as_mut(),
         &vm_resources.vm_config,
+        &cpu_template,
         entry_addr,
         &initrd,
         boot_cmdline,
@@ -452,6 +457,7 @@ pub fn build_microvm_from_snapshot(
         uffd,
         track_dirty_pages,
         vcpu_count,
+        vec![],
     )?;
 
     #[cfg(target_arch = "x86_64")]
@@ -743,13 +749,12 @@ pub fn configure_system_for_boot(
     vmm: &Vmm,
     vcpus: &mut [Vcpu],
     vm_config: &VmConfig,
+    cpu_template: &CustomCpuTemplate,
     entry_addr: GuestAddress,
     initrd: &Option<InitrdConfig>,
     boot_cmdline: LoaderKernelCmdline,
 ) -> Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
-
-    let cpu_template = vm_config.cpu_template.get_cpu_template()?;
 
     // Construct the base CpuConfiguration to apply CPU template onto.
     #[cfg(target_arch = "x86_64")]
@@ -784,7 +789,7 @@ pub fn configure_system_for_boot(
     };
 
     // Apply CPU template to the base CpuConfiguration.
-    let cpu_config = CpuConfiguration::apply_template(cpu_config, &cpu_template)?;
+    let cpu_config = CpuConfiguration::apply_template(cpu_config, cpu_template)?;
 
     let vcpu_config = VcpuConfig {
         vcpu_count: vm_config.vcpu_count,
@@ -1065,7 +1070,7 @@ pub mod tests {
             .map_err(StartMicrovmError::Internal)
             .unwrap();
 
-        let mut vm = Vm::new().unwrap();
+        let mut vm = Vm::new(vec![]).unwrap();
         vm.memory_init(&guest_memory, false).unwrap();
         let mmio_device_manager = default_mmio_device_manager();
         #[cfg(target_arch = "x86_64")]
@@ -1328,7 +1333,7 @@ pub mod tests {
         let guest_memory = create_guest_memory(128, false).unwrap();
 
         #[allow(unused_mut)]
-        let mut vm = Vm::new().unwrap();
+        let mut vm = Vm::new(vec![]).unwrap();
         vm.memory_init(&guest_memory, false).unwrap();
         let evfd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
 

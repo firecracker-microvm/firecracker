@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::arch::aarch64::regs::{reg_size, RegSize};
 use crate::cpu_config::aarch64::static_cpu_templates::v1n1;
 use crate::cpu_config::templates::{
-    CpuTemplateType, GetCpuTemplate, GetCpuTemplateError, RegisterValueFilter, StaticCpuTemplate,
+    CpuTemplateType, GetCpuTemplate, GetCpuTemplateError, KvmCapability, RegisterValueFilter,
+    StaticCpuTemplate,
 };
 use crate::cpu_config::templates_serde::*;
 
@@ -35,6 +36,10 @@ impl GetCpuTemplate for Option<CpuTemplateType> {
 #[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CustomCpuTemplate {
+    /// Additional kvm capabilities to check before
+    /// configuring vcpus.
+    #[serde(default)]
+    pub kvm_capabilities: Vec<KvmCapability>,
     /// Modifiers of enabled vcpu features for vcpu.
     #[serde(default)]
     pub vcpu_features: Vec<VcpuFeatures>,
@@ -188,6 +193,7 @@ mod tests {
     fn test_correct_json() {
         let cpu_config_result = serde_json::from_str::<CustomCpuTemplate>(
             r#"{
+                    "kvm_capabilities": ["1", "!2"],
                     "vcpu_features":[{"index":0,"bitmap":"0b1100000"}],
                     "reg_modifiers":  [
                         {
@@ -202,9 +208,19 @@ mod tests {
 
     #[test]
     fn test_malformed_json() {
+        // Malformed kvm capabilities
+        let cpu_config_result = serde_json::from_str::<CustomCpuTemplate>(
+            r#"{
+                    "kvm_capabilities": ["1", "!a2"],
+                    "vcpu_features":[{"index":0,"bitmap":"0b1100000"}]
+                }"#,
+        );
+        assert!(cpu_config_result.is_err());
+
         // Malformed vcpu features
         let cpu_config_result = serde_json::from_str::<CustomCpuTemplate>(
             r#"{
+                    "kvm_capabilities": ["1", "!2"],
                     "vcpu_features":[{"index":0,"bitmap":"0b11abc00"}]
                 }"#,
         );

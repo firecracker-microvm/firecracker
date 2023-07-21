@@ -365,6 +365,11 @@ pub fn extra_version_check(
     microvm_state: &MicrovmState,
     version: u16,
 ) -> Result<(), CreateSnapshotError> {
+    // We forbid snapshots older than 1.5 if any additional capabilities are requested
+    if !microvm_state.vm_state.kvm_cap_modifiers.is_empty() && version < FC_V1_5_SNAP_VERSION {
+        return Err(CreateSnapshotError::UnsupportedVersion);
+    }
+
     // We forbid snapshots older then 1.5 if any additional vcpu features are requested
     #[cfg(target_arch = "aarch64")]
     if microvm_state.vcpu_states[0].kvi.is_some() && version < FC_V1_5_SNAP_VERSION {
