@@ -587,7 +587,7 @@ mod tests {
             false,
         )
         .unwrap();
-        let mut vm = Vm::new().unwrap();
+        let mut vm = Vm::new(vec![]).unwrap();
         vm.memory_init(&guest_mem, false).unwrap();
         let mut device_manager = MMIODeviceManager::new(
             0xd000_0000,
@@ -617,7 +617,7 @@ mod tests {
             false,
         )
         .unwrap();
-        let mut vm = Vm::new().unwrap();
+        let mut vm = Vm::new(vec![]).unwrap();
         vm.memory_init(&guest_mem, false).unwrap();
         let mut device_manager = MMIODeviceManager::new(
             0xd000_0000,
@@ -677,7 +677,7 @@ mod tests {
             false,
         )
         .unwrap();
-        let mut vm = Vm::new().unwrap();
+        let mut vm = Vm::new(vec![]).unwrap();
         vm.memory_init(&guest_mem, false).unwrap();
 
         let mem_clone = guest_mem.clone();

@@ -15,6 +15,7 @@ use crate::devices::virtio::net::persist::NetConfigSpaceState;
 use crate::devices::virtio::QueueState;
 use crate::persist::VmInfo;
 use crate::vstate::vcpu::VcpuState;
+use crate::vstate::vm::VmState;
 
 /// Snap version for Firecracker v0.23
 #[cfg(target_arch = "x86_64")]
@@ -76,6 +77,8 @@ lazy_static! {
         version_map.new_version();
         #[cfg(target_arch = "aarch64")]
         version_map.set_type_version(VcpuState::type_id(), 2);
+
+        version_map.set_type_version(VmState::type_id(), 2);
 
         version_map
     };

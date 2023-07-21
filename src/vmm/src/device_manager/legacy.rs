@@ -185,7 +185,7 @@ mod tests {
             false,
         )
         .unwrap();
-        let mut vm = Vm::new().unwrap();
+        let mut vm = Vm::new(vec![]).unwrap();
         vm.memory_init(&guest_mem, false).unwrap();
         crate::builder::setup_interrupt_controller(&mut vm).unwrap();
         let mut ldm = PortIODeviceManager::new(

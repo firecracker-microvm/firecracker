@@ -10,7 +10,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::arch::x86_64::cpu_model::CpuModel;
 use crate::cpu_config::templates::{
-    CpuTemplateType, GetCpuTemplate, GetCpuTemplateError, RegisterValueFilter,
+    CpuTemplateType, GetCpuTemplate, GetCpuTemplateError, KvmCapability, RegisterValueFilter,
 };
 use crate::cpu_config::templates_serde::*;
 use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
@@ -122,6 +122,10 @@ pub struct CpuidLeafModifier {
 #[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CustomCpuTemplate {
+    /// Additional kvm capabilities to check before
+    /// configuring vcpus.
+    #[serde(default)]
+    pub kvm_capabilities: Vec<KvmCapability>,
     /// Modifiers for CPUID configuration.
     #[serde(default)]
     pub cpuid_modifiers: Vec<CpuidLeafModifier>,

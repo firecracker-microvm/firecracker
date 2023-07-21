@@ -426,10 +426,12 @@ def test_consecutive_cpu_config_consistency(
     if PLATFORM == "x86_64":
         empty_cpu_config = {
             "cpuid_modifiers": [],
+            "kvm_capabilities": [],
             "msr_modifiers": [],
         }
     elif PLATFORM == "aarch64":
         empty_cpu_config = {
+            "kvm_capabilities": [],
             "reg_modifiers": [],
             "vcpu_features": [],
         }
