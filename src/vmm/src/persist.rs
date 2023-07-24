@@ -356,18 +356,6 @@ pub fn get_snapshot_data_version(
     Ok(data_version)
 }
 
-/// Error type for [`validate_cpu_vendor`].
-#[cfg(target_arch = "x86_64")]
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum ValidateCpuVendorError {
-    /// Failed to read host vendor.
-    #[error("Failed to read host vendor: {0}")]
-    Host(#[from] crate::cpu_config::x86_64::cpuid::common::GetCpuidError),
-    /// Failed to read snapshot vendor.
-    #[error("Failed to read snapshot vendor")]
-    Snapshot,
-}
-
 /// Validates that snapshot CPU vendor matches the host CPU vendor.
 ///
 /// # Errors
@@ -376,36 +364,30 @@ pub enum ValidateCpuVendorError {
 /// - Failed to read host vendor.
 /// - Failed to read snapshot vendor.
 #[cfg(target_arch = "x86_64")]
-pub fn validate_cpu_vendor(microvm_state: &MicrovmState) -> Result<bool, ValidateCpuVendorError> {
-    let host_vendor_id = get_vendor_id_from_host()?;
-
-    let snapshot_vendor_id = microvm_state.vcpu_states[0]
-        .cpuid
-        .vendor_id()
-        .ok_or(ValidateCpuVendorError::Snapshot)?;
-
-    if host_vendor_id == snapshot_vendor_id {
-        info!("Snapshot CPU vendor id: {:?}", &snapshot_vendor_id);
-        Ok(true)
-    } else {
-        error!(
-            "Host CPU vendor id: {:?} differs from the snapshotted one: {:?}",
-            &host_vendor_id, &snapshot_vendor_id
-        );
-        Ok(false)
+pub fn validate_cpu_vendor(microvm_state: &MicrovmState) {
+    let host_vendor_id = get_vendor_id_from_host();
+    let snapshot_vendor_id = microvm_state.vcpu_states[0].cpuid.vendor_id();
+    match (host_vendor_id, snapshot_vendor_id) {
+        (Ok(host_id), Some(snapshot_id)) => {
+            info!("Host CPU vendor ID: {host_id:?}");
+            info!("Snapshot CPU vendor ID: {snapshot_id:?}");
+            if host_id != snapshot_id {
+                warn!("Host CPU vendor ID differs from the snapshotted one",);
+            }
+        }
+        (Ok(host_id), None) => {
+            info!("Host CPU vendor ID: {host_id:?}");
+            warn!("Snapshot CPU vendor ID: couldn't get from the snapshot");
+        }
+        (Err(_), Some(snapshot_id)) => {
+            warn!("Host CPU vendor ID: couldn't get from the host");
+            info!("Snapshot CPU vendor ID: {snapshot_id:?}");
+        }
+        (Err(_), None) => {
+            warn!("Host CPU vendor ID: couldn't get from the host");
+            warn!("Snapshot CPU vendor ID: couldn't get from the snapshot");
+        }
     }
-}
-
-/// Error type for [`validate_cpu_manufacturer_id`].
-#[cfg(target_arch = "aarch64")]
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum ValidateCpuManufacturerIdError {
-    /// Failed to read host vendor.
-    #[error("Failed to get manufacturer ID from host: {0}")]
-    Host(String),
-    /// Failed to read host vendor.
-    #[error("Failed to get manufacturer ID from state: {0}")]
-    Snapshot(String),
 }
 
 /// Validate that Snapshot Manufacturer ID matches
@@ -418,27 +400,30 @@ pub enum ValidateCpuManufacturerIdError {
 /// - Failed to read host vendor.
 /// - Failed to read snapshot vendor.
 #[cfg(target_arch = "aarch64")]
-pub fn validate_cpu_manufacturer_id(
-    microvm_state: &MicrovmState,
-) -> Result<bool, ValidateCpuManufacturerIdError> {
-    let host_man_id = get_manufacturer_id_from_host()
-        .map_err(|err| ValidateCpuManufacturerIdError::Host(err.to_string()))?;
-
-    for state in &microvm_state.vcpu_states {
-        let state_man_id = get_manufacturer_id_from_state(&state.regs)
-            .map_err(|err| ValidateCpuManufacturerIdError::Snapshot(err.to_string()))?;
-
-        if host_man_id != state_man_id {
-            error!(
-                "Host CPU manufacturer ID: {} differs from snapshotted one: {}",
-                &host_man_id, &state_man_id
-            );
-            return Ok(false);
-        } else {
-            info!("Snapshot CPU manufacturer ID: {:?}", &state_man_id);
+pub fn validate_cpu_manufacturer_id(microvm_state: &MicrovmState) {
+    let host_cpu_id = get_manufacturer_id_from_host();
+    let snapshot_cpu_id = get_manufacturer_id_from_state(&microvm_state.vcpu_states[0].regs);
+    match (host_cpu_id, snapshot_cpu_id) {
+        (Ok(host_id), Ok(snapshot_id)) => {
+            info!("Host CPU manufacturer ID: {host_id:?}");
+            info!("Snapshot CPU manufacturer ID: {snapshot_id:?}");
+            if host_id != snapshot_id {
+                warn!("Host CPU manufacturer ID differs from the snapshotted one",);
+            }
+        }
+        (Ok(host_id), Err(_)) => {
+            info!("Host CPU manufacturer ID: {host_id:?}");
+            warn!("Snapshot CPU manufacturer ID: couldn't get from the snapshot");
+        }
+        (Err(_), Ok(snapshot_id)) => {
+            warn!("Host CPU manufacturer ID: couldn't get from the host");
+            info!("Snapshot CPU manufacturer ID: {snapshot_id:?}");
+        }
+        (Err(_), Err(_)) => {
+            warn!("Host CPU manufacturer ID: couldn't get from the host");
+            warn!("Snapshot CPU manufacturer ID: couldn't get from the snapshot");
         }
     }
-    Ok(true)
 }
 /// Error type for [`snapshot_state_sanity_check`].
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -449,14 +434,6 @@ pub enum SnapShotStateSanityCheckError {
     /// No memory region defined.
     #[error("No memory region defined.")]
     NoMemory,
-    /// Failed to validate vCPU vendor.
-    #[cfg(target_arch = "x86_64")]
-    #[error("Failed to validate vCPU vendor: {0}")]
-    ValidateCpuVendor(#[from] ValidateCpuVendorError),
-    /// Failed to validate vCPU manufacturer id.
-    #[error("Failed to validate vCPU manufacturer id: {0}")]
-    #[cfg(target_arch = "aarch64")]
-    ValidateCpuManufacturerId(#[from] ValidateCpuManufacturerIdError),
 }
 
 /// Performs sanity checks against the state file and returns specific errors.
@@ -478,9 +455,9 @@ pub fn snapshot_state_sanity_check(
     }
 
     #[cfg(target_arch = "x86_64")]
-    validate_cpu_vendor(microvm_state)?;
+    validate_cpu_vendor(microvm_state);
     #[cfg(target_arch = "aarch64")]
-    validate_cpu_manufacturer_id(microvm_state)?;
+    validate_cpu_manufacturer_id(microvm_state);
 
     Ok(())
 }
