@@ -843,6 +843,12 @@ def _drive_patch(test_microvm):
             "cache_type": "Unsafe",
             "io_engine": "Sync",
             "rate_limiter": None,
+            "file": {
+                "path_on_host": "/ubuntu-22.04.squashfs",
+                "is_read_only": True,
+                "rate_limiter": None,
+                "io_engine": "Sync",
+            },
         },
         {
             "drive_id": "scratch",
@@ -855,6 +861,19 @@ def _drive_patch(test_microvm):
             "rate_limiter": {
                 "bandwidth": {"size": 5000, "one_time_burst": None, "refill_time": 100},
                 "ops": {"size": 500, "one_time_burst": None, "refill_time": 100},
+            },
+            "file": {
+                "path_on_host": "/scratch_new.ext4",
+                "is_read_only": False,
+                "rate_limiter": {
+                    "bandwidth": {
+                        "size": 5000,
+                        "one_time_burst": None,
+                        "refill_time": 100,
+                    },
+                    "ops": {"size": 500, "one_time_burst": None, "refill_time": 100},
+                },
+                "io_engine": "Async" if is_io_uring_supported() else "Sync",
             },
         },
     ]
@@ -1056,6 +1075,12 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
             "cache_type": "Unsafe",
             "rate_limiter": None,
             "io_engine": "Sync",
+            "file": {
+                "path_on_host": f"/{uvm_nano.rootfs_file.name}",
+                "is_read_only": True,
+                "rate_limiter": None,
+                "io_engine": "Sync",
+            },
         }
     ]
 
@@ -1165,6 +1190,12 @@ def test_get_full_config(test_microvm_with_api):
             "cache_type": "Unsafe",
             "rate_limiter": None,
             "io_engine": "Sync",
+            "file": {
+                "path_on_host": "/ubuntu-22.04.squashfs",
+                "is_read_only": True,
+                "rate_limiter": None,
+                "io_engine": "Sync",
+            },
         }
     ]
 

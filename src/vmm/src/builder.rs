@@ -1175,19 +1175,22 @@ pub mod tests {
             block_files.push(TempFile::new().unwrap());
             let block_device_config = BlockDeviceConfig {
                 drive_id: String::from(&custom_block_cfg.drive_id),
-                path_on_host: block_files
-                    .last()
-                    .unwrap()
-                    .as_path()
-                    .to_str()
-                    .unwrap()
-                    .to_string(),
+                path_on_host: Some(
+                    block_files
+                        .last()
+                        .unwrap()
+                        .as_path()
+                        .to_str()
+                        .unwrap()
+                        .to_string(),
+                ),
                 is_root_device: custom_block_cfg.is_root_device,
                 partuuid: custom_block_cfg.partuuid.clone(),
-                is_read_only: custom_block_cfg.is_read_only,
+                is_read_only: Some(custom_block_cfg.is_read_only),
                 cache_type: custom_block_cfg.cache_type,
                 rate_limiter: None,
                 file_engine_type: FileEngineType::default(),
+                file: None,
             };
             block_dev_configs.insert(block_device_config).unwrap();
         }

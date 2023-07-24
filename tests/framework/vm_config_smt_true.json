@@ -8,7 +8,11 @@
       "drive_id": "rootfs",
       "path_on_host": "bionic.rootfs.ext4",
       "is_root_device": true,
-      "is_read_only": false
+      "is_read_only": false,
+      "file": {
+        "path_on_host": "bionic.rootfs.ext4",
+        "is_read_only": false
+      }
     }
   ],
   "machine-config": {

@@ -890,7 +890,13 @@ mod tests {
       "is_read_only": true,
       "cache_type": "Unsafe",
       "rate_limiter": null,
-      "io_engine": "Sync"
+      "io_engine": "Sync",
+      "file": {{
+        "path_on_host": "{}",
+        "is_read_only": true,
+        "rate_limiter": null,
+        "io_engine": "Sync"
+      }}
     }}
   ],
   "boot-source": {{
@@ -930,6 +936,7 @@ mod tests {
     "rate_limiter": null
   }}
 }}"#,
+            _block_files.last().unwrap().as_path().to_str().unwrap(),
             _block_files.last().unwrap().as_path().to_str().unwrap(),
             tmp_sock_file.as_path().to_str().unwrap()
         );
