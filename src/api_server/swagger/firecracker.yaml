@@ -856,9 +856,7 @@ definitions:
     type: object
     required:
       - drive_id
-      - is_read_only
       - is_root_device
-      - path_on_host
     properties:
       drive_id:
         type: string
@@ -868,15 +866,26 @@ definitions:
           Represents the caching strategy for the block device.
         enum: ["Unsafe", "Writeback"]
         default: "Unsafe"
+      file:
+        description:
+          Configuration for the host-file-backed device.
+          If provided, overrides `io_engine`, `is_read_only`, `path_on_host` and `rate_limiter`.
+        $ref: "#/definitions/FileConfig"
       io_engine:
         type: string
         description:
           Type of the IO engine used by the device. "Async" is supported on
           host kernels newer than 5.10.51.
+          This parameter has been deprecated since v1.6.0.
+          Use parameters in `file` instead.
         enum: ["Sync", "Async"]
         default: "Sync"
       is_read_only:
         type: boolean
+        description:
+          The drive is read only.
+          This parameter has been deprecated since v1.6.0.
+          Use parameters in `file` instead.
       is_root_device:
         type: boolean
       partuuid:
@@ -887,8 +896,14 @@ definitions:
           field is true.
       path_on_host:
         type: string
-        description: Host level path for the guest drive
+        description:
+          Host level path for the guest drive.
+          This parameter has been deprecated since v1.6.0.
+          Use parameters in `file` instead.
       rate_limiter:
+        description:
+          This parameter has been deprecated since v1.6.0.
+          Use parameters in `file` instead.
         $ref: "#/definitions/RateLimiter"
 
   Error:
@@ -898,6 +913,29 @@ definitions:
         type: string
         description: A description of the error condition
         readOnly: true
+
+  FileConfig:
+    type: object
+    required:
+     - is_read_only
+     - path_on_host
+    properties:
+      is_read_only:
+        description:
+          The drive is read only.
+        type: boolean
+      io_engine:
+        type: string
+        description:
+          Type of the IO engine used by the device. "Async" is supported on
+          host kernels newer than 5.10.51.
+        enum: ["Sync", "Async"]
+        default: "Sync"
+      path_on_host:
+        type: string
+        description: Host level path for the guest drive
+      rate_limiter:
+        $ref: "#/definitions/RateLimiter"
 
   FullVmConfiguration:
     type: object
@@ -1121,6 +1159,26 @@ definitions:
     properties:
       drive_id:
         type: string
+      file:
+        description:
+          Configuration for the host-file-backed device.
+          If provided, overrides `path_on_host`, `rate_limiter`.
+        $ref: "#/definitions/PartialFileConfig"
+      path_on_host:
+        type: string
+        description:
+          Host level path for the guest drive
+          This parameter has been deprecated since v1.6.0.
+          Use parameters in `file` instead.
+      rate_limiter:
+        description:
+          This parameter has been deprecated since v1.6.0.
+          Use parameters in `file` instead.
+        $ref: "#/definitions/RateLimiter"
+
+  PartialFileConfig:
+    type: object
+    properties:
       path_on_host:
         type: string
         description: Host level path for the guest drive
