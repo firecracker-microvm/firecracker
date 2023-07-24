@@ -813,17 +813,23 @@ impl RuntimeApiController {
         &mut self,
         new_cfg: BlockDeviceUpdateConfig,
     ) -> Result<VmmData, VmmActionError> {
+        // Give priority to the file configuration and fall back to the legacy parameters.
+        let (path_on_host, rate_limiter) = match &new_cfg.file {
+            Some(file) => (&file.path_on_host, file.rate_limiter),
+            None => (&new_cfg.path_on_host, new_cfg.rate_limiter),
+        };
+
         let mut vmm = self.vmm.lock().expect("Poisoned lock");
-        if let Some(new_path) = new_cfg.path_on_host {
+        if let Some(new_path) = path_on_host.clone() {
             vmm.update_block_device_path(&new_cfg.drive_id, new_path)
                 .map(|()| VmmData::Empty)
                 .map_err(DriveError::DeviceUpdate)?;
         }
-        if new_cfg.rate_limiter.is_some() {
+        if rate_limiter.is_some() {
             vmm.update_block_rate_limiter(
                 &new_cfg.drive_id,
-                RateLimiterUpdate::from(new_cfg.rate_limiter).bandwidth,
-                RateLimiterUpdate::from(new_cfg.rate_limiter).ops,
+                RateLimiterUpdate::from(rate_limiter).bandwidth,
+                RateLimiterUpdate::from(rate_limiter).ops,
             )
             .map(|()| VmmData::Empty)
             .map_err(DriveError::DeviceUpdate)?;

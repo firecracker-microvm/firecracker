@@ -64,12 +64,19 @@ pub(crate) fn parse_patch_drive(
         ));
     }
 
+    // Give priority to the file configuration and fall back to the legacy parameters.
+    let (path_on_host, rate_limiter) = match &block_device_update_cfg.file {
+        Some(file) => (&file.path_on_host, file.rate_limiter),
+        None => (
+            &block_device_update_cfg.path_on_host,
+            block_device_update_cfg.rate_limiter,
+        ),
+    };
+
     // Validate request - we need to have at least one parameter set:
     // - path_on_host
     // - rate_limiter
-    if block_device_update_cfg.path_on_host.is_none()
-        && block_device_update_cfg.rate_limiter.is_none()
-    {
+    if path_on_host.is_none() && rate_limiter.is_none() {
         METRICS.patch_api_requests.drive_fails.inc();
         return Err(Error::Generic(
             StatusCode::BadRequest,
