@@ -23,7 +23,7 @@ use snapshot::Persist;
 use userfaultfd::Uffd;
 use utils::eventfd::EventFd;
 use utils::time::TimestampUs;
-use utils::vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, ReadVolatile};
+use utils::vm_memory::{FileOffset, GuestAddress, GuestMemory, GuestMemoryMmap, ReadVolatile};
 #[cfg(target_arch = "aarch64")]
 use vm_superio::Rtc;
 use vm_superio::Serial;
@@ -79,9 +79,15 @@ pub enum StartMicrovmError {
     #[cfg(target_arch = "x86_64")]
     #[error("Error creating legacy device: {0}")]
     CreateLegacyDevice(device_manager::legacy::LegacyDeviceError),
+    /// Allocation of guest memory fails.
+    #[error("Failed to set up memfd for guest memory: {0}")]
+    GuestMemoryMemfd(memfd::Error),
     /// Memory regions are overlapping or mmap fails.
     #[error("Invalid Memory Configuration: {}", format!("{:?}", .0).replace('\"', ""))]
     GuestMemoryMmap(utils::vm_memory::Error),
+    /// Another failure related to guest memory.
+    #[error("Failed to set up guest memory {0}")]
+    GuestMemoryOther(String),
     /// Cannot load initrd due to an invalid memory configuration.
     #[error("Cannot load initrd due to an invalid memory configuration.")]
     InitrdLoad,
@@ -536,6 +542,58 @@ pub fn build_microvm_from_snapshot(
     Ok(vmm)
 }
 
+/// Creates a memfd file with the given size.
+fn setup_mem_file(mem_size: usize) -> Result<memfd::Memfd, StartMicrovmError> {
+    // Create a memfd.
+    let opts = memfd::MemfdOptions::default().allow_sealing(true);
+    let mem_file = opts
+        .create("guest_mem")
+        .map_err(StartMicrovmError::GuestMemoryMemfd)?;
+
+    // Resize to guest mem size.
+    mem_file
+        .as_file()
+        .set_len(mem_size as u64)
+        .map_err(|_| StartMicrovmError::GuestMemoryOther("memfd set length".to_string()))?;
+
+    // Add seals to prevent further resizing.
+    let mut seals = memfd::SealsHashSet::new();
+    seals.insert(memfd::FileSeal::SealShrink);
+    seals.insert(memfd::FileSeal::SealGrow);
+    mem_file
+        .add_seals(&seals)
+        .map_err(StartMicrovmError::GuestMemoryMemfd)?;
+
+    // Prevent further sealing changes.
+    mem_file
+        .add_seal(memfd::FileSeal::SealSeal)
+        .map_err(StartMicrovmError::GuestMemoryMemfd)?;
+
+    Ok(mem_file)
+}
+
+/// Creates memory regions backed by a memory file.
+fn create_memory_regions(
+    arch_mem_regions: Vec<(GuestAddress, usize)>,
+    mem_file: memfd::Memfd,
+) -> Result<Vec<(Option<FileOffset>, GuestAddress, usize)>, StartMicrovmError> {
+    let mut regions = vec![];
+    let mut offset = 0;
+    for region in arch_mem_regions.iter() {
+        let f = Some(FileOffset::new(
+            mem_file
+                .as_file()
+                .try_clone()
+                .map_err(|_| StartMicrovmError::GuestMemoryOther("memfd try clone".to_string()))?,
+            offset,
+        ));
+        regions.push((f, region.0, region.1));
+        offset += region.1 as u64;
+    }
+
+    Ok(regions)
+}
+
 /// Creates GuestMemory of `mem_size_mib` MiB in size.
 pub fn create_guest_memory(
     mem_size_mib: usize,
@@ -544,14 +602,11 @@ pub fn create_guest_memory(
     let mem_size = mem_size_mib << 20;
     let arch_mem_regions = crate::arch::arch_memory_regions(mem_size);
 
-    utils::vm_memory::create_guest_memory(
-        &arch_mem_regions
-            .iter()
-            .map(|(addr, size)| (None, *addr, *size))
-            .collect::<Vec<_>>()[..],
-        track_dirty_pages,
-    )
-    .map_err(StartMicrovmError::GuestMemoryMmap)
+    let mem_file = setup_mem_file(mem_size)?;
+    let regions = create_memory_regions(arch_mem_regions, mem_file)?;
+
+    utils::vm_memory::create_guest_memory(&regions, track_dirty_pages)
+        .map_err(StartMicrovmError::GuestMemoryMmap)
 }
 
 fn load_kernel(

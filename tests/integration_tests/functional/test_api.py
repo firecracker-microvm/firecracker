@@ -388,10 +388,7 @@ def test_api_machine_config(test_microvm_with_api):
     bad_size = (1 << 64) - 1
     test_microvm.api.machine_config.patch(mem_size_mib=bad_size)
 
-    fail_msg = re.escape(
-        "Invalid Memory Configuration: MmapRegion(Mmap(Os { code: "
-        "12, kind: OutOfMemory, message: Out of memory }))"
-    )
+    fail_msg = re.escape("Failed to set up guest memory memfd set length")
     with pytest.raises(RuntimeError, match=fail_msg):
         test_microvm.start()
 
