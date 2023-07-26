@@ -171,7 +171,7 @@ You can get in touch with the Firecracker community in the following ways:
 
 - Security-related issues, see our [security policy document](SECURITY.md).
 - Chat with us on our
-  [Slack workspace](https://join.slack.com/t/firecracker-microvm/shared_invite/zt-1fecwrorm-x5URTlOzBR2fExTU2mWfug)
+  [Slack workspace](https://join.slack.com/t/firecracker-microvm/shared_invite/zt-1zlb87h4z-NED1rBhVqOQ1ygBgT76wlg)
   _Note: most of the maintainers are on a European time zone._
 - Open a GitHub issue in this repository.
 - Email the maintainers at
