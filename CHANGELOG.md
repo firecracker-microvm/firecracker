@@ -9,6 +9,9 @@
 - Updated deserialization of `bitmap` for custom CPU templates to allow usage
   of '_' as a separator.
 - Changed the strip feature of `cpu-template-helper` tool to operate bitwise.
+- Better logs during validation of CPU ID in snapshot restoration path. Also
+  Firecracker now does not fail if it can't get CPU ID from the host or
+  can't find CPU ID in the snapshot.
 
 ### Fixed
 
