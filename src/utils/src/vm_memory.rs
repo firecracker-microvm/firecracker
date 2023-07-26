@@ -101,11 +101,15 @@ fn build_guarded_region(
 
     // SAFETY: Safe because the parameters are valid.
     unsafe {
-        MmapRegionBuilder::new_with_bitmap(size, bitmap)
+        let builder = MmapRegionBuilder::new_with_bitmap(size, bitmap)
             .with_raw_mmap_pointer(region_addr.cast::<u8>())
             .with_mmap_prot(prot)
-            .with_mmap_flags(flags)
-            .build()
+            .with_mmap_flags(flags);
+
+        match maybe_file_offset {
+            Some(file_offset) => builder.with_file_offset(file_offset).build(),
+            None => builder.build(),
+        }
     }
 }
 
@@ -120,7 +124,7 @@ pub fn create_guest_memory(
     for region in regions {
         let flags = match region.0 {
             None => libc::MAP_NORESERVE | libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
-            Some(_) => libc::MAP_NORESERVE | libc::MAP_PRIVATE,
+            Some(_) => libc::MAP_NORESERVE | libc::MAP_SHARED,
         };
 
         let mmap_region =
