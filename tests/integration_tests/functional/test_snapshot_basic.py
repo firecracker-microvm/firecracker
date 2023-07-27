@@ -305,7 +305,7 @@ def test_negative_postload_api(bin_cloner_path):
     microvm, _ = vm_builder.build_from_snapshot(
         snapshot, resume=False, diff_snapshots=True
     )
-    fail_msg = "The requested operation is not supported after starting " "the microVM"
+    fail_msg = "Failed to handle post-boot request: Operation not supported post boot."
 
     response = microvm.actions.put(action_type="InstanceStart")
     assert fail_msg in response.text

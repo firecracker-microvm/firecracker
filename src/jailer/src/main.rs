@@ -1,15 +1,11 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-mod cgroup;
-mod chroot;
-mod env;
-mod resource_limits;
 use std::ffi::{CString, NulError, OsString};
 use std::fmt::{Debug, Display};
 use std::os::unix::prelude::AsRawFd;
 use std::path::{Path, PathBuf};
-use std::{env as p_env, fs, io, process, result};
+use std::{env as p_env, fs, io, result};
 
 use utils::arg_parser::{ArgParser, Argument, Error as ParsingError};
 use utils::syscall::SyscallReturnCode;
@@ -17,15 +13,20 @@ use utils::validators;
 
 use crate::env::Env;
 
+mod cgroup;
+mod chroot;
+mod env;
+mod resource_limits;
+
 const JAILER_VERSION: &str = env!("FIRECRACKER_VERSION");
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Failed to parse arguments: {0}")]
     ArgumentParsing(ParsingError),
-    #[error("{}", format!("Failed to canonicalize path {:?}: {}", .0, .1).replace('\"', ""))]
+    #[error("{}", format ! ("Failed to canonicalize path {:?}: {}", .0, .1).replace('\"', ""))]
     Canonicalize(PathBuf, io::Error),
-    #[error("{}", format!("Failed to inherit cgroups configurations from file {} in path {:?}", .1, .0).replace('\"', ""))]
+    #[error("{}", format ! ("Failed to inherit cgroups configurations from file {} in path {:?}", .1, .0).replace('\"', ""))]
     CgroupInheritFromParent(PathBuf, String),
     #[error("{1} configurations not found in {0}")]
     CgroupLineNotFound(String, String),
@@ -333,7 +334,7 @@ pub fn to_cstring<T: AsRef<Path> + Debug>(path: T) -> Result<CString> {
     CString::new(path_str).map_err(Error::CStringParsing)
 }
 
-fn main() {
+fn main() -> core::result::Result<(), Error> {
     sanitize_process()
         .unwrap_or_else(|err| panic!("Failed to sanitize the Jailer process: {}", err));
 
@@ -341,11 +342,7 @@ fn main() {
 
     match arg_parser.parse_from_cmdline() {
         Err(err) => {
-            println!(
-                "Arguments parsing error: {} \n\nFor more information try --help.",
-                err
-            );
-            process::exit(1);
+            return Err(Error::ArgumentParsing(err));
         }
         _ => {
             if arg_parser.arguments().flag_present("help") {
@@ -354,12 +351,12 @@ fn main() {
                 println!(
                     "Any arguments after the -- separator will be supplied to the jailed binary.\n"
                 );
-                process::exit(0);
+                return Ok(());
             }
 
             if arg_parser.arguments().flag_present("version") {
                 println!("Jailer v{}\n", JAILER_VERSION);
-                process::exit(0);
+                return Ok(());
             }
         }
     }
@@ -375,11 +372,13 @@ fn main() {
         env.run()
     })
     .unwrap_or_else(|err| panic!("Jailer error: {}", err));
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
+
     use std::env;
     use std::ffi::CStr;
     use std::fs::File;

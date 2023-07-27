@@ -18,21 +18,21 @@ pub struct MetricsConfig {
 
 /// Errors associated with actions on the `MetricsConfig`.
 #[derive(Debug, thiserror::Error)]
-pub enum MetricsConfigError {
+pub enum InitMetricsError {
     /// Cannot initialize the metrics system due to bad user input.
     #[error("{}", format!("{:?}", .0).replace('\"', ""))]
     InitializationFailure(String),
 }
 
 /// Configures the metrics as described in `metrics_cfg`.
-pub fn init_metrics(metrics_cfg: MetricsConfig) -> Result<(), MetricsConfigError> {
+pub fn init_metrics(metrics_cfg: MetricsConfig) -> Result<(), InitMetricsError> {
     let writer = FcLineWriter::new(
         open_file_nonblock(&metrics_cfg.metrics_path)
-            .map_err(|err| MetricsConfigError::InitializationFailure(err.to_string()))?,
+            .map_err(|err| InitMetricsError::InitializationFailure(err.to_string()))?,
     );
     METRICS
         .init(writer)
-        .map_err(|err| MetricsConfigError::InitializationFailure(err.to_string()))
+        .map_err(|err| InitMetricsError::InitializationFailure(err.to_string()))
 }
 
 #[cfg(test)]

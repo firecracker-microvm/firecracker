@@ -68,9 +68,7 @@ def test_multi_queue_unsupported(test_microvm_with_api):
         guest_mac="AA:FC:00:00:00:01",
     )
 
-    assert response.json()["fault_message"] == (
-        "Could not create the network device: Open tap device failed:"
-        " Error while creating ifreq structure: Invalid argument (os error 22)."
-        " Invalid TUN/TAP Backend provided by {}. Check our documentation on setting"
-        " up the network devices."
-    ).format(tapname)
+    assert (
+        response.json()["fault_message"]
+        == f"Failed to handle pre-boot request: Failed to insert net device: Could not create the network device: Open tap device failed: Error while creating ifreq structure: Invalid argument (os error 22). Invalid TUN/TAP Backend provided by {tapname}. Check our documentation on setting up the network devices."
+    )

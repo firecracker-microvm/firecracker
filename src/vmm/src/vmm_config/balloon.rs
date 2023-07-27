@@ -14,7 +14,7 @@ type MutexBalloon = Arc<Mutex<Balloon>>;
 
 /// Errors associated with the operations allowed on the balloon.
 #[derive(Debug, derive_more::From)]
-pub enum BalloonConfigError {
+pub enum BalloonGetConfigError {
     /// The user made a request on an inexistent balloon device.
     DeviceNotFound,
     /// Device not activated yet.
@@ -32,9 +32,9 @@ pub enum BalloonConfigError {
     UpdateFailure(std::io::Error),
 }
 
-impl fmt::Display for BalloonConfigError {
+impl fmt::Display for BalloonGetConfigError {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::fmt::Result {
-        use self::BalloonConfigError::*;
+        use self::BalloonGetConfigError::*;
         match self {
             DeviceNotFound => write!(f, "No balloon device found."),
             DeviceNotActive => write!(
@@ -113,7 +113,7 @@ impl BalloonBuilder {
 
     /// Inserts a Balloon device in the store.
     /// If an entry already exists, it will overwrite it.
-    pub fn set(&mut self, cfg: BalloonDeviceConfig) -> Result<(), BalloonConfigError> {
+    pub fn set(&mut self, cfg: BalloonDeviceConfig) -> Result<(), BalloonGetConfigError> {
         self.inner = Some(Arc::new(Mutex::new(Balloon::new(
             cfg.amount_mib,
             cfg.deflate_on_oom,
@@ -137,9 +137,9 @@ impl BalloonBuilder {
     }
 
     /// Returns the same structure that was used to configure the device.
-    pub fn get_config(&self) -> Result<BalloonDeviceConfig, BalloonConfigError> {
+    pub fn get_config(&self) -> Result<BalloonDeviceConfig, BalloonGetConfigError> {
         self.get()
-            .ok_or(BalloonConfigError::DeviceNotFound)
+            .ok_or(BalloonGetConfigError::DeviceNotFound)
             .map(|balloon_mutex| balloon_mutex.lock().expect("Poisoned lock").config())
             .map(BalloonDeviceConfig::from)
     }
@@ -209,7 +209,7 @@ pub(crate) mod tests {
     fn test_error_messages() {
         use std::io;
 
-        use super::BalloonConfigError::*;
+        use super::BalloonGetConfigError::*;
         let err = CreateFailure(crate::devices::virtio::balloon::BalloonError::EventFd(
             io::Error::from_raw_os_error(0),
         ));

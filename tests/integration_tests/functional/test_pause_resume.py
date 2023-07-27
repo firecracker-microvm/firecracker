@@ -155,8 +155,14 @@ def test_pause_resume_preboot(bin_cloner_path):
 
     # Try to pause microvm when not running, it must fail.
     response = basevm.vm.patch(state="Paused")
-    assert "not supported before starting the microVM" in response.text
+    assert (
+        "Failed to handle pre-boot request: Operation not supported pre-boot."
+        in response.text
+    )
 
     # Try to resume microvm when not running, it must fail.
     response = basevm.vm.patch(state="Resumed")
-    assert "not supported before starting the microVM" in response.text
+    assert (
+        "Failed to handle pre-boot request: Operation not supported pre-boot."
+        in response.text
+    )

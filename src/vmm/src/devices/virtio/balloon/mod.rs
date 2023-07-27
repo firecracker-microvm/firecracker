@@ -59,45 +59,65 @@ const VIRTIO_BALLOON_S_HTLB_PGALLOC: u16 = 8;
 const VIRTIO_BALLOON_S_HTLB_PGFAIL: u16 = 9;
 
 /// Balloon device related errors.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum BalloonError {
     /// Activation error.
+    #[error("Activation error: {0}")]
     Activate(super::ActivateError),
     /// No balloon device found.
+    #[error("No balloon device found.")]
     DeviceNotFound,
     /// Device not activated yet.
+    #[error("Device not activated yet.")]
     DeviceNotActive,
     /// EventFd error.
+    #[error("EventFd error: {0}")]
     EventFd(std::io::Error),
     /// Guest gave us bad memory addresses.
+    #[error("Guest gave us bad memory addresses: {0}")]
     GuestMemory(GuestMemoryError),
     /// Received error while sending an interrupt.
+    #[error("Received error while sending an interrupt: {0}")]
     InterruptError(std::io::Error),
     /// Guest gave us a malformed descriptor.
+    #[error("Guest gave us a malformed descriptor.")]
     MalformedDescriptor,
     /// Guest gave us a malformed payload.
+    #[error("Guest gave us a malformed payload.")]
     MalformedPayload,
     /// Error restoring the balloon device queues.
+    #[error("Error restoring the balloon device queues.")]
     QueueRestoreError,
     /// Received stats querry when stats are disabled.
+    #[error("Received stats querry when stats are disabled.")]
     StatisticsDisabled,
     /// Statistics cannot be enabled/disabled after activation.
+    #[error("Statistics cannot be enabled/disabled after activation.")]
     StatisticsStateChange,
     /// Amount of pages requested cannot fit in `u32`.
+    #[error("Amount of pages requested cannot fit in `u32`.")]
     TooManyPagesRequested,
     /// Error while processing the virt queues.
+    #[error("Error while processing the virt queues: {0}")]
     Queue(super::QueueError),
     /// Error removing a memory region at inflate time.
+    #[error("Error removing a memory region at inflate time: {0}")]
     RemoveMemoryRegion(RemoveRegionError),
     /// Error creating the statistics timer.
+    #[error("Error creating the statistics timer: {0}")]
     Timer(std::io::Error),
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum RemoveRegionError {
+    #[error("Address translation.")]
     AddressTranslation,
+    #[error("Malformed range.")]
     MalformedRange,
+    #[error("madvise fail: {0}")]
     MadviseFail(std::io::Error),
+    #[error("mmap fail: {0}")]
     MmapFail(std::io::Error),
+    #[error("Region not found.")]
     RegionNotFound,
 }

@@ -7,8 +7,9 @@ mod seccomp;
 
 use std::fs::{self, File};
 use std::path::PathBuf;
+use std::process::{ExitCode, Termination};
 use std::sync::{Arc, Mutex};
-use std::{io, panic, process};
+use std::{io, panic};
 
 use event_manager::SubscriberOps;
 use logger::{error, info, ProcessTimeReporter, StoreMetric, LOGGER, METRICS};
@@ -25,6 +26,7 @@ use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerLevel};
 use vmm::vmm_config::metrics::{init_metrics, MetricsConfig};
 use vmm::{EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
 
+use crate::api_server_adapter::RunWithApiError;
 use crate::seccomp::SeccompConfig;
 
 // The reason we place default API socket under /run is that API socket is a
@@ -71,14 +73,35 @@ pub fn enable_ssbd_mitigation() {
     }
 }
 
-fn main_exitable() -> FcExitCode {
+#[derive(Debug, thiserror::Error)]
+enum MainError {
+    #[error("Failed to register signal handlers: {0}")]
+    RegisterSignalHandlers(#[source] utils::errno::Error),
+    #[error("Arguments parsing error: {0} \n\nFor more information try --help.")]
+    ParseArguments(#[source] utils::arg_parser::Error),
+    #[error("When printing Snapshot Data format: {0}")]
+    PrintSnapshotDataFormat(#[from] PrintSnapshotDataFormatError),
+    #[error("Invalid value for logger level: {0}.Possible values: [Error, Warning, Info, Debug]")]
+    InvalidLogLevel(vmm::vmm_config::logger::InitLoggerError),
+    #[error("Could not initialize logger: {0}")]
+    LoggerInitialization(vmm::vmm_config::logger::InitLoggerError),
+    #[error("Could not initialize metrics: {0:?}")]
+    MetricsInitialization(vmm::vmm_config::metrics::InitMetricsError),
+    #[error("Seccomp error: {0}")]
+    SeccompFilter(crate::seccomp::FilterError),
+    #[error("RunWithApiError error: {0}")]
+    RunWithApi(#[from] RunWithApiError),
+    #[error("RunWithoutApiError error: {0}")]
+    RunWithoutApiError(#[from] RunWithoutApiError),
+}
+
+fn main() -> Result<(), MainError> {
     LOGGER
         .configure(Some(DEFAULT_INSTANCE_ID.to_string()))
         .expect("Failed to register logger");
 
     if let Err(err) = register_signal_handlers() {
-        error!("Failed to register signal handlers: {}", err);
-        return vmm::FcExitCode::GenericError;
+        return Err(MainError::RegisterSignalHandlers(err));
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -233,28 +256,24 @@ fn main_exitable() -> FcExitCode {
 
     let arguments = match arg_parser.parse_from_cmdline() {
         Err(err) => {
-            error!(
-                "Arguments parsing error: {} \n\nFor more information try --help.",
-                err
-            );
-            return vmm::FcExitCode::ArgParsing;
+            return Err(MainError::ParseArguments(err));
         }
         _ => {
             if arg_parser.arguments().flag_present("help") {
                 println!("Firecracker v{}\n", FIRECRACKER_VERSION);
                 println!("{}", arg_parser.formatted_help());
-                return vmm::FcExitCode::Ok;
+                return Ok(());
             }
 
             if arg_parser.arguments().flag_present("version") {
                 println!("Firecracker v{}\n", FIRECRACKER_VERSION);
                 print_supported_snapshot_versions();
-                return vmm::FcExitCode::Ok;
+                return Ok(());
             }
 
             if let Some(snapshot_path) = arg_parser.arguments().single_value("describe-snapshot") {
-                print_snapshot_data_format(snapshot_path);
-                return vmm::FcExitCode::Ok;
+                print_snapshot_data_format(snapshot_path)?;
+                return Ok(());
             }
 
             arg_parser.arguments()
@@ -285,11 +304,7 @@ fn main_exitable() -> FcExitCode {
         let logger_level = match LoggerLevel::from_string(level) {
             Ok(level) => level,
             Err(err) => {
-                return generic_error_exit(&format!(
-                    "Invalid value for logger level: {}.Possible values: [Error, Warning, Info, \
-                     Debug]",
-                    err
-                ));
+                return Err(MainError::InvalidLogLevel(err));
             }
         };
         let show_level = arguments.flag_present("show-level");
@@ -302,7 +317,7 @@ fn main_exitable() -> FcExitCode {
             show_log_origin,
         };
         if let Err(err) = init_logger(logger_config, &instance_info) {
-            return generic_error_exit(&format!("Could not initialize logger: {}", err));
+            return Err(MainError::LoggerInitialization(err));
         };
     }
 
@@ -311,7 +326,7 @@ fn main_exitable() -> FcExitCode {
             metrics_path: PathBuf::from(metrics_path),
         };
         if let Err(err) = init_metrics(metrics_config) {
-            return generic_error_exit(&format!("Could not initialize metrics: {}", err));
+            return Err(MainError::MetricsInitialization(err));
         };
     }
 
@@ -323,7 +338,7 @@ fn main_exitable() -> FcExitCode {
     {
         Ok(filters) => filters,
         Err(err) => {
-            return generic_error_exit(&format!("Seccomp error: {}", err));
+            return Err(MainError::SeccompFilter(err));
         }
     };
 
@@ -395,6 +410,7 @@ fn main_exitable() -> FcExitCode {
             mmds_size_limit,
             metadata_json.as_deref(),
         )
+        .map_err(MainError::from)
     } else {
         let seccomp_filters: BpfThreadMap = seccomp_filters
             .into_iter()
@@ -408,28 +424,8 @@ fn main_exitable() -> FcExitCode {
             mmds_size_limit,
             metadata_json.as_deref(),
         )
+        .map_err(MainError::from)
     }
-}
-
-fn main() {
-    // This idiom is the prescribed way to get a clean shutdown of Rust (that will report
-    // no leaks in Valgrind or sanitizers).  Calling `unsafe { libc::exit() }` does no
-    // cleanup, and std::process::exit() does more--but does not run destructors.  So the
-    // best thing to do is to is bubble up the exit code through the whole stack, and
-    // only exit when everything potentially destructible has cleaned itself up.
-    //
-    // https://doc.rust-lang.org/std/process/fn.exit.html
-    //
-    // See process_exitable() method of Subscriber trait for what triggers the exit_code.
-    //
-    let exit_code = main_exitable();
-    std::process::exit(exit_code as i32);
-}
-
-// Exit gracefully with a generic error code.
-fn generic_error_exit(msg: &str) -> FcExitCode {
-    error!("{}", msg);
-    vmm::FcExitCode::GenericError
 }
 
 // Log a warning for any usage of deprecated parameters.
@@ -452,31 +448,56 @@ fn print_supported_snapshot_versions() {
     println!("{}\n", snapshot_versions_str);
 }
 
+impl Termination for MainError {
+    fn report(self) -> ExitCode {
+        let exit_code = match self {
+            MainError::ParseArguments(_) => FcExitCode::ArgParsing,
+            MainError::InvalidLogLevel(_) => FcExitCode::BadConfiguration,
+            MainError::RunWithApi(RunWithApiError::MicroVMStoppedWithoutError(code)) => code,
+            _ => FcExitCode::GenericError,
+        };
+
+        ExitCode::from(exit_code as u8)
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+enum PrintSnapshotDataFormatError {
+    #[error("Unable to open snapshot state file: {0}")]
+    OpenSnapshotStateFile(io::Error),
+    #[error("Invalid data format version of snapshot file: {0}")]
+    InvalidDataFormatVersion(snapshot::Error),
+    #[error("Cannot translate snapshot data version {0} to Firecracker microVM version")]
+    TranslateSnapshotVersionToMicroVMVersion(u16),
+}
+
 // Print data format of provided snapshot state file.
-fn print_snapshot_data_format(snapshot_path: &str) {
-    let mut snapshot_reader = File::open(snapshot_path).unwrap_or_else(|err| {
-        process::exit(
-            generic_error_exit(&format!("Unable to open snapshot state file: {:?}", err)) as i32,
-        );
-    });
+fn print_snapshot_data_format(snapshot_path: &str) -> Result<(), PrintSnapshotDataFormatError> {
+    let mut snapshot_reader =
+        File::open(snapshot_path).map_err(PrintSnapshotDataFormatError::OpenSnapshotStateFile)?;
+
     let data_format_version = Snapshot::get_data_version(&mut snapshot_reader, &VERSION_MAP)
-        .unwrap_or_else(|err| {
-            process::exit(generic_error_exit(&format!(
-                "Invalid data format version of snapshot file: {:?}",
-                err
-            )) as i32);
-        });
+        .map_err(PrintSnapshotDataFormatError::InvalidDataFormatVersion)?;
 
     let (key, _) = FC_VERSION_TO_SNAP_VERSION
         .iter()
         .find(|(_, &val)| val == data_format_version)
-        .unwrap_or_else(|| {
-            process::exit(generic_error_exit(&format!(
-                "Cannot translate snapshot data version {} to Firecracker microVM version",
-                data_format_version
-            )) as i32);
-        });
+        .ok_or_else(|| {
+            PrintSnapshotDataFormatError::TranslateSnapshotVersionToMicroVMVersion(
+                data_format_version,
+            )
+        })?;
+
     println!("v{}", key);
+    Ok(())
+}
+
+#[derive(Debug, thiserror::Error)]
+enum BuildMicrovmFromJsonError {
+    #[error("Configuration for VMM from one single json failed: {0}")]
+    ParseFromJson(vmm::resources::ResourcesError),
+    #[error("Could not Start MicroVM from one single json: {0}")]
+    StartMicroVM(vmm::builder::StartMicrovmError),
 }
 
 // Configure and start a microVM as described by the command-line JSON.
@@ -488,13 +509,10 @@ fn build_microvm_from_json(
     boot_timer_enabled: bool,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
-) -> std::result::Result<(VmResources, Arc<Mutex<vmm::Vmm>>), FcExitCode> {
+) -> Result<(VmResources, Arc<Mutex<vmm::Vmm>>), BuildMicrovmFromJsonError> {
     let mut vm_resources =
         VmResources::from_json(&config_json, &instance_info, mmds_size_limit, metadata_json)
-            .map_err(|err| {
-                error!("Configuration for VMM from one single json failed: {}", err);
-                vmm::FcExitCode::BadConfiguration
-            })?;
+            .map_err(BuildMicrovmFromJsonError::ParseFromJson)?;
     vm_resources.boot_timer = boot_timer_enabled;
     let vmm = vmm::builder::build_and_boot_microvm(
         &instance_info,
@@ -502,16 +520,19 @@ fn build_microvm_from_json(
         event_manager,
         seccomp_filters,
     )
-    .map_err(|err| {
-        error!(
-            "Building VMM configured from cmdline json failed: {:?}",
-            err
-        );
-        vmm::FcExitCode::BadConfiguration
-    })?;
+    .map_err(BuildMicrovmFromJsonError::StartMicroVM)?;
+
     info!("Successfully started microvm that was configured from one single json");
 
     Ok((vm_resources, vmm))
+}
+
+#[derive(Debug, thiserror::Error)]
+enum RunWithoutApiError {
+    #[error("MicroVMStopped without an error: {0:?}")]
+    Shutdown(FcExitCode),
+    #[error("Failed to build MicroVM from Json: {0:?}")]
+    BuildMicroVMFromJson(#[from] BuildMicrovmFromJsonError),
 }
 
 fn run_without_api(
@@ -521,7 +542,7 @@ fn run_without_api(
     bool_timer_enabled: bool,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
-) -> FcExitCode {
+) -> Result<(), RunWithoutApiError> {
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
 
     // Create the firecracker metrics object responsible for periodically printing metrics.
@@ -529,7 +550,7 @@ fn run_without_api(
     event_manager.add_subscriber(firecracker_metrics.clone());
 
     // Build the microVm. We can ignore VmResources since it's not used without api.
-    let (_, vmm) = match build_microvm_from_json(
+    let (_, vmm) = build_microvm_from_json(
         seccomp_filters,
         &mut event_manager,
         // Safe to unwrap since '--no-api' requires this to be set.
@@ -538,10 +559,7 @@ fn run_without_api(
         bool_timer_enabled,
         mmds_size_limit,
         metadata_json,
-    ) {
-        Ok((res, vmm)) => (res, vmm),
-        Err(exit_code) => return exit_code,
-    };
+    )?;
 
     // Start the metrics.
     firecracker_metrics
@@ -556,7 +574,7 @@ fn run_without_api(
             .expect("Failed to start the event manager");
 
         if let Some(exit_code) = vmm.lock().unwrap().shutdown_exit_code() {
-            return exit_code;
+            return Err(RunWithoutApiError::Shutdown(exit_code));
         }
     }
 }

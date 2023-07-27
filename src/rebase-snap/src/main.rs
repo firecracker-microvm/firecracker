@@ -1,16 +1,16 @@
 // Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::env;
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom};
 use std::os::unix::io::AsRawFd;
-use std::{env, process};
+use std::process::{ExitCode, Termination};
 
 use utils::arg_parser::{ArgParser, Argument, Arguments};
 use utils::seek_hole::SeekHole;
 
 const REBASE_SNAP_VERSION: &str = env!("FIRECRACKER_VERSION");
-const EXIT_CODE_SUCCESS: i32 = 0;
 const BASE_FILE: &str = "base-file";
 const DIFF_FILE: &str = "diff-file";
 
@@ -23,6 +23,25 @@ enum Error {
     Seek(std::io::Error),
     Sendfile(std::io::Error),
     Metadata(std::io::Error),
+}
+
+#[derive(Debug, thiserror::Error)]
+enum RebaseSnapError {
+    #[error("")]
+    Success(),
+    #[error("Error merging the files: {0:?}")]
+    MergingFiles(Error),
+    #[error("Error parsing the cmd line args: {0:?}")]
+    ParseArgs(Error),
+}
+
+impl Termination for RebaseSnapError {
+    fn report(self) -> ExitCode {
+        match self {
+            RebaseSnapError::Success() => ExitCode::SUCCESS,
+            _ => ExitCode::FAILURE,
+        }
+    }
 }
 
 fn build_arg_parser<'a>() -> ArgParser<'a> {
@@ -43,7 +62,9 @@ fn build_arg_parser<'a>() -> ArgParser<'a> {
     arg_parser
 }
 
-fn extract_args<'a>(arg_parser: &'a mut ArgParser<'a>) -> &'a Arguments<'a> {
+fn extract_args<'a>(
+    arg_parser: &'a mut ArgParser<'a>,
+) -> Result<&'a Arguments<'a>, RebaseSnapError> {
     arg_parser.parse_from_cmdline().unwrap_or_else(|err| {
         panic!(
             "Arguments parsing error: {} \n\nFor more information try --help.",
@@ -57,14 +78,14 @@ fn extract_args<'a>(arg_parser: &'a mut ArgParser<'a>) -> &'a Arguments<'a> {
             "Tool that copies all the non-sparse sections from a diff file onto a base file\n"
         );
         println!("{}", arg_parser.formatted_help());
-        process::exit(EXIT_CODE_SUCCESS);
+        return Err(RebaseSnapError::Success());
     }
     if arg_parser.arguments().flag_present("version") {
         println!("Rebase_snap v{}\n", REBASE_SNAP_VERSION);
-        process::exit(EXIT_CODE_SUCCESS);
+        return Err(RebaseSnapError::Success());
     }
 
-    arg_parser.arguments()
+    Ok(arg_parser.arguments())
 }
 
 fn parse_args(args: &Arguments) -> Result<(File, File), Error> {
@@ -118,14 +139,14 @@ fn rebase(base_file: &mut File, diff_file: &mut File) -> Result<(), Error> {
     Ok(())
 }
 
-fn main() {
+fn main() -> Result<(), RebaseSnapError> {
     let mut arg_parser = build_arg_parser();
-    let args = extract_args(&mut arg_parser);
-    let (mut base_file, mut diff_file) =
-        parse_args(args).unwrap_or_else(|err| panic!("Error parsing the cmd line args: {:?}", err));
+    let args = extract_args(&mut arg_parser)?;
+    let (mut base_file, mut diff_file) = parse_args(args).map_err(RebaseSnapError::ParseArgs)?;
 
-    rebase(&mut base_file, &mut diff_file)
-        .unwrap_or_else(|err| panic!("Error merging the files: {:?}", err));
+    rebase(&mut base_file, &mut diff_file).map_err(RebaseSnapError::MergingFiles)?;
+
+    Ok(())
 }
 
 #[cfg(test)]

@@ -19,11 +19,11 @@ use crate::vmm_config::boot_source::{
 use crate::vmm_config::drive::*;
 use crate::vmm_config::entropy::*;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
+use crate::vmm_config::logger::{init_logger, InitLoggerError, LoggerConfig};
 use crate::vmm_config::machine_config::{
     MachineConfig, MachineConfigUpdate, VmConfig, VmConfigError,
 };
-use crate::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
+use crate::vmm_config::metrics::{init_metrics, InitMetricsError, MetricsConfig};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::vsock::*;
@@ -33,7 +33,7 @@ use crate::vmm_config::vsock::*;
 pub enum ResourcesError {
     /// Balloon device configuration error.
     #[error("Balloon device error: {0}")]
-    BalloonDevice(BalloonConfigError),
+    BalloonDevice(BalloonGetConfigError),
     /// Block device configuration error.
     #[error("Block device error: {0}")]
     BlockDevice(DriveError),
@@ -48,10 +48,10 @@ pub enum ResourcesError {
     InvalidJson(serde_json::Error),
     /// Logger configuration error.
     #[error("Logger error: {0}")]
-    Logger(LoggerConfigError),
+    Logger(InitLoggerError),
     /// Metrics system configuration error.
     #[error("Metrics error: {0}")]
-    Metrics(MetricsConfigError),
+    Metrics(InitMetricsError),
     /// MMDS error.
     #[error("MMDS error: {0}")]
     Mmds(mmds::data_store::Error),
@@ -325,11 +325,11 @@ impl VmResources {
     pub fn set_balloon_device(
         &mut self,
         config: BalloonDeviceConfig,
-    ) -> Result<(), BalloonConfigError> {
+    ) -> Result<(), BalloonGetConfigError> {
         // The balloon cannot have a target size greater than the size of
         // the guest memory.
         if config.amount_mib as usize > self.vm_config.mem_size_mib {
-            return Err(BalloonConfigError::TooManyPagesRequested);
+            return Err(BalloonGetConfigError::TooManyPagesRequested);
         }
 
         self.balloon.set(config)
@@ -862,7 +862,7 @@ mod tests {
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         ) {
-            Err(ResourcesError::Logger(LoggerConfigError::InitializationFailure { .. })) => (),
+            Err(ResourcesError::Logger(InitLoggerError::InitializationFailure { .. })) => (),
             _ => unreachable!(),
         }
 
@@ -898,7 +898,7 @@ mod tests {
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         ) {
-            Err(ResourcesError::Metrics(MetricsConfigError::InitializationFailure { .. })) => (),
+            Err(ResourcesError::Metrics(InitMetricsError::InitializationFailure { .. })) => (),
             _ => unreachable!(),
         }
 

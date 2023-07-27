@@ -65,11 +65,13 @@ pub const TYPE_BALLOON: u32 = 5;
 pub const NOTIFY_REG_OFFSET: u32 = 0x50;
 
 /// Errors triggered when activating a VirtioDevice.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ActivateError {
-    /// Epoll error.
+    /// EpollCtl.
+    #[error("EpollCtl: {0}")]
     EpollCtl(IOError),
-    /// General error at activation.
+    /// BadActivate.
+    #[error("BadActivate.")]
     BadActivate,
 }
 

@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
-use std::fmt::Debug;
-use std::path::Path;
 
 use cargo_toml::{Dependency, DependencyDetail, DepsSet, Manifest};
 use regex::Regex;
@@ -19,8 +17,16 @@ fn test_no_comparison_requirements() {
     for fc_crate in std::fs::read_dir(src_path).unwrap() {
         let fc_crate = fc_crate.unwrap();
         if fc_crate.metadata().unwrap().is_dir() {
-            let violating_in_crate =
-                violating_dependencies_of_cargo_toml(fc_crate.path().join("Cargo.toml"));
+            let manifest_path = fc_crate.path().join("Cargo.toml");
+            let manifest = Manifest::from_path(&manifest_path).expect(&format!(
+                "Failed to open manifest for {}",
+                manifest_path.display()
+            ));
+
+            let violating_in_crate = get_violating_deps(manifest.dependencies)
+                .chain(get_violating_deps(manifest.dev_dependencies))
+                .chain(get_violating_deps(manifest.build_dependencies))
+                .collect::<HashMap<_, _>>();
 
             if !violating_in_crate.is_empty() {
                 violating_dependencies.insert(
@@ -40,29 +46,12 @@ fn test_no_comparison_requirements() {
     );
 }
 
-/// Parses the specified Cargo.toml file and returns any dependencies specified using a comparison
-/// requirements.
-///
-/// The return value maps the name of violating dependencies to the specified version
-fn violating_dependencies_of_cargo_toml<T: AsRef<Path> + Debug>(
-    path: T,
-) -> HashMap<String, String> {
-    let manifest = Manifest::from_path(path).unwrap();
-
-    violating_dependencies_of_depsset(manifest.dependencies)
-        .chain(violating_dependencies_of_depsset(manifest.dev_dependencies))
-        .chain(violating_dependencies_of_depsset(
-            manifest.build_dependencies,
-        ))
-        .collect()
-}
-
 /// Returns an iterator over all dependencies in the given DepsSet specified using comparison
 /// requirements
 ///
 /// The iterator produces tuples of the form (violating dependency, specified version)
 #[allow(clippy::let_with_type_underscore)]
-fn violating_dependencies_of_depsset(depsset: DepsSet) -> impl Iterator<Item = (String, String)> {
+fn get_violating_deps(depsset: DepsSet) -> impl Iterator<Item = (String, String)> {
     depsset.into_iter().filter_map(|(name, dependency)| {
         match dependency {
             Dependency::Simple(version) // dependencies specified as `libc = "0.2.117"`

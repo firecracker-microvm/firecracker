@@ -198,13 +198,11 @@ def test_api_requests_logs(test_microvm_with_api):
     response = microvm.boot.put(kernel_image_path="inexistent_path")
     assert microvm.api_session.is_status_bad_request(response.status_code)
     fault_message = (
-        "The kernel file cannot be opened: No such file or " "directory (os error 2)"
+        "The kernel file cannot be opened: No such file or directory (os error 2)"
     )
     assert fault_message in response.text
     microvm.check_log_message(
-        "Received Error. "
-        "Status code: 400 Bad Request. "
-        "Message: {}".format(fault_message)
+        f"Received Error. Status code: 400 Bad Request. Message: Failed to handle pre-boot request: Failed to set boot source: {fault_message}"
     )
 
 

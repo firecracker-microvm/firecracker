@@ -31,9 +31,10 @@ use crate::parsed_request::{ParsedRequest, RequestAction};
 use crate::Error::ServerCreation;
 
 /// Errors thrown when binding the API server to the socket path.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// HTTP Server creation related error.
+    #[error("HTTP Server creation related error: {0}")]
     ServerCreation(ServerError),
 }
 
@@ -311,7 +312,7 @@ mod tests {
     use utils::tempfile::TempFile;
     use utils::time::ClockType;
     use vmm::builder::StartMicrovmError;
-    use vmm::rpc_interface::VmmActionError;
+    use vmm::rpc_interface::{HandlePrebootRequestError, VmmActionError};
     use vmm::seccomp_filters::get_empty_filters;
     use vmm::vmm_config::instance_info::InstanceInfo;
     use vmm::vmm_config::snapshot::CreateSnapshotParams;
@@ -349,8 +350,8 @@ mod tests {
 
         let mut api_server = ApiServer::new(api_request_sender, vmm_response_receiver, to_vmm_fd);
         to_api
-            .send(Box::new(Err(VmmActionError::StartMicrovm(
-                StartMicrovmError::MissingKernelConfig,
+            .send(Box::new(Err(VmmActionError::HandlePrebootRequest(
+                HandlePrebootRequestError::StartMicrovm(StartMicrovmError::MissingKernelConfig),
             ))))
             .unwrap();
         let response = api_server.serve_vmm_action_request(Box::new(VmmAction::StartMicroVm), 0);
@@ -371,7 +372,9 @@ mod tests {
 
         assert_eq!(METRICS.latencies_us.diff_create_snapshot.fetch(), 0);
         to_api
-            .send(Box::new(Err(VmmActionError::OperationNotSupportedPreBoot)))
+            .send(Box::new(Err(VmmActionError::HandlePrebootRequest(
+                HandlePrebootRequestError::OperationNotSupportedPreBoot,
+            ))))
             .unwrap();
         let response = api_server.serve_vmm_action_request(
             Box::new(VmmAction::CreateSnapshot(CreateSnapshotParams {

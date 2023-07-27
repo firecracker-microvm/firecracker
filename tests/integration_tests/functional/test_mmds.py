@@ -477,7 +477,9 @@ def test_mmds_dummy(test_microvm_with_api, network_config, version):
     dummy_json = {"latest": {"meta-data": {"ami-id": "dummy"}}}
     response = test_microvm.mmds.patch(json=dummy_json)
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    fault_json = {"fault_message": "The MMDS data store is not initialized."}
+    fault_json = {
+        "fault_message": "Failed to handle pre-boot request: Failed to patch mmds: The MMDS data store is not initialized."
+    }
     assert response.json() == fault_json
 
     # Test that using the same json with a PUT request, the MMDS data-store is
@@ -589,7 +591,7 @@ def test_mmds_limit_scenario(test_microvm_with_api, network_config, version):
     aux = "a" * 51200
     large_json = {"latest": {"meta-data": {"ami-id": "smth", "secret_key": aux}}}
     response = test_microvm.mmds.put(json=large_json)
-    assert test_microvm.api_session.is_status_payload_too_large(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
     response = test_microvm.mmds.get()
     assert response.json() == dummy_json
@@ -606,7 +608,7 @@ def test_mmds_limit_scenario(test_microvm_with_api, network_config, version):
     aux = "b" * 10
     dummy_json = {"latest": {"meta-data": {"ami-id": "smth", "secret_key2": aux}}}
     response = test_microvm.mmds.patch(json=dummy_json)
-    assert test_microvm.api_session.is_status_payload_too_large(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
     # Check that the patch actually failed and the contents of the data store
     # has not changed.
     response = test_microvm.mmds.get()

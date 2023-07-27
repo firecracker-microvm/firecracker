@@ -180,26 +180,10 @@ impl ParsedRequest {
                 ),
                 VmmData::FullVmConfig(config) => Self::success_response_with_data(config),
             },
-            Err(vmm_action_error) => {
-                let mut response = match vmm_action_error {
-                    VmmActionError::MmdsLimitExceeded(_err) => {
-                        error!(
-                            "Received Error. Status code: 413 Payload too large. Message: {}",
-                            vmm_action_error
-                        );
-                        Response::new(Version::Http11, StatusCode::PayloadTooLarge)
-                    }
-                    _ => {
-                        error!(
-                            "Received Error. Status code: 400 Bad Request. Message: {}",
-                            vmm_action_error
-                        );
-                        Response::new(Version::Http11, StatusCode::BadRequest)
-                    }
-                };
-                response.set_body(Body::new(ApiServer::json_fault_message(
-                    vmm_action_error.to_string(),
-                )));
+            Err(err) => {
+                error!("Received Error. Status code: 400 Bad Request. Message: {err}");
+                let mut response = Response::new(Version::Http11, StatusCode::BadRequest);
+                response.set_body(Body::new(ApiServer::json_fault_message(err.to_string())));
                 response
             }
         }
@@ -333,7 +317,7 @@ pub mod tests {
     use vmm::builder::StartMicrovmError;
     use vmm::cpu_config::templates::test_utils::build_test_template;
     use vmm::resources::VmmConfig;
-    use vmm::rpc_interface::VmmActionError;
+    use vmm::rpc_interface::{HandlePrebootRequestError, VmmActionError};
     use vmm::vmm_config::balloon::{BalloonDeviceConfig, BalloonStats};
     use vmm::vmm_config::instance_info::InstanceInfo;
     use vmm::vmm_config::machine_config::MachineConfig;
@@ -605,7 +589,9 @@ pub mod tests {
         verify_ok_response_with(VmmData::VmmVersion(String::default()));
 
         // Error.
-        let error = VmmActionError::StartMicrovm(StartMicrovmError::MissingKernelConfig);
+        let error = VmmActionError::HandlePrebootRequest(HandlePrebootRequestError::StartMicrovm(
+            StartMicrovmError::MissingKernelConfig,
+        ));
         let mut buf = Cursor::new(vec![0]);
         let json = ApiServer::json_fault_message(error.to_string());
         let response = ParsedRequest::convert_to_response(&Err(error));

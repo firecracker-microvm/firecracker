@@ -30,13 +30,13 @@ pub enum LoggerLevel {
 impl LoggerLevel {
     /// Converts from a logger level value of type String to the corresponding LoggerLevel variant
     /// or returns an error if the parsing failed.
-    pub fn from_string(level: String) -> Result<Self, LoggerConfigError> {
+    pub fn from_string(level: String) -> Result<Self, InitLoggerError> {
         match level.to_ascii_lowercase().as_str() {
             "error" => Ok(LoggerLevel::Error),
             "warning" => Ok(LoggerLevel::Warning),
             "info" => Ok(LoggerLevel::Info),
             "debug" => Ok(LoggerLevel::Debug),
-            _ => Err(LoggerConfigError::InitializationFailure(level)),
+            _ => Err(InitLoggerError::InitializationFailure(level)),
         }
     }
 }
@@ -106,7 +106,7 @@ impl LoggerConfig {
 
 /// Errors associated with actions on the `LoggerConfig`.
 #[derive(Debug, thiserror::Error)]
-pub enum LoggerConfigError {
+pub enum InitLoggerError {
     /// Cannot initialize the logger due to bad user input.
     #[error("{}", format!("{:?}", .0).replace('\"', ""))]
     InitializationFailure(String),
@@ -116,7 +116,7 @@ pub enum LoggerConfigError {
 pub fn init_logger(
     logger_cfg: LoggerConfig,
     instance_info: &InstanceInfo,
-) -> Result<(), LoggerConfigError> {
+) -> Result<(), InitLoggerError> {
     LOGGER
         .set_max_level(logger_cfg.level.into())
         .set_include_origin(logger_cfg.show_log_origin, logger_cfg.show_log_origin)
@@ -124,7 +124,7 @@ pub fn init_logger(
 
     let writer = FcLineWriter::new(
         open_file_nonblock(&logger_cfg.log_path)
-            .map_err(|err| LoggerConfigError::InitializationFailure(err.to_string()))?,
+            .map_err(|err| InitLoggerError::InitializationFailure(err.to_string()))?,
     );
     LOGGER
         .init(
@@ -134,7 +134,7 @@ pub fn init_logger(
             ),
             Box::new(writer),
         )
-        .map_err(|err| LoggerConfigError::InitializationFailure(err.to_string()))
+        .map_err(|err| InitLoggerError::InitializationFailure(err.to_string()))
 }
 
 #[cfg(test)]

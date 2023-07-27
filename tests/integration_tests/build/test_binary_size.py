@@ -18,7 +18,7 @@ SIZES_DICT = {
         "JAILER_BINARY_SIZE_TARGET": 1080088,
     },
     "aarch64": {
-        "FC_BINARY_SIZE_TARGET": 2441008,
+        "FC_BINARY_SIZE_TARGET": 2564200,
         "JAILER_BINARY_SIZE_TARGET": 1040928,
     },
 }

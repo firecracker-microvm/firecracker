@@ -26,7 +26,7 @@ use crate::arch::aarch64::gic::GICDevice;
 use crate::arch::aarch64::gic::GicState;
 
 /// Errors associated with the wrappers over KVM ioctls.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum VmError {
     #[cfg(target_arch = "x86_64")]
     /// Failed to get MSR index list to save into snapshots.

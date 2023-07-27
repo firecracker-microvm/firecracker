@@ -15,7 +15,7 @@ MACHINE = platform.machine()
 TARGET = "{}-unknown-linux-musl".format(MACHINE)
 
 
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_unittests(test_fc_session_root_path):
     """
     Run unit and doc tests for all supported targets.

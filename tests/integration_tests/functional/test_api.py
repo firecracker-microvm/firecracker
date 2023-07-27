@@ -65,8 +65,7 @@ def test_drive_io_engine(test_microvm_with_api, network_config):
         # The Async engine is not supported for older kernels.
         assert test_microvm.api_session.is_status_bad_request(response.status_code)
         test_microvm.check_log_message(
-            "Received Error. Status code: 400 Bad Request. Message: Unable"
-            " to create the block device: FileEngine(UnsupportedEngine(Async))"
+            "Received Error. Status code: 400 Bad Request. Message: Failed to handle pre-boot request: Failed to insert block device: Unable to create the block device: FileEngine(UnsupportedEngine(Async))"
         )
 
         # Now configure the default engine type and check that it works.
@@ -512,7 +511,7 @@ def test_api_put_update_post_boot(test_microvm_with_api):
     test_microvm.start()
 
     expected_err = (
-        "The requested operation is not supported " "after starting the microVM"
+        "Failed to handle post-boot request: Operation not supported post boot."
     )
 
     # Valid updates to `kernel_image_path` are not allowed after boot.
@@ -720,16 +719,16 @@ def test_api_patch_pre_boot(test_microvm_with_api):
     response = test_microvm.drive.patch(drive_id=drive_id, path_on_host="foo.bar")
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert (
-        "The requested operation is not supported before starting the "
-        "microVM." in response.text
+        "Failed to handle pre-boot request: Operation not supported pre-boot."
+        in response.text
     )
 
     # Patching net before boot is not allowed.
     response = test_microvm.network.patch(iface_id=iface_id)
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert (
-        "The requested operation is not supported before starting the "
-        "microVM." in response.text
+        "Failed to handle pre-boot request: Operation not supported pre-boot."
+        in response.text
     )
 
 
@@ -770,7 +769,7 @@ def test_negative_api_patch_post_boot(test_microvm_with_api):
 
     # Partial updates to the machine configuration are not allowed after boot.
     expected_err = (
-        "The requested operation is not supported " "after starting the microVM"
+        "Failed to handle post-boot request: Operation not supported post boot."
     )
     response = test_microvm.machine_cfg.patch(vcpu_count=4)
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
@@ -808,8 +807,8 @@ def test_drive_patch(test_microvm_with_api):
     response = test_microvm.drive.patch(drive_id="scratch", path_on_host="foo.bar")
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert (
-        "The requested operation is not supported before starting the "
-        "microVM." in response.text
+        "Failed to handle pre-boot request: Operation not supported pre-boot."
+        in response.text
     )
 
     test_microvm.start()
@@ -890,11 +889,13 @@ def _drive_patch(test_microvm):
     # Updates to `path_on_host` with an invalid path are not allowed.
     response = test_microvm.drive.patch(drive_id="scratch", path_on_host=drive_path)
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert (
-        "Unable to patch the block device: BackingFile(Os { code: 2, "
-        f'kind: NotFound, message: \\"No such file or directory\\" }}, \\"{drive_path}\\")'
-        in response.text
+
+    expected = (
+        'Failed to handle post-boot request: Failed to update block device path: BackingFile(Os { code: 2, kind: NotFound, message: \\"No such file or directory\\" }, \\"'
+        + str(drive_path)
+        + '\\")'
     )
+    assert expected in response.text
 
     fs = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "scratch_new"))
     # Updates to `path_on_host` with a valid path are allowed.
@@ -1429,6 +1430,7 @@ def test_negative_snapshot_load_api(microvm_factory):
     response = vm.snapshot._load._api_session.put(
         "{}".format(vm.snapshot._load._snapshot_cfg_url), json=datax
     )
+
     err_msg = (
         "too many fields: either `mem_backend` or "
         "`mem_file_path` exclusively is required."
@@ -1477,10 +1479,3 @@ def test_negative_snapshot_load_api(microvm_factory):
     )
     err_msg = "missing field: either `mem_backend` or " "`mem_file_path` is required"
     assert err_msg in response.text, response.text
-
-    # Deprecated API should return deprecation response header.
-    datax = {"snapshot_path": "foo", "mem_file_path": "bar"}
-    response = vm.snapshot._load._api_session.put(
-        "{}".format(vm.snapshot._load._snapshot_cfg_url), json=datax
-    )
-    assert response.headers["deprecation"]

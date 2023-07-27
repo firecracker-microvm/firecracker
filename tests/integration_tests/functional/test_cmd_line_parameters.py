@@ -130,7 +130,7 @@ def test_cli_metrics_path_if_metrics_initialized_twice_fail(test_microvm_with_ap
     # It should fail with HTTP 400 because it's already configured
     assert response.status_code == 400
     assert response.json() == {
-        "fault_message": "Reinitialization of metrics not allowed."
+        "fault_message": "Failed to handle pre-boot request: Failed to intiailize metrics: Reinitialization of metrics not allowed."
     }
 
 

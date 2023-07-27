@@ -9,7 +9,7 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use api_server::{ApiServer, ServerError};
+use api_server::ApiServer;
 use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
 use logger::{error, warn, ProcessTimeReporter};
 use seccompiler::BpfThreadMap;
@@ -17,22 +17,23 @@ use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
 use vmm::resources::VmResources;
 use vmm::rpc_interface::{
-    ApiRequest, ApiResponse, PrebootApiController, RuntimeApiController, VmmAction,
+    ApiRequest, ApiResponse, PostbootApiController, PrebootApiController, VmmAction,
 };
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::{EventManager, FcExitCode, Vmm};
 
-#[derive(Debug)]
+use crate::BuildMicrovmFromJsonError;
+
 struct ApiServerAdapter {
     api_event_fd: EventFd,
     from_api: Receiver<ApiRequest>,
     to_api: Sender<ApiResponse>,
-    controller: RuntimeApiController,
+    controller: PostbootApiController,
 }
 
 impl ApiServerAdapter {
     /// Runs the vmm to completion, while any arising control events are deferred
-    /// to a `RuntimeApiController`.
+    /// to a `PostbootApiController`.
     fn run_microvm(
         api_event_fd: EventFd,
         from_api: Receiver<ApiRequest>,
@@ -45,7 +46,7 @@ impl ApiServerAdapter {
             api_event_fd,
             from_api,
             to_api,
-            controller: RuntimeApiController::new(vm_resources, vmm.clone()),
+            controller: PostbootApiController::new(vm_resources, vmm.clone()),
         }));
         event_manager.add_subscriber(api_adapter);
         loop {
@@ -59,10 +60,11 @@ impl ApiServerAdapter {
     }
 
     fn handle_request(&mut self, req_action: VmmAction) {
-        let response = self.controller.handle_request(req_action);
+        let response = self.controller.handle_postboot_request(req_action);
+        let wrapped = response.map_err(vmm::rpc_interface::VmmActionError::HandlePostbootRequest);
         // Send back the result.
         self.to_api
-            .send(Box::new(response))
+            .send(Box::new(wrapped))
             .map_err(|_| ())
             .expect("one-shot channel closed");
     }
@@ -117,6 +119,18 @@ impl MutEventSubscriber for ApiServerAdapter {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub(super) enum RunWithApiError {
+    #[error("MicroVMStopped without an error: {0:?}")]
+    MicroVMStoppedWithoutError(FcExitCode),
+    #[error("Failed to bind and run API server: {0}")]
+    BindAndRun(api_server::Error),
+    #[error("Failed to build MicroVM from Json: {0:?}")]
+    BuildMicrovmFromJson(BuildMicrovmFromJsonError),
+    #[error("Failed to build microvm from requests: {0}")]
+    BuildMicrovmFromRequests(vmm::rpc_interface::BuildMicrovmFromRequestsError),
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_with_api(
     seccomp_filters: &mut BpfThreadMap,
@@ -128,7 +142,7 @@ pub(crate) fn run_with_api(
     api_payload_limit: usize,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
-) -> FcExitCode {
+) -> Result<(), RunWithApiError> {
     // FD to notify of API events. This is a blocking eventfd by design.
     // It is used in the config/pre-boot loop which is a simple blocking loop
     // which only consumes API events.
@@ -151,36 +165,16 @@ pub(crate) fn run_with_api(
     let api_thread = thread::Builder::new()
         .name("fc_api".to_owned())
         .spawn(move || {
-            let res = ApiServer::new(to_vmm, from_vmm, to_vmm_event_fd).bind_and_run(
-                &api_bind_path,
-                process_time_reporter,
-                &api_seccomp_filter,
-                api_payload_limit,
-                socket_ready_sender,
-            );
-
-            let Err(err) = res else {
-                return;
-            };
-
-            match err {
-                api_server::Error::ServerCreation(ServerError::IOError(inner))
-                    if inner.kind() == std::io::ErrorKind::AddrInUse =>
-                {
-                    let sock_path = api_bind_path.display().to_string();
-                    error!(
-                        "Failed to open the API socket at: {sock_path}. Check that it is not \
-                         already used."
-                    );
-                }
-                api_server::Error::ServerCreation(err) => {
-                    error!("Failed to bind and run the HTTP server: {err}");
-                }
-            }
-
-            std::process::exit(vmm::FcExitCode::GenericError as i32);
-        })
-        .expect("API thread spawn failed.");
+            ApiServer::new(to_vmm, from_vmm, to_vmm_event_fd)
+                .bind_and_run(
+                    &api_bind_path,
+                    process_time_reporter,
+                    &api_seccomp_filter,
+                    api_payload_limit,
+                    socket_ready_sender,
+                )
+                .map_err(RunWithApiError::BindAndRun)
+        });
 
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
 
@@ -198,7 +192,8 @@ pub(crate) fn run_with_api(
             boot_timer_enabled,
             mmds_size_limit,
             metadata_json,
-        ),
+        )
+        .map_err(RunWithApiError::BuildMicrovmFromJson),
         None => PrebootApiController::build_microvm_from_requests(
             seccomp_filters,
             &mut event_manager,
@@ -209,28 +204,25 @@ pub(crate) fn run_with_api(
             boot_timer_enabled,
             mmds_size_limit,
             metadata_json,
-        ),
+        )
+        .map_err(RunWithApiError::BuildMicrovmFromRequests),
     };
 
-    let exit_code = match build_result {
-        Ok((vm_resources, vmm)) => {
-            // Start the metrics.
-            firecracker_metrics
-                .lock()
-                .expect("Poisoned lock")
-                .start(super::metrics::WRITE_METRICS_PERIOD_MS);
+    let result = build_result.map(|(vm_resources, vmm)| {
+        firecracker_metrics
+            .lock()
+            .expect("Poisoned lock")
+            .start(super::metrics::WRITE_METRICS_PERIOD_MS);
 
-            ApiServerAdapter::run_microvm(
-                api_event_fd,
-                from_api,
-                to_api,
-                vm_resources,
-                vmm,
-                &mut event_manager,
-            )
-        }
-        Err(exit_code) => exit_code,
-    };
+        ApiServerAdapter::run_microvm(
+            api_event_fd,
+            from_api,
+            to_api,
+            vm_resources,
+            vmm,
+            &mut event_manager,
+        )
+    });
 
     // We want to tell the API thread to shut down for a clean exit. But this is after
     // the Vmm.stop() has been called, so it's a moment of internal finalization (as
@@ -251,8 +243,13 @@ pub(crate) fn run_with_api(
         sock.write_all(b"PUT /shutdown-internal HTTP/1.1\r\n\r\n")
             .unwrap();
     }
+
     // This call to thread::join() should block until the API thread has processed the
     // shutdown-internal and returns from its function.
-    api_thread.join().unwrap();
-    exit_code
+    api_thread.unwrap().join().unwrap()?;
+
+    match result {
+        Ok(exit_code) => Err(RunWithApiError::MicroVMStoppedWithoutError(exit_code)),
+        Err(exit_error) => Err(exit_error),
+    }
 }
