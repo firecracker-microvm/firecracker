@@ -11,7 +11,7 @@ use std::process;
 
 use regex::Regex;
 
-use crate::{readln_special, writeln_special, Error, Result};
+use crate::{readln_special, writeln_special, JailerError};
 
 const PROC_MOUNTS: &str = if cfg!(test) {
     "/tmp/firecracker/test/jailer/proc/mounts"
@@ -39,9 +39,9 @@ impl CgroupBuilder {
     // It will discover cgroup mount points and hierarchies configured
     // on the system and cache the info required to create cgroups later
     // within this hierarchies
-    pub fn new(ver: u8) -> Result<Self> {
+    pub fn new(ver: u8) -> Result<Self, JailerError> {
         if ver != 1 && ver != 2 {
-            return Err(Error::CgroupInvalidVersion(ver.to_string()));
+            return Err(JailerError::CgroupInvalidVersion(ver.to_string()));
         }
 
         let mut b = CgroupBuilder {
@@ -52,7 +52,7 @@ impl CgroupBuilder {
 
         // search PROC_MOUNTS for cgroup mount points
         let f = File::open(PROC_MOUNTS)
-            .map_err(|err| Error::FileOpen(PathBuf::from(PROC_MOUNTS), err))?;
+            .map_err(|err| JailerError::FileOpen(PathBuf::from(PROC_MOUNTS), err))?;
 
         // Regex courtesy of Filippo.
         // This will match on each line from /proc/mounts for both v1 and v2 mount points.
@@ -69,10 +69,10 @@ impl CgroupBuilder {
         //        cgroupv1 to determine what controllers are mounted at the location.
         let re = Regex::new(
             r"^([a-z2]*)[[:space:]](?P<dir>.*)[[:space:]]cgroup(?P<ver>2?)[[:space:]](?P<options>.*)[[:space:]]0[[:space:]]0$",
-        ).map_err(Error::RegEx)?;
+        ).map_err(JailerError::RegEx)?;
 
         for l in BufReader::new(f).lines() {
-            let l = l.map_err(|err| Error::ReadLine(PathBuf::from(PROC_MOUNTS), err))?;
+            let l = l.map_err(|err| JailerError::ReadLine(PathBuf::from(PROC_MOUNTS), err))?;
             if let Some(capture) = re.captures(&l) {
                 if ver == 2 && capture["ver"].len() == 1 {
                     // Found the cgroupv2 unified mountpoint; with cgroupsv2 there is only one
@@ -94,7 +94,7 @@ impl CgroupBuilder {
         }
 
         if b.hierarchies.is_empty() && b.mount_points.is_empty() {
-            Err(Error::CgroupHierarchyMissing(
+            Err(JailerError::CgroupHierarchyMissing(
                 "No hierarchy found for this cgroup version.".to_string(),
             ))
         } else {
@@ -109,7 +109,7 @@ impl CgroupBuilder {
         value: String,
         id: &str,
         parent_cg: &Path,
-    ) -> Result<Box<dyn Cgroup>> {
+    ) -> Result<Box<dyn Cgroup>, JailerError> {
         match self.version {
             1 => {
                 let controller = get_controller_from_filename(&file)?;
@@ -124,19 +124,19 @@ impl CgroupBuilder {
                 let path = self
                     .hierarchies
                     .get("unified")
-                    .ok_or_else(|| Error::CgroupHierarchyMissing("unified".to_string()))?;
+                    .ok_or_else(|| JailerError::CgroupHierarchyMissing("unified".to_string()))?;
 
                 let cgroup = CgroupV2::new(file, value, id, parent_cg, path)?;
                 Ok(Box::new(cgroup))
             }
-            _ => Err(Error::CgroupInvalidVersion(self.version.to_string())),
+            _ => Err(JailerError::CgroupInvalidVersion(self.version.to_string())),
         }
     }
 
     // Returns the path to the root of the hierarchy for the controller specified
     // Cgroups for a controller are arranged in a hierarchy; multiple controllers
     // may share the same hierarchy
-    fn get_v1_hierarchy_path(&mut self, controller: &str) -> Result<&PathBuf> {
+    fn get_v1_hierarchy_path(&mut self, controller: &str) -> Result<&PathBuf, JailerError> {
         // First try and see if the path is already discovered.
         match self.hierarchies.entry(controller.to_string()) {
             Occupied(entry) => Ok(entry.into_mut()),
@@ -154,7 +154,9 @@ impl CgroupBuilder {
                 // name was specified. Return an error in this case
                 match path {
                     Some(p) => Ok(entry.insert(p)),
-                    None => Err(Error::CgroupControllerUnavailable(controller.to_string())),
+                    None => Err(JailerError::CgroupControllerUnavailable(
+                        controller.to_string(),
+                    )),
                 }
             }
         }
@@ -179,10 +181,10 @@ pub struct CgroupV2(CgroupBase);
 
 pub trait Cgroup {
     // Write the cgroup value into the cgroup property file.
-    fn write_value(&self) -> Result<()>;
+    fn write_value(&self) -> Result<(), JailerError>;
 
     // This function will assign the process associated with the pid to the respective cgroup.
-    fn attach_pid(&self) -> Result<()>;
+    fn attach_pid(&self) -> Result<(), JailerError>;
 }
 
 // If we call inherit_from_parent_aux(.../A/B/C, file, condition), the following will happen:
@@ -215,7 +217,11 @@ pub trait Cgroup {
 // writing to /A/<parent_cgroup>/file, but we can still continue, because step 4) only cares about
 // the file no longer being empty, regardless of who actually got to populated its contents.
 
-fn inherit_from_parent_aux(path: &mut PathBuf, file_name: &str, retry_depth: u16) -> Result<()> {
+fn inherit_from_parent_aux(
+    path: &mut PathBuf,
+    file_name: &str,
+    retry_depth: u16,
+) -> Result<(), JailerError> {
     // The function with_file_name() replaces the last component of a path with the given name.
     let parent_file = path.with_file_name(file_name);
 
@@ -227,7 +233,7 @@ fn inherit_from_parent_aux(path: &mut PathBuf, file_name: &str, retry_depth: u16
             // according to how the Rust borrow checker operates right now :-s)
             let parent = parent_file
                 .parent()
-                .ok_or_else(|| Error::MissingParent(parent_file.clone()))?;
+                .ok_or_else(|| JailerError::MissingParent(parent_file.clone()))?;
 
             // Trying to avoid the race condition described above. We don't care about the result,
             // because we check once more if line.is_empty() after the end of this block.
@@ -236,7 +242,7 @@ fn inherit_from_parent_aux(path: &mut PathBuf, file_name: &str, retry_depth: u16
         }
 
         if line.is_empty() {
-            return Err(Error::CgroupInheritFromParent(
+            return Err(JailerError::CgroupInheritFromParent(
                 path.to_path_buf(),
                 file_name.to_string(),
             ));
@@ -252,18 +258,18 @@ fn inherit_from_parent_aux(path: &mut PathBuf, file_name: &str, retry_depth: u16
 
 // The path reference is &mut here because we do a push to get the destination file name. However,
 // a pop follows shortly after (see fn inherit_from_parent_aux), reverting to the original value.
-fn inherit_from_parent(path: &mut PathBuf, file_name: &str, depth: u16) -> Result<()> {
+fn inherit_from_parent(path: &mut PathBuf, file_name: &str, depth: u16) -> Result<(), JailerError> {
     inherit_from_parent_aux(path, file_name, depth)
 }
 
 // Extract the controller name from the cgroup file. The cgroup file must follow
 // this format: <cgroup_controller>.<cgroup_property>.
-fn get_controller_from_filename(file: &str) -> Result<&str> {
+fn get_controller_from_filename(file: &str) -> Result<&str, JailerError> {
     let v: Vec<&str> = file.split('.').collect();
 
     // Check format <cgroup_controller>.<cgroup_property>
     if v.len() < 2 {
-        return Err(Error::CgroupInvalidFile(file.to_string()));
+        return Err(JailerError::CgroupInvalidFile(file.to_string()));
     }
 
     Ok(v[0])
@@ -277,7 +283,7 @@ impl CgroupV1 {
         id: &str,
         parent_cg: &Path,
         controller_path: &Path,
-    ) -> Result<Self> {
+    ) -> Result<Self, JailerError> {
         let mut path = controller_path.to_path_buf();
         path.push(parent_cg);
         path.push(id);
@@ -298,12 +304,12 @@ impl CgroupV1 {
 }
 
 impl Cgroup for CgroupV1 {
-    fn write_value(&self) -> Result<()> {
+    fn write_value(&self) -> Result<(), JailerError> {
         let location = &mut self.base.location.clone();
 
         // Create the cgroup directory for the controller.
         fs::create_dir_all(&self.base.location)
-            .map_err(|err| Error::CreateDir(self.base.location.clone(), err))?;
+            .map_err(|err| JailerError::CreateDir(self.base.location.clone(), err))?;
 
         // Write the corresponding cgroup value. inherit_from_parent is used to
         // correctly propagate the value if not defined.
@@ -314,7 +320,7 @@ impl Cgroup for CgroupV1 {
         Ok(())
     }
 
-    fn attach_pid(&self) -> Result<()> {
+    fn attach_pid(&self) -> Result<(), JailerError> {
         let pid = process::id();
         let location = &self.base.location.join("tasks");
 
@@ -329,7 +335,7 @@ impl CgroupV2 {
     // To be able to use a leaf controller within a nested cgroup hierarchy,
     // the controller needs to be enabled by writing to the cgroup.subtree_control
     // of it's parent. This rule applies recursively.
-    fn write_all_subtree_control<P>(path: P, controller: &str) -> Result<()>
+    fn write_all_subtree_control<P>(path: P, controller: &str) -> Result<(), JailerError>
     where
         P: AsRef<Path> + Debug,
     {
@@ -376,7 +382,7 @@ impl CgroupV2 {
         id: &str,
         parent_cg: &Path,
         unified_path: &Path,
-    ) -> Result<Self> {
+    ) -> Result<Self, JailerError> {
         let controller = get_controller_from_filename(&file)?;
         let mut path = unified_path.to_path_buf();
 
@@ -389,19 +395,21 @@ impl CgroupV2 {
                 location: path,
             }))
         } else {
-            Err(Error::CgroupControllerUnavailable(controller.to_string()))
+            Err(JailerError::CgroupControllerUnavailable(
+                controller.to_string(),
+            ))
         }
     }
 }
 
 impl Cgroup for CgroupV2 {
-    fn write_value(&self) -> Result<()> {
+    fn write_value(&self) -> Result<(), JailerError> {
         let location = &mut self.0.location.clone();
         let controller = get_controller_from_filename(&self.0.file)?;
 
         // Create the cgroup directory for the controller.
         fs::create_dir_all(&self.0.location)
-            .map_err(|err| Error::CreateDir(self.0.location.clone(), err))?;
+            .map_err(|err| JailerError::CreateDir(self.0.location.clone(), err))?;
 
         // Ok to unwrap since the path was just created.
         let parent = location.parent().unwrap();
@@ -414,7 +422,7 @@ impl Cgroup for CgroupV2 {
         Ok(())
     }
 
-    fn attach_pid(&self) -> Result<()> {
+    fn attach_pid(&self) -> Result<(), JailerError> {
         let pid = process::id();
         let location = &self.0.location.join("cgroup.procs");
 
