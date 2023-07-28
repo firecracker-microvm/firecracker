@@ -3,10 +3,13 @@
 
 use vmm::cpu_config::templates::CustomCpuTemplate;
 
-use super::{verify_common, Error};
+use super::{verify_common, VerifyError};
 use crate::utils::x86_64::{CpuidModifierMap, MsrModifierMap};
 
-pub fn verify(cpu_template: CustomCpuTemplate, cpu_config: CustomCpuTemplate) -> Result<(), Error> {
+pub fn verify(
+    cpu_template: CustomCpuTemplate,
+    cpu_config: CustomCpuTemplate,
+) -> Result<(), VerifyError> {
     let cpuid_template = CpuidModifierMap::from(cpu_template.cpuid_modifiers);
     let cpuid_config = CpuidModifierMap::from(cpu_config.cpuid_modifiers);
     verify_common(cpuid_template.0, cpuid_config.0)?;

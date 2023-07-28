@@ -17,13 +17,13 @@ use crate::template::dump::aarch64::config_to_template;
 use crate::template::dump::x86_64::config_to_template;
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum DumpError {
     /// Failed to dump CPU configuration.
     #[error("Failed to dump CPU config: {0}")]
     DumpCpuConfig(#[from] DumpCpuConfigError),
 }
 
-pub fn dump(vmm: Arc<Mutex<Vmm>>) -> Result<CustomCpuTemplate, Error> {
+pub fn dump(vmm: Arc<Mutex<Vmm>>) -> Result<CustomCpuTemplate, DumpError> {
     // Get CPU configuration.
     let cpu_configs = vmm.lock().unwrap().dump_cpu_config()?;
 
