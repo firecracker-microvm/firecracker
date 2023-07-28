@@ -32,28 +32,26 @@
 //!     collection of `BpfProgram` objects
 //! ```
 
-mod backend;
-mod common;
-mod compiler;
-mod syscall_table;
-
 use std::collections::BTreeMap;
 use std::convert::TryInto;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
-use std::{io, process};
+
+mod backend;
+mod common;
+mod compiler;
+mod syscall_table;
 
 use backend::{TargetArch, TargetArchError};
 use bincode::Error as BincodeError;
 use common::BpfProgram;
 use compiler::{Compiler, Error as FilterFormatError, JsonFile};
 use serde_json::error::Error as JSONError;
-use utils::arg_parser::{ArgParser, Argument, Arguments as ArgumentsBag};
+use utils::arg_parser::{ArgParser, Argument, Arguments as ArgumentsBag, Error as ArgParserError};
 
 const SECCOMPILER_VERSION: &str = env!("FIRECRACKER_VERSION");
 const DEFAULT_OUTPUT_FILENAME: &str = "seccomp_binary_filter.out";
-const EXIT_CODE_ERROR: i32 = 1;
 
 #[derive(Debug, thiserror::Error)]
 enum Error {
@@ -62,7 +60,7 @@ enum Error {
     #[error("{0}")]
     FileFormat(FilterFormatError),
     #[error("{}", format!("Failed to open file {:?}: {1}", .0, .1).replace('\"', ""))]
-    FileOpen(PathBuf, io::Error),
+    FileOpen(PathBuf, std::io::Error),
     #[error("Error parsing JSON: {0}")]
     Json(JSONError),
     #[error("Missing input file.")]
@@ -162,43 +160,56 @@ fn compile(args: &Arguments) -> Result<()> {
     Ok(())
 }
 
-fn main() {
+#[derive(Debug, thiserror::Error)]
+enum SeccompilerError {
+    #[error("Argument Parsing Error: {0}")]
+    ArgParsing(ArgParserError),
+    #[error("{0} \n\nFor more information try --help.")]
+    InvalidArgumentValue(Error),
+    #[error("{0}")]
+    Error(Error),
+}
+
+fn main() -> core::result::Result<(), SeccompilerError> {
+    let result = main_exec();
+    if let Err(e) = result {
+        eprintln!("{}", e);
+        Err(e)
+    } else {
+        Ok(())
+    }
+}
+
+fn main_exec() -> core::result::Result<(), SeccompilerError> {
     let mut arg_parser = build_arg_parser();
 
-    if let Err(err) = arg_parser.parse_from_cmdline() {
-        eprintln!(
-            "Arguments parsing error: {} \n\nFor more information try --help.",
-            err
-        );
-        process::exit(EXIT_CODE_ERROR);
-    }
+    arg_parser
+        .parse_from_cmdline()
+        .map_err(SeccompilerError::ArgParsing)?;
 
     if arg_parser.arguments().flag_present("help") {
         println!("Seccompiler-bin v{}\n", SECCOMPILER_VERSION);
         println!("{}", arg_parser.formatted_help());
-        return;
+        return Ok(());
     }
     if arg_parser.arguments().flag_present("version") {
         println!("Seccompiler-bin v{}\n", SECCOMPILER_VERSION);
-        return;
+        return Ok(());
     }
 
-    let args = get_argument_values(arg_parser.arguments()).unwrap_or_else(|err| {
-        eprintln!("{} \n\nFor more information try --help.", err);
-        process::exit(EXIT_CODE_ERROR);
-    });
+    let args = get_argument_values(arg_parser.arguments())
+        .map_err(SeccompilerError::InvalidArgumentValue)?;
 
-    if let Err(err) = compile(&args) {
-        eprintln!("Seccompiler error: {}", err);
-        process::exit(EXIT_CODE_ERROR);
-    }
+    compile(&args).map_err(SeccompilerError::Error)?;
 
     println!("Filter successfully compiled into: {}", args.output_file);
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
+
     use std::io;
     use std::io::Write;
     use std::path::PathBuf;
