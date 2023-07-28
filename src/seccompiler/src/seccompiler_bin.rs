@@ -46,7 +46,7 @@ mod syscall_table;
 use backend::{TargetArch, TargetArchError};
 use bincode::Error as BincodeError;
 use common::BpfProgram;
-use compiler::{Compiler, Error as FilterFormatError, JsonFile};
+use compiler::{CompilationError, Compiler, JsonFile};
 use serde_json::error::Error as JSONError;
 use utils::arg_parser::{ArgParser, Argument, Arguments as ArgumentsBag, Error as ArgParserError};
 
@@ -54,11 +54,11 @@ const SECCOMPILER_VERSION: &str = env!("FIRECRACKER_VERSION");
 const DEFAULT_OUTPUT_FILENAME: &str = "seccomp_binary_filter.out";
 
 #[derive(Debug, thiserror::Error)]
-enum Error {
+enum SeccompError {
     #[error("Bincode (de)serialization failed: {0}")]
     Bincode(BincodeError),
     #[error("{0}")]
-    FileFormat(FilterFormatError),
+    Compilation(CompilationError),
     #[error("{}", format!("Failed to open file {:?}: {1}", .0, .1).replace('\"', ""))]
     FileOpen(PathBuf, std::io::Error),
     #[error("Error parsing JSON: {0}")]
@@ -70,8 +70,6 @@ enum Error {
     #[error("{0}")]
     Arch(#[from] TargetArchError),
 }
-
-type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, PartialEq)]
 struct Arguments {
@@ -111,16 +109,16 @@ fn build_arg_parser() -> ArgParser<'static> {
         ))
 }
 
-fn get_argument_values(arguments: &ArgumentsBag) -> Result<Arguments> {
+fn get_argument_values(arguments: &ArgumentsBag) -> Result<Arguments, SeccompError> {
     let arch_string = arguments.single_value("target-arch");
     if arch_string.is_none() {
-        return Err(Error::MissingTargetArch);
+        return Err(SeccompError::MissingTargetArch);
     }
     let target_arch: TargetArch = arch_string.unwrap().as_str().try_into()?;
 
     let input_file = arguments.single_value("input-file");
     if input_file.is_none() {
-        return Err(Error::MissingInputFile);
+        return Err(SeccompError::MissingInputFile);
     }
 
     let is_basic = arguments.flag_present("basic");
@@ -140,22 +138,23 @@ fn get_argument_values(arguments: &ArgumentsBag) -> Result<Arguments> {
     })
 }
 
-fn compile(args: &Arguments) -> Result<()> {
+fn compile(args: &Arguments) -> Result<(), SeccompError> {
     let input_file = File::open(&args.input_file)
-        .map_err(|err| Error::FileOpen(PathBuf::from(&args.input_file), err))?;
+        .map_err(|err| SeccompError::FileOpen(PathBuf::from(&args.input_file), err))?;
     let mut input_reader = BufReader::new(input_file);
-    let filters = serde_json::from_reader::<_, JsonFile>(&mut input_reader).map_err(Error::Json)?;
+    let filters =
+        serde_json::from_reader::<_, JsonFile>(&mut input_reader).map_err(SeccompError::Json)?;
     let compiler = Compiler::new(args.target_arch);
 
     // transform the IR into a Map of BPFPrograms
     let bpf_data: BTreeMap<String, BpfProgram> = compiler
         .compile_blob(filters.0, args.is_basic)
-        .map_err(Error::FileFormat)?;
+        .map_err(SeccompError::Compilation)?;
 
     // serialize the BPF programs & output them to a file
     let output_file = File::create(&args.output_file)
-        .map_err(|err| Error::FileOpen(PathBuf::from(&args.output_file), err))?;
-    bincode::serialize_into(output_file, &bpf_data).map_err(Error::Bincode)?;
+        .map_err(|err| SeccompError::FileOpen(PathBuf::from(&args.output_file), err))?;
+    bincode::serialize_into(output_file, &bpf_data).map_err(SeccompError::Bincode)?;
 
     Ok(())
 }
@@ -165,9 +164,9 @@ enum SeccompilerError {
     #[error("Argument Parsing Error: {0}")]
     ArgParsing(ArgParserError),
     #[error("{0} \n\nFor more information try --help.")]
-    InvalidArgumentValue(Error),
+    InvalidArgumentValue(SeccompError),
     #[error("{0}")]
-    Error(Error),
+    Error(SeccompError),
 }
 
 fn main() -> core::result::Result<(), SeccompilerError> {
@@ -217,9 +216,10 @@ mod tests {
     use bincode::Error as BincodeError;
     use utils::tempfile::TempFile;
 
-    use super::compiler::Error as FilterFormatError;
+    use super::compiler::CompilationError as FilterFormatError;
     use super::{
-        build_arg_parser, compile, get_argument_values, Arguments, Error, DEFAULT_OUTPUT_FILENAME,
+        build_arg_parser, compile, get_argument_values, Arguments, SeccompError,
+        DEFAULT_OUTPUT_FILENAME,
     };
     use crate::backend::{TargetArch, TargetArchError};
 
@@ -327,7 +327,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Error::Bincode(BincodeError::new(bincode::ErrorKind::SizeLimit))
+                SeccompError::Bincode(BincodeError::new(bincode::ErrorKind::SizeLimit))
             ),
             format!(
                 "Bincode (de)serialization failed: {}",
@@ -337,7 +337,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Error::FileFormat(FilterFormatError::SyscallName(
+                SeccompError::Compilation(FilterFormatError::SyscallName(
                     "dsaa".to_string(),
                     TargetArch::aarch64
                 ))
@@ -350,7 +350,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Error::FileOpen(path.clone(), io::Error::from_raw_os_error(2))
+                SeccompError::FileOpen(path.clone(), io::Error::from_raw_os_error(2))
             ),
             format!(
                 "Failed to open file {:?}: {}",
@@ -362,7 +362,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Error::Json(serde_json::from_str::<serde_json::Value>("").unwrap_err())
+                SeccompError::Json(serde_json::from_str::<serde_json::Value>("").unwrap_err())
             ),
             format!(
                 "Error parsing JSON: {}",
@@ -370,17 +370,17 @@ mod tests {
             )
         );
         assert_eq!(
-            format!("{}", Error::MissingInputFile),
+            format!("{}", SeccompError::MissingInputFile),
             "Missing input file."
         );
         assert_eq!(
-            format!("{}", Error::MissingTargetArch),
+            format!("{}", SeccompError::MissingTargetArch),
             "Missing target arch."
         );
         assert_eq!(
             format!(
                 "{}",
-                Error::Arch(TargetArchError::InvalidString("lala".to_string()))
+                SeccompError::Arch(TargetArchError::InvalidString("lala".to_string()))
             ),
             format!("{}", TargetArchError::InvalidString("lala".to_string()))
         );
@@ -538,7 +538,7 @@ mod tests {
             };
 
             match compile(&args).unwrap_err() {
-                Error::FileOpen(buf, _) => assert_eq!(buf, PathBuf::from(in_file.as_path())),
+                SeccompError::FileOpen(buf, _) => assert_eq!(buf, PathBuf::from(in_file.as_path())),
                 _ => panic!("Expected FileOpen error."),
             }
         }
