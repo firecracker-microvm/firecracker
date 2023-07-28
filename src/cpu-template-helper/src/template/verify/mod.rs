@@ -19,7 +19,7 @@ pub use x86_64::verify;
 
 #[rustfmt::skip]
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum VerifyError {
     #[error("{0} not found in CPU configuration.")]
     KeyNotFound(String),
     #[error("Value for {0} mismatched.\n{1}")]
@@ -34,7 +34,7 @@ pub enum Error {
 pub fn verify_common<K, V>(
     template: HashMap<K, RegisterValueFilter<V>>,
     config: HashMap<K, RegisterValueFilter<V>>,
-) -> Result<(), Error>
+) -> Result<(), VerifyError>
 where
     K: ModifierMapKey + Debug,
     V: Numeric + Debug,
@@ -42,13 +42,13 @@ where
     for (key, template_value_filter) in template {
         let config_value_filter = config
             .get(&key)
-            .ok_or(Error::KeyNotFound(key.to_string()))?;
+            .ok_or(VerifyError::KeyNotFound(key.to_string()))?;
 
         let template_value = template_value_filter.value & template_value_filter.filter;
         let config_value = config_value_filter.value & template_value_filter.filter;
 
         if template_value != config_value {
-            return Err(Error::ValueMismatched(
+            return Err(VerifyError::ValueMismatched(
                 key.to_string(),
                 V::to_diff_string(template_value, config_value),
             ));
