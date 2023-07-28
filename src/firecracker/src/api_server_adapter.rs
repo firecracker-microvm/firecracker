@@ -1,7 +1,7 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::io::prelude::*;
+use std::io::Write;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
@@ -9,7 +9,7 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use api_server::{ApiServer, ServerError};
+use api_server::{ApiServer, HttpServer, ServerError};
 use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
 use logger::{error, warn, ProcessTimeReporter};
 use seccompiler::BpfThreadMap;
@@ -151,39 +151,37 @@ pub(crate) fn run_with_api(
     // Channels for both directions between Vmm and Api threads.
     let (to_vmm, from_api) = channel();
     let (to_api, from_vmm) = channel();
-    let (socket_ready_sender, socket_ready_receiver) = channel();
 
     let to_vmm_event_fd = api_event_fd
         .try_clone()
         .expect("Failed to clone API event FD");
-    let api_bind_path = bind_path.clone();
     let api_seccomp_filter = seccomp_filters
         .remove("api")
         .expect("Missing seccomp filter for API thread.");
+
+    let server = match HttpServer::new(&bind_path) {
+        Ok(s) => s,
+        Err(ServerError::IOError(inner)) if inner.kind() == std::io::ErrorKind::AddrInUse => {
+            let sock_path = bind_path.display().to_string();
+            return Err(ApiServerError::FailedToBindSocket(sock_path));
+        }
+        Err(err) => {
+            return Err(ApiServerError::FailedToBindAndRunHttpServer(err));
+        }
+    };
 
     // Start the separate API thread.
     let api_thread = thread::Builder::new()
         .name("fc_api".to_owned())
         .spawn(move || {
-            match ApiServer::new(to_vmm, from_vmm, to_vmm_event_fd).bind_and_run(
-                &api_bind_path,
+            ApiServer::new(to_vmm, from_vmm, to_vmm_event_fd).run(
+                server,
                 process_time_reporter,
                 &api_seccomp_filter,
                 api_payload_limit,
-                socket_ready_sender,
-            ) {
-                Ok(_) => Ok(()),
-                Err(api_server::Error::ServerCreation(ServerError::IOError(inner)))
-                    if inner.kind() == std::io::ErrorKind::AddrInUse =>
-                {
-                    let sock_path = api_bind_path.display().to_string();
-                    Err(ApiServerError::FailedToBindSocket(sock_path))
-                }
-                Err(api_server::Error::ServerCreation(err)) => {
-                    Err(ApiServerError::FailedToBindAndRunHttpServer(err))
-                }
-            }
-        });
+            );
+        })
+        .expect("API thread spawn failed.");
 
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
 
@@ -242,20 +240,13 @@ pub(crate) fn run_with_api(
     // conditions.
 
     // We also need to make sure the socket path is ready.
-    // The recv will return an error if the other end has already exited which means
-    // that there is no need for us to send the "shutdown internal".
-    let mut sock;
-    if socket_ready_receiver.recv() == Ok(true) {
-        // "sock" var is declared outside of this "if" scope so that the socket's fd stays
-        // alive until all bytes are sent through; otherwise fd will close before being flushed.
-        sock = UnixStream::connect(bind_path).unwrap();
-        sock.write_all(b"PUT /shutdown-internal HTTP/1.1\r\n\r\n")
-            .unwrap();
-    }
+    let mut sock = UnixStream::connect(bind_path).unwrap();
+    sock.write_all(b"PUT /shutdown-internal HTTP/1.1\r\n\r\n")
+        .unwrap();
 
     // This call to thread::join() should block until the API thread has processed the
     // shutdown-internal and returns from its function.
-    api_thread.unwrap().join().unwrap()?;
+    api_thread.join().expect("Api thread should join");
 
     match result {
         Ok(exit_code) => Err(ApiServerError::MicroVMStoppedWithoutError(exit_code)),
