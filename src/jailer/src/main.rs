@@ -5,7 +5,7 @@ use std::ffi::{CString, NulError, OsString};
 use std::fmt::{Debug, Display};
 use std::os::unix::prelude::AsRawFd;
 use std::path::{Path, PathBuf};
-use std::{env as p_env, fs, io, result};
+use std::{env as p_env, fs, io};
 
 use utils::arg_parser::{ArgParser, Argument, Error as ParsingError};
 use utils::syscall::SyscallReturnCode;
@@ -21,7 +21,7 @@ mod resource_limits;
 const JAILER_VERSION: &str = env!("FIRECRACKER_VERSION");
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum JailerError {
     #[error("Failed to parse arguments: {0}")]
     ArgumentParsing(ParsingError),
     #[error("{}", format!("Failed to canonicalize path {:?}: {}", .0, .1).replace('\"', ""))]
@@ -144,8 +144,6 @@ pub enum Error {
     Write(PathBuf, io::Error),
 }
 
-pub type Result<T> = result::Result<T, Error>;
-
 /// Create an ArgParser object which contains info about the command line argument parser and
 /// populate it with the expected arguments and their characteristics.
 pub fn build_arg_parser() -> ArgParser<'static> {
@@ -227,18 +225,18 @@ pub fn build_arg_parser() -> ArgParser<'static> {
 
 // It's called writeln_special because we have to use this rather convoluted way of writing
 // to special cgroup files, to avoid getting errors. It would be nice to know why that happens :-s
-pub fn writeln_special<T, V>(file_path: &T, value: V) -> Result<()>
+pub fn writeln_special<T, V>(file_path: &T, value: V) -> Result<(), JailerError>
 where
     T: AsRef<Path> + Debug,
     V: Display + Debug,
 {
     fs::write(file_path, format!("{}\n", value))
-        .map_err(|err| Error::Write(PathBuf::from(file_path.as_ref()), err))
+        .map_err(|err| JailerError::Write(PathBuf::from(file_path.as_ref()), err))
 }
 
-pub fn readln_special<T: AsRef<Path> + Debug>(file_path: &T) -> Result<String> {
+pub fn readln_special<T: AsRef<Path> + Debug>(file_path: &T) -> Result<String, JailerError> {
     let mut line = fs::read_to_string(file_path)
-        .map_err(|err| Error::ReadToString(PathBuf::from(file_path.as_ref()), err))?;
+        .map_err(|err| JailerError::ReadToString(PathBuf::from(file_path.as_ref()), err))?;
 
     // Remove the newline character at the end (if any).
     line.pop();
@@ -246,7 +244,7 @@ pub fn readln_special<T: AsRef<Path> + Debug>(file_path: &T) -> Result<String> {
     Ok(line)
 }
 
-fn close_fds_by_close_range() -> Result<()> {
+fn close_fds_by_close_range() -> Result<(), JailerError> {
     // First try using the close_range syscall to close all open FDs in the range of 3..UINT_MAX
     // SAFETY: if the syscall is not available then ENOSYS will be returned
     SyscallReturnCode(unsafe {
@@ -258,10 +256,10 @@ fn close_fds_by_close_range() -> Result<()> {
         )
     } as libc::c_int)
     .into_empty_result()
-    .map_err(Error::CloseRange)
+    .map_err(JailerError::CloseRange)
 }
 
-fn close_fds_by_reading_proc() -> Result<()> {
+fn close_fds_by_reading_proc() -> Result<(), JailerError> {
     // Calling this method means that close_range failed (we might be on kernel < 5.9).
     // We can't use std::fs::ReadDir here as under the hood we need access to the dirfd in order to
     // not close it twice
@@ -271,14 +269,14 @@ fn close_fds_by_reading_proc() -> Result<()> {
         nix::fcntl::OFlag::O_DIRECTORY | nix::fcntl::OFlag::O_NOATIME,
         nix::sys::stat::Mode::empty(),
     )
-    .map_err(|e| Error::DirOpen(path.to_string(), e.to_string()))?;
+    .map_err(|e| JailerError::DirOpen(path.to_string(), e.to_string()))?;
 
     let dirfd = dir.as_raw_fd();
     let mut c = dir.iter();
 
     while let Some(Ok(path)) = c.next() {
         let file_name = path.file_name();
-        let fd_str = file_name.to_str().map_err(Error::UTF8Parsing)?;
+        let fd_str = file_name.to_str().map_err(JailerError::UTF8Parsing)?;
 
         // If the entry is an INT entry, we go ahead and we treat it as an FD identifier.
         if let Ok(fd) = fd_str.parse::<i32>() {
@@ -292,7 +290,7 @@ fn close_fds_by_reading_proc() -> Result<()> {
 }
 
 // Closes all FDs other than 0 (STDIN), 1 (STDOUT) and 2 (STDERR)
-fn close_inherited_fds() -> Result<()> {
+fn close_inherited_fds() -> Result<(), JailerError> {
     // The approach we take here is to firstly try to use the close_range syscall
     // which is available on kernels > 5.9.
     // We then fallback to using /proc/sef/fd to close open fds.
@@ -302,7 +300,7 @@ fn close_inherited_fds() -> Result<()> {
     Ok(())
 }
 
-fn sanitize_process() -> Result<()> {
+fn sanitize_process() -> Result<(), JailerError> {
     // First thing to do is make sure we don't keep any inherited FDs
     // other that IN, OUT and ERR.
     close_inherited_fds()?;
@@ -324,17 +322,17 @@ fn clean_env_vars() {
 /// Turns an AsRef<Path> into a CString (c style string).
 /// The expect should not fail, since Linux paths only contain valid Unicode chars (do they?),
 /// and do not contain null bytes (do they?).
-pub fn to_cstring<T: AsRef<Path> + Debug>(path: T) -> Result<CString> {
+pub fn to_cstring<T: AsRef<Path> + Debug>(path: T) -> Result<CString, JailerError> {
     let path_str = path
         .as_ref()
         .to_path_buf()
         .into_os_string()
         .into_string()
-        .map_err(|err| Error::OsStringParsing(path.as_ref().to_path_buf(), err))?;
-    CString::new(path_str).map_err(Error::CStringParsing)
+        .map_err(|err| JailerError::OsStringParsing(path.as_ref().to_path_buf(), err))?;
+    CString::new(path_str).map_err(JailerError::CStringParsing)
 }
 
-fn main() -> std::result::Result<(), Error> {
+fn main() -> Result<(), JailerError> {
     let result = main_exec();
     if let Err(e) = result {
         eprintln!("{}", e);
@@ -344,14 +342,14 @@ fn main() -> std::result::Result<(), Error> {
     }
 }
 
-fn main_exec() -> std::result::Result<(), Error> {
+fn main_exec() -> Result<(), JailerError> {
     sanitize_process()
         .unwrap_or_else(|err| panic!("Failed to sanitize the Jailer process: {}", err));
 
     let mut arg_parser = build_arg_parser();
     arg_parser
         .parse_from_cmdline()
-        .map_err(Error::ArgumentParsing)?;
+        .map_err(JailerError::ArgumentParsing)?;
     let arguments = arg_parser.arguments();
 
     if arguments.flag_present("help") {
@@ -373,7 +371,7 @@ fn main_exec() -> std::result::Result<(), Error> {
     )
     .and_then(|env| {
         fs::create_dir_all(env.chroot_dir())
-            .map_err(|err| Error::CreateDir(env.chroot_dir().to_owned(), err))?;
+            .map_err(|err| JailerError::CreateDir(env.chroot_dir().to_owned(), err))?;
         env.run()
     })
     .unwrap_or_else(|err| panic!("Jailer error: {}", err));
@@ -393,7 +391,7 @@ mod tests {
 
     use super::*;
 
-    fn run_close_fds_test(test_fn: fn() -> Result<()>) {
+    fn run_close_fds_test(test_fn: fn() -> Result<(), JailerError>) {
         let n = 100;
 
         let tmp_dir_path = format!(
