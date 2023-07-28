@@ -11,8 +11,6 @@ mod fingerprint;
 mod template;
 mod utils;
 
-const EXIT_CODE_ERROR: i32 = 1;
-
 #[derive(Debug, thiserror::Error)]
 enum Error {
     #[error("Failed to operate file: {0}")]
@@ -182,12 +180,14 @@ fn run(cli: Cli) -> Result<()> {
     Ok(())
 }
 
-fn main() {
+fn main() -> Result<()> {
     let cli = Cli::parse();
-
-    if let Err(e) = run(cli) {
-        eprintln!("Error: {}", e);
-        std::process::exit(EXIT_CODE_ERROR);
+    let result = run(cli);
+    if let Err(e) = result {
+        eprintln!("{}", e);
+        Err(e)
+    } else {
+        Ok(())
     }
 }
 
