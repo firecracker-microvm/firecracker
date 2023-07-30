@@ -1,7 +1,6 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -13,45 +12,30 @@ use crate::devices::virtio::{Balloon, BalloonConfig};
 type MutexBalloon = Arc<Mutex<Balloon>>;
 
 /// Errors associated with the operations allowed on the balloon.
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, derive_more::From, thiserror::Error)]
 pub enum BalloonConfigError {
     /// The user made a request on an inexistent balloon device.
+    #[error("No balloon device found.")]
     DeviceNotFound,
     /// Device not activated yet.
+    #[error("Device is inactive, check if balloon driver is enabled in guest kernel.")]
     DeviceNotActive,
     /// The user tried to enable/disable the statistics after boot.
+    #[error("Cannot enable/disable the statistics after boot.")]
     InvalidStatsUpdate,
     /// Amount of pages requested is too large.
+    #[error("Amount of pages requested is too large.")]
     TooManyPagesRequested,
     /// The user polled the statistics of a balloon device that
     /// does not have the statistics enabled.
+    #[error("Statistics for the balloon device are not enabled")]
     StatsNotFound,
     /// Failed to create a balloon device.
+    #[error("Error creating the balloon device: {0:?}")]
     CreateFailure(crate::devices::virtio::balloon::BalloonError),
     /// Failed to update the configuration of the ballon device.
+    #[error("Error updating the balloon device configuration: {0:?}")]
     UpdateFailure(std::io::Error),
-}
-
-impl fmt::Display for BalloonConfigError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> std::fmt::Result {
-        use self::BalloonConfigError::*;
-        match self {
-            DeviceNotFound => write!(f, "No balloon device found."),
-            DeviceNotActive => write!(
-                f,
-                "Device is inactive, check if balloon driver is enabled in guest kernel."
-            ),
-            InvalidStatsUpdate => write!(f, "Cannot enable/disable the statistics after boot."),
-            TooManyPagesRequested => write!(f, "Amount of pages requested is too large."),
-            StatsNotFound => write!(f, "Statistics for the balloon device are not enabled"),
-            CreateFailure(err) => write!(f, "Error creating the balloon device: {:?}", err),
-            UpdateFailure(err) => write!(
-                f,
-                "Error updating the balloon device configuration: {:?}",
-                err
-            ),
-        }
-    }
 }
 
 /// This struct represents the strongly typed equivalent of the json body
@@ -203,32 +187,6 @@ pub(crate) mod tests {
         });
 
         assert_eq!(expected_balloon_config, actual_balloon_config);
-    }
-
-    #[test]
-    fn test_error_messages() {
-        use std::io;
-
-        use super::BalloonConfigError::*;
-        let err = CreateFailure(crate::devices::virtio::balloon::BalloonError::EventFd(
-            io::Error::from_raw_os_error(0),
-        ));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = UpdateFailure(io::Error::from_raw_os_error(0));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = DeviceNotFound;
-        let _ = format!("{}{:?}", err, err);
-
-        let err = InvalidStatsUpdate;
-        let _ = format!("{}{:?}", err, err);
-
-        let err = TooManyPagesRequested;
-        let _ = format!("{}{:?}", err, err);
-
-        let err = StatsNotFound;
-        let _ = format!("{}{:?}", err, err);
     }
 
     #[test]
