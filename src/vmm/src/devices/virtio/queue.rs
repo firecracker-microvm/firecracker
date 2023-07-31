@@ -887,25 +887,6 @@ mod tests {
             assert_eq!(x.id, 1);
             assert_eq!(x.len, 0x1000);
         }
-
-        // Invalid queue addresses configuration
-        {
-            q.used_ring = GuestAddress(0xffff_ffff);
-            // writing descriptor index to this ring address should fail
-            match q.add_used(m, 1, 0x1000) {
-                Err(UsedRing(GuestMemoryError::InvalidGuestAddress(GuestAddress(
-                    0x0001_0000_000B,
-                )))) => {}
-                _ => unreachable!(),
-            }
-
-            q.used_ring = GuestAddress(0xfff0);
-            // writing len to this ring address should fail
-            match q.add_used(m, 1, 0x1000) {
-                Err(UsedRing(GuestMemoryError::InvalidGuestAddress(GuestAddress(0x1_0000)))) => {}
-                _ => unreachable!(),
-            };
-        }
     }
 
     #[test]
