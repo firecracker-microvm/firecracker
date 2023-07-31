@@ -1062,6 +1062,12 @@ pub(crate) mod tests {
     fn test_process_balloon_queues() {
         let mut balloon = Balloon::new(0x10, true, 0, false).unwrap();
         let mem = default_mem();
+        let infq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        let defq = VirtQueue::new(GuestAddress(0), &mem, 16);
+
+        balloon.set_queue(INFLATE_INDEX, infq.create_queue());
+        balloon.set_queue(DEFLATE_INDEX, defq.create_queue());
+
         balloon.activate(mem).unwrap();
         balloon.process_virtio_queues()
     }
