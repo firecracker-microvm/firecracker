@@ -622,6 +622,10 @@ impl VirtioDevice for Block {
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
     }
+
+    fn can_update_interrupt_status(&self) -> bool {
+        true
+    }
 }
 
 impl Drop for Block {

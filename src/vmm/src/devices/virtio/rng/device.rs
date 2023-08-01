@@ -295,6 +295,10 @@ impl VirtioDevice for Entropy {
         self.device_state = DeviceState::Activated(mem);
         Ok(())
     }
+
+    fn can_update_interrupt_status(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]

@@ -567,6 +567,10 @@ mod tests {
         fn is_activated(&self) -> bool {
             false
         }
+
+        fn can_update_interrupt_status(&self) -> bool {
+            true
+        }
     }
 
     #[test]

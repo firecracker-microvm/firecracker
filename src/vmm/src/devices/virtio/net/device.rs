@@ -845,6 +845,10 @@ impl VirtioDevice for Net {
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
     }
+
+    fn can_update_interrupt_status(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]

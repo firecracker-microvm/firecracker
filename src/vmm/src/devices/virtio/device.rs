@@ -177,6 +177,12 @@ pub trait VirtioDevice: AsAny + Send {
     fn reset(&mut self) -> Option<(EventFd, Vec<EventFd>)> {
         None
     }
+
+    /// Returns true if the device is able to update the InterruptStatus
+    /// register.
+    /// vhost-user devices using MMIO bus cannot do that, so we always keep
+    /// the vring interrupt status set to 1.
+    fn can_update_interrupt_status(&self) -> bool;
 }
 
 impl fmt::Debug for dyn VirtioDevice {
@@ -285,6 +291,10 @@ pub(crate) mod tests {
         }
 
         fn is_activated(&self) -> bool {
+            todo!()
+        }
+
+        fn can_update_interrupt_status(&self) -> bool {
             todo!()
         }
     }
