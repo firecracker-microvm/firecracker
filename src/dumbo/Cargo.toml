@@ -13,7 +13,7 @@ bitflags = "1.3.2"
 derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
 
 logger = { path = "../logger" }
-micro_http = { git = "https://github.com/firecracker-microvm/micro-http", rev = "4b18a04" }
+micro_http = { git = "https://github.com/firecracker-microvm/micro-http", rev = "969c234efe25e4a995d109e16f2ca51b73c4a455" }
 utils = { path = "../utils" }
 
 [dev-dependencies]

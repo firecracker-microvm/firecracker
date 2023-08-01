@@ -386,7 +386,10 @@ impl<'a> PrebootApiController<'a> {
                 .map_err(BuildMicrovmFromRequestsError::ConsumeApiToken)?;
 
             // Process the request.
-            let res = match preboot_controller.handle_preboot_request(*req) {
+            let result = preboot_controller.handle_preboot_request(*req);
+            dbg!(&result);
+            
+            let res = match result {
                 // We consider these errors fatal and that the boot process can no longer continue.
                 Err(HandlePrebootRequestError::LoadSnapshot(
                     LoadSnapshotError::RestoreFromSnapshot(err),
@@ -400,10 +403,14 @@ impl<'a> PrebootApiController<'a> {
                 Err(err) => Ok(Err(VmmActionError::HandlePrebootRequest(err))),
             }?;
 
+            dbg!(&res);
+
             // Send back the response.
             to_api
                 .send(Box::new(res))
                 .map_err(BuildMicrovmFromRequestsError::Respond)?;
+
+            dbg!("two");
         }
 
         // Safe to unwrap because previous loop cannot end on None.
@@ -419,6 +426,8 @@ impl<'a> PrebootApiController<'a> {
     ) -> Result<VmmData, HandlePrebootRequestError> {
         use self::VmmAction::*;
         type Err = HandlePrebootRequestError;
+
+        dbg!("BRUV GOT HERE");
 
         match request {
             // Supported operations allowed pre-boot.
@@ -470,7 +479,13 @@ impl<'a> PrebootApiController<'a> {
                     .map(|()| VmmData::Empty)
                     .map_err(Err::InsertNetDevice)
             }
-            LoadSnapshot(config) => self.load_snapshot(&config).map_err(Err::LoadSnapshot),
+            LoadSnapshot(config) => {
+                let temp = self.load_snapshot(&config);
+                
+                dbg!("bruh");
+                
+                temp.map_err(Err::LoadSnapshot)
+            },
             PatchMMDS(value) => self
                 .patch_mmds(value)
                 .map(|()| VmmData::Empty)
@@ -553,6 +568,8 @@ impl<'a> PrebootApiController<'a> {
         &mut self,
         load_params: &LoadSnapshotParams,
     ) -> Result<VmmData, LoadSnapshotError> {
+        dbg!("here 2");
+
         log_dev_preview_warning("Virtual machine snapshots", Option::None);
 
         let load_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
@@ -563,9 +580,13 @@ impl<'a> PrebootApiController<'a> {
             return Err(err);
         }
 
+        dbg!("here 3");
+
         if load_params.enable_diff_snapshots {
             self.vm_resources.set_track_dirty_pages(true);
         }
+
+        dbg!("here 4");
 
         // Restore VM from snapshot
         // If restore fails, we consider the process is too dirty to recover.
@@ -576,8 +597,13 @@ impl<'a> PrebootApiController<'a> {
             load_params,
             VERSION_MAP.clone(),
             self.vm_resources,
-        )
-        .map_err(LoadSnapshotError::RestoreFromSnapshot)?;
+        );
+        dbg!("!bruh");
+
+        let vmm = vmm.map_err(LoadSnapshotError::RestoreFromSnapshot)?;
+
+        dbg!("here 5");
+
         // Resume VM
         // If resume fails, we consider the process is too dirty to recover.
         if load_params.resume_vm {
@@ -586,8 +612,13 @@ impl<'a> PrebootApiController<'a> {
                 .resume_vm()
                 .map_err(LoadSnapshotError::ResumeMicrovm)?;
         }
+
+        dbg!("here 6");
+
         // Set the VM
         self.built_vmm = Some(vmm);
+
+        dbg!("here 7");
 
         log_dev_preview_warning(
             "Virtual machine snapshots",

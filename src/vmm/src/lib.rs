@@ -342,12 +342,27 @@ pub enum DumpCpuConfigError {
     NotAllowed(String),
 }
 
+/// Due to event managers inability to return errors, this error types is used as a workaround.
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum RunMicrovmError {
+    /// Error when attempting `event_receiver.recv()` in running a vcpu.
+    #[error("Error when attempting `event_receiver.recv()` in running a vcpu.")]
+    UnhandledVcpuRunningExit,
+    /// Error when attempting `event_receiver.recv()` in pausing a vcpu.
+    #[error("Error when attempting `event_receiver.recv()` in pausing a vcpu.")]
+    UnhandledVcpuPauseExit,
+    /// Emulation errors lead to vCPU exit.
+    #[error("Emulation errors lead to vCPU exit.")]
+    RunEmulation,
+}
+
 /// Contains the state and associated methods required for the Firecracker VMM.
 #[derive(Debug)]
 pub struct Vmm {
     events_observer: Option<std::io::Stdin>,
     instance_info: InstanceInfo,
-    shutdown_exit_code: Option<FcExitCode>,
+    /// Result used to coordinate shutdown (it needs to be stored here due to limitations in event manager)
+    pub shutdown_result: Option<std::result::Result<(), RunMicrovmError>>,
 
     // Guest VM core resources.
     vm: Vm,
@@ -378,8 +393,8 @@ impl Vmm {
     }
 
     /// Provides the Vmm shutdown exit code if there is one.
-    pub fn shutdown_exit_code(&self) -> Option<FcExitCode> {
-        self.shutdown_exit_code
+    pub fn shutdown_result(&self) -> &Option<std::result::Result<(), RunMicrovmError>> {
+        &self.shutdown_result
     }
 
     /// Gets the specified bus device.
@@ -858,8 +873,23 @@ impl Vmm {
         }
     }
 
+    /// Follows same steps as `stop` except only mutates `self.shutdown_result` if it is `None` in which case it sets it to `Some(Ok(()))`.
+    pub fn stop_ok(&mut self) {
+        info!("Vmm is stopping.");
+        for (idx, handle) in self.vcpus_handles.iter().enumerate() {
+            if let Err(err) = handle.send_event(VcpuEvent::Finish) {
+                error!("Failed to send VcpuEvent::Finish to vCPU {}: {}", idx, err);
+            }
+        }
+        self.vcpus_handles.clear();
+
+        if self.shutdown_result.is_none() {
+            self.shutdown_result = Some(Ok(()));
+        }
+    }
+
     /// Signals Vmm to stop and exit.
-    pub fn stop(&mut self, exit_code: FcExitCode) {
+    pub fn stop(&mut self, shutdown_result: Result<(), RunMicrovmError>) {
         // To avoid cycles, all teardown paths take the following route:
         //   +------------------------+----------------------------+------------------------+
         //   |        Vmm             |           Action           |           Vcpu         |
@@ -871,11 +901,11 @@ impl Vmm {
         // 5 |                        | --- VcpuEvent::Finish ---> |                        |
         // 6 |                        |                            | StateMachine::finish() |
         // 7 | VcpuHandle::join()     |                            |                        |
-        // 8 | vmm.shutdown_exit_code becomes Some(exit_code) breaking the main event loop  |
+        // 8 | vmm.shutdown_result becomes Some(exit_code) breaking the main event loop  |
         //   +------------------------+----------------------------+------------------------+
         // Vcpu initiated teardown starts from `fn Vcpu::exit()` (step 1).
         // Vmm initiated teardown starts from `pub fn Vmm::stop()` (step 4).
-        // Once `vmm.shutdown_exit_code` becomes `Some(exit_code)`, it is the upper layer's
+        // Once `vmm.shutdown_result` becomes `Some(exit_code)`, it is the upper layer's
         // responsibility to break main event loop and propagate the exit code value.
         info!("Vmm is stopping.");
 
@@ -894,7 +924,7 @@ impl Vmm {
         self.vcpus_handles.clear();
 
         // Break the main event loop, propagating the Vmm exit-code.
-        self.shutdown_exit_code = Some(exit_code);
+        self.shutdown_result = Some(shutdown_result);
     }
 }
 
@@ -946,7 +976,7 @@ impl Drop for Vmm {
         // and joins the vcpu threads. The Vmm is dropped after everything is
         // ready to be teared down. The line below is a no-op, because the Vmm
         // has already been stopped by the event manager at this point.
-        self.stop(self.shutdown_exit_code.unwrap_or(FcExitCode::Ok));
+        self.stop_ok();
 
         if let Some(observer) = self.events_observer.as_mut() {
             let res = observer.lock().set_canon_mode().map_err(|err| {
@@ -995,7 +1025,7 @@ impl MutEventSubscriber for Vmm {
                     }
                 }
             }
-            self.stop(exit_code.unwrap_or(FcExitCode::Ok));
+            self.stop(exit_code.unwrap_or(Ok(())));
         } else {
             error!("Spurious EventManager event for handler: Vmm");
         }

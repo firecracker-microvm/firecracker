@@ -220,7 +220,7 @@ fn create_vmm_and_vcpus(
     let vmm = Vmm {
         events_observer: Some(std::io::stdin()),
         instance_info: instance_info.clone(),
-        shutdown_exit_code: None,
+        shutdown_result: None,
         vm,
         guest_memory,
         uffd,
@@ -435,9 +435,12 @@ pub fn build_microvm_from_snapshot(
     seccomp_filters: &BpfThreadMap,
     vm_resources: &mut VmResources,
 ) -> Result<Arc<Mutex<Vmm>>, BuildMicrovmFromSnapshotError> {
+    dbg!("zsxkd 1");
     let vcpu_count = u8::try_from(microvm_state.vcpu_states.len()).map_err(|_| {
         BuildMicrovmFromSnapshotError::TooManyVCPUs(microvm_state.vcpu_states.len())
     })?;
+
+    dbg!("zsxkd 2");
 
     // Build Vmm.
     let (mut vmm, vcpus) = create_vmm_and_vcpus(
@@ -448,6 +451,8 @@ pub fn build_microvm_from_snapshot(
         track_dirty_pages,
         vcpu_count,
     )?;
+
+    dbg!("zsxkd 3");
 
     #[cfg(target_arch = "x86_64")]
     {
@@ -463,6 +468,8 @@ pub fn build_microvm_from_snapshot(
         }
     }
 
+    dbg!("zsxkd 4");
+
     #[cfg(target_arch = "aarch64")]
     {
         let mpidrs = construct_kvm_mpidrs(&microvm_state.vcpu_states);
@@ -470,9 +477,13 @@ pub fn build_microvm_from_snapshot(
         vmm.vm.restore_state(&mpidrs, &microvm_state.vm_state)?;
     }
 
+    dbg!("zsxkd 5");
+
     // Restore kvm vm state.
     #[cfg(target_arch = "x86_64")]
     vmm.vm.restore_state(&microvm_state.vm_state)?;
+
+    dbg!("zsxkd 6");
 
     vm_resources.update_vm_config(&MachineConfigUpdate {
         vcpu_count: Some(vcpu_count),
@@ -482,8 +493,12 @@ pub fn build_microvm_from_snapshot(
         track_dirty_pages: Some(track_dirty_pages),
     })?;
 
+    dbg!("zsxkd 7");
+
     // Restore the boot source config paths.
     vm_resources.set_boot_source_config(microvm_state.vm_info.boot_source);
+
+    dbg!("zsxkd 8");
 
     // Restore devices states.
     let mmio_ctor_args = MMIODevManagerConstructorArgs {
@@ -495,10 +510,14 @@ pub fn build_microvm_from_snapshot(
         instance_id: &instance_info.id,
     };
 
+    dbg!("zsxkd 9");
+
     vmm.mmio_device_manager =
         MMIODeviceManager::restore(mmio_ctor_args, &microvm_state.device_states)
             .map_err(MicrovmStateError::RestoreDevices)?;
     vmm.emulate_serial_init()?;
+
+    dbg!("zsxkd 10");
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
     vmm.start_vcpus(
@@ -509,11 +528,17 @@ pub fn build_microvm_from_snapshot(
             .clone(),
     )?;
 
+    dbg!("zsxkd 11");
+
     // Restore vcpus kvm state.
     vmm.restore_vcpu_states(microvm_state.vcpu_states)?;
 
+    dbg!("zsxkd 12");
+
     let vmm = Arc::new(Mutex::new(vmm));
     event_manager.add_subscriber(vmm.clone());
+
+    dbg!("zsxkd 13");
 
     // Load seccomp filters for the VMM thread.
     // Keep this as the last step of the building process.
@@ -522,6 +547,8 @@ pub fn build_microvm_from_snapshot(
             .get("vmm")
             .ok_or(BuildMicrovmFromSnapshotError::MissingVmmSeccompFilters)?,
     )?;
+
+    dbg!("zsxkd 14");
 
     Ok(vmm)
 }
@@ -1088,7 +1115,7 @@ pub mod tests {
         Vmm {
             events_observer: Some(std::io::stdin()),
             instance_info: InstanceInfo::default(),
-            shutdown_exit_code: None,
+            shutdown_result: None,
             vm,
             guest_memory,
             uffd: None,

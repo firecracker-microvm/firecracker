@@ -467,16 +467,16 @@ pub fn snapshot_state_sanity_check(
 pub enum RestoreFromSnapshotError {
     /// Failed to get snapshot state from file.
     #[error("Failed to get snapshot state from file: {0}")]
-    File(#[from] SnapshotStateFromFileError),
+    File(SnapshotStateFromFileError),
     /// Invalid snapshot state.
     #[error("Invalid snapshot state: {0}")]
-    Invalid(#[from] SnapShotStateSanityCheckError),
+    Invalid(SnapShotStateSanityCheckError),
     /// Failed to load guest memory
     #[error("Failed to load guest memory: {0}")]
-    GuestMemory(#[from] RestoreFromSnapshotGuestMemoryError),
+    GuestMemory(RestoreFromSnapshotGuestMemoryError),
     /// Failed to build microVM from snapshot.
     #[error("Failed to build microVM from snapshot: {0}")]
-    Build(#[from] BuildMicrovmFromSnapshotError),
+    Build(BuildMicrovmFromSnapshotError),
 }
 /// Sub-Error type for [`restore_from_snapshot`] to contain either [`GuestMemoryFromFileError`] or
 /// [`GuestMemoryFromUffdError`] within [`RestoreFromSnapshotError`].
@@ -499,22 +499,33 @@ pub fn restore_from_snapshot(
     version_map: VersionMap,
     vm_resources: &mut VmResources,
 ) -> Result<Arc<Mutex<Vmm>>, RestoreFromSnapshotError> {
-    let microvm_state = snapshot_state_from_file(&params.snapshot_path, version_map)?;
+    dbg!("aba 1");
+
+    let microvm_state = snapshot_state_from_file(&params.snapshot_path, version_map)
+        .map_err(RestoreFromSnapshotError::File)?;
+
+    dbg!("aba 2");
 
     // Some sanity checks before building the microvm.
-    snapshot_state_sanity_check(&microvm_state)?;
+    snapshot_state_sanity_check(&microvm_state).map_err(RestoreFromSnapshotError::Invalid)?;
+
+    dbg!("aba 3");
 
     let mem_backend_path = &params.mem_backend.backend_path;
     let mem_state = &microvm_state.memory_state;
     let track_dirty_pages = params.enable_diff_snapshots;
 
+    dbg!("aba 4");
+
     let (guest_memory, uffd) = match params.mem_backend.backend_type {
         MemBackendType::File => (
             guest_memory_from_file(mem_backend_path, mem_state, track_dirty_pages)
-                .map_err(RestoreFromSnapshotGuestMemoryError::File)?,
+                .map_err(RestoreFromSnapshotGuestMemoryError::File)
+                .map_err(RestoreFromSnapshotError::GuestMemory)?,
             None,
         ),
-        MemBackendType::Uffd => guest_memory_from_uffd(
+        MemBackendType::Uffd => {
+            let temp = guest_memory_from_uffd(
             mem_backend_path,
             mem_state,
             track_dirty_pages,
@@ -522,8 +533,18 @@ pub fn restore_from_snapshot(
             // is present in the microVM state.
             microvm_state.device_states.balloon_device.is_some(),
         )
-        .map_err(RestoreFromSnapshotGuestMemoryError::Uffd)?,
+        .map_err(RestoreFromSnapshotGuestMemoryError::Uffd)
+        .map_err(RestoreFromSnapshotError::GuestMemory);
+
+        dbg!(&temp);
+
+        temp?
+
+        },
     };
+
+    dbg!("aba 5");
+
     builder::build_microvm_from_snapshot(
         instance_info,
         event_manager,
@@ -610,9 +631,12 @@ fn guest_memory_from_uffd(
     track_dirty_pages: bool,
     enable_balloon: bool,
 ) -> Result<(GuestMemoryMmap, Option<Uffd>), GuestMemoryFromUffdError> {
+    dbg!("sadk 1");
     let guest_memory = GuestMemoryMmap::restore(None, mem_state, track_dirty_pages)?;
 
     let mut uffd_builder = UffdBuilder::new();
+
+    dbg!("sadk 2");
 
     if enable_balloon {
         // We enable this so that the page fault handler can add logic
@@ -620,11 +644,15 @@ fn guest_memory_from_uffd(
         uffd_builder.require_features(FeatureFlags::EVENT_REMOVE);
     }
 
+    dbg!("sadk 3");
+
     let uffd = uffd_builder
         .close_on_exec(true)
         .non_blocking(true)
         .create()
         .map_err(GuestMemoryFromUffdError::Create)?;
+
+    dbg!("sadk 4");
 
     let mut backend_mappings = Vec::with_capacity(guest_memory.num_regions());
     for (mem_region, state_region) in guest_memory.iter().zip(mem_state.regions.iter()) {
@@ -640,11 +668,18 @@ fn guest_memory_from_uffd(
         });
     }
 
+    dbg!("sadk 5");
+
     // This is safe to unwrap() because we control the contents of the vector
     // (i.e GuestRegionUffdMapping entries).
     let backend_mappings = serde_json::to_string(&backend_mappings).unwrap();
 
+    dbg!("sadk 6");
+
     let socket = UnixStream::connect(mem_uds_path)?;
+
+    dbg!("sadk 6.1");
+
     socket.send_with_fd(
         backend_mappings.as_bytes(),
         // In the happy case we can close the fd since the other process has it open and is
@@ -679,6 +714,8 @@ fn guest_memory_from_uffd(
         // uffd will still be alive but with no one to serve faults, leading to guest freeze.
         uffd.as_raw_fd(),
     )?;
+
+    dbg!("sadk 7");
 
     Ok((guest_memory, Some(uffd)))
 }

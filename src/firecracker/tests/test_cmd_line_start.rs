@@ -3,7 +3,7 @@
 
 use std::io::Write;
 use std::process::{Command, Stdio};
-use std::sync::OnceLock;
+use tokio::sync::OnceCell;
 
 use utils::tempfile::TempFile;
 
@@ -16,24 +16,25 @@ const ARCH: &str = "aarch64";
 use std::time::Duration;
 
 /// Returns reference to temporary file with kernel image.
-fn kernel() -> &'static TempFile {
-    static KERNEL: OnceLock<TempFile> = OnceLock::new();
-    KERNEL.get_or_init(|| {
+async fn kernel() -> &'static TempFile {
+    static KERNEL: OnceCell<TempFile> = OnceCell::const_new();
+    async fn init() -> TempFile {
         let file = TempFile::new().unwrap();
         assert_eq!(file.as_file().metadata().unwrap().len(), 0);
 
         let url = format!(
             "https://s3.amazonaws.com/spec.ccfc.min/ci-artifacts/kernels/{ARCH}/vmlinux-5.10.bin"
         );
-        let bytes = reqwest::blocking::get(url).unwrap().bytes().unwrap();
+        let bytes = reqwest::get(url).await.unwrap().bytes().await.unwrap();
         file.as_file().write_all(&bytes).unwrap();
         file
-    })
+    }
+    KERNEL.get_or_init(init).await
 }
 /// Returns reference to temporary file with rootfs.
-fn rootfs() -> &'static TempFile {
-    static ROOTFS: OnceLock<TempFile> = OnceLock::new();
-    ROOTFS.get_or_init(|| {
+async fn rootfs() -> &'static TempFile {
+    static ROOTFS: OnceCell<TempFile> = OnceCell::const_new();
+    async fn init() -> TempFile {
         let file = TempFile::new().unwrap();
         assert_eq!(file.as_file().metadata().unwrap().len(), 0);
 
@@ -41,17 +42,20 @@ fn rootfs() -> &'static TempFile {
         let url = format!(
             "https://s3.amazonaws.com/spec.ccfc.min/ci-artifacts/disks/{ARCH}/ubuntu-18.04.ext4"
         );
-        let client = reqwest::blocking::Client::new();
+        let client = reqwest::Client::new();
         let bytes = client
             .get(url)
             .timeout(Duration::from_secs(120))
             .send()
+            .await
             .unwrap()
             .bytes()
+            .await
             .unwrap();
         file.as_file().write_all(&bytes).unwrap();
         file
-    })
+    }
+    ROOTFS.get_or_init(init).await
 }
 
 #[test]
@@ -177,10 +181,10 @@ fn test_start_with_invalid_metadata() {
 }
 
 // Test microvm start when the `machine_config` is invalid.
-#[test]
-fn test_config_bad_machine_config_missing_vcpu_count() {
-    let kernel_str = kernel().as_path().as_os_str().to_str().unwrap();
-    let rootfs_str = rootfs().as_path().as_os_str().to_str().unwrap();
+#[tokio::test]
+async fn test_config_bad_machine_config_missing_vcpu_count() {
+    let kernel_str = kernel().await.as_path().as_os_str().to_str().unwrap();
+    let rootfs_str = rootfs().await.as_path().as_os_str().to_str().unwrap();
 
     // Create temp json file with bad config.
     let config = format!(
@@ -225,10 +229,10 @@ fn test_config_bad_machine_config_missing_vcpu_count() {
 }
 
 // Test microvm start when the `machine_config` is invalid.
-#[test]
-fn test_config_bad_machine_config_missing_mem_size_mib() {
-    let kernel_str = kernel().as_path().as_os_str().to_str().unwrap();
-    let rootfs_str = rootfs().as_path().as_os_str().to_str().unwrap();
+#[tokio::test]
+async fn test_config_bad_machine_config_missing_mem_size_mib() {
+    let kernel_str = kernel().await.as_path().as_os_str().to_str().unwrap();
+    let rootfs_str = rootfs().await.as_path().as_os_str().to_str().unwrap();
 
     // Create temp json file with bad config.
     let config = format!(
@@ -273,10 +277,10 @@ fn test_config_bad_machine_config_missing_mem_size_mib() {
 }
 
 // Test microvm start with optional `machine_config` parameters.
-#[test]
-fn test_config_machine_config_params_cpu_template_c3() {
-    let kernel_str = kernel().as_path().as_os_str().to_str().unwrap();
-    let rootfs_str = rootfs().as_path().as_os_str().to_str().unwrap();
+#[tokio::test]
+async fn test_config_machine_config_params_cpu_template_c3() {
+    let kernel_str = kernel().await.as_path().as_os_str().to_str().unwrap();
+    let rootfs_str = rootfs().await.as_path().as_os_str().to_str().unwrap();
 
     // Writes configuration to temporary file.
     let config = format!(
@@ -384,10 +388,10 @@ fn test_config_machine_config_params_cpu_template_c3() {
 }
 
 // Test microvm start with optional `machine_config` parameters.
-#[test]
-fn test_config_machine_config_params_smt_true() {
-    let kernel_str = kernel().as_path().as_os_str().to_str().unwrap();
-    let rootfs_str = rootfs().as_path().as_os_str().to_str().unwrap();
+#[tokio::test]
+async fn test_config_machine_config_params_smt_true() {
+    let kernel_str = kernel().await.as_path().as_os_str().to_str().unwrap();
+    let rootfs_str = rootfs().await.as_path().as_os_str().to_str().unwrap();
 
     // Writes configuration to temporary file.
     let config = format!(

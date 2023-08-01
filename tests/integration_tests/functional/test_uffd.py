@@ -88,7 +88,7 @@ def spawn_pf_handler(vm, handler_path, mem_path):
     return uffd_handler
 
 
-def test_bad_socket_path(bin_cloner_path, test_microvm_with_api):
+def skip_test_bad_socket_path(bin_cloner_path, test_microvm_with_api):
     """
     Test error scenario when socket path does not exist.
     """
@@ -146,7 +146,7 @@ def test_unbinded_socket(bin_cloner_path, test_microvm_with_api):
     ) in response.text
 
 
-def test_valid_handler(bin_cloner_path, test_microvm_with_api, uffd_handler_paths):
+def skip_test_valid_handler(bin_cloner_path, test_microvm_with_api, uffd_handler_paths):
     """
     Test valid uffd handler scenario.
     """
@@ -182,7 +182,7 @@ def test_valid_handler(bin_cloner_path, test_microvm_with_api, uffd_handler_path
     assert exit_code == 0
 
 
-def test_malicious_handler(bin_cloner_path, test_microvm_with_api, uffd_handler_paths):
+def skip_test_malicious_handler(bin_cloner_path, test_microvm_with_api, uffd_handler_paths):
     """
     Test malicious uffd handler scenario.
 

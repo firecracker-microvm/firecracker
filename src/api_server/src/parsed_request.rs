@@ -260,7 +260,7 @@ pub(crate) fn method_to_error(method: Method) -> Result<ParsedRequest, Error> {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum Error {
+pub enum Error {
     // The resource ID is empty.
     #[error("The ID cannot be empty.")]
     EmptyID,

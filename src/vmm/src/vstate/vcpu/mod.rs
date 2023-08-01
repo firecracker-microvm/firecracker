@@ -289,9 +289,14 @@ impl Vcpu {
                 // - vCPU0 will always exit out of `KVM_RUN` with KVM_EXIT_SHUTDOWN or KVM_EXIT_HLT.
                 // - the other vCPUs won't ever exit out of `KVM_RUN`, but they won't consume CPU.
                 // So we pause vCPU0 and send a signal to the emulation thread to stop the VMM.
-                Ok(VcpuEmulation::Stopped) => return self.exit(FcExitCode::Ok),
+                Ok(VcpuEmulation::Stopped) => return self.exit(Ok(())),
                 // Emulation errors lead to vCPU exit.
-                Err(_) => return self.exit(FcExitCode::GenericError),
+                Err(err) => {
+                    // Due to cascading design limitations of event manager we cannot properly
+                    // propagate errors here, to work around this for now we log the error.
+                    log::error!("Emulation errors lead to vCPU exit: {err}");
+                    return self.exit(Err(crate::RunMicrovmError::RunEmulation));
+                },
             }
         }
 
@@ -338,7 +343,7 @@ impl Vcpu {
             // Unhandled exit of the other end.
             Err(TryRecvError::Disconnected) => {
                 // Move to 'exited' state.
-                state = self.exit(FcExitCode::GenericError);
+                state = self.exit(Err(crate::RunMicrovmError::UnhandledVcpuRunningExit));
             }
             // All other events or lack thereof have no effect on current 'running' state.
             Err(TryRecvError::Empty) => (),
@@ -418,13 +423,13 @@ impl Vcpu {
             // Unhandled exit of the other end.
             Err(_) => {
                 // Move to 'exited' state.
-                self.exit(FcExitCode::GenericError)
+                self.exit(Err(crate::RunMicrovmError::UnhandledVcpuPauseExit))
             }
         }
     }
 
     // Transition to the exited state and finish on command.
-    fn exit(&mut self, exit_code: FcExitCode) -> StateMachine<Self> {
+    fn exit(&mut self, exit_result: Result<(), crate::RunMicrovmError>) -> StateMachine<Self> {
         // To avoid cycles, all teardown paths take the following route:
         // +------------------------+----------------------------+------------------------+
         // |        Vmm             |           Action           |           Vcpu         |
@@ -436,11 +441,11 @@ impl Vcpu {
         // 5 |                        | --- VcpuEvent::Finish ---> |                        |
         // 6 |                        |                            | StateMachine::finish() |
         // 7 | VcpuHandle::join()     |                            |                        |
-        // 8 | vmm.shutdown_exit_code becomes Some(exit_code) breaking the main event loop  |
+        // 8 | vmm.shutdown_result becomes Some(exit_code) breaking the main event loop  |
         // +------------------------+----------------------------+------------------------+
         // Vcpu initiated teardown starts from `fn Vcpu::exit()` (step 1).
         // Vmm initiated teardown starts from `pub fn Vmm::stop()` (step 4).
-        // Once `vmm.shutdown_exit_code` becomes `Some(exit_code)`, it is the upper layer's
+        // Once `vmm.shutdown_result` becomes `Some(exit_code)`, it is the upper layer's
         // responsibility to break main event loop and propagate the exit code value.
         // Signal Vmm of Vcpu exit.
         if let Err(err) = self.exit_evt.write(1) {
@@ -448,10 +453,10 @@ impl Vcpu {
             error!("Failed signaling vcpu exit event: {}", err);
         }
         // From this state we only accept going to finished.
+        self.response_sender
+            .send(VcpuResponse::Exited(exit_result))
+            .expect("vcpu channel unexpectedly closed");
         loop {
-            self.response_sender
-                .send(VcpuResponse::Exited(exit_code))
-                .expect("vcpu channel unexpectedly closed");
             // Wait for and only accept 'VcpuEvent::Finish'.
             if let Ok(VcpuEvent::Finish) = self.event_receiver.recv() {
                 break;
@@ -604,7 +609,7 @@ pub enum VcpuResponse {
     /// Requested action encountered an error.
     Error(VcpuError),
     /// Vcpu is stopped.
-    Exited(FcExitCode),
+    Exited(std::result::Result<(), crate::RunMicrovmError>),
     /// Requested action not allowed.
     NotAllowed(String),
     /// Vcpu is paused.

@@ -48,7 +48,7 @@ fn test_build_and_boot_microvm() {
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 
     assert_eq!(
-        vmm.lock().unwrap().shutdown_exit_code(),
+        vmm.lock().unwrap().shutdown_result(),
         Some(FcExitCode::Ok)
     );
 }
@@ -68,7 +68,7 @@ fn test_build_microvm() {
     #[cfg(target_arch = "aarch64")]
     vmm.lock().unwrap().stop(FcExitCode::Ok);
     assert_eq!(
-        vmm.lock().unwrap().shutdown_exit_code(),
+        vmm.lock().unwrap().shutdown_result(),
         Some(FcExitCode::Ok)
     );
 }

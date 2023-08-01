@@ -96,6 +96,8 @@ enum MainError {
 }
 
 fn main() -> Result<(), MainError> {
+    dbg!("started");
+
     LOGGER
         .configure(Some(DEFAULT_INSTANCE_ID.to_string()))
         .expect("Failed to register logger");
@@ -375,6 +377,8 @@ fn main() -> Result<(), MainError> {
         })
         .unwrap_or_else(|| api_payload_limit);
 
+    dbg!("got here");
+
     if api_enabled {
         let bind_path = arguments
             .single_value("api-sock")
@@ -529,10 +533,10 @@ fn build_microvm_from_json(
 
 #[derive(Debug, thiserror::Error)]
 enum RunWithoutApiError {
-    #[error("MicroVMStopped without an error: {0:?}")]
-    Shutdown(FcExitCode),
     #[error("Failed to build MicroVM from Json: {0:?}")]
     BuildMicroVMFromJson(#[from] BuildMicrovmFromJsonError),
+    #[error("Error in shutdown.")]
+    Shutdown(vmm::RunMicrovmError)
 }
 
 fn run_without_api(
@@ -542,7 +546,7 @@ fn run_without_api(
     bool_timer_enabled: bool,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
-) -> Result<(), RunWithoutApiError> {
+) -> std::result::Result<(), RunWithoutApiError> {
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
 
     // Create the firecracker metrics object responsible for periodically printing metrics.
@@ -573,8 +577,8 @@ fn run_without_api(
             .run()
             .expect("Failed to start the event manager");
 
-        if let Some(exit_code) = vmm.lock().unwrap().shutdown_exit_code() {
-            return Err(RunWithoutApiError::Shutdown(exit_code));
+        if let Some(result) = vmm.lock().unwrap().shutdown_result() {
+            return result.clone().map_err(RunWithoutApiError::Shutdown);
         }
     }
 }

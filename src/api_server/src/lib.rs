@@ -54,6 +54,54 @@ pub struct ApiServer {
     shutdown_flag: bool,
 }
 
+/// Error type for [`ApiServer::bind_and_run`]
+#[derive(Debug, thiserror::Error)]
+pub enum BindAndRunError {
+    /// todo
+    #[error("{0}")]
+    HttpServer(ServerError),
+    /// No one to signal that the socket path is ready
+    #[error("No one to signal that the socket path is ready: {0}")]
+    SocketReady(std::sync::mpsc::SendError<bool>),
+    /// Failed to set the requested seccomp filters on the API thread
+    #[error("Failed to set the requested seccomp filters on the API thread: {0}")]
+    Seccomp(seccompiler::InstallationError),
+    /// todo
+    #[error("{0}")]
+    StartServer(ServerError),
+    /// todo
+    #[error("{0}")]
+    OuterResponse(HandleRequestError),
+    /// todo
+    #[error("{0}")]
+    InnerResponse(ServerError),
+}
+
+/// Error type for [`ApiServer::handle_request`]
+#[derive(Debug, thiserror::Error)]
+pub enum HandleRequestError {
+    /// Failed to parse request
+    #[error("Failed to parse request: {0}")]
+    ParseRequest(parsed_request::Error),
+    /// Failed to serve vmm action request
+    #[error("Failed to serve vmm action request: {0}")]
+    ServeVmmActionRequest(ServeVmmActionRequestError),
+}
+
+/// Error type for [`ApiServer::serve_vmm_action_request`]
+#[derive(Debug, thiserror::Error)]
+pub enum ServeVmmActionRequestError {
+    /// Failed to send VMM message
+    #[error("Failed to send VMM message: {0}")]
+    Send(std::sync::mpsc::SendError<Box<VmmAction>>),
+    /// Cannot update send VMM fd
+    #[error("Cannot update send VMM fd: {0}")]
+    ToVmmFd(std::io::Error),
+    /// VMM disconnected
+    #[error("VMM disconnected: {0}")]
+    Receive(std::sync::mpsc::RecvError),
+}
+
 impl ApiServer {
     /// Constructor for `ApiServer`.
     ///
@@ -149,15 +197,18 @@ impl ApiServer {
         seccomp_filter: BpfProgramRef,
         api_payload_limit: usize,
         socket_ready: mpsc::Sender<bool>,
-    ) -> Result<()> {
-        let mut server = HttpServer::new(path).map_err(ServerCreation)?;
+        exit_eventfd: EventFd,
+    ) -> std::result::Result<(), BindAndRunError> {
+        dbg!("hit this specific");
+        let mut server = HttpServer::new(path).map_err(BindAndRunError::HttpServer)?;
+        server.add_kill_switch(exit_eventfd).unwrap();
 
         // Announce main thread that the socket path was created.
         // As per the doc, "A send operation can only fail if the receiving end of a channel is
         // disconnected". so this means that the main thread has exited.
         socket_ready
             .send(true)
-            .expect("No one to signal that the socket path is ready!");
+            .map_err(BindAndRunError::SocketReady)?;
         // Set the api payload size limit.
         server.set_payload_max_size(api_payload_limit);
 
@@ -169,50 +220,48 @@ impl ApiServer {
         // Load seccomp filters on the API thread.
         // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
         // altogether is the desired behaviour.
-        if let Err(err) = seccompiler::apply_filter(seccomp_filter) {
-            panic!(
-                "Failed to set the requested seccomp filters on the API thread: {}",
-                err
-            );
-        }
+        seccompiler::apply_filter(seccomp_filter).map_err(BindAndRunError::Seccomp)?;
 
-        server.start_server().expect("Cannot start HTTP server");
+        server.start_server().map_err(BindAndRunError::StartServer);
+
+        dbg!("hit this specific 2");
 
         loop {
             let request_vec = match server.requests() {
                 Ok(vec) => vec,
-                Err(err) => {
-                    // print request error, but keep server running
-                    error!("API Server error on retrieving incoming request: {}", err);
-                    continue;
-                }
-            };
-            for server_request in request_vec {
-                let request_processing_start_us =
-                    utils::time::get_time_us(utils::time::ClockType::Monotonic);
-                server
-                    .respond(
-                        // Use `self.handle_request()` as the processing callback.
-                        server_request.process(|request| {
-                            self.handle_request(request, request_processing_start_us)
-                        }),
-                    )
-                    .or_else(|err| {
-                        error!("API Server encountered an error on response: {}", err);
-                        Ok(())
-                    })?;
-
-                let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic)
-                    - request_processing_start_us;
-                debug!("Total previous API call duration: {} us.", delta_us);
-
-                if self.shutdown_flag {
+                Err(ServerError::ShutdownEvent) => {
                     server.flush_outgoing_writes();
                     debug!(
                         "/shutdown-internal request received, API server thread now ending itself"
                     );
                     return Ok(());
                 }
+                Err(err) => {
+                    // print request error, but keep server running
+                    error!("API Server error on retrieving incoming request: {}", err);
+                    continue;
+                }
+            };
+
+            dbg!("hit this specific 3");
+
+            for server_request in request_vec {
+                dbg!("hit this specific 4");
+                let request_processing_start_us =
+                    utils::time::get_time_us(utils::time::ClockType::Monotonic);
+                
+                // Use `self.handle_request()` as the processing callback.
+                let process_result = server_request.try_process(|request| {
+                    self.handle_request(request, request_processing_start_us)
+                });
+                let response_result = server
+                    .try_respond(process_result)
+                    .map_err(BindAndRunError::OuterResponse)?;
+                let response = response_result.map_err(BindAndRunError::InnerResponse)?;
+
+                let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic)
+                    - request_processing_start_us;
+                debug!("Total previous API call duration: {} us.", delta_us);
             }
         }
     }
@@ -222,36 +271,34 @@ impl ApiServer {
         &mut self,
         request: &Request,
         request_processing_start_us: u64,
-    ) -> Response {
-        match ParsedRequest::try_from(request).map(|r| r.into_parts()) {
-            Ok((req_action, mut parsing_info)) => {
-                let mut response = match req_action {
-                    RequestAction::Sync(vmm_action) => {
-                        self.serve_vmm_action_request(vmm_action, request_processing_start_us)
-                    }
-                    RequestAction::ShutdownInternal => {
-                        self.shutdown_flag = true;
-                        Response::new(Version::Http11, StatusCode::NoContent)
-                    }
-                };
-                if let Some(message) = parsing_info.take_deprecation_message() {
-                    warn!("{}", message);
-                    response.set_deprecation();
-                }
-                response
+    ) -> std::result::Result<Response, HandleRequestError> {
+        dbg!("hit this specific 5");
+
+        let request = ParsedRequest::try_from(request).map_err(HandleRequestError::ParseRequest)?;
+        let (req_action, mut parsing_info) = request.into_parts();
+
+        let mut response = match req_action {
+            RequestAction::Sync(vmm_action) => self
+                .serve_vmm_action_request(vmm_action, request_processing_start_us)
+                .map_err(HandleRequestError::ServeVmmActionRequest)?,
+            RequestAction::ShutdownInternal => {
+                self.shutdown_flag = true;
+                Response::new(Version::Http11, StatusCode::NoContent)
             }
-            Err(err) => {
-                error!("{:?}", err);
-                err.into()
-            }
+        };
+        if let Some(message) = parsing_info.take_deprecation_message() {
+            warn!("{}", message);
+            response.set_deprecation();
         }
+        Ok(response)
     }
 
     fn serve_vmm_action_request(
         &mut self,
         vmm_action: Box<VmmAction>,
         request_processing_start_us: u64,
-    ) -> Response {
+    ) -> std::result::Result<Response, ServeVmmActionRequestError> {
+        dbg!("hit this specific 6");
         let metric_with_action = match *vmm_action {
             VmmAction::CreateSnapshot(ref params) => match params.snapshot_type {
                 SnapshotType::Full => Some((
@@ -273,9 +320,14 @@ impl ApiServer {
 
         self.api_request_sender
             .send(vmm_action)
-            .expect("Failed to send VMM message");
-        self.to_vmm_fd.write(1).expect("Cannot update send VMM fd");
-        let vmm_outcome = *(self.vmm_response_receiver.recv().expect("VMM disconnected"));
+            .map_err(ServeVmmActionRequestError::Send)?;
+        self.to_vmm_fd
+            .write(1)
+            .map_err(ServeVmmActionRequestError::ToVmmFd)?;
+        let vmm_outcome = *(self
+            .vmm_response_receiver
+            .recv()
+            .map_err(ServeVmmActionRequestError::Receive)?);
         let response = ParsedRequest::convert_to_response(&vmm_outcome);
 
         if vmm_outcome.is_ok() {
@@ -285,7 +337,7 @@ impl ApiServer {
                 info!("'{}' API request took {} us.", action, elapsed_time_us);
             }
         }
-        response
+        Ok(response)
     }
 
     /// An HTTP response which also includes a body.

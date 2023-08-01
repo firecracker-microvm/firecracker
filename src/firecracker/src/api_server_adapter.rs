@@ -41,7 +41,7 @@ impl ApiServerAdapter {
         vm_resources: VmResources,
         vmm: Arc<Mutex<Vmm>>,
         event_manager: &mut EventManager,
-    ) -> FcExitCode {
+    ) {
         let api_adapter = Arc::new(Mutex::new(Self {
             api_event_fd,
             from_api,
@@ -53,8 +53,8 @@ impl ApiServerAdapter {
             event_manager
                 .run()
                 .expect("EventManager events driver fatal error");
-            if let Some(exit_code) = vmm.lock().unwrap().shutdown_exit_code() {
-                return exit_code;
+            if let Some(result) = vmm.lock().unwrap().shutdown_result() {
+                return;
             }
         }
     }
@@ -119,17 +119,42 @@ impl MutEventSubscriber for ApiServerAdapter {
     }
 }
 
+/// Error type for [`run_with_api`].
 #[derive(Debug, thiserror::Error)]
 pub(super) enum RunWithApiError {
+    /// Cannot create API Eventfd
+    #[error("Cannot create API Eventfd: {0}")]
+    ApiEventFd(std::io::Error),
+    /// Failed to clone API event FD
+    #[error("Failed to clone API event FD: {0}")]
+    CloneApiEventFd(std::io::Error),
+    /// Missing seccomp filter for API thread
+    #[error("Missing seccomp filter for API thread: {0}")]
+    SeccompFilter(i32),
+    /// MicroVMStopped without an error
     #[error("MicroVMStopped without an error: {0:?}")]
     MicroVMStoppedWithoutError(FcExitCode),
+    /// Failed to bind and run API server
     #[error("Failed to bind and run API server: {0}")]
-    BindAndRun(api_server::Error),
+    BindAndRun(api_server::BindAndRunError),
+    /// Failed to build MicroVM from Json
     #[error("Failed to build MicroVM from Json: {0:?}")]
     BuildMicrovmFromJson(BuildMicrovmFromJsonError),
+    /// Failed to build microvm from requests
     #[error("Failed to build microvm from requests: {0}")]
     BuildMicrovmFromRequests(vmm::rpc_interface::BuildMicrovmFromRequestsError),
+    /// todo
+    #[error("{0}")]
+    ApiServerAdapter(vmm::RunMicrovmError),
+    /// Failed to create API exit eventfd.
+    #[error("Failed to create API exit eventfd: {0}")]
+    CreateApiExit(std::io::Error),
+    /// Failed to write to API exit eventfd.
+    #[error("Failed to write to API exit eventfd: {0}")]
+    WriteApiExit(std::io::Error),
 }
+
+
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_with_api(
@@ -146,7 +171,7 @@ pub(crate) fn run_with_api(
     // FD to notify of API events. This is a blocking eventfd by design.
     // It is used in the config/pre-boot loop which is a simple blocking loop
     // which only consumes API events.
-    let api_event_fd = EventFd::new(libc::EFD_SEMAPHORE).expect("Cannot create API Eventfd.");
+    let api_event_fd = EventFd::new(libc::EFD_SEMAPHORE).map_err(RunWithApiError::ApiEventFd)?;
 
     // Channels for both directions between Vmm and Api threads.
     let (to_vmm, from_api) = channel();
@@ -155,13 +180,14 @@ pub(crate) fn run_with_api(
 
     let to_vmm_event_fd = api_event_fd
         .try_clone()
-        .expect("Failed to clone API event FD");
+        .map_err(RunWithApiError::CloneApiEventFd)?;
     let api_bind_path = bind_path.clone();
     let api_seccomp_filter = seccomp_filters
         .remove("api")
         .expect("Missing seccomp filter for API thread.");
 
     // Start the separate API thread.
+    let api_exit = EventFd::new(0).map_err(RunWithApiError::CreateApiExit)?;
     let api_thread = thread::Builder::new()
         .name("fc_api".to_owned())
         .spawn(move || {
@@ -172,6 +198,7 @@ pub(crate) fn run_with_api(
                     &api_seccomp_filter,
                     api_payload_limit,
                     socket_ready_sender,
+                    api_exit,
                 )
                 .map_err(RunWithApiError::BindAndRun)
         });
@@ -183,7 +210,7 @@ pub(crate) fn run_with_api(
     event_manager.add_subscriber(firecracker_metrics.clone());
 
     // Configure, build and start the microVM.
-    let build_result = match config_json {
+    let (vm_resources, vmm) = match config_json {
         Some(json) => super::build_microvm_from_json(
             seccomp_filters,
             &mut event_manager,
@@ -206,50 +233,35 @@ pub(crate) fn run_with_api(
             metadata_json,
         )
         .map_err(RunWithApiError::BuildMicrovmFromRequests),
-    };
+    }?;
 
-    let result = build_result.map(|(vm_resources, vmm)| {
-        firecracker_metrics
-            .lock()
-            .expect("Poisoned lock")
-            .start(super::metrics::WRITE_METRICS_PERIOD_MS);
+    dbg!("here?asd 1");
 
-        ApiServerAdapter::run_microvm(
-            api_event_fd,
-            from_api,
-            to_api,
-            vm_resources,
-            vmm,
-            &mut event_manager,
-        )
-    });
+    firecracker_metrics
+        .lock()
+        .expect("Poisoned lock")
+        .start(super::metrics::WRITE_METRICS_PERIOD_MS);
 
-    // We want to tell the API thread to shut down for a clean exit. But this is after
-    // the Vmm.stop() has been called, so it's a moment of internal finalization (as
-    // opposed to be something the client might call to shut the Vm down).  Since it's
-    // an internal signal implementing it with an HTTP request is probably not the ideal
-    // way to do it...but having another way would involve multiplexing micro-http server
-    // with some other communication mechanism, or enhancing micro-http with exit
-    // conditions.
+    // Due to limitations in event manager `run_microvm` will exit when `shutdown_result` is set.
+    let api_sever_adapter = ApiServerAdapter::run_microvm(
+        api_event_fd,
+        from_api,
+        to_api,
+        vm_resources,
+        vmm,
+        &mut event_manager,
+    );
+    // We then propagate the possible error in `shutdown_result` by moving `vmm` out of the mutex.
+    let vmm = vmm.into_inner().unwrap();
+    vmm.shutdown_result.unwrap().map_err(RunWithApiError::ApiServerAdapter)?;
 
-    // We also need to make sure the socket path is ready.
-    // The recv will return an error if the other end has already exited which means
-    // that there is no need for us to send the "shutdown internal".
-    let mut sock;
-    if socket_ready_receiver.recv() == Ok(true) {
-        // "sock" var is declared outside of this "if" scope so that the socket's fd stays
-        // alive until all bytes are sent through; otherwise fd will close before being flushed.
-        sock = UnixStream::connect(bind_path).unwrap();
-        sock.write_all(b"PUT /shutdown-internal HTTP/1.1\r\n\r\n")
-            .unwrap();
-    }
+    api_exit.write(1).map_err(RunWithApiError::WriteApiExit)?;
+
+    dbg!("here?asd 2");
 
     // This call to thread::join() should block until the API thread has processed the
     // shutdown-internal and returns from its function.
     api_thread.unwrap().join().unwrap()?;
 
-    match result {
-        Ok(exit_code) => Err(RunWithApiError::MicroVMStoppedWithoutError(exit_code)),
-        Err(exit_error) => Err(exit_error),
-    }
+    Ok(())
 }
