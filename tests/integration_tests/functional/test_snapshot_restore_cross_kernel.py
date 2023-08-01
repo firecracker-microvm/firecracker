@@ -116,6 +116,7 @@ def _test_mmds(vm, mmds_net_iface):
     assert json.load(stdout) == data_store
 
 
+@pytest.mark.timeout(600)
 @pytest.mark.nonci
 @pytest.mark.parametrize(
     "cpu_template",
