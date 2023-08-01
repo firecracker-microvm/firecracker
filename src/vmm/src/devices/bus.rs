@@ -11,6 +11,7 @@ use std::cmp::{Ord, Ordering, PartialEq, PartialOrd};
 use std::collections::btree_map::BTreeMap;
 use std::sync::{Arc, Mutex};
 
+/// Errors triggered during bus operations.
 #[derive(Debug, thiserror::Error)]
 pub enum BusError {
     /// The insertion failed because the new device overlapped with an old device.
@@ -230,6 +231,7 @@ impl Bus {
         None
     }
 
+    /// Returns the device found at some address.
     pub fn get_device(&self, addr: u64) -> Option<(u64, &Mutex<BusDevice>)> {
         if let Some((BusRange(start, len), dev)) = self.first_before(addr) {
             let offset = addr - start;

@@ -11,8 +11,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "delta_percentage": 9.1,
-                                                    "target": 0.024
+                                                    "delta_percentage": 18.1,
+                                                    "target": 0.026
                                                 }
                                             }
                                         }
@@ -23,8 +23,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "delta_percentage": 9.1,
-                                                    "target": 0.025
+                                                    "delta_percentage": 12.1,
+                                                    "target": 0.026
                                                 }
                                             }
                                         }
@@ -147,8 +147,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "delta_percentage": 9.1,
-                                                    "target": 0.028
+                                                    "delta_percentage": 6.1,
+                                                    "target": 0.03
                                                 }
                                             }
                                         }
@@ -159,8 +159,8 @@
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "delta_percentage": 10.1,
-                                                    "target": 0.03
+                                                    "delta_percentage": 12.1,
+                                                    "target": 0.032
                                                 }
                                             }
                                         }

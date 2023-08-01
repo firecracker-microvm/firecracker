@@ -1,6 +1,7 @@
 [workspace]
 members = ["src/cpu-template-helper", "src/firecracker", "src/jailer", "src/rebase-snap", "src/seccompiler"]
 default-members = ["src/firecracker"]
+resolver = "2"
 
 [profile.dev]
 panic = "abort"

@@ -1148,7 +1148,8 @@ impl SerializeToUtcTimestampMs {
 impl Serialize for SerializeToUtcTimestampMs {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_i64(
-            utils::time::get_time_ns(utils::time::ClockType::Real) as i64 / 1_000_000,
+            i64::try_from(utils::time::get_time_ns(utils::time::ClockType::Real) / 1_000_000)
+                .unwrap(),
         )
     }
 }

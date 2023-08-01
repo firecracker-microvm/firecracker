@@ -285,7 +285,9 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), MptableE
         mpc_table.0.productid = MPC_PRODUCT_ID;
         mpc_table.0.lapic = APIC_DEFAULT_PHYS_BASE;
         checksum = checksum.wrapping_add(compute_checksum(&mpc_table.0));
-        mpc_table.0.checksum = (!checksum).wrapping_add(1) as i8;
+        #[allow(clippy::cast_possible_wrap)]
+        let checksum_final = (!checksum).wrapping_add(1) as i8;
+        mpc_table.0.checksum = checksum_final;
         mem.write_obj(mpc_table, table_base)
             .map_err(|_| MptableError::WriteMpcTable)?;
     }

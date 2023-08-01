@@ -33,6 +33,7 @@ from framework import utils
 from framework.defs import FC_PID_FILE_NAME, MAX_API_CALL_DURATION_MS
 from framework.http import Session
 from framework.jailer import JailerContext
+from framework.properties import global_props
 from framework.resources import (
     MMDS,
     Actions,
@@ -151,7 +152,7 @@ class Microvm:
         self._screen_pid = None
         self._screen_log = None
 
-        self.time_api_requests = True
+        self.time_api_requests = global_props.host_linux_version != "6.1"
 
         # Initalize memory monitor
         self.memory_monitor = None
@@ -213,12 +214,10 @@ class Microvm:
             self._validate_api_response_times()
 
         # Check if Firecracker was launched by the jailer in a new pid ns.
-        fc_pid_in_new_ns = self.pid_in_new_ns
-
-        if fc_pid_in_new_ns:
+        if self.jailer.new_pid_ns:
             # We need to explicitly kill the Firecracker pid, since it's
             # different from the jailer pid that was previously killed.
-            utils.run_cmd(f"kill -9 {fc_pid_in_new_ns}", ignore_return_code=True)
+            utils.run_cmd(f"kill -9 {self.pid_in_new_ns}", ignore_return_code=True)
 
         if self.memory_monitor:
             if self.memory_monitor.is_alive():
@@ -339,20 +338,18 @@ class Microvm:
         return json.loads(self.desc_inst.get().content)["started"]
 
     @property
+    @retry(delay=0.1, tries=5)
     def pid_in_new_ns(self):
         """Get the pid of the Firecracker process in the new namespace.
 
-        Returns None if Firecracker was not launched in a new pid ns.
+        Reads the pid from a file created by jailer with `--new-pid-ns` flag.
         """
-        fc_pid = None
+        # Check if the pid file exists.
+        pid_file_path = Path(f"{self.jailer.chroot_path()}/{FC_PID_FILE_NAME}")
+        assert pid_file_path.exists()
 
-        pid_file_path = f"{self.jailer.chroot_path()}/{FC_PID_FILE_NAME}"
-        if os.path.exists(pid_file_path):
-            # Read the PID stored inside the file.
-            with open(pid_file_path, encoding="utf-8") as file:
-                fc_pid = int(file.readline())
-
-        return fc_pid
+        # Read the PID stored inside the file.
+        return int(pid_file_path.read_text(encoding="ascii"))
 
     def flush_metrics(self, metrics_fifo):
         """Flush the microvm metrics.
@@ -509,8 +506,9 @@ class Microvm:
 
         jailer_param_list = self.jailer.construct_param_list()
 
-        # Checking the timings requires DEBUG level log messages
-        self.time_api_requests = log_level == "Debug"
+        if log_level != "Debug":
+            # Checking the timings requires DEBUG level log messages
+            self.time_api_requests = False
 
         # When the daemonize flag is on, we want to clone-exec into the
         # jailer rather than executing it via spawning a shell. Going
@@ -551,14 +549,14 @@ class Microvm:
         """Wait until the API socket and chroot folder are available."""
         os.stat(self.jailer.api_socket_path())
 
-    @retry(delay=0.1, tries=5)
+    @retry(delay=0.2, tries=5)
     def check_log_message(self, message):
         """Wait until `message` appears in logging output."""
         assert (
             message in self.log_data
         ), f'Message ("{message}") not found in log data ("{self.log_data}").'
 
-    @retry(delay=0.1, tries=5)
+    @retry(delay=0.2, tries=5)
     def check_any_log_message(self, messages):
         """Wait until any message in `messages` appears in logging output."""
         for message in messages:

@@ -90,9 +90,8 @@ impl EntropyDeviceBuilder {
 
 #[cfg(test)]
 mod tests {
-    use rate_limiter::RateLimiter;
-
     use super::*;
+    use crate::rate_limiter::RateLimiter;
 
     #[test]
     fn test_entropy_device_create() {

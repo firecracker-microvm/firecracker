@@ -222,10 +222,10 @@ impl BlockBuilder {
 
 #[cfg(test)]
 mod tests {
-    use rate_limiter::RateLimiter;
     use utils::tempfile::TempFile;
 
     use super::*;
+    use crate::rate_limiter::RateLimiter;
 
     impl PartialEq for DriveError {
         fn eq(&self, other: &DriveError) -> bool {

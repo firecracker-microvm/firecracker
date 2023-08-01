@@ -6,9 +6,7 @@
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use log::warn;
-use rate_limiter::persist::RateLimiterState;
-use rate_limiter::RateLimiter;
+use logger::warn;
 use snapshot::Persist;
 use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
@@ -19,11 +17,19 @@ use super::*;
 use crate::devices::virtio::block::device::FileEngineType;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::{DeviceState, TYPE_BLOCK};
+use crate::rate_limiter::persist::RateLimiterState;
+use crate::rate_limiter::RateLimiter;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Versionize)]
+/// Holds info about block's cache type. Gets saved in snapshot.
 // NOTICE: Any changes to this structure require a snapshot version bump.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Versionize)]
 pub enum CacheTypeState {
+    /// Flushing mechanic will be advertised to the guest driver, but
+    /// the operation will be a noop.
     Unsafe,
+    /// Flushing mechanic will be advertised to the guest driver and
+    /// flush requests coming from the guest will be performed using
+    /// `fsync`.
     Writeback,
 }
 
@@ -45,13 +51,16 @@ impl From<CacheTypeState> for CacheType {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Versionize)]
+/// Holds info about block's file engine type. Gets saved in snapshot.
 // NOTICE: Any changes to this structure require a snapshot version bump.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Versionize)]
 pub enum FileEngineTypeState {
+    /// Sync File Engine.
     // If the snap version does not contain the `FileEngineType`, it must have been snapshotted
     // on a VM using the Sync backend.
     #[default]
     Sync,
+    /// Async File Engine.
     Async,
 }
 
@@ -73,8 +82,9 @@ impl From<FileEngineTypeState> for FileEngineType {
     }
 }
 
-#[derive(Debug, Clone, Versionize)]
+/// Holds info about the block device. Gets saved in snapshot.
 // NOTICE: Any changes to this structure require a snapshot version bump.
+#[derive(Debug, Clone, Versionize)]
 pub struct BlockState {
     id: String,
     partuuid: Option<String>,
@@ -112,8 +122,10 @@ impl BlockState {
     }
 }
 
+/// Auxiliary structure for creating a device when resuming from a snapshot.
 #[derive(Debug)]
 pub struct BlockConstructorArgs {
+    /// Pointer to guest memory.
     pub mem: GuestMemoryMmap,
 }
 

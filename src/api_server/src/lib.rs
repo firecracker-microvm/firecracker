@@ -24,16 +24,11 @@ pub use micro_http::{
 use seccompiler::BpfProgramRef;
 use serde_json::json;
 use utils::eventfd::EventFd;
-use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
+use vmm::rpc_interface::{ApiRequest, ApiResponse, VmmAction, VmmData};
 use vmm::vmm_config::snapshot::SnapshotType;
 
 use crate::parsed_request::{ParsedRequest, RequestAction};
 use crate::Error::ServerCreation;
-
-/// Shorthand type for a request containing a boxed VmmAction.
-pub type ApiRequest = Box<VmmAction>;
-/// Shorthand type for a response containing a boxed Result.
-pub type ApiResponse = Box<std::result::Result<VmmData, VmmActionError>>;
 
 /// Errors thrown when binding the API server to the socket path.
 #[derive(Debug)]

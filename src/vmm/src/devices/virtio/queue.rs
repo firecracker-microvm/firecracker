@@ -223,6 +223,7 @@ impl Queue {
         }
     }
 
+    /// Maximum size of the queue.
     pub fn get_max_size(&self) -> u16 {
         self.max_size
     }
@@ -233,6 +234,7 @@ impl Queue {
         min(self.size, self.max_size)
     }
 
+    /// Validates that the queue's representation is correct.
     pub fn is_valid(&self, mem: &GuestMemoryMmap) -> bool {
         let queue_size = u64::from(self.actual_size());
         let desc_table = self.desc_table;

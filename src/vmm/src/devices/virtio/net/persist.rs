@@ -11,8 +11,6 @@ use log::warn;
 use mmds::data_store::Mmds;
 use mmds::ns::MmdsNetworkStack;
 use mmds::persist::MmdsNetworkStackState;
-use rate_limiter::persist::RateLimiterState;
-use rate_limiter::RateLimiter;
 use snapshot::Persist;
 use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 use utils::vm_memory::GuestMemoryMmap;
@@ -23,7 +21,11 @@ use super::device::Net;
 use super::{NET_NUM_QUEUES, NET_QUEUE_SIZE};
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::{DeviceState, TYPE_NET};
+use crate::rate_limiter::persist::RateLimiterState;
+use crate::rate_limiter::RateLimiter;
 
+/// Information about the network config's that are saved
+/// at snapshot.
 #[derive(Debug, Default, Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct NetConfigSpaceState {
@@ -59,6 +61,8 @@ impl NetConfigSpaceState {
     }
 }
 
+/// Information about the network device that are saved
+/// at snapshot.
 #[derive(Debug, Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct NetState {
@@ -66,22 +70,31 @@ pub struct NetState {
     tap_if_name: String,
     rx_rate_limiter_state: RateLimiterState,
     tx_rate_limiter_state: RateLimiterState,
+    /// The associated MMDS network stack.
     pub mmds_ns: Option<MmdsNetworkStackState>,
     config_space: NetConfigSpaceState,
     virtio_state: VirtioDeviceState,
 }
 
+/// Auxiliary structure for creating a device when resuming from a snapshot.
 #[derive(Debug)]
 pub struct NetConstructorArgs {
+    /// Pointer to guest memory.
     pub mem: GuestMemoryMmap,
+    /// Pointer to the MMDS data store.
     pub mmds: Option<Arc<Mutex<Mmds>>>,
 }
 
+/// Errors triggered when trying to construct a network device at resume time.
 #[derive(Debug, derive_more::From)]
 pub enum NetPersistError {
+    /// Failed to create a network device.
     CreateNet(super::NetError),
+    /// Failed to create a rate limiter.
     CreateRateLimiter(io::Error),
+    /// Failed to re-create the virtio state (i.e queues etc).
     VirtioState(VirtioStateError),
+    /// Indicator that no MMDS is associated with this device.
     NoMmdsDataStore,
 }
 

@@ -20,10 +20,10 @@ use vm_superio::{Serial, Trigger};
 
 use crate::devices::legacy::EventFdTrigger;
 
-// Received Data Available interrupt - for letting the driver know that
-// there is some pending data to be processed.
+/// Received Data Available interrupt - for letting the driver know that
+/// there is some pending data to be processed.
 pub const IER_RDA_BIT: u8 = 0b0000_0001;
-// Received Data Available interrupt offset
+/// Received Data Available interrupt offset
 pub const IER_RDA_OFFSET: u8 = 1;
 
 #[derive(Debug)]

@@ -15,9 +15,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use block_io::FileEngine;
-use log::{error, warn};
-use logger::{IncMetric, METRICS};
-use rate_limiter::{BucketUpdate, RateLimiter};
+use logger::{error, warn, IncMetric, METRICS};
 use serde::{Deserialize, Serialize};
 use utils::eventfd::EventFd;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
@@ -35,6 +33,7 @@ use super::{
     SECTOR_SIZE,
 };
 use crate::devices::virtio::{IrqTrigger, IrqType};
+use crate::rate_limiter::{BucketUpdate, RateLimiter};
 
 /// Configuration options for disk caching.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -49,6 +48,7 @@ pub enum CacheType {
     Writeback,
 }
 
+/// The engine file type, either Sync or Async (through io_uring).
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum FileEngineType {
     /// Use an Async engine, based on io_uring.
@@ -64,6 +64,7 @@ impl Default for FileEngineType {
 }
 
 impl FileEngineType {
+    /// Whether the Async engine is supported on the current host kernel.
     pub fn is_supported(&self) -> Result<bool, utils::kernel_version::Error> {
         match self {
             Self::Async if KernelVersion::get()? < min_kernel_version_for_io_uring() => Ok(false),
@@ -282,6 +283,10 @@ impl Block {
         })
     }
 
+    /// Process a single event in the VirtIO queue.
+    ///
+    /// This function is called by the event manager when the guest notifies us
+    /// about new buffers in the queue.
     pub(crate) fn process_queue_event(&mut self) {
         METRICS.block.queue_event_count.inc();
         if let Err(err) = self.queue_evts[0].read() {
@@ -328,6 +333,7 @@ impl Block {
         }
     }
 
+    /// Device specific function for peaking inside a queue and processing descriptors.
     pub fn process_queue(&mut self, queue_index: usize) {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
@@ -503,6 +509,7 @@ impl Block {
         &self.rate_limiter
     }
 
+    /// Retrieve the file engine type.
     pub fn file_engine_type(&self) -> FileEngineType {
         match self.disk.file_engine() {
             FileEngine::Sync(_) => FileEngineType::Sync,
@@ -516,6 +523,7 @@ impl Block {
         }
     }
 
+    /// Prepare device for being snapshotted.
     pub fn prepare_save(&mut self) {
         if !self.is_activated() {
             return;
@@ -639,7 +647,6 @@ mod tests {
     use std::time::Duration;
     use std::{thread, u32};
 
-    use rate_limiter::TokenType;
     use utils::skip_if_io_uring_unsupported;
     use utils::tempfile::TempFile;
     use utils::vm_memory::{Address, Bytes, GuestAddress};
@@ -653,6 +660,7 @@ mod tests {
     };
     use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
     use crate::devices::virtio::{IO_URING_NUM_ENTRIES, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+    use crate::rate_limiter::TokenType;
 
     #[test]
     fn test_disk_backing_file_helper() {

@@ -5,8 +5,10 @@
 /// config templates.
 use std::borrow::Cow;
 
+use serde::de::Error;
 use serde::{Deserialize, Serialize};
 
+use crate::arch::aarch64::regs::{reg_size, RegSize};
 use crate::cpu_config::aarch64::static_cpu_templates::v1n1;
 use crate::cpu_config::templates::{
     CpuTemplateType, GetCpuTemplate, GetCpuTemplateError, RegisterValueFilter, StaticCpuTemplate,
@@ -45,6 +47,34 @@ impl CustomCpuTemplate {
             .iter()
             .map(|modifier| modifier.addr)
             .collect()
+    }
+
+    /// Validate the correctness of the template.
+    pub fn validate(&self) -> Result<(), serde_json::Error> {
+        for modifier in self.reg_modifiers.iter() {
+            let reg_size = reg_size(modifier.addr);
+            match RegSize::from(reg_size) {
+                RegSize::U32 | RegSize::U64 => {
+                    let limit = 2u128.pow(reg_size as u32 * 8) - 1;
+                    if limit < modifier.bitmap.value || limit < modifier.bitmap.filter {
+                        return Err(serde_json::Error::custom(format!(
+                            "Invalid size of bitmap for register {:#x}, should be <= {} bits",
+                            modifier.addr,
+                            reg_size * 8
+                        )));
+                    }
+                }
+                RegSize::U128 => {}
+                _ => {
+                    return Err(serde_json::Error::custom(format!(
+                        "Invalid aarch64 register address: {:#x} - Only 32, 64 and 128 bit wide \
+                         registers are supported",
+                        modifier.addr
+                    )))
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -186,7 +216,7 @@ mod tests {
             r#"{
                     "reg_modifiers":  [
                         {
-                            "addr": "0x200",
+                            "addr": "0x0030000000000000",
                             "bitmap": "0bx0?1_0_0x_?x1xxxx00xxx1xxxxxxxxxxx1"
                         },
                     ]
@@ -202,7 +232,7 @@ mod tests {
             r#"{
                     "reg_modifiers":  [
                         {
-                            "addr": "0x200",
+                            "addr": "0x0030000000000000",
                             "bitmap": "0bx00100x0x1xxxx05xxx1xxxxxxxxxxx1"
                         },
                     ]
@@ -262,5 +292,72 @@ mod tests {
             checked,
             "Bitmap width in a aarch64 template was not tested."
         );
+    }
+
+    #[test]
+    fn test_cpu_template_validate() {
+        // 32, 64 and 128 bit regs with correct filters and values
+        let template = CustomCpuTemplate {
+            reg_modifiers: vec![
+                RegisterModifier {
+                    addr: 0x0020000000000000,
+                    bitmap: RegisterValueFilter {
+                        filter: 0x1,
+                        value: 0x2,
+                    },
+                },
+                RegisterModifier {
+                    addr: 0x0030000000000000,
+                    bitmap: RegisterValueFilter {
+                        filter: 0x1,
+                        value: 0x2,
+                    },
+                },
+                RegisterModifier {
+                    addr: 0x0040000000000000,
+                    bitmap: RegisterValueFilter {
+                        filter: 0x1,
+                        value: 0x2,
+                    },
+                },
+            ],
+        };
+        assert!(template.validate().is_ok());
+
+        // 32 bit reg with too long filter
+        let template = CustomCpuTemplate {
+            reg_modifiers: vec![RegisterModifier {
+                addr: 0x0020000000000000,
+                bitmap: RegisterValueFilter {
+                    filter: 0x100000000,
+                    value: 0x2,
+                },
+            }],
+        };
+        assert!(template.validate().is_err());
+
+        // 32 bit reg with too long value
+        let template = CustomCpuTemplate {
+            reg_modifiers: vec![RegisterModifier {
+                addr: 0x0020000000000000,
+                bitmap: RegisterValueFilter {
+                    filter: 0x1,
+                    value: 0x100000000,
+                },
+            }],
+        };
+        assert!(template.validate().is_err());
+
+        // 16 bit unsupporteed reg
+        let template = CustomCpuTemplate {
+            reg_modifiers: vec![RegisterModifier {
+                addr: 0x0010000000000000,
+                bitmap: RegisterValueFilter {
+                    filter: 0x1,
+                    value: 0x2,
+                },
+            }],
+        };
+        assert!(template.validate().is_err());
     }
 }

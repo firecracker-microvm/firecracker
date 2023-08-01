@@ -18,11 +18,14 @@ use super::device::*;
 use super::queue::*;
 use crate::devices::virtio::MmioTransport;
 
+/// Errors thrown during restoring virtio state.
 #[derive(Debug)]
 pub enum PersistError {
+    /// Snapshot state contains invalid queue info.
     InvalidInput,
 }
 
+/// Queue information saved in snapshot.
 #[derive(Clone, Debug, PartialEq, Eq, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct QueueState {
@@ -91,15 +94,22 @@ impl Persist<'_> for Queue {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VirtioDeviceState {
+    /// Device type.
     pub device_type: u32,
+    /// Available virtio features.
     pub avail_features: u64,
+    /// Negotiated virtio features.
     pub acked_features: u64,
+    /// List of queues.
     pub queues: Vec<QueueState>,
+    /// The MMIO interrupt status.
     pub interrupt_status: usize,
+    /// Flag for activated status.
     pub activated: bool,
 }
 
 impl VirtioDeviceState {
+    /// Construct the virtio state of a device.
     pub fn from_device(device: &dyn VirtioDevice) -> Self {
         VirtioDeviceState {
             device_type: device.device_type(),
@@ -162,6 +172,7 @@ impl VirtioDeviceState {
     }
 }
 
+/// Transport information saved in snapshot.
 #[derive(Clone, Debug, PartialEq, Eq, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct MmioTransportState {
@@ -174,9 +185,12 @@ pub struct MmioTransportState {
     config_generation: u32,
 }
 
+/// Auxiliary structure for initializing the transport when resuming from a snapshot.
 #[derive(Debug)]
 pub struct MmioTransportConstructorArgs {
+    /// Pointer to guest memory.
     pub mem: GuestMemoryMmap,
+    /// Device associated with the current MMIO state.
     pub device: Arc<Mutex<dyn VirtioDevice>>,
 }
 

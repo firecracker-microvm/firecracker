@@ -136,7 +136,7 @@ impl<T: Debug> Operation<T> {
         let mut inner: io_uring_sqe = std::mem::zeroed();
 
         inner.opcode = self.opcode as u8;
-        inner.fd = self.fd as i32;
+        inner.fd = i32::try_from(self.fd).unwrap();
         // Simplifying assumption that we only used pre-registered FDs.
         inner.flags = self.flags | (1 << IOSQE_FIXED_FILE_BIT);
 

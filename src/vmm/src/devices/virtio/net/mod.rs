@@ -1,15 +1,20 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Implements a virtio network device.
+
 use std::io;
 
+/// Maximum size of the frame buffers handled by this device.
 pub const MAX_BUFFER_SIZE: usize = 65562;
+/// Queue size for network device.
 pub const NET_QUEUE_SIZE: u16 = 256;
+/// The number of queues of the network device.
 pub const NET_NUM_QUEUES: usize = 2;
 pub const NET_QUEUE_SIZES: [u16; NET_NUM_QUEUES] = [NET_QUEUE_SIZE; NET_NUM_QUEUES];
-// The index of the rx queue from Net device queues/queues_evts vector.
+/// The index of the rx queue from Net device queues/queues_evts vector.
 pub const RX_INDEX: usize = 0;
-// The index of the tx queue from Net device queues/queues_evts vector.
+/// The index of the tx queue from Net device queues/queues_evts vector.
 pub const TX_INDEX: usize = 1;
 
 pub mod device;
@@ -32,6 +37,7 @@ pub enum NetQueue {
     Tx,
 }
 
+/// Errors the network device can trigger.
 #[derive(Debug, thiserror::Error)]
 pub enum NetError {
     /// Open tap device failed

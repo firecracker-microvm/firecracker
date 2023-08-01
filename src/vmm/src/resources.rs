@@ -157,7 +157,7 @@ impl VmResources {
         if let Some(cpu_config) = vmm_config.cpu_config {
             let cpu_config_json =
                 std::fs::read_to_string(cpu_config).map_err(ResourcesError::File)?;
-            let cpu_template: CustomCpuTemplate = serde_json::from_str(&cpu_config_json)?;
+            let cpu_template = CustomCpuTemplate::try_from(cpu_config_json.as_str())?;
             resources.set_custom_cpu_template(cpu_template);
         }
 

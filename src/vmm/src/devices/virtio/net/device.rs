@@ -18,7 +18,6 @@ use log::{error, warn};
 use logger::{IncMetric, METRICS};
 use mmds::data_store::Mmds;
 use mmds::ns::MmdsNetworkStack;
-use rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 use utils::eventfd::EventFd;
 use utils::net::mac::MacAddr;
 use utils::vm_memory::{ByteValued, Bytes, GuestMemoryError, GuestMemoryMmap};
@@ -28,6 +27,8 @@ use virtio_gen::virtio_net::{
     VIRTIO_NET_F_MAC,
 };
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
+
+use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 
 const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
 
@@ -93,10 +94,15 @@ pub struct ConfigSpace {
 // SAFETY: `ConfigSpace` contains only PODs.
 unsafe impl ByteValued for ConfigSpace {}
 
+/// VirtIO network device.
+///
+/// It emulates a network device able to exchange L2 frames between the guest
+/// and a host-side tap device.
 #[derive(Debug)]
 pub struct Net {
     pub(crate) id: String,
 
+    /// The backend for this device: a tap.
     pub tap: Tap,
 
     pub(crate) avail_features: u64,
@@ -123,10 +129,13 @@ pub struct Net {
     pub(crate) device_state: DeviceState,
     pub(crate) activate_evt: EventFd,
 
+    /// The MMDS stack corresponding to this interface.
+    /// Only if MMDS transport has been associated with it.
     pub mmds_ns: Option<MmdsNetworkStack>,
 }
 
 impl Net {
+    /// Create a new virtio network device with the given TAP interface.
     pub fn new_with_tap(
         id: String,
         tap: Tap,
@@ -180,7 +189,7 @@ impl Net {
         })
     }
 
-    /// Create a new virtio network device with the given TAP interface.
+    /// Create a new virtio network device given the interface name.
     pub fn new(
         id: String,
         tap_if_name: &str,
@@ -196,7 +205,7 @@ impl Net {
         )
         .map_err(NetError::TapSetOffload)?;
 
-        let vnet_hdr_size = vnet_hdr_len() as i32;
+        let vnet_hdr_size = i32::try_from(vnet_hdr_len()).unwrap();
         tap.set_vnet_hdr_size(vnet_hdr_size)
             .map_err(NetError::TapSetVnetHdrSize)?;
 
@@ -637,6 +646,10 @@ impl Net {
         tap.write_iovec(buf)
     }
 
+    /// Process a single RX queue event.
+    ///
+    /// This is called by the event manager responding to the guest adding a new
+    /// buffer in the RX queue.
     pub fn process_rx_queue_event(&mut self) {
         METRICS.net.rx_queue_event_count.inc();
 
@@ -683,6 +696,10 @@ impl Net {
         }
     }
 
+    /// Process a single TX queue event.
+    ///
+    /// This is called by the event manager responding to the guest adding a new
+    /// buffer in the TX queue.
     pub fn process_tx_queue_event(&mut self) {
         METRICS.net.tx_queue_event_count.inc();
         if let Err(err) = self.queue_evts[TX_INDEX].read() {
@@ -841,7 +858,6 @@ pub mod tests {
     use dumbo::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
     use dumbo::pdu::ethernet::ETHERTYPE_ARP;
     use logger::{IncMetric, METRICS};
-    use rate_limiter::{RateLimiter, TokenBucket, TokenType};
     use utils::net::mac::MAC_ADDR_LEN;
     use utils::vm_memory::{Address, GuestMemory};
     use virtio_gen::virtio_net::{
@@ -864,6 +880,7 @@ pub mod tests {
     use crate::devices::virtio::{
         Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, TYPE_NET, VIRTQ_DESC_F_WRITE,
     };
+    use crate::rate_limiter::{RateLimiter, TokenBucket, TokenType};
 
     impl Net {
         pub(crate) fn read_tap(&mut self) -> io::Result<usize> {

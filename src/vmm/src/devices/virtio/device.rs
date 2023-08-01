@@ -42,9 +42,12 @@ impl DeviceState {
     }
 }
 
+/// The 2 types of interrupt sources in MMIO transport.
 #[derive(Debug)]
 pub enum IrqType {
+    /// Interrupt triggered by change in config.
     Config,
+    /// Interrupt triggered by used vring buffers.
     Vring,
 }
 
@@ -97,6 +100,7 @@ pub trait VirtioDevice: AsAny + Send {
     /// - self.avail_features() & self.acked_features() = self.get_acked_features()
     fn set_acked_features(&mut self, acked_features: u64);
 
+    /// Check if virtio device has negotiated given feature.
     fn has_feature(&self, feature: u64) -> bool {
         (self.acked_features() & 1 << feature) != 0
     }

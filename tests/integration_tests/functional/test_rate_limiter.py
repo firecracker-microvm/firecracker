@@ -154,7 +154,7 @@ def test_rx_rate_limiting_cpu_load(test_microvm_with_api, network_config):
     test_microvm.start()
 
     # Start iperf server on guest.
-    _start_iperf_on_guest(test_microvm, guest_ip)
+    _start_iperf_server_on_guest(test_microvm, guest_ip)
 
     # Run iperf client sending UDP traffic.
     iperf_cmd = "{} {} -u -c {} -b 1000000000 -t{} -f KBytes".format(
@@ -177,13 +177,13 @@ def test_rx_rate_limiting_cpu_load(test_microvm_with_api, network_config):
         threshold=20,
     )
     with cpu_load_monitor:
-        _run_local_iperf(iperf_cmd)
+        _run_iperf_on_host(iperf_cmd)
 
 
 def _check_tx_rate_limiting(test_microvm, guest_ips, host_ips):
     """Check that the transmit rate is within expectations."""
-    # Start iperf on the host as this is the tx rate limiting test.
-    _start_local_iperf(test_microvm.jailer.netns_cmd_prefix())
+    # Start iperf server on the host as this is the tx rate limiting test.
+    _start_iperf_server_on_host(test_microvm.jailer.netns_cmd_prefix())
 
     # First step: get the transfer rate when no rate limiting is enabled.
     # We are receiving the result in KBytes from iperf.
@@ -226,8 +226,8 @@ def _check_tx_rate_limiting(test_microvm, guest_ips, host_ips):
 
 def _check_rx_rate_limiting(test_microvm, guest_ips):
     """Check that the receiving rate is within expectations."""
-    # Start iperf on guest.
-    _start_iperf_on_guest(test_microvm, guest_ips[0])
+    # Start iperf server on guest.
+    _start_iperf_server_on_guest(test_microvm, guest_ips[0])
 
     # First step: get the transfer rate when no rate limiting is enabled.
     # We are receiving the result in KBytes from iperf.
@@ -251,7 +251,7 @@ def _check_rx_rate_limiting(test_microvm, guest_ips):
 
     # Third step: get the number of bytes when rate limiting is on and there is
     # an initial burst size from where to consume.
-    print("Run guest TX iperf with exact burst size")
+    print("Run guest RX iperf with exact burst size")
     # Use iperf to obtain the bandwidth when there is burst to consume from,
     # send exactly BURST_SIZE packets.
     iperf_cmd = "{} {} -c {} -n {} -f KBytes -w {} -N".format(
@@ -261,7 +261,7 @@ def _check_rx_rate_limiting(test_microvm, guest_ips):
         BURST_SIZE,
         IPERF_TCP_WINDOW,
     )
-    iperf_out = _run_local_iperf(iperf_cmd)
+    iperf_out = _run_iperf_on_host(iperf_cmd)
     print(iperf_out)
     _, burst_kbps = _process_iperf_output(iperf_out)
     print("RX burst_kbps: {}".format(burst_kbps))
@@ -395,7 +395,7 @@ def _get_rx_bandwidth_with_duration(test_microvm, guest_ip, duration):
         duration,
         IPERF_TCP_WINDOW,
     )
-    iperf_out = _run_local_iperf(iperf_cmd)
+    iperf_out = _run_iperf_on_host(iperf_cmd)
     print(iperf_out)
 
     _, observed_kbps = _process_iperf_output(iperf_out)
@@ -420,7 +420,7 @@ def _patch_iface_bw(test_microvm, iface_id, rx_or_tx, new_bucket_size, new_refil
     assert test_microvm.api_session.is_status_no_content(resp.status_code)
 
 
-def _start_iperf_on_guest(test_microvm, hostname):
+def _start_iperf_server_on_guest(test_microvm, hostname):
     """Start iperf in server mode through an SSH connection."""
     test_microvm.ssh_config["hostname"] = hostname
 
@@ -434,14 +434,14 @@ def _start_iperf_on_guest(test_microvm, hostname):
 def _run_iperf_on_guest(test_microvm, iperf_cmd, hostname):
     """Run a client related iperf command through an SSH connection."""
     test_microvm.ssh_config["hostname"] = hostname
-    _, stdout, stderr = test_microvm.ssh.execute_command(iperf_cmd)
-    assert stderr.read() == ""
+    code, stdout, stderr = test_microvm.ssh.execute_command(iperf_cmd)
+    assert code == 0, f"stdout: {stdout.read()}\nstderr: {stderr.read()}"
 
     out = stdout.read()
     return out
 
 
-def _start_local_iperf(netns_cmd_prefix):
+def _start_iperf_server_on_host(netns_cmd_prefix):
     """Start iperf in server mode after killing any leftover iperf daemon."""
     iperf_cmd = "pkill {}\n".format(IPERF_BINARY)
 
@@ -457,10 +457,12 @@ def _start_local_iperf(netns_cmd_prefix):
     time.sleep(1)
 
 
-def _run_local_iperf(iperf_cmd):
+def _run_iperf_on_host(iperf_cmd):
     """Execute a client related iperf command locally."""
-    process = utils.run_cmd(iperf_cmd)
-    return process.stdout
+    code, stdout, stderr = utils.run_cmd(iperf_cmd)
+    assert code == 0, f"stdout: {stdout}\nstderr: {stderr}"
+
+    return stdout
 
 
 def _get_percentage_difference(measured, base):
