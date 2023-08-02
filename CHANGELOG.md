@@ -4,6 +4,14 @@
 
 ### Added
 
+- [#3967](https://github.com/firecracker-microvm/firecracker/pull/3967/):
+  Added new fields to the custom CPU templates. (aarch64 only) `vcpu_features`
+  field allows modifications of vCPU features enabled during vCPU
+  initialization. `kvm_capabilities` field allows modifications of KVM
+  capability checks that Firecracker performs during boot. If any of
+  these fields are in use, minimal target snapshot version is
+  restricted to 1.5.
+
 ### Changed
 
 - Updated deserialization of `bitmap` for custom CPU templates to allow usage
