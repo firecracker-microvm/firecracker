@@ -6,6 +6,8 @@ to the guest software by changing the following configuration:
 - CPUID (x86_64 only)
 - MSRs (Model Specific Registers, x86_64 only)
 - ARM registers (aarch64 only)
+- vCPU features (aarch64 only)
+- KVM capabilities (both x86_64 and aarch64)
 
 A combination of the changes to the above entities is called a CPU template.
 
@@ -128,6 +130,7 @@ curl --unix-socket /tmp/firecracker.socket -i  \
   -H 'Accept: application/json'            \
   -H 'Content-Type: application/json'      \
   -d '{
+        "kvm_capabilities": ["!56"],
         "cpuid_modifiers": [
           {
             "leaf": "0x1",
@@ -152,10 +155,13 @@ curl --unix-socket /tmp/firecracker.socket -i  \
 
 This CPU template will do the following:
 
+- removes check for KVM capability: KVM_CAP_XCRS.
+  This allows Firecracker to run on old cpus. See [this](https://github.com/firecracker-microvm/firecracker/discussions/3470)
+  discussion.
 - in leaf `0x1`, subleaf `0x0`, register `eax`:
-  - will clear bits `0b00001111111111000011100100001101`
-  - will set bits `0b00000000000000110000011011110010`
-  - will leave bits `0b11110000000000001100000000000000` intact.
+  - clear bits `0b00001111111111000011100100001101`
+  - set bits `0b00000000000000110000011011110010`
+  - leave bits `0b11110000000000001100000000000000` intact.
 - in MSR `0x10`, it will clear all bits.
 
 An example of configuring a custom CPU template on ARM:
@@ -166,6 +172,8 @@ curl --unix-socket /tmp/firecracker.socket -i  \
   -H 'Accept: application/json'            \
   -H 'Content-Type: application/json'      \
   -d '{
+        "kvm_capabilities": ["171", "172"],
+        "vcpu_features": [{ "index": 0, "bitmap": "0b1100000" }]
         "reg_modifiers": [
           {
             "addr": "0x603000000013c020",
@@ -175,12 +183,21 @@ curl --unix-socket /tmp/firecracker.socket -i  \
       }'
 ```
 
-This CPU templates will do the following with the ARM register `0x603000000013c020`:
+This CPU template will do the following:
 
-- will clear bits `0b0000000000001111000000000000111100000000000000000000000000000000`
-- will leave bits `0b1111111111110000111111111111000011111111111111111111111111111111`
-  intact.
+- add checks for KVM capabilities: KVM_CAP_ARM_PTRAUTH_ADDRESS and KVM_CAP_ARM_PTRAUTH_GENERIC.
+  These checks are to ensure that the host have capabilities needed for
+  the vCPU features.
+- enable additional vCPU features: KVM_ARM_VCPU_PTRAUTH_ADDRESS and KVM_ARM_VCPU_PTRAUTH_GENERIC
+- modify ARM register `0x603000000013c020`:
+  - clear bits `0b0000000000001111000000000000111100000000000000000000000000000000`
+  - leave bits `0b1111111111110000111111111111000011111111111111111111111111111111`
+    intact.
 
+Information about KVM capabilities can be found in the
+[kernel source](https://elixir.bootlin.com/linux/latest/source/include/uapi/linux/kvm.h).
+Information about vCPU features on aarch64 can be found in the
+[kernel source](https://elixir.bootlin.com/linux/latest/source/arch/arm64/include/uapi/asm/kvm.h).
 Information on how the ARM register addresses are constructed can be found
 in the [KVM API documentation](https://docs.kernel.org/virt/kvm/api.html#kvm-set-one-reg).
 
