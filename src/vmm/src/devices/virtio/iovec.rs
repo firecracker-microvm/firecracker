@@ -612,3 +612,117 @@ mod tests {
         assert_eq!(sub.iovecs[1].iov_base, iovec.vecs[1].iov_base);
     }
 }
+
+#[cfg(kani)]
+mod verification {
+    use std::mem::ManuallyDrop;
+
+    use libc::{c_void, iovec};
+
+    use super::{IoVecBuffer, IoVecBufferMut};
+
+    // Maximum memory size to use for our buffers. For the time being 1KB.
+    const GUEST_MEMORY_SIZE: usize = 1 << 10;
+
+    // Maximum number of descriptors in a chain to use in our proofs. The value is selected upon
+    // experimenting with the execution time. Typically, in our virtio devices we use queues of up
+    // to 256 entries which is the theoretical maximum length of a `DescriptorChain`, but in reality
+    // our code does not make any assumption about the length of the chain, apart from it being
+    // >= 1.
+    const MAX_DESC_LENGTH: usize = 5;
+
+    fn create_iovecs(mem: *mut u8, size: usize) -> (Vec<iovec>, usize) {
+        let nr_descs: usize = kani::any_where(|&n| n <= MAX_DESC_LENGTH);
+        let mut vecs: Vec<iovec> = Vec::with_capacity(nr_descs);
+        let mut len = 0usize;
+        for _ in 0..nr_descs {
+            // The `IoVecBuffer(Mut)` constructors ensure that the memory region described by every
+            // `Descriptor` in the chain is a valid, i.e. it is memory with then guest's memory
+            // mmap. The assumption, here, that the last address is within the memory object's
+            // bound substitutes these checks that `IoVecBuffer(Mut)::new() performs.`
+            let addr: usize = kani::any();
+            let iov_len: usize =
+                kani::any_where(|&len| matches!(addr.checked_add(len), Some(x) if x <= size));
+            let iov_base = unsafe { mem.offset(addr.try_into().unwrap()) } as *mut c_void;
+
+            vecs.push(iovec { iov_base, iov_len });
+            len += iov_len;
+        }
+
+        (vecs, len)
+    }
+
+    impl kani::Arbitrary for IoVecBuffer {
+        fn any() -> Self {
+            // We only read from `IoVecBuffer`, so create here a guest memory object, with arbitrary
+            // contents and size up to GUEST_MEMORY_SIZE.
+            let mut mem = ManuallyDrop::new(kani::vec::exact_vec::<u8, GUEST_MEMORY_SIZE>());
+            let (vecs, len) = create_iovecs(mem.as_mut_ptr(), mem.len());
+            Self { vecs, len }
+        }
+    }
+
+    impl kani::Arbitrary for IoVecBufferMut {
+        fn any() -> Self {
+            // We only write into `IoVecBufferMut` objects, so we can simply create a guest memory
+            // object initialized to zeroes, trying to be nice to Kani.
+            let mem = unsafe {
+                std::alloc::alloc_zeroed(std::alloc::Layout::from_size_align_unchecked(
+                    GUEST_MEMORY_SIZE,
+                    16,
+                ))
+            };
+
+            let (vecs, len) = create_iovecs(mem, GUEST_MEMORY_SIZE);
+            Self { vecs, len }
+        }
+    }
+
+    #[kani::proof]
+    #[kani::unwind(6)]
+    #[kani::solver(cadical)]
+    fn verify_read_from_iovec() {
+        let iov: IoVecBuffer = kani::any();
+
+        let mut buf = vec![0; GUEST_MEMORY_SIZE];
+        let offset: usize = kani::any();
+
+        // We can't really check the contents that the operation here writes into `buf`, because
+        // our `IoVecBuffer` being completely arbitrary can contain overlapping memory regions, so
+        // checking the data copied is not exactly trivial.
+        //
+        // What we can verify is the bytes that we read out from guest memory:
+        // * `None`, if `offset` is past the guest memory.
+        // * `Some(bytes)`, otherwise. In this case, `bytes` is:
+        //    - `buf.len()`, if `offset + buf.len() < iov.len()`;
+        //    - `iov.len() - offset`, otherwise.
+        match iov.read_at(&mut buf, offset) {
+            None => assert!(offset >= iov.len()),
+            Some(bytes) => assert_eq!(bytes, buf.len().min(iov.len() - offset)),
+        }
+    }
+
+    #[kani::proof]
+    #[kani::unwind(6)]
+    #[kani::solver(cadical)]
+    fn verify_write_to_iovec() {
+        let mut iov_mut: IoVecBufferMut = kani::any();
+
+        let buf = kani::vec::any_vec::<u8, GUEST_MEMORY_SIZE>();
+        let offset: usize = kani::any();
+
+        // We can't really check the contents that the operation here writes into `IoVecBufferMut`,
+        // because our `IoVecBufferMut` being completely arbitrary can contain overlapping memory
+        // regions, so checking the data copied is not exactly trivial.
+        //
+        // What we can verify is the bytes that we write into guest memory:
+        // * `None`, if `offset` is past the guest memory.
+        // * `Some(bytes)`, otherwise. In this case, `bytes` is:
+        //    - `buf.len()`, if `offset + buf.len() < iov.len()`;
+        //    - `iov.len() - offset`, otherwise.
+        match iov_mut.write_at(&buf, offset) {
+            None => assert!(offset >= iov_mut.len()),
+            Some(bytes) => assert_eq!(bytes, buf.len().min(iov_mut.len() - offset)),
+        }
+    }
+}
