@@ -384,17 +384,16 @@ impl<'a> PrebootApiController<'a> {
         // Configure and start microVM through successive API calls.
         // Iterate through API calls to configure microVm.
         // The loop breaks when a microVM is successfully started, and a running Vmm is built.
+        let mut i = 0;
         while preboot_controller.built_vmm.is_none() {
             // Get request
             let req = from_api
                 .recv()
                 .expect("The channel's sending half was disconnected. Cannot receive data.");
 
-            // Also consume the API event along with the message. It is safe to unwrap()
-            // because this event_fd is blocking.
-            api_event_fd
-                .read()
-                .expect("VMM: Failed to read the API event_fd");
+            // Count the number writes to the eventfd so we know how many reads we need to do to
+            // zero it.
+            i += 1;
 
             // Process the request.
             let res = preboot_controller.handle_preboot_request(*req);
@@ -406,6 +405,16 @@ impl<'a> PrebootApiController<'a> {
             if let Some(exit_code) = preboot_controller.fatal_error {
                 return Err(exit_code);
             }
+        }
+
+        // TODO: This eventfd no affect on the pre-boot API, we only read on this eventfd such that
+        // when it is passed to the post-boot API it is zero (the API thread always writes to the
+        // eventfd and does not differentiate between pre-boot and post-boot). Here we are making
+        // unnecessary syscalls that slow down the API. This should be removed.
+        for _ in 0..i {
+            api_event_fd
+                .read()
+                .expect("VMM: Failed to read the API event_fd");
         }
 
         // Safe to unwrap because previous loop cannot end on None.
