@@ -199,17 +199,23 @@ pub(crate) fn run_with_api(
             mmds_size_limit,
             metadata_json,
         ),
-        None => PrebootApiController::build_microvm_from_requests(
-            seccomp_filters,
-            &mut event_manager,
-            instance_info,
-            &from_api,
-            &to_api,
-            &api_event_fd,
-            boot_timer_enabled,
-            mmds_size_limit,
-            metadata_json,
-        ),
+        None => {
+            if socket_ready_receiver.recv() == Ok(true) {
+                PrebootApiController::build_microvm_from_requests(
+                    seccomp_filters,
+                    &mut event_manager,
+                    instance_info,
+                    &from_api,
+                    &to_api,
+                    &api_event_fd,
+                    boot_timer_enabled,
+                    mmds_size_limit,
+                    metadata_json,
+                )
+            } else {
+                Err(vmm::FcExitCode::GenericError)
+            }
+        }
     };
 
     let exit_code = match build_result {
