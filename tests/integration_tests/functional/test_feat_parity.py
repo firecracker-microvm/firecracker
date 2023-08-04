@@ -229,7 +229,7 @@ def test_feat_parity_msr_arch_cap(vm):
     """
     arch_capabilities_addr = "0x10a"
     rdmsr_cmd = f"rdmsr {arch_capabilities_addr}"
-    _, stdout, stderr = vm.ssh.execute_command(rdmsr_cmd)
+    _, stdout, stderr = vm.ssh.run(rdmsr_cmd)
 
     cpu_template = vm.api.vm_config.get().json()["machine-config"]["cpu_template"]
 

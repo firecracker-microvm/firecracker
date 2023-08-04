@@ -77,7 +77,7 @@ def run_spectre_meltdown_checker_on_guest(
     """Run the spectre / meltdown checker on guest"""
     remote_path = f"/tmp/{CHECKER_FILENAME}"
     microvm.ssh.scp_put(spectre_meltdown_checker, remote_path)
-    ecode, stdout, stderr = microvm.ssh.execute_command(f"sh {remote_path} --explain")
+    ecode, stdout, stderr = microvm.ssh.run(f"sh {remote_path} --explain")
     assert ecode == 0, f"stdout:\n{stdout}\nstderr:\n{stderr}\n"
 
 
@@ -239,7 +239,7 @@ def check_vulnerabilities_files_on_guest(microvm):
     and search for `vulnerabilities`.
     """
     vuln_dir = "/sys/devices/system/cpu/vulnerabilities"
-    ecode, stdout, stderr = microvm.ssh.execute_command(
+    ecode, stdout, stderr = microvm.ssh.run(
         f"grep -r Vulnerable {vuln_dir} | grep -v mmio_stale_data:"
     )
     assert ecode == 1, f"stdout:\n{stdout}\nstderr:\n{stderr}\n"

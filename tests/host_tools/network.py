@@ -85,11 +85,11 @@ class SSHConnection:
         We'll keep trying to execute a remote command that can't fail
         (`/bin/true`), until we get a successful (0) exit code.
         """
-        ecode, _, _ = self.execute_command("true")
+        ecode, _, _ = self.run("true")
         if ecode != 0:
             raise ConnectionError
 
-    def execute_command(self, cmd_string):
+    def run(self, cmd_string):
         """Execute the command passed as a string in the ssh context."""
         return self._exec(
             [
@@ -99,8 +99,6 @@ class SSHConnection:
                 cmd_string,
             ]
         )
-
-    run = execute_command
 
     def _exec(self, cmd):
         """Private function that handles the ssh client invocation."""
@@ -137,7 +135,7 @@ def mac_from_ip(ip_address):
 def get_guest_net_if_name(ssh_connection, guest_ip):
     """Get network interface name based on its IPv4 address."""
     cmd = "ip a s | grep '{}' | tr -s ' ' | cut -d' ' -f6".format(guest_ip)
-    _, guest_if_name, _ = ssh_connection.execute_command(cmd)
+    _, guest_if_name, _ = ssh_connection.run(cmd)
     if_name = guest_if_name.strip()
     return if_name if if_name != "" else None
 

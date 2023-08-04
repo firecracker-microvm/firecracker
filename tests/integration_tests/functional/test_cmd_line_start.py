@@ -413,13 +413,13 @@ def test_config_start_and_mmds_with_api(uvm_plain, vm_config_file):
     version, ipv4_address = _get_optional_fields_from_file(vm_config_file)
 
     cmd = "ip route add {} dev eth0".format(ipv4_address)
-    _, stdout, stderr = test_microvm.ssh.execute_command(cmd)
+    _, stdout, stderr = test_microvm.ssh.run(cmd)
     assert stderr == stdout == ""
 
     # Fetch data from MMDS from the guest's side.
     cmd = _build_cmd_to_fetch_metadata(test_microvm.ssh, version, ipv4_address)
     cmd += "/latest/meta-data/"
-    _, stdout, _ = test_microvm.ssh.execute_command(cmd)
+    _, stdout, _ = test_microvm.ssh.run(cmd)
     assert json.loads(stdout) == data_store["latest"]["meta-data"]
 
     # Validate MMDS configuration.
@@ -456,12 +456,12 @@ def test_with_config_and_metadata_no_api(
     version, ipv4_address = _get_optional_fields_from_file(vm_config_file)
 
     cmd = "ip route add {} dev eth0".format(ipv4_address)
-    _, stdout, stderr = test_microvm.ssh.execute_command(cmd)
+    _, stdout, stderr = test_microvm.ssh.run(cmd)
     assert stderr == stdout == ""
 
     # Fetch data from MMDS from the guest's side.
     cmd = _build_cmd_to_fetch_metadata(test_microvm.ssh, version, ipv4_address)
-    _, stdout, _ = test_microvm.ssh.execute_command(cmd)
+    _, stdout, _ = test_microvm.ssh.run(cmd)
 
     # Compare response against the expected MMDS contents.
     assert json.loads(stdout) == json.load(Path(metadata_file).open(encoding="UTF-8"))

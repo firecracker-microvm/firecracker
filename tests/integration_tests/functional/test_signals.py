@@ -128,7 +128,7 @@ def test_handled_signals(test_microvm_with_api):
     # Open a SSH connection to validate the microVM stays alive.
     # Just validate a simple command: `nproc`
     cmd = "nproc"
-    _, stdout, stderr = microvm.ssh.execute_command(cmd)
+    _, stdout, stderr = microvm.ssh.run(cmd)
     assert stderr == ""
     assert int(stdout) == 2
 
@@ -139,6 +139,6 @@ def test_handled_signals(test_microvm_with_api):
     os.kill(firecracker_pid, 35)
 
     # Validate the microVM is still up and running.
-    _, stdout, stderr = microvm.ssh.execute_command(cmd)
+    _, stdout, stderr = microvm.ssh.run(cmd)
     assert stderr == ""
     assert int(stdout) == 2

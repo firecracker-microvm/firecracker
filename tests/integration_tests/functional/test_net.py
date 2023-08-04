@@ -33,7 +33,7 @@ def test_high_ingress_traffic(test_microvm_with_api):
     test_microvm.start()
 
     # Start iperf3 server on the guest.
-    test_microvm.ssh.execute_command("{} -sD\n".format(IPERF_BINARY))
+    test_microvm.ssh.run("{} -sD\n".format(IPERF_BINARY))
     time.sleep(1)
 
     # Start iperf3 client on the host. Send 1Gbps UDP traffic.
@@ -50,7 +50,7 @@ def test_high_ingress_traffic(test_microvm_with_api):
     # Check if the high ingress traffic broke the net interface.
     # If the net interface still works we should be able to execute
     # ssh commands.
-    exit_code, _, _ = test_microvm.ssh.execute_command("echo success\n")
+    exit_code, _, _ = test_microvm.ssh.run("echo success\n")
     assert exit_code == 0
 
 

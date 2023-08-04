@@ -110,7 +110,7 @@ class IPerf3Test:
         pinned_cmd = (
             f"taskset --cpu-list {client_idx % self._microvm.vcpus_count} {cmd}"
         )
-        rc, stdout, stderr = self._microvm.ssh.execute_command(pinned_cmd)
+        rc, stdout, stderr = self._microvm.ssh.run(pinned_cmd)
 
         assert rc == 0, stderr
 

@@ -499,14 +499,14 @@ def test_guest_mmds_hang(test_microvm_with_api, version):
     get_cmd += f" http://{DEFAULT_IPV4}/"
 
     if version == "V1":
-        _, stdout, _ = ssh_connection.execute_command(get_cmd)
+        _, stdout, _ = ssh_connection.run(get_cmd)
         assert "Invalid request" in stdout
     else:
         # Generate token.
         token = generate_mmds_session_token(ssh_connection, DEFAULT_IPV4, token_ttl=60)
 
         get_cmd += ' -H  "X-metadata-token: {}"'.format(token)
-        _, stdout, _ = ssh_connection.execute_command(get_cmd)
+        _, stdout, _ = ssh_connection.run(get_cmd)
         assert "Invalid request" in stdout
 
         # Do the same for a PUT request.
@@ -518,7 +518,7 @@ def test_guest_mmds_hang(test_microvm_with_api, version):
         cmd += ' -d "some body"'
         cmd += " http://{}/".format(DEFAULT_IPV4)
 
-        _, stdout, _ = ssh_connection.execute_command(cmd)
+        _, stdout, _ = ssh_connection.run(cmd)
         assert "Invalid request" in stdout
 
 
@@ -735,7 +735,7 @@ def test_mmds_v2_negative(test_microvm_with_api):
         run_guest_cmd(ssh_connection, put_cmd.format(ttl), expected)
 
     # Valid `PUT` request to generate token.
-    _, stdout, _ = ssh_connection.execute_command(put_cmd.format(1))
+    _, stdout, _ = ssh_connection.run(put_cmd.format(1))
     token = stdout
     assert len(token) > 0
 

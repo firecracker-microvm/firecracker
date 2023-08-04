@@ -372,9 +372,7 @@ def get_free_mem_ssh(ssh_connection):
     :param ssh_connection: connection to the guest
     :return: available mem column output of 'free'
     """
-    _, stdout, stderr = ssh_connection.execute_command(
-        "cat /proc/meminfo | grep MemAvailable"
-    )
+    _, stdout, stderr = ssh_connection.run("cat /proc/meminfo | grep MemAvailable")
     assert stderr == ""
 
     # Split "MemAvailable:   123456 kB" and validate it
@@ -518,7 +516,7 @@ def summarize_cpu_percent(cpu_percentages: dict):
 
 def run_guest_cmd(ssh_connection, cmd, expected, use_json=False):
     """Runs a shell command at the remote accessible via SSH"""
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _, stdout, stderr = ssh_connection.run(cmd)
     assert stderr == ""
     stdout = stdout if not use_json else json.loads(stdout)
     assert stdout == expected
@@ -611,7 +609,7 @@ def generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl):
     cmd += " -X PUT"
     cmd += ' -H  "X-metadata-token-ttl-seconds: {}"'.format(token_ttl)
     cmd += " http://{}/latest/api/token".format(ipv4_address)
-    _, stdout, _ = ssh_connection.execute_command(cmd)
+    _, stdout, _ = ssh_connection.run(cmd)
     token = stdout
 
     return token
@@ -717,7 +715,7 @@ def guest_run_fio_iteration(ssh_connection, iteration):
         --output /tmp/fio{} > /dev/null &""".format(
         iteration
     )
-    exit_code, _, stderr = ssh_connection.execute_command(fio)
+    exit_code, _, stderr = ssh_connection.run(fio)
     assert exit_code == 0, stderr
 
 
@@ -726,14 +724,14 @@ def check_filesystem(ssh_connection, disk_fmt, disk):
     if disk_fmt == "squashfs":
         return
     cmd = "fsck.{} -n {}".format(disk_fmt, disk)
-    exit_code, _, stderr = ssh_connection.execute_command(cmd)
+    exit_code, _, stderr = ssh_connection.run(cmd)
     assert exit_code == 0, stderr
 
 
 def check_entropy(ssh_connection):
     """Check that we can get random numbers from /dev/hwrng"""
     cmd = "dd if=/dev/hwrng of=/dev/null bs=4096 count=1"
-    exit_code, _, stderr = ssh_connection.execute_command(cmd)
+    exit_code, _, stderr = ssh_connection.run(cmd)
     assert exit_code == 0, stderr
 
 

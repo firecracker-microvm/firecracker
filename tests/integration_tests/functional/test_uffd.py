@@ -32,7 +32,7 @@ def snapshot_fxt(microvm_factory, guest_kernel_linux_5_10, rootfs_ubuntu_22):
     basevm.start()
 
     # Verify if guest can run commands.
-    exit_code, _, _ = basevm.ssh.execute_command("sync")
+    exit_code, _, _ = basevm.ssh.run("sync")
     assert exit_code == 0
 
     # Create base snapshot.
@@ -147,7 +147,7 @@ def test_valid_handler(uvm_plain, snapshot, uffd_handler_paths):
     vm.api.balloon.patch(amount_mib=0)
 
     # Verify if guest can run commands.
-    exit_code, _, _ = vm.ssh.execute_command("sync")
+    exit_code, _, _ = vm.ssh.run("sync")
     assert exit_code == 0
 
 

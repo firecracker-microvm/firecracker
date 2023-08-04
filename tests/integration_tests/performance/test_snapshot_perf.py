@@ -52,7 +52,7 @@ def snapshot_resume_producer(microvm_factory, snapshot):
 
     # Attempt to connect to resumed microvm.
     # Verify if guest can run commands.
-    exit_code, _, _ = microvm.ssh.execute_command("ls")
+    exit_code, _, _ = microvm.ssh.run("ls")
     assert exit_code == 0
 
     value = 0
@@ -103,7 +103,7 @@ def test_older_snapshot_resume_latency(
     vm.add_net_iface()
     vm.start()
     # Check if guest works.
-    exit_code, _, _ = vm.ssh.execute_command("ls")
+    exit_code, _, _ = vm.ssh.run("ls")
     assert exit_code == 0
     snapshot = vm.snapshot_full()
 

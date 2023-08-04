@@ -43,7 +43,7 @@ def make_guest_dirty_memory(ssh_connection, should_oom=False, amount_mib=32):
     logger = logging.getLogger("make_guest_dirty_memory")
 
     cmd = f"/usr/local/bin/fillmem {amount_mib}"
-    exit_code, stdout, stderr = ssh_connection.execute_command(cmd)
+    exit_code, stdout, stderr = ssh_connection.run(cmd)
     # add something to the logs for troubleshooting
     if exit_code != 0:
         logger.error("while running: %s", cmd)
@@ -55,7 +55,7 @@ def make_guest_dirty_memory(ssh_connection, should_oom=False, amount_mib=32):
     while tries > 0:
         # it may take a bit of time to dirty the memory and the OOM to kick-in
         time.sleep(0.5)
-        _, stdout, _ = ssh_connection.execute_command(cmd)
+        _, stdout, _ = ssh_connection.run(cmd)
         if stdout != "":
             break
         tries -= 1
@@ -281,7 +281,7 @@ def test_size_reduction(test_microvm_with_api):
     first_reading = get_stable_rss_mem_by_pid(firecracker_pid)
 
     # Have the guest drop its caches.
-    test_microvm.ssh.execute_command("sync; echo 3 > /proc/sys/vm/drop_caches")
+    test_microvm.ssh.run("sync; echo 3 > /proc/sys/vm/drop_caches")
     time.sleep(5)
 
     # We take the initial reading of the RSS, then calculate the amount
@@ -545,7 +545,5 @@ def test_memory_scrub(microvm_factory, guest_kernel, rootfs):
     # Wait for the deflate to complete.
     _ = get_stable_rss_mem_by_pid(firecracker_pid)
 
-    exit_code, _, _ = microvm.ssh.execute_command(
-        "/usr/local/bin/readmem {} {}".format(60, 1)
-    )
+    exit_code, _, _ = microvm.ssh.run("/usr/local/bin/readmem {} {}".format(60, 1))
     assert exit_code == 0

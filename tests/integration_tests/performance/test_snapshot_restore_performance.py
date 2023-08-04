@@ -122,7 +122,7 @@ def get_snap_restore_latency(
         microvm.spawn()
         microvm.restore_from_snapshot(snapshot, resume=True)
         # Check if guest still runs commands.
-        exit_code, _, _ = microvm.ssh.execute_command("dmesg")
+        exit_code, _, _ = microvm.ssh.run("dmesg")
         assert exit_code == 0
 
         value = 0

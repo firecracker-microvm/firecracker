@@ -43,7 +43,7 @@ def test_pause_resume(uvm_nano):
     microvm.start()
 
     # Verify guest is active.
-    exit_code, _, _ = microvm.ssh.execute_command("ls")
+    exit_code, _, _ = microvm.ssh.run("ls")
     assert exit_code == 0
 
     # Pausing the microVM after it's been started is successful.
@@ -53,7 +53,7 @@ def test_pause_resume(uvm_nano):
     microvm.flush_metrics()
 
     # Verify guest is no longer active.
-    exit_code, _, _ = microvm.ssh.execute_command("ls")
+    exit_code, _, _ = microvm.ssh.run("ls")
     assert exit_code != 0
 
     # Verify emulation was indeed paused and no events from either
@@ -61,7 +61,7 @@ def test_pause_resume(uvm_nano):
     verify_net_emulation_paused(microvm.flush_metrics())
 
     # Verify guest is no longer active.
-    exit_code, _, _ = microvm.ssh.execute_command("ls")
+    exit_code, _, _ = microvm.ssh.run("ls")
     assert exit_code != 0
 
     # Pausing the microVM when it is already `Paused` is allowed
@@ -72,7 +72,7 @@ def test_pause_resume(uvm_nano):
     microvm.api.vm.patch(state="Resumed")
 
     # Verify guest is active again.
-    exit_code, _, _ = microvm.ssh.execute_command("ls")
+    exit_code, _, _ = microvm.ssh.run("ls")
     assert exit_code == 0
 
     # Resuming the microVM when it is already `Resumed` is allowed
@@ -80,7 +80,7 @@ def test_pause_resume(uvm_nano):
     microvm.api.vm.patch(state="Resumed")
 
     # Verify guest is still active.
-    exit_code, _, _ = microvm.ssh.execute_command("ls")
+    exit_code, _, _ = microvm.ssh.run("ls")
     assert exit_code == 0
 
     microvm.kill()
