@@ -28,7 +28,7 @@ def _get_guest_drive_size(ssh_connection, guest_dev_name="/dev/vdb"):
     # `lsblk` command outputs 2 lines to STDOUT:
     # "SIZE" and the size of the device, in bytes.
     blksize_cmd = "lsblk -b {} --output SIZE".format(guest_dev_name)
-    _, stdout, stderr = ssh_connection.execute_command(blksize_cmd)
+    _, stdout, stderr = ssh_connection.run(blksize_cmd)
     assert stderr == ""
     lines = stdout.split("\n")
     return lines[1].strip()
@@ -208,7 +208,7 @@ def test_cmp_full_and_first_diff_mem(microvm_factory, guest_kernel, rootfs):
     vm.start()
 
     # Verify if guest can run commands.
-    exit_code, _, _ = vm.ssh.execute_command("sync")
+    exit_code, _, _ = vm.ssh.run("sync")
     assert exit_code == 0
 
     logger.info("Create full snapshot.")

@@ -60,7 +60,7 @@ def negative_test_host_connections(vm, uds_path, blob_path, blob_hash):
     """
 
     cmd = "/tmp/vsock_helper echosrv -d {}".format(ECHO_SERVER_PORT)
-    ecode, _, _ = vm.ssh.execute_command(cmd)
+    ecode, _, _ = vm.ssh.run(cmd)
     assert ecode == 0
 
     workers = []
@@ -74,7 +74,7 @@ def negative_test_host_connections(vm, uds_path, blob_path, blob_hash):
         wrk.join()
 
     # Validate that Firecracker is still up and running.
-    ecode, _, _ = vm.ssh.execute_command("sync")
+    ecode, _, _ = vm.ssh.run("sync")
     # Should fail if Firecracker exited from SIGPIPE handler.
     assert ecode == 0
 

@@ -25,13 +25,13 @@ def test_rtc(test_microvm_with_api):
     vm.add_net_iface()
     vm.start()
     # check that the kernel creates an rtcpl031 base device.
-    _, stdout, _ = vm.ssh.execute_command("dmesg")
+    _, stdout, _ = vm.ssh.run("dmesg")
     rtc_log = re.findall(DMESG_LOG_REGEX, stdout)
     assert rtc_log is not None
 
-    _, stdout, _ = vm.ssh.execute_command("stat /dev/rtc0")
+    _, stdout, _ = vm.ssh.run("stat /dev/rtc0")
     assert "character special file" in stdout
 
     _, host_stdout, _ = utils.run_cmd("date +%s")
-    _, guest_stdout, _ = vm.ssh.execute_command("date +%s")
+    _, guest_stdout, _ = vm.ssh.run("date +%s")
     assert abs(int(guest_stdout) - int(host_stdout)) < 5

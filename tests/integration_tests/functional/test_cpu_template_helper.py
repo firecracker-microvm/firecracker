@@ -256,7 +256,7 @@ def get_guest_msrs(microvm, msr_index_list):
         if index in MSR_EXCEPTION_LIST:
             continue
         rdmsr_cmd = f"rdmsr -0 {index}"
-        code, stdout, stderr = microvm.ssh.execute_command(rdmsr_cmd)
+        code, stdout, stderr = microvm.ssh.run(rdmsr_cmd)
         assert stderr == "", f"Failed to get MSR for {index=:#x}: {code=}"
         msrs_dict[index] = int(stdout, 16)
 

@@ -84,7 +84,7 @@ def test_drive_io_engine(test_microvm_with_api):
     test_microvm.start()
 
     # Execute a simple command to check that the guest booted successfully.
-    rc, _, stderr = test_microvm.ssh.execute_command("true")
+    rc, _, stderr = test_microvm.ssh.run("true")
     assert rc == 0
     assert stderr == ""
 

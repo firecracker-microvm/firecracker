@@ -18,6 +18,6 @@ def test_max_vcpus(test_microvm_with_api):
     microvm.start()
 
     cmd = "nproc"
-    _, stdout, stderr = microvm.ssh.execute_command(cmd)
+    _, stdout, stderr = microvm.ssh.run(cmd)
     assert stderr == ""
     assert int(stdout) == MAX_VCPUS

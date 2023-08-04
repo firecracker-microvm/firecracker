@@ -32,7 +32,7 @@ def _create_and_start_microvm_with_net_devices(test_microvm, devices_no=0):
 
     if devices_no > 0:
         # Verify if guest can run commands.
-        exit_code, _, _ = test_microvm.ssh.execute_command("sync")
+        exit_code, _, _ = test_microvm.ssh.run("sync")
         assert exit_code == 0
 
 

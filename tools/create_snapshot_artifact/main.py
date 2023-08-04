@@ -57,14 +57,14 @@ def validate_mmds(ssh_connection, data_store):
     """Validate that MMDS contents fetched from the guest."""
     # Configure interface to route MMDS requests
     cmd = "ip route add {} dev {}".format(IPV4_ADDRESS, NET_IFACE_FOR_MMDS)
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _, stdout, stderr = ssh_connection.run(cmd)
     assert stdout == stderr == ""
 
     # Fetch metadata to ensure MMDS is accessible.
     token = generate_mmds_session_token(ssh_connection, IPV4_ADDRESS, token_ttl=60)
 
     cmd = generate_mmds_get_request(IPV4_ADDRESS, token=token)
-    _, stdout, _ = ssh_connection.execute_command(cmd)
+    _, stdout, _ = ssh_connection.run(cmd)
     assert json.loads(stdout) == data_store
 
 

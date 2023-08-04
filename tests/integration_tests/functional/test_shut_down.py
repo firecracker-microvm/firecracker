@@ -42,7 +42,7 @@ def test_reboot(test_microvm_with_api):
     assert len(lines) == 1
     # Rebooting Firecracker sends an exit event and should gracefully kill.
     # the instance.
-    vm.ssh.execute_command("reboot")
+    vm.ssh.run("reboot")
 
     while True:
         # Pytest's timeout will kill the test even if the loop doesn't exit.

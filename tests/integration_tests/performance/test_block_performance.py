@@ -105,17 +105,15 @@ def run_fio(env_id, basevm, mode, bs):
         .build()
     )
 
-    rc, _, stderr = basevm.ssh.execute_command(
-        "echo 'none' > /sys/block/vdb/queue/scheduler"
-    )
+    rc, _, stderr = basevm.ssh.run("echo 'none' > /sys/block/vdb/queue/scheduler")
     assert rc == 0, stderr
     assert stderr == ""
 
     # First, flush all guest cached data to host, then drop guest FS caches.
-    rc, _, stderr = basevm.ssh.execute_command("sync")
+    rc, _, stderr = basevm.ssh.run("sync")
     assert rc == 0, stderr
     assert stderr == ""
-    rc, _, stderr = basevm.ssh.execute_command("echo 3 > /proc/sys/vm/drop_caches")
+    rc, _, stderr = basevm.ssh.run("echo 3 > /proc/sys/vm/drop_caches")
     assert rc == 0, stderr
     assert stderr == ""
 
@@ -133,7 +131,7 @@ def run_fio(env_id, basevm, mode, bs):
         )
 
         # Print the fio command in the log and run it
-        rc, _, stderr = basevm.ssh.execute_command(f"cd /tmp; {cmd}")
+        rc, _, stderr = basevm.ssh.run(f"cd /tmp; {cmd}")
         assert rc == 0, stderr
         assert stderr == ""
 
@@ -143,7 +141,7 @@ def run_fio(env_id, basevm, mode, bs):
         os.makedirs(logs_path)
 
         basevm.ssh.scp_get("/tmp/*.log", logs_path)
-        rc, _, stderr = basevm.ssh.execute_command("rm /tmp/*.log")
+        rc, _, stderr = basevm.ssh.run("rm /tmp/*.log")
         assert rc == 0, stderr
 
         return cpu_load_future.result()
