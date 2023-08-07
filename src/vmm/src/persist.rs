@@ -521,7 +521,25 @@ pub fn restore_from_snapshot(
     version_map: VersionMap,
     vm_resources: &mut VmResources,
 ) -> Result<Arc<Mutex<Vmm>>, RestoreFromSnapshotError> {
-    let microvm_state = snapshot_state_from_file(&params.snapshot_path, version_map)?;
+    let mut microvm_state = snapshot_state_from_file(&params.snapshot_path, version_map)?;
+
+    let container_snapshot_path = &params.container_snapshot_path;
+    // We assume that each microVM is backed by exactly one container image
+    // snapshot device (i.e., that no more than one container is run on each microVM).
+    assert_eq!(microvm_state.device_states.block_devices.len(), 2);
+    for i in 0..2 {
+        // We assume that one of the block devices is the rootfs, the other being the
+        // container image snapshot.
+        if microvm_state.device_states.block_devices[i]
+            .device_state
+            .disk_path
+            .contains("snap")
+        {
+            microvm_state.device_states.block_devices[i]
+                .device_state
+                .disk_path = container_snapshot_path.clone();
+        }
+    }
 
     // Some sanity checks before building the microvm.
     snapshot_state_sanity_check(&microvm_state)?;

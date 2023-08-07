@@ -95,7 +95,7 @@ pub struct BlockState {
     )]
     cache_type: CacheTypeState,
     root_device: bool,
-    disk_path: String,
+    pub disk_path: String,
     virtio_state: VirtioDeviceState,
     rate_limiter_state: RateLimiterState,
     #[version(start = 3)]

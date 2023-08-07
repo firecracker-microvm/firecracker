@@ -63,6 +63,8 @@ pub struct LoadSnapshotParams {
     /// When set to true, the vm is also resumed if the snapshot load
     /// is successful.
     pub resume_vm: bool,
+    /// Path to the disk device backing the container snapshot.
+    pub container_snapshot_path: String,
 }
 
 /// Stores the configuration for loading a snapshot that is provided by the user.
@@ -85,6 +87,8 @@ pub struct LoadSnapshotConfig {
     /// Whether or not to resume the vm post snapshot load.
     #[serde(default)]
     pub resume_vm: bool,
+    /// Path to the disk device backing the container snapshot.
+    pub container_snapshot_path: String,
 }
 
 /// Stores the configuration used for managing snapshot memory.

@@ -1188,6 +1188,7 @@ definitions:
       the two `mem_*` fields must be present in the body of the request.
     required:
       - snapshot_path
+      - container_snapshot_path
     properties:
       enable_diff_snapshots:
         type: boolean
@@ -1212,6 +1213,10 @@ definitions:
         type: boolean
         description:
           When set to true, the vm is also resumed if the snapshot load is successful.
+      container_snapshot_path:
+        type: string
+        description:
+          Path to the disk device backing the disk state at the time of the snapshot creation.
 
   TokenBucket:
     type: object
