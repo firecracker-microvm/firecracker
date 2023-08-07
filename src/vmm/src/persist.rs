@@ -581,8 +581,9 @@ fn snapshot_state_from_file(
         File::open(snapshot_path).map_err(SnapshotStateFromFileError::Open)?;
     let metadata = std::fs::metadata(snapshot_path).map_err(SnapshotStateFromFileError::Meta)?;
     let snapshot_len = metadata.len() as usize;
-    Snapshot::load(&mut snapshot_reader, snapshot_len, version_map)
-        .map_err(SnapshotStateFromFileError::Load)
+    let (state, _) = Snapshot::load(&mut snapshot_reader, snapshot_len, version_map)
+        .map_err(SnapshotStateFromFileError::Load)?;
+    Ok(state)
 }
 
 /// Error type for [`guest_memory_from_file`].
