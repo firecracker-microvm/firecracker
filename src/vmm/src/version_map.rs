@@ -77,6 +77,7 @@ lazy_static! {
         version_map.new_version();
         #[cfg(target_arch = "aarch64")]
         version_map.set_type_version(VcpuState::type_id(), 2);
+        version_map.set_type_version(DeviceStates::type_id(), 5);
 
         version_map.set_type_version(VmState::type_id(), 2);
 

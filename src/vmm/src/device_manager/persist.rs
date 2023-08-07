@@ -17,6 +17,7 @@ use versionize_derive::Versionize;
 use vm_allocator::AllocPolicy;
 
 use super::mmio::*;
+use crate::arch::DeviceSubtype;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::DeviceType;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
@@ -173,8 +174,11 @@ pub struct DeviceStates {
     #[cfg(target_arch = "aarch64")]
     // State of legacy devices in MMIO space.
     pub legacy_devices: Vec<ConnectedLegacyState>,
-    /// Block device states.
-    pub block_devices: Vec<ConnectedBlockFileState>,
+    /// Block device types.
+    #[version(start = 5, de_fn = "de_block_devices", ser_fn = "ser_block_devices")]
+    pub block_device_subtypes: Vec<DeviceSubtype>,
+    /// File-backed block device states.
+    pub block_file_devices: Vec<ConnectedBlockFileState>,
     /// Net device states.
     pub net_devices: Vec<ConnectedNetState>,
     /// Vsock device state.
@@ -202,6 +206,34 @@ pub enum SharedDeviceType {
 }
 
 impl DeviceStates {
+    fn de_block_devices(&mut self, _source_version: u16) -> VersionizeResult<()> {
+        // If the snapshot did not contain information about the block device subtypes,
+        // it means that only host-file-backed block devices were saved,
+        // and we should populate the subtypes list with SUBTYPE_BLOCK_FILE
+        // uniformly.
+        self.block_device_subtypes = vec![SUBTYPE_BLOCK_FILE; self.block_file_devices.len()];
+
+        Ok(())
+    }
+
+    fn ser_block_devices(&mut self, target_version: u16) -> VersionizeResult<()> {
+        // Do not allow taking a snapshot if the target Firecracker version does not
+        // support block device subtypes and the block device subtypes list
+        // contains any other block device subtype than host-file-backed.
+        if target_version < 5
+            && self
+                .block_device_subtypes
+                .iter()
+                .any(|&x| x != SUBTYPE_BLOCK_FILE)
+        {
+            return Err(VersionizeError::Semantic(
+                "Target version does not support block device subtypes.".to_owned(),
+            ));
+        }
+
+        Ok(())
+    }
+
     fn balloon_serialize(&mut self, target_version: u16) -> VersionizeResult<()> {
         if target_version < 2 && self.balloon_device.is_some() {
             return Err(VersionizeError::Semantic(
@@ -263,7 +295,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
     fn save(&self) -> Self::State {
         let mut states = DeviceStates {
             balloon_device: None,
-            block_devices: Vec::new(),
+            block_device_subtypes: Vec::new(),
+            block_file_devices: Vec::new(),
             net_devices: Vec::new(),
             vsock_device: None,
             #[cfg(target_arch = "aarch64")]
@@ -321,12 +354,13 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                                 .downcast_mut::<BlockFile>()
                                 .unwrap();
                             block.prepare_save();
-                            states.block_devices.push(ConnectedBlockFileState {
+                            states.block_file_devices.push(ConnectedBlockFileState {
                                 device_id: devid.clone(),
                                 device_state: block.save(),
                                 transport_state,
                                 device_info: device_info.clone(),
                             });
+                            states.block_device_subtypes.push(SUBTYPE_BLOCK_FILE);
                         }
                     }
                     TYPE_NET => {
@@ -522,25 +556,31 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             )?;
         }
 
-        for block_state in &state.block_devices {
-            let device = Arc::new(Mutex::new(BlockFile::restore(
-                BlockFileConstructorArgs { mem: mem.clone() },
-                &block_state.device_state,
-            )?));
+        let mut block_file_iter = state.block_file_devices.iter();
+        for block_device_subtype in &state.block_device_subtypes {
+            if *block_device_subtype == SUBTYPE_BLOCK_FILE {
+                // Safe to unwrap, because the subtype vector tracks the device distibution
+                // between the corresponding vectors.
+                let block_state = block_file_iter.next().unwrap();
+                let device = Arc::new(Mutex::new(BlockFile::restore(
+                    BlockFileConstructorArgs { mem: mem.clone() },
+                    &block_state.device_state,
+                )?));
 
-            (constructor_args.for_each_restored_device)(
-                constructor_args.vm_resources,
-                SharedDeviceType::BlockFile(device.clone()),
-            );
+                (constructor_args.for_each_restored_device)(
+                    constructor_args.vm_resources,
+                    SharedDeviceType::BlockFile(device.clone()),
+                );
 
-            restore_helper(
-                device.clone(),
-                device,
-                &block_state.device_id,
-                &block_state.transport_state,
-                &block_state.device_info,
-                constructor_args.event_manager,
-            )?;
+                restore_helper(
+                    device.clone(),
+                    device,
+                    &block_state.device_id,
+                    &block_state.transport_state,
+                    &block_state.device_info,
+                    constructor_args.event_manager,
+                )?;
+            }
         }
 
         // If the snapshot has the mmds version persisted, initialise the data store with it.
@@ -688,7 +728,7 @@ mod tests {
     impl PartialEq for DeviceStates {
         fn eq(&self, other: &DeviceStates) -> bool {
             self.balloon_device == other.balloon_device
-                && self.block_devices == other.block_devices
+                && self.block_file_devices == other.block_file_devices
                 && self.net_devices == other.net_devices
                 && self.vsock_device == other.vsock_device
         }
