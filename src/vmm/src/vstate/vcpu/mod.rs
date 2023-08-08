@@ -85,14 +85,9 @@ pub struct VcpuConfig {
 type VcpuCell = Cell<Option<*const Vcpu>>;
 
 /// Error type for [`Vcpu::start_threaded`].
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, derive_more::From, thiserror::Error)]
+#[error("Failed to spawn vCPU thread: {0}")]
 pub struct StartThreadedError(std::io::Error);
-impl std::error::Error for StartThreadedError {}
-impl fmt::Display for StartThreadedError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Failed to spawn vCPU thread: {}", self.0)
-    }
-}
 
 /// A wrapper around creating and using a vcpu.
 #[derive(Debug)]
@@ -646,14 +641,9 @@ pub struct VcpuHandle {
 }
 
 /// Error type for [`VcpuHandle::send_event`].
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, derive_more::From, thiserror::Error)]
+#[error("Failed to signal vCPU: {0}")]
 pub struct VcpuSendEventError(pub utils::errno::Error);
-impl std::error::Error for VcpuSendEventError {}
-impl fmt::Display for VcpuSendEventError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Failed to signal vCPU: {}", self.0)
-    }
-}
 
 impl VcpuHandle {
     /// Creates a new [`VcpuHandle`].

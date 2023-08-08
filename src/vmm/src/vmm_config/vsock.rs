@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::convert::TryFrom;
-use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -12,24 +11,14 @@ use crate::devices::virtio::{Vsock, VsockError, VsockUnixBackend, VsockUnixBacke
 type MutexVsockUnix = Arc<Mutex<Vsock<VsockUnixBackend>>>;
 
 /// Errors associated with `NetworkInterfaceConfig`.
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, derive_more::From, thiserror::Error)]
 pub enum VsockConfigError {
     /// Failed to create the backend for the vsock device.
+    #[error("Cannot create backend for vsock device: {0:?}")]
     CreateVsockBackend(VsockUnixBackendError),
     /// Failed to create the vsock device.
+    #[error("Cannot create vsock device: {0:?}")]
     CreateVsockDevice(VsockError),
-}
-
-impl fmt::Display for VsockConfigError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::VsockConfigError::*;
-        match *self {
-            CreateVsockBackend(ref err) => {
-                write!(f, "Cannot create backend for vsock device: {:?}", err)
-            }
-            CreateVsockDevice(ref err) => write!(f, "Cannot create vsock device: {:?}", err),
-        }
-    }
 }
 
 /// This struct represents the strongly typed equivalent of the json body
@@ -175,22 +164,6 @@ pub(crate) mod tests {
         let config = vsock_builder.config();
         assert!(config.is_some());
         assert_eq!(config.unwrap(), vsock_config);
-    }
-
-    #[test]
-    fn test_error_messages() {
-        use std::io;
-
-        use super::VsockConfigError::*;
-        let err = CreateVsockBackend(crate::devices::virtio::VsockUnixBackendError::EpollAdd(
-            io::Error::from_raw_os_error(0),
-        ));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = CreateVsockDevice(crate::devices::virtio::VsockError::EventFd(
-            io::Error::from_raw_os_error(0),
-        ));
-        let _ = format!("{}{:?}", err, err);
     }
 
     #[test]
