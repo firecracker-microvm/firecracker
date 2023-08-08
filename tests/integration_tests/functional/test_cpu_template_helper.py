@@ -337,6 +337,7 @@ def detect_fingerprint_change(microvm, tmp_path, cpu_template_helper, filters):
     )
 
 
+@pytest.mark.no_block_pr
 @pytest.mark.skipif(
     utils.get_kernel_version(level=1) not in SUPPORTED_HOST_KERNELS,
     reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
