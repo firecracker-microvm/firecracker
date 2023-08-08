@@ -641,11 +641,6 @@ def test_mmds_snapshot(bin_cloner_path, version, firecracker_release):
     the firecracker version does not support it.
     """
 
-    # 1.2.0 and above snapshots are incompatible with any past release due to
-    # notification suppression.
-    if firecracker_release.version_tuple < (1, 2, 0):
-        pytest.skip("unsupported due to notification suppression")
-
     vm_builder = MicrovmBuilder(bin_cloner_path)
     iface_cfg = NetIfaceConfig()
     vm_instance = vm_builder.build_vm_nano(net_ifaces=[iface_cfg])

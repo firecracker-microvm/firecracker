@@ -403,7 +403,7 @@ def firecracker_artifacts(*args, **kwargs):
     # until the next minor version (but not including)
     max_version = (version.major, version.minor + 1, 0)
     params = {
-        "min_version": "1.2.0",
+        "min_version": "1.3.0",
         "max_version_open": ".".join(str(x) for x in max_version),
     }
     params.update(kwargs)
