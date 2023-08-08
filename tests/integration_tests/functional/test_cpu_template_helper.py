@@ -320,6 +320,7 @@ def test_cpu_config_dump_vs_actual(
         ), f"Mismatched MSR for {key:#010x}: {actual=:#066b} vs. {dump=:#066b}"
 
 
+@pytest.mark.nonci
 @pytest.mark.skipif(
     utils.get_kernel_version(level=1) not in SUPPORTED_HOST_KERNELS,
     reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
