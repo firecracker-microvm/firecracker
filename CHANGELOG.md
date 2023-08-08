@@ -1,12 +1,5 @@
 # Changelog
 
-## [1.4.1]
-
-### Fixed
-
-- Fixed a change in behavior of normalize host brand string that breaks
-  Firecracker on external instances.
-
 ## [1.4.0]
 
 ### Added
