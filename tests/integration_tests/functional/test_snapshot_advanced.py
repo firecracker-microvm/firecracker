@@ -28,14 +28,6 @@ def test_restore_old_to_current(bin_cloner_path, firecracker_release):
     2. Restore with the current build
     """
 
-    # due to ARM bug fixed in commit 822009ce
-    if platform.machine() == "aarch64" and firecracker_release.version_tuple < (
-        1,
-        1,
-        4,
-    ):
-        pytest.skip("incompatible with aarch64 and Firecracker <1.1.4")
-
     # Microvm: 2vCPU 256MB RAM, balloon, 4 disks and 4 net devices.
     logger = logging.getLogger("old_snapshot_to_current")
     builder = MicrovmBuilder(bin_cloner_path)
@@ -74,11 +66,6 @@ def test_restore_current_to_old(bin_cloner_path, firecracker_release):
     1. Snapshot with the current build
     2. Restore with the past release
     """
-
-    # Current snapshot (i.e a machine snapshotted with current build) is
-    # incompatible with any past release due to notification suppression.
-    if firecracker_release.version_tuple < (1, 2, 0):
-        pytest.skip("incompatible with Firecracker <1.2.0")
 
     # Microvm: 2vCPU 256MB RAM, balloon, 4 disks and 4 net devices.
     logger = logging.getLogger("current_snapshot_to_old")
