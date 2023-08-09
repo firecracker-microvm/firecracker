@@ -17,6 +17,9 @@ use utils::vm_memory::{
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
 
+/// Max size of virtio queues offered by firecracker's virtio devices.
+pub(super) const FIRECRACKER_MAX_QUEUE_SIZE: u16 = 256;
+
 // GuestMemoryMmap::read_obj_from_addr() will be used to fetch the descriptor,
 // which has an explicit constraint that the entire descriptor doesn't
 // cross the page boundary. Otherwise the descriptor may be splitted into

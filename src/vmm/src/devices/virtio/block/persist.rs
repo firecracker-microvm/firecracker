@@ -16,7 +16,7 @@ use virtio_gen::virtio_blk::VIRTIO_BLK_F_RO;
 use super::*;
 use crate::devices::virtio::block::device::FileEngineType;
 use crate::devices::virtio::persist::VirtioDeviceState;
-use crate::devices::virtio::{DeviceState, TYPE_BLOCK};
+use crate::devices::virtio::{DeviceState, FIRECRACKER_MAX_QUEUE_SIZE, TYPE_BLOCK};
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::rate_limiter::RateLimiter;
 
@@ -197,7 +197,7 @@ impl Persist<'_> for Block {
                 &constructor_args.mem,
                 TYPE_BLOCK,
                 BLOCK_NUM_QUEUES,
-                BLOCK_QUEUE_SIZE,
+                FIRECRACKER_MAX_QUEUE_SIZE,
             )
             .map_err(BlockError::Persist)?;
         block.irq_trigger.irq_status =

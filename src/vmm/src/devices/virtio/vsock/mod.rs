@@ -32,18 +32,22 @@ pub use self::unix::{VsockUnixBackend, VsockUnixBackendError};
 use crate::devices::virtio::persist::PersistError as VirtioStateError;
 
 mod defs {
+    use crate::devices::virtio::FIRECRACKER_MAX_QUEUE_SIZE;
+
     /// Device ID used in MMIO device identification.
     /// Because Vsock is unique per-vm, this ID can be hardcoded.
     pub const VSOCK_DEV_ID: &str = "vsock";
 
     /// Number of virtio queues.
     pub const VSOCK_NUM_QUEUES: usize = 3;
-    /// Max size of virtio queues.
-    pub const VSOCK_QUEUE_SIZE: u16 = 256;
+
     /// Virtio queue sizes, in number of descriptor chain heads.
     /// There are 3 queues for a virtio device (in this order): RX, TX, Event
-    pub const VSOCK_QUEUE_SIZES: [u16; VSOCK_NUM_QUEUES] =
-        [VSOCK_QUEUE_SIZE, VSOCK_QUEUE_SIZE, VSOCK_QUEUE_SIZE];
+    pub const VSOCK_QUEUE_SIZES: [u16; VSOCK_NUM_QUEUES] = [
+        FIRECRACKER_MAX_QUEUE_SIZE,
+        FIRECRACKER_MAX_QUEUE_SIZE,
+        FIRECRACKER_MAX_QUEUE_SIZE,
+    ];
 
     /// Max vsock packet data/buffer size.
     pub const MAX_PKT_BUF_SIZE: usize = 64 * 1024;

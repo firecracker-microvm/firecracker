@@ -11,10 +11,12 @@ use utils::eventfd::EventFd;
 use utils::vm_memory::{GuestMemoryError, GuestMemoryMmap};
 use virtio_gen::virtio_rng::VIRTIO_F_VERSION_1;
 
-use super::{RNG_NUM_QUEUES, RNG_QUEUE, RNG_QUEUE_SIZE};
+use super::{RNG_NUM_QUEUES, RNG_QUEUE};
 use crate::devices::virtio::device::{IrqTrigger, IrqType};
 use crate::devices::virtio::iovec::IoVecBufferMut;
-use crate::devices::virtio::{ActivateError, DeviceState, Queue, VirtioDevice, TYPE_RNG};
+use crate::devices::virtio::{
+    ActivateError, DeviceState, Queue, VirtioDevice, FIRECRACKER_MAX_QUEUE_SIZE, TYPE_RNG,
+};
 use crate::devices::DeviceError;
 use crate::rate_limiter::{RateLimiter, TokenType};
 
@@ -49,7 +51,7 @@ pub struct Entropy {
 
 impl Entropy {
     pub fn new(rate_limiter: RateLimiter) -> Result<Self, EntropyError> {
-        let queues = vec![Queue::new(RNG_QUEUE_SIZE); RNG_NUM_QUEUES];
+        let queues = vec![Queue::new(FIRECRACKER_MAX_QUEUE_SIZE); RNG_NUM_QUEUES];
         Self::new_with_queues(queues, rate_limiter)
     }
 
