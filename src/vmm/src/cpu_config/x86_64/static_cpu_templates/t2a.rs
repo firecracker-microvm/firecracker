@@ -194,6 +194,7 @@ pub fn t2a() -> CustomCpuTemplate {
                 flags: KvmCpuidFlags(0),
                 modifiers: vec![
                     // ECX:
+                    // - Bit 02: SVM (AMD APM) / Reserved (Intel SDM)
                     // - Bit 06: SSE4A (AMD APM) / Reserved (Intel SDM)
                     // - Bit 07: MisAlignSse (AMD APM) / Reserved (Intel SDM)
                     // - Bit 08: 3DNowPrefetch (AMD APM) / PREFETCHW (Intel SDM)
@@ -201,20 +202,18 @@ pub fn t2a() -> CustomCpuTemplate {
                     CpuidRegisterModifier {
                         register: CpuidRegister::Ecx,
                         bitmap: RegisterValueFilter {
-                            filter: 0b0010_0000_0000_0000_0000_0001_1100_0000,
+                            filter: 0b0010_0000_0000_0000_0000_0001_1100_0100,
                             value: 0b0000_0000_0000_0000_0000_0000_0000_0000,
                         },
                     },
                     // EDX:
                     // - Bit 22: MmxExt (AMD APM) / Reserved (Intel SDM)
-                    // - Bit 23: MMX (AMD APM) / Reserved (Intel SDM)
-                    // - Bit 24: FSXR (AMD APM) / Reserved (Intel SDM)
                     // - Bit 25: FFXSR (AMD APM) / Reserved (Intel SDM)
                     // - Bit 26: Page1GB (AMD APM) / 1-GByte pages (Intel SDM)
                     CpuidRegisterModifier {
                         register: CpuidRegister::Edx,
                         bitmap: RegisterValueFilter {
-                            filter: 0b0000_0111_1100_0000_0000_0000_0000_0000,
+                            filter: 0b0000_0110_0100_0000_0000_0000_0000_0000,
                             value: 0b0000_0000_0000_0000_0000_0000_0000_0000,
                         },
                     },
@@ -231,11 +230,12 @@ pub fn t2a() -> CustomCpuTemplate {
                     // - Bit 09: WBNOINVD (AMD APM) / WBNOINVD (Intel SDM)
                     // - Bit 18: IbrsPreferred (ADM APM) / Reserved (Intel SDm)
                     // - Bit 19: IbrsSameMode (AMD APM) / Reserved (Intel SDM)
+                    // - Bit 20: EferLmsleUnsupported (AMD APM) / Reserved (Intel SDM)
                     CpuidRegisterModifier {
                         register: CpuidRegister::Ebx,
                         bitmap: RegisterValueFilter {
-                            filter: 0b0000_0000_0000_1100_0000_0010_0000_0101,
-                            value: 0b0000_0000_0000_1100_0000_0000_0000_0000,
+                            filter: 0b0000_0000_0001_1100_0000_0010_0000_0101,
+                            value: 0b0000_0000_0001_1100_0000_0000_0000_0100,
                         },
                     },
                 ],

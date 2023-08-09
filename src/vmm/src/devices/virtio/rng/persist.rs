@@ -3,16 +3,16 @@
 
 //! Defines the structures needed for saving/restoring entropy devices.
 
-use rate_limiter::persist::RateLimiterState;
-use rate_limiter::RateLimiter;
 use snapshot::Persist;
 use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
 use crate::devices::virtio::persist::PersistError as VirtioStateError;
-use crate::devices::virtio::rng::{Entropy, Error as EntropyError, RNG_NUM_QUEUES, RNG_QUEUE_SIZE};
+use crate::devices::virtio::rng::{Entropy, EntropyError, RNG_NUM_QUEUES, RNG_QUEUE_SIZE};
 use crate::devices::virtio::{VirtioDeviceState, TYPE_RNG};
+use crate::rate_limiter::persist::RateLimiterState;
+use crate::rate_limiter::RateLimiter;
 
 #[derive(Debug, Clone, Versionize)]
 pub struct EntropyState {
@@ -30,7 +30,7 @@ impl EntropyConstructorArgs {
 }
 
 #[derive(Debug, derive_more::From)]
-pub enum Error {
+pub enum EntropyPersistError {
     CreateEntropy(EntropyError),
     VirtioState(VirtioStateError),
     RestoreRateLimiter(std::io::Error),
@@ -39,7 +39,7 @@ pub enum Error {
 impl Persist<'_> for Entropy {
     type State = EntropyState;
     type ConstructorArgs = EntropyConstructorArgs;
-    type Error = Error;
+    type Error = EntropyPersistError;
 
     fn save(&self) -> Self::State {
         EntropyState {
@@ -51,7 +51,7 @@ impl Persist<'_> for Entropy {
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
-    ) -> std::result::Result<Self, Self::Error> {
+    ) -> Result<Self, Self::Error> {
         let queues = state.virtio_state.build_queues_checked(
             &constructor_args.0,
             TYPE_RNG,

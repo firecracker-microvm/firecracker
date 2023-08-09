@@ -17,7 +17,7 @@ use vmm::utilities::test_utils::dirty_tracking_vmm;
 use vmm::utilities::test_utils::{create_vmm, default_vmm, default_vmm_no_boot};
 use vmm::version_map::VERSION_MAP;
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
-use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
+use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType, Version};
 use vmm::{DumpCpuConfigError, EventManager, FcExitCode};
 
 #[test]
@@ -189,7 +189,7 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
         snapshot_type,
         snapshot_path: snapshot_file.as_path().to_path_buf(),
         mem_file_path: memory_file.as_path().to_path_buf(),
-        version: Some(String::from("0.24.0")),
+        version: Some(Version::new(0, 24, 0)),
     };
     let vm_info = VmInfo {
         mem_size_mib: 1u64,
@@ -353,143 +353,4 @@ fn get_microvm_state_from_snapshot() -> MicrovmState {
         VERSION_MAP.clone(),
     )
     .unwrap()
-}
-
-#[cfg(target_arch = "x86_64")]
-#[test]
-fn test_snapshot_cpu_vendor() {
-    use vmm::persist::validate_cpu_vendor;
-    let microvm_state = get_microvm_state_from_snapshot();
-
-    // Check if the snapshot created above passes validation since
-    // the snapshot was created locally.
-    assert!(validate_cpu_vendor(&microvm_state).is_ok());
-}
-
-#[cfg(target_arch = "x86_64")]
-#[test]
-fn test_snapshot_cpu_vendor_mismatch() {
-    use vmm::persist::validate_cpu_vendor;
-    let mut microvm_state = get_microvm_state_from_snapshot();
-
-    // Check if the snapshot created above passes validation since
-    // the snapshot was created locally.
-    assert_eq!(validate_cpu_vendor(&microvm_state), Ok(true));
-
-    // Modify the vendor id in CPUID.
-    for entry in microvm_state.vcpu_states[0].cpuid.as_mut_slice().iter_mut() {
-        if entry.function == 0 && entry.index == 0 {
-            // Fail if vendor id is NULL as this needs furhter investigation.
-            assert_ne!(entry.ebx, 0);
-            assert_ne!(entry.ecx, 0);
-            assert_ne!(entry.edx, 0);
-            entry.ebx = 0;
-            break;
-        }
-    }
-
-    // It succeeds in checking if the CPU vendor is valid, in this process it discovers the CPU
-    // vendor not valid.
-    assert_eq!(validate_cpu_vendor(&microvm_state), Ok(false));
-
-    // Negative test: remove the vendor id from cpuid.
-    for entry in microvm_state.vcpu_states[0].cpuid.as_mut_slice().iter_mut() {
-        if entry.function == 0 && entry.index == 0 {
-            entry.function = 1234;
-        }
-    }
-
-    // It succeeds in checking if the CPU vendor is valid, in this process it discovers the CPU
-    // vendor not valid.
-    assert_eq!(
-        validate_cpu_vendor(&microvm_state),
-        Err(vmm::persist::ValidateCpuVendorError::Snapshot)
-    );
-}
-
-#[cfg(target_arch = "x86_64")]
-#[test]
-fn test_snapshot_cpu_vendor_missing() {
-    use vmm::persist::validate_cpu_vendor;
-    let mut microvm_state = get_microvm_state_from_snapshot();
-
-    // Check if the snapshot created above passes validation since
-    // the snapshot was created locally.
-    assert!(validate_cpu_vendor(&microvm_state).is_ok());
-
-    // Negative test: remove the vendor id from cpuid.
-    for entry in microvm_state.vcpu_states[0].cpuid.as_mut_slice().iter_mut() {
-        if entry.function == 0 && entry.index == 0 {
-            entry.function = 1234;
-        }
-    }
-
-    // This must fail as the cpu vendor entry does not exist.
-    assert!(validate_cpu_vendor(&microvm_state).is_err());
-}
-
-#[cfg(target_arch = "aarch64")]
-#[test]
-fn test_snapshot_cpu_vendor() {
-    use vmm::persist::validate_cpu_manufacturer_id;
-
-    let microvm_state = get_microvm_state_from_snapshot();
-
-    // Check if the snapshot created above passes validation since
-    // the snapshot was created locally.
-    assert!(validate_cpu_manufacturer_id(&microvm_state).is_ok());
-}
-
-#[cfg(target_arch = "aarch64")]
-#[test]
-fn test_snapshot_cpu_vendor_missing() {
-    use vmm::arch::aarch64::regs::{Aarch64RegisterVec, MIDR_EL1};
-    use vmm::persist::{validate_cpu_manufacturer_id, ValidateCpuManufacturerIdError};
-
-    let mut microvm_state = get_microvm_state_from_snapshot();
-
-    // Check if the snapshot created above passes validation since
-    // the snapshot was created locally.
-    assert_eq!(validate_cpu_manufacturer_id(&microvm_state), Ok(true));
-
-    // Manufacturer id is stored in the MIDR_EL1 register. For this test we
-    // remove it from the state.
-    for state in microvm_state.vcpu_states.iter_mut() {
-        let mut new_regs = Aarch64RegisterVec::default();
-        // Removing MIDR_EL1 register.
-        for reg in state.regs.iter() {
-            if reg.id != MIDR_EL1 {
-                new_regs.push(reg);
-            }
-        }
-        state.regs = new_regs;
-    }
-    assert!(matches!(
-        validate_cpu_manufacturer_id(&microvm_state),
-        Err(ValidateCpuManufacturerIdError::Snapshot(_))
-    ));
-}
-
-#[cfg(target_arch = "aarch64")]
-#[test]
-fn test_snapshot_cpu_vendor_mismatch() {
-    use vmm::arch::aarch64::regs::MIDR_EL1;
-    use vmm::persist::validate_cpu_manufacturer_id;
-
-    let mut microvm_state = get_microvm_state_from_snapshot();
-
-    // Check if the snapshot created above passes validation since
-    // the snapshot was created locally.
-    assert_eq!(validate_cpu_manufacturer_id(&microvm_state), Ok(true));
-
-    // Change the MIDR_EL1 value from the VCPU states, to contain an
-    // invalid manufacturer ID
-    for state in microvm_state.vcpu_states.as_mut_slice().iter_mut() {
-        for mut reg in state.regs.iter_mut() {
-            if reg.id == MIDR_EL1 {
-                reg.set_value::<u64, 8>(0x710FD081);
-            }
-        }
-    }
-    assert_eq!(validate_cpu_manufacturer_id(&microvm_state), Ok(false));
 }

@@ -66,6 +66,11 @@ pub enum DeterministicCacheError {
     MaxCorePerPackage(CheckedAssignError),
 }
 
+/// We always use this brand string.
+pub const DEFAULT_BRAND_STRING: &[u8; BRAND_STRING_LENGTH] =
+    b"Intel(R) Xeon(R) Processor\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0";
+pub const DEFAULT_BRAND_STRING_BASE: &[u8; 28] = b"Intel(R) Xeon(R) Processor @";
+
 // We use this 2nd implementation so we can conveniently define functions only used within
 // `normalize`.
 #[allow(clippy::multiple_inherent_impl)]
@@ -231,13 +236,12 @@ impl super::IntelCpuid {
         Ok(())
     }
 
-    /// Update brand string entry
     fn update_brand_string_entry(&mut self) -> Result<(), NormalizeCpuidError> {
         // Get host brand string.
         let host_brand_string: [u8; BRAND_STRING_LENGTH] = host_brand_string();
 
         let default_brand_string =
-            default_brand_string(host_brand_string).map_err(NormalizeCpuidError::GetBrandString)?;
+            default_brand_string(host_brand_string).unwrap_or(*DEFAULT_BRAND_STRING);
 
         self.apply_brand_string(&default_brand_string)
             .map_err(NormalizeCpuidError::ApplyBrandString)?;
@@ -281,12 +285,10 @@ pub enum DefaultBrandStringError {
 #[inline]
 fn default_brand_string(
     // Host brand string.
-    // This should look like b"Intel(R) Xeon(R) Platinum 8275CL CPU @ 3.00GHz".
+    // This could look like "Intel(R) Xeon(R) Platinum 8275CL CPU @ 3.00GHz".
+    // or this could look like "Intel(R) Xeon(R) Platinum 8275CL CPU\0\0\0\0\0\0\0\0\0\0".
     host_brand_string: [u8; BRAND_STRING_LENGTH],
 ) -> Result<[u8; BRAND_STRING_LENGTH], DefaultBrandStringError> {
-    /// We always use this brand string.
-    const DEFAULT_BRAND_STRING_BASE: &[u8] = b"Intel(R) Xeon(R) Processor @";
-
     // The slice of the host string before the frequency suffix
     // e.g. b"Intel(R) Xeon(R) Processor Platinum 8275CL CPU @ 3.00" and b"GHz"
     let (before, after) = 'outer: {
@@ -363,69 +365,26 @@ mod tests {
     )]
 
     use super::*;
-
     #[test]
     fn default_brand_string_test() {
         let brand_string = b"Intel(R) Xeon(R) Platinum 8275CL CPU @ 3.00GHz\0\0";
         let ok_result = default_brand_string(*brand_string);
         let expected = Ok(*b"Intel(R) Xeon(R) Processor @ 3.00GHz\0\0\0\0\0\0\0\0\0\0\0\0");
-        assert_eq!(
-            ok_result,
-            expected,
-            "{:?} != {:?}",
-            ok_result.as_ref().map(|s| unsafe {
-                std::ffi::CStr::from_ptr((s as *const u8).cast())
-                    .to_str()
-                    .unwrap()
-            }),
-            expected.as_ref().map(|s| unsafe {
-                std::ffi::CStr::from_ptr((s as *const u8).cast())
-                    .to_str()
-                    .unwrap()
-            })
-        );
+        assert_eq!(ok_result, expected);
     }
     #[test]
     fn default_brand_string_test_missing_frequency() {
         let brand_string = b"Intel(R) Xeon(R) Platinum 8275CL CPU @ \0\0\0\0\0\0\0\0\0";
         let result = default_brand_string(*brand_string);
         let expected = Err(DefaultBrandStringError::MissingFrequency(*brand_string));
-        assert_eq!(
-            result,
-            expected,
-            "{:?} != {:?}",
-            result.as_ref().map(|s| unsafe {
-                std::ffi::CStr::from_ptr((s as *const u8).cast())
-                    .to_str()
-                    .unwrap()
-            }),
-            unsafe {
-                std::ffi::CStr::from_ptr((brand_string as *const u8).cast())
-                    .to_str()
-                    .unwrap()
-            }
-        );
+        assert_eq!(result, expected);
     }
     #[test]
     fn default_brand_string_test_missing_space() {
         let brand_string = b"Intel(R) Xeon(R) Platinum 8275CL CPU @3.00GHz\0\0\0";
         let result = default_brand_string(*brand_string);
         let expected = Err(DefaultBrandStringError::MissingSpace(*brand_string));
-        assert_eq!(
-            result,
-            expected,
-            "{:?} != {:?}",
-            result.as_ref().map(|s| unsafe {
-                std::ffi::CStr::from_ptr((s as *const u8).cast())
-                    .to_str()
-                    .unwrap()
-            }),
-            unsafe {
-                std::ffi::CStr::from_ptr((brand_string as *const u8).cast())
-                    .to_str()
-                    .unwrap()
-            }
-        );
+        assert_eq!(result, expected);
     }
     #[test]
     fn default_brand_string_test_overflow() {

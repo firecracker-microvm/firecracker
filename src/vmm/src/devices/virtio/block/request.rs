@@ -6,11 +6,8 @@
 // found in the THIRD-PARTY file.
 
 use std::convert::From;
-use std::result;
 
-use log::error;
-use logger::{IncMetric, METRICS};
-use rate_limiter::{RateLimiter, TokenType};
+use logger::{error, IncMetric, METRICS};
 use utils::vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 pub use virtio_gen::virtio_blk::{
     VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK, VIRTIO_BLK_S_UNSUPP,
@@ -21,12 +18,13 @@ use super::super::DescriptorChain;
 use super::{io as block_io, BlockError, SECTOR_SHIFT};
 use crate::devices::virtio::block::device::DiskProperties;
 use crate::devices::virtio::SECTOR_SIZE;
+use crate::rate_limiter::{RateLimiter, TokenType};
 
 #[derive(Debug, derive_more::From)]
 pub enum IoErr {
     GetId(GuestMemoryError),
     PartialTransfer { completed: u32, expected: u32 },
-    FileEngine(block_io::Error),
+    FileEngine(block_io::BlockIoError),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -212,7 +210,7 @@ impl RequestHeader {
     /// When running on a big endian platform, this code should not compile, and support
     /// for explicit little endian reads is required.
     #[cfg(target_endian = "little")]
-    fn read_from(memory: &GuestMemoryMmap, addr: GuestAddress) -> result::Result<Self, BlockError> {
+    fn read_from(memory: &GuestMemoryMmap, addr: GuestAddress) -> Result<Self, BlockError> {
         let request_header: RequestHeader =
             memory.read_obj(addr).map_err(BlockError::GuestMemory)?;
         Ok(request_header)
@@ -233,7 +231,7 @@ impl Request {
         avail_desc: &DescriptorChain,
         mem: &GuestMemoryMmap,
         num_disk_sectors: u64,
-    ) -> result::Result<Request, BlockError> {
+    ) -> Result<Request, BlockError> {
         // The head contains the request type which MUST be readable.
         if avail_desc.is_write_only() {
             return Err(BlockError::UnexpectedWriteOnlyDescriptor);

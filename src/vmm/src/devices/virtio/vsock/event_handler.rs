@@ -102,6 +102,7 @@ where
         false
     }
 
+    /// Notify backend of new events.
     pub fn notify_backend(&mut self, evset: EventSet) -> bool {
         debug!("vsock: backend event");
 
@@ -109,7 +110,7 @@ where
         // After the backend has been kicked, it might've freed up some resources, so we
         // can attempt to send it more data to process.
         // In particular, if `self.backend.send_pkt()` halted the TX queue processing (by
-        // reurning an error) at some point in the past, now is the time to try walking the
+        // returning an error) at some point in the past, now is the time to try walking the
         // TX queue again.
         let mut raise_irq = self.process_tx();
         if self.backend.has_pending_rx() {

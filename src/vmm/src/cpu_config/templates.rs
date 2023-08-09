@@ -5,19 +5,22 @@
 mod common_types {
     pub use crate::cpu_config::x86_64::custom_cpu_template::CustomCpuTemplate;
     pub use crate::cpu_config::x86_64::static_cpu_templates::StaticCpuTemplate;
-    pub use crate::cpu_config::x86_64::{test_utils, CpuConfiguration, Error as GuestConfigError};
+    pub use crate::cpu_config::x86_64::{
+        test_utils, CpuConfiguration, CpuConfigurationError as GuestConfigError,
+    };
 }
 
 #[cfg(target_arch = "aarch64")]
 mod common_types {
     pub use crate::cpu_config::aarch64::custom_cpu_template::CustomCpuTemplate;
     pub use crate::cpu_config::aarch64::static_cpu_templates::StaticCpuTemplate;
-    pub use crate::cpu_config::aarch64::{test_utils, CpuConfiguration, Error as GuestConfigError};
+    pub use crate::cpu_config::aarch64::{
+        test_utils, CpuConfiguration, CpuConfigurationError as GuestConfigError,
+    };
 }
 
 use std::borrow::Cow;
 use std::fmt::Debug;
-use std::result::Result;
 
 pub use common_types::*;
 use serde::de::Error as SerdeError;
@@ -68,6 +71,24 @@ impl From<&Option<CpuTemplateType>> for StaticCpuTemplate {
             Some(CpuTemplateType::Static(template)) => *template,
             Some(CpuTemplateType::Custom(_)) | None => StaticCpuTemplate::None,
         }
+    }
+}
+
+impl<'a> TryFrom<&'a [u8]> for CustomCpuTemplate {
+    type Error = serde_json::Error;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        let template: CustomCpuTemplate = serde_json::from_slice(value)?;
+        template.validate()?;
+        Ok(template)
+    }
+}
+
+impl TryFrom<&str> for CustomCpuTemplate {
+    type Error = serde_json::Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        CustomCpuTemplate::try_from(value.as_bytes())
     }
 }
 
@@ -193,6 +214,13 @@ where
         let (mut filter, mut value) = (V::zero(), V::zero());
         let mut i = 0;
         for s in stripped_str.as_bytes().iter().rev() {
+            if V::BITS == i {
+                return Err(D::Error::custom(format!(
+                    "Failed to parse string [{}] as a bitmap - string is too long",
+                    original_str
+                )));
+            }
+
             match s {
                 b'_' => continue,
                 b'x' => {}
@@ -243,6 +271,10 @@ mod tests {
         assert_eq!(deserialized, expected_rvf);
 
         let serialized = "\"0b0_xϽ1_xx_xx\"";
+        let deserialized: Result<RegisterValueFilter<u8>, _> = serde_json::from_str(serialized);
+        assert!(deserialized.is_err());
+
+        let serialized = "\"0b0000_0000_0\"";
         let deserialized: Result<RegisterValueFilter<u8>, _> = serde_json::from_str(serialized);
         assert!(deserialized.is_err());
     }

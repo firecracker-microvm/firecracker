@@ -1,28 +1,44 @@
 // Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::env;
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom};
 use std::os::unix::io::AsRawFd;
-use std::{env, process};
 
-use utils::arg_parser::{ArgParser, Argument, Arguments};
+use utils::arg_parser::{ArgParser, Argument, Arguments, Error as ArgError};
 use utils::seek_hole::SeekHole;
 
 const REBASE_SNAP_VERSION: &str = env!("FIRECRACKER_VERSION");
-const EXIT_CODE_SUCCESS: i32 = 0;
 const BASE_FILE: &str = "base-file";
 const DIFF_FILE: &str = "diff-file";
 
-#[derive(Debug)]
-enum Error {
+#[derive(Debug, thiserror::Error)]
+enum FileError {
+    #[error("Invalid base file: {0:?}")]
     InvalidBaseFile(std::io::Error),
+    #[error("Invalid diff file: {0:?}")]
     InvalidDiffFile(std::io::Error),
+    #[error("Failed to seek data: {0:?}")]
     SeekData(std::io::Error),
+    #[error("Failed to seek hole: {0:?}")]
     SeekHole(std::io::Error),
+    #[error("Failed to seek: {0:?}")]
     Seek(std::io::Error),
-    Sendfile(std::io::Error),
+    #[error("Failed to send the file: {0:?}")]
+    SendFile(std::io::Error),
+    #[error("Failed to get metadata: {0:?}")]
     Metadata(std::io::Error),
+}
+
+#[derive(Debug, thiserror::Error)]
+enum RebaseSnapError {
+    #[error("Arguments parsing error: {0} \n\nFor more information try --help.")]
+    ArgParse(ArgError),
+    #[error("Error parsing the cmd line args: {0}")]
+    SnapFile(FileError),
+    #[error("Error merging the files: {0}")]
+    RebaseFiles(FileError),
 }
 
 fn build_arg_parser<'a>() -> ArgParser<'a> {
@@ -43,62 +59,41 @@ fn build_arg_parser<'a>() -> ArgParser<'a> {
     arg_parser
 }
 
-fn extract_args<'a>(arg_parser: &'a mut ArgParser<'a>) -> &'a Arguments<'a> {
-    arg_parser.parse_from_cmdline().unwrap_or_else(|err| {
-        panic!(
-            "Arguments parsing error: {} \n\nFor more information try --help.",
-            err
-        );
-    });
-
-    if arg_parser.arguments().flag_present("help") {
-        println!("Rebase_snap v{}", REBASE_SNAP_VERSION);
-        println!(
-            "Tool that copies all the non-sparse sections from a diff file onto a base file\n"
-        );
-        println!("{}", arg_parser.formatted_help());
-        process::exit(EXIT_CODE_SUCCESS);
-    }
-    if arg_parser.arguments().flag_present("version") {
-        println!("Rebase_snap v{}\n", REBASE_SNAP_VERSION);
-        process::exit(EXIT_CODE_SUCCESS);
-    }
-
-    arg_parser.arguments()
-}
-
-fn parse_args(args: &Arguments) -> Result<(File, File), Error> {
+fn get_files(args: &Arguments) -> Result<(File, File), FileError> {
     // Safe to unwrap since the required arguments are checked as part of
     // `arg_parser.parse_from_cmdline()`
     let base_file_path = args.single_value(BASE_FILE).unwrap();
     let base_file = OpenOptions::new()
         .write(true)
         .open(base_file_path)
-        .map_err(Error::InvalidBaseFile)?;
+        .map_err(FileError::InvalidBaseFile)?;
     // Safe to unwrap since the required arguments are checked as part of
     // `arg_parser.parse_from_cmdline()`
     let diff_file_path = args.single_value(DIFF_FILE).unwrap();
     let diff_file = OpenOptions::new()
         .read(true)
         .open(diff_file_path)
-        .map_err(Error::InvalidDiffFile)?;
+        .map_err(FileError::InvalidDiffFile)?;
 
     Ok((base_file, diff_file))
 }
 
-fn rebase(base_file: &mut File, diff_file: &mut File) -> Result<(), Error> {
+fn rebase(base_file: &mut File, diff_file: &mut File) -> Result<(), FileError> {
     let mut cursor: u64 = 0;
-    while let Some(block_start) = diff_file.seek_data(cursor).map_err(Error::SeekData)? {
+    while let Some(block_start) = diff_file.seek_data(cursor).map_err(FileError::SeekData)? {
         cursor = block_start;
-        let block_end = match diff_file.seek_hole(block_start).map_err(Error::SeekHole)? {
+        let block_end = match diff_file
+            .seek_hole(block_start)
+            .map_err(FileError::SeekHole)?
+        {
             Some(hole_start) => hole_start,
-            None => diff_file.metadata().map_err(Error::Metadata)?.len(),
+            None => diff_file.metadata().map_err(FileError::Metadata)?.len(),
         };
 
         while cursor < block_end {
             base_file
                 .seek(SeekFrom::Start(cursor))
-                .map_err(Error::Seek)?;
+                .map_err(FileError::Seek)?;
 
             // SAFETY: Safe because the parameters are valid.
             let num_transferred_bytes = unsafe {
@@ -110,7 +105,7 @@ fn rebase(base_file: &mut File, diff_file: &mut File) -> Result<(), Error> {
                 )
             };
             if num_transferred_bytes < 0 {
-                return Err(Error::Sendfile(std::io::Error::last_os_error()));
+                return Err(FileError::SendFile(std::io::Error::last_os_error()));
             }
         }
     }
@@ -118,14 +113,42 @@ fn rebase(base_file: &mut File, diff_file: &mut File) -> Result<(), Error> {
     Ok(())
 }
 
-fn main() {
-    let mut arg_parser = build_arg_parser();
-    let args = extract_args(&mut arg_parser);
-    let (mut base_file, mut diff_file) =
-        parse_args(args).unwrap_or_else(|err| panic!("Error parsing the cmd line args: {:?}", err));
+fn main() -> Result<(), RebaseSnapError> {
+    let result = main_exec();
+    if let Err(e) = result {
+        eprintln!("{}", e);
+        Err(e)
+    } else {
+        Ok(())
+    }
+}
 
-    rebase(&mut base_file, &mut diff_file)
-        .unwrap_or_else(|err| panic!("Error merging the files: {:?}", err));
+fn main_exec() -> Result<(), RebaseSnapError> {
+    let mut arg_parser = build_arg_parser();
+
+    arg_parser
+        .parse_from_cmdline()
+        .map_err(RebaseSnapError::ArgParse)?;
+    let arguments = arg_parser.arguments();
+
+    if arguments.flag_present("help") {
+        println!("Rebase_snap v{}", REBASE_SNAP_VERSION);
+        println!(
+            "Tool that copies all the non-sparse sections from a diff file onto a base file\n"
+        );
+        println!("{}", arg_parser.formatted_help());
+        return Ok(());
+    }
+    if arguments.flag_present("version") {
+        println!("Rebase_snap v{}\n", REBASE_SNAP_VERSION);
+        return Ok(());
+    }
+
+    let (mut base_file, mut diff_file) = get_files(arguments).map_err(RebaseSnapError::SnapFile)?;
+
+    rebase(&mut base_file, &mut diff_file).map_err(RebaseSnapError::RebaseFiles)?;
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -173,7 +196,7 @@ mod tests {
                 .as_ref(),
             )
             .unwrap();
-        assert_err!(parse_args(arguments), Error::InvalidBaseFile(_));
+        assert_err!(get_files(arguments), FileError::InvalidBaseFile(_));
 
         let arguments = &mut arg_parser.arguments().clone();
         arguments
@@ -191,7 +214,7 @@ mod tests {
                 .as_ref(),
             )
             .unwrap();
-        assert_err!(parse_args(arguments), Error::InvalidDiffFile(_));
+        assert_err!(get_files(arguments), FileError::InvalidDiffFile(_));
 
         let arguments = &mut arg_parser.arguments().clone();
         arguments
@@ -209,7 +232,7 @@ mod tests {
                 .as_ref(),
             )
             .unwrap();
-        assert!(parse_args(arguments).is_ok());
+        assert!(get_files(arguments).is_ok());
     }
 
     fn check_file_content(file: &mut File, expected_content: &[u8]) {

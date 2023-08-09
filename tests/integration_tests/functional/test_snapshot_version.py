@@ -95,7 +95,7 @@ def test_create_invalid_version(bin_cloner_path):
         )
     except AssertionError as error:
         # Check if proper error is returned.
-        assert "Invalid microVM version format" in str(error)
+        assert "unexpected character 'i' while parsing major version" in str(error)
     else:
         assert False, "Negative test failed"
 

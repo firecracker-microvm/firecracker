@@ -109,7 +109,7 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, Error> {
 
 #[cfg(test)]
 mod tests {
-    use vmm::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
+    use vmm::vmm_config::snapshot::{MemBackendConfig, MemBackendType, Version};
 
     use super::*;
     use crate::parsed_request::tests::{depr_action_from_req, vmm_action_from_request};
@@ -131,7 +131,7 @@ mod tests {
             snapshot_type: SnapshotType::Diff,
             snapshot_path: PathBuf::from("foo"),
             mem_file_path: PathBuf::from("bar"),
-            version: Some(String::from("0.23.0")),
+            version: Some(Version::new(0, 23, 0)),
         };
 
         match vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some("create")).unwrap())

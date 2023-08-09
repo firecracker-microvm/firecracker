@@ -16,16 +16,16 @@ use crate::arch::aarch64::regs::{
 };
 use crate::arch::aarch64::vcpu::{
     get_all_registers, get_all_registers_ids, get_mpidr, get_mpstate, get_registers, set_mpstate,
-    set_registers, setup_boot_regs, Error as ArchError,
+    set_registers, setup_boot_regs, VcpuError as ArchError,
 };
 use crate::cpu_config::templates::CpuConfiguration;
-use crate::vcpu::{Error as VcpuError, VcpuConfig};
+use crate::vcpu::{VcpuConfig, VcpuError};
 use crate::vstate::vcpu::VcpuEmulation;
 use crate::vstate::vm::Vm;
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
-pub enum Error {
+pub enum KvmVcpuError {
     #[error("Error configuring the vcpu registers: {0}")]
     ConfigureRegisters(ArchError),
     #[error("Error creating vcpu: {0}")]
@@ -44,7 +44,7 @@ pub enum Error {
     SaveState(ArchError),
 }
 
-pub type KvmVcpuConfigureError = Error;
+pub type KvmVcpuConfigureError = KvmVcpuError;
 
 /// A wrapper around creating and using a kvm aarch64 vcpu.
 #[derive(Debug)]
@@ -62,11 +62,11 @@ impl KvmVcpu {
     ///
     /// * `index` - Represents the 0-based CPU index between [0, max vcpus).
     /// * `vm` - The vm to which this vcpu will get attached.
-    pub fn new(index: u8, vm: &Vm) -> Result<Self, Error> {
+    pub fn new(index: u8, vm: &Vm) -> Result<Self, KvmVcpuError> {
         let kvm_vcpu = vm
             .fd()
             .create_vcpu(index.into())
-            .map_err(Error::CreateVcpu)?;
+            .map_err(KvmVcpuError::CreateVcpu)?;
 
         Ok(KvmVcpu {
             index,
@@ -93,11 +93,11 @@ impl KvmVcpu {
         guest_mem: &GuestMemoryMmap,
         kernel_load_addr: GuestAddress,
         vcpu_config: &VcpuConfig,
-    ) -> Result<(), Error> {
+    ) -> Result<(), KvmVcpuError> {
         for reg in vcpu_config.cpu_config.regs.iter() {
             self.fd
                 .set_one_reg(reg.id, reg.as_slice())
-                .map_err(|err| Error::ApplyCpuTemplate(ArchError::SetOneReg(reg.id, err)))?;
+                .map_err(|err| KvmVcpuError::ApplyCpuTemplate(ArchError::SetOneReg(reg.id, err)))?;
         }
 
         setup_boot_regs(
@@ -106,9 +106,9 @@ impl KvmVcpu {
             kernel_load_addr.raw_value(),
             guest_mem,
         )
-        .map_err(Error::ConfigureRegisters)?;
+        .map_err(KvmVcpuError::ConfigureRegisters)?;
 
-        self.mpidr = get_mpidr(&self.fd).map_err(Error::ConfigureRegisters)?;
+        self.mpidr = get_mpidr(&self.fd).map_err(KvmVcpuError::ConfigureRegisters)?;
 
         Ok(())
     }
@@ -118,43 +118,43 @@ impl KvmVcpu {
     /// # Arguments
     ///
     /// * `vm_fd` - The kvm `VmFd` for this microvm.
-    pub fn init(&self, vm_fd: &VmFd) -> Result<(), Error> {
+    pub fn init(&self, vm_fd: &VmFd) -> Result<(), KvmVcpuError> {
         let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
 
         // This reads back the kernel's preferred target type.
         vm_fd
             .get_preferred_target(&mut kvi)
-            .map_err(Error::GetPreferredTarget)?;
+            .map_err(KvmVcpuError::GetPreferredTarget)?;
         // We already checked that the capability is supported.
         kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_PSCI_0_2;
         // Non-boot cpus are powered off initially.
         if self.index > 0 {
             kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_POWER_OFF;
         }
-        self.fd.vcpu_init(&kvi).map_err(Error::Init)
+        self.fd.vcpu_init(&kvi).map_err(KvmVcpuError::Init)
     }
 
     /// Save the KVM internal state.
-    pub fn save_state(&self) -> Result<VcpuState, Error> {
+    pub fn save_state(&self) -> Result<VcpuState, KvmVcpuError> {
         let mut state = VcpuState {
-            mp_state: get_mpstate(&self.fd).map_err(Error::SaveState)?,
+            mp_state: get_mpstate(&self.fd).map_err(KvmVcpuError::SaveState)?,
             ..Default::default()
         };
-        get_all_registers(&self.fd, &mut state.regs).map_err(Error::SaveState)?;
-        state.mpidr = get_mpidr(&self.fd).map_err(Error::SaveState)?;
+        get_all_registers(&self.fd, &mut state.regs).map_err(KvmVcpuError::SaveState)?;
+        state.mpidr = get_mpidr(&self.fd).map_err(KvmVcpuError::SaveState)?;
         Ok(state)
     }
 
     /// Use provided state to populate KVM internal state.
-    pub fn restore_state(&self, state: &VcpuState) -> Result<(), Error> {
-        set_registers(&self.fd, &state.regs).map_err(Error::RestoreState)?;
-        set_mpstate(&self.fd, state.mp_state).map_err(Error::RestoreState)?;
+    pub fn restore_state(&self, state: &VcpuState) -> Result<(), KvmVcpuError> {
+        set_registers(&self.fd, &state.regs).map_err(KvmVcpuError::RestoreState)?;
+        set_mpstate(&self.fd, state.mp_state).map_err(KvmVcpuError::RestoreState)?;
         Ok(())
     }
 
     /// Dumps CPU configuration.
-    pub fn dump_cpu_config(&self) -> Result<CpuConfiguration, Error> {
-        let mut reg_list = get_all_registers_ids(&self.fd).map_err(Error::DumpCpuConfig)?;
+    pub fn dump_cpu_config(&self) -> Result<CpuConfiguration, KvmVcpuError> {
+        let mut reg_list = get_all_registers_ids(&self.fd).map_err(KvmVcpuError::DumpCpuConfig)?;
 
         // KVM_REG_ARM_TIMER_CNT should be removed, because it depends on the elapsed time and
         // the dumped CPU config is used to create custom CPU templates to modify CPU features
@@ -163,7 +163,7 @@ impl KvmVcpu {
         reg_list.retain(|&reg_id| reg_id != KVM_REG_ARM_TIMER_CNT);
 
         let mut regs = Aarch64RegisterVec::default();
-        get_registers(&self.fd, &reg_list, &mut regs).map_err(Error::DumpCpuConfig)?;
+        get_registers(&self.fd, &reg_list, &mut regs).map_err(KvmVcpuError::DumpCpuConfig)?;
 
         Ok(CpuConfiguration { regs })
     }
@@ -230,7 +230,7 @@ mod tests {
     use kvm_bindings::KVM_REG_SIZE_U64;
     use utils::vm_memory::GuestMemoryMmap;
 
-    use super::{Error, *};
+    use super::*;
     use crate::arch::aarch64::regs::Aarch64RegisterRef;
     use crate::cpu_config::aarch64::CpuConfiguration;
     use crate::vcpu::VcpuConfig;
@@ -293,7 +293,7 @@ mod tests {
         assert!(err.is_err());
         assert_eq!(
             err.unwrap_err(),
-            Error::ConfigureRegisters(ArchError::SetOneReg(
+            KvmVcpuError::ConfigureRegisters(ArchError::SetOneReg(
                 0x6030000000100042,
                 kvm_ioctls::Error::new(9)
             ))
@@ -323,7 +323,7 @@ mod tests {
         assert!(res.is_err());
         assert!(matches!(
             res.unwrap_err(),
-            Error::SaveState(ArchError::GetRegList(_))
+            KvmVcpuError::SaveState(ArchError::GetRegList(_))
         ));
 
         // Try to restore the register using a faulty state.
@@ -340,7 +340,7 @@ mod tests {
         assert!(res.is_err());
         assert!(matches!(
             res.unwrap_err(),
-            Error::RestoreState(ArchError::SetOneReg(0, _))
+            KvmVcpuError::RestoreState(ArchError::SetOneReg(0, _))
         ));
 
         init_vcpu(&vcpu.fd, vm.fd());

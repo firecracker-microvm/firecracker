@@ -11,7 +11,7 @@ use utils::byte_order;
 
 /// Errors thrown while configuring the LAPIC.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum Error {
+pub enum InterruptError {
     /// Failure in getting the LAPIC configuration.
     #[error("Failure in getting the LAPIC configuration: {0}")]
     GetLapic(kvm_ioctls::Error),
@@ -19,7 +19,6 @@ pub enum Error {
     #[error("Failure in setting the LAPIC configuration: {0}")]
     SetLapic(kvm_ioctls::Error),
 }
-type Result<T> = std::result::Result<T, Error>;
 
 // Defines poached from apicdef.h kernel header.
 const APIC_LVT0: usize = 0x350;
@@ -36,7 +35,7 @@ fn get_klapic_reg(klapic: &kvm_lapic_state, reg_offset: usize) -> u32 {
 fn set_klapic_reg(klapic: &mut kvm_lapic_state, reg_offset: usize, value: u32) {
     let range = reg_offset..reg_offset + 4;
     let reg = klapic.regs.get_mut(range).expect("set_klapic_reg range");
-    byte_order::write_le_i32(reg, value as i32)
+    byte_order::write_le_u32_to_i8(reg, value)
 }
 
 fn set_apic_delivery_mode(reg: u32, mode: u32) -> u32 {
@@ -47,8 +46,8 @@ fn set_apic_delivery_mode(reg: u32, mode: u32) -> u32 {
 ///
 /// # Arguments
 /// * `vcpu` - The VCPU object to configure.
-pub fn set_lint(vcpu: &VcpuFd) -> Result<()> {
-    let mut klapic = vcpu.get_lapic().map_err(Error::GetLapic)?;
+pub fn set_lint(vcpu: &VcpuFd) -> Result<(), InterruptError> {
+    let mut klapic = vcpu.get_lapic().map_err(InterruptError::GetLapic)?;
 
     let lvt_lint0 = get_klapic_reg(&klapic, APIC_LVT0);
     set_klapic_reg(
@@ -63,7 +62,7 @@ pub fn set_lint(vcpu: &VcpuFd) -> Result<()> {
         set_apic_delivery_mode(lvt_lint1, APIC_MODE_NMI),
     );
 
-    vcpu.set_lapic(&klapic).map_err(Error::SetLapic)
+    vcpu.set_lapic(&klapic).map_err(InterruptError::SetLapic)
 }
 
 #[cfg(test)]

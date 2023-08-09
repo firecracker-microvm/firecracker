@@ -3,13 +3,9 @@
 
 mod regs;
 
-use std::result;
-
 use kvm_ioctls::{DeviceFd, VmFd};
 
-use crate::arch::aarch64::gic::{Error, GicState};
-
-type Result<T> = result::Result<T, Error>;
+use crate::arch::aarch64::gic::{GicError, GicState};
 
 /// Represent a GIC v2 device
 #[derive(Debug)]
@@ -76,15 +72,15 @@ impl GICv2 {
         })
     }
 
-    pub fn save_device(&self, mpidrs: &[u64]) -> Result<GicState> {
+    pub fn save_device(&self, mpidrs: &[u64]) -> Result<GicState, GicError> {
         regs::save_state(&self.fd, mpidrs)
     }
 
-    pub fn restore_device(&self, mpidrs: &[u64], state: &GicState) -> Result<()> {
+    pub fn restore_device(&self, mpidrs: &[u64], state: &GicState) -> Result<(), GicError> {
         regs::restore_state(&self.fd, mpidrs, state)
     }
 
-    pub fn init_device_attributes(gic_device: &Self) -> Result<()> {
+    pub fn init_device_attributes(gic_device: &Self) -> Result<(), GicError> {
         // Setting up the distributor attribute.
         // We are placing the GIC below 1GB so we need to substract the size of the distributor.
         Self::set_device_attribute(
@@ -108,18 +104,19 @@ impl GICv2 {
     }
 
     /// Initialize a GIC device
-    pub fn init_device(vm: &VmFd) -> Result<DeviceFd> {
+    pub fn init_device(vm: &VmFd) -> Result<DeviceFd, GicError> {
         let mut gic_device = kvm_bindings::kvm_create_device {
             type_: Self::VERSION,
             fd: 0,
             flags: 0,
         };
 
-        vm.create_device(&mut gic_device).map_err(Error::CreateGIC)
+        vm.create_device(&mut gic_device)
+            .map_err(GicError::CreateGIC)
     }
 
     /// Method to initialize the GIC device
-    pub fn create(vm: &VmFd, vcpu_count: u64) -> Result<Self> {
+    pub fn create(vm: &VmFd, vcpu_count: u64) -> Result<Self, GicError> {
         let vgic_fd = Self::init_device(vm)?;
 
         let device = Self::create_device(vgic_fd, vcpu_count);
@@ -132,7 +129,7 @@ impl GICv2 {
     }
 
     /// Finalize the setup of a GIC device
-    pub fn finalize_device(gic_device: &Self) -> Result<()> {
+    pub fn finalize_device(gic_device: &Self) -> Result<(), GicError> {
         // On arm there are 3 types of interrupts: SGI (0-15), PPI (16-31), SPI (32-1020).
         // SPIs are used to signal interrupts from various peripherals accessible across
         // the whole system so these are the ones that we increment when adding a new virtio device.
@@ -168,7 +165,7 @@ impl GICv2 {
         attr: u64,
         addr: u64,
         flags: u32,
-    ) -> Result<()> {
+    ) -> Result<(), GicError> {
         let attr = kvm_bindings::kvm_device_attr {
             flags,
             group,
@@ -176,7 +173,7 @@ impl GICv2 {
             addr,
         };
         fd.set_device_attr(&attr)
-            .map_err(|err| Error::DeviceAttribute(err, true, group))?;
+            .map_err(|err| GicError::DeviceAttribute(err, true, group))?;
 
         Ok(())
     }

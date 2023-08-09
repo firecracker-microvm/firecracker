@@ -16,30 +16,35 @@ use super::*;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::{DeviceState, TYPE_VSOCK};
 
+/// The Vsock serializable state.
 // NOTICE: Any changes to this structure require a snapshot version bump.
 #[derive(Debug, Clone, Versionize)]
 pub struct VsockState {
+    /// The vsock backend state.
     pub backend: VsockBackendState,
+    /// The vsock frontend state.
     pub frontend: VsockFrontendState,
 }
 
+/// The Vsock frontend serializable state.
 // NOTICE: Any changes to this structure require a snapshot version bump.
-/// The Vsock serializable state.
 #[derive(Debug, Clone, Versionize)]
 pub struct VsockFrontendState {
+    /// Context IDentifier.
     pub cid: u64,
     virtio_state: VirtioDeviceState,
 }
 
-// NOTICE: Any changes to this structure require a snapshot version bump.
 /// An enum for the serializable backend state types.
+// NOTICE: Any changes to this structure require a snapshot version bump.
 #[derive(Debug, Clone, Versionize)]
 pub enum VsockBackendState {
+    /// UDS backend state.
     Uds(VsockUdsState),
 }
 
-// NOTICE: Any changes to this structure require a snapshot version bump.
 /// The Vsock Unix Backend serializable state.
+// NOTICE: Any changes to this structure require a snapshot version bump.
 #[derive(Debug, Clone, Versionize)]
 pub struct VsockUdsState {
     /// The path for the UDS socket.
@@ -49,14 +54,16 @@ pub struct VsockUdsState {
 /// A helper structure that holds the constructor arguments for VsockUnixBackend
 #[derive(Debug)]
 pub struct VsockConstructorArgs<B> {
+    /// Pointer to guest memory.
     pub mem: GuestMemoryMmap,
+    /// The vsock Unix Backend.
     pub backend: B,
 }
 
 /// A helper structure that holds the constructor arguments for VsockUnixBackend
 #[derive(Debug)]
 pub struct VsockUdsConstructorArgs {
-    // cid available in VsockFrontendState.
+    /// cid available in VsockFrontendState.
     pub cid: u64,
 }
 
@@ -74,7 +81,7 @@ impl Persist<'_> for VsockUnixBackend {
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
-    ) -> std::result::Result<Self, Self::Error> {
+    ) -> Result<Self, Self::Error> {
         match state {
             VsockBackendState::Uds(uds_state) => Ok(VsockUnixBackend::new(
                 constructor_args.cid,
@@ -102,7 +109,7 @@ where
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
-    ) -> std::result::Result<Self, Self::Error> {
+    ) -> Result<Self, Self::Error> {
         // Restore queues.
         let queues = state
             .virtio_state
@@ -149,10 +156,7 @@ pub(crate) mod tests {
             })
         }
 
-        fn restore(
-            _: Self::ConstructorArgs,
-            state: &Self::State,
-        ) -> std::result::Result<Self, Self::Error> {
+        fn restore(_: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
             match state {
                 VsockBackendState::Uds(_) => Ok(TestBackend::new()),
             }

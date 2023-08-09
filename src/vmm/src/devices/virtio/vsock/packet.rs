@@ -24,7 +24,7 @@ use utils::vm_memory::{
 };
 
 use super::super::DescriptorChain;
-use super::{defs, Result, VsockError};
+use super::{defs, VsockError};
 
 // The vsock packet header is defined by the C struct:
 //
@@ -99,7 +99,10 @@ pub struct VsockPacket {
 }
 
 impl VsockPacket {
-    fn check_desc_write_only(desc: &DescriptorChain, expected_write_only: bool) -> Result<()> {
+    fn check_desc_write_only(
+        desc: &DescriptorChain,
+        expected_write_only: bool,
+    ) -> Result<(), VsockError> {
         if desc.is_write_only() != expected_write_only {
             return match desc.is_write_only() {
                 true => Err(VsockError::UnreadableDescriptor),
@@ -110,7 +113,10 @@ impl VsockPacket {
         Ok(())
     }
 
-    fn check_hdr_desc(hdr_desc: &DescriptorChain, expected_write_only: bool) -> Result<()> {
+    fn check_hdr_desc(
+        hdr_desc: &DescriptorChain,
+        expected_write_only: bool,
+    ) -> Result<(), VsockError> {
         Self::check_desc_write_only(hdr_desc, expected_write_only)?;
 
         // Validate the packet header address
@@ -126,7 +132,11 @@ impl VsockPacket {
         Ok(())
     }
 
-    fn init_buf(&mut self, hdr_desc: &DescriptorChain, expected_write_only: bool) -> Result<()> {
+    fn init_buf(
+        &mut self,
+        hdr_desc: &DescriptorChain,
+        expected_write_only: bool,
+    ) -> Result<(), VsockError> {
         let buf_desc = hdr_desc
             .next_descriptor()
             .ok_or(VsockError::BufDescMissing)?;
@@ -153,7 +163,7 @@ impl VsockPacket {
     /// The chain head is expected to hold valid packet header data. A following packet buffer
     /// descriptor can optionally end the chain. Bounds and pointer checks are performed when
     /// creating the wrapper.
-    pub fn from_tx_virtq_head(hdr_desc: &DescriptorChain) -> Result<Self> {
+    pub fn from_tx_virtq_head(hdr_desc: &DescriptorChain) -> Result<Self, VsockError> {
         Self::check_hdr_desc(hdr_desc, false)?;
 
         // Validate the packet header address
@@ -196,7 +206,7 @@ impl VsockPacket {
     ///
     /// There must be two descriptors in the chain, both writable: a header descriptor and a data
     /// descriptor. Bounds and pointer checks are performed when creating the wrapper.
-    pub fn from_rx_virtq_head(hdr_desc: &DescriptorChain) -> Result<Self> {
+    pub fn from_rx_virtq_head(hdr_desc: &DescriptorChain) -> Result<Self, VsockError> {
         Self::check_hdr_desc(hdr_desc, true)?;
 
         let mut pkt = Self {
@@ -221,7 +231,7 @@ impl VsockPacket {
     }
 
     /// Writes the local copy of the packet header to the guest memory.
-    pub fn commit_hdr(&self, mem: &GuestMemoryMmap) -> Result<()> {
+    pub fn commit_hdr(&self, mem: &GuestMemoryMmap) -> Result<(), VsockError> {
         // Reject weirdly-sized packets.
         self.check_len()?;
 
@@ -230,7 +240,7 @@ impl VsockPacket {
     }
 
     /// Verifies packet length against `MAX_PKT_BUF_SIZE` limit.
-    pub fn check_len(&self) -> Result<()> {
+    pub fn check_len(&self) -> Result<(), VsockError> {
         if self.len() > defs::MAX_PKT_BUF_SIZE as u32 {
             return Err(VsockError::InvalidPktLen(self.len()));
         }
@@ -252,7 +262,7 @@ impl VsockPacket {
         mem: &'a GuestMemoryMmap,
         buf_offset: usize,
         count: usize,
-    ) -> Result<VolatileSlice<'a, BS<Option<AtomicBitmap>>>> {
+    ) -> Result<VolatileSlice<'a, BS<Option<AtomicBitmap>>>, VsockError> {
         // Check that the desired slice is inside the buf.
         self.buf_size
             .checked_sub(buf_offset)
@@ -279,7 +289,7 @@ impl VsockPacket {
         offset: usize,
         src: &mut T,
         count: usize,
-    ) -> Result<usize> {
+    ) -> Result<usize, VsockError> {
         let mut dst = self.check_bounds_for_buffer_access(mem, offset, count)?;
 
         loop {
@@ -303,7 +313,7 @@ impl VsockPacket {
         offset: usize,
         dst: &mut T,
         count: usize,
-    ) -> Result<usize> {
+    ) -> Result<usize, VsockError> {
         let src = self.check_bounds_for_buffer_access(mem, offset, count)?;
 
         loop {

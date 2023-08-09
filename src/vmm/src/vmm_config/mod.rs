@@ -8,8 +8,9 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 use libc::O_NONBLOCK;
-use rate_limiter::{BucketUpdate, RateLimiter, TokenBucket};
 use serde::{Deserialize, Serialize};
+
+use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenBucket};
 
 /// Wrapper for configuring the balloon device.
 pub mod balloon;
@@ -130,7 +131,7 @@ impl From<Option<RateLimiterConfig>> for RateLimiterUpdate {
 impl TryInto<RateLimiter> for RateLimiterConfig {
     type Error = io::Error;
 
-    fn try_into(self) -> std::result::Result<RateLimiter, Self::Error> {
+    fn try_into(self) -> Result<RateLimiter, Self::Error> {
         let bw = self.bandwidth.unwrap_or_default();
         let ops = self.ops.unwrap_or_default();
         RateLimiter::new(
@@ -164,13 +165,11 @@ impl RateLimiterConfig {
     }
 }
 
-type Result<T> = std::result::Result<T, std::io::Error>;
-
 /// Create and opens a File for writing to it.
 /// In case we open a FIFO, in order to not block the instance if nobody is consuming the message
 /// that is flushed to the two pipes, we are opening it with `O_NONBLOCK` flag.
 /// In this case, writing to a pipe will start failing when reaching 64K of unconsumed content.
-fn open_file_nonblock(path: &Path) -> Result<File> {
+fn open_file_nonblock(path: &Path) -> Result<File, std::io::Error> {
     OpenOptions::new()
         .custom_flags(O_NONBLOCK)
         .read(true)

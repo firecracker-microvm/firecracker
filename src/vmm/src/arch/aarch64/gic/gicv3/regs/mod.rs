@@ -8,10 +8,10 @@ mod redist_regs;
 use kvm_ioctls::DeviceFd;
 
 use crate::arch::aarch64::gic::regs::{GicState, GicVcpuState};
-use crate::arch::aarch64::gic::{Error, Result};
+use crate::arch::aarch64::gic::GicError;
 
 /// Save the state of the GIC device.
-pub fn save_state(fd: &DeviceFd, mpidrs: &[u64]) -> Result<GicState> {
+pub fn save_state(fd: &DeviceFd, mpidrs: &[u64]) -> Result<GicState, GicError> {
     // Flush redistributors pending tables to guest RAM.
     super::save_pending_tables(fd)?;
 
@@ -30,11 +30,11 @@ pub fn save_state(fd: &DeviceFd, mpidrs: &[u64]) -> Result<GicState> {
 }
 
 /// Restore the state of the GIC device.
-pub fn restore_state(fd: &DeviceFd, mpidrs: &[u64], state: &GicState) -> Result<()> {
+pub fn restore_state(fd: &DeviceFd, mpidrs: &[u64], state: &GicState) -> Result<(), GicError> {
     dist_regs::set_dist_regs(fd, &state.dist)?;
 
     if mpidrs.len() != state.gic_vcpu_states.len() {
-        return Err(Error::InconsistentVcpuCount);
+        return Err(GicError::InconsistentVcpuCount);
     }
     for (mpidr, vcpu_state) in mpidrs.iter().zip(&state.gic_vcpu_states) {
         redist_regs::set_redist_regs(fd, *mpidr, &vcpu_state.rdist)?;

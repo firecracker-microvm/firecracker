@@ -4,18 +4,17 @@
 use std::fmt::Debug;
 use std::num::Wrapping;
 use std::os::unix::io::RawFd;
-use std::result::Result;
 use std::sync::atomic::Ordering;
 
 use utils::vm_memory::{Bytes, MmapRegion, VolatileMemory, VolatileMemoryError};
 
-use super::mmap::{mmap, Error as MmapError};
+use super::mmap::{mmap, MmapError};
 use crate::io_uring::bindings;
 use crate::io_uring::operation::Cqe;
 
 #[derive(Debug, derive_more::From)]
 /// CQueue Error.
-pub enum Error {
+pub enum CQueueError {
     /// Error mapping the ring.
     Mmap(MmapError),
     /// Error reading/writing volatile memory.
@@ -42,7 +41,7 @@ impl CompletionQueue {
     pub(crate) fn new(
         io_uring_fd: RawFd,
         params: &bindings::io_uring_params,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, CQueueError> {
         let offsets = params.cq_off;
 
         // Map the CQ_ring. The actual size of the ring is `num_entries * size_of(entry_type)`.
@@ -77,7 +76,7 @@ impl CompletionQueue {
     /// Unsafe because we reconstruct the `user_data` from a raw pointer passed by the kernel.
     /// It's up to the caller to make sure that `T` is the correct type of the `user_data`, that
     /// the raw pointer is valid and that we have full ownership of that address.
-    pub(crate) unsafe fn pop<T: Debug>(&mut self) -> Result<Option<Cqe<T>>, Error> {
+    pub(crate) unsafe fn pop<T: Debug>(&mut self) -> Result<Option<Cqe<T>>, CQueueError> {
         let ring = self.cqes.as_volatile_slice();
         // get the head & tail
         let head = self.unmasked_head.0 & self.ring_mask;

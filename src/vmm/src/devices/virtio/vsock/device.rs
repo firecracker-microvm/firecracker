@@ -6,7 +6,6 @@
 // found in the THIRD-PARTY file.
 
 use std::fmt::Debug;
-use std::result;
 /// This is the `VirtioDevice` implementation for our vsock device. It handles the virtio-level
 /// device logic: feature negociation, device configuration, and device activation.
 ///
@@ -30,13 +29,12 @@ use utils::byte_order;
 use utils::eventfd::EventFd;
 use utils::vm_memory::{Bytes, GuestMemoryMmap};
 
-use super::super::super::Error as DeviceError;
+use super::super::super::DeviceError;
 use super::defs::uapi;
 use super::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
 use super::{defs, VsockBackend};
 use crate::devices::virtio::{
-    ActivateError, ActivateResult, DeviceState, IrqTrigger, IrqType, Queue as VirtQueue,
-    VirtioDevice, VsockError,
+    ActivateError, DeviceState, IrqTrigger, IrqType, Queue as VirtQueue, VirtioDevice, VsockError,
 };
 
 pub(crate) const RXQ_INDEX: usize = 0;
@@ -52,6 +50,7 @@ pub(crate) const VIRTIO_VSOCK_EVENT_TRANSPORT_RESET: u32 = 0;
 pub(crate) const AVAIL_FEATURES: u64 =
     1 << uapi::VIRTIO_F_VERSION_1 as u64 | 1 << uapi::VIRTIO_F_IN_ORDER as u64;
 
+/// Structure representing the vsock device.
 #[derive(Debug)]
 pub struct Vsock<B> {
     cid: u64,
@@ -79,7 +78,13 @@ impl<B> Vsock<B>
 where
     B: VsockBackend + Debug,
 {
-    pub fn with_queues(cid: u64, backend: B, queues: Vec<VirtQueue>) -> super::Result<Vsock<B>> {
+    /// Auxiliary function for creating a new virtio-vsock device with the given VM CID, vsock
+    /// backend and empty virtio queues.
+    pub fn with_queues(
+        cid: u64,
+        backend: B,
+        queues: Vec<VirtQueue>,
+    ) -> Result<Vsock<B>, VsockError> {
         let mut queue_events = Vec::new();
         for _ in 0..queues.len() {
             queue_events.push(EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?);
@@ -99,7 +104,7 @@ where
     }
 
     /// Create a new virtio-vsock device with the given VM CID and vsock backend.
-    pub fn new(cid: u64, backend: B) -> super::Result<Vsock<B>> {
+    pub fn new(cid: u64, backend: B) -> Result<Vsock<B>, VsockError> {
         let queues: Vec<VirtQueue> = defs::VSOCK_QUEUE_SIZES
             .iter()
             .map(|&max_size| VirtQueue::new(max_size))
@@ -107,21 +112,24 @@ where
         Self::with_queues(cid, backend, queues)
     }
 
+    /// Provides the ID of this vsock device as used in MMIO device identification.
     pub fn id(&self) -> &str {
         defs::VSOCK_DEV_ID
     }
 
+    /// Retrieve the cid associated with this vsock device.
     pub fn cid(&self) -> u64 {
         self.cid
     }
 
+    /// Access the backend behind the device.
     pub fn backend(&self) -> &B {
         &self.backend
     }
 
     /// Signal the guest driver that we've used some virtio buffers that it had previously made
     /// available.
-    pub fn signal_used_queue(&self) -> result::Result<(), DeviceError> {
+    pub fn signal_used_queue(&self) -> Result<(), DeviceError> {
         debug!("vsock: raising IRQ");
         self.irq_trigger
             .trigger_irq(IrqType::Vring)
@@ -225,7 +233,7 @@ where
     // Send TRANSPORT_RESET_EVENT to driver. According to specs, the driver shuts down established
     // connections and the guest_cid configuration field is fetched again. Existing listen sockets
     // remain but their CID is updated to reflect the current guest_cid.
-    pub fn send_transport_reset_event(&mut self) -> result::Result<(), DeviceError> {
+    pub fn send_transport_reset_event(&mut self) -> Result<(), DeviceError> {
         // This is safe since we checked in the caller function that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
@@ -318,7 +326,7 @@ where
         );
     }
 
-    fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
+    fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
         if self.queues.len() != defs::VSOCK_NUM_QUEUES {
             METRICS.vsock.activate_fails.inc();
             error!(

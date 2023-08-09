@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 
 use lazy_static::lazy_static;
+use semver::Version;
 use versionize::{VersionMap, Versionize};
 
 use crate::device_manager::persist::DeviceStates;
@@ -90,19 +91,19 @@ lazy_static! {
     /// - Do not insert patch releases here.
     /// - Every minor version should be represented here.
     /// - When requesting a `target_version`, these are the versions we expect.
-    pub static ref FC_VERSION_TO_SNAP_VERSION: HashMap<String, u16> = {
+    pub static ref FC_VERSION_TO_SNAP_VERSION: HashMap<Version, u16> = {
         let mut mapping = HashMap::new();
         #[cfg(not(target_arch = "aarch64"))]
-        mapping.insert(String::from("0.23.0"), FC_V0_23_SNAP_VERSION);
+        mapping.insert(Version::new(0, 23, 0), FC_V0_23_SNAP_VERSION);
 
-        mapping.insert(String::from("0.24.0"), FC_V0_24_SNAP_VERSION);
-        mapping.insert(String::from("0.25.0"), FC_V0_25_SNAP_VERSION);
-        mapping.insert(String::from("1.0.0"), FC_V1_0_SNAP_VERSION);
-        mapping.insert(String::from("1.1.0"), FC_V1_1_SNAP_VERSION);
-        mapping.insert(String::from("1.2.0"), FC_V1_2_SNAP_VERSION);
-        mapping.insert(String::from("1.3.0"), FC_V1_3_SNAP_VERSION);
-        mapping.insert(String::from("1.4.0"), FC_V1_4_SNAP_VERSION);
-        mapping.insert(String::from("1.5.0"), FC_V1_5_SNAP_VERSION);
+        mapping.insert(Version::new(0, 24, 0), FC_V0_24_SNAP_VERSION);
+        mapping.insert(Version::new(0, 25, 0), FC_V0_25_SNAP_VERSION);
+        mapping.insert(Version::new(1, 0, 0), FC_V1_0_SNAP_VERSION);
+        mapping.insert(Version::new(1, 1, 0), FC_V1_1_SNAP_VERSION);
+        mapping.insert(Version::new(1, 2, 0), FC_V1_2_SNAP_VERSION);
+        mapping.insert(Version::new(1, 3, 0), FC_V1_3_SNAP_VERSION);
+        mapping.insert(Version::new(1, 4, 0), FC_V1_4_SNAP_VERSION);
+        mapping.insert(Version::new(1, 5, 0), FC_V1_5_SNAP_VERSION);
 
         mapping
     };

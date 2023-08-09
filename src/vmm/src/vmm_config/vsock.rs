@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::convert::TryFrom;
-use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -12,27 +11,15 @@ use crate::devices::virtio::{Vsock, VsockError, VsockUnixBackend, VsockUnixBacke
 type MutexVsockUnix = Arc<Mutex<Vsock<VsockUnixBackend>>>;
 
 /// Errors associated with `NetworkInterfaceConfig`.
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, derive_more::From, thiserror::Error)]
 pub enum VsockConfigError {
     /// Failed to create the backend for the vsock device.
+    #[error("Cannot create backend for vsock device: {0:?}")]
     CreateVsockBackend(VsockUnixBackendError),
     /// Failed to create the vsock device.
+    #[error("Cannot create vsock device: {0:?}")]
     CreateVsockDevice(VsockError),
 }
-
-impl fmt::Display for VsockConfigError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::VsockConfigError::*;
-        match *self {
-            CreateVsockBackend(ref err) => {
-                write!(f, "Cannot create backend for vsock device: {:?}", err)
-            }
-            CreateVsockDevice(ref err) => write!(f, "Cannot create vsock device: {:?}", err),
-        }
-    }
-}
-
-type Result<T> = std::result::Result<T, VsockConfigError>;
 
 /// This struct represents the strongly typed equivalent of the json body
 /// from vsock related requests.
@@ -93,7 +80,7 @@ impl VsockBuilder {
 
     /// Inserts a Unix backend Vsock in the store.
     /// If an entry already exists, it will overwrite it.
-    pub fn insert(&mut self, cfg: VsockDeviceConfig) -> Result<()> {
+    pub fn insert(&mut self, cfg: VsockDeviceConfig) -> Result<(), VsockConfigError> {
         // Make sure to drop the old one and remove the socket before creating a new one.
         if let Some(existing) = self.inner.take() {
             std::fs::remove_file(existing.uds_path).map_err(VsockUnixBackendError::UnixBind)?;
@@ -111,7 +98,9 @@ impl VsockBuilder {
     }
 
     /// Creates a Vsock device from a VsockDeviceConfig.
-    pub fn create_unixsock_vsock(cfg: VsockDeviceConfig) -> Result<Vsock<VsockUnixBackend>> {
+    pub fn create_unixsock_vsock(
+        cfg: VsockDeviceConfig,
+    ) -> Result<Vsock<VsockUnixBackend>, VsockConfigError> {
         let backend = VsockUnixBackend::new(u64::from(cfg.guest_cid), cfg.uds_path)?;
 
         Vsock::new(u64::from(cfg.guest_cid), backend).map_err(VsockConfigError::CreateVsockDevice)
@@ -175,22 +164,6 @@ pub(crate) mod tests {
         let config = vsock_builder.config();
         assert!(config.is_some());
         assert_eq!(config.unwrap(), vsock_config);
-    }
-
-    #[test]
-    fn test_error_messages() {
-        use std::io;
-
-        use super::VsockConfigError::*;
-        let err = CreateVsockBackend(crate::devices::virtio::VsockUnixBackendError::EpollAdd(
-            io::Error::from_raw_os_error(0),
-        ));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = CreateVsockDevice(crate::devices::virtio::VsockError::EventFd(
-            io::Error::from_raw_os_error(0),
-        ));
-        let _ = format!("{}{:?}", err, err);
     }
 
     #[test]

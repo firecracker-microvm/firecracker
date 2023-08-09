@@ -124,9 +124,7 @@ def pipe(basevm, current_avail_cpu, env_id, mode, payload_length):
 @pytest.mark.nonci
 @pytest.mark.timeout(1200)
 @pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
-@pytest.mark.parametrize(
-    "payload_length", ["DEFAULT", "1024K"], ids=["pDEFAULT", "p1024K"]
-)
+@pytest.mark.parametrize("payload_length", ["64K", "1024K"], ids=["p64K", "p1024K"])
 @pytest.mark.parametrize("mode", ["g2h", "h2g", "bd"])
 def test_vsock_throughput(
     microvm_factory,

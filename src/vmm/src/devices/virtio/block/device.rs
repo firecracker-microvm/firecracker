@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::cmp;
 use std::convert::From;
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
@@ -12,12 +13,9 @@ use std::os::linux::fs::MetadataExt;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
-use std::{cmp, result};
 
 use block_io::FileEngine;
-use log::{error, warn};
-use logger::{IncMetric, METRICS};
-use rate_limiter::{BucketUpdate, RateLimiter};
+use logger::{error, warn, IncMetric, METRICS};
 use serde::{Deserialize, Serialize};
 use utils::eventfd::EventFd;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
@@ -27,7 +25,7 @@ use virtio_gen::virtio_blk::{
 };
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 
-use super::super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BLOCK};
+use super::super::{ActivateError, DeviceState, Queue, VirtioDevice, TYPE_BLOCK};
 use super::io::async_io;
 use super::request::*;
 use super::{
@@ -35,6 +33,7 @@ use super::{
     SECTOR_SIZE,
 };
 use crate::devices::virtio::{IrqTrigger, IrqType};
+use crate::rate_limiter::{BucketUpdate, RateLimiter};
 
 /// Configuration options for disk caching.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -49,6 +48,7 @@ pub enum CacheType {
     Writeback,
 }
 
+/// The engine file type, either Sync or Async (through io_uring).
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum FileEngineType {
     /// Use an Async engine, based on io_uring.
@@ -64,7 +64,8 @@ impl Default for FileEngineType {
 }
 
 impl FileEngineType {
-    pub fn is_supported(&self) -> result::Result<bool, utils::kernel_version::Error> {
+    /// Whether the Async engine is supported on the current host kernel.
+    pub fn is_supported(&self) -> Result<bool, utils::kernel_version::Error> {
         match self {
             Self::Async if KernelVersion::get()? < min_kernel_version_for_io_uring() => Ok(false),
             _ => Ok(true),
@@ -88,7 +89,7 @@ impl DiskProperties {
         is_disk_read_only: bool,
         cache_type: CacheType,
         file_engine_type: FileEngineType,
-    ) -> result::Result<Self, BlockError> {
+    ) -> Result<Self, BlockError> {
         let mut disk_image = OpenOptions::new()
             .read(true)
             .write(!is_disk_read_only)
@@ -139,7 +140,7 @@ impl DiskProperties {
         &self.image_id
     }
 
-    fn build_device_id(disk_file: &File) -> result::Result<String, BlockError> {
+    fn build_device_id(disk_file: &File) -> Result<String, BlockError> {
         let blk_metadata = disk_file.metadata().map_err(BlockError::GetFileMetadata)?;
         // This is how kvmtool does it.
         let device_id = format!(
@@ -242,7 +243,7 @@ impl Block {
         is_disk_root: bool,
         rate_limiter: RateLimiter,
         file_engine_type: FileEngineType,
-    ) -> result::Result<Block, BlockError> {
+    ) -> Result<Block, BlockError> {
         let disk_properties = DiskProperties::new(
             disk_image_path,
             is_disk_read_only,
@@ -282,6 +283,10 @@ impl Block {
         })
     }
 
+    /// Process a single event in the VirtIO queue.
+    ///
+    /// This function is called by the event manager when the guest notifies us
+    /// about new buffers in the queue.
     pub(crate) fn process_queue_event(&mut self) {
         METRICS.block.queue_event_count.inc();
         if let Err(err) = self.queue_evts[0].read() {
@@ -328,6 +333,7 @@ impl Block {
         }
     }
 
+    /// Device specific function for peaking inside a queue and processing descriptors.
     pub fn process_queue(&mut self, queue_index: usize) {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
@@ -411,8 +417,8 @@ impl Block {
                         Ok(count) => (user_data, Ok(count)),
                         Err(error) => (
                             user_data,
-                            Err(IoErr::FileEngine(block_io::Error::Async(
-                                async_io::Error::IO(error),
+                            Err(IoErr::FileEngine(block_io::BlockIoError::Async(
+                                async_io::AsyncIoError::IO(error),
                             ))),
                         ),
                     };
@@ -446,7 +452,7 @@ impl Block {
     }
 
     /// Update the backing file and the config space of the block device.
-    pub fn update_disk_image(&mut self, disk_image_path: String) -> result::Result<(), BlockError> {
+    pub fn update_disk_image(&mut self, disk_image_path: String) -> Result<(), BlockError> {
         let disk_properties = DiskProperties::new(
             disk_image_path,
             self.is_read_only(),
@@ -503,6 +509,7 @@ impl Block {
         &self.rate_limiter
     }
 
+    /// Retrieve the file engine type.
     pub fn file_engine_type(&self) -> FileEngineType {
         match self.disk.file_engine() {
             FileEngine::Sync(_) => FileEngineType::Sync,
@@ -516,6 +523,7 @@ impl Block {
         }
     }
 
+    /// Prepare device for being snapshotted.
     pub fn prepare_save(&mut self) {
         if !self.is_activated() {
             return;
@@ -595,7 +603,7 @@ impl VirtioDevice for Block {
         dst.copy_from_slice(data);
     }
 
-    fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
+    fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
         let event_idx = self.has_feature(u64::from(VIRTIO_RING_F_EVENT_IDX));
         if event_idx {
             for queue in &mut self.queues {
@@ -639,7 +647,6 @@ mod tests {
     use std::time::Duration;
     use std::{thread, u32};
 
-    use rate_limiter::TokenType;
     use utils::skip_if_io_uring_unsupported;
     use utils::tempfile::TempFile;
     use utils::vm_memory::{Address, Bytes, GuestAddress};
@@ -653,6 +660,7 @@ mod tests {
     };
     use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
     use crate::devices::virtio::{IO_URING_NUM_ENTRIES, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+    use crate::rate_limiter::TokenType;
 
     #[test]
     fn test_disk_backing_file_helper() {

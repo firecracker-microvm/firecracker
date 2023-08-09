@@ -26,8 +26,9 @@ mod defs {
     pub const MUXER_KILLQ_SIZE: usize = 128;
 }
 
+/// Vsock backend related errors.
 #[derive(Debug)]
-pub enum Error {
+pub enum VsockUnixBackendError {
     /// Error registering a new epoll-listening FD.
     EpollAdd(std::io::Error),
     /// Error creating an epoll FD.
@@ -46,7 +47,6 @@ pub enum Error {
     TooManyConnections,
 }
 
-type Result<T> = std::result::Result<T, Error>;
 type MuxerConnection = super::csm::VsockConnection<std::os::unix::net::UnixStream>;
 
 impl VsockConnectionBackend for std::os::unix::net::UnixStream {}

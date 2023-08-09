@@ -3,28 +3,28 @@
 
 use std::io::Error as IOError;
 use std::os::unix::io::RawFd;
-use std::result::Result;
 
 use utils::vm_memory::{MmapRegion, MmapRegionError};
 
 #[derive(Debug)]
-pub enum Error {
+pub enum MmapError {
     Os(IOError),
     BuildMmapRegion(MmapRegionError),
 }
 
-pub(crate) fn mmap(size: usize, fd: RawFd, offset: i64) -> Result<MmapRegion, Error> {
+pub(crate) fn mmap(size: usize, fd: RawFd, offset: i64) -> Result<MmapRegion, MmapError> {
     let prot = libc::PROT_READ | libc::PROT_WRITE;
     let flags = libc::MAP_SHARED | libc::MAP_POPULATE;
 
     // SAFETY: Safe because values are valid and we check the return value.
     let ptr = unsafe { libc::mmap(std::ptr::null_mut(), size, prot, flags, fd, offset) };
     if (ptr as isize) < 0 {
-        return Err(Error::Os(IOError::last_os_error()));
+        return Err(MmapError::Os(IOError::last_os_error()));
     }
 
     // SAFETY: Safe because the mmap did not return error.
     unsafe {
-        MmapRegion::build_raw(ptr.cast::<u8>(), size, prot, flags).map_err(Error::BuildMmapRegion)
+        MmapRegion::build_raw(ptr.cast::<u8>(), size, prot, flags)
+            .map_err(MmapError::BuildMmapRegion)
     }
 }

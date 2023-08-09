@@ -106,9 +106,7 @@ def pipe(basevm, mode, payload_length, current_avail_cpu, host_ip, env_id):
 @pytest.mark.nonci
 @pytest.mark.timeout(3600)
 @pytest.mark.parametrize("vcpus", [1, 2])
-@pytest.mark.parametrize(
-    "payload_length", ["DEFAULT", "1024K"], ids=["pDEFAULT", "p1024K"]
-)
+@pytest.mark.parametrize("payload_length", ["128K", "1024K"], ids=["p128K", "p1024K"])
 @pytest.mark.parametrize("mode", ["g2h", "h2g", "bd"])
 def test_network_tcp_throughput(
     microvm_factory,

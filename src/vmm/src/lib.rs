@@ -31,6 +31,48 @@ pub mod arch;
 /// [This pdf](https://kernel.dk/io_uring.pdf) is also very useful, though outdated at times.
 pub mod io_uring;
 
+/// # Rate Limiter
+///
+/// Provides a rate limiter written in Rust useful for IO operations that need to
+/// be throttled.
+///
+/// ## Behavior
+///
+/// The rate limiter starts off as 'unblocked' with two token buckets configured
+/// with the values passed in the `RateLimiter::new()` constructor.
+/// All subsequent accounting is done independently for each token bucket based
+/// on the `TokenType` used. If any of the buckets runs out of budget, the limiter
+/// goes in the 'blocked' state. At this point an internal timer is set up which
+/// will later 'wake up' the user in order to retry sending data. The 'wake up'
+/// notification will be dispatched as an event on the FD provided by the `AsRawFD`
+/// trait implementation.
+///
+/// The contract is that the user shall also call the `event_handler()` method on
+/// receipt of such an event.
+///
+/// The token buckets are replenished when a called `consume()` doesn't find enough
+/// tokens in the bucket. The amount of tokens replenished is automatically calculated
+/// to respect the `complete_refill_time` configuration parameter provided by the user.
+/// The token buckets will never replenish above their respective `size`.
+///
+/// Each token bucket can start off with a `one_time_burst` initial extra capacity
+/// on top of their `size`. This initial extra credit does not replenish and
+/// can be used for an initial burst of data.
+///
+/// The granularity for 'wake up' events when the rate limiter is blocked is
+/// currently hardcoded to `100 milliseconds`.
+///
+/// ## Limitations
+///
+/// This rate limiter implementation relies on the *Linux kernel's timerfd* so its
+/// usage is limited to Linux systems.
+///
+/// Another particularity of this implementation is that it is not self-driving.
+/// It is meant to be used in an external event loop and thus implements the `AsRawFd`
+/// trait and provides an *event-handler* as part of its API. This *event-handler*
+/// needs to be called by the user on every event on the rate limiter's `AsRawFd` FD.
+pub mod rate_limiter;
+
 /// Handles setup and initialization a `Vmm` object.
 pub mod builder;
 /// Types for guest configuration.
@@ -60,16 +102,14 @@ pub mod vmm_config;
 mod vstate;
 
 use std::collections::HashMap;
+use std::io;
 use std::os::unix::io::AsRawFd;
 use std::sync::mpsc::{RecvTimeoutError, TryRecvError};
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
-use std::{fmt, io};
 
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
-use log::{error, info, warn};
-use logger::{MetricsError, METRICS};
-use rate_limiter::BucketUpdate;
+use logger::{error, info, warn, MetricsError, METRICS};
 use seccompiler::BpfProgram;
 use snapshot::Persist;
 use userfaultfd::Uffd;
@@ -90,9 +130,9 @@ use crate::devices::virtio::{
     Balloon, BalloonConfig, BalloonStats, Block, Net, BALLOON_DEV_ID, TYPE_BALLOON, TYPE_BLOCK,
     TYPE_NET,
 };
-use crate::devices::BusDevice;
 use crate::memory_snapshot::SnapshotMemory;
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
+use crate::rate_limiter::BucketUpdate;
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vstate::vcpu::VcpuState;
 pub use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuEvent, VcpuHandle, VcpuResponse};
@@ -148,14 +188,14 @@ pub const HTTP_MAX_PAYLOAD_SIZE: usize = 51200;
 /// input, but can result from bad configuration of the host (for example if Firecracker doesn't
 /// have permissions to open the KVM fd).
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum VmmError {
     #[cfg(target_arch = "aarch64")]
     #[error("Invalid cmdline")]
     /// Invalid command line error.
     Cmdline,
     /// Device manager error.
     #[error("{0}")]
-    DeviceManager(device_manager::mmio::Error),
+    DeviceManager(device_manager::mmio::MmioError),
     /// Cannot fetch the KVM dirty bitmap.
     #[error("Error getting the KVM dirty bitmap. {0}")]
     DirtyBitmap(kvm_ioctls::Error),
@@ -171,17 +211,17 @@ pub enum Error {
     /// Cannot open /dev/kvm. Either the host does not have KVM or Firecracker does not have
     /// permission to open the file descriptor.
     #[error("Failed to validate KVM support: {0}")]
-    KvmContext(vstate::system::Error),
+    KvmContext(vstate::system::SystemError),
     /// Cannot add devices to the Legacy I/O Bus.
     #[cfg(target_arch = "x86_64")]
     #[error("Cannot add devices to the legacy I/O Bus. {0}")]
-    LegacyIOBus(device_manager::legacy::Error),
+    LegacyIOBus(device_manager::legacy::LegacyDeviceError),
     /// Internal metrics system error.
     #[error("Metrics error: {0}")]
     Metrics(MetricsError),
     /// Cannot add a device to the MMIO Bus.
     #[error("Cannot add a device to the MMIO Bus. {0}")]
-    RegisterMMIODevice(device_manager::mmio::Error),
+    RegisterMMIODevice(device_manager::mmio::MmioError),
     /// Cannot install seccomp filters.
     #[error("Cannot install seccomp filters: {0}")]
     SeccompFilters(seccompiler::InstallationError),
@@ -196,17 +236,17 @@ pub enum Error {
     VcpuConfigure(KvmVcpuConfigureError),
     /// Vcpu create error.
     #[error("Error creating the vcpu: {0}")]
-    VcpuCreate(vstate::vcpu::Error),
+    VcpuCreate(vstate::vcpu::VcpuError),
     /// Cannot send event to vCPU.
     #[error("Cannot send event to vCPU. {0}")]
-    VcpuEvent(vstate::vcpu::Error),
+    VcpuEvent(vstate::vcpu::VcpuError),
     /// Cannot create a vCPU handle.
     #[error("Cannot create a vCPU handle. {0}")]
-    VcpuHandle(vstate::vcpu::Error),
+    VcpuHandle(vstate::vcpu::VcpuError),
     /// Vcpu init error.
     #[cfg(target_arch = "aarch64")]
     #[error("Error initializing the vcpu: {0}")]
-    VcpuInit(vstate::vcpu::VcpuError),
+    VcpuInit(vstate::vcpu::KvmVcpuError),
     /// vCPU start error.
     #[error("Failed to start vCPUs")]
     VcpuStart(StartVcpusError),
@@ -227,7 +267,7 @@ pub enum Error {
     VcpuSpawn(io::Error),
     /// Vm error.
     #[error("Vm error: {0}")]
-    Vm(vstate::vm::Error),
+    Vm(vstate::vm::VmError),
     /// Error thrown by observer object on Vmm initialization.
     #[error("Error thrown by observer object on Vmm initialization: {0}")]
     VmmObserverInit(utils::errno::Error),
@@ -235,9 +275,6 @@ pub enum Error {
     #[error("Error thrown by observer object on Vmm teardown: {0}")]
     VmmObserverTeardown(utils::errno::Error),
 }
-
-/// Shorthand result type for internal VMM commands.
-pub type Result<T> = std::result::Result<T, Error>;
 
 /// Shorthand type for KVM dirty page bitmap.
 pub type DirtyBitmap = HashMap<usize, Vec<u64>>;
@@ -248,14 +285,9 @@ pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
 }
 
 /// Error type for [`Vmm::emulate_serial_init`].
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, derive_more::From, thiserror::Error)]
+#[error("Emulate serial init error: {0}")]
 pub struct EmulateSerialInitError(std::io::Error);
-impl fmt::Display for EmulateSerialInitError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Emulate serial init error: {}", self.0)
-    }
-}
-impl std::error::Error for EmulateSerialInitError {}
 
 /// Error type for [`Vmm::start_vcpus`].
 #[derive(Debug, thiserror::Error)]
@@ -282,7 +314,7 @@ pub enum RestoreVcpusError {
     UnexpectedVcpuResponse,
     /// Failed to restore vCPU state.
     #[error("Failed to restore vCPU state: {0}")]
-    RestoreVcpuState(#[from] vcpu::Error),
+    RestoreVcpuState(#[from] vcpu::VcpuError),
     /// Not allowed.
     #[error("Not allowed: {0}")]
     NotAllowed(String),
@@ -299,7 +331,7 @@ pub enum DumpCpuConfigError {
     UnexpectedResponse,
     /// Failed to dump CPU config.
     #[error("Failed to dump CPU config: {0}")]
-    DumpCpuConfig(#[from] vcpu::Error),
+    DumpCpuConfig(#[from] vcpu::VcpuError),
     /// Operation not allowed.
     #[error("Operation not allowed: {0}")]
     NotAllowed(String),
@@ -365,7 +397,7 @@ impl Vmm {
         &mut self,
         mut vcpus: Vec<Vcpu>,
         vcpu_seccomp_filter: Arc<BpfProgram>,
-    ) -> std::result::Result<(), StartVcpusError> {
+    ) -> Result<(), StartVcpusError> {
         let vcpu_count = vcpus.len();
         let barrier = Arc::new(Barrier::new(vcpu_count + 1));
 
@@ -404,14 +436,14 @@ impl Vmm {
     }
 
     /// Sends a resume command to the vCPUs.
-    pub fn resume_vm(&mut self) -> Result<()> {
+    pub fn resume_vm(&mut self) -> Result<(), VmmError> {
         self.mmio_device_manager.kick_devices();
 
         // Send the events.
         self.vcpus_handles
             .iter()
             .try_for_each(|handle| handle.send_event(VcpuEvent::Resume))
-            .map_err(|_| Error::VcpuMessage)?;
+            .map_err(|_| VmmError::VcpuMessage)?;
 
         // Check the responses.
         if self
@@ -420,7 +452,7 @@ impl Vmm {
             .map(|handle| handle.response_receiver().recv_timeout(RECV_TIMEOUT_SEC))
             .any(|response| !matches!(response, Ok(VcpuResponse::Resumed)))
         {
-            return Err(Error::VcpuMessage);
+            return Err(VmmError::VcpuMessage);
         }
 
         self.instance_info.state = VmState::Running;
@@ -428,12 +460,12 @@ impl Vmm {
     }
 
     /// Sends a pause command to the vCPUs.
-    pub fn pause_vm(&mut self) -> Result<()> {
+    pub fn pause_vm(&mut self) -> Result<(), VmmError> {
         // Send the events.
         self.vcpus_handles
             .iter()
             .try_for_each(|handle| handle.send_event(VcpuEvent::Pause))
-            .map_err(|_| Error::VcpuMessage)?;
+            .map_err(|_| VmmError::VcpuMessage)?;
 
         // Check the responses.
         if self
@@ -442,7 +474,7 @@ impl Vmm {
             .map(|handle| handle.response_receiver().recv_timeout(RECV_TIMEOUT_SEC))
             .any(|response| !matches!(response, Ok(VcpuResponse::Paused)))
         {
-            return Err(Error::VcpuMessage);
+            return Err(VmmError::VcpuMessage);
         }
 
         self.instance_info.state = VmState::Paused;
@@ -455,7 +487,7 @@ impl Vmm {
     }
 
     /// Sets RDA bit in serial console
-    pub fn emulate_serial_init(&self) -> std::result::Result<(), EmulateSerialInitError> {
+    pub fn emulate_serial_init(&self) -> Result<(), EmulateSerialInitError> {
         // When restoring from a previously saved state, there is no serial
         // driver initialization, therefore the RDA (Received Data Available)
         // interrupt is not enabled. Because of that, the driver won't get
@@ -501,7 +533,7 @@ impl Vmm {
 
     /// Injects CTRL+ALT+DEL keystroke combo in the i8042 device.
     #[cfg(target_arch = "x86_64")]
-    pub fn send_ctrl_alt_del(&mut self) -> Result<()> {
+    pub fn send_ctrl_alt_del(&mut self) -> Result<(), VmmError> {
         self.pio_device_manager
             .i8042
             .lock()
@@ -509,14 +541,11 @@ impl Vmm {
             .i8042_device_mut()
             .unwrap()
             .trigger_ctrl_alt_del()
-            .map_err(Error::I8042Error)
+            .map_err(VmmError::I8042Error)
     }
 
     /// Saves the state of a paused Microvm.
-    pub fn save_state(
-        &mut self,
-        vm_info: &VmInfo,
-    ) -> std::result::Result<MicrovmState, MicrovmStateError> {
+    pub fn save_state(&mut self, vm_info: &VmInfo) -> Result<MicrovmState, MicrovmStateError> {
         use self::MicrovmStateError::SaveVmState;
         let vcpu_states = self.save_vcpu_states()?;
         let vm_state = {
@@ -544,7 +573,7 @@ impl Vmm {
         })
     }
 
-    fn save_vcpu_states(&mut self) -> std::result::Result<Vec<VcpuState>, MicrovmStateError> {
+    fn save_vcpu_states(&mut self) -> Result<Vec<VcpuState>, MicrovmStateError> {
         for handle in self.vcpus_handles.iter() {
             handle
                 .send_event(VcpuEvent::SaveState)
@@ -556,7 +585,7 @@ impl Vmm {
             .iter()
             // `Iterator::collect` can transform a `Vec<Result>` into a `Result<Vec>`.
             .map(|handle| handle.response_receiver().recv_timeout(RECV_TIMEOUT_SEC))
-            .collect::<std::result::Result<Vec<VcpuResponse>, RecvTimeoutError>>()
+            .collect::<Result<Vec<VcpuResponse>, RecvTimeoutError>>()
             .map_err(|_| MicrovmStateError::UnexpectedVcpuResponse)?;
 
         let vcpu_states = vcpu_responses
@@ -567,7 +596,7 @@ impl Vmm {
                 VcpuResponse::NotAllowed(reason) => Err(MicrovmStateError::NotAllowed(reason)),
                 _ => Err(MicrovmStateError::UnexpectedVcpuResponse),
             })
-            .collect::<std::result::Result<Vec<VcpuState>, MicrovmStateError>>()?;
+            .collect::<Result<Vec<VcpuState>, MicrovmStateError>>()?;
 
         Ok(vcpu_states)
     }
@@ -576,7 +605,7 @@ impl Vmm {
     pub fn restore_vcpu_states(
         &mut self,
         mut vcpu_states: Vec<VcpuState>,
-    ) -> std::result::Result<(), RestoreVcpusError> {
+    ) -> Result<(), RestoreVcpusError> {
         if vcpu_states.len() != self.vcpus_handles.len() {
             return Err(RestoreVcpusError::InvalidInput);
         }
@@ -589,7 +618,7 @@ impl Vmm {
             .iter()
             // `Iterator::collect` can transform a `Vec<Result>` into a `Result<Vec>`.
             .map(|handle| handle.response_receiver().recv_timeout(RECV_TIMEOUT_SEC))
-            .collect::<std::result::Result<Vec<VcpuResponse>, RecvTimeoutError>>()
+            .collect::<Result<Vec<VcpuResponse>, RecvTimeoutError>>()
             .map_err(|_| RestoreVcpusError::UnexpectedVcpuResponse)?;
 
         for response in vcpu_responses.into_iter() {
@@ -605,9 +634,7 @@ impl Vmm {
     }
 
     /// Dumps CPU configuration.
-    pub fn dump_cpu_config(
-        &mut self,
-    ) -> std::result::Result<Vec<CpuConfiguration>, DumpCpuConfigError> {
+    pub fn dump_cpu_config(&mut self) -> Result<Vec<CpuConfiguration>, DumpCpuConfigError> {
         for handle in self.vcpus_handles.iter() {
             handle
                 .send_event(VcpuEvent::DumpCpuConfig)
@@ -618,7 +645,7 @@ impl Vmm {
             .vcpus_handles
             .iter()
             .map(|handle| handle.response_receiver().recv_timeout(RECV_TIMEOUT_SEC))
-            .collect::<std::result::Result<Vec<VcpuResponse>, RecvTimeoutError>>()
+            .collect::<Result<Vec<VcpuResponse>, RecvTimeoutError>>()
             .map_err(|_| DumpCpuConfigError::UnexpectedResponse)?;
 
         let cpu_configs = vcpu_responses
@@ -629,13 +656,13 @@ impl Vmm {
                 VcpuResponse::NotAllowed(reason) => Err(DumpCpuConfigError::NotAllowed(reason)),
                 _ => Err(DumpCpuConfigError::UnexpectedResponse),
             })
-            .collect::<std::result::Result<Vec<CpuConfiguration>, DumpCpuConfigError>>()?;
+            .collect::<Result<Vec<CpuConfiguration>, DumpCpuConfigError>>()?;
 
         Ok(cpu_configs)
     }
 
     /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
-    pub fn get_dirty_bitmap(&self) -> Result<DirtyBitmap> {
+    pub fn get_dirty_bitmap(&self) -> Result<DirtyBitmap, VmmError> {
         let mut bitmap: DirtyBitmap = HashMap::new();
         self.guest_memory
             .iter()
@@ -648,12 +675,12 @@ impl Vmm {
                 bitmap.insert(slot, bitmap_region);
                 Ok(())
             })
-            .map_err(Error::DirtyBitmap)?;
+            .map_err(VmmError::DirtyBitmap)?;
         Ok(bitmap)
     }
 
     /// Enables or disables KVM dirty page tracking.
-    pub fn set_dirty_page_tracking(&mut self, enable: bool) -> Result<()> {
+    pub fn set_dirty_page_tracking(&mut self, enable: bool) -> Result<(), VmmError> {
         // This function _always_ results in an ioctl update. The VMM is stateless in the sense
         // that it's unaware of the current dirty page tracking setting.
         // The VMM's consumer will need to cache the dirty tracking setting internally. For
@@ -661,19 +688,23 @@ impl Vmm {
         // resources should cache the flag.
         self.vm
             .set_kvm_memory_regions(&self.guest_memory, enable)
-            .map_err(Error::Vm)
+            .map_err(VmmError::Vm)
     }
 
     /// Updates the path of the host file backing the emulated block device with id `drive_id`.
     /// We update the disk image on the device and its virtio configuration.
-    pub fn update_block_device_path(&mut self, drive_id: &str, path_on_host: String) -> Result<()> {
+    pub fn update_block_device_path(
+        &mut self,
+        drive_id: &str,
+        path_on_host: String,
+    ) -> Result<(), VmmError> {
         self.mmio_device_manager
             .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
                 block
                     .update_disk_image(path_on_host)
                     .map_err(|err| format!("{:?}", err))
             })
-            .map_err(Error::DeviceManager)
+            .map_err(VmmError::DeviceManager)
     }
 
     /// Updates the rate limiter parameters for block device with `drive_id` id.
@@ -682,13 +713,13 @@ impl Vmm {
         drive_id: &str,
         rl_bytes: BucketUpdate,
         rl_ops: BucketUpdate,
-    ) -> Result<()> {
+    ) -> Result<(), VmmError> {
         self.mmio_device_manager
             .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
                 block.update_rate_limiter(rl_bytes, rl_ops);
                 Ok(())
             })
-            .map_err(Error::DeviceManager)
+            .map_err(VmmError::DeviceManager)
     }
 
     /// Updates the rate limiter parameters for net device with `net_id` id.
@@ -699,17 +730,17 @@ impl Vmm {
         rx_ops: BucketUpdate,
         tx_bytes: BucketUpdate,
         tx_ops: BucketUpdate,
-    ) -> Result<()> {
+    ) -> Result<(), VmmError> {
         self.mmio_device_manager
             .with_virtio_device_with_id(TYPE_NET, net_id, |net: &mut Net| {
                 net.patch_rate_limiters(rx_bytes, rx_ops, tx_bytes, tx_ops);
                 Ok(())
             })
-            .map_err(Error::DeviceManager)
+            .map_err(VmmError::DeviceManager)
     }
 
     /// Returns a reference to the balloon device if present.
-    pub fn balloon_config(&self) -> std::result::Result<BalloonConfig, BalloonError> {
+    pub fn balloon_config(&self) -> Result<BalloonConfig, BalloonError> {
         if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
         {
             let virtio_device = busdev
@@ -734,7 +765,7 @@ impl Vmm {
     }
 
     /// Returns the latest balloon statistics if they are enabled.
-    pub fn latest_balloon_stats(&self) -> std::result::Result<BalloonStats, BalloonError> {
+    pub fn latest_balloon_stats(&self) -> Result<BalloonStats, BalloonError> {
         if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
         {
             let virtio_device = busdev
@@ -761,10 +792,7 @@ impl Vmm {
     }
 
     /// Updates configuration for the balloon device target size.
-    pub fn update_balloon_config(
-        &mut self,
-        amount_mib: u32,
-    ) -> std::result::Result<(), BalloonError> {
+    pub fn update_balloon_config(&mut self, amount_mib: u32) -> Result<(), BalloonError> {
         // The balloon cannot have a target size greater than the size of
         // the guest memory.
         if u64::from(amount_mib) > mem_size_mib(self.guest_memory()) {
@@ -800,7 +828,7 @@ impl Vmm {
     pub fn update_balloon_stats_config(
         &mut self,
         stats_polling_interval_s: u16,
-    ) -> std::result::Result<(), BalloonError> {
+    ) -> Result<(), BalloonError> {
         if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
         {
             {
@@ -921,7 +949,7 @@ impl Drop for Vmm {
                 err
             });
             if let Err(err) = res {
-                warn!("{}", Error::VmmObserverTeardown(err));
+                warn!("{}", VmmError::VmmObserverTeardown(err));
             }
         }
 

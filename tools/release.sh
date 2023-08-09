@@ -52,7 +52,7 @@ function strip-and-split-debuginfo {
 }
 
 function get-firecracker-version {
-    (cd src/firecracker; cargo pkgid | cut -d# -f2 | cut -d: -f2)
+    (cd src/firecracker; echo -n v; cargo pkgid | cut -d# -f2 | cut -d: -f2)
 }
 
 #### MAIN ####

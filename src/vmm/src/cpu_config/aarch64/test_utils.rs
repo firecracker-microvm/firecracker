@@ -1,6 +1,7 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::arch::aarch64::regs::{ID_AA64ISAR0_EL1, ID_AA64PFR0_EL1};
 use crate::cpu_config::aarch64::custom_cpu_template::RegisterModifier;
 use crate::cpu_config::templates::{CustomCpuTemplate, RegisterValueFilter};
 
@@ -8,11 +9,11 @@ use crate::cpu_config::templates::{CustomCpuTemplate, RegisterValueFilter};
 pub const TEST_TEMPLATE_JSON: &str = r#"{
     "reg_modifiers":  [
         {
-            "addr": "0x0AAC",
+            "addr": "0x0030000000000011",
             "bitmap": "0b1xx1"
         },
         {
-            "addr": "0x0AAB",
+            "addr": "0x0030000000000022",
             "bitmap": "0b1x00"
         }
     ]
@@ -35,14 +36,14 @@ pub fn build_test_template() -> CustomCpuTemplate {
     CustomCpuTemplate {
         reg_modifiers: vec![
             RegisterModifier {
-                addr: 0x9999,
+                addr: ID_AA64PFR0_EL1,
                 bitmap: RegisterValueFilter {
                     filter: 0b100010001,
                     value: 0b100000001,
                 },
             },
             RegisterModifier {
-                addr: 0x8000,
+                addr: ID_AA64ISAR0_EL1,
                 bitmap: RegisterValueFilter {
                     filter: 0b1110,
                     value: 0b0110,

@@ -5,6 +5,7 @@ use std::convert::TryInto;
 
 use logger::{warn, IncMetric, RTCDeviceMetrics, METRICS};
 
+/// Wrapper over vm_superio's RTC implementation.
 #[derive(Debug)]
 pub struct RTCDevice(pub vm_superio::Rtc<&'static RTCDeviceMetrics>);
 

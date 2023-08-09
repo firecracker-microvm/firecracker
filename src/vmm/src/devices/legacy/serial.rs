@@ -7,9 +7,9 @@
 
 //! Implements a wrapper over an UART serial device.
 use std::fmt::Debug;
+use std::io;
 use std::io::{Read, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
-use std::{io, result};
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use log::{error, warn};
@@ -20,10 +20,10 @@ use vm_superio::{Serial, Trigger};
 
 use crate::devices::legacy::EventFdTrigger;
 
-// Received Data Available interrupt - for letting the driver know that
-// there is some pending data to be processed.
+/// Received Data Available interrupt - for letting the driver know that
+/// there is some pending data to be processed.
 pub const IER_RDA_BIT: u8 = 0b0000_0001;
-// Received Data Available interrupt offset
+/// Received Data Available interrupt offset
 pub const IER_RDA_OFFSET: u8 = 1;
 
 #[derive(Debug)]
@@ -33,12 +33,12 @@ pub enum RawIOError {
 
 pub trait RawIOHandler {
     /// Send raw input to this emulated device.
-    fn raw_input(&mut self, _data: &[u8]) -> result::Result<(), RawIOError>;
+    fn raw_input(&mut self, _data: &[u8]) -> Result<(), RawIOError>;
 }
 
 impl<EV: SerialEvents + Debug, W: Write + Debug> RawIOHandler for Serial<EventFdTrigger, EV, W> {
     // This is not used for anything and is basically just a dummy implementation for `raw_input`.
-    fn raw_input(&mut self, data: &[u8]) -> result::Result<(), RawIOError> {
+    fn raw_input(&mut self, data: &[u8]) -> Result<(), RawIOError> {
         // Fail fast if the serial is serviced with more data than it can buffer.
         if data.len() > self.fifo_capacity() {
             return Err(RawIOError::Serial(SerialError::FullFifo));

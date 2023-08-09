@@ -73,7 +73,7 @@ pub struct BootConfig {
 
 impl BootConfig {
     /// Creates the BootConfig based on a given configuration.
-    pub fn new(cfg: &BootSourceConfig) -> std::result::Result<Self, BootSourceConfigError> {
+    pub fn new(cfg: &BootSourceConfig) -> Result<Self, BootSourceConfigError> {
         use self::BootSourceConfigError::{
             InvalidInitrdPath, InvalidKernelCommandLine, InvalidKernelPath,
         };

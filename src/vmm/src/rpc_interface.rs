@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt::{self, Debug};
-use std::result;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use log::{error, info, warn};
@@ -16,7 +15,7 @@ use tests::{
     MockVmm as Vmm,
 };
 
-use super::Error as VmmError;
+use super::VmmError;
 #[cfg(not(test))]
 use super::{
     builder::build_and_boot_microvm, persist::create_snapshot, persist::restore_from_snapshot,
@@ -225,20 +224,17 @@ pub enum VmmData {
     VmmVersion(String),
 }
 
-/// Shorthand result type for external VMM commands.
-pub type ActionResult = result::Result<VmmData, VmmActionError>;
-
 /// Trait used for deduplicating the MMDS request handling across the two ApiControllers.
 /// The methods get a mutable reference to self because the methods should initialise the data
 /// store with the defaults if it's not already initialised.
 trait MmdsRequestHandler {
     fn mmds(&mut self) -> MutexGuard<'_, Mmds>;
 
-    fn get_mmds(&mut self) -> ActionResult {
+    fn get_mmds(&mut self) -> Result<VmmData, VmmActionError> {
         Ok(VmmData::MmdsValue(self.mmds().data_store_value()))
     }
 
-    fn patch_mmds(&mut self, value: serde_json::Value) -> ActionResult {
+    fn patch_mmds(&mut self, value: serde_json::Value) -> Result<VmmData, VmmActionError> {
         self.mmds()
             .patch_data(value)
             .map(|()| VmmData::Empty)
@@ -250,7 +246,7 @@ trait MmdsRequestHandler {
             })
     }
 
-    fn put_mmds(&mut self, value: serde_json::Value) -> ActionResult {
+    fn put_mmds(&mut self, value: serde_json::Value) -> Result<VmmData, VmmActionError> {
         self.mmds()
             .put_data(value)
             .map(|()| VmmData::Empty)
@@ -313,6 +309,11 @@ pub enum LoadSnapshotError {
     ResumeMicrovm(#[from] VmmError),
 }
 
+/// Shorthand type for a request containing a boxed VmmAction.
+pub type ApiRequest = Box<VmmAction>;
+/// Shorthand type for a response containing a boxed Result.
+pub type ApiResponse = Box<std::result::Result<VmmData, VmmActionError>>;
+
 impl<'a> PrebootApiController<'a> {
     /// Constructor for the PrebootApiController.
     pub fn new(
@@ -333,25 +334,20 @@ impl<'a> PrebootApiController<'a> {
     }
 
     /// Default implementation for the function that builds and starts a microVM.
-    /// It takes two closures `recv_req` and `respond` as params which abstract away
-    /// the message transport.
     ///
     /// Returns a populated `VmResources` object and a running `Vmm` object.
     #[allow(clippy::too_many_arguments)]
-    pub fn build_microvm_from_requests<F, G>(
+    pub fn build_microvm_from_requests(
         seccomp_filters: &BpfThreadMap,
         event_manager: &mut EventManager,
         instance_info: InstanceInfo,
-        recv_req: F,
-        respond: G,
+        from_api: &std::sync::mpsc::Receiver<ApiRequest>,
+        to_api: &std::sync::mpsc::Sender<ApiResponse>,
+        api_event_fd: &utils::eventfd::EventFd,
         boot_timer_enabled: bool,
         mmds_size_limit: usize,
         metadata_json: Option<&str>,
-    ) -> result::Result<(VmResources, Arc<Mutex<Vmm>>), FcExitCode>
-    where
-        F: Fn() -> VmmAction,
-        G: Fn(ActionResult),
-    {
+    ) -> Result<(VmResources, Arc<Mutex<Vmm>>), FcExitCode> {
         let mut vm_resources = VmResources::default();
         // Silence false clippy warning. Clippy suggests using
         // VmResources { boot_timer: boot_timer_enabled, ..Default::default() }; but this will
@@ -384,12 +380,28 @@ impl<'a> PrebootApiController<'a> {
             &mut vm_resources,
             event_manager,
         );
+
         // Configure and start microVM through successive API calls.
         // Iterate through API calls to configure microVm.
         // The loop breaks when a microVM is successfully started, and a running Vmm is built.
         while preboot_controller.built_vmm.is_none() {
-            // Get request, process it, send back the response.
-            respond(preboot_controller.handle_preboot_request(recv_req()));
+            // Get request
+            let req = from_api
+                .recv()
+                .expect("The channel's sending half was disconnected. Cannot receive data.");
+
+            // Also consume the API event along with the message. It is safe to unwrap()
+            // because this event_fd is blocking.
+            api_event_fd
+                .read()
+                .expect("VMM: Failed to read the API event_fd");
+
+            // Process the request.
+            let res = preboot_controller.handle_preboot_request(*req);
+
+            // Send back the response.
+            to_api.send(Box::new(res)).expect("one-shot channel closed");
+
             // If any fatal errors were encountered, break the loop.
             if let Some(exit_code) = preboot_controller.fatal_error {
                 return Err(exit_code);
@@ -403,7 +415,10 @@ impl<'a> PrebootApiController<'a> {
 
     /// Handles the incoming preboot request and provides a response for it.
     /// Returns a built/running `Vmm` after handling a successful `StartMicroVm` request.
-    pub fn handle_preboot_request(&mut self, request: VmmAction) -> ActionResult {
+    pub fn handle_preboot_request(
+        &mut self,
+        request: VmmAction,
+    ) -> Result<VmmData, VmmActionError> {
         use self::VmmAction::*;
 
         match request {
@@ -462,7 +477,7 @@ impl<'a> PrebootApiController<'a> {
         }
     }
 
-    fn balloon_config(&mut self) -> ActionResult {
+    fn balloon_config(&mut self) -> Result<VmmData, VmmActionError> {
         self.vm_resources
             .balloon
             .get_config()
@@ -470,7 +485,7 @@ impl<'a> PrebootApiController<'a> {
             .map_err(VmmActionError::BalloonConfig)
     }
 
-    fn insert_block_device(&mut self, cfg: BlockDeviceConfig) -> ActionResult {
+    fn insert_block_device(&mut self, cfg: BlockDeviceConfig) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
         self.vm_resources
             .set_block_device(cfg)
@@ -478,7 +493,10 @@ impl<'a> PrebootApiController<'a> {
             .map_err(VmmActionError::DriveConfig)
     }
 
-    fn insert_net_device(&mut self, cfg: NetworkInterfaceConfig) -> ActionResult {
+    fn insert_net_device(
+        &mut self,
+        cfg: NetworkInterfaceConfig,
+    ) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
         self.vm_resources
             .build_net_device(cfg)
@@ -486,7 +504,7 @@ impl<'a> PrebootApiController<'a> {
             .map_err(VmmActionError::NetworkConfig)
     }
 
-    fn set_balloon_device(&mut self, cfg: BalloonDeviceConfig) -> ActionResult {
+    fn set_balloon_device(&mut self, cfg: BalloonDeviceConfig) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
         self.vm_resources
             .set_balloon_device(cfg)
@@ -494,7 +512,7 @@ impl<'a> PrebootApiController<'a> {
             .map_err(VmmActionError::BalloonConfig)
     }
 
-    fn set_boot_source(&mut self, cfg: BootSourceConfig) -> ActionResult {
+    fn set_boot_source(&mut self, cfg: BootSourceConfig) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
         self.vm_resources
             .build_boot_source(cfg)
@@ -502,7 +520,7 @@ impl<'a> PrebootApiController<'a> {
             .map_err(VmmActionError::BootSource)
     }
 
-    fn set_mmds_config(&mut self, cfg: MmdsConfig) -> ActionResult {
+    fn set_mmds_config(&mut self, cfg: MmdsConfig) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
         self.vm_resources
             .set_mmds_config(cfg, &self.instance_info.id)
@@ -510,7 +528,7 @@ impl<'a> PrebootApiController<'a> {
             .map_err(VmmActionError::MmdsConfig)
     }
 
-    fn update_vm_config(&mut self, cfg: MachineConfigUpdate) -> ActionResult {
+    fn update_vm_config(&mut self, cfg: MachineConfigUpdate) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
         self.vm_resources
             .update_vm_config(&cfg)
@@ -518,12 +536,15 @@ impl<'a> PrebootApiController<'a> {
             .map_err(VmmActionError::MachineConfig)
     }
 
-    fn set_custom_cpu_template(&mut self, cpu_template: CustomCpuTemplate) -> ActionResult {
+    fn set_custom_cpu_template(
+        &mut self,
+        cpu_template: CustomCpuTemplate,
+    ) -> Result<VmmData, VmmActionError> {
         self.vm_resources.set_custom_cpu_template(cpu_template);
         Ok(VmmData::Empty)
     }
 
-    fn set_vsock_device(&mut self, cfg: VsockDeviceConfig) -> ActionResult {
+    fn set_vsock_device(&mut self, cfg: VsockDeviceConfig) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
         self.vm_resources
             .set_vsock_device(cfg)
@@ -531,7 +552,7 @@ impl<'a> PrebootApiController<'a> {
             .map_err(VmmActionError::VsockConfig)
     }
 
-    fn set_entropy_device(&mut self, cfg: EntropyDeviceConfig) -> ActionResult {
+    fn set_entropy_device(&mut self, cfg: EntropyDeviceConfig) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
         self.vm_resources.build_entropy_device(cfg)?;
         Ok(VmmData::Empty)
@@ -539,7 +560,7 @@ impl<'a> PrebootApiController<'a> {
 
     // On success, this command will end the pre-boot stage and this controller
     // will be replaced by a runtime controller.
-    fn start_microvm(&mut self) -> ActionResult {
+    fn start_microvm(&mut self) -> Result<VmmData, VmmActionError> {
         build_and_boot_microvm(
             &self.instance_info,
             self.vm_resources,
@@ -558,7 +579,7 @@ impl<'a> PrebootApiController<'a> {
     fn load_snapshot(
         &mut self,
         load_params: &LoadSnapshotParams,
-    ) -> std::result::Result<VmmData, LoadSnapshotError> {
+    ) -> Result<VmmData, LoadSnapshotError> {
         log_dev_preview_warning("Virtual machine snapshots", Option::None);
 
         let load_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
@@ -631,7 +652,7 @@ impl MmdsRequestHandler for RuntimeApiController {
 
 impl RuntimeApiController {
     /// Handles the incoming runtime `VmmAction` request and provides a response for it.
-    pub fn handle_request(&mut self, request: VmmAction) -> ActionResult {
+    pub fn handle_request(&mut self, request: VmmAction) -> Result<VmmData, VmmActionError> {
         use self::VmmAction::*;
         match request {
             // Supported operations allowed post-boot.
@@ -708,7 +729,7 @@ impl RuntimeApiController {
     }
 
     /// Pauses the microVM by pausing the vCPUs.
-    pub fn pause(&mut self) -> ActionResult {
+    pub fn pause(&mut self) -> Result<VmmData, VmmActionError> {
         let pause_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
         self.vmm.lock().expect("Poisoned lock").pause_vm()?;
@@ -721,7 +742,7 @@ impl RuntimeApiController {
     }
 
     /// Resumes the microVM by resuming the vCPUs.
-    pub fn resume(&mut self) -> ActionResult {
+    pub fn resume(&mut self) -> Result<VmmData, VmmActionError> {
         let resume_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
         self.vmm.lock().expect("Poisoned lock").resume_vm()?;
@@ -738,18 +759,18 @@ impl RuntimeApiController {
     /// Defer to inner Vmm. We'll move to a variant where the Vmm simply exposes functionality like
     /// getting the dirty pages, and then we'll have the metrics flushing logic entirely on the
     /// outside.
-    fn flush_metrics(&mut self) -> ActionResult {
+    fn flush_metrics(&mut self) -> Result<VmmData, VmmActionError> {
         // FIXME: we're losing the bool saying whether metrics were actually written.
         METRICS
             .write()
             .map(|_| VmmData::Empty)
-            .map_err(super::Error::Metrics)
+            .map_err(super::VmmError::Metrics)
             .map_err(VmmActionError::InternalVmm)
     }
 
     /// Injects CTRL+ALT+DEL keystroke combo to the inner Vmm (if present).
     #[cfg(target_arch = "x86_64")]
-    fn send_ctrl_alt_del(&mut self) -> ActionResult {
+    fn send_ctrl_alt_del(&mut self) -> Result<VmmData, VmmActionError> {
         self.vmm
             .lock()
             .expect("Poisoned lock")
@@ -758,7 +779,10 @@ impl RuntimeApiController {
             .map_err(VmmActionError::InternalVmm)
     }
 
-    fn create_snapshot(&mut self, create_params: &CreateSnapshotParams) -> ActionResult {
+    fn create_snapshot(
+        &mut self,
+        create_params: &CreateSnapshotParams,
+    ) -> Result<VmmData, VmmActionError> {
         log_dev_preview_warning("Virtual machine snapshots", None);
 
         if create_params.snapshot_type == SnapshotType::Diff
@@ -810,7 +834,10 @@ impl RuntimeApiController {
     ///  - path of the host file backing the emulated block device, update the disk image on the
     ///    device and its virtio configuration
     ///  - rate limiter configuration.
-    fn update_block_device(&mut self, new_cfg: BlockDeviceUpdateConfig) -> ActionResult {
+    fn update_block_device(
+        &mut self,
+        new_cfg: BlockDeviceUpdateConfig,
+    ) -> Result<VmmData, VmmActionError> {
         let mut vmm = self.vmm.lock().expect("Poisoned lock");
         if let Some(new_path) = new_cfg.path_on_host {
             vmm.update_block_device_path(&new_cfg.drive_id, new_path)
@@ -830,7 +857,10 @@ impl RuntimeApiController {
     }
 
     /// Updates configuration for an emulated net device as described in `new_cfg`.
-    fn update_net_rate_limiters(&mut self, new_cfg: NetworkInterfaceUpdateConfig) -> ActionResult {
+    fn update_net_rate_limiters(
+        &mut self,
+        new_cfg: NetworkInterfaceUpdateConfig,
+    ) -> Result<VmmData, VmmActionError> {
         self.vmm
             .lock()
             .expect("Poisoned lock")
@@ -859,7 +889,7 @@ mod tests {
     use crate::cpu_config::templates::test_utils::build_test_template;
     use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
     use crate::devices::virtio::balloon::{BalloonConfig, BalloonError};
-    use crate::devices::virtio::rng::Error as EntropyError;
+    use crate::devices::virtio::rng::EntropyError;
     use crate::devices::virtio::VsockError;
     use crate::vmm_config::balloon::BalloonBuilder;
     use crate::vmm_config::drive::{CacheType, FileEngineType};
@@ -1150,7 +1180,7 @@ mod tests {
         pub fn update_block_device_path(&mut self, _: &str, _: String) -> Result<(), VmmError> {
             if self.force_errors {
                 return Err(VmmError::DeviceManager(
-                    crate::device_manager::mmio::Error::InvalidDeviceType,
+                    crate::device_manager::mmio::MmioError::InvalidDeviceType,
                 ));
             }
             self.update_block_device_path_called = true;
@@ -1160,8 +1190,8 @@ mod tests {
         pub fn update_block_rate_limiter(
             &mut self,
             _: &str,
-            _: rate_limiter::BucketUpdate,
-            _: rate_limiter::BucketUpdate,
+            _: crate::rate_limiter::BucketUpdate,
+            _: crate::rate_limiter::BucketUpdate,
         ) -> Result<(), VmmError> {
             Ok(())
         }
@@ -1169,14 +1199,14 @@ mod tests {
         pub fn update_net_rate_limiters(
             &mut self,
             _: &str,
-            _: rate_limiter::BucketUpdate,
-            _: rate_limiter::BucketUpdate,
-            _: rate_limiter::BucketUpdate,
-            _: rate_limiter::BucketUpdate,
+            _: crate::rate_limiter::BucketUpdate,
+            _: crate::rate_limiter::BucketUpdate,
+            _: crate::rate_limiter::BucketUpdate,
+            _: crate::rate_limiter::BucketUpdate,
         ) -> Result<(), VmmError> {
             if self.force_errors {
                 return Err(VmmError::DeviceManager(
-                    crate::device_manager::mmio::Error::InvalidDeviceType,
+                    crate::device_manager::mmio::MmioError::InvalidDeviceType,
                 ));
             }
             self.update_net_rate_limiters_called = true;
@@ -1210,7 +1240,7 @@ mod tests {
         _: &VmInfo,
         _: &CreateSnapshotParams,
         _: versionize::VersionMap,
-    ) -> std::result::Result<(), CreateSnapshotError> {
+    ) -> Result<(), CreateSnapshotError> {
         Ok(())
     }
 
@@ -1238,7 +1268,7 @@ mod tests {
 
     fn check_preboot_request<F>(request: VmmAction, check_success: F)
     where
-        F: FnOnce(ActionResult, &MockVmRes),
+        F: FnOnce(Result<VmmData, VmmActionError>, &MockVmRes),
     {
         let mut vm_resources = MockVmRes::default();
         let mut evmgr = EventManager::new().unwrap();
@@ -1253,7 +1283,7 @@ mod tests {
         mmds: Arc<Mutex<Mmds>>,
         check_success: F,
     ) where
-        F: FnOnce(ActionResult, &MockVmRes),
+        F: FnOnce(Result<VmmData, VmmActionError>, &MockVmRes),
     {
         let mut vm_resources = MockVmRes {
             mmds: Some(mmds),
@@ -1807,63 +1837,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_build_microvm_from_requests() {
-        // Use atomics to be able to use them non-mutably in closures below.
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
-        let cmd_step = AtomicUsize::new(0);
-        let commands = || {
-            cmd_step.fetch_add(1, Ordering::SeqCst);
-            match cmd_step.load(Ordering::SeqCst) {
-                1 => VmmAction::FlushMetrics,
-                2 => VmmAction::Pause,
-                3 => VmmAction::Resume,
-                4 => VmmAction::StartMicroVm,
-                _ => unreachable!(),
-            }
-        };
-
-        let resp_step = AtomicUsize::new(0);
-        let expected_resp = |resp: ActionResult| {
-            resp_step.fetch_add(1, Ordering::SeqCst);
-            let expect = match resp_step.load(Ordering::SeqCst) {
-                1 => Err(VmmActionError::OperationNotSupportedPreBoot),
-                2 => Err(VmmActionError::OperationNotSupportedPreBoot),
-                3 => Err(VmmActionError::OperationNotSupportedPreBoot),
-                4 => Ok(VmmData::Empty),
-                _ => unreachable!(),
-            };
-            assert_eq!(resp, expect);
-        };
-
-        let (vm_res, _vmm) = PrebootApiController::build_microvm_from_requests(
-            &BpfThreadMap::new(),
-            &mut EventManager::new().unwrap(),
-            InstanceInfo::default(),
-            commands,
-            expected_resp,
-            false,
-            HTTP_MAX_PAYLOAD_SIZE,
-            Some(r#""magic""#),
-        )
-        .unwrap();
-
-        assert_eq!(
-            vm_res
-                .mmds
-                .as_ref()
-                .unwrap()
-                .lock()
-                .unwrap()
-                .data_store_value(),
-            Value::String("magic".to_string())
-        );
-    }
-
     fn check_runtime_request<F>(request: VmmAction, check_success: F)
     where
-        F: FnOnce(ActionResult, &MockVmm),
+        F: FnOnce(Result<VmmData, VmmActionError>, &MockVmm),
     {
         let vmm = Arc::new(Mutex::new(MockVmm::default()));
         let mut runtime = RuntimeApiController::new(MockVmRes::default(), vmm.clone());
@@ -1876,7 +1852,7 @@ mod tests {
         mmds: Arc<Mutex<Mmds>>,
         check_success: F,
     ) where
-        F: FnOnce(ActionResult, &MockVmm),
+        F: FnOnce(Result<VmmData, VmmActionError>, &MockVmm),
     {
         let vm_res = MockVmRes {
             mmds: Some(mmds),
@@ -2037,7 +2013,7 @@ mod tests {
         check_runtime_request_err(
             req,
             VmmActionError::DriveConfig(DriveError::DeviceUpdate(VmmError::DeviceManager(
-                crate::device_manager::mmio::Error::InvalidDeviceType,
+                crate::device_manager::mmio::MmioError::InvalidDeviceType,
             ))),
         );
     }
@@ -2062,7 +2038,7 @@ mod tests {
         check_runtime_request_err(
             req,
             VmmActionError::NetworkConfig(NetworkInterfaceError::DeviceUpdate(
-                VmmError::DeviceManager(crate::device_manager::mmio::Error::InvalidDeviceType),
+                VmmError::DeviceManager(crate::device_manager::mmio::MmioError::InvalidDeviceType),
             )),
         );
     }

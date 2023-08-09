@@ -625,6 +625,7 @@ def test_new_pid_ns_resource_limits(test_microvm_with_api):
 
     # Get Firecracker's PID.
     fc_pid = test_microvm.pid_in_new_ns
+
     # Check limit values were correctly set.
     check_limits(fc_pid, NOFILE, FSIZE)
 
@@ -641,7 +642,6 @@ def test_new_pid_namespace(test_microvm_with_api):
 
     # Check that the PID file exists.
     fc_pid = test_microvm.pid_in_new_ns
-    assert fc_pid is not None
 
     # Validate the PID.
     stdout = subprocess.check_output("pidof firecracker", shell=True)

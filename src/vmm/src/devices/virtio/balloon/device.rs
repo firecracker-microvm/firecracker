@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::io::Write;
-use std::result::Result;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,7 +15,7 @@ use utils::eventfd::EventFd;
 use utils::vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 use virtio_gen::virtio_blk::VIRTIO_F_VERSION_1;
 
-use super::super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BALLOON};
+use super::super::{ActivateError, DeviceState, Queue, VirtioDevice, TYPE_BALLOON};
 use super::util::{compact_page_frame_numbers, remove_range};
 use super::{
     BALLOON_DEV_ID, BALLOON_NUM_QUEUES, BALLOON_QUEUE_SIZES, DEFLATE_INDEX, INFLATE_INDEX,
@@ -65,40 +64,63 @@ struct BalloonStat {
 // SAFETY: Safe because BalloonStat only contains plain data.
 unsafe impl ByteValued for BalloonStat {}
 
-// BalloonStats holds statistics returned from the stats_queue.
+/// Holds configuration details for the balloon device.
 #[derive(Clone, Default, Debug, PartialEq, Eq, Serialize)]
 pub struct BalloonConfig {
+    /// Target size.
     pub amount_mib: u32,
+    /// Whether or not to ask for pages back.
     pub deflate_on_oom: bool,
+    /// Interval of time in seconds at which the balloon statistics are updated.
     pub stats_polling_interval_s: u16,
 }
 
-// BalloonStats holds statistics returned from the stats_queue.
+/// BalloonStats holds statistics returned from the stats_queue.
 #[derive(Clone, Default, Debug, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BalloonStats {
+    /// The target size of the balloon, in 4K pages.
     pub target_pages: u32,
+    /// The number of 4K pages the device is currently holding.
     pub actual_pages: u32,
+    /// The target size of the balloon, in MiB.
     pub target_mib: u32,
+    /// The number of MiB the device is currently holding.
     pub actual_mib: u32,
+    /// Amount of memory swapped in.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub swap_in: Option<u64>,
+    /// Amount of memory swapped out.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub swap_out: Option<u64>,
+    /// Number of major faults.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub major_faults: Option<u64>,
+    /// Number of minor faults.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub minor_faults: Option<u64>,
+    /// The amount of memory not being used for any
+    /// purpose (in bytes).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub free_memory: Option<u64>,
+    /// Total amount of memory available (in bytes).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_memory: Option<u64>,
+    /// An estimate of how much memory is available (in
+    /// bytes) for starting new applications, without pushing the system to swap.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub available_memory: Option<u64>,
+    /// The amount of memory, in bytes, that can be
+    /// quickly reclaimed without additional I/O. Typically these pages are used for
+    /// caching files from disk.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disk_caches: Option<u64>,
+    /// The number of successful hugetlb page
+    /// allocations in the guest.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hugetlb_allocations: Option<u64>,
+    /// The number of failed hugetlb page allocations
+    /// in the guest.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hugetlb_failures: Option<u64>,
 }
@@ -126,7 +148,7 @@ impl BalloonStats {
     }
 }
 
-// Virtio balloon device.
+/// Virtio balloon device.
 pub struct Balloon {
     // Virtio fields.
     pub(crate) avail_features: u64,
@@ -176,6 +198,7 @@ impl fmt::Debug for Balloon {
 }
 
 impl Balloon {
+    /// Instantiate a new balloon device.
     pub fn new(
         amount_mib: u32,
         deflate_on_oom: bool,
@@ -369,7 +392,7 @@ impl Balloon {
         }
     }
 
-    pub(crate) fn process_stats_queue(&mut self) -> std::result::Result<(), BalloonError> {
+    pub(crate) fn process_stats_queue(&mut self) -> Result<(), BalloonError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
         METRICS.balloon.stats_updates_count.inc();
@@ -420,6 +443,7 @@ impl Balloon {
         let _ = self.process_deflate_queue();
     }
 
+    /// Provides the ID of this balloon device.
     pub fn id(&self) -> &str {
         BALLOON_DEV_ID
     }
@@ -441,6 +465,7 @@ impl Balloon {
         }
     }
 
+    /// Update the target size of the balloon.
     pub fn update_size(&mut self, amount_mib: u32) -> Result<(), BalloonError> {
         if self.is_activated() {
             self.config_space.num_pages = mib_to_pages(amount_mib)?;
@@ -452,6 +477,7 @@ impl Balloon {
         }
     }
 
+    /// Update the the statistics polling interval.
     pub fn update_stats_polling_interval(&mut self, interval_s: u16) -> Result<(), BalloonError> {
         if self.stats_polling_interval_s == interval_s {
             return Ok(());
@@ -477,10 +503,12 @@ impl Balloon {
             .set_state(timer_state, SetTimeFlags::Default);
     }
 
+    /// Obtain the number of 4K pages the device is currently holding.
     pub fn num_pages(&self) -> u32 {
         self.config_space.num_pages
     }
 
+    /// Obtain the size of 4K pages the device is currently holding in MIB.
     pub fn size_mb(&self) -> u32 {
         pages_to_mib(self.config_space.num_pages)
     }
@@ -493,6 +521,7 @@ impl Balloon {
         self.stats_polling_interval_s
     }
 
+    /// Retrieve latest stats for the balloon device.
     pub fn latest_stats(&mut self) -> Option<&BalloonStats> {
         if self.stats_enabled() {
             self.latest_stats.target_pages = self.config_space.num_pages;
@@ -505,6 +534,7 @@ impl Balloon {
         }
     }
 
+    /// Return the config of the balloon device.
     pub fn config(&self) -> BalloonConfig {
         BalloonConfig {
             amount_mib: self.size_mb(),
@@ -591,13 +621,13 @@ impl VirtioDevice for Balloon {
         dst.copy_from_slice(data);
     }
 
-    fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
+    fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
         self.device_state = DeviceState::Activated(mem);
         if self.activate_evt.write(1).is_err() {
             error!("Balloon: Cannot write to activate_evt");
             METRICS.balloon.activate_fails.inc();
             self.device_state = DeviceState::Inactive;
-            return Err(super::super::ActivateError::BadActivate);
+            return Err(ActivateError::BadActivate);
         }
 
         if self.stats_enabled() {

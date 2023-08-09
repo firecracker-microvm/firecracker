@@ -3,6 +3,7 @@
 """A test that ensures that all unit tests pass at integration time."""
 
 import platform
+
 import pytest
 
 import host_tools.cargo_build as host  # pylint:disable=import-error
@@ -13,12 +14,13 @@ MACHINE = platform.machine()
 # run coverage with the `gnu` toolchains and run unit tests with the `musl` toolchains.
 TARGET = "{}-unknown-linux-musl".format(MACHINE)
 
+
 @pytest.mark.timeout(600)
 def test_unittests(test_fc_session_root_path):
     """
     Run unit and doc tests for all supported targets.
     """
-    extra_args = "--release --target {} ".format(TARGET)
+    extra_args = "--target {} ".format(TARGET)
 
     host.cargo_test(test_fc_session_root_path, extra_args=extra_args)
 

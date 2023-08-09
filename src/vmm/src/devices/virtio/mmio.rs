@@ -74,11 +74,12 @@ impl MmioTransport {
         }
     }
 
+    /// Gets the encapsulated locked VirtioDevice.
     pub fn locked_device(&self) -> MutexGuard<dyn VirtioDevice + 'static> {
         self.device.lock().expect("Poisoned lock")
     }
 
-    // Gets the encapsulated VirtioDevice.
+    /// Gets the encapsulated VirtioDevice.
     pub fn device(&self) -> Arc<Mutex<dyn VirtioDevice>> {
         self.device.clone()
     }
@@ -415,7 +416,7 @@ pub(crate) mod tests {
             }
         }
 
-        fn activate(&mut self, _: GuestMemoryMmap) -> ActivateResult {
+        fn activate(&mut self, _: GuestMemoryMmap) -> Result<(), ActivateError> {
             self.device_activated = true;
             Ok(())
         }

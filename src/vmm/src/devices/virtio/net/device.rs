@@ -9,7 +9,7 @@ use std::io::{Read, Write};
 use std::net::Ipv4Addr;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
-use std::{cmp, mem, result};
+use std::{cmp, mem};
 
 use dumbo::pdu::arp::ETH_IPV4_FRAME_LEN;
 use dumbo::pdu::ethernet::{EthernetFrame, PAYLOAD_OFFSET};
@@ -18,7 +18,6 @@ use log::{error, warn};
 use logger::{IncMetric, METRICS};
 use mmds::data_store::Mmds;
 use mmds::ns::MmdsNetworkStack;
-use rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 use utils::eventfd::EventFd;
 use utils::net::mac::MacAddr;
 use utils::vm_memory::{ByteValued, Bytes, GuestMemoryError, GuestMemoryMmap};
@@ -29,18 +28,19 @@ use virtio_gen::virtio_net::{
 };
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 
+use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
+
 const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
 
 use crate::devices::virtio::iovec::IoVecBuffer;
 use crate::devices::virtio::net::tap::Tap;
 use crate::devices::virtio::net::{
-    NetError, NetQueue, Result, MAX_BUFFER_SIZE, NET_QUEUE_SIZES, RX_INDEX, TX_INDEX,
+    NetError, NetQueue, MAX_BUFFER_SIZE, NET_QUEUE_SIZES, RX_INDEX, TX_INDEX,
 };
 use crate::devices::virtio::{
-    ActivateResult, DescriptorChain, DeviceState, IrqTrigger, IrqType, Queue, VirtioDevice,
-    TYPE_NET,
+    ActivateError, DescriptorChain, DeviceState, IrqTrigger, IrqType, Queue, VirtioDevice, TYPE_NET,
 };
-use crate::devices::{report_net_event_fail, Error as DeviceError};
+use crate::devices::{report_net_event_fail, DeviceError};
 
 #[derive(Debug)]
 enum FrontendError {
@@ -64,7 +64,7 @@ const fn frame_hdr_len() -> usize {
 
 // Frames being sent/received through the network device model have a VNET header. This
 // function returns a slice which holds the L2 frame bytes without this header.
-fn frame_bytes_from_buf(buf: &[u8]) -> Result<&[u8]> {
+fn frame_bytes_from_buf(buf: &[u8]) -> Result<&[u8], NetError> {
     if buf.len() < vnet_hdr_len() {
         Err(NetError::VnetHeaderMissing)
     } else {
@@ -72,7 +72,7 @@ fn frame_bytes_from_buf(buf: &[u8]) -> Result<&[u8]> {
     }
 }
 
-fn frame_bytes_from_buf_mut(buf: &mut [u8]) -> Result<&mut [u8]> {
+fn frame_bytes_from_buf_mut(buf: &mut [u8]) -> Result<&mut [u8], NetError> {
     if buf.len() < vnet_hdr_len() {
         Err(NetError::VnetHeaderMissing)
     } else {
@@ -94,10 +94,15 @@ pub struct ConfigSpace {
 // SAFETY: `ConfigSpace` contains only PODs.
 unsafe impl ByteValued for ConfigSpace {}
 
+/// VirtIO network device.
+///
+/// It emulates a network device able to exchange L2 frames between the guest
+/// and a host-side tap device.
 #[derive(Debug)]
 pub struct Net {
     pub(crate) id: String,
 
+    /// The backend for this device: a tap.
     pub tap: Tap,
 
     pub(crate) avail_features: u64,
@@ -124,17 +129,20 @@ pub struct Net {
     pub(crate) device_state: DeviceState,
     pub(crate) activate_evt: EventFd,
 
+    /// The MMDS stack corresponding to this interface.
+    /// Only if MMDS transport has been associated with it.
     pub mmds_ns: Option<MmdsNetworkStack>,
 }
 
 impl Net {
+    /// Create a new virtio network device with the given TAP interface.
     pub fn new_with_tap(
         id: String,
         tap: Tap,
         guest_mac: Option<MacAddr>,
         rx_rate_limiter: RateLimiter,
         tx_rate_limiter: RateLimiter,
-    ) -> Result<Self> {
+    ) -> Result<Self, NetError> {
         let mut avail_features = 1 << VIRTIO_NET_F_GUEST_CSUM
             | 1 << VIRTIO_NET_F_CSUM
             | 1 << VIRTIO_NET_F_GUEST_TSO4
@@ -181,14 +189,14 @@ impl Net {
         })
     }
 
-    /// Create a new virtio network device with the given TAP interface.
+    /// Create a new virtio network device given the interface name.
     pub fn new(
         id: String,
         tap_if_name: &str,
         guest_mac: Option<MacAddr>,
         rx_rate_limiter: RateLimiter,
         tx_rate_limiter: RateLimiter,
-    ) -> Result<Self> {
+    ) -> Result<Self, NetError> {
         let tap = Tap::open_named(tap_if_name).map_err(NetError::TapOpen)?;
 
         // Set offload flags to match the virtio features below.
@@ -197,7 +205,7 @@ impl Net {
         )
         .map_err(NetError::TapSetOffload)?;
 
-        let vnet_hdr_size = vnet_hdr_len() as i32;
+        let vnet_hdr_size = i32::try_from(vnet_hdr_len()).unwrap();
         tap.set_vnet_hdr_size(vnet_hdr_size)
             .map_err(NetError::TapSetVnetHdrSize)?;
 
@@ -249,7 +257,7 @@ impl Net {
         &self.tx_rate_limiter
     }
 
-    fn signal_used_queue(&mut self, queue_type: NetQueue) -> result::Result<(), DeviceError> {
+    fn signal_used_queue(&mut self, queue_type: NetQueue) -> Result<(), DeviceError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
@@ -321,7 +329,7 @@ impl Net {
         mem: &GuestMemoryMmap,
         data: &[u8],
         head: DescriptorChain,
-    ) -> std::result::Result<(), FrontendError> {
+    ) -> Result<(), FrontendError> {
         let mut chunk = data;
         let mut next_descriptor = Some(head);
 
@@ -360,7 +368,7 @@ impl Net {
     }
 
     // Copies a single frame from `self.rx_frame_buf` into the guest.
-    fn do_write_frame_to_guest(&mut self) -> std::result::Result<(), FrontendError> {
+    fn do_write_frame_to_guest(&mut self) -> Result<(), FrontendError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
@@ -421,7 +429,7 @@ impl Net {
         frame_iovec: &IoVecBuffer,
         tap: &mut Tap,
         guest_mac: Option<MacAddr>,
-    ) -> Result<bool> {
+    ) -> Result<bool, NetError> {
         // Read the frame headers from the IoVecBuffer. This will return None
         // if the frame_iovec is empty.
         let header_len = frame_iovec.read_at(headers, 0).ok_or_else(|| {
@@ -479,7 +487,7 @@ impl Net {
     }
 
     // We currently prioritize packets from the MMDS over regular network packets.
-    fn read_from_mmds_or_tap(&mut self) -> Result<usize> {
+    fn read_from_mmds_or_tap(&mut self) -> Result<usize, NetError> {
         if let Some(ns) = self.mmds_ns.as_mut() {
             if let Some(len) =
                 ns.write_next_frame(frame_bytes_from_buf_mut(&mut self.rx_frame_buf)?)
@@ -495,7 +503,7 @@ impl Net {
         self.read_tap().map_err(NetError::IO)
     }
 
-    fn process_rx(&mut self) -> result::Result<(), DeviceError> {
+    fn process_rx(&mut self) -> Result<(), DeviceError> {
         // Read as many frames as possible.
         loop {
             match self.read_from_mmds_or_tap() {
@@ -532,7 +540,7 @@ impl Net {
     }
 
     // Process the deferred frame first, then continue reading from tap.
-    fn handle_deferred_frame(&mut self) -> result::Result<(), DeviceError> {
+    fn handle_deferred_frame(&mut self) -> Result<(), DeviceError> {
         if self.rate_limited_rx_single_frame() {
             self.rx_deferred_frame = false;
             // process_rx() was interrupted possibly before consuming all
@@ -543,7 +551,7 @@ impl Net {
         self.signal_used_queue(NetQueue::Rx)
     }
 
-    fn resume_rx(&mut self) -> result::Result<(), DeviceError> {
+    fn resume_rx(&mut self) -> Result<(), DeviceError> {
         if self.rx_deferred_frame {
             self.handle_deferred_frame()
         } else {
@@ -551,7 +559,7 @@ impl Net {
         }
     }
 
-    fn process_tx(&mut self) -> result::Result<(), DeviceError> {
+    fn process_tx(&mut self) -> Result<(), DeviceError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
@@ -638,6 +646,10 @@ impl Net {
         tap.write_iovec(buf)
     }
 
+    /// Process a single RX queue event.
+    ///
+    /// This is called by the event manager responding to the guest adding a new
+    /// buffer in the RX queue.
     pub fn process_rx_queue_event(&mut self) {
         METRICS.net.rx_queue_event_count.inc();
 
@@ -684,6 +696,10 @@ impl Net {
         }
     }
 
+    /// Process a single TX queue event.
+    ///
+    /// This is called by the event manager responding to the guest adding a new
+    /// buffer in the TX queue.
     pub fn process_tx_queue_event(&mut self) {
         METRICS.net.tx_queue_event_count.inc();
         if let Err(err) = self.queue_evts[TX_INDEX].read() {
@@ -810,7 +826,7 @@ impl VirtioDevice for Net {
         METRICS.net.mac_address_updates.inc();
     }
 
-    fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
+    fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
         let event_idx = self.has_feature(u64::from(VIRTIO_RING_F_EVENT_IDX));
         if event_idx {
             for queue in &mut self.queues {
@@ -842,7 +858,6 @@ pub mod tests {
     use dumbo::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
     use dumbo::pdu::ethernet::ETHERTYPE_ARP;
     use logger::{IncMetric, METRICS};
-    use rate_limiter::{RateLimiter, TokenBucket, TokenType};
     use utils::net::mac::MAC_ADDR_LEN;
     use utils::vm_memory::{Address, GuestMemory};
     use virtio_gen::virtio_net::{
@@ -865,6 +880,7 @@ pub mod tests {
     use crate::devices::virtio::{
         Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, TYPE_NET, VIRTQ_DESC_F_WRITE,
     };
+    use crate::rate_limiter::{RateLimiter, TokenBucket, TokenType};
 
     impl Net {
         pub(crate) fn read_tap(&mut self) -> io::Result<usize> {

@@ -496,6 +496,10 @@
                 "comment": "sigaltstack is used by Rust stdlib to remove alternative signal stack during thread teardown."
             },
             {
+              "syscall": "getrandom",
+              "comment": "getrandom is used by `HttpServer` to reinialize `HashMap` after moving to the API thread"
+            },
+            {
                 "syscall": "accept4",
                 "comment": "Called to accept socket connections",
                 "args": [
