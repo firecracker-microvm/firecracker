@@ -9,8 +9,8 @@ use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
 use crate::devices::virtio::persist::PersistError as VirtioStateError;
-use crate::devices::virtio::rng::{Entropy, EntropyError, RNG_NUM_QUEUES, RNG_QUEUE_SIZE};
-use crate::devices::virtio::{VirtioDeviceState, TYPE_RNG};
+use crate::devices::virtio::rng::{Entropy, EntropyError, RNG_NUM_QUEUES};
+use crate::devices::virtio::{VirtioDeviceState, FIRECRACKER_MAX_QUEUE_SIZE, TYPE_RNG};
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::rate_limiter::RateLimiter;
 
@@ -56,7 +56,7 @@ impl Persist<'_> for Entropy {
             &constructor_args.0,
             TYPE_RNG,
             RNG_NUM_QUEUES,
-            RNG_QUEUE_SIZE,
+            FIRECRACKER_MAX_QUEUE_SIZE,
         )?;
 
         let rate_limiter = RateLimiter::restore((), &state.rate_limiter_state)?;
