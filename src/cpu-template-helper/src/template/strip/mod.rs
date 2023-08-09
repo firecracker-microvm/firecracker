@@ -19,19 +19,19 @@ mod x86_64;
 pub use x86_64::strip;
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum StripError {
     /// The number of inputs should be two or more.
     #[error("The number of inputs should be two or more.")]
     NumberOfInputs,
 }
 
-fn strip_common<K, V>(maps: &mut [HashMap<K, RegisterValueFilter<V>>]) -> Result<(), Error>
+fn strip_common<K, V>(maps: &mut [HashMap<K, RegisterValueFilter<V>>]) -> Result<(), StripError>
 where
     K: ModifierMapKey + Debug,
     V: Numeric + Debug,
 {
     if maps.len() < 2 {
-        return Err(Error::NumberOfInputs);
+        return Err(StripError::NumberOfInputs);
     }
 
     // Initialize `common` with the cloned `maps[0]`.
@@ -94,7 +94,7 @@ mod tests {
         let mut input = vec![HashMap::from([mock_modifier!(0x0, 0b0000_0000)])];
 
         match strip_common(&mut input) {
-            Err(Error::NumberOfInputs) => (),
+            Err(StripError::NumberOfInputs) => (),
             _ => panic!("Should fail with `Error::NumberOfInputs`."),
         }
     }

@@ -220,8 +220,8 @@ def test_config_machine_config_params(test_microvm_with_api, test_config):
     if check_for_failed_start:
         test_microvm.check_any_log_message(
             [
-                "Building VMM configured from cmdline json failed: ",
-                "Configuration for VMM from one single json failed",
+                "Failed to build MicroVM from Json",
+                "Could not Start MicroVM from one single json",
             ]
         )
     else:

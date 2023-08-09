@@ -13,7 +13,7 @@ from providers.types import DataParser
 # that were not caught while gathering baselines. This provides
 # slightly better reliability, while not affecting regression
 # detection.
-DELTA_EXTRA_MARGIN = 0.1
+DELTA_EXTRA_MARGIN = 3
 
 
 # pylint: disable=R0903

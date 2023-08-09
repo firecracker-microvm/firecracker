@@ -9,10 +9,10 @@ use vmm::Vmm;
 use crate::fingerprint::Fingerprint;
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum FingerprintDumpError {
     /// Failed to dump CPU configuration.
     #[error("Failed to dump CPU config: {0}")]
-    DumpCpuConfig(#[from] crate::template::dump::Error),
+    DumpCpuConfig(#[from] crate::template::dump::DumpError),
     /// Failed to read sysfs file.
     #[error("Failed to read {0}: {1}")]
     ReadSysfsFile(String, std::io::Error),
@@ -24,7 +24,7 @@ pub enum Error {
     ShellCommand(String, String),
 }
 
-pub fn dump(vmm: Arc<Mutex<Vmm>>) -> Result<Fingerprint, Error> {
+pub fn dump(vmm: Arc<Mutex<Vmm>>) -> Result<Fingerprint, FingerprintDumpError> {
     Ok(Fingerprint {
         firecracker_version: crate::utils::CPU_TEMPLATE_HELPER_VERSION.to_string(),
         kernel_version: get_kernel_version()?,
@@ -46,13 +46,15 @@ pub fn dump(vmm: Arc<Mutex<Vmm>>) -> Result<Fingerprint, Error> {
     })
 }
 
-fn get_kernel_version() -> Result<String, Error> {
+fn get_kernel_version() -> Result<String, FingerprintDumpError> {
     // SAFETY: An all-zeroed value for `libc::utsname` is valid.
     let mut name: libc::utsname = unsafe { std::mem::zeroed() };
     // SAFETY: The passed arg is a valid mutable reference of `libc::utsname`.
     let ret = unsafe { libc::uname(&mut name) };
     if ret < 0 {
-        return Err(Error::GetKernelVersion(std::io::Error::last_os_error()));
+        return Err(FingerprintDumpError::GetKernelVersion(
+            std::io::Error::last_os_error(),
+        ));
     }
 
     // SAFETY: The fields of `libc::utsname` are terminated by a null byte ('\0').
@@ -63,19 +65,20 @@ fn get_kernel_version() -> Result<String, Error> {
     Ok(version.to_string())
 }
 
-fn read_sysfs_file(path: &str) -> Result<String, Error> {
-    let s = read_to_string(path).map_err(|err| Error::ReadSysfsFile(path.to_string(), err))?;
+fn read_sysfs_file(path: &str) -> Result<String, FingerprintDumpError> {
+    let s = read_to_string(path)
+        .map_err(|err| FingerprintDumpError::ReadSysfsFile(path.to_string(), err))?;
     Ok(s.trim_end_matches('\n').to_string())
 }
 
-fn run_shell_command(cmd: &str) -> Result<String, Error> {
+fn run_shell_command(cmd: &str) -> Result<String, FingerprintDumpError> {
     let output = std::process::Command::new("bash")
         .args(["-c", cmd])
         .output()
-        .map_err(|err| Error::ShellCommand(cmd.to_string(), err.to_string()))?;
+        .map_err(|err| FingerprintDumpError::ShellCommand(cmd.to_string(), err.to_string()))?;
 
     if !output.status.success() {
-        return Err(Error::ShellCommand(
+        return Err(FingerprintDumpError::ShellCommand(
             cmd.to_string(),
             format!(
                 "code: {:?}\nstdout: {}\nstderr: {}",

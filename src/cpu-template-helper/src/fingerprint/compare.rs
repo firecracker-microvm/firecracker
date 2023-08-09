@@ -6,7 +6,7 @@ use serde::Serialize;
 use crate::fingerprint::{Fingerprint, FingerprintField};
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum FingerprintCompareError {
     /// Difference detected between source and target.
     #[error("Difference detected between source and target:\n{0}")]
     DiffDetected(String),
@@ -26,7 +26,7 @@ pub fn compare(
     prev: Fingerprint,
     curr: Fingerprint,
     filters: Vec<FingerprintField>,
-) -> Result<(), Error> {
+) -> Result<(), FingerprintCompareError> {
     let compare =
         |field: &FingerprintField, val1, val2| -> Option<Result<String, serde_json::Error>> {
             if val1 != val2 {
@@ -87,7 +87,7 @@ pub fn compare(
     if results.is_empty() {
         Ok(())
     } else {
-        Err(Error::DiffDetected(results.join("\n")))
+        Err(FingerprintCompareError::DiffDetected(results.join("\n")))
     }
 }
 
@@ -131,7 +131,7 @@ mod tests {
         let filters = vec![FingerprintField::kernel_version];
         let result = compare(f1, f2, filters);
         match result {
-            Err(Error::DiffDetected(err)) => {
+            Err(FingerprintCompareError::DiffDetected(err)) => {
                 assert_eq!(
                     err,
                     "{\

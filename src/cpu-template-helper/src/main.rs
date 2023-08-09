@@ -7,35 +7,33 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand, ValueEnum};
 use vmm::cpu_config::templates::{CustomCpuTemplate, GetCpuTemplate, GetCpuTemplateError};
 
+use crate::utils::UtilsError;
+
 mod fingerprint;
 mod template;
 mod utils;
 
-const EXIT_CODE_ERROR: i32 = 1;
-
 #[derive(Debug, thiserror::Error)]
-enum Error {
+enum HelperError {
     #[error("Failed to operate file: {0}")]
     FileIo(#[from] std::io::Error),
     #[error("{0}")]
-    FingerprintCompare(#[from] fingerprint::compare::Error),
+    FingerprintCompare(#[from] fingerprint::compare::FingerprintCompareError),
     #[error("{0}")]
-    FingerprintDump(#[from] fingerprint::dump::Error),
+    FingerprintDump(#[from] fingerprint::dump::FingerprintDumpError),
     #[error("CPU template is not specified: {0}")]
     NoCpuTemplate(#[from] GetCpuTemplateError),
     #[error("Failed to serialize/deserialize JSON file: {0}")]
     Serde(#[from] serde_json::Error),
     #[error("{0}")]
-    Utils(#[from] utils::Error),
+    Utils(#[from] UtilsError),
     #[error("{0}")]
-    TemplateDump(#[from] template::dump::Error),
+    TemplateDump(#[from] template::dump::DumpError),
     #[error("{0}")]
-    TemplateStrip(#[from] template::strip::Error),
+    TemplateStrip(#[from] template::strip::StripError),
     #[error("{0}")]
-    TemplateVerify(#[from] template::verify::Error),
+    TemplateVerify(#[from] template::verify::VerifyError),
 }
-
-type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Parser)]
 #[command(version = format!("v{}", crate::utils::CPU_TEMPLATE_HELPER_VERSION))]
@@ -113,7 +111,7 @@ enum FingerprintOperation {
     },
 }
 
-fn run(cli: Cli) -> Result<()> {
+fn run(cli: Cli) -> Result<(), HelperError> {
     match cli.command {
         Command::Template(op) => match op {
             TemplateOperation::Dump { config, output } => {
@@ -182,12 +180,14 @@ fn run(cli: Cli) -> Result<()> {
     Ok(())
 }
 
-fn main() {
+fn main() -> Result<(), HelperError> {
     let cli = Cli::parse();
-
-    if let Err(e) = run(cli) {
-        eprintln!("Error: {}", e);
-        std::process::exit(EXIT_CODE_ERROR);
+    let result = run(cli);
+    if let Err(e) = result {
+        eprintln!("{}", e);
+        Err(e)
+    } else {
+        Ok(())
     }
 }
 
