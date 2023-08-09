@@ -77,13 +77,13 @@
 //! etc).
 
 use std::fmt::{self, Debug};
-use std::io::{sink, stderr, stdout, Write};
+use std::io::{sink, stdout, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, RwLock};
 use std::{result, thread};
 
 use lazy_static::lazy_static;
-use log::{max_level, set_logger, set_max_level, Level, LevelFilter, Log, Metadata, Record};
+use log::{max_level, set_logger, set_max_level, LevelFilter, Log, Metadata, Record};
 use utils::time::LocalTime;
 
 use super::extract_guard;
@@ -371,7 +371,7 @@ impl Logger {
             })
             .map_err(LoggerError::Init)?;
 
-        self.write_log(header, Level::Info);
+        self.write_log(&header);
 
         Ok(())
     }
@@ -379,22 +379,19 @@ impl Logger {
     /// Handles the common logic of writing regular log messages.
     ///
     /// Writes `msg` followed by a newline to the destination, flushing afterwards.
-    fn write_log(&self, msg: String, msg_level: Level) {
+    fn write_log(&self, msg: &str) {
         let mut guard;
         let mut writer: Box<dyn Write> = if self.init.is_initialized() {
             guard = extract_guard(self.log_buf.lock());
             Box::new(guard.as_mut())
         } else {
-            match msg_level {
-                Level::Error | Level::Warn => Box::new(stderr()),
-                _ => Box::new(stdout()),
-            }
+            Box::new(stdout())
         };
         // Writes `msg` followed by newline and flushes, if either operation returns an error,
         // increment missed log count.
         // This approach is preferable over `Result::and` as if `write!` returns  an error it then
         // does not attempt to flush.
-        if writeln!(writer, "{}", msg)
+        if writeln!(writer, "{msg}")
             .and_then(|_| writer.flush())
             .is_err()
         {
@@ -426,7 +423,7 @@ impl Log for Logger {
             self.create_prefix(record),
             record.args()
         );
-        self.write_log(msg, record.metadata().level());
+        self.write_log(&msg);
     }
 
     // This is currently not used.
@@ -441,7 +438,7 @@ mod tests {
     use std::io::{BufWriter, Read, Write};
     use std::sync::Arc;
 
-    use log::info;
+    use log::{info, Level};
 
     use super::*;
 
@@ -565,7 +562,7 @@ mod tests {
         let logger = Logger::new();
         logger.init(String::from(TEST_HEADER), writer).unwrap();
         // Log some generic data
-        logger.write_log(String::from(TEST_STR), Level::Info);
+        logger.write_log(TEST_STR);
         // To drop the logger without calling its destructor, or to `forget` it
         // (https://doc.rust-lang.org/stable/std/mem/fn.forget.html) will lead
         // to a memory leak, so for this test I do not do this.
