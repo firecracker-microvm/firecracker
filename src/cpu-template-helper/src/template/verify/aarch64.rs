@@ -3,10 +3,13 @@
 
 use vmm::cpu_config::templates::CustomCpuTemplate;
 
-use super::{verify_common, Error};
+use super::{verify_common, VerifyError};
 use crate::utils::aarch64::RegModifierMap;
 
-pub fn verify(cpu_template: CustomCpuTemplate, cpu_config: CustomCpuTemplate) -> Result<(), Error> {
+pub fn verify(
+    cpu_template: CustomCpuTemplate,
+    cpu_config: CustomCpuTemplate,
+) -> Result<(), VerifyError> {
     let reg_template = RegModifierMap::from(cpu_template.reg_modifiers);
     let reg_config = RegModifierMap::from(cpu_config.reg_modifiers);
     verify_common(reg_template.0, reg_config.0)

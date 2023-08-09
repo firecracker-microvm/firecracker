@@ -59,7 +59,7 @@ impl<V: Numeric> DiffString<V> for V {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum UtilsError {
     /// Failed to create VmResources.
     #[error("Failed to create VmResources: {0}")]
     CreateVmResources(vmm::resources::ResourcesError),
@@ -68,7 +68,9 @@ pub enum Error {
     BuildMicroVm(#[from] StartMicrovmError),
 }
 
-pub fn build_microvm_from_config(config: &str) -> Result<(Arc<Mutex<Vmm>>, VmResources), Error> {
+pub fn build_microvm_from_config(
+    config: &str,
+) -> Result<(Arc<Mutex<Vmm>>, VmResources), UtilsError> {
     // Prepare resources from the given config file.
     let instance_info = InstanceInfo {
         id: "anonymous-instance".to_string(),
@@ -77,7 +79,7 @@ pub fn build_microvm_from_config(config: &str) -> Result<(Arc<Mutex<Vmm>>, VmRes
         app_name: "cpu-template-helper".to_string(),
     };
     let vm_resources = VmResources::from_json(config, &instance_info, HTTP_MAX_PAYLOAD_SIZE, None)
-        .map_err(Error::CreateVmResources)?;
+        .map_err(UtilsError::CreateVmResources)?;
     let mut event_manager = EventManager::new().unwrap();
     let seccomp_filters = get_empty_filters();
 
@@ -172,7 +174,7 @@ pub mod tests {
 
         match build_microvm_from_config(&invalid_config) {
             Ok(_) => panic!("Should fail with `No such file or directory`."),
-            Err(Error::CreateVmResources(_)) => (),
+            Err(UtilsError::CreateVmResources(_)) => (),
             Err(err) => panic!("Unexpected error: {err}"),
         }
     }

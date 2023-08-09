@@ -7,7 +7,8 @@ rustflags = [
   "-Dclippy::cast_lossless",
   "-Dclippy::cast_possible_wrap",
   "-Dclippy::cast_sign_loss",
-  "-Dmissing_debug_implementations"
+  "-Dmissing_debug_implementations",
+  "-Dclippy::exit",
 ]
 
 [net]

@@ -94,9 +94,9 @@ impl<'de> Deserialize<'de> for Comment {
     }
 }
 
-/// Seccomp errors.
+/// Seccomp filter errors.
 #[derive(Debug, PartialEq, thiserror::Error)]
-pub(crate) enum Error {
+pub(crate) enum FilterError {
     /// Attempting to add an empty vector of rules to the rule chain of a syscall.
     #[error("The seccomp rules vector is empty.")]
     EmptyRulesVector,
@@ -113,8 +113,6 @@ pub(crate) enum Error {
     #[error("Syscall {0} has conflicting rules.")]
     ConflictingRules(i64),
 }
-
-type Result<T> = std::result::Result<T, Error>;
 
 /// Supported target architectures.
 #[allow(non_camel_case_types)]
@@ -268,10 +266,10 @@ pub(crate) struct SeccompFilter {
 
 impl SeccompCondition {
     /// Validates the SeccompCondition data
-    pub fn validate(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<(), FilterError> {
         // Checks that the given argument number is valid.
         if self.arg_number > ARG_NUMBER_MAX {
-            return Err(Error::InvalidArgumentNumber);
+            return Err(FilterError::InvalidArgumentNumber);
         }
 
         Ok(())
@@ -642,11 +640,11 @@ impl SeccompFilter {
         rules: SeccompRuleMap,
         default_action: SeccompAction,
         target_arch: &str,
-    ) -> Result<Self> {
+    ) -> Result<Self, FilterError> {
         let instance = Self {
             rules,
             default_action,
-            target_arch: target_arch.try_into().map_err(Error::Arch)?,
+            target_arch: target_arch.try_into().map_err(FilterError::Arch)?,
         };
 
         instance.validate()?;
@@ -655,11 +653,11 @@ impl SeccompFilter {
     }
 
     /// Performs semantic checks on the SeccompFilter.
-    fn validate(&self) -> Result<()> {
+    fn validate(&self) -> Result<(), FilterError> {
         for (syscall_number, syscall_rules) in self.rules.iter() {
             // All inserted syscalls must have at least one rule, otherwise BPF code will break.
             if syscall_rules.is_empty() {
-                return Err(Error::EmptyRulesVector);
+                return Err(FilterError::EmptyRulesVector);
             }
 
             // Now check for conflicting rules.
@@ -672,7 +670,7 @@ impl SeccompFilter {
             {
                 // If the syscall has an empty rule, it may only have that rule.
                 1 if syscall_rules.len() > 1 => {
-                    return Err(Error::ConflictingRules(*syscall_number));
+                    return Err(FilterError::ConflictingRules(*syscall_number));
                 }
                 // This syscall only has the one rule, so is valid.
                 1 if syscall_rules.len() <= 1 => {}
@@ -680,7 +678,7 @@ impl SeccompFilter {
                 0 => {}
                 // For a greater than 1 number of empty rules, error out.
                 _ => {
-                    return Err(Error::ConflictingRules(*syscall_number));
+                    return Err(FilterError::ConflictingRules(*syscall_number));
                 }
             }
         }
@@ -704,7 +702,7 @@ impl SeccompFilter {
         default_action: u32,
         accumulator: &mut Vec<Vec<sock_filter>>,
         filter_len: &mut usize,
-    ) -> Result<()> {
+    ) -> Result<(), FilterError> {
         // The rules of the chain are translated into BPF statements.
         let chain: Vec<_> = chain.into_iter().map(SeccompRule::into).collect();
         let chain_len: usize = chain.iter().map(std::vec::Vec::len).sum();
@@ -734,7 +732,7 @@ impl SeccompFilter {
 
         // BPF programs are limited to 4096 statements.
         if *filter_len >= BPF_MAX_LEN {
-            return Err(Error::FilterTooLarge);
+            return Err(FilterError::FilterTooLarge);
         }
 
         Ok(())
@@ -742,8 +740,8 @@ impl SeccompFilter {
 }
 
 impl TryInto<BpfProgram> for SeccompFilter {
-    type Error = Error;
-    fn try_into(self) -> Result<BpfProgram> {
+    type Error = FilterError;
+    fn try_into(self) -> Result<BpfProgram, FilterError> {
         // Initialize the result with the precursory architecture check.
         let mut result = VALIDATE_ARCHITECTURE(self.target_arch);
 
@@ -790,7 +788,7 @@ impl TryInto<BpfProgram> for SeccompFilter {
             .for_each(|mut instructions| result.append(&mut instructions));
 
         if result.len() >= BPF_MAX_LEN {
-            return Err(Error::FilterTooLarge);
+            return Err(FilterError::FilterTooLarge);
         }
 
         Ok(result)
@@ -879,7 +877,7 @@ mod tests {
             arg_len: SeccompCmpArgLen,
             operator: SeccompCmpOp,
             value: u64,
-        ) -> Result<Self> {
+        ) -> Result<Self, FilterError> {
             let instance = Self {
                 arg_number,
                 arg_len,
@@ -1732,21 +1730,21 @@ mod tests {
     #[test]
     fn test_error_messages() {
         assert_eq!(
-            format!("{}", Error::EmptyRulesVector),
+            format!("{}", FilterError::EmptyRulesVector),
             "The seccomp rules vector is empty."
         );
         assert_eq!(
-            format!("{}", Error::FilterTooLarge),
+            format!("{}", FilterError::FilterTooLarge),
             "The seccomp filter contains too many BPF instructions."
         );
         assert_eq!(
-            format!("{}", Error::InvalidArgumentNumber),
+            format!("{}", FilterError::InvalidArgumentNumber),
             "The seccomp rule contains an invalid argument number."
         );
         assert_eq!(
             format!(
                 "{}",
-                Error::Arch(TargetArchError::InvalidString("lala".to_string()))
+                FilterError::Arch(TargetArchError::InvalidString("lala".to_string()))
             ),
             format!("{:?}", TargetArchError::InvalidString("lala".to_string()))
         );
@@ -1768,7 +1766,7 @@ mod tests {
         // Invalid argument number
         assert_eq!(
             Cond::new(90, ArgLen::Dword, Eq, 65),
-            Err(Error::InvalidArgumentNumber)
+            Err(FilterError::InvalidArgumentNumber)
         );
 
         // Valid argument number
@@ -1787,7 +1785,7 @@ mod tests {
                     ARCH,
                 )
                 .unwrap_err(),
-                Error::EmptyRulesVector
+                FilterError::EmptyRulesVector
             );
             // Syscall has multiple empty rules.
             assert_eq!(
@@ -1805,7 +1803,7 @@ mod tests {
                     ARCH,
                 )
                 .unwrap_err(),
-                Error::ConflictingRules(1)
+                FilterError::ConflictingRules(1)
             );
 
             // Syscall has both empty rules condition-based rules.
@@ -1830,7 +1828,7 @@ mod tests {
                     ARCH,
                 )
                 .unwrap_err(),
-                Error::ConflictingRules(1)
+                FilterError::ConflictingRules(1)
             );
         }
     }

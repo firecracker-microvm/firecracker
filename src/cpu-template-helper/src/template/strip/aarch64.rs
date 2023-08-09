@@ -4,11 +4,11 @@
 use vmm::cpu_config::aarch64::custom_cpu_template::RegisterModifier;
 use vmm::cpu_config::templates::CustomCpuTemplate;
 
-use crate::template::strip::{strip_common, Error};
+use crate::template::strip::{strip_common, StripError};
 use crate::utils::aarch64::RegModifierMap;
 
 #[allow(dead_code)]
-pub fn strip(templates: Vec<CustomCpuTemplate>) -> Result<Vec<CustomCpuTemplate>, Error> {
+pub fn strip(templates: Vec<CustomCpuTemplate>) -> Result<Vec<CustomCpuTemplate>, StripError> {
     // Convert `Vec<CustomCpuTemplate>` to `Vec<HashMap<_>>`.
     let mut reg_modifiers_maps = templates
         .into_iter()

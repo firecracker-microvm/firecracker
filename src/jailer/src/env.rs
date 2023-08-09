@@ -18,7 +18,7 @@ use utils::{arg_parser, validators};
 use crate::cgroup::{Cgroup, CgroupBuilder};
 use crate::chroot::chroot;
 use crate::resource_limits::{ResourceLimits, FSIZE_ARG, NO_FILE_ARG};
-use crate::{Error, Result};
+use crate::JailerError;
 
 const STDIN_FILENO: libc::c_int = 0;
 const STDOUT_FILENO: libc::c_int = 1;
@@ -56,11 +56,11 @@ const FOLDER_PERMISSIONS: u32 = 0o700;
 const PID_FILE_EXTENSION: &str = ".pid";
 
 // Helper function, since we'll use libc::dup2 a bunch of times for daemonization.
-fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
+fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<(), JailerError> {
     // SAFETY: This is safe because we are using a library function with valid parameters.
     SyscallReturnCode(unsafe { libc::dup2(old_fd, new_fd) })
         .into_empty_result()
-        .map_err(Error::Dup2)
+        .map_err(JailerError::Dup2)
 }
 
 // This is a wrapper for the clone system call. When we want to create a new process in a new
@@ -68,7 +68,7 @@ fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
 // not use the CLONE_VM flag, this will result with the original stack replicated, in a similar
 // manner to the fork syscall. The libc wrapper prevents use of a NULL stack pointer, so we will
 // call the syscall directly.
-fn clone(child_stack: *mut libc::c_void, flags: libc::c_int) -> Result<libc::c_int> {
+fn clone(child_stack: *mut libc::c_void, flags: libc::c_int) -> Result<libc::c_int, JailerError> {
     // Clone parameters order is different between x86_64 and aarch64.
     #[cfg(target_arch = "x86_64")]
     // SAFETY: This is safe because we are using a library function with valid parameters.
@@ -76,14 +76,14 @@ fn clone(child_stack: *mut libc::c_void, flags: libc::c_int) -> Result<libc::c_i
         libc::syscall(libc::SYS_clone, flags, child_stack, 0, 0, 0) as libc::c_int
     })
     .into_result()
-    .map_err(Error::Clone);
+    .map_err(JailerError::Clone);
     #[cfg(target_arch = "aarch64")]
     // SAFETY: This is safe because we are using a library function with valid parameters.
     return SyscallReturnCode(unsafe {
         libc::syscall(libc::SYS_clone, flags, child_stack, 0, 0, 0) as libc::c_int
     })
     .into_result()
-    .map_err(Error::Clone);
+    .map_err(JailerError::Clone);
 }
 
 pub struct Env {
@@ -135,28 +135,28 @@ impl Env {
         arguments: &arg_parser::Arguments,
         start_time_us: u64,
         start_time_cpu_us: u64,
-    ) -> Result<Self> {
+    ) -> Result<Self, JailerError> {
         // Unwraps should not fail because the arguments are mandatory arguments or with default
         // values.
         let id = arguments
             .single_value("id")
-            .ok_or_else(|| Error::ArgumentParsing(MissingValue("id".to_string())))?;
+            .ok_or_else(|| JailerError::ArgumentParsing(MissingValue("id".to_string())))?;
 
-        validators::validate_instance_id(id).map_err(Error::InvalidInstanceId)?;
+        validators::validate_instance_id(id).map_err(JailerError::InvalidInstanceId)?;
 
         let exec_file = arguments
             .single_value("exec-file")
-            .ok_or_else(|| Error::ArgumentParsing(MissingValue("exec-file".to_string())))?;
+            .ok_or_else(|| JailerError::ArgumentParsing(MissingValue("exec-file".to_string())))?;
         let (exec_file_path, exec_file_name) = Env::validate_exec_file(exec_file)?;
 
-        let chroot_base = arguments
-            .single_value("chroot-base-dir")
-            .ok_or_else(|| Error::ArgumentParsing(MissingValue("chroot-base-dir".to_string())))?;
+        let chroot_base = arguments.single_value("chroot-base-dir").ok_or_else(|| {
+            JailerError::ArgumentParsing(MissingValue("chroot-base-dir".to_string()))
+        })?;
         let mut chroot_dir = canonicalize(chroot_base)
-            .map_err(|err| Error::Canonicalize(PathBuf::from(&chroot_base), err))?;
+            .map_err(|err| JailerError::Canonicalize(PathBuf::from(&chroot_base), err))?;
 
         if !chroot_dir.is_dir() {
-            return Err(Error::NotADirectory(chroot_dir));
+            return Err(JailerError::NotADirectory(chroot_dir));
         }
 
         chroot_dir.push(&exec_file_name);
@@ -165,17 +165,17 @@ impl Env {
 
         let uid_str = arguments
             .single_value("uid")
-            .ok_or_else(|| Error::ArgumentParsing(MissingValue("uid".to_string())))?;
+            .ok_or_else(|| JailerError::ArgumentParsing(MissingValue("uid".to_string())))?;
         let uid = uid_str
             .parse::<u32>()
-            .map_err(|_| Error::Uid(uid_str.to_owned()))?;
+            .map_err(|_| JailerError::Uid(uid_str.to_owned()))?;
 
         let gid_str = arguments
             .single_value("gid")
-            .ok_or_else(|| Error::ArgumentParsing(MissingValue("gid".to_string())))?;
+            .ok_or_else(|| JailerError::ArgumentParsing(MissingValue("gid".to_string())))?;
         let gid = gid_str
             .parse::<u32>()
-            .map_err(|_| Error::Gid(gid_str.to_owned()))?;
+            .map_err(|_| JailerError::Gid(gid_str.to_owned()))?;
 
         let netns = arguments.single_value("netns").cloned();
 
@@ -193,15 +193,15 @@ impl Env {
             .components()
             .any(|c| c == Component::CurDir || c == Component::ParentDir || c == Component::RootDir)
         {
-            return Err(Error::CgroupInvalidParentPath());
+            return Err(JailerError::CgroupInvalidParentPath());
         }
 
-        let cgroup_ver = arguments
-            .single_value("cgroup-version")
-            .ok_or_else(|| Error::ArgumentParsing(MissingValue("cgroup-version".to_string())))?;
+        let cgroup_ver = arguments.single_value("cgroup-version").ok_or_else(|| {
+            JailerError::ArgumentParsing(MissingValue("cgroup-version".to_string()))
+        })?;
         let cgroup_ver = cgroup_ver
             .parse::<u8>()
-            .map_err(|_| Error::CgroupInvalidVersion(cgroup_ver.to_string()))?;
+            .map_err(|_| JailerError::CgroupInvalidVersion(cgroup_ver.to_string()))?;
 
         let mut cgroup_builder = None;
 
@@ -211,13 +211,13 @@ impl Env {
             for cg in cgroups_args {
                 let aux: Vec<&str> = cg.split('=').collect();
                 if aux.len() != 2 || aux[1].is_empty() {
-                    return Err(Error::CgroupFormat(cg.to_string()));
+                    return Err(JailerError::CgroupFormat(cg.to_string()));
                 }
                 let file = Path::new(aux[0]);
                 if file.components().any(|c| {
                     c == Component::CurDir || c == Component::ParentDir || c == Component::RootDir
                 }) {
-                    return Err(Error::CgroupInvalidFile(cg.to_string()));
+                    return Err(JailerError::CgroupInvalidFile(cg.to_string()));
                 }
 
                 let cgroup = builder.new_cgroup(
@@ -265,48 +265,51 @@ impl Env {
         self.uid
     }
 
-    fn validate_exec_file(exec_file: &str) -> Result<(PathBuf, String)> {
+    fn validate_exec_file(exec_file: &str) -> Result<(PathBuf, String), JailerError> {
         let exec_file_path = canonicalize(exec_file)
-            .map_err(|err| Error::Canonicalize(PathBuf::from(exec_file), err))?;
+            .map_err(|err| JailerError::Canonicalize(PathBuf::from(exec_file), err))?;
 
         if !exec_file_path.is_file() {
-            return Err(Error::NotAFile(exec_file_path));
+            return Err(JailerError::NotAFile(exec_file_path));
         }
 
         let exec_file_name = exec_file_path
             .file_name()
-            .ok_or_else(|| Error::ExtractFileName(exec_file_path.clone()))?
+            .ok_or_else(|| JailerError::ExtractFileName(exec_file_path.clone()))?
             .to_str()
             // Safe to unwrap as the original `exec_file` is `String`.
             .unwrap()
             .to_string();
 
         if !exec_file_name.contains("firecracker") {
-            return Err(Error::ExecFileName(exec_file_name));
+            return Err(JailerError::ExecFileName(exec_file_name));
         }
 
         Ok((exec_file_path, exec_file_name))
     }
 
-    fn parse_resource_limits(resource_limits: &mut ResourceLimits, args: &[String]) -> Result<()> {
+    fn parse_resource_limits(
+        resource_limits: &mut ResourceLimits,
+        args: &[String],
+    ) -> Result<(), JailerError> {
         for arg in args {
             let (name, value) = arg
                 .split_once('=')
-                .ok_or_else(|| Error::ResLimitFormat(arg.to_string()))?;
+                .ok_or_else(|| JailerError::ResLimitFormat(arg.to_string()))?;
 
             let limit_value = value
                 .parse::<u64>()
-                .map_err(|err| Error::ResLimitValue(value.to_string(), err.to_string()))?;
+                .map_err(|err| JailerError::ResLimitValue(value.to_string(), err.to_string()))?;
             match name {
                 FSIZE_ARG => resource_limits.set_file_size(limit_value),
                 NO_FILE_ARG => resource_limits.set_no_file(limit_value),
-                _ => return Err(Error::ResLimitArgument(name.to_string())),
+                _ => return Err(JailerError::ResLimitArgument(name.to_string())),
             }
         }
         Ok(())
     }
 
-    fn exec_into_new_pid_ns(&mut self, chroot_exec_file: PathBuf) -> Result<()> {
+    fn exec_into_new_pid_ns(&mut self, chroot_exec_file: PathBuf) -> Result<(), JailerError> {
         // Compute jailer's total CPU time up to the current time.
         self.jailer_cpu_time_us =
             utils::time::get_time_us(utils::time::ClockType::ProcessCpu) - self.start_time_cpu_us;
@@ -320,7 +323,7 @@ impl Env {
                 // Reset process start time.
                 self.start_time_cpu_us = 0;
 
-                Err(Error::Exec(self.exec_command(chroot_exec_file)))
+                Err(JailerError::Exec(self.exec_command(chroot_exec_file)))
             }
             child_pid => {
                 // Save the PID of the process running the exec file provided
@@ -332,20 +335,24 @@ impl Env {
         }
     }
 
-    fn save_exec_file_pid(&mut self, pid: i32, chroot_exec_file: PathBuf) -> Result<()> {
+    fn save_exec_file_pid(
+        &mut self,
+        pid: i32,
+        chroot_exec_file: PathBuf,
+    ) -> Result<(), JailerError> {
         let chroot_exec_file_str = chroot_exec_file
             .to_str()
-            .ok_or_else(|| Error::ExtractFileName(chroot_exec_file.clone()))?;
+            .ok_or_else(|| JailerError::ExtractFileName(chroot_exec_file.clone()))?;
         let pid_file_path =
             PathBuf::from(format!("{}{}", chroot_exec_file_str, PID_FILE_EXTENSION));
         let mut pid_file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(pid_file_path.clone())
-            .map_err(|err| Error::FileOpen(pid_file_path.clone(), err))?;
+            .map_err(|err| JailerError::FileOpen(pid_file_path.clone(), err))?;
 
         // Write PID to file.
-        write!(pid_file, "{}", pid).map_err(|err| Error::Write(pid_file_path, err))
+        write!(pid_file, "{}", pid).map_err(|err| JailerError::Write(pid_file_path, err))
     }
 
     fn mknod_and_own_dev(
@@ -353,8 +360,9 @@ impl Env {
         dev_path_str: &'static [u8],
         dev_major: u32,
         dev_minor: u32,
-    ) -> Result<()> {
-        let dev_path = CStr::from_bytes_with_nul(dev_path_str).map_err(Error::FromBytesWithNul)?;
+    ) -> Result<(), JailerError> {
+        let dev_path =
+            CStr::from_bytes_with_nul(dev_path_str).map_err(JailerError::FromBytesWithNul)?;
         // As per sysstat.h:
         // S_IFCHR -> character special device
         // S_IRUSR -> read permission, owner
@@ -371,7 +379,7 @@ impl Env {
         })
         .into_empty_result()
         .map_err(|err| {
-            Error::MknodDev(
+            JailerError::MknodDev(
                 err,
                 std::str::from_utf8(dev_path_str).expect("Cannot convert from UTF-8"),
             )
@@ -381,18 +389,21 @@ impl Env {
         SyscallReturnCode(unsafe { libc::chown(dev_path.as_ptr(), self.uid(), self.gid()) })
             .into_empty_result()
             // Safe to unwrap as we provided valid file names.
-            .map_err(|err| Error::ChangeFileOwner(PathBuf::from(dev_path.to_str().unwrap()), err))
+            .map_err(|err| {
+                JailerError::ChangeFileOwner(PathBuf::from(dev_path.to_str().unwrap()), err)
+            })
     }
 
-    fn setup_jailed_folder(&self, folder: &[u8]) -> Result<()> {
-        let folder_cstr = CStr::from_bytes_with_nul(folder).map_err(Error::FromBytesWithNul)?;
+    fn setup_jailed_folder(&self, folder: &[u8]) -> Result<(), JailerError> {
+        let folder_cstr =
+            CStr::from_bytes_with_nul(folder).map_err(JailerError::FromBytesWithNul)?;
 
         // Safe to unwrap as the byte sequence is UTF-8 validated above.
         let path = folder_cstr.to_str().unwrap();
         let path_buf = PathBuf::from(path);
-        fs::create_dir_all(path).map_err(|err| Error::CreateDir(path_buf.clone(), err))?;
+        fs::create_dir_all(path).map_err(|err| JailerError::CreateDir(path_buf.clone(), err))?;
         fs::set_permissions(path, Permissions::from_mode(FOLDER_PERMISSIONS))
-            .map_err(|err| Error::Chmod(path_buf.clone(), err))?;
+            .map_err(|err| JailerError::Chmod(path_buf.clone(), err))?;
 
         #[cfg(target_arch = "x86_64")]
         let folder_bytes_ptr = folder.as_ptr().cast::<i8>();
@@ -401,14 +412,14 @@ impl Env {
         // SAFETY: This is safe because folder was checked for a null-terminator.
         SyscallReturnCode(unsafe { libc::chown(folder_bytes_ptr, self.uid(), self.gid()) })
             .into_empty_result()
-            .map_err(|err| Error::ChangeFileOwner(path_buf, err))
+            .map_err(|err| JailerError::ChangeFileOwner(path_buf, err))
     }
 
-    fn copy_exec_to_chroot(&mut self) -> Result<OsString> {
+    fn copy_exec_to_chroot(&mut self) -> Result<OsString, JailerError> {
         let exec_file_name = self
             .exec_file_path
             .file_name()
-            .ok_or_else(|| Error::ExtractFileName(self.exec_file_path.clone()))?;
+            .ok_or_else(|| JailerError::ExtractFileName(self.exec_file_path.clone()))?;
         // We do a quick push here to get the global path of the executable inside the chroot,
         // without having to create a new PathBuf. We'll then do a pop to revert to the actual
         // chroot_dir right after the copy.
@@ -424,7 +435,7 @@ impl Env {
         //    threat model. Copying prevents 2 Firecracker processes from
         //    sharing memory.
         fs::copy(&self.exec_file_path, &self.chroot_dir).map_err(|err| {
-            Error::Copy(self.exec_file_path.clone(), self.chroot_dir.clone(), err)
+            JailerError::Copy(self.exec_file_path.clone(), self.chroot_dir.clone(), err)
         })?;
 
         // Pop exec_file_name.
@@ -432,14 +443,15 @@ impl Env {
         Ok(exec_file_name.to_os_string())
     }
 
-    fn join_netns(path: &str) -> Result<()> {
+    fn join_netns(path: &str) -> Result<(), JailerError> {
         // The fd backing the file will be automatically dropped at the end of the scope
-        let netns = File::open(path).map_err(|err| Error::FileOpen(PathBuf::from(path), err))?;
+        let netns =
+            File::open(path).map_err(|err| JailerError::FileOpen(PathBuf::from(path), err))?;
 
         // SAFETY: Safe because we are passing valid parameters.
         SyscallReturnCode(unsafe { libc::setns(netns.as_raw_fd(), libc::CLONE_NEWNET) })
             .into_empty_result()
-            .map_err(Error::SetNetNs)
+            .map_err(JailerError::SetNetNs)
     }
 
     fn exec_command(&self, chroot_exec_file: PathBuf) -> io::Error {
@@ -458,7 +470,7 @@ impl Env {
     }
 
     #[cfg(target_arch = "aarch64")]
-    fn copy_cache_info(&self) -> Result<()> {
+    fn copy_cache_info(&self) -> Result<(), JailerError> {
         use crate::{readln_special, to_cstring, writeln_special};
 
         const HOST_CACHE_INFO: &str = "/sys/devices/system/cpu/cpu0/cache";
@@ -479,7 +491,7 @@ impl Env {
         let jailer_cache_dir =
             Path::new(self.chroot_dir()).join("sys/devices/system/cpu/cpu0/cache/");
         fs::create_dir_all(&jailer_cache_dir)
-            .map_err(|err| Error::CreateDir(jailer_cache_dir.to_owned(), err))?;
+            .map_err(|err| JailerError::CreateDir(jailer_cache_dir.to_owned(), err))?;
 
         for index in 0..(MAX_CACHE_LEVEL + 1) {
             let index_folder = format!("index{}", index);
@@ -494,7 +506,7 @@ impl Env {
             // We now create the destination folder in the jailer.
             let jailer_path = jailer_cache_dir.join(&index_folder);
             fs::create_dir_all(&jailer_path)
-                .map_err(|err| Error::CreateDir(jailer_path.to_owned(), err))?;
+                .map_err(|err| JailerError::CreateDir(jailer_path.to_owned(), err))?;
 
             // We now read the contents of the current directory and copy the files we are
             // interested in to the destination path.
@@ -512,14 +524,14 @@ impl Env {
                     libc::chown(dest_path_cstr.as_ptr(), self.uid(), self.gid())
                 })
                 .into_empty_result()
-                .map_err(|err| Error::ChangeFileOwner(jailer_cache_file.to_owned(), err))?;
+                .map_err(|err| JailerError::ChangeFileOwner(jailer_cache_file.to_owned(), err))?;
             }
         }
         Ok(())
     }
 
     #[cfg(target_arch = "aarch64")]
-    fn copy_midr_el1_info(&self) -> Result<()> {
+    fn copy_midr_el1_info(&self) -> Result<(), JailerError> {
         use crate::{readln_special, to_cstring, writeln_special};
 
         const HOST_MIDR_EL1_INFO: &str = "/sys/devices/system/cpu/cpu0/regs/identification";
@@ -527,7 +539,7 @@ impl Env {
         let jailer_midr_el1_directory =
             Path::new(self.chroot_dir()).join("sys/devices/system/cpu/cpu0/regs/identification/");
         fs::create_dir_all(&jailer_midr_el1_directory)
-            .map_err(|err| Error::CreateDir(jailer_midr_el1_directory.to_owned(), err))?;
+            .map_err(|err| JailerError::CreateDir(jailer_midr_el1_directory.to_owned(), err))?;
 
         let host_midr_el1_file = PathBuf::from(format!("{}/midr_el1", HOST_MIDR_EL1_INFO));
         let jailer_midr_el1_file = jailer_midr_el1_directory.join("midr_el1");
@@ -541,12 +553,12 @@ impl Env {
         // SAFETY: Safe because `dest_path_cstr` is null-terminated.
         SyscallReturnCode(unsafe { libc::chown(dest_path_cstr.as_ptr(), self.uid(), self.gid()) })
             .into_empty_result()
-            .map_err(|err| Error::ChangeFileOwner(jailer_midr_el1_file.to_owned(), err))?;
+            .map_err(|err| JailerError::ChangeFileOwner(jailer_midr_el1_file.to_owned(), err))?;
 
         Ok(())
     }
 
-    pub fn run(mut self) -> Result<()> {
+    pub fn run(mut self) -> Result<(), JailerError> {
         let exec_file_name = self.copy_exec_to_chroot()?;
         let chroot_exec_file = PathBuf::from("/").join(exec_file_name);
 
@@ -573,7 +585,7 @@ impl Env {
 
         // If daemonization was requested, open /dev/null before chrooting.
         let dev_null = if self.daemonize {
-            Some(File::open("/dev/null").map_err(Error::OpenDevNull)?)
+            Some(File::open("/dev/null").map_err(JailerError::OpenDevNull)?)
         } else {
             None
         };
@@ -620,7 +632,7 @@ impl Env {
             // SAFETY: Safe because it's a library function.
             SyscallReturnCode(unsafe { libc::setsid() })
                 .into_empty_result()
-                .map_err(Error::SetSid)?;
+                .map_err(JailerError::SetSid)?;
 
             // Replace the stdio file descriptors with the /dev/null fd.
             dup2(dev_null.as_raw_fd(), STDIN_FILENO)?;
@@ -632,7 +644,7 @@ impl Env {
         if self.new_pid_ns {
             self.exec_into_new_pid_ns(chroot_exec_file)
         } else {
-            Err(Error::Exec(self.exec_command(chroot_exec_file)))
+            Err(JailerError::Exec(self.exec_command(chroot_exec_file)))
         }
     }
 }
@@ -1215,7 +1227,7 @@ mod tests {
                         .err()
                         .unwrap()
                 ),
-                format!("{:?}", Error::ResLimitFormat(format.to_string()))
+                format!("{:?}", JailerError::ResLimitFormat(format.to_string()))
             );
         }
 
@@ -1230,7 +1242,7 @@ mod tests {
                         .err()
                         .unwrap()
                 ),
-                format!("{:?}", Error::ResLimitArgument(res.to_string()))
+                format!("{:?}", JailerError::ResLimitArgument(res.to_string()))
             );
         }
 
@@ -1247,7 +1259,7 @@ mod tests {
                 ),
                 format!(
                     "{:?}",
-                    Error::ResLimitValue(
+                    JailerError::ResLimitValue(
                         val.to_string(),
                         "invalid digit found in string".to_string()
                     )
