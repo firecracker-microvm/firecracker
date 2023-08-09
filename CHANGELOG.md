@@ -1,9 +1,11 @@
 # Changelog
 
-## [Unreleased]
+## [1.4.1]
 
 ### Fixed
 
+- Fixed a change in behavior of normalize host brand string that breaks
+  Firecracker on external instances.
 - Fixed the T2A CPU template not to unset the MMX bit (CPUID.80000001h:EDX[23])
   and the FXSR bit (CPUID.80000001h:EDX[24]).
 - Fixed the T2A CPU template to set the RstrFpErrPtrs bit
