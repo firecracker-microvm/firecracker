@@ -599,7 +599,7 @@ cmd_test() {
     # in order to set-up the Firecracker jail (manipulating cgroups, net
     # namespaces, etc).
     # We need to run a privileged container to get that kind of access.
-    env |grep -P "^(AWS_EMF_|BUILDKITE_)" > env.list
+    env |grep -P "^(AWS_EMF_|BUILDKITE_|CODECOV_)" > env.list
 
     if [[ "$BUILDKITE" = "true" ]]; then
       # Disable turbo boost. Some of our tests are performance tests, and we want minimum variability wrt processor frequency
