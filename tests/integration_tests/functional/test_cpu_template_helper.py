@@ -11,7 +11,7 @@ import pytest
 from framework import defs, utils
 from framework.defs import SUPPORTED_HOST_KERNELS
 from framework.properties import global_props
-from framework.utils_cpu_templates import nonci_on_arm
+from framework.utils_cpu_templates import skip_on_arm
 from framework.utils_cpuid import get_guest_cpuid
 from host_tools import cargo_build
 
@@ -373,7 +373,7 @@ def test_host_fingerprint_change(test_microvm_with_api, tmp_path, cpu_template_h
     )
 
 
-@nonci_on_arm
+@skip_on_arm
 def test_json_static_templates(
     test_microvm_with_api, cpu_template_helper, tmp_path, custom_cpu_template
 ):
