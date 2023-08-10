@@ -72,7 +72,7 @@
 DEVCTR_IMAGE_NO_TAG="public.ecr.aws/firecracker/fcuvm"
 
 # Development container tag
-DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v62}
+DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v63}
 
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
@@ -599,7 +599,7 @@ cmd_test() {
     # in order to set-up the Firecracker jail (manipulating cgroups, net
     # namespaces, etc).
     # We need to run a privileged container to get that kind of access.
-    env |grep -P "^(AWS_EMF_|BUILDKITE_)" > env.list
+    env |grep -P "^(AWS_EMF_|BUILDKITE_|CODECOV_)" > env.list
 
     if [[ "$BUILDKITE" = "true" ]]; then
       # Disable turbo boost. Some of our tests are performance tests, and we want minimum variability wrt processor frequency
