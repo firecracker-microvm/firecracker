@@ -89,7 +89,10 @@ def test_coverage(monkeypatch):
     # Only upload if token is present and we're in EC2
     if "CODECOV_TOKEN" in os.environ and global_props.is_ec2:
         pr_number = os.environ.get("BUILDKITE_PULL_REQUEST")
-        _, branch, _ = utils.run_cmd("git rev-parse --abbrev-ref HEAD")
+        branch = os.environ.get("BUILDKITE_BRANCH")
+
+        if not branch:
+            branch = utils.run_cmd("git rev-parse --abbrev-ref HEAD").stdout
 
         codecov_cmd = f"codecov -f {lcov_file} -F {global_props.host_linux_version}-{global_props.instance}"
 
