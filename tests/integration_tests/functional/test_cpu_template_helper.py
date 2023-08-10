@@ -236,7 +236,6 @@ def get_guest_msrs(microvm, msr_index_list):
         "System registers are not accessible on aarch64."
     ),
 )
-@nonci_on_arm
 def test_cpu_config_dump_vs_actual(
     test_microvm_with_api_and_msrtools,
     cpu_template_helper,
