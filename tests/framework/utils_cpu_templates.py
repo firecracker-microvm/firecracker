@@ -81,8 +81,7 @@ def get_supported_custom_cpu_templates():
 SUPPORTED_CUSTOM_CPU_TEMPLATES = get_supported_custom_cpu_templates()
 
 
-def nonci_on_arm(func):
-    """Temporary decorator used to mark specific cpu template related tests as nonci on ARM platforms"""
-    if cpuid_utils.get_cpu_vendor() == cpuid_utils.CpuVendor.ARM:
-        return pytest.mark.nonci(func)
-    return func
+skip_on_arm = pytest.mark.skipif(
+    cpuid_utils.get_cpu_vendor() == cpuid_utils.CpuVendor.ARM,
+    reason="skip specific cpu template related tests on ARM platforms until kernel patches required for V1N1 come",
+)

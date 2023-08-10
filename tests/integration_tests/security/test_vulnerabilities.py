@@ -14,7 +14,7 @@ import requests
 from framework import utils
 from framework.artifacts import DEFAULT_NETMASK
 from framework.properties import global_props
-from framework.utils_cpu_templates import nonci_on_arm
+from framework.utils_cpu_templates import skip_on_arm
 
 CHECKER_URL = "https://meltdown.ovh"
 CHECKER_FILENAME = "spectre-meltdown-checker.sh"
@@ -95,6 +95,7 @@ def run_spectre_meltdown_checker_on_guest(
     assert ecode == 0, f"stdout:\n{stdout.read()}\nstderr:\n{stderr.read()}\n"
 
 
+@pytest.mark.no_block_pr
 @pytest.mark.skipif(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
@@ -106,6 +107,7 @@ def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
     utils.run_cmd(f"sh {spectre_meltdown_checker} --explain")
 
 
+@pytest.mark.no_block_pr
 @pytest.mark.skipif(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
@@ -126,6 +128,7 @@ def test_spectre_meltdown_checker_on_guest(
     )
 
 
+@pytest.mark.no_block_pr
 @pytest.mark.skipif(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
@@ -151,11 +154,12 @@ def test_spectre_meltdown_checker_on_restored_guest(
     )
 
 
+@pytest.mark.no_block_pr
 @pytest.mark.skipif(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
-@nonci_on_arm
+@skip_on_arm
 def test_spectre_meltdown_checker_on_guest_with_template(
     spectre_meltdown_checker,
     test_microvm_with_spectre_meltdown,
@@ -175,11 +179,12 @@ def test_spectre_meltdown_checker_on_guest_with_template(
     )
 
 
+@pytest.mark.no_block_pr
 @pytest.mark.skipif(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
-@nonci_on_arm
+@skip_on_arm
 def test_spectre_meltdown_checker_on_guest_with_custom_template(
     spectre_meltdown_checker,
     test_microvm_with_spectre_meltdown,
@@ -201,11 +206,12 @@ def test_spectre_meltdown_checker_on_guest_with_custom_template(
     )
 
 
+@pytest.mark.no_block_pr
 @pytest.mark.skipif(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
-@nonci_on_arm
+@skip_on_arm
 def test_spectre_meltdown_checker_on_restored_guest_with_template(
     spectre_meltdown_checker,
     test_microvm_with_spectre_meltdown,
@@ -228,11 +234,12 @@ def test_spectre_meltdown_checker_on_restored_guest_with_template(
     )
 
 
+@pytest.mark.no_block_pr
 @pytest.mark.skipif(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
-@nonci_on_arm
+@skip_on_arm
 def test_spectre_meltdown_checker_on_restored_guest_with_custom_template(
     spectre_meltdown_checker,
     test_microvm_with_spectre_meltdown,
@@ -257,6 +264,7 @@ def test_spectre_meltdown_checker_on_restored_guest_with_custom_template(
     )
 
 
+@pytest.mark.no_block_pr
 def check_vulnerabilities_files_on_guest(microvm):
     """
     Check that the guest's vulnerabilities files do not contain `Vulnerable`.
@@ -270,6 +278,7 @@ def check_vulnerabilities_files_on_guest(microvm):
     assert ecode == 1, f"stdout:\n{stdout.read()}\nstderr:\n{stderr.read()}\n"
 
 
+@pytest.mark.no_block_pr
 def test_vulnerabilities_files_on_guest(
     test_microvm_with_api,
     network_config,
@@ -282,6 +291,7 @@ def test_vulnerabilities_files_on_guest(
     check_vulnerabilities_files_on_guest(microvm)
 
 
+@pytest.mark.no_block_pr
 def test_vulnerabilities_files_on_restored_guest(
     test_microvm_with_api,
     network_config,
@@ -297,7 +307,8 @@ def test_vulnerabilities_files_on_restored_guest(
     check_vulnerabilities_files_on_guest(dst_vm)
 
 
-@nonci_on_arm
+@pytest.mark.no_block_pr
+@skip_on_arm
 def test_vulnerabilities_files_on_guest_with_template(
     test_microvm_with_api,
     network_config,
@@ -311,7 +322,8 @@ def test_vulnerabilities_files_on_guest_with_template(
     check_vulnerabilities_files_on_guest(microvm)
 
 
-@nonci_on_arm
+@pytest.mark.no_block_pr
+@skip_on_arm
 def test_vulnerabilities_files_on_guest_with_custom_template(
     test_microvm_with_api,
     network_config,
@@ -329,7 +341,8 @@ def test_vulnerabilities_files_on_guest_with_custom_template(
     check_vulnerabilities_files_on_guest(microvm)
 
 
-@nonci_on_arm
+@pytest.mark.no_block_pr
+@skip_on_arm
 def test_vulnerabilities_files_on_restored_guest_with_template(
     test_microvm_with_api,
     network_config,
@@ -348,7 +361,8 @@ def test_vulnerabilities_files_on_restored_guest_with_template(
     check_vulnerabilities_files_on_guest(dst_vm)
 
 
-@nonci_on_arm
+@pytest.mark.no_block_pr
+@skip_on_arm
 def test_vulnerabilities_files_on_restored_guest_with_custom_template(
     test_microvm_with_api,
     network_config,
