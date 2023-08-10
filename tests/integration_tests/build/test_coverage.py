@@ -93,7 +93,7 @@ def test_coverage(monkeypatch):
 
         codecov_cmd = f"codecov -f {lcov_file} -F {global_props.host_linux_version}-{global_props.instance}"
 
-        if pr_number:
+        if pr_number and pr_number != "false":
             codecov_cmd += f" -P {pr_number}"
         else:
             codecov_cmd += f" -B {branch}"
