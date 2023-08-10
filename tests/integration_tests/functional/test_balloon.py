@@ -5,6 +5,7 @@
 import logging
 import time
 
+import pytest
 from retry import retry
 
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
@@ -152,9 +153,20 @@ def test_inflate_reduces_free(test_microvm_with_api):
 
 
 # pylint: disable=C0103
-def test_deflate_on_oom_true(test_microvm_with_api):
+@pytest.mark.parametrize("deflate_on_oom", [True, False])
+def test_deflate_on_oom(test_microvm_with_api, deflate_on_oom):
     """
-    Verify that setting the `deflate_on_oom` to True works correctly.
+    Verify that setting the `deflate_on_oom` option works correctly.
+
+    https://github.com/firecracker-microvm/firecracker/blob/main/docs/ballooning.md
+
+    deflate_on_oom=True
+
+      should not result in an OOM kill
+
+    deflate_on_oom=False
+
+      should result in an OOM kill
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -163,7 +175,7 @@ def test_deflate_on_oom_true(test_microvm_with_api):
 
     # Add a deflated memory balloon.
     response = test_microvm.balloon.put(
-        amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=0
+        amount_mib=0, deflate_on_oom=deflate_on_oom, stats_polling_interval_s=0
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -184,50 +196,8 @@ def test_deflate_on_oom_true(test_microvm_with_api):
     # This call will internally wait for rss to become stable.
     _ = get_stable_rss_mem_by_pid(firecracker_pid)
 
-    # Check that using memory doesn't lead to an out of memory error.
-    # Note that due to `test_deflate_on_oom_false`, we know that
-    # if `deflate_on_oom` were set to False, then such an error
-    # would have happened.
-    make_guest_dirty_memory(test_microvm.ssh)
-
-
-# pylint: disable=C0103
-def test_deflate_on_oom_false(test_microvm_with_api):
-    """
-    Verify that setting the `deflate_on_oom` to False works correctly.
-    """
-    test_microvm = test_microvm_with_api
-    test_microvm.spawn()
-    test_microvm.basic_config()
-    test_microvm.add_net_iface()
-
-    # Add a memory balloon.
-    response = test_microvm.balloon.put(
-        amount_mib=0, deflate_on_oom=False, stats_polling_interval_s=0
-    )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
-    # Start the microvm.
-    test_microvm.start()
-
-    # Get an ssh connection to the microvm.
-    firecracker_pid = test_microvm.jailer_clone_pid
-
-    # We get an initial reading of the RSS, then calculate the amount
-    # we need to inflate the balloon with by subtracting it from the
-    # VM size and adding an offset of 10 MiB in order to make sure we
-    # get a lower reading than the initial one.
-    initial_rss = get_stable_rss_mem_by_pid(firecracker_pid)
-    inflate_size = 256 - int(initial_rss / 1024) + 10
-
-    # Inflate the balloon.
-    response = test_microvm.balloon.patch(amount_mib=inflate_size)
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-    # This call will internally wait for rss to become stable.
-    _ = get_stable_rss_mem_by_pid(firecracker_pid)
-
-    # Check that using memory does lead to an out of memory error.
-    make_guest_dirty_memory(test_microvm.ssh, should_oom=True)
+    # Check that using memory leads an out of memory error (or not).
+    make_guest_dirty_memory(test_microvm.ssh, should_oom=not deflate_on_oom)
 
 
 # pylint: disable=C0103
