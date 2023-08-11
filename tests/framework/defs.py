@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Some common defines used in different modules of the testing framework."""
 
-import os
+import platform
 from pathlib import Path
 
 # URL prefix used for the API calls through a UNIX domain socket
@@ -29,18 +29,6 @@ SECCOMP_JSON_DIR = FC_WORKSPACE_DIR / "resources/seccomp"
 # Maximum accepted duration of an API call, in milliseconds
 MAX_API_CALL_DURATION_MS = 700
 
-# Relative path to the location of the kernel file
-MICROVM_KERNEL_RELPATH = "kernel/"
-
-# Relative path to the location of the filesystems
-MICROVM_FSFILES_RELPATH = "fsfiles/"
-
-# The default s3 bucket that holds Firecracker microvm test images
-DEFAULT_TEST_IMAGES_S3_BUCKET = "spec.ccfc.min"
-
-# Global directory for any of the pytest tests temporary files
-ENV_TEST_IMAGES_S3_BUCKET = "TEST_MICROVM_IMAGES_S3_BUCKET"
-
 # Default test session root directory path
 DEFAULT_TEST_SESSION_ROOT_PATH = "/srv"
 
@@ -57,10 +45,10 @@ MIN_KERNEL_VERSION_FOR_IO_URING = "5.10.51"
 
 SUPPORTED_HOST_KERNELS = ["4.14", "5.10", "6.1"]
 
-SUPPORTED_KERNELS = ["4.14", "5.10"]
-SUPPORTED_KERNELS_NO_SVE = ["4.14", "5.10-no-sve"]
+IMG_DIR = Path(DEFAULT_TEST_SESSION_ROOT_PATH) / "img"
 
+# fall-back to the local directory
+if not IMG_DIR.exists():
+    IMG_DIR = Path(__file__).joinpath("../../../build/img").resolve()
 
-def _test_images_s3_bucket():
-    """Auxiliary function for getting this session's bucket name."""
-    return os.environ.get(ENV_TEST_IMAGES_S3_BUCKET, DEFAULT_TEST_IMAGES_S3_BUCKET)
+ARTIFACT_DIR = IMG_DIR / platform.machine()

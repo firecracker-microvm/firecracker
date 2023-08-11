@@ -53,6 +53,7 @@ class Core:
         self._failure_aggregator = CoreException()
         self.metrics_test = None
         self.metrics = None
+        self.check_baseline = True
 
     def add_pipe(self, producer: Producer, consumer: Consumer, tag=None):
         """Add a new producer-consumer pipe."""
@@ -83,7 +84,7 @@ class Core:
                         self.metrics.flush()
 
             try:
-                stats, custom = pipe.consumer.process(fail_fast)
+                stats, custom = pipe.consumer.process(check=self.check_baseline)
             except (ProcessingException, AssertionError) as err:
                 self._failure_aggregator.add_row(f"Failed on '{tag}':")
                 self._failure_aggregator.add_row(err)

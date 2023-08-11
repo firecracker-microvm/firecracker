@@ -74,14 +74,13 @@ on an aarch64 machine.
 
 ## Creating a rootfs Image
 
-A rootfs image is just a file system image, that hosts at least an init
-system. For instance, our getting started guide uses an EXT4 FS image with
-OpenRC as an init system. Note that, whichever file system you choose to use,
-support for it will have to be compiled into the kernel, so it can be mounted
-at boot time.
+A rootfs image is just a file system image, that hosts at least an init system.
+For instance, our getting started guide uses an ext4 filesystem image. Note
+that, whichever file system you choose to use, support for it will have to be
+compiled into the kernel, so it can be mounted at boot time.
 
-In order to obtain an EXT4 image that you can use with Firecracker, you have
-the following options:
+In order to obtain an ext4 image that you can use with Firecracker, you have the
+following options:
 
 ### Manual build
 
@@ -168,20 +167,14 @@ Alpine Linux:
 ### Use the provided recipe
 
 The disk images used in our CI to test Firecracker's features are obtained by
-using the recipe inside devtool:
+using the recipe (in a Ubuntu 22.04 host):
 
 ```bash
-./tools/devtool build_rootfs -s 300MB
+./resources/rebuild.sh
 ```
 
-or
-
-```bash
-./tools/devtool build_rootfs -p
-```
-
-in order to obtain a partuuid enabled rootfs.
-The images resulting using this method are minimized Ubuntu 18.04.
+The images resulting using this method are minimized Ubuntu 22.04. Feel free to
+adjust the script(s) to suit your use case.
 
 You should now have a kernel image (`vmlinux`) and a rootfs image
 (`rootfs.ext4`), that you can boot with Firecracker.

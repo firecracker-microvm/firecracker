@@ -2,11 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for the virtio-rng device"""
 
-from pathlib import Path
+# pylint:disable=redefined-outer-name
 
 import pytest
 
-from framework.artifacts import NetIfaceConfig
 from framework.properties import global_props
 from framework.utils import check_entropy
 
@@ -14,37 +13,30 @@ if global_props.instance == "c7g.metal" and global_props.host_linux_version == "
     pytestmark = pytest.mark.skip(reason="c7g requires no SVE 5.10 kernel")
 
 
-def _microvm_basic_config(microvm):
-    microvm.spawn()
-    microvm.basic_config()
-    iface = NetIfaceConfig()
-    microvm.add_net_iface(iface)
+@pytest.fixture(params=[None])
+def uvm_with_rng(uvm_nano, request):
+    """Fixture of a microvm with virtio-rng configured"""
+    rate_limiter = request.param
+    uvm_nano.add_net_iface()
+    response = uvm_nano.entropy.put(rate_limiter=rate_limiter)
+    assert uvm_nano.api_session.is_status_no_content(
+        response.status_code
+    ), response.text
+    uvm_nano.start()
+    # Just stuff it in the microvm so we can look at it later
+    uvm_nano.rng_rate_limiter = rate_limiter
+    return uvm_nano
 
 
-def _microvm_rng_config(microvm, rate_limiter=None):
-    _microvm_basic_config(microvm)
-    response = microvm.entropy.put(rate_limiter=rate_limiter)
-    assert microvm.api_session.is_status_no_content(response.status_code), response.text
-
-
-def _start_vm_with_rng(microvm, rate_limiter=None):
-    _microvm_rng_config(microvm, rate_limiter)
-    microvm.start()
-
-
-def _start_vm_without_rng(microvm):
-    _microvm_basic_config(microvm)
-    microvm.start()
-
-
-def test_rng_not_present(test_microvm_with_rng):
+def test_rng_not_present(uvm_nano):
     """
     Test a guest microVM *without* an entropy device and ensure that
     we cannot get data from /dev/hwrng
     """
 
-    vm = test_microvm_with_rng
-    _start_vm_without_rng(vm)
+    vm = uvm_nano
+    vm.add_net_iface()
+    vm.start()
 
     # If the guest kernel has been built with the virtio-rng module
     # the device should exist in the guest filesystem but we should
@@ -58,53 +50,29 @@ def test_rng_not_present(test_microvm_with_rng):
     assert ecode == 1
 
 
-def test_rng_present(test_microvm_with_rng):
+def test_rng_present(uvm_with_rng):
     """
     Test a guest microVM with an entropy defined configured and ensure
     that we can access `/dev/hwrng`
     """
 
-    vm = test_microvm_with_rng
-    _start_vm_with_rng(vm)
-
+    vm = uvm_with_rng
     check_entropy(vm.ssh)
 
 
-def test_rng_snapshot(test_microvm_with_rng, microvm_factory):
+def test_rng_snapshot(uvm_with_rng, microvm_factory):
     """
     Test that a virtio-rng device is functional after resuming from
     a snapshot
     """
 
-    vm = test_microvm_with_rng
-    _start_vm_with_rng(vm)
-
+    vm = uvm_with_rng
     check_entropy(vm.ssh)
-
-    mem_path = Path(vm.jailer.chroot_path()) / "test.mem"
-    snapshot_path = Path(vm.jailer.chroot_path()) / "test.snap"
-    vm.pause_to_snapshot(
-        mem_file_path=mem_path.name,
-        snapshot_path=snapshot_path.name,
-    )
-    assert mem_path.exists()
+    snapshot = vm.snapshot_full()
 
     new_vm = microvm_factory.build()
     new_vm.spawn()
-    iface = NetIfaceConfig()
-    new_vm.create_tap_and_ssh_config(
-        host_ip=iface.host_ip,
-        guest_ip=iface.guest_ip,
-        netmask_len=iface.netmask,
-        tapname=iface.tap_name,
-    )
-    new_vm.ssh_config["ssh_key_path"] = vm.ssh_config["ssh_key_path"]
-    new_vm.restore_from_snapshot(
-        snapshot_vmstate=snapshot_path,
-        snapshot_mem=mem_path,
-        snapshot_disks=[vm.rootfs_file],
-    )
-
+    new_vm.restore_from_snapshot(snapshot, resume=True)
     check_entropy(new_vm.ssh)
 
 
@@ -168,10 +136,10 @@ def _get_throughput(ssh, random_bytes):
     # 100 here is used to get enough confidence on the achieved throughput.
     cmd = "dd if=/dev/hwrng of=/dev/null bs={} count=100".format(random_bytes)
     exit_code, _, stderr = ssh.execute_command(cmd)
-    assert exit_code == 0, stderr.read()
+    assert exit_code == 0, stderr
 
     # dd gives its output on stderr
-    return _process_dd_output(stderr.read())
+    return _process_dd_output(stderr)
 
 
 def _check_entropy_rate_limited(ssh, random_bytes, expected_kbps):
@@ -199,24 +167,26 @@ def _rate_limiter_id(rate_limiter):
     return "{} KB/sec".format(float(size) / float(refill_time))
 
 
+# parametrize the RNG rate limiter
 @pytest.mark.parametrize(
-    "rate_limiter",
+    "uvm_with_rng",
     [
         {"bandwidth": {"size": 1000, "refill_time": 100}},
         {"bandwidth": {"size": 10000, "refill_time": 100}},
         {"bandwidth": {"size": 100000, "refill_time": 100}},
     ],
+    indirect=True,
     ids=_rate_limiter_id,
 )
-def test_rng_bw_rate_limiter(test_microvm_with_rng, rate_limiter):
+def test_rng_bw_rate_limiter(uvm_with_rng):
     """
     Test that rate limiter without initial burst budget works
     """
-    vm = test_microvm_with_rng
-    _start_vm_with_rng(vm, rate_limiter)
+    vm = uvm_with_rng
+    # _start_vm_with_rng(vm, rate_limiter)
 
-    size = rate_limiter["bandwidth"]["size"]
-    refill_time = rate_limiter["bandwidth"]["refill_time"]
+    size = vm.rng_rate_limiter["bandwidth"]["size"]
+    refill_time = vm.rng_rate_limiter["bandwidth"]["refill_time"]
 
     expected_kbps = size / refill_time
 

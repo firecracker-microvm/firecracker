@@ -32,16 +32,15 @@ def vm_fxt(
     microvm_factory,
     inst_set_cpu_template,
     guest_kernel,
-    rootfs_msrtools,
-    network_config,
+    rootfs,
 ):
     """
     Create a VM, using the normal CPU templates
     """
-    vm = microvm_factory.build(guest_kernel, rootfs_msrtools)
+    vm = microvm_factory.build(guest_kernel, rootfs)
     vm.spawn()
     vm.basic_config(vcpu_count=1, mem_size_mib=1024, cpu_template=inst_set_cpu_template)
-    vm.ssh_network_config(network_config, "1")
+    vm.add_net_iface()
     vm.start()
     return vm
 
@@ -235,8 +234,8 @@ def test_feat_parity_msr_arch_cap(vm):
     cpu_template = vm.full_cfg.get().json()["machine-config"]["cpu_template"]
 
     if cpu_template == "T2CL":
-        assert stderr.read() == ""
-        actual = int(stdout.read().strip(), 16)
+        assert stderr == ""
+        actual = int(stdout.strip(), 16)
         # fmt: off
         expected = (
             (1 << 0) | # RDCL_NO
@@ -252,4 +251,4 @@ def test_feat_parity_msr_arch_cap(vm):
         assert actual == expected, f"{actual=:#x} != {expected=:#x}"
     elif cpu_template == "T2A":
         # IA32_ARCH_CAPABILITIES shall not be available
-        assert stderr.read() != ""
+        assert stderr != ""

@@ -108,16 +108,16 @@ def run_fio(env_id, basevm, mode, bs):
     rc, _, stderr = basevm.ssh.execute_command(
         "echo 'none' > /sys/block/vdb/queue/scheduler"
     )
-    assert rc == 0, stderr.read()
-    assert stderr.read() == ""
+    assert rc == 0, stderr
+    assert stderr == ""
 
     # First, flush all guest cached data to host, then drop guest FS caches.
     rc, _, stderr = basevm.ssh.execute_command("sync")
-    assert rc == 0, stderr.read()
-    assert stderr.read() == ""
+    assert rc == 0, stderr
+    assert stderr == ""
     rc, _, stderr = basevm.ssh.execute_command("echo 3 > /proc/sys/vm/drop_caches")
-    assert rc == 0, stderr.read()
-    assert stderr.read() == ""
+    assert rc == 0, stderr
+    assert stderr == ""
 
     # Then, flush all host cached data to hardware, also drop host FS caches.
     run_cmd("sync")
@@ -133,18 +133,18 @@ def run_fio(env_id, basevm, mode, bs):
         )
 
         # Print the fio command in the log and run it
-        rc, _, stderr = basevm.ssh.execute_command(cmd)
-        assert rc == 0, stderr.read()
-        assert stderr.read() == ""
+        rc, _, stderr = basevm.ssh.execute_command(f"cd /tmp; {cmd}")
+        assert rc == 0, stderr
+        assert stderr == ""
 
         if os.path.isdir(logs_path):
             shutil.rmtree(logs_path)
 
         os.makedirs(logs_path)
 
-        basevm.ssh.scp_get_file("*.log", logs_path)
-        rc, _, stderr = basevm.ssh.execute_command("rm *.log")
-        assert rc == 0, stderr.read()
+        basevm.ssh.scp_get("/tmp/*.log", logs_path)
+        rc, _, stderr = basevm.ssh.execute_command("rm /tmp/*.log")
+        assert rc == 0, stderr
 
         return cpu_load_future.result()
 
@@ -242,7 +242,6 @@ def consume_fio_output(cons, cpu_load, numjobs, mode, bs, env_id, logs_path):
 @pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])
 def test_block_performance(
     microvm_factory,
-    network_config,
     guest_kernel,
     rootfs,
     vcpus,
@@ -258,7 +257,7 @@ def test_block_performance(
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn(log_level="Info")
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=guest_mem_mib)
-    vm.ssh_network_config(network_config, "1")
+    vm.add_net_iface()
     # Add a secondary block device for benchmark tests.
     fs = drive_tools.FilesystemFile(
         os.path.join(vm.fsfiles, "scratch"), BLOCK_DEVICE_SIZE_MB
@@ -285,7 +284,7 @@ def test_block_performance(
         }
     )
 
-    env_id = f"{guest_kernel.name()}/{rootfs.name()}/{io_engine.lower()}_{microvm_cfg}"
+    env_id = f"{st_core.env_id_prefix}/{io_engine.lower()}_{microvm_cfg}"
 
     fio_id = f"{fio_mode}-bs{fio_block_size}"
     st_prod = st.producer.LambdaProducer(

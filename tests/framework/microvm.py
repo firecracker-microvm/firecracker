@@ -1,5 +1,6 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+
 """Classes for working with microVMs.
 
 This module defines `Microvm`, which can be used to create, test drive, and
@@ -7,6 +8,8 @@ destroy microvms.
 
 - Use the Firecracker Open API spec to populate Microvm API resource URLs.
 """
+
+# pylint:disable=too-many-lines
 
 import json
 import logging
@@ -18,7 +21,9 @@ import time
 import uuid
 import weakref
 from collections import namedtuple
-from functools import cached_property
+from dataclasses import dataclass
+from enum import Enum
+from functools import lru_cache
 from pathlib import Path
 from threading import Lock
 from typing import Optional
@@ -30,6 +35,7 @@ import host_tools.logging as log_tools
 import host_tools.memory as mem_tools
 import host_tools.network as net_tools
 from framework import utils
+from framework.artifacts import NetIfaceConfig
 from framework.defs import FC_PID_FILE_NAME, MAX_API_CALL_DURATION_MS
 from framework.http import Session
 from framework.jailer import JailerContext
@@ -58,6 +64,96 @@ LOG = logging.getLogger("microvm")
 data_lock = Lock()
 
 
+class SnapshotType(Enum):
+    """Supported snapshot types."""
+
+    FULL = "FULL"
+    DIFF = "DIFF"
+
+    def __repr__(self):
+        cls_name = self.__class__.__name__
+        return f"{cls_name}.{self.name}"
+
+
+def hardlink_or_copy(src, dst):
+    """If src and dst are in the same device, hardlink. Otherwise, copy."""
+    dst.touch(exist_ok=False)
+    if dst.stat().st_dev == src.stat().st_dev:
+        dst.unlink()
+        dst.hardlink_to(src)
+    else:
+        shutil.copyfile(src, dst)
+
+
+@dataclass(frozen=True, repr=True)
+class Snapshot:
+    """A Firecracker snapshot"""
+
+    vmstate: Path
+    mem: Path
+    net_ifaces: list
+    disks: dict
+    ssh_key: Path
+    snapshot_type: str
+
+    @property
+    def is_diff(self) -> bool:
+        """Is this a DIFF snapshot?"""
+        return self.snapshot_type == SnapshotType.DIFF
+
+    def rebase_snapshot(self, base):
+        """Rebases current incremental snapshot onto a specified base layer."""
+        if not self.is_diff:
+            raise ValueError("Can only rebase DIFF snapshots")
+        build_tools.run_rebase_snap_bin(base.mem, self.mem)
+        new_args = self.__dict__ | {"mem": base.mem}
+        return Snapshot(**new_args)
+
+    @classmethod
+    # TBD when Python 3.11: -> Self
+    def load_from(cls, src: Path) -> "Snapshot":
+        """Load a snapshot saved with `save_to`"""
+        snap_json = src / "snapshot.json"
+        obj = json.loads(snap_json.read_text())
+        return cls(
+            vmstate=src / obj["vmstate"],
+            mem=src / obj["mem"],
+            net_ifaces=[NetIfaceConfig(**d) for d in obj["net_ifaces"]],
+            disks={dsk: src / p for dsk, p in obj["disks"].items()},
+            ssh_key=src / obj["ssh_key"],
+            snapshot_type=obj["snapshot_type"],
+        )
+
+    def save_to(self, dst: Path):
+        """Serialize snapshot details to `dst`
+
+        Deserialize the snapshot with `load_from`
+        """
+        for path in [self.vmstate, self.mem, self.ssh_key]:
+            new_path = dst / path.name
+            hardlink_or_copy(path, new_path)
+        new_disks = {}
+        for disk_id, path in self.disks.items():
+            new_path = dst / path.name
+            hardlink_or_copy(path, new_path)
+            new_disks[disk_id] = new_path.name
+        obj = {
+            "vmstate": self.vmstate.name,
+            "mem": self.mem.name,
+            "net_ifaces": [x.__dict__ for x in self.net_ifaces],
+            "disks": new_disks,
+            "ssh_key": self.ssh_key.name,
+            "snapshot_type": self.snapshot_type,
+        }
+        snap_json = dst / "snapshot.json"
+        snap_json.write_text(json.dumps(obj))
+
+    def delete(self):
+        """Delete the backing files from disk."""
+        self.mem.unlink()
+        self.vmstate.unlink()
+
+
 # pylint: disable=R0904
 class Microvm:
     """Class to represent a Firecracker microvm.
@@ -81,7 +177,6 @@ class Microvm:
         monitor_memory=True,
         bin_cloner_path=None,
     ):
-        # pylint: disable=too-many-statements
         """Set up microVM attributes, paths, and data structures."""
         # pylint: disable=too-many-statements
         # Unique identifier for this machine.
@@ -92,19 +187,20 @@ class Microvm:
         # Compose the paths to the resources specific to this microvm.
         self._path = os.path.join(resource_path, microvm_id)
         os.makedirs(self._path, exist_ok=True)
-        self.kernel_file = ""
-        self.rootfs_file = ""
-        self.initrd_file = ""
+        self.kernel_file = None
+        self.rootfs_file = None
+        self.ssh_key = None
+        self.initrd_file = None
 
         # The binaries this microvm will use to start.
         if fc_binary_path is None:
             fc_binary_path, _ = build_tools.get_firecracker_binaries()
         if jailer_binary_path is None:
             _, jailer_binary_path = build_tools.get_firecracker_binaries()
-        self._fc_binary_path = fc_binary_path
-        assert os.path.exists(self._fc_binary_path)
-        self._jailer_binary_path = jailer_binary_path
-        assert os.path.exists(self._jailer_binary_path)
+        self._fc_binary_path = str(fc_binary_path)
+        assert fc_binary_path.exists()
+        self._jailer_binary_path = str(jailer_binary_path)
+        assert jailer_binary_path.exists()
 
         # Create the jailer context associated with this microvm.
         self.jailer = JailerContext(
@@ -156,23 +252,12 @@ class Microvm:
 
         # Initalize memory monitor
         self.memory_monitor = None
-
-        # The ssh config dictionary is populated with information about how
-        # to connect to a microVM that has ssh capability. The path of the
-        # private key is populated by microvms with ssh capabilities and the
-        # hostname is set from the MAC address used to configure the microVM.
-        self._ssh_config = {
-            "username": "root",
-            "netns_file_path": self.jailer.netns_file_path(),
-        }
-
-        # iface dictionary
-        self.iface = {}
-
-        # Deal with memory monitoring.
         if monitor_memory:
             self.memory_monitor = mem_tools.MemoryMonitor()
 
+        # device dictionaries
+        self.iface = {}
+        self.disks = {}
         self.vcpus_count = None
 
         # External clone/exec tool, because Python can't into clone
@@ -183,6 +268,9 @@ class Microvm:
 
         # MMDS content from file
         self.metadata_file = None
+
+    def __repr__(self):
+        return f"<Microvm id={self.id}>"
 
     def kill(self):
         """All clean up associated with this microVM should go here."""
@@ -320,11 +408,6 @@ class Microvm:
         return log_data
 
     @property
-    def ssh_config(self):
-        """Get the ssh configuration used to ssh into some microVMs."""
-        return self._ssh_config
-
-    @property
     def state(self):
         """Get the InstanceInfo property and return the state field."""
         return json.loads(self.desc_inst.get().content)["state"]
@@ -389,6 +472,7 @@ class Microvm:
         dest_path = os.path.join(self.jailer.chroot_ramfs_path(), filename)
         jailed_path = os.path.join("/", self.jailer.ramfs_subdir_name, filename)
         shutil.copy(src, dest_path)
+        os.chmod(dest_path, 0o600)
         cmd = "chown {}:{} {}".format(self.jailer.uid, self.jailer.gid, dest_path)
         utils.run_cmd(cmd)
         return jailed_path
@@ -418,10 +502,13 @@ class Microvm:
     def pin_vmm(self, cpu_id: int) -> bool:
         """Pin the firecracker process VMM thread to a cpu list."""
         if self.jailer_clone_pid:
-            for thread in utils.ProcessManager.get_threads(self.jailer_clone_pid)[
-                "firecracker"
-            ]:
-                utils.ProcessManager.set_cpu_affinity(thread, [cpu_id])
+            for thread_name, thread_pids in utils.ProcessManager.get_threads(
+                self.jailer_clone_pid
+            ).items():
+                # the firecracker thread should start with firecracker...
+                if thread_name.startswith("firecracker"):
+                    for pid in thread_pids:
+                        utils.ProcessManager.set_cpu_affinity(pid, [cpu_id])
                 return True
         return False
 
@@ -595,6 +682,12 @@ class Microvm:
 
         The function checks the response status code and asserts that
         the response is within the interval [200, 300).
+
+        If boot_args is None, the default boot_args in Firecracker is
+            reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0
+            i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd
+
+        Reference: file:../../src/vmm/src/vmm_config/boot_source.rs::DEFAULT_KERNEL_CMDLINE
         """
         response = self.machine_cfg.put(
             vcpu_count=vcpu_count,
@@ -618,7 +711,7 @@ class Microvm:
             "boot_args": boot_args,
         }
 
-        if use_initrd and self.initrd_file != "":
+        if use_initrd and self.initrd_file is not None:
             boot_source_args.update(
                 initrd_path=self.create_jailed_resource(self.initrd_file)
             )
@@ -628,21 +721,18 @@ class Microvm:
             response.status_code
         ), response.text
 
-        if add_root_device and self.rootfs_file != "":
-            jail_fn = self.create_jailed_resource
-            if self.jailer.uses_ramfs:
-                jail_fn = self.copy_to_jail_ramfs
-            # Add the root file system with rw permissions.
-            response = self.drive.put(
+        if add_root_device and self.rootfs_file is not None:
+            read_only = self.rootfs_file.suffix == ".squashfs"
+
+            # Add the root file system
+            self.add_drive(
                 drive_id="rootfs",
-                path_on_host=jail_fn(self.rootfs_file),
+                path_on_host=self.rootfs_file,
                 is_root_device=True,
-                is_read_only=False,
+                is_read_only=read_only,
                 io_engine=rootfs_io_engine,
+                use_ramdisk=self.jailer.uses_ramfs,
             )
-            assert self._api_session.is_status_no_content(
-                response.status_code
-            ), response.text
 
     def cpu_config(self, config):
         """Set CPU configuration."""
@@ -682,8 +772,8 @@ class Microvm:
     def add_drive(
         self,
         drive_id,
-        file_path,
-        root_device=False,
+        path_on_host,
+        is_root_device=False,
         is_read_only=False,
         partuuid=None,
         cache_type=None,
@@ -691,20 +781,23 @@ class Microvm:
         use_ramdisk=False,
     ):
         """Add a block device."""
+
+        if use_ramdisk:
+            path_on_jail = self.copy_to_jail_ramfs(path_on_host)
+        else:
+            path_on_jail = self.create_jailed_resource(path_on_host)
+
         response = self.drive.put(
             drive_id=drive_id,
-            path_on_host=(
-                self.copy_to_jail_ramfs(file_path)
-                if use_ramdisk
-                else self.create_jailed_resource(file_path)
-            ),
-            is_root_device=root_device,
+            path_on_host=path_on_jail,
+            is_root_device=is_root_device,
             is_read_only=is_read_only,
             partuuid=partuuid,
             cache_type=cache_type,
             io_engine=io_engine,
         )
         assert self.api_session.is_status_no_content(response.status_code)
+        self.disks[drive_id] = path_on_host
 
     def patch_drive(self, drive_id, file):
         """Modify/patch an existing block device."""
@@ -713,82 +806,32 @@ class Microvm:
             path_on_host=self.create_jailed_resource(file.path),
         )
         assert self.api_session.is_status_no_content(response.status_code)
+        self.disks[drive_id] = Path(file.path)
 
-    def ssh_network_config(
-        self,
-        network_config,
-        iface_id,
-        tx_rate_limiter=None,
-        rx_rate_limiter=None,
-        tapname=None,
-    ):
-        """Create a host tap device and a guest network interface.
-
-        'network_config' is used to generate 2 IPs: one for the tap device
-        and one for the microvm. Adds the hostname of the microvm to the
-        ssh_config dictionary.
-        :param network_config: UniqueIPv4Generator instance
-        :param iface_id: the interface id for the API request
-        the guest on this interface towards the MMDS address are
-        intercepted and processed by the device model.
-        :param tx_rate_limiter: limit the tx rate
-        :param rx_rate_limiter: limit the rx rate
-        :return: an instance of the tap which needs to be kept around until
-        cleanup is desired, the configured guest and host ips, respectively.
-        """
-        # Create tap before configuring interface.
-        tapname = tapname or (self.id[:8] + "tap" + iface_id)
-        # The guest is hardcoded to expect an IP in a /30 network,
-        # so we request the IPs to be aligned on a /30 network
-        # See https://github.com/firecracker-microvm/firecracker/blob/main/resources/tests/fcnet-setup.sh#L21
-        # file:../../resources/tests/fcnet-setup.sh#L21
-        netmask_len = 30
-        (host_ip, guest_ip) = network_config.get_next_available_ips(2, netmask_len)
-        tap = self.create_tap_and_ssh_config(host_ip, guest_ip, netmask_len, tapname)
-        guest_mac = net_tools.mac_from_ip(guest_ip)
-
-        response = self.network.put(
-            iface_id=iface_id,
-            host_dev_name=tapname,
-            guest_mac=guest_mac,
-            tx_rate_limiter=tx_rate_limiter,
-            rx_rate_limiter=rx_rate_limiter,
-        )
-        assert self._api_session.is_status_no_content(response.status_code)
-
-        return tap, host_ip, guest_ip
-
-    def create_tap_and_ssh_config(self, host_ip, guest_ip, netmask_len, tapname=None):
-        """Create tap device and configure ssh."""
-        assert tapname is not None
-        tap = net_tools.Tap(
-            tapname, self.jailer.netns, ip="{}/{}".format(host_ip, netmask_len)
-        )
-        self.config_ssh(guest_ip)
-        return tap
-
-    def config_ssh(self, guest_ip):
-        """Configure ssh."""
-        self.ssh_config["hostname"] = guest_ip
-
-    def add_net_iface(self, iface, tx_rate_limiter=None, rx_rate_limiter=None):
+    def add_net_iface(self, iface=None, api=True, **kwargs):
         """Add a network interface"""
+        if iface is None:
+            iface = NetIfaceConfig.with_id(len(self.iface))
         tap = net_tools.Tap(
             iface.tap_name, self.jailer.netns, ip=f"{iface.host_ip}/{iface.netmask}"
         )
-        self.config_ssh(iface.guest_ip)
-        response = self.network.put(
-            iface_id=iface.dev_name,
-            host_dev_name=iface.tap_name,
-            guest_mac=iface.guest_mac,
-            tx_rate_limiter=tx_rate_limiter,
-            rx_rate_limiter=rx_rate_limiter,
-        )
-        assert self.api_session.is_status_no_content(response.status_code)
         self.iface[iface.dev_name] = {
             "iface": iface,
             "tap": tap,
         }
+
+        # If api, call it... there may be cases when we don't want it, for
+        # example during restore
+        if api:
+            response = self.network.put(
+                iface_id=iface.dev_name,
+                host_dev_name=iface.tap_name,
+                guest_mac=iface.guest_mac,
+                **kwargs,
+            )
+            assert self.api_session.is_status_no_content(response.status_code)
+
+        return iface
 
     def start(self, check=True):
         """Start the microvm.
@@ -814,23 +857,33 @@ class Microvm:
             except KeyError:
                 assert self.started is True
 
+    def pause(self):
+        """Pauses the microVM"""
+        response = self.vm.patch(state="Paused")
+        assert self.api_session.is_status_no_content(response.status_code)
+
+    def resume(self):
+        """Resume the microVM"""
+        response = self.vm.patch(state="Resumed")
+        assert self.api_session.is_status_no_content(response.status_code)
+
     def pause_to_snapshot(
-        self, mem_file_path=None, snapshot_path=None, diff=False, version=None
+        self,
+        mem_file_path,
+        snapshot_path,
+        diff=False,
+        version=None,
     ):
         """Pauses the microVM, and creates snapshot.
 
         This function validates that the microVM pauses successfully and
         creates a snapshot.
         """
-        assert mem_file_path is not None, "Please specify mem_file_path."
-        assert snapshot_path is not None, "Please specify snapshot_path."
-
-        response = self.vm.patch(state="Paused")
-        assert self.api_session.is_status_no_content(response.status_code)
+        self.pause()
 
         response = self.snapshot.create(
-            mem_file_path=mem_file_path,
-            snapshot_path=snapshot_path,
+            mem_file_path=str(mem_file_path),
+            snapshot_path=str(snapshot_path),
             diff=diff,
             version=version,
         )
@@ -838,40 +891,96 @@ class Microvm:
             response.status_code
         ), response.text
 
+    def make_snapshot(self, snapshot_type: str, target_version: str = None):
+        """Create a Snapshot object from a microvm."""
+        vmstate_path = "vmstate"
+        mem_path = "mem"
+        self.pause_to_snapshot(
+            mem_file_path=mem_path,
+            snapshot_path=vmstate_path,
+            diff=snapshot_type == "DIFF",
+            version=target_version,
+        )
+        root = Path(self.chroot())
+        return Snapshot(
+            vmstate=root / vmstate_path,
+            mem=root / mem_path,
+            disks=self.disks,
+            net_ifaces=[x["iface"] for ifname, x in self.iface.items()],
+            ssh_key=self.ssh_key,
+            snapshot_type=snapshot_type,
+        )
+
+    def snapshot_diff(self, target_version: str = None):
+        """Make a DIFF snapshot"""
+        return self.make_snapshot("DIFF", target_version)
+
+    def snapshot_full(self, target_version: str = None):
+        """Make a FULL snapshot"""
+        return self.make_snapshot("FULL", target_version)
+
     def restore_from_snapshot(
         self,
-        *,
-        snapshot_mem: Path,
-        snapshot_vmstate: Path,
-        snapshot_disks: list[Path],
-        snapshot_is_diff: bool = False,
+        snapshot: Snapshot,
+        resume: bool = False,
+        uffd_path: Path = None,
     ):
-        """
-        Restores a snapshot, and resumes the microvm
-        """
+        """Restore a snapshot"""
+        # Move all the snapshot files into the microvm jail.
+        # Use different names so a snapshot doesn't overwrite our original snapshot.
+        chroot = Path(self.chroot())
+        mem_src = chroot / snapshot.mem.with_suffix(".src").name
+        hardlink_or_copy(snapshot.mem, mem_src)
+        vmstate_src = chroot / snapshot.vmstate.with_suffix(".src").name
+        hardlink_or_copy(snapshot.vmstate, vmstate_src)
+        jailed_mem = Path("/") / mem_src.name
+        jailed_vmstate = Path("/") / vmstate_src.name
 
-        # Hardlink all the snapshot files into the microvm jail.
-        jailed_mem = self.create_jailed_resource(snapshot_mem)
-        jailed_vmstate = self.create_jailed_resource(snapshot_vmstate)
-
+        snapshot_disks = [v for k, v in snapshot.disks.items()]
         assert len(snapshot_disks) > 0, "Snapshot requires at least one disk."
         jailed_disks = []
         for disk in snapshot_disks:
             jailed_disks.append(self.create_jailed_resource(disk))
+        self.disks = snapshot.disks
+        self.ssh_key = snapshot.ssh_key
+
+        # Create network interfaces.
+        for iface in snapshot.net_ifaces:
+            self.add_net_iface(iface, api=False)
+
+        mem_backend = {"type": "File", "path": str(jailed_mem)}
+        if uffd_path is not None:
+            mem_backend = {"type": "Uffd", "path": str(uffd_path)}
 
         response = self.snapshot.load(
-            mem_file_path=jailed_mem,
-            snapshot_path=jailed_vmstate,
-            diff=snapshot_is_diff,
-            resume=True,
+            mem_backend=mem_backend,
+            snapshot_path=str(jailed_vmstate),
+            diff=snapshot.is_diff,
+            resume=resume,
         )
         assert response.ok, response.content
         return True
 
-    @cached_property
+    def restore_from_path(self, snap_dir: Path, **kwargs):
+        """Restore snapshot from a path"""
+        return self.restore_from_snapshot(Snapshot.load_from(snap_dir), **kwargs)
+
+    @lru_cache
+    def ssh_iface(self, iface_idx=0):
+        """Return a cached SSH connection on a given interface id."""
+        guest_ip = list(self.iface.values())[iface_idx]["iface"].guest_ip
+        self.ssh_key = Path(self.ssh_key)
+        return net_tools.SSHConnection(
+            netns_path=self.jailer.netns_file_path(),
+            ssh_key=self.ssh_key,
+            user="root",
+            host=guest_ip,
+        )
+
+    @property
     def ssh(self):
-        """Return a cached SSH connection"""
-        return net_tools.SSHConnection(self.ssh_config)
+        """Return a cached SSH connection on the 1st interface"""
+        return self.ssh_iface(0)
 
     def start_console_logger(self, log_fifo):
         """
@@ -913,10 +1022,6 @@ class Microvm:
         )
         self.logging_thread.daemon = True
         self.logging_thread.start()
-
-    def __del__(self):
-        """Teardown the object."""
-        self.kill()
 
 
 class Serial:

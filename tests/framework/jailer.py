@@ -79,10 +79,6 @@ class JailerContext:
         self.ramfs_subdir_name = "ramfs"
         self._ramfs_path = None
 
-    def __del__(self):
-        """Cleanup this jailer context."""
-        self.cleanup()
-
     # Disabling 'too-many-branches' warning for this function as it needs to
     # check every argument, so the number of branches will increase
     # with every new argument.
@@ -251,9 +247,6 @@ class JailerContext:
         # pylint: disable=subprocess-run-check
         if self._ramfs_path:
             utils.run_cmd("umount {}".format(self._ramfs_path), ignore_return_code=True)
-
-        if self.jailer_id is not None:
-            shutil.rmtree(self.chroot_base_with_id(), ignore_errors=True)
 
         if self.netns and os.path.exists("/var/run/netns/{}".format(self.netns)):
             try:

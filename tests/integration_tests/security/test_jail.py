@@ -18,7 +18,6 @@ import requests
 import urllib3
 
 import host_tools.cargo_build as build_tools
-from framework.builder import SnapshotBuilder
 from framework.defs import FC_BINARY_NAME
 from framework.jailer import JailerContext
 
@@ -553,30 +552,23 @@ def test_args_resource_limits(test_microvm_with_api):
     check_limits(pid, NOFILE, FSIZE)
 
 
-def test_negative_file_size_limit(test_microvm_with_api):
+def test_negative_file_size_limit(uvm_plain):
     """
     Test creating snapshot file fails when size exceeds `fsize` limit.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.jailer.resource_limits = ["fsize=1024"]
-
     test_microvm.spawn()
     test_microvm.basic_config()
     test_microvm.start()
 
-    snapshot_builder = SnapshotBuilder(test_microvm)
-    # Create directory and files for saving snapshot state and memory.
-    _snapshot_dir = snapshot_builder.create_snapshot_dir()
-
-    # Pause microVM for snapshot.
-    response = test_microvm.vm.patch(state="Paused")
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    test_microvm.pause()
 
     # Attempt to create a snapshot.
     try:
         test_microvm.snapshot.create(
-            mem_file_path="/snapshot/vm.mem",
-            snapshot_path="/snapshot/vm.vmstate",
+            mem_file_path="/vm.mem",
+            snapshot_path="/vm.vmstate",
         )
     except (
         http_client.RemoteDisconnected,

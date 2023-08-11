@@ -75,9 +75,6 @@ class TCPIPerf3Test(IPerf3Test):
             payload_length=payload_length,
         )
 
-    def guest_command(self, port_offset):
-        return super().guest_command(port_offset).with_arg("--verbose")
-
 
 def pipe(basevm, mode, payload_length, current_avail_cpu, host_ip, env_id):
     """Create producer/consumer pipes."""
@@ -110,7 +107,6 @@ def pipe(basevm, mode, payload_length, current_avail_cpu, host_ip, env_id):
 @pytest.mark.parametrize("mode", ["g2h", "h2g", "bd"])
 def test_network_tcp_throughput(
     microvm_factory,
-    network_config,
     guest_kernel,
     rootfs,
     vcpus,
@@ -132,7 +128,7 @@ def test_network_tcp_throughput(
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn(log_level="Info")
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=guest_mem_mib)
-    vm.ssh_network_config(network_config, "1")
+    vm.add_net_iface()
     vm.start()
 
     microvm_cfg = f"{vcpus}vcpu_{guest_mem_mib}mb.json"
@@ -159,7 +155,7 @@ def test_network_tcp_throughput(
         payload_length,
         current_avail_cpu + 1,
         DEFAULT_HOST_IP,
-        f"{guest_kernel.name()}/{rootfs.name()}/{microvm_cfg}",
+        f"{st_core.env_id_prefix}/{microvm_cfg}",
     )
     st_core.add_pipe(prod, cons, tag)
 

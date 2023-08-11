@@ -3,6 +3,7 @@
 """Performance benchmark for snapshot restore."""
 
 import json
+import os
 import tempfile
 from functools import lru_cache
 
@@ -10,8 +11,7 @@ import pytest
 
 import framework.stats as st
 import host_tools.drive as drive_tools
-from framework.artifacts import create_net_devices_configuration
-from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
+import host_tools.logging as log_tools
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import get_kernel_version
@@ -30,9 +30,6 @@ USEC_IN_MSEC = 1000
 
 # Measurements tags.
 RESTORE_LATENCY = "latency"
-
-# Define 4 net device configurations.
-net_ifaces = create_net_devices_configuration(4)
 
 
 # pylint: disable=R0903
@@ -83,7 +80,6 @@ def default_lambda_consumer(env_id, workload):
 
 
 def get_snap_restore_latency(
-    vm_builder,
     microvm_factory,
     guest_kernel,
     rootfs,
@@ -96,37 +92,21 @@ def get_snap_restore_latency(
 ):
     """Restore snapshots with various configs to measure latency."""
     scratch_drives = get_scratch_drives()
-    ifaces = net_ifaces[:nets]
 
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
-    vm.spawn(use_ramdisk=True, log_level="Info")
+    vm.spawn(log_level="Info")
     vm.basic_config(
         vcpu_count=vcpus,
         mem_size_mib=mem_size,
         rootfs_io_engine="Sync",
-        use_initrd=True,
     )
 
-    for iface in ifaces:
-        vm.create_tap_and_ssh_config(
-            host_ip=iface.host_ip,
-            guest_ip=iface.guest_ip,
-            netmask_len=iface.netmask,
-            tapname=iface.tap_name,
-        )
-        response = vm.network.put(
-            iface_id=iface.dev_name,
-            host_dev_name=iface.tap_name,
-            guest_mac=iface.guest_mac,
-        )
-        assert vm.api_session.is_status_no_content(response.status_code)
+    for _ in range(nets):
+        vm.add_net_iface()
 
-    extra_disk_paths = []
     if blocks > 1:
         for name, diskfile in scratch_drives[: (blocks - 1)]:
-            vm.add_drive(name, diskfile.path, use_ramdisk=True, io_engine="Sync")
-            extra_disk_paths.append(diskfile.path)
-        assert len(extra_disk_paths) > 0
+            vm.add_drive(name, diskfile.path, io_engine="Sync")
 
     if all_devices:
         response = vm.balloon.put(
@@ -138,22 +118,16 @@ def get_snap_restore_latency(
         assert vm.api_session.is_status_no_content(response.status_code)
 
     vm.start()
-
-    # Create a snapshot builder from a microvm.
-    snapshot_builder = SnapshotBuilder(vm)
-    full_snapshot = snapshot_builder.create(
-        [vm.rootfs_file] + extra_disk_paths,
-        rootfs.ssh_key(),
-        SnapshotType.FULL,
-        net_ifaces=ifaces,
-        use_ramdisk=True,
-    )
+    snapshot = vm.snapshot_full()
     vm.kill()
+
     values = []
     for _ in range(iterations):
-        microvm, metrics_fifo = vm_builder.build_from_snapshot(
-            full_snapshot, resume=True, use_ramdisk=True
-        )
+        microvm = microvm_factory.build()
+        metrics_fifo_path = os.path.join(microvm.path, "metrics_fifo")
+        metrics_fifo = log_tools.Fifo(metrics_fifo_path)
+        microvm.spawn(metrics_path=metrics_fifo_path)
+        microvm.restore_from_snapshot(snapshot, resume=True)
         # Check if guest still runs commands.
         exit_code, _, _ = microvm.ssh.execute_command("dmesg")
         assert exit_code == 0
@@ -169,10 +143,8 @@ def get_snap_restore_latency(
                 break
         values.append(value)
         microvm.kill()
-        microvm.jailer.cleanup()
 
-    full_snapshot.cleanup()
-    vm.jailer.cleanup()
+    snapshot.delete()
     return values
 
 
@@ -197,27 +169,22 @@ def consume_output(cons, latencies):
         (12288, 7),
     ],
 )
-def test_snapshot_scaling(
-    bin_cloner_path, microvm_factory, rootfs, guest_kernel, st_core, mem, vcpus
-):
+def test_snapshot_scaling(microvm_factory, rootfs, guest_kernel, st_core, mem, vcpus):
     """
     Restores snapshots with vcpu/memory configuration, roughly scaling according to mem = (vcpus - 1) * 2048MB,
     which resembles firecracker production setups.
-
-
     """
 
     # The guest kernel does not "participate" in snapshot restore, so just pick some
     # arbitrary one
-    if "4.14" not in guest_kernel.name():
+    if "4.14" not in guest_kernel.name:
         pytest.skip()
 
     guest_config = f"{vcpus}vcpu_{mem}mb"
-    env_id = f"{guest_kernel.name()}/{rootfs.name()}/{guest_config}"
+    env_id = f"{st_core.env_id_prefix}/{guest_config}"
     st_prod = st.producer.LambdaProducer(
         func=get_snap_restore_latency,
         func_kwargs={
-            "vm_builder": MicrovmBuilder(bin_cloner_path),
             "microvm_factory": microvm_factory,
             "guest_kernel": guest_kernel,
             "rootfs": rootfs,
@@ -233,22 +200,19 @@ def test_snapshot_scaling(
 
 
 @pytest.mark.nonci
-def test_snapshot_all_devices(
-    bin_cloner_path, microvm_factory, rootfs, guest_kernel, st_core
-):
+def test_snapshot_all_devices(microvm_factory, rootfs, guest_kernel, st_core):
     """Restore snapshots with one of each devices."""
 
     # The guest kernel does not "participate" in snapshot restore, so just pick some
     # arbitrary one
-    if "4.14" not in guest_kernel.name():
+    if "4.14" not in guest_kernel.name:
         pytest.skip()
 
     guest_config = "all_dev"
-    env_id = f"{guest_kernel.name()}/{rootfs.name()}/{guest_config}"
+    env_id = f"{st_core.env_id_prefix}/{guest_config}"
     st_prod = st.producer.LambdaProducer(
         func=get_snap_restore_latency,
         func_kwargs={
-            "vm_builder": MicrovmBuilder(bin_cloner_path),
             "microvm_factory": microvm_factory,
             "guest_kernel": guest_kernel,
             "rootfs": rootfs,

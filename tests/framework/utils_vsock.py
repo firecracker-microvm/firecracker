@@ -103,7 +103,7 @@ def check_host_connections(vm, uds_path, blob_path, blob_hash):
     the hashes they computed for the data echoed back by the server are
     checked against `blob_hash`.
     """
-    cmd = "vsock_helper echosrv -d {}".format(ECHO_SERVER_PORT)
+    cmd = "/tmp/vsock_helper echosrv -d {}".format(ECHO_SERVER_PORT)
     ecode, _, _ = vm.ssh.run(cmd)
     assert ecode == 0
 
@@ -145,10 +145,8 @@ def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
     # Avoids: "bash: fork: retry: Resource temporarily unavailable"
     # Needed to execute the bash script that tests for concurrent
     # vsock guest initiated connections.
-    ecode, _, _ = vm.ssh.run(
-        "echo 1024 > \
-        /sys/fs/cgroup/pids/system.slice/ssh.service/pids.max"
-    )
+    pids_max_file = "/sys/fs/cgroup/system.slice/ssh.service/pids.max"
+    ecode, _, _ = vm.ssh.run(f"echo 1024 > {pids_max_file}")
     assert ecode == 0, "Unable to set max process count for guest ssh service."
 
     # Build the guest worker sub-command.
@@ -158,7 +156,7 @@ def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
     # comparison sets the exit status of the worker command.
     worker_cmd = "hash=$("
     worker_cmd += "cat {}".format(blob_path)
-    worker_cmd += " | vsock_helper echo 2 {}".format(ECHO_SERVER_PORT)
+    worker_cmd += " | /tmp/vsock_helper echo 2 {}".format(ECHO_SERVER_PORT)
     worker_cmd += " | md5sum | cut -f1 -d\\ "
     worker_cmd += ")"
     worker_cmd += ' && [[ "$hash" = "{}" ]]'.format(blob_hash)
@@ -174,14 +172,13 @@ def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
     cmd += "done;"
     cmd += "for w in $workers; do wait $w || exit -1; done"
 
-    ecode, stdout, stderr = vm.ssh.run(cmd)
+    ecode, _, stderr = vm.ssh.run(cmd)
     echo_server.terminate()
     rc = echo_server.wait()
     # socat exits with 128 + 15 (SIGTERM)
     assert rc == 143
 
-    print(stdout.read())
-    assert ecode == 0, stderr.read()
+    assert ecode == 0, stderr
 
 
 def make_host_port_path(uds_path, port):
@@ -210,8 +207,8 @@ def _copy_vsock_data_to_guest(ssh_connection, blob_path, vm_blob_path, vsock_hel
     ecode, _, _ = ssh_connection.execute_command(cmd)
     assert ecode == 0, "Failed to set up tmpfs drive on the guest."
 
-    ssh_connection.scp_file(vsock_helper, "/bin/vsock_helper")
-    ssh_connection.scp_file(blob_path, vm_blob_path)
+    ssh_connection.scp_put(vsock_helper, "/tmp/vsock_helper")
+    ssh_connection.scp_put(blob_path, vm_blob_path)
 
 
 def check_vsock_device(vm, bin_vsock_path, test_fc_session_root_path, ssh_connection):
