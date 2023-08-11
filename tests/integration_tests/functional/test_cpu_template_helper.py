@@ -128,6 +128,16 @@ def build_cpu_config_dict(cpu_config_path):
 # List of CPUID leaves / subleaves that are not enumerated in
 # KVM_GET_SUPPORTED_CPUID on Intel and AMD.
 UNAVAILABLE_CPUID_ON_DUMP_LIST = [
+    # KVM changed to not return the host's processor topology information on
+    # CPUID.Bh in the following commit (backported into kernel 5.10 and 6.1,
+    # but not into kernel 4.14 due to merge conflict), since it's confusing
+    # and the userspace VMM has to populate it with meaningful values.
+    # https://github.com/torvalds/linux/commit/45e966fcca03ecdcccac7cb236e16eea38cc18af
+    # Since Firecracker only populates subleaves 0 and 1 (thread level and core
+    # level) in the normalization process and the subleaf 2 is left empty or
+    # not listed, the subleaf 2 should be skipped when the userspace cpuid
+    # enumerates it.
+    (0xB, 0x2),
     # CPUID.8000001Bh or later are not supported on kernel 4.14 with an
     # exception CPUID.8000001Dh and CPUID.8000001Eh normalized by firecracker.
     # https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/kvm/cpuid.c?h=v4.14.313#n637
