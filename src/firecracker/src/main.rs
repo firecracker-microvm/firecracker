@@ -26,7 +26,7 @@ use vmm::resources::VmResources;
 use vmm::signal_handler::register_signal_handlers;
 use vmm::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
-use vmm::vmm_config::logger::Level;
+use vmm::vmm_config::logger::LevelFilter;
 use vmm::vmm_config::metrics::{init_metrics, MetricsConfig};
 use vmm::{EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
 
@@ -47,8 +47,13 @@ enum MainError {
     ParseArguments(#[from] utils::arg_parser::Error),
     #[error("When printing Snapshot Data format: {0}")]
     PrintSnapshotDataFormat(#[from] SnapshotVersionError),
-    #[error("Invalid value for logger level: {0}.Possible values: [Error, Warning, Info, Debug]")]
-    InvalidLogLevel(<Level as FromStr>::Err),
+    #[error(
+        "Invalid value for logger level: {0}.Possible values: [Off, Error, Warning, Info, Debug, \
+         Trace]"
+    )]
+    InvalidLogLevel(<LevelFilter as FromStr>::Err),
+    #[error("Failed to deserialize log filter: {0}")]
+    DeserializeLogFilter(serde_json::Error),
     #[error("Could not initialize logger: {0}")]
     LoggerInitialization(vmm::vmm_config::logger::InitLoggerError),
     #[error("Could not initialize metrics: {0:?}")]
@@ -174,6 +179,27 @@ fn main_exec() -> Result<(), MainError> {
                 ),
             )
             .arg(
+                Argument::new("start-time-us").takes_value(true).help(
+                    "Process start time (wall clock, microseconds). This parameter is optional.",
+                ),
+            )
+            .arg(Argument::new("start-time-cpu-us").takes_value(true).help(
+                "Process start CPU time (wall clock, microseconds). This parameter is optional.",
+            ))
+            .arg(Argument::new("parent-cpu-time-us").takes_value(true).help(
+                "Parent process CPU time (wall clock, microseconds). This parameter is optional.",
+            ))
+            .arg(
+                Argument::new("config-file")
+                    .takes_value(true)
+                    .help("Path to a file that contains the microVM configuration in JSON format."),
+            )
+            .arg(
+                Argument::new(MMDS_CONTENT_ARG).takes_value(true).help(
+                    "Path to a file that contains metadata in JSON format to add to the mmds.",
+                ),
+            )
+            .arg(
                 Argument::new("no-api")
                     .takes_value(false)
                     .requires("config-file")
@@ -186,6 +212,11 @@ fn main_exec() -> Result<(), MainError> {
                 Argument::new("log-path")
                     .takes_value(true)
                     .help("Path to a fifo or a file used for configuring the logger on startup."),
+            )
+            .arg(
+                Argument::new("log-filter")
+                    .takes_value(true)
+                    .help("Filter for logging, if set overrides `level`."),
             )
             .arg(
                 Argument::new("level")
@@ -270,15 +301,21 @@ fn main_exec() -> Result<(), MainError> {
     let logger_handles = {
         let level_res = arguments
             .single_value("level")
-            .map(|s| Level::from_str(s))
+            .map(|s| LevelFilter::from_str(s))
             .transpose();
         let level = level_res.map_err(MainError::InvalidLogLevel)?;
 
+        let filter = if let Some(log_filter) = arguments.single_value("log-filter") {
+            Some(serde_json::from_str(log_filter).map_err(MainError::DeserializeLogFilter)?)
+        } else {
+            None
+        };
         let logger_config = vmm::vmm_config::logger::LoggerConfig {
             log_path: arguments.single_value("log-path").map(PathBuf::from),
             level,
             show_level: Some(arguments.flag_present("show-level")),
             show_log_origin: Some(arguments.flag_present("show-log-origin")),
+            filter,
         };
         logger_config
             .init()

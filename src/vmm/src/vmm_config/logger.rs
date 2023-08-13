@@ -12,7 +12,6 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use tracing::Event;
-use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::fmt::format::{self, FormatEvent, FormatFields};
 use tracing_subscriber::fmt::writer::BoxMakeWriter;
 use tracing_subscriber::fmt::{FmtContext, Layer as FmtLayer};
@@ -24,81 +23,81 @@ use tracing_subscriber::util::SubscriberInitExt;
 type ReloadError = tracing_subscriber::reload::Error;
 
 // TODO: See below doc comment.
-/// Mimic of `log::Level`.
+/// Mimic of `log::LevelFilter`.
 ///
-/// This is used instead of `log::Level` to support:
-/// 1. Aliasing `Warn` as `Warning` to avoid a breaking change in the API (which previously only
-///    accepted `Warning`).
-/// 2. Setting the default to `Warn` to avoid a breaking change.
+/// This is used instead of `log::LevelFilter` to support aliasing `Warn` as `Warning` to avoid a
+/// breaking change in the API (which previously only accepted `Warning`).
 ///
-/// This alias, custom `Default` and type should be removed in the next breaking update to simplify
-/// the code and API (and `log::Level` should be used in place).
+/// This alias should be removed in the next breaking update to simplify
+/// the code and API (and `log::LevelFilter` should be used in place).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
-pub enum Level {
-    /// The “error” level.
-    ///
-    /// Designates very serious errors.
+pub enum LevelFilter {
+    /// A level lower than all log levels.
+    Off,
+    /// Corresponds to the `Error` log level.
     #[serde(alias = "ERROR")]
     Error,
-    /// The “warn” level.
-    ///
-    /// Designates hazardous situations.
+    /// Corresponds to the `Warn` log level.
     #[serde(alias = "WARNING", alias = "Warning")]
     Warn,
-    /// The “info” level.
-    ///
-    /// Designates useful information.
+    /// Corresponds to the `Info` log level.
     #[serde(alias = "INFO")]
     Info,
-    /// The “debug” level.
-    ///
-    /// Designates lower priority information.
+    /// Corresponds to the `Debug` log level.
     #[serde(alias = "DEBUG")]
     Debug,
-    /// The “trace” level.
-    ///
-    /// Designates very low priority, often extremely verbose, information.
+    /// Corresponds to the `Trace` log level.
     #[serde(alias = "TRACE")]
     Trace,
 }
-impl Default for Level {
-    fn default() -> Self {
-        Self::Warn
+
+fn from_log(level: log::LevelFilter) -> tracing_subscriber::filter::LevelFilter {
+    match level {
+        log::LevelFilter::Off => tracing_subscriber::filter::LevelFilter::OFF,
+        log::LevelFilter::Error => tracing_subscriber::filter::LevelFilter::ERROR,
+        log::LevelFilter::Warn => tracing_subscriber::filter::LevelFilter::WARN,
+        log::LevelFilter::Info => tracing_subscriber::filter::LevelFilter::INFO,
+        log::LevelFilter::Debug => tracing_subscriber::filter::LevelFilter::DEBUG,
+        log::LevelFilter::Trace => tracing_subscriber::filter::LevelFilter::TRACE,
     }
 }
-impl From<Level> for tracing::Level {
-    fn from(level: Level) -> tracing::Level {
+
+impl From<LevelFilter> for log::LevelFilter {
+    fn from(level: LevelFilter) -> log::LevelFilter {
         match level {
-            Level::Error => tracing::Level::ERROR,
-            Level::Warn => tracing::Level::WARN,
-            Level::Info => tracing::Level::INFO,
-            Level::Debug => tracing::Level::DEBUG,
-            Level::Trace => tracing::Level::TRACE,
+            LevelFilter::Off => log::LevelFilter::Off,
+            LevelFilter::Error => log::LevelFilter::Error,
+            LevelFilter::Warn => log::LevelFilter::Warn,
+            LevelFilter::Info => log::LevelFilter::Info,
+            LevelFilter::Debug => log::LevelFilter::Debug,
+            LevelFilter::Trace => log::LevelFilter::Trace,
         }
     }
 }
-impl From<log::Level> for Level {
-    fn from(level: log::Level) -> Level {
+impl From<log::LevelFilter> for LevelFilter {
+    fn from(level: log::LevelFilter) -> LevelFilter {
         match level {
-            log::Level::Error => Level::Error,
-            log::Level::Warn => Level::Warn,
-            log::Level::Info => Level::Info,
-            log::Level::Debug => Level::Debug,
-            log::Level::Trace => Level::Trace,
+            log::LevelFilter::Off => LevelFilter::Off,
+            log::LevelFilter::Error => LevelFilter::Error,
+            log::LevelFilter::Warn => LevelFilter::Warn,
+            log::LevelFilter::Info => LevelFilter::Info,
+            log::LevelFilter::Debug => LevelFilter::Debug,
+            log::LevelFilter::Trace => LevelFilter::Trace,
         }
     }
 }
-impl FromStr for Level {
-    type Err = <log::Level as FromStr>::Err;
+impl FromStr for LevelFilter {
+    type Err = <log::LevelFilter as FromStr>::Err;
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         // This is required to avoid a breaking change.
         match s {
-            "ERROR" => Ok(Level::Error),
-            "WARNING" | "Warning" => Ok(Level::Warn),
-            "INFO" => Ok(Level::Info),
-            "DEBUG" => Ok(Level::Debug),
-            "TRACE" => Ok(Level::Trace),
-            _ => log::Level::from_str(s).map(Level::from),
+            "OFF" => Ok(LevelFilter::Off),
+            "ERROR" => Ok(LevelFilter::Error),
+            "WARNING" | "Warning" => Ok(LevelFilter::Warn),
+            "INFO" => Ok(LevelFilter::Info),
+            "DEBUG" => Ok(LevelFilter::Debug),
+            "TRACE" => Ok(LevelFilter::Trace),
+            _ => log::LevelFilter::from_str(s).map(LevelFilter::from),
         }
     }
 }
@@ -109,12 +108,15 @@ impl FromStr for Level {
 pub struct LoggerConfig {
     /// Named pipe or file used as output for logs.
     pub log_path: Option<std::path::PathBuf>,
+    // TODO Deprecate this API argument.
     /// The level of the Logger.
-    pub level: Option<Level>,
+    pub level: Option<LevelFilter>,
     /// When enabled, the logger will append to the output the severity of the log entry.
     pub show_level: Option<bool>,
     /// When enabled, the logger will append the origin of the log entry.
     pub show_log_origin: Option<bool>,
+    /// Filter components. If this is `Some` it overrides `self.level`.
+    pub filter: Option<FilterArgs>,
 }
 
 /// Error type for [`LoggerConfig::init`].
@@ -134,21 +136,44 @@ pub enum UpdateLoggerError {
     /// Failed to open target file.
     #[error("Failed to open target file: {0}")]
     File(std::io::Error),
-    /// Failed to modify format subscriber writer.
-    #[error("Failed to modify format subscriber writer: {0}")]
+    /// Failed to modify format layer writer.
+    #[error("Failed to modify format layer writer: {0}")]
     Fmt(ReloadError),
-    /// Failed to modify filter level.
-    #[error("Failed to modify filter level: {0}")]
-    Filter(ReloadError),
+    /// Failed to modify level filter.
+    #[error("Failed to modify level filter: {0}")]
+    Level(ReloadError),
 }
 
-type FmtHandle = tracing_subscriber::reload::Handle<
+/// The filter arguments for logs.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct FilterArgs {
+    /// A filepath to filter by e.g. `src/main.rs`.
+    file: Option<String>,
+    /// A module path to filter by e.g. `vmm::vmm_config`.
+    module: Option<String>,
+    /// A level to filter by e.g. `tracing::Level::INFO`.
+    level: Option<log::LevelFilter>,
+}
+
+// Initialize filter to default.
+static FILTER: Mutex<FilterArgs> = Mutex::new(FilterArgs {
+    file: None,
+    module: None,
+    level: Some(log::LevelFilter::Warn),
+});
+
+// `type_alias_impl_trait` is the nightly feature required to move this to a `type FmtHandle = ..`
+// and remove these polluting generics.
+/// Handles that allow re-configuring the logger.
+#[derive(Debug)]
+pub struct LoggerHandles<F, G> {
+    fmt: FmtHandle<F, G>,
+}
+
+type FmtHandle<F, G> = tracing_subscriber::reload::Handle<
     tracing_subscriber::fmt::Layer<
         tracing_subscriber::layer::Layered<
-            tracing_subscriber::reload::Layer<
-                tracing_subscriber::filter::LevelFilter,
-                tracing_subscriber::registry::Registry,
-            >,
+            tracing_subscriber::filter::FilterFn<F>,
             tracing_subscriber::registry::Registry,
         >,
         tracing_subscriber::fmt::format::DefaultFields,
@@ -156,36 +181,59 @@ type FmtHandle = tracing_subscriber::reload::Handle<
         tracing_subscriber::fmt::writer::BoxMakeWriter,
     >,
     tracing_subscriber::layer::Layered<
-        tracing_subscriber::reload::Layer<
-            tracing_subscriber::filter::LevelFilter,
-            tracing_subscriber::registry::Registry,
-        >,
+        tracing_subscriber::filter::FilterFn<G>,
         tracing_subscriber::registry::Registry,
     >,
 >;
-type FilterHandle = tracing_subscriber::reload::Handle<
-    tracing_subscriber::filter::LevelFilter,
-    tracing_subscriber::registry::Registry,
->;
-
-/// Handles that allow re-configuring the logger.
-#[derive(Debug)]
-pub struct LoggerHandles {
-    filter: FilterHandle,
-    fmt: FmtHandle,
-}
 
 impl LoggerConfig {
     /// Initializes the logger.
     ///
     /// Returns handles that can be used to dynamically re-configure the logger.
-    pub fn init(&self) -> Result<LoggerHandles, InitLoggerError> {
-        // Setup filter
-        let (filter, filter_handle) = {
-            let level = tracing::Level::from(self.level.unwrap_or_default());
-            let filter_subscriber = LevelFilter::from_level(level);
-            ReloadLayer::new(filter_subscriber)
-        };
+    pub fn init(
+        self,
+    ) -> Result<
+        LoggerHandles<
+            impl Fn(&tracing::Metadata<'_>) -> bool,
+            impl Fn(&tracing::Metadata<'_>) -> bool,
+        >,
+        InitLoggerError,
+    > {
+        // Update default filter to match passed arguments.
+        match (self.level, self.filter) {
+            (_, Some(filter)) => {
+                *FILTER.lock().unwrap() = filter;
+            }
+            (Some(level), None) => {
+                *FILTER.lock().unwrap() = FilterArgs {
+                    file: None,
+                    module: None,
+                    level: Some(log::LevelFilter::from(level)),
+                };
+            }
+            (None, None) => {}
+        }
+
+        // Setup filter layer
+        let filter = tracing_subscriber::filter::FilterFn::new(|metadata| {
+            let args = FILTER.lock().unwrap();
+            let file_cond = args.file.as_ref().map_or(true, |f| {
+                metadata
+                    .file()
+                    .map(|file| file.starts_with(f))
+                    .unwrap_or(false)
+            });
+            let module_cond = args.module.as_ref().map_or(true, |m| {
+                metadata
+                    .module_path()
+                    .map(|module_path| module_path.starts_with(m))
+                    .unwrap_or(false)
+            });
+            let level_cond = args
+                .level
+                .map_or(true, |l| *metadata.level() <= from_log(l));
+            file_cond && module_cond && level_cond
+        });
 
         // Setup fmt layer
         let (fmt, fmt_handle) = {
@@ -228,15 +276,15 @@ impl LoggerConfig {
         tracing::debug!("Debug level logs enabled.");
         tracing::trace!("Trace level logs enabled.");
 
-        Ok(LoggerHandles {
-            filter: filter_handle,
-            fmt: fmt_handle,
-        })
+        Ok(LoggerHandles { fmt: fmt_handle })
     }
     /// Updates the logger using the given handles.
     pub fn update(
-        &self,
-        LoggerHandles { filter, fmt }: &LoggerHandles,
+        self,
+        LoggerHandles { fmt }: &LoggerHandles<
+            impl Fn(&tracing::Metadata<'_>) -> bool,
+            impl Fn(&tracing::Metadata<'_>) -> bool,
+        >,
     ) -> Result<(), UpdateLoggerError> {
         // Update the log path
         if let Some(log_path) = &self.log_path {
@@ -255,11 +303,19 @@ impl LoggerConfig {
                 .map_err(UpdateLoggerError::Fmt)?;
         }
 
-        // Update the filter level
-        if let Some(level) = self.level {
-            filter
-                .modify(|f| *f = LevelFilter::from_level(tracing::Level::from(level)))
-                .map_err(UpdateLoggerError::Filter)?;
+        // Update the filter
+        match (self.level, self.filter) {
+            (_, Some(filter)) => {
+                *FILTER.lock().unwrap() = filter;
+            }
+            (Some(level), None) => {
+                *FILTER.lock().unwrap() = FilterArgs {
+                    file: None,
+                    module: None,
+                    level: Some(log::LevelFilter::from(level)),
+                };
+            }
+            (None, None) => {}
         }
 
         // Update if the logger shows the level

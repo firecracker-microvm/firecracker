@@ -259,7 +259,7 @@ trait MmdsRequestHandler {
 }
 
 /// Enables pre-boot setup and instantiation of a Firecracker VMM.
-pub struct PrebootApiController<'a> {
+pub struct PrebootApiController<'a, F, G> {
     seccomp_filters: &'a BpfThreadMap,
     instance_info: InstanceInfo,
     vm_resources: &'a mut VmResources,
@@ -272,11 +272,11 @@ pub struct PrebootApiController<'a> {
     // should cleanly teardown if they occur.
     fatal_error: Option<FcExitCode>,
     /// Handles that allow re-configuring the logger.
-    logger_handles: LoggerHandles,
+    logger_handles: LoggerHandles<F, G>,
 }
 
 // TODO Remove when `EventManager` implements `std::fmt::Debug`.
-impl<'a> fmt::Debug for PrebootApiController<'a> {
+impl<'a, F, G> fmt::Debug for PrebootApiController<'a, F, G> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PrebootApiController")
             .field("seccomp_filters", &self.seccomp_filters)
@@ -290,7 +290,7 @@ impl<'a> fmt::Debug for PrebootApiController<'a> {
     }
 }
 
-impl MmdsRequestHandler for PrebootApiController<'_> {
+impl<F, G> MmdsRequestHandler for PrebootApiController<'_, F, G> {
     fn mmds(&mut self) -> MutexGuard<'_, Mmds> {
         self.vm_resources.locked_mmds_or_default()
     }
@@ -315,14 +315,16 @@ pub type ApiRequest = Box<VmmAction>;
 /// Shorthand type for a response containing a boxed Result.
 pub type ApiResponse = Box<std::result::Result<VmmData, VmmActionError>>;
 
-impl<'a> PrebootApiController<'a> {
+impl<'a, F: Fn(&tracing::Metadata<'_>) -> bool, G: Fn(&tracing::Metadata<'_>) -> bool>
+    PrebootApiController<'a, F, G>
+{
     /// Constructor for the PrebootApiController.
     pub fn new(
         seccomp_filters: &'a BpfThreadMap,
         instance_info: InstanceInfo,
         vm_resources: &'a mut VmResources,
         event_manager: &'a mut EventManager,
-        logger_handles: LoggerHandles,
+        logger_handles: LoggerHandles<F, G>,
     ) -> Self {
         Self {
             seccomp_filters,
@@ -350,7 +352,7 @@ impl<'a> PrebootApiController<'a> {
         boot_timer_enabled: bool,
         mmds_size_limit: usize,
         metadata_json: Option<&str>,
-        logger_handles: LoggerHandles,
+        logger_handles: LoggerHandles<F, G>,
     ) -> Result<(VmResources, Arc<Mutex<Vmm>>), FcExitCode> {
         let mut vm_resources = VmResources::default();
         // Silence false clippy warning. Clippy suggests using
