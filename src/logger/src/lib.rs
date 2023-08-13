@@ -6,16 +6,10 @@
 //! Crate that implements Firecracker specific functionality as far as logging and metrics
 //! collecting.
 
-mod init;
-mod logger;
 mod metrics;
 
-use std::sync::LockResult;
+pub use tracing::{debug, error, info, trace, warn, Level};
 
-pub use log::Level::*;
-pub use log::{warn, *};
-
-pub use crate::logger::{LoggerError, LOGGER};
 #[cfg(target_arch = "aarch64")]
 pub use crate::metrics::RTCDeviceMetrics;
 pub use crate::metrics::{
@@ -38,15 +32,6 @@ pub fn log_dev_preview_warning(feature_name: &str, msg_opt: Option<String>) {
         Some(msg) => {
             warn!("{DEV_PREVIEW_LOG_PREFIX} {feature_name} is in development preview - {msg}")
         }
-    }
-}
-
-fn extract_guard<G>(lock_result: LockResult<G>) -> G {
-    match lock_result {
-        Ok(guard) => guard,
-        // If a thread panics while holding this lock, the writer within should still be usable.
-        // (we might get an incomplete log line or something like that).
-        Err(poisoned) => poisoned.into_inner(),
     }
 }
 

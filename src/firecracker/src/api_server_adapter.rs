@@ -142,6 +142,7 @@ pub(crate) fn run_with_api(
     api_payload_limit: usize,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
+    logger_handles: vmm::vmm_config::logger::LoggerHandles,
 ) -> Result<(), ApiServerError> {
     // FD to notify of API events. This is a blocking eventfd by design.
     // It is used in the config/pre-boot loop which is a simple blocking loop
@@ -211,6 +212,7 @@ pub(crate) fn run_with_api(
             boot_timer_enabled,
             mmds_size_limit,
             metadata_json,
+            logger_handles,
         )
         .map_err(ApiServerError::MicroVMStoppedWithError),
     };

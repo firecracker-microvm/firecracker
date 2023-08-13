@@ -628,8 +628,6 @@ class Microvm:
         # and leave 0.2 delay between them.
         if "no-api" not in self.jailer.extra_args:
             self._wait_create()
-        if create_logger:
-            self.check_log_message("Running Firecracker")
 
     @retry(delay=0.2, tries=5)
     def _wait_create(self):

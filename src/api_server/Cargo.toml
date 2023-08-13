@@ -21,6 +21,8 @@ mmds = { path = "../mmds" }
 seccompiler = { path = "../seccompiler" }
 utils = { path = "../utils" }
 vmm = { path = "../vmm" }
+tracing = { version = "0.1.37", default-features = false }
 
 [dev-dependencies]
 libc = "0.2.117"
+log = "0.4.19"
