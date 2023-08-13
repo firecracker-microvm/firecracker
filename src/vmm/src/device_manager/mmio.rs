@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use kvm_ioctls::{IoEventAddress, VmFd};
 use linux_loader::cmdline as kernel_cmdline;
-use log::info;
+use logger::info;
 #[cfg(target_arch = "x86_64")]
 use utils::vm_memory::GuestAddress;
 use versionize::{VersionMap, Versionize, VersionizeResult};

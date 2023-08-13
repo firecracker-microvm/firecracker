@@ -9,7 +9,7 @@ use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use log::warn;
+use logger::warn;
 use utils::eventfd::EventFd;
 use utils::vm_memory::GuestMemoryMmap;
 
@@ -74,7 +74,7 @@ impl IrqTrigger {
         self.irq_status.fetch_or(irq as usize, Ordering::SeqCst);
 
         self.irq_evt.write(1).map_err(|err| {
-            log::error!("Failed to send irq to the guest: {:?}", err);
+            logger::error!("Failed to send irq to the guest: {:?}", err);
             err
         })?;
 

@@ -17,7 +17,7 @@ use linux_loader::loader::elf::Elf as Loader;
 #[cfg(target_arch = "aarch64")]
 use linux_loader::loader::pe::PE as Loader;
 use linux_loader::loader::KernelLoader;
-use log::error;
+use logger::error;
 use seccompiler::BpfThreadMap;
 use snapshot::Persist;
 use userfaultfd::Uffd;

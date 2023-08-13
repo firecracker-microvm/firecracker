@@ -11,7 +11,7 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use log::{error, info, warn};
+use logger::{error, info, warn};
 use seccompiler::BpfThreadMap;
 use semver::Version;
 use serde::Serialize;

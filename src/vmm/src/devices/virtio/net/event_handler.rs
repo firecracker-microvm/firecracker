@@ -4,8 +4,7 @@
 use std::os::unix::io::AsRawFd;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use log::{error, warn};
-use logger::{IncMetric, METRICS};
+use logger::{error, warn, IncMetric, METRICS};
 use utils::epoll::EventSet;
 
 use crate::devices::virtio::net::device::Net;
@@ -40,7 +39,7 @@ impl Net {
     }
 
     fn process_activate_event(&self, ops: &mut EventOps) {
-        log::debug!("net: activate event");
+        logger::debug!("net: activate event");
         if let Err(err) = self.activate_evt.read() {
             error!("Failed to consume net activate event: {:?}", err);
         }

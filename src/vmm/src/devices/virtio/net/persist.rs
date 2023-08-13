@@ -7,7 +7,7 @@ use std::io;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 
-use log::warn;
+use logger::warn;
 use mmds::data_store::Mmds;
 use mmds::ns::MmdsNetworkStack;
 use mmds::persist::MmdsNetworkStackState;

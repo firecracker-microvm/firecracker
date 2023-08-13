@@ -7,8 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{cmp, fmt};
 
-use log::error;
-use logger::{IncMetric, METRICS};
+use logger::{error, IncMetric, METRICS};
 use serde::Serialize;
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use utils::eventfd::EventFd;

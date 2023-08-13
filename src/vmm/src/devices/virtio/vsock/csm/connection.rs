@@ -84,8 +84,7 @@ use std::num::Wrapping;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 
-use log::{debug, error, info, warn};
-use logger::{IncMetric, METRICS};
+use logger::{debug, error, info, warn, IncMetric, METRICS};
 use utils::epoll::EventSet;
 use utils::vm_memory::{GuestMemoryError, GuestMemoryMmap, ReadVolatile, WriteVolatile};
 

@@ -9,7 +9,7 @@ use std::fmt::Debug;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use log::warn;
+use logger::warn;
 use utils::byte_order;
 use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 

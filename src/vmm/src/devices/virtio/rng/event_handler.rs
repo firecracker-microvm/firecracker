@@ -4,7 +4,7 @@
 use std::os::unix::io::AsRawFd;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use log::{error, warn};
+use logger::{error, warn};
 use utils::epoll::EventSet;
 
 use super::{Entropy, RNG_QUEUE};

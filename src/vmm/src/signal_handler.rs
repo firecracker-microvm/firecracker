@@ -4,8 +4,7 @@
 use libc::{
     c_int, c_void, siginfo_t, SIGBUS, SIGHUP, SIGILL, SIGPIPE, SIGSEGV, SIGSYS, SIGXCPU, SIGXFSZ,
 };
-use log::error;
-use logger::{IncMetric, StoreMetric, METRICS};
+use logger::{error, IncMetric, StoreMetric, METRICS};
 use utils::signal::register_signal_handler;
 
 use crate::FcExitCode;

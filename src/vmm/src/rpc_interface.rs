@@ -4,8 +4,7 @@
 use std::fmt::{self, Debug};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use log::{error, info, warn};
-use logger::*;
+use logger::{error, info, warn, *};
 use mmds::data_store::{self, Mmds};
 use seccompiler::BpfThreadMap;
 use serde_json::Value;

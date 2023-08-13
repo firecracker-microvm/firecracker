@@ -35,7 +35,7 @@ pub(crate) fn compact_page_frame_numbers(v: &mut [u32]) -> Vec<(u32, u32)> {
         // Skip duplicate pages. This will ensure we only consider
         // distinct PFNs.
         if page_frame_number == v[pfn_index - 1] {
-            log::error!("Skipping duplicate PFN {}.", page_frame_number);
+            logger::error!("Skipping duplicate PFN {}.", page_frame_number);
             continue;
         }
 

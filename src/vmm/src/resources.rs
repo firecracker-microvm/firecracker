@@ -184,7 +184,7 @@ impl VmResources {
             resources.locked_mmds_or_default().put_data(
                 serde_json::from_str(data).expect("MMDS error: metadata provided not valid json"),
             )?;
-            log::info!("Successfully added metadata to mmds from file");
+            logger::info!("Successfully added metadata to mmds from file");
         }
 
         if let Some(mmds_config) = vmm_config.mmds_config {
