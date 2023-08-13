@@ -5,69 +5,85 @@
 It checks the response of the API configuration calls and the logs that show
 up in the configured logging FIFO.
 """
+
+import datetime
 import os
-import re
-from time import strptime
 
 import host_tools.logging as log_tools
 
-# Array of supported log levels of the current logging system.
-# Do not change order of values inside this array as logic depends on this.
-LOG_LEVELS = ["ERROR", "WARN", "INFO", "DEBUG"]
+
+def level_int(level):
+    """Converts a log level string to an integer representation"""
+
+    if level == "ERROR":
+        return 0
+    if level == "WARN":
+        return 1
+    if level == "INFO":
+        return 2
+    if level == "DEBUG":
+        return 3
+    if level == "TRACE":
+        return 4
+    raise Exception("Invalid level")
 
 
-def to_formal_log_level(log_level):
-    """Convert a pretty-print log level into the related log level code.
-
-    Turns a pretty formatted log level (i.e Warning) into the one actually
-    being logged (i.e WARN).
-    :param log_level: pretty formatted log level
-    :return: actual level being logged
-    """
-    if log_level == "Error":
-        return LOG_LEVELS[0]
-    if log_level == "Warning":
-        return LOG_LEVELS[1]
-    if log_level == "Info":
-        return LOG_LEVELS[2]
-    if log_level == "Debug":
-        return LOG_LEVELS[3]
-    return ""
-
-
-def check_log_message_format(log_str, instance_id, level, show_level, show_origin):
+# pylint: disable=anomalous-backslash-in-string
+def check_log_message_format(log_str, log_level, show_level, show_origin):
     """Ensure correctness of the logged message.
 
     Parse the string representing the logs and look for the parts
     that should be there.
-    The log line should look lie this:
-         YYYY-MM-DDTHH:MM:SS.NNNNNNNNN [ID:THREAD:LEVEL:FILE:LINE] MESSAGE
-    where LEVEL and FILE:LINE are both optional.
-    e.g. with THREAD NAME as TN
-    `2018-09-09T12:52:00.123456789 [MYID:TN:WARN:/path/to/file.rs:52] warning`
+    The log line should look like:
+    > {year}-{month}-{day}T{hour}:{minute}:{second}.{microsecond}Z {level} {thread name}
+    > {process name}: {file}:{line number} {message}
+    where `level`, `file` and `line number` are optional e.g.
+    > 2023-07-19T12:10:54.608814Z  INFO main test_bin_3: src\main.rs:18: yak shaving completed.
     """
-    timestamp, tag_and_msg = log_str.split(" ", maxsplit=1)
-    timestamp = timestamp[:-10]
-    strptime(timestamp, "%Y-%m-%dT%H:%M:%S")
+    split = iter(log_str.split())
+    now = datetime.datetime.now()
 
-    pattern = "\\[(" + instance_id + ")"
-    pattern += ":(.*)"
+    timestamp = next(split)
+    date, time = timestamp.split("T")
+    year, month, day = date.split("-")
+    assert len(month) == 2
+    assert len(day) == 2
+
+    assert time[-1] == "Z"
+    hour, minute, secs = time[:-1].split(":")
+    second, microsecond = secs.split(".")
+    assert len(hour) == 2
+    assert len(minute) == 2
+    assert len(second) == 2
+    assert len(microsecond) == 6
+
+    # Assert the time in the logs is less than or equal to the current time
+    log_time = datetime.datetime(
+        year=int(year),
+        month=int(month),
+        day=int(day),
+        hour=int(hour),
+        minute=int(minute),
+        second=int(second),
+        microsecond=int(microsecond),
+    )
+    assert log_time <= now
+
     if show_level:
-        pattern += ":(" + "|".join(LOG_LEVELS) + ")"
+        level = next(split)
+        assert level in ("ERROR", "WARN", "INFO", "DEBUG", "TRACE")
+        assert level_int(level) <= level_int(log_level.upper())
+
+    # Thread names are not optional.
+    _thread_name = next(split)
+    # Process names are not optional.
+    _process_name = next(split)
+
     if show_origin:
-        pattern += ":([^:]+/[^:]+):([0-9]+)"
-    pattern += "\\].*"
-
-    mo = re.match(pattern, tag_and_msg)
-    assert (
-        mo is not None
-    ), f"Log message ({tag_and_msg}) does not match pattern ({pattern})."
-
-    if show_level:
-        tag_level = mo.group(3)
-        tag_level_no = LOG_LEVELS.index(tag_level)
-        configured_level_no = LOG_LEVELS.index(to_formal_log_level(level))
-        assert tag_level_no <= configured_level_no
+        origin = next(split)
+        assert origin[-1] == ":"
+        _path, line = origin[:-1].split(":")
+        assert line.isnumeric()
 
 
 def test_no_origin_logs(test_microvm_with_api):
@@ -102,7 +118,7 @@ def test_warn_logs(test_microvm_with_api):
     """
     Check output of logs when minimum level to be displayed is warning.
     """
-    _test_log_config(microvm=test_microvm_with_api, log_level="Warning")
+    _test_log_config(microvm=test_microvm_with_api, log_level="Warn")
 
 
 def test_error_logs(test_microvm_with_api):
@@ -232,8 +248,5 @@ def _test_log_config(microvm, log_level="Info", show_level=True, show_origin=Tru
     microvm.start()
 
     lines = microvm.log_data.splitlines()
-    for idx, line in enumerate(lines):
-        if idx == 0:
-            assert line.startswith("Running Firecracker")
-            continue
-        check_log_message_format(line, microvm.id, log_level, show_level, show_origin)
+    for line in lines:
+        check_log_message_format(line, log_level, show_level, show_origin)
