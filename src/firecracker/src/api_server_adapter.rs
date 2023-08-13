@@ -132,7 +132,10 @@ impl MutEventSubscriber for ApiServerAdapter {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run_with_api(
+pub(crate) fn run_with_api<
+    F: Fn(&tracing::Metadata<'_>) -> bool,
+    G: Fn(&tracing::Metadata<'_>) -> bool,
+>(
     seccomp_filters: &mut BpfThreadMap,
     config_json: Option<String>,
     bind_path: PathBuf,
@@ -142,7 +145,7 @@ pub(crate) fn run_with_api(
     api_payload_limit: usize,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
-    logger_handles: vmm::vmm_config::logger::LoggerHandles,
+    logger_handles: vmm::vmm_config::logger::LoggerHandles<F, G>,
 ) -> Result<(), ApiServerError> {
     // FD to notify of API events. This is a blocking eventfd by design.
     // It is used in the config/pre-boot loop which is a simple blocking loop
