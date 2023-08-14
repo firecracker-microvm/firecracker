@@ -148,6 +148,11 @@ UNAVAILABLE_CPUID_ON_DUMP_LIST = [
     # it as it is, so here we ignore subleaves 1 and 2.
     (0x12, 0x1),
     (0x12, 0x2),
+    # CPUID.18h enumerates deterministic address translation parameters and the
+    # subleaf 0 reports the maximum supported subleaf in EAX, and all the tested
+    # platforms reports 0 in EAX. However, the userspace cpuid command in ubuntu
+    # 22 also lists the subleaf 1.
+    (0x18, 0x1),
     # CPUID.8000001Bh or later are not supported on kernel 4.14 with an
     # exception CPUID.8000001Dh and CPUID.8000001Eh normalized by firecracker.
     # https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/kvm/cpuid.c?h=v4.14.313#n637
