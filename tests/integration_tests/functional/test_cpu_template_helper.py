@@ -138,6 +138,16 @@ UNAVAILABLE_CPUID_ON_DUMP_LIST = [
     # not listed, the subleaf 2 should be skipped when the userspace cpuid
     # enumerates it.
     (0xB, 0x2),
+    # On CPUID.12h, the subleaves 0 and 1 enumerate Intel SGX capability and
+    # attributes respectively, and subleaves 2 or higher enumerate Intel SGX
+    # EPC that is listed only when CPUID.07h:EBX[2] is 1, meaning that SGX is
+    # supported. However, as seen in CPU config baseline files, CPUID.07h:EBX[2]
+    # is 0 on all tested platforms. On the other hand, the userspace cpuid
+    # command enumerates subleaves up to 2 regardless of CPUID.07h:EBX[2].
+    # KVM_GET_SUPPORTED_CPUID returns 0 in CPUID.12h.0 and firecracker passes
+    # it as it is, so here we ignore subleaves 1 and 2.
+    (0x12, 0x1),
+    (0x12, 0x2),
     # CPUID.8000001Bh or later are not supported on kernel 4.14 with an
     # exception CPUID.8000001Dh and CPUID.8000001Eh normalized by firecracker.
     # https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/kvm/cpuid.c?h=v4.14.313#n637
