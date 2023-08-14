@@ -271,7 +271,9 @@ def get_guest_msrs(microvm, msr_index_list):
     ),
 )
 def test_cpu_config_dump_vs_actual(
-    uvm_legacy,
+    microvm_factory,
+    guest_kernel,
+    rootfs,
     cpu_template_helper,
     tmp_path,
 ):
@@ -279,7 +281,7 @@ def test_cpu_config_dump_vs_actual(
     Verify that the dumped CPU config matches the actual CPU config inside
     guest.
     """
-    microvm = uvm_legacy
+    microvm = microvm_factory.build(guest_kernel, rootfs)
     microvm.spawn()
     microvm.basic_config()
     microvm.add_net_iface()
