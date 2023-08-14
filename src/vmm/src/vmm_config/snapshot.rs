@@ -5,6 +5,8 @@
 
 use std::path::PathBuf;
 
+/// For crates that depend on `vmm` we export.
+pub use semver::Version;
 use serde::{Deserialize, Serialize};
 
 /// The snapshot type options that are available when
@@ -21,8 +23,8 @@ pub enum SnapshotType {
 /// Specifies the method through which guest memory will get populated when
 /// resuming from a snapshot:
 /// 1) A file that contains the guest memory to be loaded,
-/// 2) An UDS where a custom page-fault handler process is listening for
-///    the UFFD set up by Firecracker to handle its guest memory page faults.
+/// 2) An UDS where a custom page-fault handler process is listening for the UFFD set up by
+///    Firecracker to handle its guest memory page faults.
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 pub enum MemBackendType {
     /// Guest memory contents will be loaded from a file.
@@ -32,7 +34,7 @@ pub enum MemBackendType {
 }
 
 /// Stores the configuration that will be used for creating a snapshot.
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreateSnapshotParams {
     /// This marks the type of snapshot we want to create.
@@ -45,7 +47,7 @@ pub struct CreateSnapshotParams {
     pub mem_file_path: PathBuf,
     /// Optional field for the microVM version. The default
     /// value is the current version.
-    pub version: Option<String>,
+    pub version: Option<Version>,
 }
 
 /// Stores the configuration that will be used for loading a snapshot.

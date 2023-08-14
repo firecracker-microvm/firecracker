@@ -100,7 +100,7 @@ class Consumer(ABC):
         """Reset the results of this consumer, used in a previous exercise."""
         self._results = defaultdict()
 
-    def process(self, fail_fast=False) -> (dict, dict):
+    def process(self, check=True, fail_fast=False) -> (dict, dict):
         """Generate statistics as a dictionary."""
         self._validate()
         for ms_name in self._results:
@@ -127,7 +127,7 @@ class Consumer(ABC):
                     }
 
                 pass_criteria = st_def.pass_criteria
-                if pass_criteria:
+                if check and pass_criteria:
                     # if the statistic definition contains a criteria but the
                     # corresponding baseline is not defined, the test should fail.
                     if pass_criteria.baseline == {}:

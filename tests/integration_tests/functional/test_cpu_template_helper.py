@@ -8,17 +8,15 @@ from pathlib import Path
 
 import pytest
 
-from framework import defs, utils
+from framework import utils
 from framework.defs import SUPPORTED_HOST_KERNELS
 from framework.properties import global_props
-from framework.utils_cpu_templates import nonci_on_arm
+from framework.utils_cpu_templates import skip_on_arm
 from framework.utils_cpuid import get_guest_cpuid
 from host_tools import cargo_build
 
 PLATFORM = platform.machine()
-TEST_RESOURCES_DIR = Path(
-    f"{defs.FC_WORKSPACE_DIR}/resources/tests/cpu_template_helper/"
-)
+TEST_RESOURCES_DIR = Path("./data/cpu_template_helper")
 
 
 class CpuTemplateHelper:
@@ -223,8 +221,8 @@ def get_guest_msrs(microvm, msr_index_list):
             continue
         rdmsr_cmd = f"rdmsr -0 {index}"
         code, stdout, stderr = microvm.ssh.execute_command(rdmsr_cmd)
-        assert stderr.read() == "", f"Failed to get MSR for {index=:#x}: {code=}"
-        msrs_dict[index] = int(stdout.read(), 16)
+        assert stderr == "", f"Failed to get MSR for {index=:#x}: {code=}"
+        msrs_dict[index] = int(stdout, 16)
 
     return msrs_dict
 
@@ -236,21 +234,19 @@ def get_guest_msrs(microvm, msr_index_list):
         "System registers are not accessible on aarch64."
     ),
 )
-@nonci_on_arm
 def test_cpu_config_dump_vs_actual(
-    test_microvm_with_api_and_msrtools,
+    uvm_legacy,
     cpu_template_helper,
-    network_config,
     tmp_path,
 ):
     """
     Verify that the dumped CPU config matches the actual CPU config inside
     guest.
     """
-    microvm = test_microvm_with_api_and_msrtools
+    microvm = uvm_legacy
     microvm.spawn()
     microvm.basic_config()
-    microvm.ssh_network_config(network_config, "1")
+    microvm.add_net_iface()
     vm_config_path = save_vm_config(microvm, tmp_path)
 
     # Dump CPU config with the helper tool.
@@ -267,8 +263,12 @@ def test_cpu_config_dump_vs_actual(
 
     # Compare CPUID between actual and dumped CPU config.
     # Verify all the actual CPUIDs are covered and match with the dumped one.
+    keys_not_in_dump = {}
     for key, actual in actual_cpu_config["cpuid"].items():
         if (key[0], key[1]) in UNAVAILABLE_CPUID_ON_DUMP_LIST:
+            continue
+        if key not in dump_cpu_config["cpuid"]:
+            keys_not_in_dump[key] = actual_cpu_config["cpuid"][key]
             continue
         dump = dump_cpu_config["cpuid"][key]
 
@@ -279,6 +279,8 @@ def test_cpu_config_dump_vs_actual(
             f"Mismatched CPUID for leaf={key[0]:#x} subleaf={key[1]:#x} reg={key[2]}:"
             f"{actual=:#034b} vs. {dump=:#034b}"
         )
+
+    assert len(keys_not_in_dump) == 0
 
     # Verify all CPUID on the dumped CPU config are covered in actual one.
     for key, dump in dump_cpu_config["cpuid"].items():
@@ -322,9 +324,9 @@ def detect_fingerprint_change(microvm, tmp_path, cpu_template_helper, filters):
     cpu_template_helper.fingerprint_dump(vm_config_path, fingerprint_path)
 
     # Baseline fingerprint.
-    baseline_path = Path(
-        f"{TEST_RESOURCES_DIR}/"
-        f"fingerprint_{global_props.cpu_codename}_{global_props.host_linux_version}host.json"
+    baseline_path = (
+        TEST_RESOURCES_DIR
+        / f"fingerprint_{global_props.cpu_codename}_{global_props.host_linux_version}host.json"
     )
     # Use this code to generate baseline fingerprint.
     # cpu_template_helper.fingerprint_dump(vm_config_path, baseline_path)
@@ -337,8 +339,9 @@ def detect_fingerprint_change(microvm, tmp_path, cpu_template_helper, filters):
     )
 
 
+@pytest.mark.no_block_pr
 @pytest.mark.skipif(
-    utils.get_kernel_version(level=1) not in SUPPORTED_HOST_KERNELS,
+    global_props.host_linux_version not in SUPPORTED_HOST_KERNELS,
     reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
 )
 def test_guest_cpu_config_change(test_microvm_with_api, tmp_path, cpu_template_helper):
@@ -346,6 +349,13 @@ def test_guest_cpu_config_change(test_microvm_with_api, tmp_path, cpu_template_h
     Verify that the guest CPU config has not changed since the baseline
     fingerprint was gathered.
     """
+    if (
+        global_props.host_linux_version == "4.14"
+        and global_props.instance == "c7g.metal"
+    ):
+        # The non-SVE kernel has a different value in 0x6030000000100040 because
+        # it's an old kernel.
+        pytest.skip("old kernel has different fingerprint")
     detect_fingerprint_change(
         test_microvm_with_api,
         tmp_path,
@@ -373,7 +383,7 @@ def test_host_fingerprint_change(test_microvm_with_api, tmp_path, cpu_template_h
     )
 
 
-@nonci_on_arm
+@skip_on_arm
 def test_json_static_templates(
     test_microvm_with_api, cpu_template_helper, tmp_path, custom_cpu_template
 ):

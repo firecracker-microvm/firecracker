@@ -9,17 +9,18 @@ from framework import utils
 IPERF_BINARY = "iperf3"
 
 
-def test_high_ingress_traffic(test_microvm_with_api, network_config):
+def test_high_ingress_traffic(test_microvm_with_api):
     """
     Run iperf rx with high UDP traffic.
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
-
     test_microvm.basic_config()
 
     # Create tap before configuring interface.
-    tap, _host_ip, guest_ip = test_microvm.ssh_network_config(network_config, "1")
+    test_microvm.add_net_iface()
+    tap = test_microvm.iface["eth0"]["tap"]
+    guest_ip = test_microvm.iface["eth0"]["iface"].guest_ip
     # Set the tap's tx queue len to 5. This increases the probability
     # of filling the tap under high ingress traffic.
     tap.set_tx_queue_len(5)

@@ -1,0 +1,25 @@
+codecov:
+  # We utilize optional statuses that are okay to fail, so
+  # having codecov only post if all statuses pass won't work.
+  require_ci_to_pass: no
+  notify:
+    # No need to wait for long running tests if the build tests are done.
+    wait_for_ci: false
+coverage:
+  # Our target is 80% coverage
+  range: 80..100
+  status:
+    project:
+      firecracker:
+        # Allow drop of up to 0.5%
+        threshold: 0.5%
+        target: 80%
+# There are 15 uploads per commit (|{instance type} x {kernel version}| = 15).
+# Codecov will update the comment with every new upload. If we want to instead
+# only post the comment after all 15 reports are received, add `after_n_builds: 15`
+# below
+comment:
+  # Only relevant for initial report: We want a report even though
+  # codecov integration is not merged to main yet, to see it works
+  # without having to go through multiple PR cycles.
+  require_base: false

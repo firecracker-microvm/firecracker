@@ -7,9 +7,7 @@ from framework.utils import configure_mmds, populate_data_store
 NO_OF_MICROVMS = 20
 
 
-def test_run_concurrency_with_mmds(
-    microvm_factory, network_config, guest_kernel, rootfs
-):
+def test_run_concurrency_with_mmds(microvm_factory, guest_kernel, rootfs):
     """
     Spawn multiple firecracker processes to run concurrently with MMDS
     """
@@ -33,13 +31,10 @@ def test_run_concurrency_with_mmds(
     for index in range(NO_OF_MICROVMS):
         microvm = microvm_factory.build(guest_kernel, rootfs)
         microvm.spawn()
-
-        interface_id = str(index)
-        # Attach network device
-        microvm.ssh_network_config(network_config, interface_id)
+        microvm.add_net_iface()
 
         # Configure MMDS before population
-        configure_mmds(microvm, iface_ids=[interface_id], version="V2")
+        configure_mmds(microvm, iface_ids=["eth0"], version="V2")
 
         # Populate data store with some data prior to starting the guest
         populate_data_store(microvm, data_store)
@@ -77,16 +72,16 @@ def test_run_concurrency_with_mmds(
         assert test_microvm.api_session.is_status_no_content(response.status_code)
 
 
-def test_run_concurrency(microvm_factory, network_config, guest_kernel, rootfs):
+def test_run_concurrency(microvm_factory, guest_kernel, rootfs):
     """
     Check we can spawn multiple microvms.
     """
 
-    for i in range(NO_OF_MICROVMS):
+    for _ in range(NO_OF_MICROVMS):
         microvm = microvm_factory.build(guest_kernel, rootfs)
         microvm.spawn()
         microvm.basic_config(vcpu_count=1, mem_size_mib=128)
-        microvm.ssh_network_config(network_config, str(i))
+        microvm.add_net_iface()
         microvm.start()
 
         # We check that the vm is running by testing that the ssh does

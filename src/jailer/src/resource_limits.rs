@@ -6,7 +6,7 @@ use std::fmt::{Display, Formatter};
 
 use utils::syscall::SyscallReturnCode;
 
-use super::{Error, Result};
+use super::JailerError;
 
 // Default limit for the maximum number of file descriptors open at a time.
 const NO_FILE: u64 = 2048;
@@ -90,7 +90,7 @@ impl Default for ResourceLimits {
 }
 
 impl ResourceLimits {
-    pub fn install(self) -> Result<()> {
+    pub fn install(self) -> Result<(), JailerError> {
         if let Some(file_size) = self.file_size {
             // Set file size limit.
             ResourceLimits::set_limit(Resource::RlimitFsize, file_size)?;
@@ -101,7 +101,7 @@ impl ResourceLimits {
         Ok(())
     }
 
-    fn set_limit(resource: Resource, target: libc::rlim_t) -> Result<()> {
+    fn set_limit(resource: Resource, target: libc::rlim_t) -> Result<(), JailerError> {
         let rlim: libc::rlimit = libc::rlimit {
             rlim_cur: target,
             rlim_max: target,
@@ -111,7 +111,7 @@ impl ResourceLimits {
         // is non-dangling.
         SyscallReturnCode(unsafe { libc::setrlimit(resource.into(), &rlim) })
             .into_empty_result()
-            .map_err(|_| Error::Setrlimit(resource.to_string()))
+            .map_err(|_| JailerError::Setrlimit(resource.to_string()))
     }
 
     pub fn set_file_size(&mut self, file_size: u64) {

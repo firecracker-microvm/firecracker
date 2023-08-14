@@ -1,7 +1,7 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::io::prelude::*;
+use std::io::Write;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
@@ -9,7 +9,7 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use api_server::{ApiServer, ServerError};
+use api_server::{ApiServer, HttpServer, ServerError};
 use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
 use logger::{error, warn, ProcessTimeReporter};
 use seccompiler::BpfThreadMap;
@@ -21,6 +21,20 @@ use vmm::rpc_interface::{
 };
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::{EventManager, FcExitCode, Vmm};
+
+#[derive(Debug, thiserror::Error)]
+pub enum ApiServerError {
+    #[error("MicroVMStopped without an error: {0:?}")]
+    MicroVMStoppedWithoutError(FcExitCode),
+    #[error("MicroVMStopped with an error: {0:?}")]
+    MicroVMStoppedWithError(FcExitCode),
+    #[error("Failed to open the API socket at: {0}. Check that it is not already used.")]
+    FailedToBindSocket(String),
+    #[error("Failed to bind and run the HTTP server: {0}")]
+    FailedToBindAndRunHttpServer(ServerError),
+    #[error("Failed to build MicroVM from Json: {0}")]
+    BuildFromJson(crate::BuildFromJsonError),
+}
 
 #[derive(Debug)]
 struct ApiServerAdapter {
@@ -128,7 +142,7 @@ pub(crate) fn run_with_api(
     api_payload_limit: usize,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
-) -> FcExitCode {
+) -> Result<(), ApiServerError> {
     // FD to notify of API events. This is a blocking eventfd by design.
     // It is used in the config/pre-boot loop which is a simple blocking loop
     // which only consumes API events.
@@ -137,48 +151,35 @@ pub(crate) fn run_with_api(
     // Channels for both directions between Vmm and Api threads.
     let (to_vmm, from_api) = channel();
     let (to_api, from_vmm) = channel();
-    let (socket_ready_sender, socket_ready_receiver) = channel();
 
     let to_vmm_event_fd = api_event_fd
         .try_clone()
         .expect("Failed to clone API event FD");
-    let api_bind_path = bind_path.clone();
     let api_seccomp_filter = seccomp_filters
         .remove("api")
         .expect("Missing seccomp filter for API thread.");
+
+    let server = match HttpServer::new(&bind_path) {
+        Ok(s) => s,
+        Err(ServerError::IOError(inner)) if inner.kind() == std::io::ErrorKind::AddrInUse => {
+            let sock_path = bind_path.display().to_string();
+            return Err(ApiServerError::FailedToBindSocket(sock_path));
+        }
+        Err(err) => {
+            return Err(ApiServerError::FailedToBindAndRunHttpServer(err));
+        }
+    };
 
     // Start the separate API thread.
     let api_thread = thread::Builder::new()
         .name("fc_api".to_owned())
         .spawn(move || {
-            let res = ApiServer::new(to_vmm, from_vmm, to_vmm_event_fd).bind_and_run(
-                &api_bind_path,
+            ApiServer::new(to_vmm, from_vmm, to_vmm_event_fd).run(
+                server,
                 process_time_reporter,
                 &api_seccomp_filter,
                 api_payload_limit,
-                socket_ready_sender,
             );
-
-            let Err(err) = res else {
-                return;
-            };
-
-            match err {
-                api_server::Error::ServerCreation(ServerError::IOError(inner))
-                    if inner.kind() == std::io::ErrorKind::AddrInUse =>
-                {
-                    let sock_path = api_bind_path.display().to_string();
-                    error!(
-                        "Failed to open the API socket at: {sock_path}. Check that it is not \
-                         already used."
-                    );
-                }
-                api_server::Error::ServerCreation(err) => {
-                    error!("Failed to bind and run the HTTP server: {err}");
-                }
-            }
-
-            std::process::exit(vmm::FcExitCode::GenericError as i32);
         })
         .expect("API thread spawn failed.");
 
@@ -198,7 +199,8 @@ pub(crate) fn run_with_api(
             boot_timer_enabled,
             mmds_size_limit,
             metadata_json,
-        ),
+        )
+        .map_err(ApiServerError::BuildFromJson),
         None => PrebootApiController::build_microvm_from_requests(
             seccomp_filters,
             &mut event_manager,
@@ -209,28 +211,25 @@ pub(crate) fn run_with_api(
             boot_timer_enabled,
             mmds_size_limit,
             metadata_json,
-        ),
+        )
+        .map_err(ApiServerError::MicroVMStoppedWithError),
     };
 
-    let exit_code = match build_result {
-        Ok((vm_resources, vmm)) => {
-            // Start the metrics.
-            firecracker_metrics
-                .lock()
-                .expect("Poisoned lock")
-                .start(super::metrics::WRITE_METRICS_PERIOD_MS);
+    let result = build_result.map(|(vm_resources, vmm)| {
+        firecracker_metrics
+            .lock()
+            .expect("Poisoned lock")
+            .start(super::metrics::WRITE_METRICS_PERIOD_MS);
 
-            ApiServerAdapter::run_microvm(
-                api_event_fd,
-                from_api,
-                to_api,
-                vm_resources,
-                vmm,
-                &mut event_manager,
-            )
-        }
-        Err(exit_code) => exit_code,
-    };
+        ApiServerAdapter::run_microvm(
+            api_event_fd,
+            from_api,
+            to_api,
+            vm_resources,
+            vmm,
+            &mut event_manager,
+        )
+    });
 
     // We want to tell the API thread to shut down for a clean exit. But this is after
     // the Vmm.stop() has been called, so it's a moment of internal finalization (as
@@ -241,18 +240,16 @@ pub(crate) fn run_with_api(
     // conditions.
 
     // We also need to make sure the socket path is ready.
-    // The recv will return an error if the other end has already exited which means
-    // that there is no need for us to send the "shutdown internal".
-    let mut sock;
-    if socket_ready_receiver.recv() == Ok(true) {
-        // "sock" var is declared outside of this "if" scope so that the socket's fd stays
-        // alive until all bytes are sent through; otherwise fd will close before being flushed.
-        sock = UnixStream::connect(bind_path).unwrap();
-        sock.write_all(b"PUT /shutdown-internal HTTP/1.1\r\n\r\n")
-            .unwrap();
-    }
+    let mut sock = UnixStream::connect(bind_path).unwrap();
+    sock.write_all(b"PUT /shutdown-internal HTTP/1.1\r\n\r\n")
+        .unwrap();
+
     // This call to thread::join() should block until the API thread has processed the
     // shutdown-internal and returns from its function.
-    api_thread.join().unwrap();
-    exit_code
+    api_thread.join().expect("Api thread should join");
+
+    match result {
+        Ok(exit_code) => Err(ApiServerError::MicroVMStoppedWithoutError(exit_code)),
+        Err(exit_error) => Err(exit_error),
+    }
 }

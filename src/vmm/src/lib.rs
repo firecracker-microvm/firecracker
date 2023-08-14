@@ -102,11 +102,11 @@ pub mod vmm_config;
 mod vstate;
 
 use std::collections::HashMap;
+use std::io;
 use std::os::unix::io::AsRawFd;
 use std::sync::mpsc::{RecvTimeoutError, TryRecvError};
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
-use std::{fmt, io};
 
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use logger::{error, info, warn, MetricsError, METRICS};
@@ -285,14 +285,9 @@ pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
 }
 
 /// Error type for [`Vmm::emulate_serial_init`].
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, derive_more::From, thiserror::Error)]
+#[error("Emulate serial init error: {0}")]
 pub struct EmulateSerialInitError(std::io::Error);
-impl fmt::Display for EmulateSerialInitError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Emulate serial init error: {}", self.0)
-    }
-}
-impl std::error::Error for EmulateSerialInitError {}
 
 /// Error type for [`Vmm::start_vcpus`].
 #[derive(Debug, thiserror::Error)]

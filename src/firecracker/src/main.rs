@@ -7,22 +7,26 @@ mod seccomp;
 
 use std::fs::{self, File};
 use std::path::PathBuf;
+use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
-use std::{io, panic, process};
+use std::{io, panic};
 
+use api_server_adapter::ApiServerError;
 use event_manager::SubscriberOps;
 use logger::{error, info, ProcessTimeReporter, StoreMetric, LOGGER, METRICS};
+use seccomp::FilterError;
 use seccompiler::BpfThreadMap;
-use snapshot::Snapshot;
+use snapshot::{Error as SnapshotError, Snapshot};
 use utils::arg_parser::{ArgParser, Argument};
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
+use vmm::builder::StartMicrovmError;
 use vmm::resources::VmResources;
 use vmm::signal_handler::register_signal_handlers;
 use vmm::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
-use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerLevel};
-use vmm::vmm_config::metrics::{init_metrics, MetricsConfig};
+use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError, LoggerLevel};
+use vmm::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
 use vmm::{EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
 
 use crate::seccomp::SeccompConfig;
@@ -35,51 +39,59 @@ const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
 const FIRECRACKER_VERSION: &str = env!("FIRECRACKER_VERSION");
 const MMDS_CONTENT_ARG: &str = "metadata";
 
-#[cfg(target_arch = "aarch64")]
-/// Enable SSBD mitigation through `prctl`.
-pub fn enable_ssbd_mitigation() {
-    // Parameters for `prctl`
-    // TODO: generate bindings for these from the kernel sources.
-    // https://elixir.bootlin.com/linux/v4.17/source/include/uapi/linux/prctl.h#L212
-    const PR_SET_SPECULATION_CTRL: i32 = 53;
-    const PR_SPEC_STORE_BYPASS: u64 = 0;
-    const PR_SPEC_FORCE_DISABLE: u64 = 1u64 << 3;
+#[derive(Debug, thiserror::Error)]
+enum MainError {
+    #[error("Failed to register signal handlers: {0}")]
+    RegisterSignalHandlers(#[source] utils::errno::Error),
+    #[error("Arguments parsing error: {0} \n\nFor more information try --help.")]
+    ParseArguments(#[from] utils::arg_parser::Error),
+    #[error("When printing Snapshot Data format: {0}")]
+    PrintSnapshotDataFormat(#[from] SnapshotVersionError),
+    #[error("Invalid value for logger level: {0}.Possible values: [Error, Warning, Info, Debug]")]
+    InvalidLogLevel(LoggerConfigError),
+    #[error("Could not initialize logger: {0}")]
+    LoggerInitialization(LoggerConfigError),
+    #[error("Could not initialize metrics: {0:?}")]
+    MetricsInitialization(MetricsConfigError),
+    #[error("Seccomp error: {0}")]
+    SeccompFilter(FilterError),
+    #[error("RunWithApiError error: {0}")]
+    RunWithApi(ApiServerError),
+    #[error("RunWithoutApiError error: {0}")]
+    RunWithoutApiError(RunWithoutApiError),
+}
 
-    // SAFETY: Parameters are valid since they are copied verbatim
-    // from the kernel's UAPI.
-    // PR_SET_SPECULATION_CTRL only uses those 2 parameters, so it's ok
-    // to leave the latter 2 as zero.
-    let ret = unsafe {
-        libc::prctl(
-            PR_SET_SPECULATION_CTRL,
-            PR_SPEC_STORE_BYPASS,
-            PR_SPEC_FORCE_DISABLE,
-            0,
-            0,
-        )
-    };
+impl From<MainError> for ExitCode {
+    fn from(value: MainError) -> Self {
+        let exit_code = match value {
+            MainError::ParseArguments(_) => FcExitCode::ArgParsing,
+            MainError::InvalidLogLevel(_) => FcExitCode::BadConfiguration,
+            MainError::RunWithApi(ApiServerError::MicroVMStoppedWithoutError(code)) => code,
+            MainError::RunWithApi(ApiServerError::MicroVMStoppedWithError(code)) => code,
+            _ => FcExitCode::GenericError,
+        };
 
-    if ret < 0 {
-        let last_error = std::io::Error::last_os_error().raw_os_error().unwrap();
-        error!(
-            "Could not enable SSBD mitigation through prctl, error {}",
-            last_error
-        );
-        if last_error == libc::EINVAL {
-            error!("The host does not support SSBD mitigation through prctl.");
-        }
+        ExitCode::from(exit_code as u8)
     }
 }
 
-fn main_exitable() -> FcExitCode {
+fn main() -> ExitCode {
+    let result = main_exec();
+    if let Err(err) = result {
+        error!("{err}");
+        eprintln!("Error: {err:?}");
+        ExitCode::from(err)
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+fn main_exec() -> Result<(), MainError> {
     LOGGER
         .configure(Some(DEFAULT_INSTANCE_ID.to_string()))
         .expect("Failed to register logger");
 
-    if let Err(err) = register_signal_handlers() {
-        error!("Failed to register signal handlers: {}", err);
-        return vmm::FcExitCode::GenericError;
-    }
+    register_signal_handlers().map_err(MainError::RegisterSignalHandlers)?;
 
     #[cfg(target_arch = "aarch64")]
     enable_ssbd_mitigation();
@@ -231,35 +243,25 @@ fn main_exitable() -> FcExitCode {
                 .help("Mmds data store limit, in bytes."),
         );
 
-    let arguments = match arg_parser.parse_from_cmdline() {
-        Err(err) => {
-            error!(
-                "Arguments parsing error: {} \n\nFor more information try --help.",
-                err
-            );
-            return vmm::FcExitCode::ArgParsing;
-        }
-        _ => {
-            if arg_parser.arguments().flag_present("help") {
-                println!("Firecracker v{}\n", FIRECRACKER_VERSION);
-                println!("{}", arg_parser.formatted_help());
-                return vmm::FcExitCode::Ok;
-            }
+    arg_parser.parse_from_cmdline()?;
+    let arguments = arg_parser.arguments();
 
-            if arg_parser.arguments().flag_present("version") {
-                println!("Firecracker v{}\n", FIRECRACKER_VERSION);
-                print_supported_snapshot_versions();
-                return vmm::FcExitCode::Ok;
-            }
+    if arguments.flag_present("help") {
+        println!("Firecracker v{}\n", FIRECRACKER_VERSION);
+        println!("{}", arg_parser.formatted_help());
+        return Ok(());
+    }
 
-            if let Some(snapshot_path) = arg_parser.arguments().single_value("describe-snapshot") {
-                print_snapshot_data_format(snapshot_path);
-                return vmm::FcExitCode::Ok;
-            }
+    if arguments.flag_present("version") {
+        println!("Firecracker v{}\n", FIRECRACKER_VERSION);
+        print_supported_snapshot_versions();
+        return Ok(());
+    }
 
-            arg_parser.arguments()
-        }
-    };
+    if let Some(snapshot_path) = arguments.single_value("describe-snapshot") {
+        print_snapshot_data_format(snapshot_path)?;
+        return Ok(());
+    }
 
     // Display warnings for any used deprecated parameters.
     // Currently unused since there are no deprecated parameters. Uncomment the line when
@@ -282,16 +284,7 @@ fn main_exitable() -> FcExitCode {
     if let Some(log) = arguments.single_value("log-path") {
         // It's safe to unwrap here because the field's been provided with a default value.
         let level = arguments.single_value("level").unwrap().to_owned();
-        let logger_level = match LoggerLevel::from_string(level) {
-            Ok(level) => level,
-            Err(err) => {
-                return generic_error_exit(&format!(
-                    "Invalid value for logger level: {}.Possible values: [Error, Warning, Info, \
-                     Debug]",
-                    err
-                ));
-            }
-        };
+        let logger_level = LoggerLevel::from_string(level).map_err(MainError::InvalidLogLevel)?;
         let show_level = arguments.flag_present("show-level");
         let show_log_origin = arguments.flag_present("show-log-origin");
 
@@ -301,31 +294,22 @@ fn main_exitable() -> FcExitCode {
             show_level,
             show_log_origin,
         };
-        if let Err(err) = init_logger(logger_config, &instance_info) {
-            return generic_error_exit(&format!("Could not initialize logger: {}", err));
-        };
+        init_logger(logger_config, &instance_info).map_err(MainError::LoggerInitialization)?;
     }
 
     if let Some(metrics_path) = arguments.single_value("metrics-path") {
         let metrics_config = MetricsConfig {
             metrics_path: PathBuf::from(metrics_path),
         };
-        if let Err(err) = init_metrics(metrics_config) {
-            return generic_error_exit(&format!("Could not initialize metrics: {}", err));
-        };
+        init_metrics(metrics_config).map_err(MainError::MetricsInitialization)?;
     }
 
-    let mut seccomp_filters: BpfThreadMap = match SeccompConfig::from_args(
+    let mut seccomp_filters: BpfThreadMap = SeccompConfig::from_args(
         arguments.flag_present("no-seccomp"),
         arguments.single_value("seccomp-filter"),
     )
     .and_then(seccomp::get_filters)
-    {
-        Ok(filters) => filters,
-        Err(err) => {
-            return generic_error_exit(&format!("Seccomp error: {}", err));
-        }
-    };
+    .map_err(MainError::SeccompFilter)?;
 
     let vmm_config_json = arguments
         .single_value("config-file")
@@ -395,6 +379,7 @@ fn main_exitable() -> FcExitCode {
             mmds_size_limit,
             metadata_json.as_deref(),
         )
+        .map_err(MainError::RunWithApi)
     } else {
         let seccomp_filters: BpfThreadMap = seccomp_filters
             .into_iter()
@@ -408,28 +393,44 @@ fn main_exitable() -> FcExitCode {
             mmds_size_limit,
             metadata_json.as_deref(),
         )
+        .map_err(MainError::RunWithoutApiError)
     }
 }
 
-fn main() {
-    // This idiom is the prescribed way to get a clean shutdown of Rust (that will report
-    // no leaks in Valgrind or sanitizers).  Calling `unsafe { libc::exit() }` does no
-    // cleanup, and std::process::exit() does more--but does not run destructors.  So the
-    // best thing to do is to is bubble up the exit code through the whole stack, and
-    // only exit when everything potentially destructible has cleaned itself up.
-    //
-    // https://doc.rust-lang.org/std/process/fn.exit.html
-    //
-    // See process_exitable() method of Subscriber trait for what triggers the exit_code.
-    //
-    let exit_code = main_exitable();
-    std::process::exit(exit_code as i32);
-}
+/// Enable SSBD mitigation through `prctl`.
+#[cfg(target_arch = "aarch64")]
+pub fn enable_ssbd_mitigation() {
+    // Parameters for `prctl`
+    // TODO: generate bindings for these from the kernel sources.
+    // https://elixir.bootlin.com/linux/v4.17/source/include/uapi/linux/prctl.h#L212
+    const PR_SET_SPECULATION_CTRL: i32 = 53;
+    const PR_SPEC_STORE_BYPASS: u64 = 0;
+    const PR_SPEC_FORCE_DISABLE: u64 = 1u64 << 3;
 
-// Exit gracefully with a generic error code.
-fn generic_error_exit(msg: &str) -> FcExitCode {
-    error!("{}", msg);
-    vmm::FcExitCode::GenericError
+    // SAFETY: Parameters are valid since they are copied verbatim
+    // from the kernel's UAPI.
+    // PR_SET_SPECULATION_CTRL only uses those 2 parameters, so it's ok
+    // to leave the latter 2 as zero.
+    let ret = unsafe {
+        libc::prctl(
+            PR_SET_SPECULATION_CTRL,
+            PR_SPEC_STORE_BYPASS,
+            PR_SPEC_FORCE_DISABLE,
+            0,
+            0,
+        )
+    };
+
+    if ret < 0 {
+        let last_error = std::io::Error::last_os_error().raw_os_error().unwrap();
+        error!(
+            "Could not enable SSBD mitigation through prctl, error {}",
+            last_error
+        );
+        if last_error == libc::EINVAL {
+            error!("The host does not support SSBD mitigation through prctl.");
+        }
+    }
 }
 
 // Log a warning for any usage of deprecated parameters.
@@ -438,45 +439,51 @@ fn warn_deprecated_parameters() {}
 
 // Print supported snapshot data format versions.
 fn print_supported_snapshot_versions() {
-    let mut snapshot_versions_str = "Supported snapshot data format versions:".to_string();
-    let mut snapshot_versions: Vec<String> = FC_VERSION_TO_SNAP_VERSION
+    let mut versions: Vec<_> = FC_VERSION_TO_SNAP_VERSION
         .iter()
         .map(|(key, _)| key.clone())
         .collect();
-    snapshot_versions.sort();
+    versions.sort();
 
-    snapshot_versions
-        .iter()
-        .for_each(|v| snapshot_versions_str.push_str(format!(" v{},", v).as_str()));
-    snapshot_versions_str.pop();
-    println!("{}\n", snapshot_versions_str);
+    println!("Supported snapshot data format versions:");
+    for v in versions.iter() {
+        println!("{v}");
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+enum SnapshotVersionError {
+    #[error("Unable to open snapshot state file: {0}")]
+    OpenSnapshot(io::Error),
+    #[error("Invalid data format version of snapshot file: {0}")]
+    SnapshotVersion(SnapshotError),
+    #[error("Cannot translate snapshot data version {0} to Firecracker microVM version")]
+    FirecrackerVersion(u16),
 }
 
 // Print data format of provided snapshot state file.
-fn print_snapshot_data_format(snapshot_path: &str) {
-    let mut snapshot_reader = File::open(snapshot_path).unwrap_or_else(|err| {
-        process::exit(
-            generic_error_exit(&format!("Unable to open snapshot state file: {:?}", err)) as i32,
-        );
-    });
+fn print_snapshot_data_format(snapshot_path: &str) -> Result<(), SnapshotVersionError> {
+    let mut snapshot_reader =
+        File::open(snapshot_path).map_err(SnapshotVersionError::OpenSnapshot)?;
+
     let data_format_version = Snapshot::get_data_version(&mut snapshot_reader, &VERSION_MAP)
-        .unwrap_or_else(|err| {
-            process::exit(generic_error_exit(&format!(
-                "Invalid data format version of snapshot file: {:?}",
-                err
-            )) as i32);
-        });
+        .map_err(SnapshotVersionError::SnapshotVersion)?;
 
     let (key, _) = FC_VERSION_TO_SNAP_VERSION
         .iter()
         .find(|(_, &val)| val == data_format_version)
-        .unwrap_or_else(|| {
-            process::exit(generic_error_exit(&format!(
-                "Cannot translate snapshot data version {} to Firecracker microVM version",
-                data_format_version
-            )) as i32);
-        });
+        .ok_or_else(|| SnapshotVersionError::FirecrackerVersion(data_format_version))?;
+
     println!("v{}", key);
+    Ok(())
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum BuildFromJsonError {
+    #[error("Configuration for VMM from one single json failed: {0}")]
+    ParseFromJson(vmm::resources::ResourcesError),
+    #[error("Could not Start MicroVM from one single json: {0}")]
+    StartMicroVM(StartMicrovmError),
 }
 
 // Configure and start a microVM as described by the command-line JSON.
@@ -488,13 +495,10 @@ fn build_microvm_from_json(
     boot_timer_enabled: bool,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
-) -> std::result::Result<(VmResources, Arc<Mutex<vmm::Vmm>>), FcExitCode> {
+) -> Result<(VmResources, Arc<Mutex<vmm::Vmm>>), BuildFromJsonError> {
     let mut vm_resources =
         VmResources::from_json(&config_json, &instance_info, mmds_size_limit, metadata_json)
-            .map_err(|err| {
-                error!("Configuration for VMM from one single json failed: {}", err);
-                vmm::FcExitCode::BadConfiguration
-            })?;
+            .map_err(BuildFromJsonError::ParseFromJson)?;
     vm_resources.boot_timer = boot_timer_enabled;
     let vmm = vmm::builder::build_and_boot_microvm(
         &instance_info,
@@ -502,16 +506,19 @@ fn build_microvm_from_json(
         event_manager,
         seccomp_filters,
     )
-    .map_err(|err| {
-        error!(
-            "Building VMM configured from cmdline json failed: {:?}",
-            err
-        );
-        vmm::FcExitCode::BadConfiguration
-    })?;
+    .map_err(BuildFromJsonError::StartMicroVM)?;
+
     info!("Successfully started microvm that was configured from one single json");
 
     Ok((vm_resources, vmm))
+}
+
+#[derive(Debug, thiserror::Error)]
+enum RunWithoutApiError {
+    #[error("MicroVMStopped without an error: {0:?}")]
+    Shutdown(FcExitCode),
+    #[error("Failed to build MicroVM from Json: {0}")]
+    BuildMicroVMFromJson(BuildFromJsonError),
 }
 
 fn run_without_api(
@@ -521,7 +528,7 @@ fn run_without_api(
     bool_timer_enabled: bool,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
-) -> FcExitCode {
+) -> Result<(), RunWithoutApiError> {
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
 
     // Create the firecracker metrics object responsible for periodically printing metrics.
@@ -529,7 +536,7 @@ fn run_without_api(
     event_manager.add_subscriber(firecracker_metrics.clone());
 
     // Build the microVm. We can ignore VmResources since it's not used without api.
-    let (_, vmm) = match build_microvm_from_json(
+    let (_, vmm) = build_microvm_from_json(
         seccomp_filters,
         &mut event_manager,
         // Safe to unwrap since '--no-api' requires this to be set.
@@ -538,10 +545,8 @@ fn run_without_api(
         bool_timer_enabled,
         mmds_size_limit,
         metadata_json,
-    ) {
-        Ok((res, vmm)) => (res, vmm),
-        Err(exit_code) => return exit_code,
-    };
+    )
+    .map_err(RunWithoutApiError::BuildMicroVMFromJson)?;
 
     // Start the metrics.
     firecracker_metrics
@@ -556,7 +561,7 @@ fn run_without_api(
             .expect("Failed to start the event manager");
 
         if let Some(exit_code) = vmm.lock().unwrap().shutdown_exit_code() {
-            return exit_code;
+            return Err(RunWithoutApiError::Shutdown(exit_code));
         }
     }
 }

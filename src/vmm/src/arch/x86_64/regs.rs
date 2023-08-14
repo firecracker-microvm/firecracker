@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::{fmt, mem};
+use std::mem;
 
 use kvm_bindings::{kvm_fpu, kvm_regs, kvm_sregs};
 use kvm_ioctls::VcpuFd;
@@ -51,14 +51,9 @@ pub enum RegsError {
 }
 
 /// Error type for [`setup_fpu`].
-#[derive(Debug, derive_more::From, PartialEq, Eq)]
+#[derive(Debug, derive_more::From, PartialEq, Eq, thiserror::Error)]
+#[error("Failed to setup FPU: {0}")]
 pub struct SetupFpuError(utils::errno::Error);
-impl std::error::Error for SetupFpuError {}
-impl fmt::Display for SetupFpuError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Failed to setup FPU: {}", self.0)
-    }
-}
 
 /// Configure Floating-Point Unit (FPU) registers for a given CPU.
 ///
@@ -80,14 +75,9 @@ pub fn setup_fpu(vcpu: &VcpuFd) -> Result<(), SetupFpuError> {
 }
 
 /// Error type of [`setup_regs`].
-#[derive(Debug, derive_more::From, PartialEq, Eq)]
+#[derive(Debug, derive_more::From, PartialEq, Eq, thiserror::Error)]
+#[error("Failed to setup registers: {0}")]
 pub struct SetupRegistersError(utils::errno::Error);
-impl std::error::Error for SetupRegistersError {}
-impl fmt::Display for SetupRegistersError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Failed to setup registers:{}", self.0)
-    }
-}
 
 /// Configure base registers for a given CPU.
 ///

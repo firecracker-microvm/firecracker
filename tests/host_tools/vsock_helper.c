@@ -180,6 +180,7 @@ int main(int argc, char **argv) {
             setsid();
             close(STDIN_FILENO);
             close(STDOUT_FILENO);
+            close(STDERR_FILENO);
         }
         else {
             port = atoi(argv[2]);

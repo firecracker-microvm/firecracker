@@ -4,11 +4,11 @@
 use vmm::cpu_config::templates::CustomCpuTemplate;
 use vmm::cpu_config::x86_64::custom_cpu_template::{CpuidLeafModifier, RegisterModifier};
 
-use crate::template::strip::{strip_common, Error};
+use crate::template::strip::{strip_common, StripError};
 use crate::utils::x86_64::{CpuidModifierMap, MsrModifierMap};
 
 #[allow(dead_code)]
-pub fn strip(templates: Vec<CustomCpuTemplate>) -> Result<Vec<CustomCpuTemplate>, Error> {
+pub fn strip(templates: Vec<CustomCpuTemplate>) -> Result<Vec<CustomCpuTemplate>, StripError> {
     // Convert `Vec<CustomCpuTemplate>` to two `Vec<HashMap<_>>` of modifiers.
     let (mut cpuid_modifiers_maps, mut msr_modifiers_maps): (Vec<_>, Vec<_>) = templates
         .into_iter()

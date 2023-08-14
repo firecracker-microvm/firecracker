@@ -15,10 +15,8 @@ import pytest
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
 from framework import utils_cpuid
-from framework.artifacts import NetIfaceConfig, SnapshotType
-from framework.builder import MicrovmBuilder, SnapshotBuilder
 from framework.utils import get_firecracker_version_from_toml, is_io_uring_supported
-from framework.utils_cpu_templates import nonci_on_arm
+from framework.utils_cpu_templates import skip_on_arm
 
 MEM_LIMIT = 1000000000
 
@@ -37,7 +35,7 @@ def test_api_happy_start(test_microvm_with_api):
     test_microvm.start()
 
 
-def test_drive_io_engine(test_microvm_with_api, network_config):
+def test_drive_io_engine(test_microvm_with_api):
     """
     Test io_engine configuration.
 
@@ -48,7 +46,7 @@ def test_drive_io_engine(test_microvm_with_api, network_config):
     test_microvm.spawn()
 
     test_microvm.basic_config(add_root_device=False)
-    test_microvm.ssh_network_config(network_config, "1")
+    test_microvm.add_net_iface()
 
     supports_io_uring = is_io_uring_supported()
 
@@ -56,7 +54,7 @@ def test_drive_io_engine(test_microvm_with_api, network_config):
         drive_id="rootfs",
         path_on_host=test_microvm.create_jailed_resource(test_microvm.rootfs_file),
         is_root_device=True,
-        is_read_only=False,
+        is_read_only=True,
         # Set the opposite of the default backend type.
         io_engine="Sync" if supports_io_uring else "Async",
     )
@@ -74,7 +72,7 @@ def test_drive_io_engine(test_microvm_with_api, network_config):
             drive_id="rootfs",
             path_on_host=test_microvm.create_jailed_resource(test_microvm.rootfs_file),
             is_root_device=True,
-            is_read_only=False,
+            is_read_only=True,
         )
 
     assert test_microvm.api_session.is_status_no_content(response.status_code)
@@ -82,9 +80,9 @@ def test_drive_io_engine(test_microvm_with_api, network_config):
     test_microvm.start()
 
     # Execute a simple command to check that the guest booted successfully.
-    rc, _, stderr = test_microvm.ssh.execute_command("sync")
+    rc, _, stderr = test_microvm.ssh.execute_command("true")
     assert rc == 0
-    assert stderr.read() == ""
+    assert stderr == ""
 
     assert test_microvm.full_cfg.get().json()["drives"][0]["io_engine"] == "Sync"
 
@@ -475,7 +473,7 @@ def test_api_machine_config(test_microvm_with_api):
     assert json["machine-config"]["smt"] is False
 
 
-@nonci_on_arm
+@skip_on_arm
 def test_api_cpu_config(test_microvm_with_api, custom_cpu_template):
     """
     Test /cpu-config PUT scenarios.
@@ -793,16 +791,14 @@ def test_drive_patch(test_microvm_with_api):
     # a root file system with the rw permission.
     test_microvm.basic_config(rootfs_io_engine="Sync")
 
-    # The drive to be patched.
     fs = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "scratch"))
-    response = test_microvm.drive.put(
+    test_microvm.add_drive(
         drive_id="scratch",
-        path_on_host=test_microvm.create_jailed_resource(fs.path),
+        path_on_host=fs.path,
         is_root_device=False,
         is_read_only=False,
         io_engine="Async" if is_io_uring_supported() else "Sync",
     )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Patching drive before boot is not allowed.
     response = test_microvm.drive.patch(drive_id="scratch", path_on_host="foo.bar")
@@ -942,10 +938,10 @@ def _drive_patch(test_microvm):
     assert response.json()["drives"] == [
         {
             "drive_id": "rootfs",
-            "path_on_host": "/bionic.rootfs.ext4",
+            "path_on_host": "/ubuntu-22.04.squashfs",
             "is_root_device": True,
             "partuuid": None,
-            "is_read_only": False,
+            "is_read_only": True,
             "cache_type": "Unsafe",
             "io_engine": "Sync",
             "rate_limiter": None,
@@ -1000,17 +996,11 @@ def test_api_version(test_microvm_with_api):
     assert cargo_version == api_version
 
 
-def test_api_vsock(bin_cloner_path):
+def test_api_vsock(uvm_nano):
     """
     Test vsock related API commands.
     """
-    builder = MicrovmBuilder(bin_cloner_path)
-    # Test with the current build.
-    vm_instance = builder.build_vm_nano()
-    _test_vsock(vm_instance.vm)
-
-
-def _test_vsock(vm):
+    vm = uvm_nano
     # Create a vsock device.
     response = vm.vsock.put(guest_cid=15, uds_path="vsock.sock")
     assert vm.api_session.is_status_no_content(response.status_code)
@@ -1038,13 +1028,11 @@ def _test_vsock(vm):
     assert vm.api_session.is_status_bad_request(response.status_code)
 
 
-def test_api_entropy(test_microvm_with_api):
+def test_api_entropy(uvm_plain):
     """
     Test entropy related API commands.
-
-    @type: functional
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
     test_microvm.basic_config()
 
@@ -1063,13 +1051,11 @@ def test_api_entropy(test_microvm_with_api):
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
 
-def test_api_balloon(test_microvm_with_api):
+def test_api_balloon(uvm_nano):
     """
     Test balloon related API commands.
     """
-    test_microvm = test_microvm_with_api
-    test_microvm.spawn()
-    test_microvm.basic_config()
+    test_microvm = uvm_nano
 
     # Updating an inexistent balloon device should give an error.
     response = test_microvm.balloon.patch(amount_mib=0)
@@ -1147,22 +1133,14 @@ def test_api_balloon(test_microvm_with_api):
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
 
-def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
+def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
     """
     Test the configuration of a microVM after restoring from a snapshot.
     """
-    microvm_builder = MicrovmBuilder(bin_cloner_path)
-    net_iface = NetIfaceConfig()
-    vm_instance = microvm_builder.build_vm_nano(
-        net_ifaces=[net_iface], io_engine="Sync"
-    )
-    test_microvm = vm_instance.vm
-    root_disk = vm_instance.disks[0]
-    ssh_key = vm_instance.ssh_key
+    net_iface = uvm_nano.add_net_iface()
     cpu_vendor = utils_cpuid.get_cpu_vendor()
 
     setup_cfg = {}
-
     # Basic config also implies a root block device.
     setup_cfg["machine-config"] = {
         "vcpu_count": 2,
@@ -1177,17 +1155,17 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
     if cpu_vendor == utils_cpuid.CpuVendor.INTEL:
         setup_cfg["machine-config"]["cpu_template"] = "C3"
 
-    test_microvm.machine_cfg.patch(**setup_cfg["machine-config"])
+    uvm_nano.machine_cfg.patch(**setup_cfg["machine-config"])
 
     setup_cfg["cpu-config"] = None
 
     setup_cfg["drives"] = [
         {
             "drive_id": "rootfs",
-            "path_on_host": f"/{os.path.basename(root_disk.local_path())}",
+            "path_on_host": f"/{uvm_nano.rootfs_file.name}",
             "is_root_device": True,
             "partuuid": None,
-            "is_read_only": False,
+            "is_read_only": True,
             "cache_type": "Unsafe",
             "rate_limiter": None,
             "io_engine": "Sync",
@@ -1195,8 +1173,8 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
     ]
 
     # Add a memory balloon device.
-    response = test_microvm.balloon.put(amount_mib=1, deflate_on_oom=True)
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    response = uvm_nano.balloon.put(amount_mib=1, deflate_on_oom=True)
+    assert uvm_nano.api_session.is_status_no_content(response.status_code)
     setup_cfg["balloon"] = {
         "amount_mib": 1,
         "deflate_on_oom": True,
@@ -1204,8 +1182,8 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
     }
 
     # Add a vsock device.
-    response = test_microvm.vsock.put(guest_cid=15, uds_path="vsock.sock")
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    response = uvm_nano.vsock.put(guest_cid=15, uds_path="vsock.sock")
+    assert uvm_nano.api_session.is_status_no_content(response.status_code)
     setup_cfg["vsock"] = {"guest_cid": 15, "uds_path": "vsock.sock"}
 
     setup_cfg["logger"] = None
@@ -1215,11 +1193,11 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
         "network_interfaces": [net_iface.dev_name],
     }
 
-    response = test_microvm.mmds.put_config(json=setup_cfg["mmds-config"])
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    response = uvm_nano.mmds.put_config(json=setup_cfg["mmds-config"])
+    assert uvm_nano.api_session.is_status_no_content(response.status_code)
 
     # Start the microvm.
-    test_microvm.start()
+    uvm_nano.start()
 
     # Add a tx rate limiter to the net device.
     tx_rl = {
@@ -1227,10 +1205,10 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
         "ops": None,
     }
 
-    response = test_microvm.network.patch(
+    response = uvm_nano.network.patch(
         iface_id=net_iface.dev_name, tx_rate_limiter=tx_rl
     )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    assert uvm_nano.api_session.is_status_no_content(response.status_code)
     setup_cfg["network-interfaces"] = [
         {
             "guest_mac": net_tools.mac_from_ip(net_iface.guest_ip),
@@ -1240,25 +1218,19 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
             "tx_rate_limiter": tx_rl,
         }
     ]
-    # Create a snapshot builder from a microvm.
-    snapshot_builder = SnapshotBuilder(test_microvm)
 
-    # Create base snapshot.
-    snapshot = snapshot_builder.create(
-        [root_disk.local_path()], ssh_key, SnapshotType.FULL
-    )
-
-    microvm, _ = microvm_builder.build_from_snapshot(
-        snapshot, resume=True, diff_snapshots=False
-    )
+    snapshot = uvm_nano.snapshot_full()
+    uvm2 = microvm_factory.build()
+    uvm2.spawn()
+    uvm2.restore_from_snapshot(snapshot)
+    uvm2.resume()
 
     expected_cfg = setup_cfg.copy()
 
     # We expect boot-source to be set with the following values
     expected_cfg["boot-source"] = {
-        "kernel_image_path": test_microvm.get_jailed_resource(test_microvm.kernel_file),
+        "kernel_image_path": uvm_nano.get_jailed_resource(uvm_nano.kernel_file),
         "initrd_path": None,
-        "boot_args": "console=ttyS0 reboot=k panic=1",
     }
 
     # no ipv4 specified during PUT /mmds/config so we expect the default
@@ -1272,8 +1244,8 @@ def test_get_full_config_after_restoring_snapshot(bin_cloner_path):
     expected_cfg["entropy"] = None
 
     # Validate full vm configuration post-restore.
-    response = microvm.full_cfg.get()
-    assert microvm.api_session.is_status_ok(response.status_code)
+    response = uvm2.full_cfg.get()
+    assert uvm2.api_session.is_status_ok(response.status_code)
     assert response.json() != setup_cfg
     assert response.json() == expected_cfg
 
@@ -1288,7 +1260,7 @@ def test_get_full_config(test_microvm_with_api):
 
     test_microvm.spawn()
     # Basic config also implies a root block device.
-    test_microvm.basic_config(rootfs_io_engine="Sync")
+    test_microvm.basic_config(boot_args="", rootfs_io_engine="Sync")
     expected_cfg["machine-config"] = {
         "vcpu_count": 2,
         "mem_size_mib": 256,
@@ -1297,16 +1269,17 @@ def test_get_full_config(test_microvm_with_api):
     }
     expected_cfg["cpu-config"] = None
     expected_cfg["boot-source"] = {
-        "kernel_image_path": "/vmlinux.bin",
+        "boot_args": "",
+        "kernel_image_path": f"/{test_microvm.kernel_file.name}",
         "initrd_path": None,
     }
     expected_cfg["drives"] = [
         {
             "drive_id": "rootfs",
-            "path_on_host": "/bionic.rootfs.ext4",
+            "path_on_host": "/ubuntu-22.04.squashfs",
             "is_root_device": True,
             "partuuid": None,
-            "is_read_only": False,
+            "is_read_only": True,
             "cache_type": "Unsafe",
             "rate_limiter": None,
             "io_engine": "Sync",

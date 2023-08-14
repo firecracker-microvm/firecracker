@@ -89,9 +89,7 @@ def consume_ping_output(cons, raw_data, requests):
 
 @pytest.mark.nonci
 @pytest.mark.timeout(3600)
-def test_network_latency(
-    microvm_factory, network_config, guest_kernel, rootfs, st_core
-):
+def test_network_latency(microvm_factory, guest_kernel, rootfs, st_core):
     """
     Test network latency for multiple vm configurations.
 
@@ -109,7 +107,7 @@ def test_network_latency(
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn(log_level="Info")
     vm.basic_config(vcpu_count=guest_vcpus, mem_size_mib=guest_mem_mib)
-    vm.ssh_network_config(network_config, "1")
+    vm.add_net_iface()
     vm.start()
 
     # Check if the needed CPU cores are available. We have the API thread, VMM
@@ -133,7 +131,7 @@ def test_network_latency(
 
     raw_baselines = json.loads(CONFIG_NAME_ABS.read_text("utf-8"))
 
-    env_id = f"{guest_kernel.name()}/{rootfs.name()}/{guest_config}"
+    env_id = f"{st_core.env_id_prefix}/{guest_config}"
     cons = consumer.LambdaConsumer(
         metadata_provider=DictMetadataProvider(
             measurements=raw_baselines["measurements"],

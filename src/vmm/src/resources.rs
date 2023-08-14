@@ -135,7 +135,7 @@ impl VmResources {
         mmds_size_limit: usize,
         metadata_json: Option<&str>,
     ) -> Result<Self, ResourcesError> {
-        let vmm_config: VmmConfig = serde_json::from_slice::<VmmConfig>(config_json.as_bytes())?;
+        let vmm_config = serde_json::from_str::<VmmConfig>(config_json)?;
 
         if let Some(logger) = vmm_config.logger {
             init_logger(logger, instance_info)?;
@@ -1186,8 +1186,7 @@ mod tests {
                 )
                 .unwrap();
 
-                let initial_vmm_config =
-                    serde_json::from_slice::<VmmConfig>(json.as_bytes()).unwrap();
+                let initial_vmm_config = serde_json::from_str::<VmmConfig>(&json).unwrap();
                 let vmm_config: VmmConfig = (&resources).into();
                 assert_eq!(initial_vmm_config, vmm_config);
             }
@@ -1202,8 +1201,7 @@ mod tests {
                 )
                 .unwrap();
 
-                let initial_vmm_config =
-                    serde_json::from_slice::<VmmConfig>(json.as_bytes()).unwrap();
+                let initial_vmm_config = serde_json::from_str::<VmmConfig>(&json).unwrap();
                 let vmm_config: VmmConfig = (&resources).into();
                 assert_eq!(initial_vmm_config, vmm_config);
             }
@@ -1263,7 +1261,7 @@ mod tests {
             )
             .unwrap();
 
-            let initial_vmm_config = serde_json::from_slice::<VmmConfig>(json.as_bytes()).unwrap();
+            let initial_vmm_config = serde_json::from_str::<VmmConfig>(&json).unwrap();
             let vmm_config: VmmConfig = (&resources).into();
             assert_eq!(initial_vmm_config, vmm_config);
         }
@@ -1322,7 +1320,7 @@ mod tests {
             )
             .unwrap();
 
-            let initial_vmm_config = serde_json::from_slice::<VmmConfig>(json.as_bytes()).unwrap();
+            let initial_vmm_config = serde_json::from_str::<VmmConfig>(&json).unwrap();
             let vmm_config: VmmConfig = (&resources).into();
             assert_eq!(initial_vmm_config, vmm_config);
         }

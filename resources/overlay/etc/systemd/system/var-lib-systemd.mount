@@ -1,0 +1,18 @@
+#
+# Mount /var/lib/systemd as a temporary filesystem
+#
+
+[Unit]
+DefaultDependencies=no
+Conflicts=umount.target
+Before=local-fs.target umount.target
+After=swap.target
+
+[Mount]
+What=tmpfs
+Where=/var/lib/systemd
+Type=tmpfs
+Options=mode=1777,strictatime,nosuid,nodev,size=50%%,nr_inodes=10k
+
+[Install]
+WantedBy=local-fs.target

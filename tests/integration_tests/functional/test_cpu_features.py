@@ -4,6 +4,7 @@
 
 # pylint: disable=too-many-lines
 
+import io
 import os
 import platform
 import re
@@ -18,7 +19,6 @@ import pytest
 
 import framework.utils_cpuid as cpuid_utils
 from framework import utils
-from framework.artifacts import NetIfaceConfig
 from framework.defs import SUPPORTED_HOST_KERNELS
 from framework.properties import global_props
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
@@ -27,6 +27,7 @@ PLATFORM = platform.machine()
 UNSUPPORTED_HOST_KERNEL = (
     utils.get_kernel_version(level=1) not in SUPPORTED_HOST_KERNELS
 )
+DATA_FILES = Path("./data/msr")
 
 
 def clean_and_mkdir(dir_path):
@@ -39,7 +40,7 @@ def clean_and_mkdir(dir_path):
 
 def _check_cpuid_x86(test_microvm, expected_cpu_count, expected_htt):
     expected_cpu_features = {
-        "cpu count": "{} ({})".format(hex(expected_cpu_count), expected_cpu_count),
+        "maximum IDs for CPUs in pkg": f"{expected_cpu_count:#x} ({expected_cpu_count})",
         "CLFLUSH line size": "0x8 (8)",
         "hypervisor guest status": "true",
         "hyper-threading / multi-core supported": expected_htt,
@@ -106,14 +107,14 @@ def skip_test_based_on_artifacts(snapshot_artifacts_dir):
     "htt",
     [True, False],
 )
-def test_cpuid(test_microvm_with_api, network_config, num_vcpus, htt):
+def test_cpuid(test_microvm_with_api, num_vcpus, htt):
     """
     Check the CPUID for a microvm with the specified config.
     """
     vm = test_microvm_with_api
     vm.spawn()
     vm.basic_config(vcpu_count=num_vcpus, smt=htt)
-    _tap, _, _ = vm.ssh_network_config(network_config, "1")
+    vm.add_net_iface()
     vm.start()
     _check_cpuid_x86(vm, num_vcpus, "true" if num_vcpus > 1 else "false")
 
@@ -123,14 +124,14 @@ def test_cpuid(test_microvm_with_api, network_config, num_vcpus, htt):
     cpuid_utils.get_cpu_vendor() != cpuid_utils.CpuVendor.AMD,
     reason="L3 cache info is only present in 0x80000006 for AMD",
 )
-def test_extended_cache_features(test_microvm_with_api, network_config):
+def test_extended_cache_features(test_microvm_with_api):
     """
     Check extended cache features (leaf 0x80000006).
     """
     vm = test_microvm_with_api
     vm.spawn()
     vm.basic_config()
-    _tap, _, _ = vm.ssh_network_config(network_config, "1")
+    vm.add_net_iface()
     vm.start()
     _check_extended_cache_features(vm)
 
@@ -138,7 +139,7 @@ def test_extended_cache_features(test_microvm_with_api, network_config):
 @pytest.mark.skipif(
     PLATFORM != "x86_64", reason="The CPU brand string is masked only on x86_64."
 )
-def test_brand_string(test_microvm_with_api, network_config):
+def test_brand_string(test_microvm_with_api):
     """
     Ensure good formatting for the guest brand string.
 
@@ -155,13 +156,18 @@ def test_brand_string(test_microvm_with_api, network_config):
     test_microvm.spawn()
 
     test_microvm.basic_config(vcpu_count=1)
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, "1")
+    test_microvm.add_net_iface()
     test_microvm.start()
 
     guest_cmd = "cat /proc/cpuinfo | grep 'model name' | head -1"
     _, stdout, stderr = test_microvm.ssh.execute_command(guest_cmd)
-    assert stderr.read() == ""
-    stdout = stdout.read()
+    assert stderr == ""
+
+    line = stdout.rstrip()
+    mo = re.search("^model name\\s+:\\s+(.+)$", line)
+    assert mo
+    guest_brand_string = mo.group(1)
+    assert guest_brand_string
 
     cpu_vendor = cpuid_utils.get_cpu_vendor()
     if cpu_vendor == cpuid_utils.CpuVendor.AMD:
@@ -249,14 +255,10 @@ def msr_cpu_template_fxt(request):
     return request.param
 
 
-@pytest.mark.skipif(
-    UNSUPPORTED_HOST_KERNEL,
-    reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
-)
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
 def test_cpu_rdmsr(
-    microvm_factory, msr_cpu_template, guest_kernel, rootfs_msrtools, network_config
+    microvm_factory, msr_cpu_template, guest_kernel, rootfs_ubuntu_22, results_dir
 ):
     """
     Test MSRs that are available to the guest.
@@ -291,28 +293,34 @@ def test_cpu_rdmsr(
     """
 
     vcpus, guest_mem_mib = 1, 1024
-    vm = microvm_factory.build(guest_kernel, rootfs_msrtools, monitor_memory=False)
+    vm = microvm_factory.build(guest_kernel, rootfs_ubuntu_22, monitor_memory=False)
     vm.spawn()
-    vm.ssh_network_config(network_config, "1")
+    vm.add_net_iface()
     vm.basic_config(
         vcpu_count=vcpus, mem_size_mib=guest_mem_mib, cpu_template=msr_cpu_template
     )
     vm.start()
-    vm.ssh.scp_file("../resources/tests/msr/msr_reader.sh", "/bin/msr_reader.sh")
-    _, stdout, stderr = vm.ssh.run("/bin/msr_reader.sh")
-    assert stderr.read() == ""
+    vm.ssh.scp_put(DATA_FILES / "msr_reader.sh", "/tmp/msr_reader.sh")
+    _, stdout, stderr = vm.ssh.run("/tmp/msr_reader.sh")
+    assert stderr == ""
 
     # Load results read from the microvm
-    microvm_df = pd.read_csv(stdout)
+    microvm_df = pd.read_csv(io.StringIO(stdout))
 
     # Load baseline
     host_cpu = global_props.cpu_codename
     host_kv = global_props.host_linux_version
-    guest_kv = re.search("vmlinux-(.*).bin", guest_kernel.name()).group(1)
+    guest_kv = re.search(r"vmlinux-(\d+\.\d+)", guest_kernel.name).group(1)
     baseline_file_name = (
         f"msr_list_{msr_cpu_template}_{host_cpu}_{host_kv}host_{guest_kv}guest.csv"
     )
-    baseline_file_path = f"../resources/tests/msr/{baseline_file_name}"
+    # save it as an artifact, so we don't have to manually launch an instance to
+    # get a baseline
+    save_msrs = results_dir / baseline_file_name
+    save_msrs.write_text(stdout)
+
+    # Load baseline
+    baseline_file_path = DATA_FILES / baseline_file_name
     # We can use the following line when regathering baselines.
     # microvm_df.to_csv(baseline_file_path, index=False, encoding="utf-8")
     baseline_df = pd.read_csv(baseline_file_path)
@@ -326,20 +334,12 @@ def test_cpu_rdmsr(
 SNAPSHOT_RESTORE_SHARED_NAMES = {
     "snapshot_artifacts_root_dir_wrmsr": "snapshot_artifacts/wrmsr",
     "snapshot_artifacts_root_dir_cpuid": "snapshot_artifacts/cpuid",
-    "msr_reader_host_fname":             "../resources/tests/msr/msr_reader.sh",
-    "msr_reader_guest_fname":            "/bin/msr_reader.sh",
+    "msr_reader_host_fname":             DATA_FILES / "msr_reader.sh",
+    "msr_reader_guest_fname":            "/tmp/msr_reader.sh",
     "msrs_before_fname":                 "msrs_before.txt",
     "msrs_after_fname":                  "msrs_after.txt",
     "cpuid_before_fname":                "cpuid_before.txt",
     "cpuid_after_fname":                 "cpuid_after.txt",
-    "snapshot_fname":                    "vmstate",
-    "mem_fname":                         "mem",
-    "rootfs_fname":                      "bionic-msrtools.ext4",
-    # Testing matrix:
-    # * Rootfs: Ubuntu 18.04 with msr-tools package installed
-    # * Microvm: 1vCPU with 1024 MB RAM
-    "disk_keyword":                      "bionic-msrtools",
-    "microvm_keyword":                   "1vcpu_1024mb",
 }
 # fmt: on
 
@@ -348,14 +348,14 @@ def dump_msr_state_to_file(dump_fname, ssh_conn, shared_names):
     """
     Read MSR state via SSH and dump it into a file.
     """
-    ssh_conn.scp_file(
+    ssh_conn.scp_put(
         shared_names["msr_reader_host_fname"], shared_names["msr_reader_guest_fname"]
     )
     _, stdout, stderr = ssh_conn.execute_command(shared_names["msr_reader_guest_fname"])
-    assert stderr.read() == ""
+    assert stderr == ""
 
     with open(dump_fname, "w", encoding="UTF-8") as file:
-        file.write(stdout.read())
+        file.write(stdout)
 
 
 @pytest.mark.skipif(
@@ -365,14 +365,14 @@ def dump_msr_state_to_file(dump_fname, ssh_conn, shared_names):
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
 def test_cpu_wrmsr_snapshot(
-    microvm_factory, guest_kernel, rootfs_msrtools, msr_cpu_template
+    microvm_factory, guest_kernel, rootfs_ubuntu_22, msr_cpu_template
 ):
     """
     This is the first part of the test verifying
     that MSRs retain their values after restoring from a snapshot.
 
     This function makes MSR value modifications according to the
-    ../resources/tests/msr/wrmsr_list.txt file.
+    ./data/msr/wrmsr_list.txt file.
 
     Before taking a snapshot, MSR values are dumped into a text file.
     After restoring from the snapshot on another instance, the MSRs are
@@ -386,9 +386,9 @@ def test_cpu_wrmsr_snapshot(
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
 
     vcpus, guest_mem_mib = 1, 1024
-    vm = microvm_factory.build(guest_kernel, rootfs_msrtools, monitor_memory=False)
+    vm = microvm_factory.build(guest_kernel, rootfs_ubuntu_22, monitor_memory=False)
     vm.spawn()
-    vm.add_net_iface(NetIfaceConfig())
+    vm.add_net_iface()
     vm.basic_config(
         vcpu_count=vcpus,
         mem_size_mib=guest_mem_mib,
@@ -398,23 +398,23 @@ def test_cpu_wrmsr_snapshot(
     vm.start()
 
     # Make MSR modifications
-    msr_writer_host_fname = "../resources/tests/msr/msr_writer.sh"
-    msr_writer_guest_fname = "/bin/msr_writer.sh"
-    vm.ssh.scp_file(msr_writer_host_fname, msr_writer_guest_fname)
+    msr_writer_host_fname = DATA_FILES / "msr_writer.sh"
+    msr_writer_guest_fname = "/tmp/msr_writer.sh"
+    vm.ssh.scp_put(msr_writer_host_fname, msr_writer_guest_fname)
 
-    wrmsr_input_host_fname = "../resources/tests/msr/wrmsr_list.txt"
+    wrmsr_input_host_fname = DATA_FILES / "wrmsr_list.txt"
     wrmsr_input_guest_fname = "/tmp/wrmsr_input.txt"
-    vm.ssh.scp_file(wrmsr_input_host_fname, wrmsr_input_guest_fname)
+    vm.ssh.scp_put(wrmsr_input_host_fname, wrmsr_input_guest_fname)
 
     _, _, stderr = vm.ssh.execute_command(
         f"{msr_writer_guest_fname} {wrmsr_input_guest_fname}"
     )
-    assert stderr.read() == ""
+    assert stderr == ""
 
     # Dump MSR state to a file that will be published to S3 for the 2nd part of the test
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_wrmsr"])
-        / guest_kernel.base_name()
+        / guest_kernel.name
         / (msr_cpu_template if msr_cpu_template else "none")
     )
     clean_and_mkdir(snapshot_artifacts_dir)
@@ -429,26 +429,9 @@ def test_cpu_wrmsr_snapshot(
     time.sleep(0.25)
 
     # Take a snapshot
-    vm.pause_to_snapshot(
-        mem_file_path=shared_names["mem_fname"],
-        snapshot_path=shared_names["snapshot_fname"],
-        diff=True,
-    )
-
+    snapshot = vm.snapshot_diff()
     # Copy snapshot files to be published to S3 for the 2nd part of the test
-    chroot_dir = Path(vm.chroot())
-    shutil.copyfile(
-        chroot_dir / shared_names["mem_fname"],
-        snapshot_artifacts_dir / shared_names["mem_fname"],
-    )
-    shutil.copyfile(
-        chroot_dir / shared_names["snapshot_fname"],
-        snapshot_artifacts_dir / shared_names["snapshot_fname"],
-    )
-    shutil.copyfile(
-        chroot_dir / shared_names["rootfs_fname"],
-        snapshot_artifacts_dir / shared_names["rootfs_fname"],
-    )
+    snapshot.save_to(snapshot_artifacts_dir)
 
 
 def check_msrs_are_equal(before_df, after_df):
@@ -481,9 +464,7 @@ def check_msrs_are_equal(before_df, after_df):
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_wrmsr_restore(
-    microvm_factory, msr_cpu_template, guest_kernel, rootfs_msrtools
-):
+def test_cpu_wrmsr_restore(microvm_factory, msr_cpu_template, guest_kernel):
     """
     This is the second part of the test verifying
     that MSRs retain their values after restoring from a snapshot.
@@ -502,7 +483,7 @@ def test_cpu_wrmsr_restore(
     cpu_template_dir = msr_cpu_template if msr_cpu_template else "none"
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_wrmsr"])
-        / guest_kernel.base_name()
+        / guest_kernel.name
         / cpu_template_dir
     )
 
@@ -510,28 +491,7 @@ def test_cpu_wrmsr_restore(
 
     vm = microvm_factory.build()
     vm.spawn()
-    # recreate eth0
-    iface = NetIfaceConfig()
-    vm.create_tap_and_ssh_config(
-        host_ip=iface.host_ip,
-        guest_ip=iface.guest_ip,
-        netmask_len=iface.netmask,
-        tapname=iface.tap_name,
-    )
-    # would be better to also capture the SSH key in the snapshot
-    ssh_key = rootfs_msrtools.ssh_key().local_path()
-    vm.ssh_config["ssh_key_path"] = ssh_key
-
-    mem = snapshot_artifacts_dir / shared_names["mem_fname"]
-    vmstate = snapshot_artifacts_dir / shared_names["snapshot_fname"]
-    rootfs = snapshot_artifacts_dir / shared_names["rootfs_fname"]
-    # Restore from the snapshot
-    vm.restore_from_snapshot(
-        snapshot_mem=mem,
-        snapshot_vmstate=vmstate,
-        snapshot_disks=[rootfs],
-        snapshot_is_diff=True,
-    )
+    vm.restore_from_path(snapshot_artifacts_dir, resume=True)
 
     # Dump MSR state to a file for further comparison
     msrs_after_fname = snapshot_artifacts_dir / shared_names["msrs_after_fname"]
@@ -548,10 +508,8 @@ def dump_cpuid_to_file(dump_fname, ssh_conn):
     Read CPUID via SSH and dump it into a file.
     """
     _, stdout, stderr = ssh_conn.execute_command("cpuid --one-cpu")
-    assert stderr.read() == ""
-
-    with open(dump_fname, "w", encoding="UTF-8") as file:
-        file.write(stdout.read())
+    assert stderr == ""
+    dump_fname.write_text(stdout, encoding="UTF-8")
 
 
 @pytest.mark.skipif(
@@ -561,7 +519,7 @@ def dump_cpuid_to_file(dump_fname, ssh_conn):
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
 def test_cpu_cpuid_snapshot(
-    microvm_factory, guest_kernel, rootfs_msrtools, msr_cpu_template
+    microvm_factory, guest_kernel, rootfs_ubuntu_22, msr_cpu_template
 ):
     """
     This is the first part of the test verifying
@@ -578,10 +536,10 @@ def test_cpu_cpuid_snapshot(
 
     vm = microvm_factory.build(
         kernel=guest_kernel,
-        rootfs=rootfs_msrtools,
+        rootfs=rootfs_ubuntu_22,
     )
     vm.spawn()
-    vm.add_net_iface(NetIfaceConfig())
+    vm.add_net_iface()
     vm.basic_config(
         vcpu_count=1,
         mem_size_mib=1024,
@@ -594,7 +552,7 @@ def test_cpu_cpuid_snapshot(
     cpu_template_dir = get_cpu_template_dir(msr_cpu_template)
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_cpuid"])
-        / guest_kernel.base_name()
+        / guest_kernel.name
         / cpu_template_dir
     )
     clean_and_mkdir(snapshot_artifacts_dir)
@@ -604,29 +562,12 @@ def test_cpu_cpuid_snapshot(
     dump_cpuid_to_file(cpuid_before_fname, vm.ssh)
 
     # Take a snapshot
-    vm.pause_to_snapshot(
-        mem_file_path=shared_names["mem_fname"],
-        snapshot_path=shared_names["snapshot_fname"],
-        diff=True,
-    )
-
+    snapshot = vm.snapshot_diff()
     # Copy snapshot files to be published to S3 for the 2nd part of the test
-    chroot_dir = Path(vm.chroot())
-    shutil.copyfile(
-        chroot_dir / shared_names["mem_fname"],
-        snapshot_artifacts_dir / shared_names["mem_fname"],
-    )
-    shutil.copyfile(
-        chroot_dir / shared_names["snapshot_fname"],
-        snapshot_artifacts_dir / shared_names["snapshot_fname"],
-    )
-    shutil.copyfile(
-        chroot_dir / shared_names["rootfs_fname"],
-        snapshot_artifacts_dir / Path(rootfs_msrtools.local_path()).name,
-    )
+    snapshot.save_to(snapshot_artifacts_dir)
 
 
-def check_cpuid_is_equal(before_cpuid_fname, after_cpuid_fname, guest_kernel_name):
+def check_cpuid_is_equal(before_cpuid_fname, after_cpuid_fname):
     """
     Checks that CPUID dumps in the files are equal.
     """
@@ -637,7 +578,7 @@ def check_cpuid_is_equal(before_cpuid_fname, after_cpuid_fname, guest_kernel_nam
 
     diff = sys.stdout.writelines(unified_diff(before, after))
 
-    assert not diff, f"\n{guest_kernel_name}:\n\n{diff}"
+    assert not diff, f"\n\n{diff}"
 
 
 @pytest.mark.skipif(
@@ -646,9 +587,7 @@ def check_cpuid_is_equal(before_cpuid_fname, after_cpuid_fname, guest_kernel_nam
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_cpuid_restore(
-    microvm_factory, msr_cpu_template, guest_kernel, rootfs_msrtools
-):
+def test_cpu_cpuid_restore(microvm_factory, guest_kernel, msr_cpu_template):
     """
     This is the second part of the test verifying
     that CPUID remains the same after restoring from a snapshot.
@@ -665,7 +604,7 @@ def test_cpu_cpuid_restore(
     cpu_template_dir = get_cpu_template_dir(msr_cpu_template)
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_cpuid"])
-        / guest_kernel.base_name()
+        / guest_kernel.name
         / cpu_template_dir
     )
 
@@ -673,27 +612,7 @@ def test_cpu_cpuid_restore(
 
     vm = microvm_factory.build()
     vm.spawn()
-    # recreate eth0
-    iface = NetIfaceConfig()
-    vm.create_tap_and_ssh_config(
-        host_ip=iface.host_ip,
-        guest_ip=iface.guest_ip,
-        netmask_len=iface.netmask,
-        tapname=iface.tap_name,
-    )
-    ssh_arti = rootfs_msrtools.ssh_key()
-    vm.ssh_config["ssh_key_path"] = ssh_arti.local_path()
-
-    # Restore from the snapshot
-    mem = snapshot_artifacts_dir / shared_names["mem_fname"]
-    vmstate = snapshot_artifacts_dir / shared_names["snapshot_fname"]
-    rootfs = snapshot_artifacts_dir / shared_names["rootfs_fname"]
-    vm.restore_from_snapshot(
-        snapshot_mem=mem,
-        snapshot_vmstate=vmstate,
-        snapshot_disks=[rootfs],
-        snapshot_is_diff=True,
-    )
+    vm.restore_from_path(snapshot_artifacts_dir, resume=True)
 
     # Dump CPUID to a file for further comparison
     cpuid_after_fname = snapshot_artifacts_dir / shared_names["cpuid_after_fname"]
@@ -703,7 +622,6 @@ def test_cpu_cpuid_restore(
     check_cpuid_is_equal(
         snapshot_artifacts_dir / shared_names["cpuid_before_fname"],
         snapshot_artifacts_dir / shared_names["cpuid_after_fname"],
-        guest_kernel.base_name(),  # this is to annotate the assertion output
     )
 
 
@@ -711,7 +629,7 @@ def test_cpu_cpuid_restore(
     PLATFORM != "x86_64", reason="CPU features are masked only on x86_64."
 )
 @pytest.mark.parametrize("cpu_template", ["T2", "T2S", "C3"])
-def test_cpu_template(test_microvm_with_api, network_config, cpu_template):
+def test_cpu_template(test_microvm_with_api, cpu_template):
     """
     Test masked and enabled cpu features against the expected template.
 
@@ -727,7 +645,7 @@ def test_cpu_template(test_microvm_with_api, network_config, cpu_template):
         mem_size_mib=256,
         cpu_template=cpu_template,
     )
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, "1")
+    test_microvm.add_net_iface()
 
     response = test_microvm.actions.put(action_type="InstanceStart")
     if cpuid_utils.get_cpu_vendor() != cpuid_utils.CpuVendor.INTEL:
@@ -935,26 +853,26 @@ def check_enabled_features(test_microvm, cpu_template):
     """Test for checking that all expected features are enabled in guest."""
     enabled_list = {  # feature_info_1_edx
         "x87 FPU on chip": "true",
-        "CMPXCHG8B inst": "true",
-        "virtual-8086 mode enhancement": "true",
+        "CMPXCHG8B inst.": "true",
+        "VME: virtual-8086 mode enhancement": "true",
         "SSE extensions": "true",
         "SSE2 extensions": "true",
-        "debugging extensions": "true",
-        "page size extensions": "true",
-        "time stamp counter": "true",
+        "DE: debugging extensions": "true",
+        "PSE: page size extensions": "true",
+        "TSC: time stamp counter": "true",
         "RDMSR and WRMSR support": "true",
-        "physical address extensions": "true",
-        "machine check exception": "true",
+        "PAE: physical address extensions": "true",
+        "MCE: machine check exception": "true",
         "APIC on chip": "true",
         "MMX Technology": "true",
         "SYSENTER and SYSEXIT": "true",
-        "memory type range registers": "true",
+        "MTRR: memory type range registers": "true",
         "PTE global bit": "true",
         "FXSAVE/FXRSTOR": "true",
-        "machine check architecture": "true",
-        "conditional move/compare instruction": "true",
-        "page attribute table": "true",
-        "page size extension": "true",
+        "MCA: machine check architecture": "true",
+        "CMOV: conditional move/compare instr": "true",
+        "PAT: page attribute table": "true",
+        "PSE-36: page size extension": "true",
         "CLFLUSH instruction": "true",
         # feature_info_1_ecx
         "PNI/SSE3: Prescott New Instructions": "true",
@@ -962,10 +880,10 @@ def check_enabled_features(test_microvm, cpu_template):
         "SSSE3 extensions": "true",
         "AES instruction": "true",
         "CMPXCHG16B instruction": "true",
-        "process context identifiers": "true",
+        "PCID: process context identifiers": "true",
         "SSE4.1 extensions": "true",
         "SSE4.2 extensions": "true",
-        "extended xAPIC support": "true",
+        "x2APIC: extended xAPIC support": "true",
         "POPCNT instruction": "true",
         "time stamp counter deadline": "true",
         "XSAVE/XSTOR states": "true",
@@ -1004,12 +922,12 @@ def check_enabled_features(test_microvm, cpu_template):
     )
     if cpu_template == "T2":
         t2_enabled_features = {
-            "FMA": "true",
-            "BMI": "true",
-            "BMI2": "true",
-            "AVX2": "true",
-            "MOVBE": "true",
-            "INVPCID": "true",
+            "FMA instruction": "true",
+            "BMI1 instructions": "true",
+            "BMI2 instructions": "true",
+            "AVX2: advanced vector extensions 2": "true",
+            "MOVBE instruction": "true",
+            "INVPCID instruction": "true",
         }
         cpuid_utils.check_guest_cpuid_output(
             test_microvm, "cpuid -1", None, "=", t2_enabled_features

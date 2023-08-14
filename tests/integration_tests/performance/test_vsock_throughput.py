@@ -71,7 +71,7 @@ class VsockIPerf3Test(IPerf3Test):
             mode,
             LOAD_FACTOR * microvm.vcpus_count,
             2,
-            iperf="iperf3-vsock",
+            iperf="/usr/local/bin/iperf3-vsock",
             payload_length=payload_length,
         )
 
@@ -91,7 +91,11 @@ class VsockIPerf3Test(IPerf3Test):
                 make_host_port_path(VSOCK_UDS_PATH, self._base_port + client_idx),
             )
         )
+        # The rootfs does not have iperf3-vsock
+        iperf3_guest = "/tmp/iperf3-vsock"
 
+        self._microvm.ssh.scp_put(self._iperf, iperf3_guest)
+        self._guest_iperf = iperf3_guest
         return super().spawn_iperf3_client(client_idx)
 
     def guest_command(self, port_offset):
@@ -124,13 +128,10 @@ def pipe(basevm, current_avail_cpu, env_id, mode, payload_length):
 @pytest.mark.nonci
 @pytest.mark.timeout(1200)
 @pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
-@pytest.mark.parametrize(
-    "payload_length", ["DEFAULT", "1024K"], ids=["pDEFAULT", "p1024K"]
-)
+@pytest.mark.parametrize("payload_length", ["64K", "1024K"], ids=["p64K", "p1024K"])
 @pytest.mark.parametrize("mode", ["g2h", "h2g", "bd"])
 def test_vsock_throughput(
     microvm_factory,
-    network_config,
     guest_kernel,
     rootfs,
     vcpus,
@@ -152,7 +153,7 @@ def test_vsock_throughput(
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn(log_level="Info")
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=mem_size_mib)
-    vm.ssh_network_config(network_config, "1")
+    vm.add_net_iface()
     # Create a vsock device
     vm.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/" + VSOCK_UDS_PATH)
     vm.start()
@@ -177,7 +178,7 @@ def test_vsock_throughput(
     cons, prod, tag = pipe(
         vm,
         current_avail_cpu + 1,
-        f"{guest_kernel.name()}/{rootfs.name()}/{guest_config}",
+        f"{st_core.env_id_prefix}/{guest_config}",
         mode,
         payload_length,
     )

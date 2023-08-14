@@ -78,6 +78,7 @@ def group_single(tests):
         command=tests[BkStep.COMMAND],
         instances=tests["instances"],
         platforms=tests["platforms"],
+        artifacts=["./test_results/**/*"],
     )
     return [group_step]
 
