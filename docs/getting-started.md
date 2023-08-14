@@ -70,16 +70,16 @@ guide will not use the [`jailer`](../src/jailer/).
 ARCH="$(uname -m)"
 
 # Download a linux kernel binary
-wget https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/${ARCH}/kernels/vmlinux.bin
+wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.5/${ARCH}/vmlinux-5.10.186
 
 # Download a rootfs
-wget https://s3.amazonaws.com/spec.ccfc.min/ci-artifacts/disks/${ARCH}/ubuntu-18.04.ext4
+wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.5/${ARCH}/ubuntu-22.04.ext4
 
 # Download the ssh key for the rootfs
-wget https://s3.amazonaws.com/spec.ccfc.min/ci-artifacts/disks/${ARCH}/ubuntu-18.04.id_rsa
+wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.5/${ARCH}/ubuntu-22.04.id_rsa
 
 # Set user read permission on the ssh key
-chmod 400 ./ubuntu-18.04.id_rsa
+chmod 400 ./ubuntu-22.04.id_rsa
 
 # Clone the firecracker repository
 git clone https://github.com/firecracker-microvm/firecracker
@@ -147,7 +147,7 @@ curl -X PUT --unix-socket "${API_SOCKET}" \
     }" \
     "http://localhost/logger"
 
-KERNEL="./vmlinux.bin"
+KERNEL="./vmlinux-5.10.186"
 KERNEL_BOOT_ARGS="console=ttyS0 reboot=k panic=1 pci=off"
 
 ARCH=$(uname -m)
@@ -164,7 +164,7 @@ curl -X PUT --unix-socket "${API_SOCKET}" \
     }" \
     "http://localhost/boot-source"
 
-ROOTFS="./ubuntu-18.04.ext4"
+ROOTFS="./ubuntu-22.04.ext4"
 
 # Set rootfs
 curl -X PUT --unix-socket "${API_SOCKET}" \
@@ -206,7 +206,7 @@ curl -X PUT --unix-socket "${API_SOCKET}" \
 sleep 0.015s
 
 # SSH into the microVM
-sudo ssh -i ./ubuntu-18.04.id_rsa 172.16.0.2
+ssh -i ./ubuntu-22.04.id_rsa root@172.16.0.2
 
 # Use `root` for both the login and password.
 # Run `reboot` to exit.
