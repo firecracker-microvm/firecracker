@@ -301,7 +301,7 @@ fn main_exec() -> Result<(), MainError> {
     };
 
     // Configure logger, the logger handles can be used to re-configure the logger with the API.
-    let logger_handles = {
+    let (logger_handles, _flame_guard) = {
         let level_res = arguments
             .single_value("level")
             .map(|s| LevelFilter::from_str(s))
@@ -319,6 +319,7 @@ fn main_exec() -> Result<(), MainError> {
             show_level: Some(arguments.flag_present("show-level")),
             show_log_origin: Some(arguments.flag_present("show-log-origin")),
             filter,
+            profile_path: None,
         };
         logger_config
             .init()
@@ -541,7 +542,7 @@ fn build_microvm_from_json(
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
 ) -> Result<(VmResources, Arc<Mutex<vmm::Vmm>>), BuildFromJsonError> {
-    let mut vm_resources =
+    let (mut vm_resources, _flame_guard) =
         VmResources::from_json(&config_json, &instance_info, mmds_size_limit, metadata_json)
             .map_err(BuildFromJsonError::ParseFromJson)?;
     vm_resources.boot_timer = boot_timer_enabled;
@@ -617,7 +618,7 @@ fn run_without_api(
             .expect("Failed to start the event manager");
 
         if let Some(exit_code) = vmm.lock().unwrap().shutdown_exit_code() {
-            return Err(RunWithoutApiError::Shutdown(exit_code));
+            break Err(RunWithoutApiError::Shutdown(exit_code));
         }
     }
 }

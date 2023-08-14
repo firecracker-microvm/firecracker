@@ -69,10 +69,17 @@ pub enum UtilsError {
     BuildMicroVm(#[from] StartMicrovmError),
 }
 
+#[allow(clippy::type_complexity)]
 #[tracing::instrument(level = "trace", skip(config))]
 pub fn build_microvm_from_config(
     config: &str,
-) -> Result<(Arc<Mutex<Vmm>>, VmResources), UtilsError> {
+) -> Result<
+    (
+        (Arc<Mutex<Vmm>>, VmResources),
+        Option<vmm::vmm_config::logger::FlameGuard>,
+    ),
+    UtilsError,
+> {
     // Prepare resources from the given config file.
     let instance_info = InstanceInfo {
         id: "anonymous-instance".to_string(),
@@ -80,8 +87,9 @@ pub fn build_microvm_from_config(
         vmm_version: CPU_TEMPLATE_HELPER_VERSION.to_string(),
         app_name: "cpu-template-helper".to_string(),
     };
-    let vm_resources = VmResources::from_json(config, &instance_info, HTTP_MAX_PAYLOAD_SIZE, None)
-        .map_err(UtilsError::CreateVmResources)?;
+    let (vm_resources, flame_guard) =
+        VmResources::from_json(config, &instance_info, HTTP_MAX_PAYLOAD_SIZE, None)
+            .map_err(UtilsError::CreateVmResources)?;
     let mut event_manager = EventManager::new().unwrap();
     let seccomp_filters = get_empty_filters();
 
@@ -93,7 +101,7 @@ pub fn build_microvm_from_config(
         &seccomp_filters,
     )?;
 
-    Ok((vmm, vm_resources))
+    Ok(((vmm, vm_resources), flame_guard))
 }
 
 #[tracing::instrument(level = "trace", skip(path, suffix))]

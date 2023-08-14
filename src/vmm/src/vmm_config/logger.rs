@@ -3,8 +3,10 @@
 
 use std::convert::From;
 use std::fmt;
-use std::io::LineWriter;
+use std::fs::OpenOptions;
+use std::io::{BufWriter, LineWriter};
 use std::os::unix::fs::OpenOptionsExt;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::SeqCst;
@@ -107,7 +109,7 @@ impl FromStr for LevelFilter {
 #[serde(deny_unknown_fields)]
 pub struct LoggerConfig {
     /// Named pipe or file used as output for logs.
-    pub log_path: Option<std::path::PathBuf>,
+    pub log_path: Option<PathBuf>,
     // TODO Deprecate this API argument.
     /// The level of the Logger.
     pub level: Option<LevelFilter>,
@@ -117,6 +119,8 @@ pub struct LoggerConfig {
     pub show_log_origin: Option<bool>,
     /// Filter components. If this is `Some` it overrides `self.level`.
     pub filter: Option<FilterArgs>,
+    /// Named pipe or file used as output for profile.
+    pub profile_path: Option<PathBuf>,
 }
 
 /// Error type for [`LoggerConfig::init`].
@@ -186,6 +190,10 @@ type FmtHandle<F, G> = tracing_subscriber::reload::Handle<
     >,
 >;
 
+/// An alias for the specific [`tracing_flame::FlushGuard`] used to flush the
+/// [`tracing_flame::FlameLayer`].
+pub type FlameGuard = tracing_flame::FlushGuard<BufWriter<std::fs::File>>;
+
 impl LoggerConfig {
     /// Initializes the logger.
     ///
@@ -193,10 +201,13 @@ impl LoggerConfig {
     pub fn init(
         self,
     ) -> Result<
-        LoggerHandles<
-            impl Fn(&tracing::Metadata<'_>) -> bool,
-            impl Fn(&tracing::Metadata<'_>) -> bool,
-        >,
+        (
+            LoggerHandles<
+                impl Fn(&tracing::Metadata<'_>) -> bool,
+                impl Fn(&tracing::Metadata<'_>) -> bool,
+            >,
+            Option<FlameGuard>,
+        ),
         InitLoggerError,
     > {
         // Update default filter to match passed arguments.
@@ -243,7 +254,7 @@ impl LoggerConfig {
                     // consuming the message that is flushed to the two pipes, we are opening it
                     // with `O_NONBLOCK` flag. In this case, writing to a pipe will start failing
                     // when reaching 64K of unconsumed content.
-                    let file = std::fs::OpenOptions::new()
+                    let file = OpenOptions::new()
                         .custom_flags(libc::O_NONBLOCK)
                         .read(true)
                         .write(true)
@@ -264,11 +275,29 @@ impl LoggerConfig {
             ReloadLayer::new(fmt_subscriber)
         };
 
-        Registry::default()
-            .with(filter)
-            .with(fmt)
-            .try_init()
-            .map_err(InitLoggerError::Init)?;
+        // Setup flame layer
+        let flame_guard = if let Some(profile_path) = self.profile_path {
+            let writer = OpenOptions::new().write(true).open(profile_path).unwrap();
+            let buffer = BufWriter::new(writer);
+            let flame_layer = tracing_flame::FlameLayer::new(buffer);
+            let guard = flame_layer.flush_on_drop();
+
+            Registry::default()
+                .with(filter)
+                .with(fmt)
+                .with(flame_layer)
+                .try_init()
+                .map_err(InitLoggerError::Init)?;
+
+            Some(guard)
+        } else {
+            Registry::default()
+                .with(filter)
+                .with(fmt)
+                .try_init()
+                .map_err(InitLoggerError::Init)?;
+            None
+        };
 
         tracing::error!("Error level logs enabled.");
         tracing::warn!("Warn level logs enabled.");
@@ -276,7 +305,7 @@ impl LoggerConfig {
         tracing::debug!("Debug level logs enabled.");
         tracing::trace!("Trace level logs enabled.");
 
-        Ok(LoggerHandles { fmt: fmt_handle })
+        Ok((LoggerHandles { fmt: fmt_handle }, flame_guard))
     }
     /// Updates the logger using the given handles.
     pub fn update(
@@ -292,7 +321,7 @@ impl LoggerConfig {
             // message that is flushed to the two pipes, we are opening it with `O_NONBLOCK` flag.
             // In this case, writing to a pipe will start failing when reaching 64K of unconsumed
             // content.
-            let file = std::fs::OpenOptions::new()
+            let file = OpenOptions::new()
                 .custom_flags(libc::O_NONBLOCK)
                 .read(true)
                 .write(true)

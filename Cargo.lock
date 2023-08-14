@@ -1387,6 +1387,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-flame"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0bae117ee14789185e129aaee5d93750abe67fdc5a9a62650452bfe4e122a3a9"
+dependencies = [
+ "lazy_static",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "tracing-log"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1612,6 +1623,7 @@ dependencies = [
  "thiserror",
  "timerfd",
  "tracing",
+ "tracing-flame",
  "tracing-subscriber",
  "userfaultfd 0.5.1",
  "utils",
