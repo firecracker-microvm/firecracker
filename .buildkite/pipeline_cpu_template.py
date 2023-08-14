@@ -64,6 +64,14 @@ cpu_template_test = {
         "instances": ["m6g.metal", "c7g.metal"],
         "platforms": [("al2_armpatch", "linux_5.10")],
     },
+    "aarch64_armshaker": {
+        BkStep.COMMAND: [
+            "tools/devtool -y test -- -s -ra -m nonci --log-cli-level=INFO integration_tests/functional/test_aarch64_armshaker.py"
+        ],
+        BkStep.LABEL: "📖 armshaker",
+        "instances": ["m6g.metal", "c7g.metal"],
+        "platforms": DEFAULT_PLATFORMS,
+    },
 }
 
 
@@ -164,6 +172,8 @@ def main():
     elif test_args.test == "cpuid_wrmsr":
         test_group = group_snapshot_restore(cpu_template_test[test_args.test])
     elif test_args.test == "aarch64_cpu_templates":
+        test_group = group_single(cpu_template_test[test_args.test])
+    elif test_args.test == "aarch64_armshaker":
         test_group = group_single(cpu_template_test[test_args.test])
 
     pipeline = {"steps": test_group}
