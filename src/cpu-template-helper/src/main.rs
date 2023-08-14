@@ -319,7 +319,7 @@ mod tests {
             microcode_version: "sample_microcode_version".to_string(),
             bios_version: "sample_bios_version".to_string(),
             bios_revision: "sample_bios_revision".to_string(),
-            guest_cpu_config: serde_json::from_slice(SAMPLE_MODIFIERS.as_bytes()).unwrap(),
+            guest_cpu_config: serde_json::from_str(SAMPLE_MODIFIERS).unwrap(),
         };
         let file = TempFile::new().unwrap();
         file.as_file()
