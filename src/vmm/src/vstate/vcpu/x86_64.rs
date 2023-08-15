@@ -148,21 +148,28 @@ pub struct SetTscError(#[from] kvm_ioctls::Error);
 /// Error type for [`KvmVcpu::configure`].
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum KvmVcpuConfigureError {
+    /// Failed to convert `Cpuid` to `kvm_bindings::CpuId`.
     #[error("Failed to convert `Cpuid` to `kvm_bindings::CpuId`: {0}")]
     ConvertCpuidType(#[from] utils::fam::Error),
     /// Failed to apply modifications to CPUID.
     #[error("Failed to apply modifications to CPUID: {0}")]
     NormalizeCpuidError(#[from] cpuid::NormalizeCpuidError),
+    /// Failed to set CPUID.
     #[error("Failed to set CPUID: {0}")]
     SetCpuid(#[from] utils::errno::Error),
+    /// Failed to set MSRs.
     #[error("Failed to set MSRs: {0}")]
     SetMsrs(#[from] MsrError),
+    /// Failed to setup registers.
     #[error("Failed to setup registers: {0}")]
     SetupRegisters(#[from] SetupRegistersError),
+    /// Failed to setup FPU.
     #[error("Failed to setup FPU: {0}")]
     SetupFpu(#[from] SetupFpuError),
+    /// Failed to setup special registers.
     #[error("Failed to setup special registers: {0}")]
     SetupSpecialRegisters(#[from] SetupSpecialRegistersError),
+    /// Failed to setup special registers.
     #[error("Failed to configure LAPICs: {0}")]
     SetLint(#[from] interrupts::InterruptError),
 }
@@ -170,12 +177,14 @@ pub enum KvmVcpuConfigureError {
 /// A wrapper around creating and using a kvm x86_64 vcpu.
 #[derive(Debug)]
 pub struct KvmVcpu {
+    /// Index of vcpu.
     pub index: u8,
+    /// KVM vcpu fd.
     pub fd: VcpuFd,
-
+    /// Pio bus.
     pub pio_bus: Option<crate::devices::Bus>,
+    /// Mmio bus.
     pub mmio_bus: Option<crate::devices::Bus>,
-
     msrs_to_save: HashSet<u32>,
 }
 
@@ -474,7 +483,7 @@ impl KvmVcpu {
         Ok(diff > (f64::from(state_tsc_freq) * TSC_KHZ_TOL).round() as i64)
     }
 
-    // Scale the TSC frequency of this vCPU to the one provided as a parameter.
+    /// Scale the TSC frequency of this vCPU to the one provided as a parameter.
     pub fn set_tsc_khz(&self, tsc_freq: u32) -> Result<(), SetTscError> {
         self.fd.set_tsc_khz(tsc_freq).map_err(SetTscError)
     }
@@ -575,19 +584,31 @@ impl KvmVcpu {
 /// Structure holding VCPU kvm state.
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VcpuState {
+    /// CpuId.
     pub cpuid: CpuId,
+    /// Msrs.
     #[version(end = 3, default_fn = "default_msrs")]
     pub msrs: Msrs,
+    /// Saved msrs.
     #[version(start = 3, de_fn = "de_saved_msrs", ser_fn = "ser_saved_msrs")]
     pub saved_msrs: Vec<Msrs>,
+    /// Debug regs.
     pub debug_regs: kvm_debugregs,
+    /// Lapic.
     pub lapic: kvm_lapic_state,
+    /// Mp state
     pub mp_state: kvm_mp_state,
+    /// Kvm regs.
     pub regs: kvm_regs,
+    /// Sregs.
     pub sregs: kvm_sregs,
+    /// Vcpu events
     pub vcpu_events: kvm_vcpu_events,
+    /// Xcrs.
     pub xcrs: kvm_xcrs,
+    /// Xsave.
     pub xsave: kvm_xsave,
+    /// Tsc khz.
     #[version(start = 2, default_fn = "default_tsc_khz", ser_fn = "ser_tsc")]
     pub tsc_khz: Option<u32>,
 }

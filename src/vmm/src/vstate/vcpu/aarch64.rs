@@ -27,31 +27,43 @@ use crate::vstate::vm::Vm;
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum KvmVcpuError {
+    /// Error configuring the vcpu registers.
     #[error("Error configuring the vcpu registers: {0}")]
     ConfigureRegisters(ArchError),
+    /// Error creating vcpu.
     #[error("Error creating vcpu: {0}")]
     CreateVcpu(kvm_ioctls::Error),
+    /// Failed to dump CPU configuration.
     #[error("Failed to dump CPU configuration: {0}")]
     DumpCpuConfig(ArchError),
+    /// Error getting the vcpu preferred target.
     #[error("Error getting the vcpu preferred target: {0}")]
     GetPreferredTarget(kvm_ioctls::Error),
+    /// Error initializing the vcpu.
     #[error("Error initializing the vcpu: {0}")]
     Init(kvm_ioctls::Error),
+    /// Error applying template.
     #[error("Error applying template: {0}")]
     ApplyCpuTemplate(ArchError),
+    /// Failed to restore the state of the vcpu.
     #[error("Failed to restore the state of the vcpu: {0}")]
     RestoreState(ArchError),
+    /// Failed to save the state of the vcpu.
     #[error("Failed to save the state of the vcpu: {0}")]
     SaveState(ArchError),
 }
 
+/// Error type for [`KvmVcpu::configure`].
 pub type KvmVcpuConfigureError = KvmVcpuError;
 
 /// A wrapper around creating and using a kvm aarch64 vcpu.
 #[derive(Debug)]
 pub struct KvmVcpu {
+    /// Index of vcpu.
     pub index: u8,
+    /// KVM vcpu fd.
     pub fd: VcpuFd,
+    /// Mmio bus.
     pub mmio_bus: Option<crate::devices::Bus>,
     mpidr: u64,
     kvi: Option<kvm_bindings::kvm_vcpu_init>,
@@ -144,6 +156,7 @@ impl KvmVcpu {
         Ok(())
     }
 
+    /// Creates default kvi struct based on vcpu index.
     pub fn default_kvi(
         vm_fd: &VmFd,
         index: u8,
@@ -236,15 +249,21 @@ impl KvmVcpu {
 /// Structure holding VCPU kvm state.
 #[derive(Debug, Default, Clone, Versionize)]
 pub struct VcpuState {
+    /// Multiprocessing state.
     pub mp_state: kvm_bindings::kvm_mp_state,
+    /// Old representation of Vcpu registers.
     #[version(end = 2, default_fn = "default_old_regs")]
     pub old_regs: Vec<Aarch64RegisterOld>,
+    /// Vcpu registers.
     #[version(start = 2, de_fn = "de_regs", ser_fn = "ser_regs")]
     pub regs: Aarch64RegisterVec,
-    // We will be using the mpidr for passing it to the VmState.
-    // The VmState will give this away for saving restoring the icc and redistributor
-    // registers.
+    /// We will be using the mpidr for passing it to the VmState.
+    /// The VmState will give this away for saving restoring the icc and redistributor
+    /// registers.
     pub mpidr: u64,
+    /// kvi states for vcpu initialization.
+    /// If None then use `default_kvi` to obtain
+    /// kvi.
     #[version(start = 2, default_fn = "default_kvi")]
     pub kvi: Option<kvm_bindings::kvm_vcpu_init>,
 }

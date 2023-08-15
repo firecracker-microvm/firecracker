@@ -103,19 +103,25 @@ pub enum VmError {
 }
 
 /// Error type for [`Vm::restore_state`]
+#[allow(missing_docs)]
 #[cfg(target_arch = "x86_64")]
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum RestoreStateError {
     #[error("{0}")]
     SetPit2(kvm_ioctls::Error),
+    /// SetClock.
     #[error("{0}")]
     SetClock(kvm_ioctls::Error),
+    /// SetIrqChipPicMaster.
     #[error("{0}")]
     SetIrqChipPicMaster(kvm_ioctls::Error),
+    /// SetIrqChipPicSlave.
     #[error("{0}")]
     SetIrqChipPicSlave(kvm_ioctls::Error),
+    /// SetIrqChipIoAPIC.
     #[error("{0}")]
     SetIrqChipIoAPIC(kvm_ioctls::Error),
+    /// Vm Error
     #[error("{0}")]
     VmError(VmError),
 }
@@ -127,6 +133,7 @@ pub enum RestoreStateError {
     /// GIC Error
     #[error("{0}")]
     GicError(crate::arch::aarch64::gic::GicError),
+    /// Vm Error
     #[error("{0}")]
     VmError(VmError),
 }
@@ -340,7 +347,9 @@ impl Vm {
 #[cfg(target_arch = "aarch64")]
 #[derive(Debug, Default, Versionize)]
 pub struct VmState {
+    /// GIC state.
     pub gic: GicState,
+    /// Additional capabilities that were specified in cpu template.
     #[version(start = 2, default_fn = "default_caps")]
     pub kvm_cap_modifiers: Vec<KvmCapability>,
 }
@@ -471,6 +480,7 @@ pub struct VmState {
     pic_slave: kvm_irqchip,
     ioapic: kvm_irqchip,
 
+    /// Additional capabilities that were specified in cpu template.
     #[version(start = 2, default_fn = "default_caps")]
     pub kvm_cap_modifiers: Vec<KvmCapability>,
 }

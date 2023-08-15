@@ -28,8 +28,10 @@ use crate::cpu_config::templates::{CpuConfiguration, GuestConfigError};
 use crate::vstate::vm::Vm;
 use crate::FcExitCode;
 
+/// Module with aarch64 vCPU implementation.
 #[cfg(target_arch = "aarch64")]
 pub mod aarch64;
+/// Module with x86_64 vCPU implementation.
 #[cfg(target_arch = "x86_64")]
 pub mod x86_64;
 
@@ -681,10 +683,14 @@ impl Drop for VcpuHandle {
     }
 }
 
+/// Vcpu emulation state.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum VcpuEmulation {
+    /// Handled.
     Handled,
+    /// Interrupted.
     Interrupted,
+    /// Stopped.
     Stopped,
 }
 
