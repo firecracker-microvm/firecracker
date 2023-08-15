@@ -238,7 +238,7 @@ impl KvmVcpu {
 pub struct VcpuState {
     pub mp_state: kvm_bindings::kvm_mp_state,
     #[version(end = 2, default_fn = "default_old_regs")]
-    old_regs: Vec<Aarch64RegisterOld>,
+    pub old_regs: Vec<Aarch64RegisterOld>,
     #[version(start = 2, de_fn = "de_regs", ser_fn = "ser_regs")]
     pub regs: Aarch64RegisterVec,
     // We will be using the mpidr for passing it to the VmState.

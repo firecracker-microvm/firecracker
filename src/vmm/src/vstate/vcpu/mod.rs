@@ -29,17 +29,17 @@ use crate::vstate::vm::Vm;
 use crate::FcExitCode;
 
 #[cfg(target_arch = "aarch64")]
-pub(crate) mod aarch64;
+pub mod aarch64;
 #[cfg(target_arch = "x86_64")]
-pub(crate) mod x86_64;
+pub mod x86_64;
 
 #[cfg(target_arch = "aarch64")]
-pub(crate) use aarch64::{KvmVcpuError, *};
+pub use aarch64::{KvmVcpuError, *};
 #[cfg(target_arch = "x86_64")]
-pub(crate) use x86_64::{KvmVcpuError, *};
+pub use x86_64::{KvmVcpuError, *};
 
 /// Signal number (SIGRTMIN) used to kick Vcpus.
-pub(crate) const VCPU_RTSIG_OFFSET: i32 = 0;
+pub const VCPU_RTSIG_OFFSET: i32 = 0;
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug, thiserror::Error)]
