@@ -265,7 +265,14 @@ impl<I: Read + AsRawFd + Send + Debug> MutEventSubscriber
         if self.input.is_some() && self.serial.events().buffer_ready_event_fd.is_some() {
             let serial_fd = self.serial_input_fd();
             let buf_ready_evt = self.buffer_ready_evt_fd();
-            if serial_fd != -1 {
+
+            // If the jailer is instructed to daemonize before exec-ing into firecracker, we set
+            // stdin, stdout and stderr to be open('/dev/null'). However, if stdin is redirected
+            // from /dev/null then trying to register FILENO_STDIN to epoll will fail with EPERM.
+            // Therefore, only try to register stdin to epoll if it is a terminal or a FIFO pipe.
+            // SAFETY: isatty has no invariants that need to be upheld. If serial_fd is an invalid
+            // argument, it will return 0 and set errno to EBADF.
+            if unsafe { libc::isatty(serial_fd) } == 1 || is_fifo(serial_fd) {
                 if let Err(err) = ops.add(Events::new(&serial_fd, EventSet::IN)) {
                     warn!("Failed to register serial input fd: {}", err);
                 }
@@ -275,6 +282,24 @@ impl<I: Read + AsRawFd + Send + Debug> MutEventSubscriber
             }
         }
     }
+}
+
+/// Checks whether the given file descriptor is a FIFO pipe.
+fn is_fifo(fd: RawFd) -> bool {
+    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+
+    // SAFETY: No unsafety can be introduced by passing in an invalid file descriptor to fstat,
+    // it will return -1 and set errno to EBADF. The pointer passed to fstat is valid for writing
+    // a libc::stat structure.
+    if unsafe { libc::fstat(fd, stat.as_mut_ptr()) } < 0 {
+        return false;
+    }
+
+    // SAFETY: We can safely assume the libc::stat structure to be initialized, as libc::fstat
+    // returning 0 guarantees that the memory is now initialized with the requested file metadata.
+    let stat = unsafe { stat.assume_init() };
+
+    (stat.st_mode & libc::S_IFIFO) != 0
 }
 
 impl<I: Read + AsRawFd + Send + Debug + 'static>
@@ -303,6 +328,8 @@ impl<I: Read + AsRawFd + Send + Debug + 'static>
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
+
     use utils::eventfd::EventFd;
 
     use super::*;
@@ -339,5 +366,24 @@ mod tests {
         let invalid_reads_after_2 = metrics.missed_read_count.count();
         // The `invalid_read_count` metric should be the same as before the one-byte reads.
         assert_eq!(invalid_reads_after_2, invalid_reads_after);
+    }
+
+    #[test]
+    fn test_is_fifo() {
+        // invalid file descriptors arent fifos
+        let invalid = -1;
+        assert!(!is_fifo(invalid));
+
+        // Fifos are fifos
+        let mut fds: [libc::c_int; 2] = [0; 2];
+        let rc = unsafe { libc::pipe(fds.as_mut_ptr()) };
+        assert!(rc == 0);
+
+        assert!(is_fifo(fds[0]));
+        assert!(is_fifo(fds[1]));
+
+        // Files arent fifos
+        let tmp_file = utils::tempfile::TempFile::new().unwrap();
+        assert!(!is_fifo(tmp_file.as_file().as_raw_fd()));
     }
 }
