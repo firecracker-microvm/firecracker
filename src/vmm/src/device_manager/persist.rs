@@ -167,7 +167,7 @@ impl From<MmdsVersion> for MmdsVersionState {
 
 /// Holds the device states.
 // NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Debug, Clone, Versionize)]
+#[derive(Debug, Default, Clone, Versionize)]
 pub struct DeviceStates {
     #[cfg(target_arch = "aarch64")]
     // State of legacy devices in MMIO space.

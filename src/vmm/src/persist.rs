@@ -121,7 +121,7 @@ impl From<&VmResources> for VmInfo {
 }
 
 /// Contains the necesary state for saving/restoring a microVM.
-#[derive(Debug, Versionize)]
+#[derive(Debug, Default, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct MicrovmState {
     /// Miscellaneous VM info.

@@ -459,7 +459,7 @@ impl Vm {
 }
 
 #[cfg(target_arch = "x86_64")]
-#[derive(Versionize)]
+#[derive(Default, Versionize)]
 /// Structure holding VM kvm state.
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VmState {
