@@ -98,8 +98,8 @@ pub mod utilities;
 pub mod version_map;
 /// Wrappers over structures used to configure the VMM.
 pub mod vmm_config;
-
-mod vstate;
+/// Module with virtual state structs.
+pub mod vstate;
 
 use std::collections::HashMap;
 use std::io;
