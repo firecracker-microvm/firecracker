@@ -153,6 +153,11 @@ UNAVAILABLE_CPUID_ON_DUMP_LIST = [
     # platforms reports 0 in EAX. However, the userspace cpuid command in ubuntu
     # 22 also lists the subleaf 1.
     (0x18, 0x1),
+    # CPUID.1Bh enumerates PCONFIG information. The availability of PCONFIG is
+    # enumerated in CPUID.7h.0:EDX[18]. While all the supported platforms don't
+    # support it, the userspace cpuid command in ubuntu 22 reports not only
+    # the subleaf 0 but also the subleaf 1.
+    (0x1B, 0x1),
     # CPUID.8000001Bh or later are not supported on kernel 4.14 with an
     # exception CPUID.8000001Dh and CPUID.8000001Eh normalized by firecracker.
     # https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/kvm/cpuid.c?h=v4.14.313#n637
