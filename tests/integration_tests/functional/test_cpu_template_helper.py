@@ -161,6 +161,9 @@ UNAVAILABLE_CPUID_ON_DUMP_LIST = [
     # CPUID.20000000h is not documented in Intel SDM and AMD APM. KVM doesn't
     # report it, but the userspace cpuid command in ubuntu 22 does.
     (0x20000000, 0x0),
+    # CPUID.40000100h is Xen-specific leaf.
+    # https://xenbits.xen.org/docs/4.6-testing/hypercall/x86_64/include,public,arch-x86,cpuid.h.html
+    (0x40000100, 0x0),
     # CPUID.8000001Bh or later are not supported on kernel 4.14 with an
     # exception CPUID.8000001Dh and CPUID.8000001Eh normalized by firecracker.
     # https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/kvm/cpuid.c?h=v4.14.313#n637
