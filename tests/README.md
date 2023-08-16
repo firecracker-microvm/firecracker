@@ -52,7 +52,8 @@ For help on usage, see `tools/devtool help`.
 
 ### Dependencies
 
-- A bare-metal `Linux` host with `uname -r` >= 4.14.
+- A bare-metal `Linux` host with `uname -r` >= 4.14 and KVM enabled
+  (`/dev/kvm` device node exists).
 - Docker.
 
 ## Rustacean Integration Tests
