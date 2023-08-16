@@ -473,7 +473,7 @@ pub fn build_microvm_from_snapshot(
     {
         for (vcpu, state) in vcpus.iter_mut().zip(microvm_state.vcpu_states.iter()) {
             vcpu.kvm_vcpu
-                .restore_state(state)
+                .restore_state(vmm.vm.fd(), state)
                 .map_err(crate::vstate::vcpu::VcpuError::VcpuResponse)
                 .map_err(RestoreVcpusError::RestoreVcpuState)
                 .map_err(BuildMicrovmFromSnapshotError::RestoreVcpus)?;
