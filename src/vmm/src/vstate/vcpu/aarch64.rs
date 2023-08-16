@@ -54,6 +54,7 @@ pub struct KvmVcpu {
     pub fd: VcpuFd,
     pub mmio_bus: Option<crate::devices::Bus>,
     mpidr: u64,
+    kvi: Option<kvm_bindings::kvm_vcpu_init>,
 }
 
 impl KvmVcpu {
@@ -74,6 +75,7 @@ impl KvmVcpu {
             fd: kvm_vcpu,
             mmio_bus: None,
             mpidr: 0,
+            kvi: None,
         })
     }
 
@@ -119,20 +121,47 @@ impl KvmVcpu {
     /// # Arguments
     ///
     /// * `vm_fd` - The kvm `VmFd` for this microvm.
-    pub fn init(&self, vm_fd: &VmFd, _vcpu_features: &[VcpuFeatures]) -> Result<(), KvmVcpuError> {
-        let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
+    pub fn init(
+        &mut self,
+        vm_fd: &VmFd,
+        vcpu_features: &[VcpuFeatures],
+    ) -> Result<(), KvmVcpuError> {
+        let mut kvi = Self::default_kvi(vm_fd, self.index)?;
 
+        for feature in vcpu_features.iter() {
+            let index = feature.index as usize;
+            kvi.features[index] = feature.bitmap.apply(kvi.features[index]);
+        }
+
+        self.init_vcpu_fd(&kvi)?;
+
+        self.kvi = if !vcpu_features.is_empty() {
+            Some(kvi)
+        } else {
+            None
+        };
+
+        Ok(())
+    }
+
+    pub fn default_kvi(
+        vm_fd: &VmFd,
+        index: u8,
+    ) -> Result<kvm_bindings::kvm_vcpu_init, KvmVcpuError> {
+        let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
         // This reads back the kernel's preferred target type.
         vm_fd
             .get_preferred_target(&mut kvi)
             .map_err(KvmVcpuError::GetPreferredTarget)?;
         // We already checked that the capability is supported.
         kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_PSCI_0_2;
+
         // Non-boot cpus are powered off initially.
-        if self.index > 0 {
+        if index > 0 {
             kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_POWER_OFF;
         }
-        self.fd.vcpu_init(&kvi).map_err(KvmVcpuError::Init)
+
+        Ok(kvi)
     }
 
     /// Save the KVM internal state.
@@ -143,11 +172,20 @@ impl KvmVcpu {
         };
         get_all_registers(&self.fd, &mut state.regs).map_err(KvmVcpuError::SaveState)?;
         state.mpidr = get_mpidr(&self.fd).map_err(KvmVcpuError::SaveState)?;
+        state.kvi = self.kvi;
         Ok(state)
     }
 
     /// Use provided state to populate KVM internal state.
-    pub fn restore_state(&self, state: &VcpuState) -> Result<(), KvmVcpuError> {
+    pub fn restore_state(&mut self, vm_fd: &VmFd, state: &VcpuState) -> Result<(), KvmVcpuError> {
+        let kvi = match state.kvi {
+            Some(kvi) => kvi,
+            None => Self::default_kvi(vm_fd, self.index)?,
+        };
+
+        self.init_vcpu_fd(&kvi)?;
+
+        self.kvi = state.kvi;
         set_registers(&self.fd, &state.regs).map_err(KvmVcpuError::RestoreState)?;
         set_mpstate(&self.fd, state.mp_state).map_err(KvmVcpuError::RestoreState)?;
         Ok(())
@@ -179,6 +217,20 @@ impl KvmVcpu {
         error!("Unexpected exit reason on vcpu run: {:?}", exit);
         Err(VcpuError::UnhandledKvmExit(format!("{:?}", exit)))
     }
+
+    /// Initializes internal vcpufd.
+    /// Does additional check for SVE and calls `vcpu_finalize` if
+    /// SVE is enabled.
+    fn init_vcpu_fd(&self, kvi: &kvm_bindings::kvm_vcpu_init) -> Result<(), KvmVcpuError> {
+        self.fd.vcpu_init(kvi).map_err(KvmVcpuError::Init)?;
+        if (kvi.features[0] & (1 << kvm_bindings::KVM_ARM_VCPU_SVE)) != 0 {
+            // KVM_ARM_VCPU_SVE has value 4 so casting to i32 is safe.
+            #[allow(clippy::cast_possible_wrap)]
+            let feature = kvm_bindings::KVM_ARM_VCPU_SVE as i32;
+            self.fd.vcpu_finalize(&feature).unwrap();
+        }
+        Ok(())
+    }
 }
 
 /// Structure holding VCPU kvm state.
@@ -193,11 +245,17 @@ pub struct VcpuState {
     // The VmState will give this away for saving restoring the icc and redistributor
     // registers.
     pub mpidr: u64,
+    #[version(start = 2, default_fn = "default_kvi")]
+    pub kvi: Option<kvm_bindings::kvm_vcpu_init>,
 }
 
 impl VcpuState {
     fn default_old_regs(_: u16) -> Vec<Aarch64RegisterOld> {
         Vec::default()
+    }
+
+    fn default_kvi(_: u16) -> Option<kvm_bindings::kvm_vcpu_init> {
+        None
     }
 
     fn de_regs(&mut self, _source_version: u16) -> VersionizeResult<()> {
@@ -234,13 +292,14 @@ mod tests {
     use super::*;
     use crate::arch::aarch64::regs::Aarch64RegisterRef;
     use crate::cpu_config::aarch64::CpuConfiguration;
+    use crate::cpu_config::templates::RegisterValueFilter;
     use crate::vcpu::VcpuConfig;
     use crate::vstate::vm::tests::setup_vm;
     use crate::vstate::vm::Vm;
 
     fn setup_vcpu(mem_size: usize) -> (Vm, KvmVcpu, GuestMemoryMmap) {
         let (mut vm, vm_mem) = setup_vm(mem_size);
-        let vcpu = KvmVcpu::new(0, &vm).unwrap();
+        let mut vcpu = KvmVcpu::new(0, &vm).unwrap();
         vcpu.init(vm.fd(), &[]).unwrap();
         vm.setup_irqchip(1).unwrap();
 
@@ -296,8 +355,31 @@ mod tests {
     }
 
     #[test]
+    fn test_init_vcpu() {
+        let (mut vm, _vm_mem) = setup_vm(0x1000);
+        let mut vcpu = KvmVcpu::new(0, &vm).unwrap();
+        vm.setup_irqchip(1).unwrap();
+
+        // KVM_ARM_VCPU_PSCI_0_2 is set by default.
+        // we check if we can remove it.
+        let vcpu_features = vec![VcpuFeatures {
+            index: 0,
+            bitmap: RegisterValueFilter {
+                filter: 1 << kvm_bindings::KVM_ARM_VCPU_PSCI_0_2,
+                value: 0,
+            },
+        }];
+        vcpu.init(vm.fd(), &vcpu_features).unwrap();
+
+        // Because vcpu_features vector is not empty,
+        // kvi field should be non empty as well.
+        let vcpu_kvi = vcpu.kvi.unwrap();
+        assert!((vcpu_kvi.features[0] & (1 << kvm_bindings::KVM_ARM_VCPU_PSCI_0_2)) == 0)
+    }
+
+    #[test]
     fn test_faulty_init_vcpu() {
-        let (vm, vcpu, _) = setup_vcpu(0x10000);
+        let (vm, mut vcpu, _) = setup_vcpu(0x10000);
         unsafe { libc::close(vm.fd().as_raw_fd()) };
         let err = vcpu.init(vm.fd(), &[]);
         assert!(err.is_err());
@@ -310,7 +392,7 @@ mod tests {
     #[test]
     fn test_vcpu_save_restore_state() {
         let (mut vm, _vm_mem) = setup_vm(0x1000);
-        let vcpu = KvmVcpu::new(0, &vm).unwrap();
+        let mut vcpu = KvmVcpu::new(0, &vm).unwrap();
         vm.setup_irqchip(1).unwrap();
 
         // Calling KVM_GET_REGLIST before KVM_VCPU_INIT will result in error.
@@ -330,7 +412,7 @@ mod tests {
             regs,
             ..Default::default()
         };
-        let res = vcpu.restore_state(&faulty_vcpu_state);
+        let res = vcpu.restore_state(vm.fd(), &faulty_vcpu_state);
         assert!(res.is_err());
         assert!(matches!(
             res.unwrap_err(),
@@ -340,7 +422,7 @@ mod tests {
         vcpu.init(vm.fd(), &[]).unwrap();
         let state = vcpu.save_state().expect("Cannot save state of vcpu");
         assert!(!state.regs.is_empty());
-        vcpu.restore_state(&state)
+        vcpu.restore_state(vm.fd(), &state)
             .expect("Cannot restore state of vcpu");
     }
 
@@ -361,7 +443,7 @@ mod tests {
     fn test_dump_cpu_config_after_init() {
         // Test `dump_cpu_config()` after `KVM_VCPU_INIT`.
         let (mut vm, _vm_mem) = setup_vm(0x1000);
-        let vcpu = KvmVcpu::new(0, &vm).unwrap();
+        let mut vcpu = KvmVcpu::new(0, &vm).unwrap();
         vm.setup_irqchip(1).unwrap();
         vcpu.init(vm.fd(), &[]).unwrap();
 
@@ -371,9 +453,9 @@ mod tests {
     #[test]
     fn test_setup_non_boot_vcpu() {
         let (vm, _) = setup_vm(0x1000);
-        let vcpu1 = KvmVcpu::new(0, &vm).unwrap();
+        let mut vcpu1 = KvmVcpu::new(0, &vm).unwrap();
         assert!(vcpu1.init(vm.fd(), &[]).is_ok());
-        let vcpu2 = KvmVcpu::new(1, &vm).unwrap();
+        let mut vcpu2 = KvmVcpu::new(1, &vm).unwrap();
         assert!(vcpu2.init(vm.fd(), &[]).is_ok());
     }
 

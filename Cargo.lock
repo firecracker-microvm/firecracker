@@ -682,7 +682,7 @@ dependencies = [
 [[package]]
 name = "kvm-bindings"
 version = "0.6.0"
-source = "git+https://github.com/firecracker-microvm/kvm-bindings?tag=v0.6.0-1#e8359204b41d5c2e7c5af9ae5c26283b62337740"
+source = "git+https://github.com/firecracker-microvm/kvm-bindings?tag=v0.6.0-2#b1585959b4ac4075629765fb90ecf298a3203bfc"
 dependencies = [
  "versionize",
  "versionize_derive",
@@ -691,9 +691,9 @@ dependencies = [
 
 [[package]]
 name = "kvm-ioctls"
-version = "0.14.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "436246b230532c94ec619332e820e31518dac7943cf848b052e618467a7ede8a"
+checksum = "9bdde2b46ee7b6587ef79f751019c4726c4f2d3e4628df5d69f3f9c5cb6c6bd4"
 dependencies = [
  "kvm-bindings",
  "libc",
