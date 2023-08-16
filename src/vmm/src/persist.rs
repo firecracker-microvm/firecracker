@@ -37,7 +37,9 @@ use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
 use crate::resources::VmResources;
 #[cfg(target_arch = "x86_64")]
 use crate::version_map::FC_V0_23_SNAP_VERSION;
-use crate::version_map::{FC_V1_0_SNAP_VERSION, FC_V1_1_SNAP_VERSION, FC_VERSION_TO_SNAP_VERSION};
+use crate::version_map::{
+    FC_V1_0_SNAP_VERSION, FC_V1_1_SNAP_VERSION, FC_V1_5_SNAP_VERSION, FC_VERSION_TO_SNAP_VERSION,
+};
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
@@ -244,6 +246,8 @@ pub fn create_snapshot(
         .save_state(vm_info)
         .map_err(CreateSnapshotError::MicrovmState)?;
 
+    extra_version_check(&microvm_state, snapshot_data_version)?;
+
     snapshot_state_to_file(
         &microvm_state,
         &params.snapshot_path,
@@ -354,6 +358,19 @@ pub fn get_snapshot_data_version(
     }
 
     Ok(data_version)
+}
+
+/// Additional checks on snapshot version dependent on microvm saved state.
+pub fn extra_version_check(
+    microvm_state: &MicrovmState,
+    version: u16,
+) -> Result<(), CreateSnapshotError> {
+    // We forbid snapshots older then 1.5 if any additional vcpu features are requested
+    #[cfg(target_arch = "aarch64")]
+    if microvm_state.vcpu_states[0].kvi.is_some() && version < FC_V1_5_SNAP_VERSION {
+        return Err(CreateSnapshotError::UnsupportedVersion);
+    }
+    Ok(())
 }
 
 /// Validates that snapshot CPU vendor matches the host CPU vendor.
