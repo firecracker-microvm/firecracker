@@ -217,7 +217,7 @@ mod tests {
                         {
                             "addr": "j",
                             "bitmap": "0bx00100xxx1xxxx00xxx1xxxxxxxxxxx1"
-                        },
+                        }
                     ]
                 }"#,
         );
@@ -237,7 +237,7 @@ mod tests {
                         {
                             "addr": "0bK",
                             "bitmap": "0bx00100xxx1xxxx00xxx1xxxxxxxxxxx1"
-                        },
+                        }
                     ]
                 }"#,
         );
@@ -254,7 +254,7 @@ mod tests {
                         {
                             "addr": "0x0030000000000000",
                             "bitmap": "0bx0?1_0_0x_?x1xxxx00xxx1xxxxxxxxxxx1"
-                        },
+                        }
                     ]
                 }"#,
         );
@@ -270,7 +270,7 @@ mod tests {
                         {
                             "addr": "0x0030000000000000",
                             "bitmap": "0bx00100x0x1xxxx05xxx1xxxxxxxxxxx1"
-                        },
+                        }
                     ]
                 }"#,
         );
