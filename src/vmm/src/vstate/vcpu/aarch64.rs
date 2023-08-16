@@ -329,7 +329,6 @@ mod tests {
             regs,
             ..Default::default()
         };
-
         let res = vcpu.restore_state(&faulty_vcpu_state);
         assert!(res.is_err());
         assert!(matches!(

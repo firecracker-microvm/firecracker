@@ -299,9 +299,6 @@ pub enum StartVcpusError {
 /// Error type for [`Vmm::restore_vcpu_states`]
 #[derive(Debug, thiserror::Error)]
 pub enum RestoreVcpusError {
-    /// Invalid input.
-    #[error("Invalid input.")]
-    InvalidInput,
     /// Failed to send event.
     #[error("Failed to send event: {0}")]
     SendEvent(#[from] VcpuSendEventError),
@@ -595,38 +592,6 @@ impl Vmm {
             .collect::<Result<Vec<VcpuState>, MicrovmStateError>>()?;
 
         Ok(vcpu_states)
-    }
-
-    /// Restores vcpus kvm states.
-    pub fn restore_vcpu_states(
-        &mut self,
-        mut vcpu_states: Vec<VcpuState>,
-    ) -> Result<(), RestoreVcpusError> {
-        if vcpu_states.len() != self.vcpus_handles.len() {
-            return Err(RestoreVcpusError::InvalidInput);
-        }
-        for (handle, state) in self.vcpus_handles.iter().zip(vcpu_states.drain(..)) {
-            handle.send_event(VcpuEvent::RestoreState(Box::new(state)))?;
-        }
-
-        let vcpu_responses = self
-            .vcpus_handles
-            .iter()
-            // `Iterator::collect` can transform a `Vec<Result>` into a `Result<Vec>`.
-            .map(|handle| handle.response_receiver().recv_timeout(RECV_TIMEOUT_SEC))
-            .collect::<Result<Vec<VcpuResponse>, RecvTimeoutError>>()
-            .map_err(|_| RestoreVcpusError::UnexpectedVcpuResponse)?;
-
-        for response in vcpu_responses.into_iter() {
-            match response {
-                VcpuResponse::RestoredState => Ok(()),
-                VcpuResponse::Error(err) => Err(RestoreVcpusError::RestoreVcpuState(err)),
-                VcpuResponse::NotAllowed(reason) => Err(RestoreVcpusError::NotAllowed(reason)),
-                _ => Err(RestoreVcpusError::UnexpectedVcpuResponse),
-            }?;
-        }
-
-        Ok(())
     }
 
     /// Dumps CPU configuration.

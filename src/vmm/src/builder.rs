@@ -445,7 +445,7 @@ pub fn build_microvm_from_snapshot(
     })?;
 
     // Build Vmm.
-    let (mut vmm, vcpus) = create_vmm_and_vcpus(
+    let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
         event_manager,
         guest_memory.clone(),
@@ -468,11 +468,28 @@ pub fn build_microvm_from_snapshot(
         }
     }
 
+    // Restore vcpus kvm state.
     #[cfg(target_arch = "aarch64")]
     {
+        for (vcpu, state) in vcpus.iter_mut().zip(microvm_state.vcpu_states.iter()) {
+            vcpu.kvm_vcpu
+                .restore_state(state)
+                .map_err(crate::vstate::vcpu::VcpuError::VcpuResponse)
+                .map_err(RestoreVcpusError::RestoreVcpuState)
+                .map_err(BuildMicrovmFromSnapshotError::RestoreVcpus)?;
+        }
         let mpidrs = construct_kvm_mpidrs(&microvm_state.vcpu_states);
         // Restore kvm vm state.
         vmm.vm.restore_state(&mpidrs, &microvm_state.vm_state)?;
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    for (vcpu, state) in vcpus.iter_mut().zip(microvm_state.vcpu_states.iter()) {
+        vcpu.kvm_vcpu
+            .restore_state(state)
+            .map_err(crate::vstate::vcpu::VcpuError::VcpuResponse)
+            .map_err(RestoreVcpusError::RestoreVcpuState)
+            .map_err(BuildMicrovmFromSnapshotError::RestoreVcpus)?;
     }
 
     // Restore kvm vm state.
@@ -513,9 +530,6 @@ pub fn build_microvm_from_snapshot(
             .ok_or(BuildMicrovmFromSnapshotError::MissingVcpuSeccompFilters)?
             .clone(),
     )?;
-
-    // Restore vcpus kvm state.
-    vmm.restore_vcpu_states(microvm_state.vcpu_states)?;
 
     let vmm = Arc::new(Mutex::new(vmm));
     event_manager.add_subscriber(vmm.clone());
@@ -717,11 +731,7 @@ fn create_vcpus(vm: &Vm, vcpu_count: u8, exit_evt: &EventFd) -> Result<Vec<Vcpu>
     let mut vcpus = Vec::with_capacity(vcpu_count as usize);
     for cpu_idx in 0..vcpu_count {
         let exit_evt = exit_evt.try_clone().map_err(VmmError::EventFd)?;
-
         let vcpu = Vcpu::new(cpu_idx, vm, exit_evt).map_err(VmmError::VcpuCreate)?;
-        #[cfg(target_arch = "aarch64")]
-        vcpu.kvm_vcpu.init(vm.fd()).map_err(VmmError::VcpuInit)?;
-
         vcpus.push(vcpu);
     }
     Ok(vcpus)
@@ -759,6 +769,14 @@ pub fn configure_system_for_boot(
     let cpu_config = {
         use crate::arch::aarch64::regs::Aarch64RegisterVec;
         use crate::arch::aarch64::vcpu::get_registers;
+
+        for vcpu in vcpus.iter_mut() {
+            vcpu.kvm_vcpu
+                .init(vmm.vm.fd())
+                .map_err(VmmError::VcpuInit)
+                .map_err(Internal)?;
+        }
+
         let mut regs = Aarch64RegisterVec::default();
         get_registers(&vcpus[0].kvm_vcpu.fd, &cpu_template.reg_list(), &mut regs)
             .map_err(GuestConfigError)?;
