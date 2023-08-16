@@ -219,3 +219,29 @@ def test_serial_block(test_microvm_with_api):
 
     # Should be significantly more than before the `cat` command.
     assert last_count - init_count > 10000
+
+
+REGISTER_FAILED_WARNING = "Failed to register serial input fd: event_manager: failed to manage epoll file descriptor: Operation not permitted (os error 1)"
+
+
+def test_no_serial_fd_error_when_daemonized(uvm_plain):
+    """
+    Tests that when running firecracker daemonized, the serial device
+    does not try to register stdin to epoll (which would fail due to stdin no
+    longer being pointed at a terminal).
+
+    Regression test for #4037.
+    """
+
+    test_microvm = uvm_plain
+    test_microvm.spawn()
+    test_microvm.add_net_iface()
+    test_microvm.basic_config(
+        vcpu_count=1,
+        mem_size_mib=512,
+    )
+    test_microvm.start()
+
+    test_microvm.ssh.run("true")
+
+    assert REGISTER_FAILED_WARNING not in test_microvm.log_data

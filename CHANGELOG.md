@@ -12,6 +12,10 @@
 - Better logs during validation of CPU ID in snapshot restoration path. Also
   Firecracker now does not fail if it can't get CPU ID from the host or
   can't find CPU ID in the snapshot.
+- Changed the serial device to only try to initialize itself if stdin is a terminal
+  or a FIFO pipe. This fixes logged warnings about the serial device failing to
+  initialize if the process is daemonized (in which case stdin is /dev/null instead
+  of a terminal).
 
 ### Fixed
 
