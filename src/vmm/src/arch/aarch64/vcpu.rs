@@ -40,6 +40,7 @@ pub enum VcpuError {
     GetMidrEl1(String),
 }
 
+#[tracing::instrument(level = "trace", skip(regs))]
 /// Extract the Manufacturer ID from a VCPU state's registers.
 /// The ID is found between bits 24-31 of MIDR_EL1 register.
 ///
@@ -56,6 +57,7 @@ pub fn get_manufacturer_id_from_state(regs: &Aarch64RegisterVec) -> Result<u32, 
     }
 }
 
+#[tracing::instrument(level = "trace", skip())]
 /// Extract the Manufacturer ID from the host.
 /// The ID is found between bits 24-31 of MIDR_EL1 register.
 pub fn get_manufacturer_id_from_host() -> Result<u32, VcpuError> {
@@ -72,6 +74,7 @@ pub fn get_manufacturer_id_from_host() -> Result<u32, VcpuError> {
     Ok(manufacturer_id >> 24)
 }
 
+#[tracing::instrument(level = "trace", skip(vcpufd, cpu_id, boot_ip, mem))]
 /// Configure relevant boot registers for a given vCPU.
 ///
 /// # Arguments
@@ -116,6 +119,7 @@ pub fn setup_boot_regs(
     Ok(())
 }
 
+#[tracing::instrument(level = "trace", skip(vcpufd))]
 /// Read the MPIDR - Multiprocessor Affinity Register.
 pub fn get_mpidr(vcpufd: &VcpuFd) -> Result<u64, VcpuError> {
     // MPIDR register is 64 bit wide on aarch64
@@ -126,6 +130,7 @@ pub fn get_mpidr(vcpufd: &VcpuFd) -> Result<u64, VcpuError> {
     }
 }
 
+#[tracing::instrument(level = "trace", skip(vcpufd, state))]
 /// Saves the states of the system registers into `state`.
 ///
 /// # Arguments
@@ -135,6 +140,7 @@ pub fn get_all_registers(vcpufd: &VcpuFd, state: &mut Aarch64RegisterVec) -> Res
     get_registers(vcpufd, &get_all_registers_ids(vcpufd)?, state)
 }
 
+#[tracing::instrument(level = "trace", skip(vcpufd, ids, regs))]
 /// Saves states of registers into `state`.
 ///
 /// # Arguments
@@ -157,6 +163,7 @@ pub fn get_registers(
     Ok(())
 }
 
+#[tracing::instrument(level = "trace", skip(vcpufd))]
 /// Returns all registers ids, including core and system
 pub fn get_all_registers_ids(vcpufd: &VcpuFd) -> Result<Vec<u64>, VcpuError> {
     // Call KVM_GET_REG_LIST to get all registers available to the guest. For ArmV8 there are
@@ -168,6 +175,7 @@ pub fn get_all_registers_ids(vcpufd: &VcpuFd) -> Result<Vec<u64>, VcpuError> {
     Ok(reg_list.as_slice().to_vec())
 }
 
+#[tracing::instrument(level = "trace", skip(vcpufd, regs))]
 /// Set the state of the system registers.
 ///
 /// # Arguments
@@ -182,6 +190,7 @@ pub fn set_registers(vcpufd: &VcpuFd, regs: &Aarch64RegisterVec) -> Result<(), V
     Ok(())
 }
 
+#[tracing::instrument(level = "trace", skip(vcpufd))]
 /// Get the multistate processor.
 ///
 /// # Arguments
@@ -191,6 +200,7 @@ pub fn get_mpstate(vcpufd: &VcpuFd) -> Result<kvm_mp_state, VcpuError> {
     vcpufd.get_mp_state().map_err(VcpuError::GetMp)
 }
 
+#[tracing::instrument(level = "trace", skip(vcpufd, state))]
 /// Set the state of the system registers.
 ///
 /// # Arguments

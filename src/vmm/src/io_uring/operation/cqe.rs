@@ -18,6 +18,7 @@ pub struct Cqe<T> {
 }
 
 impl<T: Debug> Cqe<T> {
+    #[tracing::instrument(level = "trace", skip(inner))]
     /// Construct a Cqe object from a raw `io_uring_cqe`.
     ///
     /// # Safety
@@ -31,11 +32,13 @@ impl<T: Debug> Cqe<T> {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Return the number of bytes successfully transferred by this operation.
     pub fn count(&self) -> u32 {
         u32::try_from(self.res).unwrap_or(0)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Return the result associated to the IO operation.
     pub fn result(&self) -> Result<u32, std::io::Error> {
         let res = self.res;
@@ -47,6 +50,7 @@ impl<T: Debug> Cqe<T> {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, op))]
     /// Create a new Cqe, applying the passed function to the user_data.
     pub fn map_user_data<U: Debug, F: FnOnce(T) -> U>(self, op: F) -> Cqe<U> {
         Cqe {
@@ -55,6 +59,7 @@ impl<T: Debug> Cqe<T> {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Consume the object and return the user_data.
     pub fn user_data(self) -> T {
         *self.user_data

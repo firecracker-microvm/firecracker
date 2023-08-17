@@ -11,6 +11,7 @@ use std::os::unix::io::AsRawFd;
 
 use uffd_utils::{create_pf_handler, MemPageState};
 
+#[tracing::instrument(level = "trace", skip())]
 fn main() {
     let mut uffd_handler = create_pf_handler();
 

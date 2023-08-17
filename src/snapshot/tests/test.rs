@@ -13,6 +13,7 @@ pub enum TestState {
 }
 
 impl TestState {
+    #[tracing::instrument(level = "trace", skip(self, target_version))]
     fn default_state_two(&self, target_version: u16) -> VersionizeResult<TestState> {
         match target_version {
             1 => Ok(TestState::One(2)),
@@ -34,6 +35,7 @@ pub struct A {
 }
 
 impl A {
+    #[tracing::instrument(level = "trace", skip(_source_version))]
     fn default_c(_source_version: u16) -> String {
         "some_string".to_owned()
     }

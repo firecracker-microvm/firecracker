@@ -279,6 +279,7 @@ pub enum VmmError {
 /// Shorthand type for KVM dirty page bitmap.
 pub type DirtyBitmap = HashMap<usize, Vec<u64>>;
 
+#[tracing::instrument(level = "trace", skip(guest_memory))]
 /// Returns the size of guest memory, in MiB.
 pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
     guest_memory.iter().map(|region| region.len()).sum::<u64>() >> 20
@@ -362,21 +363,25 @@ pub struct Vmm {
 }
 
 impl Vmm {
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Gets Vmm version.
     pub fn version(&self) -> String {
         self.instance_info.vmm_version.clone()
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Gets Vmm instance info.
     pub fn instance_info(&self) -> InstanceInfo {
         self.instance_info.clone()
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Provides the Vmm shutdown exit code if there is one.
     pub fn shutdown_exit_code(&self) -> Option<FcExitCode> {
         self.shutdown_exit_code
     }
 
+    #[tracing::instrument(level = "trace", skip(self, device_type, device_id))]
     /// Gets the specified bus device.
     pub fn get_bus_device(
         &self,
@@ -386,6 +391,7 @@ impl Vmm {
         self.mmio_device_manager.get_device(device_type, device_id)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, vcpus, vcpu_seccomp_filter))]
     /// Starts the microVM vcpus.
     ///
     /// # Errors
@@ -435,6 +441,7 @@ impl Vmm {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Sends a resume command to the vCPUs.
     pub fn resume_vm(&mut self) -> Result<(), VmmError> {
         self.mmio_device_manager.kick_devices();
@@ -459,6 +466,7 @@ impl Vmm {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Sends a pause command to the vCPUs.
     pub fn pause_vm(&mut self) -> Result<(), VmmError> {
         // Send the events.
@@ -481,11 +489,13 @@ impl Vmm {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns a reference to the inner `GuestMemoryMmap` object.
     pub fn guest_memory(&self) -> &GuestMemoryMmap {
         &self.guest_memory
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Sets RDA bit in serial console
     pub fn emulate_serial_init(&self) -> Result<(), EmulateSerialInitError> {
         // When restoring from a previously saved state, there is no serial
@@ -531,6 +541,7 @@ impl Vmm {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Injects CTRL+ALT+DEL keystroke combo in the i8042 device.
     #[cfg(target_arch = "x86_64")]
     pub fn send_ctrl_alt_del(&mut self) -> Result<(), VmmError> {
@@ -544,6 +555,7 @@ impl Vmm {
             .map_err(VmmError::I8042Error)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, vm_info))]
     /// Saves the state of a paused Microvm.
     pub fn save_state(&mut self, vm_info: &VmInfo) -> Result<MicrovmState, MicrovmStateError> {
         use self::MicrovmStateError::SaveVmState;
@@ -573,6 +585,7 @@ impl Vmm {
         })
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn save_vcpu_states(&mut self) -> Result<Vec<VcpuState>, MicrovmStateError> {
         for handle in self.vcpus_handles.iter() {
             handle
@@ -601,6 +614,7 @@ impl Vmm {
         Ok(vcpu_states)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, vcpu_states))]
     /// Restores vcpus kvm states.
     pub fn restore_vcpu_states(
         &mut self,
@@ -633,6 +647,7 @@ impl Vmm {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Dumps CPU configuration.
     pub fn dump_cpu_config(&mut self) -> Result<Vec<CpuConfiguration>, DumpCpuConfigError> {
         for handle in self.vcpus_handles.iter() {
@@ -661,6 +676,7 @@ impl Vmm {
         Ok(cpu_configs)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
     pub fn get_dirty_bitmap(&self) -> Result<DirtyBitmap, VmmError> {
         let mut bitmap: DirtyBitmap = HashMap::new();
@@ -679,6 +695,7 @@ impl Vmm {
         Ok(bitmap)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, enable))]
     /// Enables or disables KVM dirty page tracking.
     pub fn set_dirty_page_tracking(&mut self, enable: bool) -> Result<(), VmmError> {
         // This function _always_ results in an ioctl update. The VMM is stateless in the sense
@@ -691,6 +708,7 @@ impl Vmm {
             .map_err(VmmError::Vm)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, drive_id, path_on_host))]
     /// Updates the path of the host file backing the emulated block device with id `drive_id`.
     /// We update the disk image on the device and its virtio configuration.
     pub fn update_block_device_path(
@@ -707,6 +725,7 @@ impl Vmm {
             .map_err(VmmError::DeviceManager)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, drive_id, rl_bytes, rl_ops))]
     /// Updates the rate limiter parameters for block device with `drive_id` id.
     pub fn update_block_rate_limiter(
         &mut self,
@@ -722,6 +741,10 @@ impl Vmm {
             .map_err(VmmError::DeviceManager)
     }
 
+    #[tracing::instrument(
+        level = "trace",
+        skip(self, net_id, rx_bytes, rx_ops, tx_bytes, tx_ops)
+    )]
     /// Updates the rate limiter parameters for net device with `net_id` id.
     pub fn update_net_rate_limiters(
         &mut self,
@@ -739,6 +762,7 @@ impl Vmm {
             .map_err(VmmError::DeviceManager)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns a reference to the balloon device if present.
     pub fn balloon_config(&self) -> Result<BalloonConfig, BalloonError> {
         if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
@@ -764,6 +788,7 @@ impl Vmm {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the latest balloon statistics if they are enabled.
     pub fn latest_balloon_stats(&self) -> Result<BalloonStats, BalloonError> {
         if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
@@ -791,6 +816,7 @@ impl Vmm {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, amount_mib))]
     /// Updates configuration for the balloon device target size.
     pub fn update_balloon_config(&mut self, amount_mib: u32) -> Result<(), BalloonError> {
         // The balloon cannot have a target size greater than the size of
@@ -824,6 +850,7 @@ impl Vmm {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, stats_polling_interval_s))]
     /// Updates configuration for the balloon device as described in `balloon_stats_update`.
     pub fn update_balloon_stats_config(
         &mut self,
@@ -853,6 +880,7 @@ impl Vmm {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, exit_code))]
     /// Signals Vmm to stop and exit.
     pub fn stop(&mut self, exit_code: FcExitCode) {
         // To avoid cycles, all teardown paths take the following route:
@@ -893,6 +921,7 @@ impl Vmm {
     }
 }
 
+#[tracing::instrument(level = "trace", skip(vcpu_states))]
 /// Process the content of the MPIDR_EL1 register in order to be able to pass it to KVM
 ///
 /// The kernel expects to find the four affinity levels of the MPIDR in the first 32 bits of the
@@ -919,6 +948,7 @@ fn construct_kvm_mpidrs(vcpu_states: &[VcpuState]) -> Vec<u64> {
 }
 
 impl Drop for Vmm {
+    #[tracing::instrument(level = "trace", skip(self))]
     fn drop(&mut self) {
         // There are two cases when `drop()` is called:
         // 1) before the Vmm has been mutexed and subscribed to the event
@@ -965,6 +995,7 @@ impl Drop for Vmm {
 }
 
 impl MutEventSubscriber for Vmm {
+    #[tracing::instrument(level = "trace", skip(self, event))]
     /// Handle a read event (EPOLLIN).
     fn process(&mut self, event: Events, _: &mut EventOps) {
         let source = event.fd();
@@ -996,6 +1027,7 @@ impl MutEventSubscriber for Vmm {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, ops))]
     fn init(&mut self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::new(&self.vcpus_exit_evt, EventSet::IN)) {
             error!("Failed to register vmm exit event: {}", err);

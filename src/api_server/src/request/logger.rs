@@ -8,6 +8,7 @@ use super::super::VmmAction;
 use crate::parsed_request::{Error, ParsedRequest};
 use crate::request::Body;
 
+#[tracing::instrument(level = "trace", skip(body))]
 pub(crate) fn parse_put_logger(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.logger_count.inc();
     let res = serde_json::from_slice::<LoggerConfig>(body.raw());

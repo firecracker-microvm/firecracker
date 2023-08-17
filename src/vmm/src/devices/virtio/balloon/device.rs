@@ -31,12 +31,14 @@ use crate::devices::virtio::{IrqTrigger, IrqType};
 const SIZE_OF_U32: usize = std::mem::size_of::<u32>();
 const SIZE_OF_STAT: usize = std::mem::size_of::<BalloonStat>();
 
+#[tracing::instrument(level = "trace", skip(amount_mib))]
 fn mib_to_pages(amount_mib: u32) -> Result<u32, BalloonError> {
     amount_mib
         .checked_mul(MIB_TO_4K_PAGES)
         .ok_or(BalloonError::TooManyPagesRequested)
 }
 
+#[tracing::instrument(level = "trace", skip(amount_pages))]
 fn pages_to_mib(amount_pages: u32) -> u32 {
     amount_pages / MIB_TO_4K_PAGES
 }
@@ -125,6 +127,7 @@ pub struct BalloonStats {
 }
 
 impl BalloonStats {
+    #[tracing::instrument(level = "trace", skip(self, stat))]
     fn update_with_stat(&mut self, stat: &BalloonStat) -> Result<(), BalloonError> {
         let val = Some(stat.val);
         match stat.tag {
@@ -177,6 +180,7 @@ pub struct Balloon {
 // [rust-timerfd](https://github.com/main--/rust-timerfd) is published that includes
 // https://github.com/main--/rust-timerfd/pull/12.
 impl fmt::Debug for Balloon {
+    #[tracing::instrument(level = "trace", skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Balloon")
             .field("avail_features", &self.avail_features)
@@ -197,6 +201,10 @@ impl fmt::Debug for Balloon {
 }
 
 impl Balloon {
+    #[tracing::instrument(
+        level = "trace",
+        skip(amount_mib, deflate_on_oom, stats_polling_interval_s, restored)
+    )]
     /// Instantiate a new balloon device.
     pub fn new(
         amount_mib: u32,
@@ -252,6 +260,7 @@ impl Balloon {
         })
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub(crate) fn process_inflate_queue_event(&mut self) -> Result<(), BalloonError> {
         self.queue_evts[INFLATE_INDEX]
             .read()
@@ -259,6 +268,7 @@ impl Balloon {
         self.process_inflate()
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub(crate) fn process_deflate_queue_event(&mut self) -> Result<(), BalloonError> {
         self.queue_evts[DEFLATE_INDEX]
             .read()
@@ -266,6 +276,7 @@ impl Balloon {
         self.process_deflate_queue()
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub(crate) fn process_stats_queue_event(&mut self) -> Result<(), BalloonError> {
         self.queue_evts[STATS_INDEX]
             .read()
@@ -273,11 +284,13 @@ impl Balloon {
         self.process_stats_queue()
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub(crate) fn process_stats_timer_event(&mut self) -> Result<(), BalloonError> {
         self.stats_timer.read();
         self.trigger_stats_update()
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub(crate) fn process_inflate(&mut self) -> Result<(), BalloonError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
@@ -369,6 +382,7 @@ impl Balloon {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub(crate) fn process_deflate_queue(&mut self) -> Result<(), BalloonError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
@@ -391,6 +405,7 @@ impl Balloon {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub(crate) fn process_stats_queue(&mut self) -> Result<(), BalloonError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
@@ -429,6 +444,7 @@ impl Balloon {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub(crate) fn signal_used_queue(&self) -> Result<(), BalloonError> {
         self.irq_trigger.trigger_irq(IrqType::Vring).map_err(|err| {
             METRICS.balloon.event_fails.inc();
@@ -436,17 +452,20 @@ impl Balloon {
         })
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Process device virtio queue(s).
     pub fn process_virtio_queues(&mut self) {
         let _ = self.process_inflate();
         let _ = self.process_deflate_queue();
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Provides the ID of this balloon device.
     pub fn id(&self) -> &str {
         BALLOON_DEV_ID
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn trigger_stats_update(&mut self) -> Result<(), BalloonError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
@@ -464,6 +483,7 @@ impl Balloon {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, amount_mib))]
     /// Update the target size of the balloon.
     pub fn update_size(&mut self, amount_mib: u32) -> Result<(), BalloonError> {
         if self.is_activated() {
@@ -476,6 +496,7 @@ impl Balloon {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, interval_s))]
     /// Update the the statistics polling interval.
     pub fn update_stats_polling_interval(&mut self, interval_s: u16) -> Result<(), BalloonError> {
         if self.stats_polling_interval_s == interval_s {
@@ -493,6 +514,7 @@ impl Balloon {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn update_timer_state(&mut self) {
         let timer_state = TimerState::Periodic {
             current: Duration::from_secs(u64::from(self.stats_polling_interval_s)),
@@ -502,24 +524,29 @@ impl Balloon {
             .set_state(timer_state, SetTimeFlags::Default);
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Obtain the number of 4K pages the device is currently holding.
     pub fn num_pages(&self) -> u32 {
         self.config_space.num_pages
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Obtain the size of 4K pages the device is currently holding in MIB.
     pub fn size_mb(&self) -> u32 {
         pages_to_mib(self.config_space.num_pages)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn deflate_on_oom(&self) -> bool {
         self.avail_features & (1u64 << VIRTIO_BALLOON_F_DEFLATE_ON_OOM) != 0
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn stats_polling_interval_s(&self) -> u16 {
         self.stats_polling_interval_s
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Retrieve latest stats for the balloon device.
     pub fn latest_stats(&mut self) -> Option<&BalloonStats> {
         if self.stats_enabled() {
@@ -533,6 +560,7 @@ impl Balloon {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Return the config of the balloon device.
     pub fn config(&self) -> BalloonConfig {
         BalloonConfig {
@@ -542,52 +570,64 @@ impl Balloon {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub(crate) fn stats_enabled(&self) -> bool {
         self.stats_polling_interval_s > 0
     }
 
+    #[tracing::instrument(level = "trace", skip(self, stats_desc_index))]
     pub(crate) fn set_stats_desc_index(&mut self, stats_desc_index: Option<u16>) {
         self.stats_desc_index = stats_desc_index;
     }
 }
 
 impl VirtioDevice for Balloon {
+    #[tracing::instrument(level = "trace", skip(self))]
     fn avail_features(&self) -> u64 {
         self.avail_features
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn acked_features(&self) -> u64 {
         self.acked_features
     }
 
+    #[tracing::instrument(level = "trace", skip(self, acked_features))]
     fn set_acked_features(&mut self, acked_features: u64) {
         self.acked_features = acked_features;
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn device_type(&self) -> u32 {
         TYPE_BALLOON
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn queues(&self) -> &[Queue] {
         &self.queues
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn queues_mut(&mut self) -> &mut [Queue] {
         &mut self.queues
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn queue_events(&self) -> &[EventFd] {
         &self.queue_evts
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn interrupt_evt(&self) -> &EventFd {
         &self.irq_trigger.irq_evt
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn interrupt_status(&self) -> Arc<AtomicUsize> {
         self.irq_trigger.irq_status.clone()
     }
 
+    #[tracing::instrument(level = "trace", skip(self, offset, data))]
     fn read_config(&self, offset: u64, mut data: &mut [u8]) {
         let config_space_bytes = self.config_space.as_slice();
         let config_len = config_space_bytes.len() as u64;
@@ -605,6 +645,7 @@ impl VirtioDevice for Balloon {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, offset, data))]
     fn write_config(&mut self, offset: u64, data: &[u8]) {
         let config_space_bytes = self.config_space.as_mut_slice();
         let start = usize::try_from(offset).ok();
@@ -620,6 +661,7 @@ impl VirtioDevice for Balloon {
         dst.copy_from_slice(data);
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mem))]
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
         self.device_state = DeviceState::Activated(mem);
         if self.activate_evt.write(1).is_err() {
@@ -636,6 +678,7 @@ impl VirtioDevice for Balloon {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
     }
@@ -658,18 +701,22 @@ pub(crate) mod tests {
     use crate::devices::virtio::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 
     impl Balloon {
+        #[tracing::instrument(level = "trace", skip(self, idx, q))]
         pub(crate) fn set_queue(&mut self, idx: usize, q: Queue) {
             self.queues[idx] = q;
         }
 
+        #[tracing::instrument(level = "trace", skip(self))]
         pub(crate) fn actual_pages(&self) -> u32 {
             self.config_space.actual_pages
         }
 
+        #[tracing::instrument(level = "trace", skip(self, num_pages))]
         pub fn update_num_pages(&mut self, num_pages: u32) {
             self.config_space.num_pages = num_pages;
         }
 
+        #[tracing::instrument(level = "trace", skip(self, actual_pages))]
         pub fn update_actual_pages(&mut self, actual_pages: u32) {
             self.config_space.actual_pages = actual_pages;
         }

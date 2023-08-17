@@ -58,12 +58,14 @@ pub enum FileEngineType {
 }
 
 impl Default for FileEngineType {
+    #[tracing::instrument(level = "trace", skip())]
     fn default() -> Self {
         Self::Sync
     }
 }
 
 impl FileEngineType {
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Whether the Async engine is supported on the current host kernel.
     pub fn is_supported(&self) -> Result<bool, utils::kernel_version::Error> {
         match self {
@@ -84,6 +86,10 @@ pub(crate) struct DiskProperties {
 }
 
 impl DiskProperties {
+    #[tracing::instrument(
+        level = "trace",
+        skip(disk_image_path, is_disk_read_only, cache_type, file_engine_type)
+    )]
     pub fn new(
         disk_image_path: String,
         is_disk_read_only: bool,
@@ -119,27 +125,33 @@ impl DiskProperties {
         })
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn file_engine(&self) -> &FileEngine<PendingRequest> {
         &self.file_engine
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn file_engine_mut(&mut self) -> &mut FileEngine<PendingRequest> {
         &mut self.file_engine
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     #[cfg(test)]
     pub fn file(&self) -> &File {
         self.file_engine.file()
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn nsectors(&self) -> u64 {
         self.nsectors
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn image_id(&self) -> &[u8] {
         &self.image_id
     }
 
+    #[tracing::instrument(level = "trace", skip(disk_file))]
     fn build_device_id(disk_file: &File) -> Result<String, BlockError> {
         let blk_metadata = disk_file.metadata().map_err(BlockError::GetFileMetadata)?;
         // This is how kvmtool does it.
@@ -152,6 +164,7 @@ impl DiskProperties {
         Ok(device_id)
     }
 
+    #[tracing::instrument(level = "trace", skip(disk_file))]
     fn build_disk_image_id(disk_file: &File) -> [u8; VIRTIO_BLK_ID_BYTES as usize] {
         let mut default_id = [0; VIRTIO_BLK_ID_BYTES as usize];
         match Self::build_device_id(disk_file) {
@@ -169,11 +182,13 @@ impl DiskProperties {
         default_id
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Backing file path.
     pub fn file_path(&self) -> &String {
         &self.file_path
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Provides vec containing the virtio block configuration space
     /// buffer. The config space is populated with the disk size based
     /// on the backing file size.
@@ -186,6 +201,7 @@ impl DiskProperties {
         config
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn cache_type(&self) -> CacheType {
         self.cache_type
     }
@@ -230,6 +246,19 @@ macro_rules! unwrap_async_file_engine_or_return {
 }
 
 impl Block {
+    #[tracing::instrument(
+        level = "trace",
+        skip(
+            id,
+            partuuid,
+            cache_type,
+            disk_image_path,
+            is_disk_read_only,
+            is_disk_root,
+            rate_limiter,
+            file_engine_type
+        )
+    )]
     /// Create a new virtio block device that operates on the given file.
     ///
     /// The given file must be seekable and sizable.
@@ -283,6 +312,7 @@ impl Block {
         })
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Process a single event in the VirtIO queue.
     ///
     /// This function is called by the event manager when the guest notifies us
@@ -301,11 +331,13 @@ impl Block {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Process device virtio queue(s).
     pub fn process_virtio_queues(&mut self) {
         self.process_queue(0);
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub(crate) fn process_rate_limiter_event(&mut self) {
         METRICS.block.rate_limiter_event_count.inc();
         // Upon rate limiter event, call the rate limiter handler
@@ -315,6 +347,7 @@ impl Block {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(queue, index, len, mem, irq_trigger))]
     fn add_used_descriptor(
         queue: &mut Queue,
         index: u16,
@@ -333,6 +366,7 @@ impl Block {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, queue_index))]
     /// Device specific function for peaking inside a queue and processing descriptors.
     pub fn process_queue(&mut self, queue_index: usize) {
         // This is safe since we checked in the event handler that the device is activated.
@@ -395,6 +429,7 @@ impl Block {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn process_async_completion_queue(&mut self) {
         let engine = unwrap_async_file_engine_or_return!(&mut self.disk.file_engine);
 
@@ -436,6 +471,7 @@ impl Block {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn process_async_completion_event(&mut self) {
         let engine = unwrap_async_file_engine_or_return!(&mut self.disk.file_engine);
 
@@ -451,6 +487,7 @@ impl Block {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, disk_image_path))]
     /// Update the backing file and the config space of the block device.
     pub fn update_disk_image(&mut self, disk_image_path: String) -> Result<(), BlockError> {
         let disk_properties = DiskProperties::new(
@@ -469,46 +506,55 @@ impl Block {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self, bytes, ops))]
     /// Updates the parameters for the rate limiter
     pub fn update_rate_limiter(&mut self, bytes: BucketUpdate, ops: BucketUpdate) {
         self.rate_limiter.update_buckets(bytes, ops);
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Provides the ID of this block device.
     pub fn id(&self) -> &String {
         &self.id
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Provides backing file path of this block device.
     pub fn file_path(&self) -> &String {
         self.disk.file_path()
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Provides the PARTUUID of this block device.
     pub fn partuuid(&self) -> Option<&String> {
         self.partuuid.as_ref()
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Specifies if this block device is read only.
     pub fn is_read_only(&self) -> bool {
         self.avail_features & (1u64 << VIRTIO_BLK_F_RO) != 0
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Specifies if this block device is read only.
     pub fn is_root_device(&self) -> bool {
         self.root_device
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Specifies block device cache type.
     pub fn cache_type(&self) -> CacheType {
         self.disk.cache_type()
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Provides non-mutable reference to this device's rate limiter.
     pub fn rate_limiter(&self) -> &RateLimiter {
         &self.rate_limiter
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Retrieve the file engine type.
     pub fn file_engine_type(&self) -> FileEngineType {
         match self.disk.file_engine() {
@@ -517,12 +563,14 @@ impl Block {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, discard))]
     fn drain_and_flush(&mut self, discard: bool) {
         if let Err(err) = self.disk.file_engine_mut().drain_and_flush(discard) {
             error!("Failed to drain ops and flush block data: {:?}", err);
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Prepare device for being snapshotted.
     pub fn prepare_save(&mut self) {
         if !self.is_activated() {
@@ -537,43 +585,53 @@ impl Block {
 }
 
 impl VirtioDevice for Block {
+    #[tracing::instrument(level = "trace", skip(self))]
     fn avail_features(&self) -> u64 {
         self.avail_features
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn acked_features(&self) -> u64 {
         self.acked_features
     }
 
+    #[tracing::instrument(level = "trace", skip(self, acked_features))]
     fn set_acked_features(&mut self, acked_features: u64) {
         self.acked_features = acked_features;
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn device_type(&self) -> u32 {
         TYPE_BLOCK
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn queues(&self) -> &[Queue] {
         &self.queues
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn queues_mut(&mut self) -> &mut [Queue] {
         &mut self.queues
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn queue_events(&self) -> &[EventFd] {
         &self.queue_evts
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn interrupt_evt(&self) -> &EventFd {
         &self.irq_trigger.irq_evt
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the current device interrupt status.
     fn interrupt_status(&self) -> Arc<AtomicUsize> {
         self.irq_trigger.irq_status.clone()
     }
 
+    #[tracing::instrument(level = "trace", skip(self, offset, data))]
     fn read_config(&self, offset: u64, mut data: &mut [u8]) {
         let config_len = self.config_space.len() as u64;
         if offset >= config_len {
@@ -588,6 +646,7 @@ impl VirtioDevice for Block {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, offset, data))]
     fn write_config(&mut self, offset: u64, data: &[u8]) {
         let start = usize::try_from(offset).ok();
         let end = start.and_then(|s| s.checked_add(data.len()));
@@ -603,6 +662,7 @@ impl VirtioDevice for Block {
         dst.copy_from_slice(data);
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mem))]
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
         let event_idx = self.has_feature(u64::from(VIRTIO_RING_F_EVENT_IDX));
         if event_idx {
@@ -619,12 +679,14 @@ impl VirtioDevice for Block {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
     }
 }
 
 impl Drop for Block {
+    #[tracing::instrument(level = "trace", skip(self))]
     fn drop(&mut self) {
         match self.disk.cache_type {
             CacheType::Unsafe => {
@@ -1377,6 +1439,7 @@ mod tests {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(block, vq, count))]
     fn add_flush_requests_batch(block: &mut Block, vq: &VirtQueue, count: u16) {
         let mem = vq.memory();
         vq.avail.idx.set(0);
@@ -1416,6 +1479,7 @@ mod tests {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(count, vq))]
     fn check_flush_requests_batch(count: u16, vq: &VirtQueue) {
         let used_idx = vq.used.idx.get();
         assert_eq!(used_idx, count);

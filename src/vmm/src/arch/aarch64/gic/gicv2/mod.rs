@@ -14,6 +14,7 @@ pub struct GICv2(super::GIC);
 impl std::ops::Deref for GICv2 {
     type Target = super::GIC;
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -50,14 +51,17 @@ impl GICv2 {
 
     pub const VERSION: u32 = kvm_bindings::kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V2;
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn fdt_compatibility(&self) -> &str {
         "arm,gic-400"
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn fdt_maint_irq(&self) -> u32 {
         GICv2::ARCH_GIC_V2_MAINT_IRQ
     }
 
+    #[tracing::instrument(level = "trace", skip(fd, vcpu_count))]
     /// Create the GIC device object
     pub fn create_device(fd: DeviceFd, vcpu_count: u64) -> Self {
         GICv2(super::GIC {
@@ -72,14 +76,17 @@ impl GICv2 {
         })
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mpidrs))]
     pub fn save_device(&self, mpidrs: &[u64]) -> Result<GicState, GicError> {
         regs::save_state(&self.fd, mpidrs)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mpidrs, state))]
     pub fn restore_device(&self, mpidrs: &[u64], state: &GicState) -> Result<(), GicError> {
         regs::restore_state(&self.fd, mpidrs, state)
     }
 
+    #[tracing::instrument(level = "trace", skip(gic_device))]
     pub fn init_device_attributes(gic_device: &Self) -> Result<(), GicError> {
         // Setting up the distributor attribute.
         // We are placing the GIC below 1GB so we need to substract the size of the distributor.
@@ -103,6 +110,7 @@ impl GICv2 {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(vm))]
     /// Initialize a GIC device
     pub fn init_device(vm: &VmFd) -> Result<DeviceFd, GicError> {
         let mut gic_device = kvm_bindings::kvm_create_device {
@@ -115,6 +123,7 @@ impl GICv2 {
             .map_err(GicError::CreateGIC)
     }
 
+    #[tracing::instrument(level = "trace", skip(vm, vcpu_count))]
     /// Method to initialize the GIC device
     pub fn create(vm: &VmFd, vcpu_count: u64) -> Result<Self, GicError> {
         let vgic_fd = Self::init_device(vm)?;
@@ -128,6 +137,7 @@ impl GICv2 {
         Ok(device)
     }
 
+    #[tracing::instrument(level = "trace", skip(gic_device))]
     /// Finalize the setup of a GIC device
     pub fn finalize_device(gic_device: &Self) -> Result<(), GicError> {
         // On arm there are 3 types of interrupts: SGI (0-15), PPI (16-31), SPI (32-1020).
@@ -158,6 +168,7 @@ impl GICv2 {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(fd, group, attr, addr, flags))]
     /// Set a GIC device attribute
     pub fn set_device_attribute(
         fd: &DeviceFd,

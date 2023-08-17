@@ -99,6 +99,7 @@ pub struct VsockPacket {
 }
 
 impl VsockPacket {
+    #[tracing::instrument(level = "trace", skip(desc, expected_write_only))]
     fn check_desc_write_only(
         desc: &DescriptorChain,
         expected_write_only: bool,
@@ -113,6 +114,7 @@ impl VsockPacket {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(hdr_desc, expected_write_only))]
     fn check_hdr_desc(
         hdr_desc: &DescriptorChain,
         expected_write_only: bool,
@@ -132,6 +134,7 @@ impl VsockPacket {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self, hdr_desc, expected_write_only))]
     fn init_buf(
         &mut self,
         hdr_desc: &DescriptorChain,
@@ -158,6 +161,7 @@ impl VsockPacket {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(hdr_desc))]
     /// Create the packet wrapper from a TX virtq chain head.
     ///
     /// The chain head is expected to hold valid packet header data. A following packet buffer
@@ -202,6 +206,7 @@ impl VsockPacket {
         Ok(pkt)
     }
 
+    #[tracing::instrument(level = "trace", skip(hdr_desc))]
     /// Create the packet wrapper from an RX virtq chain head.
     ///
     /// There must be two descriptors in the chain, both writable: a header descriptor and a data
@@ -225,11 +230,13 @@ impl VsockPacket {
         Ok(pkt)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Provides in-place access to the local copy of the vsock packet header.
     pub fn hdr(&self) -> &VsockPacketHeader {
         &self.hdr
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mem))]
     /// Writes the local copy of the packet header to the guest memory.
     pub fn commit_hdr(&self, mem: &GuestMemoryMmap) -> Result<(), VsockError> {
         // Reject weirdly-sized packets.
@@ -239,6 +246,7 @@ impl VsockPacket {
             .map_err(VsockError::GuestMemoryMmap)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Verifies packet length against `MAX_PKT_BUF_SIZE` limit.
     pub fn check_len(&self) -> Result<(), VsockError> {
         if self.len() > defs::MAX_PKT_BUF_SIZE as u32 {
@@ -248,10 +256,12 @@ impl VsockPacket {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn buf_size(&self) -> usize {
         self.buf_size
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mem, buf_offset, count))]
     /// Verifies that it is legal to write `count` bytes into the data descriptor of this
     /// [`VsockPacket`] at offset `buf_offset`.
     ///
@@ -283,6 +293,7 @@ impl VsockPacket {
             .ok_or(VsockError::GuestMemoryBounds)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mem, offset, src, count))]
     pub fn read_at_offset_from<T: ReadVolatile + Debug>(
         &mut self,
         mem: &GuestMemoryMmap,
@@ -307,6 +318,7 @@ impl VsockPacket {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mem, offset, dst, count))]
     pub fn write_from_offset_to<T: WriteVolatile + Debug>(
         &self,
         mem: &GuestMemoryMmap,
@@ -331,96 +343,117 @@ impl VsockPacket {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn src_cid(&self) -> u64 {
         u64::from_le(self.hdr.src_cid)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, cid))]
     pub fn set_src_cid(&mut self, cid: u64) -> &mut Self {
         self.hdr.src_cid = cid.to_le();
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn dst_cid(&self) -> u64 {
         u64::from_le(self.hdr.dst_cid)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, cid))]
     pub fn set_dst_cid(&mut self, cid: u64) -> &mut Self {
         self.hdr.dst_cid = cid.to_le();
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn src_port(&self) -> u32 {
         u32::from_le(self.hdr.src_port)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, port))]
     pub fn set_src_port(&mut self, port: u32) -> &mut Self {
         self.hdr.src_port = port.to_le();
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn dst_port(&self) -> u32 {
         u32::from_le(self.hdr.dst_port)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, port))]
     pub fn set_dst_port(&mut self, port: u32) -> &mut Self {
         self.hdr.dst_port = port.to_le();
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn len(&self) -> u32 {
         u32::from_le(self.hdr.len)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, len))]
     pub fn set_len(&mut self, len: u32) -> &mut Self {
         self.hdr.len = len.to_le();
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn type_(&self) -> u16 {
         u16::from_le(self.hdr.type_)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, type_))]
     pub fn set_type(&mut self, type_: u16) -> &mut Self {
         self.hdr.type_ = type_.to_le();
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn op(&self) -> u16 {
         u16::from_le(self.hdr.op)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, op))]
     pub fn set_op(&mut self, op: u16) -> &mut Self {
         self.hdr.op = op.to_le();
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn flags(&self) -> u32 {
         u32::from_le(self.hdr.flags)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, flags))]
     pub fn set_flags(&mut self, flags: u32) -> &mut Self {
         self.hdr.flags = flags.to_le();
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self, flag))]
     pub fn set_flag(&mut self, flag: u32) -> &mut Self {
         self.set_flags(self.flags() | flag);
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn buf_alloc(&self) -> u32 {
         u32::from_le(self.hdr.buf_alloc)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, buf_alloc))]
     pub fn set_buf_alloc(&mut self, buf_alloc: u32) -> &mut Self {
         self.hdr.buf_alloc = buf_alloc.to_le();
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn fwd_cnt(&self) -> u32 {
         u32::from_le(self.hdr.fwd_cnt)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, fwd_cnt))]
     pub fn set_fwd_cnt(&mut self, fwd_cnt: u32) -> &mut Self {
         self.hdr.fwd_cnt = fwd_cnt.to_le();
         self
@@ -467,6 +500,7 @@ mod tests {
         };
     }
 
+    #[tracing::instrument(level = "trace", skip(len, guest_desc, mem))]
     fn set_pkt_len(len: u32, guest_desc: &GuestQDesc, mem: &GuestMemoryMmap) {
         let hdr_addr = GuestAddress(guest_desc.addr.get());
         let mut hdr: VsockPacketHeader = mem.read_obj(hdr_addr).unwrap();

@@ -76,6 +76,7 @@ pub struct DescriptorChain<'a> {
 }
 
 impl<'a> DescriptorChain<'a> {
+    #[tracing::instrument(level = "trace", skip(mem, desc_table, queue_size, index))]
     fn checked_new(
         mem: &GuestMemoryMmap,
         desc_table: GuestAddress,
@@ -117,15 +118,18 @@ impl<'a> DescriptorChain<'a> {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn is_valid(&self) -> bool {
         !self.has_next() || self.next < self.queue_size
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Gets if this descriptor chain has another descriptor chain linked after it.
     pub fn has_next(&self) -> bool {
         self.flags & VIRTQ_DESC_F_NEXT != 0 && self.ttl > 1
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// If the driver designated this as a write only descriptor.
     ///
     /// If this is false, this descriptor is read only.
@@ -134,6 +138,7 @@ impl<'a> DescriptorChain<'a> {
         self.flags & VIRTQ_DESC_F_WRITE != 0
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Gets the next descriptor in this descriptor chain, if there is one.
     ///
     /// Note that this is distinct from the next descriptor chain returned by `AvailIter`, which is
@@ -159,6 +164,7 @@ impl<'a> IntoIterator for DescriptorChain<'a> {
     type Item = DescriptorChain<'a>;
     type IntoIter = DescriptorIterator<'a>;
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn into_iter(self) -> Self::IntoIter {
         DescriptorIterator(Some(self))
     }
@@ -167,6 +173,7 @@ impl<'a> IntoIterator for DescriptorChain<'a> {
 impl<'a> Iterator for DescriptorIterator<'a> {
     type Item = DescriptorChain<'a>;
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn next(&mut self) -> Option<Self::Item> {
         self.0.take().map(|desc| {
             self.0 = desc.next_descriptor();
@@ -207,6 +214,7 @@ pub struct Queue {
 
 #[allow(clippy::len_without_is_empty)]
 impl Queue {
+    #[tracing::instrument(level = "trace", skip(max_size))]
     /// Constructs an empty virtio queue with the given `max_size`.
     pub fn new(max_size: u16) -> Queue {
         Queue {
@@ -223,17 +231,20 @@ impl Queue {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Maximum size of the queue.
     pub fn get_max_size(&self) -> u16 {
         self.max_size
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Return the actual size of the queue, as the driver may not set up a
     /// queue as big as the device allows.
     pub fn actual_size(&self) -> u16 {
         min(self.size, self.max_size)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mem))]
     /// Validates that the queue's representation is correct.
     pub fn is_valid(&self, mem: &GuestMemoryMmap) -> bool {
         let queue_size = u64::from(self.actual_size());
@@ -301,16 +312,19 @@ impl Queue {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mem))]
     /// Returns the number of yet-to-be-popped descriptor chains in the avail ring.
     fn len(&self, mem: &GuestMemoryMmap) -> u16 {
         (self.avail_idx(mem) - self.next_avail).0
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mem))]
     /// Checks if the driver has made any descriptor chains available in the avail ring.
     pub fn is_empty(&self, mem: &GuestMemoryMmap) -> bool {
         self.len(mem) == 0
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mem))]
     /// Pop the first available descriptor chain from the avail ring.
     pub fn pop<'b>(&mut self, mem: &'b GuestMemoryMmap) -> Option<DescriptorChain<'b>> {
         let len = self.len(mem);
@@ -334,6 +348,7 @@ impl Queue {
         self.do_pop_unchecked(mem)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mem))]
     /// Try to pop the first available descriptor chain from the avail ring.
     /// If no descriptor is available, enable notifications.
     pub fn pop_or_enable_notification<'b>(
@@ -351,6 +366,7 @@ impl Queue {
         self.do_pop_unchecked(mem)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mem))]
     /// Pop the first available descriptor chain from the avail ring.
     ///
     /// # Important
@@ -400,12 +416,14 @@ impl Queue {
         )
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Undo the effects of the last `self.pop()` call.
     /// The caller can use this, if it was unable to consume the last popped descriptor chain.
     pub fn undo_pop(&mut self) {
         self.next_avail -= Wrapping(1);
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mem, desc_index, len))]
     /// Puts an available descriptor head into the used ring for use by the guest.
     pub fn add_used(
         &mut self,
@@ -441,6 +459,7 @@ impl Queue {
             .map_err(QueueError::UsedRing)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mem))]
     /// Fetch the available ring index (`virtq_avail->idx`) from guest memory.
     /// This is written by the driver, to indicate the next slot that will be filled in the avail
     /// ring.
@@ -454,6 +473,7 @@ impl Queue {
         Wrapping(mem.read_obj::<u16>(addr).unwrap())
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mem))]
     /// Get the value of the used event field of the avail ring.
     #[inline(always)]
     pub fn used_event(&self, mem: &GuestMemoryMmap) -> Wrapping<u16> {
@@ -465,6 +485,7 @@ impl Queue {
         Wrapping(mem.read_obj::<u16>(used_event_addr).unwrap())
     }
 
+    #[tracing::instrument(level = "trace", skip(self, val, mem))]
     /// Helper method that writes `val` to the `avail_event` field of the used ring.
     fn set_avail_event(&mut self, val: u16, mem: &GuestMemoryMmap) {
         let avail_event_addr = self
@@ -474,6 +495,7 @@ impl Queue {
         mem.write_obj(val, avail_event_addr).unwrap();
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mem))]
     /// Try to enable notification events from the guest driver. Returns true if notifications were
     /// successfully enabled. Otherwise it means that one or more descriptors can still be consumed
     /// from the available ring and we can't guarantee that there will be a notification. In this
@@ -510,11 +532,13 @@ impl Queue {
         self.next_avail.0 == self.avail_idx(mem).0
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Enable notification suppression.
     pub fn enable_notif_suppression(&mut self) {
         self.uses_notif_suppression = true;
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mem))]
     /// Check if we need to kick the guest.
     ///
     /// Please note this method has side effects: once it returns `true`, it considers the
@@ -552,6 +576,7 @@ mod tests {
     use crate::devices::virtio::QueueError::{DescIndexOutOfBounds, UsedRing};
 
     impl Queue {
+        #[tracing::instrument(level = "trace", skip(self, mem))]
         fn avail_event(&self, mem: &GuestMemoryMmap) -> u16 {
             let avail_event_addr = self
                 .used_ring

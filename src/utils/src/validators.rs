@@ -14,6 +14,7 @@ pub enum Error {
     InvalidLen(usize, usize, usize), // (length, min, max)
 }
 
+#[tracing::instrument(level = "trace", skip(input))]
 /// Checks that the instance id only contains alphanumeric chars and hyphens
 /// and that the size is between 1 and 64 characters.
 pub fn validate_instance_id(input: &str) -> Result<(), Error> {

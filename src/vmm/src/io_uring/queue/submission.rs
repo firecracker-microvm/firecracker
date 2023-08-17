@@ -51,6 +51,7 @@ pub(crate) struct SubmissionQueue {
 }
 
 impl SubmissionQueue {
+    #[tracing::instrument(level = "trace", skip(io_uring_fd, params))]
     pub(crate) fn new(
         io_uring_fd: RawFd,
         params: &bindings::io_uring_params,
@@ -81,6 +82,7 @@ impl SubmissionQueue {
         })
     }
 
+    #[tracing::instrument(level = "trace", skip(self, sqe))]
     /// # Safety
     /// Unsafe because we pass a raw `user_data` pointer to the kernel.
     /// It's up to the caller to make sure that this value is ever freed (not leaked).
@@ -121,6 +123,7 @@ impl SubmissionQueue {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self, min_complete))]
     pub(crate) fn submit(&mut self, min_complete: u32) -> Result<u32, SQueueError> {
         if self.to_submit == 0 && min_complete == 0 {
             // Nothing to submit and nothing to wait for.
@@ -154,6 +157,7 @@ impl SubmissionQueue {
         Ok(submitted)
     }
 
+    #[tracing::instrument(level = "trace", skip(io_uring_fd, params))]
     fn mmap(
         io_uring_fd: RawFd,
         params: &bindings::io_uring_params,
@@ -182,6 +186,7 @@ impl SubmissionQueue {
         Ok((sqe_ring, sqes))
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub(crate) fn pending(&self) -> Result<u32, SQueueError> {
         let ring_slice = self.ring.as_volatile_slice();
         // get the sqe head
@@ -192,6 +197,7 @@ impl SubmissionQueue {
 }
 
 impl Drop for SubmissionQueue {
+    #[tracing::instrument(level = "trace", skip(self))]
     fn drop(&mut self) {
         // SAFETY: Safe because parameters are valid.
         unsafe { libc::munmap(self.ring.as_ptr().cast::<libc::c_void>(), self.ring.size()) };

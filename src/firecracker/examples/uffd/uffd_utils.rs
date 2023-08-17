@@ -58,6 +58,7 @@ pub enum MemPageState {
 }
 
 impl UffdPfHandler {
+    #[tracing::instrument(level = "trace", skip(stream, data, size))]
     pub fn from_unix_stream(stream: UnixStream, data: *const u8, size: usize) -> Self {
         let mut message_buf = vec![0u8; 1024];
         let (bytes_read, file) = stream
@@ -89,6 +90,7 @@ impl UffdPfHandler {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, start, end, state))]
     pub fn update_mem_state_mappings(&mut self, start: u64, end: u64, state: &MemPageState) {
         for region in self.mem_regions.iter_mut() {
             for (key, value) in region.page_states.iter_mut() {
@@ -99,6 +101,7 @@ impl UffdPfHandler {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, region))]
     fn populate_from_file(&self, region: &MemRegion) -> (u64, u64) {
         let src = self.backing_buffer as u64 + region.mapping.offset;
         let start_addr = region.mapping.base_host_virt_addr;
@@ -118,6 +121,7 @@ impl UffdPfHandler {
         return (start_addr, start_addr + len as u64);
     }
 
+    #[tracing::instrument(level = "trace", skip(self, addr))]
     fn zero_out(&mut self, addr: u64) -> (u64, u64) {
         let page_size = get_page_size().unwrap();
 
@@ -132,6 +136,7 @@ impl UffdPfHandler {
         return (addr, addr + page_size as u64);
     }
 
+    #[tracing::instrument(level = "trace", skip(self, addr))]
     pub fn serve_pf(&mut self, addr: *mut u8) {
         let page_size = get_page_size().unwrap();
 
@@ -173,6 +178,7 @@ impl UffdPfHandler {
     }
 }
 
+#[tracing::instrument(level = "trace", skip(stream))]
 fn get_peer_process_credentials(stream: UnixStream) -> libc::ucred {
     let mut creds: libc::ucred = libc::ucred {
         pid: 0,
@@ -197,6 +203,7 @@ fn get_peer_process_credentials(stream: UnixStream) -> libc::ucred {
     creds
 }
 
+#[tracing::instrument(level = "trace", skip(mappings))]
 fn create_mem_regions(mappings: &Vec<GuestRegionUffdMapping>) -> Vec<MemRegion> {
     let page_size = get_page_size().unwrap();
     let mut mem_regions: Vec<MemRegion> = Vec::with_capacity(mappings.len());
@@ -220,6 +227,7 @@ fn create_mem_regions(mappings: &Vec<GuestRegionUffdMapping>) -> Vec<MemRegion> 
     mem_regions
 }
 
+#[tracing::instrument(level = "trace", skip())]
 pub fn create_pf_handler() -> UffdPfHandler {
     let uffd_sock_path = std::env::args().nth(1).expect("No socket path given");
     let mem_file_path = std::env::args().nth(2).expect("No memory file given");

@@ -54,6 +54,7 @@ pub struct MuxerKillQ {
 impl MuxerKillQ {
     const SIZE: usize = defs::MUXER_KILLQ_SIZE;
 
+    #[tracing::instrument(level = "trace", skip())]
     /// Trivial kill queue constructor.
     pub fn new() -> Self {
         Self {
@@ -62,6 +63,7 @@ impl MuxerKillQ {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(conn_map))]
     /// Create a kill queue by walking the connection pool, looking for connections that are
     /// set to expire at some point in the future.
     /// Note: if more than `Self::SIZE` connections are found, the queue will be created in an
@@ -89,6 +91,7 @@ impl MuxerKillQ {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, key, kill_time))]
     /// Push a connection key to the queue, scheduling it for termination at
     /// `CONN_SHUTDOWN_TIMEOUT_MS` from now (the push time).
     pub fn push(&mut self, key: ConnMapKey, kill_time: Instant) {
@@ -99,6 +102,7 @@ impl MuxerKillQ {
         self.q.push_back(MuxerKillQItem { key, kill_time });
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Attempt to pop an expired connection from the kill queue.
     ///
     /// This will succeed and return a connection key, only if the connection at the front of
@@ -112,16 +116,19 @@ impl MuxerKillQ {
         None
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Check if the kill queue is synchronized with the connection pool.
     pub fn is_synced(&self) -> bool {
         self.synced
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Check if the kill queue is empty, obviously.
     pub fn is_empty(&self) -> bool {
         self.q.len() == 0
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Check if the kill queue is full.
     pub fn is_full(&self) -> bool {
         self.q.len() == Self::SIZE

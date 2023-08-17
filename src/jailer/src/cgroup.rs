@@ -39,6 +39,7 @@ impl CgroupBuilder {
     // It will discover cgroup mount points and hierarchies configured
     // on the system and cache the info required to create cgroups later
     // within this hierarchies
+    #[tracing::instrument(level = "trace", skip(ver))]
     pub fn new(ver: u8) -> Result<Self, JailerError> {
         if ver != 1 && ver != 2 {
             return Err(JailerError::CgroupInvalidVersion(ver.to_string()));
@@ -103,6 +104,7 @@ impl CgroupBuilder {
     }
 
     // Creates a new cggroup and returns it
+    #[tracing::instrument(level = "trace", skip(self, file, value, id, parent_cg))]
     pub fn new_cgroup(
         &mut self,
         file: String,
@@ -136,6 +138,7 @@ impl CgroupBuilder {
     // Returns the path to the root of the hierarchy for the controller specified
     // Cgroups for a controller are arranged in a hierarchy; multiple controllers
     // may share the same hierarchy
+    #[tracing::instrument(level = "trace", skip(self, controller))]
     fn get_v1_hierarchy_path(&mut self, controller: &str) -> Result<&PathBuf, JailerError> {
         // First try and see if the path is already discovered.
         match self.hierarchies.entry(controller.to_string()) {
@@ -217,6 +220,7 @@ pub trait Cgroup {
 // writing to /A/<parent_cgroup>/file, but we can still continue, because step 4) only cares about
 // the file no longer being empty, regardless of who actually got to populated its contents.
 
+#[tracing::instrument(level = "trace", skip(path, file_name, retry_depth))]
 fn inherit_from_parent_aux(
     path: &mut PathBuf,
     file_name: &str,
@@ -258,12 +262,14 @@ fn inherit_from_parent_aux(
 
 // The path reference is &mut here because we do a push to get the destination file name. However,
 // a pop follows shortly after (see fn inherit_from_parent_aux), reverting to the original value.
+#[tracing::instrument(level = "trace", skip(path, file_name, depth))]
 fn inherit_from_parent(path: &mut PathBuf, file_name: &str, depth: u16) -> Result<(), JailerError> {
     inherit_from_parent_aux(path, file_name, depth)
 }
 
 // Extract the controller name from the cgroup file. The cgroup file must follow
 // this format: <cgroup_controller>.<cgroup_property>.
+#[tracing::instrument(level = "trace", skip(file))]
 fn get_controller_from_filename(file: &str) -> Result<&str, JailerError> {
     let v: Vec<&str> = file.split('.').collect();
 
@@ -277,6 +283,7 @@ fn get_controller_from_filename(file: &str) -> Result<&str, JailerError> {
 
 impl CgroupV1 {
     // Create a new cgroupsv1 controller
+    #[tracing::instrument(level = "trace", skip(file, value, id, parent_cg, controller_path))]
     pub fn new(
         file: String,
         value: String,
@@ -304,6 +311,7 @@ impl CgroupV1 {
 }
 
 impl Cgroup for CgroupV1 {
+    #[tracing::instrument(level = "trace", skip(self))]
     fn write_value(&self) -> Result<(), JailerError> {
         let location = &mut self.base.location.clone();
 
@@ -320,6 +328,7 @@ impl Cgroup for CgroupV1 {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn attach_pid(&self) -> Result<(), JailerError> {
         let pid = process::id();
         let location = &self.base.location.join("tasks");
@@ -335,6 +344,7 @@ impl CgroupV2 {
     // To be able to use a leaf controller within a nested cgroup hierarchy,
     // the controller needs to be enabled by writing to the cgroup.subtree_control
     // of it's parent. This rule applies recursively.
+    #[tracing::instrument(level = "trace", skip(path, controller))]
     fn write_all_subtree_control<P>(path: P, controller: &str) -> Result<(), JailerError>
     where
         P: AsRef<Path> + Debug,
@@ -357,6 +367,7 @@ impl CgroupV2 {
 
     // Returns true if the controller is available to be enabled from a
     // cgroup path specified by the mount_point parameter
+    #[tracing::instrument(level = "trace", skip(controller, mount_point))]
     fn controller_available<P>(controller: &str, mount_point: P) -> bool
     where
         P: AsRef<Path> + Debug,
@@ -376,6 +387,7 @@ impl CgroupV2 {
     }
 
     // Create a new cgroupsv2 controller
+    #[tracing::instrument(level = "trace", skip(file, value, id, parent_cg, unified_path))]
     pub fn new(
         file: String,
         value: String,
@@ -403,6 +415,7 @@ impl CgroupV2 {
 }
 
 impl Cgroup for CgroupV2 {
+    #[tracing::instrument(level = "trace", skip(self))]
     fn write_value(&self) -> Result<(), JailerError> {
         let location = &mut self.0.location.clone();
         let controller = get_controller_from_filename(&self.0.file)?;
@@ -422,6 +435,7 @@ impl Cgroup for CgroupV2 {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn attach_pid(&self) -> Result<(), JailerError> {
         let pid = process::id();
         let location = &self.0.location.join("cgroup.procs");
@@ -453,6 +467,7 @@ pub mod test_util {
         const MOCK_PROCDIR: &'static str = "/tmp/firecracker/test/jailer/proc";
         pub const MOCK_SYS_CGROUPS_DIR: &'static str = "/tmp/firecracker/test/jailer/sys_cgroup";
 
+        #[tracing::instrument(level = "trace", skip(filename, contents))]
         pub fn create_file_with_contents<P: AsRef<Path> + Debug>(
             filename: P,
             contents: &str,
@@ -468,6 +483,7 @@ pub mod test_util {
             Ok(())
         }
 
+        #[tracing::instrument(level = "trace", skip())]
         pub fn new() -> std::result::Result<MockCgroupFs, std::io::Error> {
             // create a mock /proc/mounts file in a temporary directory
             fs::create_dir_all(Self::MOCK_PROCDIR)?;
@@ -483,6 +499,7 @@ pub mod test_util {
 
         // Populate the mocked proc/mounts file with cgroupv2 entries
         // Also create a directory structure that simulates cgroupsv2 layout
+        #[tracing::instrument(level = "trace", skip(self))]
         pub fn add_v2_mounts(&mut self) -> std::result::Result<(), std::io::Error> {
             writeln!(
                 self.mounts_file,
@@ -500,6 +517,7 @@ pub mod test_util {
         }
 
         // Populate the mocked proc/mounts file with cgroupv1 entries
+        #[tracing::instrument(level = "trace", skip(self))]
         pub fn add_v1_mounts(&mut self) -> std::result::Result<(), std::io::Error> {
             let controllers = vec![
                 "memory",
@@ -524,6 +542,7 @@ pub mod test_util {
 
     // Cleanup created files when object goes out of scope
     impl Drop for MockCgroupFs {
+        #[tracing::instrument(level = "trace", skip(self))]
         fn drop(&mut self) {
             let _ = fs::remove_file(PROC_MOUNTS);
             let _ = fs::remove_dir_all("/tmp/firecracker/test");
@@ -544,6 +563,7 @@ mod tests {
     use crate::cgroup::test_util::MockCgroupFs;
 
     // Utility function to read the first line in a file
+    #[tracing::instrument(level = "trace", skip(filename))]
     fn read_first_line<P>(filename: P) -> std::result::Result<String, std::io::Error>
     where
         P: AsRef<Path> + Debug,

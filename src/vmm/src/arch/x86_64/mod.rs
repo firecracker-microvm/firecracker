@@ -51,6 +51,7 @@ pub const MMIO_MEM_START: u64 = FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE;
 /// The size of the memory area reserved for MMIO devices.
 pub const MMIO_MEM_SIZE: u64 = MEM_32BIT_GAP_SIZE;
 
+#[tracing::instrument(level = "trace", skip(size))]
 /// Returns a Vec of the valid memory addresses.
 /// These should be used to configure the GuestMemoryMmap structure for the platform.
 /// For x86_64 all addresses are valid from the start of the kernel except a
@@ -69,11 +70,13 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
     }
 }
 
+#[tracing::instrument(level = "trace", skip())]
 /// Returns the memory address where the kernel could be loaded.
 pub fn get_kernel_start() -> u64 {
     layout::HIMEM_START
 }
 
+#[tracing::instrument(level = "trace", skip(guest_mem, initrd_size))]
 /// Returns the memory address where the initrd could be loaded.
 pub fn initrd_load_addr(
     guest_mem: &GuestMemoryMmap,
@@ -93,6 +96,10 @@ pub fn initrd_load_addr(
     Ok(align_to_pagesize(lowmem_size - initrd_size) as u64)
 }
 
+#[tracing::instrument(
+    level = "trace",
+    skip(guest_mem, cmdline_addr, cmdline_size, initrd, num_cpus)
+)]
 /// Configures the system and should be called once per vm before starting vcpu threads.
 ///
 /// # Arguments
@@ -175,6 +182,7 @@ pub fn configure_system(
     .map_err(|_| ConfigurationError::ZeroPageSetup)
 }
 
+#[tracing::instrument(level = "trace", skip(params, addr, size, mem_type))]
 /// Add an e820 region to the e820 map.
 /// Returns Ok(()) if successful, or an error if there is no space left in the map.
 fn add_e820_entry(

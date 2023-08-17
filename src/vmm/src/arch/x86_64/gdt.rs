@@ -9,6 +9,7 @@
 
 use kvm_bindings::kvm_segment;
 
+#[tracing::instrument(level = "trace", skip(flags, base, limit))]
 /// Constructor for a conventional segment GDT (or LDT) entry. Derived from the kernel's segment.h.
 pub fn gdt_entry(flags: u16, base: u32, limit: u32) -> u64 {
     ((u64::from(base) & 0xff00_0000u64) << (56 - 24))
@@ -18,48 +19,59 @@ pub fn gdt_entry(flags: u16, base: u32, limit: u32) -> u64 {
         | (u64::from(limit) & 0x0000_ffffu64)
 }
 
+#[tracing::instrument(level = "trace", skip(entry))]
 fn get_base(entry: u64) -> u64 {
     (((entry) & 0xFF00_0000_0000_0000) >> 32)
         | (((entry) & 0x0000_00FF_0000_0000) >> 16)
         | (((entry) & 0x0000_0000_FFFF_0000) >> 16)
 }
 
+#[tracing::instrument(level = "trace", skip(entry))]
 fn get_limit(entry: u64) -> u32 {
     ((((entry) & 0x000F_0000_0000_0000) >> 32) | ((entry) & 0x0000_0000_0000_FFFF)) as u32
 }
 
+#[tracing::instrument(level = "trace", skip(entry))]
 fn get_g(entry: u64) -> u8 {
     ((entry & 0x0080_0000_0000_0000) >> 55) as u8
 }
 
+#[tracing::instrument(level = "trace", skip(entry))]
 fn get_db(entry: u64) -> u8 {
     ((entry & 0x0040_0000_0000_0000) >> 54) as u8
 }
 
+#[tracing::instrument(level = "trace", skip(entry))]
 fn get_l(entry: u64) -> u8 {
     ((entry & 0x0020_0000_0000_0000) >> 53) as u8
 }
 
+#[tracing::instrument(level = "trace", skip(entry))]
 fn get_avl(entry: u64) -> u8 {
     ((entry & 0x0010_0000_0000_0000) >> 52) as u8
 }
 
+#[tracing::instrument(level = "trace", skip(entry))]
 fn get_p(entry: u64) -> u8 {
     ((entry & 0x0000_8000_0000_0000) >> 47) as u8
 }
 
+#[tracing::instrument(level = "trace", skip(entry))]
 fn get_dpl(entry: u64) -> u8 {
     ((entry & 0x0000_6000_0000_0000) >> 45) as u8
 }
 
+#[tracing::instrument(level = "trace", skip(entry))]
 fn get_s(entry: u64) -> u8 {
     ((entry & 0x0000_1000_0000_0000) >> 44) as u8
 }
 
+#[tracing::instrument(level = "trace", skip(entry))]
 fn get_type(entry: u64) -> u8 {
     ((entry & 0x0000_0F00_0000_0000) >> 40) as u8
 }
 
+#[tracing::instrument(level = "trace", skip(entry, table_index))]
 /// Automatically build the kvm struct for SET_SREGS from the kernel bit fields.
 ///
 /// # Arguments

@@ -12,6 +12,7 @@ use crate::devices::virtio::balloon::device::Balloon;
 use crate::devices::virtio::{VirtioDevice, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX};
 
 impl Balloon {
+    #[tracing::instrument(level = "trace", skip(self, ops))]
     fn register_runtime_events(&self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::new(&self.queue_evts[INFLATE_INDEX], EventSet::IN)) {
             error!("Failed to register inflate queue event: {}", err);
@@ -29,12 +30,14 @@ impl Balloon {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, ops))]
     fn register_activate_event(&self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::new(&self.activate_evt, EventSet::IN)) {
             error!("Failed to register activate event: {}", err);
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, ops))]
     fn process_activate_event(&self, ops: &mut EventOps) {
         logger::debug!("balloon: activate event");
         if let Err(err) = self.activate_evt.read() {
@@ -48,6 +51,7 @@ impl Balloon {
 }
 
 impl MutEventSubscriber for Balloon {
+    #[tracing::instrument(level = "trace", skip(self, event, ops))]
     fn process(&mut self, event: Events, ops: &mut EventOps) {
         let source = event.fd();
         let event_set = event.event_set();
@@ -95,6 +99,7 @@ impl MutEventSubscriber for Balloon {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, ops))]
     fn init(&mut self, ops: &mut EventOps) {
         // This function can be called during different points in the device lifetime:
         //  - shortly after device creation,

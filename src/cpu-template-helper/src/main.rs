@@ -111,6 +111,7 @@ enum FingerprintOperation {
     },
 }
 
+#[tracing::instrument(level = "trace", skip(cli))]
 fn run(cli: Cli) -> Result<(), HelperError> {
     match cli.command {
         Command::Template(op) => match op {
@@ -180,6 +181,7 @@ fn run(cli: Cli) -> Result<(), HelperError> {
     Ok(())
 }
 
+#[tracing::instrument(level = "trace", skip())]
 fn main() -> Result<(), HelperError> {
     let cli = Cli::parse();
     let result = run(cli);
@@ -200,6 +202,7 @@ mod tests {
 
     use super::*;
 
+    #[tracing::instrument(level = "trace", skip(kernel_image_path, rootfs_path))]
     pub fn generate_config(kernel_image_path: &str, rootfs_path: &str) -> String {
         format!(
             r#"{{
@@ -219,6 +222,10 @@ mod tests {
         )
     }
 
+    #[tracing::instrument(
+        level = "trace",
+        skip(kernel_image_path, rootfs_path, cpu_template_path)
+    )]
     pub fn generate_config_with_template(
         kernel_image_path: &str,
         rootfs_path: &str,
@@ -243,6 +250,10 @@ mod tests {
         )
     }
 
+    #[tracing::instrument(
+        level = "trace",
+        skip(kernel_image_path, rootfs_path, cpu_template_path)
+    )]
     fn generate_config_file(
         kernel_image_path: &str,
         rootfs_path: &str,
@@ -303,6 +314,7 @@ mod tests {
     }"#;
 
     // Build a sample custom CPU template.
+    #[tracing::instrument(level = "trace", skip())]
     fn generate_sample_template() -> TempFile {
         let file = TempFile::new().unwrap();
         file.as_file()
@@ -312,6 +324,7 @@ mod tests {
     }
 
     // Build a sample fingerprint file.
+    #[tracing::instrument(level = "trace", skip())]
     fn generate_sample_fingerprint() -> TempFile {
         let fingerprint = fingerprint::Fingerprint {
             firecracker_version: crate::utils::CPU_TEMPLATE_HELPER_VERSION.to_string(),

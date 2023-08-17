@@ -67,6 +67,7 @@ enum MainError {
 }
 
 impl From<MainError> for ExitCode {
+    #[tracing::instrument(level = "trace", skip(value))]
     fn from(value: MainError) -> Self {
         let exit_code = match value {
             MainError::ParseArguments(_) => FcExitCode::ArgParsing,
@@ -80,6 +81,7 @@ impl From<MainError> for ExitCode {
     }
 }
 
+#[tracing::instrument(level = "trace", skip())]
 fn main() -> ExitCode {
     let result = main_exec();
     if let Err(err) = result {
@@ -91,6 +93,7 @@ fn main() -> ExitCode {
     }
 }
 
+#[tracing::instrument(level = "trace", skip())]
 fn main_exec() -> Result<(), MainError> {
     register_signal_handlers().map_err(MainError::RegisterSignalHandlers)?;
 
@@ -423,6 +426,7 @@ fn main_exec() -> Result<(), MainError> {
     }
 }
 
+#[tracing::instrument(level = "trace", skip())]
 /// Enable SSBD mitigation through `prctl`.
 #[cfg(target_arch = "aarch64")]
 pub fn enable_ssbd_mitigation() {
@@ -460,10 +464,12 @@ pub fn enable_ssbd_mitigation() {
 }
 
 // Log a warning for any usage of deprecated parameters.
+#[tracing::instrument(level = "trace", skip())]
 #[allow(unused)]
 fn warn_deprecated_parameters() {}
 
 // Print supported snapshot data format versions.
+#[tracing::instrument(level = "trace", skip())]
 fn print_supported_snapshot_versions() {
     let mut versions: Vec<_> = FC_VERSION_TO_SNAP_VERSION
         .iter()
@@ -488,6 +494,7 @@ enum SnapshotVersionError {
 }
 
 // Print data format of provided snapshot state file.
+#[tracing::instrument(level = "trace", skip(snapshot_path))]
 fn print_snapshot_data_format(snapshot_path: &str) -> Result<(), SnapshotVersionError> {
     let mut snapshot_reader =
         File::open(snapshot_path).map_err(SnapshotVersionError::OpenSnapshot)?;
@@ -513,6 +520,18 @@ pub enum BuildFromJsonError {
 }
 
 // Configure and start a microVM as described by the command-line JSON.
+#[tracing::instrument(
+    level = "trace",
+    skip(
+        seccomp_filters,
+        event_manager,
+        config_json,
+        instance_info,
+        boot_timer_enabled,
+        mmds_size_limit,
+        metadata_json
+    )
+)]
 fn build_microvm_from_json(
     seccomp_filters: &BpfThreadMap,
     event_manager: &mut EventManager,
@@ -547,6 +566,17 @@ enum RunWithoutApiError {
     BuildMicroVMFromJson(BuildFromJsonError),
 }
 
+#[tracing::instrument(
+    level = "trace",
+    skip(
+        seccomp_filters,
+        config_json,
+        instance_info,
+        bool_timer_enabled,
+        mmds_size_limit,
+        metadata_json
+    )
+)]
 fn run_without_api(
     seccomp_filters: &BpfThreadMap,
     config_json: Option<String>,

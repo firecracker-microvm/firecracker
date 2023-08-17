@@ -37,6 +37,7 @@ pub const MMIO_MEM_START: u64 = layout::MAPPED_IO_START;
 /// The size of the memory area reserved for MMIO devices.
 pub const MMIO_MEM_SIZE: u64 = layout::DRAM_MEM_START - layout::MAPPED_IO_START; //>> 1GB
 
+#[tracing::instrument(level = "trace", skip(size))]
 /// Returns a Vec of the valid memory addresses for aarch64.
 /// See [`layout`](layout) module for a drawing of the specific memory model for this platform.
 pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
@@ -44,6 +45,17 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
     vec![(GuestAddress(layout::DRAM_MEM_START), dram_size)]
 }
 
+#[tracing::instrument(
+    level = "trace",
+    skip(
+        guest_mem,
+        cmdline_cstring,
+        vcpu_mpidr,
+        device_info,
+        gic_device,
+        initrd
+    )
+)]
 /// Configures the system and should be called once per vm before starting vcpu threads.
 /// For aarch64, we only setup the FDT.
 ///
@@ -74,11 +86,13 @@ pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::Build
     Ok(())
 }
 
+#[tracing::instrument(level = "trace", skip())]
 /// Returns the memory address where the kernel could be loaded.
 pub fn get_kernel_start() -> u64 {
     layout::DRAM_MEM_START
 }
 
+#[tracing::instrument(level = "trace", skip(guest_mem, initrd_size))]
 /// Returns the memory address where the initrd could be loaded.
 pub fn initrd_load_addr(
     guest_mem: &GuestMemoryMmap,
@@ -98,6 +112,7 @@ pub fn initrd_load_addr(
 }
 
 // Auxiliary function to get the address where the device tree blob is loaded.
+#[tracing::instrument(level = "trace", skip(mem))]
 fn get_fdt_addr(mem: &GuestMemoryMmap) -> u64 {
     // If the memory allocated is smaller than the size allocated for the FDT,
     // we return the start of the DRAM so that

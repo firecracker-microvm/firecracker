@@ -56,6 +56,7 @@ pub struct InitrdConfig {
 pub const PAGE_SIZE: usize = 4096;
 
 impl fmt::Display for DeviceType {
+    #[tracing::instrument(level = "trace", skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self)
     }

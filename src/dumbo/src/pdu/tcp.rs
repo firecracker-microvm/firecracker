@@ -99,30 +99,35 @@ pub struct TcpSegment<'a, T: 'a> {
 
 #[allow(clippy::len_without_is_empty)]
 impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the source port.
     #[inline]
     pub fn source_port(&self) -> u16 {
         self.bytes.ntohs_unchecked(SOURCE_PORT_OFFSET)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the destination port.
     #[inline]
     pub fn destination_port(&self) -> u16 {
         self.bytes.ntohs_unchecked(DESTINATION_PORT_OFFSET)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the sequence number.
     #[inline]
     pub fn sequence_number(&self) -> u32 {
         self.bytes.ntohl_unchecked(SEQ_NUMBER_OFFSET)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the acknowledgement number (only valid if the `ACK` flag is set).
     #[inline]
     pub fn ack_number(&self) -> u32 {
         self.bytes.ntohl_unchecked(ACK_NUMBER_OFFSET)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the header length, the value of the reserved bits, and whether the `NS` flag
     /// is set or not.
     #[inline]
@@ -135,30 +140,35 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
         (header_len, rsvd, ns)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the length of the header.
     #[inline]
     pub fn header_len(&self) -> usize {
         self.header_len_rsvd_ns().0
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the TCP header flags, with the exception of `NS`.
     #[inline]
     pub fn flags_after_ns(&self) -> Flags {
         Flags::from_bits_truncate(self.bytes[FLAGS_AFTER_NS_OFFSET])
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the value of the `window size` header field.
     #[inline]
     pub fn window_size(&self) -> u16 {
         self.bytes.ntohs_unchecked(WINDOW_SIZE_OFFSET)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the value of the `checksum` header field.
     #[inline]
     pub fn checksum(&self) -> u16 {
         self.bytes.ntohs_unchecked(CHECKSUM_OFFSET)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the value of the `urgent pointer` header field (only valid if the
     /// `URG` flag is set).
     #[inline]
@@ -166,6 +176,7 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
         self.bytes.ntohs_unchecked(URG_POINTER_OFFSET)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, header_len))]
     /// Returns the TCP header options as an `[&u8]` slice.
     ///
     /// # Panics
@@ -176,6 +187,7 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
         &self.bytes[OPTIONS_OFFSET..header_len]
     }
 
+    #[tracing::instrument(level = "trace", skip(self, header_len))]
     /// Returns a slice which contains the payload of the segment. May panic if the value of
     /// `header_len` is invalid.
     ///
@@ -187,24 +199,28 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
         self.bytes.split_at(header_len).1
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the length of the segment.
     #[inline]
     pub fn len(&self) -> usize {
         self.bytes.len()
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns a slice which contains the payload of the segment.
     #[inline]
     pub fn payload(&self) -> &[u8] {
         self.payload_unchecked(self.header_len())
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the length of the payload.
     #[inline]
     pub fn payload_len(&self) -> usize {
         self.len() - self.header_len()
     }
 
+    #[tracing::instrument(level = "trace", skip(self, src_addr, dst_addr))]
     /// Computes the TCP checksum of the segment. More details about TCP checksum computation can
     /// be found [here].
     ///
@@ -213,6 +229,7 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
         crate::pdu::compute_checksum(&self.bytes, src_addr, dst_addr, ChecksumProto::Tcp)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, header_len))]
     /// Parses TCP header options (only `MSS` is supported for now).
     ///
     /// If no error is encountered, returns the `MSS` value, or `None` if the option is not
@@ -262,6 +279,7 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
         Ok(None)
     }
 
+    #[tracing::instrument(level = "trace", skip(bytes))]
     /// Interprets `bytes` as a TCP segment without any validity checks.
     ///
     /// # Panics
@@ -275,6 +293,7 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(bytes, verify_checksum))]
     /// Attempts to interpret `bytes` as a TCP segment, checking the validity of the header fields.
     ///
     /// The `verify_checksum` parameter must contain the source and destination addresses from the
@@ -309,6 +328,7 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
 }
 
 impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
+    #[tracing::instrument(level = "trace", skip(self, value))]
     /// Sets the source port.
     #[inline]
     pub fn set_source_port(&mut self, value: u16) -> &mut Self {
@@ -316,6 +336,7 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self, value))]
     /// Sets the destination port.
     #[inline]
     pub fn set_destination_port(&mut self, value: u16) -> &mut Self {
@@ -323,6 +344,7 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self, value))]
     /// Sets the value of the sequence number field.
     #[inline]
     pub fn set_sequence_number(&mut self, value: u32) -> &mut Self {
@@ -330,6 +352,7 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self, value))]
     /// Sets the value of the acknowledgement number field.
     #[inline]
     pub fn set_ack_number(&mut self, value: u32) -> &mut Self {
@@ -337,6 +360,7 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self, header_len, ns))]
     /// Sets the value of the `ihl` header field based on `header_len` (which should be a multiple
     /// of 4), clears the reserved bits, and sets the `NS` flag according to the last parameter.
     // TODO: Check that header_len | 0b11 == 0 and the resulting data_offset is valid?
@@ -350,6 +374,7 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self, flags))]
     /// Sets the value of the header byte containing every TCP flag except `NS`.
     #[inline]
     pub fn set_flags_after_ns(&mut self, flags: Flags) -> &mut Self {
@@ -357,6 +382,7 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self, value))]
     /// Sets the value of the `window size` field.
     #[inline]
     pub fn set_window_size(&mut self, value: u16) -> &mut Self {
@@ -364,6 +390,7 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self, value))]
     /// Sets the value of the `checksum` field.
     #[inline]
     pub fn set_checksum(&mut self, value: u16) -> &mut Self {
@@ -371,6 +398,7 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self, value))]
     /// Sets the value of the `urgent pointer` field.
     #[inline]
     pub fn set_urgent_pointer(&mut self, value: u16) -> &mut Self {
@@ -378,6 +406,7 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self, header_len))]
     /// Returns a mutable slice containing the segment payload.
     ///
     /// # Panics
@@ -388,6 +417,7 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
         self.bytes.split_at_mut(header_len).1
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns a mutable slice containing the segment payload.
     #[inline]
     pub fn payload_mut(&mut self) -> &mut [u8] {
@@ -395,6 +425,22 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
         self.payload_mut_unchecked(header_len)
     }
 
+    #[tracing::instrument(
+        level = "trace",
+        skip(
+            buf,
+            src_port,
+            dst_port,
+            seq_number,
+            ack_number,
+            flags_after_ns,
+            window_size,
+            mss_option,
+            mss_remaining,
+            payload,
+            compute_checksum
+        )
+    )]
     /// Writes a complete TCP segment.
     ///
     /// # Arguments
@@ -443,6 +489,19 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
         .finalize(src_port, dst_port, compute_checksum))
     }
 
+    #[tracing::instrument(
+        level = "trace",
+        skip(
+            buf,
+            seq_number,
+            ack_number,
+            flags_after_ns,
+            window_size,
+            mss_option,
+            mss_remaining,
+            payload
+        )
+    )]
     /// Writes an incomplete TCP segment, which is missing the `source port`, `destination port`,
     /// and `checksum` fields.
     ///
@@ -551,6 +610,7 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
 }
 
 impl<'a, T: NetworkBytesMut + Debug> Incomplete<TcpSegment<'a, T>> {
+    #[tracing::instrument(level = "trace", skip(self, src_port, dst_port, compute_checksum))]
     /// Transforms `self` into a `TcpSegment<T>` by specifying values for the `source port`,
     /// `destination port`, and (optionally) the information required to compute the TCP checksum.
     #[inline]
@@ -724,6 +784,7 @@ mod tests {
 
         // Using a helper function here instead of a closure because it's hard (impossible?) to
         // specify lifetime bounds for closure arguments.
+        #[tracing::instrument(level = "trace", skip(buf))]
         fn p(buf: &mut [u8]) -> TcpSegment<&mut [u8]> {
             TcpSegment::from_bytes_unchecked(buf)
         }

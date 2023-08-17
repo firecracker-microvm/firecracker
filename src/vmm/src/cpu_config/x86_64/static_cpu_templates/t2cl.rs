@@ -7,6 +7,7 @@ use crate::cpu_config::x86_64::custom_cpu_template::{
     CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier,
 };
 
+#[tracing::instrument(level = "trace", skip())]
 /// T2CL template
 ///
 /// Mask CPUID to make exposed CPU features as close as possbile to Intel Cascade Lake and provide

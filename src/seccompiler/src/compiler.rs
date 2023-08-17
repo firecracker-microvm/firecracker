@@ -51,6 +51,7 @@ pub(crate) struct JsonFile(pub BTreeMap<String, Filter>);
 
 // Implement a custom deserializer, that returns an error for duplicate thread keys.
 impl<'de> Deserialize<'de> for JsonFile {
+    #[tracing::instrument(level = "trace", skip(deserializer))]
     fn deserialize<D>(deserializer: D) -> result::Result<Self, D::Error>
     where
         D: de::Deserializer<'de>,
@@ -61,10 +62,12 @@ impl<'de> Deserialize<'de> for JsonFile {
         impl<'d> Visitor<'d> for JsonFileVisitor {
             type Value = BTreeMap<String, Filter>;
 
+            #[tracing::instrument(level = "trace", skip(self, f))]
             fn expecting(&self, f: &mut fmt::Formatter<'_>) -> result::Result<(), fmt::Error> {
                 f.write_str("a map of filters")
             }
 
+            #[tracing::instrument(level = "trace", skip(self, access))]
             fn visit_map<M>(self, mut access: M) -> result::Result<Self::Value, M::Error>
             where
                 M: MapAccess<'d>,
@@ -98,6 +101,7 @@ pub(crate) struct SyscallRule {
 }
 
 impl SyscallRule {
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Perform semantic checks after deserialization.
     fn validate(&self) -> Result<(), CompilationError> {
         // Validate all `SeccompCondition`s.
@@ -126,6 +130,7 @@ pub(crate) struct Filter {
 }
 
 impl Filter {
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Perform semantic checks after deserialization.
     fn validate(&self) -> Result<(), CompilationError> {
         // Doesn't make sense to have equal default and on-match actions.
@@ -154,6 +159,7 @@ pub(crate) struct Compiler {
 }
 
 impl Compiler {
+    #[tracing::instrument(level = "trace", skip(arch))]
     /// Create a new `Compiler` instance, for the given target architecture.
     pub fn new(arch: TargetArch) -> Self {
         Self {
@@ -162,6 +168,7 @@ impl Compiler {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, filters))]
     /// Perform semantic checks after deserialization.
     fn validate_filters(&self, filters: &BTreeMap<String, Filter>) -> Result<(), CompilationError> {
         // Validate all `Filter`s.
@@ -172,6 +179,7 @@ impl Compiler {
             .map_or(Ok(()), Err)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, filters, is_basic))]
     /// Main compilation function.
     pub fn compile_blob(
         &self,
@@ -194,6 +202,7 @@ impl Compiler {
         Ok(bpf_map)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, filter))]
     /// Transforms the deserialized `Filter` into a `SeccompFilter` (IR language).
     fn make_seccomp_filter(&self, filter: Filter) -> Result<SeccompFilter, CompilationError> {
         let mut rule_map: SeccompRuleMap = SeccompRuleMap::new();
@@ -218,6 +227,7 @@ impl Compiler {
             .map_err(CompilationError::Filter)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, filter))]
     /// Transforms the deserialized `Filter` into a basic `SeccompFilter` (IR language).
     /// This filter will drop any argument checks and any rule-level action.
     /// All rules will trigger the filter-level `filter_action`.
@@ -261,6 +271,7 @@ mod tests {
     };
 
     impl Filter {
+        #[tracing::instrument(level = "trace", skip(default_action, filter_action, filter))]
         pub fn new(
             default_action: SeccompAction,
             filter_action: SeccompAction,
@@ -275,6 +286,7 @@ mod tests {
     }
 
     impl SyscallRule {
+        #[tracing::instrument(level = "trace", skip(syscall, conditions))]
         pub fn new(syscall: String, conditions: Option<Vec<Cond>>) -> SyscallRule {
             SyscallRule {
                 syscall,
@@ -284,10 +296,12 @@ mod tests {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(syscall_number, action))]
     fn match_syscall(syscall_number: i64, action: SeccompAction) -> (i64, Vec<SeccompRule>) {
         (syscall_number, vec![SeccompRule::new(vec![], action)])
     }
 
+    #[tracing::instrument(level = "trace", skip(syscall_number, rules))]
     fn match_syscall_if(syscall_number: i64, rules: Vec<SeccompRule>) -> (i64, Vec<SeccompRule>) {
         (syscall_number, rules)
     }

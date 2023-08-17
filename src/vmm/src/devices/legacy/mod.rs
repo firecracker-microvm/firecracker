@@ -33,6 +33,7 @@ pub struct EventFdTrigger(EventFd);
 impl Trigger for EventFdTrigger {
     type E = io::Error;
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn trigger(&self) -> io::Result<()> {
         self.write(1)
     }
@@ -40,22 +41,26 @@ impl Trigger for EventFdTrigger {
 
 impl Deref for EventFdTrigger {
     type Target = EventFd;
+    #[tracing::instrument(level = "trace", skip(self))]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
 impl EventFdTrigger {
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Clone an `EventFdTrigger`.
     pub fn try_clone(&self) -> io::Result<Self> {
         Ok(EventFdTrigger((**self).try_clone()?))
     }
 
+    #[tracing::instrument(level = "trace", skip(evt))]
     /// Create an `EventFdTrigger`.
     pub fn new(evt: EventFd) -> Self {
         Self(evt)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Get the associated event fd out of an `EventFdTrigger`.
     pub fn get_event(&self) -> EventFd {
         self.0.try_clone().unwrap()

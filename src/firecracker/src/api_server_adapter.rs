@@ -45,6 +45,10 @@ struct ApiServerAdapter {
 }
 
 impl ApiServerAdapter {
+    #[tracing::instrument(
+        level = "trace",
+        skip(api_event_fd, from_api, to_api, vm_resources, vmm, event_manager)
+    )]
     /// Runs the vmm to completion, while any arising control events are deferred
     /// to a `RuntimeApiController`.
     fn run_microvm(
@@ -72,6 +76,7 @@ impl ApiServerAdapter {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, req_action))]
     fn handle_request(&mut self, req_action: VmmAction) {
         let response = self.controller.handle_request(req_action);
         // Send back the result.
@@ -82,6 +87,7 @@ impl ApiServerAdapter {
     }
 }
 impl MutEventSubscriber for ApiServerAdapter {
+    #[tracing::instrument(level = "trace", skip(self, event))]
     /// Handle a read event (EPOLLIN).
     fn process(&mut self, event: Events, _: &mut EventOps) {
         let source = event.fd();
@@ -124,6 +130,7 @@ impl MutEventSubscriber for ApiServerAdapter {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, ops))]
     fn init(&mut self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::new(&self.api_event_fd, EventSet::IN)) {
             error!("Failed to register activate event: {}", err);
@@ -131,6 +138,21 @@ impl MutEventSubscriber for ApiServerAdapter {
     }
 }
 
+#[tracing::instrument(
+    level = "trace",
+    skip(
+        seccomp_filters,
+        config_json,
+        bind_path,
+        instance_info,
+        process_time_reporter,
+        boot_timer_enabled,
+        api_payload_limit,
+        mmds_size_limit,
+        metadata_json,
+        logger_handles
+    )
+)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_with_api<
     F: Fn(&tracing::Metadata<'_>) -> bool,

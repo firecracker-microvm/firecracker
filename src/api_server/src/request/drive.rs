@@ -8,6 +8,7 @@ use super::super::VmmAction;
 use crate::parsed_request::{checked_id, Error, ParsedRequest};
 use crate::request::{Body, StatusCode};
 
+#[tracing::instrument(level = "trace", skip(body, id_from_path))]
 pub(crate) fn parse_put_drive(
     body: &Body,
     id_from_path: Option<&str>,
@@ -38,6 +39,7 @@ pub(crate) fn parse_put_drive(
     }
 }
 
+#[tracing::instrument(level = "trace", skip(body, id_from_path))]
 pub(crate) fn parse_patch_drive(
     body: &Body,
     id_from_path: Option<&str>,
