@@ -246,12 +246,6 @@ mod tests {
         (vm, vcpu, vm_mem)
     }
 
-    fn init_vcpu(vcpu: &VcpuFd, vm: &VmFd) {
-        let mut kvi = kvm_bindings::kvm_vcpu_init::default();
-        vm.get_preferred_target(&mut kvi).unwrap();
-        vcpu.vcpu_init(&kvi).unwrap();
-    }
-
     #[test]
     fn test_create_vcpu() {
         let (vm, _) = setup_vm(0x1000);
@@ -343,7 +337,7 @@ mod tests {
             KvmVcpuError::RestoreState(ArchError::SetOneReg(0, _))
         ));
 
-        init_vcpu(&vcpu.fd, vm.fd());
+        vcpu.init(vm.fd()).unwrap();
         let state = vcpu.save_state().expect("Cannot save state of vcpu");
         assert!(!state.regs.is_empty());
         vcpu.restore_state(&state)
