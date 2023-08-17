@@ -4,22 +4,18 @@
 
 """Generate Buildkite pipelines dynamically"""
 
-import subprocess
-from pathlib import Path
-
-from common import COMMON_PARSER, group, overlay_dict, pipeline_to_json
+from common import (
+    COMMON_PARSER,
+    get_changed_files,
+    group,
+    overlay_dict,
+    pipeline_to_json,
+    run_all_tests,
+)
 
 # Buildkite default job priority is 0. Setting this to 1 prioritizes PRs over
 # scheduled jobs and other batch jobs.
 DEFAULT_PRIORITY = 1
-
-
-def get_changed_files(branch):
-    """
-    Get all files changed since `branch`
-    """
-    stdout = subprocess.check_output(["git", "diff", "--name-only", branch])
-    return [Path(line) for line in stdout.decode().splitlines()]
 
 
 args = COMMON_PARSER.parse_args()
@@ -111,13 +107,7 @@ changed_files = get_changed_files("main")
 if any(x.parts[-1] == "Dockerfile" for x in changed_files):
     steps += [devtool_build_grp]
 
-# run the whole test suite if either of:
-# - any file changed that is not documentation nor GitHub action config file
-# - no files changed
-if not changed_files or any(
-    x.suffix != ".md" and not (x.parts[0] == ".github" and x.suffix == ".yml")
-    for x in changed_files
-):
+if run_all_tests(changed_files):
     steps += [
         kani_grp,
         build_grp,
