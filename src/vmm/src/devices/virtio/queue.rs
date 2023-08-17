@@ -263,30 +263,22 @@ impl Queue {
         } else if used_ring.raw_value() & 0x3 != 0 {
             error!("virtio queue used ring breaks alignment constraints");
             false
-        } else if desc_table
-            .checked_add(desc_table_size)
-            .map_or(true, |v| !mem.address_in_range(v))
-        {
+        // range check entire descriptor table to be assigned valid guest physical addresses
+        } else if mem.get_slice(desc_table, desc_table_size as usize).is_err() {
             error!(
                 "virtio queue descriptor table goes out of bounds: start:0x{:08x} size:0x{:08x}",
                 desc_table.raw_value(),
                 desc_table_size
             );
             false
-        } else if avail_ring
-            .checked_add(avail_ring_size)
-            .map_or(true, |v| !mem.address_in_range(v))
-        {
+        } else if mem.get_slice(avail_ring, avail_ring_size as usize).is_err() {
             error!(
                 "virtio queue available ring goes out of bounds: start:0x{:08x} size:0x{:08x}",
                 avail_ring.raw_value(),
                 avail_ring_size
             );
             false
-        } else if used_ring
-            .checked_add(used_ring_size)
-            .map_or(true, |v| !mem.address_in_range(v))
-        {
+        } else if mem.get_slice(used_ring, used_ring_size as usize).is_err() {
             error!(
                 "virtio queue used ring goes out of bounds: start:0x{:08x} size:0x{:08x}",
                 used_ring.raw_value(),
