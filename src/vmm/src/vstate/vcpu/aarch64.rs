@@ -18,6 +18,7 @@ use crate::arch::aarch64::vcpu::{
     get_all_registers, get_all_registers_ids, get_mpidr, get_mpstate, get_registers, set_mpstate,
     set_registers, setup_boot_regs, VcpuError as ArchError,
 };
+use crate::cpu_config::aarch64::custom_cpu_template::VcpuFeatures;
 use crate::cpu_config::templates::CpuConfiguration;
 use crate::vcpu::{VcpuConfig, VcpuError};
 use crate::vstate::vcpu::VcpuEmulation;
@@ -118,7 +119,7 @@ impl KvmVcpu {
     /// # Arguments
     ///
     /// * `vm_fd` - The kvm `VmFd` for this microvm.
-    pub fn init(&self, vm_fd: &VmFd) -> Result<(), KvmVcpuError> {
+    pub fn init(&self, vm_fd: &VmFd, _vcpu_features: &[VcpuFeatures]) -> Result<(), KvmVcpuError> {
         let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
 
         // This reads back the kernel's preferred target type.
@@ -240,7 +241,7 @@ mod tests {
     fn setup_vcpu(mem_size: usize) -> (Vm, KvmVcpu, GuestMemoryMmap) {
         let (mut vm, vm_mem) = setup_vm(mem_size);
         let vcpu = KvmVcpu::new(0, &vm).unwrap();
-        vcpu.init(vm.fd()).unwrap();
+        vcpu.init(vm.fd(), &[]).unwrap();
         vm.setup_irqchip(1).unwrap();
 
         (vm, vcpu, vm_mem)
@@ -298,7 +299,7 @@ mod tests {
     fn test_faulty_init_vcpu() {
         let (vm, vcpu, _) = setup_vcpu(0x10000);
         unsafe { libc::close(vm.fd().as_raw_fd()) };
-        let err = vcpu.init(vm.fd());
+        let err = vcpu.init(vm.fd(), &[]);
         assert!(err.is_err());
         assert_eq!(
             err.err().unwrap().to_string(),
@@ -336,7 +337,7 @@ mod tests {
             KvmVcpuError::RestoreState(ArchError::SetOneReg(0, _))
         ));
 
-        vcpu.init(vm.fd()).unwrap();
+        vcpu.init(vm.fd(), &[]).unwrap();
         let state = vcpu.save_state().expect("Cannot save state of vcpu");
         assert!(!state.regs.is_empty());
         vcpu.restore_state(&state)
@@ -362,7 +363,7 @@ mod tests {
         let (mut vm, _vm_mem) = setup_vm(0x1000);
         let vcpu = KvmVcpu::new(0, &vm).unwrap();
         vm.setup_irqchip(1).unwrap();
-        vcpu.init(vm.fd()).unwrap();
+        vcpu.init(vm.fd(), &[]).unwrap();
 
         assert!(vcpu.dump_cpu_config().is_ok());
     }
@@ -371,9 +372,9 @@ mod tests {
     fn test_setup_non_boot_vcpu() {
         let (vm, _) = setup_vm(0x1000);
         let vcpu1 = KvmVcpu::new(0, &vm).unwrap();
-        assert!(vcpu1.init(vm.fd()).is_ok());
+        assert!(vcpu1.init(vm.fd(), &[]).is_ok());
         let vcpu2 = KvmVcpu::new(1, &vm).unwrap();
-        assert!(vcpu2.init(vm.fd()).is_ok());
+        assert!(vcpu2.init(vm.fd(), &[]).is_ok());
     }
 
     #[test]
