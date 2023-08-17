@@ -16,7 +16,7 @@ import host_tools.drive as drive_tools
 import host_tools.network as net_tools
 from framework import utils_cpuid
 from framework.utils import get_firecracker_version_from_toml, is_io_uring_supported
-from framework.utils_cpu_templates import skip_on_arm
+from framework.utils_cpu_templates import nonci_on_arm
 
 MEM_LIMIT = 1000000000
 
@@ -473,7 +473,7 @@ def test_api_machine_config(test_microvm_with_api):
     assert json["machine-config"]["smt"] is False
 
 
-@skip_on_arm
+@nonci_on_arm
 def test_api_cpu_config(test_microvm_with_api, custom_cpu_template):
     """
     Test /cpu-config PUT scenarios.

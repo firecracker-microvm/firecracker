@@ -151,10 +151,13 @@ impl TapTrafficSimulator {
     pub fn new(tap_index: i32) -> Self {
         // Create sockaddr_ll struct.
         // SAFETY: sockaddr_storage has no invariants and can be safely zeroed.
-        let send_addr_ptr = &unsafe { mem::zeroed() } as *const libc::sockaddr_storage;
+        let mut storage: libc::sockaddr_storage = unsafe { mem::zeroed() };
+
+        let send_addr_ptr = &mut storage as *mut libc::sockaddr_storage;
+
         // SAFETY: `sock_addr` is a valid pointer and safe to derference.
         unsafe {
-            let sock_addr: *mut libc::sockaddr_ll = send_addr_ptr as *mut libc::sockaddr_ll;
+            let sock_addr: *mut libc::sockaddr_ll = send_addr_ptr.cast::<libc::sockaddr_ll>();
             (*sock_addr).sll_family = libc::AF_PACKET as libc::sa_family_t;
             (*sock_addr).sll_protocol = (libc::ETH_P_ALL as u16).to_be();
             (*sock_addr).sll_halen = libc::ETH_ALEN as u8;
@@ -184,9 +187,18 @@ impl TapTrafficSimulator {
 
         Self {
             socket,
-            // SAFETY: Both the cast and the dereference are safe because the point is valid
-            // and sockaddr_storage is meant to be cast that way.
-            send_addr: unsafe { *(send_addr_ptr.cast()) },
+            // SAFETY: size_of::<libc::sockaddr_storage>() is greater than
+            // sizeof::<libc::sockaddr_ll>(), so to return an owned value of sockaddr_ll
+            // from the stack-local libc::sockaddr_storage that we have, we need to
+            // 1. Create a zeroed out libc::sockaddr_ll,
+            // 2. Copy over the first size_of::<libc::sockaddr_ll>() bytes into the struct we
+            //    want to return
+            // We cannot simply return "*(send_addr_ptr as *const libc::sockaddr_ll)", as this
+            // would return a reference to a variable that lives in the stack frame of the current
+            // function, and which will no longer be valid after returning.
+            // transmute_copy does all this for us.
+            // Note that this is how these structures are intended to be used in C.
+            send_addr: unsafe { mem::transmute_copy(&storage) },
         }
     }
 

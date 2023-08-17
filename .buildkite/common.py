@@ -7,6 +7,8 @@ Common helpers to create Buildkite pipelines
 
 import argparse
 import json
+import subprocess
+from pathlib import Path
 
 DEFAULT_INSTANCES = [
     "m5d.metal",
@@ -84,6 +86,28 @@ def group(label, command, instances, platforms, **kwargs):
 def pipeline_to_json(pipeline):
     """Serialize a pipeline dictionary to JSON"""
     return json.dumps(pipeline, indent=4, sort_keys=True, ensure_ascii=False)
+
+
+def get_changed_files(branch):
+    """
+    Get all files changed since `branch`
+    """
+    stdout = subprocess.check_output(["git", "diff", "--name-only", branch])
+    return [Path(line) for line in stdout.decode().splitlines()]
+
+
+def run_all_tests(changed_files):
+    """
+    Check if we should run all tests, based on the files that have been changed
+    """
+
+    # run the whole test suite if either of:
+    # - any file changed that is not documentation nor GitHub action config file
+    # - no files changed
+    return not changed_files or any(
+        x.suffix != ".md" and not (x.parts[0] == ".github" and x.suffix == ".yml")
+        for x in changed_files
+    )
 
 
 class DictAction(argparse.Action):

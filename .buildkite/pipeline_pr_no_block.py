@@ -4,7 +4,14 @@
 
 """Generate Buildkite pipelines dynamically"""
 
-from common import COMMON_PARSER, group, overlay_dict, pipeline_to_json
+from common import (
+    COMMON_PARSER,
+    get_changed_files,
+    group,
+    overlay_dict,
+    pipeline_to_json,
+    run_all_tests,
+)
 
 # Buildkite default job priority is 0. Setting this to 1 prioritizes PRs over
 # scheduled jobs and other batch jobs.
@@ -26,9 +33,10 @@ defaults = overlay_dict(defaults, args.step_param)
 
 optional_grp = group(
     "❓ Optional",
-    "./tools/devtool -y test -c 1-10 -m 0 -- ../tests/integration_tests/ -m no_block_pr --log-cli-level=INFO",
+    "./tools/devtool -y test -c 1-10 -m 0 -- ../tests/integration_tests/ -m 'no_block_pr and not nonci' --log-cli-level=INFO",
     **defaults,
 )
 
-pipeline = {"steps": [optional_grp]}
+changed_files = get_changed_files("main")
+pipeline = {"steps": [optional_grp]} if run_all_tests(changed_files) else {"steps": []}
 print(pipeline_to_json(pipeline))

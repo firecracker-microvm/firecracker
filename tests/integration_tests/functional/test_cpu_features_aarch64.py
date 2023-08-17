@@ -7,7 +7,7 @@ import platform
 import pytest
 
 import framework.utils_cpuid as cpuid_utils
-from framework.utils_cpu_templates import skip_on_arm
+from framework.utils_cpu_templates import nonci_on_arm
 
 PLATFORM = platform.machine()
 
@@ -30,7 +30,7 @@ DEFAULT_G3_FEATURES = (
 DEFAULT_G3_FEATURES_NO_SSBS = (
     "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
     "asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp "
-    "sha512 asimdfhm dit uscat ilrcpc flagm"
+    "sha512 asimdfhm dit uscat ilrcpc flagm dcpodp i8mm bf16 dgh rng"
 )
 
 DEFAULT_G3_FEATURES_V1N1 = (
@@ -94,7 +94,7 @@ def test_default_cpu_features(test_microvm_with_api):
     PLATFORM != "aarch64",
     reason="This is aarch64 specific test.",
 )
-@skip_on_arm
+@nonci_on_arm
 def test_cpu_features_with_static_template(test_microvm_with_api, cpu_template):
     """
     Check the CPU features for a microvm with the specified config.
@@ -111,7 +111,7 @@ def test_cpu_features_with_static_template(test_microvm_with_api, cpu_template):
     PLATFORM != "aarch64",
     reason="This is aarch64 specific test.",
 )
-@skip_on_arm
+@nonci_on_arm
 def test_cpu_features_with_custom_template(test_microvm_with_api, custom_cpu_template):
     """
     Check the CPU features for a microvm with the specified config.
