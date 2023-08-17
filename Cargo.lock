@@ -326,6 +326,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "clap-num"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "488557e97528174edaa2ee268b23a809e0c598213a4bbcb4f34575a46fda147e"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "clap_builder"
 version = "4.3.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1178,6 +1187,18 @@ dependencies = [
  "thiserror",
  "versionize",
  "versionize_derive",
+]
+
+[[package]]
+name = "snapshot-editor"
+version = "1.5.0"
+dependencies = [
+ "clap",
+ "clap-num",
+ "libc",
+ "snapshot",
+ "thiserror",
+ "vmm",
 ]
 
 [[package]]

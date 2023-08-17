@@ -1,5 +1,5 @@
 [workspace]
-members = ["src/cpu-template-helper", "src/firecracker", "src/jailer", "src/rebase-snap", "src/seccompiler"]
+members = ["src/cpu-template-helper", "src/firecracker", "src/jailer", "src/rebase-snap", "src/seccompiler", "src/snapshot-editor"]
 default-members = ["src/firecracker"]
 resolver = "2"
 
