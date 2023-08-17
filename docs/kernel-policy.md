@@ -24,6 +24,9 @@ Some configuration items that may be of interest are:
     * partuuid support - `CONFIG_MSDOS_PARTITION`
   * network - `CONFIG_VIRTIO_NET`
   * vsock - `CONFIG_VIRTIO_VSOCKETS`
+  * entropy - `CONFIG_HW_RANDOM_VIRTIO`
+* guest RNG - `CONFIG_RANDOM_TRUST_CPU`
+  * use CPU RNG instructions (if present) to initialize RNG. Available for >= 5.10
 
 There are also guest config options which are dependant on the platform
 on which Firecracker is run:
