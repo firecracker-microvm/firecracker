@@ -772,7 +772,7 @@ pub fn configure_system_for_boot(
 
         for vcpu in vcpus.iter_mut() {
             vcpu.kvm_vcpu
-                .init(vmm.vm.fd())
+                .init(vmm.vm.fd(), &cpu_template.vcpu_features)
                 .map_err(VmmError::VcpuInit)
                 .map_err(Internal)?;
         }
