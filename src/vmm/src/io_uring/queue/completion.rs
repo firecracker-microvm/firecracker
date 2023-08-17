@@ -38,6 +38,7 @@ pub(crate) struct CompletionQueue {
 }
 
 impl CompletionQueue {
+    #[tracing::instrument(level = "trace", skip(io_uring_fd, params))]
     pub(crate) fn new(
         io_uring_fd: RawFd,
         params: &bindings::io_uring_params,
@@ -68,10 +69,12 @@ impl CompletionQueue {
         })
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub(crate) fn count(&self) -> u32 {
         self.count
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// # Safety
     /// Unsafe because we reconstruct the `user_data` from a raw pointer passed by the kernel.
     /// It's up to the caller to make sure that `T` is the correct type of the `user_data`, that
@@ -100,6 +103,7 @@ impl CompletionQueue {
 }
 
 impl Drop for CompletionQueue {
+    #[tracing::instrument(level = "trace", skip(self))]
     fn drop(&mut self) {
         // SAFETY: Safe because parameters are valid.
         unsafe { libc::munmap(self.cqes.as_ptr().cast::<libc::c_void>(), self.cqes.size()) };

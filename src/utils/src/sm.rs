@@ -16,6 +16,7 @@ pub struct StateMachine<T> {
     function: Option<StateFn<T>>,
 }
 impl<T> Debug for StateMachine<T> {
+    #[tracing::instrument(level = "trace", skip(self, f))]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StateMachine")
             .field("function", &self.function.map(|f| f as usize))
@@ -28,6 +29,7 @@ impl<T> Debug for StateMachine<T> {
 type StateFn<T> = fn(&mut T) -> StateMachine<T>;
 
 impl<T: Debug> StateMachine<T> {
+    #[tracing::instrument(level = "trace", skip(function))]
     /// Creates a new state wrapper.
     ///
     /// # Arguments
@@ -37,6 +39,7 @@ impl<T: Debug> StateMachine<T> {
         StateMachine { function }
     }
 
+    #[tracing::instrument(level = "trace", skip(function))]
     /// Creates a new state wrapper that has further possible transitions.
     ///
     /// # Arguments
@@ -46,6 +49,7 @@ impl<T: Debug> StateMachine<T> {
         StateMachine::new(Some(function))
     }
 
+    #[tracing::instrument(level = "trace", skip())]
     /// Creates a new state wrapper that has no further transitions. The state machine
     /// will finish after running this handler.
     ///
@@ -56,6 +60,7 @@ impl<T: Debug> StateMachine<T> {
         StateMachine::new(None)
     }
 
+    #[tracing::instrument(level = "trace", skip(machine, starting_state_fn))]
     /// Runs a state machine for `T` starting from the provided state.
     ///
     /// # Arguments
@@ -87,6 +92,7 @@ mod tests {
     }
 
     impl DummyMachine {
+        #[tracing::instrument(level = "trace", skip())]
         fn new() -> Self {
             DummyMachine {
                 private_data_s1: false,
@@ -98,6 +104,7 @@ mod tests {
         // DummyMachine functions here.
 
         // Simple state-machine: start->s1->s2->s3->done.
+        #[tracing::instrument(level = "trace", skip(self))]
         fn run(&mut self) {
             // Verify the machine has not run yet.
             assert!(!self.private_data_s1);
@@ -113,6 +120,7 @@ mod tests {
             assert!(self.private_data_s3);
         }
 
+        #[tracing::instrument(level = "trace", skip(self))]
         fn s1(&mut self) -> StateMachine<Self> {
             // Verify private data mutates along with the states.
             assert!(!self.private_data_s1);
@@ -120,6 +128,7 @@ mod tests {
             StateMachine::next(Self::s2)
         }
 
+        #[tracing::instrument(level = "trace", skip(self))]
         fn s2(&mut self) -> StateMachine<Self> {
             // Verify private data mutates along with the states.
             assert!(!self.private_data_s2);
@@ -127,6 +136,7 @@ mod tests {
             StateMachine::next(Self::s3)
         }
 
+        #[tracing::instrument(level = "trace", skip(self))]
         fn s3(&mut self) -> StateMachine<Self> {
             // Verify private data mutates along with the states.
             assert!(!self.private_data_s3);

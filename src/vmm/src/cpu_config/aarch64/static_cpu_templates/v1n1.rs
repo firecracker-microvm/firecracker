@@ -10,6 +10,7 @@ use crate::cpu_config::templates::RegisterValueFilter;
 // Arm Armv8-A Architecture Registers documentation
 // https://developer.arm.com/documentation/ddi0595/2021-12/AArch64-Registers?lang=en
 
+#[tracing::instrument(level = "trace", skip())]
 /// Template to mask Neoverse-V1 as Neoverse-N1
 /// Masks: dgh, asimdfhm, bf16, dcpodp, flagm, i8mm, sha3, sha512, sm3, sm4
 /// sve, svebf16, svei8mm, uscat, fcma, jscvt, dit, ilrcpc, rng

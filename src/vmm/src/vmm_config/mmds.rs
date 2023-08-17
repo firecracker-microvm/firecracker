@@ -20,16 +20,19 @@ pub struct MmdsConfig {
 }
 
 impl MmdsConfig {
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the MMDS version configured.
     pub fn version(&self) -> MmdsVersion {
         self.version
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the network interfaces that accept MMDS requests.
     pub fn network_interfaces(&self) -> Vec<String> {
         self.network_interfaces.clone()
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the MMDS IPv4 address if one was configured.
     /// Otherwise returns None.
     pub fn ipv4_addr(&self) -> Option<Ipv4Addr> {

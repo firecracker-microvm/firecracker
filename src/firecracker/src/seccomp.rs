@@ -45,6 +45,7 @@ pub enum SeccompConfig {
 }
 
 impl SeccompConfig {
+    #[tracing::instrument(level = "trace", skip(no_seccomp, seccomp_filter))]
     /// Given the relevant command line args, return the appropriate config type.
     pub fn from_args<T: AsRef<Path> + Debug>(
         no_seccomp: bool,
@@ -63,6 +64,7 @@ impl SeccompConfig {
     }
 }
 
+#[tracing::instrument(level = "trace", skip(config))]
 /// Retrieve the appropriate filters, based on the SeccompConfig.
 pub fn get_filters(config: SeccompConfig) -> Result<BpfThreadMap, FilterError> {
     match config {
@@ -72,6 +74,7 @@ pub fn get_filters(config: SeccompConfig) -> Result<BpfThreadMap, FilterError> {
     }
 }
 
+#[tracing::instrument(level = "trace", skip())]
 /// Retrieve the default filters containing the syscall rules required by `Firecracker`
 /// to function. The binary file is generated via the `build.rs` script of this crate.
 fn get_default_filters() -> Result<BpfThreadMap, FilterError> {
@@ -82,6 +85,7 @@ fn get_default_filters() -> Result<BpfThreadMap, FilterError> {
     filter_thread_categories(map)
 }
 
+#[tracing::instrument(level = "trace", skip(reader))]
 /// Retrieve custom seccomp filters.
 fn get_custom_filters<R: Read + Debug>(reader: R) -> Result<BpfThreadMap, FilterError> {
     let map = deserialize_binary(BufReader::new(reader), DESERIALIZATION_BYTES_LIMIT)
@@ -89,6 +93,7 @@ fn get_custom_filters<R: Read + Debug>(reader: R) -> Result<BpfThreadMap, Filter
     filter_thread_categories(map)
 }
 
+#[tracing::instrument(level = "trace", skip(map))]
 /// Return an error if the BpfThreadMap contains invalid thread categories.
 fn filter_thread_categories(map: BpfThreadMap) -> Result<BpfThreadMap, FilterError> {
     let (filters, invalid_filters): (BpfThreadMap, BpfThreadMap) = map

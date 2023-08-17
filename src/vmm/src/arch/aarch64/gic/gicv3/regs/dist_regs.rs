@@ -60,6 +60,7 @@ pub struct SharedIrqReg {
 }
 
 impl MmioReg for SharedIrqReg {
+    #[tracing::instrument(level = "trace", skip(self))]
     fn range(&self) -> Range<u64> {
         // The ARM® TrustZone® implements a protection logic which contains a
         // read-as-zero/write-ignore (RAZ/WI) policy.
@@ -96,6 +97,7 @@ impl DistReg {
 }
 
 impl MmioReg for DistReg {
+    #[tracing::instrument(level = "trace", skip(self))]
     fn range(&self) -> Range<u64> {
         match self {
             DistReg::Simple(reg) => reg.range(),
@@ -110,19 +112,23 @@ impl VgicRegEngine for DistRegEngine {
     type Reg = DistReg;
     type RegChunk = u32;
 
+    #[tracing::instrument(level = "trace", skip())]
     fn group() -> u32 {
         KVM_DEV_ARM_VGIC_GRP_DIST_REGS
     }
 
+    #[tracing::instrument(level = "trace", skip())]
     fn mpidr_mask() -> u64 {
         0
     }
 }
 
+#[tracing::instrument(level = "trace", skip(fd))]
 pub(crate) fn get_dist_regs(fd: &DeviceFd) -> Result<Vec<GicRegState<u32>>, GicError> {
     DistRegEngine::get_regs_data(fd, Box::new(VGIC_DIST_REGS.iter()), 0)
 }
 
+#[tracing::instrument(level = "trace", skip(fd, state))]
 pub(crate) fn set_dist_regs(fd: &DeviceFd, state: &[GicRegState<u32>]) -> Result<(), GicError> {
     DistRegEngine::set_regs_data(fd, Box::new(VGIC_DIST_REGS.iter()), state, 0)
 }

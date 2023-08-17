@@ -51,6 +51,7 @@ pub enum InstallationError {
     Prctl(i32),
 }
 
+#[tracing::instrument(level = "trace", skip(reader, bytes_limit))]
 /// Deserialize a BPF file into a collection of usable BPF filters.
 /// Has an optional `bytes_limit` that is passed to bincode to constrain the maximum amount of
 /// memory that we can allocate while performing the deserialization.
@@ -79,6 +80,7 @@ pub fn deserialize_binary<R: Read + Debug>(
         .collect())
 }
 
+#[tracing::instrument(level = "trace", skip(bpf_filter))]
 /// Helper function for installing a BPF filter.
 pub fn apply_filter(bpf_filter: BpfProgramRef) -> std::result::Result<(), InstallationError> {
     // If the program is empty, don't install the filter.

@@ -46,6 +46,7 @@ pub enum RstConfig {
 }
 
 impl RstConfig {
+    #[tracing::instrument(level = "trace", skip(s))]
     /// Creates a `RstConfig` in response to the given segment.
     pub fn new<T: NetworkBytes + Debug>(s: &TcpSegment<T>) -> Self {
         if s.flags_after_ns().intersects(TcpFlags::ACK) {
@@ -57,6 +58,7 @@ impl RstConfig {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the sequence number, acknowledgement number, and TCP flags (not counting `NS`) that
     /// must be set on the outgoing `RST` segment.
     pub fn seq_ack_tcp_flags(self) -> (u32, u32, TcpFlags) {
@@ -67,6 +69,7 @@ impl RstConfig {
     }
 }
 
+#[tracing::instrument(level = "trace", skip(a, b))]
 /// Returns true if `a` comes after `b` in the sequence number space, relative to the maximum
 /// possible window size.
 ///
@@ -78,6 +81,7 @@ pub fn seq_after(a: Wrapping<u32>, b: Wrapping<u32>) -> bool {
     a != b && (a - b).0 < MAX_WINDOW_SIZE
 }
 
+#[tracing::instrument(level = "trace", skip(a, b))]
 /// Returns true if `a` comes after, or is at `b` in the sequence number space, relative to
 /// the maximum possible window size.
 ///
@@ -97,6 +101,7 @@ mod tests {
 
     // In tcp tests, some of the functions require a callback parameter. Since we do not care,
     // for the purpose of those tests, what that callback does, we need to provide a dummy one.
+    #[tracing::instrument(level = "trace", skip(_request))]
     pub fn mock_callback(_request: Request) -> Response {
         Response::new(Version::Http11, StatusCode::OK)
     }

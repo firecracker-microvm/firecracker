@@ -63,6 +63,7 @@ const fn frame_hdr_len() -> usize {
 
 // Frames being sent/received through the network device model have a VNET header. This
 // function returns a slice which holds the L2 frame bytes without this header.
+#[tracing::instrument(level = "trace", skip(buf))]
 fn frame_bytes_from_buf(buf: &[u8]) -> Result<&[u8], NetError> {
     if buf.len() < vnet_hdr_len() {
         Err(NetError::VnetHeaderMissing)
@@ -71,6 +72,7 @@ fn frame_bytes_from_buf(buf: &[u8]) -> Result<&[u8], NetError> {
     }
 }
 
+#[tracing::instrument(level = "trace", skip(buf))]
 fn frame_bytes_from_buf_mut(buf: &mut [u8]) -> Result<&mut [u8], NetError> {
     if buf.len() < vnet_hdr_len() {
         Err(NetError::VnetHeaderMissing)
@@ -80,6 +82,7 @@ fn frame_bytes_from_buf_mut(buf: &mut [u8]) -> Result<&mut [u8], NetError> {
 }
 
 // This initializes to all 0 the VNET hdr part of a buf.
+#[tracing::instrument(level = "trace", skip(buf))]
 fn init_vnet_hdr(buf: &mut [u8]) {
     // The buffer should be larger than vnet_hdr_len.
     buf[0..vnet_hdr_len()].fill(0);
@@ -134,6 +137,10 @@ pub struct Net {
 }
 
 impl Net {
+    #[tracing::instrument(
+        level = "trace",
+        skip(id, tap, guest_mac, rx_rate_limiter, tx_rate_limiter)
+    )]
     /// Create a new virtio network device with the given TAP interface.
     pub fn new_with_tap(
         id: String,
@@ -188,6 +195,10 @@ impl Net {
         })
     }
 
+    #[tracing::instrument(
+        level = "trace",
+        skip(id, tap_if_name, guest_mac, rx_rate_limiter, tx_rate_limiter)
+    )]
     /// Create a new virtio network device given the interface name.
     pub fn new(
         id: String,
@@ -211,26 +222,31 @@ impl Net {
         Self::new_with_tap(id, tap, guest_mac, rx_rate_limiter, tx_rate_limiter)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Provides the ID of this net device.
     pub fn id(&self) -> &String {
         &self.id
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Provides the MAC of this net device.
     pub fn guest_mac(&self) -> Option<&MacAddr> {
         self.guest_mac.as_ref()
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Provides the host IFACE name of this net device.
     pub fn iface_name(&self) -> String {
         self.tap.if_name_as_str().to_string()
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Provides the MmdsNetworkStack of this net device.
     pub fn mmds_ns(&self) -> Option<&MmdsNetworkStack> {
         self.mmds_ns.as_ref()
     }
 
+    #[tracing::instrument(level = "trace", skip(self, ipv4_addr, mmds))]
     /// Configures the `MmdsNetworkStack` to allow device to forward MMDS requests.
     /// If the device already supports MMDS, updates the IPv4 address.
     pub fn configure_mmds_network_stack(&mut self, ipv4_addr: Ipv4Addr, mmds: Arc<Mutex<Mmds>>) {
@@ -241,21 +257,25 @@ impl Net {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Disables the `MmdsNetworkStack` to prevent device to forward MMDS requests.
     pub fn disable_mmds_network_stack(&mut self) {
         self.mmds_ns = None
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Provides a reference to the configured RX rate limiter.
     pub fn rx_rate_limiter(&self) -> &RateLimiter {
         &self.rx_rate_limiter
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Provides a reference to the configured TX rate limiter.
     pub fn tx_rate_limiter(&self) -> &RateLimiter {
         &self.tx_rate_limiter
     }
 
+    #[tracing::instrument(level = "trace", skip(self, queue_type))]
     fn signal_used_queue(&mut self, queue_type: NetQueue) -> Result<(), DeviceError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
@@ -278,6 +298,7 @@ impl Net {
     }
 
     // Helper function to consume one op with `size` bytes from a rate limiter
+    #[tracing::instrument(level = "trace", skip(rate_limiter, size))]
     fn rate_limiter_consume_op(rate_limiter: &mut RateLimiter, size: u64) -> bool {
         if !rate_limiter.consume(1, TokenType::Ops) {
             return false;
@@ -292,6 +313,7 @@ impl Net {
     }
 
     // Helper function to replenish one operation with `size` bytes from a rate limiter
+    #[tracing::instrument(level = "trace", skip(rate_limiter, size))]
     fn rate_limiter_replenish_op(rate_limiter: &mut RateLimiter, size: u64) {
         rate_limiter.manual_replenish(1, TokenType::Ops);
         rate_limiter.manual_replenish(size, TokenType::Bytes);
@@ -300,6 +322,7 @@ impl Net {
     // Attempts to copy a single frame into the guest if there is enough
     // rate limiting budget.
     // Returns true on successful frame delivery.
+    #[tracing::instrument(level = "trace", skip(self))]
     fn rate_limited_rx_single_frame(&mut self) -> bool {
         if !Self::rate_limiter_consume_op(&mut self.rx_rate_limiter, self.rx_bytes_read as u64) {
             METRICS.net.rx_rate_limiter_throttled.inc();
@@ -318,6 +341,7 @@ impl Net {
         success
     }
 
+    #[tracing::instrument(level = "trace", skip(mem, data, head))]
     /// Write a slice in a descriptor chain
     ///
     /// # Errors
@@ -367,6 +391,7 @@ impl Net {
     }
 
     // Copies a single frame from `self.rx_frame_buf` into the guest.
+    #[tracing::instrument(level = "trace", skip(self))]
     fn do_write_frame_to_guest(&mut self) -> Result<(), FrontendError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
@@ -400,6 +425,7 @@ impl Net {
 
     // Copies a single frame from `self.rx_frame_buf` into the guest. In case of an error retries
     // the operation if possible. Returns true if the operation was successfull.
+    #[tracing::instrument(level = "trace", skip(self))]
     fn write_frame_to_guest(&mut self) -> bool {
         let max_iterations = self.queues[RX_INDEX].actual_size();
         for _ in 0..max_iterations {
@@ -421,6 +447,10 @@ impl Net {
     // Tries to detour the frame to MMDS and if MMDS doesn't accept it, sends it on the host TAP.
     //
     // Returns whether MMDS consumed the frame.
+    #[tracing::instrument(
+        level = "trace",
+        skip(mmds_ns, rate_limiter, headers, frame_iovec, tap, guest_mac)
+    )]
     fn write_to_mmds_or_tap(
         mmds_ns: Option<&mut MmdsNetworkStack>,
         rate_limiter: &mut RateLimiter,
@@ -486,6 +516,7 @@ impl Net {
     }
 
     // We currently prioritize packets from the MMDS over regular network packets.
+    #[tracing::instrument(level = "trace", skip(self))]
     fn read_from_mmds_or_tap(&mut self) -> Result<usize, NetError> {
         if let Some(ns) = self.mmds_ns.as_mut() {
             if let Some(len) =
@@ -502,6 +533,7 @@ impl Net {
         self.read_tap().map_err(NetError::IO)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn process_rx(&mut self) -> Result<(), DeviceError> {
         // Read as many frames as possible.
         loop {
@@ -539,6 +571,7 @@ impl Net {
     }
 
     // Process the deferred frame first, then continue reading from tap.
+    #[tracing::instrument(level = "trace", skip(self))]
     fn handle_deferred_frame(&mut self) -> Result<(), DeviceError> {
         if self.rate_limited_rx_single_frame() {
             self.rx_deferred_frame = false;
@@ -550,6 +583,7 @@ impl Net {
         self.signal_used_queue(NetQueue::Rx)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn resume_rx(&mut self) -> Result<(), DeviceError> {
         if self.rx_deferred_frame {
             self.handle_deferred_frame()
@@ -558,6 +592,7 @@ impl Net {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn process_tx(&mut self) -> Result<(), DeviceError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
@@ -623,6 +658,7 @@ impl Net {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, rx_bytes, rx_ops, tx_bytes, tx_ops))]
     /// Updates the parameters for the rate limiters
     pub fn patch_rate_limiters(
         &mut self,
@@ -635,16 +671,19 @@ impl Net {
         self.tx_rate_limiter.update_buckets(tx_bytes, tx_ops);
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     #[cfg(not(test))]
     fn read_tap(&mut self) -> std::io::Result<usize> {
         self.tap.read(&mut self.rx_frame_buf)
     }
 
+    #[tracing::instrument(level = "trace", skip(tap, buf))]
     #[cfg(not(test))]
     fn write_tap(tap: &mut Tap, buf: &IoVecBuffer) -> std::io::Result<usize> {
         tap.write_iovec(buf)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Process a single RX queue event.
     ///
     /// This is called by the event manager responding to the guest adding a new
@@ -664,6 +703,7 @@ impl Net {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn process_tap_rx_event(&mut self) {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
@@ -695,6 +735,7 @@ impl Net {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Process a single TX queue event.
     ///
     /// This is called by the event manager responding to the guest adding a new
@@ -713,6 +754,7 @@ impl Net {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn process_rx_rate_limiter_event(&mut self) {
         METRICS.net.rx_event_rate_limiter_count.inc();
         // Upon rate limiter event, call the rate limiter handler
@@ -730,6 +772,7 @@ impl Net {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn process_tx_rate_limiter_event(&mut self) {
         METRICS.net.tx_rate_limiter_event_count.inc();
         // Upon rate limiter event, call the rate limiter handler
@@ -746,6 +789,7 @@ impl Net {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Process device virtio queue(s).
     pub fn process_virtio_queues(&mut self) {
         let _ = self.resume_rx();
@@ -754,42 +798,52 @@ impl Net {
 }
 
 impl VirtioDevice for Net {
+    #[tracing::instrument(level = "trace", skip(self))]
     fn avail_features(&self) -> u64 {
         self.avail_features
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn acked_features(&self) -> u64 {
         self.acked_features
     }
 
+    #[tracing::instrument(level = "trace", skip(self, acked_features))]
     fn set_acked_features(&mut self, acked_features: u64) {
         self.acked_features = acked_features;
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn device_type(&self) -> u32 {
         TYPE_NET
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn queues(&self) -> &[Queue] {
         &self.queues
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn queues_mut(&mut self) -> &mut [Queue] {
         &mut self.queues
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn queue_events(&self) -> &[EventFd] {
         &self.queue_evts
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn interrupt_evt(&self) -> &EventFd {
         &self.irq_trigger.irq_evt
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn interrupt_status(&self) -> Arc<AtomicUsize> {
         self.irq_trigger.irq_status.clone()
     }
 
+    #[tracing::instrument(level = "trace", skip(self, offset, data))]
     fn read_config(&self, offset: u64, mut data: &mut [u8]) {
         let config_space_bytes = self.config_space.as_slice();
         let config_len = config_space_bytes.len() as u64;
@@ -807,6 +861,7 @@ impl VirtioDevice for Net {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, offset, data))]
     fn write_config(&mut self, offset: u64, data: &[u8]) {
         let config_space_bytes = self.config_space.as_mut_slice();
         let start = usize::try_from(offset).ok();
@@ -825,6 +880,7 @@ impl VirtioDevice for Net {
         METRICS.net.mac_address_updates.inc();
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mem))]
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
         let event_idx = self.has_feature(u64::from(VIRTIO_RING_F_EVENT_IDX));
         if event_idx {
@@ -841,6 +897,7 @@ impl VirtioDevice for Net {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
     }
@@ -882,6 +939,7 @@ pub mod tests {
     use crate::rate_limiter::{RateLimiter, TokenBucket, TokenType};
 
     impl Net {
+        #[tracing::instrument(level = "trace", skip(self))]
         pub(crate) fn read_tap(&mut self) -> io::Result<usize> {
             match &self.tap.mocks.read_tap {
                 ReadTapMock::MockFrame(frame) => {
@@ -896,6 +954,7 @@ pub mod tests {
             }
         }
 
+        #[tracing::instrument(level = "trace", skip(tap, buf))]
         pub(crate) fn write_tap(tap: &mut Tap, buf: &IoVecBuffer) -> io::Result<usize> {
             match tap.mocks.write_tap {
                 WriteTapMock::Success => tap.write_iovec(buf),
@@ -1439,6 +1498,7 @@ pub mod tests {
         assert_eq!(&buf[..600], &frame_2[..600]);
     }
 
+    #[tracing::instrument(level = "trace", skip(src_mac, src_ip, dst_mac, dst_ip))]
     fn create_arp_request(
         src_mac: MacAddr,
         src_ip: Ipv4Addr,

@@ -40,6 +40,7 @@ fn test_no_comparison_requirements() {
     );
 }
 
+#[tracing::instrument(level = "trace", skip(path))]
 /// Parses the specified Cargo.toml file and returns any dependencies specified using a comparison
 /// requirements.
 ///
@@ -57,6 +58,7 @@ fn violating_dependencies_of_cargo_toml<T: AsRef<Path> + Debug>(
         .collect()
 }
 
+#[tracing::instrument(level = "trace", skip(depsset))]
 /// Returns an iterator over all dependencies in the given DepsSet specified using comparison
 /// requirements
 ///

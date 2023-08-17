@@ -19,12 +19,14 @@ pub use normalize::{
 pub struct AmdCpuid(pub std::collections::BTreeMap<CpuidKey, CpuidEntry>);
 
 impl CpuidTrait for AmdCpuid {
+    #[tracing::instrument(level = "trace", skip(self, key))]
     /// Gets a given sub-leaf.
     #[inline]
     fn get(&self, key: &CpuidKey) -> Option<&CpuidEntry> {
         self.0.get(key)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, key))]
     /// Gets a given sub-leaf.
     #[inline]
     fn get_mut(&mut self, key: &CpuidKey) -> Option<&mut CpuidEntry> {
@@ -33,6 +35,7 @@ impl CpuidTrait for AmdCpuid {
 }
 
 impl From<kvm_bindings::CpuId> for AmdCpuid {
+    #[tracing::instrument(level = "trace", skip(kvm_cpuid))]
     #[inline]
     fn from(kvm_cpuid: kvm_bindings::CpuId) -> Self {
         let map = kvm_cpuid

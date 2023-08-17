@@ -79,22 +79,26 @@ impl VgicRegEngine for VgicSysRegEngine {
     type Reg = SimpleReg;
     type RegChunk = u64;
 
+    #[tracing::instrument(level = "trace", skip())]
     fn group() -> u32 {
         KVM_DEV_ARM_VGIC_GRP_CPU_SYSREGS
     }
 
+    #[tracing::instrument(level = "trace", skip())]
     #[allow(clippy::cast_sign_loss)] // bit mask
     fn mpidr_mask() -> u64 {
         KVM_DEV_ARM_VGIC_V3_MPIDR_MASK as u64
     }
 }
 
+#[tracing::instrument(level = "trace", skip(fd, mpidr))]
 fn num_priority_bits(fd: &DeviceFd, mpidr: u64) -> Result<u64, GicError> {
     let reg_val = &VgicSysRegEngine::get_reg_data(fd, &SYS_ICC_CTLR_EL1, mpidr)?.chunks[0];
 
     Ok(((reg_val & ICC_CTLR_EL1_PRIBITS_MASK) >> ICC_CTLR_EL1_PRIBITS_SHIFT) + 1)
 }
 
+#[tracing::instrument(level = "trace", skip(reg, num_priority_bits))]
 fn is_ap_reg_available(reg: &SimpleReg, num_priority_bits: u64) -> bool {
     // As per ARMv8 documentation:
     // https://static.docs.arm.com/ihi0069/c/IHI0069C_gic_architecture_specification.pdf
@@ -118,6 +122,7 @@ fn is_ap_reg_available(reg: &SimpleReg, num_priority_bits: u64) -> bool {
     true
 }
 
+#[tracing::instrument(level = "trace", skip(fd, mpidr))]
 pub(crate) fn get_icc_regs(fd: &DeviceFd, mpidr: u64) -> Result<VgicSysRegsState, GicError> {
     let main_icc_regs =
         VgicSysRegEngine::get_regs_data(fd, Box::new(MAIN_VGIC_ICC_REGS.iter()), mpidr)?;
@@ -138,6 +143,7 @@ pub(crate) fn get_icc_regs(fd: &DeviceFd, mpidr: u64) -> Result<VgicSysRegsState
     })
 }
 
+#[tracing::instrument(level = "trace", skip(fd, mpidr, state))]
 pub(crate) fn set_icc_regs(
     fd: &DeviceFd,
     mpidr: u64,

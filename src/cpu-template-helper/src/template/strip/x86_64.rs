@@ -7,6 +7,7 @@ use vmm::cpu_config::x86_64::custom_cpu_template::{CpuidLeafModifier, RegisterMo
 use crate::template::strip::{strip_common, StripError};
 use crate::utils::x86_64::{CpuidModifierMap, MsrModifierMap};
 
+#[tracing::instrument(level = "trace", skip(templates))]
 #[allow(dead_code)]
 pub fn strip(templates: Vec<CustomCpuTemplate>) -> Result<Vec<CustomCpuTemplate>, StripError> {
     // Convert `Vec<CustomCpuTemplate>` to two `Vec<HashMap<_>>` of modifiers.
@@ -60,6 +61,7 @@ mod tests {
     // * A CPUID leaf 0x1 / subleaf 0x0 modifier only exists in the second template.
     // * A CPUID leaf 0x2 / subleaf 0x1 modifier exists in all the templates, but EAX value is same
     //   and EBX value is different across them.
+    #[tracing::instrument(level = "trace", skip())]
     #[rustfmt::skip]
     fn build_input_cpuid_templates() -> Vec<CustomCpuTemplate> {
         vec![
@@ -105,6 +107,7 @@ mod tests {
         ]
     }
 
+    #[tracing::instrument(level = "trace", skip())]
     #[rustfmt::skip]
     fn build_expected_cpuid_templates() -> Vec<CustomCpuTemplate> {
         vec![
@@ -142,6 +145,7 @@ mod tests {
     // * An addr 0x0 modifier exists in all the templates but its value is different.
     // * An addr 0x1 modifier exists in all the templates and its value is same.
     // * An addr 0x2 modifier only exists in the third template.
+    #[tracing::instrument(level = "trace", skip())]
     #[rustfmt::skip]
     fn build_input_msr_templates() -> Vec<CustomCpuTemplate> {
         vec![
@@ -170,6 +174,7 @@ mod tests {
         ]
     }
 
+    #[tracing::instrument(level = "trace", skip())]
     #[rustfmt::skip]
     fn build_expected_msr_templates() -> Vec<CustomCpuTemplate> {
         vec![

@@ -25,6 +25,7 @@ pub enum DeviceState {
 }
 
 impl DeviceState {
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Checks if the device is activated.
     pub fn is_activated(&self) -> bool {
         match self {
@@ -33,6 +34,7 @@ impl DeviceState {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Gets the memory attached to the device if it is activated.
     pub fn mem(&self) -> Option<&GuestMemoryMmap> {
         match self {
@@ -59,6 +61,7 @@ pub struct IrqTrigger {
 }
 
 impl IrqTrigger {
+    #[tracing::instrument(level = "trace", skip())]
     pub fn new() -> std::io::Result<Self> {
         Ok(Self {
             irq_status: Arc::new(AtomicUsize::new(0)),
@@ -66,6 +69,7 @@ impl IrqTrigger {
         })
     }
 
+    #[tracing::instrument(level = "trace", skip(self, irq_type))]
     pub fn trigger_irq(&self, irq_type: IrqType) -> Result<(), std::io::Error> {
         let irq = match irq_type {
             IrqType::Config => VIRTIO_MMIO_INT_CONFIG,
@@ -180,6 +184,7 @@ pub trait VirtioDevice: AsAny + Send {
 }
 
 impl fmt::Debug for dyn VirtioDevice {
+    #[tracing::instrument(level = "trace", skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "VirtioDevice type {}", self.device_type())
     }
@@ -190,6 +195,7 @@ pub(crate) mod tests {
     use super::*;
 
     impl IrqTrigger {
+        #[tracing::instrument(level = "trace", skip(self, irq_type))]
         pub fn has_pending_irq(&self, irq_type: IrqType) -> bool {
             if let Ok(num_irqs) = self.irq_evt.read() {
                 if num_irqs == 0 {
@@ -236,54 +242,67 @@ pub(crate) mod tests {
     }
 
     impl VirtioDevice for MockVirtioDevice {
+        #[tracing::instrument(level = "trace", skip(self))]
         fn avail_features(&self) -> u64 {
             todo!()
         }
 
+        #[tracing::instrument(level = "trace", skip(self))]
         fn acked_features(&self) -> u64 {
             self.acked_features
         }
 
+        #[tracing::instrument(level = "trace", skip(self, _acked_features))]
         fn set_acked_features(&mut self, _acked_features: u64) {
             todo!()
         }
 
+        #[tracing::instrument(level = "trace", skip(self))]
         fn device_type(&self) -> u32 {
             todo!()
         }
 
+        #[tracing::instrument(level = "trace", skip(self))]
         fn queues(&self) -> &[Queue] {
             todo!()
         }
 
+        #[tracing::instrument(level = "trace", skip(self))]
         fn queues_mut(&mut self) -> &mut [Queue] {
             todo!()
         }
 
+        #[tracing::instrument(level = "trace", skip(self))]
         fn queue_events(&self) -> &[EventFd] {
             todo!()
         }
 
+        #[tracing::instrument(level = "trace", skip(self))]
         fn interrupt_evt(&self) -> &EventFd {
             todo!()
         }
 
+        #[tracing::instrument(level = "trace", skip(self))]
         fn interrupt_status(&self) -> Arc<AtomicUsize> {
             todo!()
         }
 
+        #[tracing::instrument(level = "trace", skip(self, _offset, _data))]
         fn read_config(&self, _offset: u64, _data: &mut [u8]) {
             todo!()
         }
 
+        #[tracing::instrument(level = "trace", skip(self, _offset, _data))]
         fn write_config(&mut self, _offset: u64, _data: &[u8]) {
             todo!()
         }
 
+        #[tracing::instrument(level = "trace", skip(self, _mem))]
         fn activate(&mut self, _mem: GuestMemoryMmap) -> Result<(), ActivateError> {
             todo!()
         }
 
+        #[tracing::instrument(level = "trace", skip(self))]
         fn is_activated(&self) -> bool {
             todo!()
         }

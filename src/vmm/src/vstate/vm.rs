@@ -126,6 +126,10 @@ pub struct Vm {
 
 /// Contains Vm functions that are usable across CPU architectures
 impl Vm {
+    #[tracing::instrument(
+        level = "trace",
+        skip(self, guest_mem, kvm_max_memslots, track_dirty_pages)
+    )]
     /// Initializes the guest memory.
     pub fn memory_init(
         &mut self,
@@ -145,6 +149,7 @@ impl Vm {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self, guest_mem, track_dirty_pages))]
     pub(crate) fn set_kvm_memory_regions(
         &self,
         guest_mem: &GuestMemoryMmap,
@@ -174,6 +179,7 @@ impl Vm {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Gets a reference to the kvm file descriptor owned by this VM.
     pub fn fd(&self) -> &VmFd {
         &self.fd
@@ -182,6 +188,7 @@ impl Vm {
 
 #[cfg(target_arch = "aarch64")]
 impl Vm {
+    #[tracing::instrument(level = "trace", skip(kvm))]
     /// Constructs a new `Vm` using the given `Kvm` instance.
     pub fn new(kvm: &Kvm) -> Result<Self, VmError> {
         // Create fd for interacting with kvm-vm specific functions.
@@ -193,6 +200,7 @@ impl Vm {
         })
     }
 
+    #[tracing::instrument(level = "trace", skip(self, vcpu_count))]
     /// Creates the GIC (Global Interrupt Controller).
     pub fn setup_irqchip(&mut self, vcpu_count: u8) -> Result<(), VmError> {
         self.irqchip_handle = Some(
@@ -202,11 +210,13 @@ impl Vm {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Gets a reference to the irqchip of the VM.
     pub fn get_irqchip(&self) -> &GICDevice {
         self.irqchip_handle.as_ref().expect("IRQ chip not set")
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mpidrs))]
     /// Saves and returns the Kvm Vm state.
     pub fn save_state(&self, mpidrs: &[u64]) -> Result<VmState, VmError> {
         Ok(VmState {
@@ -217,6 +227,7 @@ impl Vm {
         })
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mpidrs, state))]
     /// Restore the KVM VM state
     ///
     /// # Errors
@@ -231,6 +242,7 @@ impl Vm {
 
 #[cfg(target_arch = "x86_64")]
 impl Vm {
+    #[tracing::instrument(level = "trace", skip(kvm))]
     /// Constructs a new `Vm` using the given `Kvm` instance.
     pub fn new(kvm: &Kvm) -> Result<Self, VmError> {
         // Create fd for interacting with kvm-vm specific functions.
@@ -248,16 +260,19 @@ impl Vm {
         })
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns a ref to the supported `CpuId` for this Vm.
     pub fn supported_cpuid(&self) -> &CpuId {
         &self.supported_cpuid
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns a ref to the list of serializable MSR indices.
     pub fn msrs_to_save(&self) -> &MsrList {
         &self.msrs_to_save
     }
 
+    #[tracing::instrument(level = "trace", skip(self, state))]
     /// Restores the KVM VM state.
     ///
     /// # Errors
@@ -287,6 +302,7 @@ impl Vm {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Creates the irq chip and an in-kernel device model for the PIT.
     pub fn setup_irqchip(&self) -> Result<(), VmError> {
         self.fd.create_irq_chip().map_err(VmError::VmSetup)?;
@@ -299,6 +315,7 @@ impl Vm {
         self.fd.create_pit2(pit_config).map_err(VmError::VmSetup)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Saves and returns the Kvm Vm state.
     pub fn save_state(&self) -> Result<VmState, VmError> {
         let pitstate = self.fd.get_pit2().map_err(VmError::VmGetPit2)?;
@@ -357,6 +374,7 @@ pub struct VmState {
 
 #[cfg(target_arch = "x86_64")]
 impl fmt::Debug for VmState {
+    #[tracing::instrument(level = "trace", skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("VmState")
             .field("pitstate", &self.pitstate)
@@ -386,6 +404,7 @@ pub(crate) mod tests {
     use crate::vstate::system::KvmContext;
 
     // Auxiliary function being used throughout the tests.
+    #[tracing::instrument(level = "trace", skip(mem_size))]
     pub(crate) fn setup_vm(mem_size: usize) -> (Vm, GuestMemoryMmap) {
         let kvm = KvmContext::new().unwrap();
         let gm = utils::vm_memory::test_utils::create_anon_guest_memory(

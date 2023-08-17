@@ -7,6 +7,7 @@ use std::process::{Command, Stdio};
 
 use seccompiler::{apply_filter, deserialize_binary};
 
+#[tracing::instrument(level = "trace", skip())]
 fn main() {
     let args: Vec<String> = args().collect();
     let exec_file = &args[1];

@@ -24,6 +24,10 @@ pub type GuestMmapRegion = vm_memory::MmapRegion<Option<AtomicBitmap>>;
 
 const GUARD_PAGE_COUNT: usize = 1;
 
+#[tracing::instrument(
+    level = "trace",
+    skip(maybe_file_offset, size, prot, flags, track_dirty_pages)
+)]
 /// Build a `MmapRegion` surrounded by guard pages.
 ///
 /// Initially, we map a `PROT_NONE` guard region of size:
@@ -109,6 +113,7 @@ fn build_guarded_region(
     }
 }
 
+#[tracing::instrument(level = "trace", skip(regions, track_dirty_pages))]
 /// Helper for creating the guest memory.
 pub fn create_guest_memory(
     regions: &[(Option<FileOffset>, GuestAddress, usize)],
@@ -133,6 +138,7 @@ pub fn create_guest_memory(
     GuestMemoryMmap::from_regions(mmap_regions)
 }
 
+#[tracing::instrument(level = "trace", skip(mem, addr, len))]
 pub fn mark_dirty_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: usize) {
     let _ = mem.try_access(len, addr, |_total, count, caddr, region| {
         if let Some(bitmap) = region.bitmap() {
@@ -246,6 +252,7 @@ pub trait WriteVolatile: Debug {
 // "an upstream crate could implement AsRawFd for &mut [u8]`.
 
 impl ReadVolatile for std::fs::File {
+    #[tracing::instrument(level = "trace", skip(self, buf))]
     fn read_volatile<B: BitmapSlice>(
         &mut self,
         buf: &mut VolatileSlice<B>,
@@ -255,6 +262,7 @@ impl ReadVolatile for std::fs::File {
 }
 
 impl ReadVolatile for std::os::unix::net::UnixStream {
+    #[tracing::instrument(level = "trace", skip(self, buf))]
     fn read_volatile<B: BitmapSlice>(
         &mut self,
         buf: &mut VolatileSlice<B>,
@@ -263,6 +271,7 @@ impl ReadVolatile for std::os::unix::net::UnixStream {
     }
 }
 
+#[tracing::instrument(level = "trace", skip(raw_fd, buf))]
 /// Tries to do a single `read` syscall on the provided file descriptor, storing the data raed in
 /// the given [`VolatileSlice`].
 ///
@@ -292,6 +301,7 @@ fn read_volatile_raw_fd<Fd: AsRawFd + Debug>(
 }
 
 impl WriteVolatile for std::fs::File {
+    #[tracing::instrument(level = "trace", skip(self, buf))]
     fn write_volatile<B: BitmapSlice>(
         &mut self,
         buf: &VolatileSlice<B>,
@@ -301,6 +311,7 @@ impl WriteVolatile for std::fs::File {
 }
 
 impl WriteVolatile for std::os::unix::net::UnixStream {
+    #[tracing::instrument(level = "trace", skip(self, buf))]
     fn write_volatile<B: BitmapSlice>(
         &mut self,
         buf: &VolatileSlice<B>,
@@ -309,6 +320,7 @@ impl WriteVolatile for std::os::unix::net::UnixStream {
     }
 }
 
+#[tracing::instrument(level = "trace", skip(raw_fd, buf))]
 /// Tries to do a single `write` syscall on the provided file descriptor, attempting to write the
 /// data stored in the given [`VolatileSlice`].
 ///
@@ -333,6 +345,7 @@ fn write_volatile_raw_fd<Fd: AsRawFd + Debug>(
 }
 
 impl WriteVolatile for &mut [u8] {
+    #[tracing::instrument(level = "trace", skip(self, buf))]
     fn write_volatile<B: BitmapSlice>(
         &mut self,
         buf: &VolatileSlice<B>,
@@ -348,6 +361,7 @@ impl WriteVolatile for &mut [u8] {
         Ok(read)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, buf))]
     fn write_all_volatile<B: BitmapSlice>(
         &mut self,
         buf: &VolatileSlice<B>,
@@ -365,6 +379,7 @@ impl WriteVolatile for &mut [u8] {
 }
 
 impl ReadVolatile for &[u8] {
+    #[tracing::instrument(level = "trace", skip(self, buf))]
     fn read_volatile<B: BitmapSlice>(
         &mut self,
         buf: &mut VolatileSlice<B>,
@@ -380,6 +395,7 @@ impl ReadVolatile for &[u8] {
         Ok(written)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, buf))]
     fn read_exact_volatile<B: BitmapSlice>(
         &mut self,
         buf: &mut VolatileSlice<B>,
@@ -399,6 +415,7 @@ impl ReadVolatile for &[u8] {
 pub mod test_utils {
     use super::*;
 
+    #[tracing::instrument(level = "trace", skip(regions, track_dirty_pages))]
     /// Test helper used to initialize the guest memory without adding guard pages.
     /// This is needed because the default `create_guest_memory`
     /// uses MmapRegionBuilder::build_raw() for setting up the memory with guard pages, which would
@@ -431,6 +448,7 @@ pub mod test_utils {
         GuestMemoryMmap::from_regions(mmap_regions)
     }
 
+    #[tracing::instrument(level = "trace", skip(regions, track_dirty_pages))]
     /// Test helper used to initialize the guest memory, without the option of file-backed mmap.
     /// It is just a little syntactic sugar that helps deduplicate test code.
     pub fn create_anon_guest_memory(
@@ -460,6 +478,7 @@ mod tests {
     }
 
     impl AddrOp {
+        #[tracing::instrument(level = "trace", skip(self, addr))]
         fn apply_on_addr(&self, addr: *mut u8) {
             match self {
                 AddrOp::Read => {
@@ -474,6 +493,7 @@ mod tests {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(function, expect_sigsegv))]
     fn fork_and_run(function: &dyn Fn(), expect_sigsegv: bool) {
         let pid = unsafe { libc::fork() };
         match pid {
@@ -500,6 +520,7 @@ mod tests {
         };
     }
 
+    #[tracing::instrument(level = "trace", skip(region))]
     fn validate_guard_region(region: &GuestMmapRegion) {
         let page_size = get_page_size().unwrap();
 
@@ -522,6 +543,7 @@ mod tests {
         fork_and_run(&|| AddrOp::Write.apply_on_addr(right_border), true);
     }
 
+    #[tracing::instrument(level = "trace", skip(region))]
     fn loop_guard_region_to_sigsegv(region: &GuestMmapRegion) {
         let page_size = get_page_size().unwrap();
         let right_page_guard = region.as_ptr() as usize + region.size();

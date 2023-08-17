@@ -14,6 +14,7 @@ pub struct RegModifierMapKey(pub u64);
 
 impl ModifierMapKey for RegModifierMapKey {}
 impl Display for RegModifierMapKey {
+    #[tracing::instrument(level = "trace", skip(self, f))]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "ID={:#x}", self.0)
     }
@@ -23,6 +24,7 @@ impl Display for RegModifierMapKey {
 pub struct RegModifierMap(pub HashMap<RegModifierMapKey, RegisterValueFilter<u128>>);
 
 impl From<Vec<RegisterModifier>> for RegModifierMap {
+    #[tracing::instrument(level = "trace", skip(modifiers))]
     fn from(modifiers: Vec<RegisterModifier>) -> Self {
         let mut map = HashMap::new();
         for modifier in modifiers {
@@ -33,6 +35,7 @@ impl From<Vec<RegisterModifier>> for RegModifierMap {
 }
 
 impl From<RegModifierMap> for Vec<RegisterModifier> {
+    #[tracing::instrument(level = "trace", skip(modifier_map))]
     fn from(modifier_map: RegModifierMap) -> Self {
         let mut modifier_vec = modifier_map
             .0
@@ -92,6 +95,7 @@ mod tests {
         assert_eq!(key.to_string(), "ID=0x1234");
     }
 
+    #[tracing::instrument(level = "trace", skip())]
     fn build_sample_reg_modifier_vec() -> Vec<RegisterModifier> {
         vec![
             reg_modifier!(0x0, 0x0),
@@ -100,6 +104,7 @@ mod tests {
         ]
     }
 
+    #[tracing::instrument(level = "trace", skip())]
     fn build_sample_reg_modifier_map() -> RegModifierMap {
         RegModifierMap(HashMap::from([
             reg_modifier_map!(0x0, 0x0),

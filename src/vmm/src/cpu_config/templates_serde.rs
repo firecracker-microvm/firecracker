@@ -6,6 +6,7 @@ use std::fmt::Debug;
 use serde::de::Error as SerdeError;
 use serde::{Deserialize, Deserializer, Serializer};
 
+#[tracing::instrument(level = "trace", skip(number, serializer))]
 /// Serializes number to hex
 pub fn serialize_to_hex_str<S, N>(number: &N, serializer: S) -> Result<S::Ok, S::Error>
 where

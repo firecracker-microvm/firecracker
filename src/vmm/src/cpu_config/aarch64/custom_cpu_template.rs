@@ -16,6 +16,7 @@ use crate::cpu_config::templates::{
 use crate::cpu_config::templates_serde::*;
 
 impl GetCpuTemplate for Option<CpuTemplateType> {
+    #[tracing::instrument(level = "trace", skip(self))]
     fn get_cpu_template(&self) -> Result<Cow<CustomCpuTemplate>, GetCpuTemplateError> {
         match self {
             Some(template_type) => match template_type {
@@ -41,6 +42,7 @@ pub struct CustomCpuTemplate {
 }
 
 impl CustomCpuTemplate {
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Get a list of register IDs that are modified by the CPU template.
     pub fn reg_list(&self) -> Vec<u64> {
         self.reg_modifiers
@@ -49,6 +51,7 @@ impl CustomCpuTemplate {
             .collect()
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Validate the correctness of the template.
     pub fn validate(&self) -> Result<(), serde_json::Error> {
         for modifier in self.reg_modifiers.iter() {

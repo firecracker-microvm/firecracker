@@ -28,6 +28,7 @@ struct ActionBody {
     action_type: ActionType,
 }
 
+#[tracing::instrument(level = "trace", skip(body))]
 pub(crate) fn parse_put_actions(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.actions_count.inc();
     let action_body = serde_json::from_slice::<ActionBody>(body.raw()).map_err(|err| {

@@ -24,6 +24,7 @@ pub type FcLineWriter = std::io::LineWriter<std::fs::File>;
 /// that are not generally available.
 const DEV_PREVIEW_LOG_PREFIX: &str = "[DevPreview]";
 
+#[tracing::instrument(level = "trace", skip(feature_name, msg_opt))]
 /// Log a standard warning message indicating a given feature name
 /// is in development preview.
 pub fn log_dev_preview_warning(feature_name: &str, msg_opt: Option<String>) {
@@ -35,6 +36,7 @@ pub fn log_dev_preview_warning(feature_name: &str, msg_opt: Option<String>) {
     }
 }
 
+#[tracing::instrument(level = "trace", skip(metric, start_time_us))]
 /// Helper function for updating the value of a store metric with elapsed time since some time in a
 /// past.
 pub fn update_metric_with_elapsed_time(metric: &SharedStoreMetric, start_time_us: u64) -> u64 {

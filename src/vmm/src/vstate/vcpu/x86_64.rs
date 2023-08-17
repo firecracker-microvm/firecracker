@@ -179,6 +179,7 @@ pub struct KvmVcpu {
 }
 
 impl KvmVcpu {
+    #[tracing::instrument(level = "trace", skip(index, vm))]
     /// Constructs a new kvm vcpu with arch specific functionality.
     ///
     /// # Arguments
@@ -200,6 +201,7 @@ impl KvmVcpu {
         })
     }
 
+    #[tracing::instrument(level = "trace", skip(self, guest_mem, kernel_start_addr, vcpu_config))]
     /// Configures a x86_64 specific vcpu for booting Linux and should be called once per vcpu.
     ///
     /// # Arguments
@@ -279,11 +281,13 @@ impl KvmVcpu {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self, pio_bus))]
     /// Sets a Port Mapped IO bus for this vcpu.
     pub fn set_pio_bus(&mut self, pio_bus: crate::devices::Bus) {
         self.pio_bus = Some(pio_bus);
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Get the current TSC frequency for this vCPU.
     ///
     /// # Errors
@@ -294,6 +298,7 @@ impl KvmVcpu {
         Ok(res)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Get CPUID for this vCPU.
     ///
     /// Opposed to KVM_GET_SUPPORTED_CPUID, KVM_GET_CPUID2 does not update "nent" with valid number
@@ -318,6 +323,7 @@ impl KvmVcpu {
         Ok(cpuid)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, msr_index_list))]
     /// Get MSR chunks for the given MSR index list.
     ///
     /// KVM only supports getting `KVM_MAX_MSR_ENTRIES` at a time, so we divide
@@ -360,6 +366,7 @@ impl KvmVcpu {
         Ok(msr_chunks)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, msr_index_list))]
     /// Get MSRs for the given MSR index list.
     ///
     /// # Arguments
@@ -381,6 +388,7 @@ impl KvmVcpu {
         Ok(msrs)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Save the KVM internal state.
     pub fn save_state(&self) -> Result<VcpuState, KvmVcpuError> {
         // Ordering requirements:
@@ -445,6 +453,7 @@ impl KvmVcpu {
         })
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Dumps CPU configuration (CPUID and MSRs).
     ///
     /// Opposed to `save_state()`, this dumps all the supported and dumpable MSRs not limited to
@@ -457,6 +466,7 @@ impl KvmVcpu {
         Ok(CpuConfiguration { cpuid, msrs })
     }
 
+    #[tracing::instrument(level = "trace", skip(self, state_tsc_freq))]
     /// Checks whether the TSC needs scaling when restoring a snapshot.
     ///
     /// # Errors
@@ -474,10 +484,12 @@ impl KvmVcpu {
     }
 
     // Scale the TSC frequency of this vCPU to the one provided as a parameter.
+    #[tracing::instrument(level = "trace", skip(self, tsc_freq))]
     pub fn set_tsc_khz(&self, tsc_freq: u32) -> Result<(), SetTscError> {
         self.fd.set_tsc_khz(tsc_freq).map_err(SetTscError)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, state))]
     /// Use provided state to populate KVM internal state.
     pub fn restore_state(&self, state: &VcpuState) -> Result<(), KvmVcpuError> {
         // Ordering requirements:
@@ -537,6 +549,7 @@ impl KvmVcpu {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self, exit))]
     /// Runs the vCPU in KVM context and handles the kvm exit reason.
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.
@@ -592,11 +605,13 @@ pub struct VcpuState {
 }
 
 impl VcpuState {
+    #[tracing::instrument(level = "trace", skip())]
     fn default_tsc_khz(_: u16) -> Option<u32> {
         warn!("CPU TSC freq not found in snapshot");
         None
     }
 
+    #[tracing::instrument(level = "trace", skip(self, _target_version))]
     fn ser_tsc(&mut self, _target_version: u16) -> VersionizeResult<()> {
         // v0.24 and older versions do not support TSC scaling.
         warn!(
@@ -609,12 +624,14 @@ impl VcpuState {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(_source_version))]
     fn default_msrs(_source_version: u16) -> Msrs {
         // Safe to unwrap since Msrs::new() only returns an error if the number
         // of elements exceeds KVM_MAX_MSR_ENTRIES
         Msrs::new(0).unwrap()
     }
 
+    #[tracing::instrument(level = "trace", skip(self, source_version))]
     fn de_saved_msrs(&mut self, source_version: u16) -> VersionizeResult<()> {
         if source_version < 3 {
             self.saved_msrs.push(self.msrs.clone());
@@ -622,6 +639,7 @@ impl VcpuState {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self, target_version))]
     fn ser_saved_msrs(&mut self, target_version: u16) -> VersionizeResult<()> {
         match self.saved_msrs.len() {
             0 => Err(VersionizeError::Serialize(
@@ -666,6 +684,7 @@ mod tests {
     use crate::vstate::vm::Vm;
 
     impl Default for VcpuState {
+        #[tracing::instrument(level = "trace", skip())]
         fn default() -> Self {
             VcpuState {
                 cpuid: CpuId::new(1).unwrap(),
@@ -684,6 +703,7 @@ mod tests {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(mem_size))]
     fn setup_vcpu(mem_size: usize) -> (Vm, KvmVcpu, GuestMemoryMmap) {
         let (vm, vm_mem) = setup_vm(mem_size);
         vm.setup_irqchip().unwrap();
@@ -691,6 +711,7 @@ mod tests {
         (vm, vcpu, vm_mem)
     }
 
+    #[tracing::instrument(level = "trace", skip())]
     fn is_at_least_cascade_lake() -> bool {
         CpuModel::get_cpu_model()
             >= (CpuModel {
@@ -702,6 +723,7 @@ mod tests {
             })
     }
 
+    #[tracing::instrument(level = "trace", skip(vm, vcpu, template))]
     fn create_vcpu_config(
         vm: &Vm,
         vcpu: &KvmVcpu,

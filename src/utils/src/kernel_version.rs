@@ -22,6 +22,7 @@ pub struct KernelVersion {
 }
 
 impl KernelVersion {
+    #[tracing::instrument(level = "trace", skip(major, minor, patch))]
     pub fn new(major: u16, minor: u16, patch: u16) -> Self {
         Self {
             major,
@@ -30,6 +31,7 @@ impl KernelVersion {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip())]
     pub fn get() -> Result<Self, Error> {
         let mut name: utsname = utsname {
             sysname: [0; 65],
@@ -55,6 +57,7 @@ impl KernelVersion {
         )?)
     }
 
+    #[tracing::instrument(level = "trace", skip(release))]
     fn parse(release: String) -> Result<Self, Error> {
         let mut tokens = release.split('.');
 
@@ -76,11 +79,13 @@ impl KernelVersion {
 }
 
 impl std::fmt::Display for KernelVersion {
+    #[tracing::instrument(level = "trace", skip(self, f))]
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
     }
 }
 
+#[tracing::instrument(level = "trace", skip())]
 pub fn min_kernel_version_for_io_uring() -> KernelVersion {
     KernelVersion::new(5, 10, 51)
 }

@@ -21,6 +21,7 @@ pub struct TokenHeaders {
 }
 
 impl Default for TokenHeaders {
+    #[tracing::instrument(level = "trace", skip())]
     /// Token headers are not present in the request by default.
     fn default() -> Self {
         Self {
@@ -36,6 +37,7 @@ impl TokenHeaders {
     /// `X-metadata-token-ttl-seconds` header.
     const X_METADATA_TOKEN_TTL_SECONDS: &'static str = "X-metadata-token-ttl-seconds";
 
+    #[tracing::instrument(level = "trace", skip(map))]
     /// Return `TokenHeaders` from headers map.
     pub fn try_from(map: &HashMap<String, String>) -> Result<TokenHeaders, RequestError> {
         let mut headers = Self::default();
@@ -68,21 +70,25 @@ impl TokenHeaders {
         Ok(headers)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the `XMetadataToken` token.
     pub fn x_metadata_token(&self) -> Option<&String> {
         self.x_metadata_token.as_ref()
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the `XMetadataTokenTtlSeconds` token.
     pub fn x_metadata_token_ttl_seconds(&self) -> Option<u32> {
         self.x_metadata_token_ttl_seconds
     }
 
+    #[tracing::instrument(level = "trace", skip(self, token))]
     /// Sets the `XMetadataToken` token.
     pub fn set_x_metadata_token(&mut self, token: String) {
         self.x_metadata_token = Some(token)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, ttl))]
     /// Sets the `XMetadataTokenTtlSeconds` token.
     pub fn set_x_metadata_token_ttl_seconds(&mut self, ttl: u32) {
         self.x_metadata_token_ttl_seconds = Some(ttl);

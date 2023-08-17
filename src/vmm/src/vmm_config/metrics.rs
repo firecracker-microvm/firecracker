@@ -24,6 +24,7 @@ pub enum MetricsConfigError {
     InitializationFailure(String),
 }
 
+#[tracing::instrument(level = "trace", skip(metrics_cfg))]
 /// Configures the metrics as described in `metrics_cfg`.
 pub fn init_metrics(metrics_cfg: MetricsConfig) -> Result<(), MetricsConfigError> {
     let writer = FcLineWriter::new(

@@ -56,6 +56,7 @@ pub struct KvmVcpu {
 }
 
 impl KvmVcpu {
+    #[tracing::instrument(level = "trace", skip(index, vm))]
     /// Constructs a new kvm vcpu with arch specific functionality.
     ///
     /// # Arguments
@@ -76,11 +77,13 @@ impl KvmVcpu {
         })
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Gets the MPIDR register value.
     pub fn get_mpidr(&self) -> u64 {
         self.mpidr
     }
 
+    #[tracing::instrument(level = "trace", skip(self, guest_mem, kernel_load_addr, vcpu_config))]
     /// Configures an aarch64 specific vcpu for booting Linux.
     ///
     /// # Arguments
@@ -113,6 +116,7 @@ impl KvmVcpu {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self, vm_fd))]
     /// Initializes an aarch64 specific vcpu for booting Linux.
     ///
     /// # Arguments
@@ -134,6 +138,7 @@ impl KvmVcpu {
         self.fd.vcpu_init(&kvi).map_err(KvmVcpuError::Init)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Save the KVM internal state.
     pub fn save_state(&self) -> Result<VcpuState, KvmVcpuError> {
         let mut state = VcpuState {
@@ -145,6 +150,7 @@ impl KvmVcpu {
         Ok(state)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, state))]
     /// Use provided state to populate KVM internal state.
     pub fn restore_state(&self, state: &VcpuState) -> Result<(), KvmVcpuError> {
         set_registers(&self.fd, &state.regs).map_err(KvmVcpuError::RestoreState)?;
@@ -152,6 +158,7 @@ impl KvmVcpu {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Dumps CPU configuration.
     pub fn dump_cpu_config(&self) -> Result<CpuConfiguration, KvmVcpuError> {
         let mut reg_list = get_all_registers_ids(&self.fd).map_err(KvmVcpuError::DumpCpuConfig)?;
@@ -168,6 +175,7 @@ impl KvmVcpu {
         Ok(CpuConfiguration { regs })
     }
 
+    #[tracing::instrument(level = "trace", skip(self, exit))]
     /// Runs the vCPU in KVM context and handles the kvm exit reason.
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.
@@ -195,10 +203,12 @@ pub struct VcpuState {
 }
 
 impl VcpuState {
+    #[tracing::instrument(level = "trace", skip())]
     fn default_old_regs(_: u16) -> Vec<Aarch64RegisterOld> {
         Vec::default()
     }
 
+    #[tracing::instrument(level = "trace", skip(self, _source_version))]
     fn de_regs(&mut self, _source_version: u16) -> VersionizeResult<()> {
         let mut regs = Aarch64RegisterVec::default();
         for reg in self.old_regs.iter() {
@@ -211,6 +221,7 @@ impl VcpuState {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self, _target_version))]
     fn ser_regs(&mut self, _target_version: u16) -> VersionizeResult<()> {
         self.old_regs = self
             .regs
@@ -237,6 +248,7 @@ mod tests {
     use crate::vstate::vm::tests::setup_vm;
     use crate::vstate::vm::Vm;
 
+    #[tracing::instrument(level = "trace", skip(mem_size))]
     fn setup_vcpu(mem_size: usize) -> (Vm, KvmVcpu, GuestMemoryMmap) {
         let (mut vm, vm_mem) = setup_vm(mem_size);
         let vcpu = KvmVcpu::new(0, &vm).unwrap();
@@ -246,6 +258,7 @@ mod tests {
         (vm, vcpu, vm_mem)
     }
 
+    #[tracing::instrument(level = "trace", skip(vcpu, vm))]
     fn init_vcpu(vcpu: &VcpuFd, vm: &VmFd) {
         let mut kvi = kvm_bindings::kvm_vcpu_init::default();
         vm.get_preferred_target(&mut kvi).unwrap();

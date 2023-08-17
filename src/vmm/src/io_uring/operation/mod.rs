@@ -31,6 +31,7 @@ pub enum OpCode {
 
 // Useful for outputting errors.
 impl From<OpCode> for &'static str {
+    #[tracing::instrument(level = "trace", skip(opcode))]
     fn from(opcode: OpCode) -> Self {
         match opcode {
             OpCode::Read => "read",
@@ -54,6 +55,7 @@ pub struct Operation<T> {
 
 // Needed for proptesting.
 impl<T> fmt::Debug for Operation<T> {
+    #[tracing::instrument(level = "trace", skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -72,6 +74,7 @@ impl<T> fmt::Debug for Operation<T> {
 
 #[allow(clippy::len_without_is_empty)]
 impl<T: Debug> Operation<T> {
+    #[tracing::instrument(level = "trace", skip(fd, addr, len, offset, user_data))]
     /// Construct a read operation.
     pub fn read(fd: FixedFd, addr: usize, len: u32, offset: u64, user_data: T) -> Self {
         Self {
@@ -85,6 +88,7 @@ impl<T: Debug> Operation<T> {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(fd, addr, len, offset, user_data))]
     /// Construct a write operation.
     pub fn write(fd: FixedFd, addr: usize, len: u32, offset: u64, user_data: T) -> Self {
         Self {
@@ -98,6 +102,7 @@ impl<T: Debug> Operation<T> {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(fd, user_data))]
     /// Construct a fsync operation.
     pub fn fsync(fd: FixedFd, user_data: T) -> Self {
         Self {
@@ -111,21 +116,25 @@ impl<T: Debug> Operation<T> {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub(crate) fn fd(&self) -> FixedFd {
         self.fd
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Consumes the operation and returns the associated `user_data`.
     pub fn user_data(self) -> T {
         *self.user_data
     }
 
     // Needed for proptesting.
+    #[tracing::instrument(level = "trace", skip(self))]
     #[cfg(test)]
     pub(crate) fn set_linked(&mut self) {
         self.flags |= 1 << bindings::IOSQE_IO_LINK_BIT;
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Transform the operation into an `Sqe`.
     ///
     /// # Safety

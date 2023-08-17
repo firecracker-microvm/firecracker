@@ -48,6 +48,7 @@ pub struct UdpDatagram<'a, T: 'a> {
 
 #[allow(clippy::len_without_is_empty)]
 impl<'a, T: NetworkBytes + Debug> UdpDatagram<'a, T> {
+    #[tracing::instrument(level = "trace", skip(bytes))]
     /// Interprets `bytes` as a UDP datagram without any validity checks.
     ///
     /// # Panics
@@ -61,6 +62,7 @@ impl<'a, T: NetworkBytes + Debug> UdpDatagram<'a, T> {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(bytes, verify_checksum))]
     /// Interprets `bytes` as a UDP datagram if possible or returns
     /// the reason for failing to do so.
     #[inline]
@@ -85,30 +87,35 @@ impl<'a, T: NetworkBytes + Debug> UdpDatagram<'a, T> {
         Ok(datagram)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the source port of the UDP datagram.
     #[inline]
     pub fn source_port(&self) -> u16 {
         self.bytes.ntohs_unchecked(SOURCE_PORT_OFFSET)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the destination port of the UDP datagram.
     #[inline]
     pub fn destination_port(&self) -> u16 {
         self.bytes.ntohs_unchecked(DESTINATION_PORT_OFFSET)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the length of the datagram from its header.
     #[inline]
     pub fn len(&self) -> u16 {
         self.bytes.ntohs_unchecked(LENGTH_OFFSET)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the checksum value of the packet.
     #[inline]
     pub fn checksum(&self) -> u16 {
         self.bytes.ntohs_unchecked(CHECKSUM_OFFSET)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the payload of the UDP datagram as an `[&u8]` slice.
     #[inline]
     pub fn payload(&self) -> &[u8] {
@@ -116,6 +123,7 @@ impl<'a, T: NetworkBytes + Debug> UdpDatagram<'a, T> {
         self.bytes.split_at(PAYLOAD_OFFSET).1
     }
 
+    #[tracing::instrument(level = "trace", skip(self, src_addr, dst_addr))]
     /// Computes the checksum of a UDP datagram.
     #[inline]
     pub fn compute_checksum(&self, src_addr: Ipv4Addr, dst_addr: Ipv4Addr) -> u16 {
@@ -124,6 +132,7 @@ impl<'a, T: NetworkBytes + Debug> UdpDatagram<'a, T> {
 }
 
 impl<'a, T: NetworkBytesMut + Debug> UdpDatagram<'a, T> {
+    #[tracing::instrument(level = "trace", skip(buf, payload))]
     /// Writes an incomplete UDP datagram, which is missing the `checksum`, `src_port` and
     /// `dst_port` fields.
     ///
@@ -148,6 +157,7 @@ impl<'a, T: NetworkBytesMut + Debug> UdpDatagram<'a, T> {
         Ok(Incomplete::new(packet))
     }
 
+    #[tracing::instrument(level = "trace", skip(self, src_port))]
     /// Sets the source port of the UDP datagram.
     #[inline]
     pub fn set_source_port(&mut self, src_port: u16) -> &mut Self {
@@ -155,6 +165,7 @@ impl<'a, T: NetworkBytesMut + Debug> UdpDatagram<'a, T> {
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self, dst_port))]
     /// Sets the destination port of the UDP datagram.
     #[inline]
     pub fn set_destination_port(&mut self, dst_port: u16) -> &mut Self {
@@ -163,12 +174,14 @@ impl<'a, T: NetworkBytesMut + Debug> UdpDatagram<'a, T> {
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Sets the payload of the UDP datagram.
     #[inline]
     pub fn payload_mut(&mut self) -> &mut [u8] {
         &mut self.bytes[PAYLOAD_OFFSET..]
     }
 
+    #[tracing::instrument(level = "trace", skip(self, len))]
     /// Sets the length field in the UDP datagram header.
     #[inline]
     pub fn set_len(&mut self, len: u16) -> &mut Self {
@@ -176,6 +189,7 @@ impl<'a, T: NetworkBytesMut + Debug> UdpDatagram<'a, T> {
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self, checksum))]
     /// Sets the checksum of a UDP datagram.
     #[inline]
     pub fn set_checksum(&mut self, checksum: u16) -> &mut Self {
@@ -185,6 +199,7 @@ impl<'a, T: NetworkBytesMut + Debug> UdpDatagram<'a, T> {
 }
 
 impl<'a, T: NetworkBytesMut + Debug> Incomplete<UdpDatagram<'a, T>> {
+    #[tracing::instrument(level = "trace", skip(self, src_port, dst_port, compute_checksum))]
     /// Transforms `self` into a `UdpDatagram<T>` by specifying values for the `source port`,
     /// `destination port`, and (optionally) the information required to compute the checksum.
     #[inline]

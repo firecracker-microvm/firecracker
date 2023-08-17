@@ -21,12 +21,14 @@ use super::{CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags};
 pub struct IntelCpuid(pub std::collections::BTreeMap<CpuidKey, CpuidEntry>);
 
 impl CpuidTrait for IntelCpuid {
+    #[tracing::instrument(level = "trace", skip(self, key))]
     /// Gets a given sub-leaf.
     #[inline]
     fn get(&self, key: &CpuidKey) -> Option<&CpuidEntry> {
         self.0.get(key)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, key))]
     /// Gets a given sub-leaf.
     #[inline]
     fn get_mut(&mut self, key: &CpuidKey) -> Option<&mut CpuidEntry> {
@@ -35,6 +37,7 @@ impl CpuidTrait for IntelCpuid {
 }
 
 impl From<kvm_bindings::CpuId> for IntelCpuid {
+    #[tracing::instrument(level = "trace", skip(kvm_cpuid))]
     #[inline]
     fn from(kvm_cpuid: kvm_bindings::CpuId) -> Self {
         let map = kvm_cpuid

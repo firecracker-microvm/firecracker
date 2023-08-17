@@ -34,17 +34,20 @@ pub struct Incomplete<T> {
 }
 
 impl<T: Debug> Incomplete<T> {
+    #[tracing::instrument(level = "trace", skip(inner))]
     #[inline]
     fn new(inner: T) -> Self {
         Incomplete { inner }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns a reference to the wrapped object.
     #[inline]
     pub fn inner(&self) -> &T {
         &self.inner
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns a mutable reference to the wrapped object.
     #[inline]
     pub fn inner_mut(&mut self) -> &mut T {
@@ -59,6 +62,7 @@ enum ChecksumProto {
     Udp = PROTOCOL_UDP,
 }
 
+#[tracing::instrument(level = "trace", skip(bytes, src_addr, dst_addr, protocol))]
 /// Computes the checksum of a TCP/UDP packet. Since both protocols use
 /// the same algorithm to compute the checksum.
 ///

@@ -31,6 +31,7 @@ pub struct NetworkInterfaceConfig {
 }
 
 impl From<&Net> for NetworkInterfaceConfig {
+    #[tracing::instrument(level = "trace", skip(net))]
     fn from(net: &Net) -> Self {
         let rx_rl: RateLimiterConfig = net.rx_rate_limiter().into();
         let tx_rl: RateLimiterConfig = net.tx_rate_limiter().into();
@@ -86,6 +87,7 @@ pub struct NetBuilder {
 }
 
 impl NetBuilder {
+    #[tracing::instrument(level = "trace", skip())]
     /// Creates an empty list of Network Devices.
     pub fn new() -> Self {
         NetBuilder {
@@ -94,21 +96,25 @@ impl NetBuilder {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns a immutable iterator over the network devices.
     pub fn iter(&self) -> ::std::slice::Iter<Arc<Mutex<Net>>> {
         self.net_devices.iter()
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns a mutable iterator over the network devices.
     pub fn iter_mut(&mut self) -> ::std::slice::IterMut<Arc<Mutex<Net>>> {
         self.net_devices.iter_mut()
     }
 
+    #[tracing::instrument(level = "trace", skip(self, device))]
     /// Adds an existing network device in the builder.
     pub fn add_device(&mut self, device: Arc<Mutex<Net>>) {
         self.net_devices.push(device);
     }
 
+    #[tracing::instrument(level = "trace", skip(self, netif_config))]
     /// Builds a network device based on a network interface config. Keeps a device reference
     /// in the builder's internal list.
     pub fn build(
@@ -147,6 +153,7 @@ impl NetBuilder {
         Ok(net)
     }
 
+    #[tracing::instrument(level = "trace", skip(cfg))]
     /// Creates a Net device from a NetworkInterfaceConfig.
     pub fn create_net(cfg: NetworkInterfaceConfig) -> Result<Net, NetworkInterfaceError> {
         let rx_rate_limiter = cfg
@@ -171,6 +178,7 @@ impl NetBuilder {
         .map_err(NetworkInterfaceError::CreateNetworkDevice)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns a vec with the structures used to configure the net devices.
     pub fn configs(&self) -> Vec<NetworkInterfaceConfig> {
         let mut ret = vec![];
@@ -189,15 +197,18 @@ mod tests {
     use crate::rate_limiter::RateLimiter;
 
     impl NetBuilder {
+        #[tracing::instrument(level = "trace", skip(self))]
         pub fn len(&self) -> usize {
             self.net_devices.len()
         }
 
+        #[tracing::instrument(level = "trace", skip(self))]
         pub fn is_empty(&self) -> bool {
             self.net_devices.len() == 0
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(id, name, mac))]
     fn create_netif(id: &str, name: &str, mac: &str) -> NetworkInterfaceConfig {
         NetworkInterfaceConfig {
             iface_id: String::from(id),
@@ -209,6 +220,7 @@ mod tests {
     }
 
     impl Clone for NetworkInterfaceConfig {
+        #[tracing::instrument(level = "trace", skip(self))]
         fn clone(&self) -> Self {
             NetworkInterfaceConfig {
                 iface_id: self.iface_id.clone(),

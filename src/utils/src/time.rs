@@ -22,6 +22,7 @@ pub enum ClockType {
 }
 
 impl From<ClockType> for libc::clockid_t {
+    #[tracing::instrument(level = "trace", skip(clock_type))]
     fn from(clock_type: ClockType) -> Self {
         match clock_type {
             ClockType::Monotonic => libc::CLOCK_MONOTONIC,
@@ -52,6 +53,7 @@ pub struct LocalTime {
 }
 
 impl LocalTime {
+    #[tracing::instrument(level = "trace", skip())]
     /// Returns the [LocalTime](struct.LocalTime.html) structure for the calling moment.
     pub fn now() -> LocalTime {
         let mut timespec = libc::timespec {
@@ -91,6 +93,7 @@ impl LocalTime {
 }
 
 impl fmt::Display for LocalTime {
+    #[tracing::instrument(level = "trace", skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -116,6 +119,7 @@ pub struct TimestampUs {
 }
 
 impl Default for TimestampUs {
+    #[tracing::instrument(level = "trace", skip())]
     fn default() -> TimestampUs {
         TimestampUs {
             time_us: get_time_us(ClockType::Monotonic),
@@ -124,6 +128,7 @@ impl Default for TimestampUs {
     }
 }
 
+#[tracing::instrument(level = "trace", skip())]
 /// Returns a timestamp in nanoseconds from a monotonic clock.
 ///
 /// Uses `_rdstc` on `x86_64` and [`get_time`](fn.get_time.html) on other architectures.
@@ -139,6 +144,7 @@ pub fn timestamp_cycles() -> u64 {
     }
 }
 
+#[tracing::instrument(level = "trace", skip(clock_type))]
 /// Returns a timestamp in nanoseconds based on the provided clock type.
 ///
 /// # Arguments
@@ -156,6 +162,7 @@ pub fn get_time_ns(clock_type: ClockType) -> u64 {
         + u64::try_from(time_struct.tv_nsec).unwrap()
 }
 
+#[tracing::instrument(level = "trace", skip(clock_type))]
 /// Returns a timestamp in microseconds based on the provided clock type.
 ///
 /// # Arguments
@@ -165,6 +172,7 @@ pub fn get_time_us(clock_type: ClockType) -> u64 {
     get_time_ns(clock_type) / 1000
 }
 
+#[tracing::instrument(level = "trace", skip(clock_type))]
 /// Returns a timestamp in milliseconds based on the provided clock type.
 ///
 /// # Arguments
@@ -174,6 +182,7 @@ pub fn get_time_ms(clock_type: ClockType) -> u64 {
     get_time_ns(clock_type) / NANOS_PER_MILLISECOND
 }
 
+#[tracing::instrument(level = "trace", skip(value))]
 /// Converts a timestamp in seconds to an equivalent one in nanoseconds.
 /// Returns `None` if the conversion overflows.
 ///

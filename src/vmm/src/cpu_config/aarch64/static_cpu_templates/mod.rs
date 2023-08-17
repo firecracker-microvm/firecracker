@@ -25,6 +25,7 @@ pub enum StaticCpuTemplate {
 }
 
 impl StaticCpuTemplate {
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Check if no template specified
     pub fn is_none(&self) -> bool {
         self == &StaticCpuTemplate::None
@@ -32,6 +33,7 @@ impl StaticCpuTemplate {
 }
 
 impl std::fmt::Display for StaticCpuTemplate {
+    #[tracing::instrument(level = "trace", skip(self, f))]
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             StaticCpuTemplate::V1N1 => write!(f, "V1N1"),

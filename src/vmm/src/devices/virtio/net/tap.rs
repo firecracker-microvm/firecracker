@@ -67,6 +67,7 @@ pub struct Tap {
 
 // Returns a byte vector representing the contents of a null terminated C string which
 // contains if_name.
+#[tracing::instrument(level = "trace", skip(if_name))]
 fn build_terminated_if_name(if_name: &str) -> Result<[u8; IFACE_NAME_MAX_LEN], TapError> {
     // Convert the string slice to bytes, and shadow the variable,
     // since we no longer need the &str version.
@@ -86,16 +87,19 @@ fn build_terminated_if_name(if_name: &str) -> Result<[u8; IFACE_NAME_MAX_LEN], T
 pub struct IfReqBuilder(ifreq);
 
 impl fmt::Debug for IfReqBuilder {
+    #[tracing::instrument(level = "trace", skip(self, f))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "IfReqBuilder {{ .. }}")
     }
 }
 
 impl IfReqBuilder {
+    #[tracing::instrument(level = "trace", skip())]
     pub fn new() -> Self {
         Self(Default::default())
     }
 
+    #[tracing::instrument(level = "trace", skip(self, if_name))]
     pub fn if_name(mut self, if_name: &[u8; IFACE_NAME_MAX_LEN]) -> Self {
         // SAFETY: Since we don't call as_mut on the same union field more than once, this block is
         // safe.
@@ -105,11 +109,13 @@ impl IfReqBuilder {
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self, flags))]
     pub(crate) fn flags(mut self, flags: i16) -> Self {
         self.0.ifr_ifru.ifru_flags = flags;
         self
     }
 
+    #[tracing::instrument(level = "trace", skip(self, socket, ioctl))]
     pub(crate) fn execute<F: AsRawFd + Debug>(
         mut self,
         socket: &F,
@@ -125,6 +131,7 @@ impl IfReqBuilder {
 }
 
 impl Tap {
+    #[tracing::instrument(level = "trace", skip(if_name))]
     /// Create a TUN/TAP device given the interface name.
     /// # Arguments
     ///
@@ -162,6 +169,7 @@ impl Tap {
         })
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Retrieve the interface's name as a str.
     pub fn if_name_as_str(&self) -> &str {
         let len = self
@@ -172,6 +180,7 @@ impl Tap {
         std::str::from_utf8(&self.if_name[..len]).unwrap_or("")
     }
 
+    #[tracing::instrument(level = "trace", skip(self, flags))]
     /// Set the offload flags for the tap interface.
     pub fn set_offload(&self, flags: c_uint) -> Result<(), TapError> {
         // SAFETY: ioctl is safe. Called with a valid tap fd, and we check the return.
@@ -182,6 +191,7 @@ impl Tap {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self, size))]
     /// Set the size of the vnet hdr.
     pub fn set_vnet_hdr_size(&self, size: c_int) -> Result<(), TapError> {
         // SAFETY: ioctl is safe. Called with a valid tap fd, and we check the return.
@@ -192,6 +202,7 @@ impl Tap {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self, buffer))]
     /// Write an `IoVecBuffer` to tap
     pub(crate) fn write_iovec(&mut self, buffer: &IoVecBuffer) -> Result<usize, IoError> {
         let iovcnt = i32::try_from(buffer.iovec_count()).unwrap();
@@ -208,22 +219,26 @@ impl Tap {
 }
 
 impl Read for Tap {
+    #[tracing::instrument(level = "trace", skip(self, buf))]
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, IoError> {
         self.tap_file.read(buf)
     }
 }
 
 impl Write for Tap {
+    #[tracing::instrument(level = "trace", skip(self, buf))]
     fn write(&mut self, buf: &[u8]) -> Result<usize, IoError> {
         self.tap_file.write(buf)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn flush(&mut self) -> Result<(), IoError> {
         Ok(())
     }
 }
 
 impl AsRawFd for Tap {
+    #[tracing::instrument(level = "trace", skip(self))]
     fn as_raw_fd(&self) -> RawFd {
         self.tap_file.as_raw_fd()
     }

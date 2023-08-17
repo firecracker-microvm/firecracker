@@ -9,6 +9,7 @@ use kvm_ioctls::DeviceFd;
 use crate::arch::aarch64::gic::regs::{GicState, GicVcpuState};
 use crate::arch::aarch64::gic::GicError;
 
+#[tracing::instrument(level = "trace", skip(fd, mpidrs))]
 /// Save the state of the GIC device.
 pub fn save_state(fd: &DeviceFd, mpidrs: &[u64]) -> Result<GicState, GicError> {
     let mut vcpu_states = Vec::with_capacity(mpidrs.len());
@@ -25,6 +26,7 @@ pub fn save_state(fd: &DeviceFd, mpidrs: &[u64]) -> Result<GicState, GicError> {
     })
 }
 
+#[tracing::instrument(level = "trace", skip(fd, mpidrs, state))]
 /// Restore the state of the GIC device.
 pub fn restore_state(fd: &DeviceFd, mpidrs: &[u64], state: &GicState) -> Result<(), GicError> {
     dist_regs::set_dist_regs(fd, &state.dist)?;

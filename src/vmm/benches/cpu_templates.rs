@@ -11,16 +11,19 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use vmm::cpu_config::templates::test_utils::{build_test_template, TEST_TEMPLATE_JSON};
 use vmm::cpu_config::templates::CustomCpuTemplate;
 
+#[tracing::instrument(level = "trace", skip(cpu_template))]
 #[inline]
 pub fn bench_serialize_cpu_template(cpu_template: &CustomCpuTemplate) {
     let _ = serde_json::to_string(cpu_template);
 }
 
+#[tracing::instrument(level = "trace", skip(cpu_template_str))]
 #[inline]
 pub fn bench_deserialize_cpu_template(cpu_template_str: &str) {
     let _ = serde_json::from_str::<CustomCpuTemplate>(cpu_template_str);
 }
 
+#[tracing::instrument(level = "trace", skip(c))]
 pub fn cpu_template_benchmark(c: &mut Criterion) {
     println!(
         "Deserialization test - Template size (JSON string): [{}] bytes.",

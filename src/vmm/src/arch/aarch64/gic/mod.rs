@@ -25,16 +25,19 @@ pub struct GIC {
     vcpu_count: u64,
 }
 impl GIC {
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the file descriptor of the GIC device
     pub fn device_fd(&self) -> &DeviceFd {
         &self.fd
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns an array with GIC device properties
     pub fn device_properties(&self) -> &[u64] {
         &self.properties
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the number of vCPUs this GIC handles
     pub fn vcpu_count(&self) -> u64 {
         self.vcpu_count
@@ -78,6 +81,7 @@ pub enum GICDevice {
     V3(GICv3),
 }
 impl GICDevice {
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the file descriptor of the GIC device
     pub fn device_fd(&self) -> &DeviceFd {
         match self {
@@ -86,6 +90,7 @@ impl GICDevice {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns an array with GIC device properties
     pub fn device_properties(&self) -> &[u64] {
         match self {
@@ -94,6 +99,7 @@ impl GICDevice {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the number of vCPUs this GIC handles
     pub fn vcpu_count(&self) -> u64 {
         match self {
@@ -102,6 +108,7 @@ impl GICDevice {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the fdt compatibility property of the device
     pub fn fdt_compatibility(&self) -> &str {
         match self {
@@ -110,6 +117,7 @@ impl GICDevice {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the maint_irq fdt property of the device
     pub fn fdt_maint_irq(&self) -> u32 {
         match self {
@@ -118,6 +126,7 @@ impl GICDevice {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     /// Returns the GIC version of the device
     pub fn version(&self) -> u32 {
         match self {
@@ -126,6 +135,7 @@ impl GICDevice {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(gic_device))]
     /// Setup the device-specific attributes
     pub fn init_device_attributes(gic_device: &Self) -> Result<(), GicError> {
         match gic_device {
@@ -134,6 +144,7 @@ impl GICDevice {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mpidrs))]
     /// Method to save the state of the GIC device.
     pub fn save_device(&self, mpidrs: &[u64]) -> Result<GicState, GicError> {
         match self {
@@ -142,6 +153,7 @@ impl GICDevice {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, mpidrs, state))]
     /// Method to restore the state of the GIC device.
     pub fn restore_device(&self, mpidrs: &[u64], state: &GicState) -> Result<(), GicError> {
         match self {
@@ -151,6 +163,7 @@ impl GICDevice {
     }
 }
 
+#[tracing::instrument(level = "trace", skip(vm, vcpu_count, version))]
 /// Create a GIC device.
 ///
 /// If "version" parameter is "None" the function will try to create by default a GICv3 device.

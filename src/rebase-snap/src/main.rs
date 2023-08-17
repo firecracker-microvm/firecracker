@@ -41,6 +41,7 @@ enum RebaseSnapError {
     RebaseFiles(FileError),
 }
 
+#[tracing::instrument(level = "trace", skip())]
 fn build_arg_parser<'a>() -> ArgParser<'a> {
     let arg_parser = ArgParser::new()
         .arg(
@@ -59,6 +60,7 @@ fn build_arg_parser<'a>() -> ArgParser<'a> {
     arg_parser
 }
 
+#[tracing::instrument(level = "trace", skip(args))]
 fn get_files(args: &Arguments) -> Result<(File, File), FileError> {
     // Safe to unwrap since the required arguments are checked as part of
     // `arg_parser.parse_from_cmdline()`
@@ -78,6 +80,7 @@ fn get_files(args: &Arguments) -> Result<(File, File), FileError> {
     Ok((base_file, diff_file))
 }
 
+#[tracing::instrument(level = "trace", skip(base_file, diff_file))]
 fn rebase(base_file: &mut File, diff_file: &mut File) -> Result<(), FileError> {
     let mut cursor: u64 = 0;
     while let Some(block_start) = diff_file.seek_data(cursor).map_err(FileError::SeekData)? {
@@ -113,6 +116,7 @@ fn rebase(base_file: &mut File, diff_file: &mut File) -> Result<(), FileError> {
     Ok(())
 }
 
+#[tracing::instrument(level = "trace", skip())]
 fn main() -> Result<(), RebaseSnapError> {
     let result = main_exec();
     if let Err(e) = result {
@@ -123,6 +127,7 @@ fn main() -> Result<(), RebaseSnapError> {
     }
 }
 
+#[tracing::instrument(level = "trace", skip())]
 fn main_exec() -> Result<(), RebaseSnapError> {
     let mut arg_parser = build_arg_parser();
 
@@ -235,6 +240,7 @@ mod tests {
         assert!(get_files(arguments).is_ok());
     }
 
+    #[tracing::instrument(level = "trace", skip(file, expected_content))]
     fn check_file_content(file: &mut File, expected_content: &[u8]) {
         let mut buf = vec![0u8; expected_content.len()];
         file.read_exact_at(buf.as_mut_slice(), 0).unwrap();

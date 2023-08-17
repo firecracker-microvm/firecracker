@@ -86,6 +86,7 @@ pub struct Snapshot {
 }
 
 // Parse a magic_id and return the format version.
+#[tracing::instrument(level = "trace", skip(magic_id))]
 fn get_format_version(magic_id: u64) -> Result<u16, Error> {
     let magic_arch = magic_id & BASE_MAGIC_ID_MASK;
     if magic_arch == BASE_MAGIC_ID {
@@ -94,11 +95,13 @@ fn get_format_version(magic_id: u64) -> Result<u16, Error> {
     Err(Error::InvalidMagic(magic_id))
 }
 
+#[tracing::instrument(level = "trace", skip(format_version))]
 fn build_magic_id(format_version: u16) -> u64 {
     BASE_MAGIC_ID | u64::from(format_version)
 }
 
 impl Snapshot {
+    #[tracing::instrument(level = "trace", skip(version_map, target_version))]
     /// Creates a new instance which can only be used to save a new snapshot.
     pub fn new(version_map: VersionMap, target_version: u16) -> Snapshot {
         Snapshot {
@@ -108,6 +111,7 @@ impl Snapshot {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(reader, version_map))]
     /// Fetches snapshot data version.
     pub fn get_data_version<T>(mut reader: &mut T, version_map: &VersionMap) -> Result<u16, Error>
     where
@@ -133,6 +137,7 @@ impl Snapshot {
         Ok(hdr.data_version)
     }
 
+    #[tracing::instrument(level = "trace", skip(reader, version_map))]
     /// Attempts to load an existing snapshot without CRC validation.
     pub fn unchecked_load<T: Read + Debug, O: Versionize + Debug>(
         mut reader: &mut T,
@@ -142,6 +147,7 @@ impl Snapshot {
         O::deserialize(&mut reader, &version_map, data_version).map_err(Error::Versionize)
     }
 
+    #[tracing::instrument(level = "trace", skip(reader, snapshot_len, version_map))]
     /// Attempts to load an existing snapshot and validate CRC.
     pub fn load<T: Read + Debug, O: Versionize + Debug>(
         reader: &mut T,
@@ -176,6 +182,7 @@ impl Snapshot {
         Ok(object)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, writer, object))]
     /// Saves a snapshot and include a CRC64 checksum.
     pub fn save<T, O>(&mut self, writer: &mut T, object: &O) -> Result<(), Error>
     where
@@ -194,6 +201,7 @@ impl Snapshot {
 
     // TODO Remove `skip(crc_writer)` when https://github.com/firecracker-microvm/versionize/pull/59
     // is merged and included.
+    #[tracing::instrument(level = "trace", skip(self, writer, object))]
     /// Save a snapshot with no CRC64 checksum included.
     pub fn save_without_crc<T, O>(&mut self, mut writer: &mut T, object: &O) -> Result<(), Error>
     where
@@ -235,6 +243,7 @@ impl Snapshot {
     // defined structures.
     // This version map allows us to change the underlying storage format -
     // for example the way we encode vectors or moving to something else than bincode.
+    #[tracing::instrument(level = "trace", skip())]
     fn format_version_map() -> VersionMap {
         // Firecracker snapshot format version 1.
         VersionMap::new()
@@ -276,15 +285,19 @@ mod tests {
     }
 
     impl Test {
+        #[tracing::instrument(level = "trace", skip())]
         fn field2_default(_: u16) -> u64 {
             20
         }
+        #[tracing::instrument(level = "trace", skip())]
         fn field3_default(_: u16) -> String {
             "default".to_owned()
         }
+        #[tracing::instrument(level = "trace", skip())]
         fn field4_default(_: u16) -> Vec<u64> {
             vec![1, 2, 3, 4]
         }
+        #[tracing::instrument(level = "trace", skip(self, target_version))]
         fn field4_serialize(&mut self, target_version: u16) -> VersionizeResult<()> {
             // Fail if semantic serialization is called for the latest version.
             assert_ne!(target_version, Test::version());
@@ -297,6 +310,7 @@ mod tests {
             }
             Ok(())
         }
+        #[tracing::instrument(level = "trace", skip(self, source_version))]
         fn field4_deserialize(&mut self, source_version: u16) -> VersionizeResult<()> {
             // Fail if semantic deserialization is called for the latest version.
             assert_ne!(source_version, Test::version());
@@ -304,6 +318,7 @@ mod tests {
             Ok(())
         }
 
+        #[tracing::instrument(level = "trace", skip(self, target_version))]
         fn field3_serialize(&mut self, target_version: u16) -> VersionizeResult<()> {
             // Fail if semantic serialization is called for the previous versions only.
             assert!(target_version < 3);
@@ -311,6 +326,7 @@ mod tests {
             Ok(())
         }
 
+        #[tracing::instrument(level = "trace", skip(self, source_version))]
         fn field3_deserialize(&mut self, source_version: u16) -> VersionizeResult<()> {
             // Fail if semantic deserialization is called for the latest version.
             assert!(source_version < 3);

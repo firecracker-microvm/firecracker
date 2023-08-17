@@ -22,6 +22,7 @@ pub const MISSING_FIELD: &str =
 pub const TOO_MANY_FIELDS: &str =
     "too many fields: either `mem_backend` or `mem_file_path` exclusively is required";
 
+#[tracing::instrument(level = "trace", skip(body, request_type_from_path))]
 pub(crate) fn parse_put_snapshot(
     body: &Body,
     request_type_from_path: Option<&str>,
@@ -44,6 +45,7 @@ pub(crate) fn parse_put_snapshot(
     }
 }
 
+#[tracing::instrument(level = "trace", skip(body))]
 pub(crate) fn parse_patch_vm_state(body: &Body) -> Result<ParsedRequest, Error> {
     let vm = serde_json::from_slice::<Vm>(body.raw())?;
 
@@ -53,6 +55,7 @@ pub(crate) fn parse_patch_vm_state(body: &Body) -> Result<ParsedRequest, Error> 
     }
 }
 
+#[tracing::instrument(level = "trace", skip(body))]
 fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, Error> {
     let snapshot_config = serde_json::from_slice::<LoadSnapshotConfig>(body.raw())?;
 

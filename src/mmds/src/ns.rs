@@ -70,6 +70,17 @@ pub struct MmdsNetworkStack {
 }
 
 impl MmdsNetworkStack {
+    #[tracing::instrument(
+        level = "trace",
+        skip(
+            mac_addr,
+            ipv4_addr,
+            tcp_port,
+            max_connections,
+            max_pending_resets,
+            mmds
+        )
+    )]
     pub fn new(
         mac_addr: MacAddr,
         ipv4_addr: Ipv4Addr,
@@ -93,6 +104,7 @@ impl MmdsNetworkStack {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(mmds_ipv4_addr, mmds))]
     pub fn new_with_defaults(mmds_ipv4_addr: Option<Ipv4Addr>, mmds: Arc<Mutex<Mmds>>) -> Self {
         let mac_addr = MacAddr::from_str(DEFAULT_MAC_ADDR).unwrap();
         let ipv4_addr = mmds_ipv4_addr.unwrap_or_else(|| Ipv4Addr::from(DEFAULT_IPV4_ADDR));
@@ -108,19 +120,23 @@ impl MmdsNetworkStack {
         )
     }
 
+    #[tracing::instrument(level = "trace", skip(self, ipv4_addr))]
     pub fn set_ipv4_addr(&mut self, ipv4_addr: Ipv4Addr) {
         self.ipv4_addr = ipv4_addr;
         self.tcp_handler.set_local_ipv4_addr(ipv4_addr);
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn ipv4_addr(&self) -> Ipv4Addr {
         self.ipv4_addr
     }
 
+    #[tracing::instrument(level = "trace", skip())]
     pub fn default_ipv4_addr() -> Ipv4Addr {
         Ipv4Addr::from(DEFAULT_IPV4_ADDR)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, src))]
     /// Check if a frame is destined for `mmds`
     ///
     /// This returns `true` if the frame is an ARP or IPv4 frame destined for
@@ -137,6 +153,7 @@ impl MmdsNetworkStack {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, src))]
     /// Handles a frame destined for `mmds`
     ///
     /// It assumes that the frame is indeed destined for `mmds`, so the caller
@@ -159,6 +176,7 @@ impl MmdsNetworkStack {
         false
     }
 
+    #[tracing::instrument(level = "trace", skip(self, eth))]
     fn detour_arp(&mut self, eth: EthernetFrame<&[u8]>) -> bool {
         if let Ok(arp) = EthIPv4ArpFrame::request_from_bytes(eth.payload()) {
             self.remote_mac_addr = arp.sha();
@@ -169,6 +187,7 @@ impl MmdsNetworkStack {
         false
     }
 
+    #[tracing::instrument(level = "trace", skip(self, eth))]
     fn detour_ipv4(&mut self, eth: EthernetFrame<&[u8]>) -> bool {
         // TODO: We skip verifying the checksum, just in case the device model relies on offloading
         // checksum computation from the guest driver to some other entity. Clear up this entire
@@ -216,6 +235,7 @@ impl MmdsNetworkStack {
     // - None, if the MMDS network stack has no frame to send at this point. The buffer can be
     // used for something else by the device model.
     // - Some(len), if a frame of the given length has been written to the specified buffer.
+    #[tracing::instrument(level = "trace", skip(self, buf))]
     pub fn write_next_frame(&mut self, buf: &mut [u8]) -> Option<NonZeroUsize> {
         // We try to send ARP replies first.
         if self.pending_arp_reply_dest.is_some() {
@@ -253,6 +273,7 @@ impl MmdsNetworkStack {
         None
     }
 
+    #[tracing::instrument(level = "trace", skip(self, buf, ethertype))]
     fn prepare_eth_unsized<'a>(
         &self,
         buf: &'a mut [u8],
@@ -261,6 +282,7 @@ impl MmdsNetworkStack {
         EthernetFrame::write_incomplete(buf, self.remote_mac_addr, self.mac_addr, ethertype)
     }
 
+    #[tracing::instrument(level = "trace", skip(self, buf))]
     fn write_arp_reply(&self, buf: &mut [u8]) -> Result<Option<NonZeroUsize>, WriteArpFrameError> {
         let arp_reply_dest = self
             .pending_arp_reply_dest
@@ -287,6 +309,7 @@ impl MmdsNetworkStack {
         ))
     }
 
+    #[tracing::instrument(level = "trace", skip(self, buf))]
     fn write_packet(&mut self, buf: &mut [u8]) -> Result<Option<NonZeroUsize>, WritePacketError> {
         let mut eth_unsized = self.prepare_eth_unsized(buf, ETHERTYPE_IPV4)?;
 
@@ -332,6 +355,7 @@ mod tests {
 
     // Helper methods which only make sense for testing.
     impl MmdsNetworkStack {
+        #[tracing::instrument(level = "trace", skip(self, buf, for_mmds))]
         fn write_arp_request(&mut self, buf: &mut [u8], for_mmds: bool) -> usize {
             // Write a reply and then modify it into a request.
             self.pending_arp_reply_dest = Some(REMOTE_ADDR);
@@ -353,6 +377,7 @@ mod tests {
             len
         }
 
+        #[tracing::instrument(level = "trace", skip(self, buf, addr, flags))]
         fn write_incoming_tcp_segment(
             &self,
             buf: &mut [u8],
@@ -389,6 +414,7 @@ mod tests {
             eth_unsized.with_payload_len_unchecked(packet_len).len()
         }
 
+        #[tracing::instrument(level = "trace", skip(self, buf))]
         fn next_frame_as_ipv4_packet<'a>(&mut self, buf: &'a mut [u8]) -> IPv4Packet<&'a [u8]> {
             let len = self.write_next_frame(buf).unwrap().get();
             let eth = EthernetFrame::from_bytes(&buf[..len]).unwrap();
