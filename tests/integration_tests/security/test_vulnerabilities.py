@@ -6,6 +6,8 @@
 # GPL-3.0-only license.
 """Tests vulnerabilities mitigations."""
 
+import platform
+
 import pytest
 import requests
 
@@ -15,6 +17,7 @@ from framework.utils_cpu_templates import nonci_on_arm
 
 CHECKER_URL = "https://meltdown.ovh"
 CHECKER_FILENAME = "spectre-meltdown-checker.sh"
+PLATFORM = platform.machine()
 
 
 @pytest.fixture(name="microvm")
@@ -79,6 +82,28 @@ def run_spectre_meltdown_checker_on_guest(
     microvm.ssh.scp_put(spectre_meltdown_checker, remote_path)
     ecode, stdout, stderr = microvm.ssh.execute_command(f"sh {remote_path} --explain")
     assert ecode == 0, f"stdout:\n{stdout}\nstderr:\n{stderr}\n"
+
+
+@pytest.mark.skipif(PLATFORM == "aarch64", reason="This is x86 specific test.")
+def test_x86_microcode_guest_vs_host(microvm):
+    """
+    Test microcode version between guest and host.
+    """
+    cmd = "cat /proc/cpuinfo | grep microcode | head -1 | awk '{print $3}'"
+
+    # Host microcode
+    ecode, stdout, stderr = utils.run_cmd(cmd)
+    assert ecode == 0, f"stdout:\n{stdout}\nstderr:\n{stderr}\n"
+    host_microcode = int(stdout, 16)
+
+    # Guest microcode
+    ecode, stdout, stderr = microvm.ssh.execute_command(cmd)
+    assert ecode == 0, f"stdout:\n{stdout}\nstderr:\n{stderr}\n"
+    guest_microcode = int(stdout, 16)
+
+    assert host_microcode == guest_microcode, (
+        f"{host_microcode=:#010x} != {guest_microcode=:#010x}"
+    )
 
 
 @pytest.mark.no_block_pr
