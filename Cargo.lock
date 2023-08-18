@@ -1436,6 +1436,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "vhost"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61957aeb36daf0b00b87fff9c10dd28a161bd35ab157553d340d183b3d8756e6"
+dependencies = [
+ "bitflags 1.3.2",
+ "libc",
+ "vm-memory",
+ "vmm-sys-util",
+]
+
+[[package]]
 name = "virtio_gen"
 version = "0.1.0"
 
@@ -1506,6 +1518,7 @@ dependencies = [
  "utils",
  "versionize",
  "versionize_derive",
+ "vhost",
  "virtio_gen",
  "vm-allocator",
  "vm-fdt",

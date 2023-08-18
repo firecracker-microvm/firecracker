@@ -28,6 +28,7 @@ displaydoc = "0.2.4"
 userfaultfd = "0.6.0"
 versionize = "0.1.10"
 versionize_derive = "0.1.5"
+vhost = { version = "0.8.1", features = ["vhost-user-master"] }
 vm-allocator = "0.1.0"
 vm-fdt = "0.2.0"
 vm-superio = "0.7.0"
