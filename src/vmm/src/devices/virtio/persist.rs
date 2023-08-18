@@ -19,9 +19,10 @@ use super::queue::*;
 use crate::devices::virtio::MmioTransport;
 
 /// Errors thrown during restoring virtio state.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum PersistError {
-    /// Snapshot state contains invalid queue info.
+    // Snapshot state contains invalid queue info.
+    #[error("Snapshot state contains invalid queue info")]
     InvalidInput,
 }
 
