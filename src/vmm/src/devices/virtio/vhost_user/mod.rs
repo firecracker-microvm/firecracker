@@ -182,7 +182,7 @@ impl VhostUserHandle {
 
             let vhost_user_net_reg = VhostUserMemoryRegionInfo {
                 guest_phys_addr: region.start_addr().raw_value(),
-                memory_size: region.len() as u64,
+                memory_size: region.len(),
                 userspace_addr: region.as_ptr() as u64,
                 mmap_offset,
                 mmap_handle,
@@ -209,6 +209,9 @@ impl VhostUserHandle {
         self.vu
             .set_features(acked_features)
             .map_err(VhostUserError::VhostUserSetFeatures)?;
+
+        // Update acked features after they have been sent to the backend.
+        // self.acked_features = acked_features;
 
         // Provide the memory table to the backend.
         self.update_mem_table(mem)?;

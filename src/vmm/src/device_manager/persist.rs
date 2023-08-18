@@ -24,6 +24,10 @@ use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonSt
 use crate::devices::virtio::balloon::{Balloon, BalloonError};
 use crate::devices::virtio::block::file::persist::{BlockFileConstructorArgs, BlockFileState};
 use crate::devices::virtio::block::file::{BlockFile, BlockFileError};
+use crate::devices::virtio::block::vhost_user::persist::{
+    BlockVhostUserConstructorArgs, BlockVhostUserState,
+};
+use crate::devices::virtio::block::vhost_user::{BlockVhostUser, BlockVhostUserError};
 use crate::devices::virtio::net::persist::{
     NetConstructorArgs, NetPersistError as NetError, NetState,
 };
@@ -38,8 +42,9 @@ use crate::devices::virtio::vsock::persist::{
 };
 use crate::devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
 use crate::devices::virtio::{
-    MmioTransport, VirtioDevice, SUBTYPE_BALLOON, SUBTYPE_BLOCK_FILE, SUBTYPE_NET, SUBTYPE_RNG,
-    SUBTYPE_VSOCK, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG, TYPE_VSOCK,
+    MmioTransport, VirtioDevice, SUBTYPE_BALLOON, SUBTYPE_BLOCK_FILE, SUBTYPE_BLOCK_VHOST_USER,
+    SUBTYPE_NET, SUBTYPE_RNG, SUBTYPE_VSOCK, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG,
+    TYPE_VSOCK,
 };
 use crate::resources::VmResources;
 use crate::vmm_config::mmds::MmdsConfigError;
@@ -50,6 +55,7 @@ use crate::EventManager;
 pub enum DevicePersistError {
     Balloon(BalloonError),
     BlockFile(BlockFileError),
+    BlockVhostUser(BlockVhostUserError),
     DeviceManager(super::mmio::MmioError),
     MmioTransport,
     #[cfg(target_arch = "aarch64")]
@@ -83,6 +89,20 @@ pub struct ConnectedBlockFileState {
     pub device_id: String,
     /// Device state.
     pub device_state: BlockFileState,
+    /// Mmio transport state.
+    pub transport_state: MmioTransportState,
+    /// VmmResources.
+    pub device_info: MMIODeviceInfo,
+}
+
+/// Holds the state of a vhost-user-backed block device connected to the MMIO space.
+// NOTICE: Any changes to this structure require a snapshot version bump.
+#[derive(Debug, Clone, Versionize)]
+pub struct ConnectedBlockVhostUserState {
+    /// Device identifier.
+    pub device_id: String,
+    /// Device state.
+    pub device_state: BlockVhostUserState,
     /// Mmio transport state.
     pub transport_state: MmioTransportState,
     /// VmmResources.
@@ -179,6 +199,9 @@ pub struct DeviceStates {
     pub block_device_subtypes: Vec<DeviceSubtype>,
     /// File-backed block device states.
     pub block_file_devices: Vec<ConnectedBlockFileState>,
+    /// Vhost-user-backed block device states.
+    #[version(start = 5, de_fn = "de_block_devices", ser_fn = "ser_block_devices")]
+    pub block_vhost_user_devices: Vec<ConnectedBlockVhostUserState>,
     /// Net device states.
     pub net_devices: Vec<ConnectedNetState>,
     /// Vsock device state.
@@ -199,6 +222,7 @@ pub struct DeviceStates {
 #[derive(Debug)]
 pub enum SharedDeviceType {
     BlockFile(Arc<Mutex<BlockFile>>),
+    BlockVhostUser(Arc<Mutex<BlockVhostUser>>),
     Network(Arc<Mutex<Net>>),
     Balloon(Arc<Mutex<Balloon>>),
     Vsock(Arc<Mutex<Vsock<VsockUnixBackend>>>),
@@ -297,6 +321,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             balloon_device: None,
             block_device_subtypes: Vec::new(),
             block_file_devices: Vec::new(),
+            block_vhost_user_devices: Vec::new(),
             net_devices: Vec::new(),
             vsock_device: None,
             #[cfg(target_arch = "aarch64")]
@@ -347,8 +372,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                             });
                         }
                     }
-                    TYPE_BLOCK => {
-                        if locked_device.device_subtype() == SUBTYPE_BLOCK_FILE {
+                    TYPE_BLOCK => match locked_device.device_subtype() {
+                        SUBTYPE_BLOCK_FILE => {
                             let block = locked_device
                                 .as_mut_any()
                                 .downcast_mut::<BlockFile>()
@@ -362,7 +387,24 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                             });
                             states.block_device_subtypes.push(SUBTYPE_BLOCK_FILE);
                         }
-                    }
+                        SUBTYPE_BLOCK_VHOST_USER => {
+                            let block = locked_device
+                                .as_mut_any()
+                                .downcast_mut::<BlockVhostUser>()
+                                .unwrap();
+                            block.prepare_save();
+                            states
+                                .block_vhost_user_devices
+                                .push(ConnectedBlockVhostUserState {
+                                    device_id: devid.clone(),
+                                    device_state: block.save(),
+                                    transport_state,
+                                    device_info: device_info.clone(),
+                                });
+                            states.block_device_subtypes.push(SUBTYPE_BLOCK_VHOST_USER);
+                        }
+                        _ => (),
+                    },
                     TYPE_NET => {
                         if locked_device.device_subtype() == SUBTYPE_NET {
                             let net = locked_device.as_any().downcast_ref::<Net>().unwrap();
@@ -557,29 +599,57 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         }
 
         let mut block_file_iter = state.block_file_devices.iter();
+        let mut block_vhost_user_iter = state.block_vhost_user_devices.iter();
+
         for block_device_subtype in &state.block_device_subtypes {
-            if *block_device_subtype == SUBTYPE_BLOCK_FILE {
-                // Safe to unwrap, because the subtype vector tracks the device distibution
-                // between the corresponding vectors.
-                let block_state = block_file_iter.next().unwrap();
-                let device = Arc::new(Mutex::new(BlockFile::restore(
-                    BlockFileConstructorArgs { mem: mem.clone() },
-                    &block_state.device_state,
-                )?));
+            match *block_device_subtype {
+                SUBTYPE_BLOCK_FILE => {
+                    // Safe to unwrap, because the subtype vector tracks the device distibution
+                    // between the corresponding vectors.
+                    let block_state = block_file_iter.next().unwrap();
+                    let device = Arc::new(Mutex::new(BlockFile::restore(
+                        BlockFileConstructorArgs { mem: mem.clone() },
+                        &block_state.device_state,
+                    )?));
 
-                (constructor_args.for_each_restored_device)(
-                    constructor_args.vm_resources,
-                    SharedDeviceType::BlockFile(device.clone()),
-                );
+                    (constructor_args.for_each_restored_device)(
+                        constructor_args.vm_resources,
+                        SharedDeviceType::BlockFile(device.clone()),
+                    );
 
-                restore_helper(
-                    device.clone(),
-                    device,
-                    &block_state.device_id,
-                    &block_state.transport_state,
-                    &block_state.device_info,
-                    constructor_args.event_manager,
-                )?;
+                    restore_helper(
+                        device.clone(),
+                        device,
+                        &block_state.device_id,
+                        &block_state.transport_state,
+                        &block_state.device_info,
+                        constructor_args.event_manager,
+                    )?;
+                }
+                SUBTYPE_BLOCK_VHOST_USER => {
+                    // Safe to unwrap, because the subtype vector tracks the device distibution
+                    // between the corresponding vectors.
+                    let block_state = block_vhost_user_iter.next().unwrap();
+                    let device = Arc::new(Mutex::new(BlockVhostUser::restore(
+                        BlockVhostUserConstructorArgs { mem: mem.clone() },
+                        &block_state.device_state,
+                    )?));
+
+                    (constructor_args.for_each_restored_device)(
+                        constructor_args.vm_resources,
+                        SharedDeviceType::BlockVhostUser(device.clone()),
+                    );
+
+                    restore_helper(
+                        device.clone(),
+                        device,
+                        &block_state.device_id,
+                        &block_state.transport_state,
+                        &block_state.device_info,
+                        constructor_args.event_manager,
+                    )?;
+                }
+                _ => (),
             }
         }
 
@@ -936,7 +1006,8 @@ mod tests {
         "is_read_only": true,
         "rate_limiter": null,
         "io_engine": "Sync"
-      }}
+      }},
+      "vhost_user": null
     }}
   ],
   "boot-source": {{

@@ -4,6 +4,7 @@
 //! Implements a virtio block device.
 
 pub mod file;
+pub mod vhost_user;
 
 use serde::{Deserialize, Serialize};
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};

@@ -207,6 +207,10 @@ impl VmResources {
                 self.block.add_device(block);
             }
 
+            SharedDeviceType::BlockVhostUser(block) => {
+                self.block.add_vhost_user_device(block);
+            }
+
             SharedDeviceType::Network(network) => {
                 self.net_builder.add_device(network);
             }
@@ -525,6 +529,7 @@ mod tests {
                 rate_limiter: Some(RateLimiterConfig::default()),
                 file_engine_type: FileEngineType::default(),
                 file: None,
+                vhost_user: None,
             },
             tmp_file,
         )

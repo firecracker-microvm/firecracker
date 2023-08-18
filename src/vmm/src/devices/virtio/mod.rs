@@ -20,6 +20,7 @@ pub mod persist;
 mod queue;
 pub mod rng;
 pub mod test_utils;
+mod vhost_user;
 pub mod vsock;
 
 pub use self::balloon::*;
@@ -65,6 +66,7 @@ pub const TYPE_BALLOON: u32 = 5;
 pub const SUBTYPE_NON_VIRTIO: DeviceSubtype = 0;
 pub const SUBTYPE_NET: DeviceSubtype = 1;
 pub const SUBTYPE_BLOCK_FILE: DeviceSubtype = 1;
+pub const SUBTYPE_BLOCK_VHOST_USER: DeviceSubtype = 2;
 pub const SUBTYPE_RNG: DeviceSubtype = 1;
 pub const SUBTYPE_BALLOON: DeviceSubtype = 1;
 pub const SUBTYPE_VSOCK: DeviceSubtype = 1;
@@ -82,6 +84,9 @@ pub enum ActivateError {
     /// General error at activation.
     #[error("General error at activation")]
     BadActivate,
+    /// Vhost-user-related error.
+    #[error("Vhost user: {0}")]
+    VhostUser(crate::devices::virtio::vhost_user::VhostUserError),
 }
 
 /// Trait that helps in upcasting an object to Any

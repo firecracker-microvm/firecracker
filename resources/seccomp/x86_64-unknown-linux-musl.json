@@ -1183,6 +1183,10 @@
             {
                 "syscall": "sched_yield",
                 "comment": "Used by the rust standard library in std::sync::mpmc. Firecracker uses mpsc channels from this module for inter-thread communication"
+            },
+            {
+                "syscall": "sendmsg",
+                "comment": "Used by vhost-user frontend to communicate with the backend"
             }
         ]
     }
