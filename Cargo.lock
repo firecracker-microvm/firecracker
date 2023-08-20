@@ -106,6 +106,7 @@ name = "api_server"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "log",
  "logger",
  "micro_http",
  "mmds",
@@ -537,6 +538,7 @@ dependencies = [
  "cargo_toml",
  "event-manager",
  "libc",
+ "log",
  "logger",
  "mmds",
  "regex",

@@ -348,7 +348,7 @@ class Logger:
         return self._api_session.patch("{}".format(self._logger_cfg_url), json=datax)
 
     @staticmethod
-    def create_json(log_path=None, level=None, show_level=None, show_log_origin=None):
+    def create_json(log_path=None, level=None):
         """Compose the json associated to this type of API request."""
         datax = {}
 
@@ -357,12 +357,6 @@ class Logger:
 
         if level is not None:
             datax["level"] = level
-
-        if show_level is not None:
-            datax["show_level"] = show_level
-
-        if show_log_origin is not None:
-            datax["show_log_origin"] = show_log_origin
 
         return datax
 

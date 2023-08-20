@@ -19,7 +19,7 @@ use crate::vmm_config::boot_source::{
 use crate::vmm_config::drive::*;
 use crate::vmm_config::entropy::*;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
+use crate::vmm_config::logger::LoggerConfig;
 use crate::vmm_config::machine_config::{
     MachineConfig, MachineConfigUpdate, VmConfig, VmConfigError,
 };
@@ -48,7 +48,7 @@ pub enum ResourcesError {
     InvalidJson(serde_json::Error),
     /// Logger configuration error.
     #[error("Logger error: {0}")]
-    Logger(LoggerConfigError),
+    Logger(crate::vmm_config::logger::LoggerConfigApplyError),
     /// Metrics system configuration error.
     #[error("Metrics error: {0}")]
     Metrics(MetricsConfigError),
@@ -138,7 +138,7 @@ impl VmResources {
         let vmm_config = serde_json::from_str::<VmmConfig>(config_json)?;
 
         if let Some(logger) = vmm_config.logger {
-            init_logger(logger, instance_info)?;
+            logger.apply()?;
         }
 
         if let Some(metrics) = vmm_config.metrics {
@@ -482,7 +482,6 @@ mod tests {
     use std::os::linux::fs::MetadataExt;
     use std::str::FromStr;
 
-    use logger::{LevelFilter, LOGGER};
     use serde_json::{Map, Value};
     use utils::net::mac::MacAddr;
     use utils::tempfile::TempFile;
@@ -495,6 +494,7 @@ mod tests {
         BootConfig, BootSource, BootSourceConfig, DEFAULT_KERNEL_CMDLINE,
     };
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, FileEngineType};
+    use crate::vmm_config::logger::LoggerConfigApplyError;
     use crate::vmm_config::machine_config::{MachineConfig, VmConfigError};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
@@ -862,12 +862,9 @@ mod tests {
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         ) {
-            Err(ResourcesError::Logger(LoggerConfigError::InitializationFailure { .. })) => (),
+            Err(ResourcesError::Logger(LoggerConfigApplyError(_))) => (),
             _ => unreachable!(),
         }
-
-        // The previous call enables the logger. We need to disable it.
-        LOGGER.set_max_level(LevelFilter::Off);
 
         // Invalid path for metrics pipe.
         json = format!(

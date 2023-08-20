@@ -2,256 +2,118 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Auxiliary module for configuring the logger.
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
+use std::str::FromStr;
 
-use logger::{FcLineWriter, LevelFilter, LOGGER};
-use serde::{de, Deserialize, Deserializer, Serialize};
-
-use super::open_file_nonblock;
-use crate::vmm_config::instance_info::InstanceInfo;
-
-/// Enum used for setting the log level.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
-pub enum LoggerLevel {
-    /// When the level is set to `Error`, the logger will only contain entries
-    /// that come from the `error` macro.
-    Error,
-    /// When the level is set to `Warning`, the logger will only contain entries
-    /// that come from the `error` and `warn` macros.
-    #[default]
-    Warning,
-    /// When the level is set to `Info`, the logger will only contain entries
-    /// that come from the `error`, `warn` and `info` macros.
-    Info,
-    /// The most verbose log level.
-    Debug,
-}
-
-impl LoggerLevel {
-    /// Converts from a logger level value of type String to the corresponding LoggerLevel variant
-    /// or returns an error if the parsing failed.
-    pub fn from_string(level: String) -> Result<Self, LoggerConfigError> {
-        match level.to_ascii_lowercase().as_str() {
-            "error" => Ok(LoggerLevel::Error),
-            "warning" => Ok(LoggerLevel::Warning),
-            "info" => Ok(LoggerLevel::Info),
-            "debug" => Ok(LoggerLevel::Debug),
-            _ => Err(LoggerConfigError::InitializationFailure(level)),
-        }
-    }
-}
-
-impl From<LoggerLevel> for LevelFilter {
-    fn from(logger_level: LoggerLevel) -> Self {
-        match logger_level {
-            LoggerLevel::Error => LevelFilter::Error,
-            LoggerLevel::Warning => LevelFilter::Warn,
-            LoggerLevel::Info => LevelFilter::Info,
-            LoggerLevel::Debug => LevelFilter::Debug,
-        }
-    }
-}
-
-// This allows `level` field, which is an enum, to be case-insensitive.
-fn case_insensitive<'de, D>(deserializer: D) -> Result<LoggerLevel, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let level = String::deserialize(deserializer).map_err(de::Error::custom)?;
-    LoggerLevel::from_string(level).or_else(|err| {
-        Err(format!(
-            "unknown variant `{}`, expected one of `Error`, `Warning`, `Info`, `Debug`",
-            err
-        ))
-        .map_err(de::Error::custom)
-    })
-}
+use logger::LOGGER;
+use serde::{Deserialize, Serialize};
 
 /// Strongly typed structure used to describe the logger.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct LoggerConfig {
     /// Named pipe or file used as output for logs.
-    pub log_path: PathBuf,
+    pub log_path: Option<PathBuf>,
     /// The level of the Logger.
-    #[serde(
-        default = "LoggerLevel::default",
-        deserialize_with = "case_insensitive"
-    )]
-    pub level: LoggerLevel,
-    /// When enabled, the logger will append to the output the severity of the log entry.
-    #[serde(default)]
-    pub show_level: bool,
-    /// When enabled, the logger will append the origin of the log entry.
-    #[serde(default)]
-    pub show_log_origin: bool,
+    pub level: Option<LevelFilter>,
+    /// Whether to show the log level in the log.
+    pub show_level: Option<bool>,
+    /// Whether to show the log origin in the log.
+    pub show_log_origin: Option<bool>,
 }
+
+/// This is required since we originally supported `Warning` and uppercase variants being used as
+/// the log level filter. It would be a breaking change to no longer support this. In the next
+/// breaking release this should be removed (replaced with `log::LevelFilter` and only supporting
+/// its default deserialization).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub enum LevelFilter {
+    /// [`log::LevelFilter:Off`]
+    #[serde(alias = "OFF")]
+    Off,
+    /// [`log::LevelFilter:Trace`]
+    #[serde(alias = "TRACE")]
+    Trace,
+    /// [`log::LevelFilter:Debug`]
+    #[serde(alias = "DEBUG")]
+    Debug,
+    /// [`log::LevelFilter:Info`]
+    #[serde(alias = "INFO")]
+    Info,
+    /// [`log::LevelFilter:Warn`]
+    #[serde(alias = "WARN", alias = "WARNING", alias = "Warning")]
+    Warn,
+    /// [`log::LevelFilter:Error`]
+    #[serde(alias = "ERROR")]
+    Error,
+}
+impl From<LevelFilter> for log::LevelFilter {
+    fn from(filter: LevelFilter) -> log::LevelFilter {
+        match filter {
+            LevelFilter::Off => log::LevelFilter::Off,
+            LevelFilter::Trace => log::LevelFilter::Trace,
+            LevelFilter::Debug => log::LevelFilter::Debug,
+            LevelFilter::Info => log::LevelFilter::Info,
+            LevelFilter::Warn => log::LevelFilter::Warn,
+            LevelFilter::Error => log::LevelFilter::Error,
+        }
+    }
+}
+impl From<log::LevelFilter> for LevelFilter {
+    fn from(filter: log::LevelFilter) -> LevelFilter {
+        match filter {
+            log::LevelFilter::Off => LevelFilter::Off,
+            log::LevelFilter::Trace => LevelFilter::Trace,
+            log::LevelFilter::Debug => LevelFilter::Debug,
+            log::LevelFilter::Info => LevelFilter::Info,
+            log::LevelFilter::Warn => LevelFilter::Warn,
+            log::LevelFilter::Error => LevelFilter::Error,
+        }
+    }
+}
+impl FromStr for LevelFilter {
+    type Err = <log::LevelFilter as FromStr>::Err;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Warning" => Ok(Self::Warn),
+            _ => log::LevelFilter::from_str(s).map(LevelFilter::from),
+        }
+    }
+}
+
+/// Error type for [`LoggerConfig::apply`].
+#[derive(Debug, thiserror::Error)]
+#[error("Failed to open target file: {0}")]
+pub struct LoggerConfigApplyError(pub std::io::Error);
 
 impl LoggerConfig {
-    /// Creates a new LoggerConfig.
-    pub fn new(
-        log_path: PathBuf,
-        level: LoggerLevel,
-        show_level: bool,
-        show_log_origin: bool,
-    ) -> LoggerConfig {
-        LoggerConfig {
-            log_path,
-            level,
-            show_level,
-            show_log_origin,
-        }
-    }
-}
-
-/// Errors associated with actions on the `LoggerConfig`.
-#[derive(Debug, thiserror::Error)]
-pub enum LoggerConfigError {
-    /// Cannot initialize the logger due to bad user input.
-    #[error("{}", format!("{:?}", .0).replace('\"', ""))]
-    InitializationFailure(String),
-}
-
-/// Configures the logger as described in `logger_cfg`.
-pub fn init_logger(
-    logger_cfg: LoggerConfig,
-    instance_info: &InstanceInfo,
-) -> Result<(), LoggerConfigError> {
-    LOGGER
-        .set_max_level(logger_cfg.level.into())
-        .set_include_origin(logger_cfg.show_log_origin, logger_cfg.show_log_origin)
-        .set_include_level(logger_cfg.show_level);
-
-    let writer = FcLineWriter::new(
-        open_file_nonblock(&logger_cfg.log_path)
-            .map_err(|err| LoggerConfigError::InitializationFailure(err.to_string()))?,
-    );
-    LOGGER
-        .init(
-            format!(
-                "Running {} v{}",
-                instance_info.app_name, instance_info.vmm_version
-            ),
-            Box::new(writer),
-        )
-        .map_err(|err| LoggerConfigError::InitializationFailure(err.to_string()))
-}
-
-#[cfg(test)]
-mod tests {
-    use std::io::{BufRead, BufReader};
-
-    use logger::warn;
-    use utils::tempfile::TempFile;
-    use utils::time::TimestampUs;
-
-    use super::*;
-    use crate::devices::pseudo::BootTimer;
-
-    #[test]
-    fn test_init_logger() {
-        let default_instance_info = InstanceInfo::default();
-
-        // Error case: initializing logger with invalid pipe returns error.
-        let desc = LoggerConfig {
-            log_path: PathBuf::from("not_found_file_log"),
-            level: LoggerLevel::Debug,
-            show_level: false,
-            show_log_origin: false,
-        };
-        assert!(init_logger(desc, &default_instance_info).is_err());
-
-        // Initializing logger with valid pipe is ok.
-        let log_file = TempFile::new().unwrap();
-        let desc = LoggerConfig {
-            log_path: log_file.as_path().to_path_buf(),
-            level: LoggerLevel::Info,
-            show_level: true,
-            show_log_origin: true,
-        };
-
-        assert!(init_logger(desc.clone(), &default_instance_info).is_ok());
-        assert!(init_logger(desc, &default_instance_info).is_err());
-
-        // Validate logfile works.
-        warn!("this is a test");
-
-        let mut reader = BufReader::new(log_file.into_file());
-
-        let mut line = String::new();
-        loop {
-            if line.contains("this is a test") {
-                break;
-            }
-            if reader.read_line(&mut line).unwrap() == 0 {
-                // If it ever gets here, this assert will fail.
-                assert!(line.contains("this is a test"));
-            }
+    /// Applies this logger configuration the existing logger.
+    pub fn apply(self) -> Result<(), LoggerConfigApplyError> {
+        let mut guard = LOGGER.0.lock().unwrap();
+        if let Some(level) = self.level {
+            guard.filter.level = log::LevelFilter::from(level);
         }
 
-        // Validate logging the boot time works.
-        let mut boot_timer = BootTimer::new(TimestampUs::default());
-        boot_timer.bus_write(0, &[123]);
+        if let Some(log_path) = self.log_path {
+            let file = std::fs::OpenOptions::new()
+                .custom_flags(libc::O_NONBLOCK)
+                .read(true)
+                .write(true)
+                .open(log_path)
+                .map_err(LoggerConfigApplyError)?;
 
-        let mut line = String::new();
-        loop {
-            if line.contains("Guest-boot-time =") {
-                break;
-            }
-            if reader.read_line(&mut line).unwrap() == 0 {
-                // If it ever gets here, this assert will fail.
-                assert!(line.contains("Guest-boot-time ="));
-            }
+            guard.target = Some(file);
         }
-    }
 
-    #[test]
-    fn test_new_logger_config() {
-        let logger_config =
-            LoggerConfig::new(PathBuf::from("log"), LoggerLevel::Debug, false, true);
-        assert_eq!(logger_config.log_path, PathBuf::from("log"));
-        assert_eq!(logger_config.level, LoggerLevel::Debug);
-        assert!(!logger_config.show_level);
-        assert!(logger_config.show_log_origin);
-    }
+        if let Some(show_level) = self.show_level {
+            guard.format.show_level = show_level;
+        }
 
-    #[test]
-    fn test_parse_level() {
-        // Check `from_string()` behaviour for different scenarios.
-        assert_eq!(
-            format!(
-                "{}",
-                LoggerLevel::from_string("random_value".to_string()).unwrap_err()
-            ),
-            "random_value"
-        );
-        assert_eq!(
-            LoggerLevel::from_string("Error".to_string()).unwrap(),
-            LoggerLevel::Error
-        );
-        assert_eq!(
-            LoggerLevel::from_string("Warning".to_string()).unwrap(),
-            LoggerLevel::Warning
-        );
-        assert_eq!(
-            LoggerLevel::from_string("Info".to_string()).unwrap(),
-            LoggerLevel::Info
-        );
-        assert_eq!(
-            LoggerLevel::from_string("Debug".to_string()).unwrap(),
-            LoggerLevel::Debug
-        );
-        assert_eq!(
-            LoggerLevel::from_string("error".to_string()).unwrap(),
-            LoggerLevel::Error
-        );
-        assert_eq!(
-            LoggerLevel::from_string("WaRnIng".to_string()).unwrap(),
-            LoggerLevel::Warning
-        );
-        assert_eq!(
-            LoggerLevel::from_string("DEBUG".to_string()).unwrap(),
-            LoggerLevel::Debug
-        );
+        if let Some(show_log_origin) = self.show_log_origin {
+            guard.format.show_level = show_log_origin;
+        }
+
+        Ok(())
     }
 }

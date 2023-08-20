@@ -22,7 +22,7 @@ pub(crate) fn parse_put_logger(body: &Body) -> Result<ParsedRequest, Error> {
 mod tests {
     use std::path::PathBuf;
 
-    use vmm::vmm_config::logger::LoggerLevel;
+    use vmm::vmm_config::logger::LevelFilter;
 
     use super::*;
     use crate::parsed_request::tests::vmm_action_from_request;
@@ -37,10 +37,10 @@ mod tests {
               }"#;
 
         let mut expected_cfg = LoggerConfig {
-            log_path: PathBuf::from("log"),
-            level: LoggerLevel::Warning,
-            show_level: false,
-            show_log_origin: false,
+            log_path: Some(PathBuf::from("log")),
+            level: Some(LevelFilter::Warn),
+            show_level: Some(false),
+            show_log_origin: Some(false),
         };
         match vmm_action_from_request(parse_put_logger(&Body::new(body)).unwrap()) {
             VmmAction::ConfigureLogger(cfg) => assert_eq!(cfg, expected_cfg),
@@ -55,10 +55,10 @@ mod tests {
               }"#;
 
         expected_cfg = LoggerConfig {
-            log_path: PathBuf::from("log"),
-            level: LoggerLevel::Debug,
-            show_level: false,
-            show_log_origin: false,
+            log_path: Some(PathBuf::from("log")),
+            level: Some(LevelFilter::Debug),
+            show_level: Some(false),
+            show_log_origin: Some(false),
         };
         match vmm_action_from_request(parse_put_logger(&Body::new(body)).unwrap()) {
             VmmAction::ConfigureLogger(cfg) => assert_eq!(cfg, expected_cfg),
