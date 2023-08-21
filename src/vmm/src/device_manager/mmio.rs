@@ -478,8 +478,8 @@ mod tests {
     use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 
     use super::*;
-    use crate::builder;
     use crate::devices::virtio::{ActivateError, Queue, VirtioDevice};
+    use crate::{builder, Vm};
 
     const QUEUE_SIZES: &[u16] = &[64];
 
@@ -587,7 +587,8 @@ mod tests {
             false,
         )
         .unwrap();
-        let mut vm = builder::setup_kvm_vm(&guest_mem, false).unwrap();
+        let mut vm = Vm::new(vec![]).unwrap();
+        vm.memory_init(&guest_mem, false).unwrap();
         let mut device_manager = MMIODeviceManager::new(
             0xd000_0000,
             crate::arch::MMIO_MEM_SIZE,
@@ -616,7 +617,8 @@ mod tests {
             false,
         )
         .unwrap();
-        let mut vm = builder::setup_kvm_vm(&guest_mem, false).unwrap();
+        let mut vm = Vm::new(vec![]).unwrap();
+        vm.memory_init(&guest_mem, false).unwrap();
         let mut device_manager = MMIODeviceManager::new(
             0xd000_0000,
             crate::arch::MMIO_MEM_SIZE,
@@ -675,7 +677,8 @@ mod tests {
             false,
         )
         .unwrap();
-        let mut vm = builder::setup_kvm_vm(&guest_mem, false).unwrap();
+        let mut vm = Vm::new(vec![]).unwrap();
+        vm.memory_init(&guest_mem, false).unwrap();
 
         let mem_clone = guest_mem.clone();
 

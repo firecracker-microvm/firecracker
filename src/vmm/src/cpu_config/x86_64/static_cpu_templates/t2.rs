@@ -271,5 +271,6 @@ pub fn t2() -> CustomCpuTemplate {
             },
         ],
         msr_modifiers: vec![],
+        ..Default::default()
     }
 }

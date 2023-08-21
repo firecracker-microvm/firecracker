@@ -12,6 +12,6 @@ bench = false
 
 [dependencies]
 libc = "0.2.147"
-thiserror = "1.0.40"
+thiserror = "1.0.47"
 
 utils = { path = "../utils" }

@@ -176,6 +176,7 @@ mod tests {
     use utils::vm_memory::GuestAddress;
 
     use super::*;
+    use crate::Vm;
 
     #[test]
     fn test_register_legacy_devices() {
@@ -184,7 +185,8 @@ mod tests {
             false,
         )
         .unwrap();
-        let mut vm = crate::builder::setup_kvm_vm(&guest_mem, false).unwrap();
+        let mut vm = Vm::new(vec![]).unwrap();
+        vm.memory_init(&guest_mem, false).unwrap();
         crate::builder::setup_interrupt_controller(&mut vm).unwrap();
         let mut ldm = PortIODeviceManager::new(
             Arc::new(Mutex::new(BusDevice::Serial(SerialDevice {

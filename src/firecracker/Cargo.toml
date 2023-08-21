@@ -15,8 +15,8 @@ bench = false
 [dependencies]
 event-manager = "0.3.0"
 libc = "0.2.147"
-serde_json = "1.0.104"
-thiserror = "1.0.44"
+serde_json = "1.0.105"
+thiserror = "1.0.47"
 timerfd = "1.5.0"
 
 api_server = { path = "../api_server" }
@@ -32,7 +32,7 @@ cargo_toml = "0.15.3"
 regex = { version = "1.9.3", default-features = false, features = ["std", "unicode-perl"] }
 
 # Dev-Dependencies for uffd examples
-serde = { version = "1.0.183", features = ["derive"] }
+serde = { version = "1.0.185", features = ["derive"] }
 userfaultfd = "0.6.0"
 
 [[example]]
