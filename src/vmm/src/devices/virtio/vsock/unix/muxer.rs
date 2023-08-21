@@ -8,16 +8,15 @@
 /// device model.
 ///
 /// The vsock muxer has two main roles:
-/// 1. Vsock connection multiplexer:
-///    It's the muxer's job to create, manage, and terminate `VsockConnection` objects. The
-///    muxer also routes packets to their owning connections. It does so via a connection
-///    `HashMap`, keyed by what is basically a (host_port, guest_port) tuple.
-///    Vsock packet traffic needs to be inspected, in order to detect connection request
+/// 1. Vsock connection multiplexer: It's the muxer's job to create, manage, and terminate
+///    `VsockConnection` objects. The muxer also routes packets to their owning connections. It
+///    does so via a connection `HashMap`, keyed by what is basically a (host_port, guest_port)
+///    tuple. Vsock packet traffic needs to be inspected, in order to detect connection request
 ///    packets (leading to the creation of a new connection), and connection reset packets
 ///    (leading to the termination of an existing connection). All other packets, though, must
 ///    belong to an existing connection and, as such, the muxer simply forwards them.
-/// 2. Event dispatcher
-///    There are three event categories that the vsock backend is interested it:
+/// 2. Event dispatcher There are three event categories that the vsock backend is interested
+///    it:
 ///    1. A new host-initiated connection is ready to be accepted from the listening host Unix
 ///       socket;
 ///    2. Data is available for reading from a newly-accepted host-initiated connection (i.e.

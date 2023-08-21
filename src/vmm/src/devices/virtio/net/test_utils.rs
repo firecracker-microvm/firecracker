@@ -191,8 +191,8 @@ impl TapTrafficSimulator {
             // sizeof::<libc::sockaddr_ll>(), so to return an owned value of sockaddr_ll
             // from the stack-local libc::sockaddr_storage that we have, we need to
             // 1. Create a zeroed out libc::sockaddr_ll,
-            // 2. Copy over the first size_of::<libc::sockaddr_ll>() bytes into the struct we
-            //    want to return
+            // 2. Copy over the first size_of::<libc::sockaddr_ll>() bytes into the struct we want
+            //    to return
             // We cannot simply return "*(send_addr_ptr as *const libc::sockaddr_ll)", as this
             // would return a reference to a variable that lives in the stack frame of the current
             // function, and which will no longer be valid after returning.

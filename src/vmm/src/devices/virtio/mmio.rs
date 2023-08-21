@@ -146,9 +146,8 @@ impl MmioTransport {
         self.queue_select = 0;
         self.interrupt_status.store(0, Ordering::SeqCst);
         self.device_status = device_status::INIT;
-        // . Keep interrupt_evt and queue_evts as is. There may be pending
-        //   notifications in those eventfds, but nothing will happen other
-        //   than supurious wakeups.
+        // . Keep interrupt_evt and queue_evts as is. There may be pending notifications in those
+        //   eventfds, but nothing will happen other than supurious wakeups.
         // . Do not reset config_generation and keep it monotonically increasing
         for queue in self.locked_device().queues_mut() {
             *queue = Queue::new(queue.get_max_size());
