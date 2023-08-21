@@ -107,6 +107,7 @@ def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
     utils.run_cmd(f"sh {spectre_meltdown_checker} --explain")
 
 
+@pytest.mark.nonci
 @pytest.mark.skipif(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
@@ -129,6 +130,7 @@ def test_spectre_meltdown_checker_on_guest(
     )
 
 
+@pytest.mark.nonci
 @pytest.mark.skipif(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
@@ -156,6 +158,7 @@ def test_spectre_meltdown_checker_on_restored_guest(
     )
 
 
+@pytest.mark.nonci
 @pytest.mark.skipif(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
@@ -181,6 +184,7 @@ def test_spectre_meltdown_checker_on_guest_with_template(
     )
 
 
+@pytest.mark.nonci
 @pytest.mark.skipif(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
@@ -208,6 +212,7 @@ def test_spectre_meltdown_checker_on_guest_with_custom_template(
     )
 
 
+@pytest.mark.nonci
 @pytest.mark.skipif(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
@@ -236,6 +241,7 @@ def test_spectre_meltdown_checker_on_restored_guest_with_template(
     )
 
 
+@pytest.mark.nonci
 @pytest.mark.skipif(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
