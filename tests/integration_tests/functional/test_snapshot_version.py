@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Basic tests scenarios for snapshot save/restore."""
 
+import json
 import platform
 
 import pytest
@@ -185,5 +186,40 @@ def test_create_with_newer_virtio_features(uvm_nano):
         mem_file_path="/vm.mem",
         snapshot_path="/vm.vmstate",
         version="1.1.0",
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+
+def test_create_with_1_5_cpu_template(uvm_plain):
+    """
+    Verifies that we can't create a snapshot with target version
+    less than 1.5 if cpu template with additional vcpu features or
+    kvm capabilities is in use.
+    """
+
+    # We remove KVM_CAP_IOEVENTFD from kvm checks just for testing purpose.
+    custom_cpu_template = json.loads("""{"kvm_capabilities": ["!36"]}""")
+
+    test_microvm = uvm_plain
+    test_microvm.spawn()
+    test_microvm.basic_config(vcpu_count=2, mem_size_mib=256)
+    test_microvm.cpu_config(custom_cpu_template)
+    test_microvm.start()
+
+    test_microvm.pause()
+    # Should fail because target version is less than 1.5
+    response = test_microvm.snapshot.create(
+        mem_file_path="/vm.mem",
+        snapshot_path="/vm.vmstate",
+        version="1.4.0",
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert "Cannot translate microVM version to snapshot data version" in response.text
+
+    # Should pass because target version is 1.5
+    response = test_microvm.snapshot.create(
+        mem_file_path="/vm.mem",
+        snapshot_path="/vm.vmstate",
+        version="1.5.0",
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)

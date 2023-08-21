@@ -32,7 +32,8 @@ use crate::arch::InitrdConfig;
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
 use crate::cpu_config::templates::{
-    CpuConfiguration, GetCpuTemplate, GetCpuTemplateError, GuestConfigError,
+    CpuConfiguration, CustomCpuTemplate, GetCpuTemplate, GetCpuTemplateError, GuestConfigError,
+    KvmCapability,
 };
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager::legacy::PortIODeviceManager;
@@ -51,7 +52,6 @@ use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{MachineConfigUpdate, VmConfig, VmConfigError};
-use crate::vstate::system::KvmContext;
 use crate::vstate::vcpu::{Vcpu, VcpuConfig};
 use crate::vstate::vm::Vm;
 use crate::{device_manager, EventManager, RestoreVcpusError, Vmm, VmmError};
@@ -154,12 +154,18 @@ fn create_vmm_and_vcpus(
     uffd: Option<Uffd>,
     track_dirty_pages: bool,
     vcpu_count: u8,
+    kvm_capabilities: Vec<KvmCapability>,
 ) -> Result<(Vmm, Vec<Vcpu>), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
-    let mut vm = setup_kvm_vm(&guest_memory, track_dirty_pages)?;
+    let mut vm = Vm::new(kvm_capabilities)
+        .map_err(VmmError::Vm)
+        .map_err(StartMicrovmError::Internal)?;
+    vm.memory_init(&guest_memory, track_dirty_pages)
+        .map_err(VmmError::Vm)
+        .map_err(StartMicrovmError::Internal)?;
 
     let vcpus_exit_evt = EventFd::new(libc::EFD_NONBLOCK)
         .map_err(VmmError::EventFd)
@@ -262,6 +268,8 @@ pub fn build_microvm_for_boot(
     #[allow(unused_mut)]
     let mut boot_cmdline = boot_config.cmdline.clone();
 
+    let cpu_template = vm_resources.vm_config.cpu_template.get_cpu_template()?;
+
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
         event_manager,
@@ -269,6 +277,7 @@ pub fn build_microvm_for_boot(
         None,
         track_dirty_pages,
         vm_resources.vm_config.vcpu_count,
+        cpu_template.kvm_capabilities.clone(),
     )?;
 
     // The boot timer device needs to be the first device attached in order
@@ -310,6 +319,7 @@ pub fn build_microvm_for_boot(
         &vmm,
         vcpus.as_mut(),
         &vm_resources.vm_config,
+        &cpu_template,
         entry_addr,
         &initrd,
         boot_cmdline,
@@ -440,13 +450,14 @@ pub fn build_microvm_from_snapshot(
     })?;
 
     // Build Vmm.
-    let (mut vmm, vcpus) = create_vmm_and_vcpus(
+    let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
         event_manager,
         guest_memory.clone(),
         uffd,
         track_dirty_pages,
         vcpu_count,
+        vec![],
     )?;
 
     #[cfg(target_arch = "x86_64")]
@@ -463,11 +474,28 @@ pub fn build_microvm_from_snapshot(
         }
     }
 
+    // Restore vcpus kvm state.
     #[cfg(target_arch = "aarch64")]
     {
+        for (vcpu, state) in vcpus.iter_mut().zip(microvm_state.vcpu_states.iter()) {
+            vcpu.kvm_vcpu
+                .restore_state(vmm.vm.fd(), state)
+                .map_err(crate::vstate::vcpu::VcpuError::VcpuResponse)
+                .map_err(RestoreVcpusError::RestoreVcpuState)
+                .map_err(BuildMicrovmFromSnapshotError::RestoreVcpus)?;
+        }
         let mpidrs = construct_kvm_mpidrs(&microvm_state.vcpu_states);
         // Restore kvm vm state.
         vmm.vm.restore_state(&mpidrs, &microvm_state.vm_state)?;
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    for (vcpu, state) in vcpus.iter_mut().zip(microvm_state.vcpu_states.iter()) {
+        vcpu.kvm_vcpu
+            .restore_state(state)
+            .map_err(crate::vstate::vcpu::VcpuError::VcpuResponse)
+            .map_err(RestoreVcpusError::RestoreVcpuState)
+            .map_err(BuildMicrovmFromSnapshotError::RestoreVcpus)?;
     }
 
     // Restore kvm vm state.
@@ -508,9 +536,6 @@ pub fn build_microvm_from_snapshot(
             .ok_or(BuildMicrovmFromSnapshotError::MissingVcpuSeccompFilters)?
             .clone(),
     )?;
-
-    // Restore vcpus kvm state.
-    vmm.restore_vcpu_states(microvm_state.vcpu_states)?;
 
     let vmm = Arc::new(Mutex::new(vmm));
     event_manager.add_subscriber(vmm.clone());
@@ -637,21 +662,6 @@ where
     })
 }
 
-pub(crate) fn setup_kvm_vm(
-    guest_memory: &GuestMemoryMmap,
-    track_dirty_pages: bool,
-) -> Result<Vm, StartMicrovmError> {
-    use self::StartMicrovmError::Internal;
-    let kvm = KvmContext::new()
-        .map_err(VmmError::KvmContext)
-        .map_err(Internal)?;
-    let mut vm = Vm::new(kvm.fd()).map_err(VmmError::Vm).map_err(Internal)?;
-    vm.memory_init(guest_memory, kvm.max_memslots(), track_dirty_pages)
-        .map_err(VmmError::Vm)
-        .map_err(Internal)?;
-    Ok(vm)
-}
-
 /// Sets up the irqchip for a x86_64 microVM.
 #[cfg(target_arch = "x86_64")]
 pub fn setup_interrupt_controller(vm: &mut Vm) -> Result<(), StartMicrovmError> {
@@ -727,11 +737,7 @@ fn create_vcpus(vm: &Vm, vcpu_count: u8, exit_evt: &EventFd) -> Result<Vec<Vcpu>
     let mut vcpus = Vec::with_capacity(vcpu_count as usize);
     for cpu_idx in 0..vcpu_count {
         let exit_evt = exit_evt.try_clone().map_err(VmmError::EventFd)?;
-
         let vcpu = Vcpu::new(cpu_idx, vm, exit_evt).map_err(VmmError::VcpuCreate)?;
-        #[cfg(target_arch = "aarch64")]
-        vcpu.kvm_vcpu.init(vm.fd()).map_err(VmmError::VcpuInit)?;
-
         vcpus.push(vcpu);
     }
     Ok(vcpus)
@@ -743,13 +749,12 @@ pub fn configure_system_for_boot(
     vmm: &Vmm,
     vcpus: &mut [Vcpu],
     vm_config: &VmConfig,
+    cpu_template: &CustomCpuTemplate,
     entry_addr: GuestAddress,
     initrd: &Option<InitrdConfig>,
     boot_cmdline: LoaderKernelCmdline,
 ) -> Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
-
-    let cpu_template = vm_config.cpu_template.get_cpu_template()?;
 
     // Construct the base CpuConfiguration to apply CPU template onto.
     #[cfg(target_arch = "x86_64")]
@@ -769,6 +774,14 @@ pub fn configure_system_for_boot(
     let cpu_config = {
         use crate::arch::aarch64::regs::Aarch64RegisterVec;
         use crate::arch::aarch64::vcpu::get_registers;
+
+        for vcpu in vcpus.iter_mut() {
+            vcpu.kvm_vcpu
+                .init(vmm.vm.fd(), &cpu_template.vcpu_features)
+                .map_err(VmmError::VcpuInit)
+                .map_err(Internal)?;
+        }
+
         let mut regs = Aarch64RegisterVec::default();
         get_registers(&vcpus[0].kvm_vcpu.fd, &cpu_template.reg_list(), &mut regs)
             .map_err(GuestConfigError)?;
@@ -776,7 +789,7 @@ pub fn configure_system_for_boot(
     };
 
     // Apply CPU template to the base CpuConfiguration.
-    let cpu_config = CpuConfiguration::apply_template(cpu_config, &cpu_template)?;
+    let cpu_config = CpuConfiguration::apply_template(cpu_config, cpu_template)?;
 
     let vcpu_config = VcpuConfig {
         vcpu_count: vm_config.vcpu_count,
@@ -1057,7 +1070,8 @@ pub mod tests {
             .map_err(StartMicrovmError::Internal)
             .unwrap();
 
-        let mut vm = setup_kvm_vm(&guest_memory, false).unwrap();
+        let mut vm = Vm::new(vec![]).unwrap();
+        vm.memory_init(&guest_memory, false).unwrap();
         let mmio_device_manager = default_mmio_device_manager();
         #[cfg(target_arch = "x86_64")]
         let pio_device_manager = PortIODeviceManager::new(
@@ -1319,7 +1333,8 @@ pub mod tests {
         let guest_memory = create_guest_memory(128, false).unwrap();
 
         #[allow(unused_mut)]
-        let mut vm = setup_kvm_vm(&guest_memory, false).unwrap();
+        let mut vm = Vm::new(vec![]).unwrap();
+        vm.memory_init(&guest_memory, false).unwrap();
         let evfd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
 
         #[cfg(target_arch = "x86_64")]

@@ -50,5 +50,6 @@ pub fn build_test_template() -> CustomCpuTemplate {
                 },
             },
         ],
+        ..Default::default()
     }
 }

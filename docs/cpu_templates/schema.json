@@ -5,6 +5,32 @@
     "description": "Custom CPU template language description",
     "type": "object",
     "properties": {
+        "kvm_capabilities": {
+            "type": "array",
+            "items": {
+                "description": "Additional KVM capabilities can be added or existing (built-in) capabilities can be removed from the firecracker checks. To add KVM capability to the checklist specify decimal number of the corresponding KVM capability. To remove a KVM capability from the checklist specify decimal number of the corresponding KVM capability with '!' mark in the front. Works on both x86_64 and aarch64.",
+                "type": "string",
+                "examples": ["171", "!172"]
+            }
+        },
+        "vcpu_features": {
+            "type": "array",
+            "items": {
+                "description": "vCPU features to enable during vCPU initialization. Only for aarch64.",
+                "type": "object",
+                "properties": {
+                  "index": {
+                        "description": "Index into kvm_vcpu_init::features array. As of Linux kernel 6.4.10, only value 0 is allowed.",
+                        "type": "integer"
+                  },
+                  "bitmap": {
+                        "description": "Bitmap for modifying the 32 bit field in kvm_vcpu_init::features. Must be in the format `0b[01x]{1,32}`. Corresponding bits will be cleared (`0`), set (`1`) or left intact (`x`). (`_`) can be used as a separator.",
+                        "type": "string",
+                        "examples": ["0b1100000"]
+                  }
+                }
+            }
+        },
         "cpuid_modifiers": {
             "type": "array",
             "items": {
