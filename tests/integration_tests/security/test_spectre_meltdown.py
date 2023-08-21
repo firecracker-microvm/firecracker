@@ -33,6 +33,7 @@ def download_spectre_meltdown_checker(tmp_path_factory):
     return path
 
 
+@pytest.mark.nonci
 def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
     """
     Test with the spectre / meltdown checker on host.
@@ -42,6 +43,7 @@ def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
     utils.run_cmd(f"sh {spectre_meltdown_checker} --explain")
 
 
+@pytest.mark.nonci
 def test_spectre_meltdown_checker_on_guest(
     spectre_meltdown_checker,
     test_microvm_with_spectre_meltdown,
@@ -64,6 +66,7 @@ def test_spectre_meltdown_checker_on_guest(
     )
 
 
+@pytest.mark.nonci
 def test_spectre_meltdown_checker_on_guest_with_template(
     spectre_meltdown_checker,
     test_microvm_with_spectre_meltdown,
