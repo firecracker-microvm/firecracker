@@ -27,7 +27,7 @@ use crate::arch::aarch64::gic::GicState;
 use crate::cpu_config::templates::KvmCapability;
 
 /// Errors associated with the wrappers over KVM ioctls.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum VmError {
     /// The host kernel reports an invalid KVM API version.
     #[error("The host kernel reports an invalid KVM API version: {0}")]
@@ -106,18 +106,6 @@ pub enum VmError {
 #[cfg(target_arch = "x86_64")]
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum RestoreStateError {
-    #[error("{}", ({
-        if .0.errno() == libc::EACCES {
-            format!(
-                "Error creating KVM object. [{}]\nMake sure the user \
-                launching the firecracker process is configured on the /dev/kvm file's ACL.",
-                .0
-            )
-        } else {
-            format!("Error creating KVM object. [{}]", .0)
-        }
-    }))]
-    Kvm(kvm_ioctls::Error),
     #[error("{0}")]
     SetPit2(kvm_ioctls::Error),
     #[error("{0}")]
@@ -128,31 +116,19 @@ pub enum RestoreStateError {
     SetIrqChipPicSlave(kvm_ioctls::Error),
     #[error("{0}")]
     SetIrqChipIoAPIC(kvm_ioctls::Error),
-    #[error("Missing KVM capabilities: {0:x?}")]
-    Capabilities(u32),
+    #[error("{0}")]
+    VmError(VmError),
 }
 
 /// Error type for [`Vm::restore_state`]
 #[cfg(target_arch = "aarch64")]
 #[derive(Debug, thiserror::Error)]
 pub enum RestoreStateError {
-    #[error("{}", ({
-        if .0.errno() == libc::EACCES {
-            format!(
-                "Error creating KVM object. [{}]\nMake sure the user \
-                launching the firecracker process is configured on the /dev/kvm file's ACL.",
-                .0
-            )
-        } else {
-            format!("Error creating KVM object. [{}]", .0)
-        }
-    }))]
-    Kvm(kvm_ioctls::Error),
     /// GIC Error
     #[error("{0}")]
     GicError(crate::arch::aarch64::gic::GicError),
-    #[error("Missing KVM capabilities: {0:x?}")]
-    Capabilities(u32),
+    #[error("{0}")]
+    VmError(VmError),
 }
 
 /// A wrapper around creating and using a VM.
@@ -357,9 +333,13 @@ impl Vm {
             .restore_device(mpidrs, &state.gic)
             .map_err(RestoreStateError::GicError)?;
 
-        let kvm = Kvm::new().map_err(RestoreStateError::Kvm)?;
+        let kvm = Kvm::new()
+            .map_err(VmError::Kvm)
+            .map_err(RestoreStateError::VmError)?;
         let total_caps = Self::combine_capabilities(&state.kvm_cap_modifiers);
-        Self::check_capabilities(&kvm, &total_caps).map_err(RestoreStateError::Capabilities)?;
+        Self::check_capabilities(&kvm, &total_caps)
+            .map_err(VmError::Capabilities)
+            .map_err(RestoreStateError::VmError)?;
 
         self.kvm_cap_modifiers = state.kvm_cap_modifiers.clone();
 
@@ -432,9 +412,13 @@ impl Vm {
             .set_irqchip(&state.ioapic)
             .map_err(RestoreStateError::SetIrqChipIoAPIC)?;
 
-        let kvm = Kvm::new().map_err(RestoreStateError::Kvm)?;
+        let kvm = Kvm::new()
+            .map_err(VmError::Kvm)
+            .map_err(RestoreStateError::VmError)?;
         let total_caps = Self::combine_capabilities(&state.kvm_cap_modifiers);
-        Self::check_capabilities(&kvm, &total_caps).map_err(RestoreStateError::Capabilities)?;
+        Self::check_capabilities(&kvm, &total_caps)
+            .map_err(VmError::Capabilities)
+            .map_err(RestoreStateError::VmError)?;
 
         self.kvm_cap_modifiers = state.kvm_cap_modifiers.clone();
 
