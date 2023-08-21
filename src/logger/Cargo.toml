@@ -9,7 +9,7 @@ license = "Apache-2.0"
 lazy_static = "1.4.0"
 libc = "0.2.117"
 log = { version = "0.4.14", features = ["std"] }
-serde = { version = "1.0.136", features = ["derive", "rc"] }
+serde = { version = "1.0.185", features = ["derive", "rc"] }
 serde_json = "1.0.78"
 thiserror = "1.0.32"
 vm-superio = "0.7.0"

@@ -10,7 +10,7 @@ license = "Apache-2.0"
 [dependencies]
 clap = { version = "4.2.3", features = ["derive", "string"] }
 libc = "0.2.117"
-serde = { version = "1.0.136", features = ["derive"] }
+serde = { version = "1.0.185", features = ["derive"] }
 serde_json = "1.0.78"
 thiserror = "1.0.32"
 
