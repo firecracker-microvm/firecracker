@@ -12,73 +12,16 @@
 
 Fixtures herein are made available to every test collected by pytest. They are
 designed with the following goals in mind:
+
 - Running a test on a microvm is as easy as importing a microvm fixture.
+
 - Adding a new microvm image (kernel, rootfs) for tests to run on is as easy as
-  uploading that image to a key-value store, e.g., an s3 bucket.
-
-# Solution
-
-- Keep microvm test images in an S3 bucket, structured as follows:
-
-``` tree
-s3://<bucket-url>/img/
-    <microvm_test_image_folder_n>/
-        kernel/
-            <optional_kernel_name.>vmlinux.bin
-        fsfiles/
-            <rootfs_name>rootfs.ext4
-            <other_fsfile_n>
-            ...
-        <other_resource_n>
-        ...
-    ...
-```
-
-- Tag `<microvm_test_image_folder_n>` with the capabilities of that image:
-
-``` json
-TagSet = [{"key": "capability:<cap_name>", "value": ""}, ...]
-```
-
-- Make available fixtures that expose microvms based on any given capability.
-  For example, a test function using the fixture `test_microvm_any` should run
-  on all microvm images in the S3 bucket, while a test using the fixture
-  `test_microvm_with_net` should only run on the microvm images tagged with
-  `capability:net`. Note that a test function that uses a parameterized fixture
-  will yield one test case for every possible parameter of that fixture. For
-  example, using `test_microvm_any` in a test will create as many test cases
-  as there are microvm images in the S3 bucket.
-
-- Provide fixtures that simplify other common testing operations, like http
-  over local unix domain sockets.
-
-# Example
-
-```
-def test_with_any_microvm(test_microvm_any):
-
-    response = test_microvm_any.machine_cfg.put(
-        vcpu_count=8
-    )
-    assert(test_microvm_any.api_session.is_good_response(response.status_code))
-
-    # [...]
-
-    response = test_microvm_any.actions.put(action_type='InstanceStart')
-    assert(test_microvm_any.api_session.is_good_response(response.status_code))
-```
-
-The test above makes use of the "any" test microvm fixture, so this test will
-be run on every microvm image in the bucket, each as a separate test case.
+  creating a fixture that references some local paths
 
 # Notes
 
 - Reading up on pytest fixtures is probably needed when editing this file.
-
-# TODO
-- A fixture that allows per-test-function dependency installation.
-- Support generating fixtures with more than one capability. This is supported
-  by the MicrovmImageFetcher, but not by the fixture template.
+  https://docs.pytest.org/en/7.2.x/explanation/fixtures.html
 """
 
 import inspect
@@ -94,21 +37,15 @@ import pytest
 
 import host_tools.cargo_build as build_tools
 from framework import defs, utils
-from framework.artifacts import ArtifactCollection, DiskArtifact, FirecrackerArtifact
-from framework.defs import _test_images_s3_bucket
+from framework.artifacts import firecracker_artifacts, kernel_params, rootfs_params
 from framework.microvm import Microvm
 from framework.properties import global_props
-from framework.s3fetcher import MicrovmImageS3Fetcher
-from framework.utils import get_firecracker_version_from_toml, is_io_uring_supported
 from framework.utils_cpu_templates import (
     SUPPORTED_CPU_TEMPLATES,
     SUPPORTED_CUSTOM_CPU_TEMPLATES,
 )
 from host_tools.ip_generator import network_config, subnet_generator
 from host_tools.metrics import get_metrics_logger
-
-# Tests root directory.
-SCRIPT_FOLDER = os.path.dirname(os.path.realpath(__file__))
 
 # This codebase uses Python features available in Python 3.10 or above
 if sys.version_info < (3, 10):
@@ -120,9 +57,16 @@ if os.geteuid() != 0:
     raise PermissionError("Test session needs to be run as root.")
 
 
-ARTIFACTS_COLLECTION = ArtifactCollection(_test_images_s3_bucket())
-MICROVM_S3_FETCHER = MicrovmImageS3Fetcher(_test_images_s3_bucket())
 METRICS = get_metrics_logger()
+
+
+def pytest_addoption(parser):
+    """Pytest hook. Add command line options."""
+    parser.addoption(
+        "--perf-fail",
+        action="store_true",
+        help="fail the test if the baseline does not match",
+    )
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -225,7 +169,6 @@ def test_fc_session_root_path():
         prefix="fctest-", dir=defs.DEFAULT_TEST_SESSION_ROOT_PATH
     )
     yield fc_session_root_path
-    shutil.rmtree(fc_session_root_path)
 
 
 @pytest.fixture(scope="session")
@@ -318,20 +261,6 @@ def uffd_handler_paths(test_fc_session_root_path):
 
 
 @pytest.fixture()
-def microvm(test_fc_session_root_path, bin_cloner_path):
-    """Instantiate a microvm."""
-    # Make sure the necessary binaries are there before instantiating the
-    # microvm.
-    vm = Microvm(
-        resource_path=test_fc_session_root_path,
-        bin_cloner_path=bin_cloner_path,
-    )
-    yield vm
-    vm.kill()
-    shutil.rmtree(os.path.join(test_fc_session_root_path, vm.id))
-
-
-@pytest.fixture
 def fc_tmp_path(test_fc_session_root_path):
     """A tmp_path substitute
 
@@ -368,21 +297,24 @@ def microvm_factory(fc_tmp_path, bin_cloner_path):
             )
             self.vms.append(vm)
             if kernel is not None:
-                kernel_path = Path(kernel.local_path())
-                vm.kernel_file = kernel_path
+                vm.kernel_file = kernel
             if rootfs is not None:
-                rootfs_path = Path(rootfs.local_path())
-                rootfs_path2 = Path(vm.path) / rootfs_path.name
-                # TBD only iff ext4 / rw
-                shutil.copyfile(rootfs_path, rootfs_path2)
-                vm.rootfs_file = rootfs_path2
-                vm.ssh_config["ssh_key_path"] = rootfs.ssh_key().local_path()
+                ssh_key = rootfs.with_suffix(".id_rsa")
+                # copy only iff not a read-only rootfs
+                rootfs_path = rootfs
+                if rootfs_path.suffix != ".squashfs":
+                    rootfs_path = Path(vm.path) / rootfs.name
+                    shutil.copyfile(rootfs, rootfs_path)
+                vm.rootfs_file = rootfs_path
+                vm.ssh_key = ssh_key
             return vm
 
         def kill(self):
             """Clean up all built VMs"""
             for vm in self.vms:
                 vm.kill()
+                vm.jailer.cleanup()
+                shutil.rmtree(vm.jailer.chroot_base_with_id())
             shutil.rmtree(self.tmp_path)
 
     uvm_factory = MicroVMFactory(fc_tmp_path, bin_cloner_path)
@@ -390,71 +322,12 @@ def microvm_factory(fc_tmp_path, bin_cloner_path):
     uvm_factory.kill()
 
 
-def firecracker_id(fc):
-    """Render a nice ID for pytest parametrize."""
-    if isinstance(fc, FirecrackerArtifact):
-        return f"firecracker-{fc.version}"
-    return None
-
-
-def firecracker_artifacts(*args, **kwargs):
-    """Return all supported firecracker binaries."""
-    version = get_firecracker_version_from_toml()
-    # until the next minor version (but not including)
-    max_version = (version.major, version.minor + 1, 0)
-    params = {
-        "min_version": "1.2.0",
-        "max_version_open": ".".join(str(x) for x in max_version),
-    }
-    params.update(kwargs)
-    return ARTIFACTS_COLLECTION.firecrackers(*args, **params)
-
-
-@pytest.fixture(params=firecracker_artifacts(), ids=firecracker_id)
+@pytest.fixture(params=firecracker_artifacts())
 def firecracker_release(request, record_property):
     """Return all supported firecracker binaries."""
     firecracker = request.param
-    firecracker.download(perms=0o555)
-    firecracker.jailer().download(perms=0o555)
-    record_property("firecracker_release", firecracker.version)
+    record_property("firecracker_release", firecracker.name)
     return firecracker
-
-
-@pytest.fixture(params=ARTIFACTS_COLLECTION.kernels(), ids=lambda kernel: kernel.name())
-def guest_kernel(request, record_property):
-    """Return all supported guest kernels."""
-    kernel = request.param
-    # linux-major.minor
-    kernel.prop = "linux-" + kernel.name().removesuffix(".bin").split("-")[-1]
-    record_property("guest_kernel", kernel.prop)
-    kernel.download()
-    return kernel
-
-
-@pytest.fixture(params=ARTIFACTS_COLLECTION.disks("ubuntu"), ids=lambda fs: fs.name())
-def rootfs(request, record_property):
-    """Return all supported rootfs."""
-    fs = request.param
-    record_property("rootfs", fs.name())
-    fs.download()
-    fs.ssh_key().download()
-    return fs
-
-
-@pytest.fixture(
-    params=ARTIFACTS_COLLECTION.disks("bionic-msrtools"),
-    ids=lambda fs: fs.name() if isinstance(fs, DiskArtifact) else None,
-)
-def rootfs_msrtools(request, record_property):
-    """Common disk fixture for tests needing msrtools
-
-    When we regenerate the rootfs, we should include this always
-    """
-    fs = request.param
-    record_property("rootfs", fs.name())
-    fs.download()
-    fs.ssh_key().download()
-    return fs
 
 
 @pytest.fixture(params=SUPPORTED_CPU_TEMPLATES)
@@ -467,40 +340,14 @@ def cpu_template(request, record_property):
 @pytest.fixture(params=SUPPORTED_CUSTOM_CPU_TEMPLATES)
 def custom_cpu_template(request, record_property):
     """Return all dummy custom CPU templates supported by the vendor."""
-    record_property("custom_cpu_template", request.param)
+    record_property("custom_cpu_template", request.param["name"])
     return request.param
-
-
-TEST_MICROVM_CAP_FIXTURE_TEMPLATE = (
-    "@pytest.fixture("
-    "    params=MICROVM_S3_FETCHER.list_microvm_images(\n"
-    "        capability_filter=['CAP']\n"
-    "    )\n"
-    ")\n"
-    "def test_microvm_with_CAP(request, microvm):\n"
-    "    MICROVM_S3_FETCHER.init_vm_resources(\n"
-    "        request.param, microvm\n"
-    "    )\n"
-    "    yield microvm"
-)
-
-# To make test writing easy, we want to dynamically create fixtures with all
-# capabilities present in the test microvm images bucket. `pytest` doesn't
-# provide a way to do that outright, but luckily all of python is just lists of
-# of lists and a cursor, so exec() works fine here.
-for capability in MICROVM_S3_FETCHER.enum_capabilities():
-    TEST_MICROVM_CAP_FIXTURE = TEST_MICROVM_CAP_FIXTURE_TEMPLATE.replace(
-        "CAP", capability
-    )
-    # pylint: disable=exec-used
-    # This is the most straightforward way to achieve this result.
-    exec(TEST_MICROVM_CAP_FIXTURE)
 
 
 @pytest.fixture(params=["Sync", "Async"])
 def io_engine(request):
     """All supported io_engines"""
-    if request.param == "Async" and not is_io_uring_supported():
+    if request.param == "Async" and not utils.is_io_uring_supported():
         pytest.skip("io_uring not supported in this kernel")
     return request.param
 
@@ -523,3 +370,98 @@ def results_dir(request):
     results_dir = defs.TEST_RESULTS_DIR / request.node.originalname
     results_dir.mkdir(parents=True, exist_ok=True)
     return results_dir
+
+
+def guest_kernel_fxt(request, record_property):
+    """Return all supported guest kernels."""
+    kernel = request.param
+    # vmlinux-5.10.167 -> linux-5.10
+    prop = kernel.stem[2:]
+    record_property("guest_kernel", prop)
+    return kernel
+
+
+def rootfs_fxt(request, record_property):
+    """Return all supported rootfs."""
+    fs = request.param
+    record_property("rootfs", fs.name)
+    return fs
+
+
+# Fixtures for all guest kernels, and specific versions
+guest_kernel = pytest.fixture(guest_kernel_fxt, params=kernel_params("vmlinux-*"))
+guest_kernel_linux_4_14 = pytest.fixture(
+    guest_kernel_fxt, params=kernel_params("vmlinux-4.14*")
+)
+guest_kernel_linux_5_10 = pytest.fixture(
+    guest_kernel_fxt, params=kernel_params("vmlinux-5.10*")
+)
+
+# Fixtures for all Ubuntu rootfs, and specific versions
+rootfs = pytest.fixture(rootfs_fxt, params=rootfs_params("*.squashfs"))
+rootfs_ubuntu_22 = pytest.fixture(
+    rootfs_fxt, params=rootfs_params("ubuntu-22*.squashfs")
+)
+rootfs_rw = pytest.fixture(rootfs_fxt, params=rootfs_params("*.ext4"))
+
+
+@pytest.fixture
+def uvm_plain(microvm_factory, guest_kernel_linux_5_10, rootfs_ubuntu_22):
+    """Create a vanilla VM, non-parametrized
+    kernel: 5.10
+    rootfs: Ubuntu 22.04
+    """
+    return microvm_factory.build(guest_kernel_linux_5_10, rootfs_ubuntu_22)
+
+
+@pytest.fixture
+def uvm_plain_rw(microvm_factory, guest_kernel_linux_5_10, rootfs_rw):
+    """Create a vanilla VM, non-parametrized
+    kernel: 5.10
+    rootfs: Ubuntu 22.04
+    """
+    return microvm_factory.build(guest_kernel_linux_5_10, rootfs_rw)
+
+
+@pytest.fixture
+def uvm_nano(uvm_plain):
+    """A preconfigured uvm with 2vCPUs and 256MiB of memory
+    ready to .start()
+    """
+    uvm_plain.spawn()
+    uvm_plain.basic_config(vcpu_count=2, mem_size_mib=256)
+    return uvm_plain
+
+
+@pytest.fixture()
+def artifact_dir():
+    """Return the location of the CI artifacts"""
+    return defs.ARTIFACT_DIR
+
+
+@pytest.fixture
+def uvm_with_initrd(
+    microvm_factory, guest_kernel_linux_5_10, record_property, artifact_dir
+):
+    """
+    See file:../docs/initrd.md
+    """
+    fs = artifact_dir / "initramfs.cpio"
+    record_property("rootfs", fs.name)
+    uvm = microvm_factory.build(guest_kernel_linux_5_10)
+    uvm.initrd_file = fs
+    yield uvm
+
+
+@pytest.fixture
+def uvm_legacy(microvm_factory, record_property, artifact_dir):
+    """vm with legacy artifacts (old kernel, Ubuntu 18.04 rootfs)"""
+    kernel = artifact_dir / "legacy/vmlinux.bin"
+    fs = artifact_dir / "legacy/bionic-msrtools.ext4"
+    record_property("kernel", kernel.name)
+    record_property("rootfs", fs.name)
+    yield microvm_factory.build(kernel, fs)
+
+
+# backwards compatibility
+test_microvm_with_api = uvm_plain

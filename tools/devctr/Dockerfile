@@ -24,6 +24,8 @@ RUN apt-get update \
     && apt-get -y install --no-install-recommends \
         # essential build tools
         gcc make libc-dev binutils-dev libssl-dev \
+        # Useful utilifies
+        gdbserver \
         # Needed in order to be able to compile `userfaultfd-sys`.
         clang \
         curl \
@@ -51,10 +53,6 @@ RUN apt-get update \
         tini \
         # for mdl
         ruby \
-        # for building kernel
-        flex \
-        bison \
-        bc \
         # for cpu-template-helper
         # TODO: Remove `dmidecode` after the end of kernel 4.14 support.
         # https://github.com/firecracker-microvm/firecracker/issues/3677
@@ -97,6 +95,14 @@ RUN mkdir "$TMP_BUILD_DIR" && cd "$TMP_BUILD_DIR" \
     && cp src/iperf3 /usr/local/bin/iperf3-vsock \
     && cd / \
     && rm -rf "$TMP_BUILD_DIR"
+
+# Download the codecov.io uploader
+RUN cd /usr/local/bin \
+    && (if [ "$ARCH" = "x86_64" ]; then  \
+      curl -O https://uploader.codecov.io/latest/linux/codecov; else \
+      curl -O https://uploader.codecov.io/latest/aarch64/codecov; fi) \
+    && chmod +x codecov \
+    && cd -
 
 ADD tools/devctr/ctr_gitconfig /root/.gitconfig
 

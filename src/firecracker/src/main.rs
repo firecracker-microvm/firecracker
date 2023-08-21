@@ -77,9 +77,10 @@ impl From<MainError> for ExitCode {
 
 fn main() -> ExitCode {
     let result = main_exec();
-    if let Err(e) = result {
-        error!("{}", e);
-        e.into()
+    if let Err(err) = result {
+        error!("{err}");
+        eprintln!("Error: {err:?}");
+        ExitCode::from(err)
     } else {
         ExitCode::SUCCESS
     }

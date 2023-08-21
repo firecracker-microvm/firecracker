@@ -14,7 +14,7 @@ MAX_DEVICES_ATTACHED = 19
 @pytest.mark.skipif(
     platform.machine() != "x86_64", reason="Firecracker supports 24 IRQs on x86_64."
 )
-def test_attach_maximum_devices(test_microvm_with_api, network_config):
+def test_attach_maximum_devices(test_microvm_with_api):
     """
     Test attaching maximum number of devices to the microVM.
     """
@@ -26,28 +26,21 @@ def test_attach_maximum_devices(test_microvm_with_api, network_config):
 
     # Add (`MAX_DEVICES_ATTACHED` - 1) devices because the rootfs
     # has already been configured in the `basic_config()`function.
-    guest_ips = []
-    for i in range(MAX_DEVICES_ATTACHED - 1):
-        # Create tap before configuring interface.
-        _tap, _host_ip, guest_ip = test_microvm.ssh_network_config(
-            network_config, str(i)
-        )
-        guest_ips.append(guest_ip)
-
+    for _ in range(MAX_DEVICES_ATTACHED - 1):
+        test_microvm.add_net_iface()
     test_microvm.start()
 
     # Test that network devices attached are operational.
     for i in range(MAX_DEVICES_ATTACHED - 1):
-        test_microvm.ssh_config["hostname"] = guest_ips[i]
         # Verify if guest can run commands.
-        exit_code, _, _ = test_microvm.ssh.execute_command("sync")
+        exit_code, _, _ = test_microvm.ssh_iface(i).run("sync")
         assert exit_code == 0
 
 
 @pytest.mark.skipif(
     platform.machine() != "x86_64", reason="Firecracker supports 24 IRQs on x86_64."
 )
-def test_attach_too_many_devices(test_microvm_with_api, network_config):
+def test_attach_too_many_devices(test_microvm_with_api):
     """
     Test attaching to a microVM more devices than available IRQs.
     """
@@ -59,11 +52,8 @@ def test_attach_too_many_devices(test_microvm_with_api, network_config):
 
     # Add `MAX_DEVICES_ATTACHED` network devices on top of the
     # already configured rootfs.
-    for i in range(MAX_DEVICES_ATTACHED):
-        # Create tap before configuring interface.
-        _tap, _host_ip, _guest_ip = test_microvm.ssh_network_config(
-            network_config, str(i)
-        )
+    for _ in range(MAX_DEVICES_ATTACHED):
+        test_microvm.add_net_iface()
 
     # Attempting to start a microVM with more than
     # `MAX_DEVICES_ATTACHED` devices should fail.

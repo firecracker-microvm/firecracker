@@ -3,15 +3,14 @@
 """Basic tests scenarios for snapshot save/restore."""
 
 import json
-import logging
 import os
 import platform
 
 import pytest
 
 import host_tools.logging as log_tools
-from framework.artifacts import NetIfaceConfig
-from framework.builder import MicrovmBuilder, SnapshotBuilder
+from framework.artifacts import kernel_params
+from framework.properties import global_props
 from framework.stats import consumer, producer, types
 from framework.utils import CpuMap
 
@@ -28,32 +27,31 @@ LATENCY_MEASUREMENT = types.MeasurementDef.create_measurement(
     {},
 )
 
+# The guest kernel does not "participate" in snapshot restore, so just pick
+# some arbitrary one
+only_one_guest_kernel = pytest.mark.parametrize(
+    "guest_kernel", list(kernel_params("vmlinux-4.14*")), indirect=True
+)
 
-def snapshot_create_producer(logger, vm, disks, ssh_key, target_version, metrics_fifo):
+
+def snapshot_create_producer(vm, target_version, metrics_fifo):
     """Produce results for snapshot create tests."""
-    snapshot_builder = SnapshotBuilder(vm)
-    snapshot_builder.create(
-        disks=disks,
-        ssh_key=ssh_key,
-        target_version=target_version,
-        use_ramdisk=True,
-    )
+    vm.snapshot_full(target_version=target_version)
     metrics = vm.flush_metrics(metrics_fifo)
 
     value = metrics["latencies_us"]["full_create_snapshot"] / USEC_IN_MSEC
 
-    logger.info("Latency {} ms".format(value))
+    print(f"Latency {value} ms")
 
     return value
 
 
-def snapshot_resume_producer(logger, vm_builder, snapshot, use_ramdisk):
+def snapshot_resume_producer(microvm_factory, snapshot, metrics_fifo):
     """Produce results for snapshot resume tests."""
-    microvm, metrics_fifo = vm_builder.build_from_snapshot(
-        snapshot,
-        resume=True,
-        use_ramdisk=use_ramdisk,
-    )
+
+    microvm = microvm_factory.build()
+    microvm.spawn()
+    microvm.restore_from_snapshot(snapshot, resume=True)
 
     # Attempt to connect to resumed microvm.
     # Verify if guest can run commands.
@@ -70,10 +68,11 @@ def snapshot_resume_producer(logger, vm_builder, snapshot, use_ramdisk):
             value = cur_value
             break
 
-    logger.info("Latency {} ms".format(value))
+    print("Latency {value} ms")
     return value
 
 
+@only_one_guest_kernel
 def test_older_snapshot_resume_latency(
     microvm_factory,
     guest_kernel,
@@ -81,7 +80,6 @@ def test_older_snapshot_resume_latency(
     firecracker_release,
     io_engine,
     st_core,
-    bin_cloner_path,
 ):
     """
     Test scenario: Older snapshot load performance measurement.
@@ -90,37 +88,30 @@ def test_older_snapshot_resume_latency(
     restore in current version.
     """
 
-    # The guest kernel does not "participate" in snapshot restore, so just pick some
-    # arbitrary one
-    if "4.14" not in guest_kernel.name():
-        pytest.skip()
-
-    logger = logging.getLogger("old_snapshot_load")
-    jailer = firecracker_release.jailer()
-    fc_version = firecracker_release.base_name()[1:]
-    logger.info("Firecracker version: %s", fc_version)
-    logger.info("Source Firecracker: %s", firecracker_release.local_path())
-    logger.info("Source Jailer: %s", jailer.local_path())
+    # due to bug fixed in commit 8dab78b
+    firecracker_version = firecracker_release.version_tuple
+    if global_props.instance == "m6a.metal" and firecracker_version < (1, 3, 3):
+        pytest.skip("incompatible with AMD and Firecracker <1.3.3")
 
     vcpus, guest_mem_mib = 2, 512
     microvm_cfg = f"{vcpus}vcpu_{guest_mem_mib}mb.json"
-    vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
-    vm.spawn()
+    vm = microvm_factory.build(
+        guest_kernel,
+        rootfs,
+        monitor_memory=False,
+        fc_binary_path=firecracker_release.path,
+        jailer_binary_path=firecracker_release.jailer,
+    )
+    metrics_fifo_path = os.path.join(vm.path, "metrics_fifo")
+    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
+    vm.spawn(metrics_path=metrics_fifo_path)
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=guest_mem_mib)
-    iface = NetIfaceConfig()
-    vm.add_net_iface(iface)
+    vm.add_net_iface()
     vm.start()
-
     # Check if guest works.
     exit_code, _, _ = vm.ssh.execute_command("ls")
     assert exit_code == 0
-
-    # The snapshot builder expects disks as paths, not artifacts.
-    disks = [vm.rootfs_file]
-    # Create a snapshot builder from a microvm.
-    snapshot_builder = SnapshotBuilder(vm)
-    snapshot = snapshot_builder.create(disks, rootfs.ssh_key(), net_ifaces=[iface])
-    vm.kill()
+    snapshot = vm.snapshot_full()
 
     st_core.name = "older_snapshot_resume_latency"
     st_core.iterations = SAMPLE_COUNT
@@ -131,10 +122,9 @@ def test_older_snapshot_resume_latency(
     prod = producer.LambdaProducer(
         func=snapshot_resume_producer,
         func_kwargs={
-            "logger": logger,
-            "vm_builder": MicrovmBuilder(bin_cloner_path),
+            "microvm_factory": microvm_factory,
             "snapshot": snapshot,
-            "use_ramdisk": False,
+            "metrics_fifo": metrics_fifo,
         },
     )
 
@@ -151,46 +141,26 @@ def test_older_snapshot_resume_latency(
     st_core.run_exercise()
 
 
+@only_one_guest_kernel
 def test_snapshot_create_latency(
     microvm_factory,
     guest_kernel,
     rootfs,
-    firecracker_release,
     st_core,
 ):
-    """
-    Test scenario: Full snapshot create performance measurement.
-
-    Testing matrix:
-    - Guest kernel: all supported ones
-    - Rootfs: Ubuntu 18.04
-    - Microvm: 2vCPU with 512 MB RAM
-    """
-
-    # The guest kernel does not "participate" in snapshot restore, so just pick some
-    # arbitrary one
-    if "4.14" not in guest_kernel.name():
-        pytest.skip()
-
-    logger = logging.getLogger("snapshot_sequence")
+    """Measure the latency of creating a Full snapshot"""
 
     guest_mem_mib = 512
     vcpus = 2
     microvm_cfg = f"{vcpus}vcpu_{guest_mem_mib}mb.json"
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
-    vm.spawn(use_ramdisk=True)
+    metrics_fifo_path = os.path.join(vm.path, "metrics_fifo")
+    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
+    vm.spawn(metrics_path=metrics_fifo_path)
     vm.basic_config(
         vcpu_count=vcpus,
         mem_size_mib=guest_mem_mib,
-        use_initrd=True,
     )
-
-    # Configure metrics system.
-    metrics_fifo_path = os.path.join(vm.path, "metrics_fifo")
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    response = vm.metrics.put(metrics_path=vm.create_jailed_resource(metrics_fifo.path))
-    assert vm.api_session.is_status_no_content(response.status_code)
-
     vm.start()
 
     # Check if the needed CPU cores are available. We have the API
@@ -216,11 +186,8 @@ def test_snapshot_create_latency(
     prod = producer.LambdaProducer(
         func=snapshot_create_producer,
         func_kwargs={
-            "logger": logger,
             "vm": vm,
-            "disks": [vm.rootfs_file],
-            "ssh_key": rootfs.ssh_key(),
-            "target_version": firecracker_release.snapshot_version,
+            "target_version": None,
             "metrics_fifo": metrics_fifo,
         },
     )

@@ -9,6 +9,7 @@ import logging
 import os
 import platform
 import re
+import signal
 import subprocess
 import threading
 import time
@@ -396,10 +397,10 @@ def get_free_mem_ssh(ssh_connection):
     _, stdout, stderr = ssh_connection.execute_command(
         "cat /proc/meminfo | grep MemAvailable"
     )
-    assert stderr.read() == ""
+    assert stderr == ""
 
     # Split "MemAvailable:   123456 kB" and validate it
-    meminfo_data = stdout.read().split()
+    meminfo_data = stdout.split()
     if len(meminfo_data) == 3:
         # Return the middle element in the array
         return int(meminfo_data[1])
@@ -540,8 +541,8 @@ def summarize_cpu_percent(cpu_percentages: dict):
 def run_guest_cmd(ssh_connection, cmd, expected, use_json=False):
     """Runs a shell command at the remote accessible via SSH"""
     _, stdout, stderr = ssh_connection.execute_command(cmd)
-    assert stderr.read() == ""
-    stdout = stdout.read() if not use_json else json.loads(stdout.read())
+    assert stderr == ""
+    stdout = stdout if not use_json else json.loads(stdout)
     assert stdout == expected
 
 
@@ -564,7 +565,7 @@ def get_firecracker_version_from_toml():
     """
     Return the version of the firecracker crate, from Cargo.toml.
 
-    Usually different from the output of `./firecracker --version`, if
+    Should be the same as the output of `./firecracker --version`, if
     the code has not been released.
     """
     cmd = "cd ../src/firecracker && cargo pkgid | cut -d# -f2 | cut -d: -f2"
@@ -604,37 +605,6 @@ def sanitize_version(version):
     return version.split("-", 1)[0]
 
 
-def compare_dirty_versions(first, second):
-    """
-    Compare two versions out of which one is dirty.
-
-    We do not allow both versions to be dirty, because dirty info
-    does not reveal any ordering information.
-
-    :param first: first version string
-    :param second: second version string
-    :returns: 0 if equal, <0 if first < second, >0 if second < first
-    """
-    is_first_dirty = "-" in first
-    first = sanitize_version(first)
-
-    is_second_dirty = "-" in second
-    second = sanitize_version(second)
-
-    if is_first_dirty and is_second_dirty:
-        raise ValueError
-
-    diff = compare_versions(first, second)
-    if diff != 0:
-        return diff
-    if is_first_dirty:
-        return 1
-    if is_second_dirty:
-        return -1
-
-    return diff
-
-
 def get_kernel_version(level=2):
     """Return the current kernel version in format `major.minor.patch`."""
     linux_version = platform.release()
@@ -664,7 +634,7 @@ def generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl):
     cmd += ' -H  "X-metadata-token-ttl-seconds: {}"'.format(token_ttl)
     cmd += " http://{}/latest/api/token".format(ipv4_address)
     _, stdout, _ = ssh_connection.execute_command(cmd)
-    token = stdout.read()
+    token = stdout
 
     return token
 
@@ -776,21 +746,23 @@ def guest_run_fio_iteration(ssh_connection, iteration):
         iteration
     )
     exit_code, _, stderr = ssh_connection.execute_command(fio)
-    assert exit_code == 0, stderr.read()
+    assert exit_code == 0, stderr
 
 
 def check_filesystem(ssh_connection, disk_fmt, disk):
     """Check for filesystem corruption inside a microVM."""
+    if disk_fmt == "squashfs":
+        return
     cmd = "fsck.{} -n {}".format(disk_fmt, disk)
     exit_code, _, stderr = ssh_connection.execute_command(cmd)
-    assert exit_code == 0, stderr.read()
+    assert exit_code == 0, stderr
 
 
 def check_entropy(ssh_connection):
     """Check that we can get random numbers from /dev/hwrng"""
     cmd = "dd if=/dev/hwrng of=/dev/null bs=4096 count=1"
     exit_code, _, stderr = ssh_connection.execute_command(cmd)
-    assert exit_code == 0, stderr.read()
+    assert exit_code == 0, stderr
 
 
 @retry(delay=0.5, tries=5)
@@ -801,3 +773,27 @@ def wait_process_running(process):
     a running state and will otherwise raise an exception.
     """
     assert process.is_running()
+
+
+class Timeout:
+    """
+    A Context Manager to timeout sections of code.
+
+    >>> with Timeout(30):
+    >>>     time.sleep(35)
+    """
+
+    def __init__(self, seconds, msg="Timed out"):
+        self.seconds = seconds
+        self.msg = msg
+
+    def handle_timeout(self, signum, frame):
+        """Handle SIGALRM signal"""
+        raise TimeoutError()
+
+    def __enter__(self):
+        signal.signal(signal.SIGALRM, self.handle_timeout)
+        signal.alarm(self.seconds)
+
+    def __exit__(self, _type, _value, _traceback):
+        signal.alarm(0)

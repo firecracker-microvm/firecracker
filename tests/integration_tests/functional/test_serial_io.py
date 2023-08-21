@@ -11,8 +11,6 @@ import time
 
 import host_tools.logging as log_tools
 from framework import utils
-from framework.artifacts import SnapshotType
-from framework.builder import MicrovmBuilder, SnapshotBuilder
 from framework.microvm import Serial
 from framework.state_machine import TestState
 
@@ -48,50 +46,42 @@ class TestFinished(TestState):  # pylint: disable=too-few-public-methods
         return self
 
 
-def test_serial_after_snapshot(bin_cloner_path):
+def test_serial_after_snapshot(uvm_plain, microvm_factory):
     """
     Serial I/O after restoring from a snapshot.
     """
-    vm_builder = MicrovmBuilder(bin_cloner_path)
-    vm_instance = vm_builder.build_vm_nano(
-        daemonize=False,
+    microvm = uvm_plain
+    microvm.jailer.daemonize = False
+    microvm.spawn()
+    microvm.basic_config(
+        vcpu_count=2,
+        mem_size_mib=256,
+        boot_args="console=ttyS0 reboot=k panic=1 pci=off",
     )
-    microvm = vm_instance.vm
-    root_disk = vm_instance.disks[0]
-    ssh_key = vm_instance.ssh_key
-
     serial = Serial(microvm)
     serial.open()
     microvm.start()
 
-    # Image used for tests on aarch64 has autologon
-    if PLATFORM == "x86_64":
-        serial.rx(token="login: ")
-        serial.tx("root")
-        serial.rx("Password: ")
-        serial.tx("root")
-    # Make sure that at the time we snapshot the vm, the user is logged in.
-    serial.rx("#")
-
-    snapshot_builder = SnapshotBuilder(microvm)
+    # looking for the # prompt at the end
+    serial.rx("ubuntu-fc-uvm:~#")
 
     # Create snapshot.
-    snapshot = snapshot_builder.create(
-        [root_disk.local_path()], ssh_key, SnapshotType.FULL
-    )
+    snapshot = microvm.snapshot_full()
     # Kill base microVM.
     microvm.kill()
 
     # Load microVM clone from snapshot.
-    test_microvm, _ = vm_builder.build_from_snapshot(
-        snapshot, resume=True, daemonize=False
-    )
-    serial = Serial(test_microvm)
+    vm = microvm_factory.build()
+    vm.jailer.daemonize = False
+    vm.spawn()
+    vm.restore_from_snapshot(snapshot, resume=True)
+    serial = Serial(vm)
     serial.open()
     # We need to send a newline to signal the serial to flush
     # the login content.
     serial.tx("")
-    serial.rx("#")
+    # looking for the # prompt at the end
+    serial.rx("ubuntu-fc-uvm:~#")
     serial.tx("pwd")
     res = serial.rx("#")
     assert "/root" in res
@@ -152,7 +142,6 @@ def test_serial_dos(test_microvm_with_api):
     microvm = test_microvm_with_api
     microvm.jailer.daemonize = False
     microvm.spawn()
-    microvm.memory_events_queue = None
 
     # Set up the microVM with 1 vCPU and a serial console.
     microvm.basic_config(
@@ -177,7 +166,7 @@ def test_serial_dos(test_microvm_with_api):
     )
 
 
-def test_serial_block(test_microvm_with_api, network_config):
+def test_serial_block(test_microvm_with_api):
     """
     Test that writing to stdout never blocks the vCPU thread.
     """
@@ -191,8 +180,7 @@ def test_serial_block(test_microvm_with_api, network_config):
         mem_size_mib=512,
         boot_args="console=ttyS0 reboot=k panic=1 pci=off",
     )
-
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, "1")
+    test_microvm.add_net_iface()
 
     # Configure the metrics.
     metrics_fifo_path = os.path.join(test_microvm.path, "metrics_fifo")
@@ -214,11 +202,11 @@ def test_serial_block(test_microvm_with_api, network_config):
 
     # Generate a random text file.
     exit_code, _, _ = test_microvm.ssh.execute_command(
-        "base64 /dev/urandom | head -c 100000 > file.txt"
+        "base64 /dev/urandom | head -c 100000 > /tmp/file.txt"
     )
 
     # Dump output to terminal
-    exit_code, _, _ = test_microvm.ssh.execute_command("cat file.txt > /dev/ttyS0")
+    exit_code, _, _ = test_microvm.ssh.execute_command("cat /tmp/file.txt > /dev/ttyS0")
     assert exit_code == 0
 
     # Check that the vCPU isn't blocked.
@@ -231,3 +219,29 @@ def test_serial_block(test_microvm_with_api, network_config):
 
     # Should be significantly more than before the `cat` command.
     assert last_count - init_count > 10000
+
+
+REGISTER_FAILED_WARNING = "Failed to register serial input fd: event_manager: failed to manage epoll file descriptor: Operation not permitted (os error 1)"
+
+
+def test_no_serial_fd_error_when_daemonized(uvm_plain):
+    """
+    Tests that when running firecracker daemonized, the serial device
+    does not try to register stdin to epoll (which would fail due to stdin no
+    longer being pointed at a terminal).
+
+    Regression test for #4037.
+    """
+
+    test_microvm = uvm_plain
+    test_microvm.spawn()
+    test_microvm.add_net_iface()
+    test_microvm.basic_config(
+        vcpu_count=1,
+        mem_size_mib=512,
+    )
+    test_microvm.start()
+
+    test_microvm.ssh.run("true")
+
+    assert REGISTER_FAILED_WARNING not in test_microvm.log_data

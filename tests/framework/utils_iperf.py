@@ -50,6 +50,7 @@ class IPerf3Test:
         self._connect_to = connect_to  # the "host" value to pass to "--client"
         self._payload_length = payload_length  # the value to pass to "--len"
         self._iperf = iperf
+        self._guest_iperf = iperf
 
     def run_test(self, first_free_cpu):
         """Runs the performance test, using pinning the iperf3 servers to CPUs starting from `first_free_cpu`"""
@@ -111,14 +112,14 @@ class IPerf3Test:
         )
         rc, stdout, stderr = self._microvm.ssh.execute_command(pinned_cmd)
 
-        assert rc == 0, stderr.read()
+        assert rc == 0, stderr
 
-        return stdout.read()
+        return stdout
 
     def guest_command(self, port_offset):
         """Builds the command used for spawning an iperf3 client in the guest"""
         cmd = (
-            CmdBuilder(self._iperf)
+            CmdBuilder(self._guest_iperf)
             .with_arg("--time", self._runtime)
             .with_arg("--json")
             .with_arg("--omit", self._omit)

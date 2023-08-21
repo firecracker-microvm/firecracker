@@ -78,11 +78,11 @@ def test_generic_signal_handler(test_microvm_with_api, signum):
         assert metric_line["signals"][signum_str[signum]] == 1
 
 
-def test_sigxfsz_handler(test_microvm_with_api):
+def test_sigxfsz_handler(uvm_plain_rw):
     """
     Test intercepting and handling SIGXFSZ.
     """
-    microvm = test_microvm_with_api
+    microvm = uvm_plain_rw
     microvm.spawn()
 
     # We don't need to monitor the memory for this test.
@@ -130,7 +130,7 @@ def test_sigxfsz_handler(test_microvm_with_api):
     assert metric_line["signals"]["sigxfsz"] == 1
 
 
-def test_handled_signals(test_microvm_with_api, network_config):
+def test_handled_signals(test_microvm_with_api):
     """
     Test that handled signals don't kill the microVM.
     """
@@ -141,10 +141,7 @@ def test_handled_signals(test_microvm_with_api, network_config):
     microvm.memory_monitor = None
 
     microvm.basic_config(vcpu_count=2)
-
-    # Configure a network interface.
-    _tap, _, _ = microvm.ssh_network_config(network_config, "1")
-
+    microvm.add_net_iface()
     microvm.start()
     firecracker_pid = int(microvm.jailer_clone_pid)
 
@@ -152,8 +149,8 @@ def test_handled_signals(test_microvm_with_api, network_config):
     # Just validate a simple command: `nproc`
     cmd = "nproc"
     _, stdout, stderr = microvm.ssh.execute_command(cmd)
-    assert stderr.read() == ""
-    assert int(stdout.read()) == 2
+    assert stderr == ""
+    assert int(stdout) == 2
 
     # We have a handler installed for this signal.
     # The 35 is the SIGRTMIN for musl libc.
@@ -163,5 +160,5 @@ def test_handled_signals(test_microvm_with_api, network_config):
 
     # Validate the microVM is still up and running.
     _, stdout, stderr = microvm.ssh.execute_command(cmd)
-    assert stderr.read() == ""
-    assert int(stdout.read()) == 2
+    assert stderr == ""
+    assert int(stdout) == 2

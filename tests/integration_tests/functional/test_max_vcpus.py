@@ -5,7 +5,7 @@
 MAX_VCPUS = 32
 
 
-def test_max_vcpus(test_microvm_with_api, network_config):
+def test_max_vcpus(test_microvm_with_api):
     """
     Test if all configured guest vcpus are online.
     """
@@ -14,11 +14,10 @@ def test_max_vcpus(test_microvm_with_api, network_config):
 
     # Configure a microVM with 32 vCPUs.
     microvm.basic_config(vcpu_count=MAX_VCPUS)
-    _tap, _, _ = microvm.ssh_network_config(network_config, "1")
-
+    microvm.add_net_iface()
     microvm.start()
 
     cmd = "nproc"
     _, stdout, stderr = microvm.ssh.execute_command(cmd)
-    assert stderr.read() == ""
-    assert int(stdout.read()) == MAX_VCPUS
+    assert stderr == ""
+    assert int(stdout) == MAX_VCPUS
