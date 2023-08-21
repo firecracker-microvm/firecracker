@@ -35,6 +35,24 @@ def get_os_version():
     return match.group(1)
 
 
+def get_host_os(kv: str = None):
+    """
+    Extract OS information from the kernel if it's there.
+
+    This only works for AL2 and AL2023
+
+    >>> get_host_os("6.1.41-63.118.amzn2023.x86_64")
+    amzn2023
+    """
+    if kv is None:
+        kv = platform.release()
+    parts = kv.split("-")
+    misc = parts[1].split(".")
+    if len(misc) > 2 and misc[2] in {"amzn2", "amzn2023"}:
+        return misc[2]
+    return None
+
+
 class GlobalProps:
     """Class to hold metadata about the testrun environment"""
 
@@ -52,6 +70,7 @@ class GlobalProps:
         # major.minor.patch
         self.host_linux_patch = get_kernel_version(2)
         self.os = get_os_version()
+        self.host_os = get_host_os()
         self.libc_ver = "-".join(platform.libc_ver())
         self.git_commit_id = run_cmd("git rev-parse HEAD")
         self.git_branch = run_cmd("git show -s --pretty=%D HEAD")

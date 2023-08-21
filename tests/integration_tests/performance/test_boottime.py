@@ -26,6 +26,7 @@ DEFAULT_BOOT_ARGS = (
 DIMENSIONS = {
     "instance": global_props.instance,
     "cpu_model": global_props.cpu_model,
+    "host_os": global_props.host_os,
     "host_kernel": "linux-" + global_props.host_linux_version,
 }
 
