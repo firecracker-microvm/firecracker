@@ -457,7 +457,7 @@ pub fn build_microvm_from_snapshot(
         uffd,
         track_dirty_pages,
         vcpu_count,
-        vec![],
+        microvm_state.vm_state.kvm_cap_modifiers.clone(),
     )?;
 
     #[cfg(target_arch = "x86_64")]

@@ -332,17 +332,6 @@ impl Vm {
         self.get_irqchip()
             .restore_device(mpidrs, &state.gic)
             .map_err(RestoreStateError::GicError)?;
-
-        let kvm = Kvm::new()
-            .map_err(VmError::Kvm)
-            .map_err(RestoreStateError::VmError)?;
-        let total_caps = Self::combine_capabilities(&state.kvm_cap_modifiers);
-        Self::check_capabilities(&kvm, &total_caps)
-            .map_err(VmError::Capabilities)
-            .map_err(RestoreStateError::VmError)?;
-
-        self.kvm_cap_modifiers = state.kvm_cap_modifiers.clone();
-
         Ok(())
     }
 }
@@ -411,17 +400,6 @@ impl Vm {
         self.fd
             .set_irqchip(&state.ioapic)
             .map_err(RestoreStateError::SetIrqChipIoAPIC)?;
-
-        let kvm = Kvm::new()
-            .map_err(VmError::Kvm)
-            .map_err(RestoreStateError::VmError)?;
-        let total_caps = Self::combine_capabilities(&state.kvm_cap_modifiers);
-        Self::check_capabilities(&kvm, &total_caps)
-            .map_err(VmError::Capabilities)
-            .map_err(RestoreStateError::VmError)?;
-
-        self.kvm_cap_modifiers = state.kvm_cap_modifiers.clone();
-
         Ok(())
     }
 
