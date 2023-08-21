@@ -8,7 +8,7 @@ license = "Apache-2.0"
 [dependencies]
 derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
 libc = "0.2.117"
-serde = { version = "1.0.136", features = ["derive"] }
+serde = { version = "1.0.185", features = ["derive"] }
 thiserror = "1.0.32"
 versionize = "0.1.6"
 versionize_derive = "0.1.3"
