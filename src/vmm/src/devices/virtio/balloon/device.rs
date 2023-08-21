@@ -612,8 +612,8 @@ impl VirtioDevice for Balloon {
         let end = start.and_then(|s| s.checked_add(data.len()));
         let Some(dst) = start
             .zip(end)
-            .and_then(|(start, end)| config_space_bytes.get_mut(start..end)) else
-        {
+            .and_then(|(start, end)| config_space_bytes.get_mut(start..end))
+        else {
             error!("Failed to write config space");
             return;
         };

@@ -593,8 +593,8 @@ impl VirtioDevice for Block {
         let end = start.and_then(|s| s.checked_add(data.len()));
         let Some(dst) = start
             .zip(end)
-            .and_then(|(start, end)| self.config_space.get_mut(start..end)) else
-        {
+            .and_then(|(start, end)| self.config_space.get_mut(start..end))
+        else {
             error!("Failed to write config space");
             METRICS.block.cfg_fails.inc();
             return;

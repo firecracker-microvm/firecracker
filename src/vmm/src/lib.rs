@@ -852,10 +852,8 @@ fn construct_kvm_mpidrs(vcpu_states: &[VcpuState]) -> Vec<u64> {
 impl Drop for Vmm {
     fn drop(&mut self) {
         // There are two cases when `drop()` is called:
-        // 1) before the Vmm has been mutexed and subscribed to the event
-        //    manager, or
-        // 2) after the Vmm has been registered as a subscriber to the
-        //    event manager.
+        // 1) before the Vmm has been mutexed and subscribed to the event manager, or
+        // 2) after the Vmm has been registered as a subscriber to the event manager.
         //
         // The first scenario is bound to happen if an error is raised during
         // Vmm creation (for example, during snapshot load), before the Vmm has

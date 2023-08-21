@@ -111,8 +111,8 @@ impl IoVecBuffer {
             // The call to `copy_nonoverlapping` is safe because:
             // 1. `iov` describes a valid range in guest memory. The constructor of `IoVecBuffer`
             //    has checked that.
-            // 2. `buf_ptr` is a pointer inside the `buf` slice. We only get this pointer using
-            //    safe methods.
+            // 2. `buf_ptr` is a pointer inside the `buf` slice. We only get this pointer using safe
+            //    methods.
             // 3. Both pointers point to `u8` elements, so they're always aligned.
             // 4. The memory regions these pointers point to are not overlapping. `src` points to
             //    guest physical memory and `buf_ptr` to Firecracker-owned memory.
@@ -229,10 +229,10 @@ impl IoVecBufferMut {
 
             // SAFETY:
             // The call to `copy_nonoverlapping` is safe because:
-            // 1. `iov` describes a valid range in guest memory. The constructor of
-            //    `IoVecBufferMut` has checked that.
-            // 2. `buf_ptr` is a pointer inside the `buf` slice. We only get this pointer using
-            //    safe methods.
+            // 1. `iov` describes a valid range in guest memory. The constructor of `IoVecBufferMut`
+            //    has checked that.
+            // 2. `buf_ptr` is a pointer inside the `buf` slice. We only get this pointer using safe
+            //    methods.
             // 3. Both pointers point to `u8` elements, so they're always aligned.
             // 4. The memory regions these pointers point to are not overlapping. `dst` points to
             //    guest physical memory and `buf_ptr` to Firecracker-owned memory.

@@ -29,17 +29,16 @@ use std::fmt::Debug;
 // Short primer on the vsock protocol
 // ----------------------------------
 //
-// 1. Establishing a connection
-//    A vsock connection is considered established after a two-way handshake:
+// 1. Establishing a connection A vsock connection is considered established after a two-way
+//    handshake:
 //    - the initiating peer sends a connection request packet (`hdr.op` == VSOCK_OP_REQUEST);
 //      then
 //    - the listening peer sends back a connection response packet (`hdr.op` ==
 //      VSOCK_OP_RESPONSE).
 //
-// 2. Terminating a connection
-//    When a peer wants to shut down an established connection, it sends a VSOCK_OP_SHUTDOWN
-//    packet. Two header flags are used with VSOCK_OP_SHUTDOWN, indicating the sender's
-//    intention:
+// 2. Terminating a connection When a peer wants to shut down an established connection, it
+//    sends a VSOCK_OP_SHUTDOWN packet. Two header flags are used with VSOCK_OP_SHUTDOWN,
+//    indicating the sender's intention:
 //    - VSOCK_FLAGS_SHUTDOWN_RCV: the sender will receive no more data for this connection; and
 //    - VSOCK_FLAGS_SHUTDOWN_SEND: the sender will send no more data for this connection.
 //    After a shutdown packet, the receiving peer will have some protocol-undefined time to
@@ -51,14 +50,13 @@ use std::fmt::Debug;
 //          cannot be taken back.  That is, `hdr.flags` will be ORed between subsequent
 //          VSOCK_OP_SHUTDOWN packets.
 //
-// 3. Flow control
-//    Before sending a data packet (VSOCK_OP_RW), the sender must make sure that the receiver
-//    has enough free buffer space to store that data. If this condition is not respected, the
-//    receiving peer's behaviour is undefined. In this implementation, we forcefully terminate
-//    the connection by sending back a VSOCK_OP_RST packet.
-//    Note: all buffer space information is computed and stored on a per-connection basis.
-//    Peers keep each other informed about the free buffer space they have by filling in two
-//    packet header members with each packet they send:
+// 3. Flow control Before sending a data packet (VSOCK_OP_RW), the sender must make sure that
+//    the receiver has enough free buffer space to store that data. If this condition is not
+//    respected, the receiving peer's behaviour is undefined. In this implementation, we
+//    forcefully terminate the connection by sending back a VSOCK_OP_RST packet. Note: all
+//    buffer space information is computed and stored on a per-connection basis. Peers keep
+//    each other informed about the free buffer space they have by filling in two packet header
+//    members with each packet they send:
 //    - `hdr.buf_alloc`: the total buffer space the peer has allocated for receiving data; and
 //    - `hdr.fwd_cnt`: the total number of bytes the peer has successfully flushed out of its
 //      buffer.
