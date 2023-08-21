@@ -88,6 +88,9 @@ def run_spectre_meltdown_checker_on_guest(
 def test_x86_microcode_guest_vs_host(microvm):
     """
     Test microcode version between guest and host.
+
+    Both Intel and AMD retrieve the microcode information from MSR 0x8B,
+    but Intel uses the upper 32 bits and AMD uses the lower 32 bits.
     """
     cmd = "cat /proc/cpuinfo | grep microcode | head -1 | awk '{print $3}'"
 
@@ -278,7 +281,7 @@ def check_vulnerabilities_files_on_guest(microvm):
     """
     vuln_dir = "/sys/devices/system/cpu/vulnerabilities"
     ecode, stdout, stderr = microvm.ssh.execute_command(
-        f"grep -r Vulnerable {vuln_dir} | grep -v mmio_stale_data:"
+        f"grep -r Vulnerable {vuln_dir}"
     )
     assert ecode == 1, f"stdout:\n{stdout}\nstderr:\n{stderr}\n"
 
