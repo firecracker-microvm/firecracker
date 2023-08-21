@@ -293,6 +293,18 @@ def custom_cpu_template(request, record_property):
     return request.param
 
 
+@pytest.fixture(
+    params=list(static_cpu_templates_params()) + list(custom_cpu_templates_params())
+)
+def cpu_template_any(request, record_property):
+    """This fixture combines static and custom CPU templates"""
+    if "name" in request.param:
+        record_property("custom_cpu_template", request.param["name"])
+    else:
+        record_property("static_cpu_template", request.param)
+    return request.param
+
+
 @pytest.fixture(params=["Sync", "Async"])
 def io_engine(request):
     """All supported io_engines"""
