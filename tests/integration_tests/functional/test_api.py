@@ -849,6 +849,7 @@ def _drive_patch(test_microvm):
                 "rate_limiter": None,
                 "io_engine": "Sync",
             },
+            "vhost_user": None,
         },
         {
             "drive_id": "scratch",
@@ -875,6 +876,7 @@ def _drive_patch(test_microvm):
                 },
                 "io_engine": "Async" if is_io_uring_supported() else "Sync",
             },
+            "vhost_user": None,
         },
     ]
 
@@ -1081,6 +1083,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
                 "rate_limiter": None,
                 "io_engine": "Sync",
             },
+            "vhost_user": None,
         }
     ]
 
@@ -1196,6 +1199,7 @@ def test_get_full_config(test_microvm_with_api):
                 "rate_limiter": None,
                 "io_engine": "Sync",
             },
+            "vhost_user": None,
         }
     ]
 

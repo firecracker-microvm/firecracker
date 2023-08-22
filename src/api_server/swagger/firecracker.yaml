@@ -905,7 +905,10 @@ definitions:
           This parameter has been deprecated since v1.6.0.
           Use parameters in `file` instead.
         $ref: "#/definitions/RateLimiter"
-
+      vhost_user:
+        description:
+          Configuration for the vhost-user-backed device.
+        $ref: "#/definitions/VhostUserConfig"
   Error:
     type: object
     properties:
@@ -1301,6 +1304,15 @@ definitions:
         format: int64
         description: The total number of tokens this bucket can hold.
         minimum: 0
+
+  VhostUserConfig:
+    type: object
+    required:
+     - socket
+    properties:
+      socket:
+        type: string
+        description: Socket path for vhost-user backend.
 
   Vm:
     type: object

@@ -19,7 +19,8 @@
         "is_read_only": false,
         "io_engine": "Sync",
         "rate_limiter": null
-      }
+      },
+      "vhost_user": null
     }
   ],
   "machine-config": {

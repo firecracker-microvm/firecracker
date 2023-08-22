@@ -12,7 +12,8 @@
       "file": {
         "path_on_host": "bionic.rootfs.ext4",
         "is_read_only": false
-      }
+      },
+      "vhost_user": null
     }
   ],
   "machine-config": {
