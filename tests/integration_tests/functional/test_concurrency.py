@@ -68,8 +68,7 @@ def test_run_concurrency_with_mmds(microvm_factory, guest_kernel, rootfs):
                 }
             }
         }
-        response = test_microvm.mmds.patch(json=dummy_json)
-        assert test_microvm.api_session.is_status_no_content(response.status_code)
+        test_microvm.api.mmds.patch(json=dummy_json)
 
 
 def test_run_concurrency(microvm_factory, guest_kernel, rootfs):

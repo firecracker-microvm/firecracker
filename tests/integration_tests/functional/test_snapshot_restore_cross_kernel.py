@@ -37,8 +37,7 @@ def _test_balloon(microvm):
     assert second_reading > first_reading
 
     # Inflate the balloon. Get back 200MB.
-    response = microvm.balloon.patch(amount_mib=200)
-    assert microvm.api_session.is_status_no_content(response.status_code)
+    microvm.api.balloon.patch(amount_mib=200)
 
     third_reading = get_stable_rss_mem_by_pid(firecracker_pid)
     # Ensure that there is a reduction in RSS.
@@ -105,8 +104,6 @@ def test_snap_restore_from_artifacts(
         vm.resume()
 
         # Ensure microVM is running.
-        response = vm.machine_cfg.get()
-        assert vm.api_session.is_status_ok(response.status_code)
         assert vm.state == "Running"
 
         # Test that net devices have connectivity after restore.

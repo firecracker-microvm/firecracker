@@ -31,8 +31,7 @@ def test_reboot(test_microvm_with_api):
     # Configure metrics system.
     metrics_fifo_path = os.path.join(vm.path, "metrics_fifo")
     metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    response = vm.metrics.put(metrics_path=vm.create_jailed_resource(metrics_fifo.path))
-    assert vm.api_session.is_status_no_content(response.status_code)
+    vm.api.metrics.put(metrics_path=vm.create_jailed_resource(metrics_fifo.path))
 
     vm.start()
 

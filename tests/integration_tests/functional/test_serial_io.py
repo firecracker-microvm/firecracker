@@ -185,10 +185,9 @@ def test_serial_block(test_microvm_with_api):
     # Configure the metrics.
     metrics_fifo_path = os.path.join(test_microvm.path, "metrics_fifo")
     metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    response = test_microvm.metrics.put(
+    test_microvm.api.metrics.put(
         metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
     )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     test_microvm.start()
 

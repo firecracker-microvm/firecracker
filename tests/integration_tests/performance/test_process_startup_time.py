@@ -69,10 +69,9 @@ def _test_startup_time(microvm):
     metrics_fifo_path = os.path.join(microvm.path, "metrics_fifo")
     metrics_fifo = log_tools.Fifo(metrics_fifo_path)
 
-    response = microvm.metrics.put(
+    microvm.api.metrics.put(
         metrics_path=microvm.create_jailed_resource(metrics_fifo.path)
     )
-    assert microvm.api_session.is_status_no_content(response.status_code)
 
     microvm.start()
     time.sleep(0.4)

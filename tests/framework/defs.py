@@ -5,9 +5,6 @@
 import platform
 from pathlib import Path
 
-# URL prefix used for the API calls through a UNIX domain socket
-API_USOCKET_URL_PREFIX = "http+unix://"
-
 # Firecracker's binary name
 FC_BINARY_NAME = "firecracker"
 
