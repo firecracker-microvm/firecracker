@@ -6,3 +6,7 @@ allow = [
     "ISC",
     "Unicode-DFS-2016"
 ]
+
+[[bans.deny]]
+name = "serde_derive"
+version = ">1.0.171, < 1.0.184"

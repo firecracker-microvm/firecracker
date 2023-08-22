@@ -278,5 +278,6 @@ pub fn t2cl() -> CustomCpuTemplate {
                 },
             },
         ],
+        ..Default::default()
     }
 }

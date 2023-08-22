@@ -546,7 +546,7 @@ dependencies = [
  "snapshot",
  "thiserror",
  "timerfd",
- "userfaultfd 0.6.0",
+ "userfaultfd",
  "utils",
  "vmm",
 ]
@@ -682,7 +682,7 @@ dependencies = [
 [[package]]
 name = "kvm-bindings"
 version = "0.6.0"
-source = "git+https://github.com/firecracker-microvm/kvm-bindings?tag=v0.6.0-1#e8359204b41d5c2e7c5af9ae5c26283b62337740"
+source = "git+https://github.com/firecracker-microvm/kvm-bindings?tag=v0.6.0-2#b1585959b4ac4075629765fb90ecf298a3203bfc"
 dependencies = [
  "versionize",
  "versionize_derive",
@@ -691,9 +691,9 @@ dependencies = [
 
 [[package]]
 name = "kvm-ioctls"
-version = "0.14.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "436246b230532c94ec619332e820e31518dac7943cf848b052e618467a7ede8a"
+checksum = "9bdde2b46ee7b6587ef79f751019c4726c4f2d3e4628df5d69f3f9c5cb6c6bd4"
 dependencies = [
  "kvm-bindings",
  "libc",
@@ -1329,20 +1329,6 @@ checksum = "a156c684c91ea7d62626509bce3cb4e1d9ed5c4d978f7b4352658f96a4c26b4a"
 
 [[package]]
 name = "userfaultfd"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2320ae2edd0b11cf05dcd53614e5c72cb9f9ac9aab1b4ff4fe4f1cc4f92e3592"
-dependencies = [
- "bitflags 1.3.2",
- "cfg-if",
- "libc",
- "nix",
- "thiserror",
- "userfaultfd-sys",
-]
-
-[[package]]
-name = "userfaultfd"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ec82f2a09c9279eb320bd9945f0df0232613d4621c093d8ba02edcb45624fd4"
@@ -1486,7 +1472,7 @@ dependencies = [
  "snapshot",
  "thiserror",
  "timerfd",
- "userfaultfd 0.5.1",
+ "userfaultfd",
  "utils",
  "versionize",
  "versionize_derive",

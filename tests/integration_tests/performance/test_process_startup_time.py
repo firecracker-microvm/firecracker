@@ -4,13 +4,11 @@
 
 # pylint: disable=redefined-outer-name
 
-import json
 import os
 import time
 
 import pytest
 
-import host_tools.logging as log_tools
 from framework.properties import global_props
 from host_tools.cargo_build import run_seccompiler_bin
 
@@ -62,25 +60,14 @@ def test_startup_time_custom_seccomp(test_microvm_with_api, startup_time):
 
 def _test_startup_time(microvm):
     microvm.spawn()
-
     microvm.basic_config(vcpu_count=2, mem_size_mib=1024)
-
-    # Configure metrics.
-    metrics_fifo_path = os.path.join(microvm.path, "metrics_fifo")
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-
-    response = microvm.metrics.put(
-        metrics_path=microvm.create_jailed_resource(metrics_fifo.path)
-    )
-    assert microvm.api_session.is_status_no_content(response.status_code)
-
     microvm.start()
     time.sleep(0.4)
 
-    # The metrics fifo should be at index 1.
+    # The metrics should be at index 1.
     # Since metrics are flushed at InstanceStart, the first line will suffice.
-    lines = metrics_fifo.sequential_reader(1)
-    metrics = json.loads(lines[0])
+    datapoints = microvm.get_all_metrics()
+    metrics = datapoints[0]
     startup_time_us = metrics["api_server"]["process_startup_time_us"]
     cpu_startup_time_us = metrics["api_server"]["process_startup_time_cpu_us"]
 

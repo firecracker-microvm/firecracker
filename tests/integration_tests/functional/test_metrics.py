@@ -4,10 +4,7 @@
 
 import datetime
 import math
-import os
 import platform
-
-import host_tools.logging as log_tools
 
 
 def test_flush_metrics(test_microvm_with_api):
@@ -17,19 +14,9 @@ def test_flush_metrics(test_microvm_with_api):
     microvm = test_microvm_with_api
     microvm.spawn()
     microvm.basic_config()
-
-    # Configure metrics system.
-    metrics_fifo_path = os.path.join(microvm.path, "metrics_fifo")
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-
-    response = microvm.metrics.put(
-        metrics_path=microvm.create_jailed_resource(metrics_fifo.path)
-    )
-    assert microvm.api_session.is_status_no_content(response.status_code)
-
     microvm.start()
 
-    metrics = microvm.flush_metrics(metrics_fifo)
+    metrics = microvm.flush_metrics()
 
     exp_keys = [
         "utc_timestamp_ms",

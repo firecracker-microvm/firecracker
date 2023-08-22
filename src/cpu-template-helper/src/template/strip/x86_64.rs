@@ -36,6 +36,7 @@ pub fn strip(templates: Vec<CustomCpuTemplate>) -> Result<Vec<CustomCpuTemplate>
             CustomCpuTemplate {
                 cpuid_modifiers,
                 msr_modifiers,
+                ..Default::default()
             }
         })
         .collect::<Vec<_>>();
@@ -74,6 +75,7 @@ mod tests {
                     ]),
                 ],
                 msr_modifiers: vec![],
+                ..Default::default()
             },
             CustomCpuTemplate {
                 cpuid_modifiers: vec![
@@ -89,6 +91,7 @@ mod tests {
                     ]),
                 ],
                 msr_modifiers: vec![],
+                ..Default::default()
             },
             CustomCpuTemplate {
                 cpuid_modifiers: vec![
@@ -101,6 +104,7 @@ mod tests {
                     ]),
                 ],
                 msr_modifiers: vec![],
+                ..Default::default()
             },
         ]
     }
@@ -115,6 +119,7 @@ mod tests {
                     ]),
                 ],
                 msr_modifiers: vec![],
+                ..Default::default()
             },
             CustomCpuTemplate {
                 cpuid_modifiers: vec![
@@ -126,6 +131,7 @@ mod tests {
                     ]),
                 ],
                 msr_modifiers: vec![],
+                ..Default::default()
             },
             CustomCpuTemplate {
                 cpuid_modifiers: vec![
@@ -134,6 +140,7 @@ mod tests {
                     ]),
                 ],
                 msr_modifiers: vec![],
+                ..Default::default()
             },
         ]
     }
@@ -151,6 +158,7 @@ mod tests {
                     msr_modifier!(0x0, 0x0),
                     msr_modifier!(0x1, 0x1),
                 ],
+                ..Default::default()
             },
             CustomCpuTemplate {
                 cpuid_modifiers: vec![],
@@ -158,6 +166,7 @@ mod tests {
                     msr_modifier!(0x0, 0x1),
                     msr_modifier!(0x1, 0x1),
                 ],
+                ..Default::default()
             },
             CustomCpuTemplate {
                 cpuid_modifiers: vec![],
@@ -166,6 +175,7 @@ mod tests {
                     msr_modifier!(0x1, 0x1),
                     msr_modifier!(0x2, 0x1),
                 ],
+                ..Default::default()
             },
         ]
     }
@@ -178,12 +188,14 @@ mod tests {
                 msr_modifiers: vec![
                     msr_modifier!(0x0, 0x0, 0b11),
                 ],
+                ..Default::default()
             },
             CustomCpuTemplate {
                 cpuid_modifiers: vec![],
                 msr_modifiers: vec![
                     msr_modifier!(0x0, 0x1, 0b11),
                 ],
+                ..Default::default()
             },
             CustomCpuTemplate {
                 cpuid_modifiers: vec![],
@@ -191,6 +203,7 @@ mod tests {
                     msr_modifier!(0x0, 0x2, 0b11),
                     msr_modifier!(0x2, 0x1),
                 ],
+                ..Default::default()
             },
         ]
     }

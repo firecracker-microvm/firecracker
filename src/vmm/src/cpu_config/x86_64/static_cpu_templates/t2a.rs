@@ -242,5 +242,6 @@ pub fn t2a() -> CustomCpuTemplate {
             },
         ],
         msr_modifiers: vec![],
+        ..Default::default()
     }
 }

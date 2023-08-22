@@ -1,12 +1,11 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Tests scenarios for shutting down Firecracker/VM."""
-import json
+
 import os
 import platform
 import time
 
-import host_tools.logging as log_tools
 from framework import utils
 
 
@@ -27,13 +26,6 @@ def test_reboot(test_microvm_with_api):
     # added after we get a unique MAC and IP.
     vm.basic_config(vcpu_count=4)
     vm.add_net_iface()
-
-    # Configure metrics system.
-    metrics_fifo_path = os.path.join(vm.path, "metrics_fifo")
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    response = vm.metrics.put(metrics_path=vm.create_jailed_resource(metrics_fifo.path))
-    assert vm.api_session.is_status_no_content(response.status_code)
-
     vm.start()
 
     # Get Firecracker PID so we can count the number of threads.
@@ -46,7 +38,7 @@ def test_reboot(test_microvm_with_api):
     assert int(nr_of_threads) == 6
 
     # Consume existing metrics
-    lines = metrics_fifo.sequential_reader(100)
+    lines = vm.get_all_metrics()
     assert len(lines) == 1
     # Rebooting Firecracker sends an exit event and should gracefully kill.
     # the instance.
@@ -61,12 +53,12 @@ def test_reboot(test_microvm_with_api):
             break
 
     # Consume existing metrics
-    lines = metrics_fifo.sequential_reader(100)
-    assert len(lines) == 1
+    datapoints = vm.get_all_metrics()
+    assert len(datapoints) == 2
 
     if platform.machine() != "x86_64":
         vm.check_log_message("Received KVM_SYSTEM_EVENT: type: 2, event: 0")
         vm.check_log_message("Vmm is stopping.")
 
     # Make sure that the FC process was not killed by a seccomp fault
-    assert json.loads(lines[0])["seccomp"]["num_faults"] == 0
+    assert datapoints[-1]["seccomp"]["num_faults"] == 0

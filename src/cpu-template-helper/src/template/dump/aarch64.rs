@@ -26,7 +26,10 @@ pub fn config_to_template(cpu_config: &CpuConfiguration) -> CustomCpuTemplate {
         .collect();
     reg_modifiers.sort_by_key(|modifier| modifier.addr);
 
-    CustomCpuTemplate { reg_modifiers }
+    CustomCpuTemplate {
+        reg_modifiers,
+        ..Default::default()
+    }
 }
 
 #[cfg(test)]
@@ -73,6 +76,7 @@ mod tests {
         };
         let cpu_template = CustomCpuTemplate {
             reg_modifiers: build_expected_reg_modifiers(),
+            ..Default::default()
         };
         assert_eq!(config_to_template(&cpu_config), cpu_template);
     }

@@ -138,12 +138,14 @@ mod tests {
                 cpuid_reg_modifier!(Ebx, 0b01010101, 0b00001111),
             ])],
             msr_modifiers: vec![],
+            ..Default::default()
         };
         let config = CustomCpuTemplate {
             cpuid_modifiers: vec![cpuid_leaf_modifier!(0x0, 0x0, KvmCpuidFlags::EMPTY, vec![
                 cpuid_reg_modifier!(Eax, 0b10101010, 0b11111111),
             ])],
             msr_modifiers: vec![],
+            ..Default::default()
         };
         assert_eq!(
             verify(template, config).unwrap_err().to_string(),
@@ -160,12 +162,14 @@ mod tests {
                 vec![cpuid_reg_modifier!(Eax, 0b10101010, 0b11110000)]
             )],
             msr_modifiers: vec![],
+            ..Default::default()
         };
         let config = CustomCpuTemplate {
             cpuid_modifiers: vec![cpuid_leaf_modifier!(0x0, 0x0, KvmCpuidFlags::EMPTY,
                 vec![cpuid_reg_modifier!(Eax, 0b11111111)]
             )],
             msr_modifiers: vec![],
+            ..Default::default()
         };
         assert_eq!(
             verify(template, config).unwrap_err().to_string(),
@@ -186,12 +190,14 @@ mod tests {
                 msr_modifier!(0x0, 0b00000000),
                 msr_modifier!(0x1, 0b11111111),
             ],
+            ..Default::default()
         };
         let config = CustomCpuTemplate {
             cpuid_modifiers: vec![],
             msr_modifiers: vec![
                 msr_modifier!(0x0, 0b00000000),
             ],
+            ..Default::default()
         };
         assert_eq!(
             verify(template, config).unwrap_err().to_string(),
@@ -208,12 +214,14 @@ mod tests {
             msr_modifiers: vec![
                 msr_modifier!(0x0, 0b10101010, 0b11110000),
             ],
+            ..Default::default()
         };
         let config = CustomCpuTemplate {
             cpuid_modifiers: vec![],
             msr_modifiers: vec![
                 msr_modifier!(0x0, 0b01010101, 0b11111111)
             ],
+            ..Default::default()
         };
         assert_eq!(
             verify(template, config).unwrap_err().to_string(),

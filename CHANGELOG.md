@@ -4,6 +4,14 @@
 
 ### Added
 
+- [#3967](https://github.com/firecracker-microvm/firecracker/pull/3967/):
+  Added new fields to the custom CPU templates. (aarch64 only) `vcpu_features`
+  field allows modifications of vCPU features enabled during vCPU
+  initialization. `kvm_capabilities` field allows modifications of KVM
+  capability checks that Firecracker performs during boot. If any of
+  these fields are in use, minimal target snapshot version is
+  restricted to 1.5.
+
 ### Changed
 
 - Updated deserialization of `bitmap` for custom CPU templates to allow usage
@@ -25,6 +33,9 @@
   and the FXSR bit (CPUID.80000001h:EDX[24]).
 - Fixed the T2A CPU template to set the RstrFpErrPtrs bit
   (CPUID.80000008h:EBX[2]).
+- Fixed a bug where Firecracker would crash during boot if a guest set up a virtio
+  queue that partially overlapped with the MMIO gap. Now Firecracker instead
+  correctly refuses to activate the corresponding virtio device.
 
 ## [1.4.0]
 
