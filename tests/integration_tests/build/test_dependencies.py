@@ -24,4 +24,4 @@ def test_licenses():
         os.path.join(os.path.dirname(os.path.realpath(__file__)), "../../../Cargo.toml")
     )
 
-    cargo("deny", f"--manifest-path {toml_file} check licenses")
+    cargo("deny", f"--manifest-path {toml_file} check licenses bans")
