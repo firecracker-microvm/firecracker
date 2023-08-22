@@ -18,9 +18,9 @@ use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
 use super::device::Net;
-use super::{NET_NUM_QUEUES, NET_QUEUE_SIZE};
+use super::NET_NUM_QUEUES;
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
-use crate::devices::virtio::{DeviceState, TYPE_NET};
+use crate::devices::virtio::{DeviceState, FIRECRACKER_MAX_QUEUE_SIZE, TYPE_NET};
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::rate_limiter::RateLimiter;
 
@@ -154,7 +154,7 @@ impl Persist<'_> for Net {
             &constructor_args.mem,
             TYPE_NET,
             NET_NUM_QUEUES,
-            NET_QUEUE_SIZE,
+            FIRECRACKER_MAX_QUEUE_SIZE,
         )?;
         net.irq_trigger.irq_status =
             Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));

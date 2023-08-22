@@ -14,7 +14,7 @@ use versionize_derive::Versionize;
 
 use super::*;
 use crate::devices::virtio::persist::VirtioDeviceState;
-use crate::devices::virtio::{DeviceState, TYPE_VSOCK};
+use crate::devices::virtio::{DeviceState, FIRECRACKER_MAX_QUEUE_SIZE, TYPE_VSOCK};
 
 /// The Vsock serializable state.
 // NOTICE: Any changes to this structure require a snapshot version bump.
@@ -117,7 +117,7 @@ where
                 &constructor_args.mem,
                 TYPE_VSOCK,
                 defs::VSOCK_NUM_QUEUES,
-                defs::VSOCK_QUEUE_SIZE,
+                FIRECRACKER_MAX_QUEUE_SIZE,
             )
             .map_err(VsockError::VirtioState)?;
         let mut vsock = Self::with_queues(state.cid, constructor_args.backend, queues)?;

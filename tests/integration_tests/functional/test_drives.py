@@ -84,11 +84,10 @@ def test_rescan_file(test_microvm_with_api):
     assert "dd: error reading '/dev/vdb': Input/output error" in stderr
     _check_file_size(test_microvm.ssh, f"{block_copy_name}", truncated_size * MB)
 
-    response = test_microvm.drive.patch(
+    test_microvm.api.drive.patch(
         drive_id="scratch",
         path_on_host=test_microvm.create_jailed_resource(fs.path),
     )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     _check_block_size(test_microvm.ssh, "/dev/vdb", fs.size())
 
@@ -147,7 +146,6 @@ def test_rescan_dev(test_microvm_with_api):
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
-    session = test_microvm.api_session
 
     # Set up the microVM with 1 vCPUs, 256 MiB of RAM and a root file system
     test_microvm.basic_config()
@@ -171,11 +169,10 @@ def test_rescan_dev(test_microvm_with_api):
     loopback_device = stdout.rstrip()
 
     try:
-        response = test_microvm.drive.patch(
+        test_microvm.api.drive.patch(
             drive_id="scratch",
             path_on_host=test_microvm.create_jailed_resource(loopback_device),
         )
-        assert session.is_status_no_content(response.status_code), response.content
 
         _check_block_size(test_microvm.ssh, "/dev/vdb", fs2.size())
     finally:
@@ -290,10 +287,9 @@ def test_patch_drive(test_microvm_with_api):
     fs2 = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, "otherscratch"), size=512
     )
-    response = test_microvm.drive.patch(
+    test_microvm.api.drive.patch(
         drive_id="scratch", path_on_host=test_microvm.create_jailed_resource(fs2.path)
     )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # The `lsblk` command should output 2 lines to STDOUT: "SIZE" and the size
     # of the device, in bytes.
@@ -326,10 +322,9 @@ def test_no_flush(test_microvm_with_api):
     # Configure the metrics.
     metrics_fifo_path = os.path.join(test_microvm.path, "metrics_fifo")
     metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    response = test_microvm.metrics.put(
+    test_microvm.api.metrics.put(
         metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
     )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     test_microvm.start()
 
@@ -368,10 +363,9 @@ def test_flush(uvm_plain_rw):
     # Configure metrics, to get later the `flush_count`.
     metrics_fifo_path = os.path.join(test_microvm.path, "metrics_fifo")
     metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    response = test_microvm.metrics.put(
+    test_microvm.api.metrics.put(
         metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
     )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     test_microvm.start()
 
@@ -409,10 +403,12 @@ def test_block_default_cache_old_version(test_microvm_with_api):
     test_microvm.pause()
 
     # Create the snapshot for a version without block cache type.
-    response = test_microvm.snapshot.create(
-        mem_file_path="memfile", snapshot_path="snapsfile", diff=False, version="0.24.0"
+    test_microvm.api.snapshot_create.put(
+        mem_file_path="memfile",
+        snapshot_path="snapsfile",
+        snapshot_type="Full",
+        version="0.24.0",
     )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # We should find a warning in the logs for this case as this
     # cache type was not supported in 0.24.0 and we should default
@@ -468,7 +464,7 @@ def test_patch_drive_limiter(test_microvm_with_api):
     fs1 = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, "scratch"), size=512
     )
-    response = test_microvm.drive.put(
+    test_microvm.api.drive.put(
         drive_id="scratch",
         path_on_host=test_microvm.create_jailed_resource(fs1.path),
         is_root_device=False,
@@ -478,7 +474,6 @@ def test_patch_drive_limiter(test_microvm_with_api):
             "ops": {"size": 100, "refill_time": 100},
         },
     )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
     test_microvm.start()
 
     # Validate IOPS stays within above configured limits.
@@ -489,23 +484,21 @@ def test_patch_drive_limiter(test_microvm_with_api):
     check_iops_limit(test_microvm.ssh, 4096, 1000, 0.7, 1.3)
 
     # Patch ratelimiter
-    response = test_microvm.drive.patch(
+    test_microvm.api.drive.patch(
         drive_id="scratch",
         rate_limiter={
             "bandwidth": {"size": 100 * MB, "refill_time": 100},
             "ops": {"size": 200, "refill_time": 100},
         },
     )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     check_iops_limit(test_microvm.ssh, 512, 2000, 0.7, 1.3)
     check_iops_limit(test_microvm.ssh, 4096, 2000, 0.7, 1.3)
 
     # Patch ratelimiter
-    response = test_microvm.drive.patch(
+    test_microvm.api.drive.patch(
         drive_id="scratch", rate_limiter={"ops": {"size": 1000, "refill_time": 100}}
     )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     check_iops_limit(test_microvm.ssh, 512, 10000, 0.7, 1.3)
     check_iops_limit(test_microvm.ssh, 4096, 10000, 0.7, 1.3)

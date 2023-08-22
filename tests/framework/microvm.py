@@ -37,28 +37,9 @@ import host_tools.network as net_tools
 from framework import utils
 from framework.artifacts import NetIfaceConfig
 from framework.defs import FC_PID_FILE_NAME, MAX_API_CALL_DURATION_MS
-from framework.http import Session
+from framework.http_api import Api
 from framework.jailer import JailerContext
 from framework.properties import global_props
-from framework.resources import (
-    MMDS,
-    Actions,
-    Balloon,
-    BootSource,
-    CpuConfigure,
-    DescribeInstance,
-    Drive,
-    Entropy,
-    FullConfig,
-    InstanceVersion,
-    Logger,
-    MachineConfigure,
-    Metrics,
-    Network,
-    SnapshotHelper,
-    Vm,
-    Vsock,
-)
 
 LOG = logging.getLogger("microvm")
 data_lock = Lock()
@@ -67,8 +48,8 @@ data_lock = Lock()
 class SnapshotType(Enum):
     """Supported snapshot types."""
 
-    FULL = "FULL"
-    DIFF = "DIFF"
+    FULL = "Full"
+    DIFF = "Diff"
 
     def __repr__(self):
         cls_name = self.__class__.__name__
@@ -94,7 +75,7 @@ class Snapshot:
     net_ifaces: list
     disks: dict
     ssh_key: Path
-    snapshot_type: str
+    snapshot_type: SnapshotType
 
     @property
     def is_diff(self) -> bool:
@@ -121,7 +102,7 @@ class Snapshot:
             net_ifaces=[NetIfaceConfig(**d) for d in obj["net_ifaces"]],
             disks={dsk: src / p for dsk, p in obj["disks"].items()},
             ssh_key=src / obj["ssh_key"],
-            snapshot_type=obj["snapshot_type"],
+            snapshot_type=SnapshotType(obj["snapshot_type"]),
         )
 
     def save_to(self, dst: Path):
@@ -143,7 +124,7 @@ class Snapshot:
             "net_ifaces": [x.__dict__ for x in self.net_ifaces],
             "disks": new_disks,
             "ssh_key": self.ssh_key.name,
-            "snapshot_type": self.snapshot_type,
+            "snapshot_type": self.snapshot_type.value,
         }
         snap_json = dst / "snapshot.json"
         snap_json.write_text(json.dumps(obj))
@@ -212,36 +193,12 @@ class Microvm:
         # Copy the /etc/localtime file in the jailer root
         self.jailer.copy_into_root("/etc/localtime", create_jail=True)
 
-        # Now deal with the things specific to the api session used to
-        # communicate with this machine.
-        self._api_session = None
-        self._api_socket = None
-
         # Session name is composed of the last part of the temporary path
         # allocated by the current test session and the unique id of this
         # microVM. It should be unique.
         self._session_name = (
             os.path.basename(os.path.normpath(resource_path)) + self._microvm_id
         )
-
-        # nice-to-have: Put these in a dictionary.
-        self.actions = None
-        self.balloon = None
-        self.boot = None
-        self.cpu_cfg = None
-        self.desc_inst = None
-        self.drive = None
-        self.full_cfg = None
-        self.logger = None
-        self.metrics = None
-        self.mmds = None
-        self.network = None
-        self.machine_cfg = None
-        self.version = None
-        self.vm = None
-        self.vsock = None
-        self.snapshot = None
-        self.entropy = None
 
         # Initialize the logging subsystem.
         self.logging_thread = None
@@ -254,6 +211,8 @@ class Microvm:
         self.memory_monitor = None
         if monitor_memory:
             self.memory_monitor = mem_tools.MemoryMonitor()
+
+        self.api = None
 
         # device dictionaries
         self.iface = {}
@@ -369,19 +328,8 @@ class Microvm:
     @property
     def firecracker_version(self):
         """Return the version of the Firecracker executable."""
-        return self.version.get()
-
-    @property
-    def api_session(self):
-        """Return the api session associated with this microVM."""
-        return self._api_session
-
-    @property
-    def api_socket(self):
-        """Return the socket used by this api session."""
-        # TODO: this methods is only used as a workaround for getting
-        # firecracker PID. We should not be forced to make this public.
-        return self._api_socket
+        _, stdout, _ = utils.run_cmd(f"{self._fc_binary_path} --version")
+        return re.match(r"^Firecracker v(.+)", stdout.partition("\n")[0]).group(1)
 
     @property
     def path(self):
@@ -410,15 +358,7 @@ class Microvm:
     @property
     def state(self):
         """Get the InstanceInfo property and return the state field."""
-        return json.loads(self.desc_inst.get().content)["state"]
-
-    @property
-    def started(self):
-        """Get the InstanceInfo property and return the started field.
-
-        This is kept for legacy snapshot support.
-        """
-        return json.loads(self.desc_inst.get().content)["started"]
+        return self.api.describe.get().json()["state"]
 
     @property
     @retry(delay=0.1, tries=5)
@@ -441,13 +381,9 @@ class Microvm:
         """
         # Empty the metrics pipe.
         _ = metrics_fifo.sequential_reader(100)
-
-        response = self.actions.put(action_type="FlushMetrics")
-        assert self.api_session.is_status_no_content(response.status_code)
-
+        self.api.actions.put(action_type="FlushMetrics")
         lines = metrics_fifo.sequential_reader(100)
         assert len(lines) == 1
-
         return json.loads(lines[0])
 
     def get_all_metrics(self, metrics_fifo):
@@ -456,9 +392,7 @@ class Microvm:
         Requires specifying the configured metrics file.
         """
         # Empty the metrics pipe.
-        response = self.actions.put(action_type="FlushMetrics")
-        assert self.api_session.is_status_no_content(response.status_code)
-
+        self.api.actions.put(action_type="FlushMetrics")
         return metrics_fifo.sequential_reader(1000)
 
     def append_to_log_data(self, data):
@@ -543,30 +477,7 @@ class Microvm:
         """Start a microVM as a daemon or in a screen session."""
         # pylint: disable=subprocess-run-check
         self.jailer.setup(use_ramdisk=use_ramdisk)
-        self._api_socket = self.jailer.api_socket_path()
-        self._api_session = Session()
-
-        self.actions = Actions(self._api_socket, self._api_session)
-        self.balloon = Balloon(self._api_socket, self._api_session)
-        self.boot = BootSource(self._api_socket, self._api_session)
-        self.cpu_cfg = CpuConfigure(self._api_socket, self._api_session)
-        self.desc_inst = DescribeInstance(self._api_socket, self._api_session)
-        self.full_cfg = FullConfig(self._api_socket, self._api_session)
-        self.logger = Logger(self._api_socket, self._api_session)
-        self.version = InstanceVersion(
-            self._api_socket, self._fc_binary_path, self._api_session
-        )
-        self.machine_cfg = MachineConfigure(
-            self._api_socket, self._api_session, self.firecracker_version
-        )
-        self.metrics = Metrics(self._api_socket, self._api_session)
-        self.mmds = MMDS(self._api_socket, self._api_session)
-        self.network = Network(self._api_socket, self._api_session)
-        self.snapshot = SnapshotHelper(self._api_socket, self._api_session)
-        self.drive = Drive(self._api_socket, self._api_session)
-        self.vm = Vm(self._api_socket, self._api_session)
-        self.vsock = Vsock(self._api_socket, self._api_session)
-        self.entropy = Entropy(self._api_socket, self._api_session)
+        self.api = Api(self.jailer.api_socket_path())
 
         if create_logger:
             log_fifo_path = os.path.join(self.path, log_file)
@@ -689,16 +600,13 @@ class Microvm:
 
         Reference: file:../../src/vmm/src/vmm_config/boot_source.rs::DEFAULT_KERNEL_CMDLINE
         """
-        response = self.machine_cfg.put(
+        self.api.machine_config.put(
             vcpu_count=vcpu_count,
             smt=smt,
             mem_size_mib=mem_size_mib,
             track_dirty_pages=track_dirty_pages,
             cpu_template=cpu_template,
         )
-        assert self._api_session.is_status_no_content(
-            response.status_code
-        ), response.text
         self.vcpus_count = vcpu_count
 
         if self.memory_monitor:
@@ -716,10 +624,7 @@ class Microvm:
                 initrd_path=self.create_jailed_resource(self.initrd_file)
             )
 
-        response = self.boot.put(**boot_source_args)
-        assert self._api_session.is_status_no_content(
-            response.status_code
-        ), response.text
+        self.api.boot.put(**boot_source_args)
 
         if add_root_device and self.rootfs_file is not None:
             read_only = self.rootfs_file.suffix == ".squashfs"
@@ -733,13 +638,6 @@ class Microvm:
                 io_engine=rootfs_io_engine,
                 use_ramdisk=self.jailer.uses_ramfs,
             )
-
-    def cpu_config(self, config):
-        """Set CPU configuration."""
-        response = self.cpu_cfg.put(config)
-        assert self._api_session.is_status_no_content(
-            response.status_code
-        ), response.text
 
     def daemonize_jailer(self, jailer_param_list):
         """Daemonize the jailer."""
@@ -787,7 +685,7 @@ class Microvm:
         else:
             path_on_jail = self.create_jailed_resource(path_on_host)
 
-        response = self.drive.put(
+        self.api.drive.put(
             drive_id=drive_id,
             path_on_host=path_on_jail,
             is_root_device=is_root_device,
@@ -796,16 +694,14 @@ class Microvm:
             cache_type=cache_type,
             io_engine=io_engine,
         )
-        assert self.api_session.is_status_no_content(response.status_code)
         self.disks[drive_id] = path_on_host
 
     def patch_drive(self, drive_id, file):
         """Modify/patch an existing block device."""
-        response = self.drive.patch(
+        self.api.drive.patch(
             drive_id=drive_id,
             path_on_host=self.create_jailed_resource(file.path),
         )
-        assert self.api_session.is_status_no_content(response.status_code)
         self.disks[drive_id] = Path(file.path)
 
     def add_net_iface(self, iface=None, api=True, **kwargs):
@@ -823,82 +719,51 @@ class Microvm:
         # If api, call it... there may be cases when we don't want it, for
         # example during restore
         if api:
-            response = self.network.put(
+            self.api.network.put(
                 iface_id=iface.dev_name,
                 host_dev_name=iface.tap_name,
                 guest_mac=iface.guest_mac,
                 **kwargs,
             )
-            assert self.api_session.is_status_no_content(response.status_code)
 
         return iface
 
-    def start(self, check=True):
+    def start(self):
         """Start the microvm.
 
-        This function has asserts to validate that the microvm boot success.
+        This function validates that the microvm boot succeeds.
         """
         # Check that the VM has not started yet
-        try:
-            assert self.state == "Not started"
-        except KeyError:
-            assert self.started is False
+        assert self.state == "Not started"
 
-        response = self.actions.put(action_type="InstanceStart")
+        self.api.actions.put(action_type="InstanceStart")
 
-        if check:
-            assert self._api_session.is_status_no_content(
-                response.status_code
-            ), response.text
-
-            # Check that the VM has started
-            try:
-                assert self.state == "Running"
-            except KeyError:
-                assert self.started is True
+        # Check that the VM has started
+        assert self.state == "Running"
 
     def pause(self):
         """Pauses the microVM"""
-        response = self.vm.patch(state="Paused")
-        assert self.api_session.is_status_no_content(response.status_code)
+        self.api.vm.patch(state="Paused")
 
     def resume(self):
         """Resume the microVM"""
-        response = self.vm.patch(state="Resumed")
-        assert self.api_session.is_status_no_content(response.status_code)
+        self.api.vm.patch(state="Resumed")
 
-    def pause_to_snapshot(
-        self,
-        mem_file_path,
-        snapshot_path,
-        diff=False,
-        version=None,
+    def make_snapshot(
+        self, snapshot_type: SnapshotType | str, target_version: str = None
     ):
-        """Pauses the microVM, and creates snapshot.
+        """Create a Snapshot object from a microvm.
 
-        This function validates that the microVM pauses successfully and
-        creates a snapshot.
+        It pauses the microvm before taking the snapshot.
         """
-        self.pause()
-
-        response = self.snapshot.create(
-            mem_file_path=str(mem_file_path),
-            snapshot_path=str(snapshot_path),
-            diff=diff,
-            version=version,
-        )
-        assert self.api_session.is_status_no_content(
-            response.status_code
-        ), response.text
-
-    def make_snapshot(self, snapshot_type: str, target_version: str = None):
-        """Create a Snapshot object from a microvm."""
         vmstate_path = "vmstate"
         mem_path = "mem"
-        self.pause_to_snapshot(
-            mem_file_path=mem_path,
-            snapshot_path=vmstate_path,
-            diff=snapshot_type == "DIFF",
+        snapshot_type = SnapshotType(snapshot_type)
+        self.pause()
+        self.api.snapshot_create.put(
+            mem_file_path=str(mem_path),
+            snapshot_path=str(vmstate_path),
+            snapshot_type=snapshot_type.value,
             version=target_version,
         )
         root = Path(self.chroot())
@@ -912,12 +777,12 @@ class Microvm:
         )
 
     def snapshot_diff(self, target_version: str = None):
-        """Make a DIFF snapshot"""
-        return self.make_snapshot("DIFF", target_version)
+        """Make a Diff snapshot"""
+        return self.make_snapshot("Diff", target_version)
 
     def snapshot_full(self, target_version: str = None):
-        """Make a FULL snapshot"""
-        return self.make_snapshot("FULL", target_version)
+        """Make a Full snapshot"""
+        return self.make_snapshot("Full", target_version)
 
     def restore_from_snapshot(
         self,
@@ -948,17 +813,16 @@ class Microvm:
         for iface in snapshot.net_ifaces:
             self.add_net_iface(iface, api=False)
 
-        mem_backend = {"type": "File", "path": str(jailed_mem)}
+        mem_backend = {"backend_type": "File", "backend_path": str(jailed_mem)}
         if uffd_path is not None:
-            mem_backend = {"type": "Uffd", "path": str(uffd_path)}
+            mem_backend = {"backend_type": "Uffd", "backend_path": str(uffd_path)}
 
-        response = self.snapshot.load(
+        self.api.snapshot_load.put(
             mem_backend=mem_backend,
             snapshot_path=str(jailed_vmstate),
-            diff=snapshot.is_diff,
-            resume=resume,
+            enable_diff_snapshots=snapshot.is_diff,
+            resume_vm=resume,
         )
-        assert response.ok, response.content
         return True
 
     def restore_from_path(self, snap_dir: Path, **kwargs):

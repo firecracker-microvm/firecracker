@@ -109,13 +109,10 @@ def get_snap_restore_latency(
             vm.add_drive(name, diskfile.path, io_engine="Sync")
 
     if all_devices:
-        response = vm.balloon.put(
+        vm.api.balloon.put(
             amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1
         )
-        assert vm.api_session.is_status_no_content(response.status_code)
-
-        response = vm.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/v.sock")
-        assert vm.api_session.is_status_no_content(response.status_code)
+        vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/v.sock")
 
     vm.start()
     snapshot = vm.snapshot_full()

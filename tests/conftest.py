@@ -453,15 +453,5 @@ def uvm_with_initrd(
     yield uvm
 
 
-@pytest.fixture
-def uvm_legacy(microvm_factory, record_property, artifact_dir):
-    """vm with legacy artifacts (old kernel, Ubuntu 18.04 rootfs)"""
-    kernel = artifact_dir / "legacy/vmlinux.bin"
-    fs = artifact_dir / "legacy/bionic-msrtools.ext4"
-    record_property("kernel", kernel.name)
-    record_property("rootfs", fs.name)
-    yield microvm_factory.build(kernel, fs)
-
-
 # backwards compatibility
 test_microvm_with_api = uvm_plain

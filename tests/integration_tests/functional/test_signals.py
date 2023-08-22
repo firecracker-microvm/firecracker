@@ -42,10 +42,7 @@ def test_generic_signal_handler(test_microvm_with_api, signum):
     # Configure metrics based on a file.
     metrics_path = os.path.join(microvm.path, "metrics_fifo")
     utils.run_cmd("touch {}".format(metrics_path))
-    response = microvm.metrics.put(
-        metrics_path=microvm.create_jailed_resource(metrics_path)
-    )
-    assert microvm.api_session.is_status_no_content(response.status_code)
+    microvm.api.metrics.put(metrics_path=microvm.create_jailed_resource(metrics_path))
 
     microvm.start()
     firecracker_pid = int(microvm.jailer_clone_pid)
@@ -63,8 +60,7 @@ def test_generic_signal_handler(test_microvm_with_api, signum):
         msg = "Received signal 13"
         # Flush metrics to file, so we can see the SIGPIPE at bottom assert.
         # This is going to fail if process has exited.
-        response = microvm.actions.put(action_type="FlushMetrics")
-        assert microvm.api_session.is_status_no_content(response.status_code)
+        microvm.api.actions.put(action_type="FlushMetrics")
     else:
         microvm.expect_kill_by_signal = True
         # Ensure that the process was terminated.
@@ -96,10 +92,7 @@ def test_sigxfsz_handler(uvm_plain_rw):
     # Configure metrics based on a file.
     metrics_path = os.path.join(microvm.path, "metrics_fifo")
     utils.run_cmd("touch {}".format(metrics_path))
-    response = microvm.metrics.put(
-        metrics_path=microvm.create_jailed_resource(metrics_path)
-    )
-    assert microvm.api_session.is_status_no_content(response.status_code)
+    microvm.api.metrics.put(metrics_path=microvm.create_jailed_resource(metrics_path))
 
     microvm.start()
 
