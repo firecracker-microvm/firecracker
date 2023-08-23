@@ -17,6 +17,7 @@ use serde::Serialize;
 use snapshot::Snapshot;
 use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use utils::sock_ctrl_msg::ScmSocket;
+use utils::u64_to_usize;
 use utils::vm_memory::{GuestMemory, GuestMemoryMmap};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
@@ -545,7 +546,7 @@ fn snapshot_state_from_file(
     let mut snapshot_reader =
         File::open(snapshot_path).map_err(SnapshotStateFromFileError::Open)?;
     let metadata = std::fs::metadata(snapshot_path).map_err(SnapshotStateFromFileError::Meta)?;
-    let snapshot_len = metadata.len() as usize;
+    let snapshot_len = u64_to_usize(metadata.len());
     let (state, _) = Snapshot::load(&mut snapshot_reader, snapshot_len, version_map)
         .map_err(SnapshotStateFromFileError::Load)?;
     Ok(state)

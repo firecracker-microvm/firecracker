@@ -10,7 +10,7 @@ use utils::vm_memory::{
     Bitmap, FileOffset, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
     GuestMemoryRegion, MemoryRegionAddress, WriteVolatile,
 };
-use utils::{errno, get_page_size};
+use utils::{errno, get_page_size, u64_to_usize};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
@@ -85,7 +85,7 @@ impl SnapshotMemory for GuestMemoryMmap {
         self.iter().for_each(|region| {
             guest_memory_state.regions.push(GuestMemoryRegionState {
                 base_address: region.start_addr().0,
-                size: region.len() as usize,
+                size: u64_to_usize(region.len()),
                 offset,
             });
 

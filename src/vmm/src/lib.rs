@@ -121,6 +121,7 @@ use userfaultfd::Uffd;
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
+use utils::u64_to_usize;
 use utils::vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use vstate::vcpu::{self, KvmVcpuConfigureError, StartThreadedError, VcpuSendEventError};
 
@@ -602,7 +603,7 @@ impl Vmm {
                 let bitmap_region = self
                     .vm
                     .fd()
-                    .get_dirty_log(slot as u32, region.len() as usize)?;
+                    .get_dirty_log(u32::try_from(slot).unwrap(), u64_to_usize(region.len()))?;
                 bitmap.insert(slot, bitmap_region);
                 Ok(())
             })

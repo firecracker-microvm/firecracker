@@ -68,7 +68,6 @@ fn log_sigsys_err(si_code: c_int, info: *mut siginfo_t) {
     // SAFETY: Other signals which might do async unsafe things incompatible with the rest of this
     // function are blocked due to the sa_mask used when registering the signal handler.
     let syscall = unsafe { *(info as *const i32).offset(SI_OFF_SYSCALL) };
-    let syscall = usize::try_from(syscall).unwrap();
     error!(
         "Shutting down VM after intercepting a bad syscall ({}).",
         syscall

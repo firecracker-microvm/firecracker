@@ -11,6 +11,7 @@ use log::error;
 use serde::Serialize;
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use utils::eventfd::EventFd;
+use utils::u64_to_usize;
 use utils::vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 use virtio_gen::virtio_blk::VIRTIO_F_VERSION_1;
 
@@ -600,7 +601,7 @@ impl VirtioDevice for Balloon {
         if let Some(end) = offset.checked_add(data.len() as u64) {
             // This write can't fail, offset and end are checked against config_len.
             data.write_all(
-                &config_space_bytes[offset as usize..cmp::min(end, config_len) as usize],
+                &config_space_bytes[u64_to_usize(offset)..u64_to_usize(cmp::min(end, config_len))],
             )
             .unwrap();
         }

@@ -16,6 +16,8 @@ use kvm_bindings::{
 };
 use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION, KVM_MEM_LOG_DIRTY_PAGES};
 use kvm_ioctls::{Kvm, VmFd};
+#[cfg(target_arch = "x86_64")]
+use utils::u64_to_usize;
 use utils::vm_memory::{Address, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
@@ -241,7 +243,7 @@ impl Vm {
         self.set_kvm_memory_regions(guest_mem, track_dirty_pages)?;
         #[cfg(target_arch = "x86_64")]
         self.fd
-            .set_tss_address(crate::arch::x86_64::layout::KVM_TSS_ADDRESS as usize)
+            .set_tss_address(u64_to_usize(crate::arch::x86_64::layout::KVM_TSS_ADDRESS))
             .map_err(VmError::VmSetup)?;
 
         Ok(())
