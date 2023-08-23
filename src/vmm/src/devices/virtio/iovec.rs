@@ -344,7 +344,7 @@ mod tests {
         };
 
         for j in 0..4 {
-            vq.dtable[j].set(0x20000 + 64 * j as u64, 64, flags, (j + 1) as u16);
+            vq.dtable[j as usize].set(0x20000 + 64 * u64::from(j), 64, flags, j + 1);
         }
 
         // one chain: (0, 1, 2, 3)
