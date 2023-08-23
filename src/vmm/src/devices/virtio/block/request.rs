@@ -99,7 +99,9 @@ pub struct PendingRequest {
 impl PendingRequest {
     fn write_status_and_finish(self, status: &Status, mem: &GuestMemoryMmap) -> FinishedRequest {
         let (num_bytes_to_mem, status_code) = match status {
-            Status::Ok { num_bytes_to_mem } => (*num_bytes_to_mem, VIRTIO_BLK_S_OK),
+            Status::Ok { num_bytes_to_mem } => {
+                (*num_bytes_to_mem, u8::try_from(VIRTIO_BLK_S_OK).unwrap())
+            }
             Status::IoErr {
                 num_bytes_to_mem,
                 err,
@@ -109,17 +111,17 @@ impl PendingRequest {
                     "Failed to execute {:?} virtio block request: {:?}",
                     self.r#type, err
                 );
-                (*num_bytes_to_mem, VIRTIO_BLK_S_IOERR)
+                (*num_bytes_to_mem, u8::try_from(VIRTIO_BLK_S_IOERR).unwrap())
             }
             Status::Unsupported { op } => {
                 METRICS.block.invalid_reqs_count.inc();
                 error!("Received unsupported virtio block request: {}", op);
-                (0, VIRTIO_BLK_S_UNSUPP)
+                (0, u8::try_from(VIRTIO_BLK_S_UNSUPP).unwrap())
             }
         };
 
         let num_bytes_to_mem = mem
-            .write_obj(status_code as u8, self.status_addr)
+            .write_obj(status_code, self.status_addr)
             .map(|_| {
                 // Account for the status byte
                 num_bytes_to_mem + 1

@@ -141,7 +141,10 @@ impl Tap {
         let terminated_if_name = build_terminated_if_name(if_name)?;
         let ifreq = IfReqBuilder::new()
             .if_name(&terminated_if_name)
-            .flags((net_gen::IFF_TAP | net_gen::IFF_NO_PI | net_gen::IFF_VNET_HDR) as i16)
+            .flags(
+                i16::try_from(net_gen::IFF_TAP | net_gen::IFF_NO_PI | net_gen::IFF_VNET_HDR)
+                    .unwrap(),
+            )
             .execute(&tuntap, TUNSETIFF())
             .map_err(|io_error| TapError::IfreqExecuteError(io_error, if_name.to_owned()))?;
 
