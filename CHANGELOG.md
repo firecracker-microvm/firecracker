@@ -38,6 +38,10 @@
 - Fixed a bug where Firecracker would crash during boot if a guest set up a virtio
   queue that partially overlapped with the MMIO gap. Now Firecracker instead
   correctly refuses to activate the corresponding virtio device.
+- Fixed the T2CL CPU template to pass through security mitigation bits that are
+  listed by KVM as bits able to be passed through. By making the most use of the
+  available hardware security mitigations on a processor that a guest is running
+  on, the guest might be able to benefit from performance improvements.
 
 ## [1.4.0]
 
