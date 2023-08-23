@@ -254,7 +254,7 @@ fn close_fds_by_close_range() -> Result<(), JailerError> {
             libc::c_uint::MAX,
             libc::CLOSE_RANGE_UNSHARE,
         )
-    } as libc::c_int)
+    })
     .into_empty_result()
     .map_err(JailerError::CloseRange)
 }

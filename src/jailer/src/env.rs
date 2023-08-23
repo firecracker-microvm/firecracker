@@ -82,17 +82,25 @@ fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<(), JailerError> {
 fn clone(child_stack: *mut libc::c_void, flags: libc::c_int) -> Result<libc::c_int, JailerError> {
     // Clone parameters order is different between x86_64 and aarch64.
     #[cfg(target_arch = "x86_64")]
-    // SAFETY: This is safe because we are using a library function with valid parameters.
-    return SyscallReturnCode(unsafe {
-        libc::syscall(libc::SYS_clone, flags, child_stack, 0, 0, 0) as libc::c_int
-    })
+    return SyscallReturnCode(
+        // SAFETY: This is safe because we are using a library function with valid parameters.
+        libc::c_int::try_from(unsafe {
+            libc::syscall(libc::SYS_clone, flags, child_stack, 0, 0, 0)
+        })
+        // Unwrap is needed because PIDs are 32-bit.
+        .unwrap(),
+    )
     .into_result()
     .map_err(JailerError::Clone);
     #[cfg(target_arch = "aarch64")]
-    // SAFETY: This is safe because we are using a library function with valid parameters.
-    return SyscallReturnCode(unsafe {
-        libc::syscall(libc::SYS_clone, flags, child_stack, 0, 0, 0) as libc::c_int
-    })
+    return SyscallReturnCode(
+        // SAFETY: This is safe because we are using a library function with valid parameters.
+        libc::c_int::try_from(unsafe {
+            libc::syscall(libc::SYS_clone, flags, child_stack, 0, 0, 0)
+        })
+        // Unwrap is needed because PIDs are 32-bit.
+        .unwrap(),
+    )
     .into_result()
     .map_err(JailerError::Clone);
 }
