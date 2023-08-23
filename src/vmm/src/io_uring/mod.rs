@@ -122,10 +122,12 @@ impl IoUring {
                 libc::SYS_io_uring_setup,
                 num_entries,
                 &mut params as *mut io_uring_params,
-            ) as libc::c_int
+            )
         })
         .into_result()
         .map_err(IoUringError::Setup)?;
+        // Safe to unwrap because the fd is valid.
+        let fd = RawFd::try_from(fd).unwrap();
 
         // SAFETY: Safe because the fd is valid and because this struct owns the fd.
         let file = unsafe { File::from_raw_fd(fd) };
@@ -245,7 +247,7 @@ impl IoUring {
                 std::ptr::null::<libc::c_void>(),
                 0,
             )
-        } as libc::c_int)
+        })
         .into_empty_result()
         .map_err(IoUringError::Enable)
     }
@@ -274,7 +276,7 @@ impl IoUring {
                     .as_mut_slice()
                     .as_mut_ptr() as *const _,
                 files.len(),
-            ) as libc::c_int
+            )
         })
         .into_empty_result()
         .map_err(IoUringError::RegisterFile)?;
@@ -293,7 +295,7 @@ impl IoUring {
                 bindings::IORING_REGISTER_EVENTFD,
                 (&fd) as *const _,
                 1,
-            ) as libc::c_int
+            )
         })
         .into_empty_result()
         .map_err(IoUringError::RegisterEventfd)
@@ -318,7 +320,7 @@ impl IoUring {
                     .as_mut_ptr(),
                 restrictions.len(),
             )
-        } as libc::c_int)
+        })
         .into_empty_result()
         .map_err(IoUringError::RegisterRestrictions)
     }
@@ -349,7 +351,7 @@ impl IoUring {
                 probes.as_mut_fam_struct_ptr(),
                 PROBE_LEN,
             )
-        } as libc::c_int)
+        })
         .into_empty_result()
         .map_err(IoUringError::Probe)?;
 
@@ -526,7 +528,7 @@ mod tests {
                                             as *const libc::c_void,
                                         operation.len.unwrap() as usize,
                                         i64::try_from(operation.offset.unwrap()).unwrap(),
-                                    ) as libc::c_int
+                                    )
                                 })
                                 .into_result()
                                 .unwrap(),
@@ -542,7 +544,7 @@ mod tests {
                                             .cast::<libc::c_void>(),
                                         operation.len.unwrap() as usize,
                                         i64::try_from(operation.offset.unwrap()).unwrap(),
-                                    ) as libc::c_int
+                                    )
                                 })
                                 .into_result()
                                 .unwrap(),

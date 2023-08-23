@@ -142,7 +142,7 @@ impl SubmissionQueue {
                 flags,
                 std::ptr::null::<libc::sigset_t>(),
             )
-        } as libc::c_int)
+        })
         .into_result()?;
         // It's safe to convert to u32 since the syscall didn't return an error.
         let submitted = u32::try_from(submitted).unwrap();
