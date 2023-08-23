@@ -877,11 +877,12 @@ impl Connection {
         if let Some((read_buf, payload_seq)) = payload_src {
             // Limit the size of read_buf so it doesn't mess up later calculations (as usual, I take
             // the easy way out).
-            if read_buf.len() > MAX_WINDOW_SIZE as usize {
-                return Err(WriteNextError::PayloadBufTooLarge);
-            }
+            let len = match u32::try_from(read_buf.len()) {
+                Ok(len) if len <= MAX_WINDOW_SIZE => len,
+                _ => return Err(WriteNextError::PayloadBufTooLarge),
+            };
 
-            let payload_end = payload_seq + Wrapping(read_buf.len() as u32);
+            let payload_end = payload_seq + Wrapping(len);
 
             let mut rto_triggered = false;
 

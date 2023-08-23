@@ -306,22 +306,22 @@ impl<I: Read + AsRawFd + Send + Debug + 'static>
     SerialWrapper<EventFdTrigger, SerialEventsWrapper, I>
 {
     pub fn bus_read(&mut self, offset: u64, data: &mut [u8]) {
-        if data.len() != 1 {
+        if let (Ok(offset), 1) = (u8::try_from(offset), data.len()) {
+            data[0] = self.serial.read(offset);
+        } else {
             METRICS.uart.missed_read_count.inc();
-            return;
         }
-        data[0] = self.serial.read(offset as u8);
     }
 
     pub fn bus_write(&mut self, offset: u64, data: &[u8]) {
-        if data.len() != 1 {
+        if let (Ok(offset), 1) = (u8::try_from(offset), data.len()) {
+            if let Err(err) = self.serial.write(offset, data[0]) {
+                // Counter incremented for any handle_write() error.
+                error!("Failed the write to serial: {:?}", err);
+                METRICS.uart.error_count.inc();
+            }
+        } else {
             METRICS.uart.missed_write_count.inc();
-            return;
-        }
-        if let Err(err) = self.serial.write(offset as u8, data[0]) {
-            // Counter incremented for any handle_write() error.
-            error!("Failed the write to serial: {:?}", err);
-            METRICS.uart.error_count.inc();
         }
     }
 }

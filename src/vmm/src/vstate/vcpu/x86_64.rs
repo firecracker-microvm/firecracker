@@ -29,7 +29,8 @@ use crate::vstate::vm::Vm;
 // The value of 250 parts per million is based on
 // the QEMU approach, more details here:
 // https://bugzilla.redhat.com/show_bug.cgi?id=1839095
-const TSC_KHZ_TOL: f64 = 250.0 / 1_000_000.0;
+const TSC_KHZ_TOL_NUMERATOR: u32 = 250;
+const TSC_KHZ_TOL_DENOMINATOR: u32 = 1_000_000;
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
@@ -439,7 +440,7 @@ impl KvmVcpu {
         // per million beacuse it is common for TSC frequency
         // to differ due to calibration at boot time.
         let diff = (i64::from(self.get_tsc_khz()?) - i64::from(state_tsc_freq)).abs();
-        Ok(diff as f64 > (f64::from(state_tsc_freq) * TSC_KHZ_TOL).round())
+        Ok(diff > i64::from(state_tsc_freq * TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR))
     }
 
     /// Scale the TSC frequency of this vCPU to the one provided as a parameter.
@@ -891,7 +892,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cast_sign_loss, clippy::redundant_clone)] // always positive, no u32::try_from(f64)
+    #[allow(clippy::redundant_clone)]
     fn test_is_tsc_scaling_required() {
         // Test `is_tsc_scaling_required` as if it were on the same
         // CPU model as the one in the snapshot state.
@@ -901,7 +902,8 @@ mod tests {
         {
             // The frequency difference is within tolerance.
             let mut state = orig_state.clone();
-            state.tsc_khz = Some(state.tsc_khz.unwrap() + (TSC_KHZ_TOL / 2.0).round() as u32);
+            state.tsc_khz =
+                Some(state.tsc_khz.unwrap() + TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR / 2);
             assert!(!vcpu
                 .is_tsc_scaling_required(state.tsc_khz.unwrap())
                 .unwrap());
@@ -910,7 +912,8 @@ mod tests {
         {
             // The frequency difference is over the tolerance.
             let mut state = orig_state;
-            state.tsc_khz = Some(state.tsc_khz.unwrap() + (TSC_KHZ_TOL * 2.0).round() as u32);
+            state.tsc_khz =
+                Some(state.tsc_khz.unwrap() + TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR * 2);
             assert!(!vcpu
                 .is_tsc_scaling_required(state.tsc_khz.unwrap())
                 .unwrap());
@@ -918,11 +921,11 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cast_sign_loss)] // always positive, no u32::try_from(f64)
     fn test_set_tsc() {
         let (vm, vcpu, _) = setup_vcpu(0x1000);
         let mut state = vcpu.save_state().unwrap();
-        state.tsc_khz = Some(state.tsc_khz.unwrap() + (TSC_KHZ_TOL * 2.0).round() as u32);
+        state.tsc_khz =
+            Some(state.tsc_khz.unwrap() + TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR * 2);
 
         if vm.fd().check_extension(Cap::TscControl) {
             assert!(vcpu.set_tsc_khz(state.tsc_khz.unwrap()).is_ok());

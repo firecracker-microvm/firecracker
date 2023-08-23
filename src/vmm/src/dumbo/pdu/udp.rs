@@ -26,7 +26,7 @@ pub const UDP_HEADER_SIZE: usize = 8;
 
 // A UDP datagram is carried in a single IP packet and is hence limited
 // to a maximum payload of 65,507 bytes for IPv4 and 65,527 bytes for IPv6 [2]
-const IPV4_MAX_UDP_PACKET_SIZE: usize = 65507;
+const IPV4_MAX_UDP_PACKET_SIZE: u16 = 65507;
 
 /// Represents errors which may occur while parsing or writing a datagram.
 #[derive(Debug, PartialEq, Eq)]
@@ -136,14 +136,14 @@ impl<'a, T: NetworkBytesMut + Debug> UdpDatagram<'a, T> {
         let mut packet = UdpDatagram::from_bytes(buf, None)?;
         let len = payload.len() + UDP_HEADER_SIZE;
 
-        // TODO working with IPv4 only for now
-        if len > IPV4_MAX_UDP_PACKET_SIZE {
-            return Err(Error::PayloadTooBig);
-        }
+        let len = match u16::try_from(len) {
+            Ok(len) if len <= IPV4_MAX_UDP_PACKET_SIZE => len,
+            _ => return Err(Error::PayloadTooBig),
+        };
 
-        packet.bytes.shrink_unchecked(len);
+        packet.bytes.shrink_unchecked(len.into());
         packet.payload_mut().copy_from_slice(payload);
-        packet.set_len(len as u16);
+        packet.set_len(len);
 
         Ok(Incomplete::new(packet))
     }
@@ -250,7 +250,7 @@ mod tests {
     #[test]
     fn test_failing_construction() {
         let mut raw = [0u8; 8];
-        let huge_payload = [0u8; IPV4_MAX_UDP_PACKET_SIZE];
+        let huge_payload = [0u8; IPV4_MAX_UDP_PACKET_SIZE as usize];
 
         assert_eq!(
             UdpDatagram::write_incomplete_datagram(raw.as_mut(), &huge_payload).unwrap_err(),
