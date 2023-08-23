@@ -128,7 +128,7 @@ pub trait VirtioDevice: AsAny + Send {
         let avail_features = self.avail_features();
         match page {
             // Get the lower 32-bits of the features bitfield.
-            0 => avail_features as u32,
+            0 => (avail_features & 0xFFFFFFFF) as u32,
             // Get the upper 32-bits of the features bitfield.
             1 => (avail_features >> 32) as u32,
             _ => {

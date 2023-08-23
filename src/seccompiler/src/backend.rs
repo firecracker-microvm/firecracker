@@ -279,7 +279,7 @@ impl SeccompCondition {
     /// [`SeccompCondition`]: struct.SeccompCondition.html
     fn value_segments(&self) -> (u32, u32, u8, u8) {
         // Splits the specified value into its most significant and least significant halves.
-        let (msb, lsb) = ((self.value >> 32) as u32, self.value as u32);
+        let (msb, lsb) = ((self.value >> 32) as u32, (self.value & 0xFFFFFFFF) as u32);
 
         // Offset to the argument specified by `arg_number`.
         // Cannot overflow because the value will be at most 16 + 6 * 8 = 64.
@@ -431,8 +431,11 @@ impl SeccompCondition {
     fn into_masked_eq_bpf(self, offset: u8, mask: u64) -> Vec<sock_filter> {
         let (_, _, msb_offset, lsb_offset) = self.value_segments();
         let masked_value = self.value & mask;
-        let (msb, lsb) = ((masked_value >> 32) as u32, masked_value as u32);
-        let (mask_msb, mask_lsb) = ((mask >> 32) as u32, mask as u32);
+        let (msb, lsb) = (
+            (masked_value >> 32) as u32,
+            (masked_value & 0xFFFFFFFF) as u32,
+        );
+        let (mask_msb, mask_lsb) = ((mask >> 32) as u32, (mask & 0xFFFFFFFF) as u32);
 
         let mut bpf = match self.arg_len {
             SeccompCmpArgLen::Dword => vec![],
