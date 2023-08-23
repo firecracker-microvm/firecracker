@@ -18,6 +18,8 @@ pub use vm_memory::{
     VolatileMemory, VolatileMemoryError, VolatileSlice,
 };
 
+use crate::u64_to_usize;
+
 pub type GuestMemoryMmap = vm_memory::GuestMemoryMmap<Option<AtomicBitmap>>;
 pub type GuestRegionMmap = vm_memory::GuestRegionMmap<Option<AtomicBitmap>>;
 pub type GuestMmapRegion = vm_memory::MmapRegion<Option<AtomicBitmap>>;
@@ -136,7 +138,7 @@ pub fn create_guest_memory(
 pub fn mark_dirty_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: usize) {
     let _ = mem.try_access(len, addr, |_total, count, caddr, region| {
         if let Some(bitmap) = region.bitmap() {
-            bitmap.mark_dirty(caddr.0 as usize, count);
+            bitmap.mark_dirty(u64_to_usize(caddr.0), count);
         }
         Ok(count)
     });
@@ -692,7 +694,7 @@ mod tests {
                     *len,
                     GuestAddress(*addr as u64),
                     |_total, count, caddr, region| {
-                        let offset = caddr.0 as usize;
+                        let offset = usize::try_from(caddr.0).unwrap();
                         let bitmap = region.bitmap().as_ref().unwrap();
                         for i in offset..offset + count {
                             assert_eq!(bitmap.dirty_at(i), *dirty);

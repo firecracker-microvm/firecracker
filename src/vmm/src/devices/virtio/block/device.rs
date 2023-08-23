@@ -18,6 +18,7 @@ use block_io::FileEngine;
 use serde::{Deserialize, Serialize};
 use utils::eventfd::EventFd;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
+use utils::u64_to_usize;
 use utils::vm_memory::GuestMemoryMmap;
 use virtio_gen::virtio_blk::{
     VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES, VIRTIO_F_VERSION_1,
@@ -583,8 +584,10 @@ impl VirtioDevice for Block {
         }
         if let Some(end) = offset.checked_add(data.len() as u64) {
             // This write can't fail, offset and end are checked against config_len.
-            data.write_all(&self.config_space[offset as usize..cmp::min(end, config_len) as usize])
-                .unwrap();
+            data.write_all(
+                &self.config_space[u64_to_usize(offset)..u64_to_usize(cmp::min(end, config_len))],
+            )
+            .unwrap();
         }
     }
 

@@ -3,6 +3,7 @@
 
 use std::io;
 
+use utils::u64_to_usize;
 use utils::vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 use super::{RemoveRegionError, MAX_PAGE_COMPACT_BUFFER};
@@ -88,7 +89,7 @@ pub(crate) fn remove_range(
             let ret = unsafe {
                 libc::mmap(
                     phys_address.cast(),
-                    range_len as usize,
+                    u64_to_usize(range_len),
                     libc::PROT_READ | libc::PROT_WRITE,
                     libc::MAP_FIXED | libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
                     -1,
@@ -103,7 +104,7 @@ pub(crate) fn remove_range(
         // Madvise the region in order to mark it as not used.
         // SAFETY: The address and length are known to be valid.
         let ret = unsafe {
-            let range_len = range_len as usize;
+            let range_len = u64_to_usize(range_len);
             libc::madvise(phys_address.cast(), range_len, libc::MADV_DONTNEED)
         };
         if ret < 0 {

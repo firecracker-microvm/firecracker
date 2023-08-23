@@ -21,6 +21,7 @@ pub mod regs;
 use linux_loader::configurator::linux::LinuxBootConfigurator;
 use linux_loader::configurator::{BootConfigurator, BootParams};
 use linux_loader::loader::bootparam::boot_params;
+use utils::u64_to_usize;
 use utils::vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 use crate::arch::InitrdConfig;
@@ -89,8 +90,7 @@ pub fn initrd_load_addr(
     let first_region = guest_mem
         .find_region(GuestAddress::new(0))
         .ok_or(ConfigurationError::InitrdAddress)?;
-    // It's safe to cast to usize because the size of a region can't be greater than usize.
-    let lowmem_size = first_region.len() as usize;
+    let lowmem_size = u64_to_usize(first_region.len());
 
     if lowmem_size < initrd_size {
         return Err(ConfigurationError::InitrdAddress);

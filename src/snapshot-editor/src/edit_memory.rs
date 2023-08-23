@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use clap::Subcommand;
 use fc_utils::seek_hole::SeekHole;
+use fc_utils::u64_to_usize;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum EditMemoryError {
@@ -89,7 +90,7 @@ fn rebase(memory_path: PathBuf, diff_path: PathBuf) -> Result<(), EditMemoryErro
                     base_file.as_raw_fd(),
                     diff_file.as_raw_fd(),
                     (&mut cursor as *mut u64).cast::<i64>(),
-                    block_end.saturating_sub(cursor) as usize,
+                    u64_to_usize(block_end.saturating_sub(cursor)),
                 )
             };
             if num_transferred_bytes < 0 {

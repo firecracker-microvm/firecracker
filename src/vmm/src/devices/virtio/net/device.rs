@@ -15,6 +15,7 @@ use libc::EAGAIN;
 use log::{error, warn};
 use utils::eventfd::EventFd;
 use utils::net::mac::MacAddr;
+use utils::u64_to_usize;
 use utils::vm_memory::{ByteValued, Bytes, GuestMemoryError, GuestMemoryMmap};
 use virtio_gen::virtio_net::{
     virtio_net_hdr_v1, VIRTIO_F_VERSION_1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM,
@@ -802,7 +803,7 @@ impl VirtioDevice for Net {
         if let Some(end) = offset.checked_add(data.len() as u64) {
             // This write can't fail, offset and end are checked against config_len.
             data.write_all(
-                &config_space_bytes[offset as usize..cmp::min(end, config_len) as usize],
+                &config_space_bytes[u64_to_usize(offset)..u64_to_usize(cmp::min(end, config_len))],
             )
             .unwrap();
         }

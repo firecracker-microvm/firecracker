@@ -22,6 +22,7 @@ use snapshot::Persist;
 use userfaultfd::Uffd;
 use utils::eventfd::EventFd;
 use utils::time::TimestampUs;
+use utils::u64_to_usize;
 use utils::vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, ReadVolatile};
 #[cfg(target_arch = "aarch64")]
 use vm_superio::Rtc;
@@ -491,7 +492,7 @@ pub fn build_microvm_from_snapshot(
 
     vm_resources.update_vm_config(&MachineConfigUpdate {
         vcpu_count: Some(vcpu_count),
-        mem_size_mib: Some(microvm_state.vm_info.mem_size_mib as usize),
+        mem_size_mib: Some(u64_to_usize(microvm_state.vm_info.mem_size_mib)),
         smt: Some(microvm_state.vm_info.smt),
         cpu_template: Some(microvm_state.vm_info.cpu_template),
         track_dirty_pages: Some(track_dirty_pages),
@@ -626,7 +627,7 @@ where
                 "Initrd image seek returned a size of zero",
             )))
         }
-        Ok(s) => size = s as usize,
+        Ok(s) => size = u64_to_usize(s),
     };
     // Go back to the image start
     image.seek(SeekFrom::Start(0)).map_err(InitrdRead)?;

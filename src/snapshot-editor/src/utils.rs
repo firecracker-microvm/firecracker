@@ -4,6 +4,7 @@
 use std::fs::{File, OpenOptions};
 use std::path::PathBuf;
 
+use fc_utils::u64_to_usize;
 use snapshot::Snapshot;
 use vmm::persist::MicrovmState;
 use vmm::version_map::VERSION_MAP;
@@ -29,7 +30,7 @@ pub fn open_vmstate(snapshot_path: &PathBuf) -> Result<(MicrovmState, u16), Util
     let version_map = VERSION_MAP.clone();
     let mut snapshot_reader = File::open(snapshot_path).map_err(UtilsError::VmStateFileOpen)?;
     let metadata = std::fs::metadata(snapshot_path).map_err(UtilsError::VmStateFileMeta)?;
-    let snapshot_len = metadata.len() as usize;
+    let snapshot_len = u64_to_usize(metadata.len());
     Snapshot::load(&mut snapshot_reader, snapshot_len, version_map).map_err(UtilsError::VmStateLoad)
 }
 
