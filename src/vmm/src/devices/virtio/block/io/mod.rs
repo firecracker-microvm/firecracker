@@ -298,18 +298,12 @@ pub mod tests {
 
         // Partial write
         let partial_len = 50;
-        let addr = GuestAddress(MEM_LEN as u64 - partial_len);
+        let addr = GuestAddress(MEM_LEN as u64 - u64::from(partial_len));
         mem.write(&data, addr).unwrap();
-        assert_sync_execution!(
-            engine.write(0, &mem, addr, partial_len as u32, ()),
-            partial_len as u32
-        );
+        assert_sync_execution!(engine.write(0, &mem, addr, partial_len, ()), partial_len);
         // Partial read
         let mem = create_mem();
-        assert_sync_execution!(
-            engine.read(0, &mem, addr, partial_len as u32, ()),
-            partial_len as u32
-        );
+        assert_sync_execution!(engine.read(0, &mem, addr, partial_len, ()), partial_len);
         // Check data
         let mut buf = vec![0u8; partial_len as usize];
         mem.read_slice(&mut buf, addr).unwrap();

@@ -1132,12 +1132,7 @@ mod tests {
         // Let's create two simple descriptor chains.
 
         for j in 0..5 {
-            vq.dtable[j].set(
-                0x1000 * (j + 1) as u64,
-                0x1000,
-                VIRTQ_DESC_F_NEXT,
-                (j + 1) as u16,
-            );
+            vq.dtable[j as usize].set(0x1000 * u64::from(j + 1), 0x1000, VIRTQ_DESC_F_NEXT, j + 1);
         }
 
         // the chains are (0, 1) and (2, 3, 4)
@@ -1232,12 +1227,7 @@ mod tests {
         let mut q = vq.create_queue();
 
         for j in 0..4 {
-            vq.dtable[j].set(
-                0x1000 * (j + 1) as u64,
-                0x1000,
-                VIRTQ_DESC_F_NEXT,
-                (j + 1) as u16,
-            );
+            vq.dtable[j as usize].set(0x1000 * u64::from(j + 1), 0x1000, VIRTQ_DESC_F_NEXT, j + 1);
         }
 
         // Create 2 descriptor chains.
@@ -1285,12 +1275,7 @@ mod tests {
 
         // Create 1 descriptor chain of 4.
         for j in 0..4 {
-            vq.dtable[j].set(
-                0x1000 * (j + 1) as u64,
-                0x1000,
-                VIRTQ_DESC_F_NEXT,
-                (j + 1) as u16,
-            );
+            vq.dtable[j as usize].set(0x1000 * u64::from(j + 1), 0x1000, VIRTQ_DESC_F_NEXT, j + 1);
         }
         // We need to clear the VIRTQ_DESC_F_NEXT for the last descriptor.
         vq.dtable[3].flags.set(0);

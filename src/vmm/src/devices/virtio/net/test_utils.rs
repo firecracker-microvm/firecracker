@@ -306,23 +306,23 @@ pub(crate) fn inject_tap_tx_frame(net: &Net, len: usize) -> Vec<u8> {
     frame
 }
 
-pub fn write_element_in_queue(net: &Net, idx: usize, val: u64) -> Result<(), DeviceError> {
-    if idx > net.queue_evts.len() {
+pub fn write_element_in_queue(net: &Net, idx: u16, val: u64) -> Result<(), DeviceError> {
+    if idx as usize > net.queue_evts.len() {
         return Err(DeviceError::QueueError(QueueError::DescIndexOutOfBounds(
-            idx as u16,
+            idx,
         )));
     }
-    net.queue_evts[idx].write(val).unwrap();
+    net.queue_evts[idx as usize].write(val).unwrap();
     Ok(())
 }
 
-pub fn get_element_from_queue(net: &Net, idx: usize) -> Result<u64, DeviceError> {
-    if idx > net.queue_evts.len() {
+pub fn get_element_from_queue(net: &Net, idx: u16) -> Result<u64, DeviceError> {
+    if idx as usize > net.queue_evts.len() {
         return Err(DeviceError::QueueError(QueueError::DescIndexOutOfBounds(
-            idx as u16,
+            idx,
         )));
     }
-    Ok(u64::try_from(net.queue_evts[idx].as_raw_fd()).unwrap())
+    Ok(u64::try_from(net.queue_evts[idx as usize].as_raw_fd()).unwrap())
 }
 
 pub fn default_guest_mac() -> MacAddr {

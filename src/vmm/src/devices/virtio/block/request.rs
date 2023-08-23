@@ -782,15 +782,15 @@ mod tests {
 
         // Use first 4 bits of randomness to shift the gap size between this descriptor
         // and the next one.
-        let mut next_desc_dist = max_desc_len + (0x1000 << (sparsity & 0xF));
+        let mut next_desc_dist = u64::from(max_desc_len) + (0x1000 << (sparsity & 0xF));
         let data_addr = req_type_addr.checked_add(next_desc_dist).unwrap();
 
         // Use next 4 bits of randomness to shift gap size between this descriptor
         // and the next one.
-        next_desc_dist = max_desc_len + (0x1000 << ((sparsity & 0xF0) >> 4));
+        next_desc_dist = u64::from(max_desc_len) + (0x1000 << ((sparsity & 0xF0) >> 4));
         let status_addr = data_addr.checked_add(next_desc_dist).unwrap();
 
-        let mem_end = status_addr.checked_add(max_desc_len).unwrap();
+        let mem_end = status_addr.checked_add(u64::from(max_desc_len)).unwrap();
         let mem: GuestMemoryMmap = create_anon_guest_memory(
             &[(
                 GuestAddress(base_addr),
@@ -819,7 +819,7 @@ mod tests {
         let mut request_header = RequestHeader::new(virtio_request_id, request.sector);
 
         chain.header_desc.addr.set(req_type_addr.0);
-        chain.header_desc.len.set(max_desc_len as u32);
+        chain.header_desc.len.set(max_desc_len);
         chain.set_header(request_header);
 
         // Flush requests have no data desc.

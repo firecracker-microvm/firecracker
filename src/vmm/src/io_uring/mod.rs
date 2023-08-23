@@ -469,28 +469,28 @@ mod tests {
         // Verifies that the files are identical afterwards and that the read operations returned
         // the same values.
 
-        const FILE_LEN: usize = 1024;
+        const FILE_LEN: u32 = 1024;
         // The number of arbitrary operations in a testrun.
         const OPS_COUNT: usize = 2000;
         const RING_SIZE: u32 = 128;
 
         // Allocate and init memory for holding the data that will be written into the file.
-        let write_mem_region = setup_mem_region(FILE_LEN);
+        let write_mem_region = setup_mem_region(FILE_LEN as usize);
 
-        let sync_read_mem_region = setup_mem_region(FILE_LEN);
+        let sync_read_mem_region = setup_mem_region(FILE_LEN as usize);
 
-        let async_read_mem_region = setup_mem_region(FILE_LEN);
+        let async_read_mem_region = setup_mem_region(FILE_LEN as usize);
 
         // Init the write buffers with 0,1,2,...
         for i in 0..FILE_LEN {
             write_mem_region
                 .as_volatile_slice()
-                .write_obj((i % (u8::MAX as usize)) as u8, i)
+                .write_obj((i % u32::from(u8::MAX)) as u8, i as usize)
                 .unwrap();
         }
 
         // Create two files and init their contents to zeros.
-        let init_contents = [0u8; FILE_LEN];
+        let init_contents = [0u8; FILE_LEN as usize];
         let file_async = TempFile::new().unwrap().into_file();
         file_async.write_all_at(&init_contents, 0).unwrap();
 
@@ -510,7 +510,7 @@ mod tests {
 
         runner
             .run(
-                &proptest::collection::vec(arbitrary_rw_operation(FILE_LEN as u32), OPS_COUNT),
+                &proptest::collection::vec(arbitrary_rw_operation(FILE_LEN), OPS_COUNT),
                 |set| {
                     let mut ring =
                         IoUring::new(RING_SIZE, vec![&file_async], vec![], None).unwrap();
@@ -588,11 +588,11 @@ mod tests {
                     drain_cqueue(&mut ring);
 
                     // Get the write result for async IO.
-                    let mut async_result = [0u8; FILE_LEN];
+                    let mut async_result = [0u8; FILE_LEN as usize];
                     file_async.read_exact_at(&mut async_result, 0).unwrap();
 
                     // Get the write result for sync IO.
-                    let mut sync_result = [0u8; FILE_LEN];
+                    let mut sync_result = [0u8; FILE_LEN as usize];
                     file_sync.read_exact_at(&mut sync_result, 0).unwrap();
 
                     // Now compare the write results.

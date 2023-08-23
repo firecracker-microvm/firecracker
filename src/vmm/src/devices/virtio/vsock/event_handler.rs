@@ -455,9 +455,9 @@ mod tests {
     fn test_vsock_bof() {
         use utils::vm_memory::GuestAddress;
 
-        const GAP_SIZE: usize = 768 << 20;
+        const GAP_SIZE: u32 = 768 << 20;
         const FIRST_AFTER_GAP: usize = 1 << 32;
-        const GAP_START_ADDR: usize = FIRST_AFTER_GAP - GAP_SIZE;
+        const GAP_START_ADDR: usize = FIRST_AFTER_GAP - GAP_SIZE as usize;
         const MIB: usize = 1 << 20;
 
         let mut test_ctx = TestContext::new();
@@ -494,21 +494,11 @@ mod tests {
 
         // Let's check what happens when the buffer descriptor crosses into the gap, but does
         // not go past its right edge.
-        vsock_bof_helper(
-            &mut test_ctx,
-            1,
-            GAP_START_ADDR as u64 - 4,
-            GAP_SIZE as u32 + 4,
-        );
+        vsock_bof_helper(&mut test_ctx, 1, GAP_START_ADDR as u64 - 4, GAP_SIZE + 4);
 
         // Let's modify the buffer descriptor addr and len such that it crosses over the MMIO gap,
         // and check we cannot assemble the VsockPkts.
-        vsock_bof_helper(
-            &mut test_ctx,
-            1,
-            GAP_START_ADDR as u64 - 4,
-            GAP_SIZE as u32 + 100,
-        );
+        vsock_bof_helper(&mut test_ctx, 1, GAP_START_ADDR as u64 - 4, GAP_SIZE + 100);
     }
 
     #[test]
