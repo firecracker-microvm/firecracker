@@ -926,7 +926,7 @@ mod tests {
 
         fn init_data_pkt(&mut self, mut data: &[u8]) -> &VsockPacket {
             assert!(data.len() <= self.pkt.buf_size());
-            self.init_pkt(uapi::VSOCK_OP_RW, data.len() as u32);
+            self.init_pkt(uapi::VSOCK_OP_RW, u32::try_from(data.len()).unwrap());
 
             let len = data.len();
             self.pkt

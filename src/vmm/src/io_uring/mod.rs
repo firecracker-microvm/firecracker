@@ -487,7 +487,7 @@ mod tests {
         for i in 0..FILE_LEN {
             write_mem_region
                 .as_volatile_slice()
-                .write_obj((i % u32::from(u8::MAX)) as u8, i as usize)
+                .write_obj(u8::try_from(i % u32::from(u8::MAX)).unwrap(), i as usize)
                 .unwrap();
         }
 

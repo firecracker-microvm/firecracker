@@ -242,7 +242,7 @@ mod tests {
         let payload_length = total_len - UDP_HEADER_SIZE;
         assert_eq!(p.payload().len(), payload_length);
 
-        let payload: Vec<u8> = (0..(payload_length as u8)).collect();
+        let payload: Vec<u8> = (0..u8::try_from(payload_length).unwrap()).collect();
         p.payload_mut().copy_from_slice(&payload);
         assert_eq!(*p.payload(), payload[..]);
     }

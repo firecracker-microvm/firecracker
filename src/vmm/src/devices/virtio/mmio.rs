@@ -755,7 +755,7 @@ pub(crate) mod tests {
         let mut buf = vec![0; 4];
         let queue_len = d.locked_device().queues().len();
         for q in 0..queue_len {
-            d.queue_select = q as u32;
+            d.queue_select = q.try_into().unwrap();
             write_le_u32(&mut buf[..], 16);
             d.bus_write(0x38, &buf[..]);
             write_le_u32(&mut buf[..], 1);
@@ -808,7 +808,7 @@ pub(crate) mod tests {
         let mut buf = vec![0; 4];
         let queues_count = d.locked_device().queues().len();
         for q in 0..queues_count {
-            d.queue_select = q as u32;
+            d.queue_select = q.try_into().unwrap();
             write_le_u32(&mut buf[..], 16);
             d.bus_write(0x38, &buf[..]);
             write_le_u32(&mut buf[..], 1);

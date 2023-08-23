@@ -1150,7 +1150,8 @@ pub mod tests {
         // Check that the frame wasn't deferred.
         assert!(!th.net().rx_deferred_frame);
         // Check that the frame has been written successfully to the valid Rx descriptor chain.
-        th.rxq.check_used_elem(3, 5, frame.len() as u32);
+        th.rxq
+            .check_used_elem(3, 5, frame.len().try_into().unwrap());
         th.rxq.dtable[5].check_data(&frame);
     }
 
@@ -1186,7 +1187,8 @@ pub mod tests {
         assert_eq!(th.rxq.used.idx.get(), 1);
         assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
         // Check that the frame has been written successfully to the Rx descriptor chain.
-        th.rxq.check_used_elem(0, 3, frame.len() as u32);
+        th.rxq
+            .check_used_elem(0, 3, frame.len().try_into().unwrap());
         th.rxq.dtable[3].check_data(&frame[..100]);
         th.rxq.dtable[5].check_data(&frame[100..150]);
         th.rxq.dtable[11].check_data(&frame[150..]);
@@ -1225,11 +1227,13 @@ pub mod tests {
         assert_eq!(th.rxq.used.idx.get(), 2);
         assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
         // Check that the 1st frame was written successfully to the 1st Rx descriptor chain.
-        th.rxq.check_used_elem(0, 0, frame_1.len() as u32);
+        th.rxq
+            .check_used_elem(0, 0, frame_1.len().try_into().unwrap());
         th.rxq.dtable[0].check_data(&frame_1);
         th.rxq.dtable[1].check_data(&[0; 500]);
         // Check that the 2nd frame was written successfully to the 2nd Rx descriptor chain.
-        th.rxq.check_used_elem(1, 2, frame_2.len() as u32);
+        th.rxq
+            .check_used_elem(1, 2, frame_2.len().try_into().unwrap());
         th.rxq.dtable[2].check_data(&frame_2);
         th.rxq.dtable[3].check_data(&[0; 500]);
     }
@@ -1821,7 +1825,8 @@ pub mod tests {
                 assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
                 // make sure the data queue advanced
                 assert_eq!(th.rxq.used.idx.get(), 1);
-                th.rxq.check_used_elem(0, 0, frame.len() as u32);
+                th.rxq
+                    .check_used_elem(0, 0, frame.len().try_into().unwrap());
                 th.rxq.dtable[0].check_data(frame);
             }
         }
@@ -1930,7 +1935,8 @@ pub mod tests {
                 assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
                 // make sure the data queue advanced
                 assert_eq!(th.rxq.used.idx.get(), 1);
-                th.rxq.check_used_elem(0, 0, frame.len() as u32);
+                th.rxq
+                    .check_used_elem(0, 0, frame.len().try_into().unwrap());
                 th.rxq.dtable[0].check_data(frame);
             }
         }

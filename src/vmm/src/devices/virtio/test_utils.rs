@@ -275,7 +275,8 @@ impl<'a> VirtQueue<'a> {
     }
 
     pub fn size(&self) -> u16 {
-        self.dtable.len() as u16
+        // Safe to unwrap because the size is specified as a u16 when the table is first created.
+        self.dtable.len().try_into().unwrap()
     }
 
     pub fn dtable_start(&self) -> GuestAddress {
