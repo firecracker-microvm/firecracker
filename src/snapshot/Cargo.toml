@@ -12,7 +12,7 @@ bench = false
 [dependencies]
 libc = "0.2.117"
 versionize = "0.1.10"
-versionize_derive = "0.1.5"
+versionize_derive = "0.1.6"
 thiserror = "1.0.32"
 displaydoc = "0.2.4"
 
