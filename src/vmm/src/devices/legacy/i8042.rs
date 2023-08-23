@@ -412,7 +412,7 @@ mod tests {
 
         // Test buffer full.
         for i in 0..BUF_SIZE {
-            i8042.push_byte(i as u8).unwrap();
+            i8042.push_byte(i.try_into().unwrap()).unwrap();
             assert_eq!(i8042.buf_len(), i + 1);
         }
         assert_eq!(

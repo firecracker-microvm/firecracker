@@ -516,7 +516,11 @@ pub mod test {
             self.add_desc_chain(
                 NetQueue::Rx,
                 0,
-                &[(0, expected_frame.len() as u32, VIRTQ_DESC_F_WRITE)],
+                &[(
+                    0,
+                    u32::try_from(expected_frame.len()).unwrap(),
+                    VIRTQ_DESC_F_WRITE,
+                )],
             );
             check_metric_after_block!(
                 METRICS.net.rx_packets_count,
@@ -527,7 +531,7 @@ pub mod test {
             assert_eq!(self.rxq.used.idx.get(), used_idx + 1);
             assert!(&self.net().irq_trigger.has_pending_irq(IrqType::Vring));
             self.rxq
-                .check_used_elem(used_idx, 0, expected_frame.len() as u32);
+                .check_used_elem(used_idx, 0, expected_frame.len().try_into().unwrap());
             self.rxq.dtable[0].check_data(expected_frame);
         }
 

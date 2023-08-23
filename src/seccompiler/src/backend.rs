@@ -917,7 +917,7 @@ mod tests {
                 assert_eq!(rc, 0);
             }
             let bpf_prog = sock_fprog {
-                len: bpf_filter.len() as u16,
+                len: u16::try_from(bpf_filter.len()).unwrap(),
                 filter: bpf_filter.as_ptr(),
             };
             let bpf_prog_ptr = &bpf_prog as *const sock_fprog;

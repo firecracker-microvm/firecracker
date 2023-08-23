@@ -530,23 +530,19 @@ mod tests {
         let src = Ipv4Addr::new(10, 100, 11, 21);
         let dst = Ipv4Addr::new(192, 168, 121, 35);
 
-        let buf_len = buf.len();
+        let buf_len = u16::try_from(buf.len()).unwrap();
         // No IPv4 option support for now.
         let header_len = OPTIONS_OFFSET;
-        let payload_len = buf_len - usize::from(OPTIONS_OFFSET);
+        let payload_len = buf_len - u16::from(OPTIONS_OFFSET);
 
         {
             let mut p = IPv4Packet::write_header(buf.as_mut(), PROTOCOL_TCP, src, dst)
                 .unwrap()
-                .with_header_and_payload_len_unchecked(
-                    header_len,
-                    u16::try_from(payload_len).unwrap(),
-                    true,
-                );
+                .with_header_and_payload_len_unchecked(header_len, payload_len, true);
 
             assert_eq!(p.version_and_header_len(), (IPV4_VERSION, header_len));
             assert_eq!(p.dscp_and_ecn(), (0, 0));
-            assert_eq!(p.total_len() as usize, buf_len);
+            assert_eq!(p.total_len(), buf_len);
             assert_eq!(p.identification(), 0);
             assert_eq!(p.flags_and_fragment_offset(), (0, 0));
             assert_eq!(p.ttl(), DEFAULT_TTL);
@@ -604,16 +600,11 @@ mod tests {
         look_for_error(buf.as_ref(), Error::InvalidTotalLen);
 
         // Total len not matching slice length.
-        p(buf.as_mut()).set_total_len(buf_len as u16 - 1);
+        p(buf.as_mut()).set_total_len(buf_len - 1);
         look_for_error(buf.as_ref(), Error::SliceExactLen);
 
         // The original packet header should contain a valid checksum.
-        assert_eq!(
-            p(buf.as_mut())
-                .set_total_len(buf_len as u16)
-                .compute_checksum(),
-            0
-        );
+        assert_eq!(p(buf.as_mut()).set_total_len(buf_len).compute_checksum(), 0);
 
         // Let's make it invalid.
         let checksum = p(buf.as_mut()).header_checksum();

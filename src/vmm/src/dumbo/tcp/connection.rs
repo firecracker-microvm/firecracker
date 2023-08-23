@@ -1778,7 +1778,7 @@ pub(crate) mod tests {
             check_control_segment(&s, 0, TcpFlags::FIN | TcpFlags::ACK);
             assert_eq!(
                 s.sequence_number(),
-                conn_isn.wrapping_add(1 + bytes_sent_by_c as u32)
+                conn_isn.wrapping_add(1 + u32::try_from(bytes_sent_by_c).unwrap())
             );
         }
 

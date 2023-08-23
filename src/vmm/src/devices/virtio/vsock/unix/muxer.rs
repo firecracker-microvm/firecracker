@@ -866,7 +866,7 @@ mod tests {
         ) -> &mut VsockPacket {
             assert!(data.len() <= self.pkt.buf_size());
             self.init_pkt(local_port, peer_port, uapi::VSOCK_OP_RW)
-                .set_len(data.len() as u32);
+                .set_len(u32::try_from(data.len()).unwrap());
 
             let data_len = data.len(); // store in tmp var to make borrow checker happy.
             self.pkt

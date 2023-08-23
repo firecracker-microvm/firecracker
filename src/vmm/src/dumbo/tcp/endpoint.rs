@@ -444,7 +444,7 @@ mod tests {
 
         // 1 for the SYN.
         let mut remote_first_not_sent =
-            remote_isn.wrapping_add(1 + incomplete_request.len() as u32);
+            remote_isn.wrapping_add(1 + u32::try_from(incomplete_request.len()).unwrap());
 
         // The endpoint should write an ACK at this point.
         {
@@ -470,7 +470,7 @@ mod tests {
         }
 
         remote_first_not_sent =
-            remote_first_not_sent.wrapping_add(rest_of_the_request.len() as u32);
+            remote_first_not_sent.wrapping_add(rest_of_the_request.len().try_into().unwrap());
 
         let mut endpoint_first_not_sent;
 
@@ -521,7 +521,8 @@ mod tests {
                 endpoint.receive_segment(&data, mock_callback);
             }
 
-            remote_first_not_sent = remote_first_not_sent.wrapping_add(request.len() as u32);
+            remote_first_not_sent =
+                remote_first_not_sent.wrapping_add(request.len().try_into().unwrap());
 
             // Check response.
             {
@@ -558,7 +559,7 @@ mod tests {
 
         {
             // Hack: have to artificially increase t.mss to create this segment which is 2k+.
-            t.mss = RCV_BUF_MAX_SIZE as u16;
+            t.mss = RCV_BUF_MAX_SIZE.try_into().unwrap();
             let mut data = t.write_data(write_buf.as_mut(), request_to_fill.as_ref());
 
             data.set_flags_after_ns(TcpFlags::ACK);
