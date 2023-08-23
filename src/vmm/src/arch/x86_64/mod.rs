@@ -191,7 +191,7 @@ fn add_e820_entry(
     size: u64,
     mem_type: u32,
 ) -> Result<(), ConfigurationError> {
-    if params.e820_entries >= params.e820_table.len() as u8 {
+    if params.e820_entries as usize >= params.e820_table.len() {
         return Err(ConfigurationError::E820Configuration);
     }
 
