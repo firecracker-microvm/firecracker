@@ -490,7 +490,7 @@ pub fn set_msrs(vcpu: &VcpuFd, msr_entries: &[kvm_msr_entry]) -> Result<(), MsrE
     vcpu.set_msrs(&msrs)
         .map_err(MsrError::SetMsrs)
         .and_then(|msrs_written| {
-            if msrs_written as u32 == msrs.as_fam_struct_ref().nmsrs {
+            if msrs_written == msrs.as_fam_struct_ref().nmsrs as usize {
                 Ok(())
             } else {
                 Err(MsrError::SetMsrsIncomplete)
