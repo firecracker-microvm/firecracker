@@ -330,6 +330,7 @@ impl MmioTransport {
 pub(crate) mod tests {
     use utils::byte_order::{read_le_u32, write_le_u32};
     use utils::eventfd::EventFd;
+    use utils::u64_to_usize;
     use utils::vm_memory::GuestMemoryMmap;
 
     use super::*;
@@ -406,12 +407,12 @@ pub(crate) mod tests {
         }
 
         fn read_config(&self, offset: u64, data: &mut [u8]) {
-            data.copy_from_slice(&self.config_bytes[offset as usize..]);
+            data.copy_from_slice(&self.config_bytes[u64_to_usize(offset)..]);
         }
 
         fn write_config(&mut self, offset: u64, data: &[u8]) {
             for (i, item) in data.iter().enumerate() {
-                self.config_bytes[offset as usize + i] = *item;
+                self.config_bytes[u64_to_usize(offset) + i] = *item;
             }
         }
 

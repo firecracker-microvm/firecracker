@@ -8,6 +8,7 @@ use std::marker::PhantomData;
 use std::mem;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use utils::u64_to_usize;
 use utils::vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
 use crate::devices::virtio::Queue;
@@ -260,7 +261,7 @@ impl<'a> VirtQueue<'a> {
         let mut x = avail.end().0;
         x = (x + USED_ALIGN - 1) & !(USED_ALIGN - 1);
 
-        let used = VirtqUsed::new(GuestAddress(x), mem, qsize, USED_ALIGN as usize);
+        let used = VirtqUsed::new(GuestAddress(x), mem, qsize, u64_to_usize(USED_ALIGN));
 
         VirtQueue {
             dtable,
