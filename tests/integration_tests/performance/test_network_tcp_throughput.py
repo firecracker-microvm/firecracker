@@ -6,7 +6,6 @@ import json
 
 import pytest
 
-from framework.artifacts import DEFAULT_HOST_IP
 from framework.stats import consumer, producer
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
@@ -128,7 +127,7 @@ def test_network_tcp_throughput(
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn(log_level="Info")
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=guest_mem_mib)
-    vm.add_net_iface()
+    iface = vm.add_net_iface()
     vm.start()
 
     microvm_cfg = f"{vcpus}vcpu_{guest_mem_mib}mb.json"
@@ -154,7 +153,7 @@ def test_network_tcp_throughput(
         mode,
         payload_length,
         current_avail_cpu + 1,
-        DEFAULT_HOST_IP,
+        iface.host_ip,
         f"{st_core.env_id_prefix}/{microvm_cfg}",
     )
     st_core.add_pipe(prod, cons, tag)

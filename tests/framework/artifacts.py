@@ -123,23 +123,15 @@ def firecracker_artifacts():
         yield pytest.param(fc, id=fc.name)
 
 
-# Default configuration values for network interfaces.
-DEFAULT_HOST_IP = "192.168.0.1"
-DEFAULT_GUEST_IP = "192.168.0.2"
-DEFAULT_TAP_NAME = "tap0"
-DEFAULT_DEV_NAME = "eth0"
-DEFAULT_NETMASK = 30
-
-
 @dataclass(frozen=True, repr=True)
 class NetIfaceConfig:
     """Defines a network interface configuration."""
 
-    host_ip: str = DEFAULT_HOST_IP
-    guest_ip: str = DEFAULT_GUEST_IP
-    tap_name: str = DEFAULT_TAP_NAME
-    dev_name: str = DEFAULT_DEV_NAME
-    netmask: int = DEFAULT_NETMASK
+    host_ip: str = "192.168.0.1"
+    guest_ip: str = "192.168.0.2"
+    tap_name: str = "tap0"
+    dev_name: str = "eth0"
+    netmask: int = 30
 
     @property
     def guest_mac(self):

@@ -9,7 +9,6 @@ import subprocess
 import termios
 import time
 
-import host_tools.logging as log_tools
 from framework import utils
 from framework.microvm import Serial
 from framework.state_machine import TestState
@@ -181,18 +180,10 @@ def test_serial_block(test_microvm_with_api):
         boot_args="console=ttyS0 reboot=k panic=1 pci=off",
     )
     test_microvm.add_net_iface()
-
-    # Configure the metrics.
-    metrics_fifo_path = os.path.join(test_microvm.path, "metrics_fifo")
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    test_microvm.api.metrics.put(
-        metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
-    )
-
     test_microvm.start()
 
     # Get an initial reading of missed writes to the serial.
-    fc_metrics = test_microvm.flush_metrics(metrics_fifo)
+    fc_metrics = test_microvm.flush_metrics()
     init_count = fc_metrics["uart"]["missed_write_count"]
 
     screen_pid = test_microvm.screen_pid
@@ -213,7 +204,7 @@ def test_serial_block(test_microvm_with_api):
     assert exit_code == 0
 
     # Check the metrics to see if the serial missed bytes.
-    fc_metrics = test_microvm.flush_metrics(metrics_fifo)
+    fc_metrics = test_microvm.flush_metrics()
     last_count = fc_metrics["uart"]["missed_write_count"]
 
     # Should be significantly more than before the `cat` command.

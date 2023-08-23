@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-import host_tools.logging as log_tools
 from framework.utils import run_cmd
 from host_tools.cargo_build import get_firecracker_binaries
 
@@ -51,12 +50,11 @@ def test_cli_metrics_path(uvm_plain):
     Test --metrics-path parameter
     """
     microvm = uvm_plain
-    metrics_fifo_path = Path(microvm.path) / "metrics_ndjson.fifo"
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    microvm.spawn(metrics_path=metrics_fifo_path)
+    metrics_path = Path(microvm.path) / "my_metrics.ndjson"
+    microvm.spawn(metrics_path=metrics_path)
     microvm.basic_config()
     microvm.start()
-    metrics = microvm.flush_metrics(metrics_fifo)
+    metrics = microvm.flush_metrics()
 
     exp_keys = [
         "utc_timestamp_ms",
