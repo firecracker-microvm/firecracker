@@ -7,6 +7,7 @@ use std::io::Write;
 use std::num::Wrapping;
 
 use utils::vm_memory::{BitmapSlice, Bytes, VolatileMemoryError, VolatileSlice, WriteVolatile};
+use utils::wrap_usize_to_u32;
 
 use super::{defs, VsockCsmError};
 
@@ -76,7 +77,7 @@ impl TxBuf {
 
         // Either way, we've just pushed exactly `src.len()` bytes, so that's the amount by
         // which the (wrapping) buffer head needs to move forward.
-        self.head += Wrapping(src.len() as u32);
+        self.head += wrap_usize_to_u32(src.len());
 
         Ok(())
     }
@@ -111,7 +112,7 @@ impl TxBuf {
             .map_err(VsockCsmError::TxBufFlush)?;
 
         // Move the buffer tail ahead by the amount (of bytes) we were able to flush out.
-        self.tail += Wrapping(written as u32);
+        self.tail += wrap_usize_to_u32(written);
 
         // If we weren't able to flush out as much as we tried, there's no point in attempting
         // our second write.

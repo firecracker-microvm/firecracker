@@ -85,6 +85,7 @@ use std::time::{Duration, Instant};
 use log::{debug, error, info, warn};
 use utils::epoll::EventSet;
 use utils::vm_memory::{GuestMemoryError, GuestMemoryMmap, ReadVolatile, WriteVolatile};
+use utils::wrap_usize_to_u32;
 
 use super::super::defs::uapi;
 use super::super::packet::VsockPacket;
@@ -475,7 +476,7 @@ where
                     };
                     0
                 });
-            self.fwd_cnt += Wrapping(flushed as u32);
+            self.fwd_cnt += wrap_usize_to_u32(flushed);
             METRICS.vsock.tx_bytes_count.add(flushed as u64);
 
             // If this connection was shutting down, but is waiting to drain the TX buffer
@@ -627,7 +628,8 @@ where
             }
         };
         // Move the "forwarded bytes" counter ahead by how much we were able to send out.
-        self.fwd_cnt += Wrapping(written as u32);
+        // Safe to unwrap because the maximum value is pkt.len(), which is a u32.
+        self.fwd_cnt += wrap_usize_to_u32(written);
         METRICS.vsock.tx_bytes_count.add(written as u64);
 
         // If we couldn't write the whole slice, we'll need to push the remaining data to our

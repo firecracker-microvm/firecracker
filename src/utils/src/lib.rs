@@ -21,6 +21,7 @@ pub mod time;
 pub mod validators;
 pub mod vm_memory;
 
+use std::num::Wrapping;
 use std::result::Result;
 
 /// Return the default page size of the platform, in bytes.
@@ -39,4 +40,10 @@ pub fn get_page_size() -> Result<usize, errno::Error> {
 #[allow(clippy::cast_possible_truncation)]
 pub const fn u64_to_usize(num: u64) -> usize {
     num as usize
+}
+
+/// Converts a usize into a wrapping u32.
+#[inline]
+pub const fn wrap_usize_to_u32(num: usize) -> Wrapping<u32> {
+    Wrapping(((num as u64) & 0xFFFFFFFF) as u32)
 }

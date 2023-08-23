@@ -182,7 +182,7 @@ impl DiskProperties {
         // The config space is little endian.
         let mut config = Vec::with_capacity(BLOCK_CONFIG_SPACE_SIZE);
         for i in 0..BLOCK_CONFIG_SPACE_SIZE {
-            config.push((self.nsectors >> (8 * i)) as u8);
+            config.push(((self.nsectors >> (8 * i)) & 0xff) as u8);
         }
         config
     }
