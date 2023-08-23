@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::io::Write;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 use std::time::Duration;
 use std::{cmp, fmt};
@@ -586,7 +586,7 @@ impl VirtioDevice for Balloon {
         &self.irq_trigger.irq_evt
     }
 
-    fn interrupt_status(&self) -> Arc<AtomicUsize> {
+    fn interrupt_status(&self) -> Arc<AtomicU32> {
         self.irq_trigger.irq_status.clone()
     }
 

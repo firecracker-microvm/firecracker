@@ -11,7 +11,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::os::linux::fs::MetadataExt;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
 use block_io::FileEngine;
@@ -571,7 +571,7 @@ impl VirtioDevice for Block {
     }
 
     /// Returns the current device interrupt status.
-    fn interrupt_status(&self) -> Arc<AtomicUsize> {
+    fn interrupt_status(&self) -> Arc<AtomicU32> {
         self.irq_trigger.irq_status.clone()
     }
 

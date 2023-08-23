@@ -3,7 +3,7 @@
 
 //! Defines the structures needed for saving/restoring block devices.
 
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
 use snapshot::Persist;
@@ -201,7 +201,7 @@ impl Persist<'_> for Block {
             )
             .map_err(BlockError::Persist)?;
         block.irq_trigger.irq_status =
-            Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
+            Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
         block.avail_features = state.virtio_state.avail_features;
         block.acked_features = state.virtio_state.acked_features;
 

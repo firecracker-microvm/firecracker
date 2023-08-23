@@ -462,7 +462,7 @@ impl DeviceInfoForFDT for MMIODeviceInfo {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::AtomicU32;
     use std::sync::Arc;
 
     use utils::eventfd::EventFd;
@@ -541,8 +541,8 @@ mod tests {
             &self.interrupt_evt
         }
 
-        fn interrupt_status(&self) -> Arc<AtomicUsize> {
-            Arc::new(AtomicUsize::new(0))
+        fn interrupt_status(&self) -> Arc<AtomicU32> {
+            Arc::new(AtomicU32::new(0))
         }
 
         fn ack_features_by_page(&mut self, page: u32, value: u32) {
