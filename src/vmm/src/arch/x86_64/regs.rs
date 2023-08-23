@@ -189,11 +189,11 @@ fn configure_segments_and_sregs(
     // Write segments
     write_gdt_table(&gdt_table[..], mem)?;
     sregs.gdt.base = BOOT_GDT_OFFSET;
-    sregs.gdt.limit = mem::size_of_val(&gdt_table) as u16 - 1;
+    sregs.gdt.limit = u16::try_from(mem::size_of_val(&gdt_table)).unwrap() - 1;
 
     write_idt_value(0, mem)?;
     sregs.idt.base = BOOT_IDT_OFFSET;
-    sregs.idt.limit = mem::size_of::<u64>() as u16 - 1;
+    sregs.idt.limit = u16::try_from(mem::size_of::<u64>()).unwrap() - 1;
 
     sregs.cs = code_seg;
     sregs.ds = data_seg;

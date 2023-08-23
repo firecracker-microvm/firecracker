@@ -160,12 +160,12 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), MptableE
         let size = mem::size_of::<mpspec::mpc_cpu>() as u64;
         for cpu_id in 0..num_cpus {
             let mpc_cpu = mpspec::mpc_cpu {
-                type_: mpspec::MP_PROCESSOR as u8,
+                type_: mpspec::MP_PROCESSOR.try_into().unwrap(),
                 apicid: cpu_id,
                 apicver: APIC_VERSION,
-                cpuflag: mpspec::CPU_ENABLED as u8
+                cpuflag: u8::try_from(mpspec::CPU_ENABLED).unwrap()
                     | if cpu_id == 0 {
-                        mpspec::CPU_BOOTPROCESSOR as u8
+                        u8::try_from(mpspec::CPU_BOOTPROCESSOR).unwrap()
                     } else {
                         0
                     },
@@ -182,7 +182,7 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), MptableE
     {
         let size = mem::size_of::<mpspec::mpc_bus>() as u64;
         let mpc_bus = mpspec::mpc_bus {
-            type_: mpspec::MP_BUS as u8,
+            type_: mpspec::MP_BUS.try_into().unwrap(),
             busid: 0,
             bustype: BUS_TYPE_ISA,
         };
@@ -194,10 +194,10 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), MptableE
     {
         let size = mem::size_of::<mpspec::mpc_ioapic>() as u64;
         let mpc_ioapic = mpspec::mpc_ioapic {
-            type_: mpspec::MP_IOAPIC as u8,
+            type_: mpspec::MP_IOAPIC.try_into().unwrap(),
             apicid: ioapicid,
             apicver: APIC_VERSION,
-            flags: mpspec::MPC_APIC_USABLE as u8,
+            flags: mpspec::MPC_APIC_USABLE.try_into().unwrap(),
             apicaddr: IO_APIC_DEFAULT_PHYS_BASE,
         };
         mem.write_obj(mpc_ioapic, base_mp)
@@ -209,9 +209,9 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), MptableE
     for i in 0..=u8::try_from(IRQ_MAX).map_err(|_| MptableError::TooManyIrqs)? {
         let size = mem::size_of::<mpspec::mpc_intsrc>() as u64;
         let mpc_intsrc = mpspec::mpc_intsrc {
-            type_: mpspec::MP_INTSRC as u8,
-            irqtype: mpspec::mp_irq_source_types_mp_INT as u8,
-            irqflag: mpspec::MP_IRQPOL_DEFAULT as u16,
+            type_: mpspec::MP_INTSRC.try_into().unwrap(),
+            irqtype: mpspec::mp_irq_source_types_mp_INT.try_into().unwrap(),
+            irqflag: mpspec::MP_IRQPOL_DEFAULT.try_into().unwrap(),
             srcbus: 0,
             srcbusirq: i,
             dstapic: ioapicid,
@@ -225,9 +225,9 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), MptableE
     {
         let size = mem::size_of::<mpspec::mpc_lintsrc>() as u64;
         let mpc_lintsrc = mpspec::mpc_lintsrc {
-            type_: mpspec::MP_LINTSRC as u8,
-            irqtype: mpspec::mp_irq_source_types_mp_ExtINT as u8,
-            irqflag: mpspec::MP_IRQPOL_DEFAULT as u16,
+            type_: mpspec::MP_LINTSRC.try_into().unwrap(),
+            irqtype: mpspec::mp_irq_source_types_mp_ExtINT.try_into().unwrap(),
+            irqflag: mpspec::MP_IRQPOL_DEFAULT.try_into().unwrap(),
             srcbusid: 0,
             srcbusirq: 0,
             destapic: 0,
@@ -241,9 +241,9 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), MptableE
     {
         let size = mem::size_of::<mpspec::mpc_lintsrc>() as u64;
         let mpc_lintsrc = mpspec::mpc_lintsrc {
-            type_: mpspec::MP_LINTSRC as u8,
-            irqtype: mpspec::mp_irq_source_types_mp_NMI as u8,
-            irqflag: mpspec::MP_IRQPOL_DEFAULT as u16,
+            type_: mpspec::MP_LINTSRC.try_into().unwrap(),
+            irqtype: mpspec::mp_irq_source_types_mp_NMI.try_into().unwrap(),
+            irqflag: mpspec::MP_IRQPOL_DEFAULT.try_into().unwrap(),
             srcbusid: 0,
             srcbusirq: 0,
             destapic: 0xFF,

@@ -33,11 +33,12 @@ impl From<&Restriction> for bindings::io_uring_restriction {
 
         match restriction {
             AllowOpCode(opcode) => {
-                instance.opcode = bindings::IORING_RESTRICTION_SQE_OP as u16;
+                instance.opcode = u16::try_from(bindings::IORING_RESTRICTION_SQE_OP).unwrap();
                 instance.__bindgen_anon_1.sqe_op = *opcode as u8;
             }
             RequireFixedFds => {
-                instance.opcode = bindings::IORING_RESTRICTION_SQE_FLAGS_REQUIRED as u16;
+                instance.opcode =
+                    u16::try_from(bindings::IORING_RESTRICTION_SQE_FLAGS_REQUIRED).unwrap();
                 instance.__bindgen_anon_1.sqe_flags = 1 << bindings::IOSQE_FIXED_FILE_BIT;
             }
         };

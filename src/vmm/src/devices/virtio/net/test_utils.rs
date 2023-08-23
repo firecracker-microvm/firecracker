@@ -158,9 +158,9 @@ impl TapTrafficSimulator {
         // SAFETY: `sock_addr` is a valid pointer and safe to derference.
         unsafe {
             let sock_addr: *mut libc::sockaddr_ll = send_addr_ptr.cast::<libc::sockaddr_ll>();
-            (*sock_addr).sll_family = libc::AF_PACKET as libc::sa_family_t;
-            (*sock_addr).sll_protocol = (libc::ETH_P_ALL as u16).to_be();
-            (*sock_addr).sll_halen = libc::ETH_ALEN as u8;
+            (*sock_addr).sll_family = libc::sa_family_t::try_from(libc::AF_PACKET).unwrap();
+            (*sock_addr).sll_protocol = u16::try_from(libc::ETH_P_ALL).unwrap().to_be();
+            (*sock_addr).sll_halen = u8::try_from(libc::ETH_ALEN).unwrap();
             (*sock_addr).sll_ifindex = tap_index;
         }
 
@@ -171,7 +171,7 @@ impl TapTrafficSimulator {
             libc::bind(
                 socket.as_raw_fd(),
                 send_addr_ptr.cast(),
-                mem::size_of::<libc::sockaddr_ll>() as libc::socklen_t,
+                libc::socklen_t::try_from(mem::size_of::<libc::sockaddr_ll>()).unwrap(),
             )
         };
         if ret == -1 {
@@ -211,7 +211,7 @@ impl TapTrafficSimulator {
                 buf.len(),
                 0,
                 (&self.send_addr as *const libc::sockaddr_ll).cast(),
-                mem::size_of::<libc::sockaddr_ll>() as libc::socklen_t,
+                libc::socklen_t::try_from(mem::size_of::<libc::sockaddr_ll>()).unwrap(),
             )
         };
         if res == -1 {
@@ -228,7 +228,7 @@ impl TapTrafficSimulator {
                 buf.len(),
                 0,
                 (&mut mem::zeroed() as *mut libc::sockaddr_storage).cast(),
-                &mut (mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t),
+                &mut libc::socklen_t::try_from(mem::size_of::<libc::sockaddr_storage>()).unwrap(),
             )
         };
         if ret == -1 {
@@ -287,7 +287,9 @@ pub fn enable(tap: &Tap) {
         .flags(
             (net_gen::net_device_flags_IFF_UP
                 | net_gen::net_device_flags_IFF_RUNNING
-                | net_gen::net_device_flags_IFF_NOARP) as i16,
+                | net_gen::net_device_flags_IFF_NOARP)
+                .try_into()
+                .unwrap(),
         )
         .execute(&sock, c_ulong::from(net_gen::sockios::SIOCSIFFLAGS))
         .unwrap();

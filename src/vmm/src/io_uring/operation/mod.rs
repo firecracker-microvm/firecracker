@@ -19,6 +19,8 @@ pub type FixedFd = u32;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]
+// These constants are generated as u32, but we use u8; const try_from() is unstable
+#[allow(clippy::cast_possible_truncation)]
 /// Supported operation types.
 pub enum OpCode {
     /// Read operation.
