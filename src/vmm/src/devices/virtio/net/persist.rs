@@ -4,7 +4,7 @@
 //! Defines the structures needed for saving/restoring net devices.
 
 use std::io;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 
 use log::warn;
@@ -156,8 +156,7 @@ impl Persist<'_> for Net {
             NET_NUM_QUEUES,
             FIRECRACKER_MAX_QUEUE_SIZE,
         )?;
-        net.irq_trigger.irq_status =
-            Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
+        net.irq_trigger.irq_status = Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
         net.avail_features = state.virtio_state.avail_features;
         net.acked_features = state.virtio_state.acked_features;
 

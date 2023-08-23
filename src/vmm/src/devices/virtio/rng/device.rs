@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::io;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
 use aws_lc_rs::rand;
@@ -228,8 +228,8 @@ impl Entropy {
         self.acked_features = features;
     }
 
-    pub(crate) fn set_irq_status(&mut self, status: usize) {
-        self.irq_trigger.irq_status = Arc::new(AtomicUsize::new(status));
+    pub(crate) fn set_irq_status(&mut self, status: u32) {
+        self.irq_trigger.irq_status = Arc::new(AtomicU32::new(status));
     }
 
     pub(crate) fn set_activated(&mut self, mem: GuestMemoryMmap) {
@@ -262,7 +262,7 @@ impl VirtioDevice for Entropy {
         &self.irq_trigger.irq_evt
     }
 
-    fn interrupt_status(&self) -> Arc<AtomicUsize> {
+    fn interrupt_status(&self) -> Arc<AtomicU32> {
         self.irq_trigger.irq_status.clone()
     }
 

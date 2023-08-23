@@ -7,7 +7,7 @@
 
 use std::io::{Read, Write};
 use std::net::Ipv4Addr;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 use std::{cmp, mem};
 
@@ -789,7 +789,7 @@ impl VirtioDevice for Net {
         &self.irq_trigger.irq_evt
     }
 
-    fn interrupt_status(&self) -> Arc<AtomicUsize> {
+    fn interrupt_status(&self) -> Arc<AtomicU32> {
         self.irq_trigger.irq_status.clone()
     }
 

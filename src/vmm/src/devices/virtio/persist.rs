@@ -103,7 +103,15 @@ pub struct VirtioDeviceState {
     /// List of queues.
     pub queues: Vec<QueueState>,
     /// The MMIO interrupt status.
-    pub interrupt_status: usize,
+    #[version(
+        start = 2,
+        de_fn = "de_interrupt_status",
+        ser_fn = "ser_interrupt_status"
+    )]
+    pub interrupt_status: u32,
+    /// The MMIO interrupt status as a usize.
+    #[version(end = 2)]
+    pub interrupt_status_old: usize,
     /// Flag for activated status.
     pub activated: bool,
 }
@@ -117,6 +125,7 @@ impl VirtioDeviceState {
             acked_features: device.acked_features(),
             queues: device.queues().iter().map(Persist::save).collect(),
             interrupt_status: device.interrupt_status().load(Ordering::Relaxed),
+            interrupt_status_old: device.interrupt_status().load(Ordering::Relaxed) as usize,
             activated: device.is_activated(),
         }
     }
@@ -169,6 +178,21 @@ impl VirtioDeviceState {
             }
         }
         Ok(queues)
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn de_interrupt_status(&mut self, version: u16) -> VersionizeResult<()> {
+        // v1 uses a usize type for interrupt status.
+        if version < 2 {
+            self.interrupt_status = self.interrupt_status_old as u32;
+        }
+        Ok(())
+    }
+
+    fn ser_interrupt_status(&mut self, _target_version: u16) -> VersionizeResult<()> {
+        // v1 uses a usize type for interrupt status.
+        self.interrupt_status_old = self.interrupt_status as usize;
+        Ok(())
     }
 }
 

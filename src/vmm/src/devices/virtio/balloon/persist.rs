@@ -3,7 +3,7 @@
 
 //! Defines the structures needed for saving/restoring balloon devices.
 
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -141,7 +141,7 @@ impl Persist<'_> for Balloon {
             )
             .map_err(|_| Self::Error::QueueRestoreError)?;
         balloon.irq_trigger.irq_status =
-            Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
+            Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
         balloon.avail_features = state.virtio_state.avail_features;
         balloon.acked_features = state.virtio_state.acked_features;
         balloon.latest_stats = state.latest_stats.create_stats();

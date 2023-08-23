@@ -6,7 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::fmt::Debug;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use utils::byte_order;
@@ -54,7 +54,7 @@ pub struct MmioTransport {
     pub(crate) device_status: u32,
     pub(crate) config_generation: u32,
     mem: GuestMemoryMmap,
-    pub(crate) interrupt_status: Arc<AtomicUsize>,
+    pub(crate) interrupt_status: Arc<AtomicU32>,
 }
 
 impl MmioTransport {
@@ -237,7 +237,7 @@ impl MmioTransport {
                     }
                     0x34 => self.with_queue(0, |q| u32::from(q.get_max_size())),
                     0x44 => self.with_queue(0, |q| u32::from(q.ready)),
-                    0x60 => self.interrupt_status.load(Ordering::SeqCst) as u32,
+                    0x60 => self.interrupt_status.load(Ordering::SeqCst),
                     0x70 => self.device_status,
                     0xfc => self.config_generation,
                     _ => {
@@ -292,8 +292,7 @@ impl MmioTransport {
                     0x44 => self.update_queue_field(|q| q.ready = v == 1),
                     0x64 => {
                         if self.check_device_status(device_status::DRIVER_OK, 0) {
-                            self.interrupt_status
-                                .fetch_and(!(v as usize), Ordering::SeqCst);
+                            self.interrupt_status.fetch_and(!v, Ordering::SeqCst);
                         }
                     }
                     0x70 => self.set_device_status(v),
@@ -340,7 +339,7 @@ pub(crate) mod tests {
         acked_features: u64,
         avail_features: u64,
         interrupt_evt: EventFd,
-        interrupt_status: Arc<AtomicUsize>,
+        interrupt_status: Arc<AtomicU32>,
         queue_evts: Vec<EventFd>,
         queues: Vec<Queue>,
         device_activated: bool,
@@ -353,7 +352,7 @@ pub(crate) mod tests {
                 acked_features: 0,
                 avail_features: 0,
                 interrupt_evt: EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-                interrupt_status: Arc::new(AtomicUsize::new(0)),
+                interrupt_status: Arc::new(AtomicU32::new(0)),
                 queue_evts: vec![
                     EventFd::new(libc::EFD_NONBLOCK).unwrap(),
                     EventFd::new(libc::EFD_NONBLOCK).unwrap(),
@@ -402,7 +401,7 @@ pub(crate) mod tests {
             &self.interrupt_evt
         }
 
-        fn interrupt_status(&self) -> Arc<AtomicUsize> {
+        fn interrupt_status(&self) -> Arc<AtomicU32> {
             self.interrupt_status.clone()
         }
 

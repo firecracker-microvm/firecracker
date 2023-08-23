@@ -12,7 +12,7 @@ use versionize::{VersionMap, Versionize};
 use crate::device_manager::persist::DeviceStates;
 use crate::devices::virtio::block::persist::BlockState;
 use crate::devices::virtio::net::persist::NetConfigSpaceState;
-use crate::devices::virtio::QueueState;
+use crate::devices::virtio::{QueueState, VirtioDeviceState};
 use crate::persist::VmInfo;
 use crate::vstate::vcpu::VcpuState;
 use crate::vstate::vm::VmState;
@@ -79,6 +79,7 @@ lazy_static! {
         version_map.set_type_version(VcpuState::type_id(), 2);
 
         version_map.set_type_version(VmState::type_id(), 2);
+        version_map.set_type_version(VirtioDeviceState::type_id(), 2);
 
         version_map
     };

@@ -20,7 +20,7 @@ use std::fmt::Debug;
 /// - a TX queue FD;
 /// - an event queue FD; and
 /// - a backend FD.
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
 use log::{debug, error, warn};
@@ -293,7 +293,7 @@ where
         &self.irq_trigger.irq_evt
     }
 
-    fn interrupt_status(&self) -> Arc<AtomicUsize> {
+    fn interrupt_status(&self) -> Arc<AtomicU32> {
         self.irq_trigger.irq_status.clone()
     }
 
