@@ -16,7 +16,7 @@ use versionize_derive::Versionize;
 use super::*;
 use crate::devices::virtio::balloon::device::{BalloonStats, ConfigSpace};
 use crate::devices::virtio::persist::VirtioDeviceState;
-use crate::devices::virtio::{DeviceState, TYPE_BALLOON};
+use crate::devices::virtio::{DeviceState, FIRECRACKER_MAX_QUEUE_SIZE, TYPE_BALLOON};
 
 /// Information about the balloon config's that are saved
 /// at snapshot.
@@ -137,7 +137,7 @@ impl Persist<'_> for Balloon {
                 &constructor_args.mem,
                 TYPE_BALLOON,
                 num_queues,
-                BALLOON_QUEUE_SIZE,
+                FIRECRACKER_MAX_QUEUE_SIZE,
             )
             .map_err(|_| Self::Error::QueueRestoreError)?;
         balloon.irq_trigger.irq_status =

@@ -216,7 +216,7 @@ def cgroup_v2_available():
     return os.path.isfile("/sys/fs/cgroup/cgroup.controllers")
 
 
-@pytest.fixture
+@pytest.fixture(scope="session", autouse=True)
 def sys_setup_cgroups():
     """Configure cgroupfs in order to run the tests.
 
@@ -226,43 +226,6 @@ def sys_setup_cgroups():
     container while the system is using cgroup-v2.
     """
     cgroup_version = 2 if cgroup_v2_available() else 1
-    if cgroup_version == 2:
-        # Cgroup-v2 adds a no internal process constraint which means that
-        # non-root cgroups can distribute domain resources to their children
-        # only when they don’t have any processes of their own.
-        # When a Docker container is created, the processes running inside
-        # the container are added to a cgroup which the container sees
-        # as the root cgroup. This prevents creation of using domain cgroups.
-        cgroup_root = None
-
-        # find the group-v2 mount point
-        with open("/proc/mounts", encoding="utf-8") as proc_mounts:
-            mounts = proc_mounts.readlines()
-            for line in mounts:
-                if "cgroup2" in line:
-                    cgroup_root = line.split(" ")[1]
-        assert cgroup_root
-
-        # the root cgroup on the host would not contain the "cgroup.type" file
-        # if the root cgroup contains this file this means that a new
-        # namespace was created and this container was switched to that
-        if os.path.exists(f"{cgroup_root}/cgroup.type"):
-            root_procs = []
-            # get all the processes that were added in the root cgroup
-            with open(f"{cgroup_root}/cgroup.procs", encoding="utf-8") as procs:
-                root_procs = [x.strip() for x in procs.readlines()]
-
-            # now create a new domain cgroup and migrate the processes
-            # to that cgroup
-            os.makedirs(f"{cgroup_root}/system", exist_ok=True)
-            for pid in root_procs:
-                with open(
-                    f"{cgroup_root}/system/cgroup.procs", "a", encoding="utf-8"
-                ) as sys_procs:
-                    sys_procs.write(str(pid))
-            # at this point there should be no processes added to internal
-            # cgroup nodes so new domain cgroups can be created starting
-            # from the root cgroup
     yield cgroup_version
 
 
@@ -491,7 +454,6 @@ def test_cgroups_without_numa(test_microvm_with_api, sys_setup_cgroups):
 @pytest.mark.skipif(
     cgroup_v2_available() is True, reason="Requires system with cgroup-v1 enabled."
 )
-@pytest.mark.usefixtures("sys_setup_cgroups")
 def test_v1_default_cgroups(test_microvm_with_api):
     """
     Test if the jailer is using cgroup-v1 by default.
@@ -557,7 +519,8 @@ def test_negative_file_size_limit(uvm_plain):
     Test creating snapshot file fails when size exceeds `fsize` limit.
     """
     test_microvm = uvm_plain
-    test_microvm.jailer.resource_limits = ["fsize=1024"]
+    # limit to 1MB, to account for logs and metrics
+    test_microvm.jailer.resource_limits = [f"fsize={2**20}"]
     test_microvm.spawn()
     test_microvm.basic_config()
     test_microvm.start()
@@ -566,7 +529,7 @@ def test_negative_file_size_limit(uvm_plain):
 
     # Attempt to create a snapshot.
     try:
-        test_microvm.snapshot.create(
+        test_microvm.api.snapshot_create.put(
             mem_file_path="/vm.mem",
             snapshot_path="/vm.vmstate",
         )

@@ -8,6 +8,5 @@ pub mod persist;
 pub use self::device::{Entropy, EntropyError};
 
 pub(crate) const RNG_NUM_QUEUES: usize = 1;
-pub(crate) const RNG_QUEUE_SIZE: u16 = 256;
 
 pub(crate) const RNG_QUEUE: usize = 0;

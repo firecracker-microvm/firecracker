@@ -52,7 +52,7 @@ def microvm_with_custom_template_fxt(uvm_plain, custom_cpu_template):
         vcpu_count=2,
         mem_size_mib=256,
     )
-    uvm_plain.cpu_config(custom_cpu_template["template"])
+    uvm_plain.api.cpu_config.put(**custom_cpu_template["template"])
     uvm_plain.add_net_iface()
     uvm_plain.start()
     return uvm_plain

@@ -3,7 +3,6 @@
 """Performance benchmark for snapshot restore."""
 
 import json
-import os
 import tempfile
 from functools import lru_cache
 
@@ -11,7 +10,6 @@ import pytest
 
 import framework.stats as st
 import host_tools.drive as drive_tools
-import host_tools.logging as log_tools
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import get_kernel_version
@@ -109,13 +107,10 @@ def get_snap_restore_latency(
             vm.add_drive(name, diskfile.path, io_engine="Sync")
 
     if all_devices:
-        response = vm.balloon.put(
+        vm.api.balloon.put(
             amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1
         )
-        assert vm.api_session.is_status_no_content(response.status_code)
-
-        response = vm.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/v.sock")
-        assert vm.api_session.is_status_no_content(response.status_code)
+        vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/v.sock")
 
     vm.start()
     snapshot = vm.snapshot_full()
@@ -124,9 +119,7 @@ def get_snap_restore_latency(
     values = []
     for _ in range(iterations):
         microvm = microvm_factory.build()
-        metrics_fifo_path = os.path.join(microvm.path, "metrics_fifo")
-        metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-        microvm.spawn(metrics_path=metrics_fifo_path)
+        microvm.spawn()
         microvm.restore_from_snapshot(snapshot, resume=True)
         # Check if guest still runs commands.
         exit_code, _, _ = microvm.ssh.execute_command("dmesg")
@@ -134,13 +127,14 @@ def get_snap_restore_latency(
 
         value = 0
         # Parse all metric data points in search of load_snapshot time.
-        metrics = microvm.get_all_metrics(metrics_fifo)
+        microvm.flush_metrics()
+        metrics = microvm.get_all_metrics()
         for data_point in metrics:
-            metrics = json.loads(data_point)
-            cur_value = metrics["latencies_us"]["load_snapshot"]
+            cur_value = data_point["latencies_us"]["load_snapshot"]
             if cur_value > 0:
                 value = cur_value / USEC_IN_MSEC
                 break
+        assert value > 0
         values.append(value)
         microvm.kill()
 

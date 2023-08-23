@@ -11,7 +11,6 @@ import platform
 import re
 import signal
 import subprocess
-import threading
 import time
 import typing
 from collections import defaultdict, namedtuple
@@ -236,27 +235,6 @@ class CmdBuilder:
         for flag, value in self._args.items():
             cmd += f"{flag} {value} "
         return cmd
-
-
-class StoppableThread(threading.Thread):
-    """
-    Thread class with a stop() method.
-
-    The thread itself has to check regularly for the stopped() condition.
-    """
-
-    def __init__(self, *args, **kwargs):
-        """Set up a Stoppable thread."""
-        super().__init__(*args, **kwargs)
-        self._should_stop = False
-
-    def stop(self):
-        """Set that the thread should stop."""
-        self._should_stop = True
-
-    def stopped(self):
-        """Check if the thread was stopped."""
-        return self._should_stop
 
 
 # pylint: disable=R0903
@@ -672,23 +650,17 @@ def configure_mmds(
     if ipv4_address:
         mmds_config["ipv4_address"] = ipv4_address
 
-    response = test_microvm.mmds.put_config(json=mmds_config)
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
+    response = test_microvm.api.mmds_config.put(**mmds_config)
     return response
 
 
 def populate_data_store(test_microvm, data_store):
     """Populate the MMDS data store of the microvm with the provided data"""
-    response = test_microvm.mmds.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
+    response = test_microvm.api.mmds.get()
     assert response.json() == {}
 
-    response = test_microvm.mmds.put(json=data_store)
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
-    response = test_microvm.mmds.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
+    test_microvm.api.mmds.put(**data_store)
+    response = test_microvm.api.mmds.get()
     assert response.json() == data_store
 
 

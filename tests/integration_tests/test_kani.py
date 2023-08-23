@@ -21,8 +21,13 @@ def test_kani(results_dir, crate):
     """
     Test all Kani proof harnesses.
     """
+    # --enable-stubbing is required to enable the stubbing feature
+    # --restrict-vtable is required for some virtio queue proofs, which go out of memory otherwise
+    # -j enables kani harnesses to be verified in parallel (required to keep CI time low)
+    # --output-format terse is required by -j
+    # --enable-unstable is needed for each of the above
     rc, stdout, stderr = utils.run_cmd(
-        f"cargo kani -p {crate} --enable-unstable --enable-stubbing"
+        f"cargo kani -p {crate} --enable-unstable --enable-stubbing --restrict-vtable -j --output-format terse"
     )
 
     assert rc == 0, stderr

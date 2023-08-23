@@ -3,6 +3,7 @@
 """Test UFFD related functionality when resuming from snapshot."""
 
 import os
+import re
 import stat
 from subprocess import TimeoutExpired
 
@@ -24,10 +25,9 @@ def snapshot_fxt(microvm_factory, guest_kernel_linux_5_10, rootfs_ubuntu_22):
     basevm.add_net_iface()
 
     # Add a memory balloon.
-    response = basevm.balloon.put(
+    basevm.api.balloon.put(
         amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=0
     )
-    assert basevm.api_session.is_status_no_content(response.status_code)
 
     basevm.start()
 
@@ -88,17 +88,17 @@ def test_bad_socket_path(uvm_plain, snapshot):
     vm = uvm_plain
     vm.spawn()
     jailed_vmstate = vm.create_jailed_resource(snapshot.vmstate)
-    response = vm.snapshot.load(
-        mem_backend={"type": "Uffd", "path": "inexistent"},
-        snapshot_path=jailed_vmstate,
-    )
 
-    assert vm.api_session.is_status_bad_request(response.status_code)
-    assert (
+    expected_msg = re.escape(
         "Load microVM snapshot error: Failed to restore from snapshot: Failed to load guest "
         "memory: Error creating guest memory from uffd: Failed to connect to UDS Unix stream: No "
         "such file or directory (os error 2)"
-    ) in response.text
+    )
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.snapshot_load.put(
+            mem_backend={"backend_type": "Uffd", "backend_path": "inexistent"},
+            snapshot_path=jailed_vmstate,
+        )
 
 
 def test_unbinded_socket(uvm_plain, snapshot):
@@ -113,17 +113,16 @@ def test_unbinded_socket(uvm_plain, snapshot):
     run_cmd("touch {}".format(socket_path))
     jailed_sock_path = vm.create_jailed_resource(socket_path)
 
-    response = vm.snapshot.load(
-        mem_backend={"type": "Uffd", "path": jailed_sock_path},
-        snapshot_path=jailed_vmstate,
-    )
-
-    assert vm.api_session.is_status_bad_request(response.status_code)
-    assert (
+    expected_msg = re.escape(
         "Load microVM snapshot error: Failed to restore from snapshot: Failed to load guest "
         "memory: Error creating guest memory from uffd: Failed to connect to UDS Unix stream: "
         "Connection refused (os error 111)"
-    ) in response.text
+    )
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.snapshot_load.put(
+            mem_backend={"backend_type": "Uffd", "backend_path": jailed_sock_path},
+            snapshot_path=jailed_vmstate,
+        )
 
 
 def test_valid_handler(uvm_plain, snapshot, uffd_handler_paths):
@@ -142,12 +141,10 @@ def test_valid_handler(uvm_plain, snapshot, uffd_handler_paths):
     vm.restore_from_snapshot(snapshot, resume=True, uffd_path=SOCKET_PATH)
 
     # Inflate balloon.
-    response = vm.balloon.patch(amount_mib=200)
-    assert vm.api_session.is_status_no_content(response.status_code)
+    vm.api.balloon.patch(amount_mib=200)
 
     # Deflate balloon.
-    response = vm.balloon.patch(amount_mib=0)
-    assert vm.api_session.is_status_no_content(response.status_code)
+    vm.api.balloon.patch(amount_mib=0)
 
     # Verify if guest can run commands.
     exit_code, _, _ = vm.ssh.execute_command("sync")

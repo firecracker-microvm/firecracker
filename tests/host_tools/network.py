@@ -57,27 +57,24 @@ class SSHConnection:
         """Convert a path to remote"""
         return f"{self.user}@{self.host}:{path}"
 
-    def scp_put(self, local_path, remote_path):
-        """Copy files to the VM using scp."""
-        cmd = [
-            "scp",
-            *self.options,
-            local_path,
-            self.remote_path(remote_path),
-        ]
-        ecode, _, stderr = self._exec(cmd)
+    def _scp(self, path1, path2, options):
+        """Copy files to/from the VM using scp."""
+        ecode, _, stderr = self._exec(["scp", *options, path1, path2])
         assert ecode == 0, stderr
 
-    def scp_get(self, remote_path, local_path):
+    def scp_put(self, local_path, remote_path, recursive=False):
+        """Copy files to the VM using scp."""
+        opts = self.options.copy()
+        if recursive:
+            opts.append("-r")
+        self._scp(local_path, self.remote_path(remote_path), opts)
+
+    def scp_get(self, remote_path, local_path, recursive=False):
         """Copy files from the VM using scp."""
-        cmd = [
-            "scp",
-            *self.options,
-            self.remote_path(remote_path),
-            local_path,
-        ]
-        ecode, _, stderr = self._exec(cmd)
-        assert ecode == 0, stderr
+        opts = self.options.copy()
+        if recursive:
+            opts.append("-r")
+        self._scp(self.remote_path(remote_path), local_path, opts)
 
     @retry(ConnectionError, delay=0.15, tries=20)
     def _init_connection(self):

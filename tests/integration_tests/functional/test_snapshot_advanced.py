@@ -155,10 +155,9 @@ def create_snapshot_helper(
 
     if balloon:
         # Add a memory balloon with stats enabled.
-        response = vm.balloon.put(
+        vm.api.balloon.put(
             amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1
         )
-        assert vm.api_session.is_status_no_content(response.status_code)
 
     test_drives = [] if drives is None else drives
 

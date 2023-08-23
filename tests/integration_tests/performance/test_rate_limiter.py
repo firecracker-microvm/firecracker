@@ -378,8 +378,7 @@ def _patch_iface_bw(test_microvm, iface_id, rx_or_tx, new_bucket_size, new_refil
             "bandwidth": {"size": new_bucket_size, "refill_time": new_refill_time}
         },
     }
-    resp = test_microvm.network.patch(**args)
-    assert test_microvm.api_session.is_status_no_content(resp.status_code)
+    test_microvm.api.network.patch(**args)
 
 
 def _start_iperf_server_on_guest(test_microvm, hostname):

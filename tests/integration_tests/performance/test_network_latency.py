@@ -7,7 +7,6 @@ import re
 
 import pytest
 
-from framework.artifacts import DEFAULT_HOST_IP
 from framework.stats import consumer, producer
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
@@ -107,7 +106,7 @@ def test_network_latency(microvm_factory, guest_kernel, rootfs, st_core):
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn(log_level="Info")
     vm.basic_config(vcpu_count=guest_vcpus, mem_size_mib=guest_mem_mib)
-    vm.add_net_iface()
+    iface = vm.add_net_iface()
     vm.start()
 
     # Check if the needed CPU cores are available. We have the API thread, VMM
@@ -140,7 +139,7 @@ def test_network_latency(microvm_factory, guest_kernel, rootfs, st_core):
         func=consume_ping_output,
         func_kwargs={"requests": requests},
     )
-    cmd = PING.format(requests, interval, DEFAULT_HOST_IP)
+    cmd = PING.format(requests, interval, iface.host_ip)
     prod = producer.SSHCommand(cmd, vm.ssh)
 
     st_core.add_pipe(producer=prod, consumer=cons, tag=f"{env_id}/ping")

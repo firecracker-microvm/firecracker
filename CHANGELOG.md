@@ -33,6 +33,9 @@
   and the FXSR bit (CPUID.80000001h:EDX[24]).
 - Fixed the T2A CPU template to set the RstrFpErrPtrs bit
   (CPUID.80000008h:EBX[2]).
+- Fixed a bug where Firecracker would crash during boot if a guest set up a virtio
+  queue that partially overlapped with the MMIO gap. Now Firecracker instead
+  correctly refuses to activate the corresponding virtio device.
 
 ## [1.4.0]
 
