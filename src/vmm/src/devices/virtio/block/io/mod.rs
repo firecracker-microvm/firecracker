@@ -190,7 +190,7 @@ pub mod tests {
     use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
     use utils::tempfile::TempFile;
     use utils::vm_memory::{Bitmap, Bytes, GuestMemory};
-    use utils::{skip_if_io_uring_supported, skip_if_io_uring_unsupported};
+    use utils::{skip_if_io_uring_supported, skip_if_io_uring_unsupported, u64_to_usize};
 
     use super::*;
     use crate::devices::virtio::block::device::FileEngineType;
@@ -251,14 +251,14 @@ pub mod tests {
     fn check_dirty_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: u32) {
         let bitmap = mem.find_region(addr).unwrap().bitmap().as_ref().unwrap();
         for offset in addr.0..addr.0 + u64::from(len) {
-            assert!(bitmap.dirty_at(offset as usize));
+            assert!(bitmap.dirty_at(u64_to_usize(offset)));
         }
     }
 
     fn check_clean_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: u32) {
         let bitmap = mem.find_region(addr).unwrap().bitmap().as_ref().unwrap();
         for offset in addr.0..addr.0 + u64::from(len) {
-            assert!(!bitmap.dirty_at(offset as usize));
+            assert!(!bitmap.dirty_at(u64_to_usize(offset)));
         }
     }
 

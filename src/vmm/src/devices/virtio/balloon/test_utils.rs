@@ -40,7 +40,7 @@ pub fn check_request_completion(queue: &VirtQueue, idx: usize) {
     // Check that the next used will be idx + 1.
     assert_eq!(queue.used.idx.get() as usize, idx + 1);
     // Check that the current used is idx.
-    assert_eq!(queue.used.ring[idx].get().id, idx as u32);
+    assert_eq!(queue.used.ring[idx].get().id as usize, idx);
     // The length of the completed request is 0.
     assert_eq!(queue.used.ring[idx].get().len, 0);
 }

@@ -239,13 +239,14 @@ fn setup_page_tables(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<(),
 #[cfg(test)]
 mod tests {
     use kvm_ioctls::Kvm;
+    use utils::u64_to_usize;
     use utils::vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 
     use super::*;
 
     fn create_guest_mem(mem_size: Option<u64>) -> GuestMemoryMmap {
         let page_size = 0x10000usize;
-        let mem_size = mem_size.unwrap_or(page_size as u64) as usize;
+        let mem_size = u64_to_usize(mem_size.unwrap_or(page_size as u64));
         if mem_size % page_size == 0 {
             utils::vm_memory::test_utils::create_anon_guest_memory(
                 &[(GuestAddress(0), mem_size)],
