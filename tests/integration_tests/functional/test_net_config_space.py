@@ -154,7 +154,7 @@ def _send_data_g2h(ssh_connection, host_ip, host_port, iterations, data, retries
     )
 
     # Wait server to initialize.
-    exit_code, _, stderr = ssh_connection.execute_command(cmd)
+    exit_code, _, stderr = ssh_connection.run(cmd)
     # If this assert fails, a connection refused happened.
     assert exit_code == 0, stderr
     assert stderr == ""
@@ -193,7 +193,7 @@ def _change_guest_if_mac(ssh_connection, guest_if_mac, guest_if_name):
     cmd = "ip link set dev {} address ".format(guest_if_name) + guest_if_mac
     # The connection will be down, because changing the mac will issue down/up
     # on the interface.
-    ssh_connection.execute_command(cmd)
+    ssh_connection.run(cmd)
 
 
 def _get_net_mem_addr_base(ssh_connection, if_name):
@@ -201,14 +201,12 @@ def _get_net_mem_addr_base(ssh_connection, if_name):
     if platform.machine() == "x86_64":
         sys_virtio_mmio_cmdline = "/sys/devices/virtio-mmio-cmdline/"
         cmd = "ls {} | grep virtio-mmio. | sed 's/virtio-mmio.//'"
-        exit_code, stdout, _ = ssh_connection.execute_command(
-            cmd.format(sys_virtio_mmio_cmdline)
-        )
+        exit_code, stdout, _ = ssh_connection.run(cmd.format(sys_virtio_mmio_cmdline))
         assert exit_code == 0
         virtio_devs_idx = stdout.split()
 
         cmd = "cat /proc/cmdline"
-        exit_code, cmd_line, _ = ssh_connection.execute_command(cmd)
+        exit_code, cmd_line, _ = ssh_connection.run(cmd)
         assert exit_code == 0
         pattern_dev = re.compile("(virtio_mmio.device=4K@0x[0-9a-f]+:[0-9]+)+")
         pattern_addr = re.compile("virtio_mmio.device=4K@(0x[0-9a-f]+):[0-9]+")
@@ -223,7 +221,7 @@ def _get_net_mem_addr_base(ssh_connection, if_name):
 
         cmd = "ls {}/virtio-mmio.{}/virtio{}/net"
         for idx in virtio_devs_idx:
-            _, guest_if_name, _ = ssh_connection.execute_command(
+            _, guest_if_name, _ = ssh_connection.run(
                 cmd.format(sys_virtio_mmio_cmdline, idx, idx)
             )
             if guest_if_name.strip() == if_name:
@@ -231,7 +229,7 @@ def _get_net_mem_addr_base(ssh_connection, if_name):
     elif platform.machine() == "aarch64":
         sys_virtio_mmio_cmdline = "/sys/devices/platform"
         cmd = "ls {} | grep .virtio_mmio".format(sys_virtio_mmio_cmdline)
-        rc, stdout, _ = ssh_connection.execute_command(cmd)
+        rc, stdout, _ = ssh_connection.run(cmd)
         assert rc == 0
 
         virtio_devs = stdout.split()
@@ -242,7 +240,7 @@ def _get_net_mem_addr_base(ssh_connection, if_name):
         # accordingly when parsed inside `change_config_space.c`.
         hex_prefix = "0x"
         for idx, dev in enumerate(virtio_devs):
-            _, guest_if_name, _ = ssh_connection.execute_command(
+            _, guest_if_name, _ = ssh_connection.run(
                 cmd.format(sys_virtio_mmio_cmdline, dev, idx)
             )
             if guest_if_name.strip() == if_name:

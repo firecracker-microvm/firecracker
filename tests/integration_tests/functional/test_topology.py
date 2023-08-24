@@ -93,7 +93,7 @@ def _check_cache_topology_arm(test_microvm, no_cpus):
 
     cmd = f"grep . {sys_cpu}/cpu{{0..{no_cpus-1}}}/cache/index*/{{{','.join(fields)}}} |sort"
 
-    _, guest_stdout, guest_stderr = test_microvm.ssh.execute_command(cmd)
+    _, guest_stdout, guest_stderr = test_microvm.ssh.run(cmd)
     assert guest_stderr == ""
 
     res = subprocess.run(

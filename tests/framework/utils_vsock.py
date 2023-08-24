@@ -204,7 +204,7 @@ def _copy_vsock_data_to_guest(ssh_connection, blob_path, vm_blob_path, vsock_hel
     # Copy the data file and a vsock helper to the guest.
 
     cmd = "mkdir -p /tmp/vsock"
-    ecode, _, _ = ssh_connection.execute_command(cmd)
+    ecode, _, _ = ssh_connection.run(cmd)
     assert ecode == 0, "Failed to set up tmpfs drive on the guest."
 
     ssh_connection.scp_put(vsock_helper, "/tmp/vsock_helper")

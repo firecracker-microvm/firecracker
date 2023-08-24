@@ -77,7 +77,7 @@ def test_rescan_file(test_microvm_with_api):
     truncated_size = block_size // 2
     utils.run_cmd(f"truncate --size {truncated_size}M {fs.path}")
     block_copy_name = "/tmp/dev_vdb_copy"
-    _, _, stderr = test_microvm.ssh.execute_command(
+    _, _, stderr = test_microvm.ssh.run(
         f"dd if=/dev/vdb of={block_copy_name} bs=1M count={block_size}"
     )
     assert "dd: error reading '/dev/vdb': Input/output error" in stderr
@@ -294,7 +294,7 @@ def test_patch_drive(test_microvm_with_api):
     # of the device, in bytes.
     blksize_cmd = "lsblk -b /dev/vdb --output SIZE"
     size_bytes_str = "536870912"  # = 512 MiB
-    _, stdout, stderr = test_microvm.ssh.execute_command(blksize_cmd)
+    _, stdout, stderr = test_microvm.ssh.run(blksize_cmd)
     assert stderr == ""
     lines = stdout.split("\n")
     # skip "SIZE"
@@ -325,7 +325,7 @@ def test_no_flush(test_microvm_with_api):
 
     # Have the guest drop the caches to generate flush requests.
     cmd = "sync; echo 1 > /proc/sys/vm/drop_caches"
-    _, _, stderr = test_microvm.ssh.execute_command(cmd)
+    _, _, stderr = test_microvm.ssh.run(cmd)
     assert stderr == ""
 
     # Verify all flush commands were ignored even after
@@ -354,7 +354,7 @@ def test_flush(uvm_plain_rw):
 
     # Have the guest drop the caches to generate flush requests.
     cmd = "sync; echo 1 > /proc/sys/vm/drop_caches"
-    _, _, stderr = test_microvm.ssh.execute_command(cmd)
+    _, _, stderr = test_microvm.ssh.run(cmd)
     assert stderr == ""
 
     # On average, dropping the caches right after boot generates
@@ -404,17 +404,13 @@ def test_block_default_cache_old_version(test_microvm_with_api):
 
 
 def _check_block_size(ssh_connection, dev_path, size):
-    _, stdout, stderr = ssh_connection.execute_command(
-        "blockdev --getsize64 {}".format(dev_path)
-    )
+    _, stdout, stderr = ssh_connection.run("blockdev --getsize64 {}".format(dev_path))
     assert stderr == ""
     assert stdout.strip() == str(size)
 
 
 def _check_file_size(ssh_connection, dev_path, size):
-    _, stdout, stderr = ssh_connection.execute_command(
-        "stat --format=%s {}".format(dev_path)
-    )
+    _, stdout, stderr = ssh_connection.run("stat --format=%s {}".format(dev_path))
     assert stderr == ""
     assert stdout.strip() == str(size)
 
@@ -429,6 +425,6 @@ def _process_blockdev_output(blockdev_out, assert_dict, keys_array):
 
 
 def _check_drives(test_microvm, assert_dict, keys_array):
-    _, stdout, stderr = test_microvm.ssh.execute_command("blockdev --report")
+    _, stdout, stderr = test_microvm.ssh.run("blockdev --report")
     assert stderr == ""
     _process_blockdev_output(stdout, assert_dict, keys_array)

@@ -160,7 +160,7 @@ def test_brand_string(test_microvm_with_api):
     test_microvm.start()
 
     guest_cmd = "cat /proc/cpuinfo | grep 'model name' | head -1"
-    _, stdout, stderr = test_microvm.ssh.execute_command(guest_cmd)
+    _, stdout, stderr = test_microvm.ssh.run(guest_cmd)
     assert stderr == ""
 
     line = stdout.rstrip()
@@ -351,7 +351,7 @@ def dump_msr_state_to_file(dump_fname, ssh_conn, shared_names):
     ssh_conn.scp_put(
         shared_names["msr_reader_host_fname"], shared_names["msr_reader_guest_fname"]
     )
-    _, stdout, stderr = ssh_conn.execute_command(shared_names["msr_reader_guest_fname"])
+    _, stdout, stderr = ssh_conn.run(shared_names["msr_reader_guest_fname"])
     assert stderr == ""
 
     with open(dump_fname, "w", encoding="UTF-8") as file:
@@ -406,9 +406,7 @@ def test_cpu_wrmsr_snapshot(
     wrmsr_input_guest_fname = "/tmp/wrmsr_input.txt"
     vm.ssh.scp_put(wrmsr_input_host_fname, wrmsr_input_guest_fname)
 
-    _, _, stderr = vm.ssh.execute_command(
-        f"{msr_writer_guest_fname} {wrmsr_input_guest_fname}"
-    )
+    _, _, stderr = vm.ssh.run(f"{msr_writer_guest_fname} {wrmsr_input_guest_fname}")
     assert stderr == ""
 
     # Dump MSR state to a file that will be published to S3 for the 2nd part of the test
@@ -507,7 +505,7 @@ def dump_cpuid_to_file(dump_fname, ssh_conn):
     """
     Read CPUID via SSH and dump it into a file.
     """
-    _, stdout, stderr = ssh_conn.execute_command("cpuid --one-cpu")
+    _, stdout, stderr = ssh_conn.run("cpuid --one-cpu")
     assert stderr == ""
     dump_fname.write_text(stdout, encoding="UTF-8")
 

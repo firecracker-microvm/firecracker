@@ -142,8 +142,6 @@ class Microvm:
     process.
     """
 
-    SCREEN_LOGFILE = "/tmp/screen-{}.log"
-
     def __init__(
         self,
         resource_path,
@@ -186,18 +184,10 @@ class Microvm:
         self.jailer_clone_pid = None
 
         # Copy the /etc/localtime file in the jailer root
-        self.jailer.copy_into_root("/etc/localtime", create_jail=True)
-
-        # Session name is composed of the last part of the temporary path
-        # allocated by the current test session and the unique id of this
-        # microVM. It should be unique.
-        self._session_name = (
-            os.path.basename(os.path.normpath(resource_path)) + self._microvm_id
-        )
+        self.jailer.jailed_path("/etc/localtime", subdir="etc")
 
         # Initialize the logging subsystem.
         self._screen_pid = None
-        self._screen_log = None
 
         self.time_api_requests = global_props.host_linux_version != "6.1"
 
@@ -374,20 +364,9 @@ class Microvm:
         """Return all metric data points written by FC."""
         return [json.loads(line) for line in self.metrics_file.read_text().splitlines()]
 
-    def copy_to_jail_ramfs(self, src):
-        """Copy a file to a jail ramfs."""
-        filename = os.path.basename(src)
-        dest_path = os.path.join(self.jailer.chroot_ramfs_path(), filename)
-        jailed_path = os.path.join("/", self.jailer.ramfs_subdir_name, filename)
-        shutil.copy(src, dest_path)
-        os.chmod(dest_path, 0o600)
-        cmd = "chown {}:{} {}".format(self.jailer.uid, self.jailer.gid, dest_path)
-        utils.run_cmd(cmd)
-        return jailed_path
-
-    def create_jailed_resource(self, path, create_jail=False):
+    def create_jailed_resource(self, path):
         """Create a hard link to some resource inside this microvm."""
-        return self.jailer.jailed_path(path, create=True, create_jail=create_jail)
+        return self.jailer.jailed_path(path, create=True)
 
     def get_jailed_resource(self, path):
         """Get the relative jailed path to a resource."""
@@ -398,9 +377,17 @@ class Microvm:
         return self.jailer.chroot_path()
 
     @property
+    def screen_session(self):
+        """The screen session name
+
+        The id of this microVM, which should be unique.
+        """
+        return self.id
+
+    @property
     def screen_log(self):
         """Get the screen log file."""
-        return self._screen_log
+        return f"/tmp/screen-{self.screen_session}.log"
 
     @property
     def screen_pid(self):
@@ -444,18 +431,17 @@ class Microvm:
         self,
         log_file="fc.log",
         log_level="Debug",
-        use_ramdisk=False,
         metrics_path="fc.ndjson",
     ):
         """Start a microVM as a daemon or in a screen session."""
         # pylint: disable=subprocess-run-check
-        self.jailer.setup(use_ramdisk=use_ramdisk)
+        self.jailer.setup()
         self.api = Api(self.jailer.api_socket_path())
 
         if log_file is not None:
             self.log_file = Path(self.path) / log_file
             self.log_file.touch()
-            self.create_jailed_resource(self.log_file, create_jail=True)
+            self.create_jailed_resource(self.log_file)
             # The default value for `level`, when configuring the
             # logger via cmd line, is `Warning`. We set the level
             # to `Debug` to also have the boot time printed in fifo.
@@ -464,13 +450,13 @@ class Microvm:
         if metrics_path is not None:
             self.metrics_file = Path(self.path) / metrics_path
             self.metrics_file.touch()
-            self.create_jailed_resource(self.metrics_file, create_jail=True)
+            self.create_jailed_resource(self.metrics_file)
             self.jailer.extra_args.update({"metrics-path": self.metrics_file.name})
 
         if self.metadata_file:
             if os.path.exists(self.metadata_file):
                 LOG.debug("metadata file exists, adding as a jailed resource")
-                self.create_jailed_resource(self.metadata_file, create_jail=True)
+                self.create_jailed_resource(self.metadata_file)
             self.jailer.extra_args.update(
                 {"metadata": os.path.basename(self.metadata_file)}
             )
@@ -495,10 +481,9 @@ class Microvm:
             self.daemonize_jailer(jailer_param_list)
         else:
             # This file will collect any output from 'screen'ed Firecracker.
-            self._screen_log = self.SCREEN_LOGFILE.format(self._session_name)
             screen_pid, binary_pid = utils.start_screen_process(
-                self._screen_log,
-                self._session_name,
+                self.screen_log,
+                self.screen_session,
                 self._jailer_binary_path,
                 jailer_param_list,
             )
@@ -539,10 +524,8 @@ class Microvm:
 
     def serial_input(self, input_string):
         """Send a string to the Firecracker serial console via screen."""
-        input_cmd = 'screen -S {session} -p 0 -X stuff "{input_string}"'
-        utils.run_cmd(
-            input_cmd.format(session=self._session_name, input_string=input_string)
-        )
+        input_cmd = f'screen -S {self.screen_session} -p 0 -X stuff "{input_string}"'
+        return utils.run_cmd(input_cmd)
 
     def basic_config(
         self,
@@ -609,7 +592,6 @@ class Microvm:
                 is_root_device=True,
                 is_read_only=read_only,
                 io_engine=rootfs_io_engine,
-                use_ramdisk=self.jailer.uses_ramfs,
             )
 
     def daemonize_jailer(self, jailer_param_list):
@@ -649,15 +631,10 @@ class Microvm:
         partuuid=None,
         cache_type=None,
         io_engine=None,
-        use_ramdisk=False,
     ):
         """Add a block device."""
 
-        if use_ramdisk:
-            path_on_jail = self.copy_to_jail_ramfs(path_on_host)
-        else:
-            path_on_jail = self.create_jailed_resource(path_on_host)
-
+        path_on_jail = self.create_jailed_resource(path_on_host)
         self.api.drive.put(
             drive_id=drive_id,
             path_on_host=path_on_jail,
@@ -818,6 +795,45 @@ class Microvm:
     def ssh(self):
         """Return a cached SSH connection on the 1st interface"""
         return self.ssh_iface(0)
+
+
+class MicroVMFactory:
+    """MicroVM factory"""
+
+    def __init__(self, base_path, bin_cloner):
+        self.base_path = Path(base_path)
+        self.bin_cloner_path = bin_cloner
+        self.vms = []
+
+    def build(self, kernel=None, rootfs=None, microvm_id=None, **kwargs):
+        """Build a microvm"""
+        vm = Microvm(
+            resource_path=self.base_path,
+            microvm_id=microvm_id or str(uuid.uuid4()),
+            bin_cloner_path=self.bin_cloner_path,
+            **kwargs,
+        )
+        self.vms.append(vm)
+        if kernel is not None:
+            vm.kernel_file = kernel
+        if rootfs is not None:
+            ssh_key = rootfs.with_suffix(".id_rsa")
+            # copy only iff not a read-only rootfs
+            rootfs_path = rootfs
+            if rootfs_path.suffix != ".squashfs":
+                rootfs_path = Path(vm.path) / rootfs.name
+                shutil.copyfile(rootfs, rootfs_path)
+            vm.rootfs_file = rootfs_path
+            vm.ssh_key = ssh_key
+        return vm
+
+    def kill(self):
+        """Clean up all built VMs"""
+        for vm in self.vms:
+            vm.kill()
+            vm.jailer.cleanup()
+            if len(vm.jailer.jailer_id) > 0:
+                shutil.rmtree(vm.jailer.chroot_base_with_id())
 
 
 class Serial:
