@@ -42,7 +42,7 @@ impl GIC {
 }
 
 /// Errors thrown while setting up the GIC.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum GicError {
     /// Error while calling KVM ioctl for setting up the global interrupt controller.
     #[error("Error while calling KVM ioctl for setting up the global interrupt controller: {0}")]
