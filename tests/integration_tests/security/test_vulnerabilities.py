@@ -41,7 +41,7 @@ def microvm_with_template_fxt(uvm_plain, cpu_template):
     )
     uvm_plain.add_net_iface()
     uvm_plain.start()
-    return uvm_plain
+    return uvm_plain, cpu_template
 
 
 @pytest.fixture(name="microvm_with_custom_cpu_template")
@@ -148,9 +148,9 @@ def test_spectre_meltdown_checker_on_guest_with_template(
     """
     Test with the spectre / meltdown checker on guest with CPU template.
     """
-
+    microvm, _template = microvm_with_template
     run_spectre_meltdown_checker_on_guest(
-        microvm_with_template,
+        microvm,
         spectre_meltdown_checker,
     )
 
@@ -189,8 +189,8 @@ def test_spectre_meltdown_checker_on_restored_guest_with_template(
     """
     Test with the spectre / meltdown checker on a restored guest with a CPU template.
     """
-
-    snapshot = microvm_with_template.snapshot_full()
+    microvm, _template = microvm_with_template
+    snapshot = microvm.snapshot_full()
     # Create a destination VM
     dst_vm = microvm_factory.build()
     dst_vm.spawn()
@@ -279,7 +279,8 @@ def test_vulnerabilities_files_on_guest_with_template(
     """
     Test vulnerabilities files on guest with CPU template.
     """
-    check_vulnerabilities_files_on_guest(microvm_with_template)
+    microvm, _template = microvm_with_template
+    check_vulnerabilities_files_on_guest(microvm)
 
 
 @pytest.mark.no_block_pr
@@ -302,7 +303,8 @@ def test_vulnerabilities_files_on_restored_guest_with_template(
     """
     Test vulnerabilities files on a restored guest with a CPU template.
     """
-    snapshot = microvm_with_template.snapshot_full()
+    microvm, _template = microvm_with_template
+    snapshot = microvm.snapshot_full()
     # Create a destination VM
     dst_vm = microvm_factory.build()
     dst_vm.spawn()
