@@ -55,7 +55,7 @@ def microvm_with_custom_template_fxt(uvm_plain, custom_cpu_template):
     uvm_plain.api.cpu_config.put(**custom_cpu_template["template"])
     uvm_plain.add_net_iface()
     uvm_plain.start()
-    return uvm_plain
+    return uvm_plain, custom_cpu_template["name"]
 
 
 @pytest.fixture(scope="session", name="spectre_meltdown_checker")
@@ -168,7 +168,7 @@ def test_spectre_meltdown_checker_on_guest_with_custom_template(
     """
     Test with the spectre / meltdown checker on guest with a custom CPU template.
     """
-    microvm = microvm_with_custom_template
+    microvm, _template = microvm_with_custom_template
     run_spectre_meltdown_checker_on_guest(
         microvm,
         spectre_meltdown_checker,
@@ -218,7 +218,7 @@ def test_spectre_meltdown_checker_on_restored_guest_with_custom_template(
     Test with the spectre / meltdown checker on a restored guest with a custom CPU template.
     """
 
-    src_vm = microvm_with_custom_template
+    src_vm, _template = microvm_with_custom_template
     snapshot = src_vm.snapshot_full()
     dst_vm = microvm_factory.build()
     dst_vm.spawn()
@@ -291,7 +291,8 @@ def test_vulnerabilities_files_on_guest_with_custom_template(
     """
     Test vulnerabilities files on guest with a custom CPU template.
     """
-    check_vulnerabilities_files_on_guest(microvm_with_custom_template)
+    microvm, _template = microvm_with_custom_template
+    check_vulnerabilities_files_on_guest(microvm)
 
 
 @pytest.mark.no_block_pr
@@ -323,7 +324,7 @@ def test_vulnerabilities_files_on_restored_guest_with_custom_template(
     """
     Test vulnerabilities files on a restored guest with a custom CPU template.
     """
-    src_vm = microvm_with_custom_template
+    src_vm, _template = microvm_with_custom_template
     snapshot = src_vm.snapshot_full()
     dst_vm = microvm_factory.build()
     dst_vm.spawn()
