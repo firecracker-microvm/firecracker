@@ -10,10 +10,38 @@ Firecracker snapshot consists of 2 files:
   devices states etc.
 - `memory` file: file with guest memory.
 
-`snapshot-editor` (currently) allows to modify only `vmstate` files only
-on aarch64 platform.
-
 ## Usage
+
+### `edit-memory` command
+
+#### `rebase` subcommand
+
+This command is used to merge a `diff` snapshot memory file on
+top of a base memory file.
+
+**Note**
+You can also use `rebase-snap` tool for this.
+
+Arguments:
+
+- `MEMORY_PATH` - path to the `memory` file
+- `DIFF_PATH` - path to the `diff` file
+
+Usage:
+
+```bash
+snapshot-editor edit-memory rebase \
+     --memory-path <MEMORY_PATH> \
+     --diff-path <DIFF_PATH>
+```
+
+Example:
+
+```bash
+snapshot-editor edit-memory rebase \
+     --memory-path ./memory_file \
+     --diff-path ./diff_file
+```
 
 ### `edit-vmstate` command
 
