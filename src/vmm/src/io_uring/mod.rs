@@ -282,7 +282,7 @@ impl IoUring {
         .map_err(IoUringError::RegisterFile)?;
 
         // Safe to truncate since files.len() < IORING_MAX_FIXED_FILES
-        self.registered_fds_count += files.len() as u32;
+        self.registered_fds_count += u32::try_from(files.len()).unwrap();
         Ok(())
     }
 

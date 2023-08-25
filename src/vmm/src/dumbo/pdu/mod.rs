@@ -105,7 +105,8 @@ fn compute_checksum<T: NetworkBytes + Debug>(
         sum = (sum & 0xffff) + (sum >> 16);
     }
 
-    let mut csum = !(sum as u16);
+    // Safe to unwrap due to the while loop above
+    let mut csum = !u16::try_from(sum).unwrap();
     // If a UDP packet checksum is 0, an all ones value is transmitted
     if protocol == ChecksumProto::Udp && csum == 0x0 {
         csum = !csum;

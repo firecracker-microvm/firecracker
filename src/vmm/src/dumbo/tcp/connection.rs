@@ -348,11 +348,7 @@ impl Connection {
     fn local_rwnd(&self) -> u16 {
         let rwnd = (self.local_rwnd_edge - self.ack_to_send).0;
 
-        if rwnd > u32::from(u16::max_value()) {
-            u16::max_value()
-        } else {
-            rwnd as u16
-        }
+        u16::try_from(rwnd).unwrap_or(u16::max_value())
     }
 
     // Will actually become meaningful when/if we implement window scaling.

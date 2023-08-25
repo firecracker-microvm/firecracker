@@ -390,7 +390,8 @@ impl Net {
             METRICS.net.rx_fails.inc();
             0
         } else {
-            self.rx_bytes_read as u32
+            // Safe to unwrap because a frame must be smaller than 2^16 bytes.
+            u32::try_from(self.rx_bytes_read).unwrap()
         };
         queue.add_used(mem, head_index, used_len).map_err(|err| {
             error!("Failed to add available descriptor {}: {}", head_index, err);
