@@ -1207,6 +1207,7 @@ dependencies = [
  "libc",
  "snapshot",
  "thiserror",
+ "utils",
  "vmm",
 ]
 
