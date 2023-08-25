@@ -124,6 +124,25 @@ def run_seccompiler_bin(bpf_path, json_path=defs.SECCOMP_JSON_DIR, basic=False):
 
 
 @with_filelock
+def run_snap_editor_rebase(base_snap, diff_snap):
+    """
+    Run apply_diff_snap.
+
+    :param base_snap: path to the base snapshot mem file
+    :param diff_snap: path to diff snapshot mem file
+    """
+    cargo_target = "{}-unknown-linux-musl".format(platform.machine())
+
+    rc, _, _ = cargo(
+        "run",
+        f"-p snapshot-editor --target {cargo_target}",
+        f"edit-memory rebase --memory-path {base_snap} --diff-path {diff_snap}",
+    )
+
+    assert rc == 0
+
+
+@with_filelock
 def run_rebase_snap_bin(base_snap, diff_snap):
     """
     Run apply_diff_snap.

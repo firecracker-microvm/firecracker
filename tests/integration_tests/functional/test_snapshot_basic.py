@@ -40,6 +40,7 @@ def _get_guest_drive_size(ssh_connection, guest_dev_name="/dev/vdb"):
 # - Microvm: 2vCPU with 512 MB RAM
 # TODO: Multiple microvm sizes must be tested in the async pipeline.
 @pytest.mark.parametrize("snapshot_type", [SnapshotType.DIFF, SnapshotType.FULL])
+@pytest.mark.parametrize("use_snapshot_editor", [False, True])
 def test_5_snapshots(
     bin_vsock_path,
     tmp_path,
@@ -47,6 +48,7 @@ def test_5_snapshots(
     guest_kernel,
     rootfs,
     snapshot_type,
+    use_snapshot_editor,
 ):
     """
     Create and load 5 snapshots.
@@ -104,7 +106,9 @@ def test_5_snapshots(
         # current layer.
         if snapshot.is_diff:
             logger.info("Base: %s, Layer: %s", base_snapshot.mem, snapshot.mem)
-            snapshot = snapshot.rebase_snapshot(base_snapshot)
+            snapshot = snapshot.rebase_snapshot(
+                base_snapshot, use_snapshot_editor=use_snapshot_editor
+            )
 
         # Update the base for next iteration.
         base_snapshot = snapshot

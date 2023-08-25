@@ -78,11 +78,15 @@ class Snapshot:
         """Is this a DIFF snapshot?"""
         return self.snapshot_type == SnapshotType.DIFF
 
-    def rebase_snapshot(self, base):
+    def rebase_snapshot(self, base, use_snapshot_editor=False):
         """Rebases current incremental snapshot onto a specified base layer."""
         if not self.is_diff:
             raise ValueError("Can only rebase DIFF snapshots")
-        build_tools.run_rebase_snap_bin(base.mem, self.mem)
+        if use_snapshot_editor:
+            build_tools.run_snap_editor_rebase(base.mem, self.mem)
+        else:
+            build_tools.run_rebase_snap_bin(base.mem, self.mem)
+
         new_args = self.__dict__ | {"mem": base.mem}
         return Snapshot(**new_args)
 
