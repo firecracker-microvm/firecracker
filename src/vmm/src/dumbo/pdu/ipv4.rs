@@ -239,7 +239,8 @@ impl<'a, T: NetworkBytes + Debug> IPv4Packet<'a, T> {
             sum = (sum & 0xffff) + (sum >> 16);
         }
 
-        !(sum as u16)
+        // Safe to unwrap due to the while loop.
+        !u16::try_from(sum).unwrap()
     }
 
     /// Computes and returns the packet header checksum.

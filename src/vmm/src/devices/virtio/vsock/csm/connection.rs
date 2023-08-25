@@ -232,7 +232,10 @@ where
                     } else {
                         // On a successful data read, we fill in the packet with the RW op, and
                         // length of the read data.
-                        pkt.set_op(uapi::VSOCK_OP_RW).set_len(read_cnt as u32);
+                        // Safe to unwrap because read_cnt is no more than max_len, which is bounded
+                        // by self.peer_avail_credit(), a u32 internally.
+                        pkt.set_op(uapi::VSOCK_OP_RW)
+                            .set_len(u32::try_from(read_cnt).unwrap());
                         METRICS.vsock.rx_bytes_count.add(read_cnt as u64);
                     }
                     self.rx_cnt += Wrapping(pkt.len());
