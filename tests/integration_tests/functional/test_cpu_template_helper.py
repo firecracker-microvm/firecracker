@@ -68,8 +68,9 @@ class CpuTemplateHelper:
         cmd = (
             f"{self.binary} fingerprint compare"
             f" --prev {prev_path} --curr {curr_path}"
-            f" --filters {' '.join(filters)}"
         )
+        if filters:
+            cmd += f" --filters {' '.join(filters)}"
         utils.run_cmd(cmd)
 
 
@@ -347,7 +348,7 @@ def test_cpu_config_dump_vs_actual(
         ), f"Mismatched MSR for {key:#010x}: {actual=:#066b} vs. {dump=:#066b}"
 
 
-def detect_fingerprint_change(microvm, tmp_path, cpu_template_helper, filters):
+def detect_fingerprint_change(microvm, tmp_path, cpu_template_helper, filters=None):
     """
     Compare fingerprint files with filters between one taken at the moment and
     a baseline file taken in a specific point in time.
@@ -403,21 +404,15 @@ def test_guest_cpu_config_change(test_microvm_with_api, tmp_path, cpu_template_h
 
 
 @pytest.mark.nonci
-def test_host_fingerprint_change(test_microvm_with_api, tmp_path, cpu_template_helper):
+def test_fingerprint_change(test_microvm_with_api, tmp_path, cpu_template_helper):
     """
-    Verify that the host fingerprint has not changed since the baseline
-    fingerprint was gathered.
+    Verify that all the fields of the fingerprint has not changed since the
+    baseline fingerprint was gathered.
     """
     detect_fingerprint_change(
         test_microvm_with_api,
         tmp_path,
         cpu_template_helper,
-        [
-            "kernel_version",
-            "microcode_version",
-            "bios_version",
-            "bios_revision",
-        ],
     )
 
 
