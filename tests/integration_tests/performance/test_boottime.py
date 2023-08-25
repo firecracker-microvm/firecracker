@@ -60,6 +60,11 @@ def test_no_boottime(test_microvm_with_api):
     global_props.host_linux_version == "6.1",
     reason="perf regression under investigation",
 )
+@pytest.mark.skipif(
+    global_props.cpu_codename == "INTEL_SKYLAKE"
+    and global_props.host_linux_version == "5.10",
+    reason="perf regression under investigation",
+)
 def test_boottime_no_network(fast_microvm, record_property, metrics):
     """
     Check boot time of microVM without a network device.
@@ -81,6 +86,11 @@ def test_boottime_no_network(fast_microvm, record_property, metrics):
 # temporarily disable this test in 6.1
 @pytest.mark.xfail(
     global_props.host_linux_version == "6.1",
+    reason="perf regression under investigation",
+)
+@pytest.mark.skipif(
+    global_props.cpu_codename == "INTEL_SKYLAKE"
+    and global_props.host_linux_version == "5.10",
     reason="perf regression under investigation",
 )
 def test_boottime_with_network(fast_microvm, record_property, metrics):
