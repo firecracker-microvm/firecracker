@@ -614,6 +614,8 @@ cmd_test() {
       say "Detected CI, tuning CPU frequency scaling for reduced variability"
     fi
 
+    sudo sh -c "sysctl -w vm.unprivileged_userfaultfd=1"
+
     run_devctr \
         --privileged \
         --security-opt seccomp=unconfined \
