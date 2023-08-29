@@ -28,17 +28,10 @@ pub enum MemBackendType {
     /// Guest memory contents will be loaded from a file.
     File,
     /// Guest memory will be served through UFFD by a separate process.
-    /// Starting from Linux 5.11, this mode will only serve page
-    /// faults that occur in user-space, not those that occur in the kernel.
-    /// Use UffdPrivileged if you wish to serve page faults in both.
-    /// Before Linux 5.11, there is no difference between Uffd and UffdPrivileged.
-    /// Both will serve page faults in both user-space and the kernel.
+    /// Starting from Linux 5.11, you must give the firecracker process the
+    /// `CAP_SYS_PTRACE` capability or set the `vm.unprivileged_userfaultfd`
+    /// sysctl knob to 1 on the host.
     Uffd,
-    /// Guest memory will be served through UFFD by a separate process.
-    /// This mode will serve page faults that occur in the kernel as well as in user-space.
-    /// To use privileged mode, you must give the firecracker process the `CAP_SYS_PTRACE` capability
-    /// or set the `vm.unprivileged_userfaultfd` sysctl knob to 1 on the host.
-    UffdPrivileged,
 }
 
 /// Stores the configuration that will be used for creating a snapshot.
