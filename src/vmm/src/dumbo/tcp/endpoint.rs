@@ -373,7 +373,7 @@ mod tests {
         let mut buf1 = [0u8; 500];
         let mut buf2 = [0u8; 500];
 
-        let mut write_buf = [0u8; RCV_BUF_MAX_SIZE + 100];
+        let mut write_buf = [0u8; RCV_BUF_MAX_SIZE as usize + 100];
 
         let mut t = ConnectionTester::new();
 
@@ -548,7 +548,7 @@ mod tests {
 
         // Finally, let's fill self.receive_buf with the following request, and see if we get the
         // reset we expect on the next segment.
-        let request_to_fill = vec![0u8; RCV_BUF_MAX_SIZE - endpoint.receive_buf_left];
+        let request_to_fill = vec![0u8; RCV_BUF_MAX_SIZE as usize - endpoint.receive_buf_left];
 
         {
             // Hack: have to artificially increase t.mss to create this segment which is 2k+.

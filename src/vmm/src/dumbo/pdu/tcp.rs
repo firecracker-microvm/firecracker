@@ -641,7 +641,7 @@ mod tests {
         let mss_option = Some(mss_left);
         let payload = Some((b.as_ref(), b.len()));
 
-        let header_len = OPTIONS_OFFSET + OPTION_LEN_MSS;
+        let header_len = OPTIONS_OFFSET + OPTION_LEN_MSS.into();
 
         let segment_len = {
             let mut segment = TcpSegment::write_segment(
@@ -679,9 +679,9 @@ mod tests {
 
             {
                 let options = segment.options_unchecked(header_len);
-                assert_eq!(options.len(), OPTION_LEN_MSS);
+                assert_eq!(options.len(), OPTION_LEN_MSS.into());
                 assert_eq!(options[0], OPTION_KIND_MSS);
-                assert_eq!(options[1], OPTION_LEN_MSS as u8);
+                assert_eq!(options[1], OPTION_LEN_MSS);
                 assert_eq!(options.ntohs_unchecked(2), mss_left);
             }
 

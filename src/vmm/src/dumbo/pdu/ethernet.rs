@@ -248,6 +248,8 @@ mod kani_proofs {
     // https://docs.oasis-open.org/virtio/virtio/v1.2/csd01/virtio-v1.2-csd01.pdf
     pub const MAX_FRAME_SIZE: usize = 1514;
 
+    const MAC_ADDR_LEN_USIZE: usize = MAC_ADDR_LEN as usize;
+
     impl<'a, T: NetworkBytesMut + Debug> EthernetFrame<'a, T> {
         fn is_valid(&self) -> bool {
             self.len() >= PAYLOAD_OFFSET
@@ -314,7 +316,7 @@ mod kani_proofs {
         let mut ethernet = ethernet.unwrap();
 
         // Verify set_dst_mac
-        let mac_bytes: [u8; MAC_ADDR_LEN] = kani::any();
+        let mac_bytes: [u8; MAC_ADDR_LEN as usize] = kani::any();
         let dst_mac = MacAddr::from(mac_bytes);
         ethernet.set_dst_mac(dst_mac);
 
@@ -324,7 +326,7 @@ mod kani_proofs {
         // Check for post-conditions
 
         // MAC addresses should always have 48 bits
-        assert_eq!(dst_addr.get_bytes().len(), MAC_ADDR_LEN);
+        assert_eq!(dst_addr.get_bytes().len(), MAC_ADDR_LEN as usize);
 
         // Check duality between set_dst_mac and dst_mac operations
         let i: usize = kani::any();
@@ -343,7 +345,7 @@ mod kani_proofs {
         let mut ethernet = ethernet.unwrap();
 
         // Verify set_src_mac
-        let mac_bytes: [u8; MAC_ADDR_LEN] = kani::any();
+        let mac_bytes: [u8; MAC_ADDR_LEN as usize] = kani::any();
         let src_mac = MacAddr::from(mac_bytes);
         ethernet.set_src_mac(src_mac);
 
@@ -353,7 +355,7 @@ mod kani_proofs {
         // Check for post-conditions
 
         // MAC addresses should always have 48 bits
-        assert_eq!(src_addr.get_bytes().len(), MAC_ADDR_LEN);
+        assert_eq!(src_addr.get_bytes().len(), MAC_ADDR_LEN as usize);
 
         // Check duality between set_src_mac and src_mac operations
         let i: usize = kani::any();
@@ -372,14 +374,14 @@ mod kani_proofs {
         let mut ethernet = ethernet.unwrap();
 
         // Verify set_src_mac
-        let mac_bytes: [u8; MAC_ADDR_LEN] = kani::any();
+        let mac_bytes: [u8; MAC_ADDR_LEN as usize] = kani::any();
         let src_mac = MacAddr::from(mac_bytes);
         ethernet.set_src_mac(src_mac);
 
         let payload_offset = ethernet.payload_offset();
 
         if kani::any() {
-            let dst_mac_bytes: [u8; MAC_ADDR_LEN] = kani::any();
+            let dst_mac_bytes: [u8; MAC_ADDR_LEN as usize] = kani::any();
             let dst_mac = MacAddr::from(dst_mac_bytes);
             ethernet.set_dst_mac(dst_mac);
         }
@@ -397,7 +399,7 @@ mod kani_proofs {
         // Check for post-conditions
 
         // MAC addresses should always have 48 bits
-        assert_eq!(src_addr.get_bytes().len(), MAC_ADDR_LEN);
+        assert_eq!(src_addr.get_bytes().len(), MAC_ADDR_LEN as usize);
 
         // Check duality between set_src_mac and src_mac operations
         let i: usize = kani::any();
@@ -464,11 +466,13 @@ mod kani_proofs {
         let bytes_length = bytes.len();
 
         // Create valid non-deterministic dst_mac
-        let dst_mac_bytes: [u8; MAC_ADDR_LEN] = kani::Arbitrary::any_array::<MAC_ADDR_LEN>();
+        let dst_mac_bytes: [u8; MAC_ADDR_LEN as usize] =
+            kani::Arbitrary::any_array::<MAC_ADDR_LEN_USIZE>();
         let dst_mac = MacAddr::from(dst_mac_bytes);
 
         // Create valid non-deterministic src_mac
-        let src_mac_bytes: [u8; MAC_ADDR_LEN] = kani::Arbitrary::any_array::<MAC_ADDR_LEN>();
+        let src_mac_bytes: [u8; MAC_ADDR_LEN as usize] =
+            kani::Arbitrary::any_array::<MAC_ADDR_LEN_USIZE>();
         let src_mac = MacAddr::from(src_mac_bytes);
 
         // Create valid non-deterministic ethertype
@@ -492,11 +496,13 @@ mod kani_proofs {
         let mut bytes: [u8; MAX_FRAME_SIZE] = kani::Arbitrary::any_array::<MAX_FRAME_SIZE>();
 
         // Create valid non-deterministic dst_mac
-        let dst_mac_bytes: [u8; MAC_ADDR_LEN] = kani::Arbitrary::any_array::<MAC_ADDR_LEN>();
+        let dst_mac_bytes: [u8; MAC_ADDR_LEN as usize] =
+            kani::Arbitrary::any_array::<MAC_ADDR_LEN_USIZE>();
         let dst_mac = MacAddr::from(dst_mac_bytes);
 
         // Create valid non-deterministic src_mac
-        let src_mac_bytes: [u8; MAC_ADDR_LEN] = kani::Arbitrary::any_array::<MAC_ADDR_LEN>();
+        let src_mac_bytes: [u8; MAC_ADDR_LEN as usize] =
+            kani::Arbitrary::any_array::<MAC_ADDR_LEN_USIZE>();
         let src_mac = MacAddr::from(src_mac_bytes);
 
         // Create valid non-deterministic ethertype
@@ -520,11 +526,13 @@ mod kani_proofs {
         let mut bytes: [u8; MAX_FRAME_SIZE] = kani::Arbitrary::any_array::<MAX_FRAME_SIZE>();
 
         // Create valid non-deterministic dst_mac
-        let dst_mac_bytes: [u8; MAC_ADDR_LEN] = kani::Arbitrary::any_array::<MAC_ADDR_LEN>();
+        let dst_mac_bytes: [u8; MAC_ADDR_LEN as usize] =
+            kani::Arbitrary::any_array::<MAC_ADDR_LEN_USIZE>();
         let dst_mac = MacAddr::from(dst_mac_bytes);
 
         // Create valid non-deterministic src_mac
-        let src_mac_bytes: [u8; MAC_ADDR_LEN] = kani::Arbitrary::any_array::<MAC_ADDR_LEN>();
+        let src_mac_bytes: [u8; MAC_ADDR_LEN as usize] =
+            kani::Arbitrary::any_array::<MAC_ADDR_LEN_USIZE>();
         let src_mac = MacAddr::from(src_mac_bytes);
 
         // Create valid non-deterministic ethertype

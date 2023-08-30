@@ -978,13 +978,13 @@ pub mod tests {
 
         // Test `read_config()`. This also validates the MAC was properly configured.
         let mac = MacAddr::from_str("11:22:33:44:55:66").unwrap();
-        let mut config_mac = [0u8; MAC_ADDR_LEN];
+        let mut config_mac = [0u8; MAC_ADDR_LEN as usize];
         net.read_config(0, &mut config_mac);
         assert_eq!(&config_mac, mac.get_bytes());
 
         // Invalid read.
-        config_mac = [0u8; MAC_ADDR_LEN];
-        net.read_config(MAC_ADDR_LEN as u64, &mut config_mac);
+        config_mac = [0u8; MAC_ADDR_LEN as usize];
+        net.read_config(u64::from(MAC_ADDR_LEN), &mut config_mac);
         assert_eq!(config_mac, [0u8, 0u8, 0u8, 0u8, 0u8, 0u8]);
     }
 
@@ -993,9 +993,9 @@ pub mod tests {
         let mut net = default_net();
         set_mac(&mut net, MacAddr::from_str("11:22:33:44:55:66").unwrap());
 
-        let new_config: [u8; MAC_ADDR_LEN] = [0x66, 0x55, 0x44, 0x33, 0x22, 0x11];
+        let new_config: [u8; MAC_ADDR_LEN as usize] = [0x66, 0x55, 0x44, 0x33, 0x22, 0x11];
         net.write_config(0, &new_config);
-        let mut new_config_read = [0u8; MAC_ADDR_LEN];
+        let mut new_config_read = [0u8; MAC_ADDR_LEN as usize];
         net.read_config(0, &mut new_config_read);
         assert_eq!(new_config, new_config_read);
 
@@ -1015,14 +1015,14 @@ pub mod tests {
         // Invalid write.
         net.write_config(5, &new_config);
         // Verify old config was untouched.
-        new_config_read = [0u8; MAC_ADDR_LEN];
+        new_config_read = [0u8; MAC_ADDR_LEN as usize];
         net.read_config(0, &mut new_config_read);
         assert_eq!(new_config, new_config_read);
 
         // Large offset that may cause an overflow.
         net.write_config(u64::MAX, &new_config);
         // Verify old config was untouched.
-        new_config_read = [0u8; MAC_ADDR_LEN];
+        new_config_read = [0u8; MAC_ADDR_LEN as usize];
         net.read_config(0, &mut new_config_read);
         assert_eq!(new_config, new_config_read);
     }

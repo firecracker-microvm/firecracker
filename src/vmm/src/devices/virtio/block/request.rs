@@ -806,8 +806,8 @@ mod tests {
 
         // Make sure that data_len is a multiple of 512
         // and that 512 <= data_len <= (4096 + 512).
-        let valid_data_len = ((data_len & 4096) | (SECTOR_SIZE as u32 - 1)) + 1;
-        let sectors_len = u64::from(valid_data_len) / SECTOR_SIZE;
+        let valid_data_len = ((data_len & 4096) | (SECTOR_SIZE - 1)) + 1;
+        let sectors_len = u64::from(valid_data_len / SECTOR_SIZE);
         // Craft a random request with the randomized parameters.
         let mut request = Request {
             r#type: request_type,

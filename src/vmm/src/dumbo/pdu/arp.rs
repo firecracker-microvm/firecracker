@@ -380,8 +380,8 @@ mod tests {
             // This is a bit redundant given the following tests, but assert away!
             assert_eq!(f.htype(), HTYPE_ETHERNET);
             assert_eq!(f.ptype(), ETHERTYPE_IPV4);
-            assert_eq!(f.hlen(), MAC_ADDR_LEN as u8);
-            assert_eq!(f.plen(), IPV4_ADDR_LEN as u8);
+            assert_eq!(f.hlen(), MAC_ADDR_LEN);
+            assert_eq!(f.plen(), IPV4_ADDR_LEN);
             assert_eq!(f.operation(), OPER_REPLY);
             assert_eq!(f.sha(), sha);
             assert_eq!(f.spa(), spa);
@@ -411,8 +411,8 @@ mod tests {
             &mut a[..ETH_IPV4_FRAME_LEN],
             HTYPE_ETHERNET,
             ETHERTYPE_IPV4,
-            MAC_ADDR_LEN as u8,
-            IPV4_ADDR_LEN as u8,
+            MAC_ADDR_LEN,
+            IPV4_ADDR_LEN,
             OPER_REQUEST,
             sha,
             spa,
@@ -429,8 +429,8 @@ mod tests {
             &mut a[..ETH_IPV4_FRAME_LEN],
             HTYPE_ETHERNET + 1,
             ETHERTYPE_IPV4,
-            MAC_ADDR_LEN as u8,
-            IPV4_ADDR_LEN as u8,
+            MAC_ADDR_LEN,
+            IPV4_ADDR_LEN,
             OPER_REQUEST,
             sha,
             spa,
@@ -448,8 +448,8 @@ mod tests {
             &mut a[..ETH_IPV4_FRAME_LEN],
             HTYPE_ETHERNET,
             ETHERTYPE_IPV4 + 1,
-            MAC_ADDR_LEN as u8,
-            IPV4_ADDR_LEN as u8,
+            MAC_ADDR_LEN,
+            IPV4_ADDR_LEN,
             OPER_REQUEST,
             sha,
             spa,
@@ -467,8 +467,8 @@ mod tests {
             &mut a[..ETH_IPV4_FRAME_LEN],
             HTYPE_ETHERNET,
             ETHERTYPE_IPV4,
-            MAC_ADDR_LEN as u8 + 1,
-            IPV4_ADDR_LEN as u8,
+            MAC_ADDR_LEN + 1,
+            IPV4_ADDR_LEN,
             OPER_REQUEST,
             sha,
             spa,
@@ -486,8 +486,8 @@ mod tests {
             &mut a[..ETH_IPV4_FRAME_LEN],
             HTYPE_ETHERNET,
             ETHERTYPE_IPV4,
-            MAC_ADDR_LEN as u8,
-            IPV4_ADDR_LEN as u8 + 1,
+            MAC_ADDR_LEN,
+            IPV4_ADDR_LEN + 1,
             OPER_REQUEST,
             sha,
             spa,
