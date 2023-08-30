@@ -205,7 +205,7 @@ impl I8042Device {
             _ => read_ok = false,
         }
         if read_ok {
-            METRICS.i8042.read_count.add(data.len());
+            METRICS.i8042.read_count.add(data.len() as u64);
         } else {
             METRICS.i8042.missed_read_count.inc();
         }

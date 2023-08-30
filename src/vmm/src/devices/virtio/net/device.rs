@@ -355,7 +355,7 @@ impl Net {
 
             // If chunk is empty we are done here.
             if chunk.is_empty() {
-                METRICS.net.rx_bytes_count.add(data.len());
+                METRICS.net.rx_bytes_count.add(data.len() as u64);
                 METRICS.net.rx_packets_count.inc();
                 return Ok(());
             }
@@ -474,7 +474,7 @@ impl Net {
 
         match Self::write_tap(tap, frame_iovec) {
             Ok(_) => {
-                METRICS.net.tx_bytes_count.add(frame_iovec.len());
+                METRICS.net.tx_bytes_count.add(frame_iovec.len() as u64);
                 METRICS.net.tx_packets_count.inc();
                 METRICS.net.tx_count.inc();
             }
@@ -494,7 +494,7 @@ impl Net {
             {
                 let len = len.get();
                 METRICS.mmds.tx_frames.inc();
-                METRICS.mmds.tx_bytes.add(len);
+                METRICS.mmds.tx_bytes.add(len as u64);
                 init_vnet_hdr(&mut self.rx_frame_buf);
                 return Ok(vnet_hdr_len() + len);
             }
