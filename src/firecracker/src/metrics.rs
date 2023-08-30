@@ -105,17 +105,17 @@ pub mod tests {
         let metrics = Arc::new(Mutex::new(PeriodicMetrics::new()));
         event_manager.add_subscriber(metrics.clone());
 
-        let flush_period_ms = 50;
+        let flush_period_ms = 50u16;
         metrics
             .lock()
             .expect("Unlock failed.")
-            .start(flush_period_ms);
+            .start(u64::from(flush_period_ms));
         // .start() does an initial flush.
         assert_eq!(metrics.lock().expect("Unlock failed.").flush_counter, 1);
 
         // Wait for at most 1.5x period.
         event_manager
-            .run_with_timeout((flush_period_ms + flush_period_ms / 2) as i32)
+            .run_with_timeout(i32::from(flush_period_ms) + i32::from(flush_period_ms) / 2)
             .expect("Metrics event timeout or error.");
         // Verify there was another flush.
         assert_eq!(metrics.lock().expect("Unlock failed.").flush_counter, 2);

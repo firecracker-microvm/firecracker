@@ -144,7 +144,7 @@ impl TestContext {
         // Set up one available descriptor in the RX queue.
         guest_rxvq.dtable[0].set(
             0x0040_0000,
-            VSOCK_PKT_HDR_SIZE as u32,
+            VSOCK_PKT_HDR_SIZE,
             VIRTQ_DESC_F_WRITE | VIRTQ_DESC_F_NEXT,
             1,
         );
@@ -154,7 +154,7 @@ impl TestContext {
         guest_rxvq.avail.idx.set(1);
 
         // Set up one available descriptor in the TX queue.
-        guest_txvq.dtable[0].set(0x0050_0000, VSOCK_PKT_HDR_SIZE as u32, VIRTQ_DESC_F_NEXT, 1);
+        guest_txvq.dtable[0].set(0x0050_0000, VSOCK_PKT_HDR_SIZE, VIRTQ_DESC_F_NEXT, 1);
         guest_txvq.dtable[1].set(0x0050_1000, 4096, 0, 0);
         guest_txvq.avail.ring[0].set(0);
         guest_txvq.avail.idx.set(1);

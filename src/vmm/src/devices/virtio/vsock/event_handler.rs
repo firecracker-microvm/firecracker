@@ -489,7 +489,7 @@ mod tests {
             &mut test_ctx,
             0,
             GAP_START_ADDR as u64 - 1,
-            VSOCK_PKT_HDR_SIZE as u32,
+            VSOCK_PKT_HDR_SIZE,
         );
 
         // Let's check what happens when the buffer descriptor crosses into the gap, but does

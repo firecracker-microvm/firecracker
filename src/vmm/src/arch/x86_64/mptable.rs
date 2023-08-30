@@ -378,13 +378,13 @@ mod tests {
         let mem = utils::vm_memory::test_utils::create_guest_memory_unguarded(
             &[(
                 GuestAddress(MPTABLE_START),
-                compute_mp_size(MAX_SUPPORTED_CPUS as u8),
+                compute_mp_size(MAX_SUPPORTED_CPUS),
             )],
             false,
         )
         .unwrap();
 
-        for i in 0..MAX_SUPPORTED_CPUS as u8 {
+        for i in 0..MAX_SUPPORTED_CPUS {
             setup_mptable(&mem, i).unwrap();
 
             let mpf_intel: mpspec::mpf_intel = mem.read_obj(GuestAddress(MPTABLE_START)).unwrap();
@@ -414,12 +414,12 @@ mod tests {
     fn cpu_entry_count_max() {
         let cpus = MAX_SUPPORTED_CPUS + 1;
         let mem = utils::vm_memory::test_utils::create_guest_memory_unguarded(
-            &[(GuestAddress(MPTABLE_START), compute_mp_size(cpus as u8))],
+            &[(GuestAddress(MPTABLE_START), compute_mp_size(cpus))],
             false,
         )
         .unwrap();
 
-        let result = setup_mptable(&mem, cpus as u8).unwrap_err();
+        let result = setup_mptable(&mem, cpus).unwrap_err();
         assert_eq!(result, MptableError::TooManyCpus);
     }
 }

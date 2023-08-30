@@ -666,7 +666,7 @@ mod tests {
     fn test_disk_backing_file_helper() {
         let num_sectors = 2;
         let f = TempFile::new().unwrap();
-        let size = SECTOR_SIZE * num_sectors;
+        let size = u64::from(SECTOR_SIZE) * num_sectors;
         f.as_file().set_len(size).unwrap();
 
         let disk_properties = DiskProperties::new(
@@ -677,7 +677,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(size, SECTOR_SIZE * num_sectors);
+        assert_eq!(size, u64::from(SECTOR_SIZE) * num_sectors);
         assert_eq!(disk_properties.nsectors, num_sectors);
         let cfg = disk_properties.virtio_block_config_space();
         assert_eq!(cfg.len(), BLOCK_CONFIG_SPACE_SIZE);

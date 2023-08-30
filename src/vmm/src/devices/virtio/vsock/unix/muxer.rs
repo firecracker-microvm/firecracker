@@ -1246,7 +1246,7 @@ mod tests {
         let mut streams: Vec<UnixStream> = Vec::new();
 
         for peer_port in peer_port_first..peer_port_first + defs::MUXER_RXQ_SIZE {
-            ctx.init_pkt(local_port, peer_port as u32, uapi::VSOCK_OP_REQUEST);
+            ctx.init_pkt(local_port, peer_port, uapi::VSOCK_OP_REQUEST);
             ctx.send();
             streams.push(listener.accept());
         }
@@ -1258,7 +1258,7 @@ mod tests {
         // One more queued reply should desync the RX queue.
         ctx.init_pkt(
             local_port,
-            (peer_port_first + defs::MUXER_RXQ_SIZE) as u32,
+            peer_port_first + defs::MUXER_RXQ_SIZE,
             uapi::VSOCK_OP_REQUEST,
         );
         ctx.send();
@@ -1267,11 +1267,7 @@ mod tests {
         // With an out-of-sync queue, an RST should evict any non-RST packet from the queue, and
         // take its place. We'll check that by making sure that the last packet popped from the
         // queue is an RST.
-        ctx.init_pkt(
-            local_port + 1,
-            peer_port_first as u32,
-            uapi::VSOCK_OP_REQUEST,
-        );
+        ctx.init_pkt(local_port + 1, peer_port_first, uapi::VSOCK_OP_REQUEST);
         ctx.send();
 
         for peer_port in peer_port_first..peer_port_first + defs::MUXER_RXQ_SIZE - 1 {
@@ -1279,7 +1275,7 @@ mod tests {
             assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RESPONSE);
             // The response order should hold. The evicted response should have been the last
             // enqueued.
-            assert_eq!(ctx.pkt.dst_port(), peer_port as u32);
+            assert_eq!(ctx.pkt.dst_port(), peer_port);
         }
         // There should be one more packet in the queue: the RST.
         assert_eq!(ctx.muxer.rxq.len(), 1);
@@ -1320,13 +1316,13 @@ mod tests {
         let killq_resync = METRICS.vsock.killq_resync.count();
 
         for peer_port in peer_port_first..=peer_port_last {
-            ctx.init_pkt(local_port, peer_port as u32, uapi::VSOCK_OP_REQUEST);
+            ctx.init_pkt(local_port, peer_port, uapi::VSOCK_OP_REQUEST);
             ctx.send();
             ctx.notify_muxer();
             ctx.recv();
             assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RESPONSE);
             assert_eq!(ctx.pkt.src_port(), local_port);
-            assert_eq!(ctx.pkt.dst_port(), peer_port as u32);
+            assert_eq!(ctx.pkt.dst_port(), peer_port);
             {
                 let _stream = listener.accept();
             }
@@ -1334,7 +1330,7 @@ mod tests {
             ctx.recv();
             assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_SHUTDOWN);
             assert_eq!(ctx.pkt.src_port(), local_port);
-            assert_eq!(ctx.pkt.dst_port(), peer_port as u32);
+            assert_eq!(ctx.pkt.dst_port(), peer_port);
             // The kill queue should be synchronized, up until the `defs::MUXER_KILLQ_SIZE`th
             // connection we schedule for termination.
             assert_eq!(
@@ -1352,11 +1348,7 @@ mod tests {
         ));
 
         // Trigger a kill queue sweep, by requesting a new connection.
-        ctx.init_pkt(
-            local_port,
-            peer_port_last as u32 + 1,
-            uapi::VSOCK_OP_REQUEST,
-        );
+        ctx.init_pkt(local_port, peer_port_last + 1, uapi::VSOCK_OP_REQUEST);
         ctx.send();
 
         // Check that MUXER_KILLQ_SIZE + 2 connections were added
@@ -1364,12 +1356,12 @@ mod tests {
         // done outside of the loop.
         assert_eq!(
             METRICS.vsock.conns_added.count(),
-            conns_added + defs::MUXER_KILLQ_SIZE + 2
+            conns_added + u64::from(defs::MUXER_KILLQ_SIZE) + 2
         );
         // Check that MUXER_KILLQ_SIZE connections were killed
         assert_eq!(
             METRICS.vsock.conns_killed.count(),
-            conns_killed + defs::MUXER_KILLQ_SIZE
+            conns_killed + u64::from(defs::MUXER_KILLQ_SIZE)
         );
         // No connections should be removed at this point.
         assert_eq!(METRICS.vsock.conns_removed.count(), conns_removed);
@@ -1390,14 +1382,14 @@ mod tests {
         // The connections should have been removed here.
         assert_eq!(
             METRICS.vsock.conns_removed.count(),
-            conns_removed + defs::MUXER_KILLQ_SIZE
+            conns_removed + u64::from(defs::MUXER_KILLQ_SIZE)
         );
 
         // There should be one more packet in the RX queue: the connection response our request
         // that triggered the kill queue sweep.
         ctx.recv();
         assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RESPONSE);
-        assert_eq!(ctx.pkt.dst_port(), peer_port_last as u32 + 1);
+        assert_eq!(ctx.pkt.dst_port(), peer_port_last + 1);
 
         assert!(!ctx.muxer.has_pending_rx());
     }

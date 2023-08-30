@@ -482,7 +482,10 @@ mod tests {
 
     #[test]
     fn test_packet_hdr_size() {
-        assert_eq!(VSOCK_PKT_HDR_SIZE, std::mem::size_of::<VsockPacketHeader>());
+        assert_eq!(
+            VSOCK_PKT_HDR_SIZE as usize,
+            std::mem::size_of::<VsockPacketHeader>(),
+        );
     }
 
     #[test]
@@ -522,7 +525,7 @@ mod tests {
             create_context!(test_ctx, handler_ctx);
             handler_ctx.guest_txvq.dtable[0]
                 .len
-                .set(VSOCK_PKT_HDR_SIZE as u32 - 1);
+                .set(VSOCK_PKT_HDR_SIZE - 1);
             expect_asm_error!(tx, test_ctx, handler_ctx, VsockError::HdrDescTooSmall(_));
         }
 
@@ -543,7 +546,7 @@ mod tests {
         {
             create_context!(test_ctx, handler_ctx);
             set_pkt_len(
-                MAX_PKT_BUF_SIZE as u32 + 1,
+                MAX_PKT_BUF_SIZE + 1,
                 &handler_ctx.guest_txvq.dtable[0],
                 &test_ctx.mem,
             );
@@ -612,7 +615,7 @@ mod tests {
             create_context!(test_ctx, handler_ctx);
             handler_ctx.guest_rxvq.dtable[0]
                 .len
-                .set(VSOCK_PKT_HDR_SIZE as u32 - 1);
+                .set(VSOCK_PKT_HDR_SIZE - 1);
             expect_asm_error!(rx, test_ctx, handler_ctx, VsockError::HdrDescTooSmall(_));
         }
 
