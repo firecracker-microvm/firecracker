@@ -29,7 +29,6 @@ from typing import Optional
 from retry import retry
 
 import host_tools.cargo_build as build_tools
-import host_tools.memory as mem_tools
 import host_tools.network as net_tools
 from framework import utils
 from framework.artifacts import NetIfaceConfig
@@ -37,6 +36,7 @@ from framework.defs import FC_PID_FILE_NAME, MAX_API_CALL_DURATION_MS
 from framework.http_api import Api
 from framework.jailer import JailerContext
 from framework.properties import global_props
+from host_tools.memory import MemoryMonitor
 
 LOG = logging.getLogger("microvm")
 
@@ -148,8 +148,8 @@ class Microvm:
         fc_binary_path=None,
         jailer_binary_path=None,
         microvm_id=None,
-        monitor_memory=True,
         bin_cloner_path=None,
+        monitor_memory=True,
     ):
         """Set up microVM attributes, paths, and data structures."""
         # pylint: disable=too-many-statements
@@ -194,10 +194,9 @@ class Microvm:
         if int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", 1)) > 1:
             self.time_api_requests = False
 
-        # Initalize memory monitor
         self.memory_monitor = None
         if monitor_memory:
-            self.memory_monitor = mem_tools.MemoryMonitor()
+            self.memory_monitor = MemoryMonitor(self)
 
         self.api = None
         self.log_file = None
@@ -207,6 +206,7 @@ class Microvm:
         self.iface = {}
         self.disks = {}
         self.vcpus_count = None
+        self.mem_size_bytes = None
 
         # External clone/exec tool, because Python can't into clone
         self.bin_cloner_path = bin_cloner_path
@@ -567,10 +567,9 @@ class Microvm:
             cpu_template=cpu_template,
         )
         self.vcpus_count = vcpu_count
+        self.mem_size_bytes = mem_size_mib * 2**20
 
         if self.memory_monitor:
-            self.memory_monitor.guest_mem_mib = mem_size_mib
-            self.memory_monitor.pid = self.jailer_clone_pid
             self.memory_monitor.start()
 
         boot_source_args = {

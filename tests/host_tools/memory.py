@@ -1,21 +1,23 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+
 """Utilities for measuring memory utilization for a process."""
+
 import time
-from queue import Queue
-from threading import Lock, Thread
+from threading import Thread
 
-from framework import utils
+import psutil
 
 
-class MemoryUsageExceededException(Exception):
+class MemoryUsageExceededError(Exception):
     """A custom exception containing details on excessive memory usage."""
 
-    def __init__(self, usage, threshold, out):
+    def __init__(self, usage, threshold, *args):
         """Compose the error message containing the memory consumption."""
         super().__init__(
-            f"Memory usage ({usage} KiB) exceeded maximum threshold "
-            f"({threshold} KiB).\n {out} \n"
+            f"Memory usage ({usage / 2**20:.2f} MiB) exceeded maximum threshold "
+            f"({threshold / 2**20} MiB)",
+            *args,
         )
 
 
@@ -26,61 +28,19 @@ class MemoryMonitor(Thread):
     VMM memory usage.
     """
 
-    MEMORY_THRESHOLD = 5 * 1024
-    MEMORY_SAMPLE_TIMEOUT_S = 0.05
-    X86_MEMORY_GAP_START = 3407872
+    # If guest memory is >3328MB, it is split in a 2nd region
+    X86_MEMORY_GAP_START = 3328 * 2**20
 
-    def __init__(self):
+    def __init__(self, vm, threshold=5 * 2**20, period_s=0.05):
         """Initialize monitor attributes."""
         Thread.__init__(self)
-        self._pid = None
-        self._guest_mem_mib = None
-        self._guest_mem_start_1 = None
-        self._guest_mem_end_1 = None
-        self._guest_mem_start_2 = None
-        self._guest_mem_end_2 = None
-        self._exceeded_queue = Queue()
-        self._pmap_out = None
-        self._threshold = self.MEMORY_THRESHOLD
+        self._vm = vm
+        self.threshold = threshold
+        self._exceeded = None
+        self._period_s = period_s
         self._should_stop = False
         self._current_rss = 0
-        self._lock = Lock()
         self.daemon = True
-
-    @property
-    def pid(self):
-        """Get the pid."""
-        return self._pid
-
-    @property
-    def guest_mem_mib(self):
-        """Get the guest memory in MiB."""
-        return self._guest_mem_mib
-
-    @property
-    def threshold(self):
-        """Get the memory threshold."""
-        return self._threshold
-
-    @property
-    def exceeded_queue(self):
-        """Get the exceeded queue."""
-        return self._exceeded_queue
-
-    @guest_mem_mib.setter
-    def guest_mem_mib(self, guest_mem_mib):
-        """Set the guest memory MiB."""
-        self._guest_mem_mib = guest_mem_mib
-
-    @pid.setter
-    def pid(self, pid):
-        """Set the pid."""
-        self._pid = pid
-
-    @threshold.setter
-    def threshold(self, threshold):
-        """Set the threshold."""
-        self._threshold = threshold
 
     def signal_stop(self):
         """Signal that the thread should stop."""
@@ -89,49 +49,33 @@ class MemoryMonitor(Thread):
     def run(self):
         """Thread for monitoring the RSS memory usage of a Firecracker process.
 
-        `pmap` is used to compute the memory overhead. If it exceeds
-        the maximum value, it is pushed in a thread safe queue and memory
-        monitoring ceases. It is up to the caller to check the queue.
+        If overhead memory exceeds the maximum value, it is saved and memory
+        monitoring ceases. It is up to the caller to check.
         """
-        pmap_cmd = "pmap -xq {}".format(self.pid)
 
+        guest_mem_bytes = self._vm.mem_size_bytes
+        ps = psutil.Process(self._vm.jailer_clone_pid)
         while not self._should_stop:
-            mem_total = 0
             try:
-                _, stdout, _ = utils.run_cmd(pmap_cmd)
-                pmap_out = stdout.split("\n")
-
-            except ChildProcessError:
+                mmaps = ps.memory_maps(grouped=False)
+            except psutil.NoSuchProcess:
                 return
-            for line in pmap_out:
-                tokens = line.split()
-                if not tokens:
-                    break
-                try:
-                    address = int(tokens[0].lstrip("0"), 16)
-                    total_size = int(tokens[1])
-                    rss = int(tokens[2])
-                except ValueError:
-                    # This line doesn't contain memory related information.
+            mem_total = 0
+            for mmap in mmaps:
+                if self.is_guest_mem(mmap.size, guest_mem_bytes):
                     continue
-                if self.update_guest_mem_regions(address, total_size):
-                    continue
-                if self.is_in_guest_mem_regions(address):
-                    continue
-                mem_total += rss
-            with self._lock:
-                self._current_rss = mem_total
+                mem_total += mmap.rss
+            self._current_rss = mem_total
             if mem_total > self.threshold:
-                self.exceeded_queue.put(mem_total)
-                self._pmap_out = stdout
+                self._exceeded = ps
                 return
 
-            time.sleep(self.MEMORY_SAMPLE_TIMEOUT_S)
+            time.sleep(self._period_s)
 
-    def update_guest_mem_regions(self, address, size_kib):
+    def is_guest_mem(self, size, guest_mem_bytes):
         """
         If the address is recognised as a guest memory region,
-        cache it and return True, otherwise return False.
+        return True, otherwise return False.
         """
 
         # If x86_64 guest memory exceeds 3328M, it will be split
@@ -140,45 +84,40 @@ class MemoryMonitor(Thread):
         #  - its size matches the guest memory exactly
         #  - its size is 3328M
         #  - its size is guest memory minus 3328M.
-        if size_kib in (
-            self.guest_mem_mib * 1024,
+        return size in (
+            guest_mem_bytes,
             self.X86_MEMORY_GAP_START,
-            self.guest_mem_mib * 1024 - self.X86_MEMORY_GAP_START,
-        ):
-            if not self._guest_mem_start_1:
-                self._guest_mem_start_1 = address
-                self._guest_mem_end_1 = address + size_kib * 1024
-                return True
-            if not self._guest_mem_start_2:
-                self._guest_mem_start_2 = address
-                self._guest_mem_end_2 = address + size_kib * 1024
-                return True
-        return False
-
-    def is_in_guest_mem_regions(self, address):
-        """Check if the address is inside a guest memory region."""
-        for guest_mem_start, guest_mem_end in [
-            (self._guest_mem_start_1, self._guest_mem_end_1),
-            (self._guest_mem_start_2, self._guest_mem_end_2),
-        ]:
-            if (
-                guest_mem_start is not None
-                and guest_mem_start <= address < guest_mem_end
-            ):
-                return True
-        return False
+            guest_mem_bytes - self.X86_MEMORY_GAP_START,
+        )
 
     def check_samples(self):
         """Check that there are no samples over the threshold."""
-        if not self.exceeded_queue.empty():
-            raise MemoryUsageExceededException(
-                self.exceeded_queue.get(), self.threshold, self._pmap_out
+        if self._exceeded is not None:
+            raise MemoryUsageExceededError(
+                self._current_rss, self.threshold, self._exceeded
             )
 
     @property
     def current_rss(self):
         """Obtain current RSS for Firecracker's overhead."""
         # This is to ensure that the monitor has updated itself.
-        time.sleep(self.MEMORY_SAMPLE_TIMEOUT_S + 0.5)
-        with self._lock:
-            return self._current_rss
+        time.sleep(2 * self._period_s)
+        return self._current_rss
+
+    def __enter__(self):
+        """To use it as a Context Manager
+
+        >>> mm = MemoryMonitor(vm, threshold=10*1024)
+        >>> with mm:
+        >>>    # do stuff
+        """
+
+        self.start()
+
+    def __exit__(self, _type, _value, _traceback):
+        """Exit context"""
+
+        if self.is_alive():
+            self.signal_stop()
+            self.join(timeout=1)
+        self.check_samples()

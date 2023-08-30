@@ -39,7 +39,6 @@ def test_restore_old_to_current(
         rootfs_ubuntu_22,
         fc_binary_path=firecracker_release.path,
         jailer_binary_path=firecracker_release.jailer,
-        monitor_memory=diff_snapshots,
     )
     vm.spawn()
     vm.basic_config(track_dirty_pages=True)
@@ -83,7 +82,6 @@ def test_restore_current_to_old(microvm_factory, uvm_plain, firecracker_release)
     vm = microvm_factory.build(
         fc_binary_path=firecracker_release.path,
         jailer_binary_path=firecracker_release.jailer,
-        monitor_memory=True,
     )
     vm.spawn()
     vm.restore_from_snapshot(snapshot, resume=True)
