@@ -22,7 +22,7 @@ pub const BLOCK_CONFIG_SPACE_SIZE: usize = 8;
 /// Sector shift for block device.
 pub const SECTOR_SHIFT: u8 = 9;
 /// Size of block sector.
-pub const SECTOR_SIZE: u64 = (0x01_u64) << SECTOR_SHIFT;
+pub const SECTOR_SIZE: u32 = (0x01_u32) << SECTOR_SHIFT;
 /// The number of queues of block device.
 pub const BLOCK_NUM_QUEUES: usize = 1;
 pub const BLOCK_QUEUE_SIZES: [u16; BLOCK_NUM_QUEUES] = [FIRECRACKER_MAX_QUEUE_SIZE];

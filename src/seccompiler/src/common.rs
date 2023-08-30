@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 
 /// The maximum seccomp-BPF program length allowed by the linux kernel.
-pub const BPF_MAX_LEN: usize = 4096;
+pub const BPF_MAX_LEN: u16 = 4096;
 
 /// BPF instruction structure definition.
 /// See /usr/include/linux/filter.h .

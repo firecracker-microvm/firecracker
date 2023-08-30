@@ -89,7 +89,9 @@ pub fn apply_filter(bpf_filter: BpfProgramRef) -> std::result::Result<(), Instal
 
     // If the program length is greater than the limit allowed by the kernel,
     // fail quickly. Otherwise, `prctl` will give a more cryptic error code.
-    if bpf_filter.len() > BPF_MAX_LEN {
+    let bpf_filter_len =
+        u16::try_from(bpf_filter.len()).map_err(|_| InstallationError::FilterTooLarge)?;
+    if bpf_filter_len > BPF_MAX_LEN {
         return Err(InstallationError::FilterTooLarge);
     }
 
@@ -103,7 +105,7 @@ pub fn apply_filter(bpf_filter: BpfProgramRef) -> std::result::Result<(), Instal
         }
 
         let bpf_prog = sock_fprog {
-            len: bpf_filter.len() as u16,
+            len: bpf_filter_len,
             filter: bpf_filter.as_ptr(),
         };
         let bpf_prog_ptr = &bpf_prog as *const sock_fprog;

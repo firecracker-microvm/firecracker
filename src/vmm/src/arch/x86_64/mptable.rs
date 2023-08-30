@@ -65,7 +65,7 @@ pub enum MptableError {
 // With APIC/xAPIC, there are only 255 APIC IDs available. And IOAPIC occupies
 // one APIC ID, so only 254 CPUs at maximum may be supported. Actually it's
 // a large number for FC usecases.
-pub const MAX_SUPPORTED_CPUS: u32 = 254;
+pub const MAX_SUPPORTED_CPUS: u8 = 254;
 
 // Convenience macro for making arrays of diverse character types.
 macro_rules! char_array {
@@ -111,7 +111,7 @@ fn compute_mp_size(num_cpus: u8) -> usize {
 
 /// Performs setup of the MP table for the given `num_cpus`.
 pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), MptableError> {
-    if u32::from(num_cpus) > MAX_SUPPORTED_CPUS {
+    if num_cpus > MAX_SUPPORTED_CPUS {
         return Err(MptableError::TooManyCpus);
     }
 

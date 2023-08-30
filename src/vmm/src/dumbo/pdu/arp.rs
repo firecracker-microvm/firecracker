@@ -42,7 +42,7 @@ const ETH_IPV4_SPA_OFFSET: usize = 14;
 const ETH_IPV4_THA_OFFSET: usize = 18;
 const ETH_IPV4_TPA_OFFSET: usize = 24;
 
-const IPV4_ADDR_LEN: usize = 4;
+const IPV4_ADDR_LEN: u8 = 4;
 
 /// Represents errors which may occur while parsing or writing a frame.
 #[derive(Debug, PartialEq, Eq)]
@@ -107,11 +107,11 @@ impl<'a, T: NetworkBytes + Debug> EthIPv4ArpFrame<'a, T> {
         }
 
         // We could theoretically skip the hlen and plen checks, since they are kinda implicit.
-        if maybe.hlen() != MAC_ADDR_LEN as u8 {
+        if maybe.hlen() != MAC_ADDR_LEN {
             return Err(Error::HLen);
         }
 
-        if maybe.plen() != IPV4_ADDR_LEN as u8 {
+        if maybe.plen() != IPV4_ADDR_LEN {
             return Err(Error::PLen);
         }
 
@@ -233,8 +233,8 @@ impl<'a, T: NetworkBytesMut + Debug> EthIPv4ArpFrame<'a, T> {
             buf,
             HTYPE_ETHERNET,
             ETHERTYPE_IPV4,
-            MAC_ADDR_LEN as u8,
-            IPV4_ADDR_LEN as u8,
+            MAC_ADDR_LEN,
+            IPV4_ADDR_LEN,
             OPER_REQUEST,
             sha,
             spa,
@@ -257,8 +257,8 @@ impl<'a, T: NetworkBytesMut + Debug> EthIPv4ArpFrame<'a, T> {
             buf,
             HTYPE_ETHERNET,
             ETHERTYPE_IPV4,
-            MAC_ADDR_LEN as u8,
-            IPV4_ADDR_LEN as u8,
+            MAC_ADDR_LEN,
+            IPV4_ADDR_LEN,
             OPER_REPLY,
             sha,
             spa,

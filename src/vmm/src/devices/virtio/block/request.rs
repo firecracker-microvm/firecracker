@@ -283,7 +283,7 @@ impl Request {
             RequestType::In | RequestType::Out => {
                 // Check that the data length is a multiple of 512 as specified in the virtio
                 // standard.
-                if u64::from(req.data_len) % SECTOR_SIZE != 0 {
+                if req.data_len % SECTOR_SIZE != 0 {
                     return Err(BlockError::InvalidDataLength);
                 }
                 let top_sector = req

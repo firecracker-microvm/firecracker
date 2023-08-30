@@ -101,7 +101,7 @@ impl DiskProperties {
 
         // We only support disk size, which uses the first two words of the configuration space.
         // If the image is not a multiple of the sector size, the tail bits are not exposed.
-        if disk_size % SECTOR_SIZE != 0 {
+        if disk_size % u64::from(SECTOR_SIZE) != 0 {
             warn!(
                 "Disk size {} is not a multiple of sector size {}; the remainder will not be \
                  visible to the guest.",

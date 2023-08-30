@@ -38,7 +38,7 @@ const OPTION_KIND_EOL: u8 = 0x00;
 const OPTION_KIND_NOP: u8 = 0x01;
 const OPTION_KIND_MSS: u8 = 0x02;
 
-const OPTION_LEN_MSS: usize = 0x04;
+const OPTION_LEN_MSS: u8 = 0x04;
 
 // An arbitrarily chosen value, used for sanity checks.
 const MSS_MIN: u16 = 100;
@@ -487,9 +487,9 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
         // The TCP options will require this much more bytes.
         let options_len = if mss_option.is_some() {
             mss_left = mss_left
-                .checked_sub(OPTION_LEN_MSS)
+                .checked_sub(OPTION_LEN_MSS.into())
                 .ok_or(Error::MssRemaining)?;
-            OPTION_LEN_MSS
+            usize::from(OPTION_LEN_MSS)
         } else {
             0
         };
@@ -514,7 +514,7 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
         // Let's write the MSS option if we have to.
         if let Some(value) = mss_option {
             segment.bytes[OPTIONS_OFFSET] = OPTION_KIND_MSS;
-            segment.bytes[OPTIONS_OFFSET + 1] = OPTION_LEN_MSS as u8;
+            segment.bytes[OPTIONS_OFFSET + 1] = OPTION_LEN_MSS;
             segment.bytes.htons_unchecked(OPTIONS_OFFSET + 2, value);
         }
 

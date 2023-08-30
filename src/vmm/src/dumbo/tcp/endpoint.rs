@@ -37,7 +37,7 @@ const CONNECTION_RTO_COUNT_MAX: u16 = 15;
 // imaginable regular MMDS requests.
 // TODO: Maybe at some point include this in the checks we do when populating the MMDS via the API,
 // since it effectively limits the size of the keys (URIs) we're willing to use.
-const RCV_BUF_MAX_SIZE: usize = 2500;
+const RCV_BUF_MAX_SIZE: u32 = 2500;
 
 // Represents the local endpoint of a HTTP over TCP connection which carries GET requests
 // to the MMDS.
@@ -45,7 +45,7 @@ const RCV_BUF_MAX_SIZE: usize = 2500;
 pub struct Endpoint {
     // A fixed size buffer used to store bytes received via TCP. If the current request does not
     // fit within, we reset the connection, since we see this as a hard memory bound.
-    receive_buf: [u8; RCV_BUF_MAX_SIZE],
+    receive_buf: [u8; RCV_BUF_MAX_SIZE as usize],
     // Represents the next available position in the buffer.
     receive_buf_left: usize,
     // This is filled with the HTTP response bytes after we parse a request and generate the reply.
@@ -89,17 +89,20 @@ impl Endpoint {
     ) -> Result<Self, PassiveOpenError> {
         // TODO: mention this in doc comment for function
         // This simplifies things, and is a very reasonable assumption.
-        assert!(RCV_BUF_MAX_SIZE <= MAX_WINDOW_SIZE as usize);
+        #[allow(clippy::assertions_on_constants)]
+        {
+            assert!(RCV_BUF_MAX_SIZE <= MAX_WINDOW_SIZE);
+        }
 
         let connection = Connection::passive_open(
             segment,
-            RCV_BUF_MAX_SIZE as u32,
+            RCV_BUF_MAX_SIZE,
             connection_rto_period,
             connection_rto_count_max,
         )?;
 
         Ok(Endpoint {
-            receive_buf: [0u8; RCV_BUF_MAX_SIZE],
+            receive_buf: [0u8; RCV_BUF_MAX_SIZE as usize],
             receive_buf_left: 0,
             response_buf: Vec::new(),
             // TODO: Using first_not_sent() makes sense here because a connection is currently

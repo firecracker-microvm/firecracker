@@ -50,7 +50,7 @@ mod defs {
     ];
 
     /// Max vsock packet data/buffer size.
-    pub const MAX_PKT_BUF_SIZE: usize = 64 * 1024;
+    pub const MAX_PKT_BUF_SIZE: u32 = 64 * 1024;
 
     pub mod uapi {
 
