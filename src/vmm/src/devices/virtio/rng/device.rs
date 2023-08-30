@@ -164,7 +164,7 @@ impl Entropy {
             match self.queues[RNG_QUEUE].add_used(mem, index, bytes) {
                 Ok(_) => {
                     used_any = true;
-                    METRICS.entropy.entropy_bytes.add(bytes as usize);
+                    METRICS.entropy.entropy_bytes.add(bytes.into());
                 }
                 Err(err) => {
                     error!("entropy: Could not add used descriptor to queue: {err}");

@@ -43,6 +43,6 @@ pub fn log_dev_preview_warning(feature_name: &str, msg_opt: Option<String>) {
 /// past.
 pub fn update_metric_with_elapsed_time(metric: &SharedStoreMetric, start_time_us: u64) -> u64 {
     let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time_us;
-    metric.store(delta_us as usize);
+    metric.store(delta_us);
     delta_us
 }

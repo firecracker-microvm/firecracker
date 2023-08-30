@@ -142,7 +142,7 @@ impl PendingRequest {
         let status = match (res, self.r#type) {
             (Ok(transferred_data_len), RequestType::In) => {
                 let status = Status::from_data(self.data_len, transferred_data_len, true);
-                METRICS.block.read_bytes.add(transferred_data_len as usize);
+                METRICS.block.read_bytes.add(transferred_data_len.into());
                 if let Status::Ok { .. } = status {
                     METRICS.block.read_count.inc();
                 }
@@ -150,7 +150,7 @@ impl PendingRequest {
             }
             (Ok(transferred_data_len), RequestType::Out) => {
                 let status = Status::from_data(self.data_len, transferred_data_len, false);
-                METRICS.block.write_bytes.add(transferred_data_len as usize);
+                METRICS.block.write_bytes.add(transferred_data_len.into());
                 if let Status::Ok { .. } = status {
                     METRICS.block.write_count.inc();
                 }

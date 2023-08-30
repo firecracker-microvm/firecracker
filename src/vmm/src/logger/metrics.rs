@@ -64,7 +64,7 @@
 use std::fmt::Debug;
 use std::io::Write;
 use std::ops::Deref;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use serde::{Serialize, Serializer};
@@ -194,22 +194,22 @@ pub enum MetricsError {
 /// by incrementing their value).
 pub trait IncMetric {
     /// Adds `value` to the current counter.
-    fn add(&self, value: usize);
+    fn add(&self, value: u64);
     /// Increments by 1 unit the current counter.
     fn inc(&self) {
         self.add(1);
     }
     /// Returns current value of the counter.
-    fn count(&self) -> usize;
+    fn count(&self) -> u64;
 }
 
 /// Used for defining new types of metrics that do not need a counter and act as a persistent
 /// indicator.
 pub trait StoreMetric {
     /// Returns current value of the counter.
-    fn fetch(&self) -> usize;
+    fn fetch(&self) -> u64;
     /// Stores `value` to the current counter.
-    fn store(&self, value: usize);
+    fn store(&self, value: u64);
 }
 
 /// Representation of a metric that is expected to be incremented from more than one thread, so more
@@ -223,22 +223,22 @@ pub trait StoreMetric {
 // 1st member - current value being updated
 // 2nd member - old value that gets the current value whenever metrics is flushed to disk
 #[derive(Debug, Default)]
-pub struct SharedIncMetric(AtomicUsize, AtomicUsize);
+pub struct SharedIncMetric(AtomicU64, AtomicU64);
 impl SharedIncMetric {
     /// Const default construction.
     pub const fn new() -> Self {
-        Self(AtomicUsize::new(0), AtomicUsize::new(0))
+        Self(AtomicU64::new(0), AtomicU64::new(0))
     }
 }
 
 /// Representation of a metric that is expected to hold a value that can be accessed
 /// from more than one thread, so more synchronization is necessary.
 #[derive(Debug, Default)]
-pub struct SharedStoreMetric(AtomicUsize);
+pub struct SharedStoreMetric(AtomicU64);
 impl SharedStoreMetric {
     /// Const default construction.
     pub const fn new() -> Self {
-        Self(AtomicUsize::new(0))
+        Self(AtomicU64::new(0))
     }
 }
 
@@ -247,21 +247,21 @@ impl IncMetric for SharedIncMetric {
     // be an asm "LOCK; something" and thus atomic across multiple threads, simply because of the
     // fetch_and_add (as opposed to "store(load() + 1)") implementation for atomics.
     // TODO: would a stronger ordering make a difference here?
-    fn add(&self, value: usize) {
+    fn add(&self, value: u64) {
         self.0.fetch_add(value, Ordering::Relaxed);
     }
 
-    fn count(&self) -> usize {
+    fn count(&self) -> u64 {
         self.0.load(Ordering::Relaxed)
     }
 }
 
 impl StoreMetric for SharedStoreMetric {
-    fn fetch(&self) -> usize {
+    fn fetch(&self) -> u64 {
         self.0.load(Ordering::Relaxed)
     }
 
-    fn store(&self, value: usize) {
+    fn store(&self, value: u64) {
         self.0.store(value, Ordering::Relaxed);
     }
 }
@@ -271,9 +271,8 @@ impl Serialize for SharedIncMetric {
     /// flushing of metrics.
     /// !!! Any print of the metrics will also reset them. Use with caution !!!
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        // There's no serializer.serialize_usize() for some reason :(
         let snapshot = self.0.load(Ordering::Relaxed);
-        let res = serializer.serialize_u64(snapshot as u64 - self.1.load(Ordering::Relaxed) as u64);
+        let res = serializer.serialize_u64(snapshot - self.1.load(Ordering::Relaxed));
 
         if res.is_ok() {
             self.1.store(snapshot, Ordering::Relaxed);
@@ -284,7 +283,7 @@ impl Serialize for SharedIncMetric {
 
 impl Serialize for SharedStoreMetric {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_u64(self.0.load(Ordering::Relaxed) as u64)
+        serializer.serialize_u64(self.0.load(Ordering::Relaxed))
     }
 }
 
@@ -318,10 +317,7 @@ impl ProcessTimeReporter {
     pub fn report_start_time(&self) {
         if let Some(start_time) = self.start_time_us {
             let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time;
-            METRICS
-                .api_server
-                .process_startup_time_us
-                .store(delta_us as usize);
+            METRICS.api_server.process_startup_time_us.store(delta_us);
         }
     }
 
@@ -334,7 +330,7 @@ impl ProcessTimeReporter {
             METRICS
                 .api_server
                 .process_startup_time_cpu_us
-                .store(delta_us as usize);
+                .store(delta_us);
         }
     }
 }
