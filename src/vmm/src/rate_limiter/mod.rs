@@ -417,7 +417,8 @@ impl RateLimiter {
                     // order to enforce the bandwidth limit we need to prevent
                     // further calls to the rate limiter for
                     // `ratio * refill_time` milliseconds.
-                    #[allow(clippy::cast_sign_loss)] // ratio is always positive
+                    // The conversion should be safe because the ratio is positive.
+                    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
                     self.activate_timer(TimerState::Oneshot(Duration::from_millis(
                         (ratio * refill_time as f64) as u64,
                     )));

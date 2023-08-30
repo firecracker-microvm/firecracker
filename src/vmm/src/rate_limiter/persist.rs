@@ -31,7 +31,8 @@ impl Persist<'_> for TokenBucket {
             one_time_burst: self.one_time_burst,
             refill_time: self.refill_time,
             budget: self.budget,
-            elapsed_ns: self.last_update.elapsed().as_nanos() as u64,
+            // This should be safe for a duration of about 584 years.
+            elapsed_ns: u64::try_from(self.last_update.elapsed().as_nanos()).unwrap(),
         }
     }
 
