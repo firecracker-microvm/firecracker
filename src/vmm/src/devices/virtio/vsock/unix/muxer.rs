@@ -1493,7 +1493,7 @@ mod tests {
         // Check that tx_bytes was incremented.
         assert_eq!(
             METRICS.vsock.tx_bytes_count.count(),
-            tx_bytes_count + data.len()
+            tx_bytes_count + data.len() as u64
         );
 
         // Check that one packet was accounted for.
@@ -1511,7 +1511,7 @@ mod tests {
         // Check that the 6 bytes have been received.
         assert_eq!(
             METRICS.vsock.rx_bytes_count.count(),
-            rx_bytes_count + data.len()
+            rx_bytes_count + data.len() as u64
         );
 
         // Send a connection reset.
