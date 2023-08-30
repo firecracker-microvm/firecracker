@@ -140,7 +140,7 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), MptableE
         let size = mem::size_of::<mpspec::mpf_intel>() as u64;
         let mut mpf_intel = mpspec::mpf_intel {
             signature: SMP_MAGIC_IDENT,
-            physptr: (base_mp.raw_value() + size) as u32,
+            physptr: u32::try_from(base_mp.raw_value() + size).unwrap(),
             length: 1,
             specification: 4,
             ..mpspec::mpf_intel::default()
@@ -263,7 +263,10 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), MptableE
             signature: MPC_SIGNATURE,
             // it's safe to use unchecked_offset_from because
             // table_end > table_base
-            length: table_end.unchecked_offset_from(table_base) as u16,
+            length: table_end
+                .unchecked_offset_from(table_base)
+                .try_into()
+                .unwrap(),
             spec: MPC_SPEC,
             oem: MPC_OEM,
             productid: MPC_PRODUCT_ID,
