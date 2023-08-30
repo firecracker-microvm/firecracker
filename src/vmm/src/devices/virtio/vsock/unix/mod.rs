@@ -20,10 +20,10 @@ mod defs {
     pub const MAX_CONNECTIONS: usize = 1023;
 
     /// Size of the muxer RX packet queue.
-    pub const MUXER_RXQ_SIZE: usize = 256;
+    pub const MUXER_RXQ_SIZE: u32 = 256;
 
     /// Size of the muxer connection kill queue.
-    pub const MUXER_KILLQ_SIZE: usize = 128;
+    pub const MUXER_KILLQ_SIZE: u32 = 128;
 }
 
 /// Vsock backend related errors.

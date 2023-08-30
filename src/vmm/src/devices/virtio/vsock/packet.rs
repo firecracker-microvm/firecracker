@@ -79,7 +79,7 @@ pub struct VsockPacketHeader {
 }
 
 /// The vsock packet header struct size (the struct is packed).
-pub const VSOCK_PKT_HDR_SIZE: usize = 44;
+pub const VSOCK_PKT_HDR_SIZE: u32 = 44;
 
 // SAFETY: `VsockPacketHeader` is a POD and contains no padding.
 unsafe impl ByteValued for VsockPacketHeader {}
@@ -120,12 +120,15 @@ impl VsockPacket {
         Self::check_desc_write_only(hdr_desc, expected_write_only)?;
 
         // Validate the packet header address
-        if !hdr_desc.mem.check_range(hdr_desc.addr, VSOCK_PKT_HDR_SIZE) {
+        if !hdr_desc
+            .mem
+            .check_range(hdr_desc.addr, VSOCK_PKT_HDR_SIZE as usize)
+        {
             return Err(VsockError::GuestMemoryBounds);
         }
 
         // The packet header should fit inside the head descriptor.
-        if hdr_desc.len < VSOCK_PKT_HDR_SIZE as u32 {
+        if hdr_desc.len < VSOCK_PKT_HDR_SIZE {
             return Err(VsockError::HdrDescTooSmall(hdr_desc.len));
         }
 
@@ -167,7 +170,10 @@ impl VsockPacket {
         Self::check_hdr_desc(hdr_desc, false)?;
 
         // Validate the packet header address
-        if !hdr_desc.mem.check_range(hdr_desc.addr, VSOCK_PKT_HDR_SIZE) {
+        if !hdr_desc
+            .mem
+            .check_range(hdr_desc.addr, VSOCK_PKT_HDR_SIZE as usize)
+        {
             return Err(VsockError::GuestMemoryBounds);
         }
 
@@ -241,7 +247,7 @@ impl VsockPacket {
 
     /// Verifies packet length against `MAX_PKT_BUF_SIZE` limit.
     pub fn check_len(&self) -> Result<(), VsockError> {
-        if self.len() > defs::MAX_PKT_BUF_SIZE as u32 {
+        if self.len() > defs::MAX_PKT_BUF_SIZE {
             return Err(VsockError::InvalidPktLen(self.len()));
         }
 

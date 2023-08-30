@@ -725,7 +725,7 @@ impl SeccompFilter {
         accumulator.push(built_syscall);
 
         // BPF programs are limited to 4096 statements.
-        if *filter_len >= BPF_MAX_LEN {
+        if *filter_len >= usize::from(BPF_MAX_LEN) {
             return Err(FilterError::FilterTooLarge);
         }
 
@@ -781,7 +781,7 @@ impl TryInto<BpfProgram> for SeccompFilter {
             .into_iter()
             .for_each(|mut instructions| result.append(&mut instructions));
 
-        if result.len() >= BPF_MAX_LEN {
+        if result.len() >= usize::from(BPF_MAX_LEN) {
             return Err(FilterError::FilterTooLarge);
         }
 
