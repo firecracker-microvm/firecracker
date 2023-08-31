@@ -53,7 +53,10 @@ At the moment the following set of static CPU templates are supported:
 | V1N1         | ARM        | Neoverse V1           |
 
 T2 and C3 templates are mapped as close as possible to AWS T2 and C3 instances
-in terms of CPU features.
+in terms of CPU features. Note that on a microVM that is lauched with the C3
+template and running on processors that do not enumerate FBSDP_NO, PSDP_NO and
+SBDR_SSDP_NO on IA32_ARCH_CAPABILITIES MSR, the kernel does not apply the
+mitigation against MMIO stale data vulnerability.
 
 The T2S template is designed to allow migrating [snapshots](../snapshotting/versioning.md)
 between hosts with Intel Skylake and Intel Cascade Lake securely by further

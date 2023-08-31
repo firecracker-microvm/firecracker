@@ -26,6 +26,11 @@
   or a FIFO pipe. This fixes logged warnings about the serial device failing to
   initialize if the process is daemonized (in which case stdin is /dev/null instead
   of a terminal).
+- Changed to show a warning message when launching a microVM with C3 template on
+  a processor prior to Intel Cascade Lake, because the guest kernel does not
+  apply the mitigation against MMIO stale data vulnerability when it is running
+  on a processor that does not enumerate FBSDP_NO, PSDP_NO and SBDR_SSDP_NO on
+  IA32_ARCH_CAPABILITIES MSR.
 
 ### Fixed
 

@@ -31,6 +31,14 @@ impl GetCpuTemplate for Option<CpuTemplateType> {
                             if &vendor_id != VENDOR_ID_INTEL {
                                 return Err(CpuVendorMismatched);
                             }
+                            if !CpuModel::get_cpu_model().is_at_least_cascade_lake() {
+                                log::warn!(
+                                    "On processors that do not enumerate FBSDP_NO, PSDP_NO and \
+                                     SBDR_SSDP_NO on IA32_ARCH_CAPABILITIES MSR, the guest kernel \
+                                     does not apply the mitigation against MMIO stale data \
+                                     vulnerability."
+                                );
+                            }
                             Ok(Cow::Owned(c3::c3()))
                         }
                         StaticCpuTemplate::T2 => {
