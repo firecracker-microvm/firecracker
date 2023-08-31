@@ -280,9 +280,8 @@ def check_vulnerabilities_files_on_guest(microvm, template=None):
     for vuln_file in vuln_files:
         filename = os.path.basename(vuln_file)
         if filename in exceptions:
-            cmd = f"grep '{exceptions[filename]}' {vuln_file}"
-            ecode, stdout, stderr = microvm.ssh.run(cmd)
-            assert ecode == 0, f"stdout:\n{stdout}\nstderr:\n{stderr}\n"
+            _, stdout, _ = microvm.ssh.run(f"cat {vuln_file}")
+            assert exceptions[filename] in stdout
         else:
             cmd = f"grep Vulnerable {vuln_file}"
             ecode, stdout, stderr = microvm.ssh.run(cmd)
