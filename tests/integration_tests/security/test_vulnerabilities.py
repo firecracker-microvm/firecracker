@@ -79,7 +79,7 @@ def run_spectre_meltdown_checker_on_guest(
     """Run the spectre / meltdown checker on guest"""
     remote_path = f"/tmp/{CHECKER_FILENAME}"
     microvm.ssh.scp_put(spectre_meltdown_checker, remote_path)
-    ecode, stdout, stderr = microvm.ssh.run(f"sh {remote_path} --explain")
+    ecode, stdout, stderr = microvm.ssh.run(f"sh {remote_path} --explain --no-intel-db")
     assert ecode == 0, f"stdout:\n{stdout}\nstderr:\n{stderr}\n"
 
 
