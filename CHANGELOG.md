@@ -5,7 +5,10 @@
 ### Added
 
 - [#4045](https://github.com/firecracker-microvm/firecracker/pull/4045)
+  and [#4075](https://github.com/firecracker-microvm/firecracker/pull/4075):
   Added `snapshot-editor` tool for modifications of snapshot files.
+  It allows for rebasing of memory snapshot files, printing and
+  removing aarch64 registers from the vmstate and obtaining snapshot version.
 - [#3967](https://github.com/firecracker-microvm/firecracker/pull/3967/):
   Added new fields to the custom CPU templates. (aarch64 only) `vcpu_features`
   field allows modifications of vCPU features enabled during vCPU
