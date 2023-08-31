@@ -239,8 +239,11 @@ def get_vuln_files_exception_dict(template):
     """
     exception_dict = {}
 
-    # Exception of mmio_stale_data for guests on Intel Skylake and guests with T2S template
-    # =====================================================================================
+    # Exception for mmio_stale_data
+    # =============================
+    #
+    # Guests on Intel Skylake or with T2S template
+    # --------------------------------------------
     # Whether mmio_stale_data is marked as "Vulnerable" or not is determined by the code here.
     # https://elixir.bootlin.com/linux/v6.1.46/source/arch/x86/kernel/cpu/bugs.c#L431
     # Virtualization of FLUSH_L1D has been available and CPUID.(EAX=0x7,ECX=0):EDX[28 (FLUSH_L1D)]
@@ -253,7 +256,23 @@ def get_vuln_files_exception_dict(template):
     # best effort mode which invokes the mitigation instructions (VERW in this case) without a
     # guarantee that they clear the CPU buffers. If the host has the microcode update applied
     # correctly, the mitigation works and it is safe to ignore the "Vulnerable" message.
-    if global_props.cpu_codename == "INTEL_SKYLAKE" or template == "T2S":
+    #
+    # Guest on Intel Skylake with C3 template
+    # ---------------------------------------
+    # If the processor does not enumerate IA32_ARCH_CAPABILITIES.{FBSDP_NO,PSDP_NO,SBDR_SSDP_NO},
+    # the kernel checks its lists of affected/unaffected processors and determines whether the
+    # mitigation is required, and if the processor is not included in the lists, the sysfs is marked
+    # as "Unknown".
+    # https://elixir.bootlin.com/linux/v6.1.50/source/arch/x86/kernel/cpu/common.c#L1387
+    # The behavior for "Unknown" state was added in the following commit and older processors that
+    # are no longer serviced are not listed up.
+    # https://github.com/torvalds/linux/commit/7df548840c496b0141fb2404b889c346380c2b22
+    # Since those bits are not set on Intel Skylake and C3 template makes guests pretend to be AWS
+    # C3 instance (quite old processor now) by overwriting CPUID.1H:EAX, it is impossible to avoid
+    # this "Unknown" state.
+    if global_props.cpu_codename == "INTEL_SKYLAKE" and template == "C3":
+        exception_dict["mmio_stale_data"] = "Unknown: No mitigations"
+    elif global_props.cpu_codename == "INTEL_SKYLAKE" or template == "T2S":
         exception_dict[
             "mmio_stale_data"
         ] = "Vulnerable: Clear CPU buffers attempted, no microcode"
