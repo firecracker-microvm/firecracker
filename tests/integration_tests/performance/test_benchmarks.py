@@ -3,7 +3,6 @@
 """Optional benchmarks-do-not-regress test"""
 import json
 import logging
-import os
 import platform
 import shutil
 from pathlib import Path
