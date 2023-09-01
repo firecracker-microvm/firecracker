@@ -604,6 +604,7 @@ fn guest_memory_from_uffd(
     let uffd = uffd_builder
         .close_on_exec(true)
         .non_blocking(true)
+        .user_mode_only(false)
         .create()
         .map_err(GuestMemoryFromUffdError::Create)?;
 
