@@ -19,9 +19,35 @@ use case, doing this for every page can be time-consuming.
 
 Userfaultfd is a mechanism that passes that responsibility of handling page
 fault events from kernel space to user space. In order to be able to interact
-with this mechanism, userspace needs to firstly obtain an userfault object
-(i.e file descriptor) by calling into [`userfaultfd`
-syscall](https://man7.org/linux/man-pages/man2/userfaultfd.2.html).
+with this mechanism, userspace needs to firstly obtain an userfault file descriptor
+object (UFFD).
+
+### Creating a UFFD object
+
+#### Kernels 4.14 and 5.10
+
+For (host) kernels 4.14 and 5.10 UFFD objects are created by calling into
+[`userfaultfd` syscall](https://man7.org/linux/man-pages/man2/userfaultfd.2.html).
+
+#### Kernel 6.1
+
+For kernel 6.1, UFFD is created through the `/dev/userfaultfd` device. Access
+to `/dev/userfaultfd` is managed by file system permissions, so the Firecracker
+process needs to have proper permissions to create the UFFD object. When
+`/dev/userfaultfd` is present on the host system, jailer makes it available
+inside the jail and Firecracker process can use it without any further
+configuration.
+
+If a user is not using Firecracker along with the jailer, they should manage
+manually permissions to `/dev/userfaultfd`. For example, on systems that rely
+on access control lists (ACLs), this can be achieved by:
+
+```bash
+sudo setfacl -m u:${USER}:rw /dev/userfaultfd
+```
+
+### Registering memory to be handled via Userfault File Descriptors
+
 Next, the memory address range must be registered with the userfault file
 descriptor so that the userfault object can monitor page faults occurring for
 those addresses. After this, the user space process can start reading and serving

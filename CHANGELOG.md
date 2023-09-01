@@ -45,6 +45,9 @@
 - The ability to create snapshots for an older version of Firecracker is now
   deprecated. As a result, the `version` body field in `PUT` on
   `/snapshot/create` request in deprecated.
+- Added support for the /dev/userfaultfd device available on linux kernels >=
+  6.1. This is the default for creating UFFD handlers on these kernel versions.
+  If it is unavailable, Firecracker falls back to the userfaultfd syscall.
 
 ### Fixed
 
