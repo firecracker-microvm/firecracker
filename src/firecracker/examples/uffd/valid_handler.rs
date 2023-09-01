@@ -10,9 +10,15 @@ mod uffd_utils;
 use std::os::unix::io::AsRawFd;
 
 use uffd_utils::{create_pf_handler, MemPageState};
+use utils::get_page_size;
 
 fn main() {
     let mut uffd_handler = create_pf_handler();
+
+    // Populate a single page from backing memory file.
+    // This is just an example, probably, with the worst-case latency scenario,
+    // of how memory can be loaded in guest RAM.
+    let len = get_page_size().unwrap();
 
     let mut pollfd = libc::pollfd {
         fd: uffd_handler.uffd.as_raw_fd(),
@@ -47,7 +53,9 @@ fn main() {
         // We expect to receive either a Page Fault or Removed
         // event (if the balloon device is enabled).
         match event {
-            userfaultfd::Event::Pagefault { addr, .. } => uffd_handler.serve_pf(addr as *mut u8),
+            userfaultfd::Event::Pagefault { addr, .. } => {
+                uffd_handler.serve_pf(addr as *mut u8, len)
+            }
             userfaultfd::Event::Remove { start, end } => uffd_handler.update_mem_state_mappings(
                 start as *mut u8 as u64,
                 end as *mut u8 as u64,
