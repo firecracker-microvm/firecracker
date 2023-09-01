@@ -142,7 +142,7 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<(), FdtEr
             // https://github.com/devicetree-org/devicetree-specification/releases/download/v0.3/devicetree-specification-v0.3.pdf,
             // section 3.8.
             if let Some(size) = cache.size_ {
-                fdt.property_u32(cache.type_.of_cache_size(), size as u32)?;
+                fdt.property_u32(cache.type_.of_cache_size(), size)?;
             }
             if let Some(line_size) = cache.line_size {
                 fdt.property_u32(cache.type_.of_cache_line_size(), u32::from(line_size))?;
@@ -189,7 +189,7 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<(), FdtEr
                 fdt.property_string("compatible", "cache")?;
                 fdt.property_u32("cache-level", u32::from(cache.level))?;
                 if let Some(size) = cache.size_ {
-                    fdt.property_u32(cache.type_.of_cache_size(), size as u32)?;
+                    fdt.property_u32(cache.type_.of_cache_size(), size)?;
                 }
                 if let Some(line_size) = cache.line_size {
                     fdt.property_u32(cache.type_.of_cache_line_size(), u32::from(line_size))?;
