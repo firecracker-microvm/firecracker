@@ -129,7 +129,7 @@ mod tests {
         let regions = arch_memory_regions(1usize << 41);
         assert_eq!(1, regions.len());
         assert_eq!(GuestAddress(super::layout::DRAM_MEM_START), regions[0].0);
-        assert_eq!(super::layout::DRAM_MEM_MAX_SIZE, regions[0].1 as u64);
+        assert_eq!(super::layout::DRAM_MEM_MAX_SIZE, regions[0].1);
     }
 
     #[test]

@@ -779,7 +779,7 @@ mod tests {
         let bytes = 69_u64.to_le_bytes();
         let reg_ref = Aarch64RegisterRef::new(KVM_REG_SIZE_U64, &bytes);
 
-        assert_eq!(u64::from(reg_ref.size()), 8);
+        assert_eq!(reg_ref.size(), 8);
         assert_eq!(reg_ref.value::<u64, 8>(), 69);
     }
 
@@ -808,7 +808,7 @@ mod tests {
         let mut bytes = 69_u64.to_le_bytes();
         let mut reg_ref = Aarch64RegisterRefMut::new(KVM_REG_SIZE_U64, &mut bytes);
 
-        assert_eq!(u64::from(reg_ref.size()), 8);
+        assert_eq!(reg_ref.size(), 8);
         assert_eq!(reg_ref.value::<u64, 8>(), 69);
         reg_ref.set_value(reg_ref.value::<u64, 8>() + 1);
         assert_eq!(reg_ref.value::<u64, 8>(), 70);
