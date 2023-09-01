@@ -62,7 +62,8 @@ The T2S template is designed to allow migrating [snapshots](../snapshotting/vers
 between hosts with Intel Skylake and Intel Cascade Lake securely by further
 restricting CPU features for the guest, however this comes with a performance
 penalty. Users are encouraged to carry out a performance assessment if they wish
-to use the T2S template.
+to use the T2S template. Note that Firecracker expects the host to always be
+running the latest version of the microcode.
 
 The T2CL template is mapped to be close to Intel Cascade Lake.
 It is not safe to use it on Intel CPUs older than Cascade Lake (such as Skylake).
