@@ -272,7 +272,8 @@ fn read_volatile_raw_fd<Fd: AsRawFd + Debug>(
     buf: &mut VolatileSlice<impl BitmapSlice>,
 ) -> Result<usize, VolatileMemoryError> {
     let fd = raw_fd.as_raw_fd();
-    let dst = buf.as_ptr().cast::<libc::c_void>();
+    let guard = buf.ptr_guard_mut();
+    let dst = guard.as_ptr().cast::<libc::c_void>();
 
     // SAFETY: We got a valid file descriptor from `AsRawFd`. The memory pointed to by `dst` is
     // valid for writes of length `buf.len() by the invariants upheld by the constructor
@@ -318,7 +319,8 @@ fn write_volatile_raw_fd<Fd: AsRawFd + Debug>(
     buf: &VolatileSlice<impl BitmapSlice>,
 ) -> Result<usize, VolatileMemoryError> {
     let fd = raw_fd.as_raw_fd();
-    let src = buf.as_ptr().cast::<libc::c_void>();
+    let guard = buf.ptr_guard();
+    let src = guard.as_ptr().cast::<libc::c_void>();
 
     // SAFETY: We got a valid file descriptor from `AsRawFd`. The memory pointed to by `src` is
     // valid for reads of length `buf.len() by the invariants upheld by the constructor

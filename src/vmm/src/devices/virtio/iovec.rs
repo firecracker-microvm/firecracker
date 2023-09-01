@@ -141,6 +141,7 @@ impl IoVecBuffer {
             // region in the GuestMemoryMmap.
             let iov_base = mem
                 .get_slice(desc.addr, desc.len as usize)?
+                .ptr_guard_mut()
                 .as_ptr()
                 .cast::<c_void>();
             vecs.push(iovec {
@@ -250,7 +251,7 @@ impl IoVecBufferMut {
             // vm-memory related information after converting down to iovecs.
             slice.bitmap().mark_dirty(0, desc.len as usize);
 
-            let iov_base = slice.as_ptr().cast::<c_void>();
+            let iov_base = slice.ptr_guard_mut().as_ptr().cast::<c_void>();
             vecs.push(iovec {
                 iov_base,
                 iov_len: desc.len as size_t,
