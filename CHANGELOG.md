@@ -47,6 +47,9 @@
   listed by KVM as bits able to be passed through. By making the most use of the
   available hardware security mitigations on a processor that a guest is running
   on, the guest might be able to benefit from performance improvements.
+- Fixed the T2S CPU template to set the GDS_NO bit of the IA32_ARCH_CAPABILITIES
+  MSR to 1 in accordance with an Intel microcode update. To use the template
+  securely, users should apply the latest microcode update on the host.
 
 ## [1.4.0]
 

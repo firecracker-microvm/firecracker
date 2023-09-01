@@ -250,7 +250,7 @@ pub fn t2cl() -> CustomCpuTemplate {
             // - Bit 21: XAPIC_DISABLE_STATUS
             // - Bit 22: Reserved
             // - Bit 23: OVERCLOCKING_STATUS
-            // - Bit 25: Reserved
+            // - Bit 25: GDS_CTRL
             // - Bits 63-27: Reserved (Intel SDM)
             //
             // As T2CL template does not aim to provide an ability to migrate securely guests across
