@@ -52,7 +52,7 @@
 /// Start of RAM on 64 bit ARM.
 pub const DRAM_MEM_START: u64 = 0x8000_0000; // 2 GB.
 /// The maximum RAM size.
-pub const DRAM_MEM_MAX_SIZE: u64 = 0x00FF_8000_0000; // 1024 - 2 = 1022G.
+pub const DRAM_MEM_MAX_SIZE: usize = 0x00FF_8000_0000; // 1024 - 2 = 1022G.
 
 /// Kernel command line maximum size.
 /// As per `arch/arm64/include/uapi/asm/setup.h`.
