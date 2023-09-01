@@ -16,7 +16,7 @@ thiserror = "1.0.32"
 versionize = "0.1.10"
 versionize_derive = "0.1.5"
 vmm-sys-util = "0.11.0"
-vm-memory = { version = "0.11.0", features = ["backend-mmap", "backend-bitmap"] }
+vm-memory = { version = "0.12.0", features = ["backend-mmap", "backend-bitmap"] }
 
 net_gen = { path = "../net_gen" }
 

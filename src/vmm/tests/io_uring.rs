@@ -41,6 +41,7 @@ mod test_utils {
                             .as_volatile_slice()
                             .subslice(i, 1)
                             .unwrap()
+                            .ptr_guard_mut()
                             .as_ptr() as usize,
                         1,
                         i as u64,
@@ -52,6 +53,7 @@ mod test_utils {
                             .as_volatile_slice()
                             .subslice(i, 1)
                             .unwrap()
+                            .ptr_guard_mut()
                             .as_ptr() as usize,
                         1,
                         i as u64,
