@@ -231,6 +231,7 @@ class JailerContext:
                         fargs=[controller],
                         exceptions=TimeoutError,
                         max_delay=5,
+                        logger=None,
                     )
                 except TimeoutError:
                     pass

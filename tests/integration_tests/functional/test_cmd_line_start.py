@@ -152,6 +152,7 @@ def test_config_start_no_api(uvm_plain, vm_config_file):
         exceptions=RuntimeError,
         tries=10,
         delay=1,
+        logger=None,
     )
 
 

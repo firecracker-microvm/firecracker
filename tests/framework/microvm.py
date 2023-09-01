@@ -348,7 +348,7 @@ class Microvm:
         return self.api.describe.get().json()["state"]
 
     @property
-    @retry(delay=0.1, tries=5)
+    @retry(delay=0.1, tries=5, logger=None)
     def pid_in_new_ns(self):
         """Get the pid of the Firecracker process in the new namespace.
 
@@ -507,19 +507,19 @@ class Microvm:
         if self.log_file:
             self.check_log_message("Running Firecracker")
 
-    @retry(delay=0.2, tries=5)
+    @retry(delay=0.2, tries=5, logger=None)
     def _wait_create(self):
         """Wait until the API socket and chroot folder are available."""
         os.stat(self.jailer.api_socket_path())
 
-    @retry(delay=0.2, tries=5)
+    @retry(delay=0.2, tries=5, logger=None)
     def check_log_message(self, message):
         """Wait until `message` appears in logging output."""
         assert (
             message in self.log_data
         ), f'Message ("{message}") not found in log data ("{self.log_data}").'
 
-    @retry(delay=0.2, tries=5)
+    @retry(delay=0.2, tries=5, logger=None)
     def check_any_log_message(self, messages):
         """Wait until any message in `messages` appears in logging output."""
         for message in messages:

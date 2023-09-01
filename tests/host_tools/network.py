@@ -76,7 +76,7 @@ class SSHConnection:
             opts.append("-r")
         self._scp(self.remote_path(remote_path), local_path, opts)
 
-    @retry(ConnectionError, delay=0.15, tries=20)
+    @retry(ConnectionError, delay=0.15, tries=20, logger=None)
     def _init_connection(self):
         """Create an initial SSH client connection (retry until it works).
 
