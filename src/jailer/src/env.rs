@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::ffi::{CString, OsString};
-use std::fs::{self, canonicalize, File, OpenOptions, Permissions};
+use std::fs::{self, canonicalize, read_to_string, File, OpenOptions, Permissions};
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::AsRawFd;
@@ -42,6 +42,17 @@ const DEV_NET_TUN_MINOR: u32 = 200;
 const DEV_URANDOM_WITH_NUL: &str = "/dev/urandom";
 const DEV_URANDOM_MAJOR: u32 = 1;
 const DEV_URANDOM_MINOR: u32 = 9;
+
+// Userfault file descriptor device path. This is a misc character device
+// with a MISC_DYNAMIC_MINOR minor device:
+// https://elixir.bootlin.com/linux/v6.1.51/source/fs/userfaultfd.c#L2176.
+//
+// This means that its minor device number will be allocated at run time,
+// so we will have to find it at initialization time parsing /proc/misc.
+// What we do know is the major number for misc devices:
+// https://elixir.bootlin.com/linux/v6.1.51/source/Documentation/admin-guide/devices.txt
+const DEV_UFFD_PATH: &str = "/dev/userfaultfd";
+const DEV_UFFD_MAJOR: u32 = 10;
 
 // Relevant folders inside the jail that we create or/and for which we change ownership.
 // We need /dev in order to be able to create /dev/kvm and /dev/net/tun device.
@@ -86,6 +97,16 @@ fn clone(child_stack: *mut libc::c_void, flags: libc::c_int) -> Result<libc::c_i
     .map_err(JailerError::Clone);
 }
 
+#[derive(Debug, thiserror::Error)]
+enum UserfaultfdParseError {
+    #[error("Could not read /proc/misc: {0}")]
+    ReadProcMisc(#[from] std::io::Error),
+    #[error("Could not parse minor number: {0}")]
+    ParseDevMinor(#[from] std::num::ParseIntError),
+    #[error("userfaultfd device not loaded")]
+    NotFound,
+}
+
 pub struct Env {
     id: String,
     chroot_dir: PathBuf,
@@ -101,6 +122,7 @@ pub struct Env {
     extra_args: Vec<String>,
     cgroups: Vec<Box<dyn Cgroup>>,
     resource_limits: ResourceLimits,
+    uffd_dev_minor: Option<u32>,
 }
 
 impl fmt::Debug for Env {
@@ -235,6 +257,8 @@ impl Env {
             Env::parse_resource_limits(&mut resource_limits, args)?;
         }
 
+        let uffd_dev_minor = Self::get_userfaultfd_minor_dev_number().ok();
+
         Ok(Env {
             id: id.to_owned(),
             chroot_dir,
@@ -250,6 +274,7 @@ impl Env {
             extra_args: arguments.extra_args(),
             cgroups,
             resource_limits,
+            uffd_dev_minor,
         })
     }
 
@@ -353,6 +378,23 @@ impl Env {
 
         // Write PID to file.
         write!(pid_file, "{}", pid).map_err(|err| JailerError::Write(pid_file_path, err))
+    }
+
+    fn get_userfaultfd_minor_dev_number() -> Result<u32, UserfaultfdParseError> {
+        let buf = read_to_string("/proc/misc")?;
+
+        for line in buf.lines() {
+            let dev: Vec<&str> = line.split(' ').collect();
+            if dev.len() < 2 {
+                continue;
+            }
+
+            if dev[1] == "userfaultfd" {
+                return Ok(dev[0].parse::<u32>()?);
+            }
+        }
+
+        Err(UserfaultfdParseError::NotFound)
     }
 
     fn mknod_and_own_dev(
@@ -616,6 +658,12 @@ impl Env {
                 );
                 println!("MMDS version 2 will not be available to use.");
             });
+
+        // If we have a minor version for /dev/userfaultfd the device is present on the host.
+        // Expose the device in the jailed environment.
+        if let Some(minor) = self.uffd_dev_minor {
+            self.mknod_and_own_dev(DEV_UFFD_PATH, DEV_UFFD_MAJOR, minor)?;
+        }
 
         // Daemonize before exec, if so required (when the dev_null variable != None).
         if let Some(dev_null) = dev_null {
@@ -990,19 +1038,50 @@ mod tests {
         // process management; it can't be isolated from side effects.
     }
 
-    #[test]
-    fn test_mknod_and_own_dev() {
+    fn ensure_mknod_and_own_dev(env: &Env, dev_path: &'static str, major: u32, minor: u32) {
         use std::os::unix::fs::FileTypeExt;
 
+        // Create a new device node.
+        env.mknod_and_own_dev(dev_path, major, minor).unwrap();
+
+        // Ensure device's properties.
+        let metadata = fs::metadata(dev_path).unwrap();
+        assert!(metadata.file_type().is_char_device());
+        assert_eq!(get_major(metadata.st_rdev()), major);
+        assert_eq!(get_minor(metadata.st_rdev()), minor);
+        assert_eq!(
+            metadata.permissions().mode(),
+            libc::S_IFCHR | libc::S_IRUSR | libc::S_IWUSR
+        );
+
+        // Trying to create again the same device node is not allowed.
+        assert_eq!(
+            format!(
+                "{}",
+                env.mknod_and_own_dev(dev_path, major, minor).unwrap_err()
+            ),
+            format!(
+                "Failed to create {} via mknod inside the jail: File exists (os error 17)",
+                dev_path
+            )
+        );
+    }
+
+    #[test]
+    fn test_mknod_and_own_dev() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
         assert!(mock_cgroups.add_v1_mounts().is_ok());
         let env = create_env();
 
         // Ensure device nodes are created with correct major/minor numbers and permissions.
-        let dev_infos: Vec<(&str, u32, u32)> = vec![
+        let mut dev_infos: Vec<(&str, u32, u32)> = vec![
             ("/dev/net/tun-test", DEV_NET_TUN_MAJOR, DEV_NET_TUN_MINOR),
             ("/dev/kvm-test", DEV_KVM_MAJOR, DEV_KVM_MINOR),
         ];
+
+        if let Some(uffd_dev_minor) = env.uffd_dev_minor {
+            dev_infos.push(("/dev/userfaultfd-test", DEV_UFFD_MAJOR, uffd_dev_minor));
+        }
 
         for (dev, major, minor) in dev_infos {
             // Checking this just to be super sure there's no file at `dev_str` path (though
@@ -1011,29 +1090,22 @@ mod tests {
                 fs::remove_file(dev).unwrap();
             }
 
-            // Create a new device node.
-            env.mknod_and_own_dev(dev, major, minor).unwrap();
-
-            // Ensure device's properties.
-            let metadata = fs::metadata(dev).unwrap();
-            assert!(metadata.file_type().is_char_device());
-            assert_eq!(get_major(metadata.st_rdev()), major);
-            assert_eq!(get_minor(metadata.st_rdev()), minor);
-            assert_eq!(
-                metadata.permissions().mode(),
-                libc::S_IFCHR | libc::S_IRUSR | libc::S_IWUSR
-            );
-
-            // Trying to create again the same device node is not allowed.
-            assert_eq!(
-                format!("{}", env.mknod_and_own_dev(dev, major, minor).unwrap_err()),
-                format!(
-                    "Failed to create {} via mknod inside the jail: File exists (os error 17)",
-                    dev
-                )
-            );
+            ensure_mknod_and_own_dev(&env, dev, major, minor);
             // Remove the device node.
             fs::remove_file(dev).expect("Could not remove file.");
+        }
+    }
+
+    #[test]
+    fn test_userfaultfd_dev() {
+        let mut mock_cgroups = MockCgroupFs::new().unwrap();
+        assert!(mock_cgroups.add_v1_mounts().is_ok());
+        let env = create_env();
+
+        if !Path::new(DEV_UFFD_PATH).exists() {
+            assert_eq!(env.uffd_dev_minor, None);
+        } else {
+            assert!(env.uffd_dev_minor.is_some());
         }
     }
 
