@@ -1,7 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::ffi::{CStr, OsString};
+use std::ffi::{CString, OsString};
 use std::fs::{self, canonicalize, File, OpenOptions, Permissions};
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
@@ -27,19 +27,19 @@ const STDERR_FILENO: libc::c_int = 2;
 // Kernel-based virtual machine (hardware virtualization extensions)
 // minor/major numbers are taken from
 // https://www.kernel.org/doc/html/latest/admin-guide/devices.html
-const DEV_KVM_WITH_NUL: &[u8] = b"/dev/kvm\0";
+const DEV_KVM_WITH_NUL: &str = "/dev/kvm";
 const DEV_KVM_MAJOR: u32 = 10;
 const DEV_KVM_MINOR: u32 = 232;
 
 // TUN/TAP device minor/major numbers are taken from
 // www.kernel.org/doc/Documentation/networking/tuntap.txt
-const DEV_NET_TUN_WITH_NUL: &[u8] = b"/dev/net/tun\0";
+const DEV_NET_TUN_WITH_NUL: &str = "/dev/net/tun";
 const DEV_NET_TUN_MAJOR: u32 = 10;
 const DEV_NET_TUN_MINOR: u32 = 200;
 
 // Random number generator device minor/major numbers are taken from
 // https://www.kernel.org/doc/Documentation/admin-guide/devices.txt
-const DEV_URANDOM_WITH_NUL: &[u8] = b"/dev/urandom\0";
+const DEV_URANDOM_WITH_NUL: &str = "/dev/urandom";
 const DEV_URANDOM_MAJOR: u32 = 1;
 const DEV_URANDOM_MINOR: u32 = 9;
 
@@ -48,7 +48,7 @@ const DEV_URANDOM_MINOR: u32 = 9;
 // We need /run for the default location of the api socket.
 // Since libc::chown is not recursive, we cannot specify only /dev/net as we want
 // to walk through the entire folder hierarchy.
-const FOLDER_HIERARCHY: [&[u8]; 4] = [b"/\0", b"/dev\0", b"/dev/net\0", b"/run\0"];
+const FOLDER_HIERARCHY: [&str; 4] = ["/", "/dev", "/dev/net", "/run"];
 const FOLDER_PERMISSIONS: u32 = 0o700;
 
 // When running with `--new-pid-ns` flag, the PID of the process running the exec_file differs
@@ -357,19 +357,18 @@ impl Env {
 
     fn mknod_and_own_dev(
         &self,
-        dev_path_str: &'static [u8],
+        dev_path_str: &'static str,
         dev_major: u32,
         dev_minor: u32,
     ) -> Result<(), JailerError> {
-        let dev_path =
-            CStr::from_bytes_with_nul(dev_path_str).map_err(JailerError::FromBytesWithNul)?;
+        let dev_path = CString::new(dev_path_str).unwrap();
         // As per sysstat.h:
         // S_IFCHR -> character special device
         // S_IRUSR -> read permission, owner
         // S_IWUSR -> write permission, owner
         // See www.kernel.org/doc/Documentation/networking/tuntap.txt, 'Configuration' chapter for
         // more clarity.
-        // SAFETY: This is safe because dev_path is CStr, and hence null-terminated.
+        // SAFETY: This is safe because dev_path is CString, and hence null-terminated.
         SyscallReturnCode(unsafe {
             libc::mknod(
                 dev_path.as_ptr(),
@@ -378,12 +377,7 @@ impl Env {
             )
         })
         .into_empty_result()
-        .map_err(|err| {
-            JailerError::MknodDev(
-                err,
-                std::str::from_utf8(dev_path_str).expect("Cannot convert from UTF-8"),
-            )
-        })?;
+        .map_err(|err| JailerError::MknodDev(err, dev_path_str.to_owned()))?;
 
         // SAFETY: This is safe because dev_path is CStr, and hence null-terminated.
         SyscallReturnCode(unsafe { libc::chown(dev_path.as_ptr(), self.uid(), self.gid()) })
@@ -394,25 +388,22 @@ impl Env {
             })
     }
 
-    fn setup_jailed_folder(&self, folder: &[u8]) -> Result<(), JailerError> {
-        let folder_cstr =
-            CStr::from_bytes_with_nul(folder).map_err(JailerError::FromBytesWithNul)?;
+    fn setup_jailed_folder(&self, folder: impl AsRef<Path>) -> Result<(), JailerError> {
+        let folder_path = folder.as_ref();
+        fs::create_dir_all(folder_path)
+            .map_err(|err| JailerError::CreateDir(folder_path.to_owned(), err))?;
+        fs::set_permissions(folder_path, Permissions::from_mode(FOLDER_PERMISSIONS))
+            .map_err(|err| JailerError::Chmod(folder_path.to_owned(), err))?;
 
-        // Safe to unwrap as the byte sequence is UTF-8 validated above.
-        let path = folder_cstr.to_str().unwrap();
-        let path_buf = PathBuf::from(path);
-        fs::create_dir_all(path).map_err(|err| JailerError::CreateDir(path_buf.clone(), err))?;
-        fs::set_permissions(path, Permissions::from_mode(FOLDER_PERMISSIONS))
-            .map_err(|err| JailerError::Chmod(path_buf.clone(), err))?;
-
+        let c_path = CString::new(folder_path.to_str().unwrap()).unwrap();
         #[cfg(target_arch = "x86_64")]
-        let folder_bytes_ptr = folder.as_ptr().cast::<i8>();
+        let folder_bytes_ptr = c_path.as_ptr().cast::<i8>();
         #[cfg(target_arch = "aarch64")]
-        let folder_bytes_ptr = folder.as_ptr();
+        let folder_bytes_ptr = c_path.as_ptr();
         // SAFETY: This is safe because folder was checked for a null-terminator.
         SyscallReturnCode(unsafe { libc::chown(folder_bytes_ptr, self.uid(), self.gid()) })
             .into_empty_result()
-            .map_err(|err| JailerError::ChangeFileOwner(path_buf, err))
+            .map_err(|err| JailerError::ChangeFileOwner(folder_path.to_owned(), err))
     }
 
     fn copy_exec_to_chroot(&mut self) -> Result<OsString, JailerError> {
@@ -654,7 +645,6 @@ mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
     use std::os::linux::fs::MetadataExt;
-    use std::os::unix::ffi::OsStrExt;
 
     use utils::tempdir::TempDir;
     use utils::tempfile::TempFile;
@@ -965,11 +955,13 @@ mod tests {
         let env = create_env();
 
         // Error case: non UTF-8 paths.
-        let bad_string: &[u8] = &[0, 102, 111, 111, 0]; // A leading nul followed by 'f', 'o', 'o'
+        let bad_string_bytes: Vec<u8> = vec![0, 102, 111, 111, 0]; // A leading nul followed by 'f', 'o', 'o'
+        let bad_string = String::from_utf8(bad_string_bytes).unwrap();
         assert_eq!(
             format!("{}", env.setup_jailed_folder(bad_string).err().unwrap()),
-            "Failed to decode string from byte array: data provided contains an interior nul byte \
-             at byte pos 0"
+            format!(
+                "Failed to create directory \\0foo\\0: file name contained an unexpected NUL byte"
+            )
         );
 
         // Error case: inaccessible path - can't be triggered with unit tests running as root.
@@ -979,19 +971,10 @@ mod tests {
         // );
 
         // Success case.
-        let foo_dir = TempDir::new().unwrap();
-        let mut foo_path = foo_dir.as_path().as_os_str().as_bytes().to_vec();
-        foo_path.push(0);
-        foo_dir.remove().unwrap();
-        assert!(env.setup_jailed_folder(foo_path.as_slice()).is_ok());
+        let foo_dir = TempDir::new().unwrap().as_path().to_owned();
+        assert!(env.setup_jailed_folder(foo_dir.as_path()).is_ok());
 
-        let metadata = fs::metadata(
-            CStr::from_bytes_with_nul(foo_path.as_slice())
-                .unwrap()
-                .to_str()
-                .unwrap(),
-        )
-        .unwrap();
+        let metadata = fs::metadata(&foo_dir).unwrap();
         // The mode bits will also have S_IFDIR set because the path belongs to a directory.
         assert_eq!(
             metadata.permissions().mode(),
@@ -1015,29 +998,24 @@ mod tests {
         assert!(mock_cgroups.add_v1_mounts().is_ok());
         let env = create_env();
 
-        // Ensure path buffers without NULL-termination are handled well.
-        assert!(env.mknod_and_own_dev(b"/some/path", 0, 0).is_err());
-
         // Ensure device nodes are created with correct major/minor numbers and permissions.
-        let dev_infos: Vec<(&[u8], u32, u32)> = vec![
-            (b"/dev/net/tun-test\0", DEV_NET_TUN_MAJOR, DEV_NET_TUN_MINOR),
-            (b"/dev/kvm-test\0", DEV_KVM_MAJOR, DEV_KVM_MINOR),
+        let dev_infos: Vec<(&str, u32, u32)> = vec![
+            ("/dev/net/tun-test", DEV_NET_TUN_MAJOR, DEV_NET_TUN_MINOR),
+            ("/dev/kvm-test", DEV_KVM_MAJOR, DEV_KVM_MINOR),
         ];
 
         for (dev, major, minor) in dev_infos {
-            let dev_str = CStr::from_bytes_with_nul(dev).unwrap().to_str().unwrap();
-
             // Checking this just to be super sure there's no file at `dev_str` path (though
             // it shouldn't be as we deleted it at the end of the previous test run).
-            if Path::new(dev_str).exists() {
-                fs::remove_file(dev_str).unwrap();
+            if Path::new(dev).exists() {
+                fs::remove_file(dev).unwrap();
             }
 
             // Create a new device node.
             env.mknod_and_own_dev(dev, major, minor).unwrap();
 
             // Ensure device's properties.
-            let metadata = fs::metadata(dev_str).unwrap();
+            let metadata = fs::metadata(dev).unwrap();
             assert!(metadata.file_type().is_char_device());
             assert_eq!(get_major(metadata.st_rdev()), major);
             assert_eq!(get_minor(metadata.st_rdev()), minor);
@@ -1050,12 +1028,12 @@ mod tests {
             assert_eq!(
                 format!("{}", env.mknod_and_own_dev(dev, major, minor).unwrap_err()),
                 format!(
-                    "Failed to create {}\u{0} via mknod inside the jail: File exists (os error 17)",
-                    dev_str
+                    "Failed to create {} via mknod inside the jail: File exists (os error 17)",
+                    dev
                 )
             );
             // Remove the device node.
-            fs::remove_file(dev_str).expect("Could not remove file.");
+            fs::remove_file(dev).expect("Could not remove file.");
         }
     }
 
