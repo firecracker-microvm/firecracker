@@ -12,13 +12,13 @@ use versionize_derive::Versionize;
 /// - `reboot=k` shut down the guest on reboot, instead of well... rebooting;
 /// - `panic=1` on panic, reboot after 1 second;
 /// - `pci=off` do not scan for PCI devices (save boot time);
-/// - `nomodules` disable loadable kernel module support;
+/// - `nomodule` disable loadable kernel module support;
 /// - `8250.nr_uarts=0` disable 8250 serial interface;
 /// - `i8042.noaux` do not probe the i8042 controller for an attached mouse (save boot time);
 /// - `i8042.nomux` do not probe i8042 for a multiplexing controller (save boot time);
 /// - `i8042.nopnp` do not use ACPIPnP to discover KBD/AUX controllers (save boot time);
 /// - `i8042.dumbkbd` do not attempt to control kbd state via the i8042 (save boot time).
-pub const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0 \
+pub const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 pci=off nomodule 8250.nr_uarts=0 \
                                           i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd";
 
 /// Strongly typed data structure used to configure the boot source of the
@@ -30,8 +30,8 @@ pub struct BootSourceConfig {
     pub kernel_image_path: String,
     /// Path of the initrd, if there is one.
     pub initrd_path: Option<String>,
-    /// The boot arguments to pass to the kernel. If this field is uninitialized, the default
-    /// kernel command line is used: `reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0`.
+    /// The boot arguments to pass to the kernel. If this field is uninitialized,
+    /// DEFAULT_KERNEL_CMDLINE is used.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub boot_args: Option<String>,
 }
