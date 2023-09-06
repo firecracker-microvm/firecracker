@@ -544,7 +544,7 @@ mod tests {
             (p.header_len(), p.len())
         };
 
-        TcpSegment::from_bytes(&mut buf[segment_start..segment_end], None).unwrap()
+        TcpSegment::from_bytes(&mut buf[segment_start.into()..segment_end], None).unwrap()
     }
 
     // Calls write_next_packet until either an error occurs, or there's nothing left to send.

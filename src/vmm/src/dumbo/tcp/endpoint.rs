@@ -490,7 +490,7 @@ mod tests {
             endpoint_first_not_sent = s
                 .inner()
                 .sequence_number()
-                .wrapping_add(s.inner().payload_len() as u32);
+                .wrapping_add(u32::from(s.inner().payload_len()));
         }
 
         // Cool, now let's check that even though receive_buf is limited to some value, we can
@@ -535,7 +535,7 @@ mod tests {
                 assert!(response.contains("200"));
 
                 endpoint_first_not_sent =
-                    endpoint_first_not_sent.wrapping_add(s.inner().payload_len() as u32);
+                    endpoint_first_not_sent.wrapping_add(u32::from(s.inner().payload_len()));
             }
         }
 
