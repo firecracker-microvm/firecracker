@@ -171,9 +171,12 @@ impl Endpoint {
             self.receive_buf_left += len.get();
         };
 
+        // The unwrap here should be safe because we assert the size whenever we append to
+        // response_buf.
         if !self.response_buf.is_empty()
             && self.connection.highest_ack_received()
-                == self.initial_response_seq + Wrapping(self.response_buf.len() as u32)
+                == self.initial_response_seq
+                    + Wrapping(u32::try_from(self.response_buf.len()).unwrap())
         {
             // If we got here, then we still have some response bytes to send (which are
             // stored in self.response_buf).
@@ -225,7 +228,10 @@ impl Endpoint {
                             b[j] = b[j + end];
                         }
                         self.receive_buf_left -= end;
-                        self.connection.advance_local_rwnd_edge(end as u32);
+                        // Safe to unwrap because we assert that the response buffer is small
+                        // enough.
+                        self.connection
+                            .advance_local_rwnd_edge(u32::try_from(end).unwrap());
                         break;
                     }
                 }
@@ -269,7 +275,7 @@ impl Endpoint {
             timestamp_cycles(),
         ) {
             Ok(write_result) => write_result.map(|segment| {
-                self.response_seq += Wrapping(segment.inner().payload_len() as u32);
+                self.response_seq += Wrapping(u32::from(segment.inner().payload_len()));
                 segment
             }),
             Err(_) => {

@@ -30,9 +30,9 @@ const WINDOW_SIZE_OFFSET: usize = 14;
 const CHECKSUM_OFFSET: usize = 16;
 const URG_POINTER_OFFSET: usize = 18;
 
-const OPTIONS_OFFSET: usize = 20;
+const OPTIONS_OFFSET: u8 = 20;
 
-const MAX_HEADER_LEN: usize = 60;
+const MAX_HEADER_LEN: u8 = 60;
 
 const OPTION_KIND_EOL: u8 = 0x00;
 const OPTION_KIND_NOP: u8 = 0x01;
@@ -127,10 +127,10 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
     /// Returns the header length, the value of the reserved bits, and whether the `NS` flag
     /// is set or not.
     #[inline]
-    pub fn header_len_rsvd_ns(&self) -> (usize, u8, bool) {
+    pub fn header_len_rsvd_ns(&self) -> (u8, u8, bool) {
         let value = self.bytes[DATAOFF_RSVD_NS_OFFSET];
         let data_offset = value >> 4;
-        let header_len = data_offset as usize * 4;
+        let header_len = data_offset * 4;
         let rsvd = value & 0x0e;
         let ns = (value & 1) != 0;
         (header_len, rsvd, ns)
@@ -138,7 +138,7 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
 
     /// Returns the length of the header.
     #[inline]
-    pub fn header_len(&self) -> usize {
+    pub fn header_len(&self) -> u8 {
         self.header_len_rsvd_ns().0
     }
 
@@ -174,7 +174,7 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
     /// This method may panic if the value of `header_len` is invalid.
     #[inline]
     pub fn options_unchecked(&self, header_len: usize) -> &[u8] {
-        &self.bytes[OPTIONS_OFFSET..header_len]
+        &self.bytes[usize::from(OPTIONS_OFFSET)..header_len]
     }
 
     /// Returns a slice which contains the payload of the segment. May panic if the value of
@@ -190,20 +190,23 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
 
     /// Returns the length of the segment.
     #[inline]
-    pub fn len(&self) -> usize {
-        self.bytes.len()
+    pub fn len(&self) -> u16 {
+        // NOTE: This appears to be a safe conversion in all current cases.
+        // Packets are always set up in the context of an Ipv4Packet, which is
+        // capped at a u16 size. However, I'd rather be safe here.
+        u16::try_from(self.bytes.len()).unwrap_or(u16::MAX)
     }
 
     /// Returns a slice which contains the payload of the segment.
     #[inline]
     pub fn payload(&self) -> &[u8] {
-        self.payload_unchecked(self.header_len())
+        self.payload_unchecked(self.header_len().into())
     }
 
     /// Returns the length of the payload.
     #[inline]
-    pub fn payload_len(&self) -> usize {
-        self.len() - self.header_len()
+    pub fn payload_len(&self) -> u16 {
+        self.len() - u16::from(self.header_len())
     }
 
     /// Computes the TCP checksum of the segment. More details about TCP checksum computation can
@@ -285,7 +288,7 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
         bytes: T,
         verify_checksum: Option<(Ipv4Addr, Ipv4Addr)>,
     ) -> Result<Self, Error> {
-        if bytes.len() < OPTIONS_OFFSET {
+        if bytes.len() < usize::from(OPTIONS_OFFSET) {
             return Err(Error::SliceTooShort);
         }
 
@@ -295,7 +298,9 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
 
         let header_len = segment.header_len();
 
-        if header_len < OPTIONS_OFFSET || header_len > min(MAX_HEADER_LEN, segment.len()) {
+        if header_len < OPTIONS_OFFSET
+            || u16::from(header_len) > min(u16::from(MAX_HEADER_LEN), segment.len())
+        {
             return Err(Error::HeaderLen);
         }
 
@@ -342,8 +347,8 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
     /// of 4), clears the reserved bits, and sets the `NS` flag according to the last parameter.
     // TODO: Check that header_len | 0b11 == 0 and the resulting data_offset is valid?
     #[inline]
-    pub fn set_header_len_rsvd_ns(&mut self, header_len: usize, ns: bool) -> &mut Self {
-        let mut value = (header_len as u8) << 2;
+    pub fn set_header_len_rsvd_ns(&mut self, header_len: u8, ns: bool) -> &mut Self {
+        let mut value = header_len << 2;
         if ns {
             value |= 1;
         }
@@ -393,7 +398,7 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
     #[inline]
     pub fn payload_mut(&mut self) -> &mut [u8] {
         let header_len = self.header_len();
-        self.payload_mut_unchecked(header_len)
+        self.payload_mut_unchecked(header_len.into())
     }
 
     /// Writes a complete TCP segment.
@@ -479,24 +484,24 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
         mss_remaining: u16,
         payload: Option<(&R, usize)>,
     ) -> Result<Incomplete<Self>, Error> {
-        let mut mss_left = mss_remaining as usize;
+        let mut mss_left = mss_remaining;
 
         // We're going to need at least this many bytes.
-        let mut segment_len = OPTIONS_OFFSET;
+        let mut segment_len = u16::from(OPTIONS_OFFSET);
 
         // The TCP options will require this much more bytes.
         let options_len = if mss_option.is_some() {
             mss_left = mss_left
                 .checked_sub(OPTION_LEN_MSS.into())
                 .ok_or(Error::MssRemaining)?;
-            usize::from(OPTION_LEN_MSS)
+            OPTION_LEN_MSS
         } else {
             0
         };
 
-        segment_len += options_len;
+        segment_len += u16::from(options_len);
 
-        if buf.len() < segment_len {
+        if buf.len() < usize::from(segment_len) {
             return Err(Error::SliceTooShort);
         }
 
@@ -513,9 +518,11 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
 
         // Let's write the MSS option if we have to.
         if let Some(value) = mss_option {
-            segment.bytes[OPTIONS_OFFSET] = OPTION_KIND_MSS;
-            segment.bytes[OPTIONS_OFFSET + 1] = OPTION_LEN_MSS;
-            segment.bytes.htons_unchecked(OPTIONS_OFFSET + 2, value);
+            segment.bytes[usize::from(OPTIONS_OFFSET)] = OPTION_KIND_MSS;
+            segment.bytes[usize::from(OPTIONS_OFFSET) + 1] = OPTION_LEN_MSS;
+            segment
+                .bytes
+                .htons_unchecked(usize::from(OPTIONS_OFFSET) + 2, value);
         }
 
         let payload_bytes_count = if let Some((payload_buf, max_payload_bytes)) = payload {
@@ -524,7 +531,9 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
             // The subtraction makes sense because we previously checked that
             // buf.len() >= segment_len.
             let mut room_for_payload = min(segment.len() - segment_len, mss_left);
-            room_for_payload = min(room_for_payload, left_to_read);
+            // The unwrap is safe because room_for_payload is a u16.
+            room_for_payload =
+                u16::try_from(min(usize::from(room_for_payload), left_to_read)).unwrap();
 
             if room_for_payload == 0 {
                 return Err(Error::EmptyPayload);
@@ -535,7 +544,8 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
             // `offset + room_for_payload <= payload_buf.len()`.
             payload_buf.read_to_slice(
                 0,
-                &mut segment.bytes[segment_len..segment_len + room_for_payload],
+                &mut segment.bytes
+                    [usize::from(segment_len)..usize::from(segment_len + room_for_payload)],
             );
             room_for_payload
         } else {
@@ -544,7 +554,7 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
         segment_len += payload_bytes_count;
 
         // This is ok because segment_len <= buf.len().
-        segment.bytes.shrink_unchecked(segment_len);
+        segment.bytes.shrink_unchecked(segment_len.into());
 
         // Shrink the resulting segment to a slice of exact size, so using self.len() makes sense.
         Ok(Incomplete::new(segment))
