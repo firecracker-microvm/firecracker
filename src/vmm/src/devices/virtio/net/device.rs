@@ -959,7 +959,10 @@ pub mod tests {
             | 1 << VIRTIO_F_VERSION_1
             | 1 << VIRTIO_RING_F_EVENT_IDX;
 
-        assert_eq!(net.avail_features_by_page(0), features as u32);
+        assert_eq!(
+            net.avail_features_by_page(0),
+            (features & 0xFFFFFFFF) as u32,
+        );
         assert_eq!(net.avail_features_by_page(1), (features >> 32) as u32);
         for i in 2..10 {
             assert_eq!(net.avail_features_by_page(i), 0u32);

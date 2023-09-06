@@ -391,7 +391,10 @@ mod tests {
 
         let features = 1 << VIRTIO_F_VERSION_1;
 
-        assert_eq!(entropy_dev.avail_features_by_page(0), features as u32);
+        assert_eq!(
+            entropy_dev.avail_features_by_page(0),
+            (features & 0xFFFFFFFF) as u32,
+        );
         assert_eq!(
             entropy_dev.avail_features_by_page(1),
             (features >> 32) as u32
