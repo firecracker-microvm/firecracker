@@ -205,7 +205,7 @@ pub struct Connection {
 fn parse_mss_option<T: NetworkBytes + Debug>(
     segment: &TcpSegment<T>,
 ) -> Result<u16, PassiveOpenError> {
-    match segment.parse_mss_option_unchecked(segment.header_len()) {
+    match segment.parse_mss_option_unchecked(segment.header_len().into()) {
         Ok(Some(value)) => Ok(value.get()),
         Ok(None) => Ok(MSS_DEFAULT),
         Err(_) => Err(PassiveOpenError::MssOption),
@@ -547,7 +547,7 @@ impl Connection {
             }
         }
 
-        let payload_len = s.len() - s.header_len();
+        let payload_len = s.len() - u16::from(s.header_len());
         let mut recv_status_flags = RecvStatusFlags::empty();
 
         if !self.synack_sent() {
@@ -646,9 +646,9 @@ impl Connection {
         }
 
         let seq = Wrapping(s.sequence_number());
-        let wrapping_payload_len = Wrapping(payload_len as u32);
+        let wrapping_payload_len = Wrapping(u32::from(payload_len));
 
-        if payload_len > buf.len() {
+        if usize::from(payload_len) > buf.len() {
             return Err(RecvError::BufferTooSmall);
         }
 
@@ -716,10 +716,10 @@ impl Connection {
             // We check this here because if a valid payload has been received, then we must have
             // set enqueue_ack = true earlier.
             if payload_len > 0 {
-                buf[..payload_len].copy_from_slice(s.payload());
+                buf[..payload_len.into()].copy_from_slice(s.payload());
                 // The unwrap is safe because payload_len > 0.
                 return Ok((
-                    Some(NonZeroUsize::new(payload_len).unwrap()),
+                    Some(NonZeroUsize::new(payload_len.into()).unwrap()),
                     recv_status_flags,
                 ));
             }
@@ -961,8 +961,8 @@ impl Connection {
                 // either directly or via the RTO timer expiring.
                 self.dup_ack = false;
 
-                let payload_len = segment.inner().payload().len();
-                let mut first_seq_after = seq_to_send + Wrapping(payload_len as u32);
+                let payload_len = segment.inner().payload_len();
+                let mut first_seq_after = seq_to_send + Wrapping(u32::from(payload_len));
 
                 if let Some(fin_seq) = self.send_fin {
                     if first_seq_after == fin_seq {

@@ -53,7 +53,7 @@ impl RstConfig {
             RstConfig::Seq(s.ack_number())
         } else {
             // Otherwise we try to guess a valid ACK number for the RST like this.
-            RstConfig::Ack(s.sequence_number().wrapping_add(s.payload_len() as u32))
+            RstConfig::Ack(s.sequence_number().wrapping_add(s.payload_len().into()))
         }
     }
 
