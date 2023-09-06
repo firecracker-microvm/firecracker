@@ -651,7 +651,7 @@ mod tests {
         let mss_option = Some(mss_left);
         let payload = Some((b.as_ref(), b.len()));
 
-        let header_len = OPTIONS_OFFSET + OPTION_LEN_MSS.into();
+        let header_len = OPTIONS_OFFSET + OPTION_LEN_MSS;
 
         let segment_len = {
             let mut segment = TcpSegment::write_segment(
@@ -688,24 +688,28 @@ mod tests {
             assert_eq!(segment.urgent_pointer(), 0);
 
             {
-                let options = segment.options_unchecked(header_len);
-                assert_eq!(options.len(), OPTION_LEN_MSS.into());
+                let options = segment.options_unchecked(header_len.into());
+                assert_eq!(options.len(), usize::from(OPTION_LEN_MSS));
                 assert_eq!(options[0], OPTION_KIND_MSS);
                 assert_eq!(options[1], OPTION_LEN_MSS);
                 assert_eq!(options.ntohs_unchecked(2), mss_left);
             }
 
             // Payload was smaller than mss_left after options.
-            assert_eq!(segment.len(), header_len + b.len());
+            assert_eq!(
+                usize::from(segment.len()),
+                usize::from(header_len) + b.len(),
+            );
             segment.len()
             // Mutable borrow of a goes out of scope.
         };
 
         {
             let segment =
-                TcpSegment::from_bytes(&a[..segment_len], Some((src_addr, dst_addr))).unwrap();
+                TcpSegment::from_bytes(&a[..segment_len.into()], Some((src_addr, dst_addr)))
+                    .unwrap();
             assert_eq!(
-                segment.parse_mss_option_unchecked(header_len),
+                segment.parse_mss_option_unchecked(header_len.into()),
                 Ok(Some(NonZeroU16::new(mss_left).unwrap()))
             );
         }
@@ -728,7 +732,7 @@ mod tests {
             .unwrap()
             .len();
 
-            assert_eq!(segment_len, mss_left as usize);
+            assert_eq!(segment_len, mss_left);
         }
 
         // Now let's test the error value for from_bytes().

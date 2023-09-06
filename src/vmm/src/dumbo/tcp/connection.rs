@@ -1110,7 +1110,7 @@ pub(crate) mod tests {
             data_buf: &[u8],
         ) -> TcpSegment<'a, &'a mut [u8]> {
             let segment = self.write_segment_helper(buf, false, Some((data_buf, data_buf.len())));
-            assert_eq!(segment.payload_len(), data_buf.len());
+            assert_eq!(usize::from(segment.payload_len()), data_buf.len());
             segment
         }
 
@@ -1203,7 +1203,7 @@ pub(crate) mod tests {
         options_len: usize,
         flags_after_ns: TcpFlags,
     ) {
-        assert_eq!(s.len(), BASIC_SEGMENT_SIZE + options_len);
+        assert_eq!(usize::from(s.len()), BASIC_SEGMENT_SIZE + options_len);
         assert_eq!(s.flags_after_ns(), flags_after_ns);
     }
 
@@ -1471,13 +1471,13 @@ pub(crate) mod tests {
         assert_eq!(
             t.receive_segment(&mut c, &data).unwrap(),
             (
-                Some(NonZeroUsize::new(data.payload_len()).unwrap()),
+                Some(NonZeroUsize::new(data.payload_len().into()).unwrap()),
                 RecvStatusFlags::empty()
             )
         );
 
         // This is the ack number that should be set/sent.
-        let expected_ack = t.remote_isn.wrapping_add(data.payload_len() as u32 + 1);
+        let expected_ack = t.remote_isn.wrapping_add(u32::from(data.payload_len()) + 1);
 
         // Check that internal state gets updated properly.
         assert_eq!(c.ack_to_send.0, expected_ack);
@@ -1493,7 +1493,7 @@ pub(crate) mod tests {
         assert!(t.write_next_segment(&mut c, None).unwrap().is_none());
 
         {
-            let payload_len = data.payload_len() as u32;
+            let payload_len = u32::from(data.payload_len());
 
             // Assuming no one changed the code, the local window size of the connection was 10000,
             // so we should be able to successfully receive 9 more segments with 1000 byte payloads.
@@ -1504,7 +1504,7 @@ pub(crate) mod tests {
                 assert_eq!(
                     t.receive_segment(&mut c, &data).unwrap(),
                     (
-                        Some(NonZeroUsize::new(data.payload_len()).unwrap()),
+                        Some(NonZeroUsize::new(data.payload_len().into()).unwrap()),
                         RecvStatusFlags::empty()
                     )
                 );
@@ -1550,7 +1550,7 @@ pub(crate) mod tests {
         // The mss is 1100, and the remote window is 11000, so we can send 10 data packets.
         let max = 10;
         let remote_isn = t.remote_isn;
-        let mss = u32::from(t.mss);
+        let mss = t.mss;
 
         let (payload_buf, mut response_seq) = payload_src.unwrap();
         let mut payload_offset = 0;
@@ -1561,14 +1561,17 @@ pub(crate) mod tests {
                 .unwrap_or_else(|_| panic!("{}", i))
                 .unwrap_or_else(|| panic!("{}", i));
 
-            payload_offset += s.payload_len();
-            response_seq += Wrapping(s.payload_len() as u32);
+            payload_offset += usize::from(s.payload_len());
+            response_seq += Wrapping(u32::from(s.payload_len()));
 
             // Again, the 1 accounts for the sequence number taken up by the SYN.
-            assert_eq!(s.sequence_number(), conn_isn.wrapping_add(1 + i * mss));
+            assert_eq!(
+                s.sequence_number(),
+                conn_isn.wrapping_add(1 + i * u32::from(mss)),
+            );
             assert_eq!(s.ack_number(), remote_isn.wrapping_add(1));
             assert_eq!(s.flags_after_ns(), TcpFlags::ACK);
-            assert_eq!(s.payload_len() as u32, mss);
+            assert_eq!(s.payload_len(), mss);
         }
 
         // No more new data can be sent until the window advances, even though data_buf
@@ -1576,7 +1579,7 @@ pub(crate) mod tests {
         assert!(t.write_next_segment(&mut c, payload_src).unwrap().is_none());
 
         // Let's ACK the first segment previously sent.
-        ctrl.set_ack_number(conn_isn.wrapping_add(1 + mss))
+        ctrl.set_ack_number(conn_isn.wrapping_add(1 + u32::from(mss)))
             .set_flags_after_ns(TcpFlags::ACK);
         assert_eq!(
             t.receive_segment(&mut c, &ctrl).unwrap(),
@@ -1586,8 +1589,11 @@ pub(crate) mod tests {
         // We should be able to send one more segment now.
         {
             let s = t.write_next_segment(&mut c, payload_src).unwrap().unwrap();
-            assert_eq!(s.sequence_number(), conn_isn.wrapping_add(1 + max * mss));
-            assert_eq!(s.payload_len(), mss as usize);
+            assert_eq!(
+                s.sequence_number(),
+                conn_isn.wrapping_add(1 + max * u32::from(mss)),
+            );
+            assert_eq!(s.payload_len(), mss);
         }
         assert!(t.write_next_segment(&mut c, payload_src).unwrap().is_none());
 
@@ -1604,7 +1610,7 @@ pub(crate) mod tests {
         {
             let s = t.write_next_segment(&mut c, payload_src).unwrap().unwrap();
             assert_eq!(s.sequence_number(), ctrl.ack_number());
-            assert_eq!(s.payload_len(), mss as usize);
+            assert_eq!(s.payload_len(), mss);
         }
         assert!(t.write_next_segment(&mut c, payload_src).unwrap().is_none());
 
@@ -1613,7 +1619,7 @@ pub(crate) mod tests {
         {
             let s = t.write_next_segment(&mut c, payload_src).unwrap().unwrap();
             assert_eq!(s.sequence_number(), ctrl.ack_number());
-            assert_eq!(s.payload_len(), mss as usize);
+            assert_eq!(s.payload_len(), mss);
         }
         assert!(t.write_next_segment(&mut c, payload_src).unwrap().is_none());
 
@@ -1626,7 +1632,7 @@ pub(crate) mod tests {
         {
             let s = t.write_next_segment(&mut c, payload_src).unwrap().unwrap();
             assert_eq!(s.sequence_number(), ctrl.ack_number());
-            assert_eq!(s.payload_len(), mss as usize);
+            assert_eq!(s.payload_len(), mss);
         }
         assert!(t.write_next_segment(&mut c, payload_src).unwrap().is_none());
 

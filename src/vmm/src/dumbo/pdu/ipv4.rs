@@ -471,7 +471,7 @@ mod tests {
     use super::*;
     use crate::dumbo::MacAddr;
 
-    const MAX_HEADER_LEN: usize = 60;
+    const MAX_HEADER_LEN: u8 = 60;
 
     #[test]
     fn test_set_get() {
@@ -532,12 +532,16 @@ mod tests {
         let buf_len = buf.len();
         // No IPv4 option support for now.
         let header_len = OPTIONS_OFFSET;
-        let payload_len = buf_len - OPTIONS_OFFSET;
+        let payload_len = buf_len - usize::from(OPTIONS_OFFSET);
 
         {
             let mut p = IPv4Packet::write_header(buf.as_mut(), PROTOCOL_TCP, src, dst)
                 .unwrap()
-                .with_header_and_payload_len_unchecked(header_len, payload_len, true);
+                .with_header_and_payload_len_unchecked(
+                    header_len,
+                    u16::try_from(payload_len).unwrap(),
+                    true,
+                );
 
             assert_eq!(p.version_and_header_len(), (IPV4_VERSION, header_len));
             assert_eq!(p.dscp_and_ecn(), (0, 0));
@@ -595,7 +599,7 @@ mod tests {
         // Total length smaller than header length.
         p(buf.as_mut())
             .set_version_and_header_len(IPV4_VERSION, OPTIONS_OFFSET)
-            .set_total_len(OPTIONS_OFFSET as u16 - 1);
+            .set_total_len(u16::from(OPTIONS_OFFSET) - 1);
         look_for_error(buf.as_ref(), Error::InvalidTotalLen);
 
         // Total len not matching slice length.
@@ -643,7 +647,7 @@ mod tests {
 
             assert_eq!(p.compute_checksum(), 0);
             assert_eq!(p.total_len() as usize, p.len());
-            assert_eq!(p.len(), header_len + payload_len);
+            assert_eq!(p.len(), usize::from(header_len) + usize::from(payload_len));
         }
 
         {
@@ -653,7 +657,7 @@ mod tests {
 
             assert_eq!(p.compute_checksum(), 0);
             assert_eq!(p.total_len() as usize, p.len());
-            assert_eq!(p.len(), header_len + payload_len);
+            assert_eq!(p.len(), usize::from(header_len) + usize::from(payload_len));
         }
     }
 
