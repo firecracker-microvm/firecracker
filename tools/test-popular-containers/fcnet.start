@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+# Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+mount -t sysfs sysfs /sys
+devs=$(ls /sys/class/net | grep -v lo)
+for dev in $devs; do
+    ip=$(printf "%d.%d.%d.%d" $(echo -n 0x; cut -d: -f3- -O ' 0x' /sys/class/net/$dev/address))
+    ip addr add "$ip/30" dev $dev
+    ip link set $dev up
+done
