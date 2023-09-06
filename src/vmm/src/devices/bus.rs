@@ -90,13 +90,13 @@ pub struct ConstantDevice;
 impl ConstantDevice {
     pub fn bus_read(&mut self, offset: u64, data: &mut [u8]) {
         for (i, v) in data.iter_mut().enumerate() {
-            *v = (offset as u8) + (i as u8);
+            *v = ((offset + i as u64) & 0xff) as u8;
         }
     }
 
     fn bus_write(&mut self, offset: u64, data: &[u8]) {
         for (i, v) in data.iter().enumerate() {
-            assert_eq!(*v, (offset as u8) + (i as u8))
+            assert_eq!(*v, ((offset + i as u64) & 0xff) as u8)
         }
     }
 }

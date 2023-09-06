@@ -685,7 +685,7 @@ mod tests {
         let cfg = disk_properties.virtio_block_config_space();
         assert_eq!(cfg.len(), BLOCK_CONFIG_SPACE_SIZE);
         for (i, byte) in cfg.iter().enumerate() {
-            assert_eq!(*byte, (num_sectors >> (8 * i)) as u8);
+            assert_eq!(*byte, ((num_sectors >> (8 * i)) & 0xff) as u8);
         }
         // Testing `backing_file.virtio_block_disk_image_id()` implies
         // duplicating that logic in tests, so skipping it.
@@ -707,7 +707,10 @@ mod tests {
 
         let features: u64 = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_RING_F_EVENT_IDX);
 
-        assert_eq!(block.avail_features_by_page(0), features as u32);
+        assert_eq!(
+            block.avail_features_by_page(0),
+            (features & 0xffffffff) as u32,
+        );
         assert_eq!(block.avail_features_by_page(1), (features >> 32) as u32);
 
         for i in 2..10 {

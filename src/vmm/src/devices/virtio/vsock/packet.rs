@@ -707,7 +707,9 @@ mod tests {
         assert_eq!(pkt.buf_addr.unwrap().raw_value(), buf_desc.addr.get());
 
         let zeros = vec![0_u8; pkt.buf_size()];
-        let data: Vec<u8> = (0..pkt.buf_size()).map(|i| (i % 0x100) as u8).collect();
+        let data: Vec<u8> = (0..pkt.buf_size())
+            .map(|i| ((i as u64) & 0xff) as u8)
+            .collect();
         for offset in 0..pkt.buf_size() {
             buf_desc.set_data(&zeros);
 
