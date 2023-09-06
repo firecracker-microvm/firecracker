@@ -114,8 +114,8 @@ mod tests {
 
     fn check_file_content(file: &File, expected_content: &[u8]) {
         assert_eq!(
-            file.metadata().unwrap().len() as usize,
-            expected_content.len()
+            file.metadata().unwrap().len(),
+            expected_content.len() as u64
         );
         let mut buf = vec![0u8; expected_content.len()];
         file.read_exact_at(buf.as_mut_slice(), 0).unwrap();

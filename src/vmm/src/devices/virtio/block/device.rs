@@ -836,8 +836,8 @@ mod tests {
             let status_addr = GuestAddress(vq.dtable[2].addr.get());
             assert_eq!(used.len, 1);
             assert_eq!(
-                mem.read_obj::<u8>(status_addr).unwrap(),
-                VIRTIO_BLK_S_IOERR as u8
+                u32::from(mem.read_obj::<u8>(status_addr).unwrap()),
+                VIRTIO_BLK_S_IOERR
             );
         }
 
@@ -861,8 +861,8 @@ mod tests {
             let status_addr = GuestAddress(vq.dtable[2].addr.get());
             assert_eq!(used.len, 1);
             assert_eq!(
-                mem.read_obj::<u8>(status_addr).unwrap(),
-                VIRTIO_BLK_S_IOERR as u8
+                u32::from(mem.read_obj::<u8>(status_addr).unwrap()),
+                VIRTIO_BLK_S_IOERR
             );
         }
     }
@@ -1048,8 +1048,8 @@ mod tests {
 
             let status_addr = GuestAddress(vq.dtable[2].addr.get());
             assert_eq!(
-                mem.read_obj::<u8>(status_addr).unwrap(),
-                VIRTIO_BLK_S_IOERR as u8
+                u32::from(mem.read_obj::<u8>(status_addr).unwrap()),
+                VIRTIO_BLK_S_IOERR
             );
         }
 
@@ -1270,8 +1270,8 @@ mod tests {
 
             let status_addr = GuestAddress(vq.dtable[2].addr.get());
             assert_eq!(
-                mem.read_obj::<u8>(status_addr).unwrap(),
-                VIRTIO_BLK_S_IOERR as u8
+                u32::from(mem.read_obj::<u8>(status_addr).unwrap()),
+                VIRTIO_BLK_S_IOERR
             );
         }
     }
@@ -1431,10 +1431,12 @@ mod tests {
             let status_addr = vq.dtable[used.id as usize + 1].addr.get();
             assert_eq!(used.len, 1);
             assert_eq!(
-                vq.memory()
-                    .read_obj::<u8>(GuestAddress(status_addr))
-                    .unwrap(),
-                VIRTIO_BLK_S_OK as u8
+                u32::from(
+                    vq.memory()
+                        .read_obj::<u8>(GuestAddress(status_addr))
+                        .unwrap(),
+                ),
+                VIRTIO_BLK_S_OK
             );
         }
     }

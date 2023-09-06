@@ -1171,7 +1171,10 @@ mod tests {
         assert!(ctx.conn.has_pending_rx());
         ctx.recv();
         assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_CREDIT_UPDATE);
-        assert_eq!(ctx.pkt.fwd_cnt(), initial_fwd_cnt + data.len() as u32 * 2);
+        assert_eq!(
+            ctx.pkt.fwd_cnt() as usize,
+            initial_fwd_cnt as usize + data.len() * 2,
+        );
         assert_eq!(ctx.conn.fwd_cnt, ctx.conn.last_fwd_cnt_to_peer);
     }
 
@@ -1264,7 +1267,7 @@ mod tests {
         // Fill up the TX buffer.
         let data = vec![0u8; ctx.pkt.buf_size()];
         ctx.init_data_pkt(data.as_slice());
-        for _i in 0..(csm_defs::CONN_TX_BUF_SIZE / data.len() as u32) {
+        for _i in 0..(csm_defs::CONN_TX_BUF_SIZE as usize / data.len()) {
             ctx.send();
         }
 
