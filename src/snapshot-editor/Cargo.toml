@@ -11,11 +11,11 @@ name = "snapshot-editor"
 bench = false
 
 [dependencies]
-clap = { version = "4.4.1", features = ["derive", "string"] }
+clap = { version = "4.4.2", features = ["derive", "string"] }
 clap-num = "1.0.2"
 libc = "0.2.147"
 snapshot = { path = "../snapshot" }
-thiserror = "1.0.44"
+thiserror = "1.0.48"
 vmm = { path = "../vmm" }
 
 fc_utils = { package = "utils", path = "../utils" }
