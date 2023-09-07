@@ -13,7 +13,7 @@ from framework.utils import get_free_mem_ssh, run_cmd
 STATS_POLLING_INTERVAL_S = 1
 
 
-@retry(delay=0.5, tries=10)
+@retry(delay=0.5, tries=10, logger=None)
 def get_stable_rss_mem_by_pid(pid, percentage_delta=1):
     """
     Get the RSS memory that a guest uses, given the pid of the guest.
