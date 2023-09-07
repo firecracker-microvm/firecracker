@@ -53,6 +53,13 @@
 - Fixed the T2S CPU template to set the GDS_NO bit of the IA32_ARCH_CAPABILITIES
   MSR to 1 in accordance with an Intel microcode update. To use the template
   securely, users should apply the latest microcode update on the host.
+- Fixed the spelling of the `nomodule` param passed in the default kernel
+  command line parameters. This is a **breaking change** for setups that
+  use the default kernel command line which also depend on being able to
+  load kernel modules at runtime. This may also break setups which use the
+  default kernel command line and which use an init binary that
+  inadvertently depends on the misspelled param ("nomodules") being
+  present at the command line, since this param will no longer be passed.
 
 ## [1.4.0]
 

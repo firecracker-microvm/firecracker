@@ -18,7 +18,7 @@ MAX_BOOT_TIME_US = 150000
 TIMESTAMP_LOG_REGEX = r"Guest-boot-time\s+\=\s+(\d+)\s+us"
 
 DEFAULT_BOOT_ARGS = (
-    "reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0"
+    "reboot=k panic=1 pci=off nomodule 8250.nr_uarts=0"
     " i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd"
 )
 

@@ -522,7 +522,7 @@ def run_guest_cmd(ssh_connection, cmd, expected, use_json=False):
     assert stdout == expected
 
 
-@retry(delay=0.5, tries=5)
+@retry(delay=0.5, tries=5, logger=None)
 def wait_process_termination(p_pid):
     """Wait for a process to terminate.
 
@@ -687,6 +687,7 @@ def start_screen_process(screen_log, session_name, binary_path, binary_params):
         exceptions=RuntimeError,
         tries=30,
         delay=1,
+        logger=None,
     ).group(1)
 
     # Make sure the screen process launched successfully
@@ -735,7 +736,7 @@ def check_entropy(ssh_connection):
     assert exit_code == 0, stderr
 
 
-@retry(delay=0.5, tries=5)
+@retry(delay=0.5, tries=5, logger=None)
 def wait_process_running(process):
     """Wait for a process to run.
 
