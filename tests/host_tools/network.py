@@ -8,7 +8,7 @@ import string
 from pathlib import Path
 
 from nsenter import Namespace
-from retry import retry
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from framework import utils
 
@@ -76,7 +76,12 @@ class SSHConnection:
             opts.append("-r")
         self._scp(self.remote_path(remote_path), local_path, opts)
 
-    @retry(ConnectionError, delay=0.15, tries=20, logger=None)
+    @retry(
+        retry=retry_if_exception_type(ConnectionError),
+        wait=wait_fixed(0.15),
+        stop=stop_after_attempt(20),
+        reraise=True,
+    )
     def _init_connection(self):
         """Create an initial SSH client connection (retry until it works).
 
