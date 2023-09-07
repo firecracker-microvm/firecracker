@@ -14,6 +14,7 @@ import host_tools.network as net_tools
 from framework.defs import ARTIFACT_DIR
 from framework.properties import global_props
 from framework.utils import get_firecracker_version_from_toml
+from host_tools.cargo_build import get_binary
 
 
 def select_supported_kernels():
@@ -103,6 +104,20 @@ class FirecrackerArtifact:
         return ".".join(str(x) for x in self.snapshot_version_tuple)
 
 
+def current_release(version):
+    """Massage this working copy Firecracker binary to look like a normal
+    release, so it can run the same tests.
+    """
+    binaries = []
+    for binary in ["firecracker", "jailer"]:
+        bin_path1 = get_binary(binary)
+        bin_path2 = bin_path1.with_name(f"{binary}-v{version}")
+        bin_path2.unlink(missing_ok=True)
+        bin_path2.hardlink_to(bin_path1)
+        binaries.append(bin_path2)
+    return binaries
+
+
 def firecracker_artifacts():
     """Return all supported firecracker binaries."""
     cargo_version = get_firecracker_version_from_toml()
@@ -121,6 +136,9 @@ def firecracker_artifacts():
         if version >= max_version:
             continue
         yield pytest.param(fc, id=fc.name)
+
+    fc = FirecrackerArtifact(current_release(cargo_version.base_version)[0])
+    yield pytest.param(fc, id=fc.name)
 
 
 @dataclass(frozen=True, repr=True)
