@@ -7,8 +7,7 @@
 import types
 from collections import defaultdict, namedtuple
 from datetime import datetime
-
-from typing_extensions import TypedDict
+from typing import TypedDict
 
 from framework.utils import ExceptionAggregator
 
