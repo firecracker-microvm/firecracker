@@ -110,7 +110,7 @@ impl<T: Debug> AsyncFileEngine<T> {
         user_data: T,
     ) -> Result<(), UserDataError<T, AsyncIoError>> {
         let buf = match mem.get_slice(addr, count as usize) {
-            Ok(slice) => slice.as_ptr(),
+            Ok(slice) => slice.ptr_guard_mut().as_ptr(),
             Err(err) => {
                 return Err(UserDataError {
                     user_data,
@@ -147,7 +147,7 @@ impl<T: Debug> AsyncFileEngine<T> {
         user_data: T,
     ) -> Result<(), UserDataError<T, AsyncIoError>> {
         let buf = match mem.get_slice(addr, count as usize) {
-            Ok(slice) => slice.as_ptr(),
+            Ok(slice) => slice.ptr_guard_mut().as_ptr(),
             Err(err) => {
                 return Err(UserDataError {
                     user_data,
