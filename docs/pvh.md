@@ -7,7 +7,7 @@ then this boot mode will be used.  This boot mode was designed for virtualized
 environments which load the kernel directly, and is simpler than the "Linux
 boot" mode which is designed to be launched from a legacy boot loader.
 
-PVH boot mode can be enabled for Linux by setting CONFIG_XEN_PVH=y in the
+PVH boot mode can be enabled for Linux by setting `CONFIG_PVH=y` in the
 kernel configuration.  (This is not the default setting.)
 
 PVH boot mode is enabled by default in FreeBSD, which has support for
