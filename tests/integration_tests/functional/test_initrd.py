@@ -29,3 +29,26 @@ def test_microvm_initrd_with_serial(uvm_with_initrd):
     serial.rx(token="# ")
     serial.tx("mount |grep rootfs")
     serial.rx(token=f"rootfs on / type {INITRD_FILESYSTEM}")
+
+
+def test_linux_pvh_initrd(microvm_factory, pvh_guest_kernel, artifact_dir):
+    """Tests booting a PVH-enabled linux kernel with initrd"""
+    uvm_pvh = microvm_factory.build(pvh_guest_kernel)
+
+    uvm_pvh.initrd_file = artifact_dir / "initramfs.cpio"
+    uvm_pvh.jailer.daemonize = False
+
+    uvm_pvh.spawn()
+    uvm_pvh.basic_config(
+        add_root_device=False,
+        vcpu_count=1,
+        boot_args="console=ttyS0 reboot=k panic=1 pci=off",
+        use_initrd=True,
+    )
+    uvm_pvh.start()
+
+    serial = Serial(uvm_pvh)
+    serial.open()
+    serial.rx(token="# ")
+    serial.tx("mount |grep rootfs")
+    serial.rx(token=f"rootfs on / type {INITRD_FILESYSTEM}")
