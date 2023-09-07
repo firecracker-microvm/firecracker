@@ -28,7 +28,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
-from retry import retry
+from tenacity import retry, stop_after_attempt, wait_fixed
 
 import host_tools.cargo_build as build_tools
 import host_tools.network as net_tools
@@ -527,19 +527,19 @@ class Microvm:
         if self.log_file and log_level in ("Trace", "Debug", "Info"):
             self.check_log_message("Running Firecracker")
 
-    @retry(delay=0.2, tries=5, logger=None)
+    @retry(wait=wait_fixed(0.2), stop=stop_after_attempt(5), reraise=True)
     def _wait_create(self):
         """Wait until the API socket and chroot folder are available."""
         os.stat(self.jailer.api_socket_path())
 
-    @retry(delay=0.2, tries=5, logger=None)
+    @retry(wait=wait_fixed(0.2), stop=stop_after_attempt(5), reraise=True)
     def check_log_message(self, message):
         """Wait until `message` appears in logging output."""
         assert (
             message in self.log_data
         ), f'Message ("{message}") not found in log data ("{self.log_data}").'
 
-    @retry(delay=0.2, tries=5, logger=None)
+    @retry(wait=wait_fixed(0.2), stop=stop_after_attempt(5), reraise=True)
     def check_any_log_message(self, messages):
         """Wait until any message in `messages` appears in logging output."""
         for message in messages:
