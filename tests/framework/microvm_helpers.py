@@ -67,7 +67,7 @@ class MicrovmHelpers:
         See https://sourceware.org/gdb/current/onlinedocs/gdb.html/Remote-Debugging.html#Remote-Debugging
         """
         comm = f"localhost:{port}"
-        subprocess.Popen(["gdbserver", "--attach", comm, str(self.vm.jailer_clone_pid)])
+        subprocess.Popen(["gdbserver", "--attach", comm, str(self.vm.firecracker_pid)])
         print(f"Connect gdb with:\n\tgdb --ex 'target remote {DOCKER.ip}:{port}'")
 
     def lldbserver(self, port=2001):
@@ -84,7 +84,7 @@ class MicrovmHelpers:
         docker_apt_install("lldb")
         subprocess.Popen(["lldb-server", "p", "--listen", f"*:{port}", "--server"])
         print(
-            f"Connect lldb with\n\tlldb -o 'platform select remote-linux' -o 'platform connect connect://{DOCKER.ip}:{port}' -o 'attach {self.vm.jailer_clone_pid}'"
+            f"Connect lldb with\n\tlldb -o 'platform select remote-linux' -o 'platform connect connect://{DOCKER.ip}:{port}' -o 'attach {self.vm.firecracker_pid}'"
         )
 
     def tmux_neww(self, cmd: str):

@@ -122,8 +122,8 @@ def test_rx_rate_limiting_cpu_load(test_microvm_with_api):
     # the first one created.
     # A possible improvement is to find it by name.
     cpu_load_monitor = cpu_load.CpuLoadMonitor(
-        process_pid=test_microvm.jailer_clone_pid,
-        thread_pid=test_microvm.jailer_clone_pid,
+        process_pid=test_microvm.firecracker_pid,
+        thread_pid=test_microvm.firecracker_pid,
         threshold=20,
     )
     with cpu_load_monitor:

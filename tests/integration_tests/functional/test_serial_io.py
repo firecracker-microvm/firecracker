@@ -151,13 +151,13 @@ def test_serial_dos(test_microvm_with_api):
     microvm.start()
 
     # Open an fd for firecracker process terminal.
-    tty_path = f"/proc/{microvm.jailer_clone_pid}/fd/0"
+    tty_path = f"/proc/{microvm.firecracker_pid}/fd/0"
     tty_fd = os.open(tty_path, os.O_RDWR)
 
     # Check if the total memory size changed.
-    before_size = get_total_mem_size(microvm.jailer_clone_pid)
+    before_size = get_total_mem_size(microvm.firecracker_pid)
     send_bytes(tty_fd, 100000000, timeout=1)
-    after_size = get_total_mem_size(microvm.jailer_clone_pid)
+    after_size = get_total_mem_size(microvm.firecracker_pid)
     assert before_size == after_size, (
         "The memory size of the "
         "Firecracker process "

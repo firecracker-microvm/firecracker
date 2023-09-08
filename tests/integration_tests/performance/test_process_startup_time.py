@@ -36,7 +36,6 @@ def test_startup_time_new_pid_ns(test_microvm_with_api, startup_time):
     Check startup time when jailer is spawned in a new PID namespace.
     """
     microvm = test_microvm_with_api
-    microvm.bin_cloner_path = None
     microvm.jailer.new_pid_ns = True
     startup_time(_test_startup_time(microvm))
 

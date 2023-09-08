@@ -248,7 +248,7 @@ def test_no_seccomp(test_microvm_with_api):
 
     test_microvm.start()
 
-    utils.assert_seccomp_level(test_microvm.jailer_clone_pid, "0")
+    utils.assert_seccomp_level(test_microvm.firecracker_pid, "0")
 
 
 def test_default_seccomp_level(test_microvm_with_api):
@@ -262,7 +262,7 @@ def test_default_seccomp_level(test_microvm_with_api):
 
     test_microvm.start()
 
-    utils.assert_seccomp_level(test_microvm.jailer_clone_pid, "2")
+    utils.assert_seccomp_level(test_microvm.firecracker_pid, "2")
 
 
 def test_seccomp_rust_panic(bin_seccomp_paths):

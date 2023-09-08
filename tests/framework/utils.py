@@ -725,7 +725,7 @@ def start_screen_process(screen_log, session_name, binary_path, binary_params):
     children_count = len(screen_ps.children())
     if children_count != 1:
         raise RuntimeError(
-            f"Failed to retrieve child process id for binary {binary_path}. "
+            f"Failed to retrieve child process id for binary '{binary_path}' "
             f"screen session process had [{children_count}]"
         )
 

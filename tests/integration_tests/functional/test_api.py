@@ -380,7 +380,7 @@ def test_api_machine_config(test_microvm_with_api):
     test_microvm.basic_config()
 
     # Test mem_size_mib of valid type, but too large.
-    firecracker_pid = int(test_microvm.jailer_clone_pid)
+    firecracker_pid = test_microvm.firecracker_pid
     resource.prlimit(
         firecracker_pid, resource.RLIMIT_AS, (MEM_LIMIT, resource.RLIM_INFINITY)
     )
@@ -774,9 +774,9 @@ def test_send_ctrl_alt_del(test_microvm_with_api):
 
     test_microvm.api.actions.put(action_type="SendCtrlAltDel")
 
-    firecracker_pid = test_microvm.jailer_clone_pid
+    firecracker_pid = test_microvm.firecracker_pid
 
-    # If everyting goes as expected, the guest OS will issue a reboot,
+    # If everything goes as expected, the guest OS will issue a reboot,
     # causing Firecracker to exit.
     # We'll keep poking Firecracker for at most 30 seconds, waiting for it
     # to die.

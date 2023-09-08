@@ -55,7 +55,7 @@ print(args)
 
 
 print("This step may take a while to compile Firecracker ...")
-vmfcty = MicroVMFactory("/srv", None, *get_firecracker_binaries())
+vmfcty = MicroVMFactory("/srv", *get_firecracker_binaries())
 uvm = vmfcty.build(args.kernel, args.rootfs)
 uvm.help.enable_console()
 uvm.help.resize_disk(uvm.rootfs_file, args.rootfs_size)

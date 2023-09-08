@@ -135,11 +135,8 @@ def test_config_start_no_api(uvm_plain, vm_config_file):
     test_microvm.jailer.extra_args.update({"no-api": None})
     test_microvm.spawn()
 
-    # Get Firecracker PID so we can check the names of threads.
-    firecracker_pid = test_microvm.jailer_clone_pid
-
     # Get names of threads in Firecracker.
-    cmd = "ps -T --no-headers -p {} | awk '{{print $5}}'".format(firecracker_pid)
+    cmd = f"ps -T --no-headers -p {test_microvm.firecracker_pid} | awk '{{print $5}}'"
 
     # Retry running 'ps' in case it failed to list the firecracker process
     # The regex matches any expression that contains 'firecracker' and does

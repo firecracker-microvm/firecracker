@@ -271,3 +271,8 @@ class JailerContext:
             if os.path.exists("/proc/{}".format(task)):
                 raise TimeoutError
         return True
+
+    @property
+    def pid_file(self):
+        """Return the PID file of the jailed process"""
+        return Path(self.chroot_path()) / (self.exec_file.name + ".pid")
