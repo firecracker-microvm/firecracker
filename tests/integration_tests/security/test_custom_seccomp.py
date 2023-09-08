@@ -79,7 +79,7 @@ def test_allow_all(test_microvm_with_api):
 
     test_microvm.start()
 
-    utils.assert_seccomp_level(test_microvm.jailer_clone_pid, "2")
+    utils.assert_seccomp_level(test_microvm.firecracker_pid, "2")
 
 
 def test_working_filter(test_microvm_with_api):
@@ -140,7 +140,7 @@ def test_working_filter(test_microvm_with_api):
     test_microvm.start()
 
     # level should be 2, with no additional errors
-    utils.assert_seccomp_level(test_microvm.jailer_clone_pid, "2")
+    utils.assert_seccomp_level(test_microvm.firecracker_pid, "2")
 
 
 def test_failing_filter(test_microvm_with_api):
@@ -206,7 +206,7 @@ def test_failing_filter(test_microvm_with_api):
     assert num_faults >= 1
 
     # assert that the process was killed
-    assert not psutil.pid_exists(test_microvm.jailer_clone_pid)
+    assert not psutil.pid_exists(test_microvm.firecracker_pid)
 
 
 @pytest.mark.parametrize("vm_config_file", ["framework/vm_config.json"])
@@ -234,4 +234,4 @@ def test_invalid_bpf(test_microvm_with_api, vm_config_file):
     time.sleep(1)
 
     # assert that the process was killed
-    assert not psutil.pid_exists(test_microvm.jailer_clone_pid)
+    assert not psutil.pid_exists(test_microvm.firecracker_pid)

@@ -92,7 +92,7 @@ def main():
     print("Cleanup")
     shutil.rmtree(SNAPSHOT_ARTIFACTS_ROOT_DIR, ignore_errors=True)
     root_path = tempfile.mkdtemp(dir=DEFAULT_TEST_SESSION_ROOT_PATH)
-    vm_factory = MicroVMFactory(root_path, None, *get_firecracker_binaries())
+    vm_factory = MicroVMFactory(root_path, *get_firecracker_binaries())
 
     cpu_templates = ["None"]
     if get_cpu_vendor() == CpuVendor.INTEL:

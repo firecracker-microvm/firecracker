@@ -125,7 +125,7 @@ def run_fio(env_id, basevm, mode, bs):
     with concurrent.futures.ThreadPoolExecutor() as executor:
         cpu_load_future = executor.submit(
             get_cpu_percent,
-            basevm.jailer_clone_pid,
+            basevm.firecracker_pid,
             RUNTIME_SEC,
             omit=WARMUP_SEC,
         )

@@ -29,7 +29,7 @@ def test_reboot(test_microvm_with_api):
     vm.start()
 
     # Get Firecracker PID so we can count the number of threads.
-    firecracker_pid = vm.jailer_clone_pid
+    firecracker_pid = vm.firecracker_pid
 
     # Get number of threads in Firecracker
     cmd = "ps -o nlwp {} | tail -1 | awk '{{print $1}}'".format(firecracker_pid)
