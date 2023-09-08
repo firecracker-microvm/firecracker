@@ -45,7 +45,6 @@ def _validate_mmds_snapshot(
         version=version,
         iface_ids=["eth0"],
         ipv4_address=ipv4_address,
-        fc_version=target_fc_version,
     )
 
     expected_mmds_config = {
