@@ -26,13 +26,14 @@ impl std::ops::DerefMut for RTCDevice {
 // Implements Bus functions for AMBA PL031 RTC device
 impl RTCDevice {
     pub fn bus_read(&mut self, offset: u64, data: &mut [u8]) {
-        if data.len() == 4 {
+        if let (Ok(offset), 4) = (u16::try_from(offset), data.len()) {
             // read() function from RTC implementation expects a slice of
             // len 4, and we just validated that this is the data lengt
-            self.read(offset as u16, data.try_into().unwrap())
+            self.read(offset, data.try_into().unwrap())
         } else {
             warn!(
-                "Found invalid data length while trying to read from the RTC: {}",
+                "Found invalid data offset/length while trying to read from the RTC: {}, {}",
+                offset,
                 data.len()
             );
             METRICS.rtc.error_count.inc();
@@ -40,13 +41,14 @@ impl RTCDevice {
     }
 
     pub fn bus_write(&mut self, offset: u64, data: &[u8]) {
-        if data.len() == 4 {
+        if let (Ok(offset), 4) = (u16::try_from(offset), data.len()) {
             // write() function from RTC implementation expects a slice of
             // len 4, and we just validated that this is the data length
-            self.write(offset as u16, data.try_into().unwrap())
+            self.write(offset, data.try_into().unwrap())
         } else {
             warn!(
-                "Found invalid data length while trying to write to the RTC: {}",
+                "Found invalid data offset/length while trying to write to the RTC: {}, {}",
+                offset,
                 data.len()
             );
             METRICS.rtc.error_count.inc();
