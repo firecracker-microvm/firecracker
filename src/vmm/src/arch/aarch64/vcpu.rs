@@ -42,7 +42,7 @@ pub enum VcpuError {
 pub fn get_manufacturer_id_from_state(regs: &Aarch64RegisterVec) -> Result<u32, VcpuError> {
     let midr_el1 = regs.iter().find(|reg| reg.id == MIDR_EL1);
     match midr_el1 {
-        Some(register) => Ok(register.value::<u64, 8>() as u32 >> 24),
+        Some(register) => Ok(((register.value::<u64, 8>() >> 24) & 0xFF) as u32),
         None => Err(VcpuError::GetMidrEl1(
             "Failed to find MIDR_EL1 in vCPU state!".to_string(),
         )),
