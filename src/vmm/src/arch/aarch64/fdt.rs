@@ -449,7 +449,7 @@ mod tests {
     }
     // The `load` function from the `device_tree` will mistakenly check the actual size
     // of the buffer with the allocated size. This works around that.
-    fn set_size(buf: &mut [u8], pos: usize, val: usize) {
+    fn set_size(buf: &mut [u8], pos: usize, val: u32) {
         buf[pos] = ((val >> 24) & 0xff) as u8;
         buf[pos + 1] = ((val >> 16) & 0xff) as u8;
         buf[pos + 2] = ((val >> 8) & 0xff) as u8;
@@ -541,7 +541,7 @@ mod tests {
         // }
 
         let pos = 4;
-        let val = layout::FDT_MAX_SIZE;
+        let val = u32::try_from(layout::FDT_MAX_SIZE).unwrap();
         let mut buf = vec![];
         buf.extend_from_slice(saved_dtb_bytes);
 
@@ -604,7 +604,7 @@ mod tests {
         // }
 
         let pos = 4;
-        let val = layout::FDT_MAX_SIZE;
+        let val = u32::try_from(layout::FDT_MAX_SIZE).unwrap();
         let mut buf = vec![];
         buf.extend_from_slice(saved_dtb_bytes);
 
