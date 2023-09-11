@@ -248,11 +248,14 @@ fn mask_str2bit_count(mask_str: &str) -> Result<u16, CacheInfoError> {
         if s_zero_free.is_empty() {
             s_zero_free = "0";
         }
-        bit_count += u32::from_str_radix(s_zero_free, 16)
-            .map_err(|err| {
-                CacheInfoError::InvalidCacheAttr("shared_cpu_map".to_string(), err.to_string())
-            })?
-            .count_ones() as u16;
+        bit_count += u16::try_from(
+            u32::from_str_radix(s_zero_free, 16)
+                .map_err(|err| {
+                    CacheInfoError::InvalidCacheAttr("shared_cpu_map".to_string(), err.to_string())
+                })?
+                .count_ones(),
+        )
+        .unwrap(); // Safe because this is at most 32
     }
     if bit_count == 0 {
         return Err(CacheInfoError::InvalidCacheAttr(
