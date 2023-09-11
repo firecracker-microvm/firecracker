@@ -522,7 +522,7 @@ def run_guest_cmd(ssh_connection, cmd, expected, use_json=False):
     assert stdout == expected
 
 
-@retry(delay=0.5, tries=5)
+@retry(delay=0.5, tries=5, logger=None)
 def wait_process_termination(p_pid):
     """Wait for a process to terminate.
 
@@ -550,37 +550,6 @@ def get_firecracker_version_from_toml():
     return packaging.version.parse(stdout)
 
 
-def compare_versions(first, second):
-    """
-    Compare two versions with format `X.Y.Z`.
-
-    :param first: first version string
-    :param second: second version string
-    :returns: 0 if equal, <0 if first < second, >0 if second < first
-    """
-    first = list(map(int, first.split(".")))
-    second = list(map(int, second.split(".")))
-
-    for i in range(3):
-        diff = first[i] - second[i]
-        if diff != 0:
-            return diff
-
-    return 0
-
-
-def sanitize_version(version):
-    """
-    Get rid of dirty version information.
-
-    Transform version from format `vX.Y.Z-W` to `X.Y.Z`.
-    """
-    if version[0].isalpha():
-        version = version[1:]
-
-    return version.split("-", 1)[0]
-
-
 def get_kernel_version(level=2):
     """Return the current kernel version in format `major.minor.patch`."""
     linux_version = platform.release()
@@ -600,7 +569,9 @@ def is_io_uring_supported():
 
     ...version.
     """
-    return compare_versions(get_kernel_version(), MIN_KERNEL_VERSION_FOR_IO_URING) >= 0
+    kv = packaging.version.parse(get_kernel_version())
+    min_kv = packaging.version.parse(MIN_KERNEL_VERSION_FOR_IO_URING)
+    return kv >= min_kv
 
 
 def generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl):
@@ -631,19 +602,12 @@ def generate_mmds_get_request(ipv4_address, token=None, app_json=True):
     return cmd
 
 
-def configure_mmds(
-    test_microvm, iface_ids, version=None, ipv4_address=None, fc_version=None
-):
+def configure_mmds(test_microvm, iface_ids, version=None, ipv4_address=None):
     """Configure mmds service."""
     mmds_config = {"network_interfaces": iface_ids}
 
     if version is not None:
         mmds_config["version"] = version
-
-    # For versions prior to v1.0.0, the mmds config only contains
-    # the ipv4_address.
-    if fc_version is not None and compare_versions(fc_version, "1.0.0") < 0:
-        mmds_config = {}
 
     if ipv4_address:
         mmds_config["ipv4_address"] = ipv4_address
@@ -687,6 +651,7 @@ def start_screen_process(screen_log, session_name, binary_path, binary_params):
         exceptions=RuntimeError,
         tries=30,
         delay=1,
+        logger=None,
     ).group(1)
 
     # Make sure the screen process launched successfully
@@ -735,7 +700,7 @@ def check_entropy(ssh_connection):
     assert exit_code == 0, stderr
 
 
-@retry(delay=0.5, tries=5)
+@retry(delay=0.5, tries=5, logger=None)
 def wait_process_running(process):
     """Wait for a process to run.
 

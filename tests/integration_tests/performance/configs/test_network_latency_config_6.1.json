@@ -6,24 +6,24 @@
                     {
                         "baselines": {
                             "latency": {
-                                "vmlinux-4.14.bin": {
-                                    "ubuntu-18.04.ext4": {
+                                "linux-4.14": {
+                                    "ubuntu-22.04.squashfs": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "delta_percentage": 18.1,
+                                                    "delta_percentage": 12,
                                                     "target": 0.026
                                                 }
                                             }
                                         }
                                     }
                                 },
-                                "vmlinux-5.10.bin": {
-                                    "ubuntu-18.04.ext4": {
+                                "linux-5.10": {
+                                    "ubuntu-22.04.squashfs": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "delta_percentage": 12.1,
+                                                    "delta_percentage": 13,
                                                     "target": 0.026
                                                 }
                                             }
@@ -41,25 +41,25 @@
                     {
                         "baselines": {
                             "latency": {
-                                "vmlinux-4.14.bin": {
-                                    "ubuntu-18.04.ext4": {
+                                "linux-4.14": {
+                                    "ubuntu-22.04.squashfs": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "delta_percentage": 8.1,
-                                                    "target": 0.054
+                                                    "delta_percentage": 10,
+                                                    "target": 0.044
                                                 }
                                             }
                                         }
                                     }
                                 },
-                                "vmlinux-5.10.bin": {
-                                    "ubuntu-18.04.ext4": {
+                                "linux-5.10": {
+                                    "ubuntu-22.04.squashfs": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "delta_percentage": 9.1,
-                                                    "target": 0.061
+                                                    "delta_percentage": 14,
+                                                    "target": 0.053
                                                 }
                                             }
                                         }
@@ -72,25 +72,25 @@
                     {
                         "baselines": {
                             "latency": {
-                                "vmlinux-4.14.bin": {
-                                    "ubuntu-18.04.ext4": {
+                                "linux-4.14": {
+                                    "ubuntu-22.04.squashfs": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "delta_percentage": 5.1,
-                                                    "target": 0.077
+                                                    "delta_percentage": 9,
+                                                    "target": 0.06
                                                 }
                                             }
                                         }
                                     }
                                 },
-                                "vmlinux-5.10.bin": {
-                                    "ubuntu-18.04.ext4": {
+                                "linux-5.10": {
+                                    "ubuntu-22.04.squashfs": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "delta_percentage": 3.1,
-                                                    "target": 0.087
+                                                    "delta_percentage": 8,
+                                                    "target": 0.072
                                                 }
                                             }
                                         }
@@ -107,25 +107,25 @@
                     {
                         "baselines": {
                             "latency": {
-                                "vmlinux-4.14.bin": {
-                                    "ubuntu-18.04.ext4": {
+                                "linux-4.14": {
+                                    "ubuntu-22.04.squashfs": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "delta_percentage": 8.1,
-                                                    "target": 0.074
+                                                    "delta_percentage": 20,
+                                                    "target": 0.061
                                                 }
                                             }
                                         }
                                     }
                                 },
-                                "vmlinux-5.10.bin": {
-                                    "ubuntu-18.04.ext4": {
+                                "linux-5.10": {
+                                    "ubuntu-22.04.squashfs": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "delta_percentage": 8.1,
-                                                    "target": 0.085
+                                                    "delta_percentage": 12,
+                                                    "target": 0.073
                                                 }
                                             }
                                         }
@@ -142,24 +142,24 @@
                     {
                         "baselines": {
                             "latency": {
-                                "vmlinux-4.14.bin": {
-                                    "ubuntu-18.04.ext4": {
+                                "linux-4.14": {
+                                    "ubuntu-22.04.squashfs": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "delta_percentage": 6.1,
-                                                    "target": 0.03
+                                                    "delta_percentage": 12,
+                                                    "target": 0.031
                                                 }
                                             }
                                         }
                                     }
                                 },
-                                "vmlinux-5.10.bin": {
-                                    "ubuntu-18.04.ext4": {
+                                "linux-5.10": {
+                                    "ubuntu-22.04.squashfs": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "delta_percentage": 12.1,
+                                                    "delta_percentage": 14,
                                                     "target": 0.032
                                                 }
                                             }
@@ -177,25 +177,25 @@
                     {
                         "baselines": {
                             "latency": {
-                                "vmlinux-4.14.bin": {
-                                    "ubuntu-18.04.ext4": {
+                                "linux-4.14": {
+                                    "ubuntu-22.04.squashfs": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "delta_percentage": 6.1,
-                                                    "target": 0.036
+                                                    "delta_percentage": 10,
+                                                    "target": 0.029
                                                 }
                                             }
                                         }
                                     }
                                 },
-                                "vmlinux-5.10.bin": {
-                                    "ubuntu-18.04.ext4": {
+                                "linux-5.10": {
+                                    "ubuntu-22.04.squashfs": {
                                         "1vcpu_1024mb.json": {
                                             "Avg": {
                                                 "ping": {
-                                                    "delta_percentage": 8.1,
-                                                    "target": 0.041
+                                                    "delta_percentage": 13,
+                                                    "target": 0.036
                                                 }
                                             }
                                         }

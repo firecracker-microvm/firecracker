@@ -47,7 +47,7 @@ def build_group(test):
     retries = test.pop("retries")
     return group(
         label=test.pop("label"),
-        command=f"./tools/devtool -y test {devtool_opts} -- -m nonci --reruns {retries} {test_path}",
+        command=f"./tools/devtool -y test {devtool_opts} -- -m nonci --reruns {retries} --perf-fail {test_path}",
         artifacts=["./test_results/*"],
         instances=test.pop("instances"),
         platforms=test.pop("platforms"),
