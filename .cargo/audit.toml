@@ -1,9 +1,19 @@
 [advisories]
-# atty is an unmaintained dependency introduced by criterion.
-# It has a security advisory about illegal memory access on
-# windows.
-# We are using criterion only for benchmarks, so we can ignore
-# this vulnerability until criterion releases a new version
-# that replaces atty.
-# See https://github.com/bheisler/criterion.rs/issues/628.
-ignore = ["RUSTSEC-2021-0145"]
+ignore = [
+    # atty is an unmaintained dependency introduced by criterion.
+    # It has a security advisory about illegal memory access on
+    # windows.
+    # We are using criterion only for benchmarks, so we can ignore
+    # this vulnerability until criterion releases a new version
+    # that replaces atty.
+    # See https://github.com/bheisler/criterion.rs/issues/628.
+    "RUSTSEC-2021-0145",
+    # 2023-0056 is a low severity finding on vm-memory filed by us.
+    # It affects an API that is not used by firecracker, and which
+    # requires inclusion of third-party dependents of vm-memory,
+    # which are not present in firecracker.
+    # We ignore this advisory, as updating to 0.12.2 would require
+    # backporting the boilerplate introduced for updating to 0.11.0,
+    # which adds significant overhead.
+    "RUSTSEC-2023-0056"
+]
