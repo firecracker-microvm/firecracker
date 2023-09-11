@@ -63,7 +63,8 @@ impl CustomCpuTemplate {
             let reg_size = reg_size(modifier.addr);
             match RegSize::from(reg_size) {
                 RegSize::U32 | RegSize::U64 => {
-                    let limit = 2u128.pow(reg_size as u32 * 8) - 1;
+                    // Safe to unwrap because the number of bits is limited
+                    let limit = 2u128.pow(u32::try_from(reg_size).unwrap() * 8) - 1;
                     if limit < modifier.bitmap.value || limit < modifier.bitmap.filter {
                         return Err(serde_json::Error::custom(format!(
                             "Invalid size of bitmap for register {:#x}, should be <= {} bits",
