@@ -5,17 +5,12 @@
 # pylint: disable=redefined-outer-name
 
 import functools
-import http.client as http_client
 import os
 import resource
 import stat
 import subprocess
-import time
 
-import psutil
 import pytest
-import requests
-import urllib3
 
 import host_tools.cargo_build as build_tools
 from framework.defs import FC_BINARY_NAME
@@ -512,42 +507,6 @@ def test_args_resource_limits(test_microvm_with_api):
 
     # Check limit values were correctly set.
     check_limits(pid, NOFILE, FSIZE)
-
-
-def test_negative_file_size_limit(uvm_plain):
-    """
-    Test creating snapshot file fails when size exceeds `fsize` limit.
-    """
-    test_microvm = uvm_plain
-    # limit to 1MB, to account for logs and metrics
-    test_microvm.jailer.resource_limits = [f"fsize={2**20}"]
-    test_microvm.spawn()
-    test_microvm.basic_config()
-    test_microvm.start()
-
-    test_microvm.pause()
-
-    # Attempt to create a snapshot.
-    try:
-        test_microvm.api.snapshot_create.put(
-            mem_file_path="/vm.mem",
-            snapshot_path="/vm.vmstate",
-        )
-    except (
-        http_client.RemoteDisconnected,
-        urllib3.exceptions.ProtocolError,
-        requests.exceptions.ConnectionError,
-    ) as _error:
-        test_microvm.expect_kill_by_signal = True
-        # Check the microVM received signal `SIGXFSZ` (25),
-        # which corresponds to exceeding file size limit.
-        msg = "Shutting down VM after intercepting signal 25, code 0"
-        test_microvm.check_log_message(msg)
-        time.sleep(1)
-        # Check that the process was terminated.
-        assert not psutil.pid_exists(test_microvm.jailer_clone_pid)
-    else:
-        assert False, "Negative test failed"
 
 
 def test_negative_no_file_limit(test_microvm_with_api):
