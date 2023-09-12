@@ -1,10 +1,12 @@
 {
   "firecracker_version": "1.5.0-dev",
-  "kernel_version": "6.1.29-47.49.amzn2023.aarch64",
+  "kernel_version": "6.1.49-69.116.amzn2023.aarch64",
   "microcode_version": "0x00000000000000ff",
   "bios_version": "1.0",
   "bios_revision": "1.0",
   "guest_cpu_config": {
+    "kvm_capabilities": [],
+    "vcpu_features": [],
     "reg_modifiers": [
       {
         "addr": "0x60200000001000d4",
