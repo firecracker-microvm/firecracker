@@ -506,6 +506,10 @@ cmd_distclean() {
 }
 
 ensure_ci_artifacts() {
+    if [ ! command -v aws >/dev/null ]; then
+      die "AWS CLI not installed, which is required for downloading artifacts for integration tests."
+    fi
+
     # Fetch all the artifacts so they are local
     say "Fetching CI artifacts from S3"
     S3_URL=s3://spec.ccfc.min/firecracker-ci/v1.5/$(uname -m)
