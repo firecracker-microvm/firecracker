@@ -2,13 +2,13 @@
 target-dir = "build/cargo_target"
 target = "x86_64-unknown-linux-musl"
 rustflags = [
-  "-Dclippy::ptr_as_ptr",
-  "-Dclippy::undocumented_unsafe_blocks",
-  "-Dclippy::cast_lossless",
-  "-Dclippy::cast_possible_wrap",
-  "-Dclippy::cast_sign_loss",
-  "-Dmissing_debug_implementations",
-  "-Dclippy::exit",
+  "-Wclippy::ptr_as_ptr",
+  "-Wclippy::undocumented_unsafe_blocks",
+  "-Wclippy::cast_lossless",
+  "-Wclippy::cast_possible_wrap",
+  "-Wclippy::cast_sign_loss",
+  "-Wmissing_debug_implementations",
+  "-Wclippy::exit",
 ]
 
 [net]
