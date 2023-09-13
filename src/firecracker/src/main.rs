@@ -55,10 +55,22 @@ enum MainError {
     MetricsInitialization(MetricsConfigError),
     #[error("Seccomp error: {0}")]
     SeccompFilter(FilterError),
+    #[error("Failed to resize fd table: {0}")]
+    ResizeFdtable(ResizeFdTableError),
     #[error("RunWithApiError error: {0}")]
     RunWithApi(ApiServerError),
     #[error("RunWithoutApiError error: {0}")]
     RunWithoutApiError(RunWithoutApiError),
+}
+
+#[derive(Debug, thiserror::Error)]
+enum ResizeFdTableError {
+    #[error("Failed to get RLIMIT_NOFILE")]
+    GetRlimit,
+    #[error("Failed to call dup2 to resize fdtable")]
+    Dup2(io::Error),
+    #[error("Failed to close dup2'd file descriptor")]
+    Close(io::Error),
 }
 
 impl From<MainError> for ExitCode {
@@ -95,6 +107,19 @@ fn main_exec() -> Result<(), MainError> {
 
     #[cfg(target_arch = "aarch64")]
     enable_ssbd_mitigation();
+
+    if let Err(err) = resize_fdtable() {
+        match err {
+            // These errors are non-critical: In the worst case we have worse snapshot restore
+            // performance.
+            ResizeFdTableError::GetRlimit | ResizeFdTableError::Dup2(_) => {
+                logger::debug!("Failed to resize fdtable: {err}")
+            }
+            // This error means that we now have a random file descriptor lying around, abort to be
+            // cautious.
+            ResizeFdTableError::Close(_) => return Err(MainError::ResizeFdtable(err)),
+        }
+    }
 
     // We need this so that we can reset terminal to canonical mode if panic occurs.
     let stdin = io::stdin();
@@ -395,6 +420,54 @@ fn main_exec() -> Result<(), MainError> {
         )
         .map_err(MainError::RunWithoutApiError)
     }
+}
+
+/// Attempts to resize the processes file descriptor table to match RLIMIT_NOFILE or 2048 if no
+/// RLIMIT_NOFILE is set (this can only happen if firecracker is run outside the jailer. 2048 is
+/// the default the jailer would set).
+///
+/// We do this resizing because the kernel default is 64, with a reallocation happening whenever
+/// the tabel fills up. This was happening for some larger microVMs, and reallocating the
+/// fdtable while a lot of file descriptors are active (due to being eventfds/timerfds registered
+/// to epoll) incurs a penalty of 30ms-70ms on the snapshot restore path.
+fn resize_fdtable() -> Result<(), ResizeFdTableError> {
+    let mut rlimit = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+
+    // SAFETY: We pass a pointer to a valid area of memory to which we have exclusive mutable access
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut rlimit as *mut libc::rlimit) } < 0 {
+        return Err(ResizeFdTableError::GetRlimit);
+    }
+
+    // If no jailer is used, there might not be an NOFILE limit set. In this case, resize
+    // the table to the default that the jailer would usually impose (2048)
+    let limit: libc::c_int = if rlimit.rlim_cur == libc::RLIM_INFINITY {
+        2048
+    } else {
+        rlimit.rlim_cur.try_into().unwrap_or(2048)
+    };
+
+    // Resize the file descriptor table to its maximal possible size, to ensure that
+    // firecracker will not need to reallocate it later. If the file descriptor table
+    // needs to be reallocated (which by default happens once more than 64 fds exist,
+    // something that happens for reasonably complex microvms due to each device using
+    // a multitude of eventfds), this can incur a significant performance impact (it
+    // was responsible for a 30ms-70ms impact on snapshot restore times).
+    if limit > 3 {
+        // SAFETY: Duplicating stdin is safe
+        if unsafe { libc::dup2(0, limit - 1) } < 0 {
+            return Err(ResizeFdTableError::Dup2(io::Error::last_os_error()));
+        }
+
+        // SAFETY: Closing the just created duplicate is safe
+        if unsafe { libc::close(limit - 1) } < 0 {
+            return Err(ResizeFdTableError::Close(io::Error::last_os_error()));
+        }
+    }
+
+    Ok(())
 }
 
 /// Enable SSBD mitigation through `prctl`.

@@ -34,6 +34,11 @@
   apply the mitigation against MMIO stale data vulnerability when it is running
   on a processor that does not enumerate FBSDP_NO, PSDP_NO and SBDR_SSDP_NO on
   IA32_ARCH_CAPABILITIES MSR.
+- Made Firecracker resize its file descriptor table on process start. It now
+  preallocates the in-kernel fdtable to hold `RLIMIT_NOFILE` many fds (or 2048
+  if no limit is set). This avoids the kernel reallocating the fdtable during
+  Firecracker operations, resulting in a 30ms to 70ms reduction of snapshot
+  restore times for medium to large microVMs with many devices attached.
 
 ### Fixed
 
