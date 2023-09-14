@@ -1,10 +1,11 @@
 {
   "firecracker_version": "1.5.0-dev",
-  "kernel_version": "4.14.314-238.539.amzn2.x86_64",
-  "microcode_version": "0x2006f05",
+  "kernel_version": "4.14.322-244.539.amzn2.x86_64",
+  "microcode_version": "0x2007006",
   "bios_version": "1.0",
-  "bios_revision": "3.65",
+  "bios_revision": "3.80",
   "guest_cpu_config": {
+    "kvm_capabilities": [],
     "cpuid_modifiers": [
       {
         "leaf": "0x0",
@@ -931,7 +932,7 @@
       },
       {
         "addr": "0x10a",
-        "bitmap": "0b0000000000000000000000000000000000000000000000000000110001001100"
+        "bitmap": "0b0000000000000000000000000000000000000110000000000000110001001100"
       },
       {
         "addr": "0x140",
