@@ -1,10 +1,11 @@
 {
   "firecracker_version": "1.5.0-dev",
-  "kernel_version": "6.1.34-59.116.amzn2023.x86_64",
+  "kernel_version": "6.1.49-69.116.amzn2023.x86_64",
   "microcode_version": "0xa0011a9",
   "bios_version": "1.0",
-  "bios_revision": "5.22",
+  "bios_revision": "0.57",
   "guest_cpu_config": {
+    "kvm_capabilities": [],
     "cpuid_modifiers": [
       {
         "leaf": "0x0",
@@ -178,7 +179,7 @@
           },
           {
             "register": "ebx",
-            "bitmap": "0b00100001100111000000011110101011"
+            "bitmap": "0b00100001100111000000010110101011"
           },
           {
             "register": "ecx",
@@ -186,7 +187,7 @@
           },
           {
             "register": "edx",
-            "bitmap": "0b10001100000000000000000000010000"
+            "bitmap": "0b10001100000000000000000000000000"
           }
         ]
       },
