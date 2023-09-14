@@ -506,7 +506,7 @@ cmd_distclean() {
 }
 
 ensure_ci_artifacts() {
-    if [ ! command -v aws >/dev/null ]; then
+    if ! command -v aws >/dev/null; then
       die "AWS CLI not installed, which is required for downloading artifacts for integration tests."
     fi
 
