@@ -414,6 +414,9 @@ cmd_help() {
     cat <<EOF
     test_debug [-- [<pytest args>]]
         Run tests in a debugging environment
+
+    test_sandbox
+        Run Firecracker in an IPython REPL
 EOF
 }
 
@@ -702,6 +705,10 @@ cmd_sh() {
         --workdir "$CTR_FC_ROOT_DIR" \
         -- \
         bash --norc -c "$*"
+}
+
+cmd_sandbox() {
+    cmd_sh "tmux new env PYTEST_ADDOPTS=--pdbcls=IPython.terminal.debugger:TerminalPdb PYTHONPATH=tests IPYTHONDIR=\$PWD/.ipython ipython -i ./tools/sandbox.py $@"
 }
 
 cmd_test_debug() {

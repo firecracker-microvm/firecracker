@@ -35,5 +35,6 @@ say "Copy CI artifacts to /srv, so hardlinks work"
 cp -ruvf build/img /srv
 
 cd tests
+export PYTEST_ADDOPTS="${PYTEST_ADDOPTS:-} --pdbcls=IPython.terminal.debugger:TerminalPdb"
 pytest "$@"
 exit $?
