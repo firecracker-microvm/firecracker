@@ -72,6 +72,7 @@ macro_rules! arm64_core_reg_id {
     };
 }
 pub(crate) use arm64_core_reg_id;
+use utils::vm_memory::ByteValued;
 
 /// This macro computes the ID of a specific ARM64 system register similar to how
 /// the kernel C macro does.
@@ -502,19 +503,13 @@ impl<'a> TryFrom<Aarch64RegisterRef<'a>> for Aarch64RegisterOld {
     }
 }
 
-impl<'a> TryFrom<&Aarch64RegisterOld> for Aarch64RegisterRef<'a> {
+impl<'a> TryFrom<&'a Aarch64RegisterOld> for Aarch64RegisterRef<'a> {
     type Error = &'static str;
 
-    fn try_from(value: &Aarch64RegisterOld) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a Aarch64RegisterOld) -> Result<Self, Self::Error> {
         // # Safety:
         // `self.data` is a valid memory and slice size is valid for this type.
-        let data_ref = unsafe {
-            std::slice::from_raw_parts(
-                (&value.data as *const u128).cast::<u8>(),
-                std::mem::size_of::<u128>(),
-            )
-        };
-
+        let data_ref = value.data.as_slice();
         let reg_size = reg_size(value.id);
         if RegSize::U2048_SIZE < reg_size {
             return Err("Registers bigger then 2048 bits are not supported");
