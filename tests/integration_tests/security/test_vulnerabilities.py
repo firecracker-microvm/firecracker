@@ -281,6 +281,20 @@ def get_vuln_files_exception_dict(template):
 
 
 @pytest.mark.no_block_pr
+def test_vulnerabilities_on_host():
+    """
+    Test vulnerabilities files on host.
+    """
+    vuln_dir = "/sys/devices/system/cpu/vulnerabilities"
+
+    # `grep` returns 1 if no lines were selected.
+    ecode, stdout, stderr = utils.run_cmd(
+        f"grep -r Vulnerable {vuln_dir}", ignore_return_code=True
+    )
+    assert ecode == 1, f"stdout:\n{stdout}\nstderr:\n{stderr}\n"
+
+
+@pytest.mark.no_block_pr
 def check_vulnerabilities_files_on_guest(microvm, template=None):
     """
     Check that the guest's vulnerabilities files do not contain `Vulnerable`.
