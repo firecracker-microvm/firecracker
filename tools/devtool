@@ -556,6 +556,9 @@ cmd_test() {
 
     # If we got to here, we've got all we need to continue.
     say "Kernel version: $(uname -r)"
+    if [ "$(uname --machine)" = "x86_64" ]; then
+        say "Microcode version: $(sudo cat /sys/devices/system/cpu/cpu0/microcode/version)"
+    fi
     say "$(lscpu)"
     say "Starting test run ..."
 
