@@ -150,8 +150,8 @@ class Microvm:
     def __init__(
         self,
         resource_path,
-        fc_binary_path=None,
-        jailer_binary_path=None,
+        fc_binary_path,
+        jailer_binary_path,
         microvm_id=None,
         bin_cloner_path=None,
         monitor_memory=True,
@@ -172,11 +172,6 @@ class Microvm:
         self.initrd_file = None
         self.boot_args = None
 
-        # The binaries this microvm will use to start.
-        if fc_binary_path is None:
-            fc_binary_path, _ = build_tools.get_firecracker_binaries()
-        if jailer_binary_path is None:
-            _, jailer_binary_path = build_tools.get_firecracker_binaries()
         self._fc_binary_path = str(fc_binary_path)
         assert fc_binary_path.exists()
         self._jailer_binary_path = str(jailer_binary_path)
@@ -812,10 +807,12 @@ class Microvm:
 class MicroVMFactory:
     """MicroVM factory"""
 
-    def __init__(self, base_path, bin_cloner):
+    def __init__(self, base_path, bin_cloner, fc_binary_path, jailer_binary_path):
         self.base_path = Path(base_path)
         self.bin_cloner_path = bin_cloner
         self.vms = []
+        self.fc_binary_path = fc_binary_path
+        self.jailer_binary_path = jailer_binary_path
 
     def build(self, kernel=None, rootfs=None, microvm_id=None, **kwargs):
         """Build a microvm"""
@@ -823,6 +820,10 @@ class MicroVMFactory:
             resource_path=self.base_path,
             microvm_id=microvm_id or str(uuid.uuid4()),
             bin_cloner_path=self.bin_cloner_path,
+            fc_binary_path=kwargs.pop("fc_binary_path", self.fc_binary_path),
+            jailer_binary_path=kwargs.pop(
+                "jailer_binary_path", self.jailer_binary_path
+            ),
             **kwargs,
         )
         self.vms.append(vm)
