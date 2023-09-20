@@ -561,10 +561,7 @@ cmd_test() {
 
     # If we got to here, we've got all we need to continue.
     say "Kernel version: $(uname -r)"
-    if [ "$(uname --machine)" = "x86_64" ]; then
-        say "Microcode version: $(sudo cat /sys/devices/system/cpu/cpu0/microcode/version)"
-    fi
-    say "$(lscpu)"
+    say "$(sed '/^processor.*: 0$/,/^processor.*: 1$/!d; /^processor.*: 1$/d' /proc/cpuinfo)"
     say "Starting test run ..."
 
     # Testing (running Firecracker via the jailer) needs root access,
