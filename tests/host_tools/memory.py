@@ -54,7 +54,10 @@ class MemoryMonitor(Thread):
         """
 
         guest_mem_bytes = self._vm.mem_size_bytes
-        ps = psutil.Process(self._vm.jailer_clone_pid)
+        try:
+            ps = psutil.Process(self._vm.jailer_clone_pid)
+        except psutil.NoSuchProcess:
+            return
         while not self._should_stop:
             try:
                 mmaps = ps.memory_maps(grouped=False)
