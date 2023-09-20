@@ -39,6 +39,9 @@
   if no limit is set). This avoids the kernel reallocating the fdtable during
   Firecracker operations, resulting in a 30ms to 70ms reduction of snapshot
   restore times for medium to large microVMs with many devices attached.
+- Changed the dump feature of `cpu-template-helper` tool not to enumerate program
+  counter (PC) on ARM because it is determined by the given kernel image and
+  it is useless in the custom CPU template context.
 
 ### Fixed
 
