@@ -410,6 +410,11 @@ cmd_help() {
     echo "        -c, --cpuset-cpus cpulist    Set a dedicated cpulist to be used by the tests."
     echo "        -m, --cpuset-mems memlist    Set a dedicated memlist to be used by the tests."
     echo ""
+
+    cat <<EOF
+    test_debug [-- [<pytest args>]]
+        Run tests in a debugging environment
+EOF
 }
 
 
@@ -690,6 +695,10 @@ cmd_sh() {
         --workdir "$CTR_FC_ROOT_DIR" \
         -- \
         bash --norc -c "$*"
+}
+
+cmd_test_debug() {
+    cmd_sh "tmux new ./tools/test.sh --pdb $@"
 }
 
 # Auto-format all source code, to match the Firecracker requirements. For the

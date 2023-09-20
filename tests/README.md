@@ -192,31 +192,21 @@ source tree. This directory is bind-mounted in the container and used as a
 local image cache.
 
 `Q5:`
-*Is there a way to speed up integration tests execution time?*
-`A5:`
-You can speed up tests execution time with any of these:
-
-`Q6:`
 *How can I get live logger output from the tests?*
-`A6:`
+`A5:`
 Accessing **pytest.ini** will allow you to modify logger settings.
 
-1. Run the tests from inside the container and set the environment variable
-   `KEEP_TEST_SESSION` to a non-empty value.
+`Q6:`
+*Is there a way to speed up integration tests execution time?*
 
-   Each **Testrun** begins by building the firecracker and unit tests binaries,
-   and ends by deleting all the built artifacts.
-   If you run the tests [from inside the container](#running), you can prevent
-   the binaries from being deleted exporting the `KEEP_TEST_SESSION` variable.
-   This way, all the following **Testrun** will be significantly faster as they
-   will not need to rebuild everything.
-   If any Rust source file is changed, the build is done incrementally.
+`A6:`
+You can narrow down the test selection as described in the **Running**
+section, or in the **Troubleshooting Tests** section. For example:
 
 1. Pass the `-k substring` option to Pytest to only run a subset of tests by
    specifying a part of their name.
 
-1. Only run the tests contained in a file or directory, as specified in the
-   **Running** section.
+1. Only run the tests contained in a file or directory.
 
 ## Implementation Goals
 
@@ -241,7 +231,6 @@ Pytest was chosen because:
 
 ### Features
 
-- A fixture for interacting with microvms via SSH.
 - Use the Firecracker Open API spec to populate Microvm API resource URLs.
 - Do the testrun in a container for better insulation.
 - Event-based monitoring of microvm socket file creation to avoid while spins.
@@ -261,3 +250,131 @@ Pytest was chosen because:
 ## Further Reading
 
 Contributing to this testing system requires a dive deep on `pytest`.
+
+## Troubleshooting tests
+
+### How to select tests
+
+When troubleshooting tests, it is important to only narrow down the ones that
+are of interest. `pytest` offers several features to do that:
+
+#### single file
+
+```sh
+./tools/devtool -y test -- integration_tests/performance/test_boottime.py
+```
+
+#### single test
+
+```sh
+./tools/devtool -y test -- integration_tests/performance/test_boottime.py::test_boottime
+```
+
+#### single test + parameter(s)
+
+Use the `-k` parameter to match part of the test (including the parameters!):
+
+```sh
+./tools/devtool -y test -- -k 1024 integration_tests/performance/test_boottime.py::test_boottime
+```
+
+#### --last-failed
+
+One can use the `--last-failed` parameter to only run the tests that failed from
+the previous run. Useful when several tests fail after making large changes.
+
+### Run tests from within the container
+
+To avoid having to enter/exit Docker every test run, you can run the tests
+directly within a Docker session:
+
+```sh
+./tools/devtool -y shell --privileged
+./tools/test.sh integration_tests/functional/test_api.py
+```
+
+### How to use the Python debugger (pdb) for debugging
+
+Just append `--pdb`, and when a test fails it will drop you in pdb, where you
+can examine local variables and the stack, and can use the normal Python REPL.
+
+```
+./tools/devtool -y test -- -k 1024 integration_tests/performance/test_boottime.py::test_boottime --pdb
+```
+
+### How to use ipython's ipdb instead of pdb
+
+```sh
+./tools/devtool -y shell --privileged
+pip3 install ipython
+export PYTEST_ADDOPTS=--pdbcls=IPython.terminal.debugger:TerminalPdb
+./tools/test.sh -k 1024 integration_tests/performance/test_boottime.py::test_boottime
+```
+
+There is a helper command in devtool that does just that, and is easier to type:
+
+```sh
+./tools/devtool -y test_debug -k 1024 integration_tests/performance/test_boottime.py::test_boottime
+```
+
+### How to connect to the console interactively
+
+There is a helper to enable the console, but it has to be run **before**
+spawning the Firecracker process:
+
+```python
+uvm.help.enable_console()
+uvm.spawn()
+uvm.basic_config()
+uvm.start()
+...
+```
+
+Once that is done, if you get dropped into pdb, you can do this to open a `tmux`
+tab connected to the console (via `screen`).
+
+```python
+uvm.help.tmux_console()
+```
+
+### How to reproduce intermittent (aka flaky) tests
+
+Just run the test in a loop, and make it drop you into pdb when it fails.
+
+```sh
+while true; do
+    ./tools/devtool -y test -- integration_tests/functional/test_balloon.py::test_deflate_on_oom -k False --pdb
+done
+```
+
+### How to run tests in parallel with `-n`
+
+We can run the tests in parallel via `pytest-xdist`. Not all tests can run in
+parallel (the ones in `build` and `performance` are not supposed to run in
+parallel).
+
+By default, the tests run sequentially. One can use the `-n` to control the
+parallelism. Just `-n` will run as many workers as CPUs, which may be too many.
+As a rough heuristic, use half the available CPUs. I use -n4 for my 8 CPU
+(HT-enabled) laptop. In metals 8 is a good number; more than that just gives
+diminishing returns.
+
+```sh
+./tools/devtool -y test -- integration_tests/functional -n$(expr $(nproc) / 2) --dist worksteal
+```
+
+### How to attach gdb to a running uvm
+
+First, make the test fail and drop you into PDB. For example:
+
+```sh
+./tools/devtool -y test_debug integration_tests/functional/test_api.py::test_api_happy_start --pdb
+```
+
+Then,
+
+```
+ipdb> test_microvm.gdbserver()
+```
+
+You get some instructions on how to run GDB to attach to gdbserver.
