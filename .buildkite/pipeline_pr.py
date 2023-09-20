@@ -36,10 +36,21 @@ defaults = {
 }
 defaults = overlay_dict(defaults, args.step_param)
 
-devtool_build_grp = group(
-    "📦 Devtool Sanity Build",
-    "./tools/devtool -y build",
-    **defaults,
+defaults_once_per_architecture = defaults.copy()
+defaults_once_per_architecture["instances"] = ["m5d.metal", "c7g.metal"]
+defaults_once_per_architecture["platforms"] = [("al2", "linux_5.10")]
+
+
+devctr_grp = group(
+    "🐋 Dev Container Sanity Build",
+    "./tools/devtool -y build_devctr",
+    **defaults_once_per_architecture,
+)
+
+release_grp = group(
+    "📦 Release Sanity Build",
+    "./tools/devtool -y sh ./tools/release.sh --libc musl --profile release --make-release",
+    **defaults_once_per_architecture,
 )
 
 build_grp = group(
@@ -92,8 +103,11 @@ steps = [step_style]
 changed_files = get_changed_files("main")
 
 # run sanity build of devtool if Dockerfile is changed
-if any(x.parts[-1] == "Dockerfile" for x in changed_files):
-    steps += [devtool_build_grp]
+if any(x.name == "Dockerfile" for x in changed_files):
+    steps.append(devctr_grp)
+
+if any(x.parent.name == "tools" and "release" in x.name for x in changed_files):
+    steps.append(release_grp)
 
 if run_all_tests(changed_files):
     steps += [
