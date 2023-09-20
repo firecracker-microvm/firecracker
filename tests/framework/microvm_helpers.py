@@ -6,6 +6,17 @@
 import os
 import platform
 import subprocess
+from pathlib import Path
+
+
+def docker_apt_install(packages: str | list[str]):
+    """Install a package in the Docker devctr"""
+    apt_lists = Path("/var/lib/apt/lists/")
+    if len(list(apt_lists.iterdir())) == 0:
+        subprocess.run(["apt", "update"], check=True)
+    if isinstance(packages, str):
+        packages = [packages]
+    subprocess.run(["apt", "install", "-y", *packages], check=True)
 
 
 class DockerInfo:
@@ -70,7 +81,7 @@ class MicrovmHelpers:
         # Unlike gdbserver, lldb-server is not a separate package, but is part
         # of lldb and it's about ~400MB to install, so we don't include it in
         # the devctr
-        subprocess.run("apt update && apt install lldb", shell=True, check=True)
+        docker_apt_install("lldb")
         subprocess.Popen(["lldb-server", "p", "--listen", f"*:{port}", "--server"])
         print(
             f"Connect lldb with\n\tlldb -o 'platform select remote-linux' -o 'platform connect connect://{DOCKER.ip}:{port}' -o 'attach {self.vm.jailer_clone_pid}'"
@@ -121,6 +132,7 @@ class MicrovmHelpers:
           we need to make the veth network smaller and **allocate** them
           accordingly
         """
+        docker_apt_install("iptables")
         netns = self.vm.jailer.netns
         vethhost = "vethhost0"
         vethhost_ip = "10.0.0.1"
