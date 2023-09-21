@@ -40,22 +40,14 @@ fn main() {
 
     // Retrigger the build script if the JSON file has changed.
     // let json_path = json_path.to_str().expect("Invalid bytes");
-    println!("cargo:rerun-if-changed={}", &seccomp_json_path);
+    println!("cargo:rerun-if-changed={}", seccomp_json_path);
     // Also retrigger the build script on any seccompiler source code change.
-    register_seccompiler_src_watchlist(SECCOMPILER_SRC_DIR);
+    println!("cargo:rerun-if-changed={}", SECCOMPILER_SRC_DIR);
 
-    let out_path = format!("{}/{}", out_dir, ADVANCED_BINARY_FILTER_FILE_NAME);
-
-    // Run seccompiler-bin, getting the default, advanced filter.
-    run_seccompiler_bin(&target_arch, &seccomp_json_path, &out_path);
-}
-
-// Run seccompiler with the given arguments.
-fn run_seccompiler_bin(arch: &str, input_path: &str, out_path: &str) {
-    let input = std::fs::read_to_string(input_path).expect("Correct input file");
+    let input = std::fs::read_to_string(seccomp_json_path).expect("Correct input file");
     let filters: JsonFile = serde_json::from_str(&input).expect("Input read");
 
-    let arch = arch.try_into().expect("Target");
+    let arch = target_arch.as_str().try_into().expect("Target");
     let compiler = Compiler::new(arch);
 
     // transform the IR into a Map of BPFPrograms
@@ -64,27 +56,7 @@ fn run_seccompiler_bin(arch: &str, input_path: &str, out_path: &str) {
         .expect("Successfull compilation");
 
     // serialize the BPF programs & output them to a file
+    let out_path = format!("{}/{}", out_dir, ADVANCED_BINARY_FILTER_FILE_NAME);
     let output_file = File::create(out_path).expect("Create seccompiler output path");
     bincode::serialize_into(output_file, &bpf_data).expect("Seccompiler serialization");
-}
-
-// Recursively traverse the entire seccompiler source folder and trigger a re-run of this build
-// script on any modification of these files.
-fn register_seccompiler_src_watchlist<P: AsRef<Path>>(src_dir: P) {
-    let contents = std::fs::read_dir(src_dir).expect("Unable to read folder contents.");
-    for entry in contents {
-        let path = entry.unwrap().path();
-        let metadata = std::fs::metadata(&path).expect("Unable to read file/folder metadata.");
-
-        if metadata.is_file() {
-            // Watch all source files.
-            println!(
-                "cargo:rerun-if-changed={}",
-                path.to_str().expect("Invalid unicode bytes.")
-            );
-        } else if metadata.is_dir() {
-            // If is a folder, recurse.
-            register_seccompiler_src_watchlist(&path);
-        }
-    }
 }
