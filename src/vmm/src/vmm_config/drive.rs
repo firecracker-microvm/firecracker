@@ -18,22 +18,17 @@ pub use crate::devices::virtio::CacheType;
 use crate::VmmError;
 
 /// Errors associated with the operations allowed on a drive.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum DriveError {
-    /// Could not create a Block Device.
-    #[error("Unable to create the block device: {0:?}")]
+    /// Unable to create the block device: {0:?}
     CreateBlockDevice(BlockError),
-    /// Failed to create a `RateLimiter` object.
-    #[error("Cannot create RateLimiter: {0}")]
+    /// Cannot create RateLimiter: {0}
     CreateRateLimiter(io::Error),
-    /// Error during block device update (patch).
-    #[error("Unable to patch the block device: {0}")]
+    /// Unable to patch the block device: {0}
     DeviceUpdate(VmmError),
-    /// The block device path is invalid.
-    #[error("Invalid block device path: {0}")]
+    /// Invalid block device path: {0}
     InvalidBlockDevicePath(String),
-    /// A root block device was already added.
-    #[error("A root block device already exists!")]
+    /// A root block device already exists!
     RootBlockDeviceAlreadyAdded,
 }
 

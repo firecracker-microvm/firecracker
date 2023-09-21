@@ -12,29 +12,21 @@ use crate::devices::virtio::{Balloon, BalloonConfig};
 type MutexBalloon = Arc<Mutex<Balloon>>;
 
 /// Errors associated with the operations allowed on the balloon.
-#[derive(Debug, derive_more::From, thiserror::Error)]
+#[derive(Debug, derive_more::From, thiserror::Error, displaydoc::Display)]
 pub enum BalloonConfigError {
-    /// The user made a request on an inexistent balloon device.
-    #[error("No balloon device found.")]
+    /// No balloon device found.
     DeviceNotFound,
-    /// Device not activated yet.
-    #[error("Device is inactive, check if balloon driver is enabled in guest kernel.")]
+    /// Device is inactive, check if balloon driver is enabled in guest kernel.
     DeviceNotActive,
-    /// The user tried to enable/disable the statistics after boot.
-    #[error("Cannot enable/disable the statistics after boot.")]
+    /// Cannot enable/disable the statistics after boot.
     InvalidStatsUpdate,
     /// Amount of pages requested is too large.
-    #[error("Amount of pages requested is too large.")]
     TooManyPagesRequested,
-    /// The user polled the statistics of a balloon device that
-    /// does not have the statistics enabled.
-    #[error("Statistics for the balloon device are not enabled")]
+    /// Statistics for the balloon device are not enabled
     StatsNotFound,
-    /// Failed to create a balloon device.
-    #[error("Error creating the balloon device: {0:?}")]
+    /// Error creating the balloon device: {0:?}
     CreateFailure(crate::devices::virtio::balloon::BalloonError),
-    /// Failed to update the configuration of the ballon device.
-    #[error("Error updating the balloon device configuration: {0:?}")]
+    /// Error updating the balloon device configuration: {0:?}
     UpdateFailure(std::io::Error),
 }
 

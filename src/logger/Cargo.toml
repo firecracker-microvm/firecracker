@@ -15,5 +15,6 @@ log = { version = "0.4.14", features = ["std"] }
 serde = { version = "1.0.136", features = ["derive", "rc"] }
 serde_json = "1.0.78"
 thiserror = "1.0.32"
+displaydoc = "0.2.4"
 vm-superio = "0.7.0"
 utils = { path = "../utils" }

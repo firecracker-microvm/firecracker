@@ -13,23 +13,18 @@ use crate::arch_gen::x86::perf_event::*;
 use crate::cpu_config::x86_64::cpuid::common::{get_vendor_id_from_host, GetCpuidError};
 use crate::cpu_config::x86_64::cpuid::VENDOR_ID_AMD;
 
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
 /// MSR related errors.
 pub enum MsrError {
-    /// Failed to create [`vmm_sys_util::fam::FamStructWrapper`] for MSRs.
-    #[error("Failed to create `vmm_sys_util::fam::FamStructWrapper` for MSRs")]
+    /// Failed to create `vmm_sys_util::fam::FamStructWrapper` for MSRs
     Fam(#[from] utils::fam::Error),
-    /// Failed to get MSR index list.
-    #[error("Failed to get MSR index list: {0}")]
+    /// Failed to get MSR index list: {0}
     GetMsrIndexList(kvm_ioctls::Error),
-    /// Invalid vendor.
-    #[error("Invalid CPU vendor: {0}")]
+    /// Invalid CPU vendor: {0}
     InvalidVendor(#[from] GetCpuidError),
-    /// Failed to set MSRs.
-    #[error("Failed to set MSRs: {0}")]
+    /// Failed to set MSRs: {0}
     SetMsrs(kvm_ioctls::Error),
     /// Not all given MSRs were set.
-    #[error("Not all given MSRs were set.")]
     SetMsrsIncomplete,
 }
 

@@ -38,24 +38,18 @@ pub enum NetQueue {
 }
 
 /// Errors the network device can trigger.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum NetError {
-    /// Open tap device failed
-    #[error("Open tap device failed: {0}")]
+    /// Open tap device failed: {0}
     TapOpen(TapError),
-    /// Setting tap interface offload flags failed
-    #[error("Setting tap interface offload flags failed: {0}")]
+    /// Setting tap interface offload flags failed: {0}
     TapSetOffload(TapError),
-    /// Setting vnet header size failed
-    #[error("Setting vnet header size failed: {0}")]
+    /// Setting vnet header size failed: {0}
     TapSetVnetHdrSize(TapError),
-    /// EventFd error
-    #[error("EventFd error: {0}")]
+    /// EventFd error: {0}
     EventFd(io::Error),
-    /// IO error
-    #[error("IO error: {0}")]
+    /// IO error: {0}
     IO(io::Error),
     /// The VNET header is missing from the frame
-    #[error("The VNET header is missing from the frame")]
     VnetHeaderMissing,
 }

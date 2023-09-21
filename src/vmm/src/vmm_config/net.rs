@@ -60,22 +60,17 @@ pub struct NetworkInterfaceUpdateConfig {
 }
 
 /// Errors associated with the operations allowed on a net device.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum NetworkInterfaceError {
-    /// Could not create the network device.
-    #[error("Could not create the network device: {0}")]
+    /// Could not create the network device: {0}
     CreateNetworkDevice(#[from] crate::devices::virtio::net::NetError),
-    /// Failed to create a `RateLimiter` object
-    #[error("Cannot create the rate limiter: {0}")]
+    /// Cannot create the rate limiter: {0}
     CreateRateLimiter(#[from] std::io::Error),
-    /// Error during interface update (patch).
-    #[error("Unable to update the net device: {0}")]
+    /// Unable to update the net device: {0}
     DeviceUpdate(#[from] VmmError),
-    /// The MAC address is already in use.
-    #[error("The MAC address is already in use: {0}")]
+    /// The MAC address is already in use: {0}
     GuestMacAddressInUse(String),
-    /// Cannot open/create the tap device.
-    #[error("Cannot open/create the tap device: {0}")]
+    /// Cannot open/create the tap device: {0}
     OpenTap(#[from] TapError),
 }
 

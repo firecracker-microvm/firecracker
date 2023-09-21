@@ -13,31 +13,31 @@ const REBASE_SNAP_VERSION: &str = env!("FIRECRACKER_VERSION");
 const BASE_FILE: &str = "base-file";
 const DIFF_FILE: &str = "diff-file";
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 enum FileError {
-    #[error("Invalid base file: {0:?}")]
+    /// Invalid base file: {0:?}
     InvalidBaseFile(std::io::Error),
-    #[error("Invalid diff file: {0:?}")]
+    /// Invalid diff file: {0:?}
     InvalidDiffFile(std::io::Error),
-    #[error("Failed to seek data: {0:?}")]
+    /// Failed to seek data: {0:?}
     SeekData(std::io::Error),
-    #[error("Failed to seek hole: {0:?}")]
+    /// Failed to seek hole: {0:?}
     SeekHole(std::io::Error),
-    #[error("Failed to seek: {0:?}")]
+    /// Failed to seek: {0:?}
     Seek(std::io::Error),
-    #[error("Failed to send the file: {0:?}")]
+    /// Failed to send the file: {0:?}
     SendFile(std::io::Error),
-    #[error("Failed to get metadata: {0:?}")]
+    /// Failed to get metadata: {0:?}
     Metadata(std::io::Error),
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 enum RebaseSnapError {
-    #[error("Arguments parsing error: {0} \n\nFor more information try --help.")]
+    /// Arguments parsing error: {0} \n\nFor more information try --help.
     ArgParse(ArgError),
-    #[error("Error parsing the cmd line args: {0}")]
+    /// Error parsing the cmd line args: {0}
     SnapFile(FileError),
-    #[error("Error merging the files: {0}")]
+    /// Error merging the files: {0}
     RebaseFiles(FileError),
 }
 

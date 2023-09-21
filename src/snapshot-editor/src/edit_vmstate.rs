@@ -10,9 +10,9 @@ use vmm::persist::MicrovmState;
 
 use crate::utils::{open_vmstate, save_vmstate, UtilsError};
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum EditVmStateError {
-    #[error("{0}")]
+    /// {0}
     Utils(#[from] UtilsError),
 }
 

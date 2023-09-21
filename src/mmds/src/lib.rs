@@ -19,22 +19,20 @@ use crate::data_store::{Error as MmdsError, Mmds, MmdsVersion, OutputFormat};
 use crate::token::PATH_TO_TOKEN;
 use crate::token_headers::REJECTED_HEADER;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum Error {
-    #[error("MMDS token not valid.")]
+    /// MMDS token not valid.
     InvalidToken,
-    #[error("Invalid URI.")]
+    /// Invalid URI.
     InvalidURI,
-    #[error("Not allowed HTTP method.")]
+    /// Not allowed HTTP method.
     MethodNotAllowed,
-    #[error("No MMDS token provided. Use `X-metadata-token` header to specify the session token.")]
+    /// No MMDS token provided. Use `X-metadata-token` header to specify the session token.
     NoTokenProvided,
-    #[error(
-        "Token time to live value not found. Use `X-metadata-token-ttl-seconds` header to specify \
-         the token's lifetime."
-    )]
+    #[rustfmt::skip]
+    #[doc = "Token time to live value not found. Use `X-metadata-token-ttl-seconds` header to specify the token's lifetime."]
     NoTtlProvided,
-    #[error("Resource not found: {0}.")]
+    /// Resource not found: {0}.
     ResourceNotFound(String),
 }
 

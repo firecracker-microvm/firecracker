@@ -133,71 +133,49 @@ pub enum VmmAction {
 }
 
 /// Wrapper for all errors associated with VMM actions.
-#[derive(Debug, thiserror::Error, derive_more::From)]
+#[derive(Debug, thiserror::Error, displaydoc::Display, derive_more::From)]
 pub enum VmmActionError {
-    /// The action `SetBalloonDevice` failed because of bad user input.
-    #[error("{0}")]
+    /// {0}
     BalloonConfig(BalloonConfigError),
-    /// The action `ConfigureBootSource` failed because of bad user input.
-    #[error("{0}")]
+    /// {0}
     BootSource(BootSourceConfigError),
-    /// The action `CreateSnapshot` failed.
-    #[error("{0}")]
+    /// {0}
     CreateSnapshot(CreateSnapshotError),
-    /// The action `ConfigureCpu` failed.
-    #[error("{0}")]
+    /// {0}
     ConfigureCpu(GuestConfigError),
-    /// One of the actions `InsertBlockDevice` or `UpdateBlockDevicePath`
-    /// failed because of bad user input.
-    #[error("{0}")]
+    /// {0}
     DriveConfig(DriveError),
-    /// `SetEntropyDevice` action failed because of bad user input.
-    #[error("{0}")]
+    /// {0}
     EntropyDevice(EntropyDeviceError),
-    /// Internal Vmm error.
-    #[error("Internal Vmm error: {0}")]
+    /// Internal Vmm error: {0}
     InternalVmm(VmmError),
-    /// Loading a microVM snapshot failed.
-    #[error("Load microVM snapshot error: {0}")]
+    /// Load microVM snapshot error: {0}
     LoadSnapshot(LoadSnapshotError),
-    /// The action `ConfigureLogger` failed because of bad user input.
-    #[error("{0}")]
+    /// {0}
     Logger(LoggerConfigError),
-    /// One of the actions `GetVmConfiguration` or `UpdateVmConfiguration` failed because of bad
-    /// input.
-    #[error("{0}")]
+    /// {0}
     MachineConfig(VmConfigError),
-    /// The action `ConfigureMetrics` failed because of bad user input.
-    #[error("{0}")]
+    /// {0}
     Metrics(MetricsConfigError),
-    /// One of the `GetMmds`, `PutMmds` or `PatchMmds` actions failed.
     #[from(ignore)]
-    #[error("{0}")]
+    /// {0}
     Mmds(data_store::Error),
-    /// The action `SetMmdsConfiguration` failed because of bad user input.
-    #[error("{0}")]
+    /// {0}
     MmdsConfig(MmdsConfigError),
-    /// Mmds contents update failed due to exceeding the data store limit.
     #[from(ignore)]
-    #[error("{0}")]
+    /// {0}
     MmdsLimitExceeded(data_store::Error),
-    /// The action `InsertNetworkDevice` failed because of bad user input.
-    #[error("{0}")]
+    /// {0}
     NetworkConfig(NetworkInterfaceError),
-    /// The requested operation is not supported.
-    #[error("The requested operation is not supported: {0}")]
+    /// The requested operation is not supported: {0}
     NotSupported(String),
     /// The requested operation is not supported after starting the microVM.
-    #[error("The requested operation is not supported after starting the microVM.")]
     OperationNotSupportedPostBoot,
     /// The requested operation is not supported before starting the microVM.
-    #[error("The requested operation is not supported before starting the microVM.")]
     OperationNotSupportedPreBoot,
-    /// The action `StartMicroVm` failed because of an internal error.
-    #[error("{0}")]
+    /// {0}
     StartMicrovm(StartMicrovmError),
-    /// The action `SetVsockDevice` failed because of bad user input.
-    #[error("{0}")]
+    /// {0}
     VsockConfig(VsockConfigError),
 }
 
@@ -296,16 +274,13 @@ impl MmdsRequestHandler for PrebootApiController<'_> {
 }
 
 /// Error type for [`PrebootApiController::load_snapshot`]
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum LoadSnapshotError {
     /// Loading a microVM snapshot not allowed after configuring boot-specific resources.
-    #[error("Loading a microVM snapshot not allowed after configuring boot-specific resources.")]
     LoadSnapshotNotAllowed,
-    /// Failed to restore from snapshot.
-    #[error("Failed to restore from snapshot: {0}")]
+    /// Failed to restore from snapshot: {0}
     RestoreFromSnapshot(#[from] RestoreFromSnapshotError),
-    /// Failed to resume microVM.
-    #[error("Failed to resume microVM: {0}")]
+    /// Failed to resume microVM: {0}
     ResumeMicrovm(#[from] VmmError),
 }
 

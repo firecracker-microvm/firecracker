@@ -105,36 +105,29 @@ pub enum VmError {
 /// Error type for [`Vm::restore_state`]
 #[allow(missing_docs)]
 #[cfg(target_arch = "x86_64")]
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq, Eq)]
 pub enum RestoreStateError {
-    #[error("{0}")]
+    /// {0}
     SetPit2(kvm_ioctls::Error),
-    /// SetClock.
-    #[error("{0}")]
+    /// {0}
     SetClock(kvm_ioctls::Error),
-    /// SetIrqChipPicMaster.
-    #[error("{0}")]
+    /// {0}
     SetIrqChipPicMaster(kvm_ioctls::Error),
-    /// SetIrqChipPicSlave.
-    #[error("{0}")]
+    /// {0}
     SetIrqChipPicSlave(kvm_ioctls::Error),
-    /// SetIrqChipIoAPIC.
-    #[error("{0}")]
+    /// {0}
     SetIrqChipIoAPIC(kvm_ioctls::Error),
-    /// Vm Error
-    #[error("{0}")]
+    /// {0}
     VmError(VmError),
 }
 
 /// Error type for [`Vm::restore_state`]
 #[cfg(target_arch = "aarch64")]
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum RestoreStateError {
-    /// GIC Error
-    #[error("{0}")]
+    /// {0}
     GicError(crate::arch::aarch64::gic::GicError),
-    /// Vm Error
-    #[error("{0}")]
+    /// {0}
     VmError(VmError),
 }
 

@@ -10,59 +10,37 @@ use crate::cpu_config::x86_64::cpuid::{
 };
 
 /// Error type for [`IntelCpuid::normalize`].
-#[derive(Debug, thiserror::Error, Eq, PartialEq)]
+#[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
 pub enum NormalizeCpuidError {
-    /// Failed to set deterministic cache leaf.
-    #[error("Failed to set deterministic cache leaf: {0}")]
+    /// Failed to set deterministic cache leaf: {0}
     DeterministicCache(#[from] DeterministicCacheError),
     /// Leaf 0x6 is missing from CPUID.
-    #[error("Leaf 0x6 is missing from CPUID.")]
     MissingLeaf6,
     /// Leaf 0x7 / subleaf 0 is missing from CPUID.
-    #[error("Leaf 0x7 / subleaf 0 is missing from CPUID.")]
     MissingLeaf7,
     /// Leaf 0xA is missing from CPUID.
-    #[error("Leaf 0xA is missing from CPUID.")]
     MissingLeafA,
-    /// Failed to get brand string.
-    #[error("Failed to get brand string: {0}")]
+    /// Failed to get brand string: {0}
     GetBrandString(DefaultBrandStringError),
-    /// Failed to set brand string.
-    #[error("Failed to set brand string: {0}")]
+    /// Failed to set brand string: {0}
     ApplyBrandString(MissingBrandStringLeaves),
 }
 
 /// Error type for setting leaf 4 section of `IntelCpuid::normalize`.
+// `displaydoc::Display` does not support multi-line comments, `rustfmt` will format these comments
+// across multiple lines, so we skip formatting here. This can be removed when
+// https://github.com/yaahc/displaydoc/issues/44 is resolved.
+#[rustfmt::skip]
 #[allow(clippy::enum_variant_names)]
-#[derive(Debug, thiserror::Error, Eq, PartialEq)]
+#[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
 pub enum DeterministicCacheError {
-    /// Failed to set `Maximum number of addressable IDs for logical processors sharing this
-    /// cache` due to underflow in cpu count.
-    #[error(
-        "Failed to set `Maximum number of addressable IDs for logical processors sharing this \
-         cache` due to underflow in cpu count."
-    )]
+    /// Failed to set `Maximum number of addressable IDs for logical processors sharing this cache` due to underflow in cpu count.
     MaxCpusPerCoreUnderflow,
-    /// Failed to set `Maximum number of addressable IDs for logical processors sharing this
-    /// cache`.
-    #[error(
-        "Failed to set `Maximum number of addressable IDs for logical processors sharing this \
-         cache`: {0}"
-    )]
+    /// Failed to set `Maximum number of addressable IDs for logical processors sharing this cache`: {0}.
     MaxCpusPerCore(CheckedAssignError),
-    /// Failed to set `Maximum number of addressable IDs for processor cores in the physical
-    /// package` due to underflow in cores
-    #[error(
-        "Failed to set `Maximum number of addressable IDs for processor cores in the physical \
-         package` due to underflow in cores."
-    )]
+    /// Failed to set `Maximum number of addressable IDs for processor cores in the physical package` due to underflow in cores.
     MaxCorePerPackageUnderflow,
-    /// Failed to set `Maximum number of addressable IDs for processor cores in the physical
-    /// package`.
-    #[error(
-        "Failed to set `Maximum number of addressable IDs for processor cores in the physical \
-         package`: {0}"
-    )]
+    /// Failed to set `Maximum number of addressable IDs for processor cores in the physical package`: {0}.
     MaxCorePerPackage(CheckedAssignError),
 }
 
@@ -250,16 +228,13 @@ impl super::IntelCpuid {
 }
 
 /// Error type for [`IntelCpuid::default_brand_string`].
-#[derive(Debug, Eq, PartialEq, thiserror::Error)]
+#[derive(Debug, Eq, PartialEq, thiserror::Error, displaydoc::Display)]
 pub enum DefaultBrandStringError {
-    /// Missing frequency.
-    #[error("Missing frequency: {0:?}.")]
+    /// Missing frequency: {0:?}.
     MissingFrequency([u8; BRAND_STRING_LENGTH]),
-    /// Missing space.
-    #[error("Missing space: {0:?}.")]
+    /// Missing space: {0:?}.
     MissingSpace([u8; BRAND_STRING_LENGTH]),
     /// Insufficient space in brand string.
-    #[error("Insufficient space in brand string.")]
     Overflow,
 }
 

@@ -28,13 +28,11 @@ pub(super) const FIRECRACKER_MAX_QUEUE_SIZE: u16 = 256;
 // The Virtio Spec 1.0 defines the alignment of VirtIO descriptor is 16 bytes,
 // which fulfills the explicit constraint of GuestMemoryMmap::read_obj_from_addr().
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum QueueError {
-    /// Descriptor index out of bounds.
-    #[error("Descriptor index out of bounds: {0}.")]
+    /// Descriptor index out of bounds: {0}.
     DescIndexOutOfBounds(u16),
-    /// Attempted an invalid write into the used ring.
-    #[error("Failed to write value into the virtio queue used ring: {0}")]
+    /// Failed to write value into the virtio queue used ring: {0}
     UsedRing(#[from] GuestMemoryError),
 }
 

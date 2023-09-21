@@ -29,13 +29,11 @@ impl From<&Entropy> for EntropyDeviceConfig {
 
 /// Errors that can occur while handling configuration for
 /// an entropy device
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum EntropyDeviceError {
-    /// Error while create an entropy device
-    #[error("Could not create Entropy device: {0}")]
+    /// Could not create Entropy device: {0}
     CreateDevice(#[from] EntropyError),
-    /// Error while creating rate limiter from configuration
-    #[error("Could not create RateLimiter from configuration: {0}")]
+    /// Could not create RateLimiter from configuration: {0}
     CreateRateLimiter(#[from] std::io::Error),
 }
 

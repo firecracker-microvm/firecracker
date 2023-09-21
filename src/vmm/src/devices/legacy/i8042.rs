@@ -13,16 +13,13 @@ use logger::{IncMetric, METRICS};
 use utils::eventfd::EventFd;
 
 /// Errors thrown by the i8042 device.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum I8042Error {
-    /// Internal i8042 buffer is full.
-    #[error("i8042 internal buffer full.")]
+    /// i8042 internal buffer full.
     InternalBufferFull,
-    /// Failure in triggering the keyboard interrupt.
-    #[error("Keyboard interrupt disabled by guest driver.")]
+    /// Keyboard interrupt disabled by guest driver.
     KbdInterruptDisabled,
-    /// Failure in triggering the keyboard interrupt (guest disabled).
-    #[error("Could not trigger keyboard interrupt: {0}.")]
+    /// Could not trigger keyboard interrupt: {0}.
     KbdInterruptFailure(io::Error),
 }
 

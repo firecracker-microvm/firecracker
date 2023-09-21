@@ -159,13 +159,13 @@ fn compile(args: &Arguments) -> Result<(), SeccompError> {
     Ok(())
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 enum SeccompilerError {
-    #[error("Argument Parsing Error: {0}")]
+    /// Argument Parsing Error: {0}
     ArgParsing(ArgParserError),
-    #[error("{0} \n\nFor more information try --help.")]
+    /// {0} \n\nFor more information try --help.
     InvalidArgumentValue(SeccompError),
-    #[error("{0}")]
+    /// {0}
     Error(SeccompError),
 }
 

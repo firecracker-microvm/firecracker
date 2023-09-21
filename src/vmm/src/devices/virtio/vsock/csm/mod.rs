@@ -23,16 +23,13 @@ pub mod defs {
     pub const CONN_SHUTDOWN_TIMEOUT_MS: u64 = 2000;
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum VsockCsmError {
-    /// Attempted to push data to a full TX buffer.
-    #[error("Attempted to push data to a full TX buffer")]
+    /// Attempted to push data to a full TX buffer
     TxBufFull,
-    /// An I/O error occurred, when attempting to flush the connection TX buffer.
-    #[error("An I/O error occurred, when attempting to flush the connection TX buffer: {0}")]
+    /// An I/O error occurred, when attempting to flush the connection TX buffer: {0}
     TxBufFlush(std::io::Error),
-    /// An I/O error occurred, when attempting to write data to the host-side stream.
-    #[error("An I/O error occurred, when attempting to write data to the host-side stream: {0}")]
+    /// An I/O error occurred, when attempting to write data to the host-side stream: {0}
     StreamWrite(std::io::Error),
 }
 

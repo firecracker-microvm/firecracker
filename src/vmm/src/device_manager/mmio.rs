@@ -32,34 +32,25 @@ use crate::devices::virtio::{
 use crate::devices::BusDevice;
 
 /// Errors for MMIO device manager.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum MmioError {
-    /// Allocation logic error.
-    #[error("Failed to allocate requested resource: {0}")]
+    /// Failed to allocate requested resource: {0}
     Allocator(vm_allocator::Error),
-    /// Failed to insert device on the bus.
-    #[error("Failed to insert device on the bus: {0}")]
+    /// Failed to insert device on the bus: {0}
     BusInsert(crate::devices::BusError),
-    /// Appending to kernel command line failed.
-    #[error("Failed to allocate requested resourc: {0}")]
+    /// Failed to allocate requested resourc: {0}
     Cmdline(linux_loader::cmdline::Error),
-    /// The device couldn't be found on the bus.
-    #[error("Failed to find the device on the bus.")]
+    /// Failed to find the device on the bus.
     DeviceNotFound,
-    /// Incorrect device type.
-    #[error("Invalid device type found on the MMIO bus.")]
+    /// Invalid device type found on the MMIO bus.
     InvalidDeviceType,
-    /// Internal device error.
-    #[error("{0}")]
+    /// {0}
     InternalDeviceError(String),
-    /// Invalid configuration attempted.
-    #[error("Invalid MMIO IRQ configuration.")]
+    /// Invalid MMIO IRQ configuration.
     InvalidIrqConfig,
-    /// Registering an IO Event failed.
-    #[error("Failed to register IO event: {0}")]
+    /// Failed to register IO event: {0}
     RegisterIoEvent(kvm_ioctls::Error),
-    /// Registering an IRQ FD failed.
-    #[error("Failed to register irqfd: {0}")]
+    /// Failed to register irqfd: {0}
     RegisterIrqFd(kvm_ioctls::Error),
 }
 

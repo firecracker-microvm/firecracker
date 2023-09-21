@@ -11,6 +11,7 @@ name = "rebase-snap"
 bench = false
 
 [dependencies]
+displaydoc = "0.2.4"
 libc = "0.2.148"
 thiserror = "1.0.48"
 

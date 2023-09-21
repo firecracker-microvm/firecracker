@@ -16,6 +16,7 @@ derive_more = { version = "0.99.17", default-features = false, features = ["from
 serde = { version = "1.0.136", features = ["derive"] }
 serde_json = "1.0.78"
 thiserror = "1.0.32"
+displaydoc = "0.2.4"
 versionize = "0.1.10"
 versionize_derive = "0.1.5"
 

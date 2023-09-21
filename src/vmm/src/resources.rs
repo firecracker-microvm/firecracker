@@ -29,46 +29,33 @@ use crate::vmm_config::net::*;
 use crate::vmm_config::vsock::*;
 
 /// Errors encountered when configuring microVM resources.
-#[derive(Debug, thiserror::Error, derive_more::From)]
+#[derive(Debug, thiserror::Error, displaydoc::Display, derive_more::From)]
 pub enum ResourcesError {
-    /// Balloon device configuration error.
-    #[error("Balloon device error: {0}")]
+    /// Balloon device error: {0}
     BalloonDevice(BalloonConfigError),
-    /// Block device configuration error.
-    #[error("Block device error: {0}")]
+    /// Block device error: {0}
     BlockDevice(DriveError),
-    /// Boot source configuration error.
-    #[error("Boot source error: {0}")]
+    /// Boot source error: {0}
     BootSource(BootSourceConfigError),
-    /// File operation error.
-    #[error("File operation error: {0}")]
+    /// File operation error: {0}
     File(std::io::Error),
-    /// JSON is invalid.
-    #[error("Invalid JSON: {0}")]
+    /// Invalid JSON: {0}
     InvalidJson(serde_json::Error),
-    /// Logger configuration error.
-    #[error("Logger error: {0}")]
+    /// Logger error: {0}
     Logger(LoggerConfigError),
-    /// Metrics system configuration error.
-    #[error("Metrics error: {0}")]
+    /// Metrics error: {0}
     Metrics(MetricsConfigError),
-    /// MMDS error.
-    #[error("MMDS error: {0}")]
+    /// MMDS error: {0}
     Mmds(mmds::data_store::Error),
-    /// MMDS configuration error.
-    #[error("MMDS config error: {0}")]
+    /// MMDS config error: {0}
     MmdsConfig(MmdsConfigError),
-    /// Net device configuration error.
-    #[error("Network device error: {0}")]
+    /// Network device error: {0}
     NetDevice(NetworkInterfaceError),
-    /// microVM vCpus or memory configuration error.
-    #[error("VM config error: {0}")]
+    /// VM config error: {0}
     VmConfig(VmConfigError),
-    /// Vsock device configuration error.
-    #[error("Vsock device error: {0}")]
+    /// Vsock device error: {0}
     VsockDevice(VsockConfigError),
-    /// Entropy device configuration error.
-    #[error("Entropy device error: {0}")]
+    /// Entropy device error: {0}
     EntropyDevice(EntropyDeviceError),
 }
 

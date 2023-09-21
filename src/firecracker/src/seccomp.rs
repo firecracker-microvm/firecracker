@@ -17,19 +17,15 @@ const THREAD_CATEGORIES: [&str; 3] = ["vmm", "api", "vcpu"];
 const DESERIALIZATION_BYTES_LIMIT: Option<u64> = Some(100_000);
 
 /// Error retrieving seccomp filters.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum FilterError {
-    /// Filter deserialitaion error.
-    #[error("Filter deserialization failed: {0}")]
+    /// Filter deserialization failed: {0}
     Deserialization(DeserializationError),
-    /// Invalid thread categories.
-    #[error("Invalid thread categories: {0}")]
+    /// Invalid thread categories: {0}
     ThreadCategories(String),
-    /// Missing Thread Category.
-    #[error("Missing thread category: {0}")]
+    /// Missing thread category: {0}
     MissingThreadCategory(String),
-    /// File open error.
-    #[error("Filter file open error: {0}")]
+    /// Filter file open error: {0}
     FileOpen(std::io::Error),
 }
 

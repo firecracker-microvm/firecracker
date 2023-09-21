@@ -17,19 +17,15 @@ use super::templates::CustomCpuTemplate;
 use crate::cpu_config::x86_64::cpuid::{Cpuid, CpuidKey};
 
 /// Errors thrown while configuring templates.
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
 pub enum CpuConfigurationError {
-    /// Failure in processing the CPUID in template for x86_64 CPU configuration.
-    #[error("Template changes a CPUID entry not supported by KVM: Leaf: {0:0x}, Subleaf: {1:0x}")]
+    /// Template changes a CPUID entry not supported by KVM: Leaf: {0:0x}, Subleaf: {1:0x}
     CpuidFeatureNotSupported(u32, u32),
-    /// Failure in processing the MSRs in template for x86_64 CPU configuration.
-    #[error("Template changes an MSR entry not supported by KVM: Register Address: {0:0x}")]
+    /// Template changes an MSR entry not supported by KVM: Register Address: {0:0x}
     MsrNotSupported(u32),
-    /// Can create cpuid from raw.
-    #[error("Can create cpuid from raw: {0}")]
+    /// Can create cpuid from raw: {0}
     CpuidFromKvmCpuid(crate::cpu_config::x86_64::cpuid::CpuidTryFromKvmCpuid),
-    /// KVM vcpu ioctls failed.
-    #[error("KVM vcpu ioctl failed: {0}")]
+    /// KVM vcpu ioctl failed: {0}
     VcpuIoctl(crate::vstate::vcpu::KvmVcpuError),
 }
 

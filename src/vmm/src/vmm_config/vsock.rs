@@ -11,13 +11,11 @@ use crate::devices::virtio::{Vsock, VsockError, VsockUnixBackend, VsockUnixBacke
 type MutexVsockUnix = Arc<Mutex<Vsock<VsockUnixBackend>>>;
 
 /// Errors associated with `NetworkInterfaceConfig`.
-#[derive(Debug, derive_more::From, thiserror::Error)]
+#[derive(Debug, derive_more::From, thiserror::Error, displaydoc::Display)]
 pub enum VsockConfigError {
-    /// Failed to create the backend for the vsock device.
-    #[error("Cannot create backend for vsock device: {0:?}")]
+    /// Cannot create backend for vsock device: {0:?}
     CreateVsockBackend(VsockUnixBackendError),
-    /// Failed to create the vsock device.
-    #[error("Cannot create vsock device: {0:?}")]
+    /// Cannot create vsock device: {0:?}
     CreateVsockDevice(VsockError),
 }
 

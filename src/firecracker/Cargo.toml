@@ -13,6 +13,7 @@ name = "firecracker"
 bench = false
 
 [dependencies]
+displaydoc = "0.2.4"
 event-manager = "0.3.0"
 libc = "0.2.148"
 serde_json = "1.0.107"

@@ -19,34 +19,25 @@ const PDPTE_START: u64 = 0xa000;
 const PDE_START: u64 = 0xb000;
 
 /// Errors thrown while setting up x86_64 registers.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq, Eq)]
 pub enum RegsError {
-    /// Failed to get SREGs for this CPU.
-    #[error("Failed to get SREGs for this CPU: {0}")]
+    /// Failed to get SREGs for this CPU: {0}
     GetStatusRegisters(kvm_ioctls::Error),
-    /// Failed to set base registers for this CPU.
-    #[error("Failed to set base registers for this CPU: {0}")]
+    /// Failed to set base registers for this CPU: {0}
     SetBaseRegisters(kvm_ioctls::Error),
-    /// Failed to configure the FPU.
-    #[error("Failed to configure the FPU: {0}")]
+    /// Failed to configure the FPU: {0}
     SetFPURegisters(kvm_ioctls::Error),
-    /// Failed to set SREGs for this CPU.
-    #[error("Failed to set SREGs for this CPU: {0}")]
+    /// Failed to set SREGs for this CPU: {0}
     SetStatusRegisters(kvm_ioctls::Error),
     /// Writing the GDT to RAM failed.
-    #[error("Writing the GDT to RAM failed.")]
     WriteGDT,
-    /// Writing the IDT to RAM failed.
-    #[error("Writing the IDT to RAM failed")]
+    /// Writing the IDT to RAM failed
     WriteIDT,
-    /// Writing PDPTE to RAM failed.
-    #[error("WritePDPTEAddress")]
+    /// WritePDPTEAddress
     WritePDPTEAddress,
-    /// Writing PDE to RAM failed.
-    #[error("WritePDEAddress")]
+    /// WritePDEAddress
     WritePDEAddress,
-    /// Writing PML4 to RAM failed.
-    #[error("WritePML4Address")]
+    /// WritePML4Address
     WritePML4Address,
 }
 
@@ -109,19 +100,15 @@ pub fn setup_regs(vcpu: &VcpuFd, boot_ip: u64) -> Result<(), SetupRegistersError
 }
 
 /// Error type for [`setup_sregs`].
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq, Eq)]
 pub enum SetupSpecialRegistersError {
-    /// Failed to get special registers
-    #[error("Failed to get special registers: {0}")]
+    /// Failed to get special registers: {0}
     GetSpecialRegisters(utils::errno::Error),
-    /// Failed to configure segments and special registers
-    #[error("Failed to configure segments and special registers: {0}")]
+    /// Failed to configure segments and special registers: {0}
     ConfigureSegmentsAndSpecialRegisters(RegsError),
-    /// Failed to setup page tables
-    #[error("Failed to setup page tables: {0}")]
+    /// Failed to setup page tables: {0}
     SetupPageTables(RegsError),
-    /// Failed to set special registers
-    #[error("Failed to set special registers: {0}")]
+    /// Failed to set special registers: {0}
     SetSpecialRegisters(utils::errno::Error),
 }
 

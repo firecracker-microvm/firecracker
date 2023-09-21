@@ -9,21 +9,21 @@ use std::path::PathBuf;
 use clap::Subcommand;
 use fc_utils::seek_hole::SeekHole;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum EditMemoryError {
-    #[error("Could not open memory file: {0}")]
+    /// Could not open memory file: {0}
     OpenMemoryFile(std::io::Error),
-    #[error("Could not open diff file: {0}")]
+    /// Could not open diff file: {0}
     OpenDiffFile(std::io::Error),
-    #[error("Failed to seek data in diff file: {0}")]
+    /// Failed to seek data in diff file: {0}
     SeekDataDiff(std::io::Error),
-    #[error("Failed to seek hole in diff file: {0}")]
+    /// Failed to seek hole in diff file: {0}
     SeekHoleDiff(std::io::Error),
-    #[error("Failed to get metadata for diff file: {0}")]
+    /// Failed to get metadata for diff file: {0}
     MetadataDiff(std::io::Error),
-    #[error("Failed to seek in memory file: {0}")]
+    /// Failed to seek in memory file: {0}
     SeekMemory(std::io::Error),
-    #[error("Failed to send the file: {0:?}")]
+    /// Failed to send the file: {0:?}
     SendFile(std::io::Error),
 }
 

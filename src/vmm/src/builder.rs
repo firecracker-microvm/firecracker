@@ -379,54 +379,39 @@ pub fn build_and_boot_microvm(
 }
 
 /// Error type for [`build_microvm_from_snapshot`].
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BuildMicrovmFromSnapshotError {
-    /// Failed to create microVM and vCPUs.
-    #[error("Failed to create microVM and vCPUs: {0}")]
+    /// Failed to create microVM and vCPUs: {0}
     CreateMicrovmAndVcpus(#[from] StartMicrovmError),
     /// Only 255 vCPU state are supported, but {0} states where given.
-    #[error("Only 255 vCPU state are supported, but {0} states where given.")]
     TooManyVCPUs(usize),
-    /// Could not access KVM.
-    #[error("Could not access KVM: {0}")]
+    /// Could not access KVM: {0}
     KvmAccess(#[from] utils::errno::Error),
     /// Error configuring the TSC, frequency not present in the given snapshot.
-    #[error("Error configuring the TSC, frequency not present in the given snapshot.")]
     TscFrequencyNotPresent,
-    /// Could not get TSC to check if TSC scaling was required with the snapshot.
     #[cfg(target_arch = "x86_64")]
-    #[error("Could not get TSC to check if TSC scaling was required with the snapshot: {0}")]
+    /// Could not get TSC to check if TSC scaling was required with the snapshot: {0}
     GetTsc(#[from] crate::vstate::vcpu::GetTscError),
-    /// Could not set TSC scaling within the snapshot.
     #[cfg(target_arch = "x86_64")]
-    #[error("Could not set TSC scaling within the snapshot: {0}")]
+    /// Could not set TSC scaling within the snapshot: {0}
     SetTsc(#[from] crate::vstate::vcpu::SetTscError),
-    /// Failed to restore microVM state.
-    #[error("Failed to restore microVM state: {0}")]
+    /// Failed to restore microVM state: {0}
     RestoreState(#[from] crate::vstate::vm::RestoreStateError),
-    /// Failed to update microVM configuration.
-    #[error("Failed to update microVM configuration: {0}")]
+    /// Failed to update microVM configuration: {0}
     VmUpdateConfig(#[from] VmConfigError),
-    /// Failed to restore MMIO device.
-    #[error("Failed to restore MMIO device: {0}")]
+    /// Failed to restore MMIO device: {0}
     RestoreMmioDevice(#[from] MicrovmStateError),
-    /// Failed to emulate MMIO serial.
-    #[error("Failed to emulate MMIO serial: {0}")]
+    /// Failed to emulate MMIO serial: {0}
     EmulateSerialInit(#[from] crate::EmulateSerialInitError),
     /// Failed to start vCPUs as no vCPU seccomp filter found.
-    #[error("Failed to start vCPUs as no vCPU seccomp filter found.")]
     MissingVcpuSeccompFilters,
-    /// Failed to start vCPUs.
-    #[error("Failed to start vCPUs: {0}")]
+    /// Failed to start vCPUs: {0}
     StartVcpus(#[from] crate::StartVcpusError),
-    /// Failed to restore vCPUs.
-    #[error("Failed to restore vCPUs: {0}")]
+    /// Failed to restore vCPUs: {0}
     RestoreVcpus(#[from] RestoreVcpusError),
     /// Failed to apply VMM secccomp filter as none found.
-    #[error("Failed to apply VMM secccomp filter as none found.")]
     MissingVmmSeccompFilters,
-    /// Failed to apply VMM secccomp filter.
-    #[error("Failed to apply VMM secccomp filter: {0}")]
+    /// Failed to apply VMM secccomp filter: {0}
     SeccompFiltersInternal(#[from] seccompiler::InstallationError),
 }
 

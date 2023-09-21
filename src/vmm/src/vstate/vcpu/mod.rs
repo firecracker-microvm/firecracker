@@ -44,31 +44,23 @@ pub use x86_64::{KvmVcpuError, *};
 pub const VCPU_RTSIG_OFFSET: i32 = 0;
 
 /// Errors associated with the wrappers over KVM ioctls.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum VcpuError {
-    /// Error creating vcpu config.
-    #[error("Error creating vcpu config: {0}")]
+    /// Error creating vcpu config: {0}
     VcpuConfig(GuestConfigError),
-    /// Error triggered by the KVM subsystem.
-    #[error("Received error signaling kvm exit: {0}")]
+    /// Received error signaling kvm exit: {0}
     FaultyKvmExit(String),
-    /// Failed to signal Vcpu.
-    #[error("Failed to signal vcpu: {0}")]
+    /// Failed to signal vcpu: {0}
     SignalVcpu(utils::errno::Error),
-    /// Kvm Exit is not handled by our implementation.
-    #[error("Unexpected kvm exit received: {0}")]
+    /// Unexpected kvm exit received: {0}
     UnhandledKvmExit(String),
-    /// Wrapper over error triggered by some vcpu action.
-    #[error("Failed to run action on vcpu: {0}")]
+    /// Failed to run action on vcpu: {0}
     VcpuResponse(KvmVcpuError),
-    /// Cannot spawn a new vCPU thread.
-    #[error("Cannot spawn a new vCPU thread: {0}")]
+    /// Cannot spawn a new vCPU thread: {0}
     VcpuSpawn(io::Error),
-    /// Cannot cleanly initialize vcpu TLS.
-    #[error("Cannot clean init vcpu TLS")]
+    /// Cannot clean init vcpu TLS
     VcpuTlsInit,
-    /// Vcpu not present in TLS.
-    #[error("Vcpu not present in TLS")]
+    /// Vcpu not present in TLS
     VcpuTlsNotPresent,
 }
 
