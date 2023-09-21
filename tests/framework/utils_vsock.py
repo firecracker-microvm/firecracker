@@ -104,16 +104,14 @@ def start_guest_echo_server(vm):
     time.sleep(1)
 
 
-def check_host_connections(vm, uds_path, blob_path, blob_hash):
+def check_host_connections(uds_path, blob_path, blob_hash):
     """Test host-initiated connections.
 
-    This will start a daemonized echo server on the guest VM, and then spawn
-    `TEST_CONNECTION_COUNT` `HostEchoWorker` threads.
+    This will spawn `TEST_CONNECTION_COUNT` `HostEchoWorker` threads.
     After the workers are done transferring the data read from `blob_path`,
     the hashes they computed for the data echoed back by the server are
     checked against `blob_hash`.
     """
-    start_guest_echo_server(vm)
 
     workers = []
     for _ in range(TEST_CONNECTION_COUNT):
@@ -234,5 +232,6 @@ def check_vsock_device(vm, bin_vsock_path, test_fc_session_root_path, ssh_connec
     check_guest_connections(vm, path, vm_blob_path, blob_hash)
 
     # Test vsock host-initiated connections.
+    start_guest_echo_server(vm)
     path = os.path.join(vm.jailer.chroot_path(), VSOCK_UDS_PATH)
-    check_host_connections(vm, path, blob_path, blob_hash)
+    check_host_connections(path, blob_path, blob_hash)

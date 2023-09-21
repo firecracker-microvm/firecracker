@@ -78,7 +78,7 @@ def negative_test_host_connections(vm, uds_path, blob_path, blob_hash):
 
     # Validate vsock emulation still accepts connections and works
     # as expected.
-    check_host_connections(vm, uds_path, blob_path, blob_hash)
+    check_host_connections(uds_path, blob_path, blob_hash)
 
 
 def test_vsock_epipe(test_microvm_with_api, bin_vsock_path, test_fc_session_root_path):
@@ -202,4 +202,4 @@ def test_vsock_transport_reset(
 
     # Test host-initiated connections.
     path = os.path.join(vm2.jailer.chroot_path(), VSOCK_UDS_PATH)
-    check_host_connections(vm2, path, blob_path, blob_hash)
+    check_host_connections(path, blob_path, blob_hash)
