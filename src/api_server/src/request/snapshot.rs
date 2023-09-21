@@ -14,6 +14,9 @@ use crate::request::{Body, Method, StatusCode};
 
 /// Deprecation message for the `mem_file_path` field.
 const LOAD_DEPRECATION_MESSAGE: &str = "PUT /snapshot/load: mem_file_path field is deprecated.";
+/// Deprecation message for the `version` field.
+const CREATE_WITH_VERSION_DEPRECATION_MESSAGE: &str =
+    "PUT /snapshot/create: 'version' field is deprecated.";
 /// None of the `mem_backend` or `mem_file_path` fields has been specified.
 pub const MISSING_FIELD: &str =
     "missing field: either `mem_backend` or `mem_file_path` is required";
@@ -28,9 +31,7 @@ pub(crate) fn parse_put_snapshot(
 ) -> Result<ParsedRequest, Error> {
     match request_type_from_path {
         Some(request_type) => match request_type {
-            "create" => Ok(ParsedRequest::new_sync(VmmAction::CreateSnapshot(
-                serde_json::from_slice::<CreateSnapshotParams>(body.raw())?,
-            ))),
+            "create" => parse_put_snapshot_create(body),
             "load" => parse_put_snapshot_load(body),
             _ => Err(Error::InvalidPathMethod(
                 format!("/snapshot/{}", request_type),
@@ -51,6 +52,23 @@ pub(crate) fn parse_patch_vm_state(body: &Body) -> Result<ParsedRequest, Error> 
         VmState::Paused => Ok(ParsedRequest::new_sync(VmmAction::Pause)),
         VmState::Resumed => Ok(ParsedRequest::new_sync(VmmAction::Resume)),
     }
+}
+
+fn parse_put_snapshot_create(body: &Body) -> Result<ParsedRequest, Error> {
+    let snapshot_config = serde_json::from_slice::<CreateSnapshotParams>(body.raw())?;
+    let uses_deprecated_version_field = snapshot_config.version.is_some();
+
+    let mut parsed_req = ParsedRequest::new_sync(VmmAction::CreateSnapshot(snapshot_config));
+    // `version` field is deprecated as a parameter for `CreateSnapshotParams`.
+    // Add a deprecation message if the request includes the parameter.
+    if uses_deprecated_version_field {
+        METRICS.deprecated_api.deprecated_http_api_calls.inc();
+        parsed_req
+            .parsing_info()
+            .append_deprecation_message(CREATE_WITH_VERSION_DEPRECATION_MESSAGE);
+    }
+
+    Ok(parsed_req)
 }
 
 fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, Error> {
@@ -134,8 +152,11 @@ mod tests {
             version: Some(Version::new(0, 23, 0)),
         };
 
-        match vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some("create")).unwrap())
-        {
+        let parsed_request = parse_put_snapshot(&Body::new(body), Some("create")).unwrap();
+        match depr_action_from_req(
+            parsed_request,
+            Some(CREATE_WITH_VERSION_DEPRECATION_MESSAGE.to_string()),
+        ) {
             VmmAction::CreateSnapshot(cfg) => assert_eq!(cfg, expected_cfg),
             _ => panic!("Test failed."),
         }

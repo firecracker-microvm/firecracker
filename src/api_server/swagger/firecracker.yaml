@@ -1179,7 +1179,8 @@ definitions:
         type: string
         description:
           The microVM version for which we want to create the snapshot.
-          It is optional and it defaults to the current version.
+          It is optional and it defaults to the current version. This parameter
+          has been deprecated and it will be removed in future Firecracker release.
 
   SnapshotLoadParams:
     type: object
