@@ -76,6 +76,18 @@ def negative_test_host_connections(vm, uds_path, blob_path, blob_hash):
     # Should fail if Firecracker exited from SIGPIPE handler.
     assert ecode == 0
 
+    metrics = vm.flush_metrics()
+    # Validate that at least 1 `SIGPIPE` signal was received.
+    # Since we are reusing the existing echo server which triggers
+    # reads/writes on the UDS backend connections, these might be closed
+    # before a read() or a write() is about to be performed by the emulation.
+    # The test uses 100 connections it is enough to close at least one
+    # before write().
+    #
+    # If this ever fails due to 100 closes before read() we must
+    # add extra tooling that will trigger only writes().
+    assert metrics["signals"]["sigpipe"] > 0
+
     # Validate vsock emulation still accepts connections and works
     # as expected.
     check_host_connections(uds_path, blob_path, blob_hash)
@@ -104,18 +116,6 @@ def test_vsock_epipe(test_microvm_with_api, bin_vsock_path, test_fc_session_root
     # Negative test for host-initiated connections that
     # are closed with in flight data.
     negative_test_host_connections(vm, path, blob_path, blob_hash)
-
-    metrics = vm.flush_metrics()
-    # Validate that at least 1 `SIGPIPE` signal was received.
-    # Since we are reusing the existing echo server which triggers
-    # reads/writes on the UDS backend connections, these might be closed
-    # before a read() or a write() is about to be performed by the emulation.
-    # The test uses 100 connections it is enough to close at least one
-    # before write().
-    #
-    # If this ever fails due to 100 closes before read() we must
-    # add extra tooling that will trigger only writes().
-    assert metrics["signals"]["sigpipe"] > 0
 
 
 def test_vsock_transport_reset(
