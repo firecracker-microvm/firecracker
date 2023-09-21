@@ -52,7 +52,7 @@ use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::devices::BusDevice;
 #[cfg(target_arch = "aarch64")]
 use crate::logger;
-use crate::logger::error;
+use crate::logger::{debug, error};
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootConfig;
@@ -380,14 +380,16 @@ pub fn build_and_boot_microvm(
     event_manager: &mut EventManager,
     seccomp_filters: &BpfThreadMap,
 ) -> Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
+    debug!("event_start: build microvm for boot");
     let vmm = build_microvm_for_boot(instance_info, vm_resources, event_manager, seccomp_filters)?;
-
+    debug!("event_end: build microvm for boot");
     // The vcpus start off in the `Paused` state, let them run.
+    debug!("event_start: boot microvm");
     vmm.lock()
         .unwrap()
         .resume_vm()
         .map_err(StartMicrovmError::Internal)?;
-
+    debug!("event_end: boot microvm");
     Ok(vmm)
 }
 
@@ -448,6 +450,7 @@ pub fn build_microvm_from_snapshot(
     })?;
 
     // Build Vmm.
+    debug!("event_start: build microvm from snapshot");
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
         event_manager,
@@ -545,6 +548,7 @@ pub fn build_microvm_from_snapshot(
             .get("vmm")
             .ok_or(BuildMicrovmFromSnapshotError::MissingVmmSeccompFilters)?,
     )?;
+    debug!("event_end: build microvm from snapshot");
 
     Ok(vmm)
 }
