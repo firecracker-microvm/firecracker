@@ -94,6 +94,13 @@ def make_blob(dst_dir, size=BLOB_SIZE):
     return blob_path, blob_hash.hexdigest()
 
 
+def start_guest_echo_server(vm):
+    """Start a vsock echo server in the microVM."""
+    cmd = "/tmp/vsock_helper echosrv -d {}".format(ECHO_SERVER_PORT)
+    ecode, _, stderr = vm.ssh.run(cmd)
+    assert ecode == 0, stderr
+
+
 def check_host_connections(vm, uds_path, blob_path, blob_hash):
     """Test host-initiated connections.
 
@@ -103,9 +110,7 @@ def check_host_connections(vm, uds_path, blob_path, blob_hash):
     the hashes they computed for the data echoed back by the server are
     checked against `blob_hash`.
     """
-    cmd = "/tmp/vsock_helper echosrv -d {}".format(ECHO_SERVER_PORT)
-    ecode, _, _ = vm.ssh.run(cmd)
-    assert ecode == 0
+    start_guest_echo_server(vm)
 
     workers = []
     for _ in range(TEST_CONNECTION_COUNT):

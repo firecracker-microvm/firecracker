@@ -27,6 +27,7 @@ from framework.utils_vsock import (
     check_vsock_device,
     make_blob,
     make_host_port_path,
+    start_guest_echo_server,
 )
 
 NEGATIVE_TEST_CONNECTION_COUNT = 100
@@ -59,9 +60,7 @@ def negative_test_host_connections(vm, uds_path, blob_path, blob_hash):
     Closes the UDS sockets while data is in flight.
     """
 
-    cmd = "/tmp/vsock_helper echosrv -d {}".format(ECHO_SERVER_PORT)
-    ecode, _, _ = vm.ssh.run(cmd)
-    assert ecode == 0
+    start_guest_echo_server(vm)
 
     workers = []
     for _ in range(NEGATIVE_TEST_CONNECTION_COUNT):
@@ -153,9 +152,7 @@ def test_vsock_transport_reset(
 
     # Start guest echo server.
     path = os.path.join(test_vm.jailer.chroot_path(), VSOCK_UDS_PATH)
-    cmd = f"/tmp/vsock_helper echosrv -d {ECHO_SERVER_PORT}"
-    ecode, _, _ = test_vm.ssh.run(cmd)
-    assert ecode == 0
+    start_guest_echo_server(test_vm)
 
     # Start host workers that connect to the guest server.
     workers = []
