@@ -89,7 +89,8 @@ def negative_test_host_connections(vm, uds_path, blob_path, blob_hash):
     assert metrics["signals"]["sigpipe"] > 0
 
     # Validate vsock emulation still accepts connections and works
-    # as expected.
+    # as expected. Use the default blob size to speed up the test.
+    blob_path, blob_hash = make_blob(os.path.dirname(blob_path))
     check_host_connections(uds_path, blob_path, blob_hash)
 
 
