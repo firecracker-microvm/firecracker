@@ -81,7 +81,7 @@ const SECCOMP_DATA_ARG_SIZE: u8 = 8;
 
 /// Dummy placeholder type for a JSON comment. Holds no value.
 #[derive(PartialEq, Debug, Clone)]
-pub(crate) struct Comment;
+pub struct Comment;
 
 impl<'de> Deserialize<'de> for Comment {
     fn deserialize<D>(_deserializer: D) -> std::result::Result<Comment, D::Error>
@@ -96,7 +96,7 @@ impl<'de> Deserialize<'de> for Comment {
 
 /// Seccomp filter errors.
 #[derive(Debug, PartialEq, thiserror::Error, displaydoc::Display)]
-pub(crate) enum FilterError {
+pub enum FilterError {
     /// The seccomp rules vector is empty.
     EmptyRulesVector,
     /// The seccomp filter contains too many BPF instructions.
@@ -112,7 +112,7 @@ pub(crate) enum FilterError {
 /// Supported target architectures.
 #[allow(non_camel_case_types)]
 #[derive(Debug, PartialEq, Clone, Copy)]
-pub(crate) enum TargetArch {
+pub enum TargetArch {
     /// x86_64 arch
     x86_64,
     /// aarch64 arch
@@ -121,7 +121,7 @@ pub(crate) enum TargetArch {
 
 /// Errors related to target arch.
 #[derive(Debug, PartialEq, thiserror::Error, displaydoc::Display)]
-pub(crate) enum TargetArchError {
+pub enum TargetArchError {
     /// Invalid target arch string: {0}
     InvalidString(String),
 }
@@ -164,7 +164,7 @@ impl From<TargetArch> for &str {
 /// Comparison to perform when matching a condition.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum SeccompCmpOp {
+pub enum SeccompCmpOp {
     /// Argument value is equal to the specified value.
     Eq,
     /// Argument value is greater than or equal to the specified value.
@@ -184,7 +184,7 @@ pub(crate) enum SeccompCmpOp {
 /// Seccomp argument value length.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum SeccompCmpArgLen {
+pub enum SeccompCmpArgLen {
     /// Argument value length is 4 bytes.
     Dword,
     /// Argument value length is 8 bytes.
@@ -194,7 +194,7 @@ pub(crate) enum SeccompCmpArgLen {
 /// Condition that syscall must match in order to satisfy a rule.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct SeccompCondition {
+pub struct SeccompCondition {
     /// Index of the argument that is to be compared.
     #[serde(rename = "index")]
     arg_number: u8,
@@ -214,7 +214,7 @@ pub(crate) struct SeccompCondition {
 /// Actions that `seccomp` can apply to process calling a syscall.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum SeccompAction {
+pub enum SeccompAction {
     /// Allows syscall.
     Allow,
     /// Returns from syscall with specified error number.
@@ -237,7 +237,7 @@ pub(crate) enum SeccompAction {
 /// The action of the first rule that matches will be applied to the calling process.
 /// If no rule matches the default action is applied.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct SeccompRule {
+pub struct SeccompRule {
     /// Conditions of rule that need to match in order for the rule to get matched.
     conditions: Vec<SeccompCondition>,
     /// Action applied to calling process if rule gets matched.
@@ -245,11 +245,11 @@ pub(crate) struct SeccompRule {
 }
 
 /// Type that associates the syscall number to its SeccompRules.
-pub(crate) type SeccompRuleMap = BTreeMap<i64, Vec<SeccompRule>>;
+pub type SeccompRuleMap = BTreeMap<i64, Vec<SeccompRule>>;
 
 /// Filter containing rules assigned to syscall numbers.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct SeccompFilter {
+pub struct SeccompFilter {
     /// Map of syscall numbers and corresponding rule chains.
     rules: SeccompRuleMap,
     /// Default action to apply to syscall numbers that do not exist in the hash map.

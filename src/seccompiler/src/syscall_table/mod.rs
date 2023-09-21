@@ -10,7 +10,7 @@ use crate::backend::TargetArch;
 
 /// Creates and owns a mapping from the arch-specific syscall name to the right number.
 #[derive(Debug)]
-pub(crate) struct SyscallTable {
+pub struct SyscallTable {
     map: HashMap<String, i64>,
     arch: TargetArch,
 }
@@ -19,6 +19,7 @@ pub(crate) struct SyscallTable {
 const MAP_CAPACITY: usize = 351;
 
 impl SyscallTable {
+    /// Create new syscall table
     pub fn new(arch: TargetArch) -> Self {
         let mut instance = Self {
             arch,
