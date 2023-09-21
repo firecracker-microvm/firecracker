@@ -3,7 +3,7 @@ name = "firecracker"
 version = "1.5.0-dev"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2021"
-build = "../../build.rs"
+build = "build.rs"
 description = "Firecracker enables you to deploy workloads in lightweight virtual machines, called microVMs, which provide enhanced security and workload isolation over traditional VMs, while enabling the speed and resource efficiency of containers."
 homepage = "https://firecracker-microvm.github.io/"
 license = "Apache-2.0"
@@ -35,6 +35,12 @@ regex = { version = "1.9.5", default-features = false, features = ["std", "unico
 # Dev-Dependencies for uffd examples
 serde = { version = "1.0.188", features = ["derive"] }
 userfaultfd = "0.6.1"
+
+[build-dependencies]
+bincode = "1.2.1"
+seccompiler = { path = "../seccompiler" }
+serde = { version = "1.0.188" }
+serde_json = "1.0.107"
 
 [[example]]
 name = "uffd_malicious_handler"
