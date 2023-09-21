@@ -374,7 +374,7 @@ First, make the test fail and drop you into PDB. For example:
 Then,
 
 ```
-ipdb> test_microvm.gdbserver()
+ipdb> test_microvm.help.gdbserver()
 ```
 
 You get some instructions on how to run GDB to attach to gdbserver.
