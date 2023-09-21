@@ -96,7 +96,7 @@ def make_blob(dst_dir, size=BLOB_SIZE):
 
 def start_guest_echo_server(vm):
     """Start a vsock echo server in the microVM."""
-    cmd = "/tmp/vsock_helper echosrv -d {}".format(ECHO_SERVER_PORT)
+    cmd = f"nohup socat VSOCK-LISTEN:{ECHO_SERVER_PORT},backlog=128,reuseaddr,fork EXEC:'/bin/cat' > /dev/null 2>&1 &"
     ecode, _, stderr = vm.ssh.run(cmd)
     assert ecode == 0, stderr
 

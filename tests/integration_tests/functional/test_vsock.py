@@ -4,8 +4,7 @@
 
 In order to test the vsock device connection state machine, these tests will:
 - Generate a 20MiB random data blob;
-- Use `host_tools/vsock_helper.c` to start a listening echo server inside the
-  guest VM;
+- Use `socat` to start a listening echo server inside the guest VM;
 - Run 50, concurrent, host-initiated connections, each transfering the random
   blob to and from the guest echo server;
 - For every connection, check that the data received back from the echo server
@@ -173,8 +172,8 @@ def test_vsock_transport_reset(
         # Whatever we send to the server, it should return the same
         # value.
         buf = bytearray("TEST\n".encode("utf-8"))
-        worker.sock.send(buf)
         try:
+            worker.sock.send(buf)
             # Arbitrary timeout, we set this so the socket won't block as
             # it shouldn't receive anything.
             worker.sock.settimeout(0.25)
@@ -184,7 +183,7 @@ def test_vsock_transport_reset(
                 assert False, "Connection not closed: response recieved '{}'".format(
                     response.decode("utf-8")
                 )
-        except SocketTimeout:
+        except (SocketTimeout, ConnectionResetError, BrokenPipeError):
             assert True
 
     # Terminate VM.
