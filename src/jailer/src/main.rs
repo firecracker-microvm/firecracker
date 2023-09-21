@@ -18,7 +18,7 @@ mod chroot;
 mod env;
 mod resource_limits;
 
-const JAILER_VERSION: &str = env!("FIRECRACKER_VERSION");
+const JAILER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, thiserror::Error)]
 pub enum JailerError {

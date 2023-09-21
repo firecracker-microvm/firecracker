@@ -3,7 +3,6 @@ name = "cpu-template-helper"
 version = "1.5.0-dev"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2021"
-build = "../../build.rs"
 license = "Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
