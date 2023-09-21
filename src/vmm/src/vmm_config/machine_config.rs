@@ -40,8 +40,8 @@ pub struct MachineConfig {
     #[serde(default, deserialize_with = "deserialize_smt")]
     pub smt: bool,
     /// A CPU template that it is used to filter the CPU features exposed to the guest.
-    #[serde(default, skip_serializing_if = "StaticCpuTemplate::is_none")]
-    pub cpu_template: StaticCpuTemplate,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_template: Option<StaticCpuTemplate>,
     /// Enables or disables dirty page tracking. Enabling allows incremental snapshots.
     #[serde(default)]
     pub track_dirty_pages: bool,
@@ -122,7 +122,7 @@ impl From<MachineConfig> for MachineConfigUpdate {
             vcpu_count: Some(cfg.vcpu_count),
             mem_size_mib: Some(cfg.mem_size_mib),
             smt: Some(cfg.smt),
-            cpu_template: Some(cfg.cpu_template),
+            cpu_template: cfg.cpu_template,
             track_dirty_pages: Some(cfg.track_dirty_pages),
         }
     }
@@ -212,7 +212,7 @@ impl From<&VmConfig> for MachineConfig {
             vcpu_count: value.vcpu_count,
             mem_size_mib: value.mem_size_mib,
             smt: value.smt,
-            cpu_template: (&value.cpu_template).into(),
+            cpu_template: value.cpu_template.as_ref().map(|template| template.into()),
             track_dirty_pages: value.track_dirty_pages,
         }
     }

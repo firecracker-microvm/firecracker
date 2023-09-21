@@ -48,6 +48,11 @@
 - Added support for the /dev/userfaultfd device available on linux kernels >=
   6.1. This is the default for creating UFFD handlers on these kernel versions.
   If it is unavailable, Firecracker falls back to the userfaultfd syscall.
+- Deprecated `cpu_template` field in `PUT` and `PATCH` requests on `/machine-config`
+  API, which is used to set a static CPU template. Custom CPU templates added in
+  v1.4.0 are available as an improved iteration of the static CPU templates. For
+  more information about the transition from static CPU templates to custom CPU
+  templates, please refer to [this GitHub discussion](https://github.com/firecracker-microvm/firecracker/discussions/4135).
 
 ### Fixed
 
