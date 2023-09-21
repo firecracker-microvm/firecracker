@@ -292,24 +292,19 @@ impl CpuidTrait for kvm_bindings::CpuId {
 pub struct MissingBrandStringLeaves;
 
 /// Error type for [`Cpuid::kvm_get_supported_cpuid`].
-#[derive(Debug, thiserror::Error, Eq, PartialEq)]
+#[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
 pub enum KvmGetSupportedCpuidError {
-    /// Could not access KVM.
-    #[error("Could not access KVM: {0}")]
+    /// Could not access KVM: {0}
     KvmAccess(#[from] utils::errno::Error),
 }
 
 /// Error type for conversion from `kvm_bindings::CpuId` to `Cpuid`.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq, Eq)]
 pub enum CpuidTryFromKvmCpuid {
     /// Leaf 0 not found in the given `kvm_bindings::CpuId`.
-    #[error("Leaf 0 not found in the given `kvm_bindings::CpuId`.")]
     MissingLeaf0,
-    /// Unsupported CPUID manufacturer id.
-    #[error(
-        "Unsupported CPUID manufacturer id: \"{0:?}\" (only 'GenuineIntel' and 'AuthenticAMD' are \
-         supported)."
-    )]
+    #[rustfmt::skip]
+    #[doc = "Unsupported CPUID manufacturer id: \"{0:?}\" (only 'GenuineIntel' and 'AuthenticAMD' are supported)."]
     UnsupportedVendor([u8; 12]),
 }
 

@@ -8,19 +8,15 @@ use vmm::Vmm;
 
 use crate::fingerprint::Fingerprint;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum FingerprintDumpError {
-    /// Failed to dump CPU configuration.
-    #[error("Failed to dump CPU config: {0}")]
+    /// Failed to dump CPU config: {0}
     DumpCpuConfig(#[from] crate::template::dump::DumpError),
-    /// Failed to read sysfs file.
-    #[error("Failed to read {0}: {1}")]
+    /// Failed to read {0}: {1}
     ReadSysfsFile(String, std::io::Error),
-    /// Failed to get kernel version.
-    #[error("Failed to get kernel version: {0}")]
+    /// Failed to get kernel version: {0}
     GetKernelVersion(std::io::Error),
-    /// Shell command failed.
-    #[error("`{0}` failed: {1}")]
+    /// `{0}` failed: {1}
     ShellCommand(String, String),
 }
 

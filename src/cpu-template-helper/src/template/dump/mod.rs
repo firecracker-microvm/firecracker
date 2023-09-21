@@ -16,10 +16,9 @@ use crate::template::dump::aarch64::config_to_template;
 #[cfg(target_arch = "x86_64")]
 use crate::template::dump::x86_64::config_to_template;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum DumpError {
-    /// Failed to dump CPU configuration.
-    #[error("Failed to dump CPU config: {0}")]
+    /// Failed to dump CPU config: {0}
     DumpCpuConfig(#[from] DumpCpuConfigError),
 }
 

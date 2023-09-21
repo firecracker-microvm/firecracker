@@ -32,16 +32,13 @@ use crate::common::BpfProgram;
 use crate::syscall_table::SyscallTable;
 
 /// Errors compiling Filters into BPF.
-#[derive(Debug, PartialEq, thiserror::Error)]
+#[derive(Debug, PartialEq, thiserror::Error, displaydoc::Display)]
 pub(crate) enum CompilationError {
-    /// Filter and default actions are equal.
-    #[error("`filter_action` and `default_action` are equal.")]
+    /// `filter_action` and `default_action` are equal.
     IdenticalActions,
-    /// Error from the SeccompFilter.
-    #[error("{0}")]
+    /// {0}
     Filter(#[from] FilterError),
-    /// Invalid syscall name for the given arch.
-    #[error("Invalid syscall name: {0} for given arch: {1:?}.")]
+    /// Invalid syscall name: {0} for given arch: {1:?}.
     SyscallName(String, TargetArch),
 }
 

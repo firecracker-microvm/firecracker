@@ -22,13 +22,13 @@ use crate::rate_limiter::{RateLimiter, TokenType};
 
 pub const ENTROPY_DEV_ID: &str = "rng";
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum EntropyError {
-    #[error("Error while handling an Event file descriptor: {0}")]
+    /// Error while handling an Event file descriptor: {0}
     EventFd(#[from] io::Error),
-    #[error("Bad guest memory buffer: {0}")]
+    /// Bad guest memory buffer: {0}
     GuestMemory(#[from] GuestMemoryError),
-    #[error("Could not get random bytes: {0}")]
+    /// Could not get random bytes: {0}
     Random(#[from] aws_lc_rs::error::Unspecified),
 }
 

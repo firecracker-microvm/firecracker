@@ -9,11 +9,11 @@ use vmm::version_map::FC_VERSION_TO_SNAP_VERSION;
 
 use crate::utils::*;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum InfoVmStateError {
-    #[error("Cannot translate snapshot data version {0} to Firecracker microVM version")]
+    /// Cannot translate snapshot data version {0} to Firecracker microVM version
     InvalidVersion(u16),
-    #[error("{0}")]
+    /// {0}
     Utils(#[from] UtilsError),
 }
 

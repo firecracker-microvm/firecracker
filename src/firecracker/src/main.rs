@@ -39,37 +39,37 @@ const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
 const FIRECRACKER_VERSION: &str = env!("FIRECRACKER_VERSION");
 const MMDS_CONTENT_ARG: &str = "metadata";
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 enum MainError {
-    #[error("Failed to register signal handlers: {0}")]
+    /// Failed to register signal handlers: {0}
     RegisterSignalHandlers(#[source] utils::errno::Error),
-    #[error("Arguments parsing error: {0} \n\nFor more information try --help.")]
+    /// Arguments parsing error: {0} \n\nFor more information try --help.
     ParseArguments(#[from] utils::arg_parser::Error),
-    #[error("When printing Snapshot Data format: {0}")]
+    /// When printing Snapshot Data format: {0}
     PrintSnapshotDataFormat(#[from] SnapshotVersionError),
-    #[error("Invalid value for logger level: {0}.Possible values: [Error, Warning, Info, Debug]")]
+    /// Invalid value for logger level: {0}.Possible values: [Error, Warning, Info, Debug]
     InvalidLogLevel(LoggerConfigError),
-    #[error("Could not initialize logger: {0}")]
+    /// Could not initialize logger: {0}
     LoggerInitialization(LoggerConfigError),
-    #[error("Could not initialize metrics: {0:?}")]
+    /// Could not initialize metrics: {0:?}
     MetricsInitialization(MetricsConfigError),
-    #[error("Seccomp error: {0}")]
+    /// Seccomp error: {0}
     SeccompFilter(FilterError),
-    #[error("Failed to resize fd table: {0}")]
+    /// Failed to resize fd table: {0}
     ResizeFdtable(ResizeFdTableError),
-    #[error("RunWithApiError error: {0}")]
+    /// RunWithApiError error: {0}
     RunWithApi(ApiServerError),
-    #[error("RunWithoutApiError error: {0}")]
+    /// RunWithoutApiError error: {0}
     RunWithoutApiError(RunWithoutApiError),
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 enum ResizeFdTableError {
-    #[error("Failed to get RLIMIT_NOFILE")]
+    /// Failed to get RLIMIT_NOFILE
     GetRlimit,
-    #[error("Failed to call dup2 to resize fdtable")]
+    /// Failed to call dup2 to resize fdtable
     Dup2(io::Error),
-    #[error("Failed to close dup2'd file descriptor")]
+    /// Failed to close dup2'd file descriptor
     Close(io::Error),
 }
 
@@ -524,13 +524,13 @@ fn print_supported_snapshot_versions() {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 enum SnapshotVersionError {
-    #[error("Unable to open snapshot state file: {0}")]
+    /// Unable to open snapshot state file: {0}
     OpenSnapshot(io::Error),
-    #[error("Invalid data format version of snapshot file: {0}")]
+    /// Invalid data format version of snapshot file: {0}
     SnapshotVersion(SnapshotError),
-    #[error("Cannot translate snapshot data version {0} to Firecracker microVM version")]
+    /// Cannot translate snapshot data version {0} to Firecracker microVM version
     FirecrackerVersion(u16),
 }
 
@@ -551,11 +551,11 @@ fn print_snapshot_data_format(snapshot_path: &str) -> Result<(), SnapshotVersion
     Ok(())
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BuildFromJsonError {
-    #[error("Configuration for VMM from one single json failed: {0}")]
+    /// Configuration for VMM from one single json failed: {0}
     ParseFromJson(vmm::resources::ResourcesError),
-    #[error("Could not Start MicroVM from one single json: {0}")]
+    /// Could not Start MicroVM from one single json: {0}
     StartMicroVM(StartMicrovmError),
 }
 
@@ -586,11 +586,11 @@ fn build_microvm_from_json(
     Ok((vm_resources, vmm))
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 enum RunWithoutApiError {
-    #[error("MicroVMStopped without an error: {0:?}")]
+    /// MicroVMStopped without an error: {0:?}
     Shutdown(FcExitCode),
-    #[error("Failed to build MicroVM from Json: {0}")]
+    /// Failed to build MicroVM from Json: {0}
     BuildMicroVMFromJson(BuildFromJsonError),
 }
 

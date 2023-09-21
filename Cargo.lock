@@ -104,6 +104,7 @@ dependencies = [
 name = "api_server"
 version = "0.1.0"
 dependencies = [
+ "displaydoc",
  "libc",
  "logger",
  "micro_http",
@@ -382,6 +383,7 @@ name = "cpu-template-helper"
 version = "1.5.0-dev"
 dependencies = [
  "clap",
+ "displaydoc",
  "libc",
  "serde",
  "serde_json",
@@ -476,6 +478,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f18f717c5c7c2e3483feb64cccebd077245ad6d19007c2db0fd341d38595353c"
 
 [[package]]
+name = "displaydoc"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "487585f4d0c6655fe74905e2504d8ad6908e4db67f744eb140876906c2f3175d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.28",
+]
+
+[[package]]
 name = "dumbo"
 version = "0.1.0"
 dependencies = [
@@ -542,6 +555,7 @@ version = "1.5.0-dev"
 dependencies = [
  "api_server",
  "cargo_toml",
+ "displaydoc",
  "event-manager",
  "libc",
  "logger",
@@ -775,6 +789,7 @@ dependencies = [
 name = "logger"
 version = "0.1.0"
 dependencies = [
+ "displaydoc",
  "lazy_static",
  "libc",
  "log",
@@ -820,6 +835,7 @@ dependencies = [
  "base64",
  "bincode",
  "derive_more",
+ "displaydoc",
  "dumbo",
  "logger",
  "micro_http",
@@ -1003,6 +1019,7 @@ dependencies = [
 name = "rebase-snap"
 version = "1.5.0-dev"
 dependencies = [
+ "displaydoc",
  "libc",
  "thiserror",
  "utils",
@@ -1096,6 +1113,7 @@ name = "seccompiler"
 version = "1.5.0-dev"
 dependencies = [
  "bincode",
+ "displaydoc",
  "libc",
  "serde",
  "serde_json",
@@ -1163,6 +1181,7 @@ name = "snapshot"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "displaydoc",
  "libc",
  "thiserror",
  "versionize",
@@ -1175,6 +1194,7 @@ version = "1.5.0"
 dependencies = [
  "clap",
  "clap-num",
+ "displaydoc",
  "libc",
  "snapshot",
  "thiserror",
@@ -1359,6 +1379,7 @@ name = "utils"
 version = "0.1.0"
 dependencies = [
  "derive_more",
+ "displaydoc",
  "libc",
  "net_gen",
  "serde",
@@ -1450,6 +1471,7 @@ dependencies = [
  "criterion",
  "derive_more",
  "device_tree",
+ "displaydoc",
  "dumbo",
  "event-manager",
  "kvm-bindings",

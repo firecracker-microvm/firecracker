@@ -9,17 +9,17 @@ use log::warn;
 // Based on https://elixir.free-electrons.com/linux/v4.9.62/source/arch/arm64/kernel/cacheinfo.c#L29.
 const MAX_CACHE_LEVEL: u8 = 7;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub(crate) enum CacheInfoError {
-    #[error("Failed to read cache information: {0}")]
+    /// Failed to read cache information: {0}
     FailedToReadCacheInfo(#[from] io::Error),
-    #[error("Invalid cache configuration found for {0}: {1}")]
+    /// Invalid cache configuration found for {0}: {1}
     InvalidCacheAttr(String, String),
-    #[error("Cannot read cache level.")]
+    /// Cannot read cache level.
     MissingCacheLevel,
-    #[error("Cannot read cache type.")]
+    /// Cannot read cache type.
     MissingCacheType,
-    #[error("{0}")]
+    /// {0}
     MissingOptionalAttr(String, CacheEntry),
 }
 

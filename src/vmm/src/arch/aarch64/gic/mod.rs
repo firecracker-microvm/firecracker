@@ -42,21 +42,15 @@ impl GIC {
 }
 
 /// Errors thrown while setting up the GIC.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq, Eq)]
 pub enum GicError {
-    /// Error while calling KVM ioctl for setting up the global interrupt controller.
-    #[error("Error while calling KVM ioctl for setting up the global interrupt controller: {0}")]
+    /// Error while calling KVM ioctl for setting up the global interrupt controller: {0}
     CreateGIC(kvm_ioctls::Error),
-    /// Error while setting or getting device attributes for the GIC.
-    #[error("Error while setting or getting device attributes for the GIC: {0}, {1}, {2}")]
+    /// Error while setting or getting device attributes for the GIC: {0}, {1}, {2}
     DeviceAttribute(kvm_ioctls::Error, bool, u32),
-    /// The number of vCPUs in the GicState doesn't match the number of vCPUs on the system
-    #[error(
-        "The number of vCPUs in the GicState doesn't match the number of vCPUs on the system."
-    )]
+    /// The number of vCPUs in the GicState doesn't match the number of vCPUs on the system.
     InconsistentVcpuCount,
-    /// The VgicSysRegsState is invalid
-    #[error("The VgicSysRegsState is invalid.")]
+    /// The VgicSysRegsState is invalid.
     InvalidVgicSysRegState,
 }
 

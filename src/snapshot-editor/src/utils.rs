@@ -10,17 +10,17 @@ use vmm::version_map::VERSION_MAP;
 
 // Some errors are only used in aarch64 code
 #[allow(unused)]
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum UtilsError {
-    #[error("Can not open snapshot file: {0}")]
+    /// Can not open snapshot file: {0}
     VmStateFileOpen(std::io::Error),
-    #[error("Can not retrieve metadata for snapshot file: {0}")]
+    /// Can not retrieve metadata for snapshot file: {0}
     VmStateFileMeta(std::io::Error),
-    #[error("Can not load snapshot: {0}")]
+    /// Can not load snapshot: {0}
     VmStateLoad(snapshot::Error),
-    #[error("Can not open output file: {0}")]
+    /// Can not open output file: {0}
     OutputFileOpen(std::io::Error),
-    #[error("Can not save snapshot: {0}")]
+    /// Can not save snapshot: {0}
     VmStateSave(snapshot::Error),
 }
 

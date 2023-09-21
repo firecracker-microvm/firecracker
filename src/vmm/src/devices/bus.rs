@@ -12,10 +12,9 @@ use std::collections::btree_map::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 /// Errors triggered during bus operations.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BusError {
-    /// The insertion failed because the new device overlapped with an old device.
-    #[error("New device overlaps with an old device.")]
+    /// New device overlaps with an old device.
     Overlap,
 }
 

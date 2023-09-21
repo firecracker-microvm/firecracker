@@ -402,10 +402,9 @@ impl Logger {
 }
 
 /// Describes the errors which may occur while handling logging scenarios.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum LoggerError {
-    /// Initialization Error.
-    #[error("Logger initialization failure: {0}")]
+    /// Logger initialization failure: {0}
     Init(init::Error),
 }
 

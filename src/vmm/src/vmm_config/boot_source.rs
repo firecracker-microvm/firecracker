@@ -37,16 +37,13 @@ pub struct BootSourceConfig {
 }
 
 /// Errors associated with actions on `BootSourceConfig`.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BootSourceConfigError {
-    /// The kernel file cannot be opened.
-    #[error("The kernel file cannot be opened: {0}")]
+    /// The kernel file cannot be opened: {0}
     InvalidKernelPath(io::Error),
-    /// The initrd file cannot be opened.
-    #[error("The initrd file cannot be opened due to invalid path or invalid permissions. {0}")]
+    /// The initrd file cannot be opened due to invalid path or invalid permissions. {0}
     InvalidInitrdPath(io::Error),
-    /// The kernel command line is invalid.
-    #[error("The kernel command line is invalid: {0}")]
+    /// The kernel command line is invalid: {0}
     InvalidKernelCommandLine(String),
 }
 

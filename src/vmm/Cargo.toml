@@ -23,6 +23,7 @@ semver = { version = "1.0.17", features = ["serde"] }
 serde_json = "1.0.78"
 timerfd = "1.5.0"
 thiserror = "1.0.32"
+displaydoc = "0.2.4"
 userfaultfd = "0.6.0"
 versionize = "0.1.10"
 versionize_derive = "0.1.5"

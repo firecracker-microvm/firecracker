@@ -178,19 +178,15 @@ impl<T: Serialize + Debug, M: Write + Send + Debug> Deref for Metrics<T, M> {
 }
 
 /// Describes the errors which may occur while handling metrics scenarios.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum MetricsError {
-    /// First attempt at initialization failed.
-    #[error("{0}")]
+    /// {0}
     NeverInitialized(String),
-    /// The metrics system does not allow reinitialization.
-    #[error("Reinitialization of metrics not allowed.")]
+    /// Reinitialization of metrics not allowed.
     AlreadyInitialized,
-    /// Error in the serialization of metrics instance.
-    #[error("{0}")]
+    /// {0}
     Serde(String),
-    /// Writing the specified buffer failed.
-    #[error("Failed to write metrics: {0}")]
+    /// Failed to write metrics: {0}
     Write(std::io::Error),
 }
 

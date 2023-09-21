@@ -63,22 +63,17 @@ where
 }
 
 /// Errors associated with dumping guest memory to file.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum SnapshotMemoryError {
-    /// Cannot access file.
-    #[error("Cannot access file: {0:?}")]
+    /// Cannot access file: {0:?}
     FileHandle(#[from] std::io::Error),
-    /// Cannot create memory.
-    #[error("Cannot create memory: {0:?}")]
+    /// Cannot create memory: {0:?}
     CreateMemory(#[from] utils::vm_memory::Error),
-    /// Cannot create region.
-    #[error("Cannot create memory region: {0:?}")]
+    /// Cannot create memory region: {0:?}
     CreateRegion(#[from] utils::vm_memory::MmapRegionError),
-    /// Cannot fetch system's page size.
-    #[error("Cannot fetch system's page size: {0:?}")]
+    /// Cannot fetch system's page size: {0:?}
     PageSize(#[from] errno::Error),
-    /// Cannot dump memory.
-    #[error("Cannot dump memory: {0:?}")]
+    /// Cannot dump memory: {0:?}
     WriteMemory(#[from] GuestMemoryError),
 }
 

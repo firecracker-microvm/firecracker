@@ -3,13 +3,11 @@
 #![allow(clippy::restriction)]
 
 /// Error type for [`get_cpuid`].
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq, Eq)]
 pub enum GetCpuidError {
-    /// Invalid leaf.
-    #[error("Un-supported leaf: {0}")]
+    /// Un-supported leaf: {0}
     UnsupportedLeaf(u32),
-    /// Invalid subleaf.
-    #[error("Invalid subleaf: {0}")]
+    /// Invalid subleaf: {0}
     InvalidSubleaf(u32),
 }
 

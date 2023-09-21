@@ -5,13 +5,11 @@ use serde::Serialize;
 
 use crate::fingerprint::{Fingerprint, FingerprintField};
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum FingerprintCompareError {
-    /// Difference detected between source and target.
-    #[error("Difference detected between source and target:\n{0}")]
+    /// Difference detected between source and target:\n{0}
     DiffDetected(String),
-    /// Failed to serialize/deserialize JSON.
-    #[error("Failed to serialize/deserialize JSON: {0}")]
+    /// Failed to serialize/deserialize JSON: {0}
     Serde(#[from] serde_json::Error),
 }
 

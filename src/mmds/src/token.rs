@@ -44,30 +44,20 @@ const TOKEN_LENGTH_LIMIT: usize = 70;
 /// too much memory when deserializing tokens.
 const DESERIALIZATION_BYTES_LIMIT: usize = std::mem::size_of::<Token>();
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum Error {
-    #[error("Failed to extract entropy from /dev/urandom entropy pool: {0}.")]
-    /// Failed to extract entropy from pool.
+    /// Failed to extract entropy from /dev/urandom entropy pool: {0}.
     EntropyPool(#[from] io::Error),
-    /// Failed to extract expiry from token sequence.
-    #[error("Failed to extract expiry value from token.")]
+    /// Failed to extract expiry value from token.
     ExpiryExtraction,
-    /// Token authority has invalid state.
-    #[error("Invalid token authority state.")]
+    /// Invalid token authority state.
     InvalidState,
-    /// Time to live value for token is invalid.
-    #[error(
-        "Invalid time to live value provided for token: {0}. Please provide a value between {} \
-         and {}.",
-        MIN_TOKEN_TTL_SECONDS,
-        MAX_TOKEN_TTL_SECONDS
-    )]
+    #[rustfmt::skip]
+    #[doc= "Invalid time to live value provided for token: {0}. Please provide a value between {MIN_TOKEN_TTL_SECONDS:} and {MAX_TOKEN_TTL_SECONDS:}."]
     InvalidTtlValue(u32),
-    /// Token serialization failed.
-    #[error("Bincode serialization failed: {0}.")]
+    /// Bincode serialization failed: {0}.
     Serialization(#[from] BincodeError),
     /// Failed to encrypt token.
-    #[error("Failed to encrypt token.")]
     TokenEncryption,
 }
 

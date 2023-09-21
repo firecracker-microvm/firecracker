@@ -15,28 +15,21 @@ use super::get_fdt_addr;
 use super::regs::*;
 
 /// Errors thrown while setting aarch64 registers.
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
 pub enum VcpuError {
-    /// Failed to get a register value.
-    #[error("Failed to get register {0}: {1}")]
+    /// Failed to get register {0}: {1}
     GetOneReg(u64, kvm_ioctls::Error),
-    /// Failed to set a register value.
-    #[error("Failed to set register {0}: {1}")]
+    /// Failed to set register {0}: {1}
     SetOneReg(u64, kvm_ioctls::Error),
-    /// Failed to get the register list.
-    #[error("Failed to retrieve list of registers: {0}")]
+    /// Failed to retrieve list of registers: {0}
     GetRegList(kvm_ioctls::Error),
-    /// Failed to get multiprocessor state.
-    #[error("Failed to get multiprocessor state: {0}")]
+    /// Failed to get multiprocessor state: {0}
     GetMp(kvm_ioctls::Error),
-    /// Failed to Set multiprocessor state.
-    #[error("Failed to set multiprocessor state: {0}")]
+    /// Failed to set multiprocessor state: {0}
     SetMp(kvm_ioctls::Error),
-    /// A FamStructWrapper operation has failed.
-    #[error("Failed FamStructWrapper operation: {0:?}")]
+    /// Failed FamStructWrapper operation: {0:?}
     Fam(utils::fam::Error),
-    /// Failed to get midr_el1 from host.
-    #[error("{0}")]
+    /// {0}
     GetMidrEl1(String),
 }
 

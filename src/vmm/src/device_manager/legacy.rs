@@ -19,13 +19,11 @@ use crate::devices::legacy::serial::SerialOut;
 use crate::devices::legacy::{EventFdTrigger, SerialDevice, SerialEventsWrapper};
 
 /// Errors corresponding to the `PortIODeviceManager`.
-#[derive(Debug, derive_more::From, thiserror::Error)]
+#[derive(Debug, derive_more::From, thiserror::Error, displaydoc::Display)]
 pub enum LegacyDeviceError {
-    /// Cannot add legacy device to Bus.
-    #[error("Failed to add legacy device to Bus: {0}")]
+    /// Failed to add legacy device to Bus: {0}
     BusError(crate::devices::BusError),
-    /// Cannot create EventFd.
-    #[error("Failed to create EventFd: {0}")]
+    /// Failed to create EventFd: {0}
     EventFd(std::io::Error),
 }
 

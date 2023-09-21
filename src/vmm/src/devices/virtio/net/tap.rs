@@ -24,25 +24,18 @@ use crate::devices::virtio::net::test_utils::Mocks;
 const IFACE_NAME_MAX_LEN: usize = 16;
 
 /// List of errors the tap implementation can throw.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum TapError {
-    /// Couldn't open /dev/net/tun
-    #[error("Couldn't open /dev/net/tun: {0}")]
+    /// Couldn't open /dev/net/tun: {0}
     OpenTun(IoError),
     /// Invalid interface name
-    #[error("Invalid interface name")]
     InvalidIfname,
-    /// Error while creating ifreq structure
-    #[error(
-        "Error while creating ifreq structure: {0}. Invalid TUN/TAP Backend provided by {1}. \
-         Check our documentation on setting up the network devices."
-    )]
+    #[rustfmt::skip]
+    #[doc = "Error while creating ifreq structure: {0}. Invalid TUN/TAP Backend provided by {1}. Check our documentation on setting up the network devices."]
     IfreqExecuteError(IoError, String),
-    /// Error while setting the offload flags
-    #[error("Error while setting the offload flags: {0}")]
+    /// Error while setting the offload flags: {0}
     SetOffloadFlags(IoError),
-    /// Error while setting size of the vnet header
-    #[error("Error while setting size of the vnet header: {0}")]
+    /// Error while setting size of the vnet header: {0}
     SetSizeOfVnetHdr(IoError),
 }
 

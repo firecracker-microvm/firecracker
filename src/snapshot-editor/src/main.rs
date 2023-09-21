@@ -14,14 +14,14 @@ use edit_memory::{edit_memory_command, EditMemoryError, EditMemorySubCommand};
 use edit_vmstate::{edit_vmstate_command, EditVmStateError, EditVmStateSubCommand};
 use info::{info_vmstate_command, InfoVmStateError, InfoVmStateSubCommand};
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 enum SnapEditorError {
-    #[error("Error during editing memory file: {0}")]
+    /// Error during editing memory file: {0}
     EditMemory(#[from] EditMemoryError),
     #[cfg(target_arch = "aarch64")]
-    #[error("Error during editing vmstate file: {0}")]
+    /// Error during editing vmstate file: {0}
     EditVmState(#[from] EditVmStateError),
-    #[error("Error during getting info from a vmstate file: {0}")]
+    /// Error during getting info from a vmstate file: {0}
     InfoVmState(#[from] InfoVmStateError),
 }
 

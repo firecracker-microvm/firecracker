@@ -6,16 +6,13 @@ use utils::vm_memory::{Bitmap, GuestMemory, GuestMemoryMmap};
 
 use crate::devices::virtio::DescriptorChain;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum IoVecError {
-    /// We found a write-only descriptor where read-only was expected
-    #[error("Tried to create an `IoVec` from a write-only descriptor chain")]
+    /// Tried to create an `IoVec` from a write-only descriptor chain
     WriteOnlyDescriptor,
-    /// We found a read-only descriptor where write-only was expected
-    #[error("Tried to create an 'IoVecMut` from a read-only descriptor chain")]
+    /// Tried to create an 'IoVecMut` from a read-only descriptor chain
     ReadOnlyDescriptor,
-    /// An error happened with guest memory handling
-    #[error("Guest memory error: {0}")]
+    /// Guest memory error: {0}
     GuestMemory(#[from] utils::vm_memory::GuestMemoryError),
 }
 

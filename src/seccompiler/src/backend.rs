@@ -95,22 +95,17 @@ impl<'de> Deserialize<'de> for Comment {
 }
 
 /// Seccomp filter errors.
-#[derive(Debug, PartialEq, thiserror::Error)]
+#[derive(Debug, PartialEq, thiserror::Error, displaydoc::Display)]
 pub(crate) enum FilterError {
-    /// Attempting to add an empty vector of rules to the rule chain of a syscall.
-    #[error("The seccomp rules vector is empty.")]
+    /// The seccomp rules vector is empty.
     EmptyRulesVector,
-    /// Filter exceeds the maximum number of instructions that a BPF program can have.
-    #[error("The seccomp filter contains too many BPF instructions.")]
+    /// The seccomp filter contains too many BPF instructions.
     FilterTooLarge,
-    /// Argument number that exceeds the maximum value.
-    #[error("The seccomp rule contains an invalid argument number.")]
+    /// The seccomp rule contains an invalid argument number.
     InvalidArgumentNumber,
-    /// Error related to the target arch.
-    #[error("{0:?}")]
+    /// {0:?}
     Arch(TargetArchError),
-    /// Conflicting rules in filter.
-    #[error("Syscall {0} has conflicting rules.")]
+    /// Syscall {0} has conflicting rules.
     ConflictingRules(i64),
 }
 
@@ -125,10 +120,9 @@ pub(crate) enum TargetArch {
 }
 
 /// Errors related to target arch.
-#[derive(Debug, PartialEq, thiserror::Error)]
+#[derive(Debug, PartialEq, thiserror::Error, displaydoc::Display)]
 pub(crate) enum TargetArchError {
-    /// Invalid string.
-    #[error("Invalid target arch string: {0}")]
+    /// Invalid target arch string: {0}
     InvalidString(String),
 }
 

@@ -20,17 +20,17 @@ use vmm::rpc_interface::{
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::{EventManager, FcExitCode, Vmm};
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum ApiServerError {
-    #[error("MicroVMStopped without an error: {0:?}")]
+    /// MicroVMStopped without an error: {0:?}
     MicroVMStoppedWithoutError(FcExitCode),
-    #[error("MicroVMStopped with an error: {0:?}")]
+    /// MicroVMStopped with an error: {0:?}
     MicroVMStoppedWithError(FcExitCode),
-    #[error("Failed to open the API socket at: {0}. Check that it is not already used.")]
+    /// Failed to open the API socket at: {0}. Check that it is not already used.
     FailedToBindSocket(String),
-    #[error("Failed to bind and run the HTTP server: {0}")]
+    /// Failed to bind and run the HTTP server: {0}
     FailedToBindAndRunHttpServer(ServerError),
-    #[error("Failed to build MicroVM from Json: {0}")]
+    /// Failed to build MicroVM from Json: {0}
     BuildFromJson(crate::BuildFromJsonError),
 }
 

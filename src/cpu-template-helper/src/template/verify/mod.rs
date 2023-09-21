@@ -18,11 +18,12 @@ mod x86_64;
 pub use x86_64::verify;
 
 #[rustfmt::skip]
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum VerifyError {
-    #[error("{0} not found in CPU configuration.")]
+    /// {0} not found in CPU configuration.
     KeyNotFound(String),
-    #[error("Value for {0} mismatched.\n{1}")]
+    #[rustfmt::skip]
+    #[doc = "Value for {0} mismatched.\n{1}"]
     ValueMismatched(String, String),
 }
 
