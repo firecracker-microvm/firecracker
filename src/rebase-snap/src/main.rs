@@ -9,7 +9,7 @@ use std::os::unix::io::AsRawFd;
 use utils::arg_parser::{ArgParser, Argument, Arguments, Error as ArgError};
 use utils::seek_hole::SeekHole;
 
-const REBASE_SNAP_VERSION: &str = env!("FIRECRACKER_VERSION");
+const REBASE_SNAP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const BASE_FILE: &str = "base-file";
 const DIFF_FILE: &str = "diff-file";
 

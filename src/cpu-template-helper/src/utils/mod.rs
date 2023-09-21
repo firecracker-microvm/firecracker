@@ -19,7 +19,7 @@ pub mod aarch64;
 #[cfg(target_arch = "x86_64")]
 pub mod x86_64;
 
-pub const CPU_TEMPLATE_HELPER_VERSION: &str = env!("FIRECRACKER_VERSION");
+pub const CPU_TEMPLATE_HELPER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Trait for key of `HashMap`-based modifier.
 ///
