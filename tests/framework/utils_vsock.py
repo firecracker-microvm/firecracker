@@ -100,6 +100,9 @@ def start_guest_echo_server(vm):
     ecode, _, stderr = vm.ssh.run(cmd)
     assert ecode == 0, stderr
 
+    # Give the server time to initialise
+    time.sleep(1)
+
 
 def check_host_connections(vm, uds_path, blob_path, blob_hash):
     """Test host-initiated connections.
