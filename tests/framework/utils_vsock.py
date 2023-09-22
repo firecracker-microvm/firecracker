@@ -95,13 +95,18 @@ def make_blob(dst_dir, size=BLOB_SIZE):
 
 
 def start_guest_echo_server(vm):
-    """Start a vsock echo server in the microVM."""
+    """Start a vsock echo server in the microVM.
+
+    Returns a UDS path to connect to the server.
+    """
     cmd = f"nohup socat VSOCK-LISTEN:{ECHO_SERVER_PORT},backlog=128,reuseaddr,fork EXEC:'/bin/cat' > /dev/null 2>&1 &"
     ecode, _, stderr = vm.ssh.run(cmd)
     assert ecode == 0, stderr
 
     # Give the server time to initialise
     time.sleep(1)
+
+    return os.path.join(vm.jailer.chroot_path(), VSOCK_UDS_PATH)
 
 
 def check_host_connections(uds_path, blob_path, blob_hash):
@@ -232,6 +237,5 @@ def check_vsock_device(vm, bin_vsock_path, test_fc_session_root_path, ssh_connec
     check_guest_connections(vm, path, vm_blob_path, blob_hash)
 
     # Test vsock host-initiated connections.
-    start_guest_echo_server(vm)
-    path = os.path.join(vm.jailer.chroot_path(), VSOCK_UDS_PATH)
+    path = start_guest_echo_server(vm)
     check_host_connections(path, blob_path, blob_hash)
