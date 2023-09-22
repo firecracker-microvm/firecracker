@@ -227,21 +227,21 @@ mod tests {
     /// test deserialization and logging.
     #[cfg(target_arch = "x86_64")]
     const TEST_UNESCAPED_JSON_TEMPLATE: &str = r#"{
-      "msr_modifiers": [
-        {
-          "addr": "0x0\n\n\n\nTEST\n\n\n\n",
-          "bitmap": "0b00"
-        }
-      ]
+        "msr_modifiers": [
+            {
+                "addr": "0x0\n\n\n\nTEST\n\n\n\n",
+                "bitmap": "0b00"
+            }
+        ]
     }"#;
     #[cfg(target_arch = "aarch64")]
     pub const TEST_UNESCAPED_JSON_TEMPLATE: &str = r#"{
-      "reg_modifiers": [
-        {
-          "addr": "0x0\n\n\n\nTEST\n\n\n\n",
-          "bitmap": "0b00"
-        }
-      ]
+        "reg_modifiers": [
+            {
+                "addr": "0x0\n\n\n\nTEST\n\n\n\n",
+                "bitmap": "0b00"
+            }
+        ]
     }"#;
 
     #[test]

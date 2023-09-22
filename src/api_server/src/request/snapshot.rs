@@ -139,11 +139,11 @@ mod tests {
         use vmm::vmm_config::snapshot::SnapshotType;
 
         let mut body = r#"{
-                "snapshot_type": "Diff",
-                "snapshot_path": "foo",
-                "mem_file_path": "bar",
-                "version": "0.23.0"
-              }"#;
+            "snapshot_type": "Diff",
+            "snapshot_path": "foo",
+            "mem_file_path": "bar",
+            "version": "0.23.0"
+        }"#;
 
         let mut expected_cfg = CreateSnapshotParams {
             snapshot_type: SnapshotType::Diff,
@@ -162,9 +162,9 @@ mod tests {
         }
 
         body = r#"{
-                "snapshot_path": "foo",
-                "mem_file_path": "bar"
-              }"#;
+            "snapshot_path": "foo",
+            "mem_file_path": "bar"
+        }"#;
 
         expected_cfg = CreateSnapshotParams {
             snapshot_type: SnapshotType::Full,
@@ -180,19 +180,19 @@ mod tests {
         }
 
         let invalid_body = r#"{
-                "invalid_field": "foo",
-                "mem_file_path": "bar"
-              }"#;
+            "invalid_field": "foo",
+            "mem_file_path": "bar"
+        }"#;
 
         assert!(parse_put_snapshot(&Body::new(invalid_body), Some("create")).is_err());
 
         body = r#"{
-                "snapshot_path": "foo",
-                "mem_backend": {
-                    "backend_path": "bar",
-                    "backend_type": "File"
-                }
-              }"#;
+            "snapshot_path": "foo",
+            "mem_backend": {
+                "backend_path": "bar",
+                "backend_type": "File"
+            }
+        }"#;
 
         let mut expected_cfg = LoadSnapshotParams {
             snapshot_path: PathBuf::from("foo"),
@@ -216,13 +216,13 @@ mod tests {
         }
 
         body = r#"{
-                "snapshot_path": "foo",
-                "mem_backend": {
-                    "backend_path": "bar",
-                    "backend_type": "File"
-                },
-                "enable_diff_snapshots": true
-              }"#;
+            "snapshot_path": "foo",
+            "mem_backend": {
+                "backend_path": "bar",
+                "backend_type": "File"
+            },
+            "enable_diff_snapshots": true
+        }"#;
 
         expected_cfg = LoadSnapshotParams {
             snapshot_path: PathBuf::from("foo"),
@@ -245,13 +245,13 @@ mod tests {
         }
 
         body = r#"{
-                "snapshot_path": "foo",
-                "mem_backend": {
-                    "backend_path": "bar",
-                    "backend_type": "Uffd"
-                },
-                "resume_vm": true
-              }"#;
+            "snapshot_path": "foo",
+            "mem_backend": {
+                "backend_path": "bar",
+                "backend_type": "Uffd"
+            },
+            "resume_vm": true
+        }"#;
 
         expected_cfg = LoadSnapshotParams {
             snapshot_path: PathBuf::from("foo"),
@@ -274,10 +274,10 @@ mod tests {
         }
 
         body = r#"{
-                "snapshot_path": "foo",
-                "mem_file_path": "bar",
-                "resume_vm": true
-              }"#;
+            "snapshot_path": "foo",
+            "mem_file_path": "bar",
+            "resume_vm": true
+        }"#;
 
         expected_cfg = LoadSnapshotParams {
             snapshot_path: PathBuf::from("foo"),
@@ -296,11 +296,11 @@ mod tests {
         }
 
         body = r#"{
-                "snapshot_path": "foo",
-                "mem_backend": {
-                    "backend_path": "bar"
-                }
-              }"#;
+            "snapshot_path": "foo",
+            "mem_backend": {
+                "backend_path": "bar"
+            }
+        }"#;
 
         assert_eq!(
             parse_put_snapshot(&Body::new(body), Some("load"))
@@ -308,15 +308,15 @@ mod tests {
                 .unwrap()
                 .to_string(),
             "An error occurred when deserializing the json body of a request: missing field \
-             `backend_type` at line 5 column 17."
+             `backend_type` at line 5 column 13."
         );
 
         body = r#"{
-                "snapshot_path": "foo",
-                "mem_backend": {
-                    "backend_type": "File",
-                }
-              }"#;
+            "snapshot_path": "foo",
+            "mem_backend": {
+                "backend_type": "File",
+            }
+        }"#;
 
         assert_eq!(
             parse_put_snapshot(&Body::new(body), Some("load"))
@@ -324,17 +324,17 @@ mod tests {
                 .unwrap()
                 .to_string(),
             "An error occurred when deserializing the json body of a request: trailing comma at \
-             line 5 column 17."
+             line 5 column 13."
         );
 
         body = r#"{
-                "snapshot_path": "foo",
-                "mem_file_path": "bar",
-                "mem_backend": {
-                    "backend_path": "bar",
-                    "backend_type": "Uffd"
-                }
-              }"#;
+            "snapshot_path": "foo",
+            "mem_file_path": "bar",
+            "mem_backend": {
+                "backend_path": "bar",
+                "backend_type": "Uffd"
+            }
+        }"#;
 
         assert_eq!(
             parse_put_snapshot(&Body::new(body), Some("load"))
@@ -345,8 +345,8 @@ mod tests {
         );
 
         body = r#"{
-                "snapshot_path": "foo"
-              }"#;
+            "snapshot_path": "foo"
+        }"#;
 
         assert_eq!(
             parse_put_snapshot(&Body::new(body), Some("load"))
@@ -357,11 +357,11 @@ mod tests {
         );
 
         body = r#"{
-                "mem_backend": {
-                    "backend_path": "bar",
-                    "backend_type": "Uffd"
-                }
-              }"#;
+            "mem_backend": {
+                "backend_path": "bar",
+                "backend_type": "Uffd"
+            }
+        }"#;
 
         assert_eq!(
             parse_put_snapshot(&Body::new(body), Some("load"))
@@ -369,7 +369,7 @@ mod tests {
                 .unwrap()
                 .to_string(),
             "An error occurred when deserializing the json body of a request: missing field \
-             `snapshot_path` at line 6 column 15."
+             `snapshot_path` at line 6 column 9."
         );
 
         assert!(parse_put_snapshot(&Body::new(body), Some("invalid")).is_err());
@@ -379,24 +379,24 @@ mod tests {
     #[test]
     fn test_parse_patch_vm_state() {
         let mut body = r#"{
-                "state": "Paused"
-              }"#;
+            "state": "Paused"
+        }"#;
 
         assert!(parse_patch_vm_state(&Body::new(body))
             .unwrap()
             .eq(&ParsedRequest::new_sync(VmmAction::Pause)));
 
         body = r#"{
-                "state": "Resumed"
-              }"#;
+            "state": "Resumed"
+        }"#;
 
         assert!(parse_patch_vm_state(&Body::new(body))
             .unwrap()
             .eq(&ParsedRequest::new_sync(VmmAction::Resume)));
 
         let invalid_body = r#"{
-                "invalid": "Paused"
-              }"#;
+            "invalid": "Paused"
+        }"#;
 
         assert!(parse_patch_vm_state(&Body::new(invalid_body)).is_err());
     }

@@ -81,10 +81,10 @@ mod tests {
     #[test]
     fn test_parse_put_net_request() {
         let body = r#"{
-                "iface_id": "foo",
-                "host_dev_name": "bar",
-                "guest_mac": "12:34:56:78:9A:BC"
-              }"#;
+            "iface_id": "foo",
+            "host_dev_name": "bar",
+            "guest_mac": "12:34:56:78:9A:BC"
+        }"#;
         // 1. Exercise infamous "The id from the path does not match id from the body!".
         assert!(parse_put_net(&Body::new(body), Some("bar")).is_err());
         // 2. The `id_from_path` cannot be None.
@@ -98,8 +98,7 @@ mod tests {
         }
 
         // 4. Serde error for invalid field (bytes instead of bandwidth).
-        let body = r#"
-        {
+        let body = r#"{
             "iface_id": "foo",
             "rx_rate_limiter": {
                 "bytes": {
@@ -121,11 +120,9 @@ mod tests {
     #[test]
     fn test_parse_patch_net_request() {
         let body = r#"{
-                "iface_id": "foo",
-                "rx_rate_limiter": {
-                },
-                "tx_rate_limiter": {
-                }
+            "iface_id": "foo",
+            "rx_rate_limiter": {},
+            "tx_rate_limiter": {}
         }"#;
         // 1. Exercise infamous "The id from the path does not match id from the body!".
         assert!(parse_patch_net(&Body::new(body), Some("bar")).is_err());
@@ -140,8 +137,7 @@ mod tests {
         }
 
         // 4. Serde error for invalid field (bytes instead of bandwidth).
-        let body = r#"
-        {
+        let body = r#"{
             "iface_id": "foo",
             "rx_rate_limiter": {
                 "bytes": {

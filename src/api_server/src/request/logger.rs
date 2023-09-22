@@ -30,11 +30,11 @@ mod tests {
     #[test]
     fn test_parse_put_logger_request() {
         let mut body = r#"{
-                "log_path": "log",
-                "level": "Warning",
-                "show_level": false,
-                "show_log_origin": false
-              }"#;
+            "log_path": "log",
+            "level": "Warning",
+            "show_level": false,
+            "show_log_origin": false
+        }"#;
 
         let mut expected_cfg = LoggerConfig {
             log_path: PathBuf::from("log"),
@@ -48,11 +48,11 @@ mod tests {
         }
 
         body = r#"{
-                "log_path": "log",
-                "level": "DEBUG",
-                "show_level": false,
-                "show_log_origin": false
-              }"#;
+            "log_path": "log",
+            "level": "DEBUG",
+            "show_level": false,
+            "show_log_origin": false
+        }"#;
 
         expected_cfg = LoggerConfig {
             log_path: PathBuf::from("log"),
@@ -66,11 +66,11 @@ mod tests {
         }
 
         let invalid_body = r#"{
-                "invalid_field": "log",
-                "level": "Warning",
-                "show_level": false,
-                "show_log_origin": false
-              }"#;
+            "invalid_field": "log",
+            "level": "Warning",
+            "show_level": false,
+            "show_log_origin": false
+        }"#;
 
         assert!(parse_put_logger(&Body::new(invalid_body)).is_err());
     }
