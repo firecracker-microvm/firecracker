@@ -41,34 +41,34 @@ mod tests {
     #[test]
     fn test_parse_put_vsock_request() {
         let body = r#"{
-                "guest_cid": 42,
-                "uds_path": "vsock.sock"
-              }"#;
+            "guest_cid": 42,
+            "uds_path": "vsock.sock"
+        }"#;
         assert!(parse_put_vsock(&Body::new(body)).is_ok());
 
         let body = r#"{
-                "guest_cid": 42,
-                "invalid_field": false
-              }"#;
+            "guest_cid": 42,
+            "invalid_field": false
+        }"#;
         assert!(parse_put_vsock(&Body::new(body)).is_err());
     }
 
     #[test]
     fn test_depr_vsock_id() {
         let body = r#"{
-                "vsock_id": "foo",
-                "guest_cid": 42,
-                "uds_path": "vsock.sock"
-              }"#;
+            "vsock_id": "foo",
+            "guest_cid": 42,
+            "uds_path": "vsock.sock"
+        }"#;
         depr_action_from_req(
             parse_put_vsock(&Body::new(body)).unwrap(),
             Some("PUT /vsock: vsock_id field is deprecated.".to_string()),
         );
 
         let body = r#"{
-                "guest_cid": 42,
-                "uds_path": "vsock.sock"
-              }"#;
+            "guest_cid": 42,
+            "uds_path": "vsock.sock"
+        }"#;
         let (_, mut parsing_info) = parse_put_vsock(&Body::new(body)).unwrap().into_parts();
         assert!(parsing_info.take_deprecation_message().is_none());
     }

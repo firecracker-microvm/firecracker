@@ -65,20 +65,20 @@ mod tests {
 
         // 2. Test case for mandatory fields.
         let body = r#"{
-                "mem_size_mib": 1024
-              }"#;
+            "mem_size_mib": 1024
+        }"#;
         assert!(parse_put_machine_config(&Body::new(body)).is_err());
 
         let body = r#"{
-                "vcpu_count": 8
-                }"#;
+            "vcpu_count": 8
+        }"#;
         assert!(parse_put_machine_config(&Body::new(body)).is_err());
 
         // 3. Test case for success scenarios for both architectures.
         let body = r#"{
-                "vcpu_count": 8,
-                "mem_size_mib": 1024
-              }"#;
+            "vcpu_count": 8,
+            "mem_size_mib": 1024
+        }"#;
         let expected_config = MachineConfigUpdate {
             vcpu_count: Some(8),
             mem_size_mib: Some(1024),
@@ -93,11 +93,11 @@ mod tests {
         }
 
         let body = r#"{
-                "vcpu_count": 8,
-                "mem_size_mib": 1024,
-                "smt": false,
-                "track_dirty_pages": true
-            }"#;
+            "vcpu_count": 8,
+            "mem_size_mib": 1024,
+            "smt": false,
+            "track_dirty_pages": true
+        }"#;
         let expected_config = MachineConfigUpdate {
             vcpu_count: Some(8),
             mem_size_mib: Some(1024),
@@ -113,12 +113,12 @@ mod tests {
 
         // 4. Test that applying a CPU template is successful on x86_64 while on aarch64, it is not.
         let body = r#"{
-                "vcpu_count": 8,
-                "mem_size_mib": 1024,
-                "smt": false,
-                "cpu_template": "T2",
-                "track_dirty_pages": true
-              }"#;
+            "vcpu_count": 8,
+            "mem_size_mib": 1024,
+            "smt": false,
+            "cpu_template": "T2",
+            "track_dirty_pages": true
+        }"#;
 
         #[cfg(target_arch = "x86_64")]
         {
@@ -147,7 +147,7 @@ mod tests {
             "mem_size_mib": 1024,
             "smt": true,
             "track_dirty_pages": true
-          }"#;
+        }"#;
 
         #[cfg(target_arch = "x86_64")]
         {
@@ -178,31 +178,31 @@ mod tests {
 
         // 2. Check currently supported fields that can be patched.
         let body = r#"{
-                "track_dirty_pages": true
-              }"#;
+            "track_dirty_pages": true
+        }"#;
         assert!(parse_patch_machine_config(&Body::new(body)).is_ok());
 
         // On aarch64, CPU template is also not patch compatible.
         let body = r#"{
-                "cpu_template": "T2"
-              }"#;
+            "cpu_template": "T2"
+        }"#;
         #[cfg(target_arch = "aarch64")]
         assert!(parse_patch_machine_config(&Body::new(body)).is_err());
         #[cfg(target_arch = "x86_64")]
         assert!(parse_patch_machine_config(&Body::new(body)).is_ok());
 
         let body = r#"{
-                "vcpu_count": 8,
-                "mem_size_mib": 1024
-              }"#;
+            "vcpu_count": 8,
+            "mem_size_mib": 1024
+        }"#;
         assert!(parse_patch_machine_config(&Body::new(body)).is_ok());
 
         // On aarch64, we allow `smt` to be configured to `false` but not `true`.
         let body = r#"{
-                "vcpu_count": 8,
-                "mem_size_mib": 1024,
-                "smt": false
-              }"#;
+            "vcpu_count": 8,
+            "mem_size_mib": 1024,
+            "smt": false
+        }"#;
         assert!(parse_patch_machine_config(&Body::new(body)).is_ok());
 
         // 3. Check to see if an empty body returns an error.
