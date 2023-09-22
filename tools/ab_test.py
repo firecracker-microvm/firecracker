@@ -74,8 +74,17 @@ def load_data_series(revision: str):
             # we will need to rethink this heuristic.
             if line.startswith("{"):
                 dimensions, result = reemit_emf_and_get_data(line, revision)
+                key = frozenset(dimensions.items())
 
-                data[frozenset(dimensions.items())] = result
+                if key not in data:
+                    data[key] = result
+                else:
+                    # If there are many data points for a metric, they will be split across
+                    # multiple EMF log messages. We need to reassemble :(
+                    assert data[key].keys() == result.keys()
+
+                    for metric in data[key]:
+                        data[key][metric].extend(result[metric])
 
     return data
 
