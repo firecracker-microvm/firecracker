@@ -3,7 +3,6 @@
 """Optional benchmarks-do-not-regress test"""
 import json
 import logging
-import os
 import platform
 import shutil
 from pathlib import Path
@@ -11,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from framework import utils
-from framework.ab_test import git_ab_test
+from framework.ab_test import chdir, git_ab_test
 from host_tools.cargo_build import cargo
 
 LOGGER = logging.getLogger(__name__)
@@ -27,34 +26,35 @@ def test_no_regression_relative_to_target_branch():
     git_ab_test(run_criterion, compare_results)
 
 
-def run_criterion(is_a: bool) -> Path:
+def run_criterion(firecracker_checkout: Path, is_a: bool) -> Path:
     """
     Executes all benchmarks by running "cargo bench --no-run", finding the executables, and running them pinned to some CPU
     """
     baseline_name = "a_baseline" if is_a else "b_baseline"
 
-    # Passing --message-format json to cargo tells it to print its log in a json format. At the end, instead of the
-    # usual "placed executable <...> at <...>" we'll get a json object with an 'executable' key, from which we
-    # extract the path to the compiled benchmark binary.
-    _, stdout, _ = cargo(
-        "bench",
-        f"--all --quiet --target {platform.machine()}-unknown-linux-musl --message-format json --no-run",
-    )
-
-    executables = []
-    for line in stdout.split("\n"):
-        if line:
-            msg = json.loads(line)
-            executable = msg.get("executable")
-            if executable:
-                executables.append(executable)
-
-    for executable in executables:
-        utils.run_cmd(
-            f"CARGO_TARGET_DIR=build/cargo_target taskset -c 1 {executable} --bench --save-baseline {baseline_name}"
+    with chdir(firecracker_checkout):
+        # Passing --message-format json to cargo tells it to print its log in a json format. At the end, instead of the
+        # usual "placed executable <...> at <...>" we'll get a json object with an 'executable' key, from which we
+        # extract the path to the compiled benchmark binary.
+        _, stdout, _ = cargo(
+            "bench",
+            f"--all --quiet --target {platform.machine()}-unknown-linux-musl --message-format json --no-run",
         )
 
-    return Path(os.getcwd()) / "build" / "cargo_target" / "criterion"
+        executables = []
+        for line in stdout.split("\n"):
+            if line:
+                msg = json.loads(line)
+                executable = msg.get("executable")
+                if executable:
+                    executables.append(executable)
+
+        for executable in executables:
+            utils.run_cmd(
+                f"CARGO_TARGET_DIR=build/cargo_target taskset -c 1 {executable} --bench --save-baseline {baseline_name}"
+            )
+
+    return firecracker_checkout / "build" / "cargo_target" / "criterion"
 
 
 def compare_results(location_a_baselines: Path, location_b_baselines: Path):

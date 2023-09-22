@@ -72,7 +72,7 @@
 DEVCTR_IMAGE_NO_TAG="public.ecr.aws/firecracker/fcuvm"
 
 # Development container tag
-DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v63}
+DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v64}
 
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
@@ -483,7 +483,7 @@ cmd_build() {
 }
 
 function cmd_make_release {
-    cmd_test -- --json-report --json-report-file=test-report.json || die "Tests failed!"
+    cmd_test || die "Tests failed!"
 
     run_devctr \
         --user "$(id -u):$(id -g)" \
@@ -532,7 +532,7 @@ ensure_ci_artifacts() {
 # Please see `$0 help` for more information.
 #
 cmd_test() {
-
+    do_ab_test=0
     # Parse any command line args.
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -544,6 +544,9 @@ cmd_test() {
             "-m"|"--cpuset-mems")
                 shift
                 local cpuset_mems="$1"
+                ;;
+            "--ab")
+                do_ab_test=1
                 ;;
             "--")               { shift; break;     } ;;
             *)
@@ -583,6 +586,12 @@ cmd_test() {
       say "Detected CI, tuning CPU frequency scaling for reduced variability"
     fi
 
+    test_script="./tools/test.sh"
+
+    if [ $do_ab_test -eq 1 ]; then
+      test_script="./tools/ab_test.py"
+    fi
+
     run_devctr \
         --privileged \
         --security-opt seccomp=unconfined \
@@ -594,7 +603,7 @@ cmd_test() {
         --cpuset-mems="$cpuset_mems" \
         --env-file env.list \
         -- \
-        ./tools/test.sh "$@"
+        $test_script "$@"
 
     ret=$?
 
@@ -609,6 +618,7 @@ cmd_test() {
 
     return $ret
 }
+
 
 # `$0 shell` - drop to a shell prompt inside the dev container
 # Please see `$0 help` for more information.

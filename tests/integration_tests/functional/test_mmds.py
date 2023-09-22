@@ -17,6 +17,7 @@ from framework.utils import (
     populate_data_store,
     run_guest_cmd,
 )
+from host_tools.cargo_build import get_firecracker_binaries
 
 # Minimum lifetime of token.
 MIN_TOKEN_TTL_SECONDS = 1
@@ -639,7 +640,8 @@ def test_mmds_older_snapshot(
         microvm,
         microvm_factory,
         mmds_version,
-        target_fc_version=firecracker_release.snapshot_version,
+        firecracker_release.snapshot_version,
+        *get_firecracker_binaries(),
     )
 
 

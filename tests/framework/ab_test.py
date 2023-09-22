@@ -23,8 +23,12 @@ does not block PRs). If not, it fails, preventing PRs from introducing new vulne
 """
 import contextlib
 import os
+import statistics
+from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Callable, Optional, TypeVar
+from typing import Callable, List, Optional, TypeVar
+
+import scipy
 
 from framework import utils
 
@@ -47,7 +51,7 @@ def default_comparator(ah: T, be: T) -> bool:
 
 
 def git_ab_test(
-    test_runner: Callable[[bool], T],
+    test_runner: Callable[[Path, bool], T],
     comparator: Callable[[T, T], U] = default_comparator,
     *,
     a_revision: str = DEFAULT_A_REVISION,
@@ -57,13 +61,13 @@ def git_ab_test(
     Performs an A/B-test using the given test runner between the specified revision, and the currently checked out revision.
     The specified revisions will be checked out in temporary directories, with `test_runner` getting executed in the
     repository root. If the test depends on firecracker binaries built from the requested revision, care has to be taken
-    that they are built from the sources in the temporary directory (which can be ensured via the `workspace` parameter
-    to `cargo_build.get_binary`).
+    that they are built from the sources in the temporary directory.
 
     Note that there are no guarantees on the order in which the two tests are run.
 
     :param test_runner: A callable which when executed runs the test in the context of the current working directory. Its
-                        parameter is `true` if and only if it is currently running the "A" test.
+                        first parameter is a temporary directory in which firecracker is checked out at some revision.
+                        The second parameter is `true` if and only if the checked out revision is the "A" revision.
     :param comparator: A callable taking two outputs from `test_runner` and comparing them. Should return some value
                        indicating whether the test should pass or no, which will be returned by the `ab_test` functions,
                        and on which the caller can then do an assertion.
@@ -79,24 +83,44 @@ def git_ab_test(
     # uncommitted changes. In the CI this will not work because multiple tests will run in parallel, and thus switching
     # branches will cause random failures in other tests.
     with temporary_checkout(a_revision) as a_tmp:
-        with chdir(a_tmp):
-            result_a = test_runner(True)
+        result_a = test_runner(a_tmp, True)
 
         if b_revision:
             with temporary_checkout(b_revision) as b_tmp:
-                with chdir(b_tmp):
-                    result_b = test_runner(False)
+                result_b = test_runner(b_tmp, False)
                 # Have to call comparator here to make sure both temporary directories exist (as the comparator
                 # might rely on some files that were created during test running, see the benchmark test)
                 comparison = comparator(result_a, result_b)
         else:
-            # By default, pytest execution happens inside the `tests` subdirectory. Change to the repository root, as
+            # By default, pytest execution happens inside the `tests` subdirectory. Pass the repository root, as
             # documented.
-            with chdir(".."):
-                result_b = test_runner(False)
+            result_b = test_runner(Path.cwd().parent, False)
             comparison = comparator(result_a, result_b)
 
         return result_a, result_b, comparison
+
+
+def check_regression(a_samples: List[float], b_samples: List[float]):
+    """Checks for a regression by performing a permutation test. A permutation test is a non-parametric test that takes
+    three parameters: Two populations (sets of samples) and a function computing a "statistic" based on two populations.
+    First, the test computes the statistic for the initial populations. It then randomly
+    permutes the two populations (e.g. merges them and then randomly splits them again). For each such permuted
+    population, the statistic is computed. Then, all the statistics are sorted, and the percentile of the statistic for the
+    initial populations is computed. We then look at the fraction of statistics that are larger/smaller than that of the
+    initial populations. The minimum of these two fractions will then become the p-value.
+
+    The idea is that if the two populations are indeed drawn from the same distribution (e.g. if performance did not
+    change), then permuting will not affect the statistic (indeed, it should be approximately normal-distributed, and
+    the statistic for the initial populations will be somewhere "in the middle").
+
+    Useful for performance tests.
+    """
+    return scipy.stats.permutation_test(
+        (a_samples, b_samples),
+        # Compute the difference of means, such that a positive different indicates potential for regression.
+        lambda x, y: statistics.mean(y) - statistics.mean(x),
+        vectorized=False,
+    )
 
 
 @contextlib.contextmanager
@@ -108,14 +132,17 @@ def temporary_checkout(revision: str):
     happen along the way.
     """
     with TemporaryDirectory() as tmp_dir:
-        utils.run_cmd(
-            f"git clone https://github.com/firecracker-microvm/firecracker {tmp_dir}"
-        )
+        # `git clone` can take a path instead of an URL, which causes it to create a copy of the
+        # repository at the given path. However, that path needs to point to the root of a repository,
+        # it cannot be some arbitrary subdirectory. Therefore:
+        _, git_root, _ = utils.run_cmd("git rev-parse --show-toplevel")
+        # split off the '\n' at the end of the stdout
+        utils.run_cmd(f"git clone {git_root.strip()} {tmp_dir}")
 
         with chdir(tmp_dir):
             utils.run_cmd(f"git checkout {revision}")
 
-        yield tmp_dir
+        yield Path(tmp_dir)
 
 
 # Once we upgrade to python 3.11, this will be in contextlib:

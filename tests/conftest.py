@@ -67,6 +67,11 @@ def pytest_addoption(parser):
         action="store_true",
         help="fail the test if the baseline does not match",
     )
+    parser.addoption(
+        "--binary-dir",
+        action="store",
+        help="use firecracker/jailer binaries from this directory instead of compiling from source",
+    )
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -271,7 +276,7 @@ def fc_tmp_path(test_fc_session_root_path):
 
 
 @pytest.fixture()
-def microvm_factory(fc_tmp_path, bin_cloner_path):
+def microvm_factory(fc_tmp_path, bin_cloner_path, request):
     """Fixture to create microvms simply.
 
     In order to avoid running out of space when instantiating many microvms,
@@ -280,7 +285,15 @@ def microvm_factory(fc_tmp_path, bin_cloner_path):
     One can comment the removal line, if it helps with debugging.
     """
 
-    uvm_factory = MicroVMFactory(fc_tmp_path, bin_cloner_path)
+    if binary_dir := request.config.getoption("--binary-dir"):
+        fc_binary_path = Path(binary_dir) / "firecracker"
+        jailer_binary_path = Path(binary_dir) / "jailer"
+    else:
+        fc_binary_path, jailer_binary_path = build_tools.get_firecracker_binaries()
+
+    uvm_factory = MicroVMFactory(
+        fc_tmp_path, bin_cloner_path, fc_binary_path, jailer_binary_path
+    )
     yield uvm_factory
     uvm_factory.kill()
     shutil.rmtree(fc_tmp_path)
