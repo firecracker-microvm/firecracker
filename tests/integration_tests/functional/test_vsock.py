@@ -51,7 +51,7 @@ def test_vsock(test_microvm_with_api, bin_vsock_path, test_fc_session_root_path)
     check_vsock_device(vm, bin_vsock_path, test_fc_session_root_path, vm.ssh)
 
 
-def negative_test_host_connections(vm, uds_path, blob_path, blob_hash):
+def negative_test_host_connections(vm, blob_path, blob_hash):
     """Negative test for host-initiated connections.
 
     This will start a daemonized echo server on the guest VM, and then spawn
@@ -59,7 +59,7 @@ def negative_test_host_connections(vm, uds_path, blob_path, blob_hash):
     Closes the UDS sockets while data is in flight.
     """
 
-    start_guest_echo_server(vm)
+    uds_path = start_guest_echo_server(vm)
 
     workers = []
     for _ in range(NEGATIVE_TEST_CONNECTION_COUNT):
@@ -113,10 +113,9 @@ def test_vsock_epipe(test_microvm_with_api, bin_vsock_path, test_fc_session_root
     # Guest-initiated connections (echo workers) will use this blob.
     _copy_vsock_data_to_guest(vm.ssh, blob_path, vm_blob_path, bin_vsock_path)
 
-    path = os.path.join(vm.jailer.chroot_path(), VSOCK_UDS_PATH)
     # Negative test for host-initiated connections that
     # are closed with in flight data.
-    negative_test_host_connections(vm, path, blob_path, blob_hash)
+    negative_test_host_connections(vm, blob_path, blob_hash)
 
 
 def test_vsock_transport_reset(
@@ -151,8 +150,7 @@ def test_vsock_transport_reset(
     _copy_vsock_data_to_guest(test_vm.ssh, blob_path, vm_blob_path, bin_vsock_path)
 
     # Start guest echo server.
-    path = os.path.join(test_vm.jailer.chroot_path(), VSOCK_UDS_PATH)
-    start_guest_echo_server(test_vm)
+    path = start_guest_echo_server(test_vm)
 
     # Start host workers that connect to the guest server.
     workers = []

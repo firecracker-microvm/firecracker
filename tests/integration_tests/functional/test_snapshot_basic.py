@@ -94,8 +94,7 @@ def test_5_snapshots(
         )
         check_guest_connections(microvm, path, vm_blob_path, blob_hash)
         # Test vsock host-initiated connections.
-        start_guest_echo_server(microvm)
-        path = os.path.join(microvm.jailer.chroot_path(), VSOCK_UDS_PATH)
+        path = start_guest_echo_server(microvm)
         check_host_connections(path, blob_path, blob_hash)
 
         # Check that the root device is not corrupted.
