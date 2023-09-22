@@ -11,6 +11,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from host_tools.cargo_build import get_firecracker_binaries
+
 # Hack to be able to import testing framework functions.
 sys.path.append(os.path.join(os.getcwd(), "tests"))  # noqa: E402
 
@@ -94,7 +96,7 @@ def main():
     print("Cleanup")
     shutil.rmtree(SNAPSHOT_ARTIFACTS_ROOT_DIR, ignore_errors=True)
     root_path = tempfile.mkdtemp(dir=DEFAULT_TEST_SESSION_ROOT_PATH)
-    vm_factory = MicroVMFactory(root_path, None)
+    vm_factory = MicroVMFactory(root_path, None, *get_firecracker_binaries())
 
     cpu_templates = ["None"]
     if get_cpu_vendor() == CpuVendor.INTEL:
