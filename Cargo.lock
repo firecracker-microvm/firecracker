@@ -554,6 +554,7 @@ name = "firecracker"
 version = "1.5.0-dev"
 dependencies = [
  "api_server",
+ "bincode",
  "cargo_toml",
  "displaydoc",
  "event-manager",

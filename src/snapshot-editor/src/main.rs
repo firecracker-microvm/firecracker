@@ -26,7 +26,7 @@ enum SnapEditorError {
 }
 
 #[derive(Debug, Parser)]
-#[command(version = format!("v{}", env!("FIRECRACKER_VERSION")))]
+#[command(version = format!("v{}", env!("CARGO_PKG_VERSION")))]
 struct Cli {
     #[command(subcommand)]
     command: Command,

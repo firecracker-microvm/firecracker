@@ -6,7 +6,11 @@
 //! The library crate that defines common helper functions that are generally used in
 //! conjunction with seccompiler-bin.
 
-mod common;
+pub mod backend;
+pub mod common;
+pub mod compiler;
+/// Syscall tables
+pub mod syscall_table;
 
 use std::collections::HashMap;
 use std::fmt::Debug;

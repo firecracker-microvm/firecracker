@@ -134,6 +134,16 @@ cargo build --target "$CARGO_TARGET" $CARGO_OPTS --workspace
 
 say "Binaries placed under $CARGO_TARGET_DIR"
 
+# Check static linking:
+# expected "statically linked" for aarch64 and
+# "static-pie linked" for x86_64
+binary_format=$(file $CARGO_TARGET_DIR/firecracker)
+if [[ "$PROFILE" = "release"
+        && "$binary_format" != *"statically linked"*
+        && "$binary_format" != *"static-pie linked"* ]]; then
+    die "Binary not statically linked: $binary_format"
+fi
+
 # # # # Make a release
 if [ -z "$MAKE_RELEASE" ]; then
     exit 0
@@ -157,7 +167,7 @@ cp -v -t "$RELEASE_DIR" LICENSE NOTICE THIRD-PARTY
 check_swagger_artifact src/api_server/swagger/firecracker.yaml "$VERSION"
 cp -v src/api_server/swagger/firecracker.yaml "$RELEASE_DIR/firecracker_spec-$VERSION.yaml"
 
-cp -v tests/test-report.json "$RELEASE_DIR/"
+cp -v test_results/test-report.json "$RELEASE_DIR/"
 
 (
     cd "$RELEASE_DIR"

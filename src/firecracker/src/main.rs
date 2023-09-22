@@ -36,7 +36,7 @@ use crate::seccomp::SeccompConfig;
 // see https://refspecs.linuxfoundation.org/FHS_3.0/fhs/ch03s15.html for more information.
 const DEFAULT_API_SOCK_PATH: &str = "/run/firecracker.socket";
 const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
-const FIRECRACKER_VERSION: &str = env!("FIRECRACKER_VERSION");
+const FIRECRACKER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MMDS_CONTENT_ARG: &str = "metadata";
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
