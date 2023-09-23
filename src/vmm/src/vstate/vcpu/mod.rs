@@ -17,7 +17,7 @@ use kvm_bindings::{KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN};
 use kvm_ioctls::VcpuExit;
 use libc::{c_int, c_void, siginfo_t};
 use log::{error, info};
-use logger::{IncMetric, METRICS};
+use crate::logger::{IncMetric, METRICS};
 use seccompiler::{BpfProgram, BpfProgramRef};
 use utils::errno;
 use utils::eventfd::EventFd;

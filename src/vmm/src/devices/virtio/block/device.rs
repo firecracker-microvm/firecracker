@@ -15,7 +15,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use block_io::FileEngine;
-use logger::{error, warn, IncMetric, METRICS};
+use crate::logger::{error, warn, IncMetric, METRICS};
 use serde::{Deserialize, Serialize};
 use utils::eventfd::EventFd;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};

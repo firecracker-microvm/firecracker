@@ -4,7 +4,7 @@
 //! Auxiliary module for configuring the logger.
 use std::path::PathBuf;
 
-use logger::{FcLineWriter, LevelFilter, LOGGER};
+use crate::logger::{FcLineWriter, LevelFilter, LOGGER};
 use serde::{de, Deserialize, Deserializer, Serialize};
 
 use super::open_file_nonblock;
@@ -141,7 +141,7 @@ pub fn init_logger(
 mod tests {
     use std::io::{BufRead, BufReader};
 
-    use logger::warn;
+    use crate::logger::warn;
     use utils::tempfile::TempFile;
     use utils::time::TimestampUs;
 

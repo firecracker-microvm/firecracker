@@ -22,7 +22,7 @@
 //! ```
 //! use std::ops::Deref;
 //!
-//! use logger::{error, warn, LOGGER};
+//! use vmm::logger::{error, warn, LOGGER};
 //!
 //! // Optionally do an initial configuration for the logger.
 //! if let Err(err) = LOGGER.deref().configure(Some("MY-INSTANCE".to_string())) {
@@ -38,7 +38,7 @@
 //! use std::io::Cursor;
 //!
 //! use libc::c_char;
-//! use logger::{error, warn, LOGGER};
+//! use vmm::logger::{error, warn, LOGGER};
 //!
 //! let mut logs = Cursor::new(vec![0; 15]);
 //!
@@ -169,7 +169,7 @@ impl Logger {
     /// ```
     /// use std::ops::Deref;
     ///
-    /// use logger::{warn, LOGGER};
+    /// use vmm::logger::{warn, LOGGER};
     ///
     /// let l = LOGGER.deref();
     /// l.set_include_level(true);
@@ -200,7 +200,7 @@ impl Logger {
     /// ```
     /// use std::ops::Deref;
     ///
-    /// use logger::{warn, LOGGER};
+    /// use vmm::logger::{warn, LOGGER};
     ///
     /// let l = LOGGER.deref();
     /// l.set_include_origin(false, false);
@@ -240,7 +240,7 @@ impl Logger {
     /// ```
     /// use std::ops::Deref;
     ///
-    /// use logger::{info, warn, LOGGER};
+    /// use vmm::logger::{info, warn, LOGGER};
     ///
     /// let l = LOGGER.deref();
     /// l.set_max_level(log::LevelFilter::Warn);
@@ -317,7 +317,7 @@ impl Logger {
     /// ```
     /// use std::ops::Deref;
     ///
-    /// use logger::LOGGER;
+    /// use vmm::logger::LOGGER;
     ///
     /// LOGGER
     ///     .deref()
@@ -352,7 +352,7 @@ impl Logger {
     /// ```
     /// use std::io::Cursor;
     ///
-    /// use logger::LOGGER;
+    /// use vmm::logger::LOGGER;
     ///
     /// let mut logs = Cursor::new(vec![0; 15]);
     ///

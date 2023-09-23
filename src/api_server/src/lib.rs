@@ -13,7 +13,7 @@ mod request;
 use std::fmt::Debug;
 use std::sync::mpsc;
 
-use logger::{
+use vmm::logger::{
     debug, error, info, update_metric_with_elapsed_time, warn, ProcessTimeReporter, METRICS,
 };
 pub use micro_http::{
@@ -209,7 +209,7 @@ mod tests {
     use std::sync::mpsc::channel;
     use std::thread;
 
-    use logger::StoreMetric;
+    use vmm::logger::StoreMetric;
     use micro_http::HttpConnection;
     use utils::tempfile::TempFile;
     use utils::time::ClockType;

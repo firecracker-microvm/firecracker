@@ -13,8 +13,8 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use mmds::data_store::Mmds;
-use mmds::ns::MmdsNetworkStack;
+use crate::mmds::data_store::Mmds;
+use crate::mmds::ns::MmdsNetworkStack;
 use utils::net::mac::MacAddr;
 use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 
@@ -349,7 +349,7 @@ pub mod test {
     use std::{cmp, fmt, mem};
 
     use event_manager::{EventManager, SubscriberId, SubscriberOps};
-    use logger::{IncMetric, METRICS};
+    use crate::logger::{IncMetric, METRICS};
     use net_gen::ETH_HLEN;
     use utils::vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 

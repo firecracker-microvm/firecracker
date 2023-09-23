@@ -6,7 +6,7 @@ use std::fs::File;
 use std::marker::PhantomData;
 use std::os::unix::io::AsRawFd;
 
-use logger::log_dev_preview_warning;
+use crate::logger::log_dev_preview_warning;
 use utils::eventfd::EventFd;
 use utils::vm_memory::{mark_dirty_mem, GuestAddress, GuestMemory, GuestMemoryMmap};
 

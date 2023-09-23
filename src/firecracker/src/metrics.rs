@@ -5,7 +5,7 @@ use std::os::unix::io::AsRawFd;
 use std::time::Duration;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use logger::{error, warn, IncMetric, METRICS};
+use vmm::logger::{error, warn, IncMetric, METRICS};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use utils::epoll::EventSet;
 

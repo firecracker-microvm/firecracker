@@ -109,7 +109,7 @@ use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
-use logger::{error, info, warn, MetricsError, METRICS};
+use crate::logger::{error, info, warn, MetricsError, METRICS};
 use seccompiler::BpfProgram;
 use snapshot::Persist;
 use userfaultfd::Uffd;

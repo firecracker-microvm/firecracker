@@ -6,7 +6,7 @@
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use logger::warn;
+use crate::logger::warn;
 use snapshot::Persist;
 use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};

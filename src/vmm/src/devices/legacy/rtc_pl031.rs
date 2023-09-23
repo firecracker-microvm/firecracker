@@ -3,7 +3,7 @@
 
 use std::convert::TryInto;
 
-use logger::{warn, IncMetric, RTCDeviceMetrics, METRICS};
+use crate::logger::{warn, IncMetric, RTCDeviceMetrics, METRICS};
 
 /// Wrapper over vm_superio's RTC implementation.
 #[derive(Debug)]
@@ -56,7 +56,7 @@ impl RTCDevice {
 
 #[cfg(test)]
 mod tests {
-    use logger::IncMetric;
+    use crate::logger::IncMetric;
     use vm_superio::Rtc;
 
     use super::*;

@@ -8,9 +8,9 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 
 use log::warn;
-use mmds::data_store::Mmds;
-use mmds::ns::MmdsNetworkStack;
-use mmds::persist::MmdsNetworkStackState;
+use crate::mmds::data_store::Mmds;
+use crate::mmds::ns::MmdsNetworkStack;
+use crate::mmds::persist::MmdsNetworkStackState;
 use snapshot::Persist;
 use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 use utils::vm_memory::GuestMemoryMmap;

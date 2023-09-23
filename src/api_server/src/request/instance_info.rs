@@ -1,7 +1,7 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use logger::{IncMetric, METRICS};
+use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
 
 use crate::parsed_request::{Error, ParsedRequest};

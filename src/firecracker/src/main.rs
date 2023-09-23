@@ -13,7 +13,7 @@ use std::{io, panic};
 
 use api_server_adapter::ApiServerError;
 use event_manager::SubscriberOps;
-use logger::{error, info, ProcessTimeReporter, StoreMetric, LOGGER, METRICS};
+use vmm::logger::{error, info, ProcessTimeReporter, StoreMetric, LOGGER, METRICS};
 use seccomp::FilterError;
 use seccompiler::BpfThreadMap;
 use snapshot::{Error as SnapshotError, Snapshot};

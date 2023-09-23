@@ -966,8 +966,8 @@ pub mod tests {
     use std::io::Write;
 
     use linux_loader::cmdline::Cmdline;
-    use mmds::data_store::{Mmds, MmdsVersion};
-    use mmds::ns::MmdsNetworkStack;
+    use crate::mmds::data_store::{Mmds, MmdsVersion};
+    use crate::mmds::ns::MmdsNetworkStack;
     use utils::tempfile::TempFile;
     use utils::vm_memory::GuestMemory;
 

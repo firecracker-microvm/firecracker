@@ -5,8 +5,8 @@ use std::convert::From;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use mmds::data_store::{Mmds, MmdsVersion};
-use mmds::ns::MmdsNetworkStack;
+use crate::mmds::data_store::{Mmds, MmdsVersion};
+use crate::mmds::ns::MmdsNetworkStack;
 use serde::{Deserialize, Serialize};
 use utils::net::ipv4addr::is_link_local_valid;
 
@@ -469,7 +469,7 @@ mod tests {
     use std::os::linux::fs::MetadataExt;
     use std::str::FromStr;
 
-    use logger::{LevelFilter, LOGGER};
+    use crate::logger::{LevelFilter, LOGGER};
     use serde_json::{Map, Value};
     use utils::net::mac::MacAddr;
     use utils::tempfile::TempFile;

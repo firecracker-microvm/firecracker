@@ -1,7 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use logger::{IncMetric, METRICS};
+use vmm::logger::{IncMetric, METRICS};
 use vmm::vmm_config::boot_source::BootSourceConfig;
 
 use super::super::VmmAction;
