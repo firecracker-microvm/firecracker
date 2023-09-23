@@ -47,6 +47,8 @@ use crate::devices::virtio::{
     Balloon, Block, Entropy, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend,
 };
 use crate::devices::BusDevice;
+#[cfg(target_arch = "aarch64")]
+use crate::logger;
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootConfig;
