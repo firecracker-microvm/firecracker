@@ -18,7 +18,7 @@ kvm-ioctls = "0.15.0"
 lazy_static = "1.4.0"
 libc = "0.2.117"
 linux-loader = "0.9.0"
-serde = { version = "1.0.136", features = ["derive"] }
+serde = { version = "1.0.136", features = ["derive", "rc"] }
 semver = { version = "1.0.17", features = ["serde"] }
 serde_json = "1.0.78"
 timerfd = "1.5.0"
@@ -30,11 +30,12 @@ versionize_derive = "0.1.5"
 vm-allocator = "0.1.0"
 vm-fdt = "0.2.0"
 vm-superio = "0.7.0"
-log = { version = "0.4.17", features = ["serde"] }
+log = { version = "0.4.17", features = ["std", "serde"] }
+aes-gcm =  { version = "0.10.1", default-features = false, features = ["aes"] }
+base64 = "0.13.0"
+bincode = "1.2.1"
+micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 
-dumbo = { path = "../dumbo" }
-logger = { path = "../logger" }
-mmds = { path = "../mmds" }
 net_gen = { path = "../net_gen" }
 seccompiler = { path = "../seccompiler" }
 snapshot = { path = "../snapshot"}
