@@ -10,8 +10,8 @@ pub mod handler;
 use std::fmt::Debug;
 use std::num::Wrapping;
 
-use crate::pdu::bytes::NetworkBytes;
-use crate::pdu::tcp::{Flags as TcpFlags, TcpSegment};
+use crate::dumbo::pdu::bytes::NetworkBytes;
+use crate::dumbo::pdu::tcp::{Flags as TcpFlags, TcpSegment};
 
 /// The largest possible window size (requires the window scaling option).
 pub const MAX_WINDOW_SIZE: u32 = 1_073_725_440;
