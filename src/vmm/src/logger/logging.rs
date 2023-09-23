@@ -87,9 +87,9 @@ use log::{max_level, set_logger, set_max_level, LevelFilter, Log, Metadata, Reco
 use utils::time::LocalTime;
 
 use super::extract_guard;
-use crate::init;
-use crate::init::Init;
-use crate::metrics::{IncMetric, METRICS};
+use crate::logger::init;
+use crate::logger::init::Init;
+use crate::logger::metrics::{IncMetric, METRICS};
 
 /// Type for returning functions outcome.
 pub type Result<T> = result::Result<T, LoggerError>;
