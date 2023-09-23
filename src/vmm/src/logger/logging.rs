@@ -437,7 +437,7 @@ mod tests {
     use std::io::{BufWriter, Read, Write};
     use std::sync::Arc;
 
-    use log::{info, Level};
+    use log::Level;
 
     use super::*;
 
@@ -754,16 +754,14 @@ mod tests {
         assert!(r.is_ok());
     }
 
-    #[test]
-    fn test_static_logger() {
-        log::set_max_level(log::LevelFilter::Info);
-        LOGGER.set_instance_id(TEST_INSTANCE_ID.to_string());
-
-        let mut reader = LOGGER.mock_init();
-
-        info!("info");
-        validate_log(&mut Box::new(&mut reader), "info\n");
-    }
+    // There was a test `test_static_logger` to cover LOGGER however,
+    // it had conflict with `vmm_config::test::test_itest_init_logger`
+    // which also uses tries to initialize logger and fail with an
+    // already initialized error.
+    // Since vmm_config::test_init_logger() cover the logger init test
+    // with more parameters, test_static_logger() was removed.
+    // This comment is kept here so that we don't try to implement
+    // test_static_logger() again in the future.
 
     #[test]
     fn test_error_messages() {
