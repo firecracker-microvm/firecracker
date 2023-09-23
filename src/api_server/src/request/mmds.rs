@@ -1,8 +1,8 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use vmm::logger::{IncMetric, METRICS};
 use micro_http::StatusCode;
+use vmm::logger::{IncMetric, METRICS};
 use vmm::mmds::data_store::MmdsVersion;
 use vmm::rpc_interface::VmmAction;
 use vmm::vmm_config::mmds::MmdsConfig;

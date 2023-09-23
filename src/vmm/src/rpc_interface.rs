@@ -5,8 +5,6 @@ use std::fmt::{self, Debug};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use log::{error, info, warn};
-use crate::logger::*;
-use crate::mmds::data_store::{self, Mmds};
 use seccompiler::BpfThreadMap;
 use serde_json::Value;
 #[cfg(test)]
@@ -23,6 +21,8 @@ use super::{
 };
 use crate::builder::StartMicrovmError;
 use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
+use crate::logger::*;
+use crate::mmds::data_store::{self, Mmds};
 use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
 use crate::resources::VmmConfig;
 use crate::version_map::VERSION_MAP;
@@ -857,7 +857,6 @@ mod tests {
     use std::io;
     use std::path::PathBuf;
 
-    use crate::mmds::data_store::MmdsVersion;
     use seccompiler::BpfThreadMap;
 
     use super::*;
@@ -866,6 +865,7 @@ mod tests {
     use crate::devices::virtio::balloon::{BalloonConfig, BalloonError};
     use crate::devices::virtio::rng::EntropyError;
     use crate::devices::virtio::VsockError;
+    use crate::mmds::data_store::MmdsVersion;
     use crate::vmm_config::balloon::BalloonBuilder;
     use crate::vmm_config::drive::{CacheType, FileEngineType};
     use crate::vmm_config::logger_config::LoggerLevel;
