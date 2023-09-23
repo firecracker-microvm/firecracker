@@ -7,7 +7,7 @@
 
 use kvm_bindings::*;
 use kvm_ioctls::*;
-use logger::{error, IncMetric, METRICS};
+use crate::logger::{error, IncMetric, METRICS};
 use utils::vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;

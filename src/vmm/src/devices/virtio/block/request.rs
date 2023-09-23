@@ -7,7 +7,7 @@
 
 use std::convert::From;
 
-use logger::{error, IncMetric, METRICS};
+use crate::logger::{error, IncMetric, METRICS};
 use utils::vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 pub use virtio_gen::virtio_blk::{
     VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK, VIRTIO_BLK_S_UNSUPP,

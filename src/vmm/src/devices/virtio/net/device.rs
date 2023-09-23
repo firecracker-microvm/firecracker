@@ -11,13 +11,13 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use std::{cmp, mem};
 
-use dumbo::pdu::arp::ETH_IPV4_FRAME_LEN;
-use dumbo::pdu::ethernet::{EthernetFrame, PAYLOAD_OFFSET};
+use crate::dumbo::pdu::arp::ETH_IPV4_FRAME_LEN;
+use crate::dumbo::pdu::ethernet::{EthernetFrame, PAYLOAD_OFFSET};
 use libc::EAGAIN;
 use log::{error, warn};
-use logger::{IncMetric, METRICS};
-use mmds::data_store::Mmds;
-use mmds::ns::MmdsNetworkStack;
+use crate::logger::{IncMetric, METRICS};
+use crate::mmds::data_store::Mmds;
+use crate::mmds::ns::MmdsNetworkStack;
 use utils::eventfd::EventFd;
 use utils::net::mac::MacAddr;
 use utils::vm_memory::{ByteValued, Bytes, GuestMemoryError, GuestMemoryMmap};
@@ -855,9 +855,9 @@ pub mod tests {
     use std::time::Duration;
     use std::{io, mem, thread};
 
-    use dumbo::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
-    use dumbo::pdu::ethernet::ETHERTYPE_ARP;
-    use logger::{IncMetric, METRICS};
+    use crate::dumbo::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
+    use crate::dumbo::pdu::ethernet::ETHERTYPE_ARP;
+    use crate::logger::{IncMetric, METRICS};
     use utils::net::mac::MAC_ADDR_LEN;
     use utils::vm_memory::{Address, GuestMemory};
     use virtio_gen::virtio_net::{

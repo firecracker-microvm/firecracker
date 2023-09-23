@@ -5,8 +5,8 @@ use std::fmt::{self, Debug};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use log::{error, info, warn};
-use logger::*;
-use mmds::data_store::{self, Mmds};
+use crate::logger::*;
+use crate::mmds::data_store::{self, Mmds};
 use seccompiler::BpfThreadMap;
 use serde_json::Value;
 #[cfg(test)]
@@ -857,7 +857,7 @@ mod tests {
     use std::io;
     use std::path::PathBuf;
 
-    use mmds::data_store::MmdsVersion;
+    use crate::mmds::data_store::MmdsVersion;
     use seccompiler::BpfThreadMap;
 
     use super::*;

@@ -29,7 +29,7 @@ use std::os::unix::io::AsRawFd;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use log::{debug, error, warn};
-use logger::{IncMetric, METRICS};
+use crate::logger::{IncMetric, METRICS};
 use utils::epoll::EventSet;
 
 use super::device::{Vsock, EVQ_INDEX, RXQ_INDEX, TXQ_INDEX};

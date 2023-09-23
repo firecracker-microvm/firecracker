@@ -4,7 +4,7 @@
 //! Auxiliary module for configuring the metrics system.
 use std::path::PathBuf;
 
-use logger::{FcLineWriter, METRICS};
+use crate::logger::{FcLineWriter, METRICS};
 use serde::{Deserialize, Serialize};
 
 use super::open_file_nonblock;

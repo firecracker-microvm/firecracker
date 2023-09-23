@@ -5,7 +5,7 @@ use std::os::unix::io::AsRawFd;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use log::{error, warn};
-use logger::{IncMetric, METRICS};
+use crate::logger::{IncMetric, METRICS};
 use utils::epoll::EventSet;
 
 use crate::devices::virtio::net::device::Net;

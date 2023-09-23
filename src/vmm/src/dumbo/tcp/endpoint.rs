@@ -14,7 +14,7 @@
 use std::fmt::Debug;
 use std::num::{NonZeroU16, NonZeroU64, Wrapping};
 
-use logger::{IncMetric, METRICS};
+use crate::logger::{IncMetric, METRICS};
 use micro_http::{Body, Request, RequestError, Response, StatusCode, Version};
 use utils::time::timestamp_cycles;
 

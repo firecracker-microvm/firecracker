@@ -11,20 +11,20 @@ use std::result::Result;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
-use dumbo::pdu::arp::{
+use crate::dumbo::pdu::arp::{
     test_speculative_tpa, Error as ArpFrameError, EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN,
 };
-use dumbo::pdu::ethernet::{
+use crate::dumbo::pdu::ethernet::{
     Error as EthernetFrameError, EthernetFrame, ETHERTYPE_ARP, ETHERTYPE_IPV4,
 };
-use dumbo::pdu::ipv4::{
+use crate::dumbo::pdu::ipv4::{
     test_speculative_dst_addr, Error as IPv4PacketError, IPv4Packet, PROTOCOL_TCP,
 };
-use dumbo::pdu::tcp::Error as TcpSegmentError;
-use dumbo::pdu::Incomplete;
-use dumbo::tcp::handler::{RecvEvent, TcpIPv4Handler, WriteEvent, WriteNextError};
-use dumbo::tcp::NextSegmentStatus;
-use logger::{IncMetric, METRICS};
+use crate::dumbo::pdu::tcp::Error as TcpSegmentError;
+use crate::dumbo::pdu::Incomplete;
+use crate::dumbo::tcp::handler::{RecvEvent, TcpIPv4Handler, WriteEvent, WriteNextError};
+use crate::dumbo::tcp::NextSegmentStatus;
+use crate::logger::{IncMetric, METRICS};
 use utils::net::mac::MacAddr;
 use utils::time::timestamp_cycles;
 
@@ -318,7 +318,7 @@ impl MmdsNetworkStack {
 mod tests {
     use std::str::FromStr;
 
-    use dumbo::pdu::tcp::{Flags as TcpFlags, TcpSegment};
+    use crate::dumbo::pdu::tcp::{Flags as TcpFlags, TcpSegment};
 
     use super::*;
 

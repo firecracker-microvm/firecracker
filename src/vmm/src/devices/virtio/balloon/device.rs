@@ -8,7 +8,7 @@ use std::time::Duration;
 use std::{cmp, fmt};
 
 use log::error;
-use logger::{IncMetric, METRICS};
+use crate::logger::{IncMetric, METRICS};
 use serde::Serialize;
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use utils::eventfd::EventFd;
