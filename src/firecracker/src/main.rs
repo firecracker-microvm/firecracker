@@ -25,7 +25,7 @@ use vmm::resources::VmResources;
 use vmm::signal_handler::register_signal_handlers;
 use vmm::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
-use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError, LoggerLevel};
+use vmm::vmm_config::logger_config::{init_logger, LoggerConfig, LoggerConfigError, LoggerLevel};
 use vmm::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
 use vmm::{EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
 

@@ -34,7 +34,7 @@ use crate::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use crate::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig, DriveError};
 use crate::vmm_config::entropy::{EntropyDeviceConfig, EntropyDeviceError};
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::logger::{LoggerConfig, LoggerConfigError};
+use crate::vmm_config::logger_config::{LoggerConfig, LoggerConfigError};
 use crate::vmm_config::machine_config::{MachineConfig, MachineConfigUpdate, VmConfigError};
 use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
@@ -400,7 +400,7 @@ impl<'a> PrebootApiController<'a> {
             // Supported operations allowed pre-boot.
             ConfigureBootSource(config) => self.set_boot_source(config),
             ConfigureLogger(logger_cfg) => {
-                vmm_config::logger::init_logger(logger_cfg, &self.instance_info)
+                vmm_config::logger_config::init_logger(logger_cfg, &self.instance_info)
                     .map(|()| VmmData::Empty)
                     .map_err(VmmActionError::Logger)
             }
@@ -868,7 +868,7 @@ mod tests {
     use crate::devices::virtio::VsockError;
     use crate::vmm_config::balloon::BalloonBuilder;
     use crate::vmm_config::drive::{CacheType, FileEngineType};
-    use crate::vmm_config::logger::LoggerLevel;
+    use crate::vmm_config::logger_config::LoggerLevel;
     use crate::vmm_config::machine_config::VmConfig;
     use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
     use crate::vmm_config::vsock::VsockBuilder;
