@@ -12,8 +12,8 @@ use std::fmt::Debug;
 use std::net::Ipv4Addr;
 use std::result::Result;
 
-use crate::pdu::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
-use crate::pdu::{ethernet, Incomplete};
+use crate::dumbo::pdu::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
+use crate::dumbo::pdu::{ethernet, Incomplete};
 
 const VERSION_AND_IHL_OFFSET: usize = 0;
 const DSCP_AND_ECN_OFFSET: usize = 1;
@@ -469,7 +469,7 @@ pub fn test_speculative_dst_addr(buf: &[u8], addr: Ipv4Addr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MacAddr;
+    use crate::dumbo::MacAddr;
 
     const MAX_HEADER_LEN: usize = 60;
 
@@ -665,18 +665,26 @@ mod tests {
         let other_ip = Ipv4Addr::new(5, 6, 7, 8);
 
         {
-            let mut eth =
-                crate::pdu::ethernet::EthernetFrame::write_incomplete(buf.as_mut(), mac, mac, 0)
-                    .unwrap();
+            let mut eth = crate::dumbo::pdu::ethernet::EthernetFrame::write_incomplete(
+                buf.as_mut(),
+                mac,
+                mac,
+                0,
+            )
+            .unwrap();
             IPv4Packet::from_bytes_unchecked(eth.inner_mut().payload_mut())
                 .set_destination_address(ip);
         }
         assert!(test_speculative_dst_addr(buf.as_ref(), ip));
 
         {
-            let mut eth =
-                crate::pdu::ethernet::EthernetFrame::write_incomplete(buf.as_mut(), mac, mac, 0)
-                    .unwrap();
+            let mut eth = crate::dumbo::pdu::ethernet::EthernetFrame::write_incomplete(
+                buf.as_mut(),
+                mac,
+                mac,
+                0,
+            )
+            .unwrap();
             IPv4Packet::from_bytes_unchecked(eth.inner_mut().payload_mut())
                 .set_destination_address(other_ip);
         }

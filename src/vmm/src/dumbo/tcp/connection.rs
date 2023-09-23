@@ -12,18 +12,19 @@ use std::num::{NonZeroU16, NonZeroU64, NonZeroUsize, Wrapping};
 use bitflags::bitflags;
 use utils::rand::xor_pseudo_rng_u32;
 
-use crate::pdu::bytes::NetworkBytes;
-use crate::pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
-use crate::pdu::Incomplete;
-use crate::tcp::{
+use crate::dumbo::pdu::bytes::NetworkBytes;
+use crate::dumbo::pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
+use crate::dumbo::pdu::Incomplete;
+use crate::dumbo::tcp::{
     seq_after, seq_at_or_after, NextSegmentStatus, RstConfig, MAX_WINDOW_SIZE, MSS_DEFAULT,
 };
-use crate::ByteBuffer;
+use crate::dumbo::ByteBuffer;
 
 bitflags! {
     // We use a set of flags, instead of a state machine, to represent the connection status. Some
     // parts of the status information are reflected in other fields of the Connection struct, such
     // as Connection::fin_received.
+    #[derive(Debug, Clone, PartialEq)]
     struct ConnStatusFlags: u8 {
         const SYN_RECEIVED =        1;
         const SYNACK_SENT =         1 << 1;
@@ -40,6 +41,7 @@ bitflags! {
 
 bitflags! {
     /// Represents any unusual conditions which may occur when receiving a TCP segment.
+    #[derive(Debug, Clone, Copy, PartialEq)]
     pub struct RecvStatusFlags: u16 {
         /// The acknowledgement number is invalid.
         const INVALID_ACK =             1;

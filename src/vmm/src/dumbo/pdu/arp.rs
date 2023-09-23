@@ -510,9 +510,13 @@ mod tests {
 
         {
             let mac = MacAddr::from_bytes_unchecked(&[0; 6]);
-            let mut eth =
-                crate::pdu::ethernet::EthernetFrame::write_incomplete(a.as_mut(), mac, mac, 0)
-                    .unwrap();
+            let mut eth = crate::dumbo::pdu::ethernet::EthernetFrame::write_incomplete(
+                a.as_mut(),
+                mac,
+                mac,
+                0,
+            )
+            .unwrap();
             let mut arp = EthIPv4ArpFrame::from_bytes_unchecked(eth.inner_mut().payload_mut());
             arp.set_tpa(addr);
         }

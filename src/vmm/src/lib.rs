@@ -100,7 +100,12 @@ pub mod version_map;
 pub mod vmm_config;
 /// Module with virtual state structs.
 pub mod vstate;
-
+/// DUMBO
+pub mod dumbo;
+/// Logger
+pub mod logger;
+/// MMDS
+pub mod mmds;
 use std::collections::HashMap;
 use std::io;
 use std::os::unix::io::AsRawFd;
