@@ -56,10 +56,10 @@ impl RTCDevice {
 
 #[cfg(test)]
 mod tests {
-    use crate::logger::IncMetric;
     use vm_superio::Rtc;
 
     use super::*;
+    use crate::logger::IncMetric;
 
     #[test]
     fn test_rtc_device() {
