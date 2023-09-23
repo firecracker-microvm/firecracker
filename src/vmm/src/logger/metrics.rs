@@ -1239,7 +1239,14 @@ mod tests {
 
     #[test]
     fn test_init() {
-        let m = &METRICS;
+        // This test has a conflict with the vmm_config test
+        // `test_init_metrics` which also uses "METRICS" and
+        // tests fail with an already initialized error.
+        // This test is to validate the init() which doesn't require
+        // using METRICS specifically. So, to avoid the conflict we
+        // use a local Metrics to test init() instead of the global
+        // "METRICS"
+        let m = &Metrics::<_, FcLineWriter>::new(FirecrackerMetrics::new());
 
         // Trying to write metrics, when metrics system is not initialized, should not throw error.
         let res = m.write();
