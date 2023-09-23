@@ -7,7 +7,7 @@ use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
 use serde_json::{to_vec, Value};
 
-use crate::token::{Error as TokenError, TokenAuthority};
+use crate::mmds::token::{Error as TokenError, TokenAuthority};
 
 /// The Mmds is the Microvm Metadata Service represented as an untyped json.
 #[derive(Debug)]
@@ -23,7 +23,9 @@ pub struct Mmds {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum MmdsVersion {
     #[default]
+    /// MMDS version 1
     V1,
+    /// MMDS version 2
     V2,
 }
 
@@ -39,11 +41,14 @@ impl Display for MmdsVersion {
 /// MMDS possible outputs.
 #[derive(Debug)]
 pub enum OutputFormat {
+    /// MMDS output format as Json
     Json,
+    /// MMDS output format as Imds
     Imds,
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
+/// MMDS data store errors
 pub enum Error {
     /// The MMDS patch request doesn't fit.
     DataStoreLimitExceeded,
@@ -65,6 +70,7 @@ impl Default for Mmds {
 }
 
 impl Mmds {
+    /// MMDS default instance with limit `data_store_limit`
     pub fn default_with_limit(data_store_limit: usize) -> Self {
         Mmds {
             data_store: Value::default(),
@@ -134,10 +140,12 @@ impl Mmds {
             .and_then(|ta| ta.generate_token_secret(ttl_seconds))
     }
 
+    /// set MMDS data store limit to `data_store_limit`
     pub fn set_data_store_limit(&mut self, data_store_limit: usize) {
         self.data_store_limit = data_store_limit;
     }
 
+    /// put `data` in MMDS data store
     pub fn put_data(&mut self, data: Value) -> Result<(), Error> {
         // It is safe to unwrap because any map keys are all strings and
         // we are using default serializer which does not return error.
@@ -151,6 +159,7 @@ impl Mmds {
         }
     }
 
+    /// patch update MMDS data store with `patch_data`
     pub fn patch_data(&mut self, patch_data: Value) -> Result<(), Error> {
         self.check_data_store_initialized()?;
         let mut data_store_clone = self.data_store.clone();
@@ -165,9 +174,10 @@ impl Mmds {
         Ok(())
     }
 
-    // We do not check size of data_store before returning a result because due
-    // to limit from put/patch the data_store can not be bigger than the limit
-    // imposed by the server.
+    /// return MMDS data store value
+    /// We do not check size of data_store before returning a result because due
+    /// to limit from put/patch the data_store can not be bigger than the limit
+    /// imposed by the server.
     pub fn data_store_value(&self) -> Value {
         self.data_store.clone()
     }

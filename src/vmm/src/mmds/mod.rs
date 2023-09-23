@@ -1,10 +1,14 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+/// MMDS data store
 pub mod data_store;
+/// MMDS network stack
 pub mod ns;
+/// Defines the structures needed for saving/restoring MmdsNetworkStack.
 pub mod persist;
 mod token;
+/// MMDS token headers
 pub mod token_headers;
 
 use std::sync::{Arc, Mutex};
@@ -15,11 +19,12 @@ use micro_http::{
 use serde_json::{Map, Value};
 use token_headers::TokenHeaders;
 
-use crate::data_store::{Error as MmdsError, Mmds, MmdsVersion, OutputFormat};
-use crate::token::PATH_TO_TOKEN;
-use crate::token_headers::REJECTED_HEADER;
+use crate::mmds::data_store::{Error as MmdsError, Mmds, MmdsVersion, OutputFormat};
+use crate::mmds::token::PATH_TO_TOKEN;
+use crate::mmds::token_headers::REJECTED_HEADER;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
+/// MMDS token errors
 pub enum Error {
     /// MMDS token not valid.
     InvalidToken,
@@ -93,6 +98,7 @@ fn sanitize_uri(mut uri: String) -> String {
     uri
 }
 
+/// Build a response for `request` and return response based on MMDS version
 pub fn convert_to_response(mmds: Arc<Mutex<Mmds>>, request: Request) -> Response {
     let uri = request.uri().get_abs_path();
     if uri.is_empty() {
@@ -294,7 +300,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::token::{MAX_TOKEN_TTL_SECONDS, MIN_TOKEN_TTL_SECONDS};
+    use crate::mmds::token::{MAX_TOKEN_TTL_SECONDS, MIN_TOKEN_TTL_SECONDS};
 
     fn populate_mmds() -> Arc<Mutex<Mmds>> {
         let data = r#"{
