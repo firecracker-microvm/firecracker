@@ -11,14 +11,10 @@ import sys
 import tempfile
 from pathlib import Path
 
-from host_tools.cargo_build import get_firecracker_binaries
-
 # Hack to be able to import testing framework functions.
 sys.path.append(os.path.join(os.getcwd(), "tests"))  # noqa: E402
 
 # pylint: disable=wrong-import-position
-# The test infra assumes it is running from the `tests` directory.
-os.chdir("tests")
 from framework.artifacts import disks, kernels
 from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH
 from framework.microvm import MicroVMFactory
@@ -28,9 +24,9 @@ from framework.utils import (
     run_cmd,
 )
 from framework.utils_cpuid import CpuVendor, get_cpu_vendor
+from host_tools.cargo_build import get_firecracker_binaries
 
-# restore directory
-os.chdir("..")
+# pylint: enable=wrong-import-position
 
 # Default IPv4 address to route MMDS requests.
 IPV4_ADDRESS = "169.254.169.254"

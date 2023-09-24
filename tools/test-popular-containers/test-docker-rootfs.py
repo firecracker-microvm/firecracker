@@ -8,11 +8,19 @@
 Test all the ext4 rootfs in the current directory
 """
 
+import os
+import sys
 from pathlib import Path
 
+# Hack to be able to import testing framework functions.
+sys.path.append(os.path.join(os.getcwd(), "tests"))
+
+# pylint: disable=wrong-import-position
 from framework.artifacts import kernels
 from framework.microvm import MicroVMFactory
 from host_tools.cargo_build import get_firecracker_binaries
+
+# pylint: enable=wrong-import-position
 
 kernels = list(kernels("vmlinux-*"))
 # Use the latest guest kernel
