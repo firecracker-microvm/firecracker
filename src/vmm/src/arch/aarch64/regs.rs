@@ -843,7 +843,7 @@ mod tests {
 
         let reg_ref: Aarch64RegisterRef = (&old_reg).try_into().unwrap();
         assert_eq!(old_reg.id, reg_ref.id);
-        assert_eq!(old_reg.data as u64, reg_ref.value::<u64, 8>());
+        assert_eq!(old_reg.data, u128::from(reg_ref.value::<u64, 8>()));
 
         let old_reg = Aarch64RegisterOld {
             id: KVM_REG_SIZE_U256,
@@ -870,7 +870,7 @@ mod tests {
 
         let reg: Aarch64RegisterOld = reg_ref.try_into().unwrap();
         assert_eq!(reg.id, reg_ref.id);
-        assert_eq!(reg.data as u64, reg_ref.value::<u64, 8>());
+        assert_eq!(reg.data, u128::from(reg_ref.value::<u64, 8>()));
 
         let reg_ref = Aarch64RegisterRef::new(KVM_REG_SIZE_U256, &[0_u8; 32]);
 
