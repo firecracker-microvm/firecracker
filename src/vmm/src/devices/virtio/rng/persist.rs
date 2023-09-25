@@ -4,7 +4,6 @@
 //! Defines the structures needed for saving/restoring entropy devices.
 
 use snapshot::Persist;
-use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
@@ -13,6 +12,7 @@ use crate::devices::virtio::rng::{Entropy, EntropyError, RNG_NUM_QUEUES};
 use crate::devices::virtio::{VirtioDeviceState, FIRECRACKER_MAX_QUEUE_SIZE, TYPE_RNG};
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::rate_limiter::RateLimiter;
+use crate::vstate::memory::GuestMemoryMmap;
 
 #[derive(Debug, Clone, Versionize)]
 pub struct EntropyState {

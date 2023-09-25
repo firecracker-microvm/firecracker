@@ -6,11 +6,10 @@ use std::num::Wrapping;
 use std::os::unix::io::RawFd;
 use std::sync::atomic::Ordering;
 
-use utils::vm_memory::{Bytes, MmapRegion, VolatileMemory, VolatileMemoryError};
-
 use super::mmap::{mmap, MmapError};
 use crate::io_uring::bindings;
 use crate::io_uring::operation::Cqe;
+use crate::vstate::memory::{Bytes, MmapRegion, VolatileMemory, VolatileMemoryError};
 
 #[derive(Debug, derive_more::From)]
 /// CQueue Error.

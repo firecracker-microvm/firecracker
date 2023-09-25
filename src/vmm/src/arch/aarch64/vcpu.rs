@@ -9,10 +9,10 @@ use std::path::PathBuf;
 
 use kvm_bindings::*;
 use kvm_ioctls::VcpuFd;
-use utils::vm_memory::GuestMemoryMmap;
 
 use super::get_fdt_addr;
 use super::regs::*;
+use crate::vstate::memory::GuestMemoryMmap;
 
 /// Errors thrown while setting aarch64 registers.
 #[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
@@ -208,7 +208,7 @@ mod tests {
         let vm = kvm.create_vm().unwrap();
         let vcpu = vm.create_vcpu(0).unwrap();
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = utils::vm_memory::test_utils::create_anon_guest_memory(&regions, false)
+        let mem = crate::vstate::memory::test_utils::create_anon_guest_memory(&regions, false)
             .expect("Cannot initialize memory");
 
         let res = setup_boot_regs(&vcpu, 0, 0x0, &mem);

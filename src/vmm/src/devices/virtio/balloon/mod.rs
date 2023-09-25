@@ -9,10 +9,9 @@ pub mod persist;
 pub mod test_utils;
 mod util;
 
-use utils::vm_memory::GuestMemoryError;
-
 pub use self::device::{Balloon, BalloonConfig, BalloonStats};
 use crate::devices::virtio::FIRECRACKER_MAX_QUEUE_SIZE;
+use crate::vstate::memory::GuestMemoryError;
 
 /// Device ID used in MMIO device identification.
 /// Because Balloon is unique per-vm, this ID can be hardcoded.

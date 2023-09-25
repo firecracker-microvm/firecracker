@@ -8,7 +8,6 @@ use std::os::unix::io::{AsRawFd, RawFd};
 
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
-use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 
 use crate::devices::virtio::test_utils::{single_region_mem, VirtQueue as GuestQ};
 use crate::devices::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
@@ -17,6 +16,7 @@ use crate::devices::virtio::{
     VirtioDevice, Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
     VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE,
 };
+use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
 #[derive(Debug)]
 pub struct TestBackend {

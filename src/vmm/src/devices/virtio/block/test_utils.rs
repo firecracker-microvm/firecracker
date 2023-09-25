@@ -10,7 +10,6 @@ use std::time::Duration;
 
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
 use utils::tempfile::TempFile;
-use utils::vm_memory::{Bytes, GuestAddress};
 
 use crate::devices::virtio::block::device::FileEngineType;
 #[cfg(test)]
@@ -21,6 +20,7 @@ use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
 use crate::devices::virtio::IrqType;
 use crate::devices::virtio::{Block, CacheType, Queue, RequestHeader};
 use crate::rate_limiter::RateLimiter;
+use crate::vstate::memory::{Bytes, GuestAddress};
 
 /// Create a default Block instance to be used in tests.
 pub fn default_block(file_engine_type: FileEngineType) -> Block {

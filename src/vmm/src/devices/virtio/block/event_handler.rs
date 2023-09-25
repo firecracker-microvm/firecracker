@@ -103,7 +103,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use event_manager::{EventManager, SubscriberOps};
-    use utils::vm_memory::{Bytes, GuestAddress};
 
     use super::*;
     use crate::devices::virtio::block::device::FileEngineType;
@@ -113,6 +112,7 @@ mod tests {
     use crate::devices::virtio::gen::virtio_blk::{VIRTIO_BLK_S_OK, VIRTIO_BLK_T_OUT};
     use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
     use crate::devices::virtio::VIRTQ_DESC_F_NEXT;
+    use crate::vstate::memory::{Bytes, GuestAddress};
 
     #[test]
     fn test_event_handler() {

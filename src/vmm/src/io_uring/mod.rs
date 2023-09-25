@@ -384,11 +384,11 @@ mod tests {
     use utils::skip_if_io_uring_unsupported;
     use utils::syscall::SyscallReturnCode;
     use utils::tempfile::TempFile;
-    use utils::vm_memory::{Bytes, MmapRegion, VolatileMemory};
 
     /// -------------------------------------
     /// BEGIN PROPERTY BASED TESTING
     use super::*;
+    use crate::vstate::memory::{Bytes, MmapRegion, VolatileMemory};
 
     fn drain_cqueue(ring: &mut IoUring) {
         while let Some(entry) = unsafe { ring.pop::<u32>().unwrap() } {

@@ -9,9 +9,9 @@ use std::mem;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use utils::u64_to_usize;
-use utils::vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
 use crate::devices::virtio::Queue;
+use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
 #[macro_export]
 macro_rules! check_metric_after_block {
@@ -25,8 +25,11 @@ macro_rules! check_metric_after_block {
 /// Creates a [`GuestMemoryMmap`] with a single region of the given size starting at guest physical
 /// address 0
 pub fn single_region_mem(region_size: usize) -> GuestMemoryMmap {
-    utils::vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), region_size)], false)
-        .unwrap()
+    crate::vstate::memory::test_utils::create_anon_guest_memory(
+        &[(GuestAddress(0), region_size)],
+        false,
+    )
+    .unwrap()
 }
 
 /// Creates a [`GuestMemoryMmap`] with a single region  of size 65536 (= 0x10000 hex) starting at
@@ -59,7 +62,7 @@ pub struct SomeplaceInMemory<'a, T> {
 // The ByteValued trait is required to use mem.read_obj_from_addr and write_obj_at_addr.
 impl<'a, T> SomeplaceInMemory<'a, T>
 where
-    T: Debug + utils::vm_memory::ByteValued,
+    T: Debug + crate::vstate::memory::ByteValued,
 {
     fn new(location: GuestAddress, mem: &'a GuestMemoryMmap) -> Self {
         SomeplaceInMemory {
@@ -180,7 +183,7 @@ pub struct VirtqRing<'a, T> {
 
 impl<'a, T> VirtqRing<'a, T>
 where
-    T: Debug + utils::vm_memory::ByteValued,
+    T: Debug + crate::vstate::memory::ByteValued,
 {
     fn new(start: GuestAddress, mem: &'a GuestMemoryMmap, qsize: u16, alignment: usize) -> Self {
         assert_eq!(start.0 & (alignment as u64 - 1), 0);
@@ -224,7 +227,7 @@ pub struct VirtqUsedElem {
 }
 
 // SAFETY: `VirtqUsedElem` is a POD and contains no padding.
-unsafe impl utils::vm_memory::ByteValued for VirtqUsedElem {}
+unsafe impl crate::vstate::memory::ByteValued for VirtqUsedElem {}
 
 pub type VirtqAvail<'a> = VirtqRing<'a, u16>;
 pub type VirtqUsed<'a> = VirtqRing<'a, VirtqUsedElem>;
@@ -326,13 +329,13 @@ pub(crate) mod test {
     use std::sync::{Arc, Mutex, MutexGuard};
 
     use event_manager::{EventManager, MutEventSubscriber, SubscriberId, SubscriberOps};
-    use utils::vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
     use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
     use crate::devices::virtio::{Queue, VirtioDevice, MAX_BUFFER_SIZE, VIRTQ_DESC_F_NEXT};
+    use crate::vstate::memory::{Address, GuestAddress, GuestMemoryMmap};
 
     pub fn create_virtio_mem() -> GuestMemoryMmap {
-        utils::vm_memory::test_utils::create_guest_memory_unguarded(
+        crate::vstate::memory::test_utils::create_guest_memory_unguarded(
             &[(GuestAddress(0), MAX_BUFFER_SIZE)],
             false,
         )

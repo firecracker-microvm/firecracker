@@ -23,7 +23,6 @@ use userfaultfd::Uffd;
 use utils::eventfd::EventFd;
 use utils::time::TimestampUs;
 use utils::u64_to_usize;
-use utils::vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, ReadVolatile};
 #[cfg(target_arch = "aarch64")]
 use vm_superio::Rtc;
 use vm_superio::Serial;
@@ -55,6 +54,7 @@ use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{MachineConfigUpdate, VmConfig, VmConfigError};
+use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryMmap, ReadVolatile};
 use crate::vstate::vcpu::{Vcpu, VcpuConfig};
 use crate::vstate::vm::Vm;
 use crate::{device_manager, EventManager, RestoreVcpusError, Vmm, VmmError};
@@ -84,7 +84,7 @@ pub enum StartMicrovmError {
     CreateLegacyDevice(device_manager::legacy::LegacyDeviceError),
     /// Memory regions are overlapping or mmap fails.
     #[error("Invalid Memory Configuration: {}", format!("{:?}", .0).replace('\"', ""))]
-    GuestMemoryMmap(utils::vm_memory::Error),
+    GuestMemoryMmap(crate::vstate::memory::Error),
     /// Cannot load initrd due to an invalid memory configuration.
     #[error("Cannot load initrd due to an invalid memory configuration.")]
     InitrdLoad,
@@ -547,7 +547,7 @@ pub fn create_guest_memory(
     let mem_size = mem_size_mib << 20;
     let arch_mem_regions = crate::arch::arch_memory_regions(mem_size);
 
-    utils::vm_memory::create_guest_memory(
+    crate::vstate::memory::create_guest_memory(
         &arch_mem_regions
             .iter()
             .map(|(addr, size)| (None, *addr, *size))
@@ -801,7 +801,7 @@ pub fn configure_system_for_boot(
             .as_cstring()
             .map(|cmdline_cstring| cmdline_cstring.as_bytes_with_nul().len())?;
 
-        linux_loader::loader::load_cmdline::<utils::vm_memory::GuestMemoryMmap>(
+        linux_loader::loader::load_cmdline::<crate::vstate::memory::GuestMemoryMmap>(
             vmm.guest_memory(),
             GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
             &boot_cmdline,
@@ -809,7 +809,7 @@ pub fn configure_system_for_boot(
         .map_err(LoadCommandline)?;
         crate::arch::x86_64::configure_system(
             &vmm.guest_memory,
-            utils::vm_memory::GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
+            crate::vstate::memory::GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
             cmdline_size,
             initrd,
             vcpu_config.vcpu_count,
@@ -970,7 +970,6 @@ pub mod tests {
 
     use linux_loader::cmdline::Cmdline;
     use utils::tempfile::TempFile;
-    use utils::vm_memory::GuestMemory;
 
     use super::*;
     use crate::arch::DeviceType;
@@ -986,6 +985,7 @@ pub mod tests {
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
+    use crate::vstate::memory::GuestMemory;
 
     #[derive(Debug)]
     pub(crate) struct CustomBlockConfig {
@@ -1227,7 +1227,8 @@ pub mod tests {
     }
 
     fn create_guest_mem_at(at: GuestAddress, size: usize) -> GuestMemoryMmap {
-        utils::vm_memory::test_utils::create_guest_memory_unguarded(&[(at, size)], false).unwrap()
+        crate::vstate::memory::test_utils::create_guest_memory_unguarded(&[(at, size)], false)
+            .unwrap()
     }
 
     pub(crate) fn create_guest_mem_with_size(size: usize) -> GuestMemoryMmap {
@@ -1241,7 +1242,7 @@ pub mod tests {
     #[test]
     // Test that loading the initrd is successful on different archs.
     fn test_load_initrd() {
-        use utils::vm_memory::GuestMemory;
+        use crate::vstate::memory::GuestMemory;
         let image = make_test_bin();
 
         let mem_size: usize = image.len() * 2 + crate::arch::PAGE_SIZE;

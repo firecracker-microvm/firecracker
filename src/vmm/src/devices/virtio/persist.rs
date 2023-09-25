@@ -8,8 +8,6 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use snapshot::Persist;
-use utils::vm_memory::address::Address;
-use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
@@ -17,6 +15,8 @@ use super::device::*;
 use super::queue::*;
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::MmioTransport;
+use crate::vstate::memory::address::Address;
+use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
 /// Errors thrown during restoring virtio state.
 #[derive(Debug)]

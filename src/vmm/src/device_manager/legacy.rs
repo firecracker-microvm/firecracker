@@ -171,14 +171,13 @@ impl PortIODeviceManager {
 
 #[cfg(test)]
 mod tests {
-    use utils::vm_memory::GuestAddress;
-
     use super::*;
+    use crate::vstate::memory::GuestAddress;
     use crate::Vm;
 
     #[test]
     fn test_register_legacy_devices() {
-        let guest_mem = utils::vm_memory::test_utils::create_anon_guest_memory(
+        let guest_mem = crate::vstate::memory::test_utils::create_anon_guest_memory(
             &[(GuestAddress(0x0), 0x1000)],
             false,
         )

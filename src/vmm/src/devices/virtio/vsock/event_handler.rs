@@ -208,12 +208,12 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use event_manager::{EventManager, SubscriberOps};
-    use utils::vm_memory::Bytes;
 
     use super::super::*;
     use super::*;
     use crate::devices::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
     use crate::devices::virtio::vsock::test_utils::{EventHandlerContext, TestContext};
+    use crate::vstate::memory::Bytes;
 
     #[test]
     fn test_txq_event() {
@@ -413,7 +413,7 @@ mod tests {
     // desc_idx = 0 we are altering the header (first descriptor in the chain), and when
     // desc_idx = 1 we are altering the packet buffer.
     fn vsock_bof_helper(test_ctx: &mut TestContext, desc_idx: usize, addr: u64, len: u32) {
-        use utils::vm_memory::GuestAddress;
+        use crate::vstate::memory::GuestAddress;
 
         assert!(desc_idx <= 1);
 
@@ -453,7 +453,7 @@ mod tests {
 
     #[test]
     fn test_vsock_bof() {
-        use utils::vm_memory::GuestAddress;
+        use crate::vstate::memory::GuestAddress;
 
         const GAP_SIZE: u32 = 768 << 20;
         const FIRST_AFTER_GAP: usize = 1 << 32;
@@ -461,7 +461,7 @@ mod tests {
         const MIB: usize = 1 << 20;
 
         let mut test_ctx = TestContext::new();
-        test_ctx.mem = utils::vm_memory::test_utils::create_anon_guest_memory(
+        test_ctx.mem = crate::vstate::memory::test_utils::create_anon_guest_memory(
             &[
                 (GuestAddress(0), 8 * MIB),
                 (GuestAddress((GAP_START_ADDR - MIB) as u64), MIB),

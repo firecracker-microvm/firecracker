@@ -113,11 +113,11 @@ pub mod tests {
     use std::sync::{Arc, Mutex};
 
     use event_manager::{EventManager, SubscriberOps};
-    use utils::vm_memory::GuestAddress;
 
     use super::*;
     use crate::devices::virtio::balloon::test_utils::set_request;
     use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
+    use crate::vstate::memory::GuestAddress;
 
     #[test]
     fn test_event_handler() {

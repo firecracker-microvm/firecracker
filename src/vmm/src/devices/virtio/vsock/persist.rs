@@ -8,13 +8,13 @@ use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
 use snapshot::Persist;
-use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 
 use super::*;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::{DeviceState, FIRECRACKER_MAX_QUEUE_SIZE, TYPE_VSOCK};
+use crate::vstate::memory::GuestMemoryMmap;
 
 /// The Vsock serializable state.
 // NOTICE: Any changes to this structure require a snapshot version bump.

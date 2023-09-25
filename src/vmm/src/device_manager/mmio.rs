@@ -11,8 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use kvm_ioctls::{IoEventAddress, VmFd};
 use linux_loader::cmdline as kernel_cmdline;
-#[cfg(target_arch = "x86_64")]
-use utils::vm_memory::GuestAddress;
+use log::info;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_allocator::{AddressAllocator, AllocPolicy, IdAllocator};
@@ -29,7 +28,8 @@ use crate::devices::virtio::{
     TYPE_RNG, TYPE_VSOCK,
 };
 use crate::devices::BusDevice;
-use crate::logger::info;
+#[cfg(target_arch = "x86_64")]
+use crate::vstate::memory::GuestAddress;
 
 /// Errors for MMIO device manager.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -466,10 +466,10 @@ mod tests {
     use std::sync::Arc;
 
     use utils::eventfd::EventFd;
-    use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 
     use super::*;
     use crate::devices::virtio::{ActivateError, Queue, VirtioDevice};
+    use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
     use crate::{builder, Vm};
 
     const QUEUE_SIZES: &[u16] = &[64];
@@ -573,7 +573,7 @@ mod tests {
     fn test_register_virtio_device() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem = utils::vm_memory::test_utils::create_anon_guest_memory(
+        let guest_mem = crate::vstate::memory::test_utils::create_anon_guest_memory(
             &[(start_addr1, 0x1000), (start_addr2, 0x1000)],
             false,
         )
@@ -603,7 +603,7 @@ mod tests {
     fn test_register_too_many_devices() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem = utils::vm_memory::test_utils::create_anon_guest_memory(
+        let guest_mem = crate::vstate::memory::test_utils::create_anon_guest_memory(
             &[(start_addr1, 0x1000), (start_addr2, 0x1000)],
             false,
         )
@@ -663,7 +663,7 @@ mod tests {
     fn test_device_info() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem = utils::vm_memory::test_utils::create_anon_guest_memory(
+        let guest_mem = crate::vstate::memory::test_utils::create_anon_guest_memory(
             &[(start_addr1, 0x1000), (start_addr2, 0x1000)],
             false,
         )

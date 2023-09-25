@@ -7,7 +7,6 @@
 
 use kvm_bindings::*;
 use kvm_ioctls::*;
-use utils::vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 
@@ -23,6 +22,7 @@ use crate::cpu_config::aarch64::custom_cpu_template::VcpuFeatures;
 use crate::cpu_config::templates::CpuConfiguration;
 use crate::logger::{error, IncMetric, METRICS};
 use crate::vcpu::{VcpuConfig, VcpuError};
+use crate::vstate::memory::{Address, GuestAddress, GuestMemoryMmap};
 use crate::vstate::vcpu::VcpuEmulation;
 use crate::vstate::vm::Vm;
 
@@ -309,13 +309,13 @@ mod tests {
     use std::os::unix::io::AsRawFd;
 
     use kvm_bindings::KVM_REG_SIZE_U64;
-    use utils::vm_memory::GuestMemoryMmap;
 
     use super::*;
     use crate::arch::aarch64::regs::Aarch64RegisterRef;
     use crate::cpu_config::aarch64::CpuConfiguration;
     use crate::cpu_config::templates::RegisterValueFilter;
     use crate::vcpu::VcpuConfig;
+    use crate::vstate::memory::GuestMemoryMmap;
     use crate::vstate::vm::tests::setup_vm;
     use crate::vstate::vm::Vm;
 

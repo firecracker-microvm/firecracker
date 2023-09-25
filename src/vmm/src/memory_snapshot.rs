@@ -6,14 +6,14 @@
 use std::fs::File;
 use std::io::SeekFrom;
 
-use utils::vm_memory::{
-    Bitmap, FileOffset, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
-    GuestMemoryRegion, MemoryRegionAddress, WriteVolatile,
-};
 use utils::{errno, get_page_size, u64_to_usize};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
+use crate::vstate::memory::{
+    Bitmap, FileOffset, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
+    GuestMemoryRegion, MemoryRegionAddress, WriteVolatile,
+};
 use crate::DirtyBitmap;
 
 /// State of a guest memory region saved to file/buffer.
@@ -68,9 +68,9 @@ pub enum SnapshotMemoryError {
     /// Cannot access file: {0:?}
     FileHandle(#[from] std::io::Error),
     /// Cannot create memory: {0:?}
-    CreateMemory(#[from] utils::vm_memory::Error),
+    CreateMemory(#[from] crate::vstate::memory::Error),
     /// Cannot create memory region: {0:?}
-    CreateRegion(#[from] utils::vm_memory::MmapRegionError),
+    CreateRegion(#[from] crate::vstate::memory::MmapRegionError),
     /// Cannot fetch system's page size: {0:?}
     PageSize(#[from] errno::Error),
     /// Cannot dump memory: {0:?}
@@ -179,7 +179,7 @@ impl SnapshotMemory for GuestMemoryMmap {
             regions.push((f, GuestAddress(region.base_address), region.size));
         }
 
-        utils::vm_memory::create_guest_memory(&regions, track_dirty_pages)
+        crate::vstate::memory::create_guest_memory(&regions, track_dirty_pages)
             .map_err(SnapshotMemoryError::CreateMemory)
     }
 }
@@ -191,9 +191,9 @@ mod tests {
 
     use utils::get_page_size;
     use utils::tempfile::TempFile;
-    use utils::vm_memory::{Bytes, GuestAddress};
 
     use super::*;
+    use crate::vstate::memory::{Bytes, GuestAddress};
 
     #[test]
     fn test_describe_state() {
@@ -204,7 +204,8 @@ mod tests {
             (None, GuestAddress(0), page_size),
             (None, GuestAddress(page_size as u64 * 2), page_size),
         ];
-        let guest_memory = utils::vm_memory::create_guest_memory(&mem_regions[..], true).unwrap();
+        let guest_memory =
+            crate::vstate::memory::create_guest_memory(&mem_regions[..], true).unwrap();
 
         let expected_memory_state = GuestMemoryState {
             regions: vec![
@@ -229,7 +230,8 @@ mod tests {
             (None, GuestAddress(0), page_size * 3),
             (None, GuestAddress(page_size as u64 * 4), page_size * 3),
         ];
-        let guest_memory = utils::vm_memory::create_guest_memory(&mem_regions[..], true).unwrap();
+        let guest_memory =
+            crate::vstate::memory::create_guest_memory(&mem_regions[..], true).unwrap();
 
         let expected_memory_state = GuestMemoryState {
             regions: vec![
@@ -259,7 +261,8 @@ mod tests {
             (None, GuestAddress(0), page_size * 2),
             (None, GuestAddress(page_size as u64 * 3), page_size * 2),
         ];
-        let guest_memory = utils::vm_memory::create_guest_memory(&mem_regions[..], true).unwrap();
+        let guest_memory =
+            crate::vstate::memory::create_guest_memory(&mem_regions[..], true).unwrap();
         // Check that Firecracker bitmap is clean.
         let _res: Result<(), SnapshotMemoryError> = guest_memory.iter().try_for_each(|r| {
             assert!(!r.bitmap().dirty_at(0));

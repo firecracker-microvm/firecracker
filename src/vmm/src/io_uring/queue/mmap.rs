@@ -4,7 +4,7 @@
 use std::io::Error as IOError;
 use std::os::unix::io::RawFd;
 
-use utils::vm_memory::{MmapRegion, MmapRegionError};
+use crate::vstate::memory::{MmapRegion, MmapRegionError};
 
 #[derive(Debug)]
 pub enum MmapError {

@@ -4,10 +4,10 @@
 use std::io;
 
 use utils::u64_to_usize;
-use utils::vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 use super::{RemoveRegionError, MAX_PAGE_COMPACT_BUFFER};
 use crate::logger::error;
+use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 /// This takes a vector of page frame numbers, and compacts them
 /// into ranges of consecutive pages. The result is a vector
@@ -121,9 +121,8 @@ pub(crate) fn remove_range(
 mod tests {
     use std::fmt::Debug;
 
-    use utils::vm_memory::Bytes;
-
     use super::*;
+    use crate::vstate::memory::Bytes;
 
     /// This asserts that $lhs matches $rhs.
     macro_rules! assert_match {

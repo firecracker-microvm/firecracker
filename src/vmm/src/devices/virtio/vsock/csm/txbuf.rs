@@ -6,10 +6,12 @@ use std::fmt::Debug;
 use std::io::Write;
 use std::num::Wrapping;
 
-use utils::vm_memory::{BitmapSlice, Bytes, VolatileMemoryError, VolatileSlice, WriteVolatile};
 use utils::wrap_usize_to_u32;
 
 use super::{defs, VsockCsmError};
+use crate::vstate::memory::{
+    BitmapSlice, Bytes, VolatileMemoryError, VolatileSlice, WriteVolatile,
+};
 
 /// A simple ring-buffer implementation, used by vsock connections to buffer TX (guest -> host)
 /// data.  Memory for this buffer is allocated lazily, since buffering will only be needed when
