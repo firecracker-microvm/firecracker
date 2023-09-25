@@ -7,6 +7,8 @@
 
 use std::convert::From;
 
+use vm_memory::GuestMemoryError;
+
 use super::super::DescriptorChain;
 use super::{io as block_io, BlockError, SECTOR_SHIFT};
 use crate::devices::virtio::block::device::DiskProperties;
@@ -17,7 +19,7 @@ pub use crate::devices::virtio::gen::virtio_blk::{
 use crate::devices::virtio::SECTOR_SIZE;
 use crate::logger::{error, IncMetric, METRICS};
 use crate::rate_limiter::{RateLimiter, TokenType};
-use crate::vstate::memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
+use crate::vstate::memory::{ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
 #[derive(Debug, derive_more::From)]
 pub enum IoErr {

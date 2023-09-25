@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use libc::{c_void, iovec, size_t};
+use vm_memory::GuestMemoryError;
 
 use crate::devices::virtio::DescriptorChain;
 use crate::vstate::memory::{Bitmap, GuestMemory, GuestMemoryMmap};
@@ -13,7 +14,7 @@ pub enum IoVecError {
     /// Tried to create an 'IoVecMut` from a read-only descriptor chain
     ReadOnlyDescriptor,
     /// Guest memory error: {0}
-    GuestMemory(#[from] crate::vstate::memory::GuestMemoryError),
+    GuestMemory(#[from] GuestMemoryError),
 }
 
 /// This is essentially a wrapper of a `Vec<libc::iovec>` which can be passed to `libc::writev`.

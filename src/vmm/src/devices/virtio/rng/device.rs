@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use aws_lc_rs::rand;
 use utils::eventfd::EventFd;
+use vm_memory::GuestMemoryError;
 
 use super::{RNG_NUM_QUEUES, RNG_QUEUE};
 use crate::devices::virtio::device::{IrqTrigger, IrqType};
@@ -18,7 +19,7 @@ use crate::devices::virtio::{
 use crate::devices::DeviceError;
 use crate::logger::{debug, error, IncMetric, METRICS};
 use crate::rate_limiter::{RateLimiter, TokenType};
-use crate::vstate::memory::{GuestMemoryError, GuestMemoryMmap};
+use crate::vstate::memory::GuestMemoryMmap;
 
 pub const ENTROPY_DEV_ID: &str = "rng";
 

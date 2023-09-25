@@ -7,6 +7,7 @@ use std::marker::PhantomData;
 use std::os::unix::io::AsRawFd;
 
 use utils::eventfd::EventFd;
+use vm_memory::GuestMemoryError;
 
 use crate::devices::virtio::block::io::UserDataError;
 use crate::devices::virtio::block::IO_URING_NUM_ENTRIES;
@@ -23,7 +24,7 @@ pub enum AsyncIoError {
     Submit(std::io::Error),
     SyncAll(std::io::Error),
     EventFd(std::io::Error),
-    GuestMemory(crate::vstate::memory::GuestMemoryError),
+    GuestMemory(GuestMemoryError),
 }
 
 #[derive(Debug)]

@@ -85,7 +85,7 @@ pub enum StartMicrovmError {
     CreateLegacyDevice(device_manager::legacy::LegacyDeviceError),
     /// Memory regions are overlapping or mmap fails.
     #[error("Invalid Memory Configuration: {}", format!("{:?}", .0).replace('\"', ""))]
-    GuestMemoryMmap(crate::vstate::memory::VmMemoryError),
+    GuestMemory(crate::vstate::memory::MemoryError),
     /// Cannot load initrd due to an invalid memory configuration.
     #[error("Cannot load initrd due to an invalid memory configuration.")]
     InitrdLoad,
@@ -555,7 +555,7 @@ pub fn create_guest_memory(
             .collect::<Vec<_>>()[..],
         track_dirty_pages,
     )
-    .map_err(StartMicrovmError::GuestMemoryMmap)
+    .map_err(StartMicrovmError::GuestMemory)
 }
 
 fn load_kernel(

@@ -46,7 +46,7 @@ use crate::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
 };
 use crate::vstate::memory::{
-    GuestMemory, GuestMemoryMmap, GuestMemoryState, SnapshotMemory, SnapshotMemoryError,
+    GuestMemory, GuestMemoryMmap, GuestMemoryState, MemoryError, SnapshotMemory,
 };
 use crate::vstate::vcpu::{VcpuSendEventError, VcpuState};
 use crate::vstate::vm::VmState;
@@ -195,7 +195,7 @@ pub enum CreateSnapshotError {
     /// Cannot translate microVM version to snapshot data version
     UnsupportedVersion,
     /// Cannot write memory file: {0}
-    Memory(SnapshotMemoryError),
+    Memory(MemoryError),
     /// Cannot perform {0} on the memory backing file: {1}
     MemoryBackingFile(&'static str, io::Error),
     /// Cannot save the microVM state: {0}
@@ -559,7 +559,7 @@ pub enum GuestMemoryFromFileError {
     /// Failed to load guest memory: {0}
     File(#[from] std::io::Error),
     /// Failed to restore guest memory: {0}
-    Restore(#[from] SnapshotMemoryError),
+    Restore(#[from] MemoryError),
 }
 
 fn guest_memory_from_file(
@@ -576,7 +576,7 @@ fn guest_memory_from_file(
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum GuestMemoryFromUffdError {
     /// Failed to restore guest memory: {0}
-    Restore(#[from] SnapshotMemoryError),
+    Restore(#[from] MemoryError),
     /// Failed to UFFD object: {0}
     Create(userfaultfd::Error),
     /// Failed to register memory address range with the userfaultfd object: {0}
@@ -828,7 +828,7 @@ mod tests {
     #[test]
     fn test_create_snapshot_error_display() {
         use crate::persist::CreateSnapshotError::*;
-        use crate::vstate::memory::GuestMemoryError;
+        use crate::vstate::memory::MemoryError;
 
         let err = DirtyBitmap(VmmError::DirtyBitmap(kvm_ioctls::Error::new(20)));
         let _ = format!("{}{:?}", err, err);
@@ -839,8 +839,8 @@ mod tests {
         let err = UnsupportedVersion;
         let _ = format!("{}{:?}", err, err);
 
-        let err = Memory(SnapshotMemoryError::WriteMemory(
-            GuestMemoryError::HostAddressNotAvailable,
+        let err = Memory(MemoryError::WriteMemory(
+            vm_memory::GuestMemoryError::HostAddressNotAvailable,
         ));
         let _ = format!("{}{:?}", err, err);
 

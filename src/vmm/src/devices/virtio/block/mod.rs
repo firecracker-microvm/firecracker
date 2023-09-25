@@ -10,11 +10,12 @@ pub mod persist;
 pub mod request;
 pub mod test_utils;
 
+use vm_memory::GuestMemoryError;
+
 pub use self::device::{Block, CacheType};
 pub use self::event_handler::*;
 pub use self::request::*;
 use crate::devices::virtio::FIRECRACKER_MAX_QUEUE_SIZE;
-use crate::vstate::memory::GuestMemoryError;
 
 /// Size of config space for block device.
 pub const BLOCK_CONFIG_SPACE_SIZE: usize = 8;
