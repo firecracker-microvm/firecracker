@@ -7,7 +7,6 @@ use std::marker::PhantomData;
 use std::os::unix::io::AsRawFd;
 
 use utils::eventfd::EventFd;
-use utils::vm_memory::{mark_dirty_mem, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 use crate::devices::virtio::block::io::UserDataError;
 use crate::devices::virtio::block::IO_URING_NUM_ENTRIES;
@@ -15,6 +14,7 @@ use crate::io_uring::operation::{Cqe, OpCode, Operation};
 use crate::io_uring::restriction::Restriction;
 use crate::io_uring::{IoUring, IoUringError};
 use crate::logger::log_dev_preview_warning;
+use crate::vstate::memory::{mark_dirty_mem, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 #[derive(Debug)]
 pub enum AsyncIoError {
@@ -23,7 +23,7 @@ pub enum AsyncIoError {
     Submit(std::io::Error),
     SyncAll(std::io::Error),
     EventFd(std::io::Error),
-    GuestMemory(utils::vm_memory::GuestMemoryError),
+    GuestMemory(crate::vstate::memory::GuestMemoryError),
 }
 
 #[derive(Debug)]

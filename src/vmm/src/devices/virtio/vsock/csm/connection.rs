@@ -84,7 +84,6 @@ use std::time::{Duration, Instant};
 
 use log::{debug, error, info, warn};
 use utils::epoll::EventSet;
-use utils::vm_memory::{GuestMemoryError, GuestMemoryMmap, ReadVolatile, WriteVolatile};
 use utils::wrap_usize_to_u32;
 
 use super::super::defs::uapi;
@@ -93,6 +92,7 @@ use super::super::{VsockChannel, VsockEpollListener, VsockError};
 use super::txbuf::TxBuf;
 use super::{defs, ConnState, PendingRx, PendingRxSet, VsockCsmError};
 use crate::logger::{IncMetric, METRICS};
+use crate::vstate::memory::{GuestMemoryError, GuestMemoryMmap, ReadVolatile, WriteVolatile};
 
 /// Trait that vsock connection backends need to implement.
 ///
@@ -682,7 +682,6 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use utils::eventfd::EventFd;
-    use utils::vm_memory::{BitmapSlice, Bytes, VolatileSlice};
 
     use super::super::super::defs::uapi;
     use super::super::defs as csm_defs;
@@ -690,6 +689,7 @@ mod tests {
     use crate::devices::virtio::vsock::device::RXQ_INDEX;
     use crate::devices::virtio::vsock::test_utils;
     use crate::devices::virtio::vsock::test_utils::TestContext;
+    use crate::vstate::memory::{BitmapSlice, Bytes, VolatileSlice};
 
     const LOCAL_CID: u64 = 2;
     const PEER_CID: u64 = 3;
@@ -760,7 +760,7 @@ mod tests {
         fn read_volatile<B: BitmapSlice>(
             &mut self,
             buf: &mut VolatileSlice<B>,
-        ) -> Result<usize, utils::vm_memory::VolatileMemoryError> {
+        ) -> Result<usize, crate::vstate::memory::VolatileMemoryError> {
             // Test code, the additional copy incurred by read_from is fine
             buf.read_from(0, self, buf.len())
         }
@@ -787,7 +787,7 @@ mod tests {
         fn write_volatile<B: BitmapSlice>(
             &mut self,
             buf: &VolatileSlice<B>,
-        ) -> Result<usize, utils::vm_memory::VolatileMemoryError> {
+        ) -> Result<usize, crate::vstate::memory::VolatileMemoryError> {
             // Test code, the additional copy incurred by write_to is fine
             buf.write_to(0, self, buf.len())
         }

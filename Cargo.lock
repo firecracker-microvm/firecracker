@@ -1427,6 +1427,7 @@ dependencies = [
  "versionize_derive",
  "vm-allocator",
  "vm-fdt",
+ "vm-memory",
  "vm-superio",
 ]
 

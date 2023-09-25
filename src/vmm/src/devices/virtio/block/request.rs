@@ -7,8 +7,6 @@
 
 use std::convert::From;
 
-use utils::vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
-
 use super::super::DescriptorChain;
 use super::{io as block_io, BlockError, SECTOR_SHIFT};
 use crate::devices::virtio::block::device::DiskProperties;
@@ -19,6 +17,7 @@ pub use crate::devices::virtio::gen::virtio_blk::{
 use crate::devices::virtio::SECTOR_SIZE;
 use crate::logger::{error, IncMetric, METRICS};
 use crate::rate_limiter::{RateLimiter, TokenType};
+use crate::vstate::memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 
 #[derive(Debug, derive_more::From)]
 pub enum IoErr {
@@ -408,12 +407,11 @@ impl Request {
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
-    use utils::vm_memory::test_utils::create_anon_guest_memory;
-    use utils::vm_memory::{Address, GuestAddress, GuestMemory};
-
     use super::*;
     use crate::devices::virtio::test_utils::{default_mem, single_region_mem, VirtQueue};
     use crate::devices::virtio::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+    use crate::vstate::memory::test_utils::create_anon_guest_memory;
+    use crate::vstate::memory::{Address, GuestAddress, GuestMemory};
 
     const NUM_DISK_SECTORS: u64 = 1024;
 

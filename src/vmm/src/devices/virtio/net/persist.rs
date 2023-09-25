@@ -10,7 +10,6 @@ use std::sync::{Arc, Mutex};
 use log::warn;
 use snapshot::Persist;
 use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
-use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
@@ -23,6 +22,7 @@ use crate::mmds::ns::MmdsNetworkStack;
 use crate::mmds::persist::MmdsNetworkStackState;
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::rate_limiter::RateLimiter;
+use crate::vstate::memory::GuestMemoryMmap;
 
 /// Information about the network config's that are saved
 /// at snapshot.

@@ -13,7 +13,6 @@ use kvm_bindings::{
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
 use log::{error, warn};
-use utils::vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 
@@ -22,6 +21,7 @@ use crate::arch::x86_64::msr::{create_boot_msr_entries, MsrError};
 use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use crate::cpu_config::x86_64::{cpuid, CpuConfiguration};
 use crate::logger::{IncMetric, METRICS};
+use crate::vstate::memory::{Address, GuestAddress, GuestMemoryMmap};
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
 use crate::vstate::vm::Vm;
 

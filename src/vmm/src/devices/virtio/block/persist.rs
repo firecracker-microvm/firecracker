@@ -7,7 +7,6 @@ use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
 use snapshot::Persist;
-use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 
@@ -19,6 +18,7 @@ use crate::devices::virtio::{DeviceState, FIRECRACKER_MAX_QUEUE_SIZE, TYPE_BLOCK
 use crate::logger::warn;
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::rate_limiter::RateLimiter;
+use crate::vstate::memory::GuestMemoryMmap;
 
 /// Holds info about block's cache type. Gets saved in snapshot.
 // NOTICE: Any changes to this structure require a snapshot version bump.

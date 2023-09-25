@@ -5,7 +5,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::io::{Read, Write};
+#[cfg(not(test))]
+use std::io::Read;
+use std::io::Write;
 use std::net::Ipv4Addr;
 use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
@@ -16,12 +18,11 @@ use log::{error, warn};
 use utils::eventfd::EventFd;
 use utils::net::mac::MacAddr;
 use utils::u64_to_usize;
-use utils::vm_memory::{ByteValued, Bytes, GuestMemoryError, GuestMemoryMmap};
 
+use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::gen::virtio_net::{
-    virtio_net_hdr_v1, VIRTIO_F_VERSION_1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM,
-    VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_UFO,
-    VIRTIO_NET_F_MAC,
+    virtio_net_hdr_v1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM, VIRTIO_NET_F_GUEST_TSO4,
+    VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC,
 };
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::dumbo::pdu::arp::ETH_IPV4_FRAME_LEN;
@@ -30,6 +31,7 @@ use crate::logger::{IncMetric, METRICS};
 use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
 use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
+use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryError, GuestMemoryMmap};
 
 const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
 
@@ -850,23 +852,20 @@ impl VirtioDevice for Net {
 #[cfg(test)]
 #[macro_use]
 pub mod tests {
+    use std::io::Read;
     use std::net::Ipv4Addr;
     use std::str::FromStr;
     use std::time::Duration;
     use std::{io, mem, thread};
 
-    use utils::net::mac::MAC_ADDR_LEN;
-    use utils::vm_memory::{Address, GuestMemory};
+    use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 
     use super::*;
     use crate::check_metric_after_block;
-    use crate::devices::virtio::gen::virtio_net::{
-        virtio_net_hdr_v1, VIRTIO_F_VERSION_1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM,
-        VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4,
-        VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC,
-    };
+    use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
+    use crate::devices::virtio::iovec::IoVecBuffer;
     use crate::devices::virtio::net::device::{
-        frame_bytes_from_buf, frame_bytes_from_buf_mut, init_vnet_hdr, vnet_hdr_len,
+        frame_bytes_from_buf, frame_bytes_from_buf_mut, frame_hdr_len, init_vnet_hdr, vnet_hdr_len,
     };
     use crate::devices::virtio::net::test_utils::test::TestHelper;
     use crate::devices::virtio::net::test_utils::{
@@ -875,12 +874,15 @@ pub mod tests {
     };
     use crate::devices::virtio::net::NET_QUEUE_SIZES;
     use crate::devices::virtio::{
-        Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, TYPE_NET, VIRTQ_DESC_F_WRITE,
+        IrqType, Net, Tap, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, TYPE_NET,
+        VIRTQ_DESC_F_WRITE,
     };
     use crate::dumbo::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
     use crate::dumbo::pdu::ethernet::ETHERTYPE_ARP;
+    use crate::dumbo::EthernetFrame;
     use crate::logger::{IncMetric, METRICS};
-    use crate::rate_limiter::{RateLimiter, TokenBucket, TokenType};
+    use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenBucket, TokenType};
+    use crate::vstate::memory::{Address, GuestMemory};
 
     impl Net {
         pub(crate) fn read_tap(&mut self) -> io::Result<usize> {

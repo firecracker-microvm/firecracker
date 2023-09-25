@@ -19,7 +19,6 @@ use serde::{Deserialize, Serialize};
 use utils::eventfd::EventFd;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
 use utils::u64_to_usize;
-use utils::vm_memory::GuestMemoryMmap;
 
 use super::super::{ActivateError, DeviceState, Queue, VirtioDevice, TYPE_BLOCK};
 use super::io::async_io;
@@ -35,6 +34,7 @@ use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::{IrqTrigger, IrqType};
 use crate::logger::{error, warn, IncMetric, METRICS};
 use crate::rate_limiter::{BucketUpdate, RateLimiter};
+use crate::vstate::memory::GuestMemoryMmap;
 
 /// Configuration options for disk caching.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -652,7 +652,6 @@ mod tests {
 
     use utils::skip_if_io_uring_unsupported;
     use utils::tempfile::TempFile;
-    use utils::vm_memory::{Address, Bytes, GuestAddress};
 
     use super::*;
     use crate::check_metric_after_block;
@@ -664,6 +663,7 @@ mod tests {
     use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
     use crate::devices::virtio::{IO_URING_NUM_ENTRIES, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::rate_limiter::TokenType;
+    use crate::vstate::memory::{Address, Bytes, GuestAddress};
 
     #[test]
     fn test_disk_backing_file_helper() {

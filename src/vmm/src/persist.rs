@@ -18,7 +18,6 @@ use snapshot::Snapshot;
 use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use utils::sock_ctrl_msg::ScmSocket;
 use utils::u64_to_usize;
-use utils::vm_memory::{GuestMemory, GuestMemoryMmap};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
@@ -47,6 +46,7 @@ use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
 use crate::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
 };
+use crate::vstate::memory::{GuestMemory, GuestMemoryMmap};
 use crate::vstate::vcpu::{VcpuSendEventError, VcpuState};
 use crate::vstate::vm::VmState;
 use crate::{mem_size_mib, memory_snapshot, vstate, EventManager, Vmm, VmmError};
@@ -827,9 +827,8 @@ mod tests {
 
     #[test]
     fn test_create_snapshot_error_display() {
-        use utils::vm_memory::GuestMemoryError;
-
         use crate::persist::CreateSnapshotError::*;
+        use crate::vstate::memory::GuestMemoryError;
 
         let err = DirtyBitmap(VmmError::DirtyBitmap(kvm_ioctls::Error::new(20)));
         let _ = format!("{}{:?}", err, err);

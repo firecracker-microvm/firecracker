@@ -3,9 +3,8 @@
 
 use std::fmt::Debug;
 
-use utils::vm_memory::ByteValued;
-
 use crate::io_uring::bindings::io_uring_cqe;
+use crate::vstate::memory::ByteValued;
 
 // SAFETY: Struct is POD and contains no references or niches.
 unsafe impl ByteValued for io_uring_cqe {}

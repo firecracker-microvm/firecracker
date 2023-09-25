@@ -9,6 +9,7 @@ use std::fmt::Debug;
 use std::io::{Error as IoError, ErrorKind};
 use std::os::unix::io::AsRawFd;
 
+use utils::u64_to_usize;
 pub use vm_memory::bitmap::{AtomicBitmap, Bitmap, BitmapSlice, BS};
 use vm_memory::mmap::{check_file_offset, NewBitmap};
 pub use vm_memory::mmap::{MmapRegionBuilder, MmapRegionError};
@@ -18,10 +19,11 @@ pub use vm_memory::{
     VolatileMemory, VolatileMemoryError, VolatileSlice,
 };
 
-use crate::u64_to_usize;
-
+/// Type of GuestMemoryMmap.
 pub type GuestMemoryMmap = vm_memory::GuestMemoryMmap<Option<AtomicBitmap>>;
+/// Type of GuestRegionMmap.
 pub type GuestRegionMmap = vm_memory::GuestRegionMmap<Option<AtomicBitmap>>;
+/// Type of GuestMmapRegion.
 pub type GuestMmapRegion = vm_memory::MmapRegion<Option<AtomicBitmap>>;
 
 const GUARD_PAGE_COUNT: usize = 1;
@@ -46,7 +48,7 @@ fn build_guarded_region(
     flags: i32,
     track_dirty_pages: bool,
 ) -> Result<GuestMmapRegion, MmapRegionError> {
-    let page_size = crate::get_page_size().expect("Cannot retrieve page size.");
+    let page_size = utils::get_page_size().expect("Cannot retrieve page size.");
     // Create the guarded range size (received size + X pages),
     // where X is defined as a constant GUARD_PAGE_COUNT.
     let guarded_size = size + GUARD_PAGE_COUNT * 2 * page_size;
@@ -135,6 +137,7 @@ pub fn create_guest_memory(
     GuestMemoryMmap::from_regions(mmap_regions)
 }
 
+/// Mark memory range as dirty
 pub fn mark_dirty_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: usize) {
     let _ = mem.try_access(len, addr, |_total, count, caddr, region| {
         if let Some(bitmap) = region.bitmap() {
@@ -400,6 +403,7 @@ impl ReadVolatile for &[u8] {
     }
 }
 
+/// Public module with utilities used for testing.
 pub mod test_utils {
     use super::*;
 
@@ -453,9 +457,10 @@ mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
     use std::io::{Read, Seek, Write};
 
+    use utils::get_page_size;
+    use utils::tempfile::TempFile;
+
     use super::*;
-    use crate::get_page_size;
-    use crate::tempfile::TempFile;
 
     #[derive(Debug)]
     enum AddrOp {
@@ -657,7 +662,7 @@ mod tests {
 
     #[test]
     fn test_mark_dirty_mem() {
-        let page_size = crate::get_page_size().unwrap();
+        let page_size = get_page_size().unwrap();
         let region_size = page_size * 3;
 
         let regions = vec![

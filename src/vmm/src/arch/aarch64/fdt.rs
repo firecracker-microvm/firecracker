@@ -9,15 +9,15 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::fmt::Debug;
 
-use utils::vm_memory::{
-    Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
-};
 use vm_fdt::{Error as VmFdtError, FdtWriter, FdtWriterNode};
 
 use super::super::{DeviceType, InitrdConfig};
 use super::cache_info::{read_cache_config, CacheEntry};
 use super::get_fdt_addr;
 use super::gic::GICDevice;
+use crate::vstate::memory::{
+    Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
+};
 
 // This is a value for uniquely identifying the FDT node declaring the interrupt controller.
 const GIC_PHANDLE: u32 = 1;
@@ -459,7 +459,7 @@ mod tests {
     #[test]
     fn test_create_fdt_with_devices() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = utils::vm_memory::test_utils::create_anon_guest_memory(&regions, false)
+        let mem = crate::vstate::memory::test_utils::create_anon_guest_memory(&regions, false)
             .expect("Cannot initialize memory");
 
         let dev_info: HashMap<(DeviceType, std::string::String), MMIODeviceInfo> = [
@@ -499,7 +499,7 @@ mod tests {
     #[test]
     fn test_create_fdt() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = utils::vm_memory::test_utils::create_anon_guest_memory(&regions, false)
+        let mem = crate::vstate::memory::test_utils::create_anon_guest_memory(&regions, false)
             .expect("Cannot initialize memory");
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
@@ -557,7 +557,7 @@ mod tests {
     #[test]
     fn test_create_fdt_with_initrd() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = utils::vm_memory::test_utils::create_anon_guest_memory(&regions, false)
+        let mem = crate::vstate::memory::test_utils::create_anon_guest_memory(&regions, false)
             .expect("Cannot initialize memory");
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();

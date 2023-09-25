@@ -9,11 +9,10 @@ use std::cmp::min;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
-use utils::vm_memory::{
+use crate::logger::error;
+use crate::vstate::memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
 };
-
-use crate::logger::error;
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
@@ -564,14 +563,13 @@ mod verification {
     use std::mem::ManuallyDrop;
     use std::num::Wrapping;
 
-    use utils::vm_memory::{
-        Address, AtomicBitmap, Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryMmap,
-        GuestRegionMmap, MmapRegion,
-    };
-
     use crate::devices::virtio::queue::Descriptor;
     use crate::devices::virtio::{
         DescriptorChain, Queue, FIRECRACKER_MAX_QUEUE_SIZE, VIRTQ_DESC_F_NEXT,
+    };
+    use crate::vstate::memory::{
+        Address, AtomicBitmap, Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryMmap,
+        GuestRegionMmap, MmapRegion,
     };
 
     pub struct ProofContext(pub Queue, pub GuestMemoryMmap);
@@ -985,12 +983,11 @@ mod verification {
 #[cfg(test)]
 mod tests {
 
-    use utils::vm_memory::test_utils::create_anon_guest_memory;
-    use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
-
     pub use super::*;
     use crate::devices::virtio::test_utils::{default_mem, single_region_mem, VirtQueue};
     use crate::devices::virtio::QueueError::{DescIndexOutOfBounds, UsedRing};
+    use crate::vstate::memory::test_utils::create_anon_guest_memory;
+    use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
     impl Queue {
         fn avail_event(&self, mem: &GuestMemoryMmap) -> u16 {

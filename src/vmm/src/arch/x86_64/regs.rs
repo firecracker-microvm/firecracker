@@ -9,9 +9,9 @@ use std::mem;
 
 use kvm_bindings::{kvm_fpu, kvm_regs, kvm_sregs};
 use kvm_ioctls::VcpuFd;
-use utils::vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 use super::gdt::{gdt_entry, kvm_segment_from_gdt};
+use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 // Initial pagetables.
 const PML4_START: u64 = 0x9000;
@@ -240,21 +240,21 @@ fn setup_page_tables(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<(),
 mod tests {
     use kvm_ioctls::Kvm;
     use utils::u64_to_usize;
-    use utils::vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 
     use super::*;
+    use crate::vstate::memory::{Bytes, GuestAddress, GuestMemoryMmap};
 
     fn create_guest_mem(mem_size: Option<u64>) -> GuestMemoryMmap {
         let page_size = 0x10000usize;
         let mem_size = u64_to_usize(mem_size.unwrap_or(page_size as u64));
         if mem_size % page_size == 0 {
-            utils::vm_memory::test_utils::create_anon_guest_memory(
+            crate::vstate::memory::test_utils::create_anon_guest_memory(
                 &[(GuestAddress(0), mem_size)],
                 false,
             )
             .unwrap()
         } else {
-            utils::vm_memory::test_utils::create_guest_memory_unguarded(
+            crate::vstate::memory::test_utils::create_guest_memory_unguarded(
                 &[(GuestAddress(0), mem_size)],
                 false,
             )

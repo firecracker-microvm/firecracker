@@ -695,13 +695,13 @@ pub mod tests {
     use linux_loader::loader::KernelLoader;
     use utils::errno;
     use utils::signal::validate_signal_num;
-    use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 
     use super::*;
     use crate::builder::StartMicrovmError;
     use crate::devices::bus::DummyDevice;
     use crate::devices::BusDevice;
     use crate::seccomp_filters::get_empty_filters;
+    use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
     use crate::vstate::vcpu::VcpuError as EmulationError;
     use crate::vstate::vm::tests::setup_vm;
     use crate::vstate::vm::Vm;

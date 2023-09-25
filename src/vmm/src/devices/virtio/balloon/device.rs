@@ -12,7 +12,6 @@ use serde::Serialize;
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use utils::eventfd::EventFd;
 use utils::u64_to_usize;
-use utils::vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
 use super::super::{ActivateError, DeviceState, Queue, VirtioDevice, TYPE_BALLOON};
 use super::util::{compact_page_frame_numbers, remove_range};
@@ -29,6 +28,7 @@ use crate::devices::virtio::balloon::BalloonError;
 use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::{IrqTrigger, IrqType};
 use crate::logger::{IncMetric, METRICS};
+use crate::vstate::memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
 const SIZE_OF_U32: usize = std::mem::size_of::<u32>();
 const SIZE_OF_STAT: usize = std::mem::size_of::<BalloonStat>();
@@ -647,8 +647,6 @@ impl VirtioDevice for Balloon {
 pub(crate) mod tests {
     use std::u32;
 
-    use utils::vm_memory::GuestAddress;
-
     use super::super::BALLOON_CONFIG_SPACE_SIZE;
     use super::*;
     use crate::check_metric_after_block;
@@ -658,6 +656,7 @@ pub(crate) mod tests {
     };
     use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
     use crate::devices::virtio::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+    use crate::vstate::memory::GuestAddress;
 
     impl Balloon {
         pub(crate) fn set_queue(&mut self, idx: usize, q: Queue) {
@@ -1135,7 +1134,7 @@ pub(crate) mod tests {
         assert!(balloon.update_size(1).is_err());
         // Switch the state to active.
         balloon.device_state = DeviceState::Activated(
-            utils::vm_memory::test_utils::create_guest_memory_unguarded(
+            crate::vstate::memory::test_utils::create_guest_memory_unguarded(
                 &[(GuestAddress(0x0), 0x1)],
                 false,
             )

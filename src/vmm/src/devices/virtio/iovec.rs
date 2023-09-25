@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use libc::{c_void, iovec, size_t};
-use utils::vm_memory::{Bitmap, GuestMemory, GuestMemoryMmap};
 
 use crate::devices::virtio::DescriptorChain;
+use crate::vstate::memory::{Bitmap, GuestMemory, GuestMemoryMmap};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum IoVecError {
@@ -13,7 +13,7 @@ pub enum IoVecError {
     /// Tried to create an 'IoVecMut` from a read-only descriptor chain
     ReadOnlyDescriptor,
     /// Guest memory error: {0}
-    GuestMemory(#[from] utils::vm_memory::GuestMemoryError),
+    GuestMemory(#[from] crate::vstate::memory::GuestMemoryError),
 }
 
 /// This is essentially a wrapper of a `Vec<libc::iovec>` which can be passed to `libc::writev`.
@@ -270,12 +270,12 @@ impl IoVecBufferMut {
 #[cfg(test)]
 mod tests {
     use libc::{c_void, iovec};
-    use utils::vm_memory::test_utils::create_anon_guest_memory;
-    use utils::vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 
     use super::{IoVecBuffer, IoVecBufferMut};
     use crate::devices::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::VirtQueue;
+    use crate::vstate::memory::test_utils::create_anon_guest_memory;
+    use crate::vstate::memory::{Bytes, GuestAddress, GuestMemoryMmap};
 
     impl<'a> From<&'a [u8]> for IoVecBuffer {
         fn from(buf: &'a [u8]) -> Self {

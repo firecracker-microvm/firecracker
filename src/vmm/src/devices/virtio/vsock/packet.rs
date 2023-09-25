@@ -18,13 +18,12 @@
 use std::fmt::Debug;
 use std::io::ErrorKind;
 
-use utils::vm_memory::{
+use super::super::DescriptorChain;
+use super::{defs, VsockError};
+use crate::vstate::memory::{
     Address, AtomicBitmap, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError,
     GuestMemoryMmap, ReadVolatile, VolatileMemoryError, VolatileSlice, WriteVolatile, BS,
 };
-
-use super::super::DescriptorChain;
-use super::{defs, VsockError};
 
 // The vsock packet header is defined by the C struct:
 //
@@ -435,14 +434,13 @@ impl VsockPacket {
 
 #[cfg(test)]
 mod tests {
-    use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
-
     use super::*;
     use crate::devices::virtio::test_utils::VirtqDesc as GuestQDesc;
     use crate::devices::virtio::vsock::defs::MAX_PKT_BUF_SIZE;
     use crate::devices::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
     use crate::devices::virtio::vsock::test_utils::TestContext;
     use crate::devices::virtio::VIRTQ_DESC_F_WRITE;
+    use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
     macro_rules! create_context {
         ($test_ctx:ident, $handler_ctx:ident) => {
@@ -758,7 +756,7 @@ mod tests {
     fn test_check_bounds_for_buffer_access_edge_cases() {
         let mut test_ctx = TestContext::new();
 
-        test_ctx.mem = utils::vm_memory::test_utils::create_guest_memory_unguarded(
+        test_ctx.mem = crate::vstate::memory::test_utils::create_guest_memory_unguarded(
             &[
                 (GuestAddress(0), 500),
                 (GuestAddress(500), 100),

@@ -26,7 +26,6 @@ use std::sync::Arc;
 use log::{debug, error, warn};
 use utils::byte_order;
 use utils::eventfd::EventFd;
-use utils::vm_memory::{Bytes, GuestMemoryMmap};
 
 use super::super::super::DeviceError;
 use super::defs::uapi;
@@ -36,6 +35,7 @@ use crate::devices::virtio::{
     ActivateError, DeviceState, IrqTrigger, IrqType, Queue as VirtQueue, VirtioDevice, VsockError,
 };
 use crate::logger::{IncMetric, METRICS};
+use crate::vstate::memory::{Bytes, GuestMemoryMmap};
 
 pub(crate) const RXQ_INDEX: usize = 0;
 pub(crate) const TXQ_INDEX: usize = 1;

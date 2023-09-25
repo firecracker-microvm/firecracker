@@ -72,7 +72,8 @@ macro_rules! arm64_core_reg_id {
     };
 }
 pub(crate) use arm64_core_reg_id;
-use utils::vm_memory::ByteValued;
+
+use crate::vstate::memory::ByteValued;
 
 /// This macro computes the ID of a specific ARM64 system register similar to how
 /// the kernel C macro does.
