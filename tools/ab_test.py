@@ -149,8 +149,10 @@ def analyze_data(data_a, data_b):
             result = check_regression(a_result[property_name], b_result[property_name])
 
             metrics_logger.set_dimensions(dict(config))
-            metrics_logger.put_metric("p_value", result.pvalue, "None")
-            metrics_logger.put_metric("mean_difference", result.statistic, "None")
+            metrics_logger.put_metric("p_value", float(result.pvalue), "None")
+            metrics_logger.put_metric(
+                "mean_difference", float(result.statistic), "None"
+            )
             metrics_logger.set_property("data_a", a_result[property_name])
             metrics_logger.set_property("data_b", b_result[property_name])
             asyncio.run(metrics_logger.flush())
