@@ -4,9 +4,8 @@
 use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};
 
-use crate::vstate::memory::{
-    GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap, ReadVolatile, WriteVolatile,
-};
+use crate::volatile::{ReadVolatile, WriteVolatile};
+use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap};
 
 #[derive(Debug)]
 pub enum SyncIoError {

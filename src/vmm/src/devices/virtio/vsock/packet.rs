@@ -20,9 +20,10 @@ use std::io::ErrorKind;
 
 use super::super::DescriptorChain;
 use super::{defs, VsockError};
+use crate::volatile::{ReadVolatile, VolatileMemoryError, VolatileSlice, WriteVolatile};
 use crate::vstate::memory::{
     Address, AtomicBitmap, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError,
-    GuestMemoryMmap, ReadVolatile, VolatileMemoryError, VolatileSlice, WriteVolatile, BS,
+    GuestMemoryMmap, BS,
 };
 
 // The vsock packet header is defined by the C struct:

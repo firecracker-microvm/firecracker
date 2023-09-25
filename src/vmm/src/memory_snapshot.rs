@@ -10,9 +10,10 @@ use utils::{errno, get_page_size, u64_to_usize};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
+use crate::volatile::WriteVolatile;
 use crate::vstate::memory::{
     Bitmap, FileOffset, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
-    GuestMemoryRegion, MemoryRegionAddress, WriteVolatile,
+    GuestMemoryRegion, MemoryRegionAddress,
 };
 use crate::DirtyBitmap;
 
