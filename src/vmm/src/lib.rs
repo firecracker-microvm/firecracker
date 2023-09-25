@@ -85,7 +85,6 @@ pub mod devices;
 pub mod dumbo;
 /// Logger
 pub mod logger;
-pub mod memory_snapshot;
 /// microVM Metadata Service MMDS
 pub mod mmds;
 /// Save/restore utilities.
@@ -138,11 +137,10 @@ use crate::devices::virtio::{
     TYPE_NET,
 };
 use crate::logger::{error, info, warn, MetricsError, METRICS};
-use crate::memory_snapshot::SnapshotMemory;
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
-use crate::vstate::memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
+use crate::vstate::memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion, SnapshotMemory};
 use crate::vstate::vcpu::VcpuState;
 pub use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuEvent, VcpuHandle, VcpuResponse};
 pub use crate::vstate::vm::Vm;
