@@ -29,4 +29,4 @@ def test_init_params(test_microvm_with_api):
     serial = Serial(vm)
     serial.open()
     # If the string does not show up, the test will fail.
-    serial.rx(token="Ubuntu 22.04.2 LTS")
+    serial.rx(token="Ubuntu 22.04")
