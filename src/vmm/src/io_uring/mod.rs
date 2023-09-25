@@ -388,7 +388,8 @@ mod tests {
     /// -------------------------------------
     /// BEGIN PROPERTY BASED TESTING
     use super::*;
-    use crate::vstate::memory::{Bytes, MmapRegion, VolatileMemory};
+    use crate::volatile::VolatileMemory;
+    use crate::vstate::memory::{Bytes, MmapRegion};
 
     fn drain_cqueue(ring: &mut IoUring) {
         while let Some(entry) = unsafe { ring.pop::<u32>().unwrap() } {

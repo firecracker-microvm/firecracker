@@ -16,6 +16,7 @@ use kvm_bindings::{
 };
 use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION, KVM_MEM_LOG_DIRTY_PAGES};
 use kvm_ioctls::{Kvm, VmFd};
+#[cfg(target_arch = "x86_64")]
 use utils::u64_to_usize;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
