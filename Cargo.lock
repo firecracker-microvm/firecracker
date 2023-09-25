@@ -39,9 +39,9 @@ dependencies = [
 
 [[package]]
 name = "aho-corasick"
-version = "1.1.0"
+version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f2135563fb5c609d2b2b87c1e8ce7bc41b0b45430fa9661f457981503dd5bf0"
+checksum = "ea5d730647d4fadd988536d06fecce94b7b4f2a7efdae548f1cf4b63205518ab"
 dependencies = [
  "memchr",
 ]
@@ -207,6 +207,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "bindgen"
+version = "0.68.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "726e4313eb6ec35d2730258ad4e15b547ee75d6afaa1361a922e78e59b7d8078"
+dependencies = [
+ "bitflags 2.3.3",
+ "cexpr",
+ "clang-sys",
+ "lazy_static",
+ "lazycell",
+ "peeking_take_while",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "rustc-hash",
+ "shlex",
+ "syn 2.0.28",
+]
+
+[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -226,9 +246,9 @@ checksum = "14c189c53d098945499cdfa7ecc63567cf3886b3332b312a5b4585d8d3a6a610"
 
 [[package]]
 name = "cargo_toml"
-version = "0.16.0"
+version = "0.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adf89139afbf0eac9d3f07080b14f5a739f44a916196af8c0a280baa080c20b8"
+checksum = "70a1f1117a8ff2f3547295da90f473c392d8d1107c90cea1ea82b1a544a97a4a"
 dependencies = [
  "serde",
  "toml",
@@ -552,7 +572,7 @@ dependencies = [
  "snapshot",
  "thiserror",
  "timerfd",
- "userfaultfd",
+ "userfaultfd 0.7.0",
  "utils",
  "vmm",
 ]
@@ -614,9 +634,9 @@ checksum = "95505c38b4572b2d910cecb0281560f54b440a19336cbbcb27bf6ce6adc6f5a8"
 
 [[package]]
 name = "hermit-abi"
-version = "0.3.2"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "443144c8cdadd93ebf52ddb4056d257f5b52c04d3c804e657d19eb73fc33668b"
+checksum = "d77f7ec81a6d05a3abb01ab6eb7590f6083d08449fe5a1c8b1e620283546ccb7"
 
 [[package]]
 name = "indexmap"
@@ -1072,9 +1092,9 @@ dependencies = [
 
 [[package]]
 name = "semver"
-version = "1.0.18"
+version = "1.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0293b4b29daaf487284529cc2f5675b8e57c61f70167ba415a463651fd6a918"
+checksum = "ad977052201c6de01a8ef2aa3378c4bd23217a056337d1d6da40468d267a4fb0"
 dependencies = [
  "serde",
 ]
@@ -1303,7 +1323,21 @@ dependencies = [
  "libc",
  "nix",
  "thiserror",
- "userfaultfd-sys",
+ "userfaultfd-sys 0.4.4",
+]
+
+[[package]]
+name = "userfaultfd"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6a38c7e24af201e66f02659492f86ccd5efa9fd62f2c851fff3961a60e81966"
+dependencies = [
+ "bitflags 2.3.3",
+ "cfg-if",
+ "libc",
+ "nix",
+ "thiserror",
+ "userfaultfd-sys 0.5.0",
 ]
 
 [[package]]
@@ -1313,6 +1347,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95e584ef49b61e34905229acfa185429edca64d47c449f31ff4371dc1ba4544c"
 dependencies = [
  "bindgen 0.65.1",
+ "cc",
+ "cfg-if",
+]
+
+[[package]]
+name = "userfaultfd-sys"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d75595d2a62b7db16bd47f5a1ce14e1fe05ccbe27d6c96721a958e0a027cad41"
+dependencies = [
+ "bindgen 0.68.1",
  "cc",
  "cfg-if",
 ]
@@ -1441,7 +1486,7 @@ dependencies = [
  "snapshot",
  "thiserror",
  "timerfd",
- "userfaultfd",
+ "userfaultfd 0.6.1",
  "utils",
  "versionize",
  "versionize_derive",
@@ -1506,9 +1551,9 @@ checksum = "ac3b87c63620426dd9b991e5ce0329eff545bccbbb34f3be09ff6fb6ab51b7b6"
 
 [[package]]
 name = "winapi-util"
-version = "0.1.5"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70ec6ce85bb158151cae5e5c87f95a8e97d2c0c4b001223f33a334e3ce5de178"
+checksum = "f29e6f9198ba0d26b4c9f07dbe6f9ed633e1f3d5b8b414090084349e46a52596"
 dependencies = [
  "winapi",
 ]
