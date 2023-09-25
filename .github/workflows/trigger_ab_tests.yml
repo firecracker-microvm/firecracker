@@ -1,0 +1,23 @@
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  trigger_ab_test:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.forced == false }}
+    steps:
+      - name: "Trigger Buildkite Pipeline"
+        run: |
+          curl -X POST https://api.buildkite.com/v2/organizations/firecracker/pipelines/performance-a-b-tests/builds \
+               -H 'Content-Type: application/json' \
+               -H 'Authorization: Bearer ${{ secrets.BUILDKITE_TOKEN }}' \
+               -d '{
+                    "commit": "HEAD",
+                    "branch": "${{ github.event.ref }}",
+                    "env": {
+                      "REVISION_A": "${{ github.event.before }}",
+                      "REVISION_B": "${{ github.event.after }}"
+                    }
+                  }'
