@@ -7,7 +7,6 @@ import statistics
 
 import pytest
 
-from framework.properties import global_props
 from framework.utils import CpuMap
 
 # each iteration is 30 * 0.2s = 6s
@@ -83,16 +82,7 @@ def test_network_latency(microvm_factory, guest_kernel, rootfs, metrics):
         samples.extend(consume_ping_output(ping_output))
 
     metrics.set_dimensions(
-        {
-            "instance": global_props.instance,
-            "cpu_model": global_props.cpu_model,
-            "host_kernel": "linux-" + global_props.host_linux_version,
-            "guest_kernel": guest_kernel.stem[2:],
-            "rootfs": rootfs.name,
-            "performance_test": "test_network_latency",
-            "vcpus": str(GUEST_VCPUS),
-            "guest_memory": f"{GUEST_MEM_MIB}MB",
-        }
+        {"performance_test": "test_network_latency", **vm.dimensions}
     )
 
     metrics.put_metric("latency_Avg", statistics.mean(samples), "Milliseconds")
