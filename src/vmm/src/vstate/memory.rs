@@ -40,7 +40,7 @@ const GUARD_PAGE_COUNT: usize = 1;
 /// acts as a safety net for accessing out-of-bounds addresses that are not allocated for the
 /// guest's memory.
 fn build_guarded_region(
-    maybe_file_offset: Option<FileOffset>,
+    file_offset: Option<&FileOffset>,
     size: usize,
     prot: i32,
     flags: i32,
@@ -68,8 +68,8 @@ fn build_guarded_region(
         return Err(MmapRegionError::Mmap(IoError::last_os_error()));
     }
 
-    let (fd, offset) = match maybe_file_offset {
-        Some(ref file_offset) => {
+    let (fd, offset) = match file_offset {
+        Some(file_offset) => {
             check_file_offset(file_offset, size)?;
             (file_offset.file().as_raw_fd(), file_offset.start())
         }
@@ -119,17 +119,22 @@ pub fn create_guest_memory(
     let prot = libc::PROT_READ | libc::PROT_WRITE;
     let mut mmap_regions = Vec::with_capacity(regions.len());
 
-    for region in regions {
-        let flags = match region.0 {
+    for (file_offset, guest_address, region_size) in regions {
+        let flags = match file_offset {
             None => libc::MAP_NORESERVE | libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
             Some(_) => libc::MAP_NORESERVE | libc::MAP_PRIVATE,
         };
 
-        let mmap_region =
-            build_guarded_region(region.0.clone(), region.2, prot, flags, track_dirty_pages)
-                .map_err(VmMemoryError::MmapRegion)?;
+        let mmap_region = build_guarded_region(
+            file_offset.as_ref(),
+            *region_size,
+            prot,
+            flags,
+            track_dirty_pages,
+        )
+        .map_err(VmMemoryError::MmapRegion)?;
 
-        mmap_regions.push(GuestRegionMmap::new(mmap_region, region.1)?);
+        mmap_regions.push(GuestRegionMmap::new(mmap_region, *guest_address)?);
     }
 
     GuestMemoryMmap::from_regions(mmap_regions)
@@ -331,7 +336,7 @@ mod tests {
             assert_eq!(unsafe { libc::ftruncate(file.as_raw_fd(), 4096 * 10) }, 0);
 
             let region = build_guarded_region(
-                Some(FileOffset::new(file, offset)),
+                Some(&FileOffset::new(file, offset)),
                 size,
                 prot,
                 flags,
