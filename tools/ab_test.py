@@ -28,7 +28,8 @@ import statistics
 import sys
 from pathlib import Path
 
-from aws_embedded_metrics.logger.metrics_logger_factory import create_metrics_logger
+from aws_embedded_metrics.logger.metrics_logger_factory import \
+    create_metrics_logger
 
 # Hack to be able to use our test framework code
 sys.path.append(str(Path(__file__).parent.parent / "tests"))
@@ -36,7 +37,7 @@ sys.path.append(str(Path(__file__).parent.parent / "tests"))
 # pylint:disable=wrong-import-position
 from framework import utils
 from framework.ab_test import chdir, check_regression, git_ab_test
-from host_tools.metrics import emit_raw_emf
+from host_tools.metrics import emit_raw_emf, format_with_reduced_unit
 
 
 def extract_dimensions(emf):
@@ -49,14 +50,27 @@ def reemit_emf_and_get_data(log_entry: str, revision: str):
     """Parses the given EMF log entry, and reemits it, overwriting the attached "git_commit_id" field
     with the given revision
 
-    Returns the entries dimensions and its list-valued properties/metrics"""
+    Returns the entries dimensions and its list-valued properties/metrics, together with their units
+    """
     emf = json.loads(log_entry)
     emf["git_commit_id"] = revision
     emit_raw_emf(emf)
 
-    result = {key: value for key, value in emf.items() if isinstance(value, list)}
+    result = {
+        key: (value, find_unit(emf, key))
+        for key, value in emf.items()
+        if isinstance(value, list)
+    }
 
     return extract_dimensions(emf), result
+
+
+def find_unit(emf: dict, metric: str):
+    """Determines the unit of the given metric"""
+    metrics = {
+        y["Name"]: y["Unit"] for y in emf["_aws"]["CloudWatchMetrics"][0]["Metrics"]
+    }
+    return metrics.get(metric, "None")
 
 
 def load_data_series(revision: str):
@@ -65,6 +79,7 @@ def load_data_series(revision: str):
     its list-valued properties/metrics.
 
     Also reemits all EMF logs."""
+    # Dictionary mapping EMF dimensions to A/B-testable metrics/properties
     data = {}
 
     report = json.loads(Path("test_results/test-report.json").read_text("UTF-8"))
@@ -84,7 +99,7 @@ def load_data_series(revision: str):
                     assert data[key].keys() == result.keys()
 
                     for metric in data[key]:
-                        data[key][metric].extend(result[metric])
+                        data[key][metric][0].extend(result[metric][0])
 
     return data
 
@@ -146,18 +161,19 @@ def analyze_data(data_a, data_b):
             print(
                 f"Doing A/B-test for dimensions {config} and property {property_name}"
             )
-            result = check_regression(a_result[property_name], b_result[property_name])
+            result = check_regression(
+                a_result[property_name][0], b_result[property_name][0]
+            )
 
             metrics_logger.set_dimensions(dict(config))
             metrics_logger.put_metric("p_value", float(result.pvalue), "None")
-            metrics_logger.put_metric(
-                "mean_difference", float(result.statistic), "None"
-            )
-            metrics_logger.set_property("data_a", a_result[property_name])
-            metrics_logger.set_property("data_b", b_result[property_name])
+            metrics_logger.put_metric("mean_difference", float(result.statistic), unit)
+            metrics_logger.set_property("data_a", a_result[property_name][0])
+            metrics_logger.set_property("data_b", b_result[property_name][0])
             asyncio.run(metrics_logger.flush())
 
-            results[config, property_name] = result
+            unit = a_result[property_name][1]
+            results[config, property_name] = (result, unit)
 
     return results
 
@@ -180,17 +196,17 @@ def ab_performance_test(a_revision, b_revision, test, p_thresh, strength_thresh)
     )
 
     failures = []
-    for (config, property_name), result in results.items():
-        baseline = a_result[config][property_name]
+    for (config, property_name), (result, unit) in results.items():
+        baseline = a_result[config][property_name][0]
         if (
             result.pvalue < p_thresh
             and abs(result.statistic) > abs(statistics.mean(baseline)) * strength_thresh
         ):
-            failures.append((config, property_name, result))
+            failures.append((config, property_name, result, unit))
 
     failure_report = "\n".join(
-        f"\033[0;32m[Firecracker A/B-Test Runner]\033[0m A/B-testing shows a regression of \033[0;31m\033[1m{result.statistic:.2f}ms\033[0m for metric \033[1m{property_name}\033[0m with \033[0;31m\033[1mp={result.pvalue}\033[0m. This means that observing a change of this magnitude or worse, assuming that performance characteristics did not change across the tested commits, has a probability of {result.pvalue:.2%}. Tested Dimensions:\n{json.dumps(dict(config), indent=2)}"
-        for (config, property_name, result) in failures
+        f"\033[0;32m[Firecracker A/B-Test Runner]\033[0m A/B-testing shows a regression of \033[0;31m\033[1m{format_with_reduced_unit(result.statistic, unit)}\033[0m for metric \033[1m{property_name}\033[0m with \033[0;31m\033[1mp={result.pvalue}\033[0m. This means that observing a change of this magnitude or worse, assuming that performance characteristics did not change across the tested commits, has a probability of {result.pvalue:.2%}. Tested Dimensions:\n{json.dumps(dict(config), indent=2)}"
+        for (config, property_name, result, unit) in failures
     )
     assert not failures, "\n" + failure_report
     print("No regressions detected!")
