@@ -85,7 +85,7 @@ pub enum StartMicrovmError {
     CreateLegacyDevice(device_manager::legacy::LegacyDeviceError),
     /// Memory regions are overlapping or mmap fails.
     #[error("Invalid Memory Configuration: {}", format!("{:?}", .0).replace('\"', ""))]
-    GuestMemoryMmap(crate::vstate::memory::Error),
+    GuestMemoryMmap(crate::vstate::memory::VmMemoryError),
     /// Cannot load initrd due to an invalid memory configuration.
     #[error("Cannot load initrd due to an invalid memory configuration.")]
     InitrdLoad,

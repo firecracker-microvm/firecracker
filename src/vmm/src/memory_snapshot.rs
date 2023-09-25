@@ -69,7 +69,7 @@ pub enum SnapshotMemoryError {
     /// Cannot access file: {0:?}
     FileHandle(#[from] std::io::Error),
     /// Cannot create memory: {0:?}
-    CreateMemory(#[from] crate::vstate::memory::Error),
+    CreateMemory(#[from] crate::vstate::memory::VmMemoryError),
     /// Cannot create memory region: {0:?}
     CreateRegion(#[from] crate::vstate::memory::MmapRegionError),
     /// Cannot fetch system's page size: {0:?}
