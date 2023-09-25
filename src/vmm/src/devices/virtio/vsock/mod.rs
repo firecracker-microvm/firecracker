@@ -23,13 +23,14 @@ use std::os::unix::io::AsRawFd;
 
 use packet::VsockPacket;
 use utils::epoll::EventSet;
+use vm_memory::GuestMemoryError;
 
 pub use self::defs::uapi::VIRTIO_ID_VSOCK as TYPE_VSOCK;
 pub use self::defs::VSOCK_DEV_ID;
 pub use self::device::Vsock;
 pub use self::unix::{VsockUnixBackend, VsockUnixBackendError};
 use crate::devices::virtio::persist::PersistError as VirtioStateError;
-use crate::vstate::memory::{GuestMemoryError, GuestMemoryMmap};
+use crate::vstate::memory::GuestMemoryMmap;
 
 mod defs {
     use crate::devices::virtio::FIRECRACKER_MAX_QUEUE_SIZE;

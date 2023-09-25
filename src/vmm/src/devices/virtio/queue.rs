@@ -11,7 +11,7 @@ use std::sync::atomic::{fence, Ordering};
 
 use crate::logger::error;
 use crate::vstate::memory::{
-    Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
+    Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap,
 };
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
@@ -33,7 +33,7 @@ pub enum QueueError {
     /// Descriptor index out of bounds: {0}.
     DescIndexOutOfBounds(u16),
     /// Failed to write value into the virtio queue used ring: {0}
-    UsedRing(#[from] GuestMemoryError),
+    UsedRing(#[from] vm_memory::GuestMemoryError),
 }
 
 /// A virtio descriptor constraints with C representative.
@@ -1420,7 +1420,9 @@ mod tests {
 
     #[test]
     fn test_queue_error_display() {
-        let err = UsedRing(GuestMemoryError::InvalidGuestAddress(GuestAddress(0)));
+        let err = UsedRing(vm_memory::GuestMemoryError::InvalidGuestAddress(
+            GuestAddress(0),
+        ));
         let _ = format!("{}{:?}", err, err);
 
         let err = DescIndexOutOfBounds(1);

@@ -13,12 +13,13 @@ use utils::{errno, get_page_size, u64_to_usize};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 pub use vm_memory::bitmap::{AtomicBitmap, Bitmap, BitmapSlice, BS};
-use vm_memory::mmap::{check_file_offset, NewBitmap};
-pub use vm_memory::mmap::{MmapRegionBuilder, MmapRegionError};
+pub use vm_memory::mmap::MmapRegionBuilder;
+use vm_memory::mmap::{check_file_offset, MmapRegionError, NewBitmap};
 pub use vm_memory::{
-    address, Address, ByteValued, Bytes, Error as VmMemoryError, FileOffset, GuestAddress,
-    GuestMemory, GuestMemoryError, GuestMemoryRegion, GuestUsize, MemoryRegionAddress, MmapRegion,
+    address, Address, ByteValued, Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion,
+    GuestUsize, MemoryRegionAddress, MmapRegion,
 };
+use vm_memory::{Error as VmMemoryError, GuestMemoryError};
 
 use crate::volatile::WriteVolatile;
 use crate::DirtyBitmap;
@@ -34,17 +35,21 @@ const GUARD_PAGE_COUNT: usize = 1;
 
 /// Errors associated with dumping guest memory to file.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum SnapshotMemoryError {
+pub enum MemoryError {
     /// Cannot access file: {0:?}
-    FileHandle(#[from] std::io::Error),
+    FileHandle(std::io::Error),
     /// Cannot create memory: {0:?}
-    CreateMemory(#[from] VmMemoryError),
+    CreateMemory(VmMemoryError),
     /// Cannot create memory region: {0:?}
-    CreateRegion(#[from] MmapRegionError),
+    CreateRegion(MmapRegionError),
     /// Cannot fetch system's page size: {0:?}
-    PageSize(#[from] errno::Error),
+    PageSize(errno::Error),
     /// Cannot dump memory: {0:?}
-    WriteMemory(#[from] GuestMemoryError),
+    WriteMemory(GuestMemoryError),
+    /// Cannot create mmap region: {0}
+    MmapRegionError(MmapRegionError),
+    /// Cannot create guest memory: {0}
+    VmMemoryError(VmMemoryError),
 }
 
 /// Defines the interface for snapshotting memory.
@@ -55,20 +60,20 @@ where
     /// Describes GuestMemoryMmap through a GuestMemoryState struct.
     fn describe(&self) -> GuestMemoryState;
     /// Dumps all contents of GuestMemoryMmap to a writer.
-    fn dump<T: WriteVolatile>(&self, writer: &mut T) -> Result<(), SnapshotMemoryError>;
+    fn dump<T: WriteVolatile>(&self, writer: &mut T) -> Result<(), MemoryError>;
     /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writer.
     fn dump_dirty<T: WriteVolatile + std::io::Seek>(
         &self,
         writer: &mut T,
         dirty_bitmap: &DirtyBitmap,
-    ) -> Result<(), SnapshotMemoryError>;
+    ) -> Result<(), MemoryError>;
     /// Creates a GuestMemoryMmap given a `file` containing the data
     /// and a `state` containing mapping information.
     fn restore(
         file: Option<&File>,
         state: &GuestMemoryState,
         track_dirty_pages: bool,
-    ) -> Result<Self, SnapshotMemoryError>;
+    ) -> Result<Self, MemoryError>;
 }
 
 /// State of a guest memory region saved to file/buffer.
@@ -111,10 +116,10 @@ impl SnapshotMemory for GuestMemoryMmap {
     }
 
     /// Dumps all contents of GuestMemoryMmap to a writer.
-    fn dump<T: WriteVolatile>(&self, writer: &mut T) -> Result<(), SnapshotMemoryError> {
+    fn dump<T: WriteVolatile>(&self, writer: &mut T) -> Result<(), MemoryError> {
         self.iter()
             .try_for_each(|region| Ok(writer.write_all_volatile(&region.as_volatile_slice()?)?))
-            .map_err(SnapshotMemoryError::WriteMemory)
+            .map_err(MemoryError::WriteMemory)
     }
 
     /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writer.
@@ -122,9 +127,9 @@ impl SnapshotMemory for GuestMemoryMmap {
         &self,
         writer: &mut T,
         dirty_bitmap: &DirtyBitmap,
-    ) -> Result<(), SnapshotMemoryError> {
+    ) -> Result<(), MemoryError> {
         let mut writer_offset = 0;
-        let page_size = get_page_size()?;
+        let page_size = get_page_size().map_err(MemoryError::PageSize)?;
 
         self.iter()
             .enumerate()
@@ -175,7 +180,7 @@ impl SnapshotMemory for GuestMemoryMmap {
 
                 Ok(())
             })
-            .map_err(SnapshotMemoryError::WriteMemory)
+            .map_err(MemoryError::WriteMemory)
     }
 
     /// Creates a GuestMemoryMmap backed by a `file` if present, otherwise backed
@@ -184,19 +189,21 @@ impl SnapshotMemory for GuestMemoryMmap {
         file: Option<&File>,
         state: &GuestMemoryState,
         track_dirty_pages: bool,
-    ) -> Result<Self, SnapshotMemoryError> {
+    ) -> Result<Self, MemoryError> {
         let mut regions = vec![];
         for region in state.regions.iter() {
             let f = match file {
-                Some(f) => Some(FileOffset::new(f.try_clone()?, region.offset)),
+                Some(f) => Some(FileOffset::new(
+                    f.try_clone().map_err(MemoryError::FileHandle)?,
+                    region.offset,
+                )),
                 None => None,
             };
 
             regions.push((f, GuestAddress(region.base_address), region.size));
         }
 
-        crate::vstate::memory::create_guest_memory(&regions, track_dirty_pages)
-            .map_err(SnapshotMemoryError::CreateMemory)
+        create_guest_memory(&regions, track_dirty_pages)
     }
 }
 
@@ -219,7 +226,7 @@ fn build_guarded_region(
     prot: i32,
     flags: i32,
     track_dirty_pages: bool,
-) -> Result<GuestMmapRegion, MmapRegionError> {
+) -> Result<GuestMmapRegion, MemoryError> {
     let page_size = utils::get_page_size().expect("Cannot retrieve page size.");
     // Create the guarded range size (received size + X pages),
     // where X is defined as a constant GUARD_PAGE_COUNT.
@@ -239,12 +246,14 @@ fn build_guarded_region(
     };
 
     if guard_addr == libc::MAP_FAILED {
-        return Err(MmapRegionError::Mmap(IoError::last_os_error()));
+        return Err(MemoryError::MmapRegionError(MmapRegionError::Mmap(
+            IoError::last_os_error(),
+        )));
     }
 
     let (fd, offset) = match file_offset {
         Some(file_offset) => {
-            check_file_offset(file_offset, size)?;
+            check_file_offset(file_offset, size).map_err(MemoryError::MmapRegionError)?;
             (file_offset.file().as_raw_fd(), file_offset.start())
         }
         None => (-1, 0),
@@ -267,7 +276,9 @@ fn build_guarded_region(
     };
 
     if region_addr == libc::MAP_FAILED {
-        return Err(MmapRegionError::Mmap(IoError::last_os_error()));
+        return Err(MemoryError::MmapRegionError(MmapRegionError::Mmap(
+            IoError::last_os_error(),
+        )));
     }
 
     let bitmap = match track_dirty_pages {
@@ -282,6 +293,7 @@ fn build_guarded_region(
             .with_mmap_prot(prot)
             .with_mmap_flags(flags)
             .build()
+            .map_err(MemoryError::MmapRegionError)
     }
 }
 
@@ -289,7 +301,7 @@ fn build_guarded_region(
 pub fn create_guest_memory(
     regions: &[(Option<FileOffset>, GuestAddress, usize)],
     track_dirty_pages: bool,
-) -> Result<GuestMemoryMmap, VmMemoryError> {
+) -> Result<GuestMemoryMmap, MemoryError> {
     let prot = libc::PROT_READ | libc::PROT_WRITE;
     let mut mmap_regions = Vec::with_capacity(regions.len());
 
@@ -305,13 +317,15 @@ pub fn create_guest_memory(
             prot,
             flags,
             track_dirty_pages,
-        )
-        .map_err(VmMemoryError::MmapRegion)?;
+        )?;
 
-        mmap_regions.push(GuestRegionMmap::new(mmap_region, *guest_address)?);
+        mmap_regions.push(
+            GuestRegionMmap::new(mmap_region, *guest_address)
+                .map_err(MemoryError::VmMemoryError)?,
+        );
     }
 
-    GuestMemoryMmap::from_regions(mmap_regions)
+    GuestMemoryMmap::from_regions(mmap_regions).map_err(MemoryError::VmMemoryError)
 }
 
 /// Mark memory range as dirty
@@ -365,7 +379,7 @@ pub mod test_utils {
     pub fn create_anon_guest_memory(
         regions: &[(GuestAddress, usize)],
         track_dirty_pages: bool,
-    ) -> Result<GuestMemoryMmap, VmMemoryError> {
+    ) -> Result<GuestMemoryMmap, MemoryError> {
         create_guest_memory(
             &regions.iter().map(|r| (None, r.0, r.1)).collect::<Vec<_>>(),
             track_dirty_pages,
@@ -704,7 +718,7 @@ mod tests {
         let guest_memory =
             crate::vstate::memory::create_guest_memory(&mem_regions[..], true).unwrap();
         // Check that Firecracker bitmap is clean.
-        let _res: Result<(), SnapshotMemoryError> = guest_memory.iter().try_for_each(|r| {
+        let _res: Result<(), MemoryError> = guest_memory.iter().try_for_each(|r| {
             assert!(!r.bitmap().dirty_at(0));
             assert!(!r.bitmap().dirty_at(1));
             Ok(())

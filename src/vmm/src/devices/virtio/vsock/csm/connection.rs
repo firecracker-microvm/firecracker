@@ -85,6 +85,7 @@ use std::time::{Duration, Instant};
 use log::{debug, error, info, warn};
 use utils::epoll::EventSet;
 use utils::wrap_usize_to_u32;
+use vm_memory::GuestMemoryError;
 
 use super::super::defs::uapi;
 use super::super::packet::VsockPacket;
@@ -93,7 +94,7 @@ use super::txbuf::TxBuf;
 use super::{defs, ConnState, PendingRx, PendingRxSet, VsockCsmError};
 use crate::logger::{IncMetric, METRICS};
 use crate::volatile::{ReadVolatile, WriteVolatile};
-use crate::vstate::memory::{GuestMemoryError, GuestMemoryMmap};
+use crate::vstate::memory::GuestMemoryMmap;
 
 /// Trait that vsock connection backends need to implement.
 ///

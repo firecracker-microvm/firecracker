@@ -18,12 +18,13 @@
 use std::fmt::Debug;
 use std::io::ErrorKind;
 
+use vm_memory::GuestMemoryError;
+
 use super::super::DescriptorChain;
 use super::{defs, VsockError};
 use crate::volatile::{ReadVolatile, VolatileMemoryError, VolatileSlice, WriteVolatile};
 use crate::vstate::memory::{
-    Address, AtomicBitmap, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError,
-    GuestMemoryMmap, BS,
+    Address, AtomicBitmap, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, BS,
 };
 
 // The vsock packet header is defined by the C struct:
