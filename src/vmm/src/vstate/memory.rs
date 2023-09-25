@@ -13,8 +13,8 @@ pub use vm_memory::bitmap::{AtomicBitmap, Bitmap, BitmapSlice, BS};
 use vm_memory::mmap::{check_file_offset, NewBitmap};
 pub use vm_memory::mmap::{MmapRegionBuilder, MmapRegionError};
 pub use vm_memory::{
-    address, Address, ByteValued, Bytes, Error, FileOffset, GuestAddress, GuestMemory,
-    GuestMemoryError, GuestMemoryRegion, GuestUsize, MemoryRegionAddress, MmapRegion,
+    address, Address, ByteValued, Bytes, Error as VmMemoryError, FileOffset, GuestAddress,
+    GuestMemory, GuestMemoryError, GuestMemoryRegion, GuestUsize, MemoryRegionAddress, MmapRegion,
 };
 
 /// Type of GuestMemoryMmap.
@@ -115,7 +115,7 @@ fn build_guarded_region(
 pub fn create_guest_memory(
     regions: &[(Option<FileOffset>, GuestAddress, usize)],
     track_dirty_pages: bool,
-) -> std::result::Result<GuestMemoryMmap, Error> {
+) -> Result<GuestMemoryMmap, VmMemoryError> {
     let prot = libc::PROT_READ | libc::PROT_WRITE;
     let mut mmap_regions = Vec::with_capacity(regions.len());
 
@@ -127,7 +127,7 @@ pub fn create_guest_memory(
 
         let mmap_region =
             build_guarded_region(region.0.clone(), region.2, prot, flags, track_dirty_pages)
-                .map_err(Error::MmapRegion)?;
+                .map_err(VmMemoryError::MmapRegion)?;
 
         mmap_regions.push(GuestRegionMmap::new(mmap_region, region.1)?);
     }
@@ -157,7 +157,7 @@ pub mod test_utils {
     pub fn create_guest_memory_unguarded(
         regions: &[(GuestAddress, usize)],
         track_dirty_pages: bool,
-    ) -> std::result::Result<GuestMemoryMmap, Error> {
+    ) -> Result<GuestMemoryMmap, VmMemoryError> {
         let prot = libc::PROT_READ | libc::PROT_WRITE;
         let flags = libc::MAP_NORESERVE | libc::MAP_PRIVATE | libc::MAP_ANONYMOUS;
         let mut mmap_regions = Vec::with_capacity(regions.len());
@@ -174,7 +174,7 @@ pub mod test_utils {
                 .with_mmap_prot(prot)
                 .with_mmap_flags(flags)
                 .build()
-                .map_err(Error::MmapRegion)?,
+                .map_err(VmMemoryError::MmapRegion)?,
                 region.0,
             )?);
         }
@@ -186,7 +186,7 @@ pub mod test_utils {
     pub fn create_anon_guest_memory(
         regions: &[(GuestAddress, usize)],
         track_dirty_pages: bool,
-    ) -> std::result::Result<GuestMemoryMmap, Error> {
+    ) -> Result<GuestMemoryMmap, VmMemoryError> {
         create_guest_memory(
             &regions.iter().map(|r| (None, r.0, r.1)).collect::<Vec<_>>(),
             track_dirty_pages,
