@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 
 import host_tools.drive as drive_tools
-from framework.properties import global_props
 from framework.utils import CmdBuilder, get_cpu_percent, run_cmd
 
 # size of the block device used in the test, in MB
@@ -168,16 +167,10 @@ def test_block_performance(
 
     metrics.set_dimensions(
         {
-            "instance": global_props.instance,
-            "cpu_model": global_props.cpu_model,
-            "host_kernel": "linux-" + global_props.host_linux_version,
-            "guest_kernel": guest_kernel.stem[2:],
-            "rootfs": rootfs.name,
             "performance_test": "test_block_performance",
-            "vcpus": str(vcpus),
-            "guest_memory": f"{GUEST_MEM_MIB}MB",
             "io_engine": io_engine,
             "fio_mode": fio_mode,
             "fio_block_size": str(fio_block_size),
+            **vm.dimensions,
         }
     )
