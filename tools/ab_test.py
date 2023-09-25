@@ -41,6 +41,10 @@ from host_tools.metrics import emit_raw_emf, format_with_reduced_unit
 
 def extract_dimensions(emf):
     """Extracts the cloudwatch dimensions from an EMF log message"""
+    if not emf["_aws"]["CloudWatchMetrics"][0]["Dimensions"]:
+        # Skipped tests emit a duration metric, but have no dimensions set
+        return {}
+
     dimension_list = emf["_aws"]["CloudWatchMetrics"][0]["Dimensions"][0]
     return {key: emf[key] for key in emf if key in dimension_list}
 
@@ -88,6 +92,10 @@ def load_data_series(revision: str):
             # we will need to rethink this heuristic.
             if line.startswith("{"):
                 dimensions, result = reemit_emf_and_get_data(line, revision)
+
+                if not dimensions:
+                    continue
+
                 dimension_set = frozenset(dimensions.items())
 
                 if dimension_set not in processed_emf:
