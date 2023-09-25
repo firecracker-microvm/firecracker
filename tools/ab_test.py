@@ -28,8 +28,7 @@ import statistics
 import sys
 from pathlib import Path
 
-from aws_embedded_metrics.logger.metrics_logger_factory import \
-    create_metrics_logger
+from aws_embedded_metrics.logger.metrics_logger_factory import create_metrics_logger
 
 # Hack to be able to use our test framework code
 sys.path.append(str(Path(__file__).parent.parent / "tests"))
@@ -80,7 +79,7 @@ def load_data_series(revision: str):
 
     Also reemits all EMF logs."""
     # Dictionary mapping EMF dimensions to A/B-testable metrics/properties
-    data = {}
+    processed_emf = {}
 
     report = json.loads(Path("test_results/test-report.json").read_text("UTF-8"))
     for test in report["tests"]:
@@ -89,19 +88,21 @@ def load_data_series(revision: str):
             # we will need to rethink this heuristic.
             if line.startswith("{"):
                 dimensions, result = reemit_emf_and_get_data(line, revision)
-                key = frozenset(dimensions.items())
+                dimension_set = frozenset(dimensions.items())
 
-                if key not in data:
-                    data[key] = result
+                if dimension_set not in processed_emf:
+                    processed_emf[dimension_set] = result
                 else:
                     # If there are many data points for a metric, they will be split across
                     # multiple EMF log messages. We need to reassemble :(
-                    assert data[key].keys() == result.keys()
+                    assert processed_emf[dimension_set].keys() == result.keys()
 
-                    for metric in data[key]:
-                        data[key][metric][0].extend(result[metric][0])
+                    for metric, (values, unit) in processed_emf[dimension_set].items():
+                        assert result[metric][1] == unit
 
-    return data
+                        values.extend(result[metric][0])
+
+    return processed_emf
 
 
 def collect_data(firecracker_checkout: Path, test: str):
@@ -134,46 +135,43 @@ def collect_data(firecracker_checkout: Path, test: str):
     return load_data_series(revision)
 
 
-def analyze_data(data_a, data_b):
+def analyze_data(processed_emf_a, processed_emf_b):
     """
     Analyzes the A/B-test data produced by `collect_data`, by performing regression tests
     as described this script's doc-comment.
 
     Returns a mapping of dimensions and properties/metrics to the result of their regression test.
     """
-    assert set(data_a.keys()) == set(
-        data_b.keys()
+    assert set(processed_emf_a.keys()) == set(
+        processed_emf_b.keys()
     ), "A and B run produced incomparable data. This is a bug in the test!"
 
     results = {}
 
     metrics_logger = create_metrics_logger()
 
-    for config in data_a:
-        a_result = data_a[config]
-        b_result = data_b[config]
+    for dimension_set in processed_emf_a:
+        metrics_a = processed_emf_a[dimension_set]
+        metrics_b = processed_emf_b[dimension_set]
 
-        assert set(a_result.keys()) == set(
-            b_result.keys()
+        assert set(metrics_a.keys()) == set(
+            metrics_b.keys()
         ), "A and B run produced incomparable data. This is a bug in the test!"
 
-        for property_name in a_result:
+        for metric, (values_a, unit) in metrics_a.items():
             print(
-                f"Doing A/B-test for dimensions {config} and property {property_name}"
+                f"Doing A/B-test for dimensions {dimension_set} and property {metric}"
             )
-            result = check_regression(
-                a_result[property_name][0], b_result[property_name][0]
-            )
+            result = check_regression(values_a, metrics_b[metric][0])
 
-            metrics_logger.set_dimensions(dict(config))
+            metrics_logger.set_dimensions(dict(dimension_set))
             metrics_logger.put_metric("p_value", float(result.pvalue), "None")
             metrics_logger.put_metric("mean_difference", float(result.statistic), unit)
-            metrics_logger.set_property("data_a", a_result[property_name][0])
-            metrics_logger.set_property("data_b", b_result[property_name][0])
+            metrics_logger.set_property("data_a", values_a)
+            metrics_logger.set_property("data_b", metrics_b[metric][0])
             asyncio.run(metrics_logger.flush())
 
-            unit = a_result[property_name][1]
-            results[config, property_name] = (result, unit)
+            results[dimension_set, metric] = (result, unit)
 
     return results
 
@@ -188,7 +186,7 @@ def ab_performance_test(a_revision, b_revision, test, p_thresh, strength_thresh)
     )
     print(commit_list.strip())
 
-    a_result, _, results = git_ab_test(
+    processed_emf_a, _, results = git_ab_test(
         lambda checkout, _: collect_data(checkout, test),
         analyze_data,
         a_revision=a_revision,
@@ -196,17 +194,17 @@ def ab_performance_test(a_revision, b_revision, test, p_thresh, strength_thresh)
     )
 
     failures = []
-    for (config, property_name), (result, unit) in results.items():
-        baseline = a_result[config][property_name][0]
+    for (dimension_set, metric), (result, unit) in results.items():
+        values_a = processed_emf_a[dimension_set][metric][0]
         if (
             result.pvalue < p_thresh
-            and abs(result.statistic) > abs(statistics.mean(baseline)) * strength_thresh
+            and abs(result.statistic) > abs(statistics.mean(values_a)) * strength_thresh
         ):
-            failures.append((config, property_name, result, unit))
+            failures.append((dimension_set, metric, result, unit))
 
     failure_report = "\n".join(
-        f"\033[0;32m[Firecracker A/B-Test Runner]\033[0m A/B-testing shows a regression of \033[0;31m\033[1m{format_with_reduced_unit(result.statistic, unit)}\033[0m for metric \033[1m{property_name}\033[0m with \033[0;31m\033[1mp={result.pvalue}\033[0m. This means that observing a change of this magnitude or worse, assuming that performance characteristics did not change across the tested commits, has a probability of {result.pvalue:.2%}. Tested Dimensions:\n{json.dumps(dict(config), indent=2)}"
-        for (config, property_name, result, unit) in failures
+        f"\033[0;32m[Firecracker A/B-Test Runner]\033[0m A/B-testing shows a regression of \033[0;31m\033[1m{format_with_reduced_unit(result.statistic, unit)}\033[0m for metric \033[1m{metric}\033[0m with \033[0;31m\033[1mp={result.pvalue}\033[0m. This means that observing a change of this magnitude or worse, assuming that performance characteristics did not change across the tested commits, has a probability of {result.pvalue:.2%}. Tested Dimensions:\n{json.dumps(dict(dimension_set), indent=2)}"
+        for (dimension_set, metric, result, unit) in failures
     )
     assert not failures, "\n" + failure_report
     print("No regressions detected!")
