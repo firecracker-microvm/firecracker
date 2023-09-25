@@ -233,8 +233,7 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
 }
 
 fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
-    use vmm::memory_snapshot::SnapshotMemory;
-    use vmm::vstate::memory::GuestMemoryMmap;
+    use vmm::vstate::memory::{GuestMemoryMmap, SnapshotMemory};
 
     let mut event_manager = EventManager::new().unwrap();
     let empty_seccomp_filters = get_empty_filters();
