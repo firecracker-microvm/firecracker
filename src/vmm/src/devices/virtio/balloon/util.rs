@@ -6,6 +6,7 @@ use std::io;
 use utils::vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 use super::{RemoveRegionError, MAX_PAGE_COMPACT_BUFFER};
+use crate::logger::error;
 
 /// This takes a vector of page frame numbers, and compacts them
 /// into ranges of consecutive pages. The result is a vector
@@ -35,7 +36,7 @@ pub(crate) fn compact_page_frame_numbers(v: &mut [u32]) -> Vec<(u32, u32)> {
         // Skip duplicate pages. This will ensure we only consider
         // distinct PFNs.
         if page_frame_number == v[pfn_index - 1] {
-            log::error!("Skipping duplicate PFN {}.", page_frame_number);
+            error!("Skipping duplicate PFN {}.", page_frame_number);
             continue;
         }
 

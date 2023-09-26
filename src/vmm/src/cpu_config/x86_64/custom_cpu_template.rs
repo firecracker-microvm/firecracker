@@ -16,6 +16,7 @@ use crate::cpu_config::templates_serde::*;
 use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
 use crate::cpu_config::x86_64::cpuid::{KvmCpuidFlags, VENDOR_ID_AMD, VENDOR_ID_INTEL};
 use crate::cpu_config::x86_64::static_cpu_templates::{c3, t2, t2a, t2cl, t2s, StaticCpuTemplate};
+use crate::logger::warn;
 
 impl GetCpuTemplate for Option<CpuTemplateType> {
     fn get_cpu_template(&self) -> Result<Cow<CustomCpuTemplate>, GetCpuTemplateError> {
@@ -32,7 +33,7 @@ impl GetCpuTemplate for Option<CpuTemplateType> {
                                 return Err(CpuVendorMismatched);
                             }
                             if !CpuModel::get_cpu_model().is_at_least_cascade_lake() {
-                                log::warn!(
+                                warn!(
                                     "On processors that do not enumerate FBSDP_NO, PSDP_NO and \
                                      SBDR_SSDP_NO on IA32_ARCH_CAPABILITIES MSR, the guest kernel \
                                      does not apply the mitigation against MMIO stale data \

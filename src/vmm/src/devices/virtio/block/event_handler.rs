@@ -3,12 +3,12 @@
 use std::os::unix::io::AsRawFd;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use log::{error, warn};
 use utils::epoll::EventSet;
 
 use super::io::FileEngine;
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::VirtioDevice;
+use crate::logger::{debug, error, warn};
 
 impl Block {
     fn register_runtime_events(&self, ops: &mut EventOps) {
@@ -32,7 +32,7 @@ impl Block {
     }
 
     fn process_activate_event(&self, ops: &mut EventOps) {
-        log::debug!("block: activate event");
+        debug!("block: activate event");
         if let Err(err) = self.activate_evt.read() {
             error!("Failed to consume block activate event: {:?}", err);
         }

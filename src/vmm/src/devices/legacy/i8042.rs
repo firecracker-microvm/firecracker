@@ -11,7 +11,7 @@ use std::num::Wrapping;
 use log::warn;
 use utils::eventfd::EventFd;
 
-use crate::logger::{IncMetric, METRICS};
+use crate::logger::{error, IncMetric, METRICS};
 
 /// Errors thrown by the i8042 device.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -226,7 +226,7 @@ impl I8042Device {
                 // our exit event fd. Meaning Firecracker will be exiting as soon as the VMM
                 // thread wakes up to handle this event.
                 if let Err(err) = self.reset_evt.write(1) {
-                    log::error!("Failed to trigger i8042 reset event: {:?}", err);
+                    error!("Failed to trigger i8042 reset event: {:?}", err);
                     METRICS.i8042.error_count.inc();
                 }
                 METRICS.i8042.reset_count.inc();

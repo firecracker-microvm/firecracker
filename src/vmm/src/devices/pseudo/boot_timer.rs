@@ -3,6 +3,8 @@
 
 use utils::time::TimestampUs;
 
+use crate::logger::info;
+
 const MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE: u8 = 123;
 
 /// Pseudo device to record the kernel boot time.
@@ -23,7 +25,7 @@ impl BootTimer {
 
             let boot_time_us = now_tm_us.time_us - self.start_ts.time_us;
             let boot_time_cpu_us = now_tm_us.cputime_us - self.start_ts.cputime_us;
-            log::info!(
+            info!(
                 "Guest-boot-time = {:>6} us {} ms, {:>6} CPU us {} CPU ms",
                 boot_time_us,
                 boot_time_us / 1000,

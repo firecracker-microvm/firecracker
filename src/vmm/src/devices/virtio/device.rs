@@ -9,12 +9,12 @@ use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use log::warn;
 use utils::eventfd::EventFd;
 use utils::vm_memory::GuestMemoryMmap;
 
 use super::{ActivateError, Queue};
 use crate::devices::virtio::{AsAny, VIRTIO_MMIO_INT_CONFIG, VIRTIO_MMIO_INT_VRING};
+use crate::logger::{error, warn};
 
 /// Enum that indicates if a VirtioDevice is inactive or has been activated
 /// and memory attached to it.
@@ -74,7 +74,7 @@ impl IrqTrigger {
         self.irq_status.fetch_or(irq as usize, Ordering::SeqCst);
 
         self.irq_evt.write(1).map_err(|err| {
-            log::error!("Failed to send irq to the guest: {:?}", err);
+            error!("Failed to send irq to the guest: {:?}", err);
             err
         })?;
 
