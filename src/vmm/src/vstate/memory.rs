@@ -37,7 +37,7 @@ const GUARD_PAGE_COUNT: usize = 1;
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum MemoryError {
     /// Cannot access file: {0:?}
-    FileHandle(std::io::Error),
+    FileError(std::io::Error),
     /// Cannot create memory: {0:?}
     CreateMemory(VmMemoryError),
     /// Cannot create memory region: {0:?}
@@ -50,6 +50,10 @@ pub enum MemoryError {
     MmapRegionError(MmapRegionError),
     /// Cannot create guest memory: {0}
     VmMemoryError(VmMemoryError),
+    /// Cannot create memfd: {0:?}
+    Memfd(memfd::Error),
+    /// Cannot resize memfd file: {0:?}
+    MemfdSetLen(std::io::Error),
 }
 
 /// Defines the interface for snapshotting memory.
@@ -57,6 +61,9 @@ pub trait GuestMemoryExtension
 where
     Self: Sized,
 {
+    /// Creates a GuestMemoryMmap with `size` in MiB and guard pages backed by file.
+    fn with_file(file: &File, track_dirty_pages: bool) -> Result<Self, MemoryError>;
+
     /// Creates a GuestMemoryMmap with `size` in MiB and guard pages.
     fn with_size(size: usize, track_dirty_pages: bool) -> Result<Self, MemoryError>;
 
@@ -119,7 +126,37 @@ pub struct GuestMemoryState {
 }
 
 impl GuestMemoryExtension for GuestMemoryMmap {
-    /// Creates a GuestMemoryMmap with `size` in MiB and guard pages.
+    /// Creates a GuestMemoryMmap with `size` in MiB and guard pages backed by file.
+    fn with_file(file: &File, track_dirty_pages: bool) -> Result<Self, MemoryError> {
+        let metadata = file.metadata().map_err(MemoryError::FileError)?;
+        let mem_size = u64_to_usize(metadata.len());
+        let regions = crate::arch::arch_memory_regions(mem_size);
+
+        let prot = libc::PROT_READ | libc::PROT_WRITE;
+        let flags = libc::MAP_NORESERVE | libc::MAP_SHARED;
+
+        let mut offset: u64 = 0;
+        let regions = regions
+            .iter()
+            .map(|(guest_address, region_size)| {
+                let file_clone = file.try_clone().map_err(MemoryError::FileError)?;
+                let file_offset = FileOffset::new(file_clone, offset);
+                offset += *region_size as u64;
+                let region = build_guarded_region(
+                    Some(&file_offset),
+                    *region_size,
+                    prot,
+                    flags,
+                    track_dirty_pages,
+                )?;
+                GuestRegionMmap::new(region, *guest_address).map_err(MemoryError::VmMemoryError)
+            })
+            .collect::<Result<Vec<_>, MemoryError>>()?;
+
+        GuestMemoryMmap::from_regions(regions).map_err(MemoryError::VmMemoryError)
+    }
+
+    /// Creates a GuestMemoryMmap with `size` in MiB and guard pages backed by anonymous memory.
     fn with_size(size: usize, track_dirty_pages: bool) -> Result<Self, MemoryError> {
         let mem_size = size << 20;
         let regions = crate::arch::arch_memory_regions(mem_size);
@@ -127,7 +164,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
         Self::from_raw_regions(&regions, track_dirty_pages)
     }
 
-    /// Creates a GuestMemoryMmap from raw regions with guard pages.
+    /// Creates a GuestMemoryMmap from raw regions with guard pages backed by anonymous memory.
     fn from_raw_regions(
         regions: &[(GuestAddress, usize)],
         track_dirty_pages: bool,
@@ -147,7 +184,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
         GuestMemoryMmap::from_regions(regions).map_err(MemoryError::VmMemoryError)
     }
 
-    /// Creates a GuestMemoryMmap from raw regions with no guard pages.
+    /// Creates a GuestMemoryMmap from raw regions with no guard pages backed by anonymous memory.
     fn from_raw_regions_unguarded(
         regions: &[(GuestAddress, usize)],
         track_dirty_pages: bool,
@@ -195,7 +232,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                         })
                     })
                     .collect::<Result<Vec<_>, std::io::Error>>()
-                    .map_err(MemoryError::FileHandle)?;
+                    .map_err(MemoryError::FileError)?;
 
                 let prot = libc::PROT_READ | libc::PROT_WRITE;
                 let flags = libc::MAP_NORESERVE | libc::MAP_PRIVATE;
@@ -320,6 +357,33 @@ impl GuestMemoryExtension for GuestMemoryMmap {
             })
             .map_err(MemoryError::WriteMemory)
     }
+}
+
+/// Creates a memfd file with the `size` in MiB.
+pub fn create_memfd(size: usize) -> Result<memfd::Memfd, MemoryError> {
+    let mem_size = size << 20;
+    // Create a memfd.
+    let opts = memfd::MemfdOptions::default().allow_sealing(true);
+    let mem_file = opts.create("guest_mem").map_err(MemoryError::Memfd)?;
+
+    // Resize to guest mem size.
+    mem_file
+        .as_file()
+        .set_len(mem_size as u64)
+        .map_err(MemoryError::MemfdSetLen)?;
+
+    // Add seals to prevent further resizing.
+    let mut seals = memfd::SealsHashSet::new();
+    seals.insert(memfd::FileSeal::SealShrink);
+    seals.insert(memfd::FileSeal::SealGrow);
+    mem_file.add_seals(&seals).map_err(MemoryError::Memfd)?;
+
+    // Prevent further sealing changes.
+    mem_file
+        .add_seal(memfd::FileSeal::SealSeal)
+        .map_err(MemoryError::Memfd)?;
+
+    Ok(mem_file)
 }
 
 /// Build a `MmapRegion` surrounded by guard pages.
@@ -843,5 +907,20 @@ mod tests {
             reader.read_to_end(&mut diff_file_content).unwrap();
             assert_eq!(expected_first_region, diff_file_content);
         }
+    }
+
+    #[test]
+    fn test_create_memfd() {
+        let size = 1;
+        let size_mb = 1 << 20;
+
+        let memfd = create_memfd(size).unwrap();
+
+        assert_eq!(memfd.as_file().metadata().unwrap().len(), size_mb);
+        assert!(memfd.as_file().set_len(0x69).is_err());
+
+        let mut seals = memfd::SealsHashSet::new();
+        seals.insert(memfd::FileSeal::SealGrow);
+        assert!(memfd.add_seals(&seals).is_err());
     }
 }

@@ -768,6 +768,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f665ee40bc4a3c5590afb1e9677db74a508659dfd71e126420da8274909a0167"
 
 [[package]]
+name = "memfd"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2cffa4ad52c6f791f4f8b15f0c05f9824b2ced1160e88cc393d64fff9a8ac64"
+dependencies = [
+ "rustix 0.38.17",
+]
+
+[[package]]
 name = "micro_http"
 version = "0.1.0"
 source = "git+https://github.com/firecracker-microvm/micro-http#a4d632f2c5ea45712c0d2002dc909a63879e85c3"
@@ -1412,6 +1421,7 @@ dependencies = [
  "libc",
  "linux-loader",
  "log",
+ "memfd",
  "micro_http",
  "proptest",
  "seccompiler",

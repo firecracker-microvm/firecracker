@@ -389,8 +389,7 @@ def test_api_machine_config(test_microvm_with_api):
     test_microvm.api.machine_config.patch(mem_size_mib=bad_size)
 
     fail_msg = re.escape(
-        "Invalid Memory Configuration: MmapRegion(Mmap(Os { code: "
-        "12, kind: OutOfMemory, message: Out of memory }))"
+        "Invalid Memory Configuration: MemfdSetLen(Custom { kind: InvalidInput, error: TryFromIntError(()) })"
     )
     with pytest.raises(RuntimeError, match=fail_msg):
         test_microvm.start()
