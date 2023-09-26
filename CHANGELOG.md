@@ -42,6 +42,9 @@
 - Changed the dump feature of `cpu-template-helper` tool not to enumerate program
   counter (PC) on ARM because it is determined by the given kernel image and
   it is useless in the custom CPU template context.
+- The ability to create snapshots for an older version of Firecracker is now
+  deprecated. As a result, the `version` body field in `PUT` on
+  `/snapshot/create` request in deprecated.
 
 ### Fixed
 

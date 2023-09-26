@@ -176,6 +176,11 @@ The Firecracker snapshotting implementation offers support for snapshot versioni
 
 - Saving snapshots at older versions
 
+  **DEPRECATED**: This feature is deprecated starting with version 1.5.0. It
+  will be removed in a subsequent release. After dropping support, Firecracker
+  will be able to create snapshots only for the version supported by the
+  Firecracker binary that launched the microVM and not for older versions.
+
   This refers to being able to create a snapshot with any version in the
   `[N, N + o]` interval, while running Firecracker version `N+o`.
 
