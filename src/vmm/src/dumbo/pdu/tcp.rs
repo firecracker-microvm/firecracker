@@ -17,8 +17,8 @@ use bitflags::bitflags;
 
 use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
 use super::Incomplete;
-use crate::pdu::ChecksumProto;
-use crate::ByteBuffer;
+use crate::dumbo::pdu::ChecksumProto;
+use crate::dumbo::ByteBuffer;
 
 const SOURCE_PORT_OFFSET: usize = 0;
 const DESTINATION_PORT_OFFSET: usize = 2;
@@ -51,6 +51,7 @@ bitflags! {
     /// besides `NS`.
     ///
     /// [`flags_after_ns()`]: struct.TcpSegment.html#method.flags_after_ns
+    #[derive(Debug, Copy, Clone, PartialEq)]
     pub struct Flags: u8 {
         /// Congestion window reduced.
         const CWR = 1 << 7;
@@ -210,7 +211,7 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
     ///
     /// [here]: https://en.wikipedia.org/wiki/Transmission_Control_Protocol#Checksum_computation
     pub fn compute_checksum(&self, src_addr: Ipv4Addr, dst_addr: Ipv4Addr) -> u16 {
-        crate::pdu::compute_checksum(&self.bytes, src_addr, dst_addr, ChecksumProto::Tcp)
+        crate::dumbo::pdu::compute_checksum(&self.bytes, src_addr, dst_addr, ChecksumProto::Tcp)
     }
 
     /// Parses TCP header options (only `MSS` is supported for now).

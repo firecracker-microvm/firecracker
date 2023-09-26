@@ -16,9 +16,9 @@ pub mod virtio;
 
 pub use bus::{Bus, BusDevice, BusError};
 use log::error;
-use logger::{IncMetric, METRICS};
 
 use crate::devices::virtio::{QueueError, VsockError};
+use crate::logger::{IncMetric, METRICS};
 
 // Function used for reporting error in terms of logging
 // but also in terms of METRICS net event fails.

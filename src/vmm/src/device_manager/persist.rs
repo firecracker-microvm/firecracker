@@ -9,7 +9,6 @@ use std::sync::{Arc, Mutex};
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use kvm_ioctls::VmFd;
 use log::{error, warn};
-use mmds::data_store::MmdsVersion;
 use snapshot::Persist;
 use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
@@ -39,6 +38,9 @@ use crate::devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUn
 use crate::devices::virtio::{
     MmioTransport, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG, TYPE_VSOCK,
 };
+#[cfg(target_arch = "aarch64")]
+use crate::logger;
+use crate::mmds::data_store::MmdsVersion;
 use crate::resources::VmResources;
 use crate::vmm_config::mmds::MmdsConfigError;
 use crate::EventManager;

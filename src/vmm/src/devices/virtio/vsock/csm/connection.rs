@@ -85,7 +85,6 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 
 use log::{debug, error, info, warn};
-use logger::{IncMetric, METRICS};
 use utils::epoll::EventSet;
 use utils::vm_memory::{GuestMemoryError, GuestMemoryMmap, ReadVolatile, WriteVolatile};
 
@@ -94,6 +93,7 @@ use super::super::packet::VsockPacket;
 use super::super::{VsockChannel, VsockEpollListener, VsockError};
 use super::txbuf::TxBuf;
 use super::{defs, ConnState, PendingRx, PendingRxSet, VsockCsmError};
+use crate::logger::{IncMetric, METRICS};
 
 /// Trait that vsock connection backends need to implement.
 ///

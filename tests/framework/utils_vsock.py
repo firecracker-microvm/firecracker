@@ -94,18 +94,29 @@ def make_blob(dst_dir, size=BLOB_SIZE):
     return blob_path, blob_hash.hexdigest()
 
 
-def check_host_connections(vm, uds_path, blob_path, blob_hash):
+def start_guest_echo_server(vm):
+    """Start a vsock echo server in the microVM.
+
+    Returns a UDS path to connect to the server.
+    """
+    cmd = f"nohup socat VSOCK-LISTEN:{ECHO_SERVER_PORT},backlog=128,reuseaddr,fork EXEC:'/bin/cat' > /dev/null 2>&1 &"
+    ecode, _, stderr = vm.ssh.run(cmd)
+    assert ecode == 0, stderr
+
+    # Give the server time to initialise
+    time.sleep(1)
+
+    return os.path.join(vm.jailer.chroot_path(), VSOCK_UDS_PATH)
+
+
+def check_host_connections(uds_path, blob_path, blob_hash):
     """Test host-initiated connections.
 
-    This will start a daemonized echo server on the guest VM, and then spawn
-    `TEST_CONNECTION_COUNT` `HostEchoWorker` threads.
+    This will spawn `TEST_CONNECTION_COUNT` `HostEchoWorker` threads.
     After the workers are done transferring the data read from `blob_path`,
     the hashes they computed for the data echoed back by the server are
     checked against `blob_hash`.
     """
-    cmd = "/tmp/vsock_helper echosrv -d {}".format(ECHO_SERVER_PORT)
-    ecode, _, _ = vm.ssh.run(cmd)
-    assert ecode == 0
 
     workers = []
     for _ in range(TEST_CONNECTION_COUNT):
@@ -226,5 +237,5 @@ def check_vsock_device(vm, bin_vsock_path, test_fc_session_root_path, ssh_connec
     check_guest_connections(vm, path, vm_blob_path, blob_hash)
 
     # Test vsock host-initiated connections.
-    path = os.path.join(vm.jailer.chroot_path(), VSOCK_UDS_PATH)
-    check_host_connections(vm, path, blob_path, blob_hash)
+    path = start_guest_echo_server(vm)
+    check_host_connections(path, blob_path, blob_hash)

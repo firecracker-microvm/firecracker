@@ -81,7 +81,13 @@ pub(crate) mod device_manager;
 /// Emulates virtual and hardware devices.
 #[allow(missing_docs)]
 pub mod devices;
+/// minimalist HTTP/TCP/IPv4 stack named DUMBO
+pub mod dumbo;
+/// Logger
+pub mod logger;
 pub mod memory_snapshot;
+/// microVM Metadata Service MMDS
+pub mod mmds;
 /// Save/restore utilities.
 pub mod persist;
 /// Resource store for configured microVM resources.
@@ -109,7 +115,6 @@ use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
-use logger::{error, info, warn, MetricsError, METRICS};
 use seccompiler::BpfProgram;
 use snapshot::Persist;
 use userfaultfd::Uffd;
@@ -130,6 +135,7 @@ use crate::devices::virtio::{
     Balloon, BalloonConfig, BalloonStats, Block, Net, BALLOON_DEV_ID, TYPE_BALLOON, TYPE_BLOCK,
     TYPE_NET,
 };
+use crate::logger::{error, info, warn, MetricsError, METRICS};
 use crate::memory_snapshot::SnapshotMemory;
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;

@@ -13,9 +13,6 @@ mod request;
 use std::fmt::Debug;
 use std::sync::mpsc;
 
-use logger::{
-    debug, error, info, update_metric_with_elapsed_time, warn, ProcessTimeReporter, METRICS,
-};
 pub use micro_http::{
     Body, HttpServer, Method, Request, RequestError, Response, ServerError, ServerRequest,
     ServerResponse, StatusCode, Version,
@@ -23,6 +20,9 @@ pub use micro_http::{
 use seccompiler::BpfProgramRef;
 use serde_json::json;
 use utils::eventfd::EventFd;
+use vmm::logger::{
+    debug, error, info, update_metric_with_elapsed_time, warn, ProcessTimeReporter, METRICS,
+};
 use vmm::rpc_interface::{ApiRequest, ApiResponse, VmmAction, VmmData};
 use vmm::vmm_config::snapshot::SnapshotType;
 
@@ -209,11 +209,11 @@ mod tests {
     use std::sync::mpsc::channel;
     use std::thread;
 
-    use logger::StoreMetric;
     use micro_http::HttpConnection;
     use utils::tempfile::TempFile;
     use utils::time::ClockType;
     use vmm::builder::StartMicrovmError;
+    use vmm::logger::StoreMetric;
     use vmm::rpc_interface::VmmActionError;
     use vmm::seccomp_filters::get_empty_filters;
     use vmm::vmm_config::instance_info::InstanceInfo;

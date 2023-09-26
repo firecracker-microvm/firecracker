@@ -9,10 +9,10 @@ use std::thread;
 
 use api_server::{ApiServer, HttpServer, ServerError};
 use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
-use logger::{error, warn, ProcessTimeReporter};
 use seccompiler::BpfThreadMap;
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
+use vmm::logger::{error, warn, ProcessTimeReporter};
 use vmm::resources::VmResources;
 use vmm::rpc_interface::{
     ApiRequest, ApiResponse, PrebootApiController, RuntimeApiController, VmmAction,

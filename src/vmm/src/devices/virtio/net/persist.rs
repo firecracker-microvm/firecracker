@@ -8,9 +8,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 
 use log::warn;
-use mmds::data_store::Mmds;
-use mmds::ns::MmdsNetworkStack;
-use mmds::persist::MmdsNetworkStackState;
 use snapshot::Persist;
 use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 use utils::vm_memory::GuestMemoryMmap;
@@ -21,6 +18,9 @@ use super::device::Net;
 use super::NET_NUM_QUEUES;
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::{DeviceState, FIRECRACKER_MAX_QUEUE_SIZE, TYPE_NET};
+use crate::mmds::data_store::Mmds;
+use crate::mmds::ns::MmdsNetworkStack;
+use crate::mmds::persist::MmdsNetworkStackState;
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::rate_limiter::RateLimiter;
 

@@ -1,8 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use logger::{IncMetric, METRICS};
 use serde::{Deserialize, Serialize};
+use vmm::logger::{IncMetric, METRICS};
 
 use super::super::VmmAction;
 use crate::parsed_request::{Error, ParsedRequest};

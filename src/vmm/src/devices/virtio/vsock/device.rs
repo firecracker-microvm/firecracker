@@ -24,7 +24,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use log::{debug, error, warn};
-use logger::{IncMetric, METRICS};
 use utils::byte_order;
 use utils::eventfd::EventFd;
 use utils::vm_memory::{Bytes, GuestMemoryMmap};
@@ -36,6 +35,7 @@ use super::{defs, VsockBackend};
 use crate::devices::virtio::{
     ActivateError, DeviceState, IrqTrigger, IrqType, Queue as VirtQueue, VirtioDevice, VsockError,
 };
+use crate::logger::{IncMetric, METRICS};
 
 pub(crate) const RXQ_INDEX: usize = 0;
 pub(crate) const TXQ_INDEX: usize = 1;

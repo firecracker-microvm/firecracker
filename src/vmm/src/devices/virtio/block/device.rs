@@ -15,7 +15,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use block_io::FileEngine;
-use logger::{error, warn, IncMetric, METRICS};
 use serde::{Deserialize, Serialize};
 use utils::eventfd::EventFd;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
@@ -33,6 +32,7 @@ use super::{
     SECTOR_SIZE,
 };
 use crate::devices::virtio::{IrqTrigger, IrqType};
+use crate::logger::{error, warn, IncMetric, METRICS};
 use crate::rate_limiter::{BucketUpdate, RateLimiter};
 
 /// Configuration options for disk caching.

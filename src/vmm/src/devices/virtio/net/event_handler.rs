@@ -5,11 +5,11 @@ use std::os::unix::io::AsRawFd;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use log::{error, warn};
-use logger::{IncMetric, METRICS};
 use utils::epoll::EventSet;
 
 use crate::devices::virtio::net::device::Net;
 use crate::devices::virtio::{VirtioDevice, RX_INDEX, TX_INDEX};
+use crate::logger::{IncMetric, METRICS};
 
 impl Net {
     fn register_runtime_events(&self, ops: &mut EventOps) {

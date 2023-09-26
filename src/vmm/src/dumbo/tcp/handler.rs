@@ -12,11 +12,11 @@ use std::num::NonZeroUsize;
 
 use micro_http::{Request, Response};
 
-use crate::pdu::bytes::NetworkBytes;
-use crate::pdu::ipv4::{Error as IPv4PacketError, IPv4Packet, PROTOCOL_TCP};
-use crate::pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
-use crate::tcp::endpoint::Endpoint;
-use crate::tcp::{NextSegmentStatus, RstConfig};
+use crate::dumbo::pdu::bytes::NetworkBytes;
+use crate::dumbo::pdu::ipv4::{Error as IPv4PacketError, IPv4Packet, PROTOCOL_TCP};
+use crate::dumbo::pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
+use crate::dumbo::tcp::endpoint::Endpoint;
+use crate::dumbo::tcp::{NextSegmentStatus, RstConfig};
 
 // TODO: This is currently IPv4 specific. Maybe change it to a more generic implementation.
 
@@ -507,8 +507,8 @@ mod tests {
     use std::fmt::Debug;
 
     use super::*;
-    use crate::pdu::bytes::NetworkBytesMut;
-    use crate::tcp::tests::mock_callback;
+    use crate::dumbo::pdu::bytes::NetworkBytesMut;
+    use crate::dumbo::tcp::tests::mock_callback;
 
     fn inner_tcp_mut<'a, T: NetworkBytesMut + Debug>(
         p: &'a mut IPv4Packet<'_, T>,

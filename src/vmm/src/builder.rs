@@ -47,6 +47,8 @@ use crate::devices::virtio::{
     Balloon, Block, Entropy, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend,
 };
 use crate::devices::BusDevice;
+#[cfg(target_arch = "aarch64")]
+use crate::logger;
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootConfig;
@@ -966,8 +968,6 @@ pub mod tests {
     use std::io::Write;
 
     use linux_loader::cmdline::Cmdline;
-    use mmds::data_store::{Mmds, MmdsVersion};
-    use mmds::ns::MmdsNetworkStack;
     use utils::tempfile::TempFile;
     use utils::vm_memory::GuestMemory;
 
@@ -976,6 +976,8 @@ pub mod tests {
     use crate::devices::virtio::rng::device::ENTROPY_DEV_ID;
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
     use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_RNG, TYPE_VSOCK};
+    use crate::mmds::data_store::{Mmds, MmdsVersion};
+    use crate::mmds::ns::MmdsNetworkStack;
     use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
     use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, CacheType, FileEngineType};

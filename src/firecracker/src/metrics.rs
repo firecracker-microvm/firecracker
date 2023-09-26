@@ -5,9 +5,9 @@ use std::os::unix::io::AsRawFd;
 use std::time::Duration;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use logger::{error, warn, IncMetric, METRICS};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use utils::epoll::EventSet;
+use vmm::logger::{error, warn, IncMetric, METRICS};
 
 /// Metrics reporting period.
 pub(crate) const WRITE_METRICS_PERIOD_MS: u64 = 60000;

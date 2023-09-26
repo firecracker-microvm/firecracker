@@ -13,7 +13,6 @@ use std::{io, panic};
 
 use api_server_adapter::ApiServerError;
 use event_manager::SubscriberOps;
-use logger::{error, info, ProcessTimeReporter, StoreMetric, LOGGER, METRICS};
 use seccomp::FilterError;
 use seccompiler::BpfThreadMap;
 use snapshot::{Error as SnapshotError, Snapshot};
@@ -21,11 +20,12 @@ use utils::arg_parser::{ArgParser, Argument};
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
 use vmm::builder::StartMicrovmError;
+use vmm::logger::{error, info, ProcessTimeReporter, StoreMetric, LOGGER, METRICS};
 use vmm::resources::VmResources;
 use vmm::signal_handler::register_signal_handlers;
 use vmm::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
-use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError, LoggerLevel};
+use vmm::vmm_config::logger_config::{init_logger, LoggerConfig, LoggerConfigError, LoggerLevel};
 use vmm::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
 use vmm::{EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
 
@@ -113,7 +113,7 @@ fn main_exec() -> Result<(), MainError> {
             // These errors are non-critical: In the worst case we have worse snapshot restore
             // performance.
             ResizeFdTableError::GetRlimit | ResizeFdTableError::Dup2(_) => {
-                logger::debug!("Failed to resize fdtable: {err}")
+                vmm::logger::debug!("Failed to resize fdtable: {err}")
             }
             // This error means that we now have a random file descriptor lying around, abort to be
             // cautious.

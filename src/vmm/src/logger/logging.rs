@@ -22,7 +22,7 @@
 //! ```
 //! use std::ops::Deref;
 //!
-//! use logger::{error, warn, LOGGER};
+//! use vmm::logger::{error, warn, LOGGER};
 //!
 //! // Optionally do an initial configuration for the logger.
 //! if let Err(err) = LOGGER.deref().configure(Some("MY-INSTANCE".to_string())) {
@@ -38,7 +38,7 @@
 //! use std::io::Cursor;
 //!
 //! use libc::c_char;
-//! use logger::{error, warn, LOGGER};
+//! use vmm::logger::{error, warn, LOGGER};
 //!
 //! let mut logs = Cursor::new(vec![0; 15]);
 //!
@@ -87,9 +87,9 @@ use log::{max_level, set_logger, set_max_level, LevelFilter, Log, Metadata, Reco
 use utils::time::LocalTime;
 
 use super::extract_guard;
-use crate::init;
-use crate::init::Init;
-use crate::metrics::{IncMetric, METRICS};
+use crate::logger::init;
+use crate::logger::init::Init;
+use crate::logger::metrics::{IncMetric, METRICS};
 
 /// Type for returning functions outcome.
 pub type Result<T> = result::Result<T, LoggerError>;
@@ -169,7 +169,7 @@ impl Logger {
     /// ```
     /// use std::ops::Deref;
     ///
-    /// use logger::{warn, LOGGER};
+    /// use vmm::logger::{warn, LOGGER};
     ///
     /// let l = LOGGER.deref();
     /// l.set_include_level(true);
@@ -200,7 +200,7 @@ impl Logger {
     /// ```
     /// use std::ops::Deref;
     ///
-    /// use logger::{warn, LOGGER};
+    /// use vmm::logger::{warn, LOGGER};
     ///
     /// let l = LOGGER.deref();
     /// l.set_include_origin(false, false);
@@ -240,7 +240,7 @@ impl Logger {
     /// ```
     /// use std::ops::Deref;
     ///
-    /// use logger::{info, warn, LOGGER};
+    /// use vmm::logger::{info, warn, LOGGER};
     ///
     /// let l = LOGGER.deref();
     /// l.set_max_level(log::LevelFilter::Warn);
@@ -317,7 +317,7 @@ impl Logger {
     /// ```
     /// use std::ops::Deref;
     ///
-    /// use logger::LOGGER;
+    /// use vmm::logger::LOGGER;
     ///
     /// LOGGER
     ///     .deref()
@@ -352,7 +352,7 @@ impl Logger {
     /// ```
     /// use std::io::Cursor;
     ///
-    /// use logger::LOGGER;
+    /// use vmm::logger::LOGGER;
     ///
     /// let mut logs = Cursor::new(vec![0; 15]);
     ///
@@ -437,7 +437,7 @@ mod tests {
     use std::io::{BufWriter, Read, Write};
     use std::sync::Arc;
 
-    use log::{info, Level};
+    use log::Level;
 
     use super::*;
 
@@ -754,16 +754,14 @@ mod tests {
         assert!(r.is_ok());
     }
 
-    #[test]
-    fn test_static_logger() {
-        log::set_max_level(log::LevelFilter::Info);
-        LOGGER.set_instance_id(TEST_INSTANCE_ID.to_string());
-
-        let mut reader = LOGGER.mock_init();
-
-        info!("info");
-        validate_log(&mut Box::new(&mut reader), "info\n");
-    }
+    // There was a test `test_static_logger` to cover LOGGER however,
+    // it had conflict with `vmm_config::test::test_itest_init_logger`
+    // which also uses tries to initialize logger and fail with an
+    // already initialized error.
+    // Since vmm_config::test_init_logger() cover the logger init test
+    // with more parameters, test_static_logger() was removed.
+    // This comment is kept here so that we don't try to implement
+    // test_static_logger() again in the future.
 
     #[test]
     fn test_error_messages() {

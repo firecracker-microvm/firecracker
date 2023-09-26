@@ -4,10 +4,10 @@
 //! Auxiliary module for configuring the metrics system.
 use std::path::PathBuf;
 
-use logger::{FcLineWriter, METRICS};
 use serde::{Deserialize, Serialize};
 
 use super::open_file_nonblock;
+use crate::logger::{FcLineWriter, METRICS};
 
 /// Strongly typed structure used to describe the metrics system.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]

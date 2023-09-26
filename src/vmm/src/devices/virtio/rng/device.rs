@@ -6,7 +6,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use aws_lc_rs::rand;
-use logger::{debug, error, IncMetric, METRICS};
 use utils::eventfd::EventFd;
 use utils::vm_memory::{GuestMemoryError, GuestMemoryMmap};
 use virtio_gen::virtio_rng::VIRTIO_F_VERSION_1;
@@ -18,6 +17,7 @@ use crate::devices::virtio::{
     ActivateError, DeviceState, Queue, VirtioDevice, FIRECRACKER_MAX_QUEUE_SIZE, TYPE_RNG,
 };
 use crate::devices::DeviceError;
+use crate::logger::{debug, error, IncMetric, METRICS};
 use crate::rate_limiter::{RateLimiter, TokenType};
 
 pub const ENTROPY_DEV_ID: &str = "rng";

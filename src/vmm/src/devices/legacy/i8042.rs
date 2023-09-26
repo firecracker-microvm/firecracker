@@ -9,8 +9,9 @@ use std::io;
 use std::num::Wrapping;
 
 use log::warn;
-use logger::{IncMetric, METRICS};
 use utils::eventfd::EventFd;
+
+use crate::logger::{IncMetric, METRICS};
 
 /// Errors thrown by the i8042 device.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]

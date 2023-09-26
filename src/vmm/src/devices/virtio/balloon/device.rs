@@ -8,7 +8,6 @@ use std::time::Duration;
 use std::{cmp, fmt};
 
 use log::error;
-use logger::{IncMetric, METRICS};
 use serde::Serialize;
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use utils::eventfd::EventFd;
@@ -28,6 +27,7 @@ use super::{
 };
 use crate::devices::virtio::balloon::BalloonError;
 use crate::devices::virtio::{IrqTrigger, IrqType};
+use crate::logger::{IncMetric, METRICS};
 
 const SIZE_OF_U32: usize = std::mem::size_of::<u32>();
 const SIZE_OF_STAT: usize = std::mem::size_of::<BalloonStat>();

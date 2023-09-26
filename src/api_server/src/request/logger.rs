@@ -1,8 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use logger::{IncMetric, METRICS};
-use vmm::vmm_config::logger::LoggerConfig;
+use vmm::logger::{IncMetric, METRICS};
+use vmm::vmm_config::logger_config::LoggerConfig;
 
 use super::super::VmmAction;
 use crate::parsed_request::{Error, ParsedRequest};
@@ -22,7 +22,7 @@ pub(crate) fn parse_put_logger(body: &Body) -> Result<ParsedRequest, Error> {
 mod tests {
     use std::path::PathBuf;
 
-    use vmm::vmm_config::logger::LoggerLevel;
+    use vmm::vmm_config::logger_config::LoggerLevel;
 
     use super::*;
     use crate::parsed_request::tests::vmm_action_from_request;

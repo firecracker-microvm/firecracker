@@ -11,24 +11,24 @@ use std::result::Result;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
-use dumbo::pdu::arp::{
-    test_speculative_tpa, Error as ArpFrameError, EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN,
-};
-use dumbo::pdu::ethernet::{
-    Error as EthernetFrameError, EthernetFrame, ETHERTYPE_ARP, ETHERTYPE_IPV4,
-};
-use dumbo::pdu::ipv4::{
-    test_speculative_dst_addr, Error as IPv4PacketError, IPv4Packet, PROTOCOL_TCP,
-};
-use dumbo::pdu::tcp::Error as TcpSegmentError;
-use dumbo::pdu::Incomplete;
-use dumbo::tcp::handler::{RecvEvent, TcpIPv4Handler, WriteEvent, WriteNextError};
-use dumbo::tcp::NextSegmentStatus;
-use logger::{IncMetric, METRICS};
 use utils::net::mac::MacAddr;
 use utils::time::timestamp_cycles;
 
-use crate::Mmds;
+use crate::dumbo::pdu::arp::{
+    test_speculative_tpa, Error as ArpFrameError, EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN,
+};
+use crate::dumbo::pdu::ethernet::{
+    Error as EthernetFrameError, EthernetFrame, ETHERTYPE_ARP, ETHERTYPE_IPV4,
+};
+use crate::dumbo::pdu::ipv4::{
+    test_speculative_dst_addr, Error as IPv4PacketError, IPv4Packet, PROTOCOL_TCP,
+};
+use crate::dumbo::pdu::tcp::Error as TcpSegmentError;
+use crate::dumbo::pdu::Incomplete;
+use crate::dumbo::tcp::handler::{RecvEvent, TcpIPv4Handler, WriteEvent, WriteNextError};
+use crate::dumbo::tcp::NextSegmentStatus;
+use crate::logger::{IncMetric, METRICS};
+use crate::mmds::data_store::Mmds;
 
 const DEFAULT_MAC_ADDR: &str = "06:01:23:45:67:01";
 const DEFAULT_IPV4_ADDR: [u8; 4] = [169, 254, 169, 254];
@@ -318,9 +318,8 @@ impl MmdsNetworkStack {
 mod tests {
     use std::str::FromStr;
 
-    use dumbo::pdu::tcp::{Flags as TcpFlags, TcpSegment};
-
     use super::*;
+    use crate::dumbo::pdu::tcp::{Flags as TcpFlags, TcpSegment};
 
     // We use LOCALHOST here because const new() is not stable yet, so just reuse this const, since
     // all we're interested in is having some address different from the MMDS one.

@@ -38,11 +38,31 @@ def get_stable_rss_mem_by_pid(pid, percentage_delta=1):
     return second_rss
 
 
+def lower_ssh_oom_chance(ssh_connection):
+    """Lure OOM away from ssh process"""
+    logger = logging.getLogger("lower_ssh_oom_chance")
+
+    cmd = "pidof sshd"
+    exit_code, stdout, stderr = ssh_connection.run(cmd)
+    # add something to the logs for troubleshooting
+    if exit_code != 0:
+        logger.error("while running: %s", cmd)
+        logger.error("stdout: %s", stdout)
+        logger.error("stderr: %s", stderr)
+
+    for pid in stdout.split(" "):
+        cmd = f"choom -n -1000 -p {pid}"
+        ssh_connection.run(cmd)
+
+
 def make_guest_dirty_memory(ssh_connection, should_oom=False, amount_mib=32):
     """Tell the guest, over ssh, to dirty `amount` pages of memory."""
     logger = logging.getLogger("make_guest_dirty_memory")
 
-    cmd = f"/usr/local/bin/fillmem {amount_mib}"
+    lower_ssh_oom_chance(ssh_connection)
+
+    # Aim OOM at fillmem process
+    cmd = f"choom -n 1000 -- /usr/local/bin/fillmem {amount_mib}"
     exit_code, stdout, stderr = ssh_connection.run(cmd)
     # add something to the logs for troubleshooting
     if exit_code != 0:

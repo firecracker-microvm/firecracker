@@ -13,8 +13,6 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use mmds::data_store::Mmds;
-use mmds::ns::MmdsNetworkStack;
 use utils::net::mac::MacAddr;
 use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 
@@ -24,6 +22,8 @@ use crate::devices::virtio::net::tap::{IfReqBuilder, Tap};
 use crate::devices::virtio::test_utils::VirtQueue;
 use crate::devices::virtio::{Net, Queue, QueueError};
 use crate::devices::DeviceError;
+use crate::mmds::data_store::Mmds;
+use crate::mmds::ns::MmdsNetworkStack;
 use crate::rate_limiter::RateLimiter;
 
 static NEXT_INDEX: AtomicUsize = AtomicUsize::new(1);
@@ -349,7 +349,6 @@ pub mod test {
     use std::{cmp, fmt, mem};
 
     use event_manager::{EventManager, SubscriberId, SubscriberOps};
-    use logger::{IncMetric, METRICS};
     use net_gen::ETH_HLEN;
     use utils::vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
@@ -363,6 +362,7 @@ pub mod test {
         IrqType, Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, VIRTQ_DESC_F_NEXT,
         VIRTQ_DESC_F_WRITE,
     };
+    use crate::logger::{IncMetric, METRICS};
 
     pub struct TestHelper<'a> {
         pub event_manager: EventManager<Arc<Mutex<Net>>>,

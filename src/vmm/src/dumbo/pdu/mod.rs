@@ -10,8 +10,8 @@
 use std::fmt::Debug;
 use std::net::Ipv4Addr;
 
-use crate::pdu::bytes::NetworkBytes;
-use crate::pdu::ipv4::{PROTOCOL_TCP, PROTOCOL_UDP};
+use crate::dumbo::pdu::bytes::NetworkBytes;
+use crate::dumbo::pdu::ipv4::{PROTOCOL_TCP, PROTOCOL_UDP};
 
 pub mod arp;
 pub mod bytes;

@@ -4,10 +4,10 @@
 //! Auxiliary module for configuring the logger.
 use std::path::PathBuf;
 
-use logger::{FcLineWriter, LevelFilter, LOGGER};
 use serde::{de, Deserialize, Deserializer, Serialize};
 
 use super::open_file_nonblock;
+use crate::logger::{FcLineWriter, LevelFilter, LOGGER};
 use crate::vmm_config::instance_info::InstanceInfo;
 
 /// Enum used for setting the log level.
@@ -141,12 +141,12 @@ pub fn init_logger(
 mod tests {
     use std::io::{BufRead, BufReader};
 
-    use logger::warn;
     use utils::tempfile::TempFile;
     use utils::time::TimestampUs;
 
     use super::*;
     use crate::devices::pseudo::BootTimer;
+    use crate::logger::warn;
 
     #[test]
     fn test_init_logger() {

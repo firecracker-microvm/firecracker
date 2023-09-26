@@ -3,10 +3,10 @@
 
 use std::fmt::Debug;
 
-use logger::{error, info, log_enabled, Level};
 use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 use serde::ser::Serialize;
 use serde_json::Value;
+use vmm::logger::{error, info, log_enabled, Level};
 use vmm::rpc_interface::{VmmAction, VmmActionError};
 
 use super::VmmData;

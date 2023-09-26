@@ -16,9 +16,7 @@ serde_json = "1.0.78"
 thiserror = "1.0.32"
 displaydoc = "0.2.4"
 
-logger = { path = "../logger" }
 micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
-mmds = { path = "../mmds" }
 seccompiler = { path = "../seccompiler" }
 utils = { path = "../utils" }
 vmm = { path = "../vmm" }

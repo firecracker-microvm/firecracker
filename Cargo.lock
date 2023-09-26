@@ -25,9 +25,9 @@ dependencies = [
 
 [[package]]
 name = "aes-gcm"
-version = "0.10.2"
+version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "209b47e8954a928e1d72e86eca7000ebb6655fe1436d33eefc2201cad027e237"
+checksum = "831010a0f742e1209b3bcea8fab6a8e149051ba6099432c8cb2cc117dec3ead1"
 dependencies = [
  "aead",
  "aes",
@@ -106,9 +106,7 @@ version = "0.1.0"
 dependencies = [
  "displaydoc",
  "libc",
- "logger",
  "micro_http",
- "mmds",
  "seccompiler",
  "serde",
  "serde_derive",
@@ -489,18 +487,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dumbo"
-version = "0.1.0"
-dependencies = [
- "bitflags 1.3.2",
- "derive_more",
- "logger",
- "micro_http",
- "serde_json",
- "utils",
-]
-
-[[package]]
 name = "dunce"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -559,8 +545,6 @@ dependencies = [
  "displaydoc",
  "event-manager",
  "libc",
- "logger",
- "mmds",
  "regex",
  "seccompiler",
  "serde",
@@ -787,21 +771,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "logger"
-version = "0.1.0"
-dependencies = [
- "displaydoc",
- "lazy_static",
- "libc",
- "log",
- "serde",
- "serde_json",
- "thiserror",
- "utils",
- "vm-superio",
-]
-
-[[package]]
 name = "memchr"
 version = "2.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -827,27 +796,6 @@ name = "mirai-annotations"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c9be0862c1b3f26a88803c4a49de6889c10e608b3ee9344e6ef5b45fb37ad3d1"
-
-[[package]]
-name = "mmds"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "base64",
- "bincode",
- "derive_more",
- "displaydoc",
- "dumbo",
- "logger",
- "micro_http",
- "serde",
- "serde_json",
- "snapshot",
- "thiserror",
- "utils",
- "versionize",
- "versionize_derive",
-]
 
 [[package]]
 name = "net_gen"
@@ -1467,13 +1415,15 @@ checksum = "6de3dc0146d78558327419fac388850fc6cbf197e924c4659a4863db20b5af64"
 name = "vmm"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "aws-lc-rs",
+ "base64",
+ "bincode",
  "bitflags 2.3.3",
  "criterion",
  "derive_more",
  "device_tree",
  "displaydoc",
- "dumbo",
  "event-manager",
  "kvm-bindings",
  "kvm-ioctls",
@@ -1481,8 +1431,7 @@ dependencies = [
  "libc",
  "linux-loader",
  "log",
- "logger",
- "mmds",
+ "micro_http",
  "net_gen",
  "proptest",
  "seccompiler",

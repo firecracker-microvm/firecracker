@@ -7,7 +7,6 @@
 
 use std::convert::From;
 
-use logger::{error, IncMetric, METRICS};
 use utils::vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 pub use virtio_gen::virtio_blk::{
     VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK, VIRTIO_BLK_S_UNSUPP,
@@ -18,6 +17,7 @@ use super::super::DescriptorChain;
 use super::{io as block_io, BlockError, SECTOR_SHIFT};
 use crate::devices::virtio::block::device::DiskProperties;
 use crate::devices::virtio::SECTOR_SIZE;
+use crate::logger::{error, IncMetric, METRICS};
 use crate::rate_limiter::{RateLimiter, TokenType};
 
 #[derive(Debug, derive_more::From)]

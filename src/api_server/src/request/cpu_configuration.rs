@@ -1,8 +1,8 @@
 // Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use logger::{IncMetric, METRICS};
 use vmm::cpu_config::templates::CustomCpuTemplate;
+use vmm::logger::{IncMetric, METRICS};
 
 use super::super::VmmAction;
 use crate::parsed_request::{Error, ParsedRequest};
@@ -22,9 +22,9 @@ pub(crate) fn parse_put_cpu_config(body: &Body) -> Result<ParsedRequest, Error> 
 
 #[cfg(test)]
 mod tests {
-    use logger::{IncMetric, METRICS};
     use micro_http::Body;
     use vmm::cpu_config::templates::test_utils::{build_test_template, TEST_INVALID_TEMPLATE_JSON};
+    use vmm::logger::{IncMetric, METRICS};
     use vmm::rpc_interface::VmmAction;
 
     use super::*;

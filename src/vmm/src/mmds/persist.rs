@@ -12,7 +12,7 @@ use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
 use super::ns::MmdsNetworkStack;
-use crate::Mmds;
+use crate::mmds::data_store::Mmds;
 
 // NOTICE: Any changes to this structure require a snapshot version bump.
 /// State of a MmdsNetworkStack.

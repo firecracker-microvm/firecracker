@@ -7,7 +7,7 @@
 //! collecting.
 
 mod init;
-mod logger;
+mod logging;
 mod metrics;
 
 use std::sync::LockResult;
@@ -15,10 +15,10 @@ use std::sync::LockResult;
 pub use log::Level::*;
 pub use log::{warn, *};
 
-pub use crate::logger::{LoggerError, LOGGER};
+pub use crate::logger::logging::{LoggerError, LOGGER};
 #[cfg(target_arch = "aarch64")]
-pub use crate::metrics::RTCDeviceMetrics;
-pub use crate::metrics::{
+pub use crate::logger::metrics::RTCDeviceMetrics;
+pub use crate::logger::metrics::{
     IncMetric, MetricsError, ProcessTimeReporter, SerialDeviceMetrics, SharedIncMetric,
     SharedStoreMetric, StoreMetric, METRICS,
 };
