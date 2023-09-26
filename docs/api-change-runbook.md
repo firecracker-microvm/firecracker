@@ -247,9 +247,6 @@ Firecracker API.
   * Update any relevant documentation.
 * We update the python integration tests to reflect the change (reference
   implementation in [this commit][4]).
-  * We find the relevant resource in `tests/framework/resources.py` and
-    update its API, in this case by making the `vsock_id` parameter optional
-    in `Vsock.create_json()`.
   * We refactor the relevant
     `tests/integration_tests/functional/test_api.py` test to use the artifact
     model instead of the fixture one. If the test already uses the artifact
