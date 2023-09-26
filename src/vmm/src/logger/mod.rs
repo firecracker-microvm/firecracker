@@ -12,8 +12,7 @@ mod metrics;
 
 use std::sync::LockResult;
 
-pub use log::Level::*;
-pub use log::{warn, *};
+pub use log::{debug, error, info, log_enabled, trace, warn, Level, LevelFilter};
 
 pub use crate::logger::logging::{LoggerError, LOGGER};
 #[cfg(target_arch = "aarch64")]

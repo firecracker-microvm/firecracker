@@ -10,6 +10,7 @@ use utils::net::ipv4addr::is_link_local_valid;
 
 use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::device_manager::persist::SharedDeviceType;
+use crate::logger::info;
 use crate::mmds;
 use crate::mmds::data_store::{Mmds, MmdsVersion};
 use crate::mmds::ns::MmdsNetworkStack;
@@ -172,7 +173,7 @@ impl VmResources {
             resources.locked_mmds_or_default().put_data(
                 serde_json::from_str(data).expect("MMDS error: metadata provided not valid json"),
             )?;
-            log::info!("Successfully added metadata to mmds from file");
+            info!("Successfully added metadata to mmds from file");
         }
 
         if let Some(mmds_config) = vmm_config.mmds_config {

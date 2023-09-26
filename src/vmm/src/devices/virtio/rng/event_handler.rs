@@ -4,11 +4,11 @@
 use std::os::unix::io::AsRawFd;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use log::{error, warn};
 use utils::epoll::EventSet;
 
 use super::{Entropy, RNG_QUEUE};
 use crate::devices::virtio::VirtioDevice;
+use crate::logger::{error, warn};
 
 impl Entropy {
     fn register_runtime_events(&self, ops: &mut EventOps) {

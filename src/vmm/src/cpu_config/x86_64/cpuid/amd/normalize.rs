@@ -83,7 +83,7 @@ pub enum ExtendedApicIdError {
 #[allow(clippy::multiple_inherent_impl)]
 impl super::AmdCpuid {
     /// We always use this brand string.
-    const DEFAULT_BRAND_STRING: &[u8; BRAND_STRING_LENGTH] =
+    const DEFAULT_BRAND_STRING: &'static [u8; BRAND_STRING_LENGTH] =
         b"AMD EPYC\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0";
 
     /// Applies required modifications to CPUID respective of a vCPU.

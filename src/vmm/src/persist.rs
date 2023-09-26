@@ -11,7 +11,6 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use log::{info, warn};
 use seccompiler::BpfThreadMap;
 use semver::Version;
 use serde::Serialize;
@@ -33,6 +32,7 @@ use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
 use crate::cpu_config::x86_64::cpuid::CpuidTrait;
 use crate::device_manager::persist::{DevicePersistError, DeviceStates};
 use crate::devices::virtio::TYPE_NET;
+use crate::logger::{info, warn};
 use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
 use crate::resources::VmResources;
 #[cfg(target_arch = "x86_64")]
