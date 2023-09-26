@@ -233,7 +233,7 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
 }
 
 fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
-    use vmm::vstate::memory::{GuestMemoryMmap, SnapshotMemory};
+    use vmm::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap};
 
     let mut event_manager = EventManager::new().unwrap();
     let empty_seccomp_filters = get_empty_filters();
@@ -248,7 +248,7 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
         VERSION_MAP.clone(),
     )
     .unwrap();
-    let mem = GuestMemoryMmap::restore(
+    let mem = GuestMemoryMmap::from_state(
         Some(memory_file.as_file()),
         &microvm_state.memory_state,
         false,

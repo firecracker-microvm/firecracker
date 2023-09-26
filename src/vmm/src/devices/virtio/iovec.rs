@@ -275,8 +275,7 @@ mod tests {
     use super::{IoVecBuffer, IoVecBufferMut};
     use crate::devices::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::VirtQueue;
-    use crate::vstate::memory::test_utils::create_anon_guest_memory;
-    use crate::vstate::memory::{Bytes, GuestAddress, GuestMemoryMmap};
+    use crate::vstate::memory::{Bytes, GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
 
     impl<'a> From<&'a [u8]> for IoVecBuffer {
         fn from(buf: &'a [u8]) -> Self {
@@ -321,7 +320,7 @@ mod tests {
     }
 
     fn default_mem() -> GuestMemoryMmap {
-        create_anon_guest_memory(
+        GuestMemoryMmap::from_raw_regions(
             &[
                 (GuestAddress(0), 0x10000),
                 (GuestAddress(0x20000), 0x10000),

@@ -46,7 +46,7 @@ use crate::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
 };
 use crate::vstate::memory::{
-    GuestMemory, GuestMemoryMmap, GuestMemoryState, MemoryError, SnapshotMemory,
+    GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryState, MemoryError,
 };
 use crate::vstate::vcpu::{VcpuSendEventError, VcpuState};
 use crate::vstate::vm::VmState;
@@ -568,7 +568,7 @@ fn guest_memory_from_file(
     track_dirty_pages: bool,
 ) -> Result<GuestMemoryMmap, GuestMemoryFromFileError> {
     let mem_file = File::open(mem_file_path)?;
-    let guest_mem = GuestMemoryMmap::restore(Some(&mem_file), mem_state, track_dirty_pages)?;
+    let guest_mem = GuestMemoryMmap::from_state(Some(&mem_file), mem_state, track_dirty_pages)?;
     Ok(guest_mem)
 }
 
@@ -593,7 +593,7 @@ fn guest_memory_from_uffd(
     track_dirty_pages: bool,
     enable_balloon: bool,
 ) -> Result<(GuestMemoryMmap, Option<Uffd>), GuestMemoryFromUffdError> {
-    let guest_memory = GuestMemoryMmap::restore(None, mem_state, track_dirty_pages)?;
+    let guest_memory = GuestMemoryMmap::from_state(None, mem_state, track_dirty_pages)?;
 
     let mut uffd_builder = UffdBuilder::new();
 

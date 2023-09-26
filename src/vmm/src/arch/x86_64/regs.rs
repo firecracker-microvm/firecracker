@@ -242,23 +242,16 @@ mod tests {
     use utils::u64_to_usize;
 
     use super::*;
-    use crate::vstate::memory::{Bytes, GuestAddress, GuestMemoryMmap};
+    use crate::vstate::memory::{Bytes, GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
 
     fn create_guest_mem(mem_size: Option<u64>) -> GuestMemoryMmap {
         let page_size = 0x10000usize;
         let mem_size = u64_to_usize(mem_size.unwrap_or(page_size as u64));
         if mem_size % page_size == 0 {
-            crate::vstate::memory::test_utils::create_anon_guest_memory(
-                &[(GuestAddress(0), mem_size)],
-                false,
-            )
-            .unwrap()
+            GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), mem_size)], false).unwrap()
         } else {
-            crate::vstate::memory::test_utils::create_guest_memory_unguarded(
-                &[(GuestAddress(0), mem_size)],
-                false,
-            )
-            .unwrap()
+            GuestMemoryMmap::from_raw_regions_unguarded(&[(GuestAddress(0), mem_size)], false)
+                .unwrap()
         }
     }
 

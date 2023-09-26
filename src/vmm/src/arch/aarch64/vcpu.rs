@@ -201,6 +201,7 @@ mod tests {
 
     use super::*;
     use crate::arch::aarch64::{arch_memory_regions, layout};
+    use crate::vstate::memory::GuestMemoryExtension;
 
     #[test]
     fn test_setup_regs() {
@@ -208,8 +209,8 @@ mod tests {
         let vm = kvm.create_vm().unwrap();
         let vcpu = vm.create_vcpu(0).unwrap();
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = crate::vstate::memory::test_utils::create_anon_guest_memory(&regions, false)
-            .expect("Cannot initialize memory");
+        let mem =
+            GuestMemoryMmap::from_raw_regions(&regions, false).expect("Cannot initialize memory");
 
         let res = setup_boot_regs(&vcpu, 0, 0x0, &mem);
         assert!(matches!(

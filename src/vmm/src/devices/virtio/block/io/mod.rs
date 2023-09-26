@@ -193,7 +193,7 @@ pub mod tests {
     use super::*;
     use crate::devices::virtio::block::device::FileEngineType;
     use crate::devices::virtio::block::request::PendingRequest;
-    use crate::vstate::memory::{Bitmap, Bytes, GuestMemory};
+    use crate::vstate::memory::{Bitmap, Bytes, GuestMemory, GuestMemoryExtension};
 
     const FILE_LEN: u32 = 1024;
     // 2 pages of memory should be enough to test read/write ops and also dirty tracking.
@@ -243,11 +243,7 @@ pub mod tests {
     }
 
     fn create_mem() -> GuestMemoryMmap {
-        crate::vstate::memory::test_utils::create_anon_guest_memory(
-            &[(GuestAddress(0), MEM_LEN)],
-            true,
-        )
-        .unwrap()
+        GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), MEM_LEN)], true).unwrap()
     }
 
     fn check_dirty_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: u32) {

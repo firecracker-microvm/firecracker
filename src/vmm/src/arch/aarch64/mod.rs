@@ -114,6 +114,7 @@ fn get_fdt_addr(mem: &GuestMemoryMmap) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vstate::memory::GuestMemoryExtension;
 
     #[test]
     fn test_regions_lt_1024gb() {
@@ -134,18 +135,18 @@ mod tests {
     #[test]
     fn test_get_fdt_addr() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE - 0x1000);
-        let mem = crate::vstate::memory::test_utils::create_anon_guest_memory(&regions, false)
-            .expect("Cannot initialize memory");
+        let mem =
+            GuestMemoryMmap::from_raw_regions(&regions, false).expect("Cannot initialize memory");
         assert_eq!(get_fdt_addr(&mem), layout::DRAM_MEM_START);
 
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE);
-        let mem = crate::vstate::memory::test_utils::create_anon_guest_memory(&regions, false)
-            .expect("Cannot initialize memory");
+        let mem =
+            GuestMemoryMmap::from_raw_regions(&regions, false).expect("Cannot initialize memory");
         assert_eq!(get_fdt_addr(&mem), layout::DRAM_MEM_START);
 
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = crate::vstate::memory::test_utils::create_anon_guest_memory(&regions, false)
-            .expect("Cannot initialize memory");
+        let mem =
+            GuestMemoryMmap::from_raw_regions(&regions, false).expect("Cannot initialize memory");
         assert_eq!(get_fdt_addr(&mem), 0x1000 + layout::DRAM_MEM_START);
     }
 }

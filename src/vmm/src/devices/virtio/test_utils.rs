@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use utils::u64_to_usize;
 
 use crate::devices::virtio::Queue;
-use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
+use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
 
 #[macro_export]
 macro_rules! check_metric_after_block {
@@ -25,11 +25,7 @@ macro_rules! check_metric_after_block {
 /// Creates a [`GuestMemoryMmap`] with a single region of the given size starting at guest physical
 /// address 0
 pub fn single_region_mem(region_size: usize) -> GuestMemoryMmap {
-    crate::vstate::memory::test_utils::create_anon_guest_memory(
-        &[(GuestAddress(0), region_size)],
-        false,
-    )
-    .unwrap()
+    GuestMemoryMmap::from_raw_regions_unguarded(&[(GuestAddress(0), region_size)], false).unwrap()
 }
 
 /// Creates a [`GuestMemoryMmap`] with a single region  of size 65536 (= 0x10000 hex) starting at
@@ -332,14 +328,11 @@ pub(crate) mod test {
 
     use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
     use crate::devices::virtio::{Queue, VirtioDevice, MAX_BUFFER_SIZE, VIRTQ_DESC_F_NEXT};
-    use crate::vstate::memory::{Address, GuestAddress, GuestMemoryMmap};
+    use crate::vstate::memory::{Address, GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
 
     pub fn create_virtio_mem() -> GuestMemoryMmap {
-        crate::vstate::memory::test_utils::create_guest_memory_unguarded(
-            &[(GuestAddress(0), MAX_BUFFER_SIZE)],
-            false,
-        )
-        .unwrap()
+        GuestMemoryMmap::from_raw_regions_unguarded(&[(GuestAddress(0), MAX_BUFFER_SIZE)], false)
+            .unwrap()
     }
 
     /// Provides functionality necessary for testing a VirtIO device with

@@ -412,8 +412,7 @@ mod tests {
     use super::*;
     use crate::devices::virtio::test_utils::{default_mem, single_region_mem, VirtQueue};
     use crate::devices::virtio::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
-    use crate::vstate::memory::test_utils::create_anon_guest_memory;
-    use crate::vstate::memory::{Address, GuestAddress, GuestMemory};
+    use crate::vstate::memory::{Address, GuestAddress, GuestMemory, GuestMemoryExtension};
 
     const NUM_DISK_SECTORS: u64 = 1024;
 
@@ -777,7 +776,7 @@ mod tests {
 
         // Randomize descriptor addresses. Assumed page size as max buffer len.
         let base_addr = sparsity & 0x0000_FFFF_FFFF_F000; // 48 bit base, page aligned.
-        let max_desc_len = 0x1000;
+        let max_desc_len: u32 = 0x1000;
 
         // First addr starts at page base + 1.
         let req_type_addr = GuestAddress(base_addr).checked_add(0x1000).unwrap();
@@ -793,7 +792,7 @@ mod tests {
         let status_addr = data_addr.checked_add(next_desc_dist).unwrap();
 
         let mem_end = status_addr.checked_add(u64::from(max_desc_len)).unwrap();
-        let mem: GuestMemoryMmap = create_anon_guest_memory(
+        let mem = GuestMemoryMmap::from_raw_regions(
             &[(
                 GuestAddress(base_addr),
                 (mem_end.0 - base_addr).try_into().unwrap(),

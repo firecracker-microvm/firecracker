@@ -656,7 +656,7 @@ pub(crate) mod tests {
     };
     use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
     use crate::devices::virtio::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
-    use crate::vstate::memory::GuestAddress;
+    use crate::vstate::memory::{GuestAddress, GuestMemoryExtension};
 
     impl Balloon {
         pub(crate) fn set_queue(&mut self, idx: usize, q: Queue) {
@@ -1134,11 +1134,8 @@ pub(crate) mod tests {
         assert!(balloon.update_size(1).is_err());
         // Switch the state to active.
         balloon.device_state = DeviceState::Activated(
-            crate::vstate::memory::test_utils::create_guest_memory_unguarded(
-                &[(GuestAddress(0x0), 0x1)],
-                false,
-            )
-            .unwrap(),
+            GuestMemoryMmap::from_raw_regions_unguarded(&[(GuestAddress(0x0), 0x1)], false)
+                .unwrap(),
         );
 
         assert_eq!(balloon.num_pages(), 0);
