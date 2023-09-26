@@ -91,7 +91,7 @@ pub enum JailerError {
     #[error("Failed to create the jail root directory before pivoting root: {0}")]
     MkdirOldRoot(io::Error),
     #[error("Failed to create {1} via mknod inside the jail: {0}")]
-    MknodDev(io::Error, &'static str),
+    MknodDev(io::Error, String),
     #[error("Failed to bind mount the jail root directory: {0}")]
     MountBind(io::Error),
     #[error("Failed to change the propagation type to slave: {0}")]

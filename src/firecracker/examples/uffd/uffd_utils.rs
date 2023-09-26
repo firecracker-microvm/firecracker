@@ -99,23 +99,20 @@ impl UffdPfHandler {
         }
     }
 
-    fn populate_from_file(&self, region: &MemRegion) -> (u64, u64) {
-        let src = self.backing_buffer as u64 + region.mapping.offset;
-        let start_addr = region.mapping.base_host_virt_addr;
-        let len = region.mapping.size;
-        // Populate whole region from backing mem-file.
-        // This offers an example of how memory can be loaded in RAM,
-        // however this can be adjusted to accommodate use case needs.
+    fn populate_from_file(&self, region: &MemRegion, dst: u64, len: usize) -> (u64, u64) {
+        let offset = dst - region.mapping.base_host_virt_addr;
+        let src = self.backing_buffer as u64 + region.mapping.offset + offset;
+
         let ret = unsafe {
             self.uffd
-                .copy(src as *const _, start_addr as *mut _, len, true)
+                .copy(src as *const _, dst as *mut _, len, true)
                 .expect("Uffd copy failed")
         };
 
         // Make sure the UFFD copied some bytes.
         assert!(ret > 0);
 
-        return (start_addr, start_addr + len as u64);
+        (dst, dst + len as u64)
     }
 
     fn zero_out(&mut self, addr: u64) -> (u64, u64) {
@@ -132,7 +129,7 @@ impl UffdPfHandler {
         return (addr, addr + page_size as u64);
     }
 
-    pub fn serve_pf(&mut self, addr: *mut u8) {
+    pub fn serve_pf(&mut self, addr: *mut u8, len: usize) {
         let page_size = get_page_size().unwrap();
 
         // Find the start of the page that the current faulting address belongs to.
@@ -151,7 +148,7 @@ impl UffdPfHandler {
                 //    event was received. This can be a consequence of guest reclaiming back its
                 //    memory from the host (through balloon device)
                 Some(MemPageState::Uninitialized) | Some(MemPageState::FromFile) => {
-                    let (start, end) = self.populate_from_file(region);
+                    let (start, end) = self.populate_from_file(region, fault_page_addr, len);
                     self.update_mem_state_mappings(start, end, &MemPageState::FromFile);
                     return;
                 }
