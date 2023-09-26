@@ -43,7 +43,7 @@ const MMDS_CONTENT_ARG: &str = "metadata";
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 enum MainError {
     /// Failed to set the logger: {0}
-    SetLogger(log::SetLoggerError),
+    SetLogger(vmm::logger::LoggerInitError),
     /// Failed to register signal handlers: {0}
     RegisterSignalHandlers(#[source] utils::errno::Error),
     /// Arguments parsing error: {0} \n\nFor more information try --help.
@@ -103,8 +103,7 @@ fn main() -> ExitCode {
 
 fn main_exec() -> Result<(), MainError> {
     // Initialize the logger.
-    log::set_logger(&LOGGER).map_err(MainError::SetLogger)?;
-    log::set_max_level(vmm::logger::DEFAULT_LEVEL);
+    LOGGER.init().map_err(MainError::SetLogger)?;
     info!("Running Firecracker v{FIRECRACKER_VERSION}");
 
     register_signal_handlers().map_err(MainError::RegisterSignalHandlers)?;

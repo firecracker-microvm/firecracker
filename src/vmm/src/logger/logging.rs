@@ -36,12 +36,22 @@ pub static LOGGER: Logger = Logger(Mutex::new(LoggerConfiguration {
     },
 }));
 
+/// Error type for [`Logger::init`].
+pub type LoggerInitError = log::SetLoggerError;
+
 /// Error type for [`Logger::update`].
 #[derive(Debug, thiserror::Error)]
 #[error("Failed to open target file: {0}")]
 pub struct LoggerUpdateError(pub std::io::Error);
 
 impl Logger {
+    /// Initialize the logger.
+    pub fn init(&'static self) -> Result<(), LoggerInitError> {
+        log::set_logger(self)?;
+        log::set_max_level(DEFAULT_LEVEL);
+        Ok(())
+    }
+
     /// Applies the given logger configuration the logger.
     pub fn update(&self, config: LoggerConfig) -> Result<(), LoggerUpdateError> {
         let mut guard = self.0.lock().unwrap();

@@ -11,8 +11,8 @@ mod metrics;
 
 pub use log::{debug, error, info, log_enabled, trace, warn, Level};
 pub use logging::{
-    LevelFilter, LevelFilterFromStrError, LoggerConfig, LoggerUpdateError, DEFAULT_INSTANCE_ID,
-    DEFAULT_LEVEL, INSTANCE_ID, LOGGER,
+    LevelFilter, LevelFilterFromStrError, LoggerConfig, LoggerInitError, LoggerUpdateError,
+    DEFAULT_INSTANCE_ID, DEFAULT_LEVEL, INSTANCE_ID, LOGGER,
 };
 #[cfg(target_arch = "aarch64")]
 pub use metrics::RTCDeviceMetrics;

@@ -538,7 +538,6 @@ dependencies = [
  "displaydoc",
  "event-manager",
  "libc",
- "log",
  "regex",
  "seccompiler",
  "serde",
