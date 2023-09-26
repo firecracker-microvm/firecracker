@@ -210,6 +210,7 @@ mod tests {
     use linux_loader::loader::bootparam::boot_e820_entry;
 
     use super::*;
+    use crate::vstate::memory::GuestMemoryExtension;
 
     #[test]
     fn regions_lt_4gb() {
@@ -230,11 +231,7 @@ mod tests {
     #[test]
     fn test_system_configuration() {
         let no_vcpus = 4;
-        let gm = crate::vstate::memory::test_utils::create_anon_guest_memory(
-            &[(GuestAddress(0), 0x10000)],
-            false,
-        )
-        .unwrap();
+        let gm = GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), 0x10000)], false).unwrap();
         let config_err = configure_system(&gm, GuestAddress(0), 0, &None, 1);
         assert!(config_err.is_err());
         assert_eq!(
@@ -245,25 +242,19 @@ mod tests {
         // Now assigning some memory that falls before the 32bit memory hole.
         let mem_size = 128 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
-        let gm =
-            crate::vstate::memory::test_utils::create_anon_guest_memory(&arch_mem_regions, false)
-                .unwrap();
+        let gm = GuestMemoryMmap::from_raw_regions(&arch_mem_regions, false).unwrap();
         configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
 
         // Now assigning some memory that is equal to the start of the 32bit memory hole.
         let mem_size = 3328 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
-        let gm =
-            crate::vstate::memory::test_utils::create_anon_guest_memory(&arch_mem_regions, false)
-                .unwrap();
+        let gm = GuestMemoryMmap::from_raw_regions(&arch_mem_regions, false).unwrap();
         configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
 
         // Now assigning some memory that falls after the 32bit memory hole.
         let mem_size = 3330 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
-        let gm =
-            crate::vstate::memory::test_utils::create_anon_guest_memory(&arch_mem_regions, false)
-                .unwrap();
+        let gm = GuestMemoryMmap::from_raw_regions(&arch_mem_regions, false).unwrap();
         configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
     }
 

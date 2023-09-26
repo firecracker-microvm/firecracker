@@ -364,7 +364,9 @@ pub mod test {
         VIRTQ_DESC_F_WRITE,
     };
     use crate::logger::{IncMetric, METRICS};
-    use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
+    use crate::vstate::memory::{
+        Address, Bytes, GuestAddress, GuestMemoryExtension, GuestMemoryMmap,
+    };
 
     pub struct TestHelper<'a> {
         pub event_manager: EventManager<Arc<Mutex<Net>>>,
@@ -394,7 +396,7 @@ pub mod test {
         pub fn get_default() -> TestHelper<'a> {
             let mut event_manager = EventManager::new().unwrap();
             let mut net = default_net();
-            let mem = crate::vstate::memory::test_utils::create_guest_memory_unguarded(
+            let mem = GuestMemoryMmap::from_raw_regions_unguarded(
                 &[(GuestAddress(0), MAX_BUFFER_SIZE)],
                 false,
             )

@@ -469,7 +469,7 @@ mod tests {
 
     use super::*;
     use crate::devices::virtio::{ActivateError, Queue, VirtioDevice};
-    use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
+    use crate::vstate::memory::{GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
     use crate::{builder, Vm};
 
     const QUEUE_SIZES: &[u16] = &[64];
@@ -573,7 +573,7 @@ mod tests {
     fn test_register_virtio_device() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem = crate::vstate::memory::test_utils::create_anon_guest_memory(
+        let guest_mem = GuestMemoryMmap::from_raw_regions(
             &[(start_addr1, 0x1000), (start_addr2, 0x1000)],
             false,
         )
@@ -603,7 +603,7 @@ mod tests {
     fn test_register_too_many_devices() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem = crate::vstate::memory::test_utils::create_anon_guest_memory(
+        let guest_mem = GuestMemoryMmap::from_raw_regions(
             &[(start_addr1, 0x1000), (start_addr2, 0x1000)],
             false,
         )
@@ -663,7 +663,7 @@ mod tests {
     fn test_device_info() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem = crate::vstate::memory::test_utils::create_anon_guest_memory(
+        let guest_mem = GuestMemoryMmap::from_raw_regions(
             &[(start_addr1, 0x1000), (start_addr2, 0x1000)],
             false,
         )

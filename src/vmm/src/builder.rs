@@ -55,7 +55,7 @@ use crate::vmm_config::boot_source::BootConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{MachineConfigUpdate, VmConfig, VmConfigError};
 use crate::volatile::ReadVolatile;
-use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
+use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryExtension, GuestMemoryMmap};
 use crate::vstate::vcpu::{Vcpu, VcpuConfig};
 use crate::vstate::vm::Vm;
 use crate::{device_manager, EventManager, RestoreVcpusError, Vmm, VmmError};
@@ -265,7 +265,9 @@ pub fn build_microvm_for_boot(
         .ok_or(MissingKernelConfig)?;
 
     let track_dirty_pages = vm_resources.track_dirty_pages();
-    let guest_memory = create_guest_memory(vm_resources.vm_config.mem_size_mib, track_dirty_pages)?;
+    let guest_memory =
+        GuestMemoryMmap::with_size(vm_resources.vm_config.mem_size_mib, track_dirty_pages)
+            .map_err(StartMicrovmError::GuestMemory)?;
     let entry_addr = load_kernel(boot_config, &guest_memory)?;
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
     // Clone the command-line so that a failed boot doesn't pollute the original.
@@ -538,24 +540,6 @@ pub fn build_microvm_from_snapshot(
     )?;
 
     Ok(vmm)
-}
-
-/// Creates GuestMemory of `mem_size_mib` MiB in size.
-pub fn create_guest_memory(
-    mem_size_mib: usize,
-    track_dirty_pages: bool,
-) -> Result<GuestMemoryMmap, StartMicrovmError> {
-    let mem_size = mem_size_mib << 20;
-    let arch_mem_regions = crate::arch::arch_memory_regions(mem_size);
-
-    crate::vstate::memory::create_guest_memory(
-        &arch_mem_regions
-            .iter()
-            .map(|(addr, size)| (None, *addr, *size))
-            .collect::<Vec<_>>()[..],
-        track_dirty_pages,
-    )
-    .map_err(StartMicrovmError::GuestMemory)
 }
 
 fn load_kernel(
@@ -986,7 +970,6 @@ pub mod tests {
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
-    use crate::vstate::memory::GuestMemory;
 
     #[derive(Debug)]
     pub(crate) struct CustomBlockConfig {
@@ -1051,7 +1034,7 @@ pub mod tests {
     }
 
     pub(crate) fn default_vmm() -> Vmm {
-        let guest_memory = create_guest_memory(128, false).unwrap();
+        let guest_memory = GuestMemoryMmap::with_size(128, false).unwrap();
 
         let vcpus_exit_evt = EventFd::new(libc::EFD_NONBLOCK)
             .map_err(VmmError::EventFd)
@@ -1228,8 +1211,7 @@ pub mod tests {
     }
 
     fn create_guest_mem_at(at: GuestAddress, size: usize) -> GuestMemoryMmap {
-        crate::vstate::memory::test_utils::create_guest_memory_unguarded(&[(at, size)], false)
-            .unwrap()
+        GuestMemoryMmap::from_raw_regions_unguarded(&[(at, size)], false).unwrap()
     }
 
     pub(crate) fn create_guest_mem_with_size(size: usize) -> GuestMemoryMmap {
@@ -1305,13 +1287,13 @@ pub mod tests {
 
         // Case 1: create guest memory without dirty page tracking
         {
-            let guest_memory = create_guest_memory(mem_size, false).unwrap();
+            let guest_memory = GuestMemoryMmap::with_size(mem_size, false).unwrap();
             assert!(!is_dirty_tracking_enabled(&guest_memory));
         }
 
         // Case 2: create guest memory with dirty page tracking
         {
-            let guest_memory = create_guest_memory(mem_size, true).unwrap();
+            let guest_memory = GuestMemoryMmap::with_size(mem_size, true).unwrap();
             assert!(is_dirty_tracking_enabled(&guest_memory));
         }
     }
@@ -1319,7 +1301,7 @@ pub mod tests {
     #[test]
     fn test_create_vcpus() {
         let vcpu_count = 2;
-        let guest_memory = create_guest_memory(128, false).unwrap();
+        let guest_memory = GuestMemoryMmap::with_size(128, false).unwrap();
 
         #[allow(unused_mut)]
         let mut vm = Vm::new(vec![]).unwrap();

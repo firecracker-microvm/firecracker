@@ -15,7 +15,7 @@ use crate::io_uring::operation::{Cqe, OpCode, Operation};
 use crate::io_uring::restriction::Restriction;
 use crate::io_uring::{IoUring, IoUringError};
 use crate::logger::log_dev_preview_warning;
-use crate::vstate::memory::{mark_dirty_mem, GuestAddress, GuestMemory, GuestMemoryMmap};
+use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryExtension, GuestMemoryMmap};
 
 #[derive(Debug)]
 pub enum AsyncIoError {
@@ -58,7 +58,7 @@ impl<T: Debug> WrappedUserData<T> {
 
     fn mark_dirty_mem_and_unwrap(self, mem: &GuestMemoryMmap, count: u32) -> T {
         if let Some(addr) = self.addr {
-            mark_dirty_mem(mem, addr, count as usize)
+            mem.mark_dirty(addr, count as usize)
         }
 
         self.user_data

@@ -213,7 +213,7 @@ mod tests {
     use super::*;
     use crate::devices::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
     use crate::devices::virtio::vsock::test_utils::{EventHandlerContext, TestContext};
-    use crate::vstate::memory::Bytes;
+    use crate::vstate::memory::{Bytes, GuestMemoryExtension};
 
     #[test]
     fn test_txq_event() {
@@ -461,7 +461,7 @@ mod tests {
         const MIB: usize = 1 << 20;
 
         let mut test_ctx = TestContext::new();
-        test_ctx.mem = crate::vstate::memory::test_utils::create_anon_guest_memory(
+        test_ctx.mem = GuestMemoryMmap::from_raw_regions(
             &[
                 (GuestAddress(0), 8 * MIB),
                 (GuestAddress((GAP_START_ADDR - MIB) as u64), MIB),

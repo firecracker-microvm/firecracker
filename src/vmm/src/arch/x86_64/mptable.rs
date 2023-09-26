@@ -288,8 +288,9 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), MptableE
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
-    use crate::vstate::memory::Bytes;
+    use crate::vstate::memory::{Bytes, GuestMemoryExtension};
 
     fn table_entry_size(type_: u8) -> usize {
         match u32::from(type_) {
@@ -305,7 +306,7 @@ mod tests {
     #[test]
     fn bounds_check() {
         let num_cpus = 4;
-        let mem = crate::vstate::memory::test_utils::create_guest_memory_unguarded(
+        let mem = GuestMemoryMmap::from_raw_regions_unguarded(
             &[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus))],
             false,
         )
@@ -317,7 +318,7 @@ mod tests {
     #[test]
     fn bounds_check_fails() {
         let num_cpus = 4;
-        let mem = crate::vstate::memory::test_utils::create_guest_memory_unguarded(
+        let mem = GuestMemoryMmap::from_raw_regions_unguarded(
             &[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus) - 1)],
             false,
         )
@@ -329,7 +330,7 @@ mod tests {
     #[test]
     fn mpf_intel_checksum() {
         let num_cpus = 1;
-        let mem = crate::vstate::memory::test_utils::create_guest_memory_unguarded(
+        let mem = GuestMemoryMmap::from_raw_regions_unguarded(
             &[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus))],
             false,
         )
@@ -345,7 +346,7 @@ mod tests {
     #[test]
     fn mpc_table_checksum() {
         let num_cpus = 4;
-        let mem = crate::vstate::memory::test_utils::create_guest_memory_unguarded(
+        let mem = GuestMemoryMmap::from_raw_regions_unguarded(
             &[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus))],
             false,
         )
@@ -379,7 +380,7 @@ mod tests {
 
     #[test]
     fn cpu_entry_count() {
-        let mem = crate::vstate::memory::test_utils::create_guest_memory_unguarded(
+        let mem = GuestMemoryMmap::from_raw_regions_unguarded(
             &[(
                 GuestAddress(MPTABLE_START),
                 compute_mp_size(MAX_SUPPORTED_CPUS),
@@ -417,8 +418,8 @@ mod tests {
     #[test]
     fn cpu_entry_count_max() {
         let cpus = MAX_SUPPORTED_CPUS + 1;
-        let mem = crate::vstate::memory::test_utils::create_guest_memory_unguarded(
-            &[(GuestAddress(MPTABLE_START), compute_mp_size(cpus as u8))],
+        let mem = GuestMemoryMmap::from_raw_regions_unguarded(
+            &[(GuestAddress(MPTABLE_START), compute_mp_size(cpus))],
             false,
         )
         .unwrap();
