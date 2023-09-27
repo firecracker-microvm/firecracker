@@ -7,7 +7,7 @@
 """
 Metadata we want to attach to tests for further analysis and troubleshooting
 """
-
+import os
 import platform
 import re
 import subprocess
@@ -57,6 +57,8 @@ class GlobalProps:
         self.git_branch = run_cmd("git show -s --pretty=%D HEAD")
         self.git_origin_url = run_cmd("git config --get remote.origin.url")
         self.rust_version = run_cmd("rustc --version |awk '{print $2}'")
+        self.buildkite_pipeline_slug = os.environ.get("BUILDKITE_PIPELINE_SLUG")
+        self.buildkite_build_number = os.environ.get("BUILDKITE_BUILD_NUMBER")
 
         self.environment = self._detect_environment()
         if self.is_ec2:
