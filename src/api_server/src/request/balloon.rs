@@ -127,24 +127,24 @@ mod tests {
         let body = r#"{
             "amount_mib": 1
         }"#;
-        #[allow(clippy::match_wild_err_arm)]
-        match vmm_action_from_request(parse_patch_balloon(&Body::new(body), None).unwrap()) {
-            VmmAction::UpdateBalloon(balloon_cfg) => assert_eq!(balloon_cfg.amount_mib, 1),
-            _ => panic!("Test failed: Invalid parameters"),
-        };
+        let expected_config = BalloonUpdateConfig { amount_mib: 1 };
+        assert_eq!(
+            vmm_action_from_request(parse_patch_balloon(&Body::new(body), None).unwrap()),
+            VmmAction::UpdateBalloon(expected_config)
+        );
 
         let body = r#"{
             "stats_polling_interval_s": 1
         }"#;
-        #[allow(clippy::match_wild_err_arm)]
-        match vmm_action_from_request(
-            parse_patch_balloon(&Body::new(body), Some("statistics")).unwrap(),
-        ) {
-            VmmAction::UpdateBalloonStatistics(balloon_cfg) => {
-                assert_eq!(balloon_cfg.stats_polling_interval_s, 1)
-            }
-            _ => panic!("Test failed: Invalid parameters"),
+        let expected_config = BalloonUpdateStatsConfig {
+            stats_polling_interval_s: 1,
         };
+        assert_eq!(
+            vmm_action_from_request(
+                parse_patch_balloon(&Body::new(body), Some("statistics")).unwrap()
+            ),
+            VmmAction::UpdateBalloonStatistics(expected_config)
+        );
     }
 
     #[test]

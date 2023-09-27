@@ -30,19 +30,17 @@ mod tests {
         let body = r#"{
             "metrics_path": "metrics"
         }"#;
-
-        let expected_cfg = MetricsConfig {
+        let expected_config = MetricsConfig {
             metrics_path: PathBuf::from("metrics"),
         };
-        match vmm_action_from_request(parse_put_metrics(&Body::new(body)).unwrap()) {
-            VmmAction::ConfigureMetrics(cfg) => assert_eq!(cfg, expected_cfg),
-            _ => panic!("Test failed."),
-        }
+        assert_eq!(
+            vmm_action_from_request(parse_put_metrics(&Body::new(body)).unwrap()),
+            VmmAction::ConfigureMetrics(expected_config)
+        );
 
         let invalid_body = r#"{
             "invalid_field": "metrics"
         }"#;
-
         assert!(parse_put_metrics(&Body::new(invalid_body)).is_err());
     }
 }

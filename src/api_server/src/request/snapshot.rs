@@ -138,63 +138,56 @@ mod tests {
 
         use vmm::vmm_config::snapshot::SnapshotType;
 
-        let mut body = r#"{
+        let body = r#"{
             "snapshot_type": "Diff",
             "snapshot_path": "foo",
             "mem_file_path": "bar",
             "version": "0.23.0"
         }"#;
-
-        let mut expected_cfg = CreateSnapshotParams {
+        let expected_config = CreateSnapshotParams {
             snapshot_type: SnapshotType::Diff,
             snapshot_path: PathBuf::from("foo"),
             mem_file_path: PathBuf::from("bar"),
             version: Some(Version::new(0, 23, 0)),
         };
-
         let parsed_request = parse_put_snapshot(&Body::new(body), Some("create")).unwrap();
-        match depr_action_from_req(
-            parsed_request,
-            Some(CREATE_WITH_VERSION_DEPRECATION_MESSAGE.to_string()),
-        ) {
-            VmmAction::CreateSnapshot(cfg) => assert_eq!(cfg, expected_cfg),
-            _ => panic!("Test failed."),
-        }
+        assert_eq!(
+            depr_action_from_req(
+                parsed_request,
+                Some(CREATE_WITH_VERSION_DEPRECATION_MESSAGE.to_string())
+            ),
+            VmmAction::CreateSnapshot(expected_config)
+        );
 
-        body = r#"{
+        let body = r#"{
             "snapshot_path": "foo",
             "mem_file_path": "bar"
         }"#;
-
-        expected_cfg = CreateSnapshotParams {
+        let expected_config = CreateSnapshotParams {
             snapshot_type: SnapshotType::Full,
             snapshot_path: PathBuf::from("foo"),
             mem_file_path: PathBuf::from("bar"),
             version: None,
         };
-
-        match vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some("create")).unwrap())
-        {
-            VmmAction::CreateSnapshot(cfg) => assert_eq!(cfg, expected_cfg),
-            _ => panic!("Test failed."),
-        }
+        assert_eq!(
+            vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some("create")).unwrap()),
+            VmmAction::CreateSnapshot(expected_config)
+        );
 
         let invalid_body = r#"{
             "invalid_field": "foo",
             "mem_file_path": "bar"
         }"#;
-
         assert!(parse_put_snapshot(&Body::new(invalid_body), Some("create")).is_err());
 
-        body = r#"{
+        let body = r#"{
             "snapshot_path": "foo",
             "mem_backend": {
                 "backend_path": "bar",
                 "backend_type": "File"
             }
         }"#;
-
-        let mut expected_cfg = LoadSnapshotParams {
+        let expected_config = LoadSnapshotParams {
             snapshot_path: PathBuf::from("foo"),
             mem_backend: MemBackendConfig {
                 backend_path: PathBuf::from("bar"),
@@ -203,19 +196,17 @@ mod tests {
             enable_diff_snapshots: false,
             resume_vm: false,
         };
-
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(parsed_request
             .parsing_info()
             .take_deprecation_message()
             .is_none());
+        assert_eq!(
+            vmm_action_from_request(parsed_request),
+            VmmAction::LoadSnapshot(expected_config)
+        );
 
-        match vmm_action_from_request(parsed_request) {
-            VmmAction::LoadSnapshot(cfg) => assert_eq!(cfg, expected_cfg),
-            _ => panic!("Test failed."),
-        }
-
-        body = r#"{
+        let body = r#"{
             "snapshot_path": "foo",
             "mem_backend": {
                 "backend_path": "bar",
@@ -223,8 +214,7 @@ mod tests {
             },
             "enable_diff_snapshots": true
         }"#;
-
-        expected_cfg = LoadSnapshotParams {
+        let expected_config = LoadSnapshotParams {
             snapshot_path: PathBuf::from("foo"),
             mem_backend: MemBackendConfig {
                 backend_path: PathBuf::from("bar"),
@@ -233,18 +223,17 @@ mod tests {
             enable_diff_snapshots: true,
             resume_vm: false,
         };
-
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(parsed_request
             .parsing_info()
             .take_deprecation_message()
             .is_none());
-        match vmm_action_from_request(parsed_request) {
-            VmmAction::LoadSnapshot(cfg) => assert_eq!(cfg, expected_cfg),
-            _ => panic!("Test failed."),
-        }
+        assert_eq!(
+            vmm_action_from_request(parsed_request),
+            VmmAction::LoadSnapshot(expected_config)
+        );
 
-        body = r#"{
+        let body = r#"{
             "snapshot_path": "foo",
             "mem_backend": {
                 "backend_path": "bar",
@@ -252,8 +241,7 @@ mod tests {
             },
             "resume_vm": true
         }"#;
-
-        expected_cfg = LoadSnapshotParams {
+        let expected_config = LoadSnapshotParams {
             snapshot_path: PathBuf::from("foo"),
             mem_backend: MemBackendConfig {
                 backend_path: PathBuf::from("bar"),
@@ -262,24 +250,22 @@ mod tests {
             enable_diff_snapshots: false,
             resume_vm: true,
         };
-
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(parsed_request
             .parsing_info()
             .take_deprecation_message()
             .is_none());
-        match vmm_action_from_request(parsed_request) {
-            VmmAction::LoadSnapshot(cfg) => assert_eq!(cfg, expected_cfg),
-            _ => panic!("Test failed."),
-        }
+        assert_eq!(
+            vmm_action_from_request(parsed_request),
+            VmmAction::LoadSnapshot(expected_config)
+        );
 
-        body = r#"{
+        let body = r#"{
             "snapshot_path": "foo",
             "mem_file_path": "bar",
             "resume_vm": true
         }"#;
-
-        expected_cfg = LoadSnapshotParams {
+        let expected_config = LoadSnapshotParams {
             snapshot_path: PathBuf::from("foo"),
             mem_backend: MemBackendConfig {
                 backend_path: PathBuf::from("bar"),
@@ -288,20 +274,18 @@ mod tests {
             enable_diff_snapshots: false,
             resume_vm: true,
         };
-
         let parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
-        match depr_action_from_req(parsed_request, Some(LOAD_DEPRECATION_MESSAGE.to_string())) {
-            VmmAction::LoadSnapshot(cfg) => assert_eq!(cfg, expected_cfg),
-            _ => panic!("Test failed."),
-        }
+        assert_eq!(
+            depr_action_from_req(parsed_request, Some(LOAD_DEPRECATION_MESSAGE.to_string())),
+            VmmAction::LoadSnapshot(expected_config)
+        );
 
-        body = r#"{
+        let body = r#"{
             "snapshot_path": "foo",
             "mem_backend": {
                 "backend_path": "bar"
             }
         }"#;
-
         assert_eq!(
             parse_put_snapshot(&Body::new(body), Some("load"))
                 .err()
@@ -311,13 +295,12 @@ mod tests {
              `backend_type` at line 5 column 13."
         );
 
-        body = r#"{
+        let body = r#"{
             "snapshot_path": "foo",
             "mem_backend": {
                 "backend_type": "File",
             }
         }"#;
-
         assert_eq!(
             parse_put_snapshot(&Body::new(body), Some("load"))
                 .err()
@@ -327,7 +310,7 @@ mod tests {
              line 5 column 13."
         );
 
-        body = r#"{
+        let body = r#"{
             "snapshot_path": "foo",
             "mem_file_path": "bar",
             "mem_backend": {
@@ -335,7 +318,6 @@ mod tests {
                 "backend_type": "Uffd"
             }
         }"#;
-
         assert_eq!(
             parse_put_snapshot(&Body::new(body), Some("load"))
                 .err()
@@ -344,10 +326,9 @@ mod tests {
             Error::SerdeJson(serde_json::Error::custom(TOO_MANY_FIELDS.to_string())).to_string()
         );
 
-        body = r#"{
+        let body = r#"{
             "snapshot_path": "foo"
         }"#;
-
         assert_eq!(
             parse_put_snapshot(&Body::new(body), Some("load"))
                 .err()
@@ -356,13 +337,12 @@ mod tests {
             Error::SerdeJson(serde_json::Error::custom(MISSING_FIELD.to_string())).to_string()
         );
 
-        body = r#"{
+        let body = r#"{
             "mem_backend": {
                 "backend_path": "bar",
                 "backend_type": "Uffd"
             }
         }"#;
-
         assert_eq!(
             parse_put_snapshot(&Body::new(body), Some("load"))
                 .err()
@@ -371,25 +351,22 @@ mod tests {
             "An error occurred when deserializing the json body of a request: missing field \
              `snapshot_path` at line 6 column 9."
         );
-
         assert!(parse_put_snapshot(&Body::new(body), Some("invalid")).is_err());
         assert!(parse_put_snapshot(&Body::new(body), None).is_err());
     }
 
     #[test]
     fn test_parse_patch_vm_state() {
-        let mut body = r#"{
+        let body = r#"{
             "state": "Paused"
         }"#;
-
         assert!(parse_patch_vm_state(&Body::new(body))
             .unwrap()
             .eq(&ParsedRequest::new_sync(VmmAction::Pause)));
 
-        body = r#"{
+        let body = r#"{
             "state": "Resumed"
         }"#;
-
         assert!(parse_patch_vm_state(&Body::new(body))
             .unwrap()
             .eq(&ParsedRequest::new_sync(VmmAction::Resume)));
@@ -397,7 +374,6 @@ mod tests {
         let invalid_body = r#"{
             "invalid": "Paused"
         }"#;
-
         assert!(parse_patch_vm_state(&Body::new(invalid_body)).is_err());
     }
 }

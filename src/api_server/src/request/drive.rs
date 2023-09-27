@@ -150,14 +150,15 @@ mod tests {
             "drive_id": "foo",
             "path_on_host": "dummy"
         }"#;
-        #[allow(clippy::match_wild_err_arm)]
-        match vmm_action_from_request(parse_patch_drive(&Body::new(body), Some("foo")).unwrap()) {
-            VmmAction::UpdateBlockDevice(cfg) => {
-                assert_eq!(cfg.drive_id, "foo".to_string());
-                assert_eq!(cfg.path_on_host.unwrap(), "dummy".to_string());
-            }
-            _ => panic!("Test failed: Invalid parameters"),
+        let expected_config = BlockDeviceUpdateConfig {
+            drive_id: "foo".to_string(),
+            path_on_host: Some("dummy".to_string()),
+            rate_limiter: None,
         };
+        assert_eq!(
+            vmm_action_from_request(parse_patch_drive(&Body::new(body), Some("foo")).unwrap()),
+            VmmAction::UpdateBlockDevice(expected_config)
+        );
 
         let body = r#"{
             "drive_id": "foo",
