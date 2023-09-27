@@ -79,6 +79,13 @@ where
         track_dirty_pages: bool,
     ) -> Result<Self, MemoryError>;
 
+    /// Creates a GuestMemoryMmap from raw regions with guard pages.
+    fn from_raw_regions_file(
+        regions: &[(FileOffset, GuestAddress, usize)],
+        track_dirty_pages: bool,
+        shared: bool,
+    ) -> Result<Self, MemoryError>;
+
     /// Creates a GuestMemoryMmap given a `file` containing the data
     /// and a `state` containing mapping information.
     fn from_state(
@@ -95,6 +102,7 @@ where
 
     /// Dumps all contents of GuestMemoryMmap to a writer.
     fn dump<T: WriteVolatile>(&self, writer: &mut T) -> Result<(), MemoryError>;
+
     /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writer.
     fn dump_dirty<T: WriteVolatile + std::io::Seek>(
         &self,
@@ -130,30 +138,19 @@ impl GuestMemoryExtension for GuestMemoryMmap {
     fn with_file(file: &File, track_dirty_pages: bool) -> Result<Self, MemoryError> {
         let metadata = file.metadata().map_err(MemoryError::FileError)?;
         let mem_size = u64_to_usize(metadata.len());
-        let regions = crate::arch::arch_memory_regions(mem_size);
-
-        let prot = libc::PROT_READ | libc::PROT_WRITE;
-        let flags = libc::MAP_NORESERVE | libc::MAP_SHARED;
 
         let mut offset: u64 = 0;
-        let regions = regions
+        let regions = crate::arch::arch_memory_regions(mem_size)
             .iter()
             .map(|(guest_address, region_size)| {
                 let file_clone = file.try_clone().map_err(MemoryError::FileError)?;
                 let file_offset = FileOffset::new(file_clone, offset);
                 offset += *region_size as u64;
-                let region = build_guarded_region(
-                    Some(&file_offset),
-                    *region_size,
-                    prot,
-                    flags,
-                    track_dirty_pages,
-                )?;
-                GuestRegionMmap::new(region, *guest_address).map_err(MemoryError::VmMemoryError)
+                Ok((file_offset, *guest_address, *region_size))
             })
             .collect::<Result<Vec<_>, MemoryError>>()?;
 
-        GuestMemoryMmap::from_regions(regions).map_err(MemoryError::VmMemoryError)
+        Self::from_raw_regions_file(&regions, track_dirty_pages, true)
     }
 
     /// Creates a GuestMemoryMmap with `size` in MiB and guard pages backed by anonymous memory.
@@ -195,17 +192,44 @@ impl GuestMemoryExtension for GuestMemoryMmap {
         let regions = regions
             .iter()
             .map(|(guest_address, region_size)| {
-                let region = MmapRegionBuilder::new_with_bitmap(
+                let bitmap = match track_dirty_pages {
+                    true => Some(AtomicBitmap::with_len(*region_size)),
+                    false => None,
+                };
+                let region = MmapRegionBuilder::new_with_bitmap(*region_size, bitmap)
+                    .with_mmap_prot(prot)
+                    .with_mmap_flags(flags)
+                    .build()
+                    .map_err(MemoryError::MmapRegionError)?;
+                GuestRegionMmap::new(region, *guest_address).map_err(MemoryError::VmMemoryError)
+            })
+            .collect::<Result<Vec<_>, MemoryError>>()?;
+
+        GuestMemoryMmap::from_regions(regions).map_err(MemoryError::VmMemoryError)
+    }
+
+    /// Creates a GuestMemoryMmap from raw regions with guard pages backed by file.
+    fn from_raw_regions_file(
+        regions: &[(FileOffset, GuestAddress, usize)],
+        track_dirty_pages: bool,
+        shared: bool,
+    ) -> Result<Self, MemoryError> {
+        let prot = libc::PROT_READ | libc::PROT_WRITE;
+        let flags = if shared {
+            libc::MAP_NORESERVE | libc::MAP_SHARED
+        } else {
+            libc::MAP_NORESERVE | libc::MAP_PRIVATE
+        };
+        let regions = regions
+            .iter()
+            .map(|(file_offset, guest_address, region_size)| {
+                let region = build_guarded_region(
+                    Some(file_offset),
                     *region_size,
-                    match track_dirty_pages {
-                        true => Some(AtomicBitmap::with_len(*region_size)),
-                        false => None,
-                    },
-                )
-                .with_mmap_prot(prot)
-                .with_mmap_flags(flags)
-                .build()
-                .map_err(MemoryError::MmapRegionError)?;
+                    prot,
+                    flags,
+                    track_dirty_pages,
+                )?;
                 GuestRegionMmap::new(region, *guest_address).map_err(MemoryError::VmMemoryError)
             })
             .collect::<Result<Vec<_>, MemoryError>>()?;
@@ -234,24 +258,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                     .collect::<Result<Vec<_>, std::io::Error>>()
                     .map_err(MemoryError::FileError)?;
 
-                let prot = libc::PROT_READ | libc::PROT_WRITE;
-                let flags = libc::MAP_NORESERVE | libc::MAP_PRIVATE;
-                let regions = regions
-                    .iter()
-                    .map(|(file_offset, guest_address, region_size)| {
-                        let region = build_guarded_region(
-                            Some(file_offset),
-                            *region_size,
-                            prot,
-                            flags,
-                            track_dirty_pages,
-                        )?;
-                        GuestRegionMmap::new(region, *guest_address)
-                            .map_err(MemoryError::VmMemoryError)
-                    })
-                    .collect::<Result<Vec<_>, MemoryError>>()?;
-
-                GuestMemoryMmap::from_regions(regions).map_err(MemoryError::VmMemoryError)
+                Self::from_raw_regions_file(&regions, track_dirty_pages, false)
             }
             None => {
                 let regions = state

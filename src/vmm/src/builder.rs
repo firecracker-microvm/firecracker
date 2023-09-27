@@ -55,7 +55,9 @@ use crate::vmm_config::boot_source::BootConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{MachineConfigUpdate, VmConfig, VmConfigError};
 use crate::volatile::ReadVolatile;
-use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryExtension, GuestMemoryMmap};
+use crate::vstate::memory::{
+    create_memfd, GuestAddress, GuestMemory, GuestMemoryExtension, GuestMemoryMmap,
+};
 use crate::vstate::vcpu::{Vcpu, VcpuConfig};
 use crate::vstate::vm::Vm;
 use crate::{device_manager, EventManager, RestoreVcpusError, Vmm, VmmError};
@@ -265,7 +267,7 @@ pub fn build_microvm_for_boot(
         .ok_or(MissingKernelConfig)?;
 
     let track_dirty_pages = vm_resources.track_dirty_pages();
-    let memfd = crate::vstate::memory::create_memfd(vm_resources.vm_config.mem_size_mib)
+    let memfd = create_memfd(vm_resources.vm_config.mem_size_mib)
         .map_err(StartMicrovmError::GuestMemory)?;
     let guest_memory = GuestMemoryMmap::with_file(memfd.as_file(), track_dirty_pages)
         .map_err(StartMicrovmError::GuestMemory)?;
