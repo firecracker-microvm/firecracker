@@ -86,11 +86,10 @@ mod tests {
             cpu_template: Some(StaticCpuTemplate::None),
             track_dirty_pages: Some(false),
         };
-
-        match vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()) {
-            VmmAction::UpdateVmConfiguration(config) => assert_eq!(config, expected_config),
-            _ => panic!("Test failed."),
-        }
+        assert_eq!(
+            vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()),
+            VmmAction::UpdateVmConfiguration(expected_config)
+        );
 
         let body = r#"{
             "vcpu_count": 8,
@@ -105,11 +104,10 @@ mod tests {
             cpu_template: Some(StaticCpuTemplate::None),
             track_dirty_pages: Some(true),
         };
-
-        match vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()) {
-            VmmAction::UpdateVmConfiguration(config) => assert_eq!(config, expected_config),
-            _ => panic!("Test failed."),
-        }
+        assert_eq!(
+            vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()),
+            VmmAction::UpdateVmConfiguration(expected_config)
+        );
 
         // 4. Test that applying a CPU template is successful on x86_64 while on aarch64, it is not.
         let body = r#"{
@@ -119,7 +117,6 @@ mod tests {
             "cpu_template": "T2",
             "track_dirty_pages": true
         }"#;
-
         #[cfg(target_arch = "x86_64")]
         {
             let expected_config = MachineConfigUpdate {
@@ -129,13 +126,11 @@ mod tests {
                 cpu_template: Some(StaticCpuTemplate::T2),
                 track_dirty_pages: Some(true),
             };
-
-            match vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()) {
-                VmmAction::UpdateVmConfiguration(config) => assert_eq!(config, expected_config),
-                _ => panic!("Test failed."),
-            }
+            assert_eq!(
+                vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()),
+                VmmAction::UpdateVmConfiguration(expected_config)
+            );
         }
-
         #[cfg(target_arch = "aarch64")]
         {
             assert!(parse_put_machine_config(&Body::new(body)).is_err());
@@ -148,7 +143,6 @@ mod tests {
             "smt": true,
             "track_dirty_pages": true
         }"#;
-
         #[cfg(target_arch = "x86_64")]
         {
             let expected_config = MachineConfigUpdate {
@@ -158,13 +152,11 @@ mod tests {
                 cpu_template: Some(StaticCpuTemplate::None),
                 track_dirty_pages: Some(true),
             };
-
-            match vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()) {
-                VmmAction::UpdateVmConfiguration(config) => assert_eq!(config, expected_config),
-                _ => panic!("Test failed."),
-            }
+            assert_eq!(
+                vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()),
+                VmmAction::UpdateVmConfiguration(expected_config)
+            );
         }
-
         #[cfg(target_arch = "aarch64")]
         {
             assert!(parse_put_machine_config(&Body::new(body)).is_err());

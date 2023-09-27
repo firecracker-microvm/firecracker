@@ -91,11 +91,11 @@ mod tests {
         assert!(parse_put_net(&Body::new(body), None).is_err());
 
         // 3. Success case.
-        let netif_clone = serde_json::from_str::<NetworkInterfaceConfig>(body).unwrap();
-        match vmm_action_from_request(parse_put_net(&Body::new(body), Some("foo")).unwrap()) {
-            VmmAction::InsertNetworkDevice(netif) => assert_eq!(netif, netif_clone),
-            _ => panic!("Test failed."),
-        }
+        let expected_config = serde_json::from_str::<NetworkInterfaceConfig>(body).unwrap();
+        assert_eq!(
+            vmm_action_from_request(parse_put_net(&Body::new(body), Some("foo")).unwrap()),
+            VmmAction::InsertNetworkDevice(expected_config)
+        );
 
         // 4. Serde error for invalid field (bytes instead of bandwidth).
         let body = r#"{
@@ -113,7 +113,6 @@ mod tests {
                 }
             }
         }"#;
-
         assert!(parse_put_net(&Body::new(body), Some("foo")).is_err());
     }
 
@@ -130,11 +129,11 @@ mod tests {
         assert!(parse_patch_net(&Body::new(body), None).is_err());
 
         // 3. Success case.
-        let netif_clone = serde_json::from_str::<NetworkInterfaceUpdateConfig>(body).unwrap();
-        match vmm_action_from_request(parse_patch_net(&Body::new(body), Some("foo")).unwrap()) {
-            VmmAction::UpdateNetworkInterface(netif) => assert_eq!(netif, netif_clone),
-            _ => panic!("Test failed."),
-        }
+        let expected_config = serde_json::from_str::<NetworkInterfaceUpdateConfig>(body).unwrap();
+        assert_eq!(
+            vmm_action_from_request(parse_patch_net(&Body::new(body), Some("foo")).unwrap()),
+            VmmAction::UpdateNetworkInterface(expected_config)
+        );
 
         // 4. Serde error for invalid field (bytes instead of bandwidth).
         let body = r#"{
