@@ -10,10 +10,12 @@ import os
 import platform
 import re
 import signal
+import stat
 import subprocess
 import time
 import typing
 from collections import defaultdict, namedtuple
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict
 
@@ -88,28 +90,90 @@ class ProcessManager:
         return cpu_percentages
 
 
+@contextmanager
+def chroot(path):
+    """
+    Create a chroot environment for running some code
+    """
+
+    # Need to keep these around so we can exit the chroot
+    real_root = os.open("/", os.O_RDONLY)
+    working_dir = os.getcwd()
+
+    try:
+        # Jump in the chroot
+        os.chroot(path)
+        os.chdir("/")
+        yield
+
+    finally:
+        # Jump out of the chroot
+        os.fchdir(real_root)
+        os.chroot(".")
+        os.chdir(working_dir)
+
+
 class UffdHandler:
     """Describe the UFFD page fault handler process."""
 
-    def __init__(self, name, args):
+    def __init__(self, name, socket_path, mem_file, chroot_path, log_file_name):
         """Instantiate the handler process with arguments."""
         self._proc = None
-        self._args = [f"/{name}"]
-        self._args.extend(args)
+        self._handler_name = name
+        self._socket_path = socket_path
+        self._mem_file = mem_file
+        self._chroot = chroot_path
+        self._log_file = log_file_name
 
-    def spawn(self):
+    def spawn(self, uid, gid):
         """Spawn handler process using arguments provided."""
-        self._proc = subprocess.Popen(
-            self._args, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        )
 
+        with chroot(self._chroot):
+            st = os.stat(self._handler_name)
+            os.chmod(self._handler_name, st.st_mode | stat.S_IEXEC)
+
+            chroot_log_file = Path("/") / self._log_file
+            with open(chroot_log_file, "w", encoding="utf-8") as logfile:
+                args = [f"/{self._handler_name}", self._socket_path, self._mem_file]
+                self._proc = subprocess.Popen(
+                    args, stdout=logfile, stderr=subprocess.STDOUT
+                )
+
+            # Give it time start and fail, if it really has too (bad things happen).
+            time.sleep(1)
+            if not self.is_running():
+                print(chroot_log_file.read_text(encoding="utf-8"))
+                assert False, "Could not start PF handler!"
+
+            # The page fault handler will create the socket path with root rights.
+            # Change rights to the jailer's.
+            os.chown(self._socket_path, uid, gid)
+
+    @property
     def proc(self):
         """Return UFFD handler process."""
         return self._proc
 
+    def is_running(self):
+        """Check if UFFD process is running"""
+        return self.proc is not None and self.proc.poll() is None
+
+    @property
+    def log_file(self):
+        """Return the path to the UFFD handler's log file"""
+        return Path(self._chroot) / Path(self._log_file)
+
+    @property
+    def log_data(self):
+        """Return the log data of the UFFD handler"""
+        if self.log_file is None:
+            return ""
+        return self.log_file.read_text(encoding="utf-8")
+
     def __del__(self):
         """Tear down the UFFD handler process."""
-        self._proc.kill()
+        if self.proc is not None:
+            self.proc.kill()
 
 
 # pylint: disable=too-few-public-methods

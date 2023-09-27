@@ -4,8 +4,6 @@
 
 import os
 import re
-import stat
-from subprocess import TimeoutExpired
 
 import pytest
 import requests
@@ -48,35 +46,12 @@ def spawn_pf_handler(vm, handler_path, mem_path):
     jailed_mem = vm.create_jailed_resource(mem_path)
     # Copy the valid page fault binary into chroot of microVM.
     jailed_handler = vm.create_jailed_resource(handler_path)
-
     handler_name = os.path.basename(jailed_handler)
-    args = [SOCKET_PATH, jailed_mem]
 
-    uffd_handler = UffdHandler(handler_name, args)
-    real_root = os.open("/", os.O_RDONLY)
-    working_dir = os.getcwd()
-
-    os.chroot(vm.chroot())
-    os.chdir("/")
-    st = os.stat(handler_name)
-    os.chmod(handler_name, st.st_mode | stat.S_IEXEC)
-
-    uffd_handler.spawn()
-    try:
-        outs, errs = uffd_handler.proc().communicate(timeout=1)
-        print(outs)
-        print(errs)
-        assert False, "Could not start PF handler!"
-    except TimeoutExpired:
-        print("This is the good case!")
-
-    # The page fault handler will create the socket path with root rights.
-    # Change rights to the jailer's.
-    os.chown(SOCKET_PATH, vm.jailer.uid, vm.jailer.gid)
-
-    os.fchdir(real_root)
-    os.chroot(".")
-    os.chdir(working_dir)
+    uffd_handler = UffdHandler(
+        handler_name, SOCKET_PATH, jailed_mem, vm.chroot(), "uffd.log"
+    )
+    uffd_handler.spawn(vm.jailer.uid, vm.jailer.gid)
 
     return uffd_handler
 
@@ -148,6 +123,7 @@ def test_valid_handler(uvm_plain, snapshot, uffd_handler_paths):
 
     # Verify if guest can run commands.
     exit_code, _, _ = vm.ssh.run("sync")
+
     assert exit_code == 0
 
 
