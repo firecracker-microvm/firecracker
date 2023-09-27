@@ -194,7 +194,7 @@ def ab_performance_test(a_revision, b_revision, test, p_thresh, strength_thresh)
     )
     print(commit_list.strip())
 
-    processed_emf_a, _, results = git_ab_test(
+    processed_emf_a, processed_emf_b, results = git_ab_test(
         lambda checkout, _: collect_data(checkout, test),
         analyze_data,
         a_revision=a_revision,
@@ -211,7 +211,14 @@ def ab_performance_test(a_revision, b_revision, test, p_thresh, strength_thresh)
             failures.append((dimension_set, metric, result, unit))
 
     failure_report = "\n".join(
-        f"\033[0;32m[Firecracker A/B-Test Runner]\033[0m A/B-testing shows a regression of \033[0;31m\033[1m{format_with_reduced_unit(result.statistic, unit)}\033[0m for metric \033[1m{metric}\033[0m with \033[0;31m\033[1mp={result.pvalue}\033[0m. This means that observing a change of this magnitude or worse, assuming that performance characteristics did not change across the tested commits, has a probability of {result.pvalue:.2%}. Tested Dimensions:\n{json.dumps(dict(dimension_set), indent=2)}"
+        f"\033[0;32m[Firecracker A/B-Test Runner]\033[0m A/B-testing shows a change of "
+        f"\033[0;31m\033[1m{format_with_reduced_unit(result.statistic, unit)}\033[0m "
+        f"(from {format_with_reduced_unit(statistics.mean(processed_emf_a[dimension_set][metric][0]), unit)} "
+        f"to {format_with_reduced_unit(statistics.mean(processed_emf_b[dimension_set][metric][0]), unit)}) "
+        f"for metric \033[1m{metric}\033[0m with \033[0;31m\033[1mp={result.pvalue}\033[0m. "
+        f"This means that observing a change of this magnitude or worse, assuming that performance "
+        f"characteristics did not change across the tested commits, has a probability of {result.pvalue:.2%}. "
+        f"Tested Dimensions:\n{json.dumps(dict(dimension_set), indent=2)}"
         for (dimension_set, metric, result, unit) in failures
     )
     assert not failures, "\n" + failure_report
