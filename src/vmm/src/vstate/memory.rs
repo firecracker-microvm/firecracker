@@ -494,28 +494,6 @@ mod tests {
     use utils::tempfile::TempFile;
 
     use super::*;
-    use crate::vstate::memory::{Bytes, GuestAddress};
-
-    #[derive(Debug)]
-    enum AddrOp {
-        Read,
-        Write,
-    }
-
-    impl AddrOp {
-        fn apply_on_addr(&self, addr: *mut u8) {
-            match self {
-                AddrOp::Read => {
-                    // We have to do something perform a read_volatile, otherwise
-                    // the Release version will optimize it out, making the test fail.
-                    unsafe { std::ptr::read_volatile(addr) };
-                }
-                AddrOp::Write => unsafe {
-                    std::ptr::write(addr, 0xFF);
-                },
-            }
-        }
-    }
 
     fn fork_and_run(function: &dyn Fn(), expect_sigsegv: bool) {
         let pid = unsafe { libc::fork() };
@@ -544,102 +522,76 @@ mod tests {
     }
 
     fn validate_guard_region(region: &GuestMmapRegion) {
+        let read_mem = |addr| unsafe { std::ptr::read_volatile::<u8>(addr) };
+        let write_mem = |addr, val| unsafe {
+            std::ptr::write(addr, val);
+        };
+
         let page_size = get_page_size().unwrap();
 
         // Check that the created range allows us to write inside it
-        let addr = region.as_ptr();
+        let region_first_byte = region.as_ptr();
+        let region_last_byte = unsafe { region_first_byte.add(region.size() - 1) };
 
-        unsafe {
-            std::ptr::write(addr, 0xFF);
-            assert_eq!(std::ptr::read(addr), 0xFF);
-        }
+        // Write and read from the start of the region
+        write_mem(region_first_byte, 0x69);
+        assert_eq!(read_mem(region_first_byte), 0x69);
+
+        // Write and read from the end of the region
+        write_mem(region_last_byte, 0x69);
+        assert_eq!(read_mem(region_last_byte), 0x69);
 
         // Try a read/write operation against the left guard border of the range
-        let left_border = (addr as usize - page_size) as *mut u8;
-        fork_and_run(&|| AddrOp::Read.apply_on_addr(left_border), true);
-        fork_and_run(&|| AddrOp::Write.apply_on_addr(left_border), true);
+        let left_border_first_byte = unsafe { region_first_byte.sub(page_size) };
+        fork_and_run(&|| write_mem(left_border_first_byte, 0x69), true);
+        fork_and_run(&|| _ = read_mem(left_border_first_byte), true);
 
         // Try a read/write operation against the right guard border of the range
-        let right_border = (addr as usize + region.size()) as *mut u8;
-        fork_and_run(&|| AddrOp::Read.apply_on_addr(right_border), true);
-        fork_and_run(&|| AddrOp::Write.apply_on_addr(right_border), true);
-    }
-
-    fn loop_guard_region_to_sigsegv(region: &GuestMmapRegion) {
-        let page_size = get_page_size().unwrap();
-        let right_page_guard = region.as_ptr() as usize + region.size();
-
-        fork_and_run(
-            &|| {
-                let mut addr = region.as_ptr() as usize;
-                loop {
-                    if addr >= right_page_guard {
-                        break;
-                    }
-                    AddrOp::Write.apply_on_addr(addr as *mut u8);
-
-                    addr += page_size;
-                }
-            },
-            false,
-        );
-
-        fork_and_run(
-            &|| {
-                AddrOp::Write.apply_on_addr(right_page_guard as *mut u8);
-            },
-            true,
-        );
+        let right_border_first_byte = unsafe { region_last_byte.add(1) };
+        fork_and_run(&|| write_mem(right_border_first_byte, 0x69), true);
+        fork_and_run(&|| _ = read_mem(right_border_first_byte), true);
     }
 
     #[test]
     fn test_build_guarded_region() {
-        // Create anonymous guarded region.
-        {
-            let page_size = get_page_size().unwrap();
-            let size = page_size * 10;
-            let prot = libc::PROT_READ | libc::PROT_WRITE;
-            let flags = libc::MAP_ANONYMOUS | libc::MAP_NORESERVE | libc::MAP_PRIVATE;
+        let page_size = get_page_size().unwrap();
+        let region_size = page_size * 10;
 
-            let region = build_guarded_region(None, size, prot, flags, false).unwrap();
+        let prot = libc::PROT_READ | libc::PROT_WRITE;
+        let flags = libc::MAP_ANONYMOUS | libc::MAP_NORESERVE | libc::MAP_PRIVATE;
 
-            // Verify that the region was built correctly
-            assert_eq!(region.size(), size);
-            assert!(region.file_offset().is_none());
-            assert_eq!(region.prot(), prot);
-            assert_eq!(region.flags(), flags);
+        let region = build_guarded_region(None, region_size, prot, flags, false).unwrap();
 
-            validate_guard_region(&region);
-        }
+        // Verify that the region was built correctly
+        assert_eq!(region.size(), region_size);
+        assert!(region.file_offset().is_none());
+        assert_eq!(region.prot(), prot);
+        assert_eq!(region.flags(), flags);
 
-        // Create guarded region from file.
-        {
-            let file = TempFile::new().unwrap().into_file();
-            let page_size = get_page_size().unwrap();
+        validate_guard_region(&region);
+    }
+    #[test]
+    fn test_build_guarded_region_file() {
+        let page_size = get_page_size().unwrap();
+        let region_size = page_size * 10;
 
-            let prot = libc::PROT_READ | libc::PROT_WRITE;
-            let flags = libc::MAP_NORESERVE | libc::MAP_PRIVATE;
-            let offset = 0;
-            let size = 10 * page_size;
-            assert_eq!(unsafe { libc::ftruncate(file.as_raw_fd(), 4096 * 10) }, 0);
+        let prot = libc::PROT_READ | libc::PROT_WRITE;
+        let flags = libc::MAP_NORESERVE | libc::MAP_PRIVATE;
 
-            let region = build_guarded_region(
-                Some(&FileOffset::new(file, offset)),
-                size,
-                prot,
-                flags,
-                false,
-            )
-            .unwrap();
+        let file = TempFile::new().unwrap().into_file();
+        file.set_len(region_size as u64).unwrap();
+        let file_offset = FileOffset::new(file, 0);
 
-            // Verify that the region was built correctly
-            assert_eq!(region.size(), size);
-            // assert_eq!(region.file_offset().unwrap().start(), offset as u64);
-            assert_eq!(region.prot(), prot);
-            assert_eq!(region.flags(), flags);
+        let region =
+            build_guarded_region(Some(&file_offset), region_size, prot, flags, false).unwrap();
 
-            validate_guard_region(&region);
-        }
+        // Verify that the region was built correctly
+        assert_eq!(region.size(), region_size);
+        assert!(region.file_offset().is_none());
+        assert_eq!(region.prot(), prot);
+        assert_eq!(region.flags(), flags);
+
+        validate_guard_region(&region);
     }
 
     #[test]
@@ -657,7 +609,6 @@ mod tests {
             let guest_memory = GuestMemoryMmap::from_raw_regions(&regions, false).unwrap();
             guest_memory.iter().for_each(|region| {
                 validate_guard_region(region);
-                loop_guard_region_to_sigsegv(region);
             });
         }
 
@@ -695,7 +646,105 @@ mod tests {
     }
 
     #[test]
-    fn test_mark_dirty_mem() {
+    fn test_from_raw_regions_unguarded() {
+        // Check dirty page tracking is off.
+        {
+            let region_size = 0x10000;
+            let regions = vec![
+                (GuestAddress(0x0), region_size),
+                (GuestAddress(0x10000), region_size),
+                (GuestAddress(0x20000), region_size),
+                (GuestAddress(0x30000), region_size),
+            ];
+
+            let guest_memory =
+                GuestMemoryMmap::from_raw_regions_unguarded(&regions, false).unwrap();
+            guest_memory.iter().for_each(|region| {
+                assert!(region.bitmap().is_none());
+            });
+        }
+
+        // Check dirty page tracking is on.
+        {
+            let region_size = 0x10000;
+            let regions = vec![
+                (GuestAddress(0x0), region_size),
+                (GuestAddress(0x10000), region_size),
+                (GuestAddress(0x20000), region_size),
+                (GuestAddress(0x30000), region_size),
+            ];
+
+            let guest_memory = GuestMemoryMmap::from_raw_regions_unguarded(&regions, true).unwrap();
+            guest_memory.iter().for_each(|region| {
+                assert!(region.bitmap().is_some());
+            });
+        }
+    }
+
+    #[test]
+    fn test_from_raw_regions_file() {
+        let region_size = 0x10000;
+
+        let file = TempFile::new().unwrap().into_file();
+        let file_size = 4 * region_size;
+        file.set_len(file_size as u64).unwrap();
+
+        let regions = vec![
+            (
+                FileOffset::new(file.try_clone().unwrap(), 0x0),
+                GuestAddress(0x0),
+                region_size,
+            ),
+            (
+                FileOffset::new(file.try_clone().unwrap(), 0x10000),
+                GuestAddress(0x10000),
+                region_size,
+            ),
+            (
+                FileOffset::new(file.try_clone().unwrap(), 0x20000),
+                GuestAddress(0x20000),
+                region_size,
+            ),
+            (
+                FileOffset::new(file.try_clone().unwrap(), 0x30000),
+                GuestAddress(0x30000),
+                region_size,
+            ),
+        ];
+
+        // Test that all regions are guarded.
+        {
+            let guest_memory =
+                GuestMemoryMmap::from_raw_regions_file(&regions, false, false).unwrap();
+            guest_memory.iter().for_each(|region| {
+                assert_eq!(region.size(), region_size);
+                assert!(region.file_offset().is_none());
+                assert!(region.bitmap().is_none());
+                validate_guard_region(region);
+            });
+        }
+
+        // Check dirty page tracking is off.
+        {
+            let guest_memory =
+                GuestMemoryMmap::from_raw_regions_file(&regions, false, false).unwrap();
+            guest_memory.iter().for_each(|region| {
+                assert!(region.bitmap().is_none());
+            });
+        }
+
+        // Check dirty page tracking is on.
+        {
+            let guest_memory =
+                GuestMemoryMmap::from_raw_regions_file(&regions, true, false).unwrap();
+            guest_memory.iter().for_each(|region| {
+                assert!(region.bitmap().is_some());
+            });
+        }
+    }
+
+    #[test]
+    fn test_mark_dirty() {
         let page_size = get_page_size().unwrap();
         let region_size = page_size * 3;
 
@@ -746,7 +795,7 @@ mod tests {
     }
 
     #[test]
-    fn test_describe_state() {
+    fn test_describe() {
         let page_size: usize = get_page_size().unwrap();
 
         // Two regions of one page each, with a one page gap between them.
@@ -801,119 +850,139 @@ mod tests {
     }
 
     #[test]
-    fn test_restore_memory() {
-        let page_size: usize = get_page_size().unwrap();
+    fn test_dump() {
+        let page_size = get_page_size().unwrap();
 
         // Two regions of two pages each, with a one page gap between them.
+        let region_1_address = GuestAddress(0);
+        let region_2_address = GuestAddress(page_size as u64 * 3);
+        let region_size = page_size * 2;
         let mem_regions = [
-            (GuestAddress(0), page_size * 2),
-            (GuestAddress(page_size as u64 * 3), page_size * 2),
+            (region_1_address, region_size),
+            (region_2_address, region_size),
         ];
-        let guest_memory = GuestMemoryMmap::from_raw_regions(&mem_regions[..], true).unwrap();
+        let guest_memory = GuestMemoryMmap::from_raw_regions(&mem_regions, true).unwrap();
         // Check that Firecracker bitmap is clean.
-        let _res: Result<(), MemoryError> = guest_memory.iter().try_for_each(|r| {
+        guest_memory.iter().for_each(|r| {
             assert!(!r.bitmap().dirty_at(0));
             assert!(!r.bitmap().dirty_at(1));
-            Ok(())
         });
 
         // Fill the first region with 1s and the second with 2s.
-        let first_region = vec![1u8; page_size * 2];
-        guest_memory
-            .write(&first_region[..], GuestAddress(0))
-            .unwrap();
+        let first_region = vec![1u8; region_size];
+        guest_memory.write(&first_region, region_1_address).unwrap();
 
-        let second_region = vec![2u8; page_size * 2];
+        let second_region = vec![2u8; region_size];
         guest_memory
-            .write(&second_region[..], GuestAddress(page_size as u64 * 3))
+            .write(&second_region, region_2_address)
             .unwrap();
 
         let memory_state = guest_memory.describe();
 
-        // Case 1: dump the full memory.
-        {
-            let mut memory_file = TempFile::new().unwrap().into_file();
-            guest_memory.dump(&mut memory_file).unwrap();
+        // dump the full memory.
+        let mut memory_file = TempFile::new().unwrap().into_file();
+        guest_memory.dump(&mut memory_file).unwrap();
 
-            let restored_guest_memory =
-                GuestMemoryMmap::from_state(Some(&memory_file), &memory_state, false).unwrap();
+        let restored_guest_memory =
+            GuestMemoryMmap::from_state(Some(&memory_file), &memory_state, false).unwrap();
 
-            // Check that the region contents are the same.
-            let mut actual_region = vec![0u8; page_size * 2];
-            restored_guest_memory
-                .read(actual_region.as_mut_slice(), GuestAddress(0))
-                .unwrap();
-            assert_eq!(first_region, actual_region);
+        // Check that the region contents are the same.
+        let mut restored_region = vec![0u8; page_size * 2];
+        restored_guest_memory
+            .read(restored_region.as_mut_slice(), region_1_address)
+            .unwrap();
+        assert_eq!(first_region, restored_region);
 
-            restored_guest_memory
-                .read(
-                    actual_region.as_mut_slice(),
-                    GuestAddress(page_size as u64 * 3),
-                )
-                .unwrap();
-            assert_eq!(second_region, actual_region);
-        }
+        restored_guest_memory
+            .read(restored_region.as_mut_slice(), region_2_address)
+            .unwrap();
+        assert_eq!(second_region, restored_region);
+    }
 
-        // Case 2: dump only the dirty pages.
-        {
-            // KVM Bitmap
-            // First region pages: [dirty, clean]
-            // Second region pages: [clean, dirty]
-            let mut dirty_bitmap: DirtyBitmap = HashMap::new();
-            dirty_bitmap.insert(0, vec![0b01; 1]);
-            dirty_bitmap.insert(1, vec![0b10; 1]);
+    #[test]
+    fn test_dump_dirty() {
+        let page_size = get_page_size().unwrap();
 
-            let mut file = TempFile::new().unwrap().into_file();
-            guest_memory.dump_dirty(&mut file, &dirty_bitmap).unwrap();
+        // Two regions of two pages each, with a one page gap between them.
+        let region_1_address = GuestAddress(0);
+        let region_2_address = GuestAddress(page_size as u64 * 3);
+        let region_size = page_size * 2;
+        let mem_regions = [
+            (region_1_address, region_size),
+            (region_2_address, region_size),
+        ];
+        let guest_memory = GuestMemoryMmap::from_raw_regions(&mem_regions, true).unwrap();
+        // Check that Firecracker bitmap is clean.
+        guest_memory.iter().for_each(|r| {
+            assert!(!r.bitmap().dirty_at(0));
+            assert!(!r.bitmap().dirty_at(1));
+        });
 
-            // We can restore from this because this is the first dirty dump.
-            let restored_guest_memory =
-                GuestMemoryMmap::from_state(Some(&file), &memory_state, false).unwrap();
+        // Fill the first region with 1s and the second with 2s.
+        let first_region = vec![1u8; region_size];
+        guest_memory.write(&first_region, region_1_address).unwrap();
 
-            // Check that the region contents are the same.
-            let mut actual_region = vec![0u8; page_size * 2];
-            restored_guest_memory
-                .read(actual_region.as_mut_slice(), GuestAddress(0))
-                .unwrap();
-            assert_eq!(first_region, actual_region);
+        let second_region = vec![2u8; region_size];
+        guest_memory
+            .write(&second_region, region_2_address)
+            .unwrap();
 
-            restored_guest_memory
-                .read(
-                    actual_region.as_mut_slice(),
-                    GuestAddress(page_size as u64 * 3),
-                )
-                .unwrap();
-            assert_eq!(second_region, actual_region);
+        let memory_state = guest_memory.describe();
 
-            // Dirty the memory and dump again
-            let file = TempFile::new().unwrap();
-            let mut reader = file.into_file();
-            let zeros = vec![0u8; page_size];
-            let ones = vec![1u8; page_size];
-            let twos = vec![2u8; page_size];
+        // Dump only the dirty pages.
+        // First region pages: [dirty, clean]
+        // Second region pages: [clean, dirty]
+        let mut dirty_bitmap: DirtyBitmap = HashMap::new();
+        dirty_bitmap.insert(0, vec![0b01]);
+        dirty_bitmap.insert(1, vec![0b10]);
 
-            // Firecracker Bitmap
-            // First region pages: [dirty, clean]
-            // Second region pages: [clean, clean]
-            guest_memory
-                .write(&twos[..], GuestAddress(page_size as u64))
-                .unwrap();
+        let mut file = TempFile::new().unwrap().into_file();
+        guest_memory.dump_dirty(&mut file, &dirty_bitmap).unwrap();
 
-            guest_memory.dump_dirty(&mut reader, &dirty_bitmap).unwrap();
+        // We can restore from this because this is the first dirty dump.
+        let restored_guest_memory =
+            GuestMemoryMmap::from_state(Some(&file), &memory_state, false).unwrap();
 
-            // Check that only the dirty regions are dumped.
-            let mut diff_file_content = Vec::new();
-            let expected_first_region = [
-                ones.as_slice(),
-                twos.as_slice(),
-                zeros.as_slice(),
-                twos.as_slice(),
-            ]
-            .concat();
-            reader.seek(SeekFrom::Start(0)).unwrap();
-            reader.read_to_end(&mut diff_file_content).unwrap();
-            assert_eq!(expected_first_region, diff_file_content);
-        }
+        // Check that the region contents are the same.
+        let mut restored_region = vec![0u8; region_size];
+        restored_guest_memory
+            .read(restored_region.as_mut_slice(), region_1_address)
+            .unwrap();
+        assert_eq!(first_region, restored_region);
+
+        restored_guest_memory
+            .read(restored_region.as_mut_slice(), region_2_address)
+            .unwrap();
+        assert_eq!(second_region, restored_region);
+
+        // Dirty the memory and dump again
+        let file = TempFile::new().unwrap();
+        let mut reader = file.into_file();
+        let zeros = vec![0u8; page_size];
+        let ones = vec![1u8; page_size];
+        let twos = vec![2u8; page_size];
+
+        // Firecracker Bitmap
+        // First region pages: [dirty, clean]
+        // Second region pages: [clean, clean]
+        guest_memory
+            .write(&twos, GuestAddress(page_size as u64))
+            .unwrap();
+
+        guest_memory.dump_dirty(&mut reader, &dirty_bitmap).unwrap();
+
+        // Check that only the dirty regions are dumped.
+        let mut diff_file_content = Vec::new();
+        let expected_first_region = [
+            ones.as_slice(),
+            twos.as_slice(),
+            zeros.as_slice(),
+            twos.as_slice(),
+        ]
+        .concat();
+        reader.seek(SeekFrom::Start(0)).unwrap();
+        reader.read_to_end(&mut diff_file_content).unwrap();
+        assert_eq!(expected_first_region, diff_file_content);
     }
 
     #[test]
