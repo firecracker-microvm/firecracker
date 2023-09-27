@@ -26,6 +26,12 @@ perf_test = {
         "devtool_opts": "-c 1-12 -m 0",
         "timeout_in_minutes": 60,
     },
+    "vsock-throughput": {
+        "label": "🧦 Vsock Throughput",
+        "test_path": "integration_tests/performance/test_vsock_ab.py",
+        "devtool_opts": "-c 1-10 -m 0",
+        "timeout_in_minutes": 40,
+    },
 }
 
 
