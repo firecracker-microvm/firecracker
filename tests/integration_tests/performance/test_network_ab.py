@@ -3,7 +3,6 @@
 """Tests the network latency of a Firecracker guest."""
 
 import re
-import statistics
 
 import pytest
 
@@ -86,10 +85,8 @@ def test_network_latency(microvm_factory, guest_kernel, rootfs, metrics):
         {"performance_test": "test_network_latency", **vm.dimensions}
     )
 
-    metrics.put_metric("latency_Avg", statistics.mean(samples), "Milliseconds")
-
     for sample in samples:
-        metrics.put_metric("latency", sample, "Milliseconds")
+        metrics.put_metric("ping_latency", sample, "Milliseconds")
 
 
 class TCPIPerf3Test(IPerf3Test):
