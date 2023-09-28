@@ -5,14 +5,19 @@
 # script from the third party "Spectre & Meltdown Checker" project. This script is under the
 # GPL-3.0-only license.
 """Tests vulnerabilities mitigations."""
-
+import json
 import os
 
 import pytest
 import requests
 
 from framework import utils
+from framework.ab_test import (
+    git_ab_test_host_command_if_pr,
+    set_did_not_grow_comparator,
+)
 from framework.properties import global_props
+from framework.utils import CommandReturn
 from framework.utils_cpu_templates import nonci_on_arm
 
 CHECKER_URL = "https://meltdown.ovh"
@@ -83,7 +88,17 @@ def run_spectre_meltdown_checker_on_guest(
     assert ecode == 0, f"stdout:\n{stdout}\nstderr:\n{stderr}\n"
 
 
-@pytest.mark.no_block_pr
+def spectre_meltdown_reported_vulnerablities(
+    spectre_meltdown_checker_output: CommandReturn,
+) -> set:
+    """Parses the output of `spectre-meltdown-checker.sh --batch json` and returns the set of issues for which it reported 'Vulnerable'"""
+    return {
+        entry
+        for entry in json.loads(spectre_meltdown_checker_output.stdout)
+        if entry["VULNERABLE"]
+    }
+
+
 @pytest.mark.skipif(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
@@ -92,7 +107,12 @@ def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
     """
     Test with the spectre / meltdown checker on host.
     """
-    utils.run_cmd(f"sh {spectre_meltdown_checker} --explain")
+    git_ab_test_host_command_if_pr(
+        f"sh {spectre_meltdown_checker} --batch json",
+        comparator=set_did_not_grow_comparator(
+            spectre_meltdown_reported_vulnerablities
+        ),
+    )
 
 
 @pytest.mark.no_block_pr
