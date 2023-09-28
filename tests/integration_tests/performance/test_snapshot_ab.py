@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Performance benchmark for snapshot restore."""
 import shutil
-import statistics
 import tempfile
 from dataclasses import dataclass
 from functools import lru_cache
@@ -158,8 +157,6 @@ def test_restore_latency(
             **vm.dimensions,
         }
     )
-
-    metrics.put_metric("latency_Avg", statistics.mean(samples), "Milliseconds")
 
     for sample in samples:
         metrics.put_metric("latency", sample, "Milliseconds")
