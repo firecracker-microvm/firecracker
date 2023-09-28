@@ -514,25 +514,40 @@ def test_args_resource_limits(test_microvm_with_api):
     check_limits(pid, NOFILE, FSIZE)
 
 
-def test_negative_file_size_limit(uvm_plain):
+def test_positive_file_size_limit(uvm_plain):
     """
-    Test creating snapshot file fails when size exceeds `fsize` limit.
+    Test creating vm succeeds when memory size is under `fsize` limit.
     """
+
+    vm_mem_size = 128
+    jail_limit = (vm_mem_size + 1) << 20
+
     test_microvm = uvm_plain
-    # limit to 1MB, to account for logs and metrics
-    test_microvm.jailer.resource_limits = [f"fsize={2**20}"]
+    test_microvm.jailer.resource_limits = [f"fsize={jail_limit}"]
     test_microvm.spawn()
-    test_microvm.basic_config()
+    test_microvm.basic_config(mem_size_mib=vm_mem_size)
+
+    # Attempt to start a vm.
     test_microvm.start()
 
-    test_microvm.pause()
 
-    # Attempt to create a snapshot.
+def test_negative_file_size_limit(uvm_plain):
+    """
+    Test creating vm fails when memory size exceeds `fsize` limit.
+    This is caused by the fact that we back guest memory by memfd.
+    """
+
+    vm_mem_size = 128
+    jail_limit = (vm_mem_size - 1) << 20
+
+    test_microvm = uvm_plain
+    test_microvm.jailer.resource_limits = [f"fsize={jail_limit}"]
+    test_microvm.spawn()
+    test_microvm.basic_config(mem_size_mib=vm_mem_size)
+
+    # Attempt to start a vm.
     try:
-        test_microvm.api.snapshot_create.put(
-            mem_file_path="/vm.mem",
-            snapshot_path="/vm.vmstate",
-        )
+        test_microvm.start()
     except (
         http_client.RemoteDisconnected,
         urllib3.exceptions.ProtocolError,
