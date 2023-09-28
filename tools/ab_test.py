@@ -172,7 +172,7 @@ def analyze_data(processed_emf_a, processed_emf_b):
             )
             result = check_regression(values_a, metrics_b[metric][0])
 
-            metrics_logger.set_dimensions(dict(dimension_set))
+            metrics_logger.set_dimensions({"metric": metric, **dict(dimension_set)})
             metrics_logger.put_metric("p_value", float(result.pvalue), "None")
             metrics_logger.put_metric("mean_difference", float(result.statistic), unit)
             metrics_logger.set_property("data_a", values_a)
