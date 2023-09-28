@@ -35,6 +35,13 @@ Firecracker supports two types of CPU templates:
   format and pass them to Firecracker
 
 > **Note**
+Static CPU templates are deprecated starting from v1.5.0 and will be removed in
+accordance with our deprecation policy. Even after the removal, custom CPU
+templates are available as an improved iteration of static CPU templates. For
+more information about the transition from static CPU templates to custom CPU
+templates, please refer to [this GitHub discussion](https://github.com/firecracker-microvm/firecracker/discussions/4135).
+
+> **Note**
 CPU templates for ARM (both static and custom) require the following patch
 to be available in the host kernel: [Support writable CPU ID registers from userspace](https://lore.kernel.org/kvm/20230212215830.2975485-1-jingzhangos@google.com/#t).
 Otherwise KVM will fail to write to the ARM registers.

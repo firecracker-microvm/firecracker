@@ -63,11 +63,24 @@ pub enum CpuTemplateType {
     Static(StaticCpuTemplate),
 }
 
+// This conversion is only used for snapshot, but the static CPU template
+// information has not been saved into snapshot since v1.1.
 impl From<&Option<CpuTemplateType>> for StaticCpuTemplate {
     fn from(value: &Option<CpuTemplateType>) -> Self {
         match value {
             Some(CpuTemplateType::Static(template)) => *template,
             Some(CpuTemplateType::Custom(_)) | None => StaticCpuTemplate::None,
+        }
+    }
+}
+
+// This conversion is used when converting `&VmConfig` to `MachineConfig` to
+// respond `GET /machine-config` and `GET /vm`.
+impl From<&CpuTemplateType> for StaticCpuTemplate {
+    fn from(value: &CpuTemplateType) -> Self {
+        match value {
+            CpuTemplateType::Static(template) => *template,
+            CpuTemplateType::Custom(_) => StaticCpuTemplate::None,
         }
     }
 }

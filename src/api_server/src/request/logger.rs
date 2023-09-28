@@ -29,49 +29,46 @@ mod tests {
 
     #[test]
     fn test_parse_put_logger_request() {
-        let mut body = r#"{
-                "log_path": "log",
-                "level": "Warning",
-                "show_level": false,
-                "show_log_origin": false
-              }"#;
-
-        let mut expected_cfg = LoggerConfig {
+        let body = r#"{
+            "log_path": "log",
+            "level": "Warning",
+            "show_level": false,
+            "show_log_origin": false
+        }"#;
+        let expected_config = LoggerConfig {
             log_path: PathBuf::from("log"),
             level: LoggerLevel::Warning,
             show_level: false,
             show_log_origin: false,
         };
-        match vmm_action_from_request(parse_put_logger(&Body::new(body)).unwrap()) {
-            VmmAction::ConfigureLogger(cfg) => assert_eq!(cfg, expected_cfg),
-            _ => panic!("Test failed."),
-        }
+        assert_eq!(
+            vmm_action_from_request(parse_put_logger(&Body::new(body)).unwrap()),
+            VmmAction::ConfigureLogger(expected_config)
+        );
 
-        body = r#"{
-                "log_path": "log",
-                "level": "DEBUG",
-                "show_level": false,
-                "show_log_origin": false
-              }"#;
-
-        expected_cfg = LoggerConfig {
+        let body = r#"{
+            "log_path": "log",
+            "level": "DEBUG",
+            "show_level": false,
+            "show_log_origin": false
+        }"#;
+        let expected_config = LoggerConfig {
             log_path: PathBuf::from("log"),
             level: LoggerLevel::Debug,
             show_level: false,
             show_log_origin: false,
         };
-        match vmm_action_from_request(parse_put_logger(&Body::new(body)).unwrap()) {
-            VmmAction::ConfigureLogger(cfg) => assert_eq!(cfg, expected_cfg),
-            _ => panic!("Test failed."),
-        }
+        assert_eq!(
+            vmm_action_from_request(parse_put_logger(&Body::new(body)).unwrap()),
+            VmmAction::ConfigureLogger(expected_config)
+        );
 
         let invalid_body = r#"{
-                "invalid_field": "log",
-                "level": "Warning",
-                "show_level": false,
-                "show_log_origin": false
-              }"#;
-
+            "invalid_field": "log",
+            "level": "Warning",
+            "show_level": false,
+            "show_log_origin": false
+        }"#;
         assert!(parse_put_logger(&Body::new(invalid_body)).is_err());
     }
 }
