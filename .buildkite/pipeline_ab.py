@@ -5,7 +5,14 @@
 """Generate Buildkite performance pipelines dynamically"""
 import os
 
-from common import COMMON_PARSER, group, overlay_dict, pipeline_to_json
+from common import (
+    COMMON_PARSER,
+    get_changed_files,
+    group,
+    overlay_dict,
+    pipeline_to_json,
+    run_all_tests,
+)
 
 perf_test = {
     "block": {
@@ -40,16 +47,17 @@ perf_test = {
     },
 }
 
+REVISION_A = os.environ["REVISION_A"]
+REVISION_B = os.environ["REVISION_B"]
+
 
 def build_group(test):
     """Build a Buildkite pipeline `group` step"""
     devtool_opts = test.pop("devtool_opts")
     test_path = test.pop("test_path")
-    revision_a = os.environ["REVISION_A"]
-    revision_b = os.environ["REVISION_B"]
     return group(
         label=test.pop("label"),
-        command=f"./tools/devtool -y test --ab {devtool_opts} -- {revision_a} {revision_b} --test {test_path}",
+        command=f"./tools/devtool -y test --ab {devtool_opts} -- {REVISION_A} {REVISION_B} --test {test_path}",
         artifacts=["./test_results/*"],
         instances=test.pop("instances"),
         platforms=test.pop("platforms"),
@@ -66,24 +74,28 @@ parser.add_argument(
     help="performance test",
     action="append",
 )
-args = parser.parse_args()
+
+changed_files = get_changed_files(f"{REVISION_A}..{REVISION_B}")
 group_steps = []
-tests = [perf_test[test] for test in args.test]
-for test_data in tests:
-    test_data.setdefault("platforms", args.platforms)
-    test_data.setdefault("instances", args.instances)
-    # use ag=1 instances to make sure no two performance tests are scheduled on the same instance
-    test_data.setdefault("agents", {"ag": 1})
-    test_data = overlay_dict(test_data, args.step_param)
-    test_data["retry"] = {
-        "automatic": [
-            # Agent was lost, retry one time
-            # this can happen if we terminate the instance or the agent gets
-            # disconnected for whatever reason
-            {"exit_status": -1, "limit": 1},
-        ]
-    }
-    group_steps.append(build_group(test_data))
+
+if run_all_tests(changed_files):
+    args = parser.parse_args()
+    tests = [perf_test[test] for test in args.test]
+    for test_data in tests:
+        test_data.setdefault("platforms", args.platforms)
+        test_data.setdefault("instances", args.instances)
+        # use ag=1 instances to make sure no two performance tests are scheduled on the same instance
+        test_data.setdefault("agents", {"ag": 1})
+        test_data = overlay_dict(test_data, args.step_param)
+        test_data["retry"] = {
+            "automatic": [
+                # Agent was lost, retry one time
+                # this can happen if we terminate the instance or the agent gets
+                # disconnected for whatever reason
+                {"exit_status": -1, "limit": 1},
+            ]
+        }
+        group_steps.append(build_group(test_data))
 
 pipeline = {
     "env": {},
