@@ -69,82 +69,82 @@ mod tests {
 
         // PATCH with invalid fields.
         let body = r#"{
-                "amount_mib": "bar",
-                "foo": "bar"
-              }"#;
+            "amount_mib": "bar",
+            "foo": "bar"
+        }"#;
         assert!(parse_patch_balloon(&Body::new(body), None).is_err());
 
         // PATCH with invalid types on fields. Adding a polling interval as string instead of bool.
         let body = r#"{
-                "amount_mib": 1000,
-                "stats_polling_interval_s": "false"
-              }"#;
+            "amount_mib": 1000,
+            "stats_polling_interval_s": "false"
+        }"#;
         let res = parse_patch_balloon(&Body::new(body), None);
         assert!(res.is_err());
 
         // PATCH with invalid types on fields. Adding a amount_mib as a negative number.
         let body = r#"{
-                "amount_mib": -1000,
-                "stats_polling_interval_s": true
-              }"#;
+            "amount_mib": -1000,
+            "stats_polling_interval_s": true
+        }"#;
         let res = parse_patch_balloon(&Body::new(body), None);
         assert!(res.is_err());
 
         // PATCH on statistics with missing ppolling interval field.
         let body = r#"{
-                "amount_mib": 100
-              }"#;
+            "amount_mib": 100
+        }"#;
         let res = parse_patch_balloon(&Body::new(body), Some("statistics"));
         assert!(res.is_err());
 
         // PATCH with missing amount_mib field.
         let body = r#"{
-                "stats_polling_interval_s": 0
-              }"#;
+            "stats_polling_interval_s": 0
+        }"#;
         let res = parse_patch_balloon(&Body::new(body), None);
         assert!(res.is_err());
 
         // PATCH that tries to update something else other than allowed fields.
         let body = r#"{
-                "amount_mib": "dummy_id",
-                "stats_polling_interval_s": "dummy_host"
-              }"#;
+            "amount_mib": "dummy_id",
+            "stats_polling_interval_s": "dummy_host"
+        }"#;
         let res = parse_patch_balloon(&Body::new(body), None);
         assert!(res.is_err());
 
         // PATCH with payload that is not a json.
         let body = r#"{
-                "fields": "dummy_field"
-              }"#;
+            "fields": "dummy_field"
+        }"#;
         assert!(parse_patch_balloon(&Body::new(body), None).is_err());
 
         // PATCH on unrecognized path.
         let body = r#"{
             "fields": "dummy_field"
-          }"#;
+        }"#;
         assert!(parse_patch_balloon(&Body::new(body), Some("config")).is_err());
 
         let body = r#"{
-                "amount_mib": 1
-              }"#;
-        #[allow(clippy::match_wild_err_arm)]
-        match vmm_action_from_request(parse_patch_balloon(&Body::new(body), None).unwrap()) {
-            VmmAction::UpdateBalloon(balloon_cfg) => assert_eq!(balloon_cfg.amount_mib, 1),
-            _ => panic!("Test failed: Invalid parameters"),
-        };
+            "amount_mib": 1
+        }"#;
+        let expected_config = BalloonUpdateConfig { amount_mib: 1 };
+        assert_eq!(
+            vmm_action_from_request(parse_patch_balloon(&Body::new(body), None).unwrap()),
+            VmmAction::UpdateBalloon(expected_config)
+        );
 
         let body = r#"{
-                "stats_polling_interval_s": 1
-            }"#;
-        #[allow(clippy::match_wild_err_arm)]
-        match vmm_action_from_request(
-            parse_patch_balloon(&Body::new(body), Some("statistics")).unwrap(),
-        ) {
-            VmmAction::UpdateBalloonStatistics(balloon_cfg) => {
-                assert_eq!(balloon_cfg.stats_polling_interval_s, 1)
-            }
-            _ => panic!("Test failed: Invalid parameters"),
+            "stats_polling_interval_s": 1
+        }"#;
+        let expected_config = BalloonUpdateStatsConfig {
+            stats_polling_interval_s: 1,
         };
+        assert_eq!(
+            vmm_action_from_request(
+                parse_patch_balloon(&Body::new(body), Some("statistics")).unwrap()
+            ),
+            VmmAction::UpdateBalloonStatistics(expected_config)
+        );
     }
 
     #[test]
@@ -153,17 +153,17 @@ mod tests {
 
         // PUT with invalid fields.
         let body = r#"{
-                "amount_mib": "bar",
-                "is_read_only": false
-              }"#;
+            "amount_mib": "bar",
+            "is_read_only": false
+        }"#;
         assert!(parse_put_balloon(&Body::new(body)).is_err());
 
         // PUT with valid input fields.
         let body = r#"{
-                "amount_mib": 1000,
-                "deflate_on_oom": true,
-                "stats_polling_interval_s": 0
-            }"#;
+            "amount_mib": 1000,
+            "deflate_on_oom": true,
+            "stats_polling_interval_s": 0
+        }"#;
         assert!(parse_put_balloon(&Body::new(body)).is_ok());
     }
 }

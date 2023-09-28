@@ -428,6 +428,37 @@ def test_api_machine_config(test_microvm_with_api):
     assert json["machine-config"]["smt"] is False
 
 
+def test_negative_machine_config_api(test_microvm_with_api):
+    """
+    Test the deprecated `cpu_template` field in PUT and PATCH requests on
+    `/machine-config` API is handled correctly.
+
+    When using the `cpu_template` field (even if the value is "None"), the HTTP
+    response header should have "Deprecation: true".
+    """
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
+
+    # Use `cpu_template` field in PUT /machine-config
+    response = test_microvm.api.machine_config.put(
+        vcpu_count=2,
+        mem_size_mib=256,
+        cpu_template="None",
+    )
+    assert response.headers["deprecation"]
+    assert (
+        "PUT /machine-config: cpu_template field is deprecated."
+        in test_microvm.log_data
+    )
+
+    # Use `cpu_template` field in PATCH /machine-config
+    response = test_microvm.api.machine_config.patch(cpu_template="None")
+    assert (
+        "PATCH /machine-config: cpu_template field is deprecated."
+        in test_microvm.log_data
+    )
+
+
 @nonci_on_arm
 def test_api_cpu_config(test_microvm_with_api, custom_cpu_template):
     """

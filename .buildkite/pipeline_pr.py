@@ -109,9 +109,11 @@ if any(x.name == "Dockerfile" for x in changed_files):
 if any(x.parent.name == "tools" and "release" in x.name for x in changed_files):
     steps.append(release_grp)
 
+if not changed_files or any(x.suffix == ".rs" for x in changed_files):
+    steps.append(kani_grp)
+
 if run_all_tests(changed_files):
     steps += [
-        kani_grp,
         build_grp,
         functional_grp,
         performance_grp,

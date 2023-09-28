@@ -306,7 +306,6 @@ can examine local variables and the stack, and can use the normal Python REPL.
 
 ```sh
 ./tools/devtool -y shell --privileged
-pip3 install ipython
 export PYTEST_ADDOPTS=--pdbcls=IPython.terminal.debugger:TerminalPdb
 ./tools/test.sh -k 1024 integration_tests/performance/test_boottime.py::test_boottime
 ```
@@ -374,7 +373,23 @@ First, make the test fail and drop you into PDB. For example:
 Then,
 
 ```
-ipdb> test_microvm.gdbserver()
+ipdb> test_microvm.help.gdbserver()
 ```
 
 You get some instructions on how to run GDB to attach to gdbserver.
+
+## Sandbox
+
+```sh
+./tools/devtool sandbox
+```
+
+That should drop you in an IPython REPL, where you can interact with a microvm:
+
+```python
+uvm.help.print_log()
+uvm.get_all_metrics()
+uvm.ssh.run("ls")
+snap = uvm.snapshot_full()
+uvm.help.tmux_ssh()
+```

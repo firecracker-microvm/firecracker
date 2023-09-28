@@ -826,6 +826,8 @@ definitions:
     description:
       The CPU Template defines a set of flags to be disabled from the microvm so that
       the features exposed to the guest are the same as in the selected instance type.
+      This parameter has been deprecated and it will be removed in future Firecracker
+      release.
     enum:
       - C3
       - T2
@@ -1198,8 +1200,8 @@ definitions:
         type: string
         description:
           Path to the file that contains the guest memory to be loaded.
-          This parameter has been deprecated and is only allowed if
-          `mem_backend` is not present.
+          It is only allowed if `mem_backend` is not present. This parameter has
+          been deprecated and it will be removed in future Firecracker release.
       mem_backend:
         $ref: "#/definitions/MemoryBackend"
         description:
@@ -1302,4 +1304,6 @@ definitions:
         description: Path to UNIX domain socket, used to proxy vsock connections.
       vsock_id:
         type: string
-        description: This parameter has been deprecated since v1.0.0.
+        description:
+          This parameter has been deprecated and it will be removed in future
+          Firecracker release.
