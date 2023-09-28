@@ -31,6 +31,7 @@ from typing import Callable, List, Optional, TypeVar
 import scipy
 
 from framework import utils
+from framework.utils import CommandReturn
 
 # Locally, this will always compare against main, even if we try to merge into, say, a feature branch.
 # We might want to do a more sophisticated way to determine a "parent" branch here.
@@ -98,6 +99,51 @@ def git_ab_test(
             comparison = comparator(result_a, result_b)
 
         return result_a, result_b, comparison
+
+
+def git_ab_test_host_command_if_pr(
+    command: str,
+    *,
+    comparator: Callable[[CommandReturn, CommandReturn], bool] = default_comparator,
+):
+    """Runs the given bash command as an A/B-Test if we're in a pull request context (asserting that its stdout and
+    stderr did not change across the PR). Otherwise runs the command, asserting it returns a zero exit code
+    """
+    if os.environ.get("BUILDKITE_PULL_REQUEST", "false") == "false":
+        git_ab_test_host_command(command, comparator=comparator)
+    else:
+        utils.run_cmd(command)
+
+
+def git_ab_test_host_command(
+    command: str,
+    *,
+    comparator: Callable[[CommandReturn, CommandReturn], bool] = default_comparator,
+    a_revision: str = DEFAULT_A_REVISION,
+    b_revision: Optional[str] = None,
+):
+    """Performs an A/B-Test of the specified command, asserting that both the A and B invokations return the same stdout/stderr"""
+    (_, old_out, old_err), (_, new_out, new_err), the_same = git_ab_test(
+        lambda path, _is_a: utils.run_cmd(command, ignore_return_code=True, cwd=path),
+        comparator,
+        a_revision=a_revision,
+        b_revision=b_revision,
+    )
+
+    assert (
+        the_same
+    ), f"The output of running command `{command}` changed:\nOld:\nstdout:\n{old_out}\nstderr:\n{old_err}\n\nNew:\nstdout:\n{new_out}\nstderr:\n{new_err}"
+
+
+def set_did_not_grow_comparator(
+    set_generator: Callable[[CommandReturn], set]
+) -> Callable[[CommandReturn, CommandReturn], bool]:
+    """Factory function for comparators to use with git_ab_test_command that converts the command output to sets
+    (using the given callable) and then checks that the "B" set is a subset of the "A" set
+    """
+    return lambda output_a, output_b: set_generator(output_b).issubset(
+        set_generator(output_a)
+    )
 
 
 def check_regression(
