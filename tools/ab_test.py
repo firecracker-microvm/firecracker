@@ -40,6 +40,30 @@ from host_tools.metrics import (
     get_metrics_logger,
 )
 
+# Performance tests that are known to be unstable and exhibit variances of up to 60% of the mean
+IGNORED = [
+    # Network throughput on m6a.metal
+    {"instance": "m6a.metal", "performance_test": "test_network_tcp_throughput"},
+    # Block throughput for 1 vcpu on m6g.metal/5.10
+    {
+        "performance_test": "test_block_performance",
+        "instance": "m6g.metal",
+        "host_kernel": "linux-5.10",
+        "vcpus": "1",
+    },
+]
+
+
+def is_ignored(dimensions) -> bool:
+    """Checks whether the given dimensions match a entry in the IGNORED dictionary above"""
+    for high_variance in IGNORED:
+        matching = {key: dimensions[key] for key in high_variance}
+
+        if matching == high_variance:
+            return True
+
+    return False
+
 
 def extract_dimensions(emf):
     """Extracts the cloudwatch dimensions from an EMF log message"""
@@ -210,11 +234,14 @@ def ab_performance_test(a_revision, b_revision, test, p_thresh, strength_thresh)
 
     failures = []
     for (dimension_set, metric), (result, unit) in results.items():
+        if is_ignored(dict(dimension_set)):
+            continue
+
         values_a = processed_emf_a[dimension_set][metric][0]
-        if (
-            result.pvalue < p_thresh
-            and abs(result.statistic) > abs(statistics.mean(values_a)) * strength_thresh
-        ):
+
+        if result.pvalue < p_thresh and abs(result.statistic) > abs(
+            statistics.mean(values_a)
+        ) * (strength_thresh):
             failures.append((dimension_set, metric, result, unit))
 
     failure_report = "\n".join(
