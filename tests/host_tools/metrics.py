@@ -48,6 +48,7 @@ import os
 import socket
 from urllib.parse import urlparse
 
+from aws_embedded_metrics.constants import DEFAULT_NAMESPACE
 from aws_embedded_metrics.logger.metrics_logger_factory import create_metrics_logger
 
 
@@ -99,10 +100,12 @@ def emit_raw_emf(emf_msg: dict):
     if "AWS_EMF_AGENT_ENDPOINT" not in os.environ:
         return
 
+    namespace = os.environ.get("AWS_EMF_NAMESPACE", DEFAULT_NAMESPACE)
     emf_msg["_aws"]["LogGroupName"] = os.environ.get(
-        "AWS_EMF_LOG_GROUP_NAME", f"{os.environ['AWS_EMF_NAMESPACE']}-metrics"
+        "AWS_EMF_LOG_GROUP_NAME", f"{namespace}-metrics"
     )
-    emf_msg["_aws"]["LogStreamName"] = ""
+    emf_msg["_aws"]["LogStreamName"] = os.environ.get("AWS_EMF_LOG_STREAM_NAME", "")
+    emf_msg["_aws"]["Namespace"] = namespace
 
     emf_endpoint = urlparse(os.environ["AWS_EMF_AGENT_ENDPOINT"])
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
