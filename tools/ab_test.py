@@ -20,7 +20,6 @@ between the two runs, performing statistical regression test across all the list
 valued properties collected.
 """
 import argparse
-import asyncio
 import json
 import platform
 import shutil
@@ -28,15 +27,18 @@ import statistics
 import sys
 from pathlib import Path
 
-from aws_embedded_metrics.logger.metrics_logger_factory import create_metrics_logger
-
 # Hack to be able to use our test framework code
 sys.path.append(str(Path(__file__).parent.parent / "tests"))
 
 # pylint:disable=wrong-import-position
 from framework import utils
 from framework.ab_test import chdir, check_regression, git_ab_test
-from host_tools.metrics import emit_raw_emf, format_with_reduced_unit
+from framework.properties import global_props
+from host_tools.metrics import (
+    emit_raw_emf,
+    format_with_reduced_unit,
+    get_metrics_logger,
+)
 
 
 def extract_dimensions(emf):
@@ -156,7 +158,10 @@ def analyze_data(processed_emf_a, processed_emf_b):
 
     results = {}
 
-    metrics_logger = create_metrics_logger()
+    metrics_logger = get_metrics_logger()
+
+    for prop_name, prop_val in global_props.__dict__.items():
+        metrics_logger.set_property(prop_name, prop_val)
 
     for dimension_set in processed_emf_a:
         metrics_a = processed_emf_a[dimension_set]
@@ -177,7 +182,7 @@ def analyze_data(processed_emf_a, processed_emf_b):
             metrics_logger.put_metric("mean_difference", float(result.statistic), unit)
             metrics_logger.set_property("data_a", values_a)
             metrics_logger.set_property("data_b", metrics_b[metric][0])
-            asyncio.run(metrics_logger.flush())
+            metrics_logger.flush()
 
             results[dimension_set, metric] = (result, unit)
 
