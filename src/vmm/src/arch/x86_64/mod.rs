@@ -26,7 +26,10 @@ use utils::vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap, Gues
 use crate::arch::InitrdConfig;
 
 // Value taken from https://elixir.bootlin.com/linux/v5.10.68/source/arch/x86/include/uapi/asm/e820.h#L31
+// Usable normal RAM
 const E820_RAM: u32 = 1;
+// Reserved area that should be avoided during memory allocations
+const E820_RESERVED: u32 = 2;
 
 /// Errors thrown while configuring x86_64 system.
 #[derive(Debug, PartialEq, Eq, derive_more::From)]
@@ -41,8 +44,12 @@ pub enum ConfigurationError {
     InitrdAddress,
 }
 
-// Where BIOS/VGA magic would live on a real PC.
+// EBDA is located in the last 1 KiB of the first 640KiB of memory, i.e in the range:
+// [0x9FC00, 0x9FFFF]
+// We mark first [0x0, EBDA_START] region as usable RAM
+// and [EBDA_START, (EBDA_START + EBDA_SIZE)] as reserved.
 const EBDA_START: u64 = 0x9fc00;
+const EBDA_SIZE: u64 = 1 << 10;
 const FIRST_ADDR_PAST_32BITS: u64 = 1 << 32;
 /// Size of MMIO gap at top of 32-bit address space.
 pub const MEM_32BIT_GAP_SIZE: u64 = 768 << 20;
@@ -135,6 +142,7 @@ pub fn configure_system(
     }
 
     add_e820_entry(&mut params, 0, EBDA_START, E820_RAM)?;
+    add_e820_entry(&mut params, EBDA_START, EBDA_SIZE, E820_RESERVED)?;
 
     let last_addr = guest_mem.last_addr();
     if last_addr < end_32bit_gap_start {
