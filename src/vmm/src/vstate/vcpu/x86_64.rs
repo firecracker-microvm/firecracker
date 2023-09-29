@@ -6,6 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 
 use kvm_bindings::{
     kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
@@ -540,7 +541,7 @@ impl KvmVcpu {
     }
 }
 
-#[derive(Debug, Clone, Versionize)]
+#[derive(Clone, Versionize)]
 /// Structure holding VCPU kvm state.
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VcpuState {
@@ -571,6 +572,30 @@ pub struct VcpuState {
     /// Tsc khz.
     #[version(start = 2, default_fn = "default_tsc_khz")]
     pub tsc_khz: Option<u32>,
+}
+
+impl Debug for VcpuState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut debug_kvm_regs: Vec<kvm_bindings::kvm_msrs> = Vec::new();
+        for kvm_msrs in self.saved_msrs.iter() {
+            debug_kvm_regs = kvm_msrs.clone().into_raw();
+            debug_kvm_regs.sort_by_key(|msr| (msr.nmsrs, msr.pad));
+        }
+        f.debug_struct("VcpuState")
+            .field("cpuid", &self.cpuid)
+            .field("msrs", &self.msrs)
+            .field("saved_msrs", &debug_kvm_regs)
+            .field("debug_regs", &self.debug_regs)
+            .field("lapic", &self.lapic)
+            .field("mp_state", &self.mp_state)
+            .field("regs", &self.regs)
+            .field("sregs", &self.sregs)
+            .field("vcpu_events", &self.vcpu_events)
+            .field("xcrs", &self.xcrs)
+            .field("xsave", &self.xsave)
+            .field("tsc_khz", &self.tsc_khz)
+            .finish()
+    }
 }
 
 impl VcpuState {
