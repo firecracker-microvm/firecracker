@@ -495,36 +495,49 @@ mod tests {
 
     use super::*;
 
-    fn fork_and_run(function: &dyn Fn(), expect_sigsegv: bool) {
-        let pid = unsafe { libc::fork() };
-        match pid {
-            0 => {
-                function();
-            }
-            child_pid => {
-                let mut child_status: i32 = -1;
-                let pid_done = unsafe { libc::waitpid(child_pid, &mut child_status, 0) };
-                assert_eq!(pid_done, child_pid);
-
-                if expect_sigsegv {
-                    // Asserts that the child process terminated because
-                    // it received a signal that was not handled.
-                    assert!(libc::WIFSIGNALED(child_status));
-                    // Signal code should be a SIGSEGV
-                    assert_eq!(libc::WTERMSIG(child_status), libc::SIGSEGV);
-                } else {
-                    assert!(libc::WIFEXITED(child_status));
-                    // Signal code should be a SIGSEGV
-                    assert_eq!(libc::WEXITSTATUS(child_status), 0);
-                }
-            }
-        };
-    }
-
+    // This method only works on gnu targets
+    #[cfg(target_env = "gnu")]
     fn validate_guard_region(region: &GuestMmapRegion) {
         let read_mem = |addr| unsafe { std::ptr::read_volatile::<u8>(addr) };
         let write_mem = |addr, val| unsafe {
             std::ptr::write(addr, val);
+        };
+
+        // We utilize ability to catch panic from threads
+        // to verify the caught signal.
+        unsafe extern "C" fn handler(signum: libc::c_int) {
+            panic!("{}", signum == libc::SIGSEGV);
+        }
+
+        let read_threaded = |addr: *mut u8| {
+            let addr_usize = addr as usize;
+            std::thread::spawn(move || unsafe { std::ptr::read::<u8>(addr_usize as *mut u8) })
+                .join()
+                .err()
+                .unwrap()
+                .downcast::<String>()
+                .unwrap()
+        };
+
+        let write_threaded = |addr: *mut u8, val: u8| {
+            let addr_usize = addr as usize;
+            std::thread::spawn(move || unsafe {
+                std::ptr::write(addr_usize as *mut u8, val);
+            })
+            .join()
+            .err()
+            .unwrap()
+            .downcast::<String>()
+            .unwrap()
+        };
+
+        // Setting a signal handler for threads to panic
+        // with specific messages.
+        let previous_signal_handler = unsafe {
+            libc::signal(
+                libc::SIGSEGV,
+                handler as *const fn(libc::c_int) as libc::size_t,
+            )
         };
 
         let page_size = get_page_size().unwrap();
@@ -543,16 +556,26 @@ mod tests {
 
         // Try a read/write operation against the left guard border of the range
         let left_border_first_byte = unsafe { region_first_byte.sub(page_size) };
-        fork_and_run(&|| write_mem(left_border_first_byte, 0x69), true);
-        fork_and_run(&|| _ = read_mem(left_border_first_byte), true);
+        assert_eq!(read_threaded(left_border_first_byte).as_str(), "true");
+        assert_eq!(
+            write_threaded(left_border_first_byte, 0x69).as_str(),
+            "true"
+        );
 
         // Try a read/write operation against the right guard border of the range
         let right_border_first_byte = unsafe { region_last_byte.add(1) };
-        fork_and_run(&|| write_mem(right_border_first_byte, 0x69), true);
-        fork_and_run(&|| _ = read_mem(right_border_first_byte), true);
+        assert_eq!(read_threaded(right_border_first_byte).as_str(), "true");
+        assert_eq!(
+            write_threaded(right_border_first_byte, 0x69).as_str(),
+            "true"
+        );
+
+        // Restoring previous signal handler.
+        unsafe { libc::signal(libc::SIGSEGV, previous_signal_handler) };
     }
 
     #[test]
+    #[cfg(target_env = "gnu")]
     fn test_build_guarded_region() {
         let page_size = get_page_size().unwrap();
         let region_size = page_size * 10;
@@ -570,7 +593,9 @@ mod tests {
 
         validate_guard_region(&region);
     }
+
     #[test]
+    #[cfg(target_env = "gnu")]
     fn test_build_guarded_region_file() {
         let page_size = get_page_size().unwrap();
         let region_size = page_size * 10;
@@ -595,6 +620,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_env = "gnu")]
     fn test_from_raw_regions() {
         // Test that all regions are guarded.
         {
@@ -682,6 +708,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_env = "gnu")]
     fn test_from_raw_regions_file() {
         let region_size = 0x10000;
 
