@@ -169,7 +169,7 @@ def consume_iperf3_output(stats_consumer, iperf_result):
         ]
 
 
-def emit_iperf3_metrics(metrics, iperf_result):
+def emit_iperf3_metrics(metrics, iperf_result, omit):
     """Consume the iperf3 data produced by the tcp/vsock throughput performance tests"""
     for cpu_util_data_point in list(
         iperf_result["cpu_load_raw"]["firecracker"].values()
@@ -177,7 +177,7 @@ def emit_iperf3_metrics(metrics, iperf_result):
         metrics.put_metric("cpu_utilization_vmm", cpu_util_data_point, "Percent")
 
     for time_series in iperf_result["g2h"]:
-        for interval in time_series["intervals"]:
+        for interval in time_series["intervals"][omit:]:
             metrics.put_metric(
                 "throughput_guest_to_host",
                 interval["sum"]["bits_per_second"],
@@ -185,7 +185,7 @@ def emit_iperf3_metrics(metrics, iperf_result):
             )
 
     for time_series in iperf_result["h2g"]:
-        for interval in time_series["intervals"]:
+        for interval in time_series["intervals"][omit:]:
             metrics.put_metric(
                 "throughput_host_to_guest",
                 interval["sum"]["bits_per_second"],

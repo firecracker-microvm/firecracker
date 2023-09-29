@@ -171,4 +171,4 @@ def test_network_tcp_throughput(
         }
     )
 
-    emit_iperf3_metrics(metrics, data)
+    emit_iperf3_metrics(metrics, data, TCPIPerf3Test.WARMUP_SEC)

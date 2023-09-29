@@ -116,4 +116,4 @@ def test_vsock_throughput(
         }
     )
 
-    emit_iperf3_metrics(metrics, data)
+    emit_iperf3_metrics(metrics, data, VsockIPerf3Test.WARMUP_SEC)
