@@ -32,6 +32,12 @@ pub enum InfoVmStateSubCommand {
         #[arg(short, long)]
         vmstate_path: PathBuf,
     },
+    /// Print readable MicroVM state.
+    VmState {
+        /// Path to the vmstate file.
+        #[arg(short, long)]
+        vmstate_path: PathBuf,
+    },
 }
 
 pub fn info_vmstate_command(command: InfoVmStateSubCommand) -> Result<(), InfoVmStateError> {
@@ -41,6 +47,7 @@ pub fn info_vmstate_command(command: InfoVmStateSubCommand) -> Result<(), InfoVm
         InfoVmStateSubCommand::VcpuStates { vmstate_path } => {
             info(&vmstate_path, info_vcpu_states)?
         }
+        InfoVmStateSubCommand::VmState { vmstate_path } => info(&vmstate_path, info_vmstate)?,
     }
     Ok(())
 }
@@ -85,5 +92,10 @@ fn info_vcpu_states(state: &MicrovmState, _: u16) -> Result<(), InfoVmStateError
             );
         }
     }
+    Ok(())
+}
+
+fn info_vmstate(vmstate: &MicrovmState, _version: u16) -> Result<(), InfoVmStateError> {
+    println!("{vmstate:#?}");
     Ok(())
 }
