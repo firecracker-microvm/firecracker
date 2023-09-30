@@ -360,6 +360,19 @@ class Microvm:
         # Read the PID stored inside the file.
         return int(pid_file_path.read_text(encoding="ascii"))
 
+    @property
+    def dimensions(self):
+        """Gets a default set of cloudwatch dimensions describing the configuration of this microvm"""
+        return {
+            "instance": global_props.instance,
+            "cpu_model": global_props.cpu_model,
+            "host_kernel": f"linux-{global_props.host_linux_version}",
+            "guest_kernel": self.kernel_file.stem[2:],
+            "rootfs": self.rootfs_file.name,
+            "vcpus": str(self.vcpus_count),
+            "guest_memory": f"{self.mem_size_bytes / (1024 * 1024)}MB",
+        }
+
     def flush_metrics(self):
         """Flush the microvm metrics and get the latest datapoint"""
         self.api.actions.put(action_type="FlushMetrics")

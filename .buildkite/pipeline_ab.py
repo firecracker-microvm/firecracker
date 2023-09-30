@@ -8,6 +8,18 @@ import os
 from common import COMMON_PARSER, group, overlay_dict, pipeline_to_json
 
 perf_test = {
+    "block": {
+        "label": "🖴 Block Performance",
+        "test_path": "integration_tests/performance/test_block_ab.py",
+        "devtool_opts": "-c 1-10 -m 0",
+        "timeout_in_minutes": 40,
+    },
+    "network-latency": {
+        "label": "🖧 Network Latency",
+        "test_path": "integration_tests/performance/test_network_ab.py",
+        "devtool_opts": "-c 1-10 -m 0",
+        "timeout_in_minutes": 30,
+    },
     "snapshot-latency": {
         "label": "📸 Snapshot Latency",
         "test_path": "integration_tests/performance/test_snapshot_ab.py",
