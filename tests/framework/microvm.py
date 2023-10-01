@@ -785,7 +785,7 @@ class Microvm:
         guest_ip = list(self.iface.values())[iface_idx]["iface"].guest_ip
         self.ssh_key = Path(self.ssh_key)
         return net_tools.SSHConnection(
-            netns_path=self.jailer.netns_file_path(),
+            netns=self.jailer.netns,
             ssh_key=self.ssh_key,
             user="root",
             host=guest_ip,
