@@ -393,3 +393,6 @@ uvm.ssh.run("ls")
 snap = uvm.snapshot_full()
 uvm.help.tmux_ssh()
 ```
+
+It supports a number of options, you can check with `devtool sandbox --
+--help`.
