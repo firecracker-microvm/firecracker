@@ -551,7 +551,7 @@ dependencies = [
  "snapshot",
  "thiserror",
  "timerfd",
- "userfaultfd 0.7.0",
+ "userfaultfd",
  "utils",
  "vmm",
 ]
@@ -1302,32 +1302,7 @@ dependencies = [
  "libc",
  "nix",
  "thiserror",
- "userfaultfd-sys 0.4.4",
-]
-
-[[package]]
-name = "userfaultfd"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6a38c7e24af201e66f02659492f86ccd5efa9fd62f2c851fff3961a60e81966"
-dependencies = [
- "bitflags 2.3.3",
- "cfg-if",
- "libc",
- "nix",
- "thiserror",
- "userfaultfd-sys 0.5.0",
-]
-
-[[package]]
-name = "userfaultfd-sys"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d75595d2a62b7db16bd47f5a1ce14e1fe05ccbe27d6c96721a958e0a027cad41"
-dependencies = [
- "bindgen 0.68.1",
- "cc",
- "cfg-if",
+ "userfaultfd-sys",
 ]
 
 [[package]]
@@ -1465,7 +1440,7 @@ dependencies = [
  "snapshot",
  "thiserror",
  "timerfd",
- "userfaultfd 0.6.1",
+ "userfaultfd",
  "utils",
  "versionize",
  "versionize_derive",
