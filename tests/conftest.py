@@ -264,7 +264,7 @@ def fc_tmp_path(test_fc_session_root_path):
 
 
 @pytest.fixture()
-def microvm_factory(fc_tmp_path, request):
+def microvm_factory(fc_tmp_path, request, record_property):
     """Fixture to create microvms simply.
 
     In order to avoid running out of space when instantiating many microvms,
@@ -278,6 +278,7 @@ def microvm_factory(fc_tmp_path, request):
         jailer_binary_path = Path(binary_dir) / "jailer"
     else:
         fc_binary_path, jailer_binary_path = build_tools.get_firecracker_binaries()
+    record_property("firecracker_bin", str(fc_binary_path))
 
     uvm_factory = MicroVMFactory(fc_tmp_path, fc_binary_path, jailer_binary_path)
     yield uvm_factory
