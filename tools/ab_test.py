@@ -145,7 +145,7 @@ def collect_data(firecracker_checkout: Path, test: str):
     return load_data_series(revision)
 
 
-def analyze_data(processed_emf_a, processed_emf_b):
+def analyze_data(processed_emf_a, processed_emf_b, *, n_resamples: int = 9999):
     """
     Analyzes the A/B-test data produced by `collect_data`, by performing regression tests
     as described this script's doc-comment.
@@ -175,7 +175,9 @@ def analyze_data(processed_emf_a, processed_emf_b):
             print(
                 f"Doing A/B-test for dimensions {dimension_set} and property {metric}"
             )
-            result = check_regression(values_a, metrics_b[metric][0])
+            result = check_regression(
+                values_a, metrics_b[metric][0], n_resamples=n_resamples
+            )
 
             metrics_logger.set_dimensions({"metric": metric, **dict(dimension_set)})
             metrics_logger.put_metric("p_value", float(result.pvalue), "None")
@@ -201,7 +203,7 @@ def ab_performance_test(a_revision, b_revision, test, p_thresh, strength_thresh)
 
     processed_emf_a, processed_emf_b, results = git_ab_test(
         lambda checkout, _: collect_data(checkout, test),
-        analyze_data,
+        lambda ah, be: analyze_data(ah, be, n_resamples=int(100 / p_thresh)),
         a_revision=a_revision,
         b_revision=b_revision,
     )
