@@ -14,7 +14,7 @@ bench = false
 [dependencies]
 libc = "0.2.148"
 nix = { version = "0.27.1", default-features = false, features = ["dir"] }
-regex = { version = "1.9.5", default-features = false, features = ["std"] }
-thiserror = "1.0.48"
+regex = { version = "1.9.6", default-features = false, features = ["std"] }
+thiserror = "1.0.49"
 
 utils = { path = "../utils" }
