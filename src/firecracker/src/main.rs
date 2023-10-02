@@ -104,25 +104,6 @@ fn main() -> ExitCode {
 fn main_exec() -> Result<(), MainError> {
     // Initialize the logger.
     LOGGER.init().map_err(MainError::SetLogger)?;
-    info!("Running Firecracker v{FIRECRACKER_VERSION}");
-
-    register_signal_handlers().map_err(MainError::RegisterSignalHandlers)?;
-
-    #[cfg(target_arch = "aarch64")]
-    enable_ssbd_mitigation();
-
-    if let Err(err) = resize_fdtable() {
-        match err {
-            // These errors are non-critical: In the worst case we have worse snapshot restore
-            // performance.
-            ResizeFdTableError::GetRlimit | ResizeFdTableError::Dup2(_) => {
-                debug!("Failed to resize fdtable: {err}")
-            }
-            // This error means that we now have a random file descriptor lying around, abort to be
-            // cautious.
-            ResizeFdTableError::Close(_) => return Err(MainError::ResizeFdtable(err)),
-        }
-    }
 
     // We need this so that we can reset terminal to canonical mode if panic occurs.
     let stdin = io::stdin();
@@ -279,6 +260,26 @@ fn main_exec() -> Result<(), MainError> {
     if let Some(snapshot_path) = arguments.single_value("describe-snapshot") {
         print_snapshot_data_format(snapshot_path)?;
         return Ok(());
+    }
+
+    info!("Running Firecracker v{FIRECRACKER_VERSION}");
+
+    register_signal_handlers().map_err(MainError::RegisterSignalHandlers)?;
+
+    #[cfg(target_arch = "aarch64")]
+    enable_ssbd_mitigation();
+
+    if let Err(err) = resize_fdtable() {
+        match err {
+            // These errors are non-critical: In the worst case we have worse snapshot restore
+            // performance.
+            ResizeFdTableError::GetRlimit | ResizeFdTableError::Dup2(_) => {
+                debug!("Failed to resize fdtable: {err}")
+            }
+            // This error means that we now have a random file descriptor lying around, abort to be
+            // cautious.
+            ResizeFdTableError::Close(_) => return Err(MainError::ResizeFdtable(err)),
+        }
     }
 
     // Display warnings for any used deprecated parameters.
