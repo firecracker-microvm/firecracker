@@ -100,7 +100,9 @@ def git_ab_test(
         return result_a, result_b, comparison
 
 
-def check_regression(a_samples: List[float], b_samples: List[float]):
+def check_regression(
+    a_samples: List[float], b_samples: List[float], *, n_resamples: int = 9999
+):
     """Checks for a regression by performing a permutation test. A permutation test is a non-parametric test that takes
     three parameters: Two populations (sets of samples) and a function computing a "statistic" based on two populations.
     First, the test computes the statistic for the initial populations. It then randomly
@@ -120,6 +122,7 @@ def check_regression(a_samples: List[float], b_samples: List[float]):
         # Compute the difference of means, such that a positive different indicates potential for regression.
         lambda x, y: statistics.mean(y) - statistics.mean(x),
         vectorized=False,
+        n_resamples=n_resamples,
     )
 
 
