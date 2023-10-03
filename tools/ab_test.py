@@ -215,7 +215,9 @@ def analyze_data(processed_emf_a, processed_emf_b, *, n_resamples: int = 9999):
     return results
 
 
-def ab_performance_test(a_revision, b_revision, test, p_thresh, strength_thresh):
+def ab_performance_test(
+    a_revision, b_revision, test, p_thresh, strength_thresh, noise_threshold
+):
     """Does an A/B-test of the specified test across the given revisions"""
     _, commit_list, _ = utils.run_cmd(
         f"git --no-pager log --oneline {a_revision}..{b_revision}"
@@ -232,16 +234,58 @@ def ab_performance_test(a_revision, b_revision, test, p_thresh, strength_thresh)
         b_revision=b_revision,
     )
 
+    # We sort our A/B-Testing results keyed by metric here. The resulting lists of values
+    # will be approximately normal distributed, and we will use this property as a means of error correction.
+    # The idea behind this is that testing the same metric (say, restore_latency) across different scenarios (e.g.
+    # different vcpu counts) will be related in some unknown way (meaning most scenarios will show a change in the same
+    # direction). In particular, if one scenario yields a slight improvement and the next yields a
+    # slight degradation, we take this as evidence towards both being mere noise that cancels out.
+    #
+    # Empirical evidence for this assumption is that
+    #  1. Historically, a true performance change has never shown up in just a single test, it always showed up
+    #     across most (if not all) tests for a specific metric.
+    #  2. Analyzing data collected from historical runs shows that across different parameterizations of the same
+    #     metric, the collected samples approximately follow mean / variance = const, with the constant independent
+    #     of the parameterization.
+    #
+    # Mathematically, this has the following justification: By the central
+    # limit theorem, the means of samples are (approximately) normal distributed. Denote by A
+    # and B the distributions of the mean of samples from the 'A' and 'B'
+    # tests respectively. Under our null hypothesis, the distributions of the
+    # 'A' and 'B' samples are identical (although we dont know what the exact
+    # distributions are), meaning so are A and B, say A ~ B ~ N(mu, sigma^2).
+    # The difference of two normal distributions is also normal distributed,
+    # with the means being subtracted and the variances being added.
+    # Therefore, A - B ~ N(0, 2sigma^2). If we now normalize this distribution by mu (which
+    # corresponds to considering the distribution of relative regressions instead), we get (A-B)/mu ~ N(0, c), with c
+    # being the constant from point 2. above. This means that we can combine the relative means across
+    # different parameterizations, and get a distributions whose expected
+    # value is 0, provided our null hypothesis was true. It is exactly this distribution
+    # for which we collect samples in the dictionary below. Therefore, a sanity check
+    # on the average of the average of the performance changes for a single metric
+    # is a good candidates for a sanity check against false-positives.
+    #
+    # Note that with this approach, for performance changes to "cancel out", we would need essentially a perfect split
+    # between scenarios that improve performance and scenarios that degrade performance, something we have not
+    # ever observed to actually happen.
+    relative_changes_by_metric = {}
+
     failures = []
     for (dimension_set, metric), (result, unit) in results.items():
         if is_ignored(dict(dimension_set)):
             continue
 
         values_a = processed_emf_a[dimension_set][metric][0]
+        baseline_mean = statistics.mean(values_a)
 
-        if result.pvalue < p_thresh and abs(result.statistic) > abs(
-            statistics.mean(values_a)
-        ) * (strength_thresh):
+        if metric not in relative_changes_by_metric:
+            relative_changes_by_metric[metric] = []
+        relative_changes_by_metric[metric].append(result.statistic / baseline_mean)
+
+        if (
+            result.pvalue < p_thresh
+            and abs(result.statistic) > baseline_mean * strength_thresh
+        ):
             failures.append((dimension_set, metric, result, unit))
 
     failure_report = "\n".join(
@@ -254,8 +298,10 @@ def ab_performance_test(a_revision, b_revision, test, p_thresh, strength_thresh)
         f"characteristics did not change across the tested commits, has a probability of {result.pvalue:.2%}. "
         f"Tested Dimensions:\n{json.dumps(dict(dimension_set), indent=2)}"
         for (dimension_set, metric, result, unit) in failures
+        # Sanity check as described above
+        if abs(statistics.mean(relative_changes_by_metric[metric])) > noise_threshold
     )
-    assert not failures, "\n" + failure_report
+    assert not failure_report, "\n" + failure_report
     print("No regressions detected!")
 
 
@@ -280,13 +326,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "--significance",
         help="The p-value threshold that needs to be crossed for a test result to be considered significant",
+        type=float,
         default=0.01,
     )
     parser.add_argument(
         "--relative-strength",
         help="The minimal delta required before a regression will be considered valid",
-        default=0.2,
+        type=float,
+        default=0.0,
     )
+    parser.add_argument("--noise-threshold", type=float, default=0.05)
     args = parser.parse_args()
 
     ab_performance_test(
@@ -296,4 +345,5 @@ if __name__ == "__main__":
         args.test,
         args.significance,
         args.relative_strength,
+        args.noise_threshold,
     )
