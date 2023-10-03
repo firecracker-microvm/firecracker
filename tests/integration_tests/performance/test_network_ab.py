@@ -6,7 +6,6 @@ import re
 
 import pytest
 
-from framework.utils import CpuMap
 from framework.utils_iperf import IPerf3Test, emit_iperf3_metrics
 
 # each iteration is 30 * 0.2s = 6s
@@ -56,10 +55,6 @@ def network_microvm(request, microvm_factory, guest_kernel, rootfs):
     vm.basic_config(vcpu_count=request.param, mem_size_mib=GUEST_MEM_MIB)
     vm.add_net_iface()
     vm.start()
-
-    # Check if the needed CPU cores are available. We have the API thread, VMM
-    # thread and then one thread for each configured vCPU.
-    assert CpuMap.len() >= 2 + vm.vcpus_count
 
     # Pin uVM threads to physical cores.
     assert vm.pin_vmm(0), "Failed to pin firecracker thread."
