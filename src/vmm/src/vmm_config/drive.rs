@@ -2,10 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::VecDeque;
-use std::convert::TryInto;
 use std::io;
-use std::ops::Deref;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -60,22 +57,6 @@ pub struct BlockDeviceConfig {
     #[serde(default)]
     #[serde(rename = "io_engine")]
     pub file_engine_type: FileEngineType,
-}
-
-impl From<&Block> for BlockDeviceConfig {
-    fn from(block: &Block) -> Self {
-        let rl: RateLimiterConfig = block.rate_limiter().into();
-        BlockDeviceConfig {
-            drive_id: block.id().clone(),
-            path_on_host: block.file_path().clone(),
-            is_root_device: block.is_root_device(),
-            partuuid: block.partuuid().cloned(),
-            is_read_only: block.is_read_only(),
-            cache_type: block.cache_type(),
-            rate_limiter: rl.into_option(),
-            file_engine_type: block.file_engine_type(),
-        }
-    }
 }
 
 /// Only provided fields will be updated. I.e. if any optional fields
@@ -150,7 +131,9 @@ impl BlockBuilder {
             return Err(DriveError::RootBlockDeviceAlreadyAdded);
         }
 
-        let block_dev = Arc::new(Mutex::new(Self::create_block(config)?));
+        let block_dev = Arc::new(Mutex::new(
+            Block::new(config.into()).map_err(DriveError::CreateBlockDevice)?,
+        ));
         // If the id of the drive already exists in the list, the operation is update/overwrite.
         match position {
             // New block device.
@@ -175,43 +158,12 @@ impl BlockBuilder {
         Ok(())
     }
 
-    /// Creates a Block device from a BlockDeviceConfig.
-    fn create_block(block_device_config: BlockDeviceConfig) -> Result<Block, DriveError> {
-        // check if the path exists
-        let path_on_host = PathBuf::from(&block_device_config.path_on_host);
-        if !path_on_host.exists() {
-            return Err(DriveError::InvalidBlockDevicePath(
-                path_on_host.display().to_string(),
-            ));
-        }
-
-        let rate_limiter = block_device_config
-            .rate_limiter
-            .map(super::RateLimiterConfig::try_into)
-            .transpose()
-            .map_err(DriveError::CreateRateLimiter)?;
-
-        // Create and return the Block device
-        Block::new(
-            block_device_config.drive_id,
-            block_device_config.partuuid,
-            block_device_config.cache_type,
-            block_device_config.path_on_host,
-            block_device_config.is_read_only,
-            block_device_config.is_root_device,
-            rate_limiter.unwrap_or_default(),
-            block_device_config.file_engine_type,
-        )
-        .map_err(DriveError::CreateBlockDevice)
-    }
-
     /// Returns a vec with the structures used to configure the devices.
     pub fn configs(&self) -> Vec<BlockDeviceConfig> {
-        let mut ret = vec![];
-        for block in &self.list {
-            ret.push(BlockDeviceConfig::from(block.lock().unwrap().deref()));
-        }
-        ret
+        self.list
+            .iter()
+            .map(|block| block.lock().unwrap().config().into())
+            .collect()
     }
 }
 
@@ -220,7 +172,7 @@ mod tests {
     use utils::tempfile::TempFile;
 
     use super::*;
-    use crate::rate_limiter::RateLimiter;
+    use crate::devices::virtio::block::device::FileBlockDeviceConfig;
 
     impl PartialEq for DriveError {
         fn eq(&self, other: &DriveError) -> bool {
@@ -540,10 +492,10 @@ mod tests {
         // Update with invalid path.
         let dummy_path_3 = String::from("test_update_3");
         dummy_block_device_2.path_on_host = dummy_path_3.clone();
-        assert_eq!(
+        assert!(matches!(
             block_devs.insert(dummy_block_device_2.clone()),
-            Err(DriveError::InvalidBlockDevicePath(dummy_path_3))
-        );
+            Err(DriveError::CreateBlockDevice(BlockError::BackingFile(_, _)))
+        ));
 
         // Update with 2 root block devices.
         dummy_block_device_2.path_on_host = dummy_path_2.clone();
@@ -611,30 +563,25 @@ mod tests {
     fn test_add_device() {
         let mut block_devs = BlockBuilder::new();
         let backing_file = TempFile::new().unwrap();
+
         let block_id = "test_id";
-        let block = Block::new(
-            block_id.to_string(),
-            None,
-            CacheType::default(),
-            backing_file.as_path().to_str().unwrap().to_string(),
-            true,
-            true,
-            RateLimiter::default(),
-            FileEngineType::default(),
-        )
-        .unwrap();
+        let config = FileBlockDeviceConfig {
+            drive_id: block_id.to_string(),
+            path_on_host: backing_file.as_path().to_str().unwrap().to_string(),
+            is_root_device: true,
+            partuuid: None,
+            is_read_only: true,
+            cache_type: CacheType::default(),
+            rate_limiter: None,
+            file_engine_type: FileEngineType::default(),
+        };
+
+        let block = Block::new(config).unwrap();
 
         block_devs.add_device(Arc::new(Mutex::new(block)));
         assert_eq!(block_devs.list.len(), 1);
         assert_eq!(
-            block_devs
-                .list
-                .pop_back()
-                .unwrap()
-                .lock()
-                .unwrap()
-                .deref()
-                .id(),
+            block_devs.list.pop_back().unwrap().lock().unwrap().id(),
             block_id
         )
     }

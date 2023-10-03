@@ -665,7 +665,7 @@ mod tests {
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         ) {
-            Err(ResourcesError::BlockDevice(DriveError::InvalidBlockDevicePath(_))) => (),
+            Err(ResourcesError::BlockDevice(DriveError::CreateBlockDevice(_))) => (),
             _ => unreachable!(),
         }
 
