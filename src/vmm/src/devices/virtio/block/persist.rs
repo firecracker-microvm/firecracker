@@ -7,14 +7,16 @@ use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
 use snapshot::Persist;
+use utils::eventfd::EventFd;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 
 use super::*;
-use crate::devices::virtio::block::device::FileEngineType;
+use crate::devices::virtio::block::device::{DiskProperties, FileEngineType};
+use crate::devices::virtio::block_metrics::BlockMetricsPerDevice;
 use crate::devices::virtio::gen::virtio_blk::VIRTIO_BLK_F_RO;
 use crate::devices::virtio::persist::VirtioDeviceState;
-use crate::devices::virtio::{DeviceState, FIRECRACKER_MAX_QUEUE_SIZE, TYPE_BLOCK};
+use crate::devices::virtio::{DeviceState, IrqTrigger, FIRECRACKER_MAX_QUEUE_SIZE, TYPE_BLOCK};
 use crate::logger::warn;
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::rate_limiter::RateLimiter;
@@ -134,18 +136,14 @@ impl Persist<'_> for Block {
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
-        let is_disk_read_only = state.virtio_state.avail_features & (1u64 << VIRTIO_BLK_F_RO) != 0;
+        let is_read_only = state.virtio_state.avail_features & (1u64 << VIRTIO_BLK_F_RO) != 0;
         let rate_limiter =
             RateLimiter::restore((), &state.rate_limiter_state).map_err(BlockError::RateLimiter)?;
 
-        let mut block = Block::new(
-            state.id.clone(),
-            state.partuuid.clone(),
-            state.cache_type.into(),
+        let disk_properties = DiskProperties::new(
             state.disk_path.clone(),
-            is_disk_read_only,
-            state.root_device,
-            rate_limiter,
+            is_read_only,
+            state.cache_type.into(),
             state.file_engine_type.into(),
         )
         .or_else(|err| match err {
@@ -156,24 +154,19 @@ impl Persist<'_> for Block {
                      Defaulting to \"Sync\" mode.",
                     utils::kernel_version::min_kernel_version_for_io_uring()
                 );
-
-                let rate_limiter = RateLimiter::restore((), &state.rate_limiter_state)
-                    .map_err(BlockError::RateLimiter)?;
-                Block::new(
-                    state.id.clone(),
-                    state.partuuid.clone(),
-                    state.cache_type.into(),
+                DiskProperties::new(
                     state.disk_path.clone(),
-                    is_disk_read_only,
-                    state.root_device,
-                    rate_limiter,
+                    is_read_only,
+                    state.cache_type.into(),
                     FileEngineType::Sync,
                 )
             }
-            other_err => Err(other_err),
+            other => Err(other),
         })?;
 
-        block.queues = state
+        let queue_evts = [EventFd::new(libc::EFD_NONBLOCK).map_err(BlockError::EventFd)?];
+
+        let queues = state
             .virtio_state
             .build_queues_checked(
                 &constructor_args.mem,
@@ -182,16 +175,36 @@ impl Persist<'_> for Block {
                 FIRECRACKER_MAX_QUEUE_SIZE,
             )
             .map_err(BlockError::Persist)?;
-        block.irq_trigger.irq_status =
-            Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
-        block.avail_features = state.virtio_state.avail_features;
-        block.acked_features = state.virtio_state.acked_features;
 
-        if state.virtio_state.activated {
-            block.device_state = DeviceState::Activated(constructor_args.mem);
-        }
+        let mut irq_trigger = IrqTrigger::new().map_err(BlockError::IrqTrigger)?;
+        irq_trigger.irq_status = Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
 
-        Ok(block)
+        let avail_features = state.virtio_state.avail_features;
+        let acked_features = state.virtio_state.acked_features;
+
+        let device_state = if state.virtio_state.activated {
+            DeviceState::Activated(constructor_args.mem)
+        } else {
+            DeviceState::Inactive
+        };
+
+        Ok(Block {
+            id: state.id.clone(),
+            root_device: state.root_device,
+            partuuid: state.partuuid.clone(),
+            rate_limiter,
+            config_space: disk_properties.virtio_block_config_space(),
+            disk: disk_properties,
+            avail_features,
+            acked_features,
+            queue_evts,
+            queues,
+            device_state,
+            irq_trigger,
+            activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(BlockError::EventFd)?,
+            is_io_engine_throttled: false,
+            metrics: BlockMetricsPerDevice::alloc(state.id.clone()),
+        })
     }
 }
 
@@ -202,6 +215,7 @@ mod tests {
     use utils::tempfile::TempFile;
 
     use super::*;
+    use crate::devices::virtio::block::device::FileBlockDeviceConfig;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::test_utils::default_mem;
 
@@ -241,18 +255,18 @@ mod tests {
         let f = TempFile::new().unwrap();
         f.as_file().set_len(0x1000).unwrap();
 
-        let id = "test".to_string();
-        let block = Block::new(
-            id,
-            None,
-            CacheType::Writeback,
-            f.as_path().to_str().unwrap().to_string(),
-            false,
-            false,
-            RateLimiter::default(),
-            FileEngineType::default(),
-        )
-        .unwrap();
+        let config = FileBlockDeviceConfig {
+            drive_id: "test".to_string(),
+            path_on_host: f.as_path().to_str().unwrap().to_string(),
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: false,
+            cache_type: CacheType::Writeback,
+            rate_limiter: None,
+            file_engine_type: FileEngineType::default(),
+        };
+
+        let block = Block::new(config).unwrap();
 
         // Save the block device.
         let mut mem = vec![0; 4096];
@@ -294,19 +308,20 @@ mod tests {
             // Test what happens when restoring an Async engine on a kernel that does not support
             // it.
 
-            let block = Block::new(
-                "test".to_string(),
-                None,
-                CacheType::Unsafe,
-                f.as_path().to_str().unwrap().to_string(),
-                false,
-                false,
-                RateLimiter::default(),
+            let config = FileBlockDeviceConfig {
+                drive_id: "test".to_string(),
+                path_on_host: f.as_path().to_str().unwrap().to_string(),
+                is_root_device: false,
+                partuuid: None,
+                is_read_only: false,
+                cache_type: CacheType::Writeback,
+                rate_limiter: None,
                 // Need to use Sync because it will otherwise return an error.
                 // We'll overwrite the state instead.
-                FileEngineType::Sync,
-            )
-            .unwrap();
+                file_engine_type: FileEngineType::Sync,
+            };
+
+            let block = Block::new(config).unwrap();
 
             // Save the block device.
             let mut mem = vec![0; 4096];
@@ -338,18 +353,18 @@ mod tests {
         let f = TempFile::new().unwrap();
         f.as_file().set_len(0x1000).unwrap();
 
-        let id = "test".to_string();
-        let block = Block::new(
-            id,
-            None,
-            CacheType::Unsafe,
-            f.as_path().to_str().unwrap().to_string(),
-            false,
-            false,
-            RateLimiter::default(),
-            FileEngineType::default(),
-        )
-        .unwrap();
+        let config = FileBlockDeviceConfig {
+            drive_id: "test".to_string(),
+            path_on_host: f.as_path().to_str().unwrap().to_string(),
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: false,
+            cache_type: CacheType::Unsafe,
+            rate_limiter: None,
+            file_engine_type: FileEngineType::default(),
+        };
+
+        let block = Block::new(config).unwrap();
         let guest_mem = default_mem();
 
         // Save the block device.

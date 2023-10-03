@@ -11,6 +11,7 @@ use std::time::Duration;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
 use utils::tempfile::TempFile;
 
+use super::device::FileBlockDeviceConfig;
 use crate::devices::virtio::block::device::FileEngineType;
 #[cfg(test)]
 use crate::devices::virtio::block::io::FileEngine;
@@ -20,6 +21,7 @@ use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
 use crate::devices::virtio::IrqType;
 use crate::devices::virtio::{Block, CacheType, Queue, RequestHeader};
 use crate::rate_limiter::RateLimiter;
+use crate::vmm_config::{RateLimiterConfig, TokenBucketConfig};
 use crate::vstate::memory::{Bytes, GuestAddress};
 
 /// Create a default Block instance to be used in tests.
@@ -42,22 +44,31 @@ pub fn default_engine_type_for_kv() -> FileEngineType {
 
 /// Create a default Block instance using file at the specified path to be used in tests.
 pub fn default_block_with_path(path: String, file_engine_type: FileEngineType) -> Block {
-    // Rate limiting is enabled but with a high operation rate (10 million ops/s).
-    let rate_limiter = RateLimiter::new(0, 0, 0, 100_000, 0, 10).unwrap();
-
-    let id = "test".to_string();
-    // The default block device is read-write and non-root.
-    Block::new(
-        id,
-        None,
-        CacheType::Unsafe,
-        path,
-        false,
-        false,
-        rate_limiter,
+    let config = FileBlockDeviceConfig {
+        drive_id: "test".to_string(),
+        path_on_host: path,
+        is_root_device: false,
+        partuuid: None,
+        is_read_only: false,
+        cache_type: CacheType::Unsafe,
+        // Rate limiting is enabled but with a high operation rate (10 million ops/s).
+        rate_limiter: Some(RateLimiterConfig {
+            bandwidth: Some(TokenBucketConfig {
+                size: 0,
+                one_time_burst: Some(0),
+                refill_time: 0,
+            }),
+            ops: Some(TokenBucketConfig {
+                size: 100_000,
+                one_time_burst: Some(0),
+                refill_time: 10,
+            }),
+        }),
         file_engine_type,
-    )
-    .unwrap()
+    };
+
+    // The default block device is read-write and non-root.
+    Block::new(config).unwrap()
 }
 
 pub fn set_queue(blk: &mut Block, idx: usize, q: Queue) {
