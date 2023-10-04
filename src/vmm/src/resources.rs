@@ -1499,9 +1499,9 @@ mod tests {
         let tmp_file = TempFile::new().unwrap();
         new_block_device_cfg.drive_id = "block2".to_string();
         new_block_device_cfg.path_on_host = tmp_file.as_path().to_str().unwrap().to_string();
-        assert_eq!(vm_resources.block.list.len(), 1);
+        assert_eq!(vm_resources.block.devices.len(), 1);
         vm_resources.set_block_device(new_block_device_cfg).unwrap();
-        assert_eq!(vm_resources.block.list.len(), 2);
+        assert_eq!(vm_resources.block.devices.len(), 2);
     }
 
     #[test]
