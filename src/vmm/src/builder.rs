@@ -44,7 +44,7 @@ use crate::devices::legacy::serial::SerialOut;
 use crate::devices::legacy::RTCDevice;
 use crate::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
 use crate::devices::virtio::{
-    Balloon, Entropy, MmioTransport, Net, VirtioBlock, VirtioDevice, Vsock, VsockUnixBackend,
+    Balloon, Entropy, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend,
 };
 use crate::devices::BusDevice;
 #[cfg(target_arch = "aarch64")]
@@ -53,6 +53,7 @@ use crate::logger::error;
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootConfig;
+use crate::vmm_config::drive::BlockDeviceType;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{MachineConfigUpdate, VmConfig, VmConfigError};
 use crate::vstate::memory::{
@@ -303,7 +304,7 @@ pub fn build_microvm_for_boot(
     attach_block_devices(
         &mut vmm,
         &mut boot_cmdline,
-        vm_resources.block.list.iter(),
+        vm_resources.block.devices.iter(),
         event_manager,
     )?;
     attach_net_devices(
@@ -874,30 +875,35 @@ fn attach_entropy_device(
     attach_virtio_device(event_manager, vmm, id, entropy_device.clone(), cmdline)
 }
 
-fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<VirtioBlock>>> + Debug>(
+fn attach_block_devices<'a, I: Iterator<Item = &'a BlockDeviceType> + Debug>(
     vmm: &mut Vmm,
     cmdline: &mut LoaderKernelCmdline,
     blocks: I,
     event_manager: &mut EventManager,
 ) -> Result<(), StartMicrovmError> {
     for block in blocks {
-        let id = {
-            let locked = block.lock().expect("Poisoned lock");
-            if locked.is_root_device() {
-                cmdline.insert_str(if let Some(partuuid) = locked.partuuid() {
-                    format!("root=PARTUUID={}", partuuid)
-                } else {
-                    // If no PARTUUID was specified for the root device, try with the /dev/vda.
-                    "root=/dev/vda".to_string()
-                })?;
+        match block {
+            BlockDeviceType::VirtioBlock(block) => {
+                let id = {
+                    let locked = block.lock().expect("Poisoned lock");
+                    if locked.is_root_device() {
+                        cmdline.insert_str(if let Some(partuuid) = locked.partuuid() {
+                            format!("root=PARTUUID={}", partuuid)
+                        } else {
+                            // If no PARTUUID was specified for the root device, try with the
+                            // /dev/vda.
+                            "root=/dev/vda".to_string()
+                        })?;
 
-                let flags = if locked.is_read_only() { "ro" } else { "rw" };
-                cmdline.insert_str(flags)?;
+                        let flags = if locked.is_read_only() { "ro" } else { "rw" };
+                        cmdline.insert_str(flags)?;
+                    }
+                    locked.id().clone()
+                };
+                // The device mutex mustn't be locked here otherwise it will deadlock.
+                attach_virtio_device(event_manager, vmm, id, block.clone(), cmdline)?;
             }
-            locked.id().clone()
-        };
-        // The device mutex mustn't be locked here otherwise it will deadlock.
-        attach_virtio_device(event_manager, vmm, id, block.clone(), cmdline)?;
+        }
     }
     Ok(())
 }
@@ -1117,7 +1123,13 @@ pub mod tests {
             block_dev_configs.insert(block_device_config).unwrap();
         }
 
-        attach_block_devices(vmm, cmdline, block_dev_configs.list.iter(), event_manager).unwrap();
+        attach_block_devices(
+            vmm,
+            cmdline,
+            block_dev_configs.devices.iter(),
+            event_manager,
+        )
+        .unwrap();
         block_files
     }
 
