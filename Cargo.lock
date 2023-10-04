@@ -1435,6 +1435,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "vhost"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "289adfce099c71f8310f895932ccd978f352ca494ea47496dbe20d4241888b82"
+dependencies = [
+ "bitflags 2.4.1",
+ "libc",
+ "vm-memory",
+ "vmm-sys-util",
+]
+
+[[package]]
 name = "vm-allocator"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1502,6 +1514,7 @@ dependencies = [
  "utils",
  "versionize",
  "versionize_derive",
+ "vhost",
  "vm-allocator",
  "vm-fdt",
  "vm-memory",

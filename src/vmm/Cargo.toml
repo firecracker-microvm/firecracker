@@ -28,6 +28,7 @@ displaydoc = "0.2.4"
 userfaultfd = "0.7.0"
 versionize = "0.1.10"
 versionize_derive = "0.1.6"
+vhost = { version = "0.9.0", features = ["vhost-user-frontend"] }
 vm-allocator = "0.1.0"
 vm-superio = "0.7.0"
 vm-memory = { version = "0.13.1", features = ["backend-mmap", "backend-bitmap"] }
