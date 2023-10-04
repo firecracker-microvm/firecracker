@@ -22,6 +22,7 @@ mod queue;
 pub mod rng;
 pub mod test_utils;
 pub mod vhost_user;
+pub mod vhost_user_block;
 pub mod vsock;
 
 pub use self::balloon::*;
@@ -32,6 +33,7 @@ pub use self::net::*;
 pub use self::persist::*;
 pub use self::queue::*;
 pub use self::rng::*;
+pub use self::vhost_user_block::*;
 pub use self::vsock::*;
 
 /// When the driver initializes the device, it lets the device know about the
@@ -67,12 +69,14 @@ pub const TYPE_BALLOON: u32 = 5;
 pub const NOTIFY_REG_OFFSET: u32 = 0x50;
 
 /// Errors triggered when activating a VirtioDevice.
-#[derive(Debug)]
+#[derive(Debug, displaydoc::Display)]
 pub enum ActivateError {
     /// Epoll error.
     EpollCtl(IOError),
     /// General error at activation.
     BadActivate,
+    /// Vhost user: {0}
+    VhostUser(vhost_user::VhostUserError),
 }
 
 /// Trait that helps in upcasting an object to Any
