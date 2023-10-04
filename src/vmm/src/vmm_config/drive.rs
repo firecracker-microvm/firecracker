@@ -9,16 +9,16 @@ use serde::{Deserialize, Serialize};
 
 use super::RateLimiterConfig;
 pub use crate::devices::virtio::block::device::FileEngineType;
-use crate::devices::virtio::block::BlockError;
-use crate::devices::virtio::Block;
+use crate::devices::virtio::block::VirtioBlockError;
 pub use crate::devices::virtio::CacheType;
+use crate::devices::virtio::VirtioBlock;
 use crate::VmmError;
 
 /// Errors associated with the operations allowed on a drive.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum DriveError {
     /// Unable to create the block device: {0:?}
-    CreateBlockDevice(BlockError),
+    CreateBlockDevice(VirtioBlockError),
     /// Cannot create RateLimiter: {0}
     CreateRateLimiter(io::Error),
     /// Unable to patch the block device: {0}
@@ -80,14 +80,14 @@ pub struct BlockBuilder {
     // Root Device should be the first in the list whether or not PARTUUID is
     // specified in order to avoid bugs in case of switching from partuuid boot
     // scenarios to /dev/vda boot type.
-    pub list: VecDeque<Arc<Mutex<Block>>>,
+    pub list: VecDeque<Arc<Mutex<VirtioBlock>>>,
 }
 
 impl BlockBuilder {
     /// Constructor for BlockDevices. It initializes an empty LinkedList.
     pub fn new() -> Self {
         Self {
-            list: VecDeque::<Arc<Mutex<Block>>>::new(),
+            list: VecDeque::<Arc<Mutex<VirtioBlock>>>::new(),
         }
     }
 
@@ -109,7 +109,7 @@ impl BlockBuilder {
     }
 
     /// Inserts an existing block device.
-    pub fn add_device(&mut self, block_device: Arc<Mutex<Block>>) {
+    pub fn add_device(&mut self, block_device: Arc<Mutex<VirtioBlock>>) {
         if block_device.lock().expect("Poisoned lock").is_root_device() {
             self.list.push_front(block_device);
         } else {
@@ -132,7 +132,7 @@ impl BlockBuilder {
         }
 
         let block_dev = Arc::new(Mutex::new(
-            Block::new(config.into()).map_err(DriveError::CreateBlockDevice)?,
+            VirtioBlock::new(config.into()).map_err(DriveError::CreateBlockDevice)?,
         ));
         // If the id of the drive already exists in the list, the operation is update/overwrite.
         match position {
@@ -172,7 +172,7 @@ mod tests {
     use utils::tempfile::TempFile;
 
     use super::*;
-    use crate::devices::virtio::block::device::FileBlockDeviceConfig;
+    use crate::devices::virtio::block::device::VirtioBlockConfig;
 
     impl PartialEq for DriveError {
         fn eq(&self, other: &DriveError) -> bool {
@@ -494,7 +494,9 @@ mod tests {
         dummy_block_device_2.path_on_host = dummy_path_3.clone();
         assert!(matches!(
             block_devs.insert(dummy_block_device_2.clone()),
-            Err(DriveError::CreateBlockDevice(BlockError::BackingFile(_, _)))
+            Err(DriveError::CreateBlockDevice(
+                VirtioBlockError::BackingFile(_, _)
+            ))
         ));
 
         // Update with 2 root block devices.
@@ -565,7 +567,7 @@ mod tests {
         let backing_file = TempFile::new().unwrap();
 
         let block_id = "test_id";
-        let config = FileBlockDeviceConfig {
+        let config = VirtioBlockConfig {
             drive_id: block_id.to_string(),
             path_on_host: backing_file.as_path().to_str().unwrap().to_string(),
             is_root_device: true,
@@ -576,7 +578,7 @@ mod tests {
             file_engine_type: FileEngineType::default(),
         };
 
-        let block = Block::new(config).unwrap();
+        let block = VirtioBlock::new(config).unwrap();
 
         block_devs.add_device(Arc::new(Mutex::new(block)));
         assert_eq!(block_devs.list.len(), 1);

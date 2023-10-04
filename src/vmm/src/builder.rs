@@ -44,7 +44,7 @@ use crate::devices::legacy::serial::SerialOut;
 use crate::devices::legacy::RTCDevice;
 use crate::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
 use crate::devices::virtio::{
-    Balloon, Block, Entropy, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend,
+    Balloon, Entropy, MmioTransport, Net, VirtioBlock, VirtioDevice, Vsock, VsockUnixBackend,
 };
 use crate::devices::BusDevice;
 #[cfg(target_arch = "aarch64")]
@@ -874,7 +874,7 @@ fn attach_entropy_device(
     attach_virtio_device(event_manager, vmm, id, entropy_device.clone(), cmdline)
 }
 
-fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
+fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<VirtioBlock>>> + Debug>(
     vmm: &mut Vmm,
     cmdline: &mut LoaderKernelCmdline,
     blocks: I,
