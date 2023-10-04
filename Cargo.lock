@@ -1325,7 +1325,6 @@ dependencies = [
  "derive_more",
  "displaydoc",
  "libc",
- "net_gen",
  "serde",
  "serde_json",
  "thiserror",
