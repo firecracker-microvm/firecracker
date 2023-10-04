@@ -7,7 +7,7 @@ import platform
 from pathlib import Path
 
 from framework import defs, utils
-from framework.defs import FC_WORKSPACE_DIR, FC_WORKSPACE_TARGET_DIR
+from framework.defs import FC_WORKSPACE_DIR
 from framework.with_filelock import with_filelock
 
 CARGO_BUILD_REL_PATH = "firecracker_binaries"
@@ -66,32 +66,33 @@ def cargo_test(path, extra_args=""):
 
 
 @with_filelock
-def get_binary(name):
+def get_binary(name, *, workspace_dir=FC_WORKSPACE_DIR):
     """Build a binary"""
     target = DEFAULT_BUILD_TARGET
-    target_dir = FC_WORKSPACE_TARGET_DIR
-    out_dir = Path(f"{target_dir}/{target}/release")
-    bin_path = out_dir / name
+    target_dir = workspace_dir / "build" / "cargo_target"
+    bin_path = target_dir / target / "release" / name
     if not bin_path.exists():
         env = {"RUSTFLAGS": get_rustflags()}
         cargo(
             "build",
             f"-p {name} --release --target {target}",
             env=env,
-            cwd=FC_WORKSPACE_DIR,
+            cwd=workspace_dir,
         )
         utils.run_cmd(f"strip --strip-debug {bin_path}")
     return bin_path
 
 
 @with_filelock
-def get_firecracker_binaries():
+def get_firecracker_binaries(*, workspace_dir=FC_WORKSPACE_DIR):
     """Build the Firecracker and Jailer binaries if they don't exist.
 
     Returns the location of the firecracker related binaries eventually after
     building them in case they do not exist at the specified root_path.
     """
-    return get_binary("firecracker"), get_binary("jailer")
+    return get_binary("firecracker", workspace_dir=workspace_dir), get_binary(
+        "jailer", workspace_dir=workspace_dir
+    )
 
 
 @with_filelock
