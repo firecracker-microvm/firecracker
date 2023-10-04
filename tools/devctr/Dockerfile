@@ -119,6 +119,7 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-too
     && NIGHTLY_TOOLCHAIN=$(rustup toolchain list | grep nightly | tr -d '\n') \
     && rustup component add rust-src --toolchain "$NIGHTLY_TOOLCHAIN" \
     && rustup target add "$ARCH"-unknown-linux-musl --toolchain "$NIGHTLY_TOOLCHAIN" \
+    && cargo +"$NIGHTLY_TOOLCHAIN" install cargo-udeps \
     \
     && apt-get update \
     && apt-get -y install --no-install-recommends \
