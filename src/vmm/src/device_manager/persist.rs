@@ -19,8 +19,8 @@ use super::mmio::*;
 use crate::arch::DeviceType;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::balloon::{Balloon, BalloonError};
-use crate::devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
-use crate::devices::virtio::block::{Block, BlockError};
+use crate::devices::virtio::block::persist::{VirtioBlockConstructorArgs, VirtioBlockState};
+use crate::devices::virtio::block::{VirtioBlock, VirtioBlockError};
 use crate::devices::virtio::net::persist::{
     NetConstructorArgs, NetPersistError as NetError, NetState,
 };
@@ -49,7 +49,7 @@ use crate::EventManager;
 #[derive(Debug, derive_more::From)]
 pub enum DevicePersistError {
     Balloon(BalloonError),
-    Block(BlockError),
+    Block(VirtioBlockError),
     DeviceManager(super::mmio::MmioError),
     MmioTransport,
     #[cfg(target_arch = "aarch64")]
@@ -82,7 +82,7 @@ pub struct ConnectedBlockState {
     /// Device identifier.
     pub device_id: String,
     /// Device state.
-    pub device_state: BlockState,
+    pub device_state: VirtioBlockState,
     /// Mmio transport state.
     pub transport_state: MmioTransportState,
     /// VmmResources.
@@ -195,7 +195,7 @@ pub struct DeviceStates {
 /// from a snapshot.
 #[derive(Debug)]
 pub enum SharedDeviceType {
-    Block(Arc<Mutex<Block>>),
+    Block(Arc<Mutex<VirtioBlock>>),
     Network(Arc<Mutex<Net>>),
     Balloon(Arc<Mutex<Balloon>>),
     Vsock(Arc<Mutex<Vsock<VsockUnixBackend>>>),
@@ -280,7 +280,10 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     });
                 }
                 TYPE_BLOCK => {
-                    let block = locked_device.as_mut_any().downcast_mut::<Block>().unwrap();
+                    let block = locked_device
+                        .as_mut_any()
+                        .downcast_mut::<VirtioBlock>()
+                        .unwrap();
                     block.prepare_save();
                     states.block_devices.push(ConnectedBlockState {
                         device_id: devid.clone(),
@@ -475,8 +478,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         }
 
         for block_state in &state.block_devices {
-            let device = Arc::new(Mutex::new(Block::restore(
-                BlockConstructorArgs { mem: mem.clone() },
+            let device = Arc::new(Mutex::new(VirtioBlock::restore(
+                VirtioBlockConstructorArgs { mem: mem.clone() },
                 &block_state.device_state,
             )?));
 

@@ -13,7 +13,7 @@ pub mod test_utils;
 
 use vm_memory::GuestMemoryError;
 
-pub use self::device::{Block, CacheType};
+pub use self::device::{CacheType, VirtioBlock};
 pub use self::event_handler::*;
 pub use self::request::*;
 use crate::devices::virtio::FIRECRACKER_MAX_QUEUE_SIZE;
@@ -34,7 +34,7 @@ pub const IO_URING_NUM_ENTRIES: u16 = 128;
 
 /// Errors the block device can trigger.
 #[derive(Debug)]
-pub enum BlockError {
+pub enum VirtioBlockError {
     /// Guest gave us too few descriptors in a descriptor chain.
     DescriptorChainTooShort,
     /// Guest gave us a descriptor that was too short to use.

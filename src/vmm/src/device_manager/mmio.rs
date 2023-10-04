@@ -24,8 +24,8 @@ use crate::arch::DeviceType::Virtio;
 use crate::devices::legacy::RTCDevice;
 use crate::devices::pseudo::BootTimer;
 use crate::devices::virtio::{
-    Balloon, Block, Entropy, MmioTransport, Net, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET,
-    TYPE_RNG, TYPE_VSOCK,
+    Balloon, Entropy, MmioTransport, Net, VirtioBlock, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK,
+    TYPE_NET, TYPE_RNG, TYPE_VSOCK,
 };
 use crate::devices::BusDevice;
 #[cfg(target_arch = "x86_64")]
@@ -396,7 +396,7 @@ impl MMIODeviceManager {
                         }
                     }
                     TYPE_BLOCK => {
-                        let block = virtio.as_mut_any().downcast_mut::<Block>().unwrap();
+                        let block = virtio.as_mut_any().downcast_mut::<VirtioBlock>().unwrap();
                         // If device is activated, kick the block queue(s) to make up for any
                         // pending or in-flight epoll events we may have not captured in snapshot.
                         // No need to kick Ratelimiters because they are restored 'unblocked' so

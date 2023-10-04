@@ -10,7 +10,7 @@ use std::convert::From;
 use vm_memory::GuestMemoryError;
 
 use super::super::DescriptorChain;
-use super::{io as block_io, BlockError, SECTOR_SHIFT};
+use super::{io as block_io, VirtioBlockError, SECTOR_SHIFT};
 use crate::devices::virtio::block::device::DiskProperties;
 use crate::devices::virtio::block_metrics::BlockDeviceMetrics;
 pub use crate::devices::virtio::gen::virtio_blk::{
@@ -224,9 +224,10 @@ impl RequestHeader {
     /// When running on a big endian platform, this code should not compile, and support
     /// for explicit little endian reads is required.
     #[cfg(target_endian = "little")]
-    fn read_from(memory: &GuestMemoryMmap, addr: GuestAddress) -> Result<Self, BlockError> {
-        let request_header: RequestHeader =
-            memory.read_obj(addr).map_err(BlockError::GuestMemory)?;
+    fn read_from(memory: &GuestMemoryMmap, addr: GuestAddress) -> Result<Self, VirtioBlockError> {
+        let request_header: RequestHeader = memory
+            .read_obj(addr)
+            .map_err(VirtioBlockError::GuestMemory)?;
         Ok(request_header)
     }
 }
@@ -245,10 +246,10 @@ impl Request {
         avail_desc: &DescriptorChain,
         mem: &GuestMemoryMmap,
         num_disk_sectors: u64,
-    ) -> Result<Request, BlockError> {
+    ) -> Result<Request, VirtioBlockError> {
         // The head contains the request type which MUST be readable.
         if avail_desc.is_write_only() {
-            return Err(BlockError::UnexpectedWriteOnlyDescriptor);
+            return Err(VirtioBlockError::UnexpectedWriteOnlyDescriptor);
         }
 
         let request_header = RequestHeader::read_from(mem, avail_desc.addr)?;
@@ -264,28 +265,28 @@ impl Request {
         let status_desc;
         let desc = avail_desc
             .next_descriptor()
-            .ok_or(BlockError::DescriptorChainTooShort)?;
+            .ok_or(VirtioBlockError::DescriptorChainTooShort)?;
 
         if !desc.has_next() {
             status_desc = desc;
             // Only flush requests are allowed to skip the data descriptor.
             if req.r#type != RequestType::Flush {
-                return Err(BlockError::DescriptorChainTooShort);
+                return Err(VirtioBlockError::DescriptorChainTooShort);
             }
         } else {
             data_desc = desc;
             status_desc = data_desc
                 .next_descriptor()
-                .ok_or(BlockError::DescriptorChainTooShort)?;
+                .ok_or(VirtioBlockError::DescriptorChainTooShort)?;
 
             if data_desc.is_write_only() && req.r#type == RequestType::Out {
-                return Err(BlockError::UnexpectedWriteOnlyDescriptor);
+                return Err(VirtioBlockError::UnexpectedWriteOnlyDescriptor);
             }
             if !data_desc.is_write_only() && req.r#type == RequestType::In {
-                return Err(BlockError::UnexpectedReadOnlyDescriptor);
+                return Err(VirtioBlockError::UnexpectedReadOnlyDescriptor);
             }
             if !data_desc.is_write_only() && req.r#type == RequestType::GetDeviceID {
-                return Err(BlockError::UnexpectedReadOnlyDescriptor);
+                return Err(VirtioBlockError::UnexpectedReadOnlyDescriptor);
             }
 
             req.data_addr = data_desc.addr;
@@ -298,19 +299,19 @@ impl Request {
                 // Check that the data length is a multiple of 512 as specified in the virtio
                 // standard.
                 if req.data_len % SECTOR_SIZE != 0 {
-                    return Err(BlockError::InvalidDataLength);
+                    return Err(VirtioBlockError::InvalidDataLength);
                 }
                 let top_sector = req
                     .sector
                     .checked_add(u64::from(req.data_len) >> SECTOR_SHIFT)
-                    .ok_or(BlockError::InvalidOffset)?;
+                    .ok_or(VirtioBlockError::InvalidOffset)?;
                 if top_sector > num_disk_sectors {
-                    return Err(BlockError::InvalidOffset);
+                    return Err(VirtioBlockError::InvalidOffset);
                 }
             }
             RequestType::GetDeviceID => {
                 if req.data_len < VIRTIO_BLK_ID_BYTES {
-                    return Err(BlockError::InvalidDataLength);
+                    return Err(VirtioBlockError::InvalidDataLength);
                 }
             }
             _ => {}
@@ -318,11 +319,11 @@ impl Request {
 
         // The status MUST always be writable.
         if !status_desc.is_write_only() {
-            return Err(BlockError::UnexpectedReadOnlyDescriptor);
+            return Err(VirtioBlockError::UnexpectedReadOnlyDescriptor);
         }
 
         if status_desc.len < 1 {
-            return Err(BlockError::DescriptorLengthTooSmall);
+            return Err(VirtioBlockError::DescriptorLengthTooSmall);
         }
 
         req.status_addr = status_desc.addr;
@@ -472,7 +473,7 @@ mod tests {
     }
 
     impl<'a, 'b> RequestDescriptorChain<'a, 'b> {
-        fn check_parse_err(&self, _e: BlockError) {
+        fn check_parse_err(&self, _e: VirtioBlockError) {
             let mut q = self.driver_queue.create_queue();
             let memory = self.driver_queue.memory();
 
@@ -514,26 +515,26 @@ mod tests {
 
         // Write only request type descriptor.
         chain.header_desc.flags.set(VIRTQ_DESC_F_WRITE);
-        chain.check_parse_err(BlockError::UnexpectedWriteOnlyDescriptor);
+        chain.check_parse_err(VirtioBlockError::UnexpectedWriteOnlyDescriptor);
 
         // Chain too short: no DATA_DESCRIPTOR.
         chain.header_desc.flags.set(0);
-        chain.check_parse_err(BlockError::DescriptorChainTooShort);
+        chain.check_parse_err(VirtioBlockError::DescriptorChainTooShort);
 
         // Chain too short: no status descriptor.
         chain.header_desc.flags.set(VIRTQ_DESC_F_NEXT);
         chain.data_desc.flags.set(0);
-        chain.check_parse_err(BlockError::DescriptorChainTooShort);
+        chain.check_parse_err(VirtioBlockError::DescriptorChainTooShort);
 
         // Status descriptor not writable.
         chain.data_desc.flags.set(VIRTQ_DESC_F_NEXT);
         chain.status_desc.flags.set(0);
-        chain.check_parse_err(BlockError::UnexpectedReadOnlyDescriptor);
+        chain.check_parse_err(VirtioBlockError::UnexpectedReadOnlyDescriptor);
 
         // Status descriptor too small.
         chain.status_desc.flags.set(VIRTQ_DESC_F_WRITE);
         chain.status_desc.len.set(0);
-        chain.check_parse_err(BlockError::DescriptorLengthTooSmall);
+        chain.check_parse_err(VirtioBlockError::DescriptorLengthTooSmall);
 
         // Fix status descriptor length.
         chain.status_desc.len.set(0x1000);
@@ -567,7 +568,7 @@ mod tests {
 
         // Read only data descriptor for IN.
         chain.data_desc.flags.set(VIRTQ_DESC_F_NEXT);
-        chain.check_parse_err(BlockError::UnexpectedReadOnlyDescriptor);
+        chain.check_parse_err(VirtioBlockError::UnexpectedReadOnlyDescriptor);
 
         // data_len is not multiple of 512 for IN.
         chain
@@ -575,13 +576,13 @@ mod tests {
             .flags
             .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
         chain.data_desc.len.set(513);
-        chain.check_parse_err(BlockError::InvalidDataLength);
+        chain.check_parse_err(VirtioBlockError::InvalidDataLength);
 
         // sector is to big.
         request_header.sector = NUM_DISK_SECTORS;
         chain.data_desc.len.set(512);
         chain.set_header(request_header);
-        chain.check_parse_err(BlockError::InvalidOffset);
+        chain.check_parse_err(VirtioBlockError::InvalidOffset);
 
         // Fix data descriptor.
         request_header.sector = NUM_DISK_SECTORS - 1;
@@ -603,18 +604,18 @@ mod tests {
             .data_desc
             .flags
             .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
-        chain.check_parse_err(BlockError::UnexpectedWriteOnlyDescriptor);
+        chain.check_parse_err(VirtioBlockError::UnexpectedWriteOnlyDescriptor);
 
         // data_len is not multiple of 512 for IN.
         chain.data_desc.flags.set(VIRTQ_DESC_F_NEXT);
         chain.data_desc.len.set(1000);
-        chain.check_parse_err(BlockError::InvalidDataLength);
+        chain.check_parse_err(VirtioBlockError::InvalidDataLength);
 
         // sector is to big.
         request_header.sector = NUM_DISK_SECTORS - 1;
         chain.data_desc.len.set(1024);
         chain.set_header(request_header);
-        chain.check_parse_err(BlockError::InvalidOffset);
+        chain.check_parse_err(VirtioBlockError::InvalidOffset);
 
         // Fix header descriptor.
         request_header.sector = NUM_DISK_SECTORS - 2;
@@ -649,7 +650,7 @@ mod tests {
 
         // Read only data descriptor for GetDeviceId.
         chain.data_desc.flags.set(VIRTQ_DESC_F_NEXT);
-        chain.check_parse_err(BlockError::UnexpectedReadOnlyDescriptor);
+        chain.check_parse_err(VirtioBlockError::UnexpectedReadOnlyDescriptor);
 
         // data_len is < VIRTIO_BLK_ID_BYTES for GetDeviceID.
         chain
@@ -657,7 +658,7 @@ mod tests {
             .flags
             .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
         chain.data_desc.len.set(VIRTIO_BLK_ID_BYTES - 1);
-        chain.check_parse_err(BlockError::InvalidDataLength);
+        chain.check_parse_err(VirtioBlockError::InvalidDataLength);
 
         chain.data_desc.len.set(VIRTIO_BLK_ID_BYTES);
         chain.check_parse(true);
@@ -741,7 +742,7 @@ mod tests {
 
     #[allow(clippy::let_with_type_underscore)]
     fn random_request_parse(
-    ) -> impl Strategy<Value = (Result<Request, BlockError>, GuestMemoryMmap, Queue)> {
+    ) -> impl Strategy<Value = (Result<Request, VirtioBlockError>, GuestMemoryMmap, Queue)> {
         // In this strategy we are going to generate random Requests/Errors and map them
         // to an input descriptor chain.
         //
@@ -785,7 +786,7 @@ mod tests {
         request_type: RequestType,
         virtio_request_id: u32,
         coins_arr: &[bool],
-    ) -> (Result<Request, BlockError>, GuestMemoryMmap, Queue) {
+    ) -> (Result<Request, VirtioBlockError>, GuestMemoryMmap, Queue) {
         let coins = &mut coins_arr.iter();
 
         // Randomize descriptor addresses. Assumed page size as max buffer len.
@@ -866,21 +867,21 @@ mod tests {
         // Flip coin - corrupt the status desc len.
         if *coins.next().unwrap() {
             chain.status_desc.len.set(0);
-            return (Err(BlockError::DescriptorLengthTooSmall), mem, q);
+            return (Err(VirtioBlockError::DescriptorLengthTooSmall), mem, q);
         }
 
         // Flip coin - corrupt data desc next flag.
         // Exception: flush requests do not have data desc.
         if *coins.next().unwrap() && request.r#type != RequestType::Flush {
             data_desc_flags.set(data_desc_flags.get() & !VIRTQ_DESC_F_NEXT);
-            return (Err(BlockError::DescriptorChainTooShort), mem, q);
+            return (Err(VirtioBlockError::DescriptorChainTooShort), mem, q);
         }
 
         // Flip coin - req type desc is write only.
         if *coins.next().unwrap() {
             let hdr_desc_flags = &chain.header_desc.flags;
             hdr_desc_flags.set(hdr_desc_flags.get() | VIRTQ_DESC_F_WRITE);
-            return (Err(BlockError::UnexpectedWriteOnlyDescriptor), mem, q);
+            return (Err(VirtioBlockError::UnexpectedWriteOnlyDescriptor), mem, q);
         }
 
         // Corrupt data desc accessibility
@@ -889,12 +890,12 @@ mod tests {
                 // Readonly buffer is writable.
                 RequestType::Out => {
                     data_desc_flags.set(data_desc_flags.get() | VIRTQ_DESC_F_WRITE);
-                    return (Err(BlockError::UnexpectedWriteOnlyDescriptor), mem, q);
+                    return (Err(VirtioBlockError::UnexpectedWriteOnlyDescriptor), mem, q);
                 }
                 // Writeable buffer is readonly.
                 RequestType::In | RequestType::GetDeviceID => {
                     data_desc_flags.set(data_desc_flags.get() & !VIRTQ_DESC_F_WRITE);
-                    return (Err(BlockError::UnexpectedReadOnlyDescriptor), mem, q);
+                    return (Err(VirtioBlockError::UnexpectedReadOnlyDescriptor), mem, q);
                 }
                 _ => {}
             };
@@ -909,7 +910,7 @@ mod tests {
                         .data_desc
                         .len
                         .set(valid_data_len + (data_len % 511) + 1);
-                    return (Err(BlockError::InvalidDataLength), mem, q);
+                    return (Err(VirtioBlockError::InvalidDataLength), mem, q);
                 }
                 RequestType::GetDeviceID => {
                     // data_len is < VIRTIO_BLK_ID_BYTES
@@ -917,7 +918,7 @@ mod tests {
                         .data_desc
                         .len
                         .set(data_len & (VIRTIO_BLK_ID_BYTES - 1));
-                    return (Err(BlockError::InvalidDataLength), mem, q);
+                    return (Err(VirtioBlockError::InvalidDataLength), mem, q);
                 }
                 _ => {}
             };
@@ -929,7 +930,7 @@ mod tests {
                 RequestType::In | RequestType::Out => {
                     request_header.sector = (sector | NUM_DISK_SECTORS) + 1;
                     chain.set_header(request_header);
-                    return (Err(BlockError::InvalidOffset), mem, q);
+                    return (Err(VirtioBlockError::InvalidOffset), mem, q);
                 }
                 _ => {}
             };
@@ -937,7 +938,7 @@ mod tests {
 
         // Simulate no status descriptor.
         chain.header_desc.flags.set(0);
-        (Err(BlockError::DescriptorChainTooShort), mem, q)
+        (Err(VirtioBlockError::DescriptorChainTooShort), mem, q)
     }
 
     macro_rules! assert_err {
@@ -963,12 +964,12 @@ mod tests {
                     // Avoiding implementation of PartialEq which requires that even more types like
                     // GuestMemoryError implement it.
                     match request.0.unwrap_err() {
-                        BlockError::DescriptorChainTooShort => assert_err!(err, BlockError::DescriptorChainTooShort),
-                        BlockError::DescriptorLengthTooSmall => assert_err!(err, BlockError::DescriptorLengthTooSmall),
-                        BlockError::InvalidDataLength => assert_err!(err, BlockError::InvalidDataLength),
-                        BlockError::InvalidOffset => assert_err!(err, BlockError::InvalidOffset),
-                        BlockError::UnexpectedWriteOnlyDescriptor => assert_err!(err, BlockError::UnexpectedWriteOnlyDescriptor),
-                        BlockError::UnexpectedReadOnlyDescriptor => assert_err!(err, BlockError::UnexpectedReadOnlyDescriptor),
+                        VirtioBlockError::DescriptorChainTooShort => assert_err!(err, VirtioBlockError::DescriptorChainTooShort),
+                        VirtioBlockError::DescriptorLengthTooSmall => assert_err!(err, VirtioBlockError::DescriptorLengthTooSmall),
+                        VirtioBlockError::InvalidDataLength => assert_err!(err, VirtioBlockError::InvalidDataLength),
+                        VirtioBlockError::InvalidOffset => assert_err!(err, VirtioBlockError::InvalidOffset),
+                        VirtioBlockError::UnexpectedWriteOnlyDescriptor => assert_err!(err, VirtioBlockError::UnexpectedWriteOnlyDescriptor),
+                        VirtioBlockError::UnexpectedReadOnlyDescriptor => assert_err!(err, VirtioBlockError::UnexpectedReadOnlyDescriptor),
                         _ => unreachable!()
                     }
                 }
