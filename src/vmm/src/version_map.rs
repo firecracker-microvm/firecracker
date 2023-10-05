@@ -86,6 +86,7 @@ lazy_static! {
         version_map.new_version();
 
         version_map.set_type_version(VirtioDeviceState::type_id(), 2);
+        version_map.set_type_version(DeviceStates::type_id(), 5);
 
         version_map
     };

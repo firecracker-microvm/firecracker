@@ -125,13 +125,24 @@ impl BlockBuilder {
     }
 
     /// Inserts an existing block device.
-    pub fn add_device(&mut self, block_device: Arc<Mutex<VirtioBlock>>) {
+    pub fn add_virtio_device(&mut self, block_device: Arc<Mutex<VirtioBlock>>) {
         if block_device.lock().expect("Poisoned lock").is_root_device() {
             self.devices
                 .push_front(BlockDeviceType::VirtioBlock(block_device));
         } else {
             self.devices
                 .push_back(BlockDeviceType::VirtioBlock(block_device));
+        }
+    }
+
+    /// Inserts an existing block device.
+    pub fn add_vhost_user_device(&mut self, block_device: Arc<Mutex<VhostUserBlock>>) {
+        if block_device.lock().expect("Poisoned lock").root_device {
+            self.devices
+                .push_front(BlockDeviceType::VhostUserBlock(block_device));
+        } else {
+            self.devices
+                .push_back(BlockDeviceType::VhostUserBlock(block_device));
         }
     }
 
@@ -633,7 +644,7 @@ mod tests {
 
         let block = VirtioBlock::new(config).unwrap();
 
-        block_devs.add_device(Arc::new(Mutex::new(block)));
+        block_devs.add_virtio_device(Arc::new(Mutex::new(block)));
         assert_eq!(block_devs.devices.len(), 1);
         match block_devs.devices.pop_back().unwrap() {
             BlockDeviceType::VirtioBlock(ref b) => assert_eq!(b.lock().unwrap().id(), block_id),

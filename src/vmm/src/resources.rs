@@ -204,8 +204,12 @@ impl VmResources {
     /// restoring from a snapshot).
     pub fn update_from_restored_device(&mut self, device: SharedDeviceType) {
         match device {
-            SharedDeviceType::Block(block) => {
-                self.block.add_device(block);
+            SharedDeviceType::VirtioBlock(block) => {
+                self.block.add_virtio_device(block);
+            }
+
+            SharedDeviceType::VhostUserBlock(block) => {
+                self.block.add_vhost_user_device(block);
             }
 
             SharedDeviceType::Network(network) => {

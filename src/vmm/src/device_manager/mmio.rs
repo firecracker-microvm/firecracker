@@ -396,14 +396,18 @@ impl MMIODeviceManager {
                         }
                     }
                     TYPE_BLOCK => {
-                        let block = virtio.as_mut_any().downcast_mut::<VirtioBlock>().unwrap();
-                        // If device is activated, kick the block queue(s) to make up for any
-                        // pending or in-flight epoll events we may have not captured in snapshot.
-                        // No need to kick Ratelimiters because they are restored 'unblocked' so
-                        // any inflight `timer_fd` events can be safely discarded.
-                        if block.is_activated() {
-                            info!("kick block {}.", id);
-                            block.process_virtio_queues();
+                        // We only care about kicking virtio block.
+                        // If we need to kick vhost-user-block we can do nothing.
+                        if let Some(block) = virtio.as_mut_any().downcast_mut::<VirtioBlock>() {
+                            // If device is activated, kick the block queue(s) to make up for any
+                            // pending or in-flight epoll events we may have not captured in
+                            // snapshot. No need to kick Ratelimiters
+                            // because they are restored 'unblocked' so
+                            // any inflight `timer_fd` events can be safely discarded.
+                            if block.is_activated() {
+                                info!("kick block {}.", id);
+                                block.process_virtio_queues();
+                            }
                         }
                     }
                     TYPE_NET => {
