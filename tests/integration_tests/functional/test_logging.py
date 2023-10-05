@@ -176,6 +176,17 @@ def test_api_requests_logs(test_microvm_with_api):
         "The API server received a Get request " 'on "/machine-config".'
     )
 
+    # Re-configure logging.
+    log_path = Path(microvm.path) / "new_log"
+    log_path.touch()
+    microvm.api.logger.put(
+        log_path=microvm.create_jailed_resource(log_path),
+        level="Info",
+        show_level=True,
+        show_log_origin=True,
+    )
+    microvm.log_file = log_path
+
     # Check that all requests on /mmds are logged without the body.
     dummy_json = {"latest": {"meta-data": {"ami-id": "dummy"}}}
     microvm.api.mmds.put(json=dummy_json)
@@ -223,8 +234,13 @@ def _test_log_config(microvm, log_level="Info", show_level=True, show_origin=Tru
     microvm.start()
 
     lines = microvm.log_data.splitlines()
-    for idx, line in enumerate(lines):
-        if idx == 0:
-            assert line.startswith("Running Firecracker")
-            continue
+
+    # Check for `Running Firecracker` message.
+    configured_level_no = LOG_LEVELS.index(to_formal_log_level(log_level))
+    info_level_no = LOG_LEVELS.index("INFO")
+    if info_level_no <= configured_level_no:
+        assert "Running Firecracker" in lines[0]
+
+    # Check format of messages
+    for line in lines:
         check_log_message_format(line, microvm.id, log_level, show_level, show_origin)

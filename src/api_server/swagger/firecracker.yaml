@@ -983,8 +983,8 @@ definitions:
       level:
         type: string
         description: Set the level. The possible values are case-insensitive.
-        enum: [Error, Warning, Info, Debug]
-        default: Warning
+        enum: [Error, Warning, Info, Debug, Trace, Off]
+        default: Info
       log_path:
         type: string
         description: Path to the named pipe or file for the human readable log output.
