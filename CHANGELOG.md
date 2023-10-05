@@ -53,7 +53,10 @@
   v1.4.0 are available as an improved iteration of the static CPU templates. For
   more information about the transition from static CPU templates to custom CPU
   templates, please refer to [this GitHub discussion](https://github.com/firecracker-microvm/firecracker/discussions/4135).
-
+- Changed default log level from
+  [`Warn`](https://docs.rs/log/latest/log/enum.Level.html#variant.Warn) to
+  [`Info`](https://docs.rs/log/latest/log/enum.Level.html#variant.Info). This
+  results in more logs being output by default.
 ### Fixed
 
 - Fixed a change in behavior of normalize host brand string that breaks
