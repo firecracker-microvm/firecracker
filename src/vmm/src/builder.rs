@@ -903,6 +903,26 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a BlockDeviceType> + Debug>(
                 // The device mutex mustn't be locked here otherwise it will deadlock.
                 attach_virtio_device(event_manager, vmm, id, block.clone(), cmdline)?;
             }
+            BlockDeviceType::VhostUserBlock(block) => {
+                let id = {
+                    let locked = block.lock().expect("Poisoned lock");
+                    if locked.root_device {
+                        cmdline.insert_str(if let Some(ref partuuid) = locked.partuuid {
+                            format!("root=PARTUUID={}", partuuid)
+                        } else {
+                            // If no PARTUUID was specified for the root device, try with the
+                            // /dev/vda.
+                            "root=/dev/vda".to_string()
+                        })?;
+
+                        let flags = if locked.read_only { "ro" } else { "rw" };
+                        cmdline.insert_str(flags)?;
+                    }
+                    locked.id.clone()
+                };
+                // The device mutex mustn't be locked here otherwise it will deadlock.
+                attach_virtio_device(event_manager, vmm, id, block.clone(), cmdline)?;
+            }
         }
     }
     Ok(())
