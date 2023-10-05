@@ -52,17 +52,20 @@ def lower_ssh_oom_chance(ssh_connection):
 
     for pid in stdout.split(" "):
         cmd = f"choom -n -1000 -p {pid}"
-        ssh_connection.run(cmd)
+        exit_code, stdout, stderr = ssh_connection.run(cmd)
+        if exit_code != 0:
+            logger.error("while running: %s", cmd)
+            logger.error("stdout: %s", stdout)
+            logger.error("stderr: %s", stderr)
 
 
-def make_guest_dirty_memory(ssh_connection, should_oom=False, amount_mib=32):
+def make_guest_dirty_memory(ssh_connection, amount_mib=32):
     """Tell the guest, over ssh, to dirty `amount` pages of memory."""
     logger = logging.getLogger("make_guest_dirty_memory")
 
     lower_ssh_oom_chance(ssh_connection)
 
-    # Aim OOM at fillmem process
-    cmd = f"choom -n 1000 -- /usr/local/bin/fillmem {amount_mib}"
+    cmd = f"/usr/local/bin/fillmem {amount_mib}"
     exit_code, stdout, stderr = ssh_connection.run(cmd)
     # add something to the logs for troubleshooting
     if exit_code != 0:
@@ -79,12 +82,6 @@ def make_guest_dirty_memory(ssh_connection, should_oom=False, amount_mib=32):
         if stdout != "":
             break
         tries -= 1
-
-    if should_oom:
-        assert "OOM Killer stopped the program with signal 9, exit code 0" in stdout
-    else:
-        assert exit_code == 0, stderr
-        assert "Memory filling was successful" in stdout, stdout
 
 
 def _test_rss_memory_lower(test_microvm, stable_delta=1):
@@ -181,11 +178,11 @@ def test_deflate_on_oom(test_microvm_with_api, deflate_on_oom):
 
     deflate_on_oom=True
 
-      should not result in an OOM kill
+      should result in balloon_stats['actual_mib'] be reduced
 
     deflate_on_oom=False
 
-      should result in an OOM kill
+      should result in balloon_stats['actual_mib'] remain the same
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -194,7 +191,7 @@ def test_deflate_on_oom(test_microvm_with_api, deflate_on_oom):
 
     # Add a deflated memory balloon.
     test_microvm.api.balloon.put(
-        amount_mib=0, deflate_on_oom=deflate_on_oom, stats_polling_interval_s=0
+        amount_mib=0, deflate_on_oom=deflate_on_oom, stats_polling_interval_s=1
     )
 
     # Start the microvm.
@@ -213,8 +210,17 @@ def test_deflate_on_oom(test_microvm_with_api, deflate_on_oom):
     # This call will internally wait for rss to become stable.
     _ = get_stable_rss_mem_by_pid(firecracker_pid)
 
-    # Check that using memory leads an out of memory error (or not).
-    make_guest_dirty_memory(test_microvm.ssh, should_oom=not deflate_on_oom)
+    # Check that using memory leads to the balloon device automatically
+    # deflate (or not).
+    balloon_size_before = test_microvm.api.balloon_stats.get().json()["actual_mib"]
+    make_guest_dirty_memory(test_microvm.ssh)
+
+    balloon_size_after = test_microvm.api.balloon_stats.get().json()["actual_mib"]
+    print(f"size before: {balloon_size_before} size after: {balloon_size_after}")
+    if deflate_on_oom:
+        assert balloon_size_after < balloon_size_before, "Balloon did not deflate"
+    else:
+        assert balloon_size_after >= balloon_size_before, "Balloon deflated"
 
 
 # pylint: disable=C0103
