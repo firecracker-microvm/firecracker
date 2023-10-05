@@ -223,7 +223,13 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
 
     // Verify deserialized data.
     // The default vmm has no devices and one vCPU.
-    assert_eq!(restored_microvm_state.device_states.block_devices.len(), 0);
+    assert_eq!(
+        restored_microvm_state
+            .device_states
+            .virtio_block_devices
+            .len(),
+        0
+    );
     assert_eq!(restored_microvm_state.device_states.net_devices.len(), 0);
     assert!(restored_microvm_state.device_states.vsock_device.is_none());
     assert_eq!(restored_microvm_state.vcpu_states.len(), 1);
