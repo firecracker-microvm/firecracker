@@ -1372,31 +1372,26 @@ mod tests {
 
     #[test]
     fn test_preboot_insert_block_dev() {
-        let req = VmmAction::InsertBlockDevice(BlockDeviceConfig {
-            path_on_host: String::new(),
-            is_root_device: false,
-            partuuid: None,
-            cache_type: CacheType::Unsafe,
-            is_read_only: false,
+        let config = BlockDeviceConfig {
             drive_id: String::new(),
+            partuuid: None,
+            is_root_device: false,
+            cache_type: CacheType::Unsafe,
+
+            is_read_only: Some(false),
+            path_on_host: Some(String::new()),
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
-        });
+
+            socket: None,
+        };
+        let req = VmmAction::InsertBlockDevice(config.clone());
         check_preboot_request(req, |result, vm_res| {
             assert_eq!(result, Ok(VmmData::Empty));
             assert!(vm_res.block_set)
         });
 
-        let req = VmmAction::InsertBlockDevice(BlockDeviceConfig {
-            path_on_host: String::new(),
-            is_root_device: false,
-            partuuid: None,
-            cache_type: CacheType::Unsafe,
-            is_read_only: false,
-            drive_id: String::new(),
-            rate_limiter: None,
-            file_engine_type: FileEngineType::default(),
-        });
+        let req = VmmAction::InsertBlockDevice(config);
         check_preboot_request_err(
             req,
             VmmActionError::DriveConfig(DriveError::RootBlockDeviceAlreadyAdded),
@@ -2037,14 +2032,17 @@ mod tests {
         );
         check_runtime_request_err(
             VmmAction::InsertBlockDevice(BlockDeviceConfig {
-                path_on_host: String::new(),
-                is_root_device: false,
-                partuuid: None,
-                cache_type: CacheType::Unsafe,
-                is_read_only: false,
                 drive_id: String::new(),
+                partuuid: None,
+                is_root_device: false,
+                cache_type: CacheType::Unsafe,
+
+                is_read_only: Some(false),
+                path_on_host: Some(String::new()),
                 rate_limiter: None,
                 file_engine_type: FileEngineType::default(),
+
+                socket: None,
             }),
             VmmActionError::OperationNotSupportedPostBoot,
         );
@@ -2143,16 +2141,21 @@ mod tests {
         let req = VmmAction::ConfigureBootSource(BootSourceConfig::default());
         verify_load_snap_disallowed_after_boot_resources(req, "ConfigureBootSource");
 
-        let req = VmmAction::InsertBlockDevice(BlockDeviceConfig {
-            path_on_host: String::new(),
-            is_root_device: false,
-            partuuid: None,
-            cache_type: CacheType::Unsafe,
-            is_read_only: false,
+        let config = BlockDeviceConfig {
             drive_id: String::new(),
+            partuuid: None,
+            is_root_device: false,
+            cache_type: CacheType::Unsafe,
+
+            is_read_only: Some(false),
+            path_on_host: Some(String::new()),
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
-        });
+
+            socket: None,
+        };
+
+        let req = VmmAction::InsertBlockDevice(config);
         verify_load_snap_disallowed_after_boot_resources(req, "InsertBlockDevice");
 
         let req = VmmAction::InsertNetworkDevice(NetworkInterfaceConfig {

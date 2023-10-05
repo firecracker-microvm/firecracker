@@ -1122,24 +1122,31 @@ pub mod tests {
     ) -> Vec<TempFile> {
         let mut block_dev_configs = BlockBuilder::new();
         let mut block_files = Vec::new();
-        for custom_block_cfg in &custom_block_cfgs {
+        for custom_block_cfg in custom_block_cfgs {
             block_files.push(TempFile::new().unwrap());
+
             let block_device_config = BlockDeviceConfig {
                 drive_id: String::from(&custom_block_cfg.drive_id),
-                path_on_host: block_files
-                    .last()
-                    .unwrap()
-                    .as_path()
-                    .to_str()
-                    .unwrap()
-                    .to_string(),
+                partuuid: custom_block_cfg.partuuid,
                 is_root_device: custom_block_cfg.is_root_device,
-                partuuid: custom_block_cfg.partuuid.clone(),
-                is_read_only: custom_block_cfg.is_read_only,
                 cache_type: custom_block_cfg.cache_type,
+
+                is_read_only: Some(custom_block_cfg.is_read_only),
+                path_on_host: Some(
+                    block_files
+                        .last()
+                        .unwrap()
+                        .as_path()
+                        .to_str()
+                        .unwrap()
+                        .to_string(),
+                ),
                 rate_limiter: None,
                 file_engine_type: FileEngineType::default(),
+
+                socket: None,
             };
+
             block_dev_configs.insert(block_device_config).unwrap();
         }
 

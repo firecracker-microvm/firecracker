@@ -869,13 +869,14 @@ mod tests {
   "drives": [
     {{
       "drive_id": "root",
-      "path_on_host": "{}",
-      "is_root_device": true,
       "partuuid": null,
-      "is_read_only": true,
+      "is_root_device": true,
       "cache_type": "Unsafe",
+      "is_read_only": true,
+      "path_on_host": "{}",
       "rate_limiter": null,
-      "io_engine": "Sync"
+      "io_engine": "Sync",
+      "socket": null
     }}
   ],
   "boot-source": {{
