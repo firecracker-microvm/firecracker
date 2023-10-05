@@ -42,7 +42,7 @@ def lower_ssh_oom_chance(ssh_connection):
     """Lure OOM away from ssh process"""
     logger = logging.getLogger("lower_ssh_oom_chance")
 
-    cmd = "pidof sshd"
+    cmd = "cat /run/sshd.pid"
     exit_code, stdout, stderr = ssh_connection.run(cmd)
     # add something to the logs for troubleshooting
     if exit_code != 0:
