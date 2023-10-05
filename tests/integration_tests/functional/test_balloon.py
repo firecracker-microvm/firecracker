@@ -73,15 +73,7 @@ def make_guest_dirty_memory(ssh_connection, amount_mib=32):
         logger.error("stdout: %s", stdout)
         logger.error("stderr: %s", stderr)
 
-    cmd = "cat /tmp/fillmem_output.txt"
-    tries = 3
-    while tries > 0:
-        # it may take a bit of time to dirty the memory and the OOM to kick-in
-        time.sleep(0.5)
-        _, stdout, _ = ssh_connection.run(cmd)
-        if stdout != "":
-            break
-        tries -= 1
+    time.sleep(5)
 
 
 def _test_rss_memory_lower(test_microvm, stable_delta=1):
