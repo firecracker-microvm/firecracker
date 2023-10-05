@@ -53,18 +53,13 @@ pub enum CacheType {
 }
 
 /// The engine file type, either Sync or Async (through io_uring).
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 pub enum FileEngineType {
     /// Use an Async engine, based on io_uring.
     Async,
     /// Use a Sync engine, based on blocking system calls.
+    #[default]
     Sync,
-}
-
-impl Default for FileEngineType {
-    fn default() -> Self {
-        Self::Sync
-    }
 }
 
 impl FileEngineType {
@@ -203,22 +198,23 @@ impl DiskProperties {
 pub struct VirtioBlockConfig {
     /// Unique identifier of the drive.
     pub drive_id: String,
-    /// Path of the backing file on the host
-    pub path_on_host: String,
+    /// Part-UUID. Represents the unique id of the boot partition of this device. It is
+    /// optional and it will be used only if the `is_root_device` field is true.
+    pub partuuid: Option<String>,
     /// If set to true, it makes the current device the root block device.
     /// Setting this flag to true will mount the block device in the
     /// guest under /dev/vda unless the partuuid is present.
     pub is_root_device: bool,
-    /// Part-UUID. Represents the unique id of the boot partition of this device. It is
-    /// optional and it will be used only if the `is_root_device` field is true.
-    pub partuuid: Option<String>,
-    /// If set to true, the drive is opened in read-only mode. Otherwise, the
-    /// drive is opened as read-write.
-    pub is_read_only: bool,
     /// If set to true, the drive will ignore flush requests coming from
     /// the guest driver.
     #[serde(default)]
     pub cache_type: CacheType,
+
+    /// If set to true, the drive is opened in read-only mode. Otherwise, the
+    /// drive is opened as read-write.
+    pub is_read_only: bool,
+    /// Path of the backing file on the host
+    pub path_on_host: String,
     /// Rate Limiter for I/O operations.
     pub rate_limiter: Option<RateLimiterConfig>,
     /// The type of IO engine used by the device.
@@ -227,17 +223,24 @@ pub struct VirtioBlockConfig {
     pub file_engine_type: FileEngineType,
 }
 
-impl From<BlockDeviceConfig> for VirtioBlockConfig {
-    fn from(value: BlockDeviceConfig) -> Self {
-        Self {
-            drive_id: value.drive_id,
-            path_on_host: value.path_on_host,
-            is_root_device: value.is_root_device,
-            partuuid: value.partuuid,
-            is_read_only: value.is_read_only,
-            cache_type: value.cache_type,
-            rate_limiter: value.rate_limiter,
-            file_engine_type: value.file_engine_type,
+impl TryFrom<&BlockDeviceConfig> for VirtioBlockConfig {
+    type Error = VirtioBlockError;
+
+    fn try_from(value: &BlockDeviceConfig) -> Result<Self, Self::Error> {
+        if value.path_on_host.is_some() && value.socket.is_none() {
+            Ok(Self {
+                drive_id: value.drive_id.clone(),
+                partuuid: value.partuuid.clone(),
+                is_root_device: value.is_root_device,
+                cache_type: value.cache_type,
+
+                is_read_only: value.is_read_only.unwrap_or(false),
+                path_on_host: value.path_on_host.as_ref().unwrap().clone(),
+                rate_limiter: value.rate_limiter,
+                file_engine_type: value.file_engine_type,
+            })
+        } else {
+            Err(VirtioBlockError::Config)
         }
     }
 }
@@ -246,13 +249,16 @@ impl From<VirtioBlockConfig> for BlockDeviceConfig {
     fn from(value: VirtioBlockConfig) -> Self {
         Self {
             drive_id: value.drive_id,
-            path_on_host: value.path_on_host,
-            is_root_device: value.is_root_device,
             partuuid: value.partuuid,
-            is_read_only: value.is_read_only,
+            is_root_device: value.is_root_device,
             cache_type: value.cache_type,
+
+            is_read_only: Some(value.is_read_only),
+            path_on_host: Some(value.path_on_host),
             rate_limiter: value.rate_limiter,
             file_engine_type: value.file_engine_type,
+
+            socket: None,
         }
     }
 }
@@ -363,7 +369,7 @@ impl VirtioBlock {
         }
     }
 
-    /// Process a single event in the VirtIO queue.
+    /// Process a single event in the Virtio queue.
     ///
     /// This function is called by the event manager when the guest notifies us
     /// about new buffers in the queue.
@@ -746,6 +752,54 @@ mod tests {
     use crate::devices::virtio::{IO_URING_NUM_ENTRIES, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::rate_limiter::TokenType;
     use crate::vstate::memory::{Address, Bytes, GuestAddress};
+
+    #[test]
+    fn test_from_config() {
+        let block_config = BlockDeviceConfig {
+            drive_id: "".to_string(),
+            partuuid: None,
+            is_root_device: false,
+            cache_type: CacheType::Unsafe,
+
+            is_read_only: Some(true),
+            path_on_host: Some("path".to_string()),
+            rate_limiter: None,
+            file_engine_type: Default::default(),
+
+            socket: None,
+        };
+        assert!(VirtioBlockConfig::try_from(&block_config).is_ok());
+
+        let block_config = BlockDeviceConfig {
+            drive_id: "".to_string(),
+            partuuid: None,
+            is_root_device: false,
+            cache_type: CacheType::Unsafe,
+
+            is_read_only: None,
+            path_on_host: None,
+            rate_limiter: None,
+            file_engine_type: Default::default(),
+
+            socket: Some("sock".to_string()),
+        };
+        assert!(VirtioBlockConfig::try_from(&block_config).is_err());
+
+        let block_config = BlockDeviceConfig {
+            drive_id: "".to_string(),
+            partuuid: None,
+            is_root_device: false,
+            cache_type: CacheType::Unsafe,
+
+            is_read_only: Some(true),
+            path_on_host: Some("path".to_string()),
+            rate_limiter: None,
+            file_engine_type: Default::default(),
+
+            socket: Some("sock".to_string()),
+        };
+        assert!(VirtioBlockConfig::try_from(&block_config).is_err());
+    }
 
     #[test]
     fn test_disk_backing_file_helper() {

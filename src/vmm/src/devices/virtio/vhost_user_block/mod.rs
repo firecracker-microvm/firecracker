@@ -17,6 +17,8 @@ pub const QUEUE_SIZE: u16 = 256;
 /// Vhost-user block device error.
 #[derive(Debug, displaydoc::Display)]
 pub enum VhostUserBlockError {
+    /// Cannot create config
+    Config,
     /// Persistence error: {0:?}
     Persist(crate::devices::virtio::persist::PersistError),
     /// Vhost-user error: {0}

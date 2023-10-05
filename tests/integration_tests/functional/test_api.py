@@ -75,7 +75,7 @@ def test_drive_io_engine(test_microvm_with_api):
         # The Async engine is not supported for older kernels.
         test_microvm.check_log_message(
             "Received Error. Status code: 400 Bad Request. Message: Unable"
-            " to create the block device: FileEngine(UnsupportedEngine(Async))"
+            " to create the virtio block device: FileEngine(UnsupportedEngine(Async))"
         )
 
         # Now configure the default engine type and check that it works.
@@ -125,7 +125,7 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
     )
 
     # Updates to `path_on_host` with an invalid path are not allowed.
-    with pytest.raises(RuntimeError, match="Invalid block device path"):
+    with pytest.raises(RuntimeError, match="No such file or directory"):
         test_microvm.api.drive.put(
             drive_id="rootfs",
             path_on_host="foo.bar",
@@ -869,26 +869,28 @@ def _drive_patch(test_microvm):
     assert response["drives"] == [
         {
             "drive_id": "rootfs",
-            "path_on_host": "/ubuntu-22.04.squashfs",
-            "is_root_device": True,
             "partuuid": None,
-            "is_read_only": True,
+            "is_root_device": True,
             "cache_type": "Unsafe",
-            "io_engine": "Sync",
+            "is_read_only": True,
+            "path_on_host": "/ubuntu-22.04.squashfs",
             "rate_limiter": None,
+            "io_engine": "Sync",
+            "socket": None,
         },
         {
             "drive_id": "scratch",
-            "path_on_host": "/scratch_new.ext4",
-            "is_root_device": False,
             "partuuid": None,
-            "is_read_only": False,
+            "is_root_device": False,
             "cache_type": "Unsafe",
-            "io_engine": "Async" if is_io_uring_supported() else "Sync",
+            "is_read_only": False,
+            "path_on_host": "/scratch_new.ext4",
             "rate_limiter": {
                 "bandwidth": {"size": 5000, "one_time_burst": None, "refill_time": 100},
                 "ops": {"size": 500, "one_time_burst": None, "refill_time": 100},
             },
+            "io_engine": "Async" if is_io_uring_supported() else "Sync",
+            "socket": None,
         },
     ]
 
@@ -1082,13 +1084,14 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
     setup_cfg["drives"] = [
         {
             "drive_id": "rootfs",
-            "path_on_host": f"/{uvm_nano.rootfs_file.name}",
-            "is_root_device": True,
             "partuuid": None,
-            "is_read_only": True,
+            "is_root_device": True,
             "cache_type": "Unsafe",
+            "is_read_only": True,
+            "path_on_host": f"/{uvm_nano.rootfs_file.name}",
             "rate_limiter": None,
             "io_engine": "Sync",
+            "socket": None,
         }
     ]
 
@@ -1191,13 +1194,14 @@ def test_get_full_config(test_microvm_with_api):
     expected_cfg["drives"] = [
         {
             "drive_id": "rootfs",
-            "path_on_host": "/ubuntu-22.04.squashfs",
-            "is_root_device": True,
             "partuuid": None,
-            "is_read_only": True,
+            "is_root_device": True,
             "cache_type": "Unsafe",
+            "is_read_only": True,
+            "path_on_host": "/ubuntu-22.04.squashfs",
             "rate_limiter": None,
             "io_engine": "Sync",
+            "socket": None,
         }
     ]
 

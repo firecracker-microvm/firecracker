@@ -16,7 +16,6 @@ use vhost::vhost_user::message::*;
 use vhost::vhost_user::VhostUserFrontend;
 
 use super::{VhostUserBlockError, NUM_QUEUES, QUEUE_SIZE};
-use crate::devices::virtio::block::device::FileEngineType;
 use crate::devices::virtio::gen::virtio_blk::{
     VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_F_VERSION_1,
 };
@@ -47,18 +46,30 @@ pub struct VhostUserBlockConfig {
     /// If set to true, the drive will ignore flush requests coming from
     /// the guest driver.
     pub cache_type: CacheType,
+
     /// Socket path of the vhost-user process
     pub socket: String,
 }
 
-impl From<BlockDeviceConfig> for VhostUserBlockConfig {
-    fn from(value: BlockDeviceConfig) -> Self {
-        Self {
-            drive_id: value.drive_id,
-            is_root_device: value.is_root_device,
-            partuuid: value.partuuid,
-            cache_type: value.cache_type,
-            socket: Default::default(),
+impl TryFrom<&BlockDeviceConfig> for VhostUserBlockConfig {
+    type Error = VhostUserBlockError;
+
+    fn try_from(value: &BlockDeviceConfig) -> Result<Self, Self::Error> {
+        if value.socket.is_some()
+            && value.is_read_only.is_none()
+            && value.path_on_host.is_none()
+            && value.rate_limiter.is_none()
+        {
+            Ok(Self {
+                drive_id: value.drive_id.clone(),
+                partuuid: value.partuuid.clone(),
+                is_root_device: value.is_root_device,
+                cache_type: value.cache_type,
+
+                socket: value.socket.as_ref().unwrap().clone(),
+            })
+        } else {
+            Err(VhostUserBlockError::Config)
         }
     }
 }
@@ -67,13 +78,16 @@ impl From<VhostUserBlockConfig> for BlockDeviceConfig {
     fn from(value: VhostUserBlockConfig) -> Self {
         Self {
             drive_id: value.drive_id,
-            path_on_host: Default::default(),
-            is_root_device: value.is_root_device,
             partuuid: value.partuuid,
-            is_read_only: false,
+            is_root_device: value.is_root_device,
             cache_type: value.cache_type,
+
+            is_read_only: None,
+            path_on_host: None,
             rate_limiter: None,
-            file_engine_type: FileEngineType::default(),
+            file_engine_type: Default::default(),
+
+            socket: Some(value.socket),
         }
     }
 }
@@ -278,5 +292,58 @@ impl VirtioDevice for VhostUserBlock {
 
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from_config() {
+        let block_config = BlockDeviceConfig {
+            drive_id: "".to_string(),
+            partuuid: None,
+            is_root_device: false,
+            cache_type: CacheType::Unsafe,
+
+            is_read_only: None,
+            path_on_host: None,
+            rate_limiter: None,
+            file_engine_type: Default::default(),
+
+            socket: Some("sock".to_string()),
+        };
+        assert!(VhostUserBlockConfig::try_from(&block_config).is_ok());
+
+        let block_config = BlockDeviceConfig {
+            drive_id: "".to_string(),
+            partuuid: None,
+            is_root_device: false,
+            cache_type: CacheType::Unsafe,
+
+            is_read_only: Some(true),
+            path_on_host: Some("path".to_string()),
+            rate_limiter: None,
+            file_engine_type: Default::default(),
+
+            socket: None,
+        };
+        assert!(VhostUserBlockConfig::try_from(&block_config).is_err());
+
+        let block_config = BlockDeviceConfig {
+            drive_id: "".to_string(),
+            partuuid: None,
+            is_root_device: false,
+            cache_type: CacheType::Unsafe,
+
+            is_read_only: Some(true),
+            path_on_host: Some("path".to_string()),
+            rate_limiter: None,
+            file_engine_type: Default::default(),
+
+            socket: Some("sock".to_string()),
+        };
+        assert!(VhostUserBlockConfig::try_from(&block_config).is_err());
     }
 }
