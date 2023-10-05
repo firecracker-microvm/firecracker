@@ -4,6 +4,7 @@
 
 import logging
 import time
+from subprocess import TimeoutExpired
 
 import pytest
 from retry import retry
@@ -66,12 +67,20 @@ def make_guest_dirty_memory(ssh_connection, amount_mib=32):
     lower_ssh_oom_chance(ssh_connection)
 
     cmd = f"/usr/local/bin/fillmem {amount_mib}"
-    exit_code, stdout, stderr = ssh_connection.run(cmd)
-    # add something to the logs for troubleshooting
-    if exit_code != 0:
-        logger.error("while running: %s", cmd)
-        logger.error("stdout: %s", stdout)
-        logger.error("stderr: %s", stderr)
+    try:
+        exit_code, stdout, stderr = ssh_connection.run(cmd, timeout=1.0)
+        # add something to the logs for troubleshooting
+        if exit_code != 0:
+            logger.error("while running: %s", cmd)
+            logger.error("stdout: %s", stdout)
+            logger.error("stderr: %s", stderr)
+
+        cmd = "cat /tmp/fillmem_output.txt"
+    except TimeoutExpired:
+        # It's ok if this expires. Some times the SSH connection
+        # gets killed by the OOM killer *after* the fillmem program
+        # started. As a result, we can ignore timeouts here.
+        pass
 
     time.sleep(5)
 
