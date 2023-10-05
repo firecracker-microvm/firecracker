@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use super::RateLimiterConfig;
 pub use crate::devices::virtio::block::device::FileEngineType;
 use crate::devices::virtio::block::VirtioBlockError;
+use crate::devices::virtio::vhost_user_block::device::VhostUserBlock;
 pub use crate::devices::virtio::CacheType;
 use crate::devices::virtio::VirtioBlock;
 use crate::VmmError;
@@ -77,6 +78,8 @@ pub struct BlockDeviceUpdateConfig {
 pub enum BlockDeviceType {
     /// VirtioBlock type
     VirtioBlock(Arc<Mutex<VirtioBlock>>),
+    /// VhostUserBlock type
+    VhostUserBlock(Arc<Mutex<VhostUserBlock>>),
 }
 
 /// Wrapper for the collection that holds all the Block Devices
@@ -106,6 +109,7 @@ impl BlockBuilder {
                 BlockDeviceType::VirtioBlock(b) => {
                     b.lock().expect("Poisoned lock").is_root_device()
                 }
+                BlockDeviceType::VhostUserBlock(b) => b.lock().expect("Poisoned lock").root_device,
             }
         } else {
             false
@@ -116,6 +120,7 @@ impl BlockBuilder {
     fn get_index_of_drive_id(&self, drive_id: &str) -> Option<usize> {
         self.devices.iter().position(|b| match b {
             BlockDeviceType::VirtioBlock(b) => b.lock().expect("Poisoned lock").id().eq(drive_id),
+            BlockDeviceType::VhostUserBlock(b) => b.lock().expect("Poisoned lock").id.eq(drive_id),
         })
     }
 
@@ -179,6 +184,7 @@ impl BlockBuilder {
             .iter()
             .map(|b| match b {
                 BlockDeviceType::VirtioBlock(b) => b.lock().unwrap().config().into(),
+                BlockDeviceType::VhostUserBlock(b) => b.lock().unwrap().config().into(),
             })
             .collect()
     }
@@ -250,6 +256,7 @@ mod tests {
                     assert_eq!(block.partuuid(), dummy_block_device.partuuid.as_ref());
                     assert_eq!(block.is_read_only(), dummy_block_device.is_read_only);
                 }
+                BlockDeviceType::VhostUserBlock(_) => {}
             }
         }
         assert_eq!(block_devs.get_index_of_drive_id(&dummy_id), Some(0));
@@ -284,6 +291,7 @@ mod tests {
                     assert_eq!(block.partuuid(), dummy_block_device.partuuid.as_ref());
                     assert_eq!(block.is_read_only(), dummy_block_device.is_read_only);
                 }
+                BlockDeviceType::VhostUserBlock(_) => {}
             }
         }
     }
@@ -378,16 +386,19 @@ mod tests {
             BlockDeviceType::VirtioBlock(ref b) => {
                 assert_eq!(b.lock().unwrap().id(), &root_block_device.drive_id)
             }
+            BlockDeviceType::VhostUserBlock(_) => {}
         }
         match block_iter.next().unwrap() {
             BlockDeviceType::VirtioBlock(ref b) => {
                 assert_eq!(b.lock().unwrap().id(), &dummy_block_dev_2.drive_id)
             }
+            BlockDeviceType::VhostUserBlock(_) => {}
         }
         match block_iter.next().unwrap() {
             BlockDeviceType::VirtioBlock(ref b) => {
                 assert_eq!(b.lock().unwrap().id(), &dummy_block_dev_3.drive_id)
             }
+            BlockDeviceType::VhostUserBlock(_) => {}
         }
     }
 
@@ -447,16 +458,19 @@ mod tests {
             BlockDeviceType::VirtioBlock(ref b) => {
                 assert_eq!(b.lock().unwrap().id(), &root_block_device.drive_id)
             }
+            BlockDeviceType::VhostUserBlock(_) => {}
         }
         match block_iter.next().unwrap() {
             BlockDeviceType::VirtioBlock(ref b) => {
                 assert_eq!(b.lock().unwrap().id(), &dummy_block_dev_2.drive_id)
             }
+            BlockDeviceType::VhostUserBlock(_) => {}
         }
         match block_iter.next().unwrap() {
             BlockDeviceType::VirtioBlock(ref b) => {
                 assert_eq!(b.lock().unwrap().id(), &dummy_block_dev_3.drive_id)
             }
+            BlockDeviceType::VhostUserBlock(_) => {}
         }
     }
 
@@ -520,6 +534,7 @@ mod tests {
         // Validate update was successful.
         match block_devs.devices[index] {
             BlockDeviceType::VirtioBlock(ref b) => assert!(b.lock().unwrap().is_read_only()),
+            BlockDeviceType::VhostUserBlock(_) => {}
         }
 
         // Update with invalid path.
@@ -572,6 +587,7 @@ mod tests {
             BlockDeviceType::VirtioBlock(ref b) => {
                 assert_eq!(b.lock().unwrap().id(), &root_block_id)
             }
+            BlockDeviceType::VhostUserBlock(_) => {}
         }
     }
 
@@ -621,6 +637,7 @@ mod tests {
         assert_eq!(block_devs.devices.len(), 1);
         match block_devs.devices.pop_back().unwrap() {
             BlockDeviceType::VirtioBlock(ref b) => assert_eq!(b.lock().unwrap().id(), block_id),
+            BlockDeviceType::VhostUserBlock(_) => {}
         }
     }
 }
