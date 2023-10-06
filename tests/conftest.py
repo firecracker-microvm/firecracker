@@ -34,6 +34,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+import requests
 
 import host_tools.cargo_build as build_tools
 from framework import defs, utils
@@ -58,6 +59,11 @@ if os.geteuid() != 0:
 
 
 METRICS = get_metrics_logger()
+QEMU_PUB_KEY_URL = "https://keys.openpgp.org/vks/v1/by-fingerprint/CEACC9E15534EBABB82D3FA03353C9CEF108B584"
+QEMU_VERSION = "8.1.1"
+QEMU_TARBALL = f"qemu-{QEMU_VERSION}.tar.xz"
+QEMU_URL = f"https://download.qemu.org/{QEMU_TARBALL}"
+QEMU_SIG_URL = f"https://download.qemu.org/{QEMU_TARBALL}.sig"
 
 
 def pytest_addoption(parser):
@@ -194,6 +200,47 @@ def bin_vsock_path(test_fc_session_root_path):
     vsock_helper_bin_path = os.path.join(test_fc_session_root_path, "vsock_helper")
     build_tools.gcc_compile("host_tools/vsock_helper.c", vsock_helper_bin_path)
     yield vsock_helper_bin_path
+
+
+@pytest.fixture(scope="session")
+def bin_vhost_user_blk_backend(test_fc_session_root_path):
+    """Build a Qemu vhost-user-blk backend."""
+    # Fetch and import the public key
+    resp = requests.get(QEMU_PUB_KEY_URL, timeout=5)
+    resp.raise_for_status()
+    pk = Path(test_fc_session_root_path) / "qemu_pub_key"
+    pk.write_bytes(resp.content)
+    utils.run_cmd(["gpg", "--import", pk])
+
+    # Fetch the Qemu tarball
+    resp = requests.get(QEMU_URL, timeout=30)
+    resp.raise_for_status()
+    tarball_path = Path(test_fc_session_root_path) / QEMU_TARBALL
+    tarball_path.write_bytes(resp.content)
+
+    # Fetch the Qemu tarball signature
+    resp = requests.get(QEMU_SIG_URL, timeout=5)
+    resp.raise_for_status()
+    sig_path = Path(test_fc_session_root_path) / f"{QEMU_TARBALL}.sig"
+    sig_path.write_bytes(resp.content)
+
+    # Verify the signature
+    utils.run_cmd(["gpg", "--verify", sig_path, tarball_path])
+
+    # Unpack the Qemu tarball
+    utils.run_cmd(["tar", "xf", tarball_path, "-C", test_fc_session_root_path])
+
+    # Configure Qemu and build only the vhost-user-blk backend target.
+    backend_build_relpath = "contrib/vhost-user-blk/vhost-user-blk"
+    compile_cmd = f"./configure && make -j {backend_build_relpath}"
+    qemu_dir = Path(test_fc_session_root_path) / f"qemu-{QEMU_VERSION}"
+    utils.run_cmd(compile_cmd, cwd=qemu_dir)
+
+    # Note that the make target does not include the `build` part of the path,
+    # but the actual binary path does.
+    bin_path = qemu_dir / f"build/{backend_build_relpath}"
+
+    yield bin_path
 
 
 @pytest.fixture(scope="session")
