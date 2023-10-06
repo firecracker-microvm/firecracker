@@ -72,8 +72,8 @@ use serde::{Serialize, Serializer};
 use vm_superio::rtc_pl031::RtcEvents;
 
 use super::FcLineWriter;
-use crate::devices::virtio::block::block_metrics;
 use crate::devices::virtio::net::metrics as net_metrics;
+use crate::devices::virtio::virtio_block::block_metrics;
 #[cfg(target_arch = "aarch64")]
 use crate::warn;
 

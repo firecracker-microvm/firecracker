@@ -19,8 +19,6 @@ use super::mmio::*;
 use crate::arch::DeviceType;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::balloon::{Balloon, BalloonError};
-use crate::devices::virtio::block::persist::{VirtioBlockConstructorArgs, VirtioBlockState};
-use crate::devices::virtio::block::{VirtioBlock, VirtioBlockError};
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::mmio::MmioTransport;
 use crate::devices::virtio::net::persist::{
@@ -37,6 +35,8 @@ use crate::devices::virtio::vhost_user_block::persist::{
     VhostUserBlockConstructorArgs, VhostUserBlockState,
 };
 use crate::devices::virtio::vhost_user_block::VhostUserBlockError;
+use crate::devices::virtio::virtio_block::persist::{VirtioBlockConstructorArgs, VirtioBlockState};
+use crate::devices::virtio::virtio_block::{VirtioBlock, VirtioBlockError};
 use crate::devices::virtio::vsock::persist::{
     VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
 };

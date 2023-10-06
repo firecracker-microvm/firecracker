@@ -13,14 +13,14 @@ use utils::tempfile::TempFile;
 
 use super::device::VirtioBlockConfig;
 use super::RequestHeader;
-use crate::devices::virtio::block::device::FileEngineType;
-#[cfg(test)]
-use crate::devices::virtio::block::io::FileEngine;
-use crate::devices::virtio::block::{CacheType, VirtioBlock};
 #[cfg(test)]
 use crate::devices::virtio::device::IrqType;
 use crate::devices::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
+use crate::devices::virtio::virtio_block::device::FileEngineType;
+#[cfg(test)]
+use crate::devices::virtio::virtio_block::io::FileEngine;
+use crate::devices::virtio::virtio_block::{CacheType, VirtioBlock};
 use crate::rate_limiter::RateLimiter;
 use crate::vmm_config::{RateLimiterConfig, TokenBucketConfig};
 use crate::vstate::memory::{Bytes, GuestAddress};
