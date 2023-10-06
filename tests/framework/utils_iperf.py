@@ -7,7 +7,7 @@ import json
 import time
 
 from framework import utils
-from framework.utils import CmdBuilder, CpuMap, get_cpu_percent, summarize_cpu_percent
+from framework.utils import CmdBuilder, CpuMap, get_cpu_percent
 
 DURATION = "duration"
 IPERF3_END_RESULTS_TAG = "end"
@@ -134,43 +134,6 @@ class IPerf3Test:
         if self._payload_length != "DEFAULT":
             return cmd.with_arg("--len", self._payload_length)
         return cmd
-
-
-def consume_iperf3_output(stats_consumer, iperf_result):
-    """Consume the iperf3 data produced by the tcp/vsock throughput performance tests"""
-
-    for iperf3_raw in iperf_result["g2h"] + iperf_result["h2g"]:
-        total_received = iperf3_raw[IPERF3_END_RESULTS_TAG]["sum_received"]
-        duration = float(total_received["seconds"])
-        stats_consumer.consume_data(DURATION, duration)
-
-        # Computed at the receiving end.
-        total_recv_bytes = int(total_received["bytes"])
-        tput = round((total_recv_bytes * 8) / (1024 * 1024 * duration), 2)
-        stats_consumer.consume_data(THROUGHPUT, tput)
-
-    vmm_util, vcpu_util = summarize_cpu_percent(iperf_result["cpu_load_raw"])
-
-    stats_consumer.consume_stat("Avg", CPU_UTILIZATION_VMM, vmm_util)
-    stats_consumer.consume_stat("Avg", CPU_UTILIZATION_VCPUS_TOTAL, vcpu_util)
-
-    for idx, time_series in enumerate(iperf_result["g2h"]):
-        yield from [
-            (f"{THROUGHPUT}_g2h_{idx}", x["sum"]["bits_per_second"], "Megabits/Second")
-            for x in time_series["intervals"]
-        ]
-
-    for idx, time_series in enumerate(iperf_result["h2g"]):
-        yield from [
-            (f"{THROUGHPUT}_h2g_{idx}", x["sum"]["bits_per_second"], "Megabits/Second")
-            for x in time_series["intervals"]
-        ]
-
-    for thread_name, data in iperf_result["cpu_load_raw"].items():
-        yield from [
-            (f"cpu_utilization_{thread_name}", x, "Percent")
-            for x in list(data.values())[0]
-        ]
 
 
 def emit_iperf3_metrics(metrics, iperf_result, omit):
