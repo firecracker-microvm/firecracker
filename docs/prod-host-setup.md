@@ -328,3 +328,86 @@ wget -O - https://meltdown.ovh | bash
 
 [1]: https://elixir.free-electrons.com/linux/v4.14.203/source/virt/kvm/arm/hyp/timer-sr.c#L63
 [2]: https://lists.cs.columbia.edu/pipermail/kvmarm/2017-January/023323.html
+
+### Linux 6.1 boot time regressions
+
+Linux 6.1 introduced some regressions in the time it takes to boot a VM, for the
+x86_64 architecture. They can be mitigated depending on the CPU and the version
+of cgroups in use.
+
+#### Explanation
+
+The regression happens in the `KVM_CREATE_VM` ioctl and there are two factors
+that cause the issue:
+
+1. In the implementation of the mitigation for the iTLB multihit vulnerability,
+   KVM creates a worker thread called `kvm-nx-lpage-recovery`. This thread is
+   responsible for recovering huge pages split when the mitigation kicks-in. In
+   the process of creating this thread, KVM calls `cgroup_attach_task_all()` to
+   move it to the same cgroup used by the hypervisor thread
+1. In kernel v4.4, upstream converted a cgroup per process read-write semaphore
+   into a per-cpu read-write semaphore to allow to perform operations across
+   multiple processes
+   ([commit](https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/commit/?&id=1ed1328792ff46e4bb86a3d7f7be2971f4549f6c)).
+   It was found that this conversion introduced high latency for write paths,
+   which mainly includes moving tasks between cgroups. This was fixed in kernel
+   v4.9 by
+   [commit](https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/commit/?&id=3942a9bd7b5842a924e99ee6ec1350b8006c94ec)
+   which chose to favor writers over readers since moving tasks between cgroups
+   is a common operation for Android. However, In kernel 6.0, upstream decided
+   to revert back again and favor readers over writers re-introducing the
+   original behavior of the rw semaphore
+   ([commit](https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/commit/?&id=6a010a49b63ac8465851a79185d8deff966f8e1a)).
+   At the same time, this commit provided an option called favordynmods to favor
+   writers over readers.
+1. Since the `kvm-nx-lpage-recovery` thread creation and its cgroup change is done
+   in the `KVM_CREATE_VM` call, the high latency we observe in 6.1 is due to the
+   upstream decision to favor readers over writers for this per-cpu rw
+   semaphore. While the 4.14 and 5.10 kernels favor writers over readers.
+
+The first step is to check if the host is vulnerable to iTLB multihit. Look at
+the value of `cat /sys/devices/system/cpu/vulnerabilities/itlb_multihit`. If it
+does says `Not affected`, the host is not vulnerable and you can apply
+mitigation 2, and optionally 1 for best results. Otherwise it is vulnerable and
+you can only apply mitigation 1.
+
+#### Mitigation 1: `favordynmods`
+
+The mitigation in this case is to enable `favordynmods` in cgroupsv1 or
+cgroupsv2. This changes the behavior of all cgroups in the host, and makes it
+closer to the performance of Linux 5.10 and 4.14.
+
+For cgroupsv2, run this command:
+
+```sh
+sudo mount -o remount,favordynmods /sys/fs/cgroup
+```
+
+For cgroupsv1, remounting with `favordynmods` is not supported, so it has to be
+done at boot time, through a kernel command line option[^1]. Add
+`cgroup_favordynmods=true` to your kernel command line in GRUB. Refer to your
+distribution's documentation for where to make this change[^2]
+
+[^2] Look for `GRUB_CMDLINE_LINUX` in file `/etc/default/grub` in RPM-based
+systems, and [this doc for
+Ubuntu](https://wiki.ubuntu.com/Kernel/KernelBootParameters).
+
+[^1]: this command line option is still unreleased at the moment of writing, but
+will be part of 6.7 and may be backported to 6.1:
+<https://lore.kernel.org/lkml/ZR2zsZIung0-mWii@slm.duckdns.org/>
+
+#### Mitigation 2: `kvm.nx_huge_pages=never`
+
+This mitigation is preferred to the previous one as it is less invasive (it
+doesn't affect other cgroups), but it can also be combined with the cgroups
+mitigation.
+
+```sh
+KVM_VENDOR_MOD=$(lsmod |grep -P "^kvm_(amd|intel)" | awk '{print $1}')
+sudo modprobe -r $KVM_VENDOR_MOD kvm
+sudo modprobe kvm nx_huge_pages=never
+sudo modprobe $KVM_VENDOR_MOD
+```
+
+To validate that the change took effect, the file
+`/sys/module/kvm/parameters/nx_huge_pages` should say `never`.

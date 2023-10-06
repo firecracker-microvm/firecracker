@@ -26,6 +26,7 @@ DEFAULT_BOOT_ARGS = (
 DIMENSIONS = {
     "instance": global_props.instance,
     "cpu_model": global_props.cpu_model,
+    "host_os": global_props.host_os,
     "host_kernel": "linux-" + global_props.host_linux_version,
 }
 
@@ -55,11 +56,6 @@ def test_no_boottime(test_microvm_with_api):
     assert not timestamps
 
 
-# temporarily disable this test in 6.1
-@pytest.mark.xfail(
-    global_props.host_linux_version == "6.1",
-    reason="perf regression under investigation",
-)
 @pytest.mark.skipif(
     global_props.cpu_codename == "INTEL_SKYLAKE"
     and global_props.host_linux_version == "5.10",
@@ -83,11 +79,6 @@ def test_boottime_no_network(fast_microvm, record_property, metrics):
     ), f"boot time {boottime_us} cannot be greater than: {MAX_BOOT_TIME_US} us"
 
 
-# temporarily disable this test in 6.1
-@pytest.mark.xfail(
-    global_props.host_linux_version == "6.1",
-    reason="perf regression under investigation",
-)
 @pytest.mark.skipif(
     global_props.cpu_codename == "INTEL_SKYLAKE"
     and global_props.host_linux_version == "5.10",

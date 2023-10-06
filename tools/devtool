@@ -531,6 +531,53 @@ ensure_ci_artifacts() {
     fi
 }
 
+apply_linux_61_tweaks() {
+    KV=$(uname -r)
+    if [[ $KV != 6.1.* ]] || [ $(uname -m) != x86_64 ]; then
+        return
+    fi
+    say "Applying Linux 6.1 boot-time regression mitigations"
+
+    KVM_VENDOR_MOD=$(lsmod |grep -P "^kvm_(amd|intel)" | awk '{print $1}')
+    ITLB_MULTIHIT=/sys/devices/system/cpu/vulnerabilities/itlb_multihit
+    NX_HUGEPAGES=/sys/module/kvm/parameters/nx_huge_pages
+
+    # If m6a/m6i
+    if grep -q "Not affected" $ITLB_MULTIHIT; then
+        echo -e "CPU not vulnerable to iTLB multihit, using kvm.nx_huge_pages=never mitigation"
+        # we need a lock so another process is not running the same thing and to
+        # avoid race conditions.
+        lockfile="/tmp/.linux61_tweaks.lock"
+        set -C # noclobber
+        while true; do
+            if echo "$$" > "$lockfile"; then
+                echo "Successfully acquired lock"
+                if ! grep -q "never" $NX_HUGEPAGES; then
+                    echo "Reloading KVM modules with nx_huge_pages=never"
+                    sudo modprobe -r $KVM_VENDOR_MOD kvm
+                    sudo modprobe kvm nx_huge_pages=never
+                    sudo modprobe $KVM_VENDOR_MOD
+                fi
+                rm "$lockfile"
+                break
+            else
+                sleep 5s
+            fi
+        done
+        tail -v $ITLB_MULTIHIT $NX_HUGEPAGES
+    # else (m5d Skylake and CascadeLake)
+    else
+        echo "CPU vulnerable to iTLB_multihit, checking if favordynmods is enabled"
+        mount |grep cgroup |grep -q favordynmods
+        if [ $? -ne 0 ]; then
+            say_warn "cgroups' favordynmods option not enabled; VM creation performance may be impacted"
+        else
+            echo "favordynmods is enabled"
+        fi
+    fi
+}
+
+
 # `$0 test` - run integration tests
 # Please see `$0 help` for more information.
 #
@@ -565,9 +612,12 @@ cmd_test() {
     ensure_build_dir
     ensure_ci_artifacts
 
+    apply_linux_61_tweaks
+
     # If we got to here, we've got all we need to continue.
     say "Kernel version: $(uname -r)"
     say "$(sed '/^processor.*: 0$/,/^processor.*: 1$/!d; /^processor.*: 1$/d' /proc/cpuinfo)"
+    say "RPM microcode_ctl version: $(rpm -q microcode_ctl)"
     say "Starting test run ..."
 
     # Testing (running Firecracker via the jailer) needs root access,
