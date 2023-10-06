@@ -8,12 +8,12 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use super::RateLimiterConfig;
-pub use crate::devices::virtio::block::device::FileEngineType;
-use crate::devices::virtio::block::device::VirtioBlockConfig;
-use crate::devices::virtio::block::{VirtioBlock, VirtioBlockError};
 use crate::devices::virtio::block_common::CacheType;
 use crate::devices::virtio::vhost_user_block::device::{VhostUserBlock, VhostUserBlockConfig};
 use crate::devices::virtio::vhost_user_block::VhostUserBlockError;
+pub use crate::devices::virtio::virtio_block::device::FileEngineType;
+use crate::devices::virtio::virtio_block::device::VirtioBlockConfig;
+use crate::devices::virtio::virtio_block::{VirtioBlock, VirtioBlockError};
 use crate::VmmError;
 
 /// Errors associated with the operations allowed on a drive.
@@ -223,7 +223,7 @@ mod tests {
     use utils::tempfile::TempFile;
 
     use super::*;
-    use crate::devices::virtio::block::device::VirtioBlockConfig;
+    use crate::devices::virtio::virtio_block::device::VirtioBlockConfig;
 
     impl PartialEq for DriveError {
         fn eq(&self, other: &DriveError) -> bool {

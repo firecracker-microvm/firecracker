@@ -13,11 +13,11 @@ use versionize_derive::Versionize;
 
 use super::device::DiskProperties;
 use super::*;
-use crate::devices::virtio::block::block_metrics::BlockMetricsPerDevice;
-use crate::devices::virtio::block::device::FileEngineType;
 use crate::devices::virtio::device::{DeviceState, IrqTrigger};
 use crate::devices::virtio::gen::virtio_blk::VIRTIO_BLK_F_RO;
 use crate::devices::virtio::persist::VirtioDeviceState;
+use crate::devices::virtio::virtio_block::block_metrics::BlockMetricsPerDevice;
+use crate::devices::virtio::virtio_block::device::FileEngineType;
 use crate::devices::virtio::TYPE_BLOCK;
 use crate::logger::warn;
 use crate::rate_limiter::persist::RateLimiterState;
@@ -187,9 +187,9 @@ mod tests {
     use utils::tempfile::TempFile;
 
     use super::*;
-    use crate::devices::virtio::block::device::VirtioBlockConfig;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::test_utils::default_mem;
+    use crate::devices::virtio::virtio_block::device::VirtioBlockConfig;
 
     #[test]
     fn test_cache_semantic_ser() {
