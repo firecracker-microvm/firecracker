@@ -59,6 +59,16 @@ RUN apt-get update \
         dmidecode \
         # for aws-lc-rs
         cmake \
+        # for verifying GPG signature of a Qemu release
+        gpg \
+        gpg-agent \
+        # for Qemu vhost-user-blk backend build, mostly inspired by
+        # https://en.wikibooks.org/wiki/QEMU/QEMU_Hello_World:_Installing_QEMU_and_getting_it_up_and_running
+        bison \
+        flex \
+        libglib2.0-dev \
+        libpixman-1-dev \
+        ninja-build \
     && rm -rf /var/lib/apt/lists/* \
     && pip3 install --upgrade pip poetry \
     && gem install mdl
