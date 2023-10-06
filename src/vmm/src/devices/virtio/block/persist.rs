@@ -24,37 +24,6 @@ use crate::rate_limiter::persist::RateLimiterState;
 use crate::rate_limiter::RateLimiter;
 use crate::vstate::memory::GuestMemoryMmap;
 
-/// Holds info about block's cache type. Gets saved in snapshot.
-// NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Versionize)]
-pub enum CacheTypeState {
-    /// Flushing mechanic will be advertised to the guest driver, but
-    /// the operation will be a noop.
-    Unsafe,
-    /// Flushing mechanic will be advertised to the guest driver and
-    /// flush requests coming from the guest will be performed using
-    /// `fsync`.
-    Writeback,
-}
-
-impl From<CacheType> for CacheTypeState {
-    fn from(cache_type: CacheType) -> Self {
-        match cache_type {
-            CacheType::Unsafe => CacheTypeState::Unsafe,
-            CacheType::Writeback => CacheTypeState::Writeback,
-        }
-    }
-}
-
-impl From<CacheTypeState> for CacheType {
-    fn from(cache_type_state: CacheTypeState) -> Self {
-        match cache_type_state {
-            CacheTypeState::Unsafe => CacheType::Unsafe,
-            CacheTypeState::Writeback => CacheType::Writeback,
-        }
-    }
-}
-
 /// Holds info about block's file engine type. Gets saved in snapshot.
 // NOTICE: Any changes to this structure require a snapshot version bump.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Versionize)]
@@ -93,7 +62,7 @@ pub struct VirtioBlockState {
     id: String,
     partuuid: Option<String>,
     #[version(start = 2, default_fn = "default_cache_type_flush")]
-    cache_type: CacheTypeState,
+    cache_type: CacheType,
     root_device: bool,
     disk_path: String,
     virtio_state: VirtioDeviceState,
@@ -103,8 +72,8 @@ pub struct VirtioBlockState {
 }
 
 impl VirtioBlockState {
-    fn default_cache_type_flush(_source_version: u16) -> CacheTypeState {
-        CacheTypeState::Unsafe
+    fn default_cache_type_flush(_source_version: u16) -> CacheType {
+        CacheType::Unsafe
     }
 }
 
@@ -125,7 +94,7 @@ impl Persist<'_> for VirtioBlock {
         VirtioBlockState {
             id: self.id.clone(),
             partuuid: self.partuuid.clone(),
-            cache_type: CacheTypeState::from(self.cache_type()),
+            cache_type: self.cache_type(),
             root_device: self.root_device,
             disk_path: self.disk.file_path().clone(),
             virtio_state: VirtioDeviceState::from_device(self),
@@ -222,36 +191,6 @@ mod tests {
     use crate::devices::virtio::block::device::VirtioBlockConfig;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::test_utils::default_mem;
-
-    #[test]
-    fn test_cache_type_state_from() {
-        assert_eq!(
-            CacheTypeState::Unsafe,
-            CacheTypeState::from(CacheType::Unsafe)
-        );
-        assert_eq!(
-            CacheTypeState::Writeback,
-            CacheTypeState::from(CacheType::Writeback)
-        );
-    }
-
-    #[test]
-    fn test_cache_type_state_into() {
-        assert_eq!(CacheType::Unsafe, CacheTypeState::Unsafe.into());
-        assert_eq!(CacheType::Writeback, CacheTypeState::Writeback.into());
-    }
-
-    #[test]
-    fn test_default_cache_type_flush() {
-        assert_eq!(
-            VirtioBlockState::default_cache_type_flush(2),
-            CacheTypeState::Unsafe
-        );
-        assert_eq!(
-            VirtioBlockState::default_cache_type_flush(3),
-            CacheTypeState::Unsafe
-        );
-    }
 
     #[test]
     fn test_cache_semantic_ser() {

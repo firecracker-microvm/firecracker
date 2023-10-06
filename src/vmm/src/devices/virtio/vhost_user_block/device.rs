@@ -16,7 +16,7 @@ use vhost::vhost_user::message::*;
 use vhost::vhost_user::VhostUserFrontend;
 
 use super::{VhostUserBlockError, NUM_QUEUES, QUEUE_SIZE};
-use crate::devices::virtio::block::CacheType;
+use crate::devices::virtio::block_common::CacheType;
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, VirtioDevice};
 use crate::devices::virtio::gen::virtio_blk::{
     VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_F_VERSION_1,

@@ -860,11 +860,12 @@ mod tests {
     use crate::cpu_config::templates::test_utils::build_test_template;
     use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
     use crate::devices::virtio::balloon::{BalloonConfig, BalloonError};
+    use crate::devices::virtio::block_common::CacheType;
     use crate::devices::virtio::rng::EntropyError;
     use crate::devices::virtio::vsock::VsockError;
     use crate::mmds::data_store::MmdsVersion;
     use crate::vmm_config::balloon::BalloonBuilder;
-    use crate::vmm_config::drive::{CacheType, FileEngineType};
+    use crate::vmm_config::drive::FileEngineType;
     use crate::vmm_config::machine_config::VmConfig;
     use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
     use crate::vmm_config::vsock::VsockBuilder;
