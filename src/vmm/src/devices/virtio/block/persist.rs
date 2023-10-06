@@ -94,9 +94,9 @@ impl Persist<'_> for VirtioBlock {
         VirtioBlockState {
             id: self.id.clone(),
             partuuid: self.partuuid.clone(),
-            cache_type: self.cache_type(),
+            cache_type: self.cache_type,
             root_device: self.root_device,
-            disk_path: self.disk.file_path().clone(),
+            disk_path: self.disk.file_path.clone(),
             virtio_state: VirtioDeviceState::from_device(self),
             rate_limiter_state: self.rate_limiter.save(),
             file_engine_type: FileEngineTypeState::from(self.file_engine_type()),
@@ -114,7 +114,6 @@ impl Persist<'_> for VirtioBlock {
         let disk_properties = DiskProperties::new(
             state.disk_path.clone(),
             is_read_only,
-            state.cache_type.into(),
             state.file_engine_type.into(),
         )
         .or_else(|err| match err {
@@ -127,12 +126,7 @@ impl Persist<'_> for VirtioBlock {
                      Defaulting to \"Sync\" mode.",
                     utils::kernel_version::min_kernel_version_for_io_uring()
                 );
-                DiskProperties::new(
-                    state.disk_path.clone(),
-                    is_read_only,
-                    state.cache_type.into(),
-                    FileEngineType::Sync,
-                )
+                DiskProperties::new(state.disk_path.clone(), is_read_only, FileEngineType::Sync)
             }
             other => Err(other),
         })?;
@@ -162,19 +156,24 @@ impl Persist<'_> for VirtioBlock {
         };
 
         Ok(VirtioBlock {
-            id: state.id.clone(),
-            root_device: state.root_device,
-            partuuid: state.partuuid.clone(),
-            rate_limiter,
-            config_space: disk_properties.virtio_block_config_space(),
-            disk: disk_properties,
             avail_features,
             acked_features,
-            queue_evts,
+            config_space: disk_properties.virtio_block_config_space(),
+            activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?,
+
             queues,
+            queue_evts,
             device_state,
             irq_trigger,
-            activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?,
+
+            id: state.id.clone(),
+            partuuid: state.partuuid.clone(),
+            cache_type: state.cache_type,
+            root_device: state.root_device,
+            read_only: is_read_only,
+
+            disk: disk_properties,
+            rate_limiter,
             is_io_engine_throttled: false,
             metrics: BlockMetricsPerDevice::alloc(state.id.clone()),
         })
@@ -337,6 +336,6 @@ mod tests {
         assert_eq!(restored_block.is_activated(), block.is_activated());
 
         // Test that block specific fields are the same.
-        assert_eq!(restored_block.disk.file_path(), block.disk.file_path());
+        assert_eq!(restored_block.disk.file_path, block.disk.file_path);
     }
 }

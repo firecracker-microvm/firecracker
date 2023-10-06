@@ -98,7 +98,7 @@ pub fn simulate_queue_event(b: &mut VirtioBlock, maybe_expected_irq: Option<bool
 
 #[cfg(test)]
 pub fn simulate_async_completion_event(b: &mut VirtioBlock, expected_irq: bool) {
-    if let FileEngine::Async(engine) = b.disk.file_engine_mut() {
+    if let FileEngine::Async(ref mut engine) = b.disk.file_engine {
         // Wait for all the async operations to complete.
         engine.drain(false).unwrap();
         // Wait for the async completion event to be sent.
@@ -113,7 +113,7 @@ pub fn simulate_async_completion_event(b: &mut VirtioBlock, expected_irq: bool) 
 
 #[cfg(test)]
 pub fn simulate_queue_and_async_completion_events(b: &mut VirtioBlock, expected_irq: bool) {
-    match b.disk.file_engine_mut() {
+    match b.disk.file_engine {
         FileEngine::Async(_) => {
             simulate_queue_event(b, None);
             simulate_async_completion_event(b, expected_irq);

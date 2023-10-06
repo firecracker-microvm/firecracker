@@ -372,24 +372,18 @@ impl Request {
     ) -> ProcessingResult {
         let pending = self.to_pending_request(desc_idx);
         let res = match self.r#type {
-            RequestType::In => disk.file_engine_mut().read(
-                self.offset(),
-                mem,
-                self.data_addr,
-                self.data_len,
-                pending,
-            ),
-            RequestType::Out => disk.file_engine_mut().write(
-                self.offset(),
-                mem,
-                self.data_addr,
-                self.data_len,
-                pending,
-            ),
-            RequestType::Flush => disk.file_engine_mut().flush(pending),
+            RequestType::In => {
+                disk.file_engine
+                    .read(self.offset(), mem, self.data_addr, self.data_len, pending)
+            }
+            RequestType::Out => {
+                disk.file_engine
+                    .write(self.offset(), mem, self.data_addr, self.data_len, pending)
+            }
+            RequestType::Flush => disk.file_engine.flush(pending),
             RequestType::GetDeviceID => {
                 let res = mem
-                    .write_slice(disk.image_id(), self.data_addr)
+                    .write_slice(&disk.image_id, self.data_addr)
                     .map(|_| VIRTIO_BLK_ID_BYTES)
                     .map_err(IoErr::GetId);
                 return ProcessingResult::Executed(pending.finish(mem, res, block_metrics));

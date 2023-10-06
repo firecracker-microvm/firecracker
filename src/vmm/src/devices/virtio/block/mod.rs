@@ -36,7 +36,7 @@ pub const IO_URING_NUM_ENTRIES: u16 = 128;
 /// Errors the block device can trigger.
 #[derive(Debug)]
 pub enum VirtioBlockError {
-    /// Can not create config
+    /// Cannot create config
     Config,
     /// Guest gave us too few descriptors in a descriptor chain.
     DescriptorChainTooShort,

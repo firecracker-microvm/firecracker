@@ -889,8 +889,8 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a BlockDeviceType> + Debug>(
             BlockDeviceType::VirtioBlock(block) => {
                 let id = {
                     let locked = block.lock().expect("Poisoned lock");
-                    if locked.is_root_device() {
-                        cmdline.insert_str(if let Some(partuuid) = locked.partuuid() {
+                    if locked.root_device {
+                        cmdline.insert_str(if let Some(ref partuuid) = locked.partuuid {
                             format!("root=PARTUUID={}", partuuid)
                         } else {
                             // If no PARTUUID was specified for the root device, try with the
@@ -898,10 +898,10 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a BlockDeviceType> + Debug>(
                             "root=/dev/vda".to_string()
                         })?;
 
-                        let flags = if locked.is_read_only() { "ro" } else { "rw" };
+                        let flags = if locked.read_only { "ro" } else { "rw" };
                         cmdline.insert_str(flags)?;
                     }
-                    locked.id().clone()
+                    locked.id.clone()
                 };
                 // The device mutex mustn't be locked here otherwise it will deadlock.
                 attach_virtio_device(event_manager, vmm, id, block.clone(), cmdline)?;
