@@ -33,7 +33,7 @@ use utils::epoll::EventSet;
 
 use super::device::{Vsock, EVQ_INDEX, RXQ_INDEX, TXQ_INDEX};
 use super::VsockBackend;
-use crate::devices::virtio::VirtioDevice;
+use crate::devices::virtio::device::VirtioDevice;
 use crate::logger::{IncMetric, METRICS};
 
 impl<B> Vsock<B>

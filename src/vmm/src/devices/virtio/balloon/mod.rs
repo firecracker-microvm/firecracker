@@ -12,7 +12,8 @@ mod util;
 use vm_memory::GuestMemoryError;
 
 pub use self::device::{Balloon, BalloonConfig, BalloonStats};
-use crate::devices::virtio::FIRECRACKER_MAX_QUEUE_SIZE;
+use super::queue::QueueError;
+use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 
 /// Device ID used in MMIO device identification.
 /// Because Balloon is unique per-vm, this ID can be hardcoded.
@@ -88,7 +89,7 @@ pub enum BalloonError {
     /// Amount of pages requested cannot fit in `u32`.
     TooManyPagesRequested,
     /// Error while processing the virt queues.
-    Queue(super::QueueError),
+    Queue(QueueError),
     /// Error removing a memory region at inflate time.
     RemoveMemoryRegion(RemoveRegionError),
     /// Error creating the statistics timer.

@@ -11,11 +11,10 @@ use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
-use super::device::*;
-use super::queue::*;
+use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use crate::devices::virtio::MmioTransport;
-use crate::vstate::memory::address::Address;
+use crate::devices::virtio::mmio::MmioTransport;
+use crate::devices::virtio::queue::Queue;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
 /// Errors thrown during restoring virtio state.
@@ -79,9 +78,9 @@ impl Persist<'_> for Queue {
             max_size: state.max_size,
             size: state.size,
             ready: state.ready,
-            desc_table: GuestAddress::new(state.desc_table),
-            avail_ring: GuestAddress::new(state.avail_ring),
-            used_ring: GuestAddress::new(state.used_ring),
+            desc_table: GuestAddress(state.desc_table),
+            avail_ring: GuestAddress(state.avail_ring),
+            used_ring: GuestAddress(state.used_ring),
             next_avail: state.next_avail,
             next_used: state.next_used,
             uses_notif_suppression: false,
@@ -244,9 +243,12 @@ mod tests {
     use super::*;
     use crate::devices::virtio::block::device::FileEngineType;
     use crate::devices::virtio::block::test_utils::default_block_with_path;
+    use crate::devices::virtio::block::VirtioBlock;
     use crate::devices::virtio::mmio::tests::DummyDevice;
+    use crate::devices::virtio::net::test_utils::default_net;
+    use crate::devices::virtio::net::Net;
     use crate::devices::virtio::test_utils::default_mem;
-    use crate::devices::virtio::{net, Net, VirtioBlock, Vsock, VsockUnixBackend};
+    use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 
     const DEFAULT_QUEUE_MAX_SIZE: u16 = 256;
     impl Default for QueueState {
@@ -399,7 +401,7 @@ mod tests {
         assert_eq!(restored_mmio_transport, mmio_transport);
     }
 
-    fn default_block() -> (MmioTransport, GuestMemoryMmap, Arc<Mutex<VirtioBlock>>) {
+    fn create_default_block() -> (MmioTransport, GuestMemoryMmap, Arc<Mutex<VirtioBlock>>) {
         let mem = default_mem();
 
         // Create backing file.
@@ -415,9 +417,9 @@ mod tests {
         (mmio_transport, mem, block)
     }
 
-    fn default_net() -> (MmioTransport, GuestMemoryMmap, Arc<Mutex<Net>>) {
+    fn create_default_net() -> (MmioTransport, GuestMemoryMmap, Arc<Mutex<Net>>) {
         let mem = default_mem();
-        let net = Arc::new(Mutex::new(net::test_utils::default_net()));
+        let net = Arc::new(Mutex::new(default_net()));
         let mmio_transport = MmioTransport::new(mem.clone(), net.clone());
 
         (mmio_transport, mem, net)
@@ -445,13 +447,13 @@ mod tests {
 
     #[test]
     fn test_block_over_mmiotransport_persistence() {
-        let (mmio_transport, mem, block) = default_block();
+        let (mmio_transport, mem, block) = create_default_block();
         generic_mmiotransport_persistence_test(mmio_transport, mem, block);
     }
 
     #[test]
     fn test_net_over_mmiotransport_persistence() {
-        let (mmio_transport, mem, net) = default_net();
+        let (mmio_transport, mem, net) = create_default_net();
         generic_mmiotransport_persistence_test(mmio_transport, mem, net);
     }
 

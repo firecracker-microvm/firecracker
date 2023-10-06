@@ -16,7 +16,7 @@ use vm_memory::GuestMemoryError;
 pub use self::device::{CacheType, VirtioBlock};
 pub use self::event_handler::*;
 pub use self::request::*;
-use crate::devices::virtio::FIRECRACKER_MAX_QUEUE_SIZE;
+use super::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 
 /// Size of config space for block device.
 pub const BLOCK_CONFIG_SPACE_SIZE: usize = 8;

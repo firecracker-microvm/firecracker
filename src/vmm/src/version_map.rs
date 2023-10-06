@@ -12,7 +12,7 @@ use versionize::{VersionMap, Versionize};
 use crate::device_manager::persist::DeviceStates;
 use crate::devices::virtio::block::persist::VirtioBlockState;
 use crate::devices::virtio::net::persist::NetConfigSpaceState;
-use crate::devices::virtio::{QueueState, VirtioDeviceState};
+use crate::devices::virtio::persist::{QueueState, VirtioDeviceState};
 use crate::persist::VmInfo;
 use crate::vstate::vcpu::VcpuState;
 use crate::vstate::vm::VmState;

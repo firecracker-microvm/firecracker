@@ -18,8 +18,9 @@ use utils::net::mac::MacAddr;
 #[cfg(test)]
 use crate::devices::virtio::net::device::vnet_hdr_len;
 use crate::devices::virtio::net::tap::{IfReqBuilder, Tap};
+use crate::devices::virtio::net::Net;
+use crate::devices::virtio::queue::{Queue, QueueError};
 use crate::devices::virtio::test_utils::VirtQueue;
-use crate::devices::virtio::{Net, Queue, QueueError};
 use crate::devices::DeviceError;
 use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
@@ -353,16 +354,15 @@ pub mod test {
     use event_manager::{EventManager, SubscriberId, SubscriberOps};
 
     use crate::check_metric_after_block;
+    use crate::devices::virtio::device::{IrqType, VirtioDevice};
     use crate::devices::virtio::net::device::vnet_hdr_len;
     use crate::devices::virtio::net::gen::ETH_HLEN;
     use crate::devices::virtio::net::test_utils::{
         assign_queues, default_net, inject_tap_tx_frame, NetEvent, NetQueue, ReadTapMock,
     };
+    use crate::devices::virtio::net::{Net, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX};
+    use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
-    use crate::devices::virtio::{
-        IrqType, Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, VIRTQ_DESC_F_NEXT,
-        VIRTQ_DESC_F_WRITE,
-    };
     use crate::logger::IncMetric;
     use crate::vstate::memory::{
         Address, Bytes, GuestAddress, GuestMemoryExtension, GuestMemoryMmap,

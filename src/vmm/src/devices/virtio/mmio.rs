@@ -9,10 +9,12 @@ use std::fmt::Debug;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use log::warn;
 use utils::byte_order;
 
-use super::{device_status, *};
+use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::device_status;
+use crate::devices::virtio::queue::Queue;
+use crate::logger::warn;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
 // TODO crosvm uses 0 here, but IIRC virtio specified some other vendor id that should be used
@@ -332,6 +334,7 @@ pub(crate) mod tests {
     use utils::u64_to_usize;
 
     use super::*;
+    use crate::devices::virtio::ActivateError;
     use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap};
 
     #[derive(Debug)]

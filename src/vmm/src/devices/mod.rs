@@ -17,8 +17,9 @@ pub mod virtio;
 pub use bus::{Bus, BusDevice, BusError};
 use log::error;
 
-use crate::devices::virtio::metrics::NetDeviceMetrics;
-use crate::devices::virtio::{QueueError, VsockError};
+use crate::devices::virtio::net::metrics::NetDeviceMetrics;
+use crate::devices::virtio::queue::QueueError;
+use crate::devices::virtio::vsock::VsockError;
 use crate::logger::{IncMetric, METRICS};
 
 // Function used for reporting error in terms of logging
