@@ -2,6 +2,7 @@ on:
   push:
     branches:
       - main
+      - firecracker-v*
 
 jobs:
   trigger_ab_test:
