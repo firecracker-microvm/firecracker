@@ -18,7 +18,7 @@ impl VirtioBlock {
         if let Err(err) = ops.add(Events::new(&self.rate_limiter, EventSet::IN)) {
             error!("Failed to register ratelimiter event: {}", err);
         }
-        if let FileEngine::Async(engine) = self.disk.file_engine() {
+        if let FileEngine::Async(ref engine) = self.disk.file_engine {
             if let Err(err) = ops.add(Events::new(engine.completion_evt(), EventSet::IN)) {
                 error!("Failed to register IO engine completion event: {}", err);
             }
@@ -64,8 +64,8 @@ impl MutEventSubscriber for VirtioBlock {
             let queue_evt = self.queue_evts[0].as_raw_fd();
             let rate_limiter_evt = self.rate_limiter.as_raw_fd();
             let activate_fd = self.activate_evt.as_raw_fd();
-            let maybe_completion_fd = match self.disk.file_engine() {
-                FileEngine::Async(engine) => Some(engine.completion_evt().as_raw_fd()),
+            let maybe_completion_fd = match self.disk.file_engine {
+                FileEngine::Async(ref engine) => Some(engine.completion_evt().as_raw_fd()),
                 FileEngine::Sync(_) => None,
             };
 

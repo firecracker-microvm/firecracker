@@ -64,18 +64,16 @@ impl FileEngineType {
 /// Helper object for setting up all `Block` fields derived from its backing file.
 #[derive(Debug)]
 pub struct DiskProperties {
-    cache_type: CacheType,
-    file_path: String,
-    file_engine: FileEngine<PendingRequest>,
-    nsectors: u64,
-    image_id: [u8; VIRTIO_BLK_ID_BYTES as usize],
+    pub file_path: String,
+    pub file_engine: FileEngine<PendingRequest>,
+    pub nsectors: u64,
+    pub image_id: [u8; VIRTIO_BLK_ID_BYTES as usize],
 }
 
 impl DiskProperties {
     pub fn new(
         disk_image_path: String,
         is_disk_read_only: bool,
-        cache_type: CacheType,
         file_engine_type: FileEngineType,
     ) -> Result<Self, VirtioBlockError> {
         let mut disk_image = OpenOptions::new()
@@ -97,35 +95,15 @@ impl DiskProperties {
             );
         }
 
+        let image_id = Self::build_disk_image_id(&disk_image);
+
         Ok(Self {
-            cache_type,
-            nsectors: disk_size >> SECTOR_SHIFT,
-            image_id: Self::build_disk_image_id(&disk_image),
             file_path: disk_image_path,
             file_engine: FileEngine::from_file(disk_image, file_engine_type)
                 .map_err(VirtioBlockError::FileEngine)?,
+            nsectors: disk_size >> SECTOR_SHIFT,
+            image_id,
         })
-    }
-
-    pub fn file_engine(&self) -> &FileEngine<PendingRequest> {
-        &self.file_engine
-    }
-
-    pub fn file_engine_mut(&mut self) -> &mut FileEngine<PendingRequest> {
-        &mut self.file_engine
-    }
-
-    #[cfg(test)]
-    pub fn file(&self) -> &File {
-        self.file_engine.file()
-    }
-
-    pub fn nsectors(&self) -> u64 {
-        self.nsectors
-    }
-
-    pub fn image_id(&self) -> &[u8] {
-        &self.image_id
     }
 
     fn build_device_id(disk_file: &File) -> Result<String, VirtioBlockError> {
@@ -159,11 +137,6 @@ impl DiskProperties {
         default_id
     }
 
-    /// Backing file path.
-    pub fn file_path(&self) -> &String {
-        &self.file_path
-    }
-
     /// Provides vec containing the virtio block configuration space
     /// buffer. The config space is populated with the disk size based
     /// on the backing file size.
@@ -174,10 +147,6 @@ impl DiskProperties {
             config.push(((self.nsectors >> (8 * i)) & 0xff) as u8);
         }
         config
-    }
-
-    pub fn cache_type(&self) -> CacheType {
-        self.cache_type
     }
 }
 
@@ -255,9 +224,6 @@ impl From<VirtioBlockConfig> for BlockDeviceConfig {
 /// Virtio device for exposing block level read/write operations on a host file.
 #[derive(Debug)]
 pub struct VirtioBlock {
-    // Host file and properties.
-    pub disk: DiskProperties,
-
     // Virtio fields.
     pub avail_features: u64,
     pub acked_features: u64,
@@ -273,7 +239,12 @@ pub struct VirtioBlock {
     // Implementation specific fields.
     pub id: String,
     pub partuuid: Option<String>,
+    pub cache_type: CacheType,
     pub root_device: bool,
+    pub read_only: bool,
+
+    // Host file and properties.
+    pub disk: DiskProperties,
     pub rate_limiter: RateLimiter,
     pub is_io_engine_throttled: bool,
     pub metrics: Arc<BlockDeviceMetrics>,
@@ -299,7 +270,6 @@ impl VirtioBlock {
         let disk_properties = DiskProperties::new(
             config.path_on_host,
             config.is_read_only,
-            config.cache_type,
             config.file_engine_type,
         )?;
 
@@ -325,19 +295,24 @@ impl VirtioBlock {
         let queues = BLOCK_QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect();
 
         Ok(VirtioBlock {
-            id: config.drive_id.clone(),
-            root_device: config.is_root_device,
-            partuuid: config.partuuid,
-            rate_limiter,
-            config_space: disk_properties.virtio_block_config_space(),
-            disk: disk_properties,
             avail_features,
             acked_features: 0u64,
-            queue_evts,
+            config_space: disk_properties.virtio_block_config_space(),
+            activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?,
+
             queues,
+            queue_evts,
             device_state: DeviceState::Inactive,
             irq_trigger: IrqTrigger::new().map_err(VirtioBlockError::IrqTrigger)?,
-            activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?,
+
+            id: config.drive_id.clone(),
+            partuuid: config.partuuid,
+            cache_type: config.cache_type,
+            root_device: config.is_root_device,
+            read_only: config.is_read_only,
+
+            disk: disk_properties,
+            rate_limiter,
             is_io_engine_throttled: false,
             metrics: BlockMetricsPerDevice::alloc(config.drive_id),
         })
@@ -345,14 +320,14 @@ impl VirtioBlock {
 
     /// Returns a copy of a device config
     pub fn config(&self) -> VirtioBlockConfig {
-        let rl: RateLimiterConfig = self.rate_limiter().into();
+        let rl: RateLimiterConfig = (&self.rate_limiter).into();
         VirtioBlockConfig {
-            drive_id: self.id().clone(),
-            path_on_host: self.file_path().clone(),
-            is_root_device: self.is_root_device(),
-            partuuid: self.partuuid().cloned(),
-            is_read_only: self.is_read_only(),
-            cache_type: self.cache_type(),
+            drive_id: self.id.clone(),
+            path_on_host: self.disk.file_path.clone(),
+            is_root_device: self.root_device,
+            partuuid: self.partuuid.clone(),
+            is_read_only: self.read_only,
+            cache_type: self.cache_type,
             rate_limiter: rl.into_option(),
             file_engine_type: self.file_engine_type(),
         }
@@ -418,7 +393,7 @@ impl VirtioBlock {
         let mut used_any = false;
 
         while let Some(head) = queue.pop_or_enable_notification(mem) {
-            let processing_result = match Request::parse(&head, mem, self.disk.nsectors()) {
+            let processing_result = match Request::parse(&head, mem, self.disk.nsectors) {
                 Ok(request) => {
                     if request.rate_limit(&mut self.rate_limiter) {
                         // Stop processing the queue and return this descriptor chain to the
@@ -461,7 +436,7 @@ impl VirtioBlock {
             }
         }
 
-        if let FileEngine::Async(engine) = self.disk.file_engine_mut() {
+        if let FileEngine::Async(ref mut engine) = self.disk.file_engine {
             if let Err(err) = engine.kick_submission_queue() {
                 error!("BlockError submitting pending block requests: {:?}", err);
             }
@@ -531,12 +506,8 @@ impl VirtioBlock {
 
     /// Update the backing file and the config space of the block device.
     pub fn update_disk_image(&mut self, disk_image_path: String) -> Result<(), VirtioBlockError> {
-        let disk_properties = DiskProperties::new(
-            disk_image_path,
-            self.is_read_only(),
-            self.cache_type(),
-            self.file_engine_type(),
-        )?;
+        let disk_properties =
+            DiskProperties::new(disk_image_path, self.read_only, self.file_engine_type())?;
         self.disk = disk_properties;
         self.config_space = self.disk.virtio_block_config_space();
 
@@ -552,51 +523,16 @@ impl VirtioBlock {
         self.rate_limiter.update_buckets(bytes, ops);
     }
 
-    /// Provides the ID of this block device.
-    pub fn id(&self) -> &String {
-        &self.id
-    }
-
-    /// Provides backing file path of this block device.
-    pub fn file_path(&self) -> &String {
-        self.disk.file_path()
-    }
-
-    /// Provides the PARTUUID of this block device.
-    pub fn partuuid(&self) -> Option<&String> {
-        self.partuuid.as_ref()
-    }
-
-    /// Specifies if this block device is read only.
-    pub fn is_read_only(&self) -> bool {
-        self.avail_features & (1u64 << VIRTIO_BLK_F_RO) != 0
-    }
-
-    /// Specifies if this block device is read only.
-    pub fn is_root_device(&self) -> bool {
-        self.root_device
-    }
-
-    /// Specifies block device cache type.
-    pub fn cache_type(&self) -> CacheType {
-        self.disk.cache_type()
-    }
-
-    /// Provides non-mutable reference to this device's rate limiter.
-    pub fn rate_limiter(&self) -> &RateLimiter {
-        &self.rate_limiter
-    }
-
     /// Retrieve the file engine type.
     pub fn file_engine_type(&self) -> FileEngineType {
-        match self.disk.file_engine() {
+        match self.disk.file_engine {
             FileEngine::Sync(_) => FileEngineType::Sync,
             FileEngine::Async(_) => FileEngineType::Async,
         }
     }
 
     fn drain_and_flush(&mut self, discard: bool) {
-        if let Err(err) = self.disk.file_engine_mut().drain_and_flush(discard) {
+        if let Err(err) = self.disk.file_engine.drain_and_flush(discard) {
             error!("Failed to drain ops and flush block data: {:?}", err);
         }
     }
@@ -608,7 +544,7 @@ impl VirtioBlock {
         }
 
         self.drain_and_flush(false);
-        if let FileEngine::Async(_engine) = self.disk.file_engine_mut() {
+        if let FileEngine::Async(ref _engine) = self.disk.file_engine {
             self.process_async_completion_queue();
         }
     }
@@ -706,9 +642,9 @@ impl VirtioDevice for VirtioBlock {
 
 impl Drop for VirtioBlock {
     fn drop(&mut self) {
-        match self.disk.cache_type {
+        match self.cache_type {
             CacheType::Unsafe => {
-                if let Err(err) = self.disk.file_engine_mut().drain(true) {
+                if let Err(err) = self.disk.file_engine.drain(true) {
                     error!("Failed to drain ops on drop: {:?}", err);
                 }
             }
@@ -801,7 +737,6 @@ mod tests {
         let disk_properties = DiskProperties::new(
             String::from(f.as_path().to_str().unwrap()),
             true,
-            CacheType::Unsafe,
             default_engine_type_for_kv(),
         )
         .unwrap();
@@ -819,7 +754,6 @@ mod tests {
         assert!(DiskProperties::new(
             "invalid-disk-path".to_string(),
             true,
-            CacheType::Unsafe,
             default_engine_type_for_kv(),
         )
         .is_err());
@@ -1138,8 +1072,13 @@ mod tests {
 
             // Check that the data wasn't written to the file
             let mut buf = [0u8; 512];
-            block.disk.file().seek(SeekFrom::Start(0)).unwrap();
-            block.disk.file().read_exact(&mut buf).unwrap();
+            block
+                .disk
+                .file_engine
+                .file()
+                .seek(SeekFrom::Start(0))
+                .unwrap();
+            block.disk.file_engine.file().read_exact(&mut buf).unwrap();
             assert_eq!(buf, empty_data.as_slice());
         }
 
@@ -1272,8 +1211,13 @@ mod tests {
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
             mem.write_slice(empty_data.as_slice(), data_addr).unwrap();
 
-            let size = block.disk.file().seek(SeekFrom::End(0)).unwrap();
-            block.disk.file().set_len(size / 2).unwrap();
+            let size = block
+                .disk
+                .file_engine
+                .file()
+                .seek(SeekFrom::End(0))
+                .unwrap();
+            block.disk.file_engine.file().set_len(size / 2).unwrap();
             mem.write_obj(10, GuestAddress(request_type_addr.0 + 8))
                 .unwrap();
 
@@ -1301,8 +1245,13 @@ mod tests {
                 .flags
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
 
-            let size = block.disk.file().seek(SeekFrom::End(0)).unwrap();
-            block.disk.file().set_len(size / 2).unwrap();
+            let size = block
+                .disk
+                .file_engine
+                .file()
+                .seek(SeekFrom::End(0))
+                .unwrap();
+            block.disk.file_engine.file().set_len(size / 2).unwrap();
             // Update sector number: stored at `request_type_addr.0 + 8`
             mem.write_obj(5, GuestAddress(request_type_addr.0 + 8))
                 .unwrap();
@@ -1344,8 +1293,18 @@ mod tests {
             mem.write_obj(1, GuestAddress(request_type_addr.0 + 8))
                 .unwrap();
 
-            block.disk.file().seek(SeekFrom::Start(512)).unwrap();
-            block.disk.file().write_all(&rand_data[512..]).unwrap();
+            block
+                .disk
+                .file_engine
+                .file()
+                .seek(SeekFrom::Start(512))
+                .unwrap();
+            block
+                .disk
+                .file_engine
+                .file()
+                .write_all(&rand_data[512..])
+                .unwrap();
 
             simulate_queue_and_async_completion_events(&mut block, true);
 
@@ -1458,7 +1417,7 @@ mod tests {
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
         let data_addr = GuestAddress(vq.dtable[1].addr.get());
         let status_addr = GuestAddress(vq.dtable[2].addr.get());
-        let blk_metadata = block.disk.file().metadata();
+        let blk_metadata = block.disk.file_engine.file().metadata();
 
         // Test that the driver receives the correct device id.
         {
@@ -1814,7 +1773,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            block.disk.file().metadata().unwrap().st_ino(),
+            block.disk.file_engine.file().metadata().unwrap().st_ino(),
             mdata.st_ino()
         );
         assert_eq!(block.disk.image_id, id.as_slice());
