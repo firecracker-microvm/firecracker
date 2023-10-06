@@ -9,7 +9,7 @@ use versionize_derive::Versionize;
 
 use super::device::VhostUserBlock;
 use super::VhostUserBlockError;
-use crate::devices::virtio::block::persist::CacheTypeState;
+use crate::devices::virtio::block_common::CacheType;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::vstate::memory::GuestMemoryMmap;
 
@@ -19,7 +19,7 @@ use crate::vstate::memory::GuestMemoryMmap;
 pub struct VhostUserBlockState {
     id: String,
     partuuid: Option<String>,
-    cache_type: CacheTypeState,
+    cache_type: CacheType,
     root_device: bool,
     socket_path: String,
     vu_acked_protocol_features: u64,

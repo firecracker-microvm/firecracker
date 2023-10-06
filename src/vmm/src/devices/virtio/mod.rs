@@ -12,6 +12,7 @@ use std::io::Error as IOError;
 
 pub mod balloon;
 pub mod block;
+pub mod block_common;
 pub mod device;
 pub mod gen;
 pub mod iovec;

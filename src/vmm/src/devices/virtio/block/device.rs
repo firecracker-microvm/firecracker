@@ -20,9 +20,6 @@ use utils::eventfd::EventFd;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
 use utils::u64_to_usize;
 
-use super::super::device::{DeviceState, VirtioDevice};
-use super::super::queue::Queue;
-use super::super::{ActivateError, TYPE_BLOCK};
 use super::io::async_io;
 use super::request::*;
 use super::{
@@ -30,29 +27,19 @@ use super::{
     SECTOR_SIZE,
 };
 use crate::devices::virtio::block::block_metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
-use crate::devices::virtio::device::{IrqTrigger, IrqType};
+use crate::devices::virtio::block_common::CacheType;
+use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::devices::virtio::gen::virtio_blk::{
     VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES, VIRTIO_F_VERSION_1,
 };
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
+use crate::devices::virtio::queue::Queue;
+use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
 use crate::logger::{error, warn, IncMetric};
 use crate::rate_limiter::{BucketUpdate, RateLimiter};
 use crate::vmm_config::drive::BlockDeviceConfig;
 use crate::vmm_config::RateLimiterConfig;
 use crate::vstate::memory::GuestMemoryMmap;
-
-/// Configuration options for disk caching.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
-pub enum CacheType {
-    /// Flushing mechanic will be advertised to the guest driver, but
-    /// the operation will be a noop.
-    #[default]
-    Unsafe,
-    /// Flushing mechanic will be advertised to the guest driver and
-    /// flush requests coming from the guest will be performed using
-    /// `fsync`.
-    Writeback,
-}
 
 /// The engine file type, either Sync or Async (through io_uring).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
