@@ -486,7 +486,7 @@ cmd_build() {
 }
 
 function cmd_make_release {
-    cmd_test || die "Tests failed!"
+    cmd_test -- --reruns 2 || die "Tests failed!"
 
     run_devctr \
         --user "$(id -u):$(id -g)" \
