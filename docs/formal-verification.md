@@ -45,16 +45,17 @@ properties, **all Kani harnesses are run on every pull request in our CI.** To
 check whether the harnesses all work for your pull request, check out the
 “Kani” [Buildkite](https://buildkite.com/) step.
 
-You can also execute our harnesses locally through `./tools/devtool test --
-integration_tests/build/test_kani.py`. To only run individual harnesses, you
-will need to first [install
+To run our harnesses locally, you can either enter our CI docker container
+via `./tools/devtool shell -p`, or by [installing
 Kani](https://model-checking.github.io/kani/install-guide.html#installing-the-latest-version)
-locally.
-From there on, individual test can be run via `cargo kani` similarly to how
-`cargo test` can run individual unit tests, the only difference being that the
-harness needs to be specified via `--harness`. Note that the first invocation
+locally.  Note that the first invocation
 of Kani post-installation might take a while, due to it setting up some
 dependencies.
+
+Individual harnesses can then be executed using `cargo kani` similarly to how
+`cargo test` can run individual unit tests, the only difference being that the
+harness needs to be specified via `--harness`. Note, however, that many harnesses
+require significant memory, and might result in OOM conditions.
 
 ## An example harness
 
