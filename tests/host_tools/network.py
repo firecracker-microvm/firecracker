@@ -89,7 +89,7 @@ class SSHConnection:
         if ecode != 0:
             raise ConnectionError
 
-    def run(self, cmd_string):
+    def run(self, cmd_string, timeout=None):
         """Execute the command passed as a string in the ssh context."""
         return self._exec(
             [
@@ -97,10 +97,11 @@ class SSHConnection:
                 *self.options,
                 f"{self.user}@{self.host}",
                 cmd_string,
-            ]
+            ],
+            timeout,
         )
 
-    def _exec(self, cmd):
+    def _exec(self, cmd, timeout=None):
         """Private function that handles the ssh client invocation."""
 
         # TODO: If a microvm runs in a particular network namespace, we have to
@@ -111,7 +112,7 @@ class SSHConnection:
         if self.netns_file_path is not None:
             ctx = Namespace(self.netns_file_path, "net")
         with ctx:
-            return utils.run_cmd(cmd, ignore_return_code=True)
+            return utils.run_cmd(cmd, ignore_return_code=True, timeout=timeout)
 
 
 def mac_from_ip(ip_address):
