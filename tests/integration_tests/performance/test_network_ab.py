@@ -66,7 +66,6 @@ def network_microvm(request, microvm_factory, guest_kernel, rootfs):
 
 
 @pytest.mark.nonci
-@pytest.mark.timeout(3600)
 @pytest.mark.parametrize("network_microvm", [1], indirect=True)
 def test_network_latency(
     network_microvm, metrics

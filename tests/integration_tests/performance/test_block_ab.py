@@ -138,7 +138,6 @@ def process_fio_logs(vm, fio_mode, logs_dir, metrics):
 
 
 @pytest.mark.nonci
-@pytest.mark.timeout(RUNTIME_SEC * 1000)  # 1.40 hours
 @pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
 @pytest.mark.parametrize("fio_mode", ["randread", "randwrite"])
 @pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])
