@@ -12,8 +12,10 @@ use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 
 use super::*;
+use crate::devices::virtio::device::DeviceState;
 use crate::devices::virtio::persist::VirtioDeviceState;
-use crate::devices::virtio::{DeviceState, FIRECRACKER_MAX_QUEUE_SIZE, TYPE_VSOCK};
+use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
+use crate::devices::virtio::vsock::TYPE_VSOCK;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// The Vsock serializable state.

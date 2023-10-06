@@ -7,9 +7,10 @@ use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
-use crate::devices::virtio::persist::PersistError as VirtioStateError;
+use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
+use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::devices::virtio::rng::{Entropy, EntropyError, RNG_NUM_QUEUES};
-use crate::devices::virtio::{VirtioDeviceState, FIRECRACKER_MAX_QUEUE_SIZE, TYPE_RNG};
+use crate::devices::virtio::TYPE_RNG;
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::rate_limiter::RateLimiter;
 use crate::vstate::memory::GuestMemoryMmap;

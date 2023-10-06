@@ -21,6 +21,8 @@ use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonSt
 use crate::devices::virtio::balloon::{Balloon, BalloonError};
 use crate::devices::virtio::block::persist::{VirtioBlockConstructorArgs, VirtioBlockState};
 use crate::devices::virtio::block::{VirtioBlock, VirtioBlockError};
+use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::mmio::MmioTransport;
 use crate::devices::virtio::net::persist::{
     NetConstructorArgs, NetPersistError as NetError, NetState,
 };
@@ -34,14 +36,14 @@ use crate::devices::virtio::vhost_user_block::device::VhostUserBlock;
 use crate::devices::virtio::vhost_user_block::persist::{
     VhostUserBlockConstructorArgs, VhostUserBlockState,
 };
+use crate::devices::virtio::vhost_user_block::VhostUserBlockError;
 use crate::devices::virtio::vsock::persist::{
     VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
 };
-use crate::devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
-use crate::devices::virtio::{
-    MmioTransport, VhostUserBlockError, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG,
-    TYPE_VSOCK,
+use crate::devices::virtio::vsock::{
+    Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError, TYPE_VSOCK,
 };
+use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG};
 #[cfg(target_arch = "aarch64")]
 use crate::logger;
 use crate::mmds::data_store::MmdsVersion;

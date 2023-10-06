@@ -15,8 +15,10 @@ use versionize_derive::Versionize;
 
 use super::device::Net;
 use super::NET_NUM_QUEUES;
+use crate::devices::virtio::device::DeviceState;
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
-use crate::devices::virtio::{DeviceState, FIRECRACKER_MAX_QUEUE_SIZE, TYPE_NET};
+use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
+use crate::devices::virtio::TYPE_NET;
 use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
 use crate::mmds::persist::MmdsNetworkStackState;

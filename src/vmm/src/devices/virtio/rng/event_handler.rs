@@ -7,7 +7,7 @@ use event_manager::{EventOps, Events, MutEventSubscriber};
 use utils::epoll::EventSet;
 
 use super::{Entropy, RNG_QUEUE};
-use crate::devices::virtio::VirtioDevice;
+use crate::devices::virtio::device::VirtioDevice;
 use crate::logger::{error, warn};
 
 impl Entropy {

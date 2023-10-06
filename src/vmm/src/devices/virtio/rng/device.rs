@@ -10,12 +10,11 @@ use utils::eventfd::EventFd;
 use vm_memory::GuestMemoryError;
 
 use super::{RNG_NUM_QUEUES, RNG_QUEUE};
-use crate::devices::virtio::device::{IrqTrigger, IrqType};
+use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::devices::virtio::gen::virtio_rng::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::iovec::IoVecBufferMut;
-use crate::devices::virtio::{
-    ActivateError, DeviceState, Queue, VirtioDevice, FIRECRACKER_MAX_QUEUE_SIZE, TYPE_RNG,
-};
+use crate::devices::virtio::queue::{Queue, FIRECRACKER_MAX_QUEUE_SIZE};
+use crate::devices::virtio::{ActivateError, TYPE_RNG};
 use crate::devices::DeviceError;
 use crate::logger::{debug, error, IncMetric, METRICS};
 use crate::rate_limiter::{RateLimiter, TokenType};
@@ -305,10 +304,10 @@ mod tests {
     use super::*;
     use crate::check_metric_after_block;
     use crate::devices::virtio::device::VirtioDevice;
+    use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
     use crate::devices::virtio::test_utils::test::{
         create_virtio_mem, VirtioTestDevice, VirtioTestHelper,
     };
-    use crate::devices::virtio::VIRTQ_DESC_F_WRITE;
 
     impl VirtioTestDevice for Entropy {
         fn set_queues(&mut self, queues: Vec<Queue>) {

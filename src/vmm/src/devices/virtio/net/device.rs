@@ -20,12 +20,22 @@ use utils::net::mac::MacAddr;
 use utils::u64_to_usize;
 use vm_memory::GuestMemoryError;
 
+use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::gen::virtio_net::{
     virtio_net_hdr_v1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM, VIRTIO_NET_F_GUEST_TSO4,
     VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC,
 };
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
+use crate::devices::virtio::iovec::IoVecBuffer;
+use crate::devices::virtio::net::metrics::{NetDeviceMetrics, NetMetricsPerDevice};
+use crate::devices::virtio::net::tap::Tap;
+use crate::devices::virtio::net::{
+    gen, NetError, NetQueue, MAX_BUFFER_SIZE, NET_QUEUE_SIZES, RX_INDEX, TX_INDEX,
+};
+use crate::devices::virtio::queue::{DescriptorChain, Queue};
+use crate::devices::virtio::{ActivateError, TYPE_NET};
+use crate::devices::{report_net_event_fail, DeviceError};
 use crate::dumbo::pdu::arp::ETH_IPV4_FRAME_LEN;
 use crate::dumbo::pdu::ethernet::{EthernetFrame, PAYLOAD_OFFSET};
 use crate::logger::{IncMetric, METRICS};
@@ -35,17 +45,6 @@ use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap};
 
 const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
-
-use crate::devices::virtio::iovec::IoVecBuffer;
-use crate::devices::virtio::metrics::{NetDeviceMetrics, NetMetricsPerDevice};
-use crate::devices::virtio::net::tap::Tap;
-use crate::devices::virtio::net::{
-    gen, NetError, NetQueue, MAX_BUFFER_SIZE, NET_QUEUE_SIZES, RX_INDEX, TX_INDEX,
-};
-use crate::devices::virtio::{
-    ActivateError, DescriptorChain, DeviceState, IrqTrigger, IrqType, Queue, VirtioDevice, TYPE_NET,
-};
-use crate::devices::{report_net_event_fail, DeviceError};
 
 #[derive(Debug)]
 enum FrontendError {
@@ -888,10 +887,7 @@ pub mod tests {
         TapTrafficSimulator, WriteTapMock,
     };
     use crate::devices::virtio::net::NET_QUEUE_SIZES;
-    use crate::devices::virtio::{
-        IrqType, Net, Tap, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, TYPE_NET,
-        VIRTQ_DESC_F_WRITE,
-    };
+    use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
     use crate::dumbo::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
     use crate::dumbo::pdu::ethernet::ETHERTYPE_ARP;
     use crate::dumbo::EthernetFrame;

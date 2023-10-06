@@ -31,9 +31,10 @@ use super::super::super::DeviceError;
 use super::defs::uapi;
 use super::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
 use super::{defs, VsockBackend};
-use crate::devices::virtio::{
-    ActivateError, DeviceState, IrqTrigger, IrqType, Queue as VirtQueue, VirtioDevice, VsockError,
-};
+use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
+use crate::devices::virtio::queue::Queue as VirtQueue;
+use crate::devices::virtio::vsock::VsockError;
+use crate::devices::virtio::ActivateError;
 use crate::logger::{IncMetric, METRICS};
 use crate::vstate::memory::{Bytes, GuestMemoryMmap};
 

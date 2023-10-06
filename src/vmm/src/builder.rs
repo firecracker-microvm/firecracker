@@ -43,9 +43,12 @@ use crate::devices::legacy::serial::SerialOut;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
 use crate::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
-use crate::devices::virtio::{
-    Balloon, Entropy, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend,
-};
+use crate::devices::virtio::balloon::Balloon;
+use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::mmio::MmioTransport;
+use crate::devices::virtio::net::Net;
+use crate::devices::virtio::rng::Entropy;
+use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::devices::BusDevice;
 #[cfg(target_arch = "aarch64")]
 use crate::logger;
@@ -988,8 +991,8 @@ pub mod tests {
     use super::*;
     use crate::arch::DeviceType;
     use crate::devices::virtio::rng::device::ENTROPY_DEV_ID;
-    use crate::devices::virtio::vsock::VSOCK_DEV_ID;
-    use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_RNG, TYPE_VSOCK};
+    use crate::devices::virtio::vsock::{TYPE_VSOCK, VSOCK_DEV_ID};
+    use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_RNG};
     use crate::mmds::data_store::{Mmds, MmdsVersion};
     use crate::mmds::ns::MmdsNetworkStack;
     use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};

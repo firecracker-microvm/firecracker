@@ -4,7 +4,7 @@
 use libc::{c_void, iovec, size_t};
 use vm_memory::GuestMemoryError;
 
-use crate::devices::virtio::DescriptorChain;
+use crate::devices::virtio::queue::DescriptorChain;
 use crate::vstate::memory::{Bitmap, GuestMemory, GuestMemoryMmap};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]

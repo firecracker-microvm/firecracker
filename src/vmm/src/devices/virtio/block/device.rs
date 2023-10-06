@@ -20,19 +20,21 @@ use utils::eventfd::EventFd;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
 use utils::u64_to_usize;
 
-use super::super::{ActivateError, DeviceState, Queue, VirtioDevice, TYPE_BLOCK};
+use super::super::device::{DeviceState, VirtioDevice};
+use super::super::queue::Queue;
+use super::super::{ActivateError, TYPE_BLOCK};
 use super::io::async_io;
 use super::request::*;
 use super::{
     io as block_io, VirtioBlockError, BLOCK_CONFIG_SPACE_SIZE, BLOCK_QUEUE_SIZES, SECTOR_SHIFT,
     SECTOR_SIZE,
 };
-use crate::devices::virtio::block_metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
+use crate::devices::virtio::block::block_metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
+use crate::devices::virtio::device::{IrqTrigger, IrqType};
 use crate::devices::virtio::gen::virtio_blk::{
     VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES, VIRTIO_F_VERSION_1,
 };
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use crate::devices::virtio::{IrqTrigger, IrqType};
 use crate::logger::{error, warn, IncMetric};
 use crate::rate_limiter::{BucketUpdate, RateLimiter};
 use crate::vmm_config::drive::BlockDeviceConfig;
@@ -748,8 +750,9 @@ mod tests {
         set_rate_limiter, simulate_async_completion_event,
         simulate_queue_and_async_completion_events, simulate_queue_event,
     };
+    use crate::devices::virtio::block::IO_URING_NUM_ENTRIES;
+    use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
-    use crate::devices::virtio::{IO_URING_NUM_ENTRIES, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::rate_limiter::TokenType;
     use crate::vstate::memory::{Address, Bytes, GuestAddress};
 

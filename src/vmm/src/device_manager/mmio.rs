@@ -23,10 +23,14 @@ use crate::arch::DeviceType::Virtio;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
 use crate::devices::pseudo::BootTimer;
-use crate::devices::virtio::{
-    Balloon, Entropy, MmioTransport, Net, VirtioBlock, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK,
-    TYPE_NET, TYPE_RNG, TYPE_VSOCK,
-};
+use crate::devices::virtio::balloon::Balloon;
+use crate::devices::virtio::block::VirtioBlock;
+use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::mmio::MmioTransport;
+use crate::devices::virtio::net::Net;
+use crate::devices::virtio::rng::Entropy;
+use crate::devices::virtio::vsock::TYPE_VSOCK;
+use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG};
 use crate::devices::BusDevice;
 #[cfg(target_arch = "x86_64")]
 use crate::vstate::memory::GuestAddress;
@@ -462,7 +466,9 @@ mod tests {
     use utils::eventfd::EventFd;
 
     use super::*;
-    use crate::devices::virtio::{ActivateError, Queue, VirtioDevice};
+    use crate::devices::virtio::device::VirtioDevice;
+    use crate::devices::virtio::queue::Queue;
+    use crate::devices::virtio::ActivateError;
     use crate::vstate::memory::{GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
     use crate::{builder, Vm};
 
@@ -473,7 +479,7 @@ mod tests {
             &mut self,
             vm: &VmFd,
             guest_mem: GuestMemoryMmap,
-            device: Arc<Mutex<dyn crate::devices::virtio::VirtioDevice>>,
+            device: Arc<Mutex<dyn VirtioDevice>>,
             cmdline: &mut kernel_cmdline::Cmdline,
             dev_id: &str,
         ) -> Result<u64, MmioError> {
@@ -514,7 +520,7 @@ mod tests {
         }
     }
 
-    impl crate::devices::virtio::VirtioDevice for DummyDevice {
+    impl VirtioDevice for DummyDevice {
         fn avail_features(&self) -> u64 {
             0
         }

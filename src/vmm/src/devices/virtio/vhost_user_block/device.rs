@@ -16,15 +16,15 @@ use vhost::vhost_user::message::*;
 use vhost::vhost_user::VhostUserFrontend;
 
 use super::{VhostUserBlockError, NUM_QUEUES, QUEUE_SIZE};
+use crate::devices::virtio::block::CacheType;
+use crate::devices::virtio::device::{DeviceState, IrqTrigger, VirtioDevice};
 use crate::devices::virtio::gen::virtio_blk::{
     VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_F_VERSION_1,
 };
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::vhost_user::VhostUserHandle;
-use crate::devices::virtio::{
-    ActivateError, CacheType, DeviceState, IrqTrigger, VirtioDevice, TYPE_BLOCK,
-};
+use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
 use crate::vmm_config::drive::BlockDeviceConfig;
 use crate::vstate::memory::GuestMemoryMmap;
 

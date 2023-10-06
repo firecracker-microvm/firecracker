@@ -6,8 +6,9 @@ use std::os::unix::io::AsRawFd;
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use utils::epoll::EventSet;
 
+use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::net::device::Net;
-use crate::devices::virtio::{VirtioDevice, RX_INDEX, TX_INDEX};
+use crate::devices::virtio::net::{RX_INDEX, TX_INDEX};
 use crate::logger::{debug, error, warn, IncMetric};
 
 impl Net {

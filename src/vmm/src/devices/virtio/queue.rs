@@ -570,9 +570,8 @@ mod verification {
     use vm_memory::guest_memory::GuestMemoryIterator;
     use vm_memory::{GuestMemoryRegion, MemoryRegionAddress};
 
-    use crate::devices::virtio::queue::Descriptor;
-    use crate::devices::virtio::{
-        DescriptorChain, Queue, FIRECRACKER_MAX_QUEUE_SIZE, VIRTQ_DESC_F_NEXT,
+    use crate::devices::virtio::queue::{
+        Descriptor, DescriptorChain, Queue, FIRECRACKER_MAX_QUEUE_SIZE, VIRTQ_DESC_F_NEXT,
     };
     use crate::vstate::memory::{Bytes, FileOffset, GuestAddress, GuestMemory, MmapRegion};
 
@@ -1069,8 +1068,8 @@ mod verification {
 mod tests {
 
     pub use super::*;
+    use crate::devices::virtio::queue::QueueError::{DescIndexOutOfBounds, UsedRing};
     use crate::devices::virtio::test_utils::{default_mem, single_region_mem, VirtQueue};
-    use crate::devices::virtio::QueueError::{DescIndexOutOfBounds, UsedRing};
     use crate::vstate::memory::{GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
 
     impl Queue {

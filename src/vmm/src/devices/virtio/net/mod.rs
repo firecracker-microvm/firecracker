@@ -5,7 +5,7 @@
 
 use std::io;
 
-use crate::devices::virtio::FIRECRACKER_MAX_QUEUE_SIZE;
+use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 
 /// Maximum size of the frame buffers handled by this device.
 pub const MAX_BUFFER_SIZE: usize = 65562;

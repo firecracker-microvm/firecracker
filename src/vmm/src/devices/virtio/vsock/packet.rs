@@ -22,8 +22,8 @@ use vm_memory::{
     GuestMemoryError, ReadVolatile, VolatileMemoryError, VolatileSlice, WriteVolatile,
 };
 
-use super::super::DescriptorChain;
 use super::{defs, VsockError};
+use crate::devices::virtio::queue::DescriptorChain;
 use crate::vstate::memory::{
     Address, AtomicBitmap, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, BS,
 };
@@ -439,11 +439,11 @@ impl VsockPacket {
 mod tests {
 
     use super::*;
+    use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
     use crate::devices::virtio::test_utils::VirtqDesc as GuestQDesc;
     use crate::devices::virtio::vsock::defs::MAX_PKT_BUF_SIZE;
     use crate::devices::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
     use crate::devices::virtio::vsock::test_utils::TestContext;
-    use crate::devices::virtio::VIRTQ_DESC_F_WRITE;
     use crate::vstate::memory::{GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
 
     macro_rules! create_context {

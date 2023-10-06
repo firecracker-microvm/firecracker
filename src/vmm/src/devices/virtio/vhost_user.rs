@@ -14,8 +14,8 @@ use vhost::vhost_user::{Frontend, VhostUserFrontend};
 use vhost::{Error as VhostError, VhostBackend, VhostUserMemoryRegionInfo, VringConfigData};
 use vm_memory::{Address, Error as MmapError, GuestMemory, GuestMemoryError, GuestMemoryRegion};
 
+use crate::devices::virtio::device::IrqTrigger;
 use crate::devices::virtio::queue::Queue;
-use crate::devices::virtio::IrqTrigger;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// vhost-user error.

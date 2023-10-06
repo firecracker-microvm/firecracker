@@ -13,28 +13,17 @@ use std::io::Error as IOError;
 pub mod balloon;
 pub mod block;
 pub mod device;
-pub(crate) mod gen;
-mod iovec;
-mod mmio;
+pub mod gen;
+pub mod iovec;
+pub mod mmio;
 pub mod net;
 pub mod persist;
-mod queue;
+pub mod queue;
 pub mod rng;
 pub mod test_utils;
 pub mod vhost_user;
 pub mod vhost_user_block;
 pub mod vsock;
-
-pub use self::balloon::*;
-pub use self::block::*;
-pub use self::device::*;
-pub use self::mmio::*;
-pub use self::net::*;
-pub use self::persist::*;
-pub use self::queue::*;
-pub use self::rng::*;
-pub use self::vhost_user_block::*;
-pub use self::vsock::*;
 
 /// When the driver initializes the device, it lets the device know about the
 /// completed stages using the Device Status Field.

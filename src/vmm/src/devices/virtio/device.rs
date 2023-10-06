@@ -11,8 +11,10 @@ use std::sync::Arc;
 
 use utils::eventfd::EventFd;
 
-use super::{ActivateError, Queue};
-use crate::devices::virtio::{AsAny, VIRTIO_MMIO_INT_CONFIG, VIRTIO_MMIO_INT_VRING};
+use super::mmio::{VIRTIO_MMIO_INT_CONFIG, VIRTIO_MMIO_INT_VRING};
+use super::queue::Queue;
+use super::ActivateError;
+use crate::devices::virtio::AsAny;
 use crate::logger::{error, warn};
 use crate::vstate::memory::GuestMemoryMmap;
 

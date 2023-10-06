@@ -10,10 +10,10 @@ use serde::{Deserialize, Serialize};
 use super::RateLimiterConfig;
 pub use crate::devices::virtio::block::device::FileEngineType;
 use crate::devices::virtio::block::device::VirtioBlockConfig;
-use crate::devices::virtio::block::VirtioBlockError;
+pub use crate::devices::virtio::block::CacheType;
+use crate::devices::virtio::block::{VirtioBlock, VirtioBlockError};
 use crate::devices::virtio::vhost_user_block::device::{VhostUserBlock, VhostUserBlockConfig};
-pub use crate::devices::virtio::CacheType;
-use crate::devices::virtio::{VhostUserBlockError, VirtioBlock};
+use crate::devices::virtio::vhost_user_block::VhostUserBlockError;
 use crate::VmmError;
 
 /// Errors associated with the operations allowed on a drive.
