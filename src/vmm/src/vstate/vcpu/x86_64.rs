@@ -902,8 +902,10 @@ mod tests {
         {
             // The frequency difference is within tolerance.
             let mut state = orig_state.clone();
-            state.tsc_khz =
-                Some(state.tsc_khz.unwrap() + TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR / 2);
+            state.tsc_khz = Some(
+                state.tsc_khz.unwrap()
+                    + state.tsc_khz.unwrap() * TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR / 2,
+            );
             assert!(!vcpu
                 .is_tsc_scaling_required(state.tsc_khz.unwrap())
                 .unwrap());
@@ -912,9 +914,11 @@ mod tests {
         {
             // The frequency difference is over the tolerance.
             let mut state = orig_state;
-            state.tsc_khz =
-                Some(state.tsc_khz.unwrap() + TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR * 2);
-            assert!(!vcpu
+            state.tsc_khz = Some(
+                state.tsc_khz.unwrap()
+                    + state.tsc_khz.unwrap() * TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR * 2,
+            );
+            assert!(vcpu
                 .is_tsc_scaling_required(state.tsc_khz.unwrap())
                 .unwrap());
         }
@@ -924,8 +928,10 @@ mod tests {
     fn test_set_tsc() {
         let (vm, vcpu, _) = setup_vcpu(0x1000);
         let mut state = vcpu.save_state().unwrap();
-        state.tsc_khz =
-            Some(state.tsc_khz.unwrap() + TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR * 2);
+        state.tsc_khz = Some(
+            state.tsc_khz.unwrap()
+                + state.tsc_khz.unwrap() * TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR * 2,
+        );
 
         if vm.fd().check_extension(Cap::TscControl) {
             assert!(vcpu.set_tsc_khz(state.tsc_khz.unwrap()).is_ok());
