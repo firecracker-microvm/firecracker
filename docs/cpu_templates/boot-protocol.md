@@ -28,6 +28,6 @@ and MSR_IA32_MISC_ENABLE is set to `1`.
 
 On aarch64, the following registers are set:
 
-- PSTATE to PSR_MODE_EL1h | PSR_A_BIT | PSR_F_BIT | PSR_I_BIT | PSR_D_BIT
+- PSTATE to PSR_MODE_EL1h \| PSR_A_BIT \| PSR_F_BIT \| PSR_I_BIT \| PSR_D_BIT
 - PC to kernel load address (vCPU0 only)
 - X0 to DTB/FDT address (vCPU0 only)
