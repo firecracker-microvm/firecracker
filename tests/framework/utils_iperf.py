@@ -57,11 +57,13 @@ class IPerf3Test:
         assert self._num_clients < CpuMap.len() - self._microvm.vcpus_count - 2
 
         for server_idx in range(self._num_clients):
-            cmd = self.host_command(server_idx).build()
             assigned_cpu = CpuMap(first_free_cpu)
-            utils.run_cmd(
-                f"taskset --cpu-list {assigned_cpu} {self._microvm.jailer.netns_cmd_prefix()} {cmd}"
+            cmd = (
+                self.host_command(server_idx)
+                .with_arg("--affinity", assigned_cpu)
+                .build()
             )
+            utils.run_cmd(f"{self._microvm.jailer.netns_cmd_prefix()} {cmd}")
             first_free_cpu += 1
 
         time.sleep(SERVER_STARTUP_TIME_SEC)
@@ -105,12 +107,14 @@ class IPerf3Test:
         mode = MODE_MAP[self._mode][client_idx % len(MODE_MAP[self._mode])]
 
         # Add the port where the iperf3 client is going to send/receive.
-        cmd = self.guest_command(client_idx).with_arg(mode).build()
-
-        pinned_cmd = (
-            f"taskset --cpu-list {client_idx % self._microvm.vcpus_count} {cmd}"
+        cmd = (
+            self.guest_command(client_idx)
+            .with_arg(mode)
+            .with_arg("--affinity", client_idx % self._microvm.vcpus_count)
+            .build()
         )
-        rc, stdout, stderr = self._microvm.ssh.run(pinned_cmd)
+
+        rc, stdout, stderr = self._microvm.ssh.run(cmd)
 
         assert rc == 0, stderr
 
@@ -176,18 +180,24 @@ def emit_iperf3_metrics(metrics, iperf_result, omit):
     )[0]:
         metrics.put_metric("cpu_utilization_vmm", cpu_util_data_point, "Percent")
 
-    for time_series in iperf_result["g2h"]:
-        for interval in time_series["intervals"][omit:]:
-            metrics.put_metric(
-                "throughput_guest_to_host",
-                interval["sum"]["bits_per_second"],
-                "Bits/Second",
-            )
+    data_points = zip(
+        *[time_series["intervals"][omit:] for time_series in iperf_result["g2h"]]
+    )
 
-    for time_series in iperf_result["h2g"]:
-        for interval in time_series["intervals"][omit:]:
-            metrics.put_metric(
-                "throughput_host_to_guest",
-                interval["sum"]["bits_per_second"],
-                "Bits/Second",
-            )
+    for point_in_time in data_points:
+        metrics.put_metric(
+            "throughput_guest_to_host",
+            sum(interval["sum"]["bits_per_second"] for interval in point_in_time),
+            "Bits/Second",
+        )
+
+    data_points = zip(
+        *[time_series["intervals"][omit:] for time_series in iperf_result["h2g"]]
+    )
+
+    for point_in_time in data_points:
+        metrics.put_metric(
+            "throughput_host_to_guest",
+            sum(interval["sum"]["bits_per_second"] for interval in point_in_time),
+            "Bits/Second",
+        )

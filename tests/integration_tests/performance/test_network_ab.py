@@ -6,7 +6,6 @@ import re
 
 import pytest
 
-from framework.utils import CpuMap
 from framework.utils_iperf import IPerf3Test, emit_iperf3_metrics
 
 # each iteration is 30 * 0.2s = 6s
@@ -46,24 +45,16 @@ def consume_ping_output(ping_putput):
         yield float(time[0])
 
 
-@pytest.mark.nonci
-@pytest.mark.timeout(3600)
-def test_network_latency(microvm_factory, guest_kernel, rootfs, metrics):
-    """
-    Test network latency for multiple vm configurations.
+@pytest.fixture
+def network_microvm(request, microvm_factory, guest_kernel, rootfs):
+    """Creates a microvm with the networking setup used by the performance tests in this file.
 
-    Send a ping from the guest to the host.
-    """
-
+    This fixture receives its vcpu count via indirect parameterization"""
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn(log_level="Info")
-    vm.basic_config(vcpu_count=GUEST_VCPUS, mem_size_mib=GUEST_MEM_MIB)
-    iface = vm.add_net_iface()
+    vm.basic_config(vcpu_count=request.param, mem_size_mib=GUEST_MEM_MIB)
+    vm.add_net_iface()
     vm.start()
-
-    # Check if the needed CPU cores are available. We have the API thread, VMM
-    # thread and then one thread for each configured vCPU.
-    assert CpuMap.len() >= 2 + vm.vcpus_count
 
     # Pin uVM threads to physical cores.
     assert vm.pin_vmm(0), "Failed to pin firecracker thread."
@@ -71,25 +62,40 @@ def test_network_latency(microvm_factory, guest_kernel, rootfs, metrics):
     for i in range(vm.vcpus_count):
         assert vm.pin_vcpu(i, i + 2), f"Failed to pin fc_vcpu {i} thread."
 
+    return vm
+
+
+@pytest.mark.nonci
+@pytest.mark.parametrize("network_microvm", [1], indirect=True)
+def test_network_latency(
+    network_microvm, metrics
+):  # pylint:disable=redefined-outer-name
+    """
+    Test network latency for multiple vm configurations.
+
+    Send a ping from the guest to the host.
+    """
+
     samples = []
+    host_ip = network_microvm.iface["eth0"]["iface"].host_ip
 
     for _ in range(ITERATIONS):
-        rc, ping_output, stderr = vm.ssh.run(
-            f"ping -c {REQUEST_PER_ITERATION} -i {DELAY} {iface.host_ip}"
+        rc, ping_output, stderr = network_microvm.ssh.run(
+            f"ping -c {REQUEST_PER_ITERATION} -i {DELAY} {host_ip}"
         )
         assert rc == 0, stderr
 
         samples.extend(consume_ping_output(ping_output))
 
     metrics.set_dimensions(
-        {"performance_test": "test_network_latency", **vm.dimensions}
+        {"performance_test": "test_network_latency", **network_microvm.dimensions}
     )
 
     for sample in samples:
         metrics.put_metric("ping_latency", sample, "Milliseconds")
 
 
-class TCPIPerf3Test(IPerf3Test):
+class TcpIPerf3Test(IPerf3Test):
     """IPerf3 runner for the TCP throughput performance test"""
 
     BASE_PORT = 5000
@@ -120,18 +126,15 @@ class TCPIPerf3Test(IPerf3Test):
 
 @pytest.mark.nonci
 @pytest.mark.timeout(3600)
-@pytest.mark.parametrize("vcpus", [1, 2])
+@pytest.mark.parametrize("network_microvm", [1, 2], indirect=True)
 @pytest.mark.parametrize("payload_length", ["128K", "1024K"], ids=["p128K", "p1024K"])
 @pytest.mark.parametrize("mode", ["g2h", "h2g", "bd"])
 def test_network_tcp_throughput(
-    microvm_factory,
-    guest_kernel,
-    rootfs,
-    vcpus,
+    network_microvm,
     payload_length,
     mode,
     metrics,
-):
+):  # pylint:disable=redefined-outer-name
     """
     Iperf between guest and host in both directions for TCP workload.
     """
@@ -139,36 +142,24 @@ def test_network_tcp_throughput(
     # We run bi-directional tests only on uVM with more than 2 vCPus
     # because we need to pin one iperf3/direction per vCPU, and since we
     # have two directions, we need at least two vCPUs.
-    if mode == "bd" and vcpus < 2:
+    if mode == "bd" and network_microvm.vcpus_count < 2:
         pytest.skip("bidrectional test only done with at least 2 vcpus")
 
-    vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
-    vm.spawn(log_level="Info")
-    vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
-    iface = vm.add_net_iface()
-    vm.start()
-
-    # Check if the needed CPU cores are available. We have the API thread, VMM
-    # thread and then one thread for each configured vCPU. Lastly, we need one for
-    # the iperf server on the host.
-    assert CpuMap.len() > 2 + vm.vcpus_count
-
-    # Pin uVM threads to physical cores.
-    assert vm.pin_vmm(0), "Failed to pin firecracker thread."
-    assert vm.pin_api(1), "Failed to pin fc_api thread."
-    for i in range(vm.vcpus_count):
-        assert vm.pin_vcpu(i, i + 2), f"Failed to pin fc_vcpu {i} thread."
-
-    test = TCPIPerf3Test(vm, mode, iface.host_ip, payload_length)
-    data = test.run_test(vm.vcpus_count + 2)
+    test = TcpIPerf3Test(
+        network_microvm,
+        mode,
+        network_microvm.iface["eth0"]["iface"].host_ip,
+        payload_length,
+    )
+    data = test.run_test(network_microvm.vcpus_count + 2)
 
     metrics.set_dimensions(
         {
             "performance_test": "test_network_tcp_throughput",
             "payload_length": payload_length,
             "mode": mode,
-            **vm.dimensions,
+            **network_microvm.dimensions,
         }
     )
 
-    emit_iperf3_metrics(metrics, data, TCPIPerf3Test.WARMUP_SEC)
+    emit_iperf3_metrics(metrics, data, TcpIPerf3Test.WARMUP_SEC)

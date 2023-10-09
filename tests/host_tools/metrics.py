@@ -105,7 +105,8 @@ def emit_raw_emf(emf_msg: dict):
         "AWS_EMF_LOG_GROUP_NAME", f"{namespace}-metrics"
     )
     emf_msg["_aws"]["LogStreamName"] = os.environ.get("AWS_EMF_LOG_STREAM_NAME", "")
-    emf_msg["_aws"]["Namespace"] = namespace
+    for metrics in emf_msg["_aws"]["CloudWatchMetrics"]:
+        metrics["Namespace"] = namespace
 
     emf_endpoint = urlparse(os.environ["AWS_EMF_AGENT_ENDPOINT"])
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
