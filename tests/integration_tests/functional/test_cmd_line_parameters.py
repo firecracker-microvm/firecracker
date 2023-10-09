@@ -3,6 +3,7 @@
 """Tests that ensure the correctness of the command line parameters."""
 
 import platform
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -130,3 +131,18 @@ def test_cli_metrics_if_resume_no_metrics(uvm_plain, microvm_factory):
     # Then: the old metrics configuration does not exist
     metrics2 = Path(uvm2.jailer.chroot_path()) / metrics_path.name
     assert not metrics2.exists()
+
+
+def test_cli_no_params():
+    """
+    Test running firecracker with no parameters should work
+    """
+
+    fc_binary, _ = get_firecracker_binaries()
+    process = subprocess.Popen(fc_binary)
+    try:
+        process.communicate(timeout=3)
+        assert process.returncode is None
+    except subprocess.TimeoutExpired:
+        # The good case
+        process.kill()
