@@ -90,7 +90,6 @@ def test_seccomp_ls(bin_seccomp_paths):
     """
     Assert that the seccomp filter denies an unallowed syscall.
     """
-    # pylint: disable=redefined-outer-name
     # pylint: disable=subprocess-run-check
     # The fixture pattern causes a pylint false positive for that rule.
 
@@ -135,7 +134,6 @@ def test_advanced_seccomp(bin_seccomp_paths):
     binary, denies the malicious demo binary and that an empty allowlist
     denies everything.
     """
-    # pylint: disable=redefined-outer-name
     # pylint: disable=subprocess-run-check
     # The fixture pattern causes a pylint false positive for that rule.
 
@@ -272,7 +270,6 @@ def test_seccomp_rust_panic(bin_seccomp_paths):
     Test that the Firecracker filters allow a Rust panic to run its
     course without triggering a seccomp violation.
     """
-    # pylint: disable=redefined-outer-name
     # pylint: disable=subprocess-run-check
     # The fixture pattern causes a pylint false positive for that rule.
 

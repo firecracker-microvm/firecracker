@@ -67,9 +67,7 @@ def network_microvm(request, microvm_factory, guest_kernel, rootfs):
 
 @pytest.mark.nonci
 @pytest.mark.parametrize("network_microvm", [1], indirect=True)
-def test_network_latency(
-    network_microvm, metrics
-):  # pylint:disable=redefined-outer-name
+def test_network_latency(network_microvm, metrics):
     """
     Test network latency for multiple vm configurations.
 
@@ -134,7 +132,7 @@ def test_network_tcp_throughput(
     payload_length,
     mode,
     metrics,
-):  # pylint:disable=redefined-outer-name
+):
     """
     Iperf between guest and host in both directions for TCP workload.
     """

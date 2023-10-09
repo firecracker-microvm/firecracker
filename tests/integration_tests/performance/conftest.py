@@ -1,9 +1,6 @@
 # Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Pytest fixtures and redefined-outer-name don't mix well. Disable it.
-# pylint:disable=redefined-outer-name
-
 """Fixtures for performance tests"""
 
 import json

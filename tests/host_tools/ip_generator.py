@@ -1,8 +1,6 @@
 # Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# pylint:disable=redefined-outer-name
-
 """
 Each microVM needs to have a unique IP on the host network, or there will be
 conflicts.

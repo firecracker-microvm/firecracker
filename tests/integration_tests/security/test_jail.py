@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that verify the jailer's behavior."""
 
-# pylint: disable=redefined-outer-name
-
 import functools
 import http.client as http_client
 import os

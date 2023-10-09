@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Test that the process startup time up to socket bind is within spec."""
 
-# pylint: disable=redefined-outer-name
-
 import os
 import time
 
