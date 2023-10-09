@@ -29,9 +29,6 @@ REMOTE_CHECKER_COMMAND = f"sh {REMOTE_CHECKER_PATH} --no-intel-db --batch json"
 
 VULN_DIR = "/sys/devices/system/cpu/vulnerabilities"
 
-# This lint doesnt work well with fixtures
-# pylint:disable=redefined-outer-name
-
 
 def configure_microvm(
     factory,

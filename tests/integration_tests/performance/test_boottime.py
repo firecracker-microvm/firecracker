@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that ensure the boot time to init process is within spec."""
 
-# pylint:disable=redefined-outer-name
-
 import re
 import time
 

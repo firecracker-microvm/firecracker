@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for guest-side operations on /drives resources."""
 
-# pylint:disable=redefined-outer-name
-
 import os
 from subprocess import check_output
 

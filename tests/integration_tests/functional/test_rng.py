@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for the virtio-rng device"""
 
-# pylint:disable=redefined-outer-name
-
 import pytest
 
 from framework.properties import global_props
