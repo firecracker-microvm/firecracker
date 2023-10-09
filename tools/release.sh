@@ -119,13 +119,13 @@ fi
 # to make sure that `firecracker --version` reports the latest changes.
 touch build.rs
 
-ARTIFACTS=(firecracker jailer seccompiler-bin rebase-snap cpu-template-helper)
+ARTIFACTS=(firecracker jailer seccompiler-bin rebase-snap cpu-template-helper snapshot-editor)
 
 if [ "$LIBC" == "gnu" ]; then
     # Don't build jailer. See commit 3bf285c8f
     echo "Not building jailer because glibc selected instead of musl"
     CARGO_OPTS+=" --exclude jailer"
-    ARTIFACTS=(firecracker seccompiler-bin rebase-snap cpu-template-helper)
+    ARTIFACTS=(firecracker seccompiler-bin rebase-snap cpu-template-helper snapshot-editor)
 fi
 
 say "Building version=$VERSION, profile=$PROFILE, target=$CARGO_TARGET..."
