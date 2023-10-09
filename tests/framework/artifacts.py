@@ -123,7 +123,6 @@ def firecracker_artifacts():
     cargo_version = get_firecracker_version_from_toml()
     # until the next minor version (but *not* including)
     max_version = (cargo_version.major, cargo_version.minor + 1, 0)
-    min_version = (1, 3, 0)
     prefix = "firecracker/firecracker-*"
     for firecracker in sorted(ARTIFACT_DIR.glob(prefix)):
         match = re.match(r"firecracker-v(\d+)\.(\d+)\.(\d+)", firecracker.name)
@@ -131,8 +130,6 @@ def firecracker_artifacts():
             continue
         fc = FirecrackerArtifact(firecracker)
         version = fc.version_tuple
-        if version < min_version:
-            continue
         if version >= max_version:
             continue
         yield pytest.param(fc, id=fc.name)
