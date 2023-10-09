@@ -144,6 +144,7 @@ fn main_exec() -> Result<(), MainError> {
             .arg(
                 Argument::new("id")
                     .takes_value(true)
+                    .default_value(vmm::logger::DEFAULT_INSTANCE_ID)
                     .help("MicroVM unique identifier."),
             )
             .arg(
@@ -262,8 +263,6 @@ fn main_exec() -> Result<(), MainError> {
         return Ok(());
     }
 
-    info!("Running Firecracker v{FIRECRACKER_VERSION}");
-
     register_signal_handlers().map_err(MainError::RegisterSignalHandlers)?;
 
     #[cfg(target_arch = "aarch64")]
@@ -298,11 +297,9 @@ fn main_exec() -> Result<(), MainError> {
         app_name: "Firecracker".to_string(),
     };
 
-    let id = arguments
-        .single_value("id")
-        .map(|s| s.as_str())
-        .unwrap_or(vmm::logger::DEFAULT_INSTANCE_ID);
+    let id = arguments.single_value("id").map(|s| s.as_str()).unwrap();
     vmm::logger::INSTANCE_ID.set(String::from(id)).unwrap();
+    info!("Running Firecracker v{FIRECRACKER_VERSION}");
 
     // Apply the logger configuration.
     let log_path = arguments.single_value("log-path").map(PathBuf::from);
