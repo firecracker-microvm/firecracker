@@ -71,10 +71,10 @@ A microVM state file is further split into four different fields:
 
 | Field | Bits| Description |
 |----|----|----|
-| magic_id | 64 | Firecracker snapshot, architecture (x86_64/aarch64) and storage version.
-| version  | 16 | The snapshot version number internally mapped 1:1 to a specific Firecracker version.
-| state | N | Bincode blob containing the microVM state.
- | crc| 64 | Optional CRC64 sum of magic_id, version and state fields.
+| magic_id | 64 | Firecracker snapshot, architecture (x86_64/aarch64) and storage version. |
+| version  | 16 | The snapshot version number internally mapped 1:1 to a specific Firecracker version. |
+| state | N | Bincode blob containing the microVM state. |
+| crc| 64 | Optional CRC64 sum of magic_id, version and state fields. |
 
 **Note**: the last 16 bits of `magic_id` encode the storage version which specifies
 the encoding used for the `version` and `state` fields. The current
