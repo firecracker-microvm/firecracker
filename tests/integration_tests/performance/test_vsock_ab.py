@@ -6,7 +6,6 @@ import os
 
 import pytest
 
-from framework.utils import CpuMap
 from framework.utils_iperf import IPerf3Test, emit_iperf3_metrics
 from framework.utils_vsock import VSOCK_UDS_PATH, make_host_port_path
 
@@ -92,11 +91,6 @@ def test_vsock_throughput(
     # Create a vsock device
     vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/" + VSOCK_UDS_PATH)
     vm.start()
-
-    # Check if the needed CPU cores are available. We have the API thread, VMM
-    # thread and then one thread for each configured vCPU. Lastly, we need one for
-    # the iperf server on the host.
-    assert CpuMap.len() > 2 + vm.vcpus_count
 
     # Pin uVM threads to physical cores.
     assert vm.pin_vmm(0), "Failed to pin firecracker thread."

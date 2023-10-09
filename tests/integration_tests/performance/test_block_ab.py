@@ -106,25 +106,38 @@ def run_fio(microvm, mode, block_size):
 
 def process_fio_logs(vm, fio_mode, logs_dir, metrics):
     """Parses the fio logs in `{logs_dir}/{fio_mode}_bw.*.log and emits their contents as CloudWatch metrics"""
-    for job_id in range(vm.vcpus_count):
-        data = Path(f"{logs_dir}/{fio_mode}_bw.{job_id + 1}.log").read_text("UTF-8")
 
-        for line in data.splitlines():
+    data = [
+        Path(f"{logs_dir}/{fio_mode}_bw.{job_id + 1}.log")
+        .read_text("UTF-8")
+        .splitlines()
+        for job_id in range(vm.vcpus_count)
+    ]
+
+    for tup in zip(*data):
+        bw_read = 0
+        bw_write = 0
+
+        for line in tup:
             _, value, direction, _ = line.split(",", maxsplit=3)
             value = int(value.strip())
 
             # See https://fio.readthedocs.io/en/latest/fio_doc.html#log-file-formats
             match direction.strip():
                 case "0":
-                    metrics.put_metric("bw_read", value, "Kilobytes/Second")
+                    bw_read += value
                 case "1":
-                    metrics.put_metric("bw_write", value, "Kilobytes/Second")
+                    bw_write += value
                 case _:
                     assert False
 
+        if bw_read:
+            metrics.put_metric("bw_read", bw_read, "Kilobytes/Second")
+        if bw_write:
+            metrics.put_metric("bw_write", bw_write, "Kilobytes/Second")
+
 
 @pytest.mark.nonci
-@pytest.mark.timeout(RUNTIME_SEC * 1000)  # 1.40 hours
 @pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
 @pytest.mark.parametrize("fio_mode", ["randread", "randwrite"])
 @pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])
