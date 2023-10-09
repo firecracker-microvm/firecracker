@@ -1,12 +1,8 @@
 [build]
 target-dir = "build/cargo_target"
 rustflags = [
-  "-Wclippy::ptr_as_ptr",
+  "-Wclippy::as_conversions",
   "-Wclippy::undocumented_unsafe_blocks",
-  "-Wclippy::cast_lossless",
-  "-Wclippy::cast_possible_truncation",
-  "-Wclippy::cast_possible_wrap",
-  "-Wclippy::cast_sign_loss",
   "-Wmissing_debug_implementations",
   "-Wclippy::exit",
 ]

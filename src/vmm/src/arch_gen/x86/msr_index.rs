@@ -8,9 +8,8 @@
     non_upper_case_globals,
     dead_code,
     non_snake_case,
-    clippy::ptr_as_ptr,
-    clippy::undocumented_unsafe_blocks,
-    clippy::cast_lossless
+    clippy::as_conversions,
+    clippy::undocumented_unsafe_blocks
 )]
 
 pub const MSR_EFER: u32 = 0xc0000080;
