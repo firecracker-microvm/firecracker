@@ -104,13 +104,13 @@ mod tests {
 
     use event_manager::{EventManager, SubscriberOps};
     use utils::vm_memory::{Bytes, GuestAddress};
-    use virtio_gen::virtio_blk::{VIRTIO_BLK_S_OK, VIRTIO_BLK_T_OUT};
 
     use super::*;
     use crate::devices::virtio::block::device::FileEngineType;
     use crate::devices::virtio::block::test_utils::{
         default_block, read_blk_req_descriptors, set_queue, simulate_async_completion_event,
     };
+    use crate::devices::virtio::gen::virtio_blk::{VIRTIO_BLK_S_OK, VIRTIO_BLK_T_OUT};
     use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
     use crate::devices::virtio::VIRTQ_DESC_F_NEXT;
 

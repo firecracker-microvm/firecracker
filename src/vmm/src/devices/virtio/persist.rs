@@ -12,10 +12,10 @@ use utils::vm_memory::address::Address;
 use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 
 use super::device::*;
 use super::queue::*;
+use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::MmioTransport;
 
 /// Errors thrown during restoring virtio state.

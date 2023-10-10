@@ -20,10 +20,6 @@ use utils::eventfd::EventFd;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
 use utils::u64_to_usize;
 use utils::vm_memory::GuestMemoryMmap;
-use virtio_gen::virtio_blk::{
-    VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES, VIRTIO_F_VERSION_1,
-};
-use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 
 use super::super::{ActivateError, DeviceState, Queue, VirtioDevice, TYPE_BLOCK};
 use super::io::async_io;
@@ -32,6 +28,10 @@ use super::{
     io as block_io, BlockError, BLOCK_CONFIG_SPACE_SIZE, BLOCK_QUEUE_SIZES, SECTOR_SHIFT,
     SECTOR_SIZE,
 };
+use crate::devices::virtio::gen::virtio_blk::{
+    VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES, VIRTIO_F_VERSION_1,
+};
+use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::{IrqTrigger, IrqType};
 use crate::logger::{error, warn, IncMetric, METRICS};
 use crate::rate_limiter::{BucketUpdate, RateLimiter};
