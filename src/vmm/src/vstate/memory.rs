@@ -81,7 +81,7 @@ where
 
     /// Creates a GuestMemoryMmap from raw regions with guard pages.
     fn from_raw_regions_file(
-        regions: &[(FileOffset, GuestAddress, usize)],
+        regions: Vec<(FileOffset, GuestAddress, usize)>,
         track_dirty_pages: bool,
         shared: bool,
     ) -> Result<Self, MemoryError>;
@@ -150,7 +150,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
             })
             .collect::<Result<Vec<_>, MemoryError>>()?;
 
-        Self::from_raw_regions_file(&regions, track_dirty_pages, true)
+        Self::from_raw_regions_file(regions, track_dirty_pages, true)
     }
 
     /// Creates a GuestMemoryMmap with `size` in MiB and guard pages backed by anonymous memory.
@@ -210,7 +210,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
 
     /// Creates a GuestMemoryMmap from raw regions with guard pages backed by file.
     fn from_raw_regions_file(
-        regions: &[(FileOffset, GuestAddress, usize)],
+        regions: Vec<(FileOffset, GuestAddress, usize)>,
         track_dirty_pages: bool,
         shared: bool,
     ) -> Result<Self, MemoryError> {
@@ -221,16 +221,16 @@ impl GuestMemoryExtension for GuestMemoryMmap {
             libc::MAP_NORESERVE | libc::MAP_PRIVATE
         };
         let regions = regions
-            .iter()
+            .into_iter()
             .map(|(file_offset, guest_address, region_size)| {
                 let region = build_guarded_region(
                     Some(file_offset),
-                    *region_size,
+                    region_size,
                     prot,
                     flags,
                     track_dirty_pages,
                 )?;
-                GuestRegionMmap::new(region, *guest_address).map_err(MemoryError::VmMemoryError)
+                GuestRegionMmap::new(region, guest_address).map_err(MemoryError::VmMemoryError)
             })
             .collect::<Result<Vec<_>, MemoryError>>()?;
 
@@ -258,7 +258,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                     .collect::<Result<Vec<_>, std::io::Error>>()
                     .map_err(MemoryError::FileError)?;
 
-                Self::from_raw_regions_file(&regions, track_dirty_pages, false)
+                Self::from_raw_regions_file(regions, track_dirty_pages, false)
             }
             None => {
                 let regions = state
@@ -407,7 +407,7 @@ pub fn create_memfd(size: usize) -> Result<memfd::Memfd, MemoryError> {
 /// acts as a safety net for accessing out-of-bounds addresses that are not allocated for the
 /// guest's memory.
 fn build_guarded_region(
-    file_offset: Option<&FileOffset>,
+    file_offset: Option<FileOffset>,
     size: usize,
     prot: i32,
     flags: i32,
@@ -438,7 +438,7 @@ fn build_guarded_region(
     }
 
     let (fd, offset) = match file_offset {
-        Some(file_offset) => {
+        Some(ref file_offset) => {
             check_file_offset(file_offset, size).map_err(MemoryError::MmapRegionError)?;
             (file_offset.file().as_raw_fd(), file_offset.start())
         }
@@ -473,14 +473,19 @@ fn build_guarded_region(
     };
 
     // SAFETY: Safe because the parameters are valid.
-    unsafe {
+    let builder = unsafe {
         MmapRegionBuilder::new_with_bitmap(size, bitmap)
             .with_raw_mmap_pointer(region_addr.cast::<u8>())
             .with_mmap_prot(prot)
             .with_mmap_flags(flags)
-            .build()
-            .map_err(MemoryError::MmapRegionError)
+    };
+
+    match file_offset {
+        Some(offset) => builder.with_file_offset(offset),
+        None => builder,
     }
+    .build()
+    .map_err(MemoryError::MmapRegionError)
 }
 
 #[cfg(test)]
@@ -608,11 +613,11 @@ mod tests {
         let file_offset = FileOffset::new(file, 0);
 
         let region =
-            build_guarded_region(Some(&file_offset), region_size, prot, flags, false).unwrap();
+            build_guarded_region(Some(file_offset), region_size, prot, flags, false).unwrap();
 
         // Verify that the region was built correctly
         assert_eq!(region.size(), region_size);
-        assert!(region.file_offset().is_none());
+        assert!(region.file_offset().is_some());
         assert_eq!(region.prot(), prot);
         assert_eq!(region.flags(), flags);
 
@@ -742,10 +747,10 @@ mod tests {
         // Test that all regions are guarded.
         {
             let guest_memory =
-                GuestMemoryMmap::from_raw_regions_file(&regions, false, false).unwrap();
+                GuestMemoryMmap::from_raw_regions_file(regions.clone(), false, false).unwrap();
             guest_memory.iter().for_each(|region| {
                 assert_eq!(region.size(), region_size);
-                assert!(region.file_offset().is_none());
+                assert!(region.file_offset().is_some());
                 assert!(region.bitmap().is_none());
                 validate_guard_region(region);
             });
@@ -754,7 +759,7 @@ mod tests {
         // Check dirty page tracking is off.
         {
             let guest_memory =
-                GuestMemoryMmap::from_raw_regions_file(&regions, false, false).unwrap();
+                GuestMemoryMmap::from_raw_regions_file(regions.clone(), false, false).unwrap();
             guest_memory.iter().for_each(|region| {
                 assert!(region.bitmap().is_none());
             });
@@ -763,7 +768,7 @@ mod tests {
         // Check dirty page tracking is on.
         {
             let guest_memory =
-                GuestMemoryMmap::from_raw_regions_file(&regions, true, false).unwrap();
+                GuestMemoryMmap::from_raw_regions_file(regions, true, false).unwrap();
             guest_memory.iter().for_each(|region| {
                 assert!(region.bitmap().is_some());
             });
