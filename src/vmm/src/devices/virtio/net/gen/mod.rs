@@ -21,6 +21,6 @@ pub mod if_tun;
 // generated with bindgen /usr/include/linux/sockios.h --no-unstable-rust
 // --constified-enum '*' --with-derive-default
 pub mod sockios;
-pub use crate::if_tun::*;
-pub use crate::iff::*;
-pub use crate::sockios::*;
+pub use if_tun::*;
+pub use iff::*;
+pub use sockios::*;
