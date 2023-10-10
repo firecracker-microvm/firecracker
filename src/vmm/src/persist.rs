@@ -21,7 +21,6 @@ use utils::u64_to_usize;
 use utils::vm_memory::{GuestMemory, GuestMemoryMmap};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 
 #[cfg(target_arch = "aarch64")]
 use crate::arch::aarch64::vcpu::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
@@ -32,6 +31,7 @@ use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
 #[cfg(target_arch = "x86_64")]
 use crate::cpu_config::x86_64::cpuid::CpuidTrait;
 use crate::device_manager::persist::{DevicePersistError, DeviceStates};
+use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::TYPE_NET;
 use crate::logger::{info, warn};
 use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};

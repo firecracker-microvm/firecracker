@@ -1365,10 +1365,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "virtio_gen"
-version = "0.1.0"
-
-[[package]]
 name = "vm-allocator"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1434,7 +1430,6 @@ dependencies = [
  "utils",
  "versionize",
  "versionize_derive",
- "virtio_gen",
  "vm-allocator",
  "vm-fdt",
  "vm-superio",

@@ -13,7 +13,6 @@ use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use utils::eventfd::EventFd;
 use utils::u64_to_usize;
 use utils::vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
-use virtio_gen::virtio_blk::VIRTIO_F_VERSION_1;
 
 use super::super::{ActivateError, DeviceState, Queue, VirtioDevice, TYPE_BALLOON};
 use super::util::{compact_page_frame_numbers, remove_range};
@@ -27,6 +26,7 @@ use super::{
     VIRTIO_BALLOON_S_SWAP_OUT,
 };
 use crate::devices::virtio::balloon::BalloonError;
+use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::{IrqTrigger, IrqType};
 use crate::logger::{IncMetric, METRICS};
 

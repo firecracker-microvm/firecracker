@@ -10,10 +10,10 @@ use snapshot::Persist;
 use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
-use virtio_gen::virtio_blk::VIRTIO_BLK_F_RO;
 
 use super::*;
 use crate::devices::virtio::block::device::FileEngineType;
+use crate::devices::virtio::gen::virtio_blk::VIRTIO_BLK_F_RO;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::{DeviceState, FIRECRACKER_MAX_QUEUE_SIZE, TYPE_BLOCK};
 use crate::logger::warn;

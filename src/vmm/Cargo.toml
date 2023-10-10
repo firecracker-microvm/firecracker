@@ -39,7 +39,6 @@ micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 seccompiler = { path = "../seccompiler" }
 snapshot = { path = "../snapshot"}
 utils = { path = "../utils" }
-virtio_gen = { path = "../virtio_gen" }
 
 [dev-dependencies]
 criterion = { version = "0.5.0", default-features = false }
