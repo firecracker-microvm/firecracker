@@ -38,6 +38,7 @@ def test_ensure_mod_tests():
     """
     excluding = [
         "_gen/",
+        "/gen/",
         "/tests/",
         "/test_utils",
         "build/",

@@ -23,6 +23,8 @@ pub mod persist;
 mod tap;
 pub mod test_utils;
 
+mod gen;
+
 pub use tap::{Tap, TapError};
 
 pub use self::device::Net;

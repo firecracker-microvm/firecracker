@@ -44,14 +44,14 @@ EOF
 KERNEL_HEADERS_HOME="/usr"
 
 info "BINDGEN sockios.h"
-fc-bindgen "$KERNEL_HEADERS_HOME/include/linux/sockios.h" |replace_linux_int_types >src/net_gen/src/sockios.rs
+fc-bindgen "$KERNEL_HEADERS_HOME/include/linux/sockios.h" |replace_linux_int_types >src/vmm/src/devices/virtio/net/gen/sockios.rs
 
 info "BINDGEN if.h"
 fc-bindgen "$KERNEL_HEADERS_HOME/include/linux/if.h" \
            --allowlist-var='IF.*' \
            --allowlist-type='if.*' \
            --allowlist-type="net_device.*" \
-           -- -D __UAPI_DEF_IF_IFNAMSIZ -D __UAPI_DEF_IF_NET_DEVICE_FLAGS -D __UAPI_DEF_IF_IFREQ -D __UAPI_DEF_IF_IFMAP >src/net_gen/src/iff.rs
+           -- -D __UAPI_DEF_IF_IFNAMSIZ -D __UAPI_DEF_IF_NET_DEVICE_FLAGS -D __UAPI_DEF_IF_IFREQ -D __UAPI_DEF_IF_IFMAP >src/vmm/src/devices/virtio/net/gen/iff.rs
 
 info "BINDGEN if_tun.h"
 fc-bindgen \
@@ -63,7 +63,7 @@ fc-bindgen \
     --allowlist-var='IFF_VNET_HDR' \
     --allowlist-var='ETH_.*' \
     --allowlist-type='ifreq' \
-   "$KERNEL_HEADERS_HOME/include/linux/if_tun.h" >src/net_gen/src/if_tun.rs
+   "$KERNEL_HEADERS_HOME/include/linux/if_tun.h" >src/vmm/src/devices/virtio/net/gen/if_tun.rs
 
 info "BINDGEN virtio_ring.h"
 fc-bindgen \
@@ -150,7 +150,7 @@ fc-bindgen \
 
 # Apply any patches
 # src/virtio_gen
-for crate in src/net_gen; do
+for crate in src/vmm/src/devices/virtio/net/gen/; do
     for patch in $(dirname $0)/bindgen-patches/$(basename $crate)/*.patch; do
         echo PATCH $crate/$patch
         (cd $crate; patch -p1) <$patch
