@@ -49,7 +49,7 @@ devctr_grp = group(
 
 release_grp = group(
     "📦 Release Sanity Build",
-    "mkdir -p ./test_results && touch ./test_results/test-report.json && ./tools/devtool -y sh ./tools/release.sh --libc musl --profile release --make-release",
+    "./tools/devtool -y make_release",
     **defaults_once_per_architecture,
 )
 

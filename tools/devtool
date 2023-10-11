@@ -486,7 +486,10 @@ cmd_build() {
 }
 
 function cmd_make_release {
-    cmd_test -- --reruns 2 || die "Tests failed!"
+    OPTS="--reruns=7"
+    # run build tests first so that functional tests reuse compilation artifacts
+    cmd_test -- $OPTS --json-report-file=../test_results/test-report-perf+build.json integration_tests/{build,performance} || die "Tests failed!"
+    cmd_test -- $OPTS --json-report-file=../test_results/test-report-functional+security.json -n8 --dist=worksteal integration_tests/{functional,security,style} || die "Tests failed!"
 
     run_devctr \
         --user "$(id -u):$(id -g)" \
