@@ -17,14 +17,15 @@ pub mod virtio;
 pub use bus::{Bus, BusDevice, BusError};
 use log::error;
 
+use crate::devices::virtio::metrics::NetDeviceMetricsIndex;
 use crate::devices::virtio::{QueueError, VsockError};
 use crate::logger::{IncMetric, METRICS};
 
 // Function used for reporting error in terms of logging
-// but also in terms of METRICS net event fails.
-pub(crate) fn report_net_event_fail(err: DeviceError) {
+// but also in terms of metrics of net event fails.
+pub(crate) fn report_net_event_fail(net_metrics: &NetDeviceMetricsIndex, err: DeviceError) {
     error!("{:?}", err);
-    METRICS.net.event_fails.inc();
+    net_metrics.get().event_fails.inc();
 }
 
 pub(crate) fn report_balloon_event_fail(err: virtio::balloon::BalloonError) {
