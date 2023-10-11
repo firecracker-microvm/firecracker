@@ -884,49 +884,38 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a BlockDeviceType> + Debug>(
     blocks: I,
     event_manager: &mut EventManager,
 ) -> Result<(), StartMicrovmError> {
+    macro_rules! attach_block {
+        ($block:ident) => {
+            let id = {
+                let locked = $block.lock().expect("Poisoned lock");
+                if locked.root_device {
+                    match locked.partuuid {
+                        Some(ref partuuid) => {
+                            cmdline.insert_str(format!("root=PARTUUID={}", partuuid))?
+                        }
+                        None => cmdline.insert_str("root=/dev/vda")?,
+                    }
+                    match locked.read_only {
+                        true => cmdline.insert_str("ro")?,
+                        false => cmdline.insert_str("rw")?,
+                    }
+                }
+                locked.id.clone()
+            };
+            // The device mutex mustn't be locked here otherwise it will deadlock.
+            attach_virtio_device(event_manager, vmm, id, $block.clone(), cmdline)?;
+        };
+    }
+
     for block in blocks {
         match block {
             BlockDeviceType::VirtioBlock(block) => {
-                let id = {
-                    let locked = block.lock().expect("Poisoned lock");
-                    if locked.root_device {
-                        cmdline.insert_str(if let Some(ref partuuid) = locked.partuuid {
-                            format!("root=PARTUUID={}", partuuid)
-                        } else {
-                            // If no PARTUUID was specified for the root device, try with the
-                            // /dev/vda.
-                            "root=/dev/vda".to_string()
-                        })?;
-
-                        let flags = if locked.read_only { "ro" } else { "rw" };
-                        cmdline.insert_str(flags)?;
-                    }
-                    locked.id.clone()
-                };
-                // The device mutex mustn't be locked here otherwise it will deadlock.
-                attach_virtio_device(event_manager, vmm, id, block.clone(), cmdline)?;
+                attach_block!(block);
             }
             BlockDeviceType::VhostUserBlock(block) => {
-                let id = {
-                    let locked = block.lock().expect("Poisoned lock");
-                    if locked.root_device {
-                        cmdline.insert_str(if let Some(ref partuuid) = locked.partuuid {
-                            format!("root=PARTUUID={}", partuuid)
-                        } else {
-                            // If no PARTUUID was specified for the root device, try with the
-                            // /dev/vda.
-                            "root=/dev/vda".to_string()
-                        })?;
-
-                        let flags = if locked.read_only { "ro" } else { "rw" };
-                        cmdline.insert_str(flags)?;
-                    }
-                    locked.id.clone()
-                };
-                // The device mutex mustn't be locked here otherwise it will deadlock.
-                attach_virtio_device(event_manager, vmm, id, block.clone(), cmdline)?;
+                attach_block!(block);
             }
-        }
+        };
     }
     Ok(())
 }
