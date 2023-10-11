@@ -75,7 +75,7 @@ use serde::{Serialize, Serializer};
 
 use crate::logger::{IncMetric, SharedIncMetric};
 
-#[derive(Debug, Default)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct NetDeviceMetricsIndex(usize);
 
 impl NetDeviceMetricsIndex {
@@ -88,7 +88,7 @@ impl NetDeviceMetricsIndex {
 }
 
 /// provides instance for net metrics
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct NetDeviceMetricsPool {
     /// used to access per net device metrics
     metrics: Vec<NetDeviceMetrics>,
@@ -281,5 +281,28 @@ impl NetDeviceMetrics {
             .add(other.tx_rate_limiter_throttled.fetch_diff());
         self.tx_spoofed_mac_count
             .add(other.tx_spoofed_mac_count.fetch_diff());
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+    #[test]
+    fn test_net_dev_metrics() {
+        // we can have max 19 net devices
+        const MAX_NET_DEVICES: usize = 19;
+        let mut net_dev_metrics: [NetDeviceMetricsIndex; MAX_NET_DEVICES] =
+            [NetDeviceMetricsIndex::default(); MAX_NET_DEVICES];
+        for metric in net_dev_metrics.iter_mut().take(MAX_NET_DEVICES) {
+            *metric = NetDeviceMetricsPool::get();
+            metric.get().activate_fails.inc();
+        }
+        // SAFETY: something
+        unsafe {
+            assert!(NET_DEV_METRICS_PVT.metrics.len() >= MAX_NET_DEVICES);
+        }
+        for metric in net_dev_metrics.iter_mut().take(MAX_NET_DEVICES) {
+            assert_eq!(metric.get().activate_fails.count(), 1);
+        }
     }
 }
