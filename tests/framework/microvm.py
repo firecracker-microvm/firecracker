@@ -865,7 +865,7 @@ class MicroVMFactory:
 class Serial:
     """Class for serial console communication with a Microvm."""
 
-    RX_TIMEOUT_S = 20
+    RX_TIMEOUT_S = 60
 
     def __init__(self, vm):
         """Initialize a new Serial object."""
