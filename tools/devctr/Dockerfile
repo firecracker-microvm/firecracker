@@ -17,6 +17,31 @@ ENV CARGO_HOME=/usr/local/rust
 ENV RUSTUP_HOME=/usr/local/rust
 ENV PATH="$PATH:$CARGO_HOME/bin"
 ENV LC_ALL=C.UTF-8
+ENV QEMU_VER="8.1.1"
+
+# Build and install Qemu vhost-user-blk backend
+#
+RUN apt-get update \
+    && apt-get -y install --no-install-recommends \
+        curl gpg gpg-agent \
+        python3-pip build-essential ninja-build libglib2.0-dev libpixman-1-dev flex bison \
+    && pip3 install meson \
+    && mkdir /tmp/qemu_build && cd /tmp/qemu_build \
+    && curl -sLO https://keys.openpgp.org/vks/v1/by-fingerprint/CEACC9E15534EBABB82D3FA03353C9CEF108B584 \
+    && curl -sLO https://download.qemu.org/qemu-${QEMU_VER}.tar.xz \
+    && curl -sLO https://download.qemu.org/qemu-${QEMU_VER}.tar.xz.sig \
+    && gpg --import CEACC9E15534EBABB82D3FA03353C9CEF108B584 \
+    && gpg --verify qemu-${QEMU_VER}.tar.xz.sig qemu-${QEMU_VER}.tar.xz \
+    && tar xf qemu-${QEMU_VER}.tar.xz && cd qemu-${QEMU_VER} \
+    && ./configure && make -j $(nproc) contrib/vhost-user-blk/vhost-user-blk \
+    && strip ./build/contrib/vhost-user-blk/vhost-user-blk \
+    && cp -a ./build/contrib/vhost-user-blk/vhost-user-blk /usr/local/bin \
+    && pip3 uninstall -y meson \
+    && apt-get purge -y \
+        curl gpg gpg-agent \
+        python3-pip build-essential ninja-build libglib2.0-dev libpixman-1-dev flex bison \
+    && apt-get autoremove -y \
+    && cd && rm -r /tmp/qemu_build
 
 # Install system dependencies
 #
@@ -59,6 +84,8 @@ RUN apt-get update \
         dmidecode \
         # for aws-lc-rs
         cmake \
+        # for Qemu vhost-user-blk backend
+        libglib2.0-dev \
     && rm -rf /var/lib/apt/lists/* \
     && pip3 install --upgrade pip poetry \
     && gem install mdl
