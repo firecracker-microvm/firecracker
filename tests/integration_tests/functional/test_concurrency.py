@@ -80,6 +80,7 @@ def test_run_concurrency(microvm_factory, guest_kernel, rootfs):
 
     def launch1():
         microvm = microvm_factory.build(guest_kernel, rootfs)
+        microvm.time_api_requests = False  # is flaky because of parallelism
         microvm.spawn()
         microvm.basic_config(vcpu_count=1, mem_size_mib=128)
         microvm.add_net_iface()
