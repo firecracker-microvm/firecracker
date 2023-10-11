@@ -31,5 +31,5 @@ written in Rust with a focus on safety and security. Thanks go to:
 Contributors to the Firecracker repository:
 EOH
     echo
-    git log --format='* %aN <%aE>' | LC_ALL=C.UTF-8 sort -uf
+    git log --format='* %aN <%aE>' | LC_ALL=C.UTF-8 sort -uf | grep -v "dependabot"
 } > CREDITS.md
