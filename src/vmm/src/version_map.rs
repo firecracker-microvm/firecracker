@@ -81,10 +81,11 @@ lazy_static! {
         version_map.set_type_version(VcpuState::type_id(), 2);
 
         version_map.set_type_version(VmState::type_id(), 2);
-        version_map.set_type_version(VirtioDeviceState::type_id(), 2);
 
         // v1.6 state change mappings
         version_map.new_version();
+
+        version_map.set_type_version(VirtioDeviceState::type_id(), 2);
 
         version_map
     };
