@@ -248,6 +248,11 @@ fn main_exec() -> Result<(), MainError> {
                 Argument::new("mmds-size-limit")
                     .takes_value(true)
                     .help("Mmds data store limit, in bytes."),
+            )
+            .arg(
+                Argument::new("no-outlive-parent")
+                    .takes_value(false)
+                    .help("Whether to abort the VMM when the parent process dies."),
             );
 
     arg_parser.parse_from_cmdline()?;
@@ -297,7 +302,8 @@ fn main_exec() -> Result<(), MainError> {
         .map_err(MainError::LoggerInitialization)?;
     info!("Running Firecracker v{FIRECRACKER_VERSION}");
 
-    register_signal_handlers().map_err(MainError::RegisterSignalHandlers)?;
+    let register_pdeathsig = arguments.flag_present("no-outlive-parent");
+    register_signal_handlers(register_pdeathsig).map_err(MainError::RegisterSignalHandlers)?;
 
     #[cfg(target_arch = "aarch64")]
     enable_ssbd_mitigation();

@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use libc::{
-    c_int, c_void, siginfo_t, SIGBUS, SIGHUP, SIGILL, SIGPIPE, SIGSEGV, SIGSYS, SIGXCPU, SIGXFSZ,
+    c_int, c_void, prctl, siginfo_t, PR_SET_PDEATHSIG, SIGBUS, SIGHUP, SIGILL, SIGPIPE, SIGSEGV,
+    SIGSYS, SIGUSR2, SIGXCPU, SIGXFSZ,
 };
 use log::error;
 use utils::signal::register_signal_handler;
@@ -74,6 +75,13 @@ fn log_sigsys_err(si_code: c_int, info: *mut siginfo_t) {
     );
 }
 
+fn log_parent_death_signal(si_code: c_int, _info: *mut siginfo_t) {
+    error!(
+        "Shutting down VM after intercepting the parent death signal ({}).",
+        si_code
+    );
+}
+
 fn empty_fn(_si_code: c_int, _info: *mut siginfo_t) {}
 
 generate_handler!(
@@ -123,12 +131,21 @@ generate_handler!(
     METRICS.signals.sighup,
     empty_fn
 );
+
 generate_handler!(
     sigill_handler,
     SIGILL,
     SIGILL,
     METRICS.signals.sigill,
     empty_fn
+);
+
+generate_handler!(
+    sigusr2_handler,
+    SIGUSR2,
+    SIGUSR2,
+    METRICS.signals.sigusr2,
+    log_parent_death_signal
 );
 
 #[inline(always)]
@@ -155,7 +172,7 @@ extern "C" fn sigpipe_handler(num: c_int, info: *mut siginfo_t, _unused: *mut c_
 ///
 /// Custom handlers are installed for: `SIGBUS`, `SIGSEGV`, `SIGSYS`
 /// `SIGXFSZ` `SIGXCPU` `SIGPIPE` `SIGHUP` and `SIGILL`.
-pub fn register_signal_handlers() -> utils::errno::Result<()> {
+pub fn register_signal_handlers(register_pdeathsig: bool) -> utils::errno::Result<()> {
     // Call to unsafe register_signal_handler which is considered unsafe because it will
     // register a signal handler which will be called in the current thread and will interrupt
     // whatever work is done on the current thread, so we have to keep in mind that the registered
@@ -168,6 +185,14 @@ pub fn register_signal_handlers() -> utils::errno::Result<()> {
     register_signal_handler(SIGPIPE, sigpipe_handler)?;
     register_signal_handler(SIGHUP, sighup_handler)?;
     register_signal_handler(SIGILL, sigill_handler)?;
+
+    if register_pdeathsig {
+        register_signal_handler(SIGUSR2, sigusr2_handler)?;
+        unsafe {
+            let rc = libc::prctl(PR_SET_PDEATHSIG, SIGUSR2);
+            assert_eq!(rc, 0);
+        }
+    }
     Ok(())
 }
 
@@ -184,7 +209,7 @@ mod tests {
     #[test]
     fn test_signal_handler() {
         let child = thread::spawn(move || {
-            assert!(register_signal_handlers().is_ok());
+            assert!(register_signal_handlers(true).is_ok());
 
             let filter = make_test_seccomp_bpf_filter();
 
@@ -235,6 +260,12 @@ mod tests {
             unsafe {
                 syscall(libc::SYS_kill, process::id(), SIGILL);
             }
+
+            // Call SIGUSR2 signal handler.
+            assert_eq!(METRICS.signals.sigusr2.fetch(), 0);
+            unsafe {
+                syscall(libc::SYS_kill, process::id(), SIGUSR2);
+            }
         });
         assert!(child.join().is_ok());
 
@@ -246,6 +277,7 @@ mod tests {
         assert!(METRICS.signals.sigpipe.count() >= 1);
         assert!(METRICS.signals.sighup.fetch() >= 1);
         assert!(METRICS.signals.sigill.fetch() >= 1);
+        assert!(METRICS.signals.sigusr2.fetch() >= 1);
     }
 
     fn make_test_seccomp_bpf_filter() -> Vec<sock_filter> {

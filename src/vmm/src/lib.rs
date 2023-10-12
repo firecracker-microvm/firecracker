@@ -178,6 +178,8 @@ pub enum FcExitCode {
     SIGHUP = 156,
     /// Firecracker was shut down after intercepting `SIGILL`.
     SIGILL = 157,
+    /// Firecracker was shut down after intercepting `SIGUSR2` (parent process has died).
+    SIGUSR2 = 158,
     /// Bad configuration for microvm's resources, when using a single json.
     BadConfiguration = 152,
     /// Command line arguments parsing error.

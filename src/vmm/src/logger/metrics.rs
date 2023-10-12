@@ -814,6 +814,8 @@ pub struct SignalMetrics {
     pub sighup: SharedStoreMetric,
     /// Number of times that SIGILL was handled.
     pub sigill: SharedStoreMetric,
+    /// Number of times that SIGUSR2 was handled.
+    pub sigusr2: SharedStoreMetric,
 }
 impl SignalMetrics {
     /// Const default construction.
@@ -826,6 +828,7 @@ impl SignalMetrics {
             sigpipe: SharedIncMetric::new(),
             sighup: SharedStoreMetric::new(),
             sigill: SharedStoreMetric::new(),
+            sigusr2: SharedStoreMetric::new(),
         }
     }
 }
