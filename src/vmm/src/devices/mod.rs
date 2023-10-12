@@ -25,7 +25,7 @@ use crate::logger::{IncMetric, METRICS};
 // but also in terms of metrics of net event fails.
 pub(crate) fn report_net_event_fail(net_metrics: &NetDeviceMetricsIndex, err: DeviceError) {
     error!("{:?}", err);
-    net_metrics.get().event_fails.inc();
+    net_metrics.get().write().unwrap().event_fails.inc();
 }
 
 pub(crate) fn report_balloon_event_fail(err: virtio::balloon::BalloonError) {

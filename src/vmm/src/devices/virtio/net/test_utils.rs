@@ -497,7 +497,7 @@ pub mod test {
             // Inject frame to tap and run epoll.
             let frame = inject_tap_tx_frame(&self.net(), frame_len);
             check_metric_after_block!(
-                self.net().metrics.get().rx_packets_count,
+                self.net().metrics.get().write().unwrap().rx_packets_count,
                 0,
                 self.event_manager.run_with_timeout(100).unwrap()
             );
@@ -525,7 +525,7 @@ pub mod test {
                 )],
             );
             check_metric_after_block!(
-                self.net().metrics.get().rx_packets_count,
+                self.net().metrics.get().write().unwrap().rx_packets_count,
                 1,
                 self.event_manager.run_with_timeout(100).unwrap()
             );

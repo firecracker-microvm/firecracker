@@ -84,7 +84,7 @@ impl MutEventSubscriber for Net {
                 _ if activate_fd == source => self.process_activate_event(ops),
                 _ => {
                     warn!("Net: Spurious event received: {:?}", source);
-                    self.metrics.get().event_fails.inc();
+                    self.metrics.get().write().unwrap().event_fails.inc();
                 }
             }
         } else {
