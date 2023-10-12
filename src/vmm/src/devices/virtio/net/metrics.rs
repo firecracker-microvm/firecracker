@@ -70,6 +70,8 @@
 //! We use NET_DEV_METRICS_PVT instead of adding an entry of NetDeviceMetrics
 //! in Net so that metrics are accessible to be flushed even from signal handlers.
 
+use std::sync::RwLock;
+
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
@@ -79,7 +81,7 @@ use crate::logger::{IncMetric, SharedIncMetric};
 pub struct NetDeviceMetricsIndex(usize);
 
 impl NetDeviceMetricsIndex {
-    pub fn get(&self) -> &NetDeviceMetrics {
+    pub fn get(&self) -> &RwLock<NetDeviceMetrics> {
         // SAFETY: This is called by individual Net devices
         // on self (i.e. self.metrics.get()) so no race condition
         // and it is safe.
@@ -89,26 +91,28 @@ impl NetDeviceMetricsIndex {
 
 /// provides instance for net metrics
 #[derive(Debug)]
-pub struct NetDeviceMetricsPool {
+pub struct NetDeviceMetricsAllocator {
     /// used to access per net device metrics
-    metrics: Vec<NetDeviceMetrics>,
+    metrics: Vec<RwLock<NetDeviceMetrics>>,
 }
 
-impl NetDeviceMetricsPool {
+impl NetDeviceMetricsAllocator {
     /// default construction
-    pub fn get() -> NetDeviceMetricsIndex {
+    pub fn alloc() -> NetDeviceMetricsIndex {
         // SAFETY: This is only called during creation of a Net device
         // and since each device is created sequentially so there is no
         // case of race condition.
         unsafe {
-            NET_DEV_METRICS_PVT.metrics.push(NetDeviceMetrics::new());
+            NET_DEV_METRICS_PVT
+                .metrics
+                .push(RwLock::new(NetDeviceMetrics::new()));
             NetDeviceMetricsIndex(NET_DEV_METRICS_PVT.metrics.len() - 1)
         }
     }
 }
 
 /// Contains Network-related metrics per device.
-static mut NET_DEV_METRICS_PVT: NetDeviceMetricsPool = NetDeviceMetricsPool {
+static mut NET_DEV_METRICS_PVT: NetDeviceMetricsAllocator = NetDeviceMetricsAllocator {
     metrics: Vec::new(),
 };
 
@@ -122,7 +126,7 @@ pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
         let net_aggregated: NetDeviceMetrics = NET_DEV_METRICS_PVT.metrics.iter().fold(
             NetDeviceMetrics::default(),
             |mut net_agg, net| {
-                net_agg.aggregate(net);
+                net_agg.aggregate(&net.read().unwrap());
                 net_agg
             },
         );
@@ -131,8 +135,7 @@ pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
 
         for (i, metrics) in NET_DEV_METRICS_PVT.metrics.iter().enumerate() {
             let devn = format!("net{}", i);
-            // let ser_metrics = NetDeviceMetrics::default().aggregate(&metrics);
-            seq.serialize_entry(&devn, &metrics)?;
+            seq.serialize_entry(&devn, &*metrics.read().unwrap())?;
         }
         seq.end()
     }
@@ -294,15 +297,15 @@ pub mod tests {
         let mut net_dev_metrics: [NetDeviceMetricsIndex; MAX_NET_DEVICES] =
             [NetDeviceMetricsIndex::default(); MAX_NET_DEVICES];
         for metric in net_dev_metrics.iter_mut().take(MAX_NET_DEVICES) {
-            *metric = NetDeviceMetricsPool::get();
-            metric.get().activate_fails.inc();
+            *metric = NetDeviceMetricsAllocator::alloc();
+            metric.get().write().unwrap().activate_fails.inc();
         }
         // SAFETY: something
         unsafe {
             assert!(NET_DEV_METRICS_PVT.metrics.len() >= MAX_NET_DEVICES);
         }
         for metric in net_dev_metrics.iter_mut().take(MAX_NET_DEVICES) {
-            assert_eq!(metric.get().activate_fails.count(), 1);
+            assert_eq!(metric.get().write().unwrap().activate_fails.count(), 1);
         }
     }
 }
