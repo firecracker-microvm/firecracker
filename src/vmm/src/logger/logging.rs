@@ -22,8 +22,6 @@ pub const DEFAULT_LEVEL: log::LevelFilter = log::LevelFilter::Info;
 pub const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
 /// Instance id.
 pub static INSTANCE_ID: OnceLock<String> = OnceLock::new();
-/// Semver version of Firecracker.
-const FIRECRACKER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The logger.
 ///
@@ -62,7 +60,7 @@ impl Logger {
                 .unwrap_or(DEFAULT_LEVEL),
         );
 
-        let target_changed = if let Some(log_path) = config.log_path {
+        if let Some(log_path) = config.log_path {
             let file = std::fs::OpenOptions::new()
                 .custom_flags(libc::O_NONBLOCK)
                 .read(true)
@@ -71,9 +69,6 @@ impl Logger {
                 .map_err(LoggerUpdateError)?;
 
             guard.target = Some(file);
-            true
-        } else {
-            false
         };
 
         if let Some(show_level) = config.show_level {
@@ -87,11 +82,6 @@ impl Logger {
         // Ensure we drop the guard before attempting to log, otherwise this
         // would deadlock.
         drop(guard);
-        if target_changed {
-            // We log this when a target is changed so it is always the 1st line logged, this
-            // maintains some previous behavior to minimize a breaking change.
-            log::info!("Running Firecracker v{FIRECRACKER_VERSION}");
-        }
 
         Ok(())
     }
