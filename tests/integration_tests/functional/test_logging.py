@@ -3,7 +3,7 @@
 """Tests the format of human readable logs.
 
 It checks the response of the API configuration calls and the logs that show
-up in the configured logging FIFO.
+up in the configured logging file.
 """
 
 import re
@@ -69,48 +69,6 @@ def check_log_message_format(log_str, instance_id, level, show_level, show_origi
         tag_level_no = LOG_LEVELS.index(tag_level)
         configured_level_no = LOG_LEVELS.index(to_formal_log_level(level))
         assert tag_level_no <= configured_level_no
-
-
-def test_no_origin_logs(test_microvm_with_api):
-    """
-    Check that logs do not contain the origin (i.e file and line number).
-    """
-    _test_log_config(microvm=test_microvm_with_api, show_level=True, show_origin=False)
-
-
-def test_no_level_logs(test_microvm_with_api):
-    """
-    Check that logs do not contain the level.
-    """
-    _test_log_config(microvm=test_microvm_with_api, show_level=False, show_origin=True)
-
-
-def test_no_nada_logs(test_microvm_with_api):
-    """
-    Check that logs do not contain either level or origin.
-    """
-    _test_log_config(microvm=test_microvm_with_api, show_level=False, show_origin=False)
-
-
-def test_info_logs(test_microvm_with_api):
-    """
-    Check output of logs when minimum level to be displayed is info.
-    """
-    _test_log_config(microvm=test_microvm_with_api)
-
-
-def test_warn_logs(test_microvm_with_api):
-    """
-    Check output of logs when minimum level to be displayed is warning.
-    """
-    _test_log_config(microvm=test_microvm_with_api, log_level="Warning")
-
-
-def test_error_logs(test_microvm_with_api):
-    """
-    Check output of logs when minimum level of logs displayed is error.
-    """
-    _test_log_config(microvm=test_microvm_with_api, log_level="Error")
 
 
 def test_log_config_failure(test_microvm_with_api):
@@ -212,27 +170,25 @@ def test_api_requests_logs(test_microvm_with_api):
     )
 
 
-# pylint: disable=W0102
-def _test_log_config(microvm, log_level="Info", show_level=True, show_origin=True):
+@pytest.mark.parametrize(
+    "log_level,show_level,show_origin",
+    [
+        ("Info", True, True),
+        ("Info", False, True),
+        ("Info", True, False),
+        ("Info", False, False),
+        ("Error", False, False),
+        ("Warning", False, False),
+    ],
+)
+def test_log_config(uvm_plain, log_level, show_level, show_origin):
     """Exercises different scenarios for testing the logging config."""
-    microvm.spawn(log_file=None)
-    # only works if log level is Debug
-    microvm.time_api_requests = False
-
-    # Configure logging.
-    log_path = Path(microvm.path) / "log"
-    log_path.touch()
-    microvm.api.logger.put(
-        log_path=microvm.create_jailed_resource(log_path),
-        level=log_level,
-        show_level=show_level,
-        show_log_origin=show_origin,
+    microvm = uvm_plain
+    microvm.spawn(
+        log_level=log_level, log_show_level=show_level, log_show_origin=show_origin
     )
-    microvm.log_file = log_path
-
     microvm.basic_config()
     microvm.start()
-
     lines = microvm.log_data.splitlines()
 
     # Check for `Running Firecracker` message.
