@@ -7,8 +7,12 @@ use event_manager::{EventOps, Events, MutEventSubscriber};
 use utils::epoll::EventSet;
 
 use crate::devices::virtio::net::device::Net;
+// get_net_metrics and NetMetricsPerDevice are the functions called by the
+// macro NET_METRICS
+use crate::devices::virtio::net::metrics::{get_net_metrics, NetMetricsPerDevice};
 use crate::devices::virtio::{VirtioDevice, RX_INDEX, TX_INDEX};
 use crate::logger::{debug, error, warn, IncMetric};
+use crate::NET_METRICS;
 
 impl Net {
     fn register_runtime_events(&self, ops: &mut EventOps) {
@@ -84,7 +88,7 @@ impl MutEventSubscriber for Net {
                 _ if activate_fd == source => self.process_activate_event(ops),
                 _ => {
                     warn!("Net: Spurious event received: {:?}", source);
-                    self.metrics.get().write().unwrap().event_fails.inc();
+                    NET_METRICS!(&self.id, event_fails.inc());
                 }
             }
         } else {

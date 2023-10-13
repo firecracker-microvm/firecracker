@@ -352,9 +352,11 @@ pub mod test {
 
     use event_manager::{EventManager, SubscriberId, SubscriberOps};
 
-    use crate::check_metric_after_block;
     use crate::devices::virtio::net::device::vnet_hdr_len;
     use crate::devices::virtio::net::gen::ETH_HLEN;
+    // get_net_metrics and NetMetricsPerDevice are the functions called by the
+    // macro NET_METRICS
+    use crate::devices::virtio::net::metrics::{get_net_metrics, NetMetricsPerDevice};
     use crate::devices::virtio::net::test_utils::{
         assign_queues, default_net, inject_tap_tx_frame, NetEvent, NetQueue, ReadTapMock,
     };
@@ -367,6 +369,7 @@ pub mod test {
     use crate::vstate::memory::{
         Address, Bytes, GuestAddress, GuestMemoryExtension, GuestMemoryMmap,
     };
+    use crate::{check_net_metric_after_block, NET_METRICS};
 
     pub struct TestHelper<'a> {
         pub event_manager: EventManager<Arc<Mutex<Net>>>,
@@ -496,8 +499,8 @@ pub mod test {
 
             // Inject frame to tap and run epoll.
             let frame = inject_tap_tx_frame(&self.net(), frame_len);
-            check_metric_after_block!(
-                self.net().metrics.get().write().unwrap().rx_packets_count,
+            check_net_metric_after_block!(
+                NET_METRICS!(&self.net().id, rx_packets_count.count()),
                 0,
                 self.event_manager.run_with_timeout(100).unwrap()
             );
@@ -524,8 +527,8 @@ pub mod test {
                     VIRTQ_DESC_F_WRITE,
                 )],
             );
-            check_metric_after_block!(
-                self.net().metrics.get().write().unwrap().rx_packets_count,
+            check_net_metric_after_block!(
+                NET_METRICS!(&self.net().id, rx_packets_count.count()),
                 1,
                 self.event_manager.run_with_timeout(100).unwrap()
             );
