@@ -6,6 +6,8 @@
 
 ### Changed
 
+### Deprecated
+
 ### Fixed
 
 ## [1.5.0]
