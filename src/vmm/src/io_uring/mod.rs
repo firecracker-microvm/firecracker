@@ -384,11 +384,11 @@ mod tests {
     use utils::skip_if_io_uring_unsupported;
     use utils::syscall::SyscallReturnCode;
     use utils::tempfile::TempFile;
+    use vm_memory::VolatileMemory;
 
     /// -------------------------------------
     /// BEGIN PROPERTY BASED TESTING
     use super::*;
-    use crate::volatile::VolatileMemory;
     use crate::vstate::memory::{Bytes, MmapRegion};
 
     fn drain_cqueue(ring: &mut IoUring) {

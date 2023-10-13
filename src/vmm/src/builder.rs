@@ -23,6 +23,7 @@ use userfaultfd::Uffd;
 use utils::eventfd::EventFd;
 use utils::time::TimestampUs;
 use utils::u64_to_usize;
+use vm_memory::ReadVolatile;
 #[cfg(target_arch = "aarch64")]
 use vm_superio::Rtc;
 use vm_superio::Serial;
@@ -54,7 +55,6 @@ use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{MachineConfigUpdate, VmConfig, VmConfigError};
-use crate::volatile::ReadVolatile;
 use crate::vstate::memory::{
     create_memfd, GuestAddress, GuestMemory, GuestMemoryExtension, GuestMemoryMmap,
 };

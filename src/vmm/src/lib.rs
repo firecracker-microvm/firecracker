@@ -103,8 +103,6 @@ pub mod utilities;
 pub mod version_map;
 /// Wrappers over structures used to configure the VMM.
 pub mod vmm_config;
-/// Module with volotile traits and impls.
-pub mod volatile;
 /// Module with virtual state structs.
 pub mod vstate;
 

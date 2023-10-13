@@ -18,11 +18,12 @@
 use std::fmt::Debug;
 use std::io::ErrorKind;
 
-use vm_memory::GuestMemoryError;
+use vm_memory::{
+    GuestMemoryError, ReadVolatile, VolatileMemoryError, VolatileSlice, WriteVolatile,
+};
 
 use super::super::DescriptorChain;
 use super::{defs, VsockError};
-use crate::volatile::{ReadVolatile, VolatileMemoryError, VolatileSlice, WriteVolatile};
 use crate::vstate::memory::{
     Address, AtomicBitmap, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, BS,
 };

@@ -85,6 +85,7 @@ use std::time::{Duration, Instant};
 use log::{debug, error, info, warn};
 use utils::epoll::EventSet;
 use utils::wrap_usize_to_u32;
+use vm_memory::io::{ReadVolatile, WriteVolatile};
 use vm_memory::GuestMemoryError;
 
 use super::super::defs::uapi;
@@ -93,7 +94,6 @@ use super::super::{VsockChannel, VsockEpollListener, VsockError};
 use super::txbuf::TxBuf;
 use super::{defs, ConnState, PendingRx, PendingRxSet, VsockCsmError};
 use crate::logger::{IncMetric, METRICS};
-use crate::volatile::{ReadVolatile, WriteVolatile};
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// Trait that vsock connection backends need to implement.
@@ -679,11 +679,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Error as IoError, ErrorKind, Read, Write};
+    use std::io::{Error as IoError, ErrorKind, Write};
     use std::os::unix::io::RawFd;
     use std::time::{Duration, Instant};
 
     use utils::eventfd::EventFd;
+    use vm_memory::{VolatileMemoryError, VolatileSlice};
 
     use super::super::super::defs::uapi;
     use super::super::defs as csm_defs;
@@ -691,8 +692,7 @@ mod tests {
     use crate::devices::virtio::vsock::device::RXQ_INDEX;
     use crate::devices::virtio::vsock::test_utils;
     use crate::devices::virtio::vsock::test_utils::TestContext;
-    use crate::volatile::{VolatileMemoryError, VolatileSlice};
-    use crate::vstate::memory::{BitmapSlice, Bytes};
+    use crate::vstate::memory::BitmapSlice;
 
     const LOCAL_CID: u64 = 2;
     const PEER_CID: u64 = 3;
@@ -739,48 +739,45 @@ mod tests {
         }
     }
 
-    impl Read for TestStream {
-        fn read(&mut self, data: &mut [u8]) -> Result<usize, IoError> {
-            match self.read_state {
-                StreamState::Closed => Ok(0),
-                StreamState::Error(kind) => Err(IoError::new(kind, "whatevs")),
-                StreamState::Ready => {
-                    if self.read_buf.is_empty() {
-                        return Err(IoError::new(ErrorKind::WouldBlock, "EAGAIN"));
-                    }
-                    let len = std::cmp::min(data.len(), self.read_buf.len());
-                    assert_ne!(len, 0);
-                    data[..len].copy_from_slice(&self.read_buf[..len]);
-                    self.read_buf = self.read_buf.split_off(len);
-                    Ok(len)
-                }
-                StreamState::WouldBlock => Err(IoError::new(ErrorKind::WouldBlock, "EAGAIN")),
-            }
-        }
-    }
-
     impl ReadVolatile for TestStream {
         fn read_volatile<B: BitmapSlice>(
             &mut self,
             buf: &mut VolatileSlice<B>,
         ) -> Result<usize, VolatileMemoryError> {
-            // Test code, the additional copy incurred by read_from is fine
-            buf.read_from(0, self, buf.len())
+            match self.read_state {
+                StreamState::Closed => Ok(0),
+                StreamState::Error(kind) => Err(vm_memory::VolatileMemoryError::IOError(
+                    IoError::new(kind, "whatevs"),
+                )),
+                StreamState::Ready => {
+                    if self.read_buf.is_empty() {
+                        return Err(vm_memory::VolatileMemoryError::IOError(IoError::new(
+                            ErrorKind::WouldBlock,
+                            "EAGAIN",
+                        )));
+                    }
+                    let len = std::cmp::min(buf.len(), self.read_buf.len());
+                    assert_ne!(len, 0);
+                    buf.copy_from(&self.read_buf[..len]);
+                    self.read_buf = self.read_buf.split_off(len);
+                    Ok(len)
+                }
+                StreamState::WouldBlock => Err(vm_memory::VolatileMemoryError::IOError(
+                    IoError::new(ErrorKind::WouldBlock, "EAGAIN"),
+                )),
+            }
         }
     }
 
     impl Write for TestStream {
         fn write(&mut self, data: &[u8]) -> Result<usize, IoError> {
-            match self.write_state {
-                StreamState::Closed => Err(IoError::new(ErrorKind::BrokenPipe, "EPIPE")),
-                StreamState::Error(kind) => Err(IoError::new(kind, "whatevs")),
-                StreamState::Ready => {
-                    self.write_buf.extend_from_slice(data);
-                    Ok(data.len())
-                }
-                StreamState::WouldBlock => Err(IoError::new(ErrorKind::WouldBlock, "EAGAIN")),
-            }
+            self.write_volatile(&VolatileSlice::from(data.to_vec().as_mut_slice()))
+                .map_err(|err| match err {
+                    vm_memory::VolatileMemoryError::IOError(io_err) => io_err,
+                    _ => unreachable!(),
+                })
         }
+
         fn flush(&mut self) -> Result<(), IoError> {
             Ok(())
         }
@@ -791,8 +788,20 @@ mod tests {
             &mut self,
             buf: &VolatileSlice<B>,
         ) -> Result<usize, VolatileMemoryError> {
-            // Test code, the additional copy incurred by write_to is fine
-            buf.write_to(0, self, buf.len())
+            match self.write_state {
+                StreamState::Closed => Err(VolatileMemoryError::IOError(IoError::new(
+                    ErrorKind::BrokenPipe,
+                    "EPIPE",
+                ))),
+                StreamState::Error(kind) => {
+                    Err(VolatileMemoryError::IOError(IoError::new(kind, "whatevs")))
+                }
+                StreamState::Ready => self.write_buf.write_volatile(buf),
+                StreamState::WouldBlock => Err(VolatileMemoryError::IOError(IoError::new(
+                    ErrorKind::WouldBlock,
+                    "EAGAIN",
+                ))),
+            }
         }
     }
 

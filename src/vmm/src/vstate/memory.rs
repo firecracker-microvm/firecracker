@@ -19,9 +19,8 @@ pub use vm_memory::{
     address, Address, ByteValued, Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion,
     GuestUsize, MemoryRegionAddress, MmapRegion,
 };
-use vm_memory::{Error as VmMemoryError, GuestMemoryError};
+use vm_memory::{Error as VmMemoryError, GuestMemoryError, WriteVolatile};
 
-use crate::volatile::WriteVolatile;
 use crate::DirtyBitmap;
 
 /// Type of GuestMemoryMmap.
