@@ -7,9 +7,9 @@ use std::io::Write;
 use std::num::Wrapping;
 
 use utils::wrap_usize_to_u32;
+use vm_memory::{VolatileMemoryError, VolatileSlice, WriteVolatile};
 
 use super::{defs, VsockCsmError};
-use crate::volatile::{VolatileMemoryError, VolatileSlice, WriteVolatile};
 use crate::vstate::memory::{BitmapSlice, Bytes};
 
 /// A simple ring-buffer implementation, used by vsock connections to buffer TX (guest -> host)

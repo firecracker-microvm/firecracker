@@ -7,7 +7,7 @@
 
 use std::convert::TryFrom;
 use std::fmt::Debug;
-use std::{io, mem};
+use std::mem;
 
 use libc::c_char;
 
@@ -135,7 +135,7 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), MptableE
         return Err(MptableError::AddressOverflow);
     }
 
-    mem.read_from(base_mp, &mut io::repeat(0), mp_size)
+    mem.write_slice(&vec![0; mp_size], base_mp)
         .map_err(|_| MptableError::Clear)?;
 
     {
@@ -358,24 +358,15 @@ mod tests {
         let mpc_offset = GuestAddress(u64::from(mpf_intel.physptr));
         let mpc_table: mpspec::mpc_table = mem.read_obj(mpc_offset).unwrap();
 
-        #[derive(Debug)]
-        struct Sum(u8);
-        impl io::Write for Sum {
-            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-                for v in buf.iter() {
-                    self.0 = self.0.wrapping_add(*v);
-                }
-                Ok(buf.len())
-            }
-            fn flush(&mut self) -> io::Result<()> {
-                Ok(())
-            }
-        }
-
-        let mut sum = Sum(0);
-        mem.write_to(mpc_offset, &mut sum, mpc_table.length as usize)
+        let mut buffer = Vec::new();
+        mem.write_volatile_to(mpc_offset, &mut buffer, mpc_table.length as usize)
             .unwrap();
-        assert_eq!(sum.0, 0);
+        assert_eq!(
+            buffer
+                .iter()
+                .fold(0u8, |accum, &item| accum.wrapping_add(item)),
+            0
+        );
     }
 
     #[test]

@@ -13,13 +13,13 @@ use utils::eventfd::EventFd;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
 use utils::skip_if_io_uring_unsupported;
 use utils::tempfile::TempFile;
-use vmm::volatile::VolatileMemory;
+use vm_memory::VolatileMemory;
 use vmm::vstate::memory::{Bytes, MmapRegion};
 
 mod test_utils {
+    use vm_memory::VolatileMemory;
     use vmm::io_uring::operation::{OpCode, Operation};
     use vmm::io_uring::{IoUring, IoUringError, SQueueError};
-    use vmm::volatile::VolatileMemory;
     use vmm::vstate::memory::MmapRegion;
 
     fn drain_cqueue(ring: &mut IoUring) {

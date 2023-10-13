@@ -4,9 +4,8 @@
 use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};
 
-use vm_memory::GuestMemoryError;
+use vm_memory::{GuestMemoryError, ReadVolatile, WriteVolatile};
 
-use crate::volatile::{ReadVolatile, WriteVolatile};
 use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
 
 #[derive(Debug)]
