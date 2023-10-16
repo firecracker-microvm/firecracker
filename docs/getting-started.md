@@ -76,7 +76,7 @@ with a Ubuntu 22.04 rootfs from our CI:
 ARCH="$(uname -m)"
 
 # Download a linux kernel binary
-wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.6/${ARCH}/vmlinux-5.10.186
+wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.6/${ARCH}/vmlinux-5.10.197
 
 # Download a rootfs
 wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.6/${ARCH}/ubuntu-22.04.ext4
