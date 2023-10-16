@@ -6,10 +6,10 @@ customers effectively plan their Firecracker based operations.
 
 ## Firecracker releases
 
-Firecracker uses [semantic versioning 2.0.0](http://semver.org/) for all
-releases. By definition, the API version implemented by a Firecracker binary
-is equivalent to that binary’s version. Semantic versions are comprised of
-three fields in the form: `vMAJOR.MINOR.PATCH`. Additional labels for
+Firecracker uses [semantic versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
+for all releases. By definition, the API version implemented by a Firecracker
+binary is equivalent to that binary’s version. Semantic versions are comprised
+of three fields in the form: `vMAJOR.MINOR.PATCH`. Additional labels for
 pre-release and build metadata are available as extensions to the
 MAJOR.MINOR.PATCH format.
 
