@@ -354,9 +354,6 @@ pub mod test {
 
     use crate::devices::virtio::net::device::vnet_hdr_len;
     use crate::devices::virtio::net::gen::ETH_HLEN;
-    // get_net_metrics and NetMetricsPerDevice are the functions called by the
-    // macro NET_METRICS
-    use crate::devices::virtio::net::metrics::{get_net_metrics, NetMetricsPerDevice};
     use crate::devices::virtio::net::test_utils::{
         assign_queues, default_net, inject_tap_tx_frame, NetEvent, NetQueue, ReadTapMock,
     };
@@ -500,7 +497,7 @@ pub mod test {
             // Inject frame to tap and run epoll.
             let frame = inject_tap_tx_frame(&self.net(), frame_len);
             check_net_metric_after_block!(
-                NET_METRICS!(&self.net().id, rx_packets_count.count()),
+                net_metrics!(&self.net().id, rx_packets_count.count()),
                 0,
                 self.event_manager.run_with_timeout(100).unwrap()
             );
@@ -528,7 +525,7 @@ pub mod test {
                 )],
             );
             check_net_metric_after_block!(
-                NET_METRICS!(&self.net().id, rx_packets_count.count()),
+                net_metrics!(&self.net().id, rx_packets_count.count()),
                 1,
                 self.event_manager.run_with_timeout(100).unwrap()
             );
