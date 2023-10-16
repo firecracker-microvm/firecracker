@@ -278,7 +278,7 @@ fn main_exec() -> Result<(), MainError> {
         .transpose()
         .map_err(MainError::InvalidLogLevel)?;
     let show_level = arguments.flag_present("show-level").then_some(true);
-    let show_log_origin = arguments.flag_present("show-level").then_some(true);
+    let show_log_origin = arguments.flag_present("show-log-origin").then_some(true);
     LOGGER
         .update(LoggerConfig {
             log_path,

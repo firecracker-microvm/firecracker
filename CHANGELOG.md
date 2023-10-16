@@ -14,6 +14,9 @@
 
 ### Fixed
 
+- Fixed a bug that ignored the `--show-log-origin` option, preventing it from
+  printing the source code file of the log messages.
+
 ## [1.5.0]
 
 ### Added
