@@ -109,18 +109,12 @@ work as expected with all Firecracker binary versions X.V.W, where V >= Y.
 
 ### Deprecation of elements in the API
 
-We will consider a deprecated API endpoint to be an endpoint which still has
-backing functionality and can be used, but will be removed completely along
-with said functionality in an upcoming API version. All deprecated endpoints
-are supported until at least the next MAJOR version release, where they _may
-be removed_.
-
-When elements of the API are deprecated in a MINOR release, they will still
-work for the longest of the following:
-
-* all subsequent Firecracker MINOR releases of the same MAJOR release;
-* any Firecracker MINOR release for at least 6 months from release date;
-* the next 2 Firecracker releases, regardless if they are MAJOR or MINOR.
+Firecracker uses [semantic versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
+in terms of deprecating and removing API elements. We will consider a deprecated
+API element to be an element which still has backing functionality and will be
+supported at least until the next MAJOR version, where they _will be removed_.
+The support period of deprecated API elements is tied to
+[the Firecracker release support](https://github.com/firecracker-microvm/firecracker/blob/main/docs/RELEASE_POLICY.md#release-support).
 
 ## Developer preview features
 

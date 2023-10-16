@@ -6,6 +6,10 @@
 
 ### Changed
 
+- Simplified and clarified the removal policy of deprecated API elements
+  to follow semantic versioning 2.0.0. For more information, please refer to
+  [this GitHub discussion](https://github.com/firecracker-microvm/firecracker/discussions/4135).
+
 ### Deprecated
 
 ### Fixed
@@ -71,6 +75,7 @@
   [`Warn`](https://docs.rs/log/latest/log/enum.Level.html#variant.Warn) to
   [`Info`](https://docs.rs/log/latest/log/enum.Level.html#variant.Info). This
   results in more logs being output by default.
+
 ### Fixed
 
 - Fixed a change in behavior of normalize host brand string that breaks
