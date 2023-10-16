@@ -17,12 +17,9 @@ pub mod virtio;
 pub use bus::{Bus, BusDevice, BusError};
 use log::error;
 
-// get_net_metrics and NetMetricsPerDevice are the functions called by the
-// macro NET_METRICS
-use crate::devices::virtio::metrics::{get_net_metrics, NetMetricsPerDevice};
 use crate::devices::virtio::{QueueError, VsockError};
 use crate::logger::{IncMetric, METRICS};
-use crate::NET_METRICS;
+use crate::net_metrics;
 
 // Function used for reporting error in terms of logging
 // but also in terms of metrics of net event fails.
@@ -30,7 +27,7 @@ use crate::NET_METRICS;
 // to identify which device the metrics and `err` should be reported for.
 pub(crate) fn report_net_event_fail(net_iface_id: &String, err: DeviceError) {
     error!("{:?}:{:?}", net_iface_id, err);
-    NET_METRICS!(net_iface_id, event_fails.inc());
+    net_metrics!(net_iface_id, event_fails.inc());
 }
 
 pub(crate) fn report_balloon_event_fail(err: virtio::balloon::BalloonError) {

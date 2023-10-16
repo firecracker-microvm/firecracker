@@ -5,13 +5,10 @@
 ### Added
 
 - [#4145](https://github.com/firecracker-microvm/firecracker/pull/4145):
-  Added support for per net device metrics. Now, along with aggregated
-  network device metrics, metrics per network device with also be emitted.
-  Aggregate metrics will continue to be emitted with label "net" in the
-  metrics json object while each net device metrics will be emitted with
-  label "net_{iface_id}". E.g. the associated metrics for the endpoint
-  "/network-interfaces/eth0" will be available under "net_eth0:" in each
-  metrics json object.
+  Added support for per net device metrics. In addition to aggregate metrics `net`,
+  each individual net device will emit metrics under the label `"net_{iface_id}"`.
+  E.g. the associated metrics for the endpoint `"/network-interfaces/eth0"` will
+  be available under `"net_eth0"` in the metrics json object.
 
 ### Changed
 

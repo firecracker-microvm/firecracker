@@ -1066,7 +1066,7 @@ impl Serialize for SerializeToUtcTimestampMs {
 // to serialise Firecracker app_metrics as a signle json object which
 // otherwise would have required extra string manipulation to pack
 // net as part of the same json object as FirecrackerMetrics.
-pub struct NetMetricsSerializer {}
+pub struct NetMetricsSerializer;
 impl NetMetricsSerializer {
     pub const fn new() -> Self {
         Self {}
