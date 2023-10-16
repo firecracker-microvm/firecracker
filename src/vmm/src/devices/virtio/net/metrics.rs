@@ -63,6 +63,8 @@
 //! * Use lockless operations, preferably ones that don't require anything other than simple
 //!   reads/writes being atomic.
 //! * Rely on `serde` to provide the actual serialization for writing the metrics.
+//! * Since all metrics start at 0, we implement the `Default` trait via derive for all of them, to
+//!   avoid having to initialize everything by hand.
 //!
 //! * Devices could be created in any order i.e. the first device created could either be eth0 or
 //!   eth1 so if we use a vector for NetDeviceMetrics and call 1st device as net0, then net0 could
@@ -119,7 +121,7 @@ impl NetMetricsPerDevice {
                 .write()
                 .unwrap()
                 .metrics
-                .insert(iface_id, NetDeviceMetrics::new());
+                .insert(iface_id, NetDeviceMetrics::default());
         }
     }
 }
@@ -159,7 +161,7 @@ pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     // +1 to accomodate aggregate net metrics
     let mut seq = serializer.serialize_map(Some(1 + metrics_len))?;
 
-    let mut net_aggregated: NetDeviceMetrics = NetDeviceMetrics::new();
+    let mut net_aggregated: NetDeviceMetrics = NetDeviceMetrics::default();
 
     for metrics in NET_DEV_METRICS_PVT.read().unwrap().metrics.iter() {
         let devn = format!("net_{}", metrics.0);
@@ -172,7 +174,7 @@ pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
 }
 
 /// Network-related metrics.
-#[derive(Debug, Serialize)]
+#[derive(Default, Debug, Serialize)]
 pub struct NetDeviceMetrics {
     /// Number of times when activate failed on a network device.
     pub activate_fails: SharedIncMetric,
@@ -231,39 +233,6 @@ pub struct NetDeviceMetrics {
 }
 
 impl NetDeviceMetrics {
-    /// Const default construction.
-    pub const fn new() -> Self {
-        Self {
-            activate_fails: SharedIncMetric::new(),
-            cfg_fails: SharedIncMetric::new(),
-            mac_address_updates: SharedIncMetric::new(),
-            no_rx_avail_buffer: SharedIncMetric::new(),
-            no_tx_avail_buffer: SharedIncMetric::new(),
-            event_fails: SharedIncMetric::new(),
-            rx_queue_event_count: SharedIncMetric::new(),
-            rx_event_rate_limiter_count: SharedIncMetric::new(),
-            rx_partial_writes: SharedIncMetric::new(),
-            rx_rate_limiter_throttled: SharedIncMetric::new(),
-            rx_tap_event_count: SharedIncMetric::new(),
-            rx_bytes_count: SharedIncMetric::new(),
-            rx_packets_count: SharedIncMetric::new(),
-            rx_fails: SharedIncMetric::new(),
-            rx_count: SharedIncMetric::new(),
-            tap_read_fails: SharedIncMetric::new(),
-            tap_write_fails: SharedIncMetric::new(),
-            tx_bytes_count: SharedIncMetric::new(),
-            tx_malformed_frames: SharedIncMetric::new(),
-            tx_fails: SharedIncMetric::new(),
-            tx_count: SharedIncMetric::new(),
-            tx_packets_count: SharedIncMetric::new(),
-            tx_partial_reads: SharedIncMetric::new(),
-            tx_queue_event_count: SharedIncMetric::new(),
-            tx_rate_limiter_event_count: SharedIncMetric::new(),
-            tx_rate_limiter_throttled: SharedIncMetric::new(),
-            tx_spoofed_mac_count: SharedIncMetric::new(),
-        }
-    }
-
     /// Net metrics are SharedIncMetric where the diff of current vs
     /// old is serialized i.e. serialize_u64(current-old).
     /// So to have the aggregate serialized in same way we need to
