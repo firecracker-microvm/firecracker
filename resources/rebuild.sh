@@ -210,14 +210,12 @@ if [ $ARCH == "aarch64" ]; then
     compile_and_install $BIN/devmemread.c $BIN/devmemread
 fi
 
-# build_rootfs ubuntu-18.04 bionic
-# build_rootfs ubuntu-20.04 focal
 build_rootfs ubuntu-22.04 jammy
-
 build_initramfs
 
 build_linux $PWD/guest_configs/microvm-kernel-ci-$ARCH-4.14.config
 build_linux $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config
+build_linux $PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config
 
 if [ $ARCH == "aarch64" ]; then
     build_linux $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10-no-sve.config vmlinux-no-sve
