@@ -157,17 +157,18 @@ static NET_DEV_METRICS_PVT: RwLock<NetMetricsPerDevice> = RwLock::new(NetMetrics
 /// This function facilitates aggregation and serialization of
 /// per net device metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
-    let metrics_len = NET_DEV_METRICS_PVT.read().unwrap().metrics.len();
+    let net_metrics = get_net_metrics();
+    let metrics_len = net_metrics.metrics.len();
     // +1 to accomodate aggregate net metrics
     let mut seq = serializer.serialize_map(Some(1 + metrics_len))?;
 
     let mut net_aggregated: NetDeviceMetrics = NetDeviceMetrics::default();
 
-    for metrics in NET_DEV_METRICS_PVT.read().unwrap().metrics.iter() {
-        let devn = format!("net_{}", metrics.0);
+    for (name, metrics) in net_metrics.metrics.iter() {
+        let devn = format!("net_{}", name);
         // serialization will flush the metrics so aggregate before it.
-        net_aggregated.aggregate(metrics.1);
-        seq.serialize_entry(&devn, &metrics.1)?;
+        net_aggregated.aggregate(metrics);
+        seq.serialize_entry(&devn, metrics)?;
     }
     seq.serialize_entry("net", &net_aggregated)?;
     seq.end()
