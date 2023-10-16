@@ -1066,14 +1066,14 @@ impl Serialize for SerializeToUtcTimestampMs {
 // to serialise Firecracker app_metrics as a signle json object which
 // otherwise would have required extra string manipulation to pack
 // net as part of the same json object as FirecrackerMetrics.
-pub struct NetMetricsSerializer;
-impl NetMetricsSerializer {
+pub struct NetMetricsSerializeProxy;
+impl NetMetricsSerializeProxy {
     pub const fn new() -> Self {
         Self {}
     }
 }
 
-impl Serialize for NetMetricsSerializer {
+impl Serialize for NetMetricsSerializeProxy {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -1106,7 +1106,7 @@ pub struct FirecrackerMetrics {
     pub mmds: MmdsMetrics,
     #[serde(flatten)]
     /// A network device's related metrics.
-    pub net_ser: NetMetricsSerializer,
+    pub net_ser: NetMetricsSerializeProxy,
     /// Metrics related to API PATCH requests.
     pub patch_api_requests: PatchRequestsMetrics,
     /// Metrics related to API PUT requests.
@@ -1143,7 +1143,7 @@ impl FirecrackerMetrics {
             latencies_us: PerformanceMetrics::new(),
             logger: LoggerSystemMetrics::new(),
             mmds: MmdsMetrics::new(),
-            net_ser: NetMetricsSerializer::new(),
+            net_ser: NetMetricsSerializeProxy::new(),
             patch_api_requests: PatchRequestsMetrics::new(),
             put_api_requests: PutRequestsMetrics::new(),
             #[cfg(target_arch = "aarch64")]
