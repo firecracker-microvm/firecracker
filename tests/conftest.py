@@ -29,6 +29,7 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
+from typing import Dict
 
 import pytest
 
@@ -55,6 +56,7 @@ if os.geteuid() != 0:
 
 
 METRICS = get_metrics_logger()
+PHASE_REPORT_KEY = pytest.StashKey[Dict[str, pytest.CollectReport]]()
 
 
 def pytest_addoption(parser):
@@ -69,6 +71,22 @@ def pytest_addoption(parser):
         action="store",
         help="use firecracker/jailer binaries from this directory instead of compiling from source",
     )
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_makereport(item, call):  # pylint:disable=unused-argument
+    """Plugin to get test results in fixtures
+
+    https://docs.pytest.org/en/latest/example/simple.html#making-test-result-information-available-in-fixtures
+    """
+    # execute all other hooks to obtain the report object
+    rep = yield
+
+    # store test results for each phase of a call, which can
+    # be "setup", "call", "teardown"
+    item.stash.setdefault(PHASE_REPORT_KEY, {})[rep.when] = rep
+
+    return rep
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -233,7 +251,7 @@ def fc_tmp_path(test_fc_session_root_path):
 
 
 @pytest.fixture()
-def microvm_factory(fc_tmp_path, request, record_property):
+def microvm_factory(fc_tmp_path, request, record_property, results_dir):
     """Fixture to create microvms simply.
 
     In order to avoid running out of space when instantiating many microvms,
@@ -251,6 +269,17 @@ def microvm_factory(fc_tmp_path, request, record_property):
 
     uvm_factory = MicroVMFactory(fc_tmp_path, fc_binary_path, jailer_binary_path)
     yield uvm_factory
+
+    # if the test failed, save fc.log in test_results for troubleshooting
+    report = request.node.stash[PHASE_REPORT_KEY]
+    if "call" in report and report["call"].failed:
+        for uvm in uvm_factory.vms:
+            if not uvm.log_file.exists():
+                continue
+            dst = results_dir / uvm.id / uvm.log_file.name
+            dst.parent.mkdir()
+            shutil.copy(uvm.log_file, dst)
+
     uvm_factory.kill()
     shutil.rmtree(fc_tmp_path)
 
