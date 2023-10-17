@@ -175,7 +175,7 @@ For example when using `chrony`:
 1. Restart the `chrony` daemon.
 
 You can see more info about the `refclock` parameters
-[here](https://chrony.tuxfamily.org/doc/3.4/chrony.conf.html#refclock).
+[here](https://chrony-project.org/doc/3.4/chrony.conf.html#refclock).
 Adjust them according to your needs.
 
 ### Each Firecracker opens 20+ file descriptors. Is this an issue?
