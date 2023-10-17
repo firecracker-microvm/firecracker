@@ -47,6 +47,8 @@ def get_host_os(kv: str = None):
     if kv is None:
         kv = platform.release()
     parts = kv.split("-")
+    if len(parts) < 2:
+        return None
     misc = parts[1].split(".")
     if len(misc) > 2 and misc[2] in {"amzn2", "amzn2023"}:
         return misc[2]
