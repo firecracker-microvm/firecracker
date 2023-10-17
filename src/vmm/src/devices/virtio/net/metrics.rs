@@ -76,31 +76,23 @@
 //! The system implements 1 types of metrics:
 //! * Shared Incremental Metrics (SharedIncMetrics) - dedicated for the metrics which need a counter
 //! (i.e the number of times an API request failed). These metrics are reset upon flush.
-//! We use NET_DEV_METRICS_PVT instead of adding an entry of NetDeviceMetrics
+//! We use NET_METRICS instead of adding an entry of NetDeviceMetrics
 //! in Net so that metrics are accessible to be flushed even from signal handlers.
 
 use std::collections::BTreeMap;
-use std::sync::{RwLock, RwLockReadGuard};
+use std::sync::{Arc, RwLock};
 
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
 use crate::logger::{IncMetric, SharedIncMetric};
 
-/// returns lock-unwrapped NET_DEV_METRICS_PVT.metrics,
-/// we have this function so that we don't have to make
-/// NET_DEV_METRICS_PVT public
-pub fn get_net_metrics() -> RwLockReadGuard<'static, NetMetricsPerDevice> {
-    // lock is always initialized so it is safe the unwrap the lock without a check.
-    NET_DEV_METRICS_PVT.read().unwrap()
-}
-
 /// map of network interface id and metrics
 /// this should be protected by a lock before accessing.
 #[derive(Debug)]
 pub struct NetMetricsPerDevice {
     /// used to access per net device metrics
-    pub metrics: BTreeMap<String, NetDeviceMetrics>,
+    pub metrics: BTreeMap<String, Arc<NetDeviceMetrics>>,
 }
 
 impl NetMetricsPerDevice {
@@ -109,55 +101,35 @@ impl NetMetricsPerDevice {
     /// exist to avoid overwriting previously allocated data.
     /// lock is always initialized so it is safe the unwrap
     /// the lock without a check.
-    pub fn alloc(iface_id: String) {
-        if NET_DEV_METRICS_PVT
+    pub fn alloc(iface_id: String) -> Arc<NetDeviceMetrics> {
+        if NET_METRICS.read().unwrap().metrics.get(&iface_id).is_none() {
+            NET_METRICS
+                .write()
+                .unwrap()
+                .metrics
+                .insert(iface_id.clone(), Arc::new(NetDeviceMetrics::default()));
+        }
+        NET_METRICS
             .read()
             .unwrap()
             .metrics
             .get(&iface_id)
-            .is_none()
-        {
-            NET_DEV_METRICS_PVT
-                .write()
-                .unwrap()
-                .metrics
-                .insert(iface_id, NetDeviceMetrics::default());
-        }
+            .unwrap()
+            .clone()
     }
-}
-
-#[macro_export]
-// Per device metrics are behind a ref lock and in a map which
-// makes it difficult to return the metrics pointer via a function
-// This macro is an attempt to make the code more readable and to
-// centralize the error handling.
-// The macro can be called in below ways where iface_id is String and
-// activate_fails is a metric from struct `NetDeviceMetrics`:
-//     net_metrics!(&iface_id, activate_fails.inc());
-//     net_metrics!(&iface_id, activate_fails.add(5));
-//     net_metrics!(&iface_id, activate_fails.count());
-macro_rules! net_metrics {
-    ($iface_id:expr,$metric:ident.$action:ident($($value:tt)?)) => {{
-        if $crate::devices::virtio::net::metrics::get_net_metrics().metrics.get($iface_id).is_some() {
-            $crate::devices::virtio::net::metrics::get_net_metrics().metrics.get($iface_id).unwrap().$metric.$action($($value)?)
-        }else{
-            $crate::devices::virtio::net::metrics::NetMetricsPerDevice::alloc($iface_id.to_string());
-            $crate::devices::virtio::net::metrics::get_net_metrics().metrics.get($iface_id).unwrap().$metric.$action($($value)?)
-        }
-    }}
 }
 
 /// Pool of Network-related metrics per device behind a lock to
 /// keep things thread safe. Since the lock is initialized here
 /// it is safe to unwrap it without any check.
-static NET_DEV_METRICS_PVT: RwLock<NetMetricsPerDevice> = RwLock::new(NetMetricsPerDevice {
+static NET_METRICS: RwLock<NetMetricsPerDevice> = RwLock::new(NetMetricsPerDevice {
     metrics: BTreeMap::new(),
 });
 
 /// This function facilitates aggregation and serialization of
 /// per net device metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
-    let net_metrics = get_net_metrics();
+    let net_metrics = NET_METRICS.read().unwrap();
     let metrics_len = net_metrics.metrics.len();
     // +1 to accomodate aggregate net metrics
     let mut seq = serializer.serialize_map(Some(1 + metrics_len))?;
@@ -167,8 +139,9 @@ pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     for (name, metrics) in net_metrics.metrics.iter() {
         let devn = format!("net_{}", name);
         // serialization will flush the metrics so aggregate before it.
-        net_aggregated.aggregate(metrics);
-        seq.serialize_entry(&devn, metrics)?;
+        let m: &NetDeviceMetrics = metrics;
+        net_aggregated.aggregate(m);
+        seq.serialize_entry(&devn, m)?;
     }
     seq.serialize_entry("net", &net_aggregated)?;
     seq.end()
@@ -298,21 +271,73 @@ pub mod tests {
         // we have 5-23 irq for net devices so max 19 net devices.
         const MAX_NET_DEVICES: usize = 19;
 
-        assert!(NET_DEV_METRICS_PVT.read().is_ok());
-        assert!(NET_DEV_METRICS_PVT.write().is_ok());
+        assert!(NET_METRICS.read().is_ok());
+        assert!(NET_METRICS.write().is_ok());
 
         for i in 0..MAX_NET_DEVICES {
             let devn: String = format!("eth{}", i);
             NetMetricsPerDevice::alloc(devn.clone());
-            net_metrics!(&devn, activate_fails.inc());
-            net_metrics!(&devn, rx_bytes_count.add(10));
-            net_metrics!(&devn, tx_bytes_count.add(5));
+            NET_METRICS
+                .read()
+                .unwrap()
+                .metrics
+                .get(&devn)
+                .unwrap()
+                .activate_fails
+                .inc();
+            NET_METRICS
+                .read()
+                .unwrap()
+                .metrics
+                .get(&devn)
+                .unwrap()
+                .rx_bytes_count
+                .add(10);
+            NET_METRICS
+                .read()
+                .unwrap()
+                .metrics
+                .get(&devn)
+                .unwrap()
+                .tx_bytes_count
+                .add(5);
         }
+
         for i in 0..MAX_NET_DEVICES {
             let devn: String = format!("eth{}", i);
-            assert!(net_metrics!(&devn, activate_fails.count()) >= 1);
-            assert!(net_metrics!(&devn, rx_bytes_count.count()) >= 10);
-            assert_eq!(net_metrics!(&devn, tx_bytes_count.count()), 5);
+            assert!(
+                NET_METRICS
+                    .read()
+                    .unwrap()
+                    .metrics
+                    .get(&devn)
+                    .unwrap()
+                    .activate_fails
+                    .count()
+                    >= 1
+            );
+            assert!(
+                NET_METRICS
+                    .read()
+                    .unwrap()
+                    .metrics
+                    .get(&devn)
+                    .unwrap()
+                    .rx_bytes_count
+                    .count()
+                    >= 10
+            );
+            assert_eq!(
+                NET_METRICS
+                    .read()
+                    .unwrap()
+                    .metrics
+                    .get(&devn)
+                    .unwrap()
+                    .tx_bytes_count
+                    .count(),
+                5
+            );
         }
     }
     #[test]
@@ -321,29 +346,90 @@ pub mod tests {
         // `test_net_dev_metrics` which also uses the same name.
         let devn = "eth0";
 
-        assert!(NET_DEV_METRICS_PVT.read().is_ok());
-        assert!(NET_DEV_METRICS_PVT.write().is_ok());
+        assert!(NET_METRICS.read().is_ok());
+        assert!(NET_METRICS.write().is_ok());
 
         NetMetricsPerDevice::alloc(String::from(devn));
-        assert!(NET_DEV_METRICS_PVT.read().is_ok());
-        assert!(get_net_metrics().metrics.get(devn).is_some());
+        assert!(NET_METRICS.read().is_ok());
+        assert!(NET_METRICS.read().unwrap().metrics.get(devn).is_some());
 
-        net_metrics!(devn, activate_fails.inc());
+        NET_METRICS
+            .read()
+            .unwrap()
+            .metrics
+            .get(devn)
+            .unwrap()
+            .activate_fails
+            .inc();
         assert!(
-            net_metrics!(devn, activate_fails.count()) > 0,
+            NET_METRICS
+                .read()
+                .unwrap()
+                .metrics
+                .get(devn)
+                .unwrap()
+                .activate_fails
+                .count()
+                > 0,
             "{}",
-            net_metrics!(devn, activate_fails.count())
+            NET_METRICS
+                .read()
+                .unwrap()
+                .metrics
+                .get(devn)
+                .unwrap()
+                .activate_fails
+                .count()
         );
         // we expect only 2 tests (this and test_max_net_dev_metrics)
         // to update activate_fails count for eth0.
         assert!(
-            net_metrics!(devn, activate_fails.count()) <= 2,
+            NET_METRICS
+                .read()
+                .unwrap()
+                .metrics
+                .get(devn)
+                .unwrap()
+                .activate_fails
+                .count()
+                <= 2,
             "{}",
-            net_metrics!(devn, activate_fails.count())
+            NET_METRICS
+                .read()
+                .unwrap()
+                .metrics
+                .get(devn)
+                .unwrap()
+                .activate_fails
+                .count()
         );
 
-        net_metrics!(&String::from(devn), activate_fails.inc());
-        net_metrics!(&String::from(devn), rx_bytes_count.add(5));
-        assert!(net_metrics!(&String::from(devn), rx_bytes_count.count()) >= 5);
+        NET_METRICS
+            .read()
+            .unwrap()
+            .metrics
+            .get(devn)
+            .unwrap()
+            .activate_fails
+            .inc();
+        NET_METRICS
+            .read()
+            .unwrap()
+            .metrics
+            .get(devn)
+            .unwrap()
+            .rx_bytes_count
+            .add(5);
+        assert!(
+            NET_METRICS
+                .read()
+                .unwrap()
+                .metrics
+                .get(devn)
+                .unwrap()
+                .rx_bytes_count
+                .count()
+                >= 5
+        );
     }
 }

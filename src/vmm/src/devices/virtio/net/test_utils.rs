@@ -352,6 +352,7 @@ pub mod test {
 
     use event_manager::{EventManager, SubscriberId, SubscriberOps};
 
+    use crate::check_metric_after_block;
     use crate::devices::virtio::net::device::vnet_hdr_len;
     use crate::devices::virtio::net::gen::ETH_HLEN;
     use crate::devices::virtio::net::test_utils::{
@@ -366,7 +367,6 @@ pub mod test {
     use crate::vstate::memory::{
         Address, Bytes, GuestAddress, GuestMemoryExtension, GuestMemoryMmap,
     };
-    use crate::{check_net_metric_after_block, NET_METRICS};
 
     pub struct TestHelper<'a> {
         pub event_manager: EventManager<Arc<Mutex<Net>>>,
@@ -496,8 +496,8 @@ pub mod test {
 
             // Inject frame to tap and run epoll.
             let frame = inject_tap_tx_frame(&self.net(), frame_len);
-            check_net_metric_after_block!(
-                net_metrics!(&self.net().id, rx_packets_count.count()),
+            check_metric_after_block!(
+                self.net().metrics.rx_packets_count,
                 0,
                 self.event_manager.run_with_timeout(100).unwrap()
             );
@@ -524,8 +524,8 @@ pub mod test {
                     VIRTQ_DESC_F_WRITE,
                 )],
             );
-            check_net_metric_after_block!(
-                net_metrics!(&self.net().id, rx_packets_count.count()),
+            check_metric_after_block!(
+                self.net().metrics.rx_packets_count,
                 1,
                 self.event_manager.run_with_timeout(100).unwrap()
             );

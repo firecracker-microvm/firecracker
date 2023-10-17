@@ -17,17 +17,17 @@ pub mod virtio;
 pub use bus::{Bus, BusDevice, BusError};
 use log::error;
 
+use crate::devices::virtio::metrics::NetDeviceMetrics;
 use crate::devices::virtio::{QueueError, VsockError};
 use crate::logger::{IncMetric, METRICS};
-use crate::net_metrics;
 
 // Function used for reporting error in terms of logging
 // but also in terms of metrics of net event fails.
-// network metrics is reported per device so we need `net_iface_id`
-// to identify which device the metrics and `err` should be reported for.
-pub(crate) fn report_net_event_fail(net_iface_id: &String, err: DeviceError) {
-    error!("{:?}:{:?}", net_iface_id, err);
-    net_metrics!(net_iface_id, event_fails.inc());
+// network metrics is reported per device so we need a handle to each net device's
+// metrics `net_iface_metrics` to report metrics for that device.
+pub(crate) fn report_net_event_fail(net_iface_metrics: &NetDeviceMetrics, err: DeviceError) {
+    error!("{:?}", err);
+    net_iface_metrics.event_fails.inc();
 }
 
 pub(crate) fn report_balloon_event_fail(err: virtio::balloon::BalloonError) {

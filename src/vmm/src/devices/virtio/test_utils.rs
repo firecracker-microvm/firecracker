@@ -22,20 +22,6 @@ macro_rules! check_metric_after_block {
     }};
 }
 
-#[macro_export]
-// macro created from check_metric_after_block because `metric` will be
-// emitted by NET_METRICS macro which does not fit with the $metric.count()
-// that check_metric_after_block had.
-// TODO: After all devices have per device metrics we won't need the
-// check_metric_after_block macro.
-macro_rules! check_net_metric_after_block {
-    ($metric:expr, $delta:expr, $block:expr) => {{
-        let before = $metric;
-        let _ = $block;
-        assert_eq!($metric, before + $delta, "unexpected metric value");
-    }};
-}
-
 /// Creates a [`GuestMemoryMmap`] with a single region of the given size starting at guest physical
 /// address 0
 pub fn single_region_mem(region_size: usize) -> GuestMemoryMmap {
