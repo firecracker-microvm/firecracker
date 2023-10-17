@@ -404,6 +404,15 @@ def artifact_dir():
 
 
 @pytest.fixture
+def uvm_plain_any(microvm_factory, guest_kernel, rootfs_ubuntu_22):
+    """All guest kernels
+    kernel: all
+    rootfs: Ubuntu 22.04
+    """
+    return microvm_factory.build(guest_kernel, rootfs_ubuntu_22)
+
+
+@pytest.fixture
 def uvm_with_initrd(
     microvm_factory, guest_kernel_linux_5_10, record_property, artifact_dir
 ):
