@@ -83,6 +83,7 @@ impl From<MainError> for ExitCode {
             MainError::InvalidLogLevel(_) => FcExitCode::BadConfiguration,
             MainError::RunWithApi(ApiServerError::MicroVMStoppedWithoutError(code)) => code,
             MainError::RunWithApi(ApiServerError::MicroVMStoppedWithError(code)) => code,
+            MainError::RunWithoutApiError(RunWithoutApiError::Shutdown(code)) => code,
             _ => FcExitCode::GenericError,
         };
 

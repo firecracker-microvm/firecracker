@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- [#4179](https://github.com/firecracker-microvm/firecracker/pull/4179):
+  Fixed a bug reporting a non-zero exit code on successful shutdown when
+  starting Firecracker with `--no-api`.
+
 ## [1.5.0]
 
 ### Added
