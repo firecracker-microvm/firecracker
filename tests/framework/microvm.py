@@ -450,6 +450,8 @@ class Microvm:
         self,
         log_file="fc.log",
         log_level="Debug",
+        log_show_level=False,
+        log_show_origin=False,
         metrics_path="fc.ndjson",
     ):
         """Start a microVM as a daemon or in a screen session."""
@@ -461,10 +463,14 @@ class Microvm:
             self.log_file = Path(self.path) / log_file
             self.log_file.touch()
             self.create_jailed_resource(self.log_file)
-            # The default value for `level`, when configuring the
-            # logger via cmd line, is `Warning`. We set the level
-            # to `Debug` to also have the boot time printed in fifo.
+            # The default value for `level`, when configuring the logger via cmd
+            # line, is `Info`. We set the level to `Debug` to also have the boot
+            # time printed in the log.
             self.jailer.extra_args.update({"log-path": log_file, "level": log_level})
+            if log_show_level:
+                self.jailer.extra_args["show-level"] = None
+            if log_show_origin:
+                self.jailer.extra_args["show-log-origin"] = None
 
         if metrics_path is not None:
             self.metrics_file = Path(self.path) / metrics_path
