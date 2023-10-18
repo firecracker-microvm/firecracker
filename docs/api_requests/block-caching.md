@@ -15,12 +15,8 @@ request. The available cache types are:
 
 ### Unsafe mode (default)
 
-When configuring the block caching strategy to `Unsafe`, the device will
-advertise the VirtIO `flush` feature to the guest driver. If negotiated when
-activating the device, the guest driver will be able to send flush requests
-to the device, but the device will just acknowledge the request without
-actually performing any flushing on the host side. The data which was not
-yet committed to disk will continue to reside in the host page cache.
+When configuring the block caching strategy to `Unsafe`, the device will not
+advertise the VirtIO `flush` feature to the guest driver.
 
 ### Writeback mode
 
