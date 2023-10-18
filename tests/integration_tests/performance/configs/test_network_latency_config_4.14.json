@@ -223,12 +223,7 @@
     },
     "measurements": {
         "latency": {
-            "statistics": [
-                {
-                    "criteria": "EqualWith",
-                    "function": "Avg"
-                }
-            ],
+            "statistics": [],
             "unit": "ms"
         }
     }
