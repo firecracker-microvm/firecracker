@@ -7,6 +7,7 @@ import os
 import platform
 import re
 import shutil
+import time
 from pathlib import Path
 
 import pytest
@@ -153,6 +154,27 @@ def test_config_start_no_api(uvm_plain, vm_config_file):
         tries=10,
         delay=1,
         logger=None,
+    )
+
+
+@pytest.mark.parametrize("vm_config_file", ["framework/vm_config_network.json"])
+def test_config_start_no_api_exit(uvm_plain, vm_config_file):
+    """
+    Test microvm exit when API server is disabled.
+    """
+    test_microvm = uvm_plain
+    _configure_vm_from_json(test_microvm, vm_config_file)
+    _configure_network_interface(test_microvm)
+    test_microvm.jailer.extra_args.update({"no-api": None})
+
+    test_microvm.spawn()  # Start Firecracker and MicroVM
+    time.sleep(3)  # Wait for startup
+    test_microvm.ssh.run("reboot")  # Exit
+    time.sleep(3)  # Wait for shutdown
+
+    # Check error log
+    test_microvm.check_log_message(
+        "RunWithoutApiError error: MicroVMStopped without an error: Ok"
     )
 
 
