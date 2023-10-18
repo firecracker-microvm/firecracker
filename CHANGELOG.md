@@ -22,6 +22,9 @@
 
 - Fixed a bug that ignored the `--show-log-origin` option, preventing it from
   printing the source code file of the log messages.
+- [#4178](https://github.com/firecracker-microvm/firecracker/pull/4178):
+  Fixed a bug reporting a non-zero exit code on successful shutdown when
+  starting Firecracker with `--no-api`.
 
 ## [1.5.0]
 
