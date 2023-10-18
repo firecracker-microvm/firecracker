@@ -977,8 +977,6 @@ definitions:
     type: object
     description:
       Describes the configuration option for the logging capability.
-    required:
-      - log_path
     properties:
       level:
         type: string
