@@ -87,7 +87,6 @@ def consume_ping_output(cons, raw_data, requests):
 
 
 @pytest.mark.nonci
-@pytest.mark.timeout(3600)
 def test_network_latency(microvm_factory, guest_kernel, rootfs, st_core):
     """
     Test network latency for multiple vm configurations.
