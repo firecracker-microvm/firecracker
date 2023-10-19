@@ -85,7 +85,7 @@ defaults_for_kani = overlay_dict(
     defaults_for_performance,
     {
         # Kani runs fastest on m6i.metal
-        "instances": ["m6i.metal"],
+        "instances": ["m6a.metal"],
         "platforms": [("al2", "linux_5.10")],
         "timeout_in_minutes": 300,
     },
