@@ -52,7 +52,7 @@ impl ApiServerAdapter {
         vm_resources: VmResources,
         vmm: Arc<Mutex<Vmm>>,
         event_manager: &mut EventManager,
-    ) -> FcExitCode {
+    ) -> Result<(), FcExitCode> {
         let api_adapter = Arc::new(Mutex::new(Self {
             api_event_fd,
             from_api,
@@ -64,10 +64,14 @@ impl ApiServerAdapter {
             event_manager
                 .run()
                 .expect("EventManager events driver fatal error");
-            if let Some(exit_code) = vmm.lock().unwrap().shutdown_exit_code() {
-                return exit_code;
+
+            match vmm.lock().unwrap().shutdown_exit_code() {
+                Some(FcExitCode::Ok) => break,
+                Some(exit_code) => return Err(exit_code),
+                None => continue,
             }
         }
+        Ok(())
     }
 
     fn handle_request(&mut self, req_action: VmmAction) {
@@ -245,7 +249,8 @@ pub(crate) fn run_with_api(
     api_thread.join().expect("Api thread should join");
 
     match result {
-        Ok(exit_code) => Err(ApiServerError::MicroVMStoppedWithoutError(exit_code)),
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(exit_code)) => Err(ApiServerError::MicroVMStoppedWithoutError(exit_code)),
         Err(exit_error) => Err(exit_error),
     }
 }
