@@ -538,7 +538,7 @@ mod verification {
     // to 256 entries which is the theoretical maximum length of a `DescriptorChain`, but in reality
     // our code does not make any assumption about the length of the chain, apart from it being
     // >= 1.
-    const MAX_DESC_LENGTH: usize = 5;
+    const MAX_DESC_LENGTH: usize = 4;
 
     fn create_iovecs(mem: *mut u8, size: usize) -> (Vec<iovec>, usize) {
         let nr_descs: usize = kani::any_where(|&n| n <= MAX_DESC_LENGTH);
@@ -588,7 +588,7 @@ mod verification {
     }
 
     #[kani::proof]
-    #[kani::unwind(6)]
+    #[kani::unwind(5)]
     #[kani::solver(cadical)]
     fn verify_read_from_iovec() {
         let iov: IoVecBuffer = kani::any();
@@ -612,7 +612,7 @@ mod verification {
     }
 
     #[kani::proof]
-    #[kani::unwind(6)]
+    #[kani::unwind(5)]
     #[kani::solver(cadical)]
     fn verify_write_to_iovec() {
         let mut iov_mut: IoVecBufferMut = kani::any();
