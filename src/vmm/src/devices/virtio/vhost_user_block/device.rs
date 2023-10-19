@@ -13,7 +13,7 @@ use log::error;
 use utils::eventfd::EventFd;
 use utils::u64_to_usize;
 use vhost::vhost_user::message::*;
-use vhost::vhost_user::VhostUserFrontend;
+use vhost::vhost_user::Frontend;
 
 use super::{VhostUserBlockError, NUM_QUEUES, QUEUE_SIZE};
 use crate::devices::virtio::block_common::CacheType;
@@ -23,13 +23,22 @@ use crate::devices::virtio::gen::virtio_blk::{
 };
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
-use crate::devices::virtio::vhost_user::VhostUserHandle;
+use crate::devices::virtio::vhost_user::{VhostUserHandleBackend, VhostUserHandleImpl};
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
 use crate::vmm_config::drive::BlockDeviceConfig;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// Block device config space size in bytes.
 const BLOCK_CONFIG_SPACE_SIZE: u32 = 60;
+
+const AVAILABLE_FEATURES: u64 = (1 << VIRTIO_F_VERSION_1)
+    | (1 << VIRTIO_RING_F_EVENT_IDX)
+    // vhost-user specific bit. Not defined in standart virtio spec.
+    // Specifies ability of frontend to negotiate protocol features.
+    | VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits()
+    // We always try to negotiate readonly with the backend.
+    // If the backend is configured as readonly, we will accept it.
+    | (1 << VIRTIO_BLK_F_RO);
 
 /// Use this structure to set up the Block Device before booting the kernel.
 #[derive(Debug, PartialEq, Eq)]
@@ -92,9 +101,10 @@ impl From<VhostUserBlockConfig> for BlockDeviceConfig {
     }
 }
 
+pub type VhostUserBlock = VhostUserBlockImpl<Frontend>;
+
 /// vhost-user block device.
-#[derive(Debug)]
-pub struct VhostUserBlock {
+pub struct VhostUserBlockImpl<T: VhostUserHandleBackend> {
     // Virtio fields.
     pub avail_features: u64,
     pub acked_features: u64,
@@ -115,20 +125,39 @@ pub struct VhostUserBlock {
     pub read_only: bool,
 
     // Vhost user protocol handle
-    pub vu_handle: VhostUserHandle,
+    pub vu_handle: VhostUserHandleImpl<T>,
     pub vu_acked_protocol_features: u64,
 }
 
-impl VhostUserBlock {
+// Need custom implementation because otherwise `Debug` is required for `vhost::Master`
+impl<T: VhostUserHandleBackend> std::fmt::Debug for VhostUserBlockImpl<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VhostUserBlockImpl")
+            .field("avail_features", &self.avail_features)
+            .field("acked_features", &self.acked_features)
+            .field("config_space", &self.config_space)
+            .field("activate_evt", &self.activate_evt)
+            .field("queues", &self.queues)
+            .field("queue_evts", &self.queue_evts)
+            .field("device_state", &self.device_state)
+            .field("irq_trigger", &self.irq_trigger)
+            .field("id", &self.id)
+            .field("partuuid", &self.partuuid)
+            .field("cache_type", &self.cache_type)
+            .field("root_device", &self.root_device)
+            .field("read_only", &self.read_only)
+            .field("vu_handle", &self.vu_handle)
+            .field(
+                "vu_acked_protocol_features",
+                &self.vu_acked_protocol_features,
+            )
+            .finish()
+    }
+}
+
+impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
     pub fn new(config: VhostUserBlockConfig) -> Result<Self, VhostUserBlockError> {
-        let mut requested_features = (1 << VIRTIO_F_VERSION_1)
-            | (1 << VIRTIO_RING_F_EVENT_IDX)
-            // vhost-user specific bit. Not defined in standart virtio spec.
-            // Specifies ability of frontend to negotiate protocol features.
-            | VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits()
-            // We always try to negotiate readonly with the backend.
-            // If the backend is configured as readonly, we will accept it.
-            | (1 << VIRTIO_BLK_F_RO);
+        let mut requested_features = AVAILABLE_FEATURES;
 
         if config.cache_type == CacheType::Writeback {
             requested_features |= 1 << VIRTIO_BLK_F_FLUSH;
@@ -136,7 +165,7 @@ impl VhostUserBlock {
 
         let requested_protocol_features = VhostUserProtocolFeatures::CONFIG;
 
-        let mut vu_handle = VhostUserHandle::new(&config.socket, NUM_QUEUES)
+        let mut vu_handle = VhostUserHandleImpl::<T>::new(&config.socket, NUM_QUEUES)
             .map_err(VhostUserBlockError::VhostUser)?;
         let (acked_features, acked_protocol_features) = vu_handle
             .negotiate_features(requested_features, requested_protocol_features)
@@ -214,7 +243,7 @@ impl VhostUserBlock {
     }
 }
 
-impl VirtioDevice for VhostUserBlock {
+impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlockImpl<T> {
     fn avail_features(&self) -> u64 {
         self.avail_features
     }
@@ -297,7 +326,16 @@ impl VirtioDevice for VhostUserBlock {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
+    #![allow(clippy::cast_possible_truncation)]
+
+    use std::os::unix::net::UnixStream;
+
+    use utils::tempfile::TempFile;
+    use vhost::{VhostUserMemoryRegionInfo, VringConfigData};
+
     use super::*;
+    use crate::vstate::memory::{FileOffset, GuestAddress, GuestMemoryExtension};
 
     #[test]
     fn test_from_config() {
@@ -345,5 +383,461 @@ mod tests {
             socket: Some("sock".to_string()),
         };
         assert!(VhostUserBlockConfig::try_from(&block_config).is_err());
+    }
+
+    #[test]
+    fn test_new_no_features() {
+        struct MockMaster {
+            sock: UnixStream,
+            max_queue_num: u64,
+            is_owner: std::cell::UnsafeCell<bool>,
+            features: u64,
+            protocol_features: VhostUserProtocolFeatures,
+            hdr_flags: std::cell::UnsafeCell<VhostUserHeaderFlag>,
+        }
+
+        impl VhostUserHandleBackend for MockMaster {
+            fn from_stream(sock: UnixStream, max_queue_num: u64) -> Self {
+                Self {
+                    sock,
+                    max_queue_num,
+                    is_owner: std::cell::UnsafeCell::new(false),
+                    features: 0,
+                    protocol_features: VhostUserProtocolFeatures::empty(),
+                    hdr_flags: std::cell::UnsafeCell::new(VhostUserHeaderFlag::empty()),
+                }
+            }
+
+            fn set_owner(&self) -> Result<(), vhost::Error> {
+                unsafe { *self.is_owner.get() = true };
+                Ok(())
+            }
+
+            fn set_hdr_flags(&self, flags: VhostUserHeaderFlag) {
+                unsafe { *self.hdr_flags.get() = flags };
+            }
+
+            fn get_features(&self) -> Result<u64, vhost::Error> {
+                Ok(self.features)
+            }
+
+            fn get_protocol_features(&mut self) -> Result<VhostUserProtocolFeatures, vhost::Error> {
+                Ok(self.protocol_features)
+            }
+
+            fn set_protocol_features(
+                &mut self,
+                features: VhostUserProtocolFeatures,
+            ) -> Result<(), vhost::Error> {
+                self.protocol_features = features;
+                Ok(())
+            }
+        }
+
+        let tmp_dir = utils::tempdir::TempDir::new().unwrap();
+        let tmp_dir_path_str = tmp_dir.as_path().to_str().unwrap();
+        let tmp_socket_path = format!("{tmp_dir_path_str}/tmp_socket");
+
+        unsafe {
+            let socketfd = libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0);
+            if socketfd < 0 {
+                panic!("Cannot create socket");
+            }
+            let mut socket_addr = libc::sockaddr_un {
+                sun_family: libc::AF_UNIX as u16,
+                sun_path: [0; 108],
+            };
+
+            std::ptr::copy::<i8>(
+                tmp_socket_path.as_ptr().cast(),
+                socket_addr.sun_path.as_mut_ptr(),
+                tmp_socket_path.as_bytes().len(),
+            );
+
+            let bind = libc::bind(
+                socketfd,
+                (&socket_addr as *const libc::sockaddr_un).cast(),
+                std::mem::size_of::<libc::sockaddr_un>() as u32,
+            );
+            if bind < 0 {
+                panic!("Cannot bind socket");
+            }
+
+            let listen = libc::listen(socketfd, 1);
+            if listen < 0 {
+                panic!("Cannot listen on socket");
+            }
+        }
+
+        let vhost_block_config = VhostUserBlockConfig {
+            drive_id: "test_drive".to_string(),
+            partuuid: None,
+            is_root_device: false,
+            cache_type: CacheType::Unsafe,
+            socket: tmp_socket_path.clone(),
+        };
+        let vhost_block = VhostUserBlockImpl::<MockMaster>::new(vhost_block_config).unwrap();
+
+        // If backend has no features, nothing should be negotiated and
+        // no flags should be set.
+        assert_eq!(
+            vhost_block
+                .vu_handle
+                .vu
+                .sock
+                .peer_addr()
+                .unwrap()
+                .as_pathname()
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            &tmp_socket_path,
+        );
+        assert_eq!(vhost_block.vu_handle.vu.max_queue_num, NUM_QUEUES);
+        assert!(unsafe { *vhost_block.vu_handle.vu.is_owner.get() });
+        assert_eq!(vhost_block.avail_features, 0);
+        assert_eq!(vhost_block.acked_features, 0);
+        assert_eq!(vhost_block.vu_acked_protocol_features, 0);
+        assert_eq!(
+            unsafe { &*vhost_block.vu_handle.vu.hdr_flags.get() }.bits(),
+            VhostUserHeaderFlag::empty().bits()
+        );
+        assert!(!vhost_block.root_device);
+        assert!(!vhost_block.read_only);
+        assert_eq!(vhost_block.config_space, Vec::<u8>::new());
+    }
+
+    #[test]
+    fn test_new_all_features() {
+        struct MockMaster {
+            sock: UnixStream,
+            max_queue_num: u64,
+            is_owner: std::cell::UnsafeCell<bool>,
+            features: u64,
+            protocol_features: VhostUserProtocolFeatures,
+            hdr_flags: std::cell::UnsafeCell<VhostUserHeaderFlag>,
+        }
+
+        impl VhostUserHandleBackend for MockMaster {
+            fn from_stream(sock: UnixStream, max_queue_num: u64) -> Self {
+                Self {
+                    sock,
+                    max_queue_num,
+                    is_owner: std::cell::UnsafeCell::new(false),
+                    features: AVAILABLE_FEATURES | (1 << VIRTIO_BLK_F_FLUSH),
+
+                    protocol_features: VhostUserProtocolFeatures::all(),
+                    hdr_flags: std::cell::UnsafeCell::new(VhostUserHeaderFlag::empty()),
+                }
+            }
+
+            fn set_owner(&self) -> Result<(), vhost::Error> {
+                unsafe { *self.is_owner.get() = true };
+                Ok(())
+            }
+
+            fn set_hdr_flags(&self, flags: VhostUserHeaderFlag) {
+                unsafe { *self.hdr_flags.get() = flags };
+            }
+
+            fn get_features(&self) -> Result<u64, vhost::Error> {
+                Ok(self.features)
+            }
+
+            fn get_protocol_features(&mut self) -> Result<VhostUserProtocolFeatures, vhost::Error> {
+                Ok(self.protocol_features)
+            }
+
+            fn set_protocol_features(
+                &mut self,
+                features: VhostUserProtocolFeatures,
+            ) -> Result<(), vhost::Error> {
+                self.protocol_features = features;
+                Ok(())
+            }
+
+            fn get_config(
+                &mut self,
+                _offset: u32,
+                _size: u32,
+                _flags: VhostUserConfigFlags,
+                _buf: &[u8],
+            ) -> Result<(VhostUserConfig, VhostUserConfigPayload), vhost::Error> {
+                Ok((VhostUserConfig::default(), vec![0x69, 0x69, 0x69]))
+            }
+        }
+
+        let tmp_dir = utils::tempdir::TempDir::new().unwrap();
+        let tmp_dir_path_str = tmp_dir.as_path().to_str().unwrap();
+        let tmp_socket_path = format!("{tmp_dir_path_str}/tmp_socket");
+
+        unsafe {
+            let socketfd = libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0);
+            if socketfd < 0 {
+                panic!("Cannot create socket");
+            }
+            let mut socket_addr = libc::sockaddr_un {
+                sun_family: libc::AF_UNIX as u16,
+                sun_path: [0; 108],
+            };
+
+            std::ptr::copy::<i8>(
+                tmp_socket_path.as_ptr().cast(),
+                socket_addr.sun_path.as_mut_ptr(),
+                tmp_socket_path.as_bytes().len(),
+            );
+
+            let bind = libc::bind(
+                socketfd,
+                (&socket_addr as *const libc::sockaddr_un).cast(),
+                std::mem::size_of::<libc::sockaddr_un>() as u32,
+            );
+            if bind < 0 {
+                panic!("Cannot bind socket");
+            }
+
+            let listen = libc::listen(socketfd, 1);
+            if listen < 0 {
+                panic!("Cannot listen on socket");
+            }
+        }
+
+        let vhost_block_config = VhostUserBlockConfig {
+            drive_id: "test_drive".to_string(),
+            partuuid: None,
+            is_root_device: false,
+            cache_type: CacheType::Writeback,
+            socket: tmp_socket_path.clone(),
+        };
+        let mut vhost_block = VhostUserBlockImpl::<MockMaster>::new(vhost_block_config).unwrap();
+
+        // If backend has all features, features offered by block device
+        // should be negotiated and header flags should be set.
+        assert_eq!(
+            vhost_block
+                .vu_handle
+                .vu
+                .sock
+                .peer_addr()
+                .unwrap()
+                .as_pathname()
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            &tmp_socket_path,
+        );
+        assert_eq!(vhost_block.vu_handle.vu.max_queue_num, NUM_QUEUES);
+        assert!(unsafe { *vhost_block.vu_handle.vu.is_owner.get() });
+
+        assert_eq!(
+            vhost_block.avail_features,
+            AVAILABLE_FEATURES | (1 << VIRTIO_BLK_F_FLUSH)
+        );
+        assert_eq!(
+            vhost_block.acked_features,
+            VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits()
+        );
+        assert_eq!(
+            vhost_block.vu_acked_protocol_features,
+            VhostUserProtocolFeatures::CONFIG.bits()
+        );
+        assert_eq!(
+            unsafe { &*vhost_block.vu_handle.vu.hdr_flags.get() }.bits(),
+            VhostUserHeaderFlag::empty().bits()
+        );
+        assert!(!vhost_block.root_device);
+        assert!(!vhost_block.read_only);
+        assert_eq!(vhost_block.config_space, vec![0x69, 0x69, 0x69]);
+
+        // Test some `VirtioDevice` methods
+        assert_eq!(
+            vhost_block.avail_features(),
+            AVAILABLE_FEATURES | (1 << VIRTIO_BLK_F_FLUSH)
+        );
+        assert_eq!(
+            vhost_block.acked_features(),
+            VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits()
+        );
+
+        // Valid read
+        let mut read_config = vec![0, 0, 0];
+        vhost_block.read_config(0, &mut read_config);
+        assert_eq!(read_config, vec![0x69, 0x69, 0x69]);
+
+        // Invalid offset
+        let mut read_config = vec![0, 0, 0];
+        vhost_block.read_config(0x69, &mut read_config);
+        assert_eq!(read_config, vec![0, 0, 0]);
+
+        // Writing to the config does nothing
+        vhost_block.write_config(0x69, &[0]);
+        assert_eq!(vhost_block.config_space, vec![0x69, 0x69, 0x69]);
+    }
+
+    #[test]
+    fn test_activate() {
+        struct MockMaster {
+            features_are_set: std::cell::UnsafeCell<bool>,
+            memory_is_set: std::cell::UnsafeCell<bool>,
+            vring_enabled: std::cell::UnsafeCell<bool>,
+        }
+
+        impl VhostUserHandleBackend for MockMaster {
+            fn from_stream(_sock: UnixStream, _max_queue_num: u64) -> Self {
+                Self {
+                    features_are_set: std::cell::UnsafeCell::new(false),
+                    memory_is_set: std::cell::UnsafeCell::new(false),
+                    vring_enabled: std::cell::UnsafeCell::new(false),
+                }
+            }
+
+            fn set_owner(&self) -> Result<(), vhost::Error> {
+                Ok(())
+            }
+
+            fn set_hdr_flags(&self, _flags: VhostUserHeaderFlag) {}
+
+            fn get_features(&self) -> Result<u64, vhost::Error> {
+                Ok(0)
+            }
+
+            fn get_protocol_features(&mut self) -> Result<VhostUserProtocolFeatures, vhost::Error> {
+                Ok(VhostUserProtocolFeatures::empty())
+            }
+
+            fn set_protocol_features(
+                &mut self,
+                _features: VhostUserProtocolFeatures,
+            ) -> Result<(), vhost::Error> {
+                Ok(())
+            }
+
+            fn get_config(
+                &mut self,
+                _offset: u32,
+                _size: u32,
+                _flags: VhostUserConfigFlags,
+                _buf: &[u8],
+            ) -> Result<(VhostUserConfig, VhostUserConfigPayload), vhost::Error> {
+                Ok((VhostUserConfig::default(), vec![]))
+            }
+
+            fn set_features(&self, _features: u64) -> Result<(), vhost::Error> {
+                unsafe { (*self.features_are_set.get()) = true };
+                Ok(())
+            }
+
+            fn set_mem_table(
+                &self,
+                _regions: &[VhostUserMemoryRegionInfo],
+            ) -> Result<(), vhost::Error> {
+                unsafe { (*self.memory_is_set.get()) = true };
+                Ok(())
+            }
+
+            fn set_vring_num(&self, _queue_index: usize, _num: u16) -> Result<(), vhost::Error> {
+                Ok(())
+            }
+
+            fn set_vring_addr(
+                &self,
+                _queue_index: usize,
+                _config_data: &VringConfigData,
+            ) -> Result<(), vhost::Error> {
+                Ok(())
+            }
+
+            fn set_vring_base(&self, _queue_index: usize, _base: u16) -> Result<(), vhost::Error> {
+                Ok(())
+            }
+
+            fn set_vring_call(
+                &self,
+                _queue_index: usize,
+                _fd: &EventFd,
+            ) -> Result<(), vhost::Error> {
+                Ok(())
+            }
+
+            fn set_vring_kick(
+                &self,
+                _queue_index: usize,
+                _fd: &EventFd,
+            ) -> Result<(), vhost::Error> {
+                Ok(())
+            }
+
+            fn set_vring_enable(
+                &mut self,
+                _queue_index: usize,
+                _enable: bool,
+            ) -> Result<(), vhost::Error> {
+                unsafe { (*self.vring_enabled.get()) = true };
+                Ok(())
+            }
+        }
+
+        // Block creation
+        let tmp_dir = utils::tempdir::TempDir::new().unwrap();
+        let tmp_dir_path_str = tmp_dir.as_path().to_str().unwrap();
+        let tmp_socket_path = format!("{tmp_dir_path_str}/tmp_socket");
+
+        unsafe {
+            let socketfd = libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0);
+            if socketfd < 0 {
+                panic!("Cannot create socket");
+            }
+            let mut socket_addr = libc::sockaddr_un {
+                sun_family: libc::AF_UNIX as u16,
+                sun_path: [0; 108],
+            };
+
+            std::ptr::copy::<i8>(
+                tmp_socket_path.as_ptr().cast(),
+                socket_addr.sun_path.as_mut_ptr(),
+                tmp_socket_path.as_bytes().len(),
+            );
+
+            let bind = libc::bind(
+                socketfd,
+                (&socket_addr as *const libc::sockaddr_un).cast(),
+                std::mem::size_of::<libc::sockaddr_un>() as u32,
+            );
+            if bind < 0 {
+                panic!("Cannot bind socket");
+            }
+
+            let listen = libc::listen(socketfd, 1);
+            if listen < 0 {
+                panic!("Cannot listen on socket");
+            }
+        }
+
+        let vhost_block_config = VhostUserBlockConfig {
+            drive_id: "test_drive".to_string(),
+            partuuid: None,
+            is_root_device: false,
+            cache_type: CacheType::Writeback,
+            socket: tmp_socket_path,
+        };
+        let mut vhost_block = VhostUserBlockImpl::<MockMaster>::new(vhost_block_config).unwrap();
+
+        // Memory creation
+        let region_size = 0x10000;
+        let file = TempFile::new().unwrap().into_file();
+        file.set_len(region_size as u64).unwrap();
+        let regions = vec![(
+            FileOffset::new(file.try_clone().unwrap(), 0x0),
+            GuestAddress(0x0),
+            region_size,
+        )];
+        let guest_memory = GuestMemoryMmap::from_raw_regions_file(regions, false, false).unwrap();
+
+        // During actiavion of the device features, memory and queues should be set and activated.
+        vhost_block.activate(guest_memory).unwrap();
+        assert!(unsafe { *vhost_block.vu_handle.vu.features_are_set.get() });
+        assert!(unsafe { *vhost_block.vu_handle.vu.memory_is_set.get() });
+        assert!(unsafe { *vhost_block.vu_handle.vu.vring_enabled.get() });
+        assert!(vhost_block.is_activated());
     }
 }
