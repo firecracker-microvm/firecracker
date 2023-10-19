@@ -51,13 +51,13 @@ unsafe impl ByteValued for Descriptor {}
 
 /// A virtio descriptor chain.
 #[derive(Debug)]
-pub struct DescriptorChain<'a> {
+pub struct DescriptorChain<'a, M: GuestMemory = GuestMemoryMmap> {
     desc_table: GuestAddress,
     queue_size: u16,
     ttl: u16, // used to prevent infinite chain cycles
 
     /// Reference to guest memory
-    pub mem: &'a GuestMemoryMmap,
+    pub mem: &'a M,
 
     /// Index into the descriptor table
     pub index: u16,
@@ -76,13 +76,13 @@ pub struct DescriptorChain<'a> {
     pub next: u16,
 }
 
-impl<'a> DescriptorChain<'a> {
+impl<'a, M: GuestMemory> DescriptorChain<'a, M> {
     fn checked_new(
-        mem: &GuestMemoryMmap,
+        mem: &'a M,
         desc_table: GuestAddress,
         queue_size: u16,
         index: u16,
-    ) -> Option<DescriptorChain> {
+    ) -> Option<Self> {
         if index >= queue_size {
             return None;
         }
@@ -139,7 +139,7 @@ impl<'a> DescriptorChain<'a> {
     ///
     /// Note that this is distinct from the next descriptor chain returned by `AvailIter`, which is
     /// the head of the next _available_ descriptor chain.
-    pub fn next_descriptor(&self) -> Option<DescriptorChain<'a>> {
+    pub fn next_descriptor(&self) -> Option<Self> {
         if self.has_next() {
             DescriptorChain::checked_new(self.mem, self.desc_table, self.queue_size, self.next).map(
                 |mut c| {
@@ -236,7 +236,7 @@ impl Queue {
     }
 
     /// Validates the queue's in-memory layout is correct.
-    pub fn is_layout_valid(&self, mem: &GuestMemoryMmap) -> bool {
+    pub fn is_layout_valid<M: GuestMemory>(&self, mem: &M) -> bool {
         let queue_size = usize::from(self.actual_size());
         let desc_table = self.desc_table;
         let desc_table_size = 16 * queue_size;
@@ -289,7 +289,7 @@ impl Queue {
     }
 
     /// Validates that the queue's representation is correct.
-    pub fn is_valid(&self, mem: &GuestMemoryMmap) -> bool {
+    pub fn is_valid<M: GuestMemory>(&self, mem: &M) -> bool {
         if !self.is_layout_valid(mem) {
             false
         } else if self.len(mem) > self.max_size {
@@ -305,19 +305,19 @@ impl Queue {
     }
 
     /// Returns the number of yet-to-be-popped descriptor chains in the avail ring.
-    fn len(&self, mem: &GuestMemoryMmap) -> u16 {
+    fn len<M: GuestMemory>(&self, mem: &M) -> u16 {
         debug_assert!(self.is_layout_valid(mem));
 
         (self.avail_idx(mem) - self.next_avail).0
     }
 
     /// Checks if the driver has made any descriptor chains available in the avail ring.
-    pub fn is_empty(&self, mem: &GuestMemoryMmap) -> bool {
+    pub fn is_empty<M: GuestMemory>(&self, mem: &M) -> bool {
         self.len(mem) == 0
     }
 
     /// Pop the first available descriptor chain from the avail ring.
-    pub fn pop<'b>(&mut self, mem: &'b GuestMemoryMmap) -> Option<DescriptorChain<'b>> {
+    pub fn pop<'b, M: GuestMemory>(&mut self, mem: &'b M) -> Option<DescriptorChain<'b, M>> {
         debug_assert!(self.is_layout_valid(mem));
 
         let len = self.len(mem);
@@ -343,10 +343,10 @@ impl Queue {
 
     /// Try to pop the first available descriptor chain from the avail ring.
     /// If no descriptor is available, enable notifications.
-    pub fn pop_or_enable_notification<'b>(
+    pub fn pop_or_enable_notification<'b, M: GuestMemory>(
         &mut self,
-        mem: &'b GuestMemoryMmap,
-    ) -> Option<DescriptorChain<'b>> {
+        mem: &'b M,
+    ) -> Option<DescriptorChain<'b, M>> {
         if !self.uses_notif_suppression {
             return self.pop(mem);
         }
@@ -363,7 +363,10 @@ impl Queue {
     /// # Important
     /// This is an internal method that ASSUMES THAT THERE ARE AVAILABLE DESCRIPTORS. Otherwise it
     /// will retrieve a descriptor that contains garbage data (obsolete/empty).
-    fn do_pop_unchecked<'b>(&mut self, mem: &'b GuestMemoryMmap) -> Option<DescriptorChain<'b>> {
+    fn do_pop_unchecked<'b, M: GuestMemory>(
+        &mut self,
+        mem: &'b M,
+    ) -> Option<DescriptorChain<'b, M>> {
         // This fence ensures all subsequent reads see the updated driver writes.
         fence(Ordering::Acquire);
 
@@ -414,9 +417,9 @@ impl Queue {
     }
 
     /// Puts an available descriptor head into the used ring for use by the guest.
-    pub fn add_used(
+    pub fn add_used<M: GuestMemory>(
         &mut self,
-        mem: &GuestMemoryMmap,
+        mem: &M,
         desc_index: u16,
         len: u32,
     ) -> Result<(), QueueError> {
@@ -453,7 +456,7 @@ impl Queue {
     /// Fetch the available ring index (`virtq_avail->idx`) from guest memory.
     /// This is written by the driver, to indicate the next slot that will be filled in the avail
     /// ring.
-    fn avail_idx(&self, mem: &GuestMemoryMmap) -> Wrapping<u16> {
+    fn avail_idx<M: GuestMemory>(&self, mem: &M) -> Wrapping<u16> {
         // Bound checks for queue inner data have already been performed, at device activation time,
         // via `self.is_valid()`, so it's safe to unwrap and use unchecked offsets here.
         // Note: the `MmioTransport` code ensures that queue addresses cannot be changed by the
@@ -465,7 +468,7 @@ impl Queue {
 
     /// Get the value of the used event field of the avail ring.
     #[inline(always)]
-    pub fn used_event(&self, mem: &GuestMemoryMmap) -> Wrapping<u16> {
+    pub fn used_event<M: GuestMemory>(&self, mem: &M) -> Wrapping<u16> {
         debug_assert!(self.is_layout_valid(mem));
 
         // We need to find the `used_event` field from the avail ring.
@@ -477,7 +480,7 @@ impl Queue {
     }
 
     /// Helper method that writes `val` to the `avail_event` field of the used ring.
-    fn set_avail_event(&mut self, val: u16, mem: &GuestMemoryMmap) {
+    fn set_avail_event<M: GuestMemory>(&mut self, val: u16, mem: &M) {
         debug_assert!(self.is_layout_valid(mem));
 
         let avail_event_addr = self
@@ -491,7 +494,7 @@ impl Queue {
     /// successfully enabled. Otherwise it means that one or more descriptors can still be consumed
     /// from the available ring and we can't guarantee that there will be a notification. In this
     /// case the caller might want to consume the mentioned descriptors and call this method again.
-    pub fn try_enable_notification(&mut self, mem: &GuestMemoryMmap) -> bool {
+    pub fn try_enable_notification<M: GuestMemory>(&mut self, mem: &M) -> bool {
         debug_assert!(self.is_layout_valid(mem));
 
         // If the device doesn't use notification suppression, we'll continue to get notifications
@@ -537,7 +540,7 @@ impl Queue {
     /// updates `used_event` and/or the notification conditions hold once more.
     ///
     /// This is similar to the `vring_need_event()` method implemented by the Linux kernel.
-    pub fn prepare_kick(&mut self, mem: &GuestMemoryMmap) -> bool {
+    pub fn prepare_kick<M: GuestMemory>(&mut self, mem: &M) -> bool {
         debug_assert!(self.is_layout_valid(mem));
 
         // If the device doesn't use notification suppression, always return true
