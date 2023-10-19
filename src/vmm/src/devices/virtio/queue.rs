@@ -826,6 +826,21 @@ mod verification {
         }
     }
 
+    mod stubs {
+        use super::*;
+
+        // Calls to set_avail_event tend to cause memory to grow unboundedly during verification.
+        // The function writes to the `avail_event` of the virtio queue, which is not read
+        // from by the device. It is only intended to be used by guest. Therefore, it does not
+        // affect any device functionality (e.g. its only call site, try_enable_notification,
+        // will behave independently of what value was written here). Thus we can stub it out
+        // with a no-op. Note that we have a separate harness for set_avail_event, to ensure
+        // the function itself is sound.
+        fn set_avail_event<M: GuestMemory>(_self: &mut Queue, _val: u16, _mem: &M) {
+            // do nothing
+        }
+    }
+
     #[kani::proof]
     #[kani::unwind(0)] // There are no loops anywhere, but kani really enjoys getting stuck in std::ptr::drop_in_place.
                        // This is a compiler intrinsic that has a "dummy" implementation in stdlib that just
@@ -1003,6 +1018,7 @@ mod verification {
 
     #[kani::proof]
     #[kani::unwind(0)]
+    #[kani::stub(Queue::set_avail_event, stubs::set_avail_event)]
     fn verify_try_enable_notification() {
         let ProofContext(mut queue, mem) = ProofContext::bounded_queue();
 
