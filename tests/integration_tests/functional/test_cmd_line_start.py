@@ -170,9 +170,7 @@ def test_config_start_no_api_exit(uvm_plain, vm_config_file):
     time.sleep(3)  # Wait for shutdown
 
     # Check error log
-    test_microvm.check_log_message(
-        "RunWithoutApiError error: MicroVMStopped without an error: Ok"
-    )
+    test_microvm.check_log_message("Firecracker exited successfully")
 
 
 @pytest.mark.parametrize(

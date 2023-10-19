@@ -15,6 +15,10 @@
 - Simplified and clarified the removal policy of deprecated API elements
   to follow semantic versioning 2.0.0. For more information, please refer to
   [this GitHub discussion](https://github.com/firecracker-microvm/firecracker/discussions/4135).
+- [#4180](https://github.com/firecracker-microvm/firecracker/pull/4180):
+  Refactored error propagation to avoid logging and printing an error on
+  exits with a zero exit code. Now, on successful exit
+  "Firecracker exited successfully" is logged.
 
 ### Deprecated
 

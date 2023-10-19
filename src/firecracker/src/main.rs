@@ -98,6 +98,7 @@ fn main() -> ExitCode {
         eprintln!("Error: {err:?}");
         ExitCode::from(err)
     } else {
+        info!("Firecracker exited successfully");
         ExitCode::SUCCESS
     }
 }
@@ -631,8 +632,11 @@ fn run_without_api(
             .run()
             .expect("Failed to start the event manager");
 
-        if let Some(exit_code) = vmm.lock().unwrap().shutdown_exit_code() {
-            return Err(RunWithoutApiError::Shutdown(exit_code));
+        match vmm.lock().unwrap().shutdown_exit_code() {
+            Some(FcExitCode::Ok) => break,
+            Some(exit_code) => return Err(RunWithoutApiError::Shutdown(exit_code)),
+            None => continue,
         }
     }
+    Ok(())
 }
