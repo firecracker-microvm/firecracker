@@ -562,20 +562,85 @@ impl Queue {
 }
 
 #[cfg(kani)]
+#[allow(dead_code)]
 mod verification {
     use std::mem::ManuallyDrop;
     use std::num::Wrapping;
+
+    use vm_memory::bitmap::AtomicBitmap;
+    use vm_memory::guest_memory::GuestMemoryIterator;
+    use vm_memory::{GuestMemoryRegion, MemoryRegionAddress};
 
     use crate::devices::virtio::queue::Descriptor;
     use crate::devices::virtio::{
         DescriptorChain, Queue, FIRECRACKER_MAX_QUEUE_SIZE, VIRTQ_DESC_F_NEXT,
     };
     use crate::vstate::memory::{
-        Address, AtomicBitmap, Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryMmap,
-        GuestRegionMmap, MmapRegion,
+        Bytes, FileOffset, GuestAddress, GuestMemory, GuestRegionMmap, MmapRegion,
     };
 
-    pub struct ProofContext(pub Queue, pub GuestMemoryMmap);
+    /// A made-for-kani version of `vm_memory::GuestMemoryMmap`. Unlike the real
+    /// `GuestMemoryMmap`, which manages a list of regions and then does a binary
+    /// search to determine which region a specific read or write request goes to,
+    /// this only uses a single region. Eliminating this binary search significantly
+    /// speeds up all queue proofs, because it eliminates the only loop contained herein,
+    /// meaning we can use `kani::unwind(0)` instead of `kani::unwind(2)`. Functionally,
+    /// it works identically to `GuestMemoryMmap` with only a single contained region.
+    pub struct ProofGuestMemory {
+        the_region: GuestRegionMmap,
+    }
+
+    impl<'a> GuestMemoryIterator<'a, GuestRegionMmap> for ProofGuestMemory {
+        type Iter = std::iter::Once<&'a GuestRegionMmap>;
+    }
+
+    impl GuestMemory for ProofGuestMemory {
+        type R = GuestRegionMmap;
+        type I = Self;
+
+        fn num_regions(&self) -> usize {
+            1
+        }
+
+        fn find_region(&self, addr: GuestAddress) -> Option<&Self::R> {
+            self.the_region
+                .to_region_addr(addr)
+                .map(|_| &self.the_region)
+        }
+
+        fn iter(&self) -> <Self::I as GuestMemoryIterator<Self::R>>::Iter {
+            std::iter::once(&self.the_region)
+        }
+
+        fn try_access<F>(
+            &self,
+            count: usize,
+            addr: GuestAddress,
+            mut f: F,
+        ) -> vm_memory::guest_memory::Result<usize>
+        where
+            F: FnMut(
+                usize,
+                usize,
+                MemoryRegionAddress,
+                &Self::R,
+            ) -> vm_memory::guest_memory::Result<usize>,
+        {
+            // We only have a single region, meaning a lot of the complications of the default
+            // try_access implementation for dealing with reads/writes across multiple
+            // regions does not apply.
+            let region_addr = self
+                .the_region
+                .to_region_addr(addr)
+                .ok_or(vm_memory::guest_memory::Error::InvalidGuestAddress(addr))?;
+            self.the_region
+                .checked_offset(region_addr, count)
+                .ok_or(vm_memory::guest_memory::Error::InvalidGuestAddress(addr))?;
+            f(0, count, region_addr, &self.the_region)
+        }
+    }
+
+    pub struct ProofContext(pub Queue, pub ProofGuestMemory);
 
     pub struct MmapRegionStub {
         addr: *mut u8,
@@ -598,7 +663,7 @@ mod verification {
     // able to change its address, as it is 16-byte aligned.
     const GUEST_MEMORY_SIZE: usize = QUEUE_END as usize + 30;
 
-    fn guest_memory(memory: *mut u8) -> GuestMemoryMmap {
+    fn guest_memory(memory: *mut u8) -> ProofGuestMemory {
         // Ideally, we'd want to do
         // let region = unsafe {MmapRegionBuilder::new(GUEST_MEMORY_SIZE)
         //    .with_raw_mmap_pointer(bytes.as_mut_ptr())
@@ -626,16 +691,19 @@ mod verification {
 
         let region: MmapRegion<Option<AtomicBitmap>> = unsafe { std::mem::transmute(region_stub) };
 
-        let guest_region = GuestRegionMmap::new(region, GuestAddress(GUEST_MEMORY_BASE)).unwrap();
+        let guest_region =
+            vm_memory::GuestRegionMmap::new(region, GuestAddress(GUEST_MEMORY_BASE)).unwrap();
 
         // Use a single memory region, just as firecracker does for guests of size < 2GB
         // For largest guests, firecracker uses two regions (due to the MMIO gap being
         // at the top of 32-bit address space)
-        GuestMemoryMmap::from_regions(vec![guest_region]).unwrap()
+        ProofGuestMemory {
+            the_region: guest_region,
+        }
     }
 
     // can't implement kani::Arbitrary for the relevant types due to orphan rules
-    fn setup_kani_guest_memory() -> GuestMemoryMmap {
+    fn setup_kani_guest_memory() -> ProofGuestMemory {
         // Non-deterministic Vec that will be used as the guest memory. We use `exact_vec` for now
         // as `any_vec` will likely result in worse performance. We do not loose much from
         // `exact_vec`, as our proofs do not make any assumptions about "filling" guest
@@ -649,7 +717,7 @@ mod verification {
         )
     }
 
-    fn setup_zeroed_guest_memory() -> GuestMemoryMmap {
+    fn setup_zeroed_guest_memory() -> ProofGuestMemory {
         guest_memory(unsafe {
             std::alloc::alloc_zeroed(std::alloc::Layout::from_size_align_unchecked(
                 GUEST_MEMORY_SIZE,
@@ -759,8 +827,9 @@ mod verification {
     }
 
     #[kani::proof]
-    #[kani::unwind(2)] // Due to guest memory regions being stored in a BTreeMap, which employs binary search for
-                       // resolving guest addresses to regions
+    #[kani::unwind(0)] // There are no loops anywhere, but kani really enjoys getting stuck in std::ptr::drop_in_place.
+                       // This is a compiler intrinsic that has a "dummy" implementation in stdlib that just
+                       // recursively calls itself. Kani will generally unwind this recursion infinitely
     fn verify_spec_2_6_7_2() {
         // Section 2.6.7.2 deals with device-to-driver notification suppression.
         // It describes a mechanism by which the driver can tell the device that it does not
@@ -800,7 +869,7 @@ mod verification {
     }
 
     #[kani::proof]
-    #[kani::unwind(2)]
+    #[kani::unwind(0)]
     fn verify_prepare_kick() {
         // Firecracker's virtio queue implementation is not completely spec conform:
         // According to the spec, we have to check whether to notify the driver after every call
@@ -840,7 +909,7 @@ mod verification {
     }
 
     #[kani::proof]
-    #[kani::unwind(2)]
+    #[kani::unwind(0)]
     fn verify_is_empty() {
         let ProofContext(queue, mem) = ProofContext::bounded_queue();
 
@@ -848,7 +917,7 @@ mod verification {
     }
 
     #[kani::proof]
-    #[kani::unwind(2)]
+    #[kani::unwind(0)]
     #[kani::solver(cadical)]
     fn verify_is_valid() {
         let ProofContext(queue, mem) = kani::any();
@@ -875,7 +944,7 @@ mod verification {
     }
 
     #[kani::proof]
-    #[kani::unwind(2)]
+    #[kani::unwind(0)]
     fn verify_actual_size() {
         let ProofContext(queue, _) = kani::any();
 
@@ -884,7 +953,7 @@ mod verification {
     }
 
     #[kani::proof]
-    #[kani::unwind(2)]
+    #[kani::unwind(0)]
     fn verify_set_avail_event() {
         let ProofContext(mut queue, mem) = ProofContext::bounded_queue();
 
@@ -892,7 +961,7 @@ mod verification {
     }
 
     #[kani::proof]
-    #[kani::unwind(2)]
+    #[kani::unwind(0)]
     #[kani::solver(cadical)]
     fn verify_pop() {
         let ProofContext(mut queue, mem) = ProofContext::bounded_queue();
@@ -915,7 +984,7 @@ mod verification {
     }
 
     #[kani::proof]
-    #[kani::unwind(2)]
+    #[kani::unwind(0)]
     #[kani::solver(cadical)]
     fn verify_undo_pop() {
         let ProofContext(mut queue, mem) = ProofContext::bounded_queue();
@@ -933,7 +1002,7 @@ mod verification {
     }
 
     #[kani::proof]
-    #[kani::unwind(2)]
+    #[kani::unwind(0)]
     fn verify_try_enable_notification() {
         let ProofContext(mut queue, mem) = ProofContext::bounded_queue();
 
@@ -949,7 +1018,7 @@ mod verification {
     }
 
     #[kani::proof]
-    #[kani::unwind(2)]
+    #[kani::unwind(0)]
     #[kani::solver(cadical)]
     fn verify_checked_new() {
         let ProofContext(queue, mem) = ProofContext::bounded_queue();
