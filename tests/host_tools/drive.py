@@ -3,6 +3,7 @@
 """Utilities for creating filesystems on the host."""
 
 import os
+import tempfile
 
 from framework import utils
 
@@ -13,12 +14,20 @@ class FilesystemFile:
     KNOWN_FILEFS_FORMATS = {"ext4"}
     path = None
 
-    def __init__(self, path: str, size: int = 256, fs_format: str = "ext4"):
+    def __init__(self, path: str = None, size: int = 256, fs_format: str = "ext4"):
         """Create a new file system in a file.
 
         Raises if the file system format is not supported, if the file already
         exists, or if it ends in '/'.
         """
+
+        # If no path is supplied, use a temporary file.
+        # This is useful to force placing the file on disk, not in memory,
+        # because qemu vhost-user-blk backend always uses O_DIRECT,
+        # but O_DIRECT is not supported by tmpfs.
+        if path is None:
+            _, path = tempfile.mkstemp(suffix=f".{fs_format}", dir="/tmp")
+
         if fs_format not in self.KNOWN_FILEFS_FORMATS:
             raise ValueError("Format not in: + " + str(self.KNOWN_FILEFS_FORMATS))
         # Here we append the format as a
