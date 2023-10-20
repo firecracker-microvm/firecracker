@@ -656,6 +656,24 @@ class Microvm:
         )
         self.disks[drive_id] = path_on_host
 
+    def add_vhost_user_block(
+        self,
+        drive_id,
+        socket,
+        partuuid=None,
+        is_root_device=False,
+        cache_type=None,
+    ):
+        """Add a vhost-user block device."""
+
+        self.api.drive.put(
+            drive_id=drive_id,
+            socket=socket,
+            partuuid=partuuid,
+            is_root_device=is_root_device,
+            cache_type=cache_type,
+        )
+
     def patch_drive(self, drive_id, file):
         """Modify/patch an existing block device."""
         self.api.drive.patch(
