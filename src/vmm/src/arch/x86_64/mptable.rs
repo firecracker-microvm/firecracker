@@ -306,7 +306,7 @@ mod tests {
     #[test]
     fn bounds_check() {
         let num_cpus = 4;
-        let mem = GuestMemoryMmap::from_raw_regions_unguarded(
+        let mem = GuestMemoryMmap::from_raw_regions(
             &[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus))],
             false,
         )
@@ -318,7 +318,7 @@ mod tests {
     #[test]
     fn bounds_check_fails() {
         let num_cpus = 4;
-        let mem = GuestMemoryMmap::from_raw_regions_unguarded(
+        let mem = GuestMemoryMmap::from_raw_regions(
             &[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus) - 1)],
             false,
         )
@@ -330,7 +330,7 @@ mod tests {
     #[test]
     fn mpf_intel_checksum() {
         let num_cpus = 1;
-        let mem = GuestMemoryMmap::from_raw_regions_unguarded(
+        let mem = GuestMemoryMmap::from_raw_regions(
             &[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus))],
             false,
         )
@@ -346,7 +346,7 @@ mod tests {
     #[test]
     fn mpc_table_checksum() {
         let num_cpus = 4;
-        let mem = GuestMemoryMmap::from_raw_regions_unguarded(
+        let mem = GuestMemoryMmap::from_raw_regions(
             &[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus))],
             false,
         )
@@ -371,7 +371,7 @@ mod tests {
 
     #[test]
     fn cpu_entry_count() {
-        let mem = GuestMemoryMmap::from_raw_regions_unguarded(
+        let mem = GuestMemoryMmap::from_raw_regions(
             &[(
                 GuestAddress(MPTABLE_START),
                 compute_mp_size(MAX_SUPPORTED_CPUS),
@@ -409,7 +409,7 @@ mod tests {
     #[test]
     fn cpu_entry_count_max() {
         let cpus = MAX_SUPPORTED_CPUS + 1;
-        let mem = GuestMemoryMmap::from_raw_regions_unguarded(
+        let mem = GuestMemoryMmap::from_raw_regions(
             &[(GuestAddress(MPTABLE_START), compute_mp_size(cpus))],
             false,
         )

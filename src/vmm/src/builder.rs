@@ -1214,7 +1214,7 @@ pub mod tests {
     }
 
     fn create_guest_mem_at(at: GuestAddress, size: usize) -> GuestMemoryMmap {
-        GuestMemoryMmap::from_raw_regions_unguarded(&[(at, size)], false).unwrap()
+        GuestMemoryMmap::from_raw_regions(&[(at, size)], false).unwrap()
     }
 
     pub(crate) fn create_guest_mem_with_size(size: usize) -> GuestMemoryMmap {

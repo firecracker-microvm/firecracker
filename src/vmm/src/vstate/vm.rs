@@ -613,8 +613,7 @@ pub(crate) mod tests {
 
         // Trying to set a memory region with a size that is not a multiple of PAGE_SIZE
         // will result in error.
-        let gm =
-            GuestMemoryMmap::from_raw_regions_unguarded(&[(GuestAddress(0), 0x10)], false).unwrap();
+        let gm = GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), 0x10)], false).unwrap();
         let res = vm.set_kvm_memory_regions(&gm, false);
         assert_eq!(
             res.unwrap_err().to_string(),
