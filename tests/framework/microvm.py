@@ -33,7 +33,6 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 import host_tools.cargo_build as build_tools
 import host_tools.network as net_tools
 from framework import utils
-from framework.artifacts import NetIfaceConfig
 from framework.defs import MAX_API_CALL_DURATION_MS
 from framework.http_api import Api
 from framework.jailer import JailerContext
@@ -102,7 +101,7 @@ class Snapshot:
         return cls(
             vmstate=src / obj["vmstate"],
             mem=src / obj["mem"],
-            net_ifaces=[NetIfaceConfig(**d) for d in obj["net_ifaces"]],
+            net_ifaces=[net_tools.NetIfaceConfig(**d) for d in obj["net_ifaces"]],
             disks={dsk: src / p for dsk, p in obj["disks"].items()},
             ssh_key=src / obj["ssh_key"],
             snapshot_type=SnapshotType(obj["snapshot_type"]),
@@ -703,7 +702,7 @@ class Microvm:
     def add_net_iface(self, iface=None, api=True, **kwargs):
         """Add a network interface"""
         if iface is None:
-            iface = NetIfaceConfig.with_id(len(self.iface))
+            iface = net_tools.NetIfaceConfig.with_id(len(self.iface))
         tap = net_tools.Tap(
             iface.tap_name, self.jailer.netns, ip=f"{iface.host_ip}/{iface.netmask}"
         )
