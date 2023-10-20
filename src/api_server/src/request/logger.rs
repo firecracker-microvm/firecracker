@@ -40,6 +40,7 @@ mod tests {
             level: Some(LevelFilter::Warn),
             show_level: Some(false),
             show_log_origin: Some(false),
+            module: None,
         };
         assert_eq!(
             vmm_action_from_request(parse_put_logger(&Body::new(body)).unwrap()),
@@ -58,6 +59,7 @@ mod tests {
             level: Some(LevelFilter::Debug),
             show_level: Some(false),
             show_log_origin: Some(false),
+            module: None,
         };
         assert_eq!(
             vmm_action_from_request(parse_put_logger(&Body::new(body)).unwrap()),
