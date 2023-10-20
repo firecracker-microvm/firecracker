@@ -30,7 +30,7 @@ def test_kani(results_dir):
     # --output-format terse is required by -j
     # --enable-unstable is needed for each of the above
     _, stdout, _ = utils.run_cmd(
-        "cargo kani --enable-unstable --enable-stubbing --restrict-vtable -j --output-format terse"
+        "cargo kani --enable-unstable -Z stubbing --restrict-vtable -j --output-format terse"
     )
 
     (results_dir / "kani_log").write_text(stdout, encoding="utf-8")
