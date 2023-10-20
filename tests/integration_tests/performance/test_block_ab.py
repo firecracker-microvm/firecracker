@@ -10,7 +10,11 @@ from pathlib import Path
 import pytest
 
 import host_tools.drive as drive_tools
-from framework.utils import CmdBuilder, get_cpu_percent, run_cmd
+from framework.utils import CmdBuilder, ProcessManager, get_cpu_percent, run_cmd
+from framework.utils_vhost_user_backend import (
+    VHOST_USER_SOCKET,
+    spawn_vhost_user_backend,
+)
 
 # size of the block device used in the test, in MB
 BLOCK_DEVICE_SIZE_MB = 2048
@@ -183,6 +187,62 @@ def test_block_performance(
         {
             "performance_test": "test_block_performance",
             "io_engine": io_engine,
+            "fio_mode": fio_mode,
+            "fio_block_size": str(fio_block_size),
+            **vm.dimensions,
+        }
+    )
+
+
+def pin_backend(backend, cpu_id: int):
+    """Pin the vhost-user backend to a cpu list."""
+    return ProcessManager.set_cpu_affinity(backend.pid, [cpu_id])
+
+
+@pytest.mark.nonci
+@pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
+@pytest.mark.parametrize("fio_mode", ["randread", "randwrite"])
+@pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])
+def test_block_vhost_user_performance(
+    microvm_factory,
+    guest_kernel,
+    rootfs,
+    vcpus,
+    fio_mode,
+    fio_block_size,
+    metrics,
+):
+    """
+    Execute block device emulation benchmarking scenarios.
+    """
+    vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
+    vm.spawn(log_level="Info")
+    vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
+    vm.add_net_iface()
+
+    # Add a secondary block device for benchmark tests.
+    fs = drive_tools.FilesystemFile(size=BLOCK_DEVICE_SIZE_MB)
+    backend = spawn_vhost_user_backend(vm, fs.path, readonly=False)
+    vm.add_vhost_user_block("scratch", VHOST_USER_SOCKET)
+    vm.start()
+
+    # Pin uVM threads to physical cores.
+    assert vm.pin_vmm(0), "Failed to pin firecracker thread."
+    assert vm.pin_api(1), "Failed to pin fc_api thread."
+    pin_backend(backend, 2)
+    for i in range(vm.vcpus_count):
+        assert vm.pin_vcpu(i, i + 3), f"Failed to pin fc_vcpu {i} thread."
+
+    logs_dir, cpu_load = run_fio(vm, fio_mode, fio_block_size)
+
+    process_fio_logs(vm, fio_mode, logs_dir, metrics)
+
+    for cpu_util_data_point in list(cpu_load["firecracker"].values())[0]:
+        metrics.put_metric("cpu_utilization_vmm", cpu_util_data_point, "Percent")
+
+    metrics.set_dimensions(
+        {
+            "performance_test": "test_block_vhost_user_performance",
             "fio_mode": fio_mode,
             "fio_block_size": str(fio_block_size),
             **vm.dimensions,
