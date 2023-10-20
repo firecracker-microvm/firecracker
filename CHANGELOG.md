@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Changed
+
+- [#4191](https://github.com/firecracker-microvm/firecracker/pull/4191):
+  Refactored error propagation to avoid logging and printing an error on
+  exits with a zero exit code. Now, on successful exit
+  "Firecracker exited successfully" is logged.
+
 ### Fixed
 
 - [#4179](https://github.com/firecracker-microvm/firecracker/pull/4179):
