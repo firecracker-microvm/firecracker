@@ -19,6 +19,17 @@ class CpuVendor(Enum):
     ARM = auto()
 
 
+class CpuModel(str, Enum):
+    """CPU models"""
+
+    AMD_MILAN = "AMD_MILAN"
+    ARM_NEOVERSE_N1 = "ARM_NEOVERSE_N1"
+    ARM_NEOVERSE_V1 = "ARM_NEOVERSE_V1"
+    INTEL_SKYLAKE = "INTEL_SKYLAKE"
+    INTEL_CASCADELAKE = "INTEL_CASCADELAKE"
+    INTEL_ICELAKE = "INTEL_ICELAKE"
+
+
 CPU_DICT = {
     CpuVendor.INTEL: {
         "Intel(R) Xeon(R) Platinum 8175M CPU": "INTEL_SKYLAKE",

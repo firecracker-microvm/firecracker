@@ -33,10 +33,10 @@ def get_supported_cpu_templates():
         case cpuid_utils.CpuVendor.AMD:
             return AMD_TEMPLATES
         case cpuid_utils.CpuVendor.ARM:
-            match global_props.instance:
-                case "m6g.metal":
+            match global_props.cpu_model:
+                case cpuid_utils.CpuModel.ARM_NEOVERSE_N1:
                     return []
-                case "c7g.metal":
+                case cpuid_utils.CpuModel.ARM_NEOVERSE_V1:
                     return ARM_TEMPLATES
     return []
 
@@ -67,10 +67,10 @@ def get_supported_custom_cpu_templates():
         case cpuid_utils.CpuVendor.AMD:
             return AMD_TEMPLATES
         case cpuid_utils.CpuVendor.ARM:
-            match global_props.instance:
-                case "m6g.metal":
+            match global_props.cpu_model:
+                case cpuid_utils.CpuModel.ARM_NEOVERSE_N1:
                     return AARCH64_CUSTOM_CPU_TEMPLATES_G2
-                case "c7g.metal":
+                case cpuid_utils.CpuModel.ARM_NEOVERSE_V1:
                     return AARCH64_CUSTOM_CPU_TEMPLATES_G3
 
 
