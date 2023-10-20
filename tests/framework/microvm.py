@@ -235,11 +235,13 @@ class Microvm:
             LOG.error(self.log_data)
 
         if self.jailer.daemonize:
-            if self.firecracker_pid:
-                try:
+            try:
+                if self.firecracker_pid:
                     os.kill(self.firecracker_pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+            except ProcessLookupError:
+                LOG.exception("Process not found: %d", self.firecracker_pid)
+            except FileNotFoundError:
+                LOG.exception("PID file not found")
         else:
             # Killing screen will send SIGHUP to underlying Firecracker.
             # Needed to avoid false positives in case kill() is called again.
@@ -345,9 +347,6 @@ class Microvm:
 
         Reads the pid from a file created by jailer with `--new-pid-ns` flag.
         """
-        # Check if the pid file exists.
-        assert self.jailer.pid_file.exists()
-
         # Read the PID stored inside the file.
         return int(self.jailer.pid_file.read_text(encoding="ascii"))
 
