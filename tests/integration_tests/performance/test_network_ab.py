@@ -8,10 +8,9 @@ import pytest
 
 from framework.utils_iperf import IPerf3Test, emit_iperf3_metrics
 
-# each iteration is 30 * 0.2s = 6s
-# Thus 30 iterations are 6s * 30 = 5min
-REQUEST_PER_ITERATION = 30
-ITERATIONS = 30
+# each iteration is 15 * 30 * 0.2s = 90s
+ROUNDS = 15
+REQUEST_PER_ROUND = 30
 DELAY = 0.2
 
 #  MicroVM configuration
@@ -37,7 +36,7 @@ def consume_ping_output(ping_putput):
     assert len(output) > 2
 
     # Compute percentiles.
-    seqs = output[1 : REQUEST_PER_ITERATION + 1]
+    seqs = output[1 : REQUEST_PER_ROUND + 1]
     pattern_time = ".+ bytes from .+: icmp_seq=.+ ttl=.+ time=(.+) ms"
     for seq in seqs:
         time = re.findall(pattern_time, seq)
@@ -67,26 +66,37 @@ def network_microvm(request, microvm_factory, guest_kernel, rootfs):
 
 @pytest.mark.nonci
 @pytest.mark.parametrize("network_microvm", [1], indirect=True)
-def test_network_latency(network_microvm, metrics):
+@pytest.mark.parametrize("iteration", [1, 2])
+def test_network_latency(network_microvm, metrics, iteration):
     """
-    Test network latency for multiple vm configurations.
+    Test network latency by sending pings from the guest to the host.
 
-    Send a ping from the guest to the host.
+    This test is split into multiple iterations. The rationale behind
+    this is that we have very little network latency test cases (only 2,
+    which is the number of guest kernels), which means that the A/B-testing
+    framework does not have enough data to meaningfully correct for outliers
+    (it has only 2 data points). This change increases the number of data
+    points it can work with to 4, which should hopefully help with the high
+    false-positive rate we have been seeing from this test.
     """
 
     samples = []
     host_ip = network_microvm.iface["eth0"]["iface"].host_ip
 
-    for _ in range(ITERATIONS):
+    for _ in range(ROUNDS):
         rc, ping_output, stderr = network_microvm.ssh.run(
-            f"ping -c {REQUEST_PER_ITERATION} -i {DELAY} {host_ip}"
+            f"ping -c {REQUEST_PER_ROUND} -i {DELAY} {host_ip}"
         )
         assert rc == 0, stderr
 
         samples.extend(consume_ping_output(ping_output))
 
     metrics.set_dimensions(
-        {"performance_test": "test_network_latency", **network_microvm.dimensions}
+        {
+            "performance_test": "test_network_latency",
+            **network_microvm.dimensions,
+            "iteration": str(iteration),
+        }
     )
 
     for sample in samples:
