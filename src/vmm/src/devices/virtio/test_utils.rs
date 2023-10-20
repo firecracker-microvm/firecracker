@@ -25,7 +25,7 @@ macro_rules! check_metric_after_block {
 /// Creates a [`GuestMemoryMmap`] with a single region of the given size starting at guest physical
 /// address 0
 pub fn single_region_mem(region_size: usize) -> GuestMemoryMmap {
-    GuestMemoryMmap::from_raw_regions_unguarded(&[(GuestAddress(0), region_size)], false).unwrap()
+    GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), region_size)], false).unwrap()
 }
 
 /// Creates a [`GuestMemoryMmap`] with a single region  of size 65536 (= 0x10000 hex) starting at
@@ -331,8 +331,7 @@ pub(crate) mod test {
     use crate::vstate::memory::{Address, GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
 
     pub fn create_virtio_mem() -> GuestMemoryMmap {
-        GuestMemoryMmap::from_raw_regions_unguarded(&[(GuestAddress(0), MAX_BUFFER_SIZE)], false)
-            .unwrap()
+        GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), MAX_BUFFER_SIZE)], false).unwrap()
     }
 
     /// Provides functionality necessary for testing a VirtIO device with

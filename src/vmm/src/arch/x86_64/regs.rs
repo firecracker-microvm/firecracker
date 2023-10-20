@@ -247,12 +247,7 @@ mod tests {
     fn create_guest_mem(mem_size: Option<u64>) -> GuestMemoryMmap {
         let page_size = 0x10000usize;
         let mem_size = u64_to_usize(mem_size.unwrap_or(page_size as u64));
-        if mem_size % page_size == 0 {
-            GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), mem_size)], false).unwrap()
-        } else {
-            GuestMemoryMmap::from_raw_regions_unguarded(&[(GuestAddress(0), mem_size)], false)
-                .unwrap()
-        }
+        GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), mem_size)], false).unwrap()
     }
 
     fn read_u64(gm: &GuestMemoryMmap, offset: u64) -> u64 {

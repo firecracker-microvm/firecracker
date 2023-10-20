@@ -6,15 +6,14 @@
 // found in the THIRD-PARTY file.
 
 use std::fs::File;
-use std::io::{Error as IoError, SeekFrom};
-use std::os::unix::io::AsRawFd;
+use std::io::SeekFrom;
 
 use utils::{errno, get_page_size, u64_to_usize};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 pub use vm_memory::bitmap::{AtomicBitmap, Bitmap, BitmapSlice, BS};
 pub use vm_memory::mmap::MmapRegionBuilder;
-use vm_memory::mmap::{check_file_offset, MmapRegionError, NewBitmap};
+use vm_memory::mmap::{MmapRegionError, NewBitmap};
 pub use vm_memory::{
     address, Address, ByteValued, Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion,
     GuestUsize, MemoryRegionAddress, MmapRegion,
@@ -29,8 +28,6 @@ pub type GuestMemoryMmap = vm_memory::GuestMemoryMmap<Option<AtomicBitmap>>;
 pub type GuestRegionMmap = vm_memory::GuestRegionMmap<Option<AtomicBitmap>>;
 /// Type of GuestMmapRegion.
 pub type GuestMmapRegion = vm_memory::MmapRegion<Option<AtomicBitmap>>;
-
-const GUARD_PAGE_COUNT: usize = 1;
 
 /// Errors associated with dumping guest memory to file.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -68,12 +65,6 @@ where
 
     /// Creates a GuestMemoryMmap from raw regions with guard pages.
     fn from_raw_regions(
-        regions: &[(GuestAddress, usize)],
-        track_dirty_pages: bool,
-    ) -> Result<Self, MemoryError>;
-
-    /// Creates a GuestMemoryMmap from raw regions with no guard pages.
-    fn from_raw_regions_unguarded(
         regions: &[(GuestAddress, usize)],
         track_dirty_pages: bool,
     ) -> Result<Self, MemoryError>;
@@ -160,28 +151,8 @@ impl GuestMemoryExtension for GuestMemoryMmap {
         Self::from_raw_regions(&regions, track_dirty_pages)
     }
 
-    /// Creates a GuestMemoryMmap from raw regions with guard pages backed by anonymous memory.
+    /// Creates a GuestMemoryMmap from raw regions backed by anonymous memory.
     fn from_raw_regions(
-        regions: &[(GuestAddress, usize)],
-        track_dirty_pages: bool,
-    ) -> Result<Self, MemoryError> {
-        let prot = libc::PROT_READ | libc::PROT_WRITE;
-        let flags = libc::MAP_NORESERVE | libc::MAP_PRIVATE | libc::MAP_ANONYMOUS;
-
-        let regions = regions
-            .iter()
-            .map(|(guest_address, region_size)| {
-                let region =
-                    build_guarded_region(None, *region_size, prot, flags, track_dirty_pages)?;
-                GuestRegionMmap::new(region, *guest_address).map_err(MemoryError::VmMemoryError)
-            })
-            .collect::<Result<Vec<_>, MemoryError>>()?;
-
-        GuestMemoryMmap::from_regions(regions).map_err(MemoryError::VmMemoryError)
-    }
-
-    /// Creates a GuestMemoryMmap from raw regions with no guard pages backed by anonymous memory.
-    fn from_raw_regions_unguarded(
         regions: &[(GuestAddress, usize)],
         track_dirty_pages: bool,
     ) -> Result<Self, MemoryError> {
@@ -222,13 +193,16 @@ impl GuestMemoryExtension for GuestMemoryMmap {
         let regions = regions
             .into_iter()
             .map(|(file_offset, guest_address, region_size)| {
-                let region = build_guarded_region(
-                    Some(file_offset),
-                    region_size,
-                    prot,
-                    flags,
-                    track_dirty_pages,
-                )?;
+                let bitmap = match track_dirty_pages {
+                    true => Some(AtomicBitmap::with_len(region_size)),
+                    false => None,
+                };
+                let region = MmapRegionBuilder::new_with_bitmap(region_size, bitmap)
+                    .with_mmap_prot(prot)
+                    .with_mmap_flags(flags)
+                    .with_file_offset(file_offset)
+                    .build()
+                    .map_err(MemoryError::MmapRegionError)?;
                 GuestRegionMmap::new(region, guest_address).map_err(MemoryError::VmMemoryError)
             })
             .collect::<Result<Vec<_>, MemoryError>>()?;
@@ -392,101 +366,6 @@ pub fn create_memfd(size: usize) -> Result<memfd::Memfd, MemoryError> {
     Ok(mem_file)
 }
 
-/// Build a `MmapRegion` surrounded by guard pages.
-///
-/// Initially, we map a `PROT_NONE` guard region of size:
-/// `size` + (GUARD_PAGE_COUNT * 2 * page_size).
-/// The guard region is mapped with `PROT_NONE`, so that any access to this region will cause
-/// a SIGSEGV.
-///
-/// The actual accessible region is going to be nested in the larger guard region.
-/// This is done by mapping over the guard region, starting at an address of
-/// `guard_region_addr + (GUARD_PAGE_COUNT * page_size)`.
-/// This results in a border of `GUARD_PAGE_COUNT` pages on either side of the region, which
-/// acts as a safety net for accessing out-of-bounds addresses that are not allocated for the
-/// guest's memory.
-fn build_guarded_region(
-    file_offset: Option<FileOffset>,
-    size: usize,
-    prot: i32,
-    flags: i32,
-    track_dirty_pages: bool,
-) -> Result<GuestMmapRegion, MemoryError> {
-    let page_size = utils::get_page_size().expect("Cannot retrieve page size.");
-    // Create the guarded range size (received size + X pages),
-    // where X is defined as a constant GUARD_PAGE_COUNT.
-    let guarded_size = size + GUARD_PAGE_COUNT * 2 * page_size;
-
-    // Map the guarded range to PROT_NONE
-    // SAFETY: Safe because the parameters are valid.
-    let guard_addr = unsafe {
-        libc::mmap(
-            std::ptr::null_mut(),
-            guarded_size,
-            libc::PROT_NONE,
-            libc::MAP_ANONYMOUS | libc::MAP_PRIVATE | libc::MAP_NORESERVE,
-            -1,
-            0,
-        )
-    };
-
-    if guard_addr == libc::MAP_FAILED {
-        return Err(MemoryError::MmapRegionError(MmapRegionError::Mmap(
-            IoError::last_os_error(),
-        )));
-    }
-
-    let (fd, offset) = match file_offset {
-        Some(ref file_offset) => {
-            check_file_offset(file_offset, size).map_err(MemoryError::MmapRegionError)?;
-            (file_offset.file().as_raw_fd(), file_offset.start())
-        }
-        None => (-1, 0),
-    };
-
-    let region_start_addr = guard_addr as usize + page_size * GUARD_PAGE_COUNT;
-
-    // Inside the protected range, starting with guard_addr + PAGE_SIZE,
-    // map the requested range with received protection and flags
-    // SAFETY: Safe because the parameters are valid.
-    let region_addr = unsafe {
-        libc::mmap(
-            region_start_addr as *mut libc::c_void,
-            size,
-            prot,
-            flags | libc::MAP_FIXED,
-            fd,
-            libc::off_t::try_from(offset).unwrap(),
-        )
-    };
-
-    if region_addr == libc::MAP_FAILED {
-        return Err(MemoryError::MmapRegionError(MmapRegionError::Mmap(
-            IoError::last_os_error(),
-        )));
-    }
-
-    let bitmap = match track_dirty_pages {
-        true => Some(AtomicBitmap::with_len(size)),
-        false => None,
-    };
-
-    // SAFETY: Safe because the parameters are valid.
-    let builder = unsafe {
-        MmapRegionBuilder::new_with_bitmap(size, bitmap)
-            .with_raw_mmap_pointer(region_addr.cast::<u8>())
-            .with_mmap_prot(prot)
-            .with_mmap_flags(flags)
-    };
-
-    match file_offset {
-        Some(offset) => builder.with_file_offset(offset),
-        None => builder,
-    }
-    .build()
-    .map_err(MemoryError::MmapRegionError)
-}
-
 #[cfg(test)]
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
@@ -499,149 +378,8 @@ mod tests {
 
     use super::*;
 
-    // This method only works on gnu targets
-    #[cfg(target_env = "gnu")]
-    fn validate_guard_region(region: &GuestMmapRegion) {
-        let read_mem = |addr| unsafe { std::ptr::read_volatile::<u8>(addr) };
-        let write_mem = |addr, val| unsafe {
-            std::ptr::write(addr, val);
-        };
-
-        // We utilize ability to catch panic from threads
-        // to verify the caught signal.
-        unsafe extern "C" fn handler(signum: libc::c_int) {
-            panic!("{}", signum == libc::SIGSEGV);
-        }
-
-        let read_threaded = |addr: *mut u8| {
-            let addr_usize = addr as usize;
-            std::thread::spawn(move || unsafe { std::ptr::read::<u8>(addr_usize as *mut u8) })
-                .join()
-                .err()
-                .unwrap()
-                .downcast::<String>()
-                .unwrap()
-        };
-
-        let write_threaded = |addr: *mut u8, val: u8| {
-            let addr_usize = addr as usize;
-            std::thread::spawn(move || unsafe {
-                std::ptr::write(addr_usize as *mut u8, val);
-            })
-            .join()
-            .err()
-            .unwrap()
-            .downcast::<String>()
-            .unwrap()
-        };
-
-        // Setting a signal handler for threads to panic
-        // with specific messages.
-        let previous_signal_handler = unsafe {
-            libc::signal(
-                libc::SIGSEGV,
-                handler as *const fn(libc::c_int) as libc::size_t,
-            )
-        };
-
-        let page_size = get_page_size().unwrap();
-
-        // Check that the created range allows us to write inside it
-        let region_first_byte = region.as_ptr();
-        let region_last_byte = unsafe { region_first_byte.add(region.size() - 1) };
-
-        // Write and read from the start of the region
-        write_mem(region_first_byte, 0x69);
-        assert_eq!(read_mem(region_first_byte), 0x69);
-
-        // Write and read from the end of the region
-        write_mem(region_last_byte, 0x69);
-        assert_eq!(read_mem(region_last_byte), 0x69);
-
-        // Try a read/write operation against the left guard border of the range
-        let left_border_first_byte = unsafe { region_first_byte.sub(page_size) };
-        assert_eq!(read_threaded(left_border_first_byte).as_str(), "true");
-        assert_eq!(
-            write_threaded(left_border_first_byte, 0x69).as_str(),
-            "true"
-        );
-
-        // Try a read/write operation against the right guard border of the range
-        let right_border_first_byte = unsafe { region_last_byte.add(1) };
-        assert_eq!(read_threaded(right_border_first_byte).as_str(), "true");
-        assert_eq!(
-            write_threaded(right_border_first_byte, 0x69).as_str(),
-            "true"
-        );
-
-        // Restoring previous signal handler.
-        unsafe { libc::signal(libc::SIGSEGV, previous_signal_handler) };
-    }
-
     #[test]
-    #[cfg(target_env = "gnu")]
-    fn test_build_guarded_region() {
-        let page_size = get_page_size().unwrap();
-        let region_size = page_size * 10;
-
-        let prot = libc::PROT_READ | libc::PROT_WRITE;
-        let flags = libc::MAP_ANONYMOUS | libc::MAP_NORESERVE | libc::MAP_PRIVATE;
-
-        let region = build_guarded_region(None, region_size, prot, flags, false).unwrap();
-
-        // Verify that the region was built correctly
-        assert_eq!(region.size(), region_size);
-        assert!(region.file_offset().is_none());
-        assert_eq!(region.prot(), prot);
-        assert_eq!(region.flags(), flags);
-
-        validate_guard_region(&region);
-    }
-
-    #[test]
-    #[cfg(target_env = "gnu")]
-    fn test_build_guarded_region_file() {
-        let page_size = get_page_size().unwrap();
-        let region_size = page_size * 10;
-
-        let prot = libc::PROT_READ | libc::PROT_WRITE;
-        let flags = libc::MAP_NORESERVE | libc::MAP_PRIVATE;
-
-        let file = TempFile::new().unwrap().into_file();
-        file.set_len(region_size as u64).unwrap();
-        let file_offset = FileOffset::new(file, 0);
-
-        let region =
-            build_guarded_region(Some(file_offset), region_size, prot, flags, false).unwrap();
-
-        // Verify that the region was built correctly
-        assert_eq!(region.size(), region_size);
-        assert!(region.file_offset().is_some());
-        assert_eq!(region.prot(), prot);
-        assert_eq!(region.flags(), flags);
-
-        validate_guard_region(&region);
-    }
-
-    #[test]
-    #[cfg(target_env = "gnu")]
     fn test_from_raw_regions() {
-        // Test that all regions are guarded.
-        {
-            let region_size = 0x10000;
-            let regions = vec![
-                (GuestAddress(0x0), region_size),
-                (GuestAddress(0x10000), region_size),
-                (GuestAddress(0x20000), region_size),
-                (GuestAddress(0x30000), region_size),
-            ];
-
-            let guest_memory = GuestMemoryMmap::from_raw_regions(&regions, false).unwrap();
-            guest_memory.iter().for_each(|region| {
-                validate_guard_region(region);
-            });
-        }
-
         // Check dirty page tracking is off.
         {
             let region_size = 0x10000;
@@ -676,43 +414,6 @@ mod tests {
     }
 
     #[test]
-    fn test_from_raw_regions_unguarded() {
-        // Check dirty page tracking is off.
-        {
-            let region_size = 0x10000;
-            let regions = vec![
-                (GuestAddress(0x0), region_size),
-                (GuestAddress(0x10000), region_size),
-                (GuestAddress(0x20000), region_size),
-                (GuestAddress(0x30000), region_size),
-            ];
-
-            let guest_memory =
-                GuestMemoryMmap::from_raw_regions_unguarded(&regions, false).unwrap();
-            guest_memory.iter().for_each(|region| {
-                assert!(region.bitmap().is_none());
-            });
-        }
-
-        // Check dirty page tracking is on.
-        {
-            let region_size = 0x10000;
-            let regions = vec![
-                (GuestAddress(0x0), region_size),
-                (GuestAddress(0x10000), region_size),
-                (GuestAddress(0x20000), region_size),
-                (GuestAddress(0x30000), region_size),
-            ];
-
-            let guest_memory = GuestMemoryMmap::from_raw_regions_unguarded(&regions, true).unwrap();
-            guest_memory.iter().for_each(|region| {
-                assert!(region.bitmap().is_some());
-            });
-        }
-    }
-
-    #[test]
-    #[cfg(target_env = "gnu")]
     fn test_from_raw_regions_file() {
         let region_size = 0x10000;
 
@@ -751,7 +452,6 @@ mod tests {
                 assert_eq!(region.size(), region_size);
                 assert!(region.file_offset().is_some());
                 assert!(region.bitmap().is_none());
-                validate_guard_region(region);
             });
         }
 

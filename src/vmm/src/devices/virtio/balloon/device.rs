@@ -1134,8 +1134,7 @@ pub(crate) mod tests {
         assert!(balloon.update_size(1).is_err());
         // Switch the state to active.
         balloon.device_state = DeviceState::Activated(
-            GuestMemoryMmap::from_raw_regions_unguarded(&[(GuestAddress(0x0), 0x1)], false)
-                .unwrap(),
+            GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0x0), 0x1)], false).unwrap(),
         );
 
         assert_eq!(balloon.num_pages(), 0);

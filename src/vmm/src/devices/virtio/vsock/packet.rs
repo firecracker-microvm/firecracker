@@ -760,7 +760,7 @@ mod tests {
     fn test_check_bounds_for_buffer_access_edge_cases() {
         let mut test_ctx = TestContext::new();
 
-        test_ctx.mem = GuestMemoryMmap::from_raw_regions_unguarded(
+        test_ctx.mem = GuestMemoryMmap::from_raw_regions(
             &[
                 (GuestAddress(0), 500),
                 (GuestAddress(500), 100),
