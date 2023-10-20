@@ -4,6 +4,8 @@
 
 use std::sync::{Arc, Mutex};
 
+use utils::tempdir::TempDir;
+
 use crate::builder::build_microvm_for_boot;
 use crate::resources::VmResources;
 use crate::seccomp_filters::get_empty_filters;
@@ -63,4 +65,45 @@ pub fn default_vmm_no_boot(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, Even
 #[cfg(target_arch = "x86_64")]
 pub fn dirty_tracking_vmm(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
     create_vmm(kernel_image, true, true)
+}
+
+#[allow(clippy::undocumented_unsafe_blocks)]
+#[allow(clippy::cast_possible_truncation)]
+pub fn create_tmp_socket() -> (TempDir, String) {
+    let tmp_dir = TempDir::new().unwrap();
+    let tmp_dir_path_str = tmp_dir.as_path().to_str().unwrap();
+    let tmp_socket_path = format!("{tmp_dir_path_str}/tmp_socket");
+
+    unsafe {
+        let socketfd = libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0);
+        if socketfd < 0 {
+            panic!("Cannot create socket");
+        }
+        let mut socket_addr = libc::sockaddr_un {
+            sun_family: libc::AF_UNIX as u16,
+            sun_path: [0; 108],
+        };
+
+        std::ptr::copy(
+            tmp_socket_path.as_ptr().cast(),
+            socket_addr.sun_path.as_mut_ptr(),
+            tmp_socket_path.as_bytes().len(),
+        );
+
+        let bind = libc::bind(
+            socketfd,
+            (&socket_addr as *const libc::sockaddr_un).cast(),
+            std::mem::size_of::<libc::sockaddr_un>() as u32,
+        );
+        if bind < 0 {
+            panic!("Cannot bind socket");
+        }
+
+        let listen = libc::listen(socketfd, 1);
+        if listen < 0 {
+            panic!("Cannot listen on socket");
+        }
+    }
+
+    (tmp_dir, tmp_socket_path)
 }
