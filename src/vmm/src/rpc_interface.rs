@@ -1797,7 +1797,6 @@ mod tests {
                 snapshot_type: SnapshotType::Full,
                 snapshot_path: PathBuf::new(),
                 mem_file_path: PathBuf::new(),
-                version: None,
             }),
             VmmActionError::OperationNotSupportedPreBoot,
         );

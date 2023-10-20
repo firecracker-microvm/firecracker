@@ -12,7 +12,6 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use seccompiler::BpfThreadMap;
-use semver::Version;
 use serde::Serialize;
 use snapshot::Snapshot;
 use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
@@ -30,15 +29,8 @@ use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
 #[cfg(target_arch = "x86_64")]
 use crate::cpu_config::x86_64::cpuid::CpuidTrait;
 use crate::device_manager::persist::{DevicePersistError, DeviceStates};
-use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use crate::devices::virtio::TYPE_NET;
 use crate::logger::{info, warn};
 use crate::resources::VmResources;
-#[cfg(target_arch = "x86_64")]
-use crate::version_map::FC_V0_23_SNAP_VERSION;
-use crate::version_map::{
-    FC_V1_0_SNAP_VERSION, FC_V1_1_SNAP_VERSION, FC_V1_5_SNAP_VERSION, FC_VERSION_TO_SNAP_VERSION,
-};
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
@@ -217,14 +209,11 @@ pub fn create_snapshot(
     params: &CreateSnapshotParams,
     version_map: VersionMap,
 ) -> Result<(), CreateSnapshotError> {
-    // Fail early from invalid target version.
-    let snapshot_data_version = get_snapshot_data_version(&params.version, &version_map, vmm)?;
+    let snapshot_data_version = version_map.latest_version();
 
     let microvm_state = vmm
         .save_state(vm_info)
         .map_err(CreateSnapshotError::MicrovmState)?;
-
-    extra_version_check(&microvm_state, snapshot_data_version)?;
 
     snapshot_state_to_file(
         &microvm_state,
@@ -295,65 +284,6 @@ fn snapshot_memory_to_file(
         .map_err(|err| MemoryBackingFile("flush", err))?;
     file.sync_all()
         .map_err(|err| MemoryBackingFile("sync_all", err))
-}
-
-/// Validate the microVM version and translate it to its corresponding snapshot data format.
-pub fn get_snapshot_data_version(
-    maybe_fc_version: &Option<Version>,
-    version_map: &VersionMap,
-    vmm: &Vmm,
-) -> Result<u16, CreateSnapshotError> {
-    let fc_version = match maybe_fc_version {
-        None => return Ok(version_map.latest_version()),
-        Some(version) => version,
-    };
-    let data_version = *FC_VERSION_TO_SNAP_VERSION
-        .get(fc_version)
-        .ok_or(CreateSnapshotError::UnsupportedVersion)?;
-
-    #[cfg(target_arch = "x86_64")]
-    if data_version <= FC_V0_23_SNAP_VERSION {
-        validate_devices_number(vmm.mmio_device_manager.used_irqs_count())?;
-    }
-
-    if data_version < FC_V1_1_SNAP_VERSION {
-        vmm.mmio_device_manager
-            .for_each_virtio_device(|virtio_type, _id, _info, dev| {
-                // Incompatibility between current version and all versions smaller than 1.0.
-                // Also, incompatibility between v1.1 and v1.0 for VirtIO net device
-                if dev
-                    .lock()
-                    .expect("Poisoned lock")
-                    .has_feature(u64::from(VIRTIO_RING_F_EVENT_IDX))
-                    && (data_version < FC_V1_0_SNAP_VERSION || virtio_type == TYPE_NET)
-                {
-                    return Err(CreateSnapshotError::IncompatibleVirtioFeature(
-                        "notification suppression",
-                    ));
-                }
-                Ok(())
-            })?;
-    }
-
-    Ok(data_version)
-}
-
-/// Additional checks on snapshot version dependent on microvm saved state.
-pub fn extra_version_check(
-    microvm_state: &MicrovmState,
-    version: u16,
-) -> Result<(), CreateSnapshotError> {
-    // We forbid snapshots older than 1.5 if any additional capabilities are requested
-    if !microvm_state.vm_state.kvm_cap_modifiers.is_empty() && version < FC_V1_5_SNAP_VERSION {
-        return Err(CreateSnapshotError::UnsupportedVersion);
-    }
-
-    // We forbid snapshots older then 1.5 if any additional vcpu features are requested
-    #[cfg(target_arch = "aarch64")]
-    if microvm_state.vcpu_states[0].kvi.is_some() && version < FC_V1_5_SNAP_VERSION {
-        return Err(CreateSnapshotError::UnsupportedVersion);
-    }
-    Ok(())
 }
 
 /// Validates that snapshot CPU vendor matches the host CPU vendor.
@@ -667,15 +597,6 @@ fn guest_memory_from_uffd(
     Ok((guest_memory, Some(uffd)))
 }
 
-#[cfg(target_arch = "x86_64")]
-fn validate_devices_number(device_number: usize) -> Result<(), CreateSnapshotError> {
-    use self::CreateSnapshotError::TooManyDevices;
-    if device_number > FC_V0_23_MAX_DEVICES as usize {
-        return Err(TooManyDevices(device_number));
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use snapshot::Persist;
@@ -689,7 +610,6 @@ mod tests {
     };
     #[cfg(target_arch = "aarch64")]
     use crate::construct_kvm_mpidrs;
-    use crate::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::drive::CacheType;
     use crate::vmm_config::net::NetworkInterfaceConfig;
@@ -797,32 +717,6 @@ mod tests {
             restored_microvm_state.device_states,
             microvm_state.device_states
         )
-    }
-
-    #[test]
-    fn test_get_snapshot_data_version() {
-        let vmm = default_vmm_with_devices();
-
-        assert_eq!(
-            VERSION_MAP.latest_version(),
-            get_snapshot_data_version(&None, &VERSION_MAP, &vmm).unwrap()
-        );
-
-        for version in FC_VERSION_TO_SNAP_VERSION.keys() {
-            let res = get_snapshot_data_version(&Some(version.clone()), &VERSION_MAP, &vmm);
-
-            #[cfg(target_arch = "x86_64")]
-            assert!(res.is_ok());
-
-            #[cfg(target_arch = "aarch64")]
-            // Validate sanity checks fail because aarch64 does not support "0.23.0"
-            // snapshot target version.
-            if version == &Version::new(0, 23, 0) {
-                assert!(res.is_err())
-            } else {
-                assert!(res.is_ok())
-            }
-        }
     }
 
     #[test]
