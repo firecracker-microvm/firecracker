@@ -154,6 +154,7 @@ class Microvm:
         microvm_id: str,
         fc_binary_path: Path,
         jailer_binary_path: Path,
+        netns: net_tools.NetNs,
         monitor_memory: bool = True,
     ):
         """Set up microVM attributes, paths, and data structures."""
@@ -176,10 +177,12 @@ class Microvm:
         self._jailer_binary_path = Path(jailer_binary_path)
         assert jailer_binary_path.exists()
 
+        self.netns = netns
         # Create the jailer context associated with this microvm.
         self.jailer = JailerContext(
             jailer_id=self._microvm_id,
             exec_file=self._fc_binary_path,
+            netns=netns,
             new_pid_ns=True,
         )
 
@@ -703,9 +706,7 @@ class Microvm:
         """Add a network interface"""
         if iface is None:
             iface = net_tools.NetIfaceConfig.with_id(len(self.iface))
-        tap = net_tools.Tap(
-            iface.tap_name, self.jailer.netns, ip=f"{iface.host_ip}/{iface.netmask}"
-        )
+        tap = self.netns.add_tap(iface.tap_name, ip=f"{iface.host_ip}/{iface.netmask}")
         self.iface[iface.dev_name] = {
             "iface": iface,
             "tap": tap,
@@ -827,7 +828,7 @@ class Microvm:
         guest_ip = list(self.iface.values())[iface_idx]["iface"].guest_ip
         self.ssh_key = Path(self.ssh_key)
         return net_tools.SSHConnection(
-            netns=self.jailer.netns,
+            netns=self.netns.id,
             ssh_key=self.ssh_key,
             user="root",
             host=guest_ip,
@@ -842,23 +843,30 @@ class Microvm:
 class MicroVMFactory:
     """MicroVM factory"""
 
-    def __init__(self, base_path: Path, fc_binary_path: Path, jailer_binary_path: Path):
+    def __init__(
+        self, base_path: Path, fc_binary_path: Path, jailer_binary_path: Path, **kwargs
+    ):
         self.base_path = Path(base_path)
         self.vms = []
         self.fc_binary_path = Path(fc_binary_path)
         self.jailer_binary_path = Path(jailer_binary_path)
+        self.kwargs = kwargs
 
     def build(self, kernel=None, rootfs=None, **kwargs):
         """Build a microvm"""
+        kwargs = self.kwargs | kwargs
+        microvm_id = kwargs.pop("microvm_id", str(uuid.uuid4()))
         vm = Microvm(
             resource_path=self.base_path,
-            microvm_id=kwargs.pop("microvm_id", str(uuid.uuid4())),
+            microvm_id=microvm_id,
             fc_binary_path=kwargs.pop("fc_binary_path", self.fc_binary_path),
             jailer_binary_path=kwargs.pop(
                 "jailer_binary_path", self.jailer_binary_path
             ),
+            netns=kwargs.pop("netns", net_tools.NetNs(microvm_id)),
             **kwargs,
         )
+        vm.netns.setup()
         self.vms.append(vm)
         if kernel is not None:
             vm.kernel_file = kernel
@@ -880,6 +888,7 @@ class MicroVMFactory:
             vm.jailer.cleanup()
             if len(vm.jailer.jailer_id) > 0:
                 shutil.rmtree(vm.jailer.chroot_base_with_id())
+            vm.netns.cleanup()
 
 
 class Serial:

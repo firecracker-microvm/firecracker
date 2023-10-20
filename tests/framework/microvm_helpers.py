@@ -97,7 +97,7 @@ class MicrovmHelpers:
         This may be useful for example to get a terminal
         """
         ip = self.vm.iface["eth0"]["iface"].guest_ip
-        return f"ip netns exec {self.vm.jailer.netns} ssh -o StrictHostKeyChecking=no -i {self.vm.ssh_key} root@{ip}"
+        return f"{self.vm.netns.cmd_prefix()} ssh -o StrictHostKeyChecking=no -i {self.vm.ssh_key} root@{ip}"
 
     def tmux_ssh(self):
         """Open a tmux window with an SSH session to the VM"""
@@ -133,7 +133,7 @@ class MicrovmHelpers:
           accordingly
         """
         docker_apt_install("iptables")
-        netns = self.vm.jailer.netns
+        netns = self.vm.netns.id
         vethhost = "vethhost0"
         vethhost_ip = "10.0.0.1"
         veth_net = "10.0.0.0/255.255.255.0"

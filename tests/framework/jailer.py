@@ -30,7 +30,6 @@ class JailerContext:
     uid = None
     gid = None
     chroot_base = None
-    netns = None
     daemonize = None
     new_pid_ns = None
     extra_args = None
@@ -68,7 +67,7 @@ class JailerContext:
         self.uid = uid
         self.gid = gid
         self.chroot_base = chroot_base
-        self.netns = netns if netns is not None else jailer_id
+        self.netns = netns
         self.daemonize = daemonize
         self.new_pid_ns = new_pid_ns
         self.extra_args = extra_args
@@ -103,7 +102,7 @@ class JailerContext:
         if self.chroot_base is not None:
             jailer_param_list.extend(["--chroot-base-dir", str(self.chroot_base)])
         if self.netns is not None:
-            jailer_param_list.extend(["--netns", str(self.netns_file_path())])
+            jailer_param_list.extend(["--netns", str(self.netns.path)])
         if self.daemonize:
             jailer_param_list.append("--daemonize")
         if self.new_pid_ns:
@@ -177,23 +176,6 @@ class JailerContext:
             os.chown(global_p, self.uid, self.gid)
         return str(jailed_p)
 
-    def netns_file_path(self):
-        """Get the host netns file path for a jailer context.
-
-        Returns the path on the host to the file which represents the netns,
-        and which must be passed to the jailer as the value of the --netns
-        parameter, when in use.
-        """
-        if self.netns:
-            return "/var/run/netns/{}".format(self.netns)
-        return None
-
-    def netns_cmd_prefix(self):
-        """Return the jailer context netns file prefix."""
-        if self.netns:
-            return "ip netns exec {} ".format(self.netns)
-        return ""
-
     def setup(self):
         """Set up this jailer context."""
         os.makedirs(
@@ -201,14 +183,8 @@ class JailerContext:
             exist_ok=True,
         )
 
-        if self.netns and self.netns not in utils.run_cmd("ip netns list")[1]:
-            utils.run_cmd("ip netns add {}".format(self.netns))
-
     def cleanup(self):
         """Clean up this jailer context."""
-        # pylint: disable=subprocess-run-check
-        if self.netns and os.path.exists("/var/run/netns/{}".format(self.netns)):
-            utils.run_cmd("ip netns del {}".format(self.netns))
 
         # Remove the cgroup folders associated with this microvm.
         # The base /sys/fs/cgroup/<controller>/firecracker folder will remain,
