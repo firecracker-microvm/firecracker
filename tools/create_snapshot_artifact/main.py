@@ -21,7 +21,6 @@ from framework.microvm import MicroVMFactory
 from framework.utils import (
     generate_mmds_get_request,
     generate_mmds_session_token,
-    run_cmd,
 )
 from framework.utils_cpuid import CpuVendor, get_cpu_vendor
 from host_tools.cargo_build import get_firecracker_binaries
@@ -129,8 +128,6 @@ def create_snapshots(vm, rootfs, kernel, cpu_template):
     vm.create_jailed_resource(rootfs)
     vm.create_jailed_resource(kernel)
 
-    # Create network namespace.
-    run_cmd(f"ip netns add {vm.jailer.netns}")
     for i in range(4):
         vm.add_net_iface(api=False)
 

@@ -59,11 +59,10 @@ def _configure_network_interface(test_microvm):
     """
     Create tap interface before spawning the microVM.
 
-    The network namespace and tap interface have to be created
-    beforehand when starting the microVM from a config file.
+    The network namespace is already pre-created.
+    The tap interface has to be created beforehand when starting the microVM
+    from a config file.
     """
-    # Create network namespace.
-    utils.run_cmd(f"ip netns add {test_microvm.jailer.netns}")
 
     # Create tap device, and avoid creating it in the guest since it is already
     # specified in the JSON

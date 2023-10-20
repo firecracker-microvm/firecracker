@@ -63,7 +63,7 @@ class IPerf3Test:
                 .with_arg("--affinity", assigned_cpu)
                 .build()
             )
-            utils.run_cmd(f"{self._microvm.jailer.netns_cmd_prefix()} {cmd}")
+            utils.run_cmd(f"{self._microvm.netns.cmd_prefix()} {cmd}")
             first_free_cpu += 1
 
         time.sleep(SERVER_STARTUP_TIME_SEC)

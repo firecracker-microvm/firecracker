@@ -4,7 +4,7 @@
 
 import random
 import string
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
@@ -209,3 +209,43 @@ class NetIfaceConfig:
             tap_name=f"tap{i}",
             dev_name=f"eth{i}",
         )
+
+
+@dataclass(frozen=True, repr=True)
+class NetNs:
+    """Defines a network namespace."""
+
+    id: str
+    taps: dict[str, Tap] = field(init=False, default_factory=dict)
+
+    @property
+    def path(self):
+        """Get the host netns file path.
+
+        Returns the path on the host to the file which represents the netns.
+        """
+        return Path("/var/run/netns") / self.id
+
+    def cmd_prefix(self):
+        """Return the jailer context netns file prefix."""
+        return f"ip netns exec {self.id}"
+
+    def setup(self):
+        """Set up this network namespace."""
+        if not self.path.exists():
+            utils.run_cmd(f"ip netns add {self.id}")
+
+    def cleanup(self):
+        """Clean up this network namespace."""
+        if self.path.exists():
+            utils.run_cmd(f"ip netns del {self.id}")
+
+    def add_tap(self, name, ip):
+        """Add a TAP device to the namespace
+
+        We assume that a Tap is always configured with the same IP.
+        """
+        if name not in self.taps:
+            tap = Tap(name, self.id, ip)
+            self.taps[name] = tap
+        return self.taps[name]
