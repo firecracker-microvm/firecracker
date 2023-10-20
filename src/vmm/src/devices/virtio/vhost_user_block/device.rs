@@ -327,7 +327,6 @@ impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlock
 #[cfg(test)]
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
-    #![allow(clippy::cast_possible_truncation)]
 
     use std::os::unix::net::UnixStream;
 
@@ -335,6 +334,7 @@ mod tests {
     use vhost::{VhostUserMemoryRegionInfo, VringConfigData};
 
     use super::*;
+    use crate::utilities::test_utils::create_tmp_socket;
     use crate::vstate::memory::{FileOffset, GuestAddress, GuestMemoryExtension};
 
     #[test]
@@ -434,40 +434,7 @@ mod tests {
             }
         }
 
-        let tmp_dir = utils::tempdir::TempDir::new().unwrap();
-        let tmp_dir_path_str = tmp_dir.as_path().to_str().unwrap();
-        let tmp_socket_path = format!("{tmp_dir_path_str}/tmp_socket");
-
-        unsafe {
-            let socketfd = libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0);
-            if socketfd < 0 {
-                panic!("Cannot create socket");
-            }
-            let mut socket_addr = libc::sockaddr_un {
-                sun_family: libc::AF_UNIX as u16,
-                sun_path: [0; 108],
-            };
-
-            std::ptr::copy::<i8>(
-                tmp_socket_path.as_ptr().cast(),
-                socket_addr.sun_path.as_mut_ptr(),
-                tmp_socket_path.as_bytes().len(),
-            );
-
-            let bind = libc::bind(
-                socketfd,
-                (&socket_addr as *const libc::sockaddr_un).cast(),
-                std::mem::size_of::<libc::sockaddr_un>() as u32,
-            );
-            if bind < 0 {
-                panic!("Cannot bind socket");
-            }
-
-            let listen = libc::listen(socketfd, 1);
-            if listen < 0 {
-                panic!("Cannot listen on socket");
-            }
-        }
+        let (_tmp_dir, tmp_socket_path) = create_tmp_socket();
 
         let vhost_block_config = VhostUserBlockConfig {
             drive_id: "test_drive".to_string(),
@@ -567,40 +534,7 @@ mod tests {
             }
         }
 
-        let tmp_dir = utils::tempdir::TempDir::new().unwrap();
-        let tmp_dir_path_str = tmp_dir.as_path().to_str().unwrap();
-        let tmp_socket_path = format!("{tmp_dir_path_str}/tmp_socket");
-
-        unsafe {
-            let socketfd = libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0);
-            if socketfd < 0 {
-                panic!("Cannot create socket");
-            }
-            let mut socket_addr = libc::sockaddr_un {
-                sun_family: libc::AF_UNIX as u16,
-                sun_path: [0; 108],
-            };
-
-            std::ptr::copy::<i8>(
-                tmp_socket_path.as_ptr().cast(),
-                socket_addr.sun_path.as_mut_ptr(),
-                tmp_socket_path.as_bytes().len(),
-            );
-
-            let bind = libc::bind(
-                socketfd,
-                (&socket_addr as *const libc::sockaddr_un).cast(),
-                std::mem::size_of::<libc::sockaddr_un>() as u32,
-            );
-            if bind < 0 {
-                panic!("Cannot bind socket");
-            }
-
-            let listen = libc::listen(socketfd, 1);
-            if listen < 0 {
-                panic!("Cannot listen on socket");
-            }
-        }
+        let (_tmp_dir, tmp_socket_path) = create_tmp_socket();
 
         let vhost_block_config = VhostUserBlockConfig {
             drive_id: "test_drive".to_string(),
@@ -778,41 +712,7 @@ mod tests {
         }
 
         // Block creation
-        let tmp_dir = utils::tempdir::TempDir::new().unwrap();
-        let tmp_dir_path_str = tmp_dir.as_path().to_str().unwrap();
-        let tmp_socket_path = format!("{tmp_dir_path_str}/tmp_socket");
-
-        unsafe {
-            let socketfd = libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0);
-            if socketfd < 0 {
-                panic!("Cannot create socket");
-            }
-            let mut socket_addr = libc::sockaddr_un {
-                sun_family: libc::AF_UNIX as u16,
-                sun_path: [0; 108],
-            };
-
-            std::ptr::copy::<i8>(
-                tmp_socket_path.as_ptr().cast(),
-                socket_addr.sun_path.as_mut_ptr(),
-                tmp_socket_path.as_bytes().len(),
-            );
-
-            let bind = libc::bind(
-                socketfd,
-                (&socket_addr as *const libc::sockaddr_un).cast(),
-                std::mem::size_of::<libc::sockaddr_un>() as u32,
-            );
-            if bind < 0 {
-                panic!("Cannot bind socket");
-            }
-
-            let listen = libc::listen(socketfd, 1);
-            if listen < 0 {
-                panic!("Cannot listen on socket");
-            }
-        }
-
+        let (_tmp_dir, tmp_socket_path) = create_tmp_socket();
         let vhost_block_config = VhostUserBlockConfig {
             drive_id: "test_drive".to_string(),
             partuuid: None,
