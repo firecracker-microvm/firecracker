@@ -29,7 +29,11 @@ from tenacity import (
     wait_fixed,
 )
 
-from framework.defs import MIN_KERNEL_VERSION_FOR_IO_URING
+from framework.defs import (
+    DEFAULT_TEST_SESSION_ROOT_PATH,
+    LOCAL_BUILD_PATH,
+    MIN_KERNEL_VERSION_FOR_IO_URING,
+)
 
 FLUSH_CMD = 'screen -S {session} -X colon "logfile flush 0^M"'
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
@@ -379,6 +383,16 @@ class ExceptionAggregator(Exception):
     def __str__(self):
         """Return custom as string implementation."""
         return "\n\n".join(self.failures)
+
+
+def to_local_dir_path(tmp_dir_path: str) -> str:
+    """
+    Converts path from tmp dir to path on the host.
+    """
+
+    return tmp_dir_path.replace(
+        str(DEFAULT_TEST_SESSION_ROOT_PATH), str(LOCAL_BUILD_PATH)
+    )
 
 
 def search_output_from_cmd(cmd: str, find_regex: typing.Pattern) -> typing.Match:

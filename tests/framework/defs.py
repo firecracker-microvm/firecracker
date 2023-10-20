@@ -23,6 +23,9 @@ MAX_API_CALL_DURATION_MS = 700
 # Default test session root directory path
 DEFAULT_TEST_SESSION_ROOT_PATH = "/srv"
 
+# Default test session artifacts path
+LOCAL_BUILD_PATH = FC_WORKSPACE_DIR / "build/"
+
 # Absolute path to the test results folder
 TEST_RESULTS_DIR = FC_WORKSPACE_DIR / "test_results"
 
@@ -36,6 +39,6 @@ IMG_DIR = Path(DEFAULT_TEST_SESSION_ROOT_PATH) / "img"
 
 # fall-back to the local directory
 if not IMG_DIR.exists():
-    IMG_DIR = Path(__file__).joinpath("../../../build/img").resolve()
+    IMG_DIR = LOCAL_BUILD_PATH / "img"
 
 ARTIFACT_DIR = IMG_DIR / platform.machine()
