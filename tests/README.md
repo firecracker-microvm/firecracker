@@ -393,3 +393,31 @@ uvm.ssh.run("ls")
 snap = uvm.snapshot_full()
 uvm.help.tmux_ssh()
 ```
+
+It supports a number of options, you can check with `devtool sandbox --
+--help`.
+
+### Running outside of Docker
+
+Running without Docker
+
+```
+source /etc/os-release
+case $ID-$VERSION_ID in
+amzn-2)
+    sudo yum remove -y python3
+    sudo amazon-linux-extras install -y python3.8
+    sudo ln -sv /usr/bin/python3.8 /usr/bin/python3
+    sudo ln -sv /usr/bin/pip3.8 /usr/bin/pip3
+esac
+
+sudo pip3 install pytest ipython requests psutil tenacity filelock "urllib3<2.0" requests_unixsocket
+
+sudo env PYTHONPATH=tests HOME=$HOME ~/.local/bin/ipython3 -i ./tools/sandbox.py -- --binary-dir ../repro/v1.4.1
+```
+
+> :warning: **Notice this runs as root!**
+
+```python
+!id
+```

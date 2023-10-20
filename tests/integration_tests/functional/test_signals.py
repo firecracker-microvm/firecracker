@@ -39,7 +39,6 @@ def test_generic_signal_handler(test_microvm_with_api, signum):
 
     microvm.basic_config()
     microvm.start()
-    firecracker_pid = int(microvm.jailer_clone_pid)
     sleep(0.5)
 
     metrics_jail_path = microvm.metrics_file
@@ -47,7 +46,7 @@ def test_generic_signal_handler(test_microvm_with_api, signum):
     line_metrics = metrics_fd.readlines()
     assert len(line_metrics) == 1
 
-    os.kill(firecracker_pid, signum)
+    os.kill(microvm.firecracker_pid, signum)
     # Firecracker gracefully handles SIGPIPE (doesn't terminate).
     if signum == int(SIGPIPE):
         msg = "Received signal 13"
@@ -57,7 +56,7 @@ def test_generic_signal_handler(test_microvm_with_api, signum):
     else:
         microvm.expect_kill_by_signal = True
         # Ensure that the process was terminated.
-        utils.wait_process_termination(firecracker_pid)
+        utils.wait_process_termination(microvm.firecracker_pid)
         msg = "Shutting down VM after intercepting signal {}".format(signum)
 
     microvm.check_log_message(msg)
@@ -88,7 +87,7 @@ def test_sigxfsz_handler(uvm_plain_rw):
     line_metrics = metrics_fd.readlines()
     assert len(line_metrics) == 1
 
-    firecracker_pid = int(microvm.jailer_clone_pid)
+    firecracker_pid = microvm.firecracker_pid
     size = os.path.getsize(metrics_jail_path)
     # The SIGXFSZ is triggered because the size of rootfs is bigger than
     # the size of metrics file times 3. Since the metrics file is flushed
@@ -123,7 +122,6 @@ def test_handled_signals(test_microvm_with_api):
     microvm.basic_config(vcpu_count=2)
     microvm.add_net_iface()
     microvm.start()
-    firecracker_pid = int(microvm.jailer_clone_pid)
 
     # Open a SSH connection to validate the microVM stays alive.
     # Just validate a simple command: `nproc`
@@ -136,7 +134,7 @@ def test_handled_signals(test_microvm_with_api):
     # The 35 is the SIGRTMIN for musl libc.
     # We hardcode this value since the SIGRTMIN python reports
     # is 34, which is likely the one for glibc.
-    os.kill(firecracker_pid, 35)
+    os.kill(microvm.firecracker_pid, 35)
 
     # Validate the microVM is still up and running.
     _, stdout, stderr = microvm.ssh.run(cmd)

@@ -21,8 +21,13 @@ from typing import Dict
 
 import packaging.version
 import psutil
-from retry import retry
-from retry.api import retry_call
+from tenacity import (
+    Retrying,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_fixed,
+)
 
 from framework.defs import MIN_KERNEL_VERSION_FOR_IO_URING
 
@@ -582,7 +587,7 @@ def run_guest_cmd(ssh_connection, cmd, expected, use_json=False):
     assert stdout == expected
 
 
-@retry(delay=0.5, tries=5, logger=None)
+@retry(wait=wait_fixed(0.5), stop=stop_after_attempt(5), reraise=True)
 def wait_process_termination(p_pid):
     """Wait for a process to terminate.
 
@@ -701,18 +706,19 @@ def start_screen_process(screen_log, session_name, binary_path, binary_params):
     # Build a regex object to match (number).session_name
     regex_object = re.compile(r"([0-9]+)\.{}".format(session_name))
 
-    # Run 'screen -ls' in a retry_call loop, 30 times with a 1s
-    # delay between calls.
-    # If the output of 'screen -ls' matches the regex object, it will
-    # return the PID. Otherwise, a RuntimeError will be raised.
-    screen_pid = retry_call(
-        search_output_from_cmd,
-        fkwargs={"cmd": "screen -ls", "find_regex": regex_object},
-        exceptions=RuntimeError,
-        tries=30,
-        delay=1,
-        logger=None,
-    ).group(1)
+    # Run 'screen -ls' in a retry loop, 30 times with a 1s delay between calls.
+    # If the output of 'screen -ls' matches the regex object, it will return the
+    # PID. Otherwise, a RuntimeError will be raised.
+    for attempt in Retrying(
+        retry=retry_if_exception_type(RuntimeError),
+        stop=stop_after_attempt(30),
+        wait=wait_fixed(1),
+        reraise=True,
+    ):
+        with attempt:
+            screen_pid = search_output_from_cmd(
+                cmd="screen -ls", find_regex=regex_object
+            ).group(1)
 
     # Make sure the screen process launched successfully
     # As the parent process for the binary.
@@ -725,7 +731,7 @@ def start_screen_process(screen_log, session_name, binary_path, binary_params):
     children_count = len(screen_ps.children())
     if children_count != 1:
         raise RuntimeError(
-            f"Failed to retrieve child process id for binary {binary_path}. "
+            f"Failed to retrieve child process id for binary '{binary_path}' "
             f"screen session process had [{children_count}]"
         )
 
@@ -760,7 +766,7 @@ def check_entropy(ssh_connection):
     assert exit_code == 0, stderr
 
 
-@retry(delay=0.5, tries=5, logger=None)
+@retry(wait=wait_fixed(0.5), stop=stop_after_attempt(5), reraise=True)
 def wait_process_running(process):
     """Wait for a process to run.
 

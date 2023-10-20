@@ -26,7 +26,7 @@ from integration_tests.functional.test_balloon import (
 
 def _test_balloon(microvm):
     # Get the firecracker pid.
-    firecracker_pid = microvm.jailer_clone_pid
+    firecracker_pid = microvm.firecracker_pid
 
     # Check memory usage.
     first_reading = get_stable_rss_mem_by_pid(firecracker_pid)

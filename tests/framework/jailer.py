@@ -7,7 +7,7 @@ import shutil
 import stat
 from pathlib import Path
 
-from retry.api import retry_call
+from tenacity import Retrying, retry_if_exception_type, stop_after_delay
 
 from framework import defs, utils
 from framework.defs import FC_BINARY_NAME
@@ -226,13 +226,13 @@ class JailerContext:
                 # Obtain the tasks from each cgroup and wait on them before
                 # removing the microvm's associated cgroup folder.
                 try:
-                    retry_call(
-                        f=self._kill_cgroup_tasks,
-                        fargs=[controller],
-                        exceptions=TimeoutError,
-                        max_delay=5,
-                        logger=None,
-                    )
+                    for attempt in Retrying(
+                        retry=retry_if_exception_type(TimeoutError),
+                        stop=stop_after_delay(5),
+                        reraise=True,
+                    ):
+                        with attempt:
+                            self._kill_cgroup_tasks(controller)
                 except TimeoutError:
                     pass
 
@@ -271,3 +271,8 @@ class JailerContext:
             if os.path.exists("/proc/{}".format(task)):
                 raise TimeoutError
         return True
+
+    @property
+    def pid_file(self):
+        """Return the PID file of the jailed process"""
+        return Path(self.chroot_path()) / (self.exec_file.name + ".pid")

@@ -83,6 +83,7 @@ impl From<MainError> for ExitCode {
             MainError::InvalidLogLevel(_) => FcExitCode::BadConfiguration,
             MainError::RunWithApi(ApiServerError::MicroVMStoppedWithoutError(code)) => code,
             MainError::RunWithApi(ApiServerError::MicroVMStoppedWithError(code)) => code,
+            MainError::RunWithoutApiError(RunWithoutApiError::Shutdown(code)) => code,
             _ => FcExitCode::GenericError,
         };
 
@@ -263,6 +264,32 @@ fn main_exec() -> Result<(), MainError> {
         return Ok(());
     }
 
+    // It's safe to unwrap here because the field's been provided with a default value.
+    let instance_id = arguments.single_value("id").unwrap();
+    validate_instance_id(instance_id.as_str()).expect("Invalid instance ID");
+
+    // Apply the logger configuration.
+    vmm::logger::INSTANCE_ID
+        .set(String::from(instance_id))
+        .unwrap();
+    let log_path = arguments.single_value("log-path").map(PathBuf::from);
+    let level = arguments
+        .single_value("level")
+        .map(|s| vmm::logger::LevelFilter::from_str(s))
+        .transpose()
+        .map_err(MainError::InvalidLogLevel)?;
+    let show_level = arguments.flag_present("show-level").then_some(true);
+    let show_log_origin = arguments.flag_present("show-log-origin").then_some(true);
+    LOGGER
+        .update(LoggerConfig {
+            log_path,
+            level,
+            show_level,
+            show_log_origin,
+        })
+        .map_err(MainError::LoggerInitialization)?;
+    info!("Running Firecracker v{FIRECRACKER_VERSION}");
+
     register_signal_handlers().map_err(MainError::RegisterSignalHandlers)?;
 
     #[cfg(target_arch = "aarch64")]
@@ -286,38 +313,12 @@ fn main_exec() -> Result<(), MainError> {
     // deprecating one.
     // warn_deprecated_parameters(&arguments);
 
-    // It's safe to unwrap here because the field's been provided with a default value.
-    let instance_id = arguments.single_value("id").unwrap();
-    validate_instance_id(instance_id.as_str()).expect("Invalid instance ID");
-
     let instance_info = InstanceInfo {
         id: instance_id.clone(),
         state: VmState::NotStarted,
         vmm_version: FIRECRACKER_VERSION.to_string(),
         app_name: "Firecracker".to_string(),
     };
-
-    let id = arguments.single_value("id").map(|s| s.as_str()).unwrap();
-    vmm::logger::INSTANCE_ID.set(String::from(id)).unwrap();
-    info!("Running Firecracker v{FIRECRACKER_VERSION}");
-
-    // Apply the logger configuration.
-    let log_path = arguments.single_value("log-path").map(PathBuf::from);
-    let level = arguments
-        .single_value("level")
-        .map(|s| vmm::logger::LevelFilter::from_str(s))
-        .transpose()
-        .map_err(MainError::InvalidLogLevel)?;
-    let show_level = arguments.flag_present("show-level").then_some(true);
-    let show_log_origin = arguments.flag_present("show-level").then_some(true);
-    LOGGER
-        .update(LoggerConfig {
-            log_path,
-            level,
-            show_level,
-            show_log_origin,
-        })
-        .map_err(MainError::LoggerInitialization)?;
 
     if let Some(metrics_path) = arguments.single_value("metrics-path") {
         let metrics_config = MetricsConfig {

@@ -57,7 +57,7 @@ def test_memory_overhead(
 
     mem_stats = defaultdict(int)
     mem_stats["guest_memory"] = guest_mem_bytes
-    ps = psutil.Process(microvm.jailer_clone_pid)
+    ps = psutil.Process(microvm.firecracker_pid)
 
     for pmmap in ps.memory_maps(grouped=False):
         # We publish 'size' and 'rss' (resident). size would be the worst case,

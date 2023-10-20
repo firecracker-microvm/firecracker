@@ -2,13 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Utilities for test host microVM network setup."""
 
-import contextlib
 import random
 import string
 from pathlib import Path
 
-from nsenter import Namespace
-from retry import retry
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from framework import utils
 
@@ -25,9 +23,9 @@ class SSHConnection:
     ssh -i ssh_key_path username@hostname
     """
 
-    def __init__(self, netns_path, ssh_key: Path, host, user):
+    def __init__(self, netns, ssh_key: Path, host, user):
         """Instantiate a SSH client and connect to a microVM."""
-        self.netns_file_path = netns_path
+        self.netns = netns
         self.ssh_key = ssh_key
         # check that the key exists and the permissions are 0o400
         # This saves a lot of debugging time.
@@ -76,7 +74,12 @@ class SSHConnection:
             opts.append("-r")
         self._scp(self.remote_path(remote_path), local_path, opts)
 
-    @retry(ConnectionError, delay=0.15, tries=20, logger=None)
+    @retry(
+        retry=retry_if_exception_type(ConnectionError),
+        wait=wait_fixed(0.15),
+        stop=stop_after_attempt(20),
+        reraise=True,
+    )
     def _init_connection(self):
         """Create an initial SSH client connection (retry until it works).
 
@@ -103,16 +106,9 @@ class SSHConnection:
 
     def _exec(self, cmd, timeout=None):
         """Private function that handles the ssh client invocation."""
-
-        # TODO: If a microvm runs in a particular network namespace, we have to
-        # temporarily switch to that namespace when doing something that routes
-        # packets over the network, otherwise the destination will not be
-        # reachable. Use a better setup/solution at some point!
-        ctx = contextlib.nullcontext()
-        if self.netns_file_path is not None:
-            ctx = Namespace(self.netns_file_path, "net")
-        with ctx:
-            return utils.run_cmd(cmd, ignore_return_code=True, timeout=timeout)
+        if self.netns is not None:
+            cmd = ["ip", "netns", "exec", self.netns] + cmd
+        return utils.run_cmd(cmd, ignore_return_code=True, timeout=timeout)
 
 
 def mac_from_ip(ip_address):

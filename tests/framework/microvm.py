@@ -17,6 +17,8 @@ import os
 import re
 import select
 import shutil
+import signal
+import subprocess
 import time
 import uuid
 from collections import namedtuple
@@ -26,13 +28,13 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
-from retry import retry
+from tenacity import retry, stop_after_attempt, wait_fixed
 
 import host_tools.cargo_build as build_tools
 import host_tools.network as net_tools
 from framework import utils
 from framework.artifacts import NetIfaceConfig
-from framework.defs import FC_PID_FILE_NAME, MAX_API_CALL_DURATION_MS
+from framework.defs import MAX_API_CALL_DURATION_MS
 from framework.http_api import Api
 from framework.jailer import JailerContext
 from framework.microvm_helpers import MicrovmHelpers
@@ -149,46 +151,44 @@ class Microvm:
 
     def __init__(
         self,
-        resource_path,
-        fc_binary_path,
-        jailer_binary_path,
-        microvm_id=None,
-        bin_cloner_path=None,
-        monitor_memory=True,
+        resource_path: Path,
+        microvm_id: str,
+        fc_binary_path: Path,
+        jailer_binary_path: Path,
+        monitor_memory: bool = True,
     ):
         """Set up microVM attributes, paths, and data structures."""
         # pylint: disable=too-many-statements
         # Unique identifier for this machine.
-        if microvm_id is None:
-            microvm_id = str(uuid.uuid4())
+        assert microvm_id is not None
         self._microvm_id = microvm_id
 
         # Compose the paths to the resources specific to this microvm.
-        self._path = os.path.join(resource_path, microvm_id)
-        os.makedirs(self._path, exist_ok=True)
+        self._path = resource_path / microvm_id
+        self._path.mkdir(parents=True, exist_ok=True)
         self.kernel_file = None
         self.rootfs_file = None
         self.ssh_key = None
         self.initrd_file = None
         self.boot_args = None
 
-        self._fc_binary_path = str(fc_binary_path)
+        self._fc_binary_path = Path(fc_binary_path)
         assert fc_binary_path.exists()
-        self._jailer_binary_path = str(jailer_binary_path)
+        self._jailer_binary_path = Path(jailer_binary_path)
         assert jailer_binary_path.exists()
 
         # Create the jailer context associated with this microvm.
         self.jailer = JailerContext(
             jailer_id=self._microvm_id,
             exec_file=self._fc_binary_path,
+            new_pid_ns=True,
         )
-        self.jailer_clone_pid = None
 
         # Copy the /etc/localtime file in the jailer root
         self.jailer.jailed_path("/etc/localtime", subdir="etc")
 
-        # Initialize the logging subsystem.
         self._screen_pid = None
+        self._screen_firecracker_pid = None
 
         self.time_api_requests = global_props.host_linux_version != "6.1"
         # disable the HTTP API timings as they cause a lot of false positives
@@ -202,15 +202,13 @@ class Microvm:
         self.api = None
         self.log_file = None
         self.metrics_file = None
+        self._spawned = False
 
         # device dictionaries
         self.iface = {}
         self.disks = {}
         self.vcpus_count = None
         self.mem_size_bytes = None
-
-        # External clone/exec tool, because Python can't into clone
-        self.bin_cloner_path = bin_cloner_path
 
         # Flag checked in destructor to see abnormal signal-induced crashes.
         self.expect_kill_by_signal = False
@@ -237,10 +235,11 @@ class Microvm:
             LOG.error(self.log_data)
 
         if self.jailer.daemonize:
-            if self.jailer_clone_pid:
-                utils.run_cmd(
-                    "kill -9 {}".format(self.jailer_clone_pid), ignore_return_code=True
-                )
+            if self.firecracker_pid:
+                try:
+                    os.kill(self.firecracker_pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
         else:
             # Killing screen will send SIGHUP to underlying Firecracker.
             # Needed to avoid false positives in case kill() is called again.
@@ -249,12 +248,6 @@ class Microvm:
 
         if self.time_api_requests:
             self._validate_api_response_times()
-
-        # Check if Firecracker was launched by the jailer in a new pid ns.
-        if self.jailer.new_pid_ns:
-            # We need to explicitly kill the Firecracker pid, since it's
-            # different from the jailer pid that was previously killed.
-            utils.run_cmd(f"kill -9 {self.pid_in_new_ns}", ignore_return_code=True)
 
         if self.memory_monitor:
             if self.memory_monitor.is_alive():
@@ -347,18 +340,25 @@ class Microvm:
         return self.api.describe.get().json()["state"]
 
     @property
-    @retry(delay=0.1, tries=5, logger=None)
     def pid_in_new_ns(self):
         """Get the pid of the Firecracker process in the new namespace.
 
         Reads the pid from a file created by jailer with `--new-pid-ns` flag.
         """
         # Check if the pid file exists.
-        pid_file_path = Path(f"{self.jailer.chroot_path()}/{FC_PID_FILE_NAME}")
-        assert pid_file_path.exists()
+        assert self.jailer.pid_file.exists()
 
         # Read the PID stored inside the file.
-        return int(pid_file_path.read_text(encoding="ascii"))
+        return int(self.jailer.pid_file.read_text(encoding="ascii"))
+
+    @property
+    def firecracker_pid(self):
+        """Return Firecracker's PID"""
+        if not self._spawned:
+            return None
+        if self.jailer.new_pid_ns:
+            return self.pid_in_new_ns
+        return self._screen_firecracker_pid
 
     @property
     def dimensions(self):
@@ -415,9 +415,9 @@ class Microvm:
 
     def pin_vmm(self, cpu_id: int) -> bool:
         """Pin the firecracker process VMM thread to a cpu list."""
-        if self.jailer_clone_pid:
+        if self.firecracker_pid:
             for thread_name, thread_pids in utils.ProcessManager.get_threads(
-                self.jailer_clone_pid
+                self.firecracker_pid
             ).items():
                 # the firecracker thread should start with firecracker...
                 if thread_name.startswith("firecracker"):
@@ -428,8 +428,8 @@ class Microvm:
 
     def pin_vcpu(self, vcpu_id: int, cpu_id: int):
         """Pin the firecracker vcpu thread to a cpu list."""
-        if self.jailer_clone_pid:
-            for thread in utils.ProcessManager.get_threads(self.jailer_clone_pid)[
+        if self.firecracker_pid:
+            for thread in utils.ProcessManager.get_threads(self.firecracker_pid)[
                 f"fc_vcpu {vcpu_id}"
             ]:
                 utils.ProcessManager.set_cpu_affinity(thread, [cpu_id])
@@ -438,8 +438,8 @@ class Microvm:
 
     def pin_api(self, cpu_id: int):
         """Pin the firecracker process API server thread to a cpu list."""
-        if self.jailer_clone_pid:
-            for thread in utils.ProcessManager.get_threads(self.jailer_clone_pid)[
+        if self.firecracker_pid:
+            for thread in utils.ProcessManager.get_threads(self.firecracker_pid)[
                 "fc_api"
             ]:
                 utils.ProcessManager.set_cpu_affinity(thread, [cpu_id])
@@ -450,6 +450,8 @@ class Microvm:
         self,
         log_file="fc.log",
         log_level="Debug",
+        log_show_level=False,
+        log_show_origin=False,
         metrics_path="fc.ndjson",
     ):
         """Start a microVM as a daemon or in a screen session."""
@@ -461,10 +463,14 @@ class Microvm:
             self.log_file = Path(self.path) / log_file
             self.log_file.touch()
             self.create_jailed_resource(self.log_file)
-            # The default value for `level`, when configuring the
-            # logger via cmd line, is `Warning`. We set the level
-            # to `Debug` to also have the boot time printed in fifo.
+            # The default value for `level`, when configuring the logger via cmd
+            # line, is `Info`. We set the level to `Debug` to also have the boot
+            # time printed in the log.
             self.jailer.extra_args.update({"log-path": log_file, "level": log_level})
+            if log_show_level:
+                self.jailer.extra_args["show-level"] = None
+            if log_show_origin:
+                self.jailer.extra_args["show-log-origin"] = None
 
         if metrics_path is not None:
             self.metrics_file = Path(self.path) / metrics_path
@@ -480,34 +486,36 @@ class Microvm:
                 {"metadata": os.path.basename(self.metadata_file)}
             )
 
-        jailer_param_list = self.jailer.construct_param_list()
-
         if log_level != "Debug":
             # Checking the timings requires DEBUG level log messages
             self.time_api_requests = False
 
         # When the daemonize flag is on, we want to clone-exec into the
-        # jailer rather than executing it via spawning a shell. Going
-        # forward, we'll probably switch to this method for running
-        # Firecracker in general, because it represents the way it's meant
-        # to be run by customers (together with CLONE_NEWPID flag).
-        #
-        # We have to use an external tool for CLONE_NEWPID, because
-        # 1) Python doesn't provide os.clone() interface, and
-        # 2) Python's ctypes libc interface appears to be broken, causing
-        # our clone / exec to deadlock at some point.
+        # jailer rather than executing it via spawning a shell.
         if self.jailer.daemonize:
-            self.daemonize_jailer(jailer_param_list)
+            res = subprocess.Popen(
+                [str(self._jailer_binary_path)] + self.jailer.construct_param_list(),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            stdout, stderr = res.communicate()
+            if res.returncode != 0:
+                raise RuntimeError(res.returncode, stdout, stderr)
         else:
-            # This file will collect any output from 'screen'ed Firecracker.
+            # Run Firecracker under screen. This is used when we want to access
+            # the serial console. The file will collect the output from
+            # 'screen'ed Firecracker.
+            self.jailer.new_pid_ns = False
             screen_pid, binary_pid = utils.start_screen_process(
                 self.screen_log,
                 self.screen_session,
                 self._jailer_binary_path,
-                jailer_param_list,
+                self.jailer.construct_param_list(),
             )
             self._screen_pid = screen_pid
-            self.jailer_clone_pid = binary_pid
+            self._screen_firecracker_pid = binary_pid
+
+        self._spawned = True
 
         # Wait for the jailer to create resources needed, and Firecracker to
         # create its API socket.
@@ -519,19 +527,19 @@ class Microvm:
         if self.log_file and log_level in ("Trace", "Debug", "Info"):
             self.check_log_message("Running Firecracker")
 
-    @retry(delay=0.2, tries=5, logger=None)
+    @retry(wait=wait_fixed(0.2), stop=stop_after_attempt(5), reraise=True)
     def _wait_create(self):
         """Wait until the API socket and chroot folder are available."""
         os.stat(self.jailer.api_socket_path())
 
-    @retry(delay=0.2, tries=5, logger=None)
+    @retry(wait=wait_fixed(0.2), stop=stop_after_attempt(5), reraise=True)
     def check_log_message(self, message):
         """Wait until `message` appears in logging output."""
         assert (
             message in self.log_data
         ), f'Message ("{message}") not found in log data ("{self.log_data}").'
 
-    @retry(delay=0.2, tries=5, logger=None)
+    @retry(wait=wait_fixed(0.2), stop=stop_after_attempt(5), reraise=True)
     def check_any_log_message(self, messages):
         """Wait until any message in `messages` appears in logging output."""
         for message in messages:
@@ -613,34 +621,6 @@ class Microvm:
                 is_read_only=read_only,
                 io_engine=rootfs_io_engine,
             )
-
-    def daemonize_jailer(self, jailer_param_list):
-        """Daemonize the jailer."""
-        if self.bin_cloner_path and self.jailer.new_pid_ns is not True:
-            cmd = (
-                [self.bin_cloner_path] + [self._jailer_binary_path] + jailer_param_list
-            )
-            _p = utils.run_cmd(cmd)
-            # Terrible hack to make the tests fail when starting the
-            # jailer fails with a panic. This is needed because we can't
-            # get the exit code of the jailer. In newpid_clone.c we are
-            # not waiting for the process and we always return 0 if the
-            # clone was successful (which in most cases will be) and we
-            # don't do anything if the jailer was not started
-            # successfully.
-            if _p.stderr.strip():
-                raise Exception(_p.stderr)
-            self.jailer_clone_pid = int(_p.stdout.rstrip())
-        else:
-            # Fallback mechanism for when we offload PID namespacing
-            # to the jailer.
-            _pid = os.fork()
-            if _pid == 0:
-                os.execv(
-                    self._jailer_binary_path,
-                    [self._jailer_binary_path] + jailer_param_list,
-                )
-            self.jailer_clone_pid = _pid
 
     def add_drive(
         self,
@@ -805,7 +785,7 @@ class Microvm:
         guest_ip = list(self.iface.values())[iface_idx]["iface"].guest_ip
         self.ssh_key = Path(self.ssh_key)
         return net_tools.SSHConnection(
-            netns_path=self.jailer.netns_file_path(),
+            netns=self.jailer.netns,
             ssh_key=self.ssh_key,
             user="root",
             host=guest_ip,
@@ -820,19 +800,17 @@ class Microvm:
 class MicroVMFactory:
     """MicroVM factory"""
 
-    def __init__(self, base_path, bin_cloner, fc_binary_path, jailer_binary_path):
+    def __init__(self, base_path: Path, fc_binary_path: Path, jailer_binary_path: Path):
         self.base_path = Path(base_path)
-        self.bin_cloner_path = bin_cloner
         self.vms = []
-        self.fc_binary_path = fc_binary_path
-        self.jailer_binary_path = jailer_binary_path
+        self.fc_binary_path = Path(fc_binary_path)
+        self.jailer_binary_path = Path(jailer_binary_path)
 
-    def build(self, kernel=None, rootfs=None, microvm_id=None, **kwargs):
+    def build(self, kernel=None, rootfs=None, **kwargs):
         """Build a microvm"""
         vm = Microvm(
             resource_path=self.base_path,
-            microvm_id=microvm_id or str(uuid.uuid4()),
-            bin_cloner_path=self.bin_cloner_path,
+            microvm_id=kwargs.pop("microvm_id", str(uuid.uuid4())),
             fc_binary_path=kwargs.pop("fc_binary_path", self.fc_binary_path),
             jailer_binary_path=kwargs.pop(
                 "jailer_binary_path", self.jailer_binary_path

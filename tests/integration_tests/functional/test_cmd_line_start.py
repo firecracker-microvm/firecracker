@@ -7,10 +7,11 @@ import os
 import platform
 import re
 import shutil
+import time
 from pathlib import Path
 
 import pytest
-from retry.api import retry_call
+from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from framework import utils, utils_cpuid
 from framework.utils import generate_mmds_get_request, generate_mmds_session_token
@@ -134,25 +135,43 @@ def test_config_start_no_api(uvm_plain, vm_config_file):
     test_microvm.jailer.extra_args.update({"no-api": None})
     test_microvm.spawn()
 
-    # Get Firecracker PID so we can check the names of threads.
-    firecracker_pid = test_microvm.jailer_clone_pid
-
     # Get names of threads in Firecracker.
-    cmd = "ps -T --no-headers -p {} | awk '{{print $5}}'".format(firecracker_pid)
+    cmd = f"ps -T --no-headers -p {test_microvm.firecracker_pid} | awk '{{print $5}}'"
 
     # Retry running 'ps' in case it failed to list the firecracker process
     # The regex matches any expression that contains 'firecracker' and does
     # not contain 'fc_api'
-    retry_call(
-        utils.search_output_from_cmd,
-        fkwargs={
-            "cmd": cmd,
-            "find_regex": re.compile("^(?!.*fc_api)(?:.*)?firecracker", re.DOTALL),
-        },
-        exceptions=RuntimeError,
-        tries=10,
-        delay=1,
-        logger=None,
+    for attempt in Retrying(
+        retry=retry_if_exception_type(RuntimeError),
+        stop=stop_after_attempt(10),
+        wait=wait_fixed(1),
+        reraise=True,
+    ):
+        with attempt:
+            utils.search_output_from_cmd(
+                cmd=cmd,
+                find_regex=re.compile("^(?!.*fc_api)(?:.*)?firecracker", re.DOTALL),
+            )
+
+
+@pytest.mark.parametrize("vm_config_file", ["framework/vm_config_network.json"])
+def test_config_start_no_api_exit(uvm_plain, vm_config_file):
+    """
+    Test microvm exit when API server is disabled.
+    """
+    test_microvm = uvm_plain
+    _configure_vm_from_json(test_microvm, vm_config_file)
+    _configure_network_interface(test_microvm)
+    test_microvm.jailer.extra_args.update({"no-api": None})
+
+    test_microvm.spawn()  # Start Firecracker and MicroVM
+    time.sleep(3)  # Wait for startup
+    test_microvm.ssh.run("reboot")  # Exit
+    time.sleep(3)  # Wait for shutdown
+
+    # Check error log
+    test_microvm.check_log_message(
+        "RunWithoutApiError error: MicroVMStopped without an error: Ok"
     )
 
 
@@ -213,7 +232,7 @@ def test_config_machine_config_params(uvm_plain, test_config):
         )
     else:
         test_microvm.check_log_message(
-            "Successfully started microvm that was configured " "from one single json"
+            "Successfully started microvm that was configured from one single json"
         )
 
 

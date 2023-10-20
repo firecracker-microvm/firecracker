@@ -4,6 +4,12 @@
 
 ### Added
 
+- [#4145](https://github.com/firecracker-microvm/firecracker/pull/4145):
+  Added support for per net device metrics. In addition to aggregate metrics `net`,
+  each individual net device will emit metrics under the label `"net_{iface_id}"`.
+  E.g. the associated metrics for the endpoint `"/network-interfaces/eth0"` will
+  be available under `"net_eth0"` in the metrics json object.
+
 ### Changed
 
 - Simplified and clarified the removal policy of deprecated API elements
@@ -13,6 +19,12 @@
 ### Deprecated
 
 ### Fixed
+
+- Fixed a bug that ignored the `--show-log-origin` option, preventing it from
+  printing the source code file of the log messages.
+- [#4178](https://github.com/firecracker-microvm/firecracker/pull/4178):
+  Fixed a bug reporting a non-zero exit code on successful shutdown when
+  starting Firecracker with `--no-api`.
 
 ## [1.5.0]
 

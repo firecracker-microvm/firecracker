@@ -477,11 +477,9 @@ def test_args_default_resource_limits(test_microvm_with_api):
     Test the default resource limits are correctly set by the jailer.
     """
     test_microvm = test_microvm_with_api
-
     test_microvm.spawn()
-
     # Get firecracker's PID
-    pid = int(test_microvm.jailer_clone_pid)
+    pid = test_microvm.firecracker_pid
     assert pid != 0
 
     # Fetch firecracker process limits for number of open fds
@@ -503,11 +501,9 @@ def test_args_resource_limits(test_microvm_with_api):
     """
     test_microvm = test_microvm_with_api
     test_microvm.jailer.resource_limits = RESOURCE_LIMITS
-
     test_microvm.spawn()
-
     # Get firecracker's PID
-    pid = int(test_microvm.jailer_clone_pid)
+    pid = test_microvm.firecracker_pid
     assert pid != 0
 
     # Check limit values were correctly set.
@@ -560,7 +556,7 @@ def test_negative_file_size_limit(uvm_plain):
         test_microvm.check_log_message(msg)
         time.sleep(1)
         # Check that the process was terminated.
-        assert not psutil.pid_exists(test_microvm.jailer_clone_pid)
+        assert not psutil.pid_exists(test_microvm.firecracker_pid)
     else:
         assert False, "Negative test failed"
 
@@ -575,9 +571,8 @@ def test_negative_no_file_limit(test_microvm_with_api):
     # pylint: disable=W0703
     try:
         test_microvm.spawn()
-    except Exception as error:
+    except RuntimeError as error:
         assert "No file descriptors available (os error 24)" in str(error)
-        assert test_microvm.jailer_clone_pid is None
     else:
         assert False, "Negative test failed"
 
@@ -587,14 +582,11 @@ def test_new_pid_ns_resource_limits(test_microvm_with_api):
     Test that Firecracker process inherits jailer resource limits.
     """
     test_microvm = test_microvm_with_api
-
-    test_microvm.jailer.new_pid_ns = True
     test_microvm.jailer.resource_limits = RESOURCE_LIMITS
-
     test_microvm.spawn()
 
     # Get Firecracker's PID.
-    fc_pid = test_microvm.pid_in_new_ns
+    fc_pid = test_microvm.firecracker_pid
 
     # Check limit values were correctly set.
     check_limits(fc_pid, NOFILE, FSIZE)
@@ -605,13 +597,9 @@ def test_new_pid_namespace(test_microvm_with_api):
     Test that Firecracker is spawned in a new PID namespace if requested.
     """
     test_microvm = test_microvm_with_api
-
-    test_microvm.jailer.new_pid_ns = True
-
     test_microvm.spawn()
-
     # Check that the PID file exists.
-    fc_pid = test_microvm.pid_in_new_ns
+    fc_pid = test_microvm.firecracker_pid
 
     # Validate the PID.
     stdout = subprocess.check_output("pidof firecracker", shell=True)

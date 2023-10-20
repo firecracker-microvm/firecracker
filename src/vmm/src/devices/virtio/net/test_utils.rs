@@ -363,7 +363,7 @@ pub mod test {
         IrqType, Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, VIRTQ_DESC_F_NEXT,
         VIRTQ_DESC_F_WRITE,
     };
-    use crate::logger::{IncMetric, METRICS};
+    use crate::logger::IncMetric;
     use crate::vstate::memory::{
         Address, Bytes, GuestAddress, GuestMemoryExtension, GuestMemoryMmap,
     };
@@ -497,7 +497,7 @@ pub mod test {
             // Inject frame to tap and run epoll.
             let frame = inject_tap_tx_frame(&self.net(), frame_len);
             check_metric_after_block!(
-                METRICS.net.rx_packets_count,
+                self.net().metrics.rx_packets_count,
                 0,
                 self.event_manager.run_with_timeout(100).unwrap()
             );
@@ -525,7 +525,7 @@ pub mod test {
                 )],
             );
             check_metric_after_block!(
-                METRICS.net.rx_packets_count,
+                self.net().metrics.rx_packets_count,
                 1,
                 self.event_manager.run_with_timeout(100).unwrap()
             );

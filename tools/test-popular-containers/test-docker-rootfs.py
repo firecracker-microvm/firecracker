@@ -26,7 +26,7 @@ kernels = list(kernels("vmlinux-*"))
 # Use the latest guest kernel
 kernel = kernels[-1]
 
-vmfcty = MicroVMFactory("/srv", None, *get_firecracker_binaries())
+vmfcty = MicroVMFactory("/srv", *get_firecracker_binaries())
 # (may take a while to compile Firecracker...)
 
 for rootfs in Path(".").glob("*.ext4"):

@@ -188,7 +188,7 @@ def test_load_snapshot_failure_handling(test_microvm_with_api):
         vm.api.snapshot_load.put(mem_file_path=jailed_mem, snapshot_path=jailed_vmstate)
 
     # Check if FC process is closed
-    wait_process_termination(vm.jailer_clone_pid)
+    wait_process_termination(vm.firecracker_pid)
 
 
 def test_cmp_full_and_first_diff_mem(microvm_factory, guest_kernel, rootfs):

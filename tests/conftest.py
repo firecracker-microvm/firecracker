@@ -177,18 +177,6 @@ def test_fc_session_root_path():
 
 
 @pytest.fixture(scope="session")
-def bin_cloner_path(test_fc_session_root_path):
-    """Build a binary that `clone`s into the jailer.
-
-    It's necessary because Python doesn't interface well with the `clone()`
-    syscall directly.
-    """
-    cloner_bin_path = os.path.join(test_fc_session_root_path, "newpid_cloner")
-    build_tools.gcc_compile("host_tools/newpid_cloner.c", cloner_bin_path)
-    yield cloner_bin_path
-
-
-@pytest.fixture(scope="session")
 def bin_vsock_path(test_fc_session_root_path):
     """Build a simple vsock client/server application."""
     vsock_helper_bin_path = os.path.join(test_fc_session_root_path, "vsock_helper")
@@ -276,7 +264,7 @@ def fc_tmp_path(test_fc_session_root_path):
 
 
 @pytest.fixture()
-def microvm_factory(fc_tmp_path, bin_cloner_path, request):
+def microvm_factory(fc_tmp_path, request, record_property):
     """Fixture to create microvms simply.
 
     In order to avoid running out of space when instantiating many microvms,
@@ -290,10 +278,9 @@ def microvm_factory(fc_tmp_path, bin_cloner_path, request):
         jailer_binary_path = Path(binary_dir) / "jailer"
     else:
         fc_binary_path, jailer_binary_path = build_tools.get_firecracker_binaries()
+    record_property("firecracker_bin", str(fc_binary_path))
 
-    uvm_factory = MicroVMFactory(
-        fc_tmp_path, bin_cloner_path, fc_binary_path, jailer_binary_path
-    )
+    uvm_factory = MicroVMFactory(fc_tmp_path, fc_binary_path, jailer_binary_path)
     yield uvm_factory
     uvm_factory.kill()
     shutil.rmtree(fc_tmp_path)

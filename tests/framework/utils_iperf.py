@@ -72,7 +72,7 @@ class IPerf3Test:
             futures = []
             cpu_load_future = executor.submit(
                 get_cpu_percent,
-                self._microvm.jailer_clone_pid,
+                self._microvm.firecracker_pid,
                 # Ignore the final two data points as they are impacted by test teardown
                 self._runtime - 2,
                 self._omit,

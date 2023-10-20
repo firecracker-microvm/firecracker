@@ -2,12 +2,15 @@
 # Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+# pylint:disable=invalid-name
+
 """
 Run Firecracker in an IPython REPL
 """
 
 import argparse
 import re
+from pathlib import Path
 
 from framework.artifacts import disks, kernels
 from framework.microvm import MicroVMFactory
@@ -50,12 +53,19 @@ parser.add_argument(
     default=128 * 2**20,  # 128MB
 )
 parser.add_argument("--rootfs-size", type=parse_byte_size, default=1 * 2**30)  # 1GB
+parser.add_argument("--binary-dir", help="Path to the firecracker binaries")
 args = parser.parse_args()
 print(args)
 
+bins = None
+if args.binary_dir:
+    binary_dir = Path(args.binary_dir).resolve()
+    bins = binary_dir / "firecracker", binary_dir / "jailer"
+else:
+    bins = get_firecracker_binaries()
 
 print("This step may take a while to compile Firecracker ...")
-vmfcty = MicroVMFactory("/srv", None, *get_firecracker_binaries())
+vmfcty = MicroVMFactory("/srv", *bins)
 uvm = vmfcty.build(args.kernel, args.rootfs)
 uvm.help.enable_console()
 uvm.help.resize_disk(uvm.rootfs_file, args.rootfs_size)
