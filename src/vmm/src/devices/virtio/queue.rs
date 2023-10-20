@@ -567,7 +567,6 @@ mod verification {
     use std::mem::ManuallyDrop;
     use std::num::Wrapping;
 
-    use vm_memory::bitmap::AtomicBitmap;
     use vm_memory::guest_memory::GuestMemoryIterator;
     use vm_memory::{GuestMemoryRegion, MemoryRegionAddress};
 
@@ -575,9 +574,7 @@ mod verification {
     use crate::devices::virtio::{
         DescriptorChain, Queue, FIRECRACKER_MAX_QUEUE_SIZE, VIRTQ_DESC_F_NEXT,
     };
-    use crate::vstate::memory::{
-        Bytes, FileOffset, GuestAddress, GuestMemory, GuestRegionMmap, MmapRegion,
-    };
+    use crate::vstate::memory::{Bytes, FileOffset, GuestAddress, GuestMemory, MmapRegion};
 
     /// A made-for-kani version of `vm_memory::GuestMemoryMmap`. Unlike the real
     /// `GuestMemoryMmap`, which manages a list of regions and then does a binary
@@ -587,15 +584,15 @@ mod verification {
     /// meaning we can use `kani::unwind(0)` instead of `kani::unwind(2)`. Functionally,
     /// it works identically to `GuestMemoryMmap` with only a single contained region.
     pub struct ProofGuestMemory {
-        the_region: GuestRegionMmap,
+        the_region: vm_memory::GuestRegionMmap,
     }
 
-    impl<'a> GuestMemoryIterator<'a, GuestRegionMmap> for ProofGuestMemory {
-        type Iter = std::iter::Once<&'a GuestRegionMmap>;
+    impl<'a> GuestMemoryIterator<'a, vm_memory::GuestRegionMmap> for ProofGuestMemory {
+        type Iter = std::iter::Once<&'a vm_memory::GuestRegionMmap>;
     }
 
     impl GuestMemory for ProofGuestMemory {
-        type R = GuestRegionMmap;
+        type R = vm_memory::GuestRegionMmap;
         type I = Self;
 
         fn num_regions(&self) -> usize {
@@ -645,7 +642,7 @@ mod verification {
     pub struct MmapRegionStub {
         addr: *mut u8,
         size: usize,
-        bitmap: Option<AtomicBitmap>,
+        bitmap: (),
         file_offset: Option<FileOffset>,
         prot: i32,
         flags: i32,
@@ -689,7 +686,7 @@ mod verification {
             hugetlbfs: None,
         };
 
-        let region: MmapRegion<Option<AtomicBitmap>> = unsafe { std::mem::transmute(region_stub) };
+        let region: MmapRegion<()> = unsafe { std::mem::transmute(region_stub) };
 
         let guest_region =
             vm_memory::GuestRegionMmap::new(region, GuestAddress(GUEST_MEMORY_BASE)).unwrap();
