@@ -1,11 +1,9 @@
 # Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Performance benchmark for snapshot restore."""
-import shutil
 import tempfile
 from dataclasses import dataclass
 from functools import lru_cache
-from pathlib import Path
 from typing import List
 
 import pytest
@@ -105,7 +103,6 @@ class SnapshotRestoreTest:
             assert value > 0
             values.append(value)
             microvm.kill()
-            shutil.rmtree(Path(microvm.chroot()))
 
         snapshot.delete()
         return values

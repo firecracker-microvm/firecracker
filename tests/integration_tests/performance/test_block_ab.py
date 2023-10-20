@@ -87,7 +87,7 @@ def run_fio(microvm, mode, block_size):
     with concurrent.futures.ThreadPoolExecutor() as executor:
         cpu_load_future = executor.submit(
             get_cpu_percent,
-            microvm.jailer_clone_pid,
+            microvm.firecracker_pid,
             RUNTIME_SEC,
             omit=WARMUP_SEC,
         )
