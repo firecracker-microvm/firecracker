@@ -28,6 +28,7 @@ pub static INSTANCE_ID: OnceLock<String> = OnceLock::new();
 /// Default values matching the swagger specification (`src/api_server/swagger/firecracker.yaml`).
 pub static LOGGER: Logger = Logger(Mutex::new(LoggerConfiguration {
     target: None,
+    filter: LogFilter { module: None },
     format: LogFormat {
         show_level: false,
         show_log_origin: false,
@@ -79,6 +80,10 @@ impl Logger {
             guard.format.show_log_origin = show_log_origin;
         }
 
+        if let Some(module) = config.module {
+            guard.filter.module = Some(module);
+        }
+
         // Ensure we drop the guard before attempting to log, otherwise this
         // would deadlock.
         drop(guard);
@@ -88,6 +93,10 @@ impl Logger {
 }
 
 #[derive(Debug)]
+pub struct LogFilter {
+    pub module: Option<String>,
+}
+#[derive(Debug)]
 pub struct LogFormat {
     pub show_level: bool,
     pub show_log_origin: bool,
@@ -95,6 +104,7 @@ pub struct LogFormat {
 #[derive(Debug)]
 pub struct LoggerConfiguration {
     pub target: Option<std::fs::File>,
+    pub filter: LogFilter,
     pub format: LogFormat,
 }
 #[derive(Debug)]
@@ -109,6 +119,19 @@ impl Log for Logger {
     fn log(&self, record: &Record) {
         // Lock the logger.
         let mut guard = self.0.lock().unwrap();
+
+        // Check if the log message is enabled
+        {
+            let enabled_module = match (&guard.filter.module, record.module_path()) {
+                (Some(filter), Some(source)) => source.starts_with(filter),
+                (Some(_), None) => false,
+                (None, _) => true,
+            };
+            let enabled = enabled_module;
+            if !enabled {
+                return;
+            }
+        }
 
         // Prints log message
         {
@@ -154,10 +177,7 @@ impl Log for Logger {
         }
     }
 
-    // This is currently not used.
-    fn flush(&self) {
-        unreachable!();
-    }
+    fn flush(&self) {}
 }
 
 /// Strongly typed structure used to describe the logger.
@@ -172,6 +192,8 @@ pub struct LoggerConfig {
     pub show_level: Option<bool>,
     /// Whether to show the log origin in the log.
     pub show_log_origin: Option<bool>,
+    /// The module to filter logs by.
+    pub module: Option<String>,
 }
 
 /// This is required since we originally supported `Warning` and uppercase variants being used as
@@ -307,6 +329,9 @@ mod tests {
         // Create logger.
         let logger = Logger(Mutex::new(LoggerConfiguration {
             target: Some(target),
+            filter: LogFilter {
+                module: Some(String::from("module")),
+            },
             format: LogFormat {
                 show_level: true,
                 show_log_origin: true,
@@ -328,11 +353,8 @@ mod tests {
             .build();
         logger.log(&record);
 
-        // Assert calling flush panics.
-        std::panic::catch_unwind(|| {
-            logger.flush();
-        })
-        .unwrap_err();
+        // Test calling flush.
+        logger.flush();
 
         // Asserts result of log.
         let contents = std::fs::read_to_string(&path).unwrap();
