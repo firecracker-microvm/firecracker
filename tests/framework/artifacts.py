@@ -11,7 +11,6 @@ from typing import Iterator
 import packaging.version
 import pytest
 
-import host_tools.network as net_tools
 from framework.defs import ARTIFACT_DIR
 from framework.properties import global_props
 from framework.utils import get_firecracker_version_from_toml
@@ -151,29 +150,3 @@ def firecracker_artifacts():
 
     fc = working_version_as_artifact()
     yield pytest.param(fc, id=fc.name)
-
-
-@dataclass(frozen=True, repr=True)
-class NetIfaceConfig:
-    """Defines a network interface configuration."""
-
-    host_ip: str = "192.168.0.1"
-    guest_ip: str = "192.168.0.2"
-    tap_name: str = "tap0"
-    dev_name: str = "eth0"
-    netmask: int = 30
-
-    @property
-    def guest_mac(self):
-        """Return the guest MAC address."""
-        return net_tools.mac_from_ip(self.guest_ip)
-
-    @staticmethod
-    def with_id(i):
-        """Define network iface with id `i`."""
-        return NetIfaceConfig(
-            host_ip=f"192.168.{i}.1",
-            guest_ip=f"192.168.{i}.2",
-            tap_name=f"tap{i}",
-            dev_name=f"eth{i}",
-        )
