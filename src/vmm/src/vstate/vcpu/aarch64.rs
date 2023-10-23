@@ -258,7 +258,7 @@ pub struct VcpuState {
     #[version(end = 2, default_fn = "default_old_regs")]
     pub old_regs: Vec<Aarch64RegisterOld>,
     /// Vcpu registers.
-    #[version(start = 2, de_fn = "de_regs", ser_fn = "ser_regs")]
+    #[version(start = 2, de_fn = "de_regs")]
     pub regs: Aarch64RegisterVec,
     /// We will be using the mpidr for passing it to the VmState.
     /// The VmState will give this away for saving restoring the icc and redistributor
@@ -289,16 +289,6 @@ impl VcpuState {
             regs.push(reg_ref);
         }
         self.regs = regs;
-        Ok(())
-    }
-
-    fn ser_regs(&mut self, _target_version: u16) -> VersionizeResult<()> {
-        self.old_regs = self
-            .regs
-            .iter()
-            .map(TryInto::try_into)
-            .collect::<Result<_, _>>()
-            .map_err(|e: &str| VersionizeError::Serialize(e.into()))?;
         Ok(())
     }
 }

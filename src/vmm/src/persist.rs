@@ -54,17 +54,13 @@ pub struct VmInfo {
     /// Guest memory size.
     pub mem_size_mib: u64,
     /// smt information
-    #[version(start = 2, default_fn = "def_smt", ser_fn = "ser_smt")]
+    #[version(start = 2, default_fn = "def_smt")]
     pub smt: bool,
     /// CPU template type
-    #[version(
-        start = 2,
-        default_fn = "def_cpu_template",
-        ser_fn = "ser_cpu_template"
-    )]
+    #[version(start = 2, default_fn = "def_cpu_template")]
     pub cpu_template: StaticCpuTemplate,
     /// Boot source information.
-    #[version(start = 2, default_fn = "def_boot_source", ser_fn = "ser_boot_source")]
+    #[version(start = 2, default_fn = "def_boot_source")]
     pub boot_source: BootSourceConfig,
 }
 
@@ -74,32 +70,14 @@ impl VmInfo {
         false
     }
 
-    fn ser_smt(&mut self, _target_version: u16) -> VersionizeResult<()> {
-        // v1.1 and older versions do not include smt info.
-        warn!("Saving to older snapshot version, SMT information will not be saved.");
-        Ok(())
-    }
-
     fn def_cpu_template(_: u16) -> StaticCpuTemplate {
         warn!("CPU template field not found in snapshot.");
         StaticCpuTemplate::default()
     }
 
-    fn ser_cpu_template(&mut self, _target_version: u16) -> VersionizeResult<()> {
-        // v1.1 and older versions do not include cpu template info.
-        warn!("Saving to older snapshot version, CPU template information will not be saved.");
-        Ok(())
-    }
-
     fn def_boot_source(_: u16) -> BootSourceConfig {
         warn!("Boot source information not found in snapshot.");
         BootSourceConfig::default()
-    }
-
-    fn ser_boot_source(&mut self, _target_version: u16) -> VersionizeResult<()> {
-        // v1.1 and older versions do not include boot source info.
-        warn!("Saving to older snapshot version, boot source information will not be saved.");
-        Ok(())
     }
 }
 
@@ -697,10 +675,6 @@ mod tests {
 
         let mut buf = vec![0; 10000];
         let mut version_map = VersionMap::new();
-
-        assert!(microvm_state
-            .serialize(&mut buf.as_mut_slice(), &version_map, 1)
-            .is_err());
 
         version_map
             .new_version()

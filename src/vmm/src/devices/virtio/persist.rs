@@ -103,11 +103,7 @@ pub struct VirtioDeviceState {
     /// List of queues.
     pub queues: Vec<QueueState>,
     /// The MMIO interrupt status.
-    #[version(
-        start = 2,
-        de_fn = "de_interrupt_status",
-        ser_fn = "ser_interrupt_status"
-    )]
+    #[version(start = 2, de_fn = "de_interrupt_status")]
     pub interrupt_status: u32,
     /// The MMIO interrupt status as a usize.
     #[version(end = 2)]
@@ -186,12 +182,6 @@ impl VirtioDeviceState {
         if version < 2 {
             self.interrupt_status = self.interrupt_status_old as u32;
         }
-        Ok(())
-    }
-
-    fn ser_interrupt_status(&mut self, _target_version: u16) -> VersionizeResult<()> {
-        // v1 uses a usize type for interrupt status.
-        self.interrupt_status_old = self.interrupt_status as usize;
         Ok(())
     }
 }
