@@ -19,31 +19,26 @@ perf_test = {
         "label": "🖴 Block Performance",
         "test_path": "integration_tests/performance/test_block_ab.py",
         "devtool_opts": "-c 1-10 -m 0",
-        "timeout_in_minutes": 40,
     },
     "network-latency": {
         "label": "🖧 Network Latency",
         "test_path": "integration_tests/performance/test_network_ab.py::test_network_latency",
         "devtool_opts": "-c 1-10 -m 0",
-        "timeout_in_minutes": 30,
     },
     "network-throughput": {
         "label": "🖧 Network TCP Throughput",
         "test_path": "integration_tests/performance/test_network_ab.py::test_network_tcp_throughput",
         "devtool_opts": "-c 1-10 -m 0",
-        "timeout_in_minutes": 50,
     },
     "snapshot-latency": {
         "label": "📸 Snapshot Latency",
         "test_path": "integration_tests/performance/test_snapshot_ab.py",
         "devtool_opts": "-c 1-12 -m 0",
-        "timeout_in_minutes": 60,
     },
     "vsock-throughput": {
         "label": "🧦 Vsock Throughput",
         "test_path": "integration_tests/performance/test_vsock_ab.py",
         "devtool_opts": "-c 1-10 -m 0",
-        "timeout_in_minutes": 40,
     },
 }
 
