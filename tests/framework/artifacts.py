@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
 
+import packaging.version
 import pytest
 
 import host_tools.network as net_tools
@@ -21,6 +22,7 @@ def select_supported_kernels():
     """Select guest kernels supported by the current combination of kernel and
     instance type.
     """
+    hlv = packaging.version.parse(global_props.host_linux_version)
     supported_kernels = [r"vmlinux-4.14.\d+"]
     if (
         global_props.instance == "c7g.metal"
@@ -29,6 +31,11 @@ def select_supported_kernels():
         supported_kernels.append(r"vmlinux-5.10-no-sve.bin")
     else:
         supported_kernels.append(r"vmlinux-5.10.\d+")
+
+    # Support Linux 6.1 guest in a limited fashion
+    if global_props.instance == "c7g.metal" and (hlv.major, hlv.minor) >= (6, 1):
+        supported_kernels.append(r"vmlinux-6.1.\d+")
+
     return supported_kernels
 
 

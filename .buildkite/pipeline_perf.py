@@ -29,7 +29,6 @@ perf_test = {
         "label": "🖧 Network Latency",
         "test_path": "integration_tests/performance/test_network_latency.py",
         "devtool_opts": "-c 1-10 -m 0",
-        "timeout_in_minutes": 10,
     },
     "network-throughput": {
         "label": "🖧 Network TCP Throughput",
@@ -74,7 +73,8 @@ for test_data in tests:
     # use ag=1 instances to make sure no two performance tests are scheduled on the same instance
     test_data.setdefault("agents", {"ag": 1})
     test_data["retries"] = args.retries
-    test_data["timeout_in_minutes"] *= args.retries + 1
+    if "timeout_in_minutes" in test_data:
+        test_data["timeout_in_minutes"] *= args.retries + 1
     test_data = overlay_dict(test_data, args.step_param)
     test_data["retry"] = {
         "automatic": [

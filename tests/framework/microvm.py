@@ -373,6 +373,17 @@ class Microvm:
             "guest_memory": f"{self.mem_size_bytes / (1024 * 1024)}MB",
         }
 
+    @property
+    def guest_kernel_version(self):
+        """Get the guest kernel version from the filename
+
+        It won't work if the file name does not like name-X.Y.Z
+        """
+        splits = self.kernel_file.name.split("-")
+        if len(splits) < 2:
+            return None
+        return tuple(int(x) for x in splits[1].split("."))
+
     def flush_metrics(self):
         """Flush the microvm metrics and get the latest datapoint"""
         self.api.actions.put(action_type="FlushMetrics")

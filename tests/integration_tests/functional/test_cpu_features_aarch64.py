@@ -9,94 +9,68 @@ import pytest
 
 import framework.utils_cpuid as cpuid_utils
 from framework.utils_cpu_templates import nonci_on_arm
+from framework.utils_cpuid import CpuModel
 
 PLATFORM = platform.machine()
 
-DEFAULT_G2_FEATURES = (
-    "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
-    "asimdhp cpuid asimdrdm lrcpc dcpop asimddp ssbs"
+DEFAULT_G2_FEATURES = set(
+    (
+        "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
+        "asimdhp cpuid asimdrdm lrcpc dcpop asimddp ssbs"
+    ).split(" ")
 )
 
-DEFAULT_G2_FEATURES_NO_SSBS = (
-    "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
-    "asimdhp cpuid asimdrdm lrcpc dcpop asimddp"
+DEFAULT_G2_FEATURES_NO_SSBS = DEFAULT_G2_FEATURES - {"ssbs"}
+
+DEFAULT_G3_FEATURES_4_14 = DEFAULT_G2_FEATURES | set(
+    "sha512 asimdfhm dit uscat ilrcpc flagm jscvt fcma sha3 sm3 sm4".split(" ")
 )
 
-DEFAULT_G3_FEATURES_4_14 = (
-    "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
-    "asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp "
-    "sha512 asimdfhm dit uscat ilrcpc flagm ssbs"
+DEFAULT_G3_FEATURES_5_10 = DEFAULT_G3_FEATURES_4_14 | set(
+    "dcpodp i8mm bf16 dgh rng".split(" ")
 )
 
-DEFAULT_G3_FEATURES_5_10 = (
-    "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
-    "asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp "
-    "sha512 asimdfhm dit uscat ilrcpc flagm ssbs dcpodp i8mm bf16 dgh rng"
+DEFAULT_G3_FEATURES_NO_SSBS_4_14 = DEFAULT_G3_FEATURES_5_10 - {"ssbs"}
+DEFAULT_G3_FEATURES_NO_SSBS_5_10 = DEFAULT_G3_FEATURES_NO_SSBS_4_14
+
+DEFAULT_G3_FEATURES_WITH_SVE_AND_PAC_4_14 = DEFAULT_G3_FEATURES_4_14
+DEFAULT_G3_FEATURES_WITH_SVE_AND_PAC_5_10 = DEFAULT_G3_FEATURES_5_10 | set(
+    "paca pacg sve svebf16 svei8mm".split(" ")
 )
 
-DEFAULT_G3_FEATURES_NO_SSBS_4_14 = (
-    "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
-    "asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp "
-    "sha512 asimdfhm dit uscat ilrcpc flagm dcpodp i8mm bf16 dgh rng"
-)
-
-DEFAULT_G3_FEATURES_WITH_SVE_AND_PAC_4_14 = (
-    "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
-    "asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp "
-    "sha512 asimdfhm dit uscat ilrcpc flagm ssbs"
-)
-
-DEFAULT_G3_FEATURES_NO_SSBS_4_14 = (
-    "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
-    "asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp "
-    "sha512 asimdfhm dit uscat ilrcpc flagm"
-)
-
-DEFAULT_G3_FEATURES_NO_SSBS_5_10 = (
-    "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
-    "asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp "
-    "sha512 asimdfhm dit uscat ilrcpc flagm dcpodp i8mm bf16 dgh rng"
-)
-
-DEFAULT_G3_FEATURES_WITH_SVE_AND_PAC_5_10 = (
-    "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
-    "asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp "
-    "sha512 sve asimdfhm dit uscat ilrcpc flagm ssbs paca pacg dcpodp svei8mm svebf16 i8mm bf16 dgh rng"
-)
-
-DEFAULT_G3_FEATURES_V1N1 = (
-    "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
-    "asimdhp cpuid asimdrdm lrcpc dcpop asimddp ssbs"
-)
+DEFAULT_G3_FEATURES_V1N1 = DEFAULT_G2_FEATURES
 
 
 def _check_cpu_features_arm(test_microvm, guest_kv, template_name=None):
     expected_cpu_features = {"Flags": []}
-    match (cpuid_utils.get_instance_type(), guest_kv, template_name):
-        case ("m6g.metal", _, "aarch64_remove_ssbs"):
-            expected_cpu_features["Flags"] = DEFAULT_G2_FEATURES_NO_SSBS
-        case ("m6g.metal", _, "aarch64_v1n1"):
-            expected_cpu_features["Flags"] = DEFAULT_G2_FEATURES
-        case ("m6g.metal", _, None):
-            expected_cpu_features["Flags"] = DEFAULT_G2_FEATURES
-        case ("c7g.metal", "4.14", "aarch64_remove_ssbs"):
-            expected_cpu_features["Flags"] = DEFAULT_G3_FEATURES_NO_SSBS_4_14
-        case ("c7g.metal", "5.10", "aarch64_remove_ssbs"):
-            expected_cpu_features["Flags"] = DEFAULT_G3_FEATURES_NO_SSBS_5_10
-        case ("c7g.metal", "4.14", "aarch64_with_sve_and_pac"):
-            expected_cpu_features["Flags"] = DEFAULT_G3_FEATURES_WITH_SVE_AND_PAC_4_14
-        case ("c7g.metal", "5.10", "aarch64_with_sve_and_pac"):
-            expected_cpu_features["Flags"] = DEFAULT_G3_FEATURES_WITH_SVE_AND_PAC_5_10
-        case ("c7g.metal", _, "aarch64_v1n1"):
-            expected_cpu_features["Flags"] = DEFAULT_G3_FEATURES_V1N1
-        case ("c7g.metal", "4.14", None):
-            expected_cpu_features["Flags"] = DEFAULT_G3_FEATURES_4_14
-        case ("c7g.metal", "5.10", None):
-            expected_cpu_features["Flags"] = DEFAULT_G3_FEATURES_5_10
+    match cpuid_utils.get_cpu_model_name(), guest_kv, template_name:
+        case CpuModel.ARM_NEOVERSE_N1, _, "aarch64_remove_ssbs":
+            expected_cpu_features = DEFAULT_G2_FEATURES_NO_SSBS
+        case CpuModel.ARM_NEOVERSE_N1, _, "aarch64_v1n1":
+            expected_cpu_features = DEFAULT_G2_FEATURES
+        case CpuModel.ARM_NEOVERSE_N1, _, None:
+            expected_cpu_features = DEFAULT_G2_FEATURES
+        case CpuModel.ARM_NEOVERSE_V1, "4.14", "aarch64_remove_ssbs":
+            expected_cpu_features = DEFAULT_G3_FEATURES_NO_SSBS_4_14
+        case CpuModel.ARM_NEOVERSE_V1, "4.14", "aarch64_with_sve_and_pac":
+            expected_cpu_features = DEFAULT_G3_FEATURES_WITH_SVE_AND_PAC_4_14
+        case CpuModel.ARM_NEOVERSE_V1, "4.14", None:
+            expected_cpu_features = DEFAULT_G3_FEATURES_4_14
 
-    cpuid_utils.check_guest_cpuid_output(
-        test_microvm, "lscpu", None, ":", expected_cpu_features
-    )
+        # [cm]7g with guest kernel 5.10 and later
+        case CpuModel.ARM_NEOVERSE_V1, _, "aarch64_remove_ssbs":
+            expected_cpu_features = DEFAULT_G3_FEATURES_NO_SSBS_5_10
+        case CpuModel.ARM_NEOVERSE_V1, _, "aarch64_v1n1":
+            expected_cpu_features = DEFAULT_G3_FEATURES_V1N1
+        case CpuModel.ARM_NEOVERSE_V1, _, "aarch64_with_sve_and_pac":
+            expected_cpu_features = DEFAULT_G3_FEATURES_WITH_SVE_AND_PAC_5_10
+        case CpuModel.ARM_NEOVERSE_V1, _, None:
+            expected_cpu_features = DEFAULT_G3_FEATURES_5_10
+
+    ret, stdout, stderr = test_microvm.ssh.run(r"lscpu |grep -oP '^Flags:\s+\K.+'")
+    assert ret == 0, stderr
+    flags = set(stdout.strip().split(" "))
+    assert flags == expected_cpu_features
 
 
 def get_cpu_template_dir(cpu_template):

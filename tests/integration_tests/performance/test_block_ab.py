@@ -137,6 +137,7 @@ def process_fio_logs(vm, fio_mode, logs_dir, metrics):
             metrics.put_metric("bw_write", bw_write, "Kilobytes/Second")
 
 
+@pytest.mark.timeout(120)
 @pytest.mark.nonci
 @pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
 @pytest.mark.parametrize("fio_mode", ["randread", "randwrite"])

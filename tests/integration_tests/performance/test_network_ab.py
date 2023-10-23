@@ -123,7 +123,7 @@ class TcpIPerf3Test(IPerf3Test):
 
 
 @pytest.mark.nonci
-@pytest.mark.timeout(3600)
+@pytest.mark.timeout(120)
 @pytest.mark.parametrize("network_microvm", [1, 2], indirect=True)
 @pytest.mark.parametrize("payload_length", ["128K", "1024K"], ids=["p128K", "p1024K"])
 @pytest.mark.parametrize("mode", ["g2h", "h2g", "bd"])

@@ -67,6 +67,7 @@ class VsockIPerf3Test(IPerf3Test):
         return super().guest_command(port_offset).with_arg("--vsock")
 
 
+@pytest.mark.timeout(120)
 @pytest.mark.nonci
 @pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
 @pytest.mark.parametrize("payload_length", ["64K", "1024K"], ids=["p64K", "p1024K"])
