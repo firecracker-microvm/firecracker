@@ -21,8 +21,6 @@ valued properties collected.
 """
 import argparse
 import json
-import platform
-import shutil
 import statistics
 import sys
 from pathlib import Path
@@ -32,7 +30,7 @@ sys.path.append(str(Path(__file__).parent.parent / "tests"))
 
 # pylint:disable=wrong-import-position
 from framework import utils
-from framework.ab_test import chdir, check_regression, git_ab_test
+from framework.ab_test import check_regression, git_ab_test_with_binaries
 from framework.properties import global_props
 from host_tools.metrics import (
     emit_raw_emf,
@@ -139,26 +137,13 @@ def load_data_series(revision: str):
     return processed_emf
 
 
-def collect_data(firecracker_checkout: Path, test: str):
-    """Executes the specified test using a firecracker binary compiled from the given checkout"""
-    with chdir(firecracker_checkout):
-        revision = utils.run_cmd("git rev-parse HEAD").stdout.strip()
+def collect_data(firecracker_binary: Path, jailer_binary: Path, test: str):
+    """Executes the specified test using the provided firecracker binaries"""
+    # Ensure the binaries are in the same directory. Will always be the case if used with git_ab_test_with_binaries
+    assert jailer_binary.parent == firecracker_binary.parent
 
-    binary_dir = Path.cwd() / "build" / revision
-
-    if not (binary_dir / "firecracker").exists():
-        with chdir(firecracker_checkout):
-            print(f"Compiling firecracker from revision {binary_dir.name}")
-            utils.run_cmd("./tools/release.sh --libc musl --profile release")
-        build_dir = (
-            firecracker_checkout
-            / f"build/cargo_target/{platform.machine()}-unknown-linux-musl/release"
-        )
-        binary_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy(build_dir / "firecracker", binary_dir)
-        shutil.copy(build_dir / "jailer", binary_dir)
-    else:
-        print(f"Using existing binaries for revision {binary_dir.name}")
+    binary_dir = firecracker_binary.parent
+    revision = binary_dir.name
 
     print("Collecting samples")
     _, stdout, _ = utils.run_cmd(
@@ -227,8 +212,10 @@ def ab_performance_test(
     )
     print(commit_list.strip())
 
-    processed_emf_a, processed_emf_b, results = git_ab_test(
-        lambda checkout, _: collect_data(checkout, test),
+    processed_emf_a, processed_emf_b, results = git_ab_test_with_binaries(
+        lambda firecracker_binary, jailer_binary: collect_data(
+            firecracker_binary, jailer_binary, test
+        ),
         lambda ah, be: analyze_data(ah, be, n_resamples=int(100 / p_thresh)),
         a_revision=a_revision,
         b_revision=b_revision,
