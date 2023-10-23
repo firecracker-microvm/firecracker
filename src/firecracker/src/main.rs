@@ -256,7 +256,6 @@ fn main_exec() -> Result<(), MainError> {
 
     if arguments.flag_present("version") {
         println!("Firecracker v{}\n", FIRECRACKER_VERSION);
-        print_supported_snapshot_versions();
         return Ok(());
     }
 
@@ -508,20 +507,6 @@ pub fn enable_ssbd_mitigation() {
 // Log a warning for any usage of deprecated parameters.
 #[allow(unused)]
 fn warn_deprecated_parameters() {}
-
-// Print supported snapshot data format versions.
-fn print_supported_snapshot_versions() {
-    let mut versions: Vec<_> = FC_VERSION_TO_SNAP_VERSION
-        .iter()
-        .map(|(key, _)| key.clone())
-        .collect();
-    versions.sort();
-
-    println!("Supported snapshot data format versions:");
-    for v in versions.iter() {
-        println!("{v}");
-    }
-}
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 enum SnapshotVersionError {
