@@ -13,7 +13,7 @@ use kvm_bindings::{
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
 use log::{error, warn};
-use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
+use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
 use crate::arch::x86_64::interrupts;
@@ -550,7 +550,7 @@ pub struct VcpuState {
     #[version(end = 3, default_fn = "default_msrs")]
     pub msrs: Msrs,
     /// Saved msrs.
-    #[version(start = 3, de_fn = "de_saved_msrs", ser_fn = "ser_saved_msrs")]
+    #[version(start = 3, de_fn = "de_saved_msrs")]
     pub saved_msrs: Vec<Msrs>,
     /// Debug regs.
     pub debug_regs: kvm_debugregs,
@@ -569,7 +569,7 @@ pub struct VcpuState {
     /// Xsave.
     pub xsave: kvm_xsave,
     /// Tsc khz.
-    #[version(start = 2, default_fn = "default_tsc_khz", ser_fn = "ser_tsc")]
+    #[version(start = 2, default_fn = "default_tsc_khz")]
     pub tsc_khz: Option<u32>,
 }
 
@@ -577,18 +577,6 @@ impl VcpuState {
     fn default_tsc_khz(_: u16) -> Option<u32> {
         warn!("CPU TSC freq not found in snapshot");
         None
-    }
-
-    fn ser_tsc(&mut self, _target_version: u16) -> VersionizeResult<()> {
-        // v0.24 and older versions do not support TSC scaling.
-        warn!(
-            "Saving to older snapshot version, TSC freq {}",
-            self.tsc_khz
-                .map(|freq| freq.to_string() + "KHz not included in snapshot.")
-                .unwrap_or_else(|| "not available.".to_string())
-        );
-
-        Ok(())
     }
 
     fn default_msrs(_source_version: u16) -> Msrs {
@@ -602,30 +590,6 @@ impl VcpuState {
             self.saved_msrs.push(self.msrs.clone());
         }
         Ok(())
-    }
-
-    fn ser_saved_msrs(&mut self, target_version: u16) -> VersionizeResult<()> {
-        match self.saved_msrs.len() {
-            0 => Err(VersionizeError::Serialize(
-                "Cannot serialize MSRs because the MSR list is empty".to_string(),
-            )),
-            1 => {
-                if target_version < 3 {
-                    self.msrs = self.saved_msrs[0].clone();
-                    Ok(())
-                } else {
-                    Err(VersionizeError::Serialize(format!(
-                        "Cannot serialize MSRs to target version {}",
-                        target_version
-                    )))
-                }
-            }
-            _ => Err(VersionizeError::Serialize(
-                "Cannot serialize MSRs. The uVM state needs to save
-                 more MSRs than the target snapshot version supports."
-                    .to_string(),
-            )),
-        }
     }
 }
 

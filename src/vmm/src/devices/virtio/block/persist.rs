@@ -88,35 +88,17 @@ impl From<FileEngineTypeState> for FileEngineType {
 pub struct BlockState {
     id: String,
     partuuid: Option<String>,
-    #[version(
-        start = 2,
-        ser_fn = "block_cache_type_ser",
-        default_fn = "default_cache_type_flush"
-    )]
+    #[version(start = 2, default_fn = "default_cache_type_flush")]
     cache_type: CacheTypeState,
     root_device: bool,
     disk_path: String,
     virtio_state: VirtioDeviceState,
     rate_limiter_state: RateLimiterState,
     #[version(start = 3)]
-    // We don't need to specify a `ser_fn` for the `file_engine_type` since snapshots created in
-    // v1.0 are incompatible with older FC versions (due to incompatible notification suppression
-    // feature).
     file_engine_type: FileEngineTypeState,
 }
 
 impl BlockState {
-    fn block_cache_type_ser(&mut self, target_version: u16) -> VersionizeResult<()> {
-        if target_version < 3 && self.cache_type != CacheTypeState::Unsafe {
-            warn!(
-                "Target version does not implement the current cache type. Defaulting to \
-                 \"unsafe\" mode."
-            );
-        }
-
-        Ok(())
-    }
-
     fn default_cache_type_flush(_source_version: u16) -> CacheTypeState {
         CacheTypeState::Unsafe
     }
