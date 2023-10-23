@@ -361,46 +361,6 @@ def test_flush(uvm_plain_rw):
     assert fc_metrics["block"]["flush_count"] > 0
 
 
-def test_block_default_cache_old_version(test_microvm_with_api):
-    """
-    Verify that saving a snapshot for old versions works correctly.
-    """
-    test_microvm = test_microvm_with_api
-    test_microvm.spawn()
-
-    test_microvm.basic_config(vcpu_count=1, add_root_device=False)
-
-    # Add the block device with explicitly enabling flush.
-    test_microvm.add_drive(
-        "rootfs",
-        test_microvm.rootfs_file,
-        is_root_device=True,
-        cache_type="Writeback",
-    )
-
-    test_microvm.start()
-
-    # Pause the VM to create the snapshot.
-    test_microvm.pause()
-
-    # Create the snapshot for a version without block cache type.
-    test_microvm.api.snapshot_create.put(
-        mem_file_path="memfile",
-        snapshot_path="snapsfile",
-        snapshot_type="Full",
-        version="0.24.0",
-    )
-
-    # We should find a warning in the logs for this case as this
-    # cache type was not supported in 0.24.0 and we should default
-    # to "Unsafe" mode.
-    test_microvm.check_log_message(
-        "Target version does not implement the"
-        " current cache type. "
-        'Defaulting to "unsafe" mode.'
-    )
-
-
 def _check_block_size(ssh_connection, dev_path, size):
     _, stdout, stderr = ssh_connection.run("blockdev --getsize64 {}".format(dev_path))
     assert stderr == ""

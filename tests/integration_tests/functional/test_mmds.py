@@ -9,6 +9,7 @@ import time
 
 import pytest
 
+from framework.artifacts import working_version_as_artifact
 from framework.properties import global_props
 from framework.utils import (
     configure_mmds,
@@ -33,7 +34,6 @@ def _validate_mmds_snapshot(
     basevm,
     microvm_factory,
     version,
-    target_fc_version=None,
     fc_binary_path=None,
     jailer_binary_path=None,
 ):
@@ -76,7 +76,7 @@ def _validate_mmds_snapshot(
     run_guest_cmd(ssh_connection, cmd, data_store, use_json=True)
 
     # Create snapshot.
-    snapshot = basevm.snapshot_full(target_version=target_fc_version)
+    snapshot = basevm.snapshot_full()
 
     # Resume microVM and ensure session token is still valid on the base.
     response = basevm.resume()
@@ -591,7 +591,7 @@ def test_mmds_limit_scenario(test_microvm_with_api, version):
 
 
 @pytest.mark.parametrize("version", MMDS_VERSIONS)
-def test_mmds_snapshot(uvm_nano, microvm_factory, version, firecracker_release):
+def test_mmds_snapshot(uvm_nano, microvm_factory, version):
     """
     Test MMDS behavior by restoring a snapshot on current FC versions.
 
@@ -599,14 +599,14 @@ def test_mmds_snapshot(uvm_nano, microvm_factory, version, firecracker_release):
     the firecracker version does not support it.
     """
 
+    current_release = working_version_as_artifact()
     uvm_nano.add_net_iface()
     _validate_mmds_snapshot(
         uvm_nano,
         microvm_factory,
         version,
-        target_fc_version=firecracker_release.snapshot_version,
-        fc_binary_path=firecracker_release.path,
-        jailer_binary_path=firecracker_release.jailer,
+        fc_binary_path=current_release.path,
+        jailer_binary_path=current_release.jailer,
     )
 
 
@@ -640,7 +640,6 @@ def test_mmds_older_snapshot(
         microvm,
         microvm_factory,
         mmds_version,
-        firecracker_release.snapshot_version,
         *get_firecracker_binaries(),
     )
 

@@ -125,6 +125,14 @@ def current_release(version):
     return binaries
 
 
+def working_version_as_artifact():
+    """
+    Return working copy of Firecracker as a release artifact
+    """
+    cargo_version = get_firecracker_version_from_toml()
+    return FirecrackerArtifact(current_release(cargo_version.base_version)[0])
+
+
 def firecracker_artifacts():
     """Return all supported firecracker binaries."""
     cargo_version = get_firecracker_version_from_toml()
@@ -141,7 +149,7 @@ def firecracker_artifacts():
             continue
         yield pytest.param(fc, id=fc.name)
 
-    fc = FirecrackerArtifact(current_release(cargo_version.base_version)[0])
+    fc = working_version_as_artifact()
     yield pytest.param(fc, id=fc.name)
 
 
