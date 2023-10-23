@@ -14,7 +14,7 @@ clap = { version = "4.4.6", features = ["derive", "string"] }
 displaydoc = "0.2.4"
 libc = "0.2.149"
 snapshot = { path = "../snapshot" }
-thiserror = "1.0.49"
+thiserror = "1.0.50"
 vmm = { path = "../vmm" }
 
 fc_utils = { package = "utils", path = "../utils" }
