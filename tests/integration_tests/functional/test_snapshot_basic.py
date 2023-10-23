@@ -12,7 +12,12 @@ import pytest
 
 import host_tools.drive as drive_tools
 from framework.microvm import SnapshotType
-from framework.utils import check_filesystem, wait_process_termination
+from framework.utils import (
+    check_filesystem,
+    get_firecracker_version_from_toml,
+    run_cmd,
+    wait_process_termination,
+)
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
     VSOCK_UDS_PATH,
@@ -23,6 +28,7 @@ from framework.utils_vsock import (
     make_host_port_path,
     start_guest_echo_server,
 )
+from host_tools.cargo_build import get_firecracker_binaries
 
 
 def _get_guest_drive_size(ssh_connection, guest_dev_name="/dev/vdb"):
@@ -33,6 +39,32 @@ def _get_guest_drive_size(ssh_connection, guest_dev_name="/dev/vdb"):
     assert stderr == ""
     lines = stdout.split("\n")
     return lines[1].strip()
+
+
+def test_snapshot_current_version(uvm_nano):
+    """Tests taking a snapshot at the version specified in Cargo.toml
+
+    Check that it is possible to take a snapshot at the version of the upcoming
+    release (during the release process this ensures that if we release version
+    x.y, then taking a snapshot at version x.y works - something we'd otherwise
+    only be able to test once the x.y binary has been uploaded to S3, at which
+    point it is too late, see also the 1.3 release).
+    """
+    vm = uvm_nano
+    vm.start()
+
+    version = get_firecracker_version_from_toml()
+    # normalize to a snapshot version
+    version = f"{version.major}.{version.minor}.0"
+    snapshot = vm.snapshot_full()
+
+    # Fetch Firecracker binary for the latest version
+    fc_binary, _ = get_firecracker_binaries()
+    # Verify the output of `--describe-snapshot` command line parameter
+    cmd = [str(fc_binary)] + ["--describe-snapshot", str(snapshot.vmstate)]
+
+    _, stdout, _ = run_cmd(cmd)
+    assert version in stdout
 
 
 # Testing matrix:

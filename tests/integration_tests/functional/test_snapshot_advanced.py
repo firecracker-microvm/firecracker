@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Advanced tests scenarios for snapshot save/restore."""
 
-import platform
 import tempfile
 
 import pytest
@@ -55,51 +54,6 @@ def test_restore_old_to_current(
     print(vm.log_data)
 
 
-def test_restore_current_to_old(microvm_factory, uvm_plain, firecracker_release):
-    """
-    Restore current snapshot with previous versions of Firecracker.
-
-    For each firecracker release:
-    1. Snapshot with the current build
-    2. Restore with the past release
-    """
-
-    # Microvm: 2vCPU 256MB RAM, balloon, 4 disks and 4 net devices.
-    vm = uvm_plain
-    vm.spawn()
-    vm.basic_config(track_dirty_pages=True)
-
-    # Create a snapshot with current FC version targeting the old version.
-    snapshot = create_snapshot_helper(
-        vm,
-        target_version=firecracker_release.snapshot_version,
-        drives=scratch_drives,
-        balloon=True,
-        diff_snapshots=True,
-    )
-
-    # Resume microvm using FC/Jailer binary artifacts.
-    vm = microvm_factory.build(
-        fc_binary_path=firecracker_release.path,
-        jailer_binary_path=firecracker_release.jailer,
-    )
-    vm.spawn()
-    vm.restore_from_snapshot(snapshot, resume=True)
-    validate_all_devices(vm, True)
-    print("========== Firecracker restore snapshot log ==========")
-    print(vm.log_data)
-
-
-@pytest.mark.skipif(platform.machine() != "x86_64", reason="TSC is x86_64 specific.")
-def test_save_tsc_old_version(uvm_nano):
-    """
-    Test TSC warning message when saving old snapshot.
-    """
-    uvm_nano.start()
-    uvm_nano.snapshot_full(target_version="0.24.0")
-    uvm_nano.check_log_message("Saving to older snapshot version, TSC freq")
-
-
 def validate_all_devices(microvm, balloon):
     """Perform a basic validation for all devices of a microvm."""
     # Test that net devices have connectivity after restore.
@@ -139,7 +93,6 @@ def validate_all_devices(microvm, balloon):
 
 def create_snapshot_helper(
     vm,
-    target_version=None,
     drives=None,
     balloon=False,
     diff_snapshots=False,
@@ -196,7 +149,7 @@ def create_snapshot_helper(
         exit_code, _, _ = vm.ssh.run(cmd)
         assert exit_code == 0
 
-    snapshot = vm.make_snapshot(snapshot_type, target_version=target_version)
+    snapshot = vm.make_snapshot(snapshot_type)
     print("========== Firecracker create snapshot log ==========")
     print(vm.log_data)
     vm.kill()
