@@ -8,12 +8,9 @@ import pytest
 
 # IRQs are available from 5 to 23, so the maximum number of devices
 # supported at the same time is 19.
-MAX_DEVICES_ATTACHED = 19
+MAX_DEVICES_ATTACHED = 65
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64", reason="Firecracker supports 24 IRQs on x86_64."
-)
 def test_attach_maximum_devices(test_microvm_with_api):
     """
     Test attaching maximum number of devices to the microVM.
