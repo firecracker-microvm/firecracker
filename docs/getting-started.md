@@ -76,7 +76,7 @@ with a Ubuntu 22.04 rootfs from our CI:
 ARCH="$(uname -m)"
 
 # Download a linux kernel binary
-wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.6/${ARCH}/vmlinux-5.10.197
+wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.6/${ARCH}/vmlinux-5.10.198
 
 # Download a rootfs
 wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.6/${ARCH}/ubuntu-22.04.ext4
@@ -115,7 +115,7 @@ To instead build firecracker from source, you will need to have `docker` install
 ARCH="$(uname -m)"
 
 # Clone the firecracker repository
-git clone https://github.com/firecracker-microvm/firecracker
+git clone https://github.com/firecracker-microvm/firecracker firecracker_src
 
 # Start docker
 sudo systemctl start docker
@@ -127,10 +127,10 @@ sudo systemctl start docker
 # This will produce the firecracker and jailer binaries under
 # `./firecracker/build/cargo_target/${toolchain}/debug`.
 #
-sudo ./firecracker/tools/devtool build
+sudo ./firecracker_src/tools/devtool build
 
 # Rename the binary to "firecracker"
-mv ./firecracker/build/cargo_target/${ARCH}-unknown-linux-musl/debug/firecracker firecracker
+sudo cp ./firecracker_src/build/cargo_target/${ARCH}-unknown-linux-musl/debug/firecracker firecracker
 ```
 
 ### Starting Firecracker
@@ -143,11 +143,10 @@ process via HTTP requests:
 API_SOCKET="/tmp/firecracker.socket"
 
 # Remove API unix socket
-rm -f $API_SOCKET
+sudo rm -f $API_SOCKET
 
 # Run firecracker
-./firecracker/build/cargo_target/${ARCH}-unknown-linux-musl/debug/firecracker \
-    --api-sock "${API_SOCKET}"
+sudo ./firecracker --api-sock "${API_SOCKET}"
 ```
 
 In a new terminal (do not close the 1st one):
@@ -191,7 +190,7 @@ curl -X PUT --unix-socket "${API_SOCKET}" \
     }" \
     "http://localhost/logger"
 
-KERNEL="./vmlinux-5.10.186"
+KERNEL="./vmlinux-5.10.198"
 KERNEL_BOOT_ARGS="console=ttyS0 reboot=k panic=1 pci=off"
 
 ARCH=$(uname -m)
