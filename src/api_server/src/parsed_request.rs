@@ -846,8 +846,7 @@ pub mod tests {
     fn test_try_from_put_snapshot() {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
-        let body =
-            "{ \"snapshot_path\": \"foo\", \"mem_file_path\": \"bar\", \"version\": \"0.23.0\" }";
+        let body = "{ \"snapshot_path\": \"foo\", \"mem_file_path\": \"bar\" }";
         sender
             .write_all(http_request("PUT", "/snapshot/create", Some(body)).as_bytes())
             .unwrap();

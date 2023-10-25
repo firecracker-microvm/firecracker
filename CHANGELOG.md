@@ -19,6 +19,10 @@
   Refactored error propagation to avoid logging and printing an error on
   exits with a zero exit code. Now, on successful exit
   "Firecracker exited successfully" is logged.
+- [#4194](https://github.com/firecracker-microvm/firecracker/pull/4194):
+  Removed support for creating Firecracker snapshots targeting older versions
+  of Firecracker. With this change, running 'firecracker --version' will not
+  print the supported snapshot versions.
 
 ### Deprecated
 

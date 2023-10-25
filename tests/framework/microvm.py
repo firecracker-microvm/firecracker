@@ -710,9 +710,7 @@ class Microvm:
         """Resume the microVM"""
         self.api.vm.patch(state="Resumed")
 
-    def make_snapshot(
-        self, snapshot_type: SnapshotType | str, target_version: str = None
-    ):
+    def make_snapshot(self, snapshot_type: SnapshotType | str):
         """Create a Snapshot object from a microvm.
 
         It pauses the microvm before taking the snapshot.
@@ -725,7 +723,6 @@ class Microvm:
             mem_file_path=str(mem_path),
             snapshot_path=str(vmstate_path),
             snapshot_type=snapshot_type.value,
-            version=target_version,
         )
         root = Path(self.chroot())
         return Snapshot(
@@ -737,13 +734,13 @@ class Microvm:
             snapshot_type=snapshot_type,
         )
 
-    def snapshot_diff(self, target_version: str = None):
+    def snapshot_diff(self):
         """Make a Diff snapshot"""
-        return self.make_snapshot("Diff", target_version)
+        return self.make_snapshot("Diff")
 
-    def snapshot_full(self, target_version: str = None):
+    def snapshot_full(self):
         """Make a Full snapshot"""
-        return self.make_snapshot("Full", target_version)
+        return self.make_snapshot("Full")
 
     def restore_from_snapshot(
         self,

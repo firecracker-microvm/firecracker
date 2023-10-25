@@ -17,7 +17,7 @@ use vmm::utilities::test_utils::dirty_tracking_vmm;
 use vmm::utilities::test_utils::{create_vmm, default_vmm, default_vmm_no_boot};
 use vmm::version_map::VERSION_MAP;
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
-use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType, Version};
+use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
 use vmm::{DumpCpuConfigError, EventManager, FcExitCode};
 
 #[test]
@@ -189,7 +189,6 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
         snapshot_type,
         snapshot_path: snapshot_file.as_path().to_path_buf(),
         mem_file_path: memory_file.as_path().to_path_buf(),
-        version: Some(Version::new(0, 24, 0)),
     };
     let vm_info = VmInfo {
         mem_size_mib: 1u64,

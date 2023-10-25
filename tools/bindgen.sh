@@ -34,7 +34,8 @@ function fc-bindgen {
     clippy::ptr_as_ptr,
     clippy::undocumented_unsafe_blocks,
     clippy::cast_lossless,
-    missing_debug_implementations
+    missing_debug_implementations,
+    clippy::tests_outside_test_module
 )]
 
 EOF

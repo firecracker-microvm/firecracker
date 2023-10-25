@@ -1291,28 +1291,6 @@ def test_map_private_seccomp_regression(test_microvm_with_api):
     test_microvm.api.mmds.put(**data_store)
 
 
-def test_negative_snapshot_create_api(microvm_factory, guest_kernel, rootfs):
-    """
-    Test snapshot create API.
-    """
-
-    vm = microvm_factory.build(guest_kernel, rootfs)
-    vm.spawn()
-    vm.basic_config()
-    vm.start()
-
-    # Specifying `version` in the create API is deprecated
-    vm.pause()
-    response = vm.api.snapshot_create.put(
-        mem_file_path="mem",
-        snapshot_path="vmstate",
-        snapshot_type="Full",
-        version="1.4.0",
-    )
-    assert response.headers["deprecation"]
-    assert "PUT /snapshot/create: 'version' field is deprecated." in vm.log_data
-
-
 # pylint: disable=protected-access
 def test_negative_snapshot_load_api(microvm_factory):
     """

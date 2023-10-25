@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use kvm_ioctls::VmFd;
-use log::{error, warn};
+use log::error;
 use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
@@ -181,13 +181,13 @@ pub struct DeviceStates {
     /// Vsock device state.
     pub vsock_device: Option<ConnectedVsockState>,
     /// Balloon device state.
-    #[version(start = 2, ser_fn = "balloon_serialize")]
+    #[version(start = 2)]
     pub balloon_device: Option<ConnectedBalloonState>,
     /// Mmds version.
-    #[version(start = 3, ser_fn = "mmds_version_serialize")]
+    #[version(start = 3)]
     pub mmds_version: Option<MmdsVersionState>,
     /// Entropy device state.
-    #[version(start = 4, ser_fn = "entropy_serialize")]
+    #[version(start = 4)]
     pub entropy_device: Option<ConnectedEntropyState>,
 }
 
@@ -200,39 +200,6 @@ pub enum SharedDeviceType {
     Balloon(Arc<Mutex<Balloon>>),
     Vsock(Arc<Mutex<Vsock<VsockUnixBackend>>>),
     Entropy(Arc<Mutex<Entropy>>),
-}
-
-impl DeviceStates {
-    fn balloon_serialize(&mut self, target_version: u16) -> VersionizeResult<()> {
-        if target_version < 2 && self.balloon_device.is_some() {
-            return Err(VersionizeError::Semantic(
-                "Target version does not implement the virtio-balloon device.".to_owned(),
-            ));
-        }
-
-        Ok(())
-    }
-
-    fn mmds_version_serialize(&mut self, target_version: u16) -> VersionizeResult<()> {
-        if target_version < 3 && self.mmds_version.is_some() {
-            warn!(
-                "Target version does not support persisting the MMDS version. The default will be \
-                 used when restoring."
-            );
-        }
-
-        Ok(())
-    }
-
-    fn entropy_serialize(&mut self, target_version: u16) -> VersionizeResult<()> {
-        if target_version < 4 && self.entropy_device.is_some() {
-            return Err(VersionizeError::Semantic(
-                "Target version does not support persisting the virtio-rng device.".to_owned(),
-            ));
-        }
-
-        Ok(())
-    }
 }
 
 pub struct MMIODevManagerConstructorArgs<'a> {
@@ -769,15 +736,6 @@ mod tests {
             };
             insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
 
-            assert_eq!(
-                vmm.mmio_device_manager
-                    .save()
-                    .serialize(&mut buf.as_mut_slice(), &version_map, 1),
-                Err(VersionizeError::Semantic(
-                    "Target version does not implement the virtio-balloon device.".to_string()
-                ))
-            );
-
             version_map
                 .new_version()
                 .set_type_version(DeviceStates::type_id(), 2);
@@ -814,16 +772,6 @@ mod tests {
             version_map
                 .new_version()
                 .set_type_version(DeviceStates::type_id(), 4);
-
-            // Entropy device not supported in version < 4
-            assert_eq!(
-                vmm.mmio_device_manager
-                    .save()
-                    .serialize(&mut buf.as_mut_slice(), &version_map, 3),
-                Err(VersionizeError::Semantic(
-                    "Target version does not support persisting the virtio-rng device.".to_string()
-                ))
-            );
 
             version_map
                 .new_version()

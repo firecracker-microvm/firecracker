@@ -14,9 +14,6 @@ use crate::request::{Body, Method, StatusCode};
 
 /// Deprecation message for the `mem_file_path` field.
 const LOAD_DEPRECATION_MESSAGE: &str = "PUT /snapshot/load: mem_file_path field is deprecated.";
-/// Deprecation message for the `version` field.
-const CREATE_WITH_VERSION_DEPRECATION_MESSAGE: &str =
-    "PUT /snapshot/create: 'version' field is deprecated.";
 /// None of the `mem_backend` or `mem_file_path` fields has been specified.
 pub const MISSING_FIELD: &str =
     "missing field: either `mem_backend` or `mem_file_path` is required";
@@ -56,19 +53,9 @@ pub(crate) fn parse_patch_vm_state(body: &Body) -> Result<ParsedRequest, Error> 
 
 fn parse_put_snapshot_create(body: &Body) -> Result<ParsedRequest, Error> {
     let snapshot_config = serde_json::from_slice::<CreateSnapshotParams>(body.raw())?;
-    let uses_deprecated_version_field = snapshot_config.version.is_some();
-
-    let mut parsed_req = ParsedRequest::new_sync(VmmAction::CreateSnapshot(snapshot_config));
-    // `version` field is deprecated as a parameter for `CreateSnapshotParams`.
-    // Add a deprecation message if the request includes the parameter.
-    if uses_deprecated_version_field {
-        METRICS.deprecated_api.deprecated_http_api_calls.inc();
-        parsed_req
-            .parsing_info()
-            .append_deprecation_message(CREATE_WITH_VERSION_DEPRECATION_MESSAGE);
-    }
-
-    Ok(parsed_req)
+    Ok(ParsedRequest::new_sync(VmmAction::CreateSnapshot(
+        snapshot_config,
+    )))
 }
 
 fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, Error> {
@@ -127,7 +114,7 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, Error> {
 
 #[cfg(test)]
 mod tests {
-    use vmm::vmm_config::snapshot::{MemBackendConfig, MemBackendType, Version};
+    use vmm::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
 
     use super::*;
     use crate::parsed_request::tests::{depr_action_from_req, vmm_action_from_request};
@@ -141,21 +128,15 @@ mod tests {
         let body = r#"{
             "snapshot_type": "Diff",
             "snapshot_path": "foo",
-            "mem_file_path": "bar",
-            "version": "0.23.0"
+            "mem_file_path": "bar"
         }"#;
         let expected_config = CreateSnapshotParams {
             snapshot_type: SnapshotType::Diff,
             snapshot_path: PathBuf::from("foo"),
             mem_file_path: PathBuf::from("bar"),
-            version: Some(Version::new(0, 23, 0)),
         };
-        let parsed_request = parse_put_snapshot(&Body::new(body), Some("create")).unwrap();
         assert_eq!(
-            depr_action_from_req(
-                parsed_request,
-                Some(CREATE_WITH_VERSION_DEPRECATION_MESSAGE.to_string())
-            ),
+            vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some("create")).unwrap()),
             VmmAction::CreateSnapshot(expected_config)
         );
 
@@ -167,7 +148,6 @@ mod tests {
             snapshot_type: SnapshotType::Full,
             snapshot_path: PathBuf::from("foo"),
             mem_file_path: PathBuf::from("bar"),
-            version: None,
         };
         assert_eq!(
             vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some("create")).unwrap()),

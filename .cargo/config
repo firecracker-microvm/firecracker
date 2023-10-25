@@ -9,6 +9,7 @@ rustflags = [
   "-Wclippy::cast_sign_loss",
   "-Wmissing_debug_implementations",
   "-Wclippy::exit",
+  "-Wclippy::tests_outside_test_module",
 ]
 
 [net]

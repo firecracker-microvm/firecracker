@@ -944,7 +944,7 @@ mod tests {
         for syscall in EXTRA_SYSCALLS.iter() {
             rule_map
                 .entry(*syscall)
-                .or_insert_with(std::vec::Vec::new)
+                .or_default()
                 .append(&mut vec![SeccompRule::new(vec![], SeccompAction::Allow)]);
         }
 

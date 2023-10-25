@@ -31,9 +31,9 @@ only_one_guest_kernel = pytest.mark.parametrize(
 )
 
 
-def snapshot_create_producer(vm, target_version):
+def snapshot_create_producer(vm):
     """Produce results for snapshot create tests."""
-    vm.snapshot_full(target_version=target_version)
+    vm.snapshot_full()
     metrics = vm.flush_metrics()
 
     value = metrics["latencies_us"]["full_create_snapshot"] / USEC_IN_MSEC
@@ -178,7 +178,6 @@ def test_snapshot_create_latency(
         func=snapshot_create_producer,
         func_kwargs={
             "vm": vm,
-            "target_version": None,
         },
     )
 
