@@ -254,7 +254,6 @@ pub enum DefaultBrandStringError {
 // (https://github.com/firecracker-microvm/firecracker/issues/3347)
 #[allow(
     clippy::indexing_slicing,
-    clippy::integer_arithmetic,
     clippy::arithmetic_side_effects
 )]
 #[inline]
