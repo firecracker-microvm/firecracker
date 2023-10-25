@@ -211,7 +211,7 @@ mod tests {
             let base_block = rand::rand_bytes(block_size);
             base_file.write_all(&base_block).unwrap();
             diff_file
-                .seek(SeekFrom::Current(block_size as i64))
+                .seek(SeekFrom::Current(i64::try_from(block_size).unwrap()))
                 .unwrap();
             expected_result.extend(base_block);
 

@@ -740,8 +740,8 @@ pub(crate) mod tests {
     #[test]
     fn test_virtio_features() {
         // Test all feature combinations.
-        for deflate_on_oom in vec![true, false].iter() {
-            for stats_interval in vec![0, 1].iter() {
+        for deflate_on_oom in [true, false].iter() {
+            for stats_interval in [0, 1].iter() {
                 let mut balloon = Balloon::new(0, *deflate_on_oom, *stats_interval, false).unwrap();
                 assert_eq!(balloon.device_type(), TYPE_BALLOON);
 

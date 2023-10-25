@@ -426,7 +426,7 @@ pub(crate) mod tests {
     }
 
     fn set_device_status(d: &mut MmioTransport, status: u32) {
-        let mut buf = vec![0; 4];
+        let mut buf = [0; 4];
         write_le_u32(&mut buf[..], status);
         d.bus_write(0x70, &buf[..]);
     }
@@ -735,7 +735,7 @@ pub(crate) mod tests {
             device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FEATURES_OK
         );
 
-        let mut buf = vec![0; 4];
+        let mut buf = [0; 4];
         let queue_len = d.locked_device().queues().len();
         for q in 0..queue_len {
             d.queue_select = q.try_into().unwrap();
@@ -788,7 +788,7 @@ pub(crate) mod tests {
         );
 
         // Setup queue data structures
-        let mut buf = vec![0; 4];
+        let mut buf = [0; 4];
         let queues_count = d.locked_device().queues().len();
         for q in 0..queues_count {
             d.queue_select = q.try_into().unwrap();
@@ -822,7 +822,7 @@ pub(crate) mod tests {
     fn test_bus_device_reset() {
         let m = GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), 0x1000)], false).unwrap();
         let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())));
-        let mut buf = vec![0; 4];
+        let mut buf = [0; 4];
 
         assert!(!d.are_queues_valid());
         assert!(!d.locked_device().is_activated());

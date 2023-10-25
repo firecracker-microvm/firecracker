@@ -203,7 +203,7 @@ impl Compiler {
                 .syscall_table
                 .get_syscall_nr(&syscall_name)
                 .ok_or_else(|| CompilationError::SyscallName(syscall_name.clone(), self.arch))?;
-            let rule_accumulator = rule_map.entry(syscall_nr).or_insert_with(Vec::new);
+            let rule_accumulator = rule_map.entry(syscall_nr).or_default();
 
             match syscall_rule.conditions {
                 Some(conditions) => rule_accumulator.push(SeccompRule::new(conditions, action)),
