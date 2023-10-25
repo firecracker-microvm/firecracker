@@ -467,11 +467,7 @@ impl CpuidKey {
 impl std::cmp::PartialOrd for CpuidKey {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(
-            self.leaf
-                .cmp(&other.leaf)
-                .then(self.subleaf.cmp(&other.subleaf)),
-        )
+        Some(std::cmp::Ord::cmp(self, other))
     }
 }
 
