@@ -27,7 +27,7 @@ pub fn strip(templates: Vec<CustomCpuTemplate>) -> Result<Vec<CustomCpuTemplate>
     // Convert back to `Vec<CustomCpuTemplate>`.
     let templates = cpuid_modifiers_maps
         .into_iter()
-        .zip(msr_modifiers_maps.into_iter())
+        .zip(msr_modifiers_maps)
         .map(|(cpuid_modifiers_map, msr_modifiers_map)| {
             let cpuid_modifiers =
                 Vec::<CpuidLeafModifier>::from(CpuidModifierMap(cpuid_modifiers_map));
