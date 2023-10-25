@@ -291,7 +291,7 @@ mod tests {
             let base_block = rand::rand_alphanumerics(block_size).into_string().unwrap();
             base_file.write_all(base_block.as_bytes()).unwrap();
             diff_file
-                .seek(SeekFrom::Current(block_size as i64))
+                .seek(SeekFrom::Current(i64::try_from(block_size).unwrap()))
                 .unwrap();
             expected_result.append(&mut base_block.into_bytes());
 
