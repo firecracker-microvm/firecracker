@@ -19,6 +19,9 @@
   `snapshot-editor` tool to print MicrovmState of vmstate snapshot file in
   a readable format. Also made the `vcpu-states` subcommand available on
   x86_64.
+- [#4063](https://github.com/firecracker-microvm/firecracker/pull/4063):
+  Adds source-level instrumentation based tracing. See
+  [tracing](./docs/tracing.md) for more details.
 
 ### Changed
 
