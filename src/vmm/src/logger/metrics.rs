@@ -72,6 +72,7 @@ use serde::{Serialize, Serializer};
 use vm_superio::rtc_pl031::RtcEvents;
 
 use super::FcLineWriter;
+use crate::devices::virtio::block_metrics;
 use crate::devices::virtio::net::metrics as net_metrics;
 #[cfg(target_arch = "aarch64")]
 use crate::warn;
@@ -551,70 +552,6 @@ impl BalloonDeviceMetrics {
     }
 }
 
-/// Block Device associated metrics.
-#[derive(Debug, Default, Serialize)]
-pub struct BlockDeviceMetrics {
-    /// Number of times when activate failed on a block device.
-    pub activate_fails: SharedIncMetric,
-    /// Number of times when interacting with the space config of a block device failed.
-    pub cfg_fails: SharedIncMetric,
-    /// No available buffer for the block queue.
-    pub no_avail_buffer: SharedIncMetric,
-    /// Number of times when handling events on a block device failed.
-    pub event_fails: SharedIncMetric,
-    /// Number of failures in executing a request on a block device.
-    pub execute_fails: SharedIncMetric,
-    /// Number of invalid requests received for this block device.
-    pub invalid_reqs_count: SharedIncMetric,
-    /// Number of flushes operation triggered on this block device.
-    pub flush_count: SharedIncMetric,
-    /// Number of events triggerd on the queue of this block device.
-    pub queue_event_count: SharedIncMetric,
-    /// Number of events ratelimiter-related.
-    pub rate_limiter_event_count: SharedIncMetric,
-    /// Number of update operation triggered on this block device.
-    pub update_count: SharedIncMetric,
-    /// Number of failures while doing update on this block device.
-    pub update_fails: SharedIncMetric,
-    /// Number of bytes read by this block device.
-    pub read_bytes: SharedIncMetric,
-    /// Number of bytes written by this block device.
-    pub write_bytes: SharedIncMetric,
-    /// Number of successful read operations.
-    pub read_count: SharedIncMetric,
-    /// Number of successful write operations.
-    pub write_count: SharedIncMetric,
-    /// Number of rate limiter throttling events.
-    pub rate_limiter_throttled_events: SharedIncMetric,
-    /// Number of virtio events throttled because of the IO engine.
-    /// This happens when the io_uring submission queue is full.
-    pub io_engine_throttled_events: SharedIncMetric,
-}
-impl BlockDeviceMetrics {
-    /// Const default construction.
-    pub const fn new() -> Self {
-        Self {
-            activate_fails: SharedIncMetric::new(),
-            cfg_fails: SharedIncMetric::new(),
-            no_avail_buffer: SharedIncMetric::new(),
-            event_fails: SharedIncMetric::new(),
-            execute_fails: SharedIncMetric::new(),
-            invalid_reqs_count: SharedIncMetric::new(),
-            flush_count: SharedIncMetric::new(),
-            queue_event_count: SharedIncMetric::new(),
-            rate_limiter_event_count: SharedIncMetric::new(),
-            update_count: SharedIncMetric::new(),
-            update_fails: SharedIncMetric::new(),
-            read_bytes: SharedIncMetric::new(),
-            write_bytes: SharedIncMetric::new(),
-            read_count: SharedIncMetric::new(),
-            write_count: SharedIncMetric::new(),
-            rate_limiter_throttled_events: SharedIncMetric::new(),
-            io_engine_throttled_events: SharedIncMetric::new(),
-        }
-    }
-}
-
 /// Metrics specific to the i8042 device.
 #[derive(Debug, Default, Serialize)]
 pub struct I8042DeviceMetrics {
@@ -1063,7 +1000,23 @@ impl Serialize for SerializeToUtcTimestampMs {
 
 #[derive(Default, Debug)]
 // By using the below structure in FirecrackerMetrics it is easy
-// to serialise Firecracker app_metrics as a signle json object which
+// to serialise Firecracker app_metrics as a single json object which
+// otherwise would have required extra string manipulation to pack
+// block as part of the same json object as FirecrackerMetrics.
+pub struct BlockMetricsSerializeProxy;
+
+impl Serialize for BlockMetricsSerializeProxy {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        block_metrics::flush_metrics(serializer)
+    }
+}
+
+#[derive(Default, Debug)]
+// By using the below structure in FirecrackerMetrics it is easy
+// to serialise Firecracker app_metrics as a single json object which
 // otherwise would have required extra string manipulation to pack
 // net as part of the same json object as FirecrackerMetrics.
 pub struct NetMetricsSerializeProxy;
@@ -1086,7 +1039,7 @@ pub struct FirecrackerMetrics {
     /// A balloon device's related metrics.
     pub balloon: BalloonDeviceMetrics,
     /// A block device's related metrics.
-    pub block: BlockDeviceMetrics,
+    pub block: block_metrics::BlockDeviceMetrics,
     /// Metrics related to deprecated API calls.
     pub deprecated_api: DeprecatedApiMetrics,
     /// Metrics related to API GET requests.
@@ -1131,7 +1084,7 @@ impl FirecrackerMetrics {
             utc_timestamp_ms: SerializeToUtcTimestampMs::new(),
             api_server: ApiServerMetrics::new(),
             balloon: BalloonDeviceMetrics::new(),
-            block: BlockDeviceMetrics::new(),
+            block: block_metrics::BlockDeviceMetrics::new(),
             deprecated_api: DeprecatedApiMetrics::new(),
             get_api_requests: GetRequestsMetrics::new(),
             i8042: I8042DeviceMetrics::new(),
