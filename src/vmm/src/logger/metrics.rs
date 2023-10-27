@@ -1038,8 +1038,9 @@ pub struct FirecrackerMetrics {
     pub api_server: ApiServerMetrics,
     /// A balloon device's related metrics.
     pub balloon: BalloonDeviceMetrics,
+    #[serde(flatten)]
     /// A block device's related metrics.
-    pub block: block_metrics::BlockDeviceMetrics,
+    pub block_ser: BlockMetricsSerializeProxy,
     /// Metrics related to deprecated API calls.
     pub deprecated_api: DeprecatedApiMetrics,
     /// Metrics related to API GET requests.
@@ -1084,7 +1085,7 @@ impl FirecrackerMetrics {
             utc_timestamp_ms: SerializeToUtcTimestampMs::new(),
             api_server: ApiServerMetrics::new(),
             balloon: BalloonDeviceMetrics::new(),
-            block: block_metrics::BlockDeviceMetrics::new(),
+            block_ser: BlockMetricsSerializeProxy {},
             deprecated_api: DeprecatedApiMetrics::new(),
             get_api_requests: GetRequestsMetrics::new(),
             i8042: I8042DeviceMetrics::new(),

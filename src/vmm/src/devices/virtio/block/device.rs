@@ -27,12 +27,13 @@ use super::{
     io as block_io, BlockError, BLOCK_CONFIG_SPACE_SIZE, BLOCK_QUEUE_SIZES, SECTOR_SHIFT,
     SECTOR_SIZE,
 };
+use crate::devices::virtio::block_metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
 use crate::devices::virtio::gen::virtio_blk::{
     VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES, VIRTIO_F_VERSION_1,
 };
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::{IrqTrigger, IrqType};
-use crate::logger::{error, warn, IncMetric, METRICS};
+use crate::logger::{error, warn, IncMetric};
 use crate::rate_limiter::{BucketUpdate, RateLimiter};
 use crate::vstate::memory::GuestMemoryMmap;
 
@@ -216,6 +217,7 @@ pub struct Block {
     pub(crate) root_device: bool,
     pub(crate) rate_limiter: RateLimiter,
     is_io_engine_throttled: bool,
+    pub(crate) metrics: Arc<BlockDeviceMetrics>,
 }
 
 macro_rules! unwrap_async_file_engine_or_return {
@@ -267,7 +269,7 @@ impl Block {
         let queues = BLOCK_QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect();
 
         Ok(Block {
-            id,
+            id: id.clone(),
             root_device: is_disk_root,
             partuuid,
             rate_limiter,
@@ -281,6 +283,7 @@ impl Block {
             irq_trigger: IrqTrigger::new().map_err(BlockError::IrqTrigger)?,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(BlockError::EventFd)?,
             is_io_engine_throttled: false,
+            metrics: BlockMetricsPerDevice::alloc(id),
         })
     }
 
@@ -289,14 +292,14 @@ impl Block {
     /// This function is called by the event manager when the guest notifies us
     /// about new buffers in the queue.
     pub(crate) fn process_queue_event(&mut self) {
-        METRICS.block.queue_event_count.inc();
+        self.metrics.queue_event_count.inc();
         if let Err(err) = self.queue_evts[0].read() {
             error!("Failed to get queue event: {:?}", err);
-            METRICS.block.event_fails.inc();
+            self.metrics.event_fails.inc();
         } else if self.rate_limiter.is_blocked() {
-            METRICS.block.rate_limiter_throttled_events.inc();
+            self.metrics.rate_limiter_throttled_events.inc();
         } else if self.is_io_engine_throttled {
-            METRICS.block.io_engine_throttled_events.inc();
+            self.metrics.io_engine_throttled_events.inc();
         } else {
             self.process_virtio_queues();
         }
@@ -308,7 +311,7 @@ impl Block {
     }
 
     pub(crate) fn process_rate_limiter_event(&mut self) {
-        METRICS.block.rate_limiter_event_count.inc();
+        self.metrics.rate_limiter_event_count.inc();
         // Upon rate limiter event, call the rate limiter handler
         // and restart processing the queue.
         if self.rate_limiter.event_handler().is_ok() {
@@ -322,6 +325,7 @@ impl Block {
         len: u32,
         mem: &GuestMemoryMmap,
         irq_trigger: &IrqTrigger,
+        block_metrics: &BlockDeviceMetrics,
     ) {
         queue.add_used(mem, index, len).unwrap_or_else(|err| {
             error!("Failed to add available descriptor head {}: {}", index, err)
@@ -329,7 +333,7 @@ impl Block {
 
         if queue.prepare_kick(mem) {
             irq_trigger.trigger_irq(IrqType::Vring).unwrap_or_else(|_| {
-                METRICS.block.event_fails.inc();
+                block_metrics.event_fails.inc();
             });
         }
     }
@@ -349,16 +353,16 @@ impl Block {
                         // Stop processing the queue and return this descriptor chain to the
                         // avail ring, for later processing.
                         queue.undo_pop();
-                        METRICS.block.rate_limiter_throttled_events.inc();
+                        self.metrics.rate_limiter_throttled_events.inc();
                         break;
                     }
 
                     used_any = true;
-                    request.process(&mut self.disk, head.index, mem)
+                    request.process(&mut self.disk, head.index, mem, &self.metrics)
                 }
                 Err(err) => {
                     error!("Failed to parse available descriptor chain: {:?}", err);
-                    METRICS.block.execute_fails.inc();
+                    self.metrics.execute_fails.inc();
                     ProcessingResult::Executed(FinishedRequest {
                         num_bytes_to_mem: 0,
                         desc_idx: head.index,
@@ -380,6 +384,7 @@ impl Block {
                         finished.num_bytes_to_mem,
                         mem,
                         &self.irq_trigger,
+                        &self.metrics,
                     );
                 }
             }
@@ -392,7 +397,7 @@ impl Block {
         }
 
         if !used_any {
-            METRICS.block.no_avail_buffer.inc();
+            self.metrics.no_avail_buffer.inc();
         }
     }
 
@@ -423,7 +428,7 @@ impl Block {
                             ))),
                         ),
                     };
-                    let finished = pending.finish(mem, res);
+                    let finished = pending.finish(mem, res, &self.metrics);
 
                     Self::add_used_descriptor(
                         queue,
@@ -431,6 +436,7 @@ impl Block {
                         finished.num_bytes_to_mem,
                         mem,
                         &self.irq_trigger,
+                        &self.metrics,
                     );
                 }
             }
@@ -466,7 +472,7 @@ impl Block {
         // Kick the driver to pick up the changes.
         self.irq_trigger.trigger_irq(IrqType::Config).unwrap();
 
-        METRICS.block.update_count.inc();
+        self.metrics.update_count.inc();
         Ok(())
     }
 
@@ -579,7 +585,7 @@ impl VirtioDevice for Block {
         let config_len = self.config_space.len() as u64;
         if offset >= config_len {
             error!("Failed to read config space");
-            METRICS.block.cfg_fails.inc();
+            self.metrics.cfg_fails.inc();
             return;
         }
         if let Some(end) = offset.checked_add(data.len() as u64) {
@@ -599,7 +605,7 @@ impl VirtioDevice for Block {
             .and_then(|(start, end)| self.config_space.get_mut(start..end))
         else {
             error!("Failed to write config space");
-            METRICS.block.cfg_fails.inc();
+            self.metrics.cfg_fails.inc();
             return;
         };
 
@@ -967,7 +973,7 @@ mod tests {
             .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
 
         check_metric_after_block!(
-            &METRICS.block.read_count,
+            &block.metrics.read_count,
             1,
             simulate_queue_and_async_completion_events(&mut block, true)
         );
@@ -1038,7 +1044,7 @@ mod tests {
             vq.used.idx.set(0);
 
             check_metric_after_block!(
-                &METRICS.block.invalid_reqs_count,
+                &block.metrics.invalid_reqs_count,
                 1,
                 simulate_queue_and_async_completion_events(&mut block, true)
             );
@@ -1066,7 +1072,7 @@ mod tests {
             mem.write_slice(&rand_data[..512], data_addr).unwrap();
 
             check_metric_after_block!(
-                &METRICS.block.write_count,
+                &block.metrics.write_count,
                 1,
                 simulate_queue_and_async_completion_events(&mut block, true)
             );
@@ -1117,7 +1123,7 @@ mod tests {
             mem.write_slice(empty_data.as_slice(), data_addr).unwrap();
 
             check_metric_after_block!(
-                &METRICS.block.read_count,
+                &block.metrics.read_count,
                 1,
                 simulate_queue_and_async_completion_events(&mut block, true)
             );
@@ -1260,7 +1266,7 @@ mod tests {
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
 
             check_metric_after_block!(
-                &METRICS.block.invalid_reqs_count,
+                &block.metrics.invalid_reqs_count,
                 1,
                 simulate_queue_and_async_completion_events(&mut block, true)
             );
@@ -1555,7 +1561,7 @@ mod tests {
         {
             // Trigger the attempt to write.
             check_metric_after_block!(
-                &METRICS.block.rate_limiter_throttled_events,
+                &block.metrics.rate_limiter_throttled_events,
                 1,
                 simulate_queue_event(&mut block, Some(false))
             );
@@ -1573,7 +1579,7 @@ mod tests {
         // Following write procedure should succeed because bandwidth should now be available.
         {
             check_metric_after_block!(
-                &METRICS.block.rate_limiter_throttled_events,
+                &block.metrics.rate_limiter_throttled_events,
                 0,
                 block.process_rate_limiter_event()
             );
@@ -1621,7 +1627,7 @@ mod tests {
         {
             // Trigger the attempt to write.
             check_metric_after_block!(
-                &METRICS.block.rate_limiter_throttled_events,
+                &block.metrics.rate_limiter_throttled_events,
                 1,
                 simulate_queue_event(&mut block, Some(false))
             );
@@ -1636,7 +1642,7 @@ mod tests {
         {
             // Trigger the attempt to write.
             check_metric_after_block!(
-                &METRICS.block.rate_limiter_throttled_events,
+                &block.metrics.rate_limiter_throttled_events,
                 1,
                 simulate_queue_event(&mut block, Some(false))
             );
@@ -1654,7 +1660,7 @@ mod tests {
         // Following write procedure should succeed because ops budget should now be available.
         {
             check_metric_after_block!(
-                &METRICS.block.rate_limiter_throttled_events,
+                &block.metrics.rate_limiter_throttled_events,
                 0,
                 block.process_rate_limiter_event()
             );
