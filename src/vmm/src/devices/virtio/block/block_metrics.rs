@@ -73,8 +73,9 @@
 //! The system implements 1 type of metrics:
 //! * Shared Incremental Metrics (SharedIncMetrics) - dedicated for the metrics which need a counter
 //! (i.e the number of times an API request failed). These metrics are reset upon flush.
-//! We use BLOCK_METRICS instead of adding an entry of BlockDeviceMetrics
-//! in block so that metrics are accessible to be flushed even from signal handlers.
+//! We add BlockDeviceMetrics entries from BLOCK_METRICS into Block device instead of
+//! Block device having individual separate BlockDeviceMetrics entries because Block device is not
+//! accessible from signal handlers to flush metrics and BLOCK_METRICS is.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
@@ -134,7 +135,7 @@ static BLOCK_METRICS: RwLock<BlockMetricsPerDevice> = RwLock::new(BlockMetricsPe
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let block_metrics = BLOCK_METRICS.read().unwrap();
     let metrics_len = block_metrics.metrics.len();
-    // +1 to accomodate aggregate block metrics
+    // +1 to accommodate aggregate block metrics
     let mut seq = serializer.serialize_map(Some(1 + metrics_len))?;
 
     let mut block_aggregated: BlockDeviceMetrics = BlockDeviceMetrics::default();
@@ -167,7 +168,7 @@ pub struct BlockDeviceMetrics {
     pub invalid_reqs_count: SharedIncMetric,
     /// Number of flushes operation triggered on this block device.
     pub flush_count: SharedIncMetric,
-    /// Number of events triggerd on the queue of this block device.
+    /// Number of events triggered on the queue of this block device.
     pub queue_event_count: SharedIncMetric,
     /// Number of events ratelimiter-related.
     pub rate_limiter_event_count: SharedIncMetric,
@@ -219,5 +220,98 @@ impl BlockDeviceMetrics {
             .add(other.rate_limiter_throttled_events.fetch_diff());
         self.io_engine_throttled_events
             .add(other.io_engine_throttled_events.fetch_diff());
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    #[test]
+    fn test_max_block_dev_metrics() {
+        // Note: this test has nothing to do with
+        // block structure or IRQs, this is just to allocate
+        // metrics for max number of devices that system can have.
+        // We have 5-23 IRQ for block devices on x86_64 so, there
+        // are 19 block devices at max. And, even though we have more
+        // devices on aarch64 but we stick to 19 to keep test common.
+        const MAX_BLOCK_DEVICES: usize = 19;
+
+        // This is to make sure that RwLock for BLOCK_METRICS is good.
+        assert!(BLOCK_METRICS.read().is_ok());
+        assert!(BLOCK_METRICS.write().is_ok());
+
+        // BLOCK_METRICS is in short RwLock on Vec of BlockDeviceMetrics.
+        // Normally, pointer to unique entries of BLOCK_METRICS are stored
+        // in Block device so that Block device can do self.metrics.* to
+        // update a metric. We try to do something similar here without
+        // using Block device by allocating max number of
+        // BlockDeviceMetrics in BLOCK_METRICS and store pointer to
+        // each entry in the local `metrics` vec.
+        // We then update 1 IncMetric and 2 SharedMetric for each metrics
+        // and validate if the metrics for per device was updated as
+        // expected.
+        let mut metrics: Vec<Arc<BlockDeviceMetrics>> = Vec::new();
+        for i in 0..MAX_BLOCK_DEVICES {
+            let devn: String = format!("drv{}", i);
+            metrics.push(BlockMetricsPerDevice::alloc(devn.clone()));
+            // update IncMetric
+            metrics[i].activate_fails.inc();
+            // update SharedMetric
+            metrics[i].read_bytes.add(10);
+            metrics[i].write_bytes.add(5);
+
+            if i == 0 {
+                // Unit tests run in parallel and we have
+                // `test_single_block_dev_metrics` that also increases
+                // the IncMetric count of drv0 by 1 (intentional to check
+                // thread safety) so we check if the count is >=1.
+                assert!(metrics[i].activate_fails.count() >= 1);
+
+                // For the same reason as above since we have
+                // another unit test running in parallel which updates
+                // drv0 metrics we check if count is >=10.
+                assert!(metrics[i].read_bytes.count() >= 10);
+            } else {
+                assert!(metrics[i].activate_fails.count() == 1);
+                assert!(metrics[i].read_bytes.count() == 10);
+            }
+            assert_eq!(metrics[i].write_bytes.count(), 5);
+        }
+    }
+
+    #[test]
+    fn test_single_block_dev_metrics() {
+        // Use drv0 so that we can check thread safety with the
+        // `test_max_block_dev_metrics` which also uses the same name.
+        let devn = "drv0";
+
+        // This is to make sure that RwLock for BLOCK_METRICS is good.
+        assert!(BLOCK_METRICS.read().is_ok());
+        assert!(BLOCK_METRICS.write().is_ok());
+
+        let test_metrics = BlockMetricsPerDevice::alloc(String::from(devn));
+        // Test to update IncMetrics
+        test_metrics.activate_fails.inc();
+        assert!(
+            test_metrics.activate_fails.count() > 0,
+            "{}",
+            test_metrics.activate_fails.count()
+        );
+
+        // We expect only 2 tests (this and test_max_block_dev_metrics)
+        // to update activate_fails count for drv0.
+        assert!(
+            test_metrics.activate_fails.count() <= 2,
+            "{}",
+            test_metrics.activate_fails.count()
+        );
+
+        // Test to update SharedMetrics
+        test_metrics.read_bytes.add(5);
+        // We expect only 2 tests (this and test_max_block_dev_metrics)
+        // to update read_bytes count for drv0 by 5.
+        assert!(test_metrics.read_bytes.count() >= 5);
+        assert!(test_metrics.read_bytes.count() <= 15);
     }
 }
