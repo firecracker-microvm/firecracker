@@ -24,7 +24,6 @@ designed with the following goals in mind:
 
 import inspect
 import os
-import platform
 import re
 import shutil
 import sys
@@ -196,8 +195,8 @@ def change_net_config_space_bin(test_fc_session_root_path):
     yield change_net_config_space_bin
 
 
-@pytest.fixture(scope="session")
-def bin_seccomp_paths(test_fc_session_root_path):
+@pytest.fixture
+def bin_seccomp_paths():
     """Build jailers and jailed binaries to test seccomp.
 
     They currently consist of:
@@ -206,48 +205,20 @@ def bin_seccomp_paths(test_fc_session_root_path):
     * a jailed binary that follows the seccomp rules;
     * a jailed binary that breaks the seccomp rules.
     """
-    seccomp_build_path = (
-        Path(test_fc_session_root_path) / build_tools.CARGO_RELEASE_REL_PATH
-    )
-    release_binaries_path = seccomp_build_path / build_tools.RELEASE_BINARIES_REL_PATH
-
-    seccomp_examples = ["jailer", "harmless", "malicious", "panic"]
-
-    demos = {}
-
-    for example in seccomp_examples:
-        build_tools.cargo_build(
-            seccomp_build_path,
-            f"--release --target {platform.machine()}-unknown-linux-musl --example seccomp_{example}",
-        )
-
-        demos[f"demo_{example}"] = release_binaries_path / f"examples/seccomp_{example}"
-
+    demos = {
+        f"demo_{example}": build_tools.get_example(f"seccomp_{example}")
+        for example in ["jailer", "harmless", "malicious", "panic"]
+    }
     yield demos
 
 
-@pytest.fixture(scope="session")
-def uffd_handler_paths(test_fc_session_root_path):
+@pytest.fixture
+def uffd_handler_paths():
     """Build UFFD handler binaries."""
-    uffd_build_path = (
-        Path(test_fc_session_root_path) / build_tools.CARGO_RELEASE_REL_PATH
-    )
-    release_binaries_path = uffd_build_path / build_tools.RELEASE_BINARIES_REL_PATH
-
-    uffd_handlers = ["malicious", "valid"]
-
-    handlers = {}
-
-    for handler in uffd_handlers:
-        build_tools.cargo_build(
-            uffd_build_path,
-            f"--release --target {platform.machine()}-unknown-linux-musl --example uffd_{handler}_handler",
-        )
-
-        handlers[f"{handler}_handler"] = (
-            release_binaries_path / f"examples/uffd_{handler}_handler"
-        )
-
+    handlers = {
+        f"{handler}_handler": build_tools.get_example(f"uffd_{handler}_handler")
+        for handler in ["malicious", "valid"]
+    }
     yield handlers
 
 
