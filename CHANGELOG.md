@@ -9,6 +9,11 @@
   each individual net device will emit metrics under the label `"net_{iface_id}"`.
   E.g. the associated metrics for the endpoint `"/network-interfaces/eth0"` will
   be available under `"net_eth0"` in the metrics json object.
+- [#4202](https://github.com/firecracker-microvm/firecracker/pull/4202):
+  Added support for per block device metrics. In addition to aggregate metrics `block`,
+  each individual block device will emit metrics under the label `"block_{drive_id}"`.
+  E.g. the associated metrics for the endpoint `"/drives/{drive_id}"` will
+  be available under `"block_drive_id"` in the metrics json object.
 
 ### Changed
 
