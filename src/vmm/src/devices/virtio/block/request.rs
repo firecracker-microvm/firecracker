@@ -12,12 +12,13 @@ use vm_memory::GuestMemoryError;
 use super::super::DescriptorChain;
 use super::{io as block_io, BlockError, SECTOR_SHIFT};
 use crate::devices::virtio::block::device::DiskProperties;
+use crate::devices::virtio::block_metrics::BlockDeviceMetrics;
 pub use crate::devices::virtio::gen::virtio_blk::{
     VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK, VIRTIO_BLK_S_UNSUPP,
     VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT,
 };
 use crate::devices::virtio::SECTOR_SIZE;
-use crate::logger::{error, IncMetric, METRICS};
+use crate::logger::{error, IncMetric};
 use crate::rate_limiter::{RateLimiter, TokenType};
 use crate::vstate::memory::{ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
@@ -98,7 +99,12 @@ pub struct PendingRequest {
 }
 
 impl PendingRequest {
-    fn write_status_and_finish(self, status: &Status, mem: &GuestMemoryMmap) -> FinishedRequest {
+    fn write_status_and_finish(
+        self,
+        status: &Status,
+        mem: &GuestMemoryMmap,
+        block_metrics: &BlockDeviceMetrics,
+    ) -> FinishedRequest {
         let (num_bytes_to_mem, status_code) = match status {
             Status::Ok { num_bytes_to_mem } => {
                 (*num_bytes_to_mem, u8::try_from(VIRTIO_BLK_S_OK).unwrap())
@@ -107,7 +113,7 @@ impl PendingRequest {
                 num_bytes_to_mem,
                 err,
             } => {
-                METRICS.block.invalid_reqs_count.inc();
+                block_metrics.invalid_reqs_count.inc();
                 error!(
                     "Failed to execute {:?} virtio block request: {:?}",
                     self.r#type, err
@@ -115,7 +121,7 @@ impl PendingRequest {
                 (*num_bytes_to_mem, u8::try_from(VIRTIO_BLK_S_IOERR).unwrap())
             }
             Status::Unsupported { op } => {
-                METRICS.block.invalid_reqs_count.inc();
+                block_metrics.invalid_reqs_count.inc();
                 error!("Received unsupported virtio block request: {}", op);
                 (0, u8::try_from(VIRTIO_BLK_S_UNSUPP).unwrap())
             }
@@ -139,26 +145,31 @@ impl PendingRequest {
         }
     }
 
-    pub fn finish(self, mem: &GuestMemoryMmap, res: Result<u32, IoErr>) -> FinishedRequest {
+    pub fn finish(
+        self,
+        mem: &GuestMemoryMmap,
+        res: Result<u32, IoErr>,
+        block_metrics: &BlockDeviceMetrics,
+    ) -> FinishedRequest {
         let status = match (res, self.r#type) {
             (Ok(transferred_data_len), RequestType::In) => {
                 let status = Status::from_data(self.data_len, transferred_data_len, true);
-                METRICS.block.read_bytes.add(transferred_data_len.into());
+                block_metrics.read_bytes.add(transferred_data_len.into());
                 if let Status::Ok { .. } = status {
-                    METRICS.block.read_count.inc();
+                    block_metrics.read_count.inc();
                 }
                 status
             }
             (Ok(transferred_data_len), RequestType::Out) => {
                 let status = Status::from_data(self.data_len, transferred_data_len, false);
-                METRICS.block.write_bytes.add(transferred_data_len.into());
+                block_metrics.write_bytes.add(transferred_data_len.into());
                 if let Status::Ok { .. } = status {
-                    METRICS.block.write_count.inc();
+                    block_metrics.write_count.inc();
                 }
                 status
             }
             (Ok(_), RequestType::Flush) => {
-                METRICS.block.flush_count.inc();
+                block_metrics.flush_count.inc();
                 Status::Ok {
                     num_bytes_to_mem: 0,
                 }
@@ -173,7 +184,7 @@ impl PendingRequest {
             },
         };
 
-        self.write_status_and_finish(&status, mem)
+        self.write_status_and_finish(&status, mem, block_metrics)
     }
 }
 
@@ -357,6 +368,7 @@ impl Request {
         disk: &mut DiskProperties,
         desc_idx: u16,
         mem: &GuestMemoryMmap,
+        block_metrics: &BlockDeviceMetrics,
     ) -> ProcessingResult {
         let pending = self.to_pending_request(desc_idx);
         let res = match self.r#type {
@@ -380,25 +392,27 @@ impl Request {
                     .write_slice(disk.image_id(), self.data_addr)
                     .map(|_| VIRTIO_BLK_ID_BYTES)
                     .map_err(IoErr::GetId);
-                return ProcessingResult::Executed(pending.finish(mem, res));
+                return ProcessingResult::Executed(pending.finish(mem, res, block_metrics));
             }
             RequestType::Unsupported(_) => {
-                return ProcessingResult::Executed(pending.finish(mem, Ok(0)));
+                return ProcessingResult::Executed(pending.finish(mem, Ok(0), block_metrics));
             }
         };
 
         match res {
             Ok(block_io::FileEngineOk::Submitted) => ProcessingResult::Submitted,
             Ok(block_io::FileEngineOk::Executed(res)) => {
-                ProcessingResult::Executed(res.user_data.finish(mem, Ok(res.count)))
+                ProcessingResult::Executed(res.user_data.finish(mem, Ok(res.count), block_metrics))
             }
             Err(err) => {
                 if err.error.is_throttling_err() {
                     ProcessingResult::Throttled
                 } else {
-                    ProcessingResult::Executed(
-                        err.user_data.finish(mem, Err(IoErr::FileEngine(err.error))),
-                    )
+                    ProcessingResult::Executed(err.user_data.finish(
+                        mem,
+                        Err(IoErr::FileEngine(err.error)),
+                        block_metrics,
+                    ))
                 }
             }
         }

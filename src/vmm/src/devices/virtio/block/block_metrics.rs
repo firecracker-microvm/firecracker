@@ -220,25 +220,4 @@ impl BlockDeviceMetrics {
         self.io_engine_throttled_events
             .add(other.io_engine_throttled_events.fetch_diff());
     }
-    pub const fn new() -> Self {
-        Self {
-            activate_fails: SharedIncMetric::new(),
-            cfg_fails: SharedIncMetric::new(),
-            no_avail_buffer: SharedIncMetric::new(),
-            event_fails: SharedIncMetric::new(),
-            execute_fails: SharedIncMetric::new(),
-            invalid_reqs_count:SharedIncMetric::new(),
-            flush_count: SharedIncMetric::new(),
-            queue_event_count:SharedIncMetric::new(),
-            rate_limiter_event_count:SharedIncMetric::new(),
-            update_count: SharedIncMetric::new(),
-            update_fails: SharedIncMetric::new(),
-            read_bytes: SharedIncMetric::new(),
-            write_bytes: SharedIncMetric::new(),
-            read_count: SharedIncMetric::new(),
-            write_count: SharedIncMetric::new(),
-            rate_limiter_throttled_events:SharedIncMetric::new(),
-            io_engine_throttled_events:SharedIncMetric::new(),
-        }
-    }
 }
