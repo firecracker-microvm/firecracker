@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that ensure the correctness of the command line parameters."""
 
-import platform
 import subprocess
 from pathlib import Path
 
@@ -10,6 +9,7 @@ import pytest
 
 from framework.utils import run_cmd
 from host_tools.cargo_build import get_firecracker_binaries
+from host_tools.metrics import validate_fc_metrics
 
 
 def test_describe_snapshot_all_versions(
@@ -56,34 +56,7 @@ def test_cli_metrics_path(uvm_plain):
     microvm.basic_config()
     microvm.start()
     metrics = microvm.flush_metrics()
-
-    exp_keys = [
-        "utc_timestamp_ms",
-        "api_server",
-        "balloon",
-        "block",
-        "deprecated_api",
-        "get_api_requests",
-        "i8042",
-        "latencies_us",
-        "logger",
-        "mmds",
-        "net",
-        "patch_api_requests",
-        "put_api_requests",
-        "seccomp",
-        "vcpu",
-        "vmm",
-        "uart",
-        "signals",
-        "vsock",
-        "entropy",
-    ]
-
-    if platform.machine() == "aarch64":
-        exp_keys.append("rtc")
-
-    assert set(metrics.keys()) == set(exp_keys)
+    validate_fc_metrics(metrics)
 
 
 def test_cli_metrics_path_if_metrics_initialized_twice_fail(test_microvm_with_api):
