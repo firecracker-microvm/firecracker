@@ -9,6 +9,7 @@ import resource
 import stat
 import subprocess
 import time
+from pathlib import Path
 
 import psutil
 import pytest
@@ -54,22 +55,6 @@ def check_stats(filepath, stats, uid, gid):
     assert st.st_mode ^ stats == 0
 
 
-def test_default_chroot(test_microvm_with_api):
-    """
-    Test that the jailer assigns a default chroot if none is specified.
-    """
-    test_microvm = test_microvm_with_api
-
-    # Start customizing arguments.
-    # Test that firecracker's default chroot folder is indeed `/srv/jailer`.
-    test_microvm.jailer.chroot_base = None
-
-    test_microvm.spawn()
-
-    # Test the expected outcome.
-    assert os.path.exists(test_microvm.jailer.api_socket_path())
-
-
 def test_empty_jailer_id(test_microvm_with_api):
     """
     Test that the jailer ID cannot be empty.
@@ -106,6 +91,8 @@ def test_exec_file_not_exist(test_microvm_with_api, tmp_path):
 
     # Error case 1: No such file exists
     pseudo_exec_file_path = tmp_path / "pseudo_firecracker_exec_file"
+    fc_dir = Path("/srv/jailer") / pseudo_exec_file_path.name / test_microvm.id
+    fc_dir.mkdir(parents=True, exist_ok=True)
     test_microvm.jailer.exec_file = pseudo_exec_file_path
 
     with pytest.raises(
@@ -118,6 +105,8 @@ def test_exec_file_not_exist(test_microvm_with_api, tmp_path):
     # Error case 2: Not a file
     pseudo_exec_dir_path = tmp_path / "firecracker_test_dir"
     pseudo_exec_dir_path.mkdir()
+    fc_dir = Path("/srv/jailer") / pseudo_exec_dir_path.name / test_microvm.id
+    fc_dir.mkdir(parents=True, exist_ok=True)
     test_microvm.jailer.exec_file = pseudo_exec_dir_path
 
     with pytest.raises(
@@ -129,6 +118,8 @@ def test_exec_file_not_exist(test_microvm_with_api, tmp_path):
     # Error case 3: Filename without "firecracker"
     pseudo_exec_file_path = tmp_path / "foobarbaz"
     pseudo_exec_file_path.touch()
+    fc_dir = Path("/srv/jailer") / pseudo_exec_file_path.name / test_microvm.id
+    fc_dir.mkdir(parents=True, exist_ok=True)
     test_microvm.jailer.exec_file = pseudo_exec_file_path
 
     with pytest.raises(

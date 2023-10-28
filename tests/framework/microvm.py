@@ -150,12 +150,12 @@ class Microvm:
 
     def __init__(
         self,
-        resource_path: Path,
         microvm_id: str,
         fc_binary_path: Path,
         jailer_binary_path: Path,
         netns: net_tools.NetNs,
         monitor_memory: bool = True,
+        jailer_kwargs: Optional[dict] = None,
     ):
         """Set up microVM attributes, paths, and data structures."""
         # pylint: disable=too-many-statements
@@ -163,9 +163,6 @@ class Microvm:
         assert microvm_id is not None
         self._microvm_id = microvm_id
 
-        # Compose the paths to the resources specific to this microvm.
-        self._path = resource_path / microvm_id
-        self._path.mkdir(parents=True, exist_ok=True)
         self.kernel_file = None
         self.rootfs_file = None
         self.ssh_key = None
@@ -177,6 +174,7 @@ class Microvm:
         self._jailer_binary_path = Path(jailer_binary_path)
         assert jailer_binary_path.exists()
 
+        jailer_kwargs = jailer_kwargs or {}
         self.netns = netns
         # Create the jailer context associated with this microvm.
         self.jailer = JailerContext(
@@ -184,6 +182,7 @@ class Microvm:
             exec_file=self._fc_binary_path,
             netns=netns,
             new_pid_ns=True,
+            **jailer_kwargs,
         )
 
         # Copy the /etc/localtime file in the jailer root
@@ -321,7 +320,7 @@ class Microvm:
     @property
     def path(self):
         """Return the path on disk used that represents this microVM."""
-        return self._path
+        return self.jailer.chroot_base_with_id()
 
     # some functions use this
     fsfiles = path
@@ -843,10 +842,7 @@ class Microvm:
 class MicroVMFactory:
     """MicroVM factory"""
 
-    def __init__(
-        self, base_path: Path, fc_binary_path: Path, jailer_binary_path: Path, **kwargs
-    ):
-        self.base_path = Path(base_path)
+    def __init__(self, fc_binary_path: Path, jailer_binary_path: Path, **kwargs):
         self.vms = []
         self.fc_binary_path = Path(fc_binary_path)
         self.jailer_binary_path = Path(jailer_binary_path)
@@ -857,7 +853,6 @@ class MicroVMFactory:
         kwargs = self.kwargs | kwargs
         microvm_id = kwargs.pop("microvm_id", str(uuid.uuid4()))
         vm = Microvm(
-            resource_path=self.base_path,
             microvm_id=microvm_id,
             fc_binary_path=kwargs.pop("fc_binary_path", self.fc_binary_path),
             jailer_binary_path=kwargs.pop(
