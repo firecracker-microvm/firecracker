@@ -123,7 +123,7 @@ def git_ab_test_host_command_if_pr(
     if is_pr():
         git_ab_test_host_command(command, comparator=comparator)
     else:
-        utils.run_cmd(command, **kwargs)
+        utils.run_cmd(command, **kwargs, cwd=Path.cwd().parent)
 
 
 def git_ab_test_host_command(
