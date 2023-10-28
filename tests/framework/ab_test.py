@@ -115,6 +115,7 @@ def git_ab_test_host_command_if_pr(
     command: str,
     *,
     comparator: Callable[[CommandReturn, CommandReturn], bool] = default_comparator,
+    **kwargs,
 ):
     """Runs the given bash command as an A/B-Test if we're in a pull request context (asserting that its stdout and
     stderr did not change across the PR). Otherwise runs the command, asserting it returns a zero exit code
@@ -122,7 +123,7 @@ def git_ab_test_host_command_if_pr(
     if is_pr():
         git_ab_test_host_command(command, comparator=comparator)
     else:
-        utils.run_cmd(command)
+        utils.run_cmd(command, **kwargs)
 
 
 def git_ab_test_host_command(
