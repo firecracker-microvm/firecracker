@@ -98,7 +98,7 @@ Firecracker snapshot consists of 2 files:
 > ./snapshot-editor info-vmstate version --vmstate-path ./vmstate_file
 > ```
 
-#### `vcpu-states` subcommand (aarch64 only)
+#### `vcpu-states` subcommand
 
 > This command is used to print the vCPU states inside vmstate snapshot file.
 >

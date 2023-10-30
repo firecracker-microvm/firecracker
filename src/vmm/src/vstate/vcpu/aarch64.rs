@@ -5,6 +5,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::fmt::Debug;
+
 use kvm_bindings::*;
 use kvm_ioctls::*;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
@@ -250,7 +252,7 @@ impl KvmVcpu {
 }
 
 /// Structure holding VCPU kvm state.
-#[derive(Debug, Default, Clone, Versionize)]
+#[derive(Default, Clone, Versionize)]
 pub struct VcpuState {
     /// Multiprocessing state.
     pub mp_state: kvm_bindings::kvm_mp_state,
@@ -269,6 +271,26 @@ pub struct VcpuState {
     /// kvi.
     #[version(start = 2, default_fn = "default_kvi")]
     pub kvi: Option<kvm_bindings::kvm_vcpu_init>,
+}
+
+impl Debug for VcpuState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "kvm_mp_state: {:#x}", self.mp_state.mp_state)?;
+        writeln!(f, "mpidr: {:#x}", self.mpidr)?;
+        for reg in self.regs.iter() {
+            writeln!(
+                f,
+                "{:#x} 0x{}",
+                reg.id,
+                reg.as_slice()
+                    .iter()
+                    .rev()
+                    .map(|b| format!("{b:x}"))
+                    .collect::<String>()
+            )?;
+        }
+        Ok(())
+    }
 }
 
 impl VcpuState {
