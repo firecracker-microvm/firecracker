@@ -83,6 +83,9 @@ def test_multi_queue_unsupported(uvm_plain):
             guest_mac="AA:FC:00:00:00:01",
         )
 
+    # clean TAP device
+    utils.run_cmd(f"{microvm.netns.cmd_prefix()} ip link del name {tapname}")
+
 
 @pytest.fixture
 def uvm_any(microvm_factory, uvm_ctor, guest_kernel, rootfs):
