@@ -10,7 +10,7 @@ name = "snapshot-editor"
 bench = false
 
 [dependencies]
-clap = { version = "4.4.6", features = ["derive", "string"] }
+clap = { version = "4.4.7", features = ["derive", "string"] }
 displaydoc = "0.2.4"
 libc = "0.2.149"
 snapshot = { path = "../snapshot" }
