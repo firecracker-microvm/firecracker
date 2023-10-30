@@ -446,6 +446,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         }
 
         let mut restore_helper = |device: Arc<Mutex<dyn VirtioDevice>>,
+                                  is_vhost_user: bool,
                                   as_subscriber: Arc<Mutex<dyn MutEventSubscriber>>,
                                   id: &String,
                                   state: &MmioTransportState,
@@ -455,6 +456,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             let restore_args = MmioTransportConstructorArgs {
                 mem: mem.clone(),
                 device,
+                is_vhost_user,
             };
             let mmio_transport = MmioTransport::restore(restore_args, state)
                 .map_err(|()| DevicePersistError::MmioTransport)?;
@@ -499,6 +501,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             restore_helper(
                 device.clone(),
+                false,
                 device,
                 &balloon_state.device_id,
                 &balloon_state.transport_state,
@@ -520,6 +523,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             restore_helper(
                 device.clone(),
+                false,
                 device,
                 &virtio_block_state.device_id,
                 &virtio_block_state.transport_state,
@@ -541,6 +545,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             restore_helper(
                 device.clone(),
+                true,
                 device,
                 &vhost_user_block_state.device_id,
                 &vhost_user_block_state.transport_state,
@@ -586,6 +591,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             restore_helper(
                 device.clone(),
+                false,
                 device,
                 &net_state.device_id,
                 &net_state.transport_state,
@@ -614,6 +620,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             restore_helper(
                 device.clone(),
+                false,
                 device,
                 &vsock_state.device_id,
                 &vsock_state.transport_state,
@@ -637,6 +644,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             restore_helper(
                 device.clone(),
+                false,
                 device,
                 &entropy_state.device_id,
                 &entropy_state.transport_state,

@@ -483,7 +483,7 @@ mod tests {
             cmdline: &mut kernel_cmdline::Cmdline,
             dev_id: &str,
         ) -> Result<u64, MmioError> {
-            let mmio_device = MmioTransport::new(guest_mem, device);
+            let mmio_device = MmioTransport::new(guest_mem, device, false);
             let device_info =
                 self.register_mmio_virtio_for_boot(vm, dev_id.to_string(), mmio_device, cmdline)?;
             Ok(device_info.addr)

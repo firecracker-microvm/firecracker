@@ -205,6 +205,8 @@ pub struct MmioTransportConstructorArgs {
     pub mem: GuestMemoryMmap,
     /// Device associated with the current MMIO state.
     pub device: Arc<Mutex<dyn VirtioDevice>>,
+    /// Is device backed by vhost-user.
+    pub is_vhost_user: bool,
 }
 
 impl Persist<'_> for MmioTransport {
@@ -226,7 +228,11 @@ impl Persist<'_> for MmioTransport {
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
-        let mut transport = MmioTransport::new(constructor_args.mem, constructor_args.device);
+        let mut transport = MmioTransport::new(
+            constructor_args.mem,
+            constructor_args.device,
+            constructor_args.is_vhost_user,
+        );
         transport.features_select = state.features_select;
         transport.acked_features_select = state.acked_features_select;
         transport.queue_select = state.queue_select;
@@ -391,7 +397,11 @@ mod tests {
             .serialize(&mut buf.as_mut_slice(), &version_map, 1)
             .unwrap();
 
-        let restore_args = MmioTransportConstructorArgs { mem, device };
+        let restore_args = MmioTransportConstructorArgs {
+            mem,
+            device,
+            is_vhost_user: false,
+        };
         let restored_mmio_transport = MmioTransport::restore(
             restore_args,
             &MmioTransportState::deserialize(&mut buf.as_slice(), &version_map, 1).unwrap(),
@@ -412,7 +422,7 @@ mod tests {
             FileEngineType::default(),
         );
         let block = Arc::new(Mutex::new(block));
-        let mmio_transport = MmioTransport::new(mem.clone(), block.clone());
+        let mmio_transport = MmioTransport::new(mem.clone(), block.clone(), false);
 
         (mmio_transport, mem, block)
     }
@@ -420,7 +430,7 @@ mod tests {
     fn create_default_net() -> (MmioTransport, GuestMemoryMmap, Arc<Mutex<Net>>) {
         let mem = default_mem();
         let net = Arc::new(Mutex::new(default_net()));
-        let mmio_transport = MmioTransport::new(mem.clone(), net.clone());
+        let mmio_transport = MmioTransport::new(mem.clone(), net.clone(), false);
 
         (mmio_transport, mem, net)
     }
@@ -440,7 +450,7 @@ mod tests {
         let backend = VsockUnixBackend::new(guest_cid, uds_path).unwrap();
         let vsock = Vsock::new(guest_cid, backend).unwrap();
         let vsock = Arc::new(Mutex::new(vsock));
-        let mmio_transport = MmioTransport::new(mem.clone(), vsock.clone());
+        let mmio_transport = MmioTransport::new(mem.clone(), vsock.clone(), false);
 
         (mmio_transport, mem, vsock)
     }
