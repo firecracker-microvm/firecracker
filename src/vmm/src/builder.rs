@@ -835,13 +835,14 @@ fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
     id: String,
     device: Arc<Mutex<T>>,
     cmdline: &mut LoaderKernelCmdline,
+    is_vhost_user: bool,
 ) -> Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
     event_manager.add_subscriber(device.clone());
 
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    let device = MmioTransport::new(vmm.guest_memory().clone(), device);
+    let device = MmioTransport::new(vmm.guest_memory().clone(), device, is_vhost_user);
     vmm.mmio_device_manager
         .register_mmio_virtio_for_boot(vmm.vm.fd(), id, device, cmdline)
         .map_err(RegisterMmioDevice)
@@ -875,7 +876,14 @@ fn attach_entropy_device(
         .id()
         .to_string();
 
-    attach_virtio_device(event_manager, vmm, id, entropy_device.clone(), cmdline)
+    attach_virtio_device(
+        event_manager,
+        vmm,
+        id,
+        entropy_device.clone(),
+        cmdline,
+        false,
+    )
 }
 
 fn attach_block_devices<'a, I: Iterator<Item = &'a BlockDeviceType> + Debug>(
@@ -885,7 +893,7 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a BlockDeviceType> + Debug>(
     event_manager: &mut EventManager,
 ) -> Result<(), StartMicrovmError> {
     macro_rules! attach_block {
-        ($block:ident) => {
+        ($block:ident, $is_vhost_user:ident) => {
             let id = {
                 let locked = $block.lock().expect("Poisoned lock");
                 if locked.root_device {
@@ -903,17 +911,24 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a BlockDeviceType> + Debug>(
                 locked.id.clone()
             };
             // The device mutex mustn't be locked here otherwise it will deadlock.
-            attach_virtio_device(event_manager, vmm, id, $block.clone(), cmdline)?;
+            attach_virtio_device(
+                event_manager,
+                vmm,
+                id,
+                $block.clone(),
+                cmdline,
+                $is_vhost_user,
+            )?;
         };
     }
 
     for block in blocks {
         match block {
             BlockDeviceType::VirtioBlock(block) => {
-                attach_block!(block);
+                attach_block!(block, false);
             }
             BlockDeviceType::VhostUserBlock(block) => {
-                attach_block!(block);
+                attach_block!(block, true);
             }
         };
     }
@@ -929,7 +944,7 @@ fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
     for net_device in net_devices {
         let id = net_device.lock().expect("Poisoned lock").id().clone();
         // The device mutex mustn't be locked here otherwise it will deadlock.
-        attach_virtio_device(event_manager, vmm, id, net_device.clone(), cmdline)?;
+        attach_virtio_device(event_manager, vmm, id, net_device.clone(), cmdline, false)?;
     }
     Ok(())
 }
@@ -942,7 +957,7 @@ fn attach_unixsock_vsock_device(
 ) -> Result<(), StartMicrovmError> {
     let id = String::from(unix_vsock.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    attach_virtio_device(event_manager, vmm, id, unix_vsock.clone(), cmdline)
+    attach_virtio_device(event_manager, vmm, id, unix_vsock.clone(), cmdline, false)
 }
 
 fn attach_balloon_device(
@@ -953,7 +968,7 @@ fn attach_balloon_device(
 ) -> Result<(), StartMicrovmError> {
     let id = String::from(balloon.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    attach_virtio_device(event_manager, vmm, id, balloon.clone(), cmdline)
+    attach_virtio_device(event_manager, vmm, id, balloon.clone(), cmdline, false)
 }
 
 // Adds `O_NONBLOCK` to the stdout flags.
