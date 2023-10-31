@@ -115,6 +115,10 @@ fn rebase(base_file: &mut File, diff_file: &mut File) -> Result<(), FileError> {
 }
 
 fn main() -> Result<(), RebaseSnapError> {
+    println!(
+        "This tool is deprecated and will be removed in the future. Please use 'snapshot-editor' \
+         instead."
+    );
     let result = main_exec();
     if let Err(e) = result {
         eprintln!("{}", e);

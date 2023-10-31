@@ -26,6 +26,10 @@
 
 ### Deprecated
 
+- [#4209](https://github.com/firecracker-microvm/firecracker/pull/4209):
+  `rebase-snap` tool is now deprecated. Users should use `snapshot-editor`
+  for rebasing diff snapshots.
+
 ### Fixed
 
 - Fixed a bug that ignored the `--show-log-origin` option, preventing it from

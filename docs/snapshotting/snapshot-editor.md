@@ -20,7 +20,7 @@ This command is used to merge a `diff` snapshot memory file on
 top of a base memory file.
 
 **Note**
-You can also use `rebase-snap` tool for this.
+You can also use `rebase-snap` (deprecated) tool for this.
 
 Arguments:
 
