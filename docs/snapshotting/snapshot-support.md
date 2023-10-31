@@ -249,10 +249,10 @@ created by a subsequent `/snapshot/create` API call. The order in which the
 snapshots were created matters and they should be merged in the same order
 in which they were created. To merge a `diff` snapshot memory file on
 top of a base, users should copy its content over the base. This can be done
-using the `rebase-snap` or `snapshot-editor` tools provided with the
+using the `rebase-snap` (deprecated) or `snapshot-editor` tools provided with the
 firecracker release:
 
-`rebase-snap` example:
+`rebase-snap` (deprecated) example:
 
 ```bash
 rebase-snap --base-file path/to/base --diff-file path/to/layer
