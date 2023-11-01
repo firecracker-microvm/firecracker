@@ -14,6 +14,11 @@
   each individual block device will emit metrics under the label `"block_{drive_id}"`.
   E.g. the associated metrics for the endpoint `"/drives/{drive_id}"` will
   be available under `"block_drive_id"` in the metrics json object.
+- [#4205](https://github.com/firecracker-microvm/firecracker/pull/4205):
+  Added a new `vm-state` subcommand to `info-vmstate` command in the
+  `snapshot-editor` tool to print MicrovmState of vmstate snapshot file in
+  a readable format. Also made the `vcpu-states` subcommand available on
+  x86_64.
 
 ### Changed
 
