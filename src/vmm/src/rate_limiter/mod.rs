@@ -26,6 +26,12 @@ const TIMER_REFILL_STATE: TimerState =
 const NANOSEC_IN_ONE_MILLISEC: u64 = 1_000_000;
 
 // Euclid's two-thousand-year-old algorithm for finding the greatest common divisor.
+#[cfg_attr(kani, kani::requires(x > 0 && y > 0))]
+#[cfg_attr(kani, kani::ensures(
+    result != 0
+        && x % result == 0
+        && y % result == 0
+))]
 fn gcd(x: u64, y: u64) -> u64 {
     let mut x = x;
     let mut y = y;
@@ -600,20 +606,6 @@ mod verification {
             unsafe { std::mem::transmute(stub) }
         }
 
-        /// Stubs out the GCD computation by over-approximating the return value as "any number that
-        /// divides both inputs".
-        fn gcd(x: u64, y: u64) -> u64 {
-            if x == 0 && y == 0 {
-                0
-            } else {
-                kani::any_where(|&z| z != 0 && x % z == 0 && y % z == 0)
-            }
-
-            // NOTE: if we can figure out how to express "for all w. (...) => (...)", then we can
-            // use a logical definition of GCD as a stub that neither over- nor
-            // underapproximates.
-        }
-
         /// Stubs out `TokenBucket::auto_replenish` by simply filling up the bucket by a
         /// non-deterministic amount.
         fn token_bucket_auto_replenish(this: &mut TokenBucket) {
@@ -661,24 +653,19 @@ mod verification {
     }
 
     // Euclid algorithm has runtime O(log(min(x,y))) -> kani::unwind(log(MAX)) should be enough.
-    #[kani::proof]
+    #[kani::proof_for_contract(gcd)]
     #[kani::unwind(64)]
     #[kani::solver(cadical)]
-    fn verify_gcd() {
+    fn gcd_contract_harness() {
         const MAX: u64 = 64;
-
         let x = kani::any_where(|&x| x < MAX);
         let y = kani::any_where(|&y| y < MAX);
         let gcd = super::gcd(x, y);
-
-        if gcd == 0 {
-            assert!(x == 0 && y == 0);
-        } else {
-            assert!(x % gcd == 0);
-            assert!(y % gcd == 0);
-
-            // Definition of gcd: gcd(x,y) = z iff z|x and z|y and for all w. w|x and w|y => w|z
-            // final condition can be rephrased as w <= z in the special case of u64 \ {0}.
+        // Most assertions are unnecessary as they are proved as part of the
+        // contract. However for simplification the contract only enforces that
+        // the result is *a* divisor, not necessarily the smallest one, so we
+        // check that here manually.
+        if gcd != 0 {
             let w = kani::any_where(|&w| w > 0 && x % w == 0 && y % w == 0);
             assert!(gcd >= w);
         }
@@ -686,7 +673,7 @@ mod verification {
 
     #[kani::proof]
     #[kani::stub(std::time::Instant::now, stubs::instant_now)]
-    #[kani::stub(gcd, stubs::gcd)]
+    #[kani::stub_verified(gcd)]
     #[kani::solver(cadical)]
     fn verify_token_bucket_new() {
         let size = kani::any();
@@ -707,7 +694,7 @@ mod verification {
     #[kani::proof]
     #[kani::unwind(1)] // enough to unwind the recursion at `Timespec::sub_timespec`
     #[kani::stub(std::time::Instant::now, stubs::instant_now)]
-    #[kani::stub(gcd, stubs::gcd)]
+    #[kani::stub_verified(gcd)]
     fn verify_token_bucket_auto_replenish() {
         const MAX_BUCKET_SIZE: u64 = 15;
         const MAX_REFILL_TIME: u64 = 15;
@@ -729,7 +716,7 @@ mod verification {
     #[kani::proof]
     #[kani::stub(std::time::Instant::now, stubs::instant_now)]
     #[kani::stub(TokenBucket::auto_replenish, stubs::token_bucket_auto_replenish)]
-    #[kani::stub(gcd, stubs::gcd)]
+    #[kani::stub_verified(gcd)]
     #[kani::solver(cadical)]
     fn verify_token_bucket_reduce() {
         let mut token_bucket: TokenBucket = kani::any();
@@ -763,7 +750,7 @@ mod verification {
 
     #[kani::proof]
     #[kani::stub(std::time::Instant::now, stubs::instant_now)]
-    #[kani::stub(gcd, stubs::gcd)]
+    #[kani::stub_verified(gcd)]
     #[kani::stub(TokenBucket::auto_replenish, stubs::token_bucket_auto_replenish)]
     fn verify_token_bucket_force_replenish() {
         let mut token_bucket: TokenBucket = kani::any();
