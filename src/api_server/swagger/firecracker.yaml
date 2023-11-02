@@ -1140,7 +1140,9 @@ definitions:
         type: string
       path_on_host:
         type: string
-        description: Host level path for the guest drive
+        description:
+          Host level path for the guest drive.
+          This field is optional for virtio-block config and should be omitted for vhost-user-block configuration.
       rate_limiter:
         $ref: "#/definitions/RateLimiter"
 
