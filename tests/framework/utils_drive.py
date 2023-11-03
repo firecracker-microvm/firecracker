@@ -40,14 +40,14 @@ def partuuid_and_disk_path(rootfs_ubuntu_22, disk_path):
 VHOST_USER_SOCKET = "/vub.socket"
 
 
-def spawn_vhost_user_backend(vm, host_mem_path, readonly=False):
+def spawn_vhost_user_backend(vm, host_mem_path, socket_path, readonly=False):
     """Spawn vhost-user-blk backend."""
 
     uid = vm.jailer.uid
     gid = vm.jailer.gid
 
-    socket_path = f"{vm.chroot()}{VHOST_USER_SOCKET}"
-    args = ["vhost-user-blk", "-s", socket_path, "-b", host_mem_path]
+    sp = f"{vm.chroot()}{socket_path}"
+    args = ["vhost-user-blk", "-s", sp, "-b", host_mem_path]
     if readonly:
         args.append("-r")
     proc = subprocess.Popen(args)
@@ -60,6 +60,6 @@ def spawn_vhost_user_backend(vm, host_mem_path, readonly=False):
     with utils.chroot(vm.chroot()):
         # The backend will create the socket path with root rights.
         # Change rights to the jailer's.
-        os.chown(VHOST_USER_SOCKET, uid, gid)
+        os.chown(socket_path, uid, gid)
 
     return proc

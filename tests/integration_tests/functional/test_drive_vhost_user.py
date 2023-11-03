@@ -3,7 +3,7 @@
 """Tests for vhost-user-block device."""
 
 from framework import utils
-from framework.utils_drive import VHOST_USER_SOCKET, spawn_vhost_user_backend
+from framework.utils_drive import spawn_vhost_user_backend
 
 
 def test_vhost_user_block(microvm_factory, guest_kernel, rootfs_ubuntu_22):
@@ -12,20 +12,23 @@ def test_vhost_user_block(microvm_factory, guest_kernel, rootfs_ubuntu_22):
     vhost-user-block as a root device.
     """
 
+    vhost_user_socket = "/vub.socket"
+
     vm = microvm_factory.build(guest_kernel, None, monitor_memory=False)
-
-    ssh_key = rootfs_ubuntu_22.with_suffix(".id_rsa")
-    vm.ssh_key = ssh_key
-
-    vm.spawn()
 
     # Converting path from tmpfs ("./srv/..") to local
     # path on the host ("../build/..")
     rootfs_path = utils.to_local_dir_path(str(rootfs_ubuntu_22))
-    _backend = spawn_vhost_user_backend(vm, rootfs_path, readonly=True)
+    # Launching vhost-user-block backend
+    _backend = spawn_vhost_user_backend(vm, rootfs_path, vhost_user_socket, True)
 
-    vm.basic_config()
-    vm.add_vhost_user_block("1", VHOST_USER_SOCKET, is_root_device=True)
+    # We need to setup ssh keys manually because we did not specify rootfs
+    # in microvm_factory.build method
+    ssh_key = rootfs_ubuntu_22.with_suffix(".id_rsa")
+    vm.ssh_key = ssh_key
+    vm.spawn()
+    vm.basic_config(add_root_device=False)
+    vm.add_vhost_user_drive("rootfs", vhost_user_socket, is_root_device=True)
     vm.add_net_iface()
     vm.start()
 

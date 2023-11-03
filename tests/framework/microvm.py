@@ -656,7 +656,7 @@ class Microvm:
         )
         self.disks[drive_id] = path_on_host
 
-    def add_vhost_user_block(
+    def add_vhost_user_drive(
         self,
         drive_id,
         socket,
