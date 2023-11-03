@@ -159,9 +159,27 @@ def download_spectre_meltdown_checker(tmp_path_factory):
 def spectre_meltdown_reported_vulnerablities(
     spectre_meltdown_checker_output: CommandReturn,
 ) -> set:
-    """Parses the output of `spectre-meltdown-checker.sh --batch json` and returns the set of issues for which it reported 'Vulnerable'"""
+    """
+    Parses the output of `spectre-meltdown-checker.sh --batch json` and returns the set of issues
+    for which it reported 'Vulnerable'.
+
+    Sample stdout:
+    ```
+    [
+        {
+            "NAME": "SPECTRE VARIANT 1",
+            "CVE": "CVE-2017-5753",
+            "VULNERABLE": false,
+            "INFOS": "Mitigation: usercopy/swapgs barriers and __user pointer sanitization"
+        },
+        {
+            ...
+        }
+    ]
+    ```
+    """
     return {
-        frozenset(entry)  # cannot hash dicts
+        json.dumps(entry)  # dict is unhashable
         for entry in json.loads(spectre_meltdown_checker_output.stdout)
         if entry["VULNERABLE"]
     }
