@@ -11,7 +11,7 @@ import pytest
 
 import host_tools.drive as drive_tools
 from framework.utils import CmdBuilder, ProcessManager, get_cpu_percent, run_cmd
-from framework.utils_drive import VHOST_USER_SOCKET, spawn_vhost_user_backend
+from framework.utils_drive import spawn_vhost_user_backend
 
 # size of the block device used in the test, in MB
 BLOCK_DEVICE_SIZE_MB = 2048
@@ -212,6 +212,9 @@ def test_block_vhost_user_performance(
     """
     Execute block device emulation benchmarking scenarios.
     """
+
+    vhost_user_socket = "vub.socket"
+
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn(log_level="Info")
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
@@ -219,8 +222,8 @@ def test_block_vhost_user_performance(
 
     # Add a secondary block device for benchmark tests.
     fs = drive_tools.FilesystemFile(size=BLOCK_DEVICE_SIZE_MB)
-    backend = spawn_vhost_user_backend(vm, fs.path, readonly=False)
-    vm.add_vhost_user_block("scratch", VHOST_USER_SOCKET)
+    backend = spawn_vhost_user_backend(vm, fs.path, vhost_user_socket, readonly=False)
+    vm.add_vhost_user_block("scratch", vhost_user_socket)
     vm.start()
 
     # Pin uVM threads to physical cores.
