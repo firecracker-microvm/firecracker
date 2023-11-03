@@ -180,7 +180,7 @@ def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
         comparator=set_did_not_grow_comparator(
             spectre_meltdown_reported_vulnerablities
         ),
-        ignore_return_code=True,
+        ignore_return_code_in_nonpr=True,
     )
 
 

@@ -115,15 +115,20 @@ def git_ab_test_host_command_if_pr(
     command: str,
     *,
     comparator: Callable[[CommandReturn, CommandReturn], bool] = default_comparator,
-    **kwargs,
+    ignore_return_code_in_nonpr=False,
 ):
     """Runs the given bash command as an A/B-Test if we're in a pull request context (asserting that its stdout and
     stderr did not change across the PR). Otherwise runs the command, asserting it returns a zero exit code
     """
     if is_pr():
         git_ab_test_host_command(command, comparator=comparator)
-    else:
-        utils.run_cmd(command, **kwargs, cwd=Path.cwd().parent)
+        return None
+
+    return utils.run_cmd(
+        command,
+        ignore_return_code=ignore_return_code_in_nonpr,
+        cwd=Path.cwd().parent,
+    )
 
 
 def git_ab_test_host_command(
@@ -224,14 +229,18 @@ def git_ab_test_guest_command_if_pr(
     command: str,
     *,
     comparator=default_comparator,
+    ignore_return_code_in_nonpr=False,
 ):
     """The same as git_ab_test_command_if_pr, but via SSH"""
     if is_pr():
         git_ab_test_guest_command(microvm_factory, command, comparator=comparator)
-    else:
-        microvm = microvm_factory(*get_firecracker_binaries())
-        ecode, stdout, stderr = microvm.ssh.run(command)
+        return None
+
+    microvm = microvm_factory(*get_firecracker_binaries())
+    ecode, stdout, stderr = microvm.ssh.run(command)
+    if not ignore_return_code_in_nonpr:
         assert ecode == 0, f"stdout:\n{stdout}\nstderr:\n{stderr}\n"
+    return CommandReturn(ecode, stdout, stderr)
 
 
 def check_regression(
