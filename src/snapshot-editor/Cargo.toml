@@ -13,6 +13,7 @@ bench = false
 clap = { version = "4.4.7", features = ["derive", "string"] }
 displaydoc = "0.2.4"
 libc = "0.2.149"
+log-instrument = { path = "../log-instrument", optional = true }
 snapshot = { path = "../snapshot" }
 thiserror = "1.0.50"
 vmm = { path = "../vmm" }
@@ -21,3 +22,6 @@ fc_utils = { package = "utils", path = "../utils" }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 clap-num = "1.0.2"
+
+[features]
+tracing = ["log-instrument"]

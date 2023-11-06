@@ -2025,6 +2025,7 @@ mod tests {
                 level: Some(crate::logger::LevelFilter::Debug),
                 show_level: Some(false),
                 show_log_origin: Some(false),
+                module: None,
             }),
             VmmActionError::OperationNotSupportedPostBoot,
         );

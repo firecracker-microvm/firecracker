@@ -159,9 +159,27 @@ def download_spectre_meltdown_checker(tmp_path_factory):
 def spectre_meltdown_reported_vulnerablities(
     spectre_meltdown_checker_output: CommandReturn,
 ) -> set:
-    """Parses the output of `spectre-meltdown-checker.sh --batch json` and returns the set of issues for which it reported 'Vulnerable'"""
+    """
+    Parses the output of `spectre-meltdown-checker.sh --batch json` and returns the set of issues
+    for which it reported 'Vulnerable'.
+
+    Sample stdout:
+    ```
+    [
+        {
+            "NAME": "SPECTRE VARIANT 1",
+            "CVE": "CVE-2017-5753",
+            "VULNERABLE": false,
+            "INFOS": "Mitigation: usercopy/swapgs barriers and __user pointer sanitization"
+        },
+        {
+            ...
+        }
+    ]
+    ```
+    """
     return {
-        frozenset(entry)  # cannot hash dicts
+        json.dumps(entry)  # dict is unhashable
         for entry in json.loads(spectre_meltdown_checker_output.stdout)
         if entry["VULNERABLE"]
     }
@@ -175,13 +193,34 @@ def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
     """
     Test with the spectre / meltdown checker on host.
     """
-    git_ab_test_host_command_if_pr(
+    output = git_ab_test_host_command_if_pr(
         f"sh {spectre_meltdown_checker} --batch json",
         comparator=set_did_not_grow_comparator(
             spectre_meltdown_reported_vulnerablities
         ),
-        ignore_return_code=True,
+        ignore_return_code_in_nonpr=True,
     )
+
+    # Outside the PR context, checks the return code with some exceptions.
+    if output and output.returncode != 0:
+        report = spectre_meltdown_reported_vulnerablities(output)
+        expected = {}
+        # The upstream kernel backported the following Inception mitigation patch only to kernel
+        # 5.10 or later.
+        # https://github.com/torvalds/linux/commit/fb3bd914b3ec28f5fb697ac55c4846ac2d542855
+        # Given this situation, the following downstream patch is provided on Amazon Linux 2, and
+        # it reports the status on retbleed sysfs file instead of spec_rstack_overflow sysfs file.
+        # https://github.com/amazonlinux/linux/commit/0422428fc4c9c42fb29629264ff1b4d5fd47541e
+        # We're testing it in `test_vulnerabilities_on_host`, so we can safely add the exception
+        # here.
+        if (
+            global_props.instance == "m6a.metal"
+            and global_props.host_linux_version == "4.14"
+        ):
+            expected = {
+                '{"NAME": "INCEPTION", "CVE": "CVE-2023-20569", "VULNERABLE": true, "INFOS": "Your kernel is too old and doesn\'t have the SRSO mitigation logic"}'
+            }
+        assert report == expected, f"Unexpected vulnerabilities: {report} vs {expected}"
 
 
 @pytest.mark.skipif(

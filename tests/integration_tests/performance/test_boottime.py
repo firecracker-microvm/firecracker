@@ -54,11 +54,6 @@ def test_no_boottime(test_microvm_with_api):
     assert not timestamps
 
 
-@pytest.mark.skipif(
-    global_props.cpu_codename == "INTEL_SKYLAKE"
-    and global_props.host_linux_version == "5.10",
-    reason="perf regression under investigation",
-)
 def test_boottime_no_network(fast_microvm, record_property, metrics):
     """
     Check boot time of microVM without a network device.
@@ -72,16 +67,18 @@ def test_boottime_no_network(fast_microvm, record_property, metrics):
     record_property("boottime_no_network", f"{boottime_us} us < {MAX_BOOT_TIME_US} us")
     metrics.set_dimensions(DIMENSIONS)
     metrics.put_metric("boot_time", boottime_us, unit="Microseconds")
+
+    if (
+        global_props.cpu_codename == "INTEL_ICELAKE"
+        and global_props.host_linux_version == "6.1"
+    ):
+        pytest.skip("perf regression under investigation")
+
     assert (
         boottime_us < MAX_BOOT_TIME_US
     ), f"boot time {boottime_us} cannot be greater than: {MAX_BOOT_TIME_US} us"
 
 
-@pytest.mark.skipif(
-    global_props.cpu_codename == "INTEL_SKYLAKE"
-    and global_props.host_linux_version == "5.10",
-    reason="perf regression under investigation",
-)
 def test_boottime_with_network(fast_microvm, record_property, metrics):
     """Check boot time of microVM with a network device."""
     vm = fast_microvm
@@ -94,6 +91,13 @@ def test_boottime_with_network(fast_microvm, record_property, metrics):
     )
     metrics.set_dimensions(DIMENSIONS)
     metrics.put_metric("boot_time_with_net", boottime_us, unit="Microseconds")
+
+    if (
+        global_props.cpu_codename == "INTEL_ICELAKE"
+        and global_props.host_linux_version == "6.1"
+    ):
+        pytest.skip("perf regression under investigation")
+
     assert (
         boottime_us < MAX_BOOT_TIME_US
     ), f"boot time {boottime_us} cannot be greater than: {MAX_BOOT_TIME_US} us"
