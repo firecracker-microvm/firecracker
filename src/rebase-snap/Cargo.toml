@@ -11,7 +11,7 @@ bench = false
 
 [dependencies]
 displaydoc = "0.2.4"
-libc = "0.2.149"
+libc = "0.2.150"
 log-instrument = { path = "../log-instrument", optional = true }
 thiserror = "1.0.50"
 
