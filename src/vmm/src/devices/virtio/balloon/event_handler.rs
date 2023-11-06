@@ -10,7 +10,7 @@ use super::{DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX};
 use crate::devices::report_balloon_event_fail;
 use crate::devices::virtio::balloon::device::Balloon;
 use crate::devices::virtio::device::VirtioDevice;
-use crate::logger::{debug, error, warn};
+use crate::logger::{error, warn};
 
 impl Balloon {
     fn register_runtime_events(&self, ops: &mut EventOps) {
@@ -37,7 +37,6 @@ impl Balloon {
     }
 
     fn process_activate_event(&self, ops: &mut EventOps) {
-        debug!("balloon: activate event");
         if let Err(err) = self.activate_evt.read() {
             error!("Failed to consume balloon activate event: {:?}", err);
         }
