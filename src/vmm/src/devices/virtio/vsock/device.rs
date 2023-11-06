@@ -23,7 +23,7 @@ use std::fmt::Debug;
 use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
-use log::{debug, error, warn};
+use log::{error, warn};
 use utils::byte_order;
 use utils::eventfd::EventFd;
 
@@ -131,7 +131,6 @@ where
     /// Signal the guest driver that we've used some virtio buffers that it had previously made
     /// available.
     pub fn signal_used_queue(&self) -> Result<(), DeviceError> {
-        debug!("vsock: raising IRQ");
         self.irq_trigger
             .trigger_irq(IrqType::Vring)
             .map_err(DeviceError::FailedSignalingIrq)
@@ -141,7 +140,6 @@ where
     /// have pending. Return `true` if descriptors have been added to the used ring, and `false`
     /// otherwise.
     pub fn process_rx(&mut self) -> bool {
-        debug!("vsock: process_rx()");
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
@@ -194,7 +192,6 @@ where
     /// to the backend for processing. Return `true` if descriptors have been added to the used
     /// ring, and `false` otherwise.
     pub fn process_tx(&mut self) -> bool {
-        debug!("vsock::process_tx()");
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
 

@@ -8,7 +8,7 @@ use utils::epoll::EventSet;
 use super::io::FileEngine;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::virtio_block::device::VirtioBlock;
-use crate::logger::{debug, error, warn};
+use crate::logger::{error, warn};
 
 impl VirtioBlock {
     fn register_runtime_events(&self, ops: &mut EventOps) {
@@ -32,7 +32,6 @@ impl VirtioBlock {
     }
 
     fn process_activate_event(&self, ops: &mut EventOps) {
-        debug!("block: activate event");
         if let Err(err) = self.activate_evt.read() {
             error!("Failed to consume block activate event: {:?}", err);
         }
