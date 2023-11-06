@@ -997,6 +997,7 @@ definitions:
       module:
         type: string
         description: The module path to filter log messages by.
+        example: api_server::request
 
   MachineConfiguration:
     type: object

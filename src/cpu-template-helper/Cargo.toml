@@ -14,6 +14,7 @@ bench = false
 clap = { version = "4.4.7", features = ["derive", "string"] }
 displaydoc = "0.2.4"
 libc = "0.2.149"
+log-instrument = { path = "../log-instrument", optional = true }
 serde = { version = "1.0.190", features = ["derive"] }
 serde_json = "1.0.108"
 thiserror = "1.0.50"
@@ -22,3 +23,6 @@ vmm = { path = "../vmm" }
 
 [dev-dependencies]
 utils = { path = "../utils" }
+
+[features]
+tracing = ["log-instrument"]

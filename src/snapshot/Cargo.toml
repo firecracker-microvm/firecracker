@@ -15,6 +15,7 @@ versionize = "0.1.10"
 versionize_derive = "0.1.6"
 thiserror = "1.0.32"
 displaydoc = "0.2.4"
+log-instrument = { path = "../log-instrument", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5.0", default-features = false }
@@ -22,3 +23,6 @@ criterion = { version = "0.5.0", default-features = false }
 [[bench]]
 name = "version_map"
 harness = false
+
+[features]
+tracing = ["log-instrument"]
