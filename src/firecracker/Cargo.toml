@@ -16,6 +16,7 @@ bench = false
 displaydoc = "0.2.4"
 event-manager = "0.3.0"
 libc = "0.2.149"
+log-instrument = { path = "../log-instrument", optional = true }
 serde_json = "1.0.108"
 thiserror = "1.0.50"
 timerfd = "1.5.0"
@@ -39,6 +40,9 @@ bincode = "1.2.1"
 seccompiler = { path = "../seccompiler" }
 serde = { version = "1.0.190" }
 serde_json = "1.0.108"
+
+[features]
+tracing = ["log-instrument", "api_server/tracing", "seccompiler/tracing", "snapshot/tracing", "utils/tracing", "vmm/tracing"]
 
 [[example]]
 name = "uffd_malicious_handler"

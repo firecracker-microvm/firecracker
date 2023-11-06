@@ -1,5 +1,5 @@
 [workspace]
-members = ["src/cpu-template-helper", "src/firecracker", "src/jailer", "src/rebase-snap", "src/seccompiler", "src/snapshot-editor"]
+members = ["src/clippy-tracing", "src/cpu-template-helper", "src/firecracker", "src/jailer", "src/log-instrument", "src/log-instrument-macros", "src/rebase-snap", "src/seccompiler", "src/snapshot-editor"]
 default-members = ["src/firecracker"]
 resolver = "2"
 
