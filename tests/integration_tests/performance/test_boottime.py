@@ -54,11 +54,6 @@ def test_no_boottime(test_microvm_with_api):
     assert not timestamps
 
 
-@pytest.mark.skipif(
-    global_props.cpu_codename == "INTEL_SKYLAKE"
-    and global_props.host_linux_version == "5.10",
-    reason="perf regression under investigation",
-)
 def test_boottime_no_network(fast_microvm, record_property, metrics):
     """
     Check boot time of microVM without a network device.
@@ -77,11 +72,6 @@ def test_boottime_no_network(fast_microvm, record_property, metrics):
     ), f"boot time {boottime_us} cannot be greater than: {MAX_BOOT_TIME_US} us"
 
 
-@pytest.mark.skipif(
-    global_props.cpu_codename == "INTEL_SKYLAKE"
-    and global_props.host_linux_version == "5.10",
-    reason="perf regression under investigation",
-)
 def test_boottime_with_network(fast_microvm, record_property, metrics):
     """Check boot time of microVM with a network device."""
     vm = fast_microvm
