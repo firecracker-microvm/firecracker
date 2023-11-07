@@ -6,6 +6,7 @@
 
 from common import (
     COMMON_PARSER,
+    devtool_test,
     get_changed_files,
     group,
     overlay_dict,
@@ -61,7 +62,10 @@ build_grp = group(
 
 functional_grp = group(
     "⚙ Functional and security 🔒",
-    "./tools/devtool -y test -- -n 8 --dist worksteal integration_tests/{{functional,security}}",
+    devtool_test(
+        pytest_opts="-n 8 --dist worksteal integration_tests/{{functional,security}}",
+        binary_dir=args.binary_dir,
+    ),
     **defaults,
 )
 
@@ -77,7 +81,11 @@ defaults_for_performance = overlay_dict(
 
 performance_grp = group(
     "⏱ Performance",
-    "./tools/devtool -y test --performance -c 1-10 -m 0 -- ../tests/integration_tests/performance/",
+    devtool_test(
+        devtool_opts="--performance -c 1-10 -m 0",
+        pytest_opts="../tests/integration_tests/performance/",
+        binary_dir=args.binary_dir,
+    ),
     **defaults_for_performance,
 )
 

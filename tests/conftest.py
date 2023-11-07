@@ -248,6 +248,8 @@ def microvm_factory(request, record_property, results_dir):
     if binary_dir := request.config.getoption("--binary-dir"):
         fc_binary_path = Path(binary_dir) / "firecracker"
         jailer_binary_path = Path(binary_dir) / "jailer"
+        if not fc_binary_path.exists():
+            raise RuntimeError("Firecracker binary does not exist")
     else:
         fc_binary_path, jailer_binary_path = build_tools.get_firecracker_binaries()
     record_property("firecracker_bin", str(fc_binary_path))

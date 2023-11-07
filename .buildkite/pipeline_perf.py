@@ -5,7 +5,7 @@
 """Generate Buildkite performance pipelines dynamically"""
 import os
 
-from common import COMMON_PARSER, group, overlay_dict, pipeline_to_json
+from common import COMMON_PARSER, devtool_test, group, overlay_dict, pipeline_to_json
 
 # In `devtool_opts`, we restrict both the set of CPUs on which the docker container's threads can run,
 # and its memory node. For the cpuset, we pick a continuous set of CPUs from a single NUMA node
@@ -66,13 +66,17 @@ def build_group(test):
     devtool_opts = test.pop("devtool_opts")
     test_path = test.pop("test_path")
     ab_opts = test.pop("ab_opts", "")
+    devtool_opts += " --performance"
+    pytest_opts = ""
     if REVISION_A:
-        command = f"./tools/devtool -y test --performance --ab {devtool_opts} -- {REVISION_A} {REVISION_B} --test {test_path} {ab_opts}"
+        devtool_opts += " --ab"
+        pytest_opts = f"{REVISION_A} {REVISION_B} --test {test_path} {ab_opts}"
     else:
-        command = f"./tools/devtool -y test --performance {devtool_opts} -- -m nonci {test_path}"
+        pytest_opts += f" -m nonci {test_path}"
+    binary_dir = test.pop("binary_dir")
     return group(
         label=test.pop("label"),
-        command=command,
+        command=devtool_test(devtool_opts, pytest_opts, binary_dir),
         artifacts=["./test_results/*"],
         instances=test.pop("instances"),
         platforms=test.pop("platforms"),
@@ -99,6 +103,7 @@ for test_data in tests:
     test_data.setdefault("instances", args.instances)
     # use ag=1 instances to make sure no two performance tests are scheduled on the same instance
     test_data.setdefault("agents", {"ag": 1})
+    test_data["binary_dir"] = args.binary_dir
     test_data = overlay_dict(test_data, args.step_param)
     test_data["retry"] = {
         "automatic": [
