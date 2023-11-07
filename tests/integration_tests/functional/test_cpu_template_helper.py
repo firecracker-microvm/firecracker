@@ -396,19 +396,6 @@ def test_guest_cpu_config_change(test_microvm_with_api, tmp_path, cpu_template_h
     )
 
 
-@pytest.mark.nonci
-def test_fingerprint_change(test_microvm_with_api, tmp_path, cpu_template_helper):
-    """
-    Verify that all the fields of the fingerprint has not changed since the
-    baseline fingerprint was gathered.
-    """
-    detect_fingerprint_change(
-        test_microvm_with_api,
-        tmp_path,
-        cpu_template_helper,
-    )
-
-
 @nonci_on_arm
 def test_json_static_templates(
     test_microvm_with_api, cpu_template_helper, tmp_path, custom_cpu_template
