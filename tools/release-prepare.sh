@@ -58,7 +58,7 @@ sed -i "s/\[Unreleased\]/\[$version\]/g" "$FC_ROOT_DIR/CHANGELOG.md"
 
 # Add all changed files
 git add -u
-git commit -s -m "chore: release v$version"
+git commit -s -m "chore: release v$version" -m "Update version number / CHANGELOG / CREDITS"
 
 
 # pretty print code

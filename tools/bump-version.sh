@@ -49,6 +49,7 @@ files_to_change=(
     "$FC_ROOT_DIR/src/rebase-snap/Cargo.toml"
     "$FC_ROOT_DIR/src/seccompiler/Cargo.toml"
     "$FC_ROOT_DIR/src/cpu-template-helper/Cargo.toml"
+    "$FC_ROOT_DIR/src/snapshot-editor/Cargo.toml"
 )
 say "Updating source files:"
 for file in "${files_to_change[@]}"; do
