@@ -163,9 +163,6 @@ cp -v -t "$RELEASE_DIR" LICENSE NOTICE THIRD-PARTY
 check_swagger_artifact src/api_server/swagger/firecracker.yaml "$VERSION"
 cp -v src/api_server/swagger/firecracker.yaml "$RELEASE_DIR/firecracker_spec-$VERSION.yaml"
 
-cp -v test_results/test-report-functional+security.json "$RELEASE_DIR/"
-cp -v test_results/test-report-perf+build.json "$RELEASE_DIR/"
-
 CPU_TEMPLATES=(c3 t2 t2s t2cl t2a v1n1)
 for template in "${CPU_TEMPLATES[@]}"; do
     cp -v tests/data/static_cpu_templates/$template.json $RELEASE_DIR/$template-$VERSION.json
