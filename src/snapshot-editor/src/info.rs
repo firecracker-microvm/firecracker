@@ -4,15 +4,13 @@
 use std::path::PathBuf;
 
 use clap::Subcommand;
+use semver::Version;
 use vmm::persist::MicrovmState;
-use vmm::version_map::FC_VERSION_TO_SNAP_VERSION;
 
 use crate::utils::*;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum InfoVmStateError {
-    /// Cannot translate snapshot data version {0} to Firecracker microVM version
-    InvalidVersion(u16),
     /// {0}
     Utils(#[from] UtilsError),
 }
@@ -52,27 +50,19 @@ pub fn info_vmstate_command(command: InfoVmStateSubCommand) -> Result<(), InfoVm
 
 fn info(
     vmstate_path: &PathBuf,
-    f: impl Fn(&MicrovmState, u16) -> Result<(), InfoVmStateError>,
+    f: impl Fn(&MicrovmState, Version) -> Result<(), InfoVmStateError>,
 ) -> Result<(), InfoVmStateError> {
     let (vmstate, version) = open_vmstate(vmstate_path)?;
     f(&vmstate, version)?;
     Ok(())
 }
 
-fn info_version(_: &MicrovmState, version: u16) -> Result<(), InfoVmStateError> {
-    match FC_VERSION_TO_SNAP_VERSION
-        .iter()
-        .find(|(_, &v)| v == version)
-    {
-        Some((key, _)) => {
-            println!("v{key}");
-            Ok(())
-        }
-        None => Err(InfoVmStateError::InvalidVersion(version)),
-    }
+fn info_version(_: &MicrovmState, version: Version) -> Result<(), InfoVmStateError> {
+    println!("v{version}");
+    Ok(())
 }
 
-fn info_vcpu_states(state: &MicrovmState, _: u16) -> Result<(), InfoVmStateError> {
+fn info_vcpu_states(state: &MicrovmState, _: Version) -> Result<(), InfoVmStateError> {
     for (i, state) in state.vcpu_states.iter().enumerate() {
         println!("vcpu {i}:");
         println!("{state:#?}");
@@ -80,7 +70,7 @@ fn info_vcpu_states(state: &MicrovmState, _: u16) -> Result<(), InfoVmStateError
     Ok(())
 }
 
-fn info_vmstate(vmstate: &MicrovmState, _version: u16) -> Result<(), InfoVmStateError> {
+fn info_vmstate(vmstate: &MicrovmState, _version: Version) -> Result<(), InfoVmStateError> {
     println!("{vmstate:#?}");
     Ok(())
 }

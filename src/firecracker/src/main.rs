@@ -24,9 +24,9 @@ use vmm::builder::StartMicrovmError;
 use vmm::logger::{
     debug, error, info, LoggerConfig, ProcessTimeReporter, StoreMetric, LOGGER, METRICS,
 };
+use vmm::persist::SNAPSHOT_VERSION;
 use vmm::resources::VmResources;
 use vmm::signal_handler::register_signal_handlers;
-use vmm::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
 use vmm::{EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
@@ -228,10 +228,16 @@ fn main_exec() -> Result<(), MainError> {
                 "Whether or not to load boot timer device for logging elapsed time since \
                  InstanceStart command.",
             ))
-            .arg(Argument::new("version").takes_value(false).help(
-                "Print the binary version number and a list of supported snapshot data format \
-                 versions.",
-            ))
+            .arg(
+                Argument::new("version")
+                    .takes_value(false)
+                    .help("Print the binary version number."),
+            )
+            .arg(
+                Argument::new("snapshot-version")
+                    .takes_value(false)
+                    .help("Print the supported data format version."),
+            )
             .arg(
                 Argument::new("describe-snapshot")
                     .takes_value(true)
@@ -260,6 +266,11 @@ fn main_exec() -> Result<(), MainError> {
 
     if arguments.flag_present("version") {
         println!("Firecracker v{}\n", FIRECRACKER_VERSION);
+        return Ok(());
+    }
+
+    if arguments.flag_present("snapshot-version") {
+        println!("v{SNAPSHOT_VERSION}");
         return Ok(());
     }
 
@@ -520,8 +531,6 @@ enum SnapshotVersionError {
     OpenSnapshot(io::Error),
     /// Invalid data format version of snapshot file: {0}
     SnapshotVersion(SnapshotError),
-    /// Cannot translate snapshot data version {0} to Firecracker microVM version
-    FirecrackerVersion(u16),
 }
 
 // Print data format of provided snapshot state file.
@@ -529,15 +538,10 @@ fn print_snapshot_data_format(snapshot_path: &str) -> Result<(), SnapshotVersion
     let mut snapshot_reader =
         File::open(snapshot_path).map_err(SnapshotVersionError::OpenSnapshot)?;
 
-    let data_format_version = Snapshot::get_data_version(&mut snapshot_reader, &VERSION_MAP)
+    let data_format_version = Snapshot::get_format_version(&mut snapshot_reader)
         .map_err(SnapshotVersionError::SnapshotVersion)?;
 
-    let (key, _) = FC_VERSION_TO_SNAP_VERSION
-        .iter()
-        .find(|(_, &val)| val == data_format_version)
-        .ok_or_else(|| SnapshotVersionError::FirecrackerVersion(data_format_version))?;
-
-    println!("v{}", key);
+    println!("v{}", data_format_version);
     Ok(())
 }
 
