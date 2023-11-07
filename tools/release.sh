@@ -163,9 +163,6 @@ cp -v -t "$RELEASE_DIR" LICENSE NOTICE THIRD-PARTY
 check_swagger_artifact src/api_server/swagger/firecracker.yaml "$VERSION"
 cp -v src/api_server/swagger/firecracker.yaml "$RELEASE_DIR/firecracker_spec-$VERSION.yaml"
 
-cp -v test_results/test-report-functional+security.json "$RELEASE_DIR/"
-cp -v test_results/test-report-perf+build.json "$RELEASE_DIR/"
-
 (
     cd "$RELEASE_DIR"
     find . -type f -not -name "SHA256SUMS" |sort |xargs sha256sum >SHA256SUMS

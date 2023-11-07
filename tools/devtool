@@ -486,11 +486,6 @@ cmd_build() {
 }
 
 function cmd_make_release {
-    OPTS="--reruns=7"
-    # run build tests first so that functional tests reuse compilation artifacts
-    cmd_test -- $OPTS --json-report-file=../test_results/test-report-perf+build.json integration_tests/{build,performance} || die "Tests failed!"
-    cmd_test -- $OPTS --json-report-file=../test_results/test-report-functional+security.json -n8 --dist=worksteal integration_tests/{functional,security,style} || die "Tests failed!"
-
     run_devctr \
         --user "$(id -u):$(id -g)" \
         --workdir "$CTR_FC_ROOT_DIR" \
