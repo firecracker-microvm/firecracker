@@ -12,7 +12,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use seccompiler::BpfThreadMap;
-use serde::Serialize;
+use semver::Version;
+use serde::{Deserialize, Serialize};
 use snapshot::Snapshot;
 use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use utils::sock_ctrl_msg::ScmSocket;
@@ -93,18 +94,22 @@ impl From<&VmResources> for VmInfo {
 }
 
 /// Contains the necesary state for saving/restoring a microVM.
-#[derive(Debug, Default, Versionize)]
-// NOTICE: Any changes to this structure require a snapshot version bump.
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct MicrovmState {
     /// Miscellaneous VM info.
+    #[serde(skip)]
     pub vm_info: VmInfo,
     /// Memory state.
+    #[serde(skip)]
     pub memory_state: GuestMemoryState,
     /// VM KVM state.
+    #[serde(skip)]
     pub vm_state: VmState,
     /// Vcpu states.
+    #[serde(skip)]
     pub vcpu_states: Vec<VcpuState>,
     /// Device states.
+    #[serde(skip)]
     pub device_states: DeviceStates,
 }
 
@@ -158,10 +163,7 @@ pub enum MicrovmStateError {
 pub enum CreateSnapshotError {
     /// Cannot get dirty bitmap: {0}
     DirtyBitmap(VmmError),
-    /// The virtio devices use a features that is incompatible with older versions of Firecracker: {0}
-    IncompatibleVirtioFeature(&'static str),
-    /// Invalid microVM version format
-    InvalidVersionFormat,
+    #[rustfmt::skip]
     /// Cannot translate microVM version to snapshot data version
     UnsupportedVersion,
     /// Cannot write memory file: {0}
@@ -181,25 +183,20 @@ pub enum CreateSnapshotError {
     TooManyDevices(usize),
 }
 
+/// Snapshot version
+pub const SNAPSHOT_VERSION: Version = Version::new(1, 0, 0);
+
 /// Creates a Microvm snapshot.
 pub fn create_snapshot(
     vmm: &mut Vmm,
     vm_info: &VmInfo,
     params: &CreateSnapshotParams,
-    version_map: VersionMap,
 ) -> Result<(), CreateSnapshotError> {
-    let snapshot_data_version = version_map.latest_version();
-
     let microvm_state = vmm
         .save_state(vm_info)
         .map_err(CreateSnapshotError::MicrovmState)?;
 
-    snapshot_state_to_file(
-        &microvm_state,
-        &params.snapshot_path,
-        snapshot_data_version,
-        version_map,
-    )?;
+    snapshot_state_to_file(&microvm_state, &params.snapshot_path)?;
 
     snapshot_memory_to_file(vmm, &params.mem_file_path, params.snapshot_type)?;
 
@@ -209,8 +206,6 @@ pub fn create_snapshot(
 fn snapshot_state_to_file(
     microvm_state: &MicrovmState,
     snapshot_path: &Path,
-    snapshot_data_version: u16,
-    version_map: VersionMap,
 ) -> Result<(), CreateSnapshotError> {
     use self::CreateSnapshotError::*;
     let mut snapshot_file = OpenOptions::new()
@@ -220,7 +215,7 @@ fn snapshot_state_to_file(
         .open(snapshot_path)
         .map_err(|err| SnapshotBackingFile("open", err))?;
 
-    let mut snapshot = Snapshot::new(version_map, snapshot_data_version);
+    let snapshot = Snapshot::new(SNAPSHOT_VERSION);
     snapshot
         .save(&mut snapshot_file, microvm_state)
         .map_err(SerializeMicrovmState)?;
@@ -428,10 +423,9 @@ pub fn restore_from_snapshot(
     event_manager: &mut EventManager,
     seccomp_filters: &BpfThreadMap,
     params: &LoadSnapshotParams,
-    version_map: VersionMap,
     vm_resources: &mut VmResources,
 ) -> Result<Arc<Mutex<Vmm>>, RestoreFromSnapshotError> {
-    let microvm_state = snapshot_state_from_file(&params.snapshot_path, version_map)?;
+    let microvm_state = snapshot_state_from_file(&params.snapshot_path)?;
 
     // Some sanity checks before building the microvm.
     snapshot_state_sanity_check(&microvm_state)?;
@@ -482,13 +476,14 @@ pub enum SnapshotStateFromFileError {
 
 fn snapshot_state_from_file(
     snapshot_path: &Path,
-    version_map: VersionMap,
 ) -> Result<MicrovmState, SnapshotStateFromFileError> {
+    let snapshot = Snapshot::new(SNAPSHOT_VERSION);
     let mut snapshot_reader =
         File::open(snapshot_path).map_err(SnapshotStateFromFileError::Open)?;
     let metadata = std::fs::metadata(snapshot_path).map_err(SnapshotStateFromFileError::Meta)?;
     let snapshot_len = u64_to_usize(metadata.len());
-    let (state, _) = Snapshot::load(&mut snapshot_reader, snapshot_len, version_map)
+    let state: MicrovmState = snapshot
+        .load_with_version_check(&mut snapshot_reader, snapshot_len)
         .map_err(SnapshotStateFromFileError::Load)?;
     Ok(state)
 }
@@ -675,7 +670,7 @@ mod tests {
     }
 
     #[test]
-    fn test_microvmstate_versionize() {
+    fn test_microvm_state_snapshot() {
         let vmm = default_vmm_with_devices();
         let states = vmm.mmio_device_manager.save();
 
@@ -686,36 +681,19 @@ mod tests {
         assert!(states.vsock_device.is_some());
         assert!(states.balloon_device.is_some());
 
-        let memory_state = vmm.guest_memory().describe();
-        let vcpu_states = vec![VcpuState::default()];
+        let _memory_state = vmm.guest_memory().describe();
+        let _vcpu_states = vec![VcpuState::default()];
         #[cfg(target_arch = "aarch64")]
-        let mpidrs = construct_kvm_mpidrs(&vcpu_states);
+        let _mpidrs = construct_kvm_mpidrs(&_vcpu_states);
         let microvm_state = MicrovmState {
-            device_states: states,
-            memory_state,
-            vcpu_states,
-            vm_info: VmInfo {
-                mem_size_mib: 1u64,
-                ..Default::default()
-            },
-            #[cfg(target_arch = "aarch64")]
-            vm_state: vmm.vm.save_state(&mpidrs).unwrap(),
-            #[cfg(target_arch = "x86_64")]
-            vm_state: vmm.vm.save_state().unwrap(),
+            ..Default::default()
         };
 
         let mut buf = vec![0; 10000];
-        let mut version_map = VersionMap::new();
+        Snapshot::serialize(&mut buf.as_mut_slice(), &microvm_state).unwrap();
 
-        version_map
-            .new_version()
-            .set_type_version(DeviceStates::type_id(), 2);
-        microvm_state
-            .serialize(&mut buf.as_mut_slice(), &version_map, 2)
-            .unwrap();
-
-        let restored_microvm_state =
-            MicrovmState::deserialize(&mut buf.as_slice(), &version_map, 2).unwrap();
+        let restored_microvm_state: MicrovmState =
+            Snapshot::deserialize(&mut buf.as_slice()).unwrap();
 
         assert_eq!(restored_microvm_state.vm_info, microvm_state.vm_info);
         assert_eq!(
