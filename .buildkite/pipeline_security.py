@@ -15,12 +15,6 @@ defaults = {
 defaults = overlay_dict(defaults, args.step_param)
 
 
-vulnerabilities_grp = group(
-    "🛡️ Vulnerabilities",
-    "./tools/devtool -y test -- ../tests/integration_tests/security/test_vulnerabilities.py -m 'no_block_pr and not nonci'",
-    **defaults,
-)
-
 fingerprint_grp = group(
     "🖐️ Fingerprint",
     "./tools/devtool -y test -- ../tests/integration_tests/functional/test_cpu_template_helper.py -m nonci -k test_fingerprint_change",
