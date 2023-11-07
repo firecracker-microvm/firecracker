@@ -31,8 +31,6 @@
 //! * To decouple vsock device metrics from logger module by moving VsockDeviceMetrics out of
 //!   FirecrackerDeviceMetrics.
 //! * Rely on `serde` to provide the actual serialization for writing the metrics.
-//! * Since all metrics start at 0, we implement the `Default` trait via derive for all of them, to
-//!   avoid having to initialize everything by hand.
 //!
 //! The system implements 1 type of metrics:
 //! * Shared Incremental Metrics (SharedIncMetrics) - dedicated for the metrics which need a counter
@@ -44,7 +42,7 @@ use serde::{Serialize, Serializer};
 use crate::logger::SharedIncMetric;
 
 /// Stores aggregate metrics of all Vsock connections/actions
-pub static METRICS: VsockDeviceMetrics = VsockDeviceMetrics::new();
+pub(super) static METRICS: VsockDeviceMetrics = VsockDeviceMetrics::new();
 
 /// Called by METRICS.flush(), this function facilitates serialization of vsock device metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
@@ -54,8 +52,8 @@ pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
 }
 
 /// Vsock-related metrics.
-#[derive(Debug, Default, Serialize)]
-pub struct VsockDeviceMetrics {
+#[derive(Debug, Serialize)]
+pub(super) struct VsockDeviceMetrics {
     /// Number of times when activate failed on a vsock device.
     pub activate_fails: SharedIncMetric,
     /// Number of times when interacting with the space config of a vsock device failed.
@@ -101,7 +99,7 @@ pub struct VsockDeviceMetrics {
 impl VsockDeviceMetrics {
     // We need this because vsock::metrics::METRICS does not accept
     // VsockDeviceMetrics::default()
-    pub const fn new() -> Self {
+    const fn new() -> Self {
         Self {
             activate_fails: SharedIncMetric::new(),
             cfg_fails: SharedIncMetric::new(),
