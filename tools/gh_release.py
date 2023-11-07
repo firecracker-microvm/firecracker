@@ -62,6 +62,8 @@ def github_release(tag_version, repo, github_token):
         assets.append(release_tgz)
         assets.append(sha256sums)
 
+    assets.append(Path("test_results.tar.gz"))
+
     message_file = Path(f"release-{tag_version}-x86_64") / "RELEASE_NOTES"
     message = message_file.read_text()
 
@@ -82,7 +84,7 @@ def github_release(tag_version, repo, github_token):
         content_type = "application/octet-stream"
         if asset.suffix == ".txt":
             content_type = "text/plain"
-        elif asset.suffix == ".tgz":
+        elif asset.suffix in {".tgz", ".gz"}:
             content_type = "application/gzip"
         print(f"Uploading asset {asset} with content-type={content_type}")
         gh_release.upload_asset(str(asset), label=asset.name, content_type=content_type)
