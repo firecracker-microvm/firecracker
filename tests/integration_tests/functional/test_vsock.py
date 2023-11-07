@@ -28,6 +28,7 @@ from framework.utils_vsock import (
     make_host_port_path,
     start_guest_echo_server,
 )
+from host_tools.metrics import validate_fc_metrics
 
 NEGATIVE_TEST_CONNECTION_COUNT = 100
 TEST_WORKER_COUNT = 10
@@ -49,6 +50,8 @@ def test_vsock(test_microvm_with_api, bin_vsock_path, test_fc_session_root_path)
     vm.start()
 
     check_vsock_device(vm, bin_vsock_path, test_fc_session_root_path, vm.ssh)
+    metrics = vm.flush_metrics()
+    validate_fc_metrics(metrics)
 
 
 def negative_test_host_connections(vm, blob_path, blob_hash):
@@ -77,6 +80,8 @@ def negative_test_host_connections(vm, blob_path, blob_hash):
     assert ecode == 0
 
     metrics = vm.flush_metrics()
+    validate_fc_metrics(metrics)
+
     # Validate that at least 1 `SIGPIPE` signal was received.
     # Since we are reusing the existing echo server which triggers
     # reads/writes on the UDS backend connections, these might be closed
@@ -92,6 +97,8 @@ def negative_test_host_connections(vm, blob_path, blob_hash):
     # as expected. Use the default blob size to speed up the test.
     blob_path, blob_hash = make_blob(os.path.dirname(blob_path))
     check_host_connections(uds_path, blob_path, blob_hash)
+    metrics = vm.flush_metrics()
+    validate_fc_metrics(metrics)
 
 
 def test_vsock_epipe(test_microvm_with_api, bin_vsock_path, test_fc_session_root_path):
@@ -116,6 +123,8 @@ def test_vsock_epipe(test_microvm_with_api, bin_vsock_path, test_fc_session_root
     # Negative test for host-initiated connections that
     # are closed with in flight data.
     negative_test_host_connections(vm, blob_path, blob_hash)
+    metrics = vm.flush_metrics()
+    validate_fc_metrics(metrics)
 
 
 def test_vsock_transport_reset(
@@ -186,6 +195,8 @@ def test_vsock_transport_reset(
             assert True
 
     # Terminate VM.
+    metrics = test_vm.flush_metrics()
+    validate_fc_metrics(metrics)
     test_vm.kill()
 
     # Load snapshot.
@@ -202,3 +213,5 @@ def test_vsock_transport_reset(
     # Test host-initiated connections.
     path = os.path.join(vm2.jailer.chroot_path(), VSOCK_UDS_PATH)
     check_host_connections(path, blob_path, blob_hash)
+    metrics = vm2.flush_metrics()
+    validate_fc_metrics(metrics)
