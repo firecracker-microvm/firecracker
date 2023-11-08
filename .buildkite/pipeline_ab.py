@@ -15,9 +15,14 @@ from common import (
 )
 
 perf_test = {
-    "block": {
-        "label": "🖴 Block Performance",
-        "test_path": "integration_tests/performance/test_block_ab.py",
+    "virtio-block": {
+        "label": "🖴 Virtio Block Performance",
+        "test_path": "integration_tests/performance/test_block_ab.py::test_block_performance",
+        "devtool_opts": "-c 1-10 -m 0",
+    },
+    "vhost-user-block": {
+        "label": "🖴 vhost-user Block Performance",
+        "test_path": "integration_tests/performance/test_block_ab.py::test_block_vhost_user_performance",
         "devtool_opts": "-c 1-10 -m 0",
     },
     "network-latency": {
