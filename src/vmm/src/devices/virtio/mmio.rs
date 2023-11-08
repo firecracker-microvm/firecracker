@@ -246,14 +246,24 @@ impl MmioTransport {
                     0x34 => self.with_queue(0, |q| u32::from(q.get_max_size())),
                     0x44 => self.with_queue(0, |q| u32::from(q.ready)),
                     0x60 => {
-                        // For vhost-user backed devices we can only report
-                        // `VIRTIO_MMIO_INT_VRING` (bit 0 set) value, as any
-                        // changes to the interrupt status value cannot be propagated
-                        // back to FC from vhost-user-backend. This also means that backed should
-                        // not change device configuration as it also requires update to the
-                        // interrupt status (bit 1 set).
+                        // For vhost-user backed devices we need some additional
+                        // logic to differentiate between `VIRTIO_MMIO_INT_VRING`
+                        // and `VIRTIO_MMIO_INT_CONFIG` statuses.
+                        // Because backend can not propagate any interrupt status
+                        // changes to the FC we always try to serve the `VIRTIO_MMIO_INT_VRING`
+                        // status. But in case when backend changes the configuration and
+                        // notifies FC about it we need to send `VIRTIO_MMIO_INT_CONFIG`.
+                        // We know that for vhost-user devices the interrupt status can only
+                        // be 0 (no one set any bits) or `VIRTIO_MMIO_INT_CONFIG` (FC got event
+                        // from the backend). Based on this knowledge we can simply check if
+                        // the current interrupt_status is equal to the `VIRTIO_MMIO_INT_CONFIG` or
+                        // not to understand if we need to send
+                        // `VIRTIO_MMIO_INT_CONFIG` or `VIRTIO_MMIO_INT_VRING`.
+                        let is = self.interrupt_status.load(Ordering::SeqCst);
                         if !self.is_vhost_user {
-                            self.interrupt_status.load(Ordering::SeqCst)
+                            is
+                        } else if is == VIRTIO_MMIO_INT_CONFIG {
+                            VIRTIO_MMIO_INT_CONFIG
                         } else {
                             VIRTIO_MMIO_INT_VRING
                         }
