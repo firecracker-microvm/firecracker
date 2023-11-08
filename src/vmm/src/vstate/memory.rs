@@ -8,9 +8,8 @@
 use std::fs::File;
 use std::io::SeekFrom;
 
+use serde::{Deserialize, Serialize};
 use utils::{errno, get_page_size, u64_to_usize};
-use versionize::{VersionMap, Versionize, VersionizeResult};
-use versionize_derive::Versionize;
 pub use vm_memory::bitmap::{AtomicBitmap, Bitmap, BitmapSlice, BS};
 pub use vm_memory::mmap::MmapRegionBuilder;
 use vm_memory::mmap::{MmapRegionError, NewBitmap};
@@ -102,8 +101,7 @@ where
 }
 
 /// State of a guest memory region saved to file/buffer.
-#[derive(Debug, PartialEq, Eq, Versionize)]
-// NOTICE: Any changes to this structure require a snapshot version bump.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GuestMemoryRegionState {
     // This should have been named `base_guest_addr` since it's _guest_ addr, but for
     // backward compatibility we have to keep this name. At least this comment should help.
@@ -116,8 +114,7 @@ pub struct GuestMemoryRegionState {
 }
 
 /// Describes guest memory regions and their snapshot file mappings.
-#[derive(Debug, Default, PartialEq, Eq, Versionize)]
-// NOTICE: Any changes to this structure require a snapshot version bump.
+#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GuestMemoryState {
     /// List of regions.
     pub regions: Vec<GuestMemoryRegionState>,
@@ -373,6 +370,7 @@ mod tests {
     use std::collections::HashMap;
     use std::io::{Read, Seek};
 
+    use snapshot::Snapshot;
     use utils::get_page_size;
     use utils::tempfile::TempFile;
 
@@ -523,6 +521,34 @@ mod tests {
                 )
                 .unwrap();
         }
+    }
+
+    fn check_serde(guest_memory: &GuestMemoryMmap) {
+        let mut snapshot_data = vec![0u8; 10000];
+        let original_state = guest_memory.describe();
+        Snapshot::serialize(&mut snapshot_data.as_mut_slice(), &original_state).unwrap();
+        let restored_state = Snapshot::deserialize(&mut snapshot_data.as_slice()).unwrap();
+        assert_eq!(original_state, restored_state);
+    }
+
+    #[test]
+    fn test_serde() {
+        let page_size = get_page_size().unwrap();
+        let region_size = page_size * 3;
+
+        // Test with a single region
+        let guest_memory =
+            GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), region_size)], false).unwrap();
+        check_serde(&guest_memory);
+
+        // Test with some regions
+        let regions = vec![
+            (GuestAddress(0), region_size),                      // pages 0-2
+            (GuestAddress(region_size as u64), region_size),     // pages 3-5
+            (GuestAddress(region_size as u64 * 2), region_size), // pages 6-8
+        ];
+        let guest_memory = GuestMemoryMmap::from_raw_regions(&regions, true).unwrap();
+        check_serde(&guest_memory);
     }
 
     #[test]

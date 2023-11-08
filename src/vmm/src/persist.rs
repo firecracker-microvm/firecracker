@@ -76,7 +76,6 @@ pub struct MicrovmState {
     /// Miscellaneous VM info.
     pub vm_info: VmInfo,
     /// Memory state.
-    #[serde(skip)]
     pub memory_state: GuestMemoryState,
     /// VM KVM state.
     #[serde(skip)]
@@ -657,11 +656,12 @@ mod tests {
         assert!(states.vsock_device.is_some());
         assert!(states.balloon_device.is_some());
 
-        let _memory_state = vmm.guest_memory().describe();
+        let memory_state = vmm.guest_memory().describe();
         let _vcpu_states = vec![VcpuState::default()];
         #[cfg(target_arch = "aarch64")]
         let _mpidrs = construct_kvm_mpidrs(&_vcpu_states);
         let microvm_state = MicrovmState {
+            memory_state,
             vm_info: VmInfo {
                 mem_size_mib: 1u64,
                 ..Default::default()
