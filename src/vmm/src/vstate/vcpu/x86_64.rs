@@ -14,8 +14,7 @@ use kvm_bindings::{
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
 use log::{error, warn};
-use versionize::{VersionMap, Versionize, VersionizeResult};
-use versionize_derive::Versionize;
+use serde::{Deserialize, Serialize};
 
 use crate::arch::x86_64::interrupts;
 use crate::arch::x86_64::msr::{create_boot_msr_entries, MsrError};
@@ -403,7 +402,6 @@ impl KvmVcpu {
         Ok(VcpuState {
             cpuid,
             saved_msrs,
-            msrs: Msrs::new(0)?,
             debug_regs,
             lapic,
             mp_state,
@@ -543,17 +541,12 @@ impl KvmVcpu {
     }
 }
 
-#[derive(Clone, Versionize)]
 /// Structure holding VCPU kvm state.
-// NOTICE: Any changes to this structure require a snapshot version bump.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct VcpuState {
     /// CpuId.
     pub cpuid: CpuId,
-    /// Msrs.
-    #[version(end = 3, default_fn = "default_msrs")]
-    pub msrs: Msrs,
     /// Saved msrs.
-    #[version(start = 3, de_fn = "de_saved_msrs")]
     pub saved_msrs: Vec<Msrs>,
     /// Debug regs.
     pub debug_regs: kvm_debugregs,
@@ -572,7 +565,6 @@ pub struct VcpuState {
     /// Xsave.
     pub xsave: kvm_xsave,
     /// Tsc khz.
-    #[version(start = 2, default_fn = "default_tsc_khz")]
     pub tsc_khz: Option<u32>,
 }
 
@@ -585,7 +577,6 @@ impl Debug for VcpuState {
         }
         f.debug_struct("VcpuState")
             .field("cpuid", &self.cpuid)
-            .field("msrs", &self.msrs)
             .field("saved_msrs", &debug_kvm_regs)
             .field("debug_regs", &self.debug_regs)
             .field("lapic", &self.lapic)
@@ -597,26 +588,6 @@ impl Debug for VcpuState {
             .field("xsave", &self.xsave)
             .field("tsc_khz", &self.tsc_khz)
             .finish()
-    }
-}
-
-impl VcpuState {
-    fn default_tsc_khz(_: u16) -> Option<u32> {
-        warn!("CPU TSC freq not found in snapshot");
-        None
-    }
-
-    fn default_msrs(_source_version: u16) -> Msrs {
-        // Safe to unwrap since Msrs::new() only returns an error if the number
-        // of elements exceeds KVM_MAX_MSR_ENTRIES
-        Msrs::new(0).unwrap()
-    }
-
-    fn de_saved_msrs(&mut self, source_version: u16) -> VersionizeResult<()> {
-        if source_version < 3 {
-            self.saved_msrs.push(self.msrs.clone());
-        }
-        Ok(())
     }
 }
 
@@ -642,7 +613,6 @@ mod tests {
         fn default() -> Self {
             VcpuState {
                 cpuid: CpuId::new(1).unwrap(),
-                msrs: Msrs::new(1).unwrap(),
                 saved_msrs: vec![Msrs::new(1).unwrap()],
                 debug_regs: Default::default(),
                 lapic: Default::default(),

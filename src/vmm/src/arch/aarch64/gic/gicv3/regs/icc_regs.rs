@@ -29,7 +29,6 @@ const SYS_ICC_AP1R1_EL1: SimpleReg = SimpleReg::sys_icc_ap1rn_el1(1);
 const SYS_ICC_AP1R2_EL1: SimpleReg = SimpleReg::sys_icc_ap1rn_el1(2);
 const SYS_ICC_AP1R3_EL1: SimpleReg = SimpleReg::sys_icc_ap1rn_el1(3);
 
-// NOTICE: Any changes to this structure require a snapshot version bump.
 static MAIN_VGIC_ICC_REGS: &[SimpleReg] = &[
     SYS_ICC_SRE_EL1,
     SYS_ICC_CTLR_EL1,
@@ -40,7 +39,6 @@ static MAIN_VGIC_ICC_REGS: &[SimpleReg] = &[
     SYS_ICC_BPR1_EL1,
 ];
 
-// NOTICE: Any changes to this structure require a snapshot version bump.
 static AP_VGIC_ICC_REGS: &[SimpleReg] = &[
     SYS_ICC_AP0R0_EL1,
     SYS_ICC_AP0R1_EL1,

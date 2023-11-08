@@ -7,25 +7,24 @@ use std::ops::Range;
 
 use kvm_bindings::kvm_device_attr;
 use kvm_ioctls::DeviceFd;
-use versionize::{VersionMap, Versionize, VersionizeResult};
-use versionize_derive::Versionize;
+use serde::{Deserialize, Serialize};
 
 use crate::arch::aarch64::gic::GicError;
 
-#[derive(Debug)]
-pub struct GicRegState<T: Versionize> {
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GicRegState<T> {
     pub(crate) chunks: Vec<T>,
 }
 
 /// Structure for serializing the state of the Vgic ICC regs
-#[derive(Debug, Default, Versionize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct VgicSysRegsState {
     pub main_icc_regs: Vec<GicRegState<u64>>,
     pub ap_icc_regs: Vec<Option<GicRegState<u64>>>,
 }
 
 /// Structure used for serializing the state of the GIC registers.
-#[derive(Debug, Default, Versionize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct GicState {
     /// The state of the distributor registers.
     pub dist: Vec<GicRegState<u32>>,
@@ -34,37 +33,10 @@ pub struct GicState {
 }
 
 /// Structure used for serializing the state of the GIC registers for a specific vCPU.
-#[derive(Debug, Default, Versionize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct GicVcpuState {
     pub rdist: Vec<GicRegState<u32>>,
     pub icc: VgicSysRegsState,
-}
-
-impl<T: Versionize> Versionize for GicRegState<T> {
-    fn serialize<W: std::io::Write>(
-        &self,
-        writer: &mut W,
-        version_map: &VersionMap,
-        app_version: u16,
-    ) -> VersionizeResult<()> {
-        let chunks = &self.chunks;
-        assert_eq!(std::mem::size_of_val(chunks), std::mem::size_of::<Self>());
-        Versionize::serialize(chunks, writer, version_map, app_version)
-    }
-
-    fn deserialize<R: std::io::Read>(
-        reader: &mut R,
-        version_map: &VersionMap,
-        app_version: u16,
-    ) -> VersionizeResult<Self> {
-        let chunks = Versionize::deserialize(reader, version_map, app_version)?;
-        assert_eq!(std::mem::size_of_val(&chunks), std::mem::size_of::<Self>());
-        Ok(Self { chunks })
-    }
-
-    fn version() -> u16 {
-        1
-    }
 }
 
 pub(crate) trait MmioReg {
@@ -80,7 +52,7 @@ pub(crate) trait MmioReg {
 
 pub(crate) trait VgicRegEngine {
     type Reg: MmioReg;
-    type RegChunk: Clone + Default + Versionize;
+    type RegChunk: Clone + Default;
 
     fn group() -> u32;
 

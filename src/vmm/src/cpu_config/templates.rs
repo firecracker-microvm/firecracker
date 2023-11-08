@@ -25,8 +25,6 @@ use std::fmt::Debug;
 pub use common_types::*;
 use serde::de::Error as SerdeError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
-use versionize_derive::Versionize;
 
 /// Error for GetCpuTemplate trait.
 #[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq, Eq)]
@@ -106,7 +104,7 @@ impl TryFrom<&str> for CustomCpuTemplate {
 /// Struct to represent user defined kvm capability.
 /// Users can add or remove kvm capabilities to be checked
 /// by FC in addition to those FC checks by default.
-#[derive(Debug, Clone, Eq, PartialEq, Versionize)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum KvmCapability {
     /// Add capability to the check list.
     Add(u32),

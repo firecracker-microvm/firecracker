@@ -9,12 +9,10 @@ use std::fmt::{Debug, Write};
 
 use kvm_bindings::*;
 use kvm_ioctls::*;
-use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
-use versionize_derive::Versionize;
+use serde::{Deserialize, Serialize};
 
 use crate::arch::aarch64::regs::{
-    arm64_core_reg_id, offset__of, Aarch64RegisterOld, Aarch64RegisterRef, Aarch64RegisterVec,
-    KVM_REG_ARM_TIMER_CNT,
+    arm64_core_reg_id, offset__of, Aarch64RegisterVec, KVM_REG_ARM_TIMER_CNT,
 };
 use crate::arch::aarch64::vcpu::{
     get_all_registers, get_all_registers_ids, get_mpidr, get_mpstate, get_registers, set_mpstate,
@@ -252,15 +250,11 @@ impl KvmVcpu {
 }
 
 /// Structure holding VCPU kvm state.
-#[derive(Default, Clone, Versionize)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 pub struct VcpuState {
     /// Multiprocessing state.
     pub mp_state: kvm_bindings::kvm_mp_state,
-    /// Old representation of Vcpu registers.
-    #[version(end = 2, default_fn = "default_old_regs")]
-    pub old_regs: Vec<Aarch64RegisterOld>,
     /// Vcpu registers.
-    #[version(start = 2, de_fn = "de_regs")]
     pub regs: Aarch64RegisterVec,
     /// We will be using the mpidr for passing it to the VmState.
     /// The VmState will give this away for saving restoring the icc and redistributor
@@ -269,7 +263,6 @@ pub struct VcpuState {
     /// kvi states for vcpu initialization.
     /// If None then use `default_kvi` to obtain
     /// kvi.
-    #[version(start = 2, default_fn = "default_kvi")]
     pub kvi: Option<kvm_bindings::kvm_vcpu_init>,
 }
 
@@ -291,28 +284,6 @@ impl Debug for VcpuState {
                     })
             )?;
         }
-        Ok(())
-    }
-}
-
-impl VcpuState {
-    fn default_old_regs(_: u16) -> Vec<Aarch64RegisterOld> {
-        Vec::default()
-    }
-
-    fn default_kvi(_: u16) -> Option<kvm_bindings::kvm_vcpu_init> {
-        None
-    }
-
-    fn de_regs(&mut self, _source_version: u16) -> VersionizeResult<()> {
-        let mut regs = Aarch64RegisterVec::default();
-        for reg in self.old_regs.iter() {
-            let reg_ref: Aarch64RegisterRef = reg
-                .try_into()
-                .map_err(|e: &str| VersionizeError::Deserialize(e.into()))?;
-            regs.push(reg_ref);
-        }
-        self.regs = regs;
         Ok(())
     }
 }

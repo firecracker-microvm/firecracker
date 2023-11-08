@@ -16,10 +16,9 @@ use kvm_bindings::{
 };
 use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION, KVM_MEM_LOG_DIRTY_PAGES};
 use kvm_ioctls::{Kvm, VmFd};
+use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "x86_64")]
 use utils::u64_to_usize;
-use versionize::{VersionMap, Versionize, VersionizeResult};
-use versionize_derive::Versionize;
 
 #[cfg(target_arch = "aarch64")]
 use crate::arch::aarch64::gic::GICDevice;
@@ -316,12 +315,11 @@ impl Vm {
 
 /// Structure holding an general specific VM state.
 #[cfg(target_arch = "aarch64")]
-#[derive(Debug, Default, Versionize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct VmState {
     /// GIC state.
     pub gic: GicState,
     /// Additional capabilities that were specified in cpu template.
-    #[version(start = 2, default_fn = "default_caps")]
     pub kvm_cap_modifiers: Vec<KvmCapability>,
 }
 
@@ -439,9 +437,8 @@ impl Vm {
 }
 
 #[cfg(target_arch = "x86_64")]
-#[derive(Default, Versionize)]
+#[derive(Default, Deserialize, Serialize)]
 /// Structure holding VM kvm state.
-// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VmState {
     pitstate: kvm_pit_state2,
     clock: kvm_clock_data,
@@ -452,14 +449,7 @@ pub struct VmState {
     ioapic: kvm_irqchip,
 
     /// Additional capabilities that were specified in cpu template.
-    #[version(start = 2, default_fn = "default_caps")]
     pub kvm_cap_modifiers: Vec<KvmCapability>,
-}
-
-impl VmState {
-    fn default_caps(_: u16) -> Vec<KvmCapability> {
-        Vec::default()
-    }
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -477,6 +467,9 @@ impl fmt::Debug for VmState {
 
 #[cfg(test)]
 pub(crate) mod tests {
+
+    #[cfg(target_arch = "x86_64")]
+    use snapshot::Snapshot;
 
     use super::*;
     use crate::vstate::memory::{GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
@@ -577,6 +570,20 @@ pub(crate) mod tests {
         // Try to restore an invalid IOPIC chip ID
         vm_state.ioapic.chip_id = KVM_NR_IRQCHIPS;
         vm.restore_state(&vm_state).unwrap_err();
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_vmstate_serde() {
+        let mut snapshot_data = vec![0u8; 10000];
+
+        let (mut vm, _) = setup_vm(0x1000);
+        vm.setup_irqchip().unwrap();
+        let state = vm.save_state().unwrap();
+        Snapshot::serialize(&mut snapshot_data.as_mut_slice(), &state).unwrap();
+        let restored_state: VmState = Snapshot::deserialize(&mut snapshot_data.as_slice()).unwrap();
+
+        vm.restore_state(&restored_state).unwrap();
     }
 
     #[test]

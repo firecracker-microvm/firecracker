@@ -32,8 +32,7 @@ const GICD_IROUTER: DistReg = DistReg::shared_irq(0x6000, 64);
 // Criteria for the present list of registers: only R/W registers, implementation specific registers
 // are not saved. GICD_CPENDSGIR and GICD_SPENDSGIR are not saved since these registers are not used
 // when affinity routing is enabled. Affinity routing GICv3 is enabled by default unless Firecracker
-// clears the ICD_CTLR.ARE bit which it does not do. NOTICE: Any changes to this structure require a
-// snapshot version bump.
+// clears the ICD_CTLR.ARE bit which it does not do.
 static VGIC_DIST_REGS: &[DistReg] = &[
     GICD_CTLR,
     GICD_STATUSR,
