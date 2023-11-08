@@ -23,7 +23,6 @@ const GICC_APR2: SimpleReg = SimpleReg::new(0x00D4, 4);
 const GICC_APR3: SimpleReg = SimpleReg::new(0x00D8, 4);
 const GICC_APR4: SimpleReg = SimpleReg::new(0x00DC, 4);
 
-// NOTICE: Any changes to this structure require a snapshot version bump.
 static MAIN_VGIC_ICC_REGS: &[SimpleReg] = &[
     GICC_CTLR, GICC_PMR, GICC_BPR, GICC_APBR, GICC_APR1, GICC_APR2, GICC_APR3, GICC_APR4,
 ];

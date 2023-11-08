@@ -6,8 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use kvm_bindings::*;
-use versionize::*;
-use versionize_derive::Versionize;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[allow(non_upper_case_globals)]
 /// PSR (Processor State Register) bits.
@@ -72,8 +71,6 @@ macro_rules! arm64_core_reg_id {
     };
 }
 pub(crate) use arm64_core_reg_id;
-
-use crate::vstate::memory::ByteValued;
 
 /// This macro computes the ID of a specific ARM64 system register similar to how
 /// the kernel C macro does.
@@ -195,33 +192,31 @@ pub fn reg_size(reg_id: u64) -> usize {
 }
 
 /// Storage for aarch64 registers with different sizes.
-/// For public usage it is wrapped into `Aarch64RegisterVec`
-/// which ensures correctness after deserialization.
-#[derive(Default, Debug, Clone, PartialEq, Eq, Versionize)]
-struct Aarch64RegisterVecInner {
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+pub struct Aarch64RegisterVec {
     ids: Vec<u64>,
     data: Vec<u8>,
 }
 
-impl Aarch64RegisterVecInner {
+impl Aarch64RegisterVec {
     /// Returns the number of elements in the vector.
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.ids.len()
     }
 
     /// Returns true if the vector contains no elements.
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.ids.is_empty()
     }
 
     /// Appends a register to the vector, copying register data.
-    fn push(&mut self, reg: Aarch64RegisterRef<'_>) {
+    pub fn push(&mut self, reg: Aarch64RegisterRef<'_>) {
         self.ids.push(reg.id);
         self.data.extend_from_slice(reg.data);
     }
 
     /// Returns an iterator over stored registers.
-    fn iter(&self) -> impl Iterator<Item = Aarch64RegisterRef> {
+    pub fn iter(&self) -> impl Iterator<Item = Aarch64RegisterRef> {
         Aarch64RegisterVecIterator {
             index: 0,
             offset: 0,
@@ -231,7 +226,7 @@ impl Aarch64RegisterVecInner {
     }
 
     /// Returns an iterator over stored registers that allows register modifications.
-    fn iter_mut(&mut self) -> impl Iterator<Item = Aarch64RegisterRefMut> {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = Aarch64RegisterRefMut> {
         Aarch64RegisterVecIteratorMut {
             index: 0,
             offset: 0,
@@ -241,85 +236,42 @@ impl Aarch64RegisterVecInner {
     }
 }
 
-/// Wrapper type around `Aarch64RegisterVecInner`.
-/// Needed to ensure correctness of inner state after
-/// deserialization.
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub struct Aarch64RegisterVec {
-    inner: Aarch64RegisterVecInner,
-}
-
-impl Aarch64RegisterVec {
-    /// Returns the number of elements in the vector.
-    pub fn len(&self) -> usize {
-        self.inner.len()
-    }
-
-    /// Returns true if the vector contains no elements.
-    pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
-    }
-
-    /// Appends a register to the vector, copying register data.
-    pub fn push(&mut self, reg: Aarch64RegisterRef<'_>) {
-        self.inner.push(reg);
-    }
-
-    /// Returns an iterator over stored registers.
-    pub fn iter(&self) -> impl Iterator<Item = Aarch64RegisterRef> {
-        self.inner.iter()
-    }
-
-    /// Returns an iterator over stored registers that allows register modifications.
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = Aarch64RegisterRefMut> {
-        self.inner.iter_mut()
-    }
-}
-
-impl Versionize for Aarch64RegisterVec {
-    fn serialize<W: std::io::Write>(
-        &self,
-        writer: &mut W,
-        version_map: &VersionMap,
-        target_version: u16,
-    ) -> VersionizeResult<()> {
-        self.inner.serialize(writer, version_map, target_version)
-    }
-
-    fn deserialize<R: std::io::Read>(
-        reader: &mut R,
-        version_map: &VersionMap,
-        source_version: u16,
-    ) -> VersionizeResult<Self>
+impl Serialize for Aarch64RegisterVec {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        Self: Sized,
+        S: Serializer,
     {
-        let inner = Aarch64RegisterVecInner::deserialize(reader, version_map, source_version)?;
+        Serialize::serialize(&(&self.ids, &self.data), serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Aarch64RegisterVec {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let (ids, data): (Vec<u64>, Vec<u8>) = Deserialize::deserialize(deserializer)?;
+
         let mut total_size: usize = 0;
-        for id in inner.ids.iter() {
+        for id in ids.iter() {
             let reg_size = reg_size(*id);
-            if RegSize::U2048_SIZE < reg_size {
-                return Err(VersionizeError::Deserialize(
-                    "Failed to deserialize aarch64 registers. Registers bigger then 2048 bits are \
-                     not supported"
-                        .to_string(),
+            if reg_size > RegSize::U2048_SIZE {
+                return Err(serde::de::Error::custom(
+                    "Failed to deserialize aarch64 registers. Registers bigger than 2048 bits are \
+                     not supported",
                 ));
             }
             total_size += reg_size;
         }
-        if total_size != inner.data.len() {
-            Err(VersionizeError::Deserialize(
-                "Failed to deserialize aarch64 registers. Sum of registers sizes is not equal to \
-                 registers data length"
-                    .to_string(),
-            ))
-        } else {
-            Ok(Self { inner })
-        }
-    }
 
-    fn version() -> u16 {
-        Aarch64RegisterVecInner::version()
+        if total_size != data.len() {
+            return Err(serde::de::Error::custom(
+                "Failed to deserialize aarch64 registers. Sum of register sizes is not equal to \
+                 registers data length",
+            ));
+        }
+
+        Ok(Aarch64RegisterVec { ids, data })
     }
 }
 
@@ -469,61 +421,6 @@ impl<'a> Aarch64RegisterRefMut<'a> {
     }
 }
 
-/// Old definition of a struct describing an aarch64 register.
-/// This type is only used to have a backward compatibility
-/// with old snapshot versions and should not be used anywhere
-/// else.
-#[derive(Debug, Clone, Copy, Versionize)]
-pub struct Aarch64RegisterOld {
-    /// ID of the register.
-    pub id: u64,
-    /// Register data.
-    pub data: u128,
-}
-
-impl<'a> TryFrom<Aarch64RegisterRef<'a>> for Aarch64RegisterOld {
-    type Error = &'static str;
-
-    fn try_from(value: Aarch64RegisterRef) -> Result<Self, Self::Error> {
-        let reg = match value.size() {
-            RegSize::U32 => Self {
-                id: value.id,
-                data: u128::from(value.value::<u32, 4>()),
-            },
-            RegSize::U64 => Self {
-                id: value.id,
-                data: u128::from(value.value::<u64, 8>()),
-            },
-            RegSize::U128 => Self {
-                id: value.id,
-                data: value.value::<u128, 16>(),
-            },
-            _ => return Err("Only 32, 64 and 128 bit wide registers are supported"),
-        };
-        Ok(reg)
-    }
-}
-
-impl<'a> TryFrom<&'a Aarch64RegisterOld> for Aarch64RegisterRef<'a> {
-    type Error = &'static str;
-
-    fn try_from(value: &'a Aarch64RegisterOld) -> Result<Self, Self::Error> {
-        // # Safety:
-        // `self.data` is a valid memory and slice size is valid for this type.
-        let data_ref = value.data.as_slice();
-        let reg_size = reg_size(value.id);
-        if RegSize::U2048_SIZE < reg_size {
-            return Err("Registers bigger then 2048 bits are not supported");
-        }
-        match RegSize::from(reg_size) {
-            RegSize::U32 => Ok(Self::new(value.id, &data_ref[..std::mem::size_of::<u32>()])),
-            RegSize::U64 => Ok(Self::new(value.id, &data_ref[..std::mem::size_of::<u64>()])),
-            RegSize::U128 => Ok(Self::new(value.id, data_ref)),
-            _ => Err("Only 32, 64 and 128 bit wide registers are supported"),
-        }
-    }
-}
-
 /// Trait for data types that can represent aarch64
 /// register data.
 pub trait Aarch64RegisterData<const N: usize> {
@@ -581,6 +478,8 @@ reg_data_array!([u8; 256], 256);
 
 #[cfg(test)]
 mod tests {
+    use snapshot::Snapshot;
+
     use super::*;
 
     #[test]
@@ -603,13 +502,9 @@ mod tests {
         v.push(reg2);
 
         let mut buf = vec![0; 10000];
-        let version_map = VersionMap::new();
 
-        v.serialize(&mut buf.as_mut_slice(), &version_map, 1)
-            .unwrap();
-        let restored =
-            <Aarch64RegisterVec as Versionize>::deserialize(&mut buf.as_slice(), &version_map, 1)
-                .unwrap();
+        Snapshot::serialize(&mut buf.as_mut_slice(), &v).unwrap();
+        let restored: Aarch64RegisterVec = Snapshot::deserialize(&mut buf.as_slice()).unwrap();
 
         for (old, new) in v.iter().zip(restored.iter()) {
             assert_eq!(old, new);
@@ -633,15 +528,12 @@ mod tests {
         v.push(reg2);
 
         let mut buf = vec![0; 10000];
-        let version_map = VersionMap::new();
 
-        v.serialize(&mut buf.as_mut_slice(), &version_map, 1)
-            .unwrap();
+        Snapshot::serialize(&mut buf.as_mut_slice(), &v).unwrap();
 
         // Total size of registers according IDs are 16 + 16 = 32,
         // but actual data size is 8 + 16 = 24.
-        <Aarch64RegisterVec as Versionize>::deserialize(&mut buf.as_slice(), &version_map, 1)
-            .unwrap_err();
+        Snapshot::deserialize::<_, Aarch64RegisterVec>(&mut buf.as_slice()).unwrap_err();
     }
 
     #[test]
@@ -659,19 +551,16 @@ mod tests {
         v.push(reg);
 
         let mut buf = vec![0; 10000];
-        let version_map = VersionMap::new();
 
-        v.serialize(&mut buf.as_mut_slice(), &version_map, 1)
-            .unwrap();
+        Snapshot::serialize(&mut buf.as_mut_slice(), &v).unwrap();
 
         // 4096 bit wide registers are not supported.
-        <Aarch64RegisterVec as Versionize>::deserialize(&mut buf.as_slice(), &version_map, 1)
-            .unwrap_err();
+        Snapshot::deserialize::<_, Aarch64RegisterVec>(&mut buf.as_slice()).unwrap_err();
     }
 
     #[test]
-    fn test_aarch64_register_vec_inner() {
-        let mut v = Aarch64RegisterVecInner::default();
+    fn test_aarch64_register_vec() {
+        let mut v = Aarch64RegisterVec::default();
 
         let reg1_bytes = 1_u8.to_le_bytes();
         let reg1 = Aarch64RegisterRef::new(u64::from(KVM_REG_SIZE_U8), &reg1_bytes);
@@ -822,49 +711,5 @@ mod tests {
         let mut bytes = 69_u64.to_le_bytes();
         let reg_ref = Aarch64RegisterRefMut::new(KVM_REG_SIZE_U64, &mut bytes);
         assert_eq!(reg_ref.value::<u128, 16>(), 69);
-    }
-
-    #[test]
-    fn test_old_reg_to_reg_ref() {
-        let old_reg = Aarch64RegisterOld {
-            id: KVM_REG_SIZE_U64,
-            data: 69,
-        };
-
-        let reg_ref: Aarch64RegisterRef = (&old_reg).try_into().unwrap();
-        assert_eq!(old_reg.id, reg_ref.id);
-        assert_eq!(old_reg.data, u128::from(reg_ref.value::<u64, 8>()));
-
-        let old_reg = Aarch64RegisterOld {
-            id: KVM_REG_SIZE_U256,
-            data: 69,
-        };
-
-        let reg_ref: Result<Aarch64RegisterRef, _> = (&old_reg).try_into();
-        reg_ref.unwrap_err();
-
-        // 4096 bit wide reg ID.
-        let old_reg = Aarch64RegisterOld {
-            id: 0x0090000000000000,
-            data: 69,
-        };
-
-        let reg_ref: Result<Aarch64RegisterRef, _> = (&old_reg).try_into();
-        reg_ref.unwrap_err();
-    }
-
-    #[test]
-    fn test_reg_ref_to_old_reg() {
-        let reg_bytes = 69_u64.to_le_bytes();
-        let reg_ref = Aarch64RegisterRef::new(KVM_REG_SIZE_U64, &reg_bytes);
-
-        let reg: Aarch64RegisterOld = reg_ref.try_into().unwrap();
-        assert_eq!(reg.id, reg_ref.id);
-        assert_eq!(reg.data, u128::from(reg_ref.value::<u64, 8>()));
-
-        let reg_ref = Aarch64RegisterRef::new(KVM_REG_SIZE_U256, &[0_u8; 32]);
-
-        let reg: Result<Aarch64RegisterOld, _> = reg_ref.try_into();
-        reg.unwrap_err();
     }
 }

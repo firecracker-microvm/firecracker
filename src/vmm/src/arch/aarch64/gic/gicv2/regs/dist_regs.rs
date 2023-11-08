@@ -30,7 +30,7 @@ const GICD_SPENDSGIR: DistReg = DistReg::simple(0xF20, 16);
 // List with relevant distributor registers that we will be restoring.
 // Order is taken from qemu.
 // Criteria for the present list of registers: only R/W registers, implementation specific registers
-// are not saved. NOTICE: Any changes to this structure require a snapshot version bump.
+// are not saved.
 static VGIC_DIST_REGS: &[DistReg] = &[
     GICD_CTLR,
     GICD_ICENABLER,
