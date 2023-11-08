@@ -5,8 +5,6 @@ use std::fs::File;
 use std::io;
 
 use serde::{Deserialize, Serialize};
-use versionize::{VersionMap, Versionize, VersionizeResult};
-use versionize_derive::Versionize;
 
 /// Default guest kernel command line:
 /// - `reboot=k` shut down the guest on reboot, instead of well... rebooting;
@@ -23,7 +21,7 @@ pub const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 pci=off nomodule 8250
 
 /// Strongly typed data structure used to configure the boot source of the
 /// microvm.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, Versionize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BootSourceConfig {
     /// Path of the kernel image.
@@ -32,7 +30,6 @@ pub struct BootSourceConfig {
     pub initrd_path: Option<String>,
     /// The boot arguments to pass to the kernel. If this field is uninitialized,
     /// DEFAULT_KERNEL_CMDLINE is used.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub boot_args: Option<String>,
 }
 
@@ -100,6 +97,7 @@ impl BootConfig {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use snapshot::Snapshot;
     use utils::tempfile::TempFile;
 
     use super::*;
@@ -121,5 +119,19 @@ pub(crate) mod tests {
             boot_cfg.cmdline.as_cstring().unwrap().as_bytes_with_nul(),
             [DEFAULT_KERNEL_CMDLINE.as_bytes(), &[b'\0']].concat()
         );
+    }
+
+    #[test]
+    fn test_serde() {
+        let boot_src_cfg = BootSourceConfig {
+            boot_args: Some(DEFAULT_KERNEL_CMDLINE.to_string()),
+            initrd_path: Some("/tmp/initrd".to_string()),
+            kernel_image_path: "./vmlinux.bin".to_string(),
+        };
+
+        let mut snapshot_data = vec![0u8; 1000];
+        Snapshot::serialize(&mut snapshot_data.as_mut_slice(), &boot_src_cfg).unwrap();
+        let restored_boot_cfg = Snapshot::deserialize(&mut snapshot_data.as_slice()).unwrap();
+        assert_eq!(boot_src_cfg, restored_boot_cfg);
     }
 }

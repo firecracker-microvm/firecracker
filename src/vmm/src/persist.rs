@@ -18,8 +18,6 @@ use snapshot::Snapshot;
 use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use utils::sock_ctrl_msg::ScmSocket;
 use utils::u64_to_usize;
-use versionize::{VersionMap, Versionize, VersionizeResult};
-use versionize_derive::Versionize;
 
 #[cfg(target_arch = "aarch64")]
 use crate::arch::aarch64::vcpu::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
@@ -49,37 +47,16 @@ use crate::{mem_size_mib, vstate, EventManager, Vmm, VmmError};
 const FC_V0_23_MAX_DEVICES: u32 = 11;
 
 /// Holds information related to the VM that is not part of VmState.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Versionize, Serialize)]
-// NOTICE: Any changes to this structure require a snapshot version bump.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
 pub struct VmInfo {
     /// Guest memory size.
     pub mem_size_mib: u64,
     /// smt information
-    #[version(start = 2, default_fn = "def_smt")]
     pub smt: bool,
     /// CPU template type
-    #[version(start = 2, default_fn = "def_cpu_template")]
     pub cpu_template: StaticCpuTemplate,
     /// Boot source information.
-    #[version(start = 2, default_fn = "def_boot_source")]
     pub boot_source: BootSourceConfig,
-}
-
-impl VmInfo {
-    fn def_smt(_: u16) -> bool {
-        warn!("SMT field not found in snapshot.");
-        false
-    }
-
-    fn def_cpu_template(_: u16) -> StaticCpuTemplate {
-        warn!("CPU template field not found in snapshot.");
-        StaticCpuTemplate::default()
-    }
-
-    fn def_boot_source(_: u16) -> BootSourceConfig {
-        warn!("Boot source information not found in snapshot.");
-        BootSourceConfig::default()
-    }
 }
 
 impl From<&VmResources> for VmInfo {
@@ -97,7 +74,6 @@ impl From<&VmResources> for VmInfo {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct MicrovmState {
     /// Miscellaneous VM info.
-    #[serde(skip)]
     pub vm_info: VmInfo,
     /// Memory state.
     #[serde(skip)]
@@ -686,6 +662,10 @@ mod tests {
         #[cfg(target_arch = "aarch64")]
         let _mpidrs = construct_kvm_mpidrs(&_vcpu_states);
         let microvm_state = MicrovmState {
+            vm_info: VmInfo {
+                mem_size_mib: 1u64,
+                ..Default::default()
+            },
             ..Default::default()
         };
 

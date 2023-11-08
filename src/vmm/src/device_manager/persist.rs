@@ -900,7 +900,8 @@ mod tests {
   ],
   "boot-source": {{
     "kernel_image_path": "",
-    "initrd_path": null
+    "initrd_path": null,
+    "boot_args": null
   }},
   "cpu-config": null,
   "logger": null,
