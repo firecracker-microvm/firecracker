@@ -7,9 +7,8 @@ use std::fmt::Debug;
 use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
 use snapshot::Persist;
-use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
-use versionize_derive::Versionize;
 
 use super::*;
 use crate::devices::virtio::device::DeviceState;
@@ -19,8 +18,7 @@ use crate::devices::virtio::vsock::TYPE_VSOCK;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// The Vsock serializable state.
-// NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Debug, Clone, Versionize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VsockState {
     /// The vsock backend state.
     pub backend: VsockBackendState,
@@ -29,8 +27,7 @@ pub struct VsockState {
 }
 
 /// The Vsock frontend serializable state.
-// NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Debug, Clone, Versionize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VsockFrontendState {
     /// Context IDentifier.
     pub cid: u64,
@@ -38,16 +35,14 @@ pub struct VsockFrontendState {
 }
 
 /// An enum for the serializable backend state types.
-// NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Debug, Clone, Versionize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum VsockBackendState {
     /// UDS backend state.
     Uds(VsockUdsState),
 }
 
 /// The Vsock Unix Backend serializable state.
-// NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Debug, Clone, Versionize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VsockUdsState {
     /// The path for the UDS socket.
     pub(crate) path: String,
@@ -139,6 +134,7 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use snapshot::Snapshot;
     use utils::byte_order;
 
     use super::device::AVAIL_FEATURES;
@@ -181,7 +177,6 @@ pub(crate) mod tests {
 
         // Test serialization
         let mut mem = vec![0; 4096];
-        let version_map = VersionMap::new();
 
         // Save backend and device state separately.
         let state = VsockState {
@@ -189,11 +184,9 @@ pub(crate) mod tests {
             frontend: ctx.device.save(),
         };
 
-        state
-            .serialize(&mut mem.as_mut_slice(), &version_map, 1)
-            .unwrap();
+        Snapshot::serialize(&mut mem.as_mut_slice(), &state).unwrap();
 
-        let restored_state = VsockState::deserialize(&mut mem.as_slice(), &version_map, 1).unwrap();
+        let restored_state: VsockState = Snapshot::deserialize(&mut mem.as_slice()).unwrap();
         let mut restored_device = Vsock::restore(
             VsockConstructorArgs {
                 mem: ctx.mem.clone(),

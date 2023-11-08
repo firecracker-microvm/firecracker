@@ -12,8 +12,7 @@ use std::sync::{Arc, Mutex};
 use kvm_ioctls::{IoEventAddress, VmFd};
 use linux_loader::cmdline as kernel_cmdline;
 use log::info;
-use versionize::{VersionMap, Versionize, VersionizeResult};
-use versionize_derive::Versionize;
+use serde::{Deserialize, Serialize};
 use vm_allocator::{AddressAllocator, AllocPolicy, IdAllocator};
 
 #[cfg(target_arch = "aarch64")]
@@ -65,8 +64,7 @@ pub enum MmioError {
 pub const MMIO_LEN: u64 = 0x1000;
 
 /// Stores the address range and irq allocated to this device.
-#[derive(Clone, Debug, PartialEq, Eq, Versionize)]
-// NOTICE: Any changes to this structure require a snapshot version bump.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MMIODeviceInfo {
     /// Mmio address at which the device is registered.
     pub addr: u64,

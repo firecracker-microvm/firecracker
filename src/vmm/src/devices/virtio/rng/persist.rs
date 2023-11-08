@@ -3,9 +3,8 @@
 
 //! Defines the structures needed for saving/restoring entropy devices.
 
+use serde::{Deserialize, Serialize};
 use snapshot::Persist;
-use versionize::{VersionMap, Versionize, VersionizeResult};
-use versionize_derive::Versionize;
 
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
@@ -15,7 +14,7 @@ use crate::rate_limiter::persist::RateLimiterState;
 use crate::rate_limiter::RateLimiter;
 use crate::vstate::memory::GuestMemoryMmap;
 
-#[derive(Debug, Clone, Versionize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntropyState {
     virtio_state: VirtioDeviceState,
     rate_limiter_state: RateLimiterState,
@@ -80,6 +79,8 @@ impl Persist<'_> for Entropy {
 mod tests {
     use std::sync::atomic::Ordering;
 
+    use snapshot::Snapshot;
+
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::rng::device::ENTROPY_DEV_ID;
@@ -90,15 +91,12 @@ mod tests {
         let mut mem = vec![0u8; 4096];
         let entropy = Entropy::new(RateLimiter::default()).unwrap();
 
-        let version_map = VersionMap::new();
-        <Entropy as Persist>::save(&entropy)
-            .serialize(&mut mem.as_mut_slice(), &version_map, 1)
-            .unwrap();
+        Snapshot::serialize(&mut mem.as_mut_slice(), &entropy.save()).unwrap();
 
         let guest_mem = create_virtio_mem();
         let restored = Entropy::restore(
             EntropyConstructorArgs(guest_mem),
-            &EntropyState::deserialize(&mut mem.as_slice(), &version_map, 1).unwrap(),
+            &Snapshot::deserialize(&mut mem.as_slice()).unwrap(),
         )
         .unwrap();
 

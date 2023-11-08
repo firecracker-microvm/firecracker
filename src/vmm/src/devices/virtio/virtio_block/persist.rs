@@ -6,10 +6,9 @@
 use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
 use snapshot::Persist;
 use utils::eventfd::EventFd;
-use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
-use versionize_derive::Versionize;
 
 use super::device::DiskProperties;
 use super::*;
@@ -25,8 +24,7 @@ use crate::rate_limiter::RateLimiter;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// Holds info about block's file engine type. Gets saved in snapshot.
-// NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Versionize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FileEngineTypeState {
     /// Sync File Engine.
     // If the snap version does not contain the `FileEngineType`, it must have been snapshotted
@@ -56,25 +54,16 @@ impl From<FileEngineTypeState> for FileEngineType {
 }
 
 /// Holds info about the block device. Gets saved in snapshot.
-// NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Debug, Clone, Versionize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VirtioBlockState {
     id: String,
     partuuid: Option<String>,
-    #[version(start = 2, default_fn = "default_cache_type_flush")]
     cache_type: CacheType,
     root_device: bool,
     disk_path: String,
     virtio_state: VirtioDeviceState,
     rate_limiter_state: RateLimiterState,
-    #[version(start = 3)]
     file_engine_type: FileEngineTypeState,
-}
-
-impl VirtioBlockState {
-    fn default_cache_type_flush(_source_version: u16) -> CacheType {
-        CacheType::Unsafe
-    }
 }
 
 /// Auxiliary structure for creating a device when resuming from a snapshot.
@@ -184,6 +173,7 @@ impl Persist<'_> for VirtioBlock {
 mod tests {
     use std::sync::atomic::Ordering;
 
+    use snapshot::Snapshot;
     use utils::tempfile::TempFile;
 
     use super::*;
@@ -212,15 +202,8 @@ mod tests {
 
         // Save the block device.
         let mut mem = vec![0; 4096];
-        let version_map = VersionMap::new();
 
-        <VirtioBlock as Persist>::save(&block)
-            .serialize(&mut mem.as_mut_slice(), &version_map, 2)
-            .unwrap();
-
-        <VirtioBlock as Persist>::save(&block)
-            .serialize(&mut mem.as_mut_slice(), &version_map, 3)
-            .unwrap();
+        Snapshot::serialize(&mut mem.as_mut_slice(), &block.save()).unwrap();
     }
 
     #[test]
@@ -241,10 +224,6 @@ mod tests {
 
         let f = TempFile::new().unwrap();
         f.as_file().set_len(0x1000).unwrap();
-        let mut version_map = VersionMap::new();
-        version_map
-            .new_version()
-            .set_type_version(VirtioBlockState::type_id(), 3);
 
         if !FileEngineType::Async.is_supported().unwrap() {
             // Test what happens when restoring an Async engine on a kernel that does not support
@@ -272,14 +251,12 @@ mod tests {
             // Overwrite the engine type state with Async.
             block_state.file_engine_type = FileEngineTypeState::Async;
 
-            block_state
-                .serialize(&mut mem.as_mut_slice(), &version_map, 2)
-                .unwrap();
+            Snapshot::serialize(&mut mem.as_mut_slice(), &block_state).unwrap();
 
             // Restore the block device.
             let restored_block = VirtioBlock::restore(
                 VirtioBlockConstructorArgs { mem: default_mem() },
-                &VirtioBlockState::deserialize(&mut mem.as_slice(), &version_map, 2).unwrap(),
+                &Snapshot::deserialize(&mut mem.as_slice()).unwrap(),
             )
             .unwrap();
 
@@ -311,16 +288,13 @@ mod tests {
 
         // Save the block device.
         let mut mem = vec![0; 4096];
-        let version_map = VersionMap::new();
 
-        <VirtioBlock as Persist>::save(&block)
-            .serialize(&mut mem.as_mut_slice(), &version_map, 1)
-            .unwrap();
+        Snapshot::serialize(&mut mem.as_mut_slice(), &block.save()).unwrap();
 
         // Restore the block device.
         let restored_block = VirtioBlock::restore(
             VirtioBlockConstructorArgs { mem: guest_mem },
-            &VirtioBlockState::deserialize(&mut mem.as_slice(), &version_map, 1).unwrap(),
+            &Snapshot::deserialize(&mut mem.as_slice()).unwrap(),
         )
         .unwrap();
 

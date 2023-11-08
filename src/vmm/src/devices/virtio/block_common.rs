@@ -2,12 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use serde::{Deserialize, Serialize};
-use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
-use versionize_derive::Versionize;
 
 /// Configuration options for disk caching.
-// NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize, Versionize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum CacheType {
     /// Flushing mechanic not will be advertised to the guest driver
     #[default]

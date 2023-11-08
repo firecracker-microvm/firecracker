@@ -16,14 +16,12 @@ use std::str::FromStr;
 
 use serde::de::{Deserialize, Deserializer, Error};
 use serde::ser::{Serialize, Serializer};
-use versionize::{VersionMap, Versionize, VersionizeResult};
-use versionize_derive::Versionize;
 
 /// The number of tuples (the ones separated by ":") contained in a MAC address.
 pub const MAC_ADDR_LEN: u8 = 6;
 
 /// Represents a MAC address
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Versionize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 /// Representation of a MAC address.
 pub struct MacAddr {
     bytes: [u8; MAC_ADDR_LEN as usize],

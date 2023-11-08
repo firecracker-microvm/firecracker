@@ -3,8 +3,7 @@
 
 use std::fmt;
 
-use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
-use versionize_derive::Versionize;
+use serde::{Deserialize, Serialize};
 
 /// Module for aarch64 related functionality.
 #[cfg(target_arch = "aarch64")]
@@ -29,7 +28,7 @@ pub use crate::arch::x86_64::{
 };
 
 /// Types of devices that can get attached to this platform.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Copy, Versionize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Copy, Serialize, Deserialize)]
 pub enum DeviceType {
     /// Device Type: Virtio.
     Virtio(u32),
