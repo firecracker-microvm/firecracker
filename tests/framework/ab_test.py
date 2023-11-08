@@ -181,7 +181,8 @@ def git_ab_test_with_binaries(
 
         revision_store = FC_WORKSPACE_DIR / "build" / revision
         if not revision_store.exists():
-            firecracker, jailer = get_firecracker_binaries(workspace_dir=checkout)
+            with chdir(checkout):
+                firecracker, jailer = get_firecracker_binaries(workspace_dir=checkout)
 
             revision_store.mkdir(parents=True, exist_ok=True)
             shutil.copy(firecracker, revision_store / "firecracker")
