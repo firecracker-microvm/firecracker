@@ -7,9 +7,8 @@ use std::num::Wrapping;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
+use serde::{Deserialize, Serialize};
 use snapshot::Persist;
-use versionize::{VersionMap, Versionize, VersionizeResult};
-use versionize_derive::Versionize;
 
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
@@ -25,8 +24,7 @@ pub enum PersistError {
 }
 
 /// Queue information saved in snapshot.
-#[derive(Clone, Debug, PartialEq, Eq, Versionize)]
-// NOTICE: Any changes to this structure require a snapshot version bump.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueueState {
     /// The maximal size in elements offered by the device
     max_size: u16,
@@ -50,7 +48,6 @@ pub struct QueueState {
     next_used: Wrapping<u16>,
 
     /// The number of added used buffers since last guest kick
-    #[version(start = 2)]
     num_added: Wrapping<u16>,
 }
 
@@ -90,8 +87,7 @@ impl Persist<'_> for Queue {
 }
 
 /// State of a VirtioDevice.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Versionize)]
-// NOTICE: Any changes to this structure require a snapshot version bump.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VirtioDeviceState {
     /// Device type.
     pub device_type: u32,
@@ -102,11 +98,7 @@ pub struct VirtioDeviceState {
     /// List of queues.
     pub queues: Vec<QueueState>,
     /// The MMIO interrupt status.
-    #[version(start = 2, de_fn = "de_interrupt_status")]
     pub interrupt_status: u32,
-    /// The MMIO interrupt status as a usize.
-    #[version(end = 2)]
-    pub interrupt_status_old: usize,
     /// Flag for activated status.
     pub activated: bool,
 }
@@ -120,7 +112,6 @@ impl VirtioDeviceState {
             acked_features: device.acked_features(),
             queues: device.queues().iter().map(Persist::save).collect(),
             interrupt_status: device.interrupt_status().load(Ordering::Relaxed),
-            interrupt_status_old: device.interrupt_status().load(Ordering::Relaxed) as usize,
             activated: device.is_activated(),
         }
     }
@@ -174,20 +165,10 @@ impl VirtioDeviceState {
         }
         Ok(queues)
     }
-
-    #[allow(clippy::cast_possible_truncation)]
-    fn de_interrupt_status(&mut self, version: u16) -> VersionizeResult<()> {
-        // v1 uses a usize type for interrupt status.
-        if version < 2 {
-            self.interrupt_status = self.interrupt_status_old as u32;
-        }
-        Ok(())
-    }
 }
 
 /// Transport information saved in snapshot.
-#[derive(Clone, Debug, PartialEq, Eq, Versionize)]
-// NOTICE: Any changes to this structure require a snapshot version bump.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MmioTransportState {
     // The register where feature bits are stored.
     features_select: u32,
@@ -244,6 +225,7 @@ impl Persist<'_> for MmioTransport {
 
 #[cfg(test)]
 mod tests {
+    use snapshot::Snapshot;
     use utils::tempfile::TempFile;
 
     use super::*;
@@ -337,35 +319,24 @@ mod tests {
         let queue = Queue::new(128);
 
         let mut mem = vec![0; 4096];
-        let version_map = VersionMap::new();
 
-        queue
-            .save()
-            .serialize(&mut mem.as_mut_slice(), &version_map, 1)
-            .unwrap();
+        Snapshot::serialize(&mut mem.as_mut_slice(), &queue.save()).unwrap();
 
-        let restored_queue = Queue::restore(
-            (),
-            &QueueState::deserialize(&mut mem.as_slice(), &version_map, 1).unwrap(),
-        )
-        .unwrap();
+        let restored_queue =
+            Queue::restore((), &Snapshot::deserialize(&mut mem.as_slice()).unwrap()).unwrap();
 
         assert_eq!(restored_queue, queue);
     }
 
     #[test]
-    fn test_virtio_device_state_versionize() {
+    fn test_virtio_device_state_serde() {
         let dummy = DummyDevice::new();
         let mut mem = vec![0; 4096];
-        let version_map = VersionMap::new();
 
         let state = VirtioDeviceState::from_device(&dummy);
-        state
-            .serialize(&mut mem.as_mut_slice(), &version_map, 1)
-            .unwrap();
+        Snapshot::serialize(&mut mem.as_mut_slice(), &state).unwrap();
 
-        let restored_state =
-            VirtioDeviceState::deserialize(&mut mem.as_slice(), &version_map, 1).unwrap();
+        let restored_state: VirtioDeviceState = Snapshot::deserialize(&mut mem.as_slice()).unwrap();
         assert_eq!(restored_state, state);
     }
 
@@ -390,12 +361,8 @@ mod tests {
         device: Arc<Mutex<dyn VirtioDevice>>,
     ) {
         let mut buf = vec![0; 4096];
-        let version_map = VersionMap::new();
 
-        mmio_transport
-            .save()
-            .serialize(&mut buf.as_mut_slice(), &version_map, 1)
-            .unwrap();
+        Snapshot::serialize(&mut buf.as_mut_slice(), &mmio_transport.save()).unwrap();
 
         let restore_args = MmioTransportConstructorArgs {
             mem,
@@ -404,7 +371,7 @@ mod tests {
         };
         let restored_mmio_transport = MmioTransport::restore(
             restore_args,
-            &MmioTransportState::deserialize(&mut buf.as_slice(), &version_map, 1).unwrap(),
+            &Snapshot::deserialize(&mut buf.as_slice()).unwrap(),
         )
         .unwrap();
 

@@ -7,10 +7,9 @@ use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
 use snapshot::Persist;
 use timerfd::{SetTimeFlags, TimerState};
-use versionize::{VersionMap, Versionize, VersionizeResult};
-use versionize_derive::Versionize;
 
 use super::*;
 use crate::devices::virtio::balloon::device::{BalloonStats, ConfigSpace};
@@ -22,8 +21,7 @@ use crate::vstate::memory::GuestMemoryMmap;
 
 /// Information about the balloon config's that are saved
 /// at snapshot.
-// NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Debug, Clone, Versionize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BalloonConfigSpaceState {
     num_pages: u32,
     actual_pages: u32,
@@ -31,8 +29,7 @@ pub struct BalloonConfigSpaceState {
 
 /// Information about the balloon stats that are saved
 /// at snapshot.
-// NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Debug, Clone, Versionize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BalloonStatsState {
     swap_in: Option<u64>,
     swap_out: Option<u64>,
@@ -84,8 +81,7 @@ impl BalloonStatsState {
 
 /// Information about the balloon that are saved
 /// at snapshot.
-// NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Debug, Clone, Versionize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BalloonState {
     stats_polling_interval_s: u16,
     stats_desc_index: Option<u16>,
@@ -178,6 +174,8 @@ impl Persist<'_> for Balloon {
 mod tests {
     use std::sync::atomic::Ordering;
 
+    use snapshot::Snapshot;
+
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::test_utils::default_mem;
@@ -187,19 +185,16 @@ mod tests {
     fn test_persistence() {
         let guest_mem = default_mem();
         let mut mem = vec![0; 4096];
-        let version_map = VersionMap::new();
 
         // Create and save the balloon device.
         let balloon = Balloon::new(0x42, false, 2, false).unwrap();
 
-        <Balloon as Persist>::save(&balloon)
-            .serialize(&mut mem.as_mut_slice(), &version_map, 1)
-            .unwrap();
+        Snapshot::serialize(&mut mem.as_mut_slice(), &balloon.save()).unwrap();
 
         // Deserialize and restore the balloon device.
         let restored_balloon = Balloon::restore(
             BalloonConstructorArgs { mem: guest_mem },
-            &BalloonState::deserialize(&mut mem.as_slice(), &version_map, 1).unwrap(),
+            &Snapshot::deserialize(&mut mem.as_slice()).unwrap(),
         )
         .unwrap();
 

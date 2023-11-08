@@ -43,9 +43,6 @@ use crate::vstate::vcpu::{VcpuSendEventError, VcpuState};
 use crate::vstate::vm::VmState;
 use crate::{mem_size_mib, vstate, EventManager, Vmm, VmmError};
 
-#[cfg(target_arch = "x86_64")]
-const FC_V0_23_MAX_DEVICES: u32 = 11;
-
 /// Holds information related to the VM that is not part of VmState.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
 pub struct VmInfo {
@@ -82,7 +79,6 @@ pub struct MicrovmState {
     /// Vcpu states.
     pub vcpu_states: Vec<VcpuState>,
     /// Device states.
-    #[serde(skip)]
     pub device_states: DeviceStates,
 }
 
@@ -151,9 +147,6 @@ pub enum CreateSnapshotError {
     SnapshotBackingFile(&'static str, io::Error),
     /// Size mismatch when writing diff snapshot on top of base layer: base layer size is {0} but diff layer is size {1}.
     SnapshotBackingFileLengthMismatch(u64, u64),
-    #[cfg(target_arch = "x86_64")]
-    /// Too many devices attached: {0}. The maximum number allowed for the snapshot data version requested is {FC_V0_23_MAX_DEVICES:}.
-    TooManyDevices(usize),
 }
 
 /// Snapshot version
@@ -659,6 +652,7 @@ mod tests {
         #[cfg(target_arch = "aarch64")]
         let mpidrs = construct_kvm_mpidrs(&vcpu_states);
         let microvm_state = MicrovmState {
+            device_states: states,
             memory_state,
             vcpu_states,
             vm_info: VmInfo {
@@ -669,7 +663,6 @@ mod tests {
             vm_state: vmm.vm.save_state(&mpidrs).unwrap(),
             #[cfg(target_arch = "x86_64")]
             vm_state: vmm.vm.save_state().unwrap(),
-            ..Default::default()
         };
 
         let mut buf = vec![0; 10000];
