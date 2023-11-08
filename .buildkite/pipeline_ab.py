@@ -45,6 +45,11 @@ perf_test = {
         "test_path": "integration_tests/performance/test_vsock_ab.py",
         "devtool_opts": "-c 1-10 -m 0",
     },
+    "memory-overhead": {
+        "label": "💾 Memory Overhead",
+        "test_path": "integration_tests/performance/test_memory_overhead.py --noise-threshold 0.01",
+        "devtool_opts": "-c 1-10 -m 0",
+    },
 }
 
 REVISION_A = os.environ["REVISION_A"]
