@@ -142,7 +142,6 @@ We test all combinations of:
 
 - The `pl031` RTC device on aarch64 does not support interrupts, so guest
   programs which use an RTC alarm (e.g. `hwclock`) will not work.
-- Issues and limitations related to snapshots are described in a [separate document](docs/snapshotting/snapshot-support.md#limitations).
 
 ## Performance
 
