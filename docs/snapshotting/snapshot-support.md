@@ -149,6 +149,9 @@ The snapshot functionality is still in developer preview due to the following:
   Please see [Vsock device limitation](#vsock-device-limitation).
 - Snapshotting on arm64 works for both GICv2 and GICv3 enabled guests.
   However, restoring between different GIC version is not possible.
+- If a [CPU template](../cpu_templates/cpu-templates.md) is not used on x86_64,
+  overwrites of `MSR_IA32_TSX_CTRL` MSR value will not be preserved after
+  restoring from a snapshot.
 
 ## Firecracker Snapshotting characteristics
 
