@@ -3,49 +3,24 @@
 """Tests for guest-side operations on /drives resources."""
 
 import os
-from subprocess import check_output
 
 import pytest
 
 import host_tools.drive as drive_tools
 from framework import utils
+from framework.utils_drive import partuuid_and_disk_path
 
 MB = 1024 * 1024
 
 
 @pytest.fixture
-def uvm_with_partuuid(uvm_plain, record_property, rootfs_ubuntu_22, tmp_path):
-    """uvm_plain with a partuuid rootfs
-
-    We build the disk image here so we don't need a separate artifact for it.
+def partuuid_and_disk_path_tmpfs(rootfs_ubuntu_22, tmp_path):
     """
-    disk_img = tmp_path / "disk.img"
-    initial_size = rootfs_ubuntu_22.stat().st_size + 50 * MB
-    disk_img.touch()
-    os.truncate(disk_img, initial_size)
-    check_output(f"echo type=83 | sfdisk {str(disk_img)}", shell=True)
-    stdout = check_output(
-        f"losetup --find --partscan --show {str(disk_img)}", shell=True
-    )
-    loop_dev = stdout.decode("ascii").strip()
-    check_output(f"dd if={str(rootfs_ubuntu_22)} of={loop_dev}p1", shell=True)
-
-    # UUID=$(sudo blkid -s UUID -o value "${loop_dev}p1")
-    stdout = check_output(f"blkid -s PARTUUID -o value {loop_dev}p1", shell=True)
-    partuuid = stdout.decode("ascii").strip()
-
-    # cleanup: release loop device
-    check_output(f"losetup -d {loop_dev}", shell=True)
-
-    record_property("rootfs", rootfs_ubuntu_22.name)
-    uvm_plain.spawn()
-    uvm_plain.rootfs_file = disk_img
-    uvm_plain.ssh_key = rootfs_ubuntu_22.with_suffix(".id_rsa")
-    uvm_plain.partuuid = partuuid
-    uvm_plain.basic_config(add_root_device=False)
-    uvm_plain.add_net_iface()
-    yield uvm_plain
-    disk_img.unlink()
+    We create a new file in tmpfs, get its partuuid and use it as a rootfs.
+    """
+    disk_path = tmp_path / "disk.img"
+    yield partuuid_and_disk_path(rootfs_ubuntu_22, disk_path)
+    disk_path.unlink()
 
 
 def test_rescan_file(test_microvm_with_api):
@@ -208,17 +183,27 @@ def test_non_partuuid_boot(test_microvm_with_api):
     _check_drives(test_microvm, assert_dict, keys_array)
 
 
-def test_partuuid_boot(uvm_with_partuuid):
+def test_partuuid_boot(test_microvm_with_api, partuuid_and_disk_path_tmpfs):
     """
     Test the output reported by blockdev when booting with PARTUUID.
     """
-    test_microvm = uvm_with_partuuid
+
+    partuuid = partuuid_and_disk_path_tmpfs[0]
+    disk_path = partuuid_and_disk_path_tmpfs[1]
+
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
+
+    # Sets up the microVM with 1 vCPUs, 256 MiB of RAM and without root file system
+    test_microvm.basic_config(vcpu_count=1, add_root_device=False)
+    test_microvm.add_net_iface()
+
     # Add the root block device specified through PARTUUID.
     test_microvm.add_drive(
         "rootfs",
-        test_microvm.rootfs_file,
+        disk_path,
         is_root_device=True,
-        partuuid=test_microvm.partuuid,
+        partuuid=partuuid,
     )
     test_microvm.start()
 
