@@ -66,15 +66,15 @@ def cargo_test(path, extra_args=""):
 
 
 @with_filelock
-def get_binary(name, *, workspace_dir=FC_WORKSPACE_DIR, example=False):
+def get_binary(name, *, workspace_dir=FC_WORKSPACE_DIR, example=None):
     """Build a binary"""
     target = DEFAULT_BUILD_TARGET
     target_dir = workspace_dir / "build" / "cargo_target"
     bin_path = target_dir / target / "release" / name
     cmd = f"-p {name}"
     if example:
-        bin_path = target_dir / target / "release" / "examples" / name
-        cmd = f"--example {name}"
+        bin_path = target_dir / target / "release" / "examples" / example
+        cmd += f" --example {example}"
     if not bin_path.exists():
         env = {"RUSTFLAGS": get_rustflags()}
         cargo(
@@ -99,9 +99,9 @@ def get_firecracker_binaries(*, workspace_dir=FC_WORKSPACE_DIR):
     )
 
 
-def get_example(name, *args, **kwargs):
+def get_example(name, *args, package="firecracker", **kwargs):
     """Build an example binary"""
-    return get_binary(name, *args, **kwargs, example=True)
+    return get_binary(package, *args, **kwargs, example=name)
 
 
 @with_filelock
