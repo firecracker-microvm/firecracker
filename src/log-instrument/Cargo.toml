@@ -9,29 +9,23 @@ license = "Apache-2.0"
 [lib]
 bench = false
 
-[[bin]]
+[[example]]
 name = "one"
-bench = false
 
-[[bin]]
+[[example]]
 name = "two"
-bench = false
 
-[[bin]]
+[[example]]
 name = "three"
-bench = false
 
-[[bin]]
+[[example]]
 name = "four"
-bench = false
 
-[[bin]]
+[[example]]
 name = "five"
-bench = false
 
-[[bin]]
+[[example]]
 name = "six"
-bench = false
 
 [dependencies]
 env_logger = "0.10.0"
