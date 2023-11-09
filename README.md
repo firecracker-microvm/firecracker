@@ -140,8 +140,6 @@ We test all combinations of:
 
 ## Known issues and Limitations
 
-- The [SendCtrlAltDel](docs/api_requests/actions.md#sendctrlaltdel) API request
-  is not supported for aarch64 enabled microVMs.
 - If a CPU template is not used on x86_64, overwrites of `MSR_IA32_TSX_CTRL` MSR
   value will not be preserved after restoring from a snapshot.
 - The `pl031` RTC device on aarch64 does not support interrupts, so guest
