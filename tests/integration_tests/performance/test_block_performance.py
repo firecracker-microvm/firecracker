@@ -23,10 +23,7 @@ from framework.utils import (
     run_cmd,
     summarize_cpu_percent,
 )
-from framework.utils_vhost_user_backend import (
-    VHOST_USER_SOCKET,
-    spawn_vhost_user_backend,
-)
+from framework.utils_drive import VHOST_USER_SOCKET, spawn_vhost_user_backend
 from integration_tests.performance.configs import defs
 
 TEST_ID = "block_performance"

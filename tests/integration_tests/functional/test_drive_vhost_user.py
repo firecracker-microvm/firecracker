@@ -3,10 +3,7 @@
 """Tests for vhost-user-block device."""
 
 from framework import utils
-from framework.utils_vhost_user_backend import (
-    VHOST_USER_SOCKET,
-    spawn_vhost_user_backend,
-)
+from framework.utils_drive import VHOST_USER_SOCKET, spawn_vhost_user_backend
 
 
 def test_vhost_user_block(microvm_factory, guest_kernel, rootfs_ubuntu_22):

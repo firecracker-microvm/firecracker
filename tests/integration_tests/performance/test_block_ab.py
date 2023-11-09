@@ -11,10 +11,7 @@ import pytest
 
 import host_tools.drive as drive_tools
 from framework.utils import CmdBuilder, ProcessManager, get_cpu_percent, run_cmd
-from framework.utils_vhost_user_backend import (
-    VHOST_USER_SOCKET,
-    spawn_vhost_user_backend,
-)
+from framework.utils_drive import VHOST_USER_SOCKET, spawn_vhost_user_backend
 
 # size of the block device used in the test, in MB
 BLOCK_DEVICE_SIZE_MB = 2048
