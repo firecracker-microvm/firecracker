@@ -1404,8 +1404,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
- "versionize",
- "versionize_derive",
  "vm-memory 0.13.1",
  "vmm-sys-util",
 ]
@@ -1424,34 +1422,6 @@ name = "version_check"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
-
-[[package]]
-name = "versionize"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62929d59c7f6730b7298fcb363760550f4db6e353fbac4076d447d0e82799d6d"
-dependencies = [
- "bincode",
- "crc64",
- "proc-macro2",
- "quote",
- "serde",
- "serde_derive",
- "syn 1.0.109",
- "versionize_derive",
- "vmm-sys-util",
-]
-
-[[package]]
-name = "versionize_derive"
-version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c4971c07ef708cd51003222e509aaed8eae14aeb2907706b01578843195e03a"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
 
 [[package]]
 name = "vhost"
@@ -1544,8 +1514,6 @@ dependencies = [
  "timerfd",
  "userfaultfd",
  "utils",
- "versionize",
- "versionize_derive",
  "vhost",
  "vm-allocator",
  "vm-fdt",

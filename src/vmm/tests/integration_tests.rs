@@ -263,7 +263,6 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 }
 
-#[ignore]
 #[test]
 fn test_create_and_load_snapshot() {
     // Create diff snapshot.
@@ -283,7 +282,6 @@ fn test_create_and_load_snapshot() {
     verify_load_snapshot(snapshot_file, memory_file);
 }
 
-#[ignore]
 #[test]
 fn test_snapshot_load_sanity_checks() {
     use vmm::persist::SnapShotStateSanityCheckError;
