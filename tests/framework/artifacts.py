@@ -13,7 +13,7 @@ import pytest
 
 from framework.defs import ARTIFACT_DIR
 from framework.properties import global_props
-from framework.utils import get_firecracker_version_from_toml
+from framework.utils import get_firecracker_version_from_toml, run_cmd
 from host_tools.cargo_build import get_binary
 
 
@@ -98,7 +98,21 @@ class FirecrackerArtifact:
     @property
     def snapshot_version_tuple(self):
         """Return the artifact's snapshot version as a tuple: `X.Y.0`."""
-        return self.version_tuple[:2] + (0,)
+
+        # Starting from Firecracker v1.6.0, snapshots have their own version that is
+        # independent of Firecracker versions. For these Firecracker versions, use
+        # the --snapshot-version Firecracker flag, to figure out which snapshot version
+        # it supports.
+        # TODO: remove this check once all version prior to 1.6.0 go out of support.
+        if packaging.version.parse(self.version) < packaging.version.parse("1.7.0"):
+            return self.version_tuple[:2] + (0,)
+
+        return (
+            run_cmd([self.path, "--snapshot-version"])
+            .stdout.strip()
+            .split("\n")[0]
+            .split(".")
+        )
 
     @property
     def snapshot_version(self):
