@@ -92,12 +92,7 @@ def test_vsock_throughput(
     # Create a vsock device
     vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/" + VSOCK_UDS_PATH)
     vm.start()
-
-    # Pin uVM threads to physical cores.
-    assert vm.pin_vmm(0), "Failed to pin firecracker thread."
-    assert vm.pin_api(1), "Failed to pin fc_api thread."
-    for i in range(vm.vcpus_count):
-        assert vm.pin_vcpu(i, i + 2), f"Failed to pin fc_vcpu {i} thread."
+    vm.pin_threads(0)
 
     test = VsockIPerf3Test(vm, mode, payload_length)
     data = test.run_test(vm.vcpus_count + 2)
