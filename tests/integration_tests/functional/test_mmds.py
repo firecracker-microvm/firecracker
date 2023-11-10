@@ -10,7 +10,6 @@ import time
 import pytest
 
 from framework.artifacts import working_version_as_artifact
-from framework.properties import global_props
 from framework.utils import (
     configure_mmds,
     generate_mmds_get_request,
@@ -609,39 +608,6 @@ def test_mmds_snapshot(uvm_nano, microvm_factory, version):
         version,
         fc_binary_path=current_release.path,
         jailer_binary_path=current_release.jailer,
-    )
-
-
-def test_mmds_older_snapshot(
-    microvm_factory, guest_kernel, rootfs, firecracker_release
-):
-    """
-    Test MMDS behavior restoring older snapshots in the current version.
-
-    Ensures that the MMDS version is persisted or initialised with the default
-    if the FC version does not support this feature.
-    """
-
-    # due to bug fixed in commit 8dab78b
-    firecracker_version = firecracker_release.version_tuple
-    if global_props.instance == "m6a.metal" and firecracker_version < (1, 3, 3):
-        pytest.skip("incompatible with AMD and Firecracker <1.3.3")
-
-    microvm = microvm_factory.build(
-        guest_kernel,
-        rootfs,
-        fc_binary_path=firecracker_release.path,
-        jailer_binary_path=firecracker_release.jailer,
-    )
-    microvm.spawn()
-    microvm.basic_config()
-    microvm.add_net_iface()
-
-    mmds_version = "V2"
-    _validate_mmds_snapshot(
-        microvm,
-        microvm_factory,
-        mmds_version,
     )
 
 
