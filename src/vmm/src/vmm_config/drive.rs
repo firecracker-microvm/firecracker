@@ -27,7 +27,7 @@ pub enum DriveError {
     CreateVhostUserBlockDevice(VhostUserBlockError),
     /// Cannot create RateLimiter: {0}
     CreateRateLimiter(io::Error),
-    /// Unable to patch the block device: {0}
+    /// Unable to patch the block device: {0} Please verify the request arguments.
     DeviceUpdate(VmmError),
     /// A root block device already exists!
     RootBlockDeviceAlreadyAdded,

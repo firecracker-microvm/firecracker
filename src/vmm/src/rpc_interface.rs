@@ -811,6 +811,15 @@ impl RuntimeApiController {
         new_cfg: BlockDeviceUpdateConfig,
     ) -> Result<VmmData, VmmActionError> {
         let mut vmm = self.vmm.lock().expect("Poisoned lock");
+
+        // vhost-user-block updates
+        if new_cfg.path_on_host.is_none() && new_cfg.rate_limiter.is_none() {
+            vmm.update_vhost_user_block_config(&new_cfg.drive_id)
+                .map(|()| VmmData::Empty)
+                .map_err(DriveError::DeviceUpdate)?;
+        }
+
+        // virtio-block updates
         if let Some(new_path) = new_cfg.path_on_host {
             vmm.update_block_device_path(&new_cfg.drive_id, new_path)
                 .map(|()| VmmData::Empty)
@@ -1084,6 +1093,7 @@ mod tests {
         pub update_balloon_config_called: bool,
         pub update_balloon_stats_config_called: bool,
         pub update_block_device_path_called: bool,
+        pub update_block_device_vhost_user_config_called: bool,
         pub update_net_rate_limiters_called: bool,
         // when `true`, all self methods are forced to fail
         pub force_errors: bool,
@@ -1165,6 +1175,16 @@ mod tests {
             _: crate::rate_limiter::BucketUpdate,
             _: crate::rate_limiter::BucketUpdate,
         ) -> Result<(), VmmError> {
+            Ok(())
+        }
+
+        pub fn update_vhost_user_block_config(&mut self, _: &str) -> Result<(), VmmError> {
+            if self.force_errors {
+                return Err(VmmError::DeviceManager(
+                    crate::device_manager::mmio::MmioError::InvalidDeviceType,
+                ));
+            }
+            self.update_block_device_vhost_user_config_called = true;
             Ok(())
         }
 
@@ -1974,6 +1994,27 @@ mod tests {
 
         let req = VmmAction::UpdateBlockDevice(BlockDeviceUpdateConfig {
             path_on_host: Some(String::new()),
+            ..Default::default()
+        });
+        check_runtime_request_err(
+            req,
+            VmmActionError::DriveConfig(DriveError::DeviceUpdate(VmmError::DeviceManager(
+                crate::device_manager::mmio::MmioError::InvalidDeviceType,
+            ))),
+        );
+    }
+
+    #[test]
+    fn test_runtime_update_block_device_vhost_user_config() {
+        let req = VmmAction::UpdateBlockDevice(BlockDeviceUpdateConfig {
+            ..Default::default()
+        });
+        check_runtime_request(req, |result, vmm| {
+            assert_eq!(result, Ok(VmmData::Empty));
+            assert!(vmm.update_block_device_vhost_user_config_called)
+        });
+
+        let req = VmmAction::UpdateBlockDevice(BlockDeviceUpdateConfig {
             ..Default::default()
         });
         check_runtime_request_err(
