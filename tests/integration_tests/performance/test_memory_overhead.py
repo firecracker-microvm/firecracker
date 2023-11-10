@@ -26,7 +26,7 @@ X86_MEMORY_GAP_START = 3328 * 2**20
 
 @pytest.mark.parametrize(
     "vcpu_count,mem_size_mib",
-    [(1, 128), (1, 1024), (2, 2024), (4, 4096)],
+    [(1, 128), (1, 1024), (2, 2048), (4, 4096)],
 )
 def test_memory_overhead(
     microvm_factory, guest_kernel, rootfs, vcpu_count, mem_size_mib, metrics
