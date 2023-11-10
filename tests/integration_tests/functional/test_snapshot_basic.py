@@ -13,12 +13,7 @@ import pytest
 
 import host_tools.drive as drive_tools
 from framework.microvm import SnapshotType
-from framework.utils import (
-    check_filesystem,
-    get_firecracker_version_from_toml,
-    run_cmd,
-    wait_process_termination,
-)
+from framework.utils import check_filesystem, run_cmd, wait_process_termination
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
     VSOCK_UDS_PATH,
@@ -53,18 +48,20 @@ def test_snapshot_current_version(uvm_nano):
     vm = uvm_nano
     vm.start()
 
-    version = get_firecracker_version_from_toml()
-    # normalize to a snapshot version
-    version = f"{version.major}.{version.minor}.0"
     snapshot = vm.snapshot_full()
 
     # Fetch Firecracker binary for the latest version
     fc_binary = uvm_nano.fc_binary_path
+    # Get supported snapshot version from Firecracker binary
+    snapshot_version = (
+        run_cmd(f"{fc_binary} --snapshot-version").stdout.strip().splitlines()[0]
+    )
+
     # Verify the output of `--describe-snapshot` command line parameter
     cmd = [str(fc_binary)] + ["--describe-snapshot", str(snapshot.vmstate)]
 
     _, stdout, _ = run_cmd(cmd)
-    assert version in stdout
+    assert snapshot_version in stdout
 
 
 # Testing matrix:
