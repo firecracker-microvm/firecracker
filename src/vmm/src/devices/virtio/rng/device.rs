@@ -82,7 +82,6 @@ impl Entropy {
     }
 
     fn signal_used_queue(&self) -> Result<(), DeviceError> {
-        debug!("entropy: raising IRQ");
         self.irq_trigger
             .trigger_irq(IrqType::Vring)
             .map_err(DeviceError::FailedSignalingIrq)

@@ -242,7 +242,8 @@ def test_block_vhost_user_performance(
 
     metrics.set_dimensions(
         {
-            "performance_test": "test_block_vhost_user_performance",
+            "performance_test": "test_block_performance",
+            "io_engine": "vhost-user",
             "fio_mode": fio_mode,
             "fio_block_size": str(fio_block_size),
             **vm.dimensions,
