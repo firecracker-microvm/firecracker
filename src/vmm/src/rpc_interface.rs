@@ -811,6 +811,15 @@ impl RuntimeApiController {
         new_cfg: BlockDeviceUpdateConfig,
     ) -> Result<VmmData, VmmActionError> {
         let mut vmm = self.vmm.lock().expect("Poisoned lock");
+
+        // vhost-user-block updates
+        if new_cfg.path_on_host.is_none() && new_cfg.rate_limiter.is_none() {
+            vmm.update_vhost_user_block_config(&new_cfg.drive_id)
+                .map(|()| VmmData::Empty)
+                .map_err(DriveError::DeviceUpdate)?;
+        }
+
+        // virtio-block updates
         if let Some(new_path) = new_cfg.path_on_host {
             vmm.update_block_device_path(&new_cfg.drive_id, new_path)
                 .map(|()| VmmData::Empty)
@@ -1165,6 +1174,10 @@ mod tests {
             _: crate::rate_limiter::BucketUpdate,
             _: crate::rate_limiter::BucketUpdate,
         ) -> Result<(), VmmError> {
+            Ok(())
+        }
+
+        pub fn update_vhost_user_block_config(&mut self, _: &str) -> Result<(), VmmError> {
             Ok(())
         }
 

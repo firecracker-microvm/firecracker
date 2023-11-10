@@ -113,6 +113,7 @@ use std::sync::mpsc::{RecvTimeoutError, TryRecvError};
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 
+use devices::virtio::vhost_user_block::device::VhostUserBlock;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use seccompiler::BpfProgram;
 use snapshot::Persist;
@@ -651,6 +652,15 @@ impl Vmm {
             .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut VirtioBlock| {
                 block.update_rate_limiter(rl_bytes, rl_ops);
                 Ok(())
+            })
+            .map_err(VmmError::DeviceManager)
+    }
+
+    /// Updates the rate limiter parameters for block device with `drive_id` id.
+    pub fn update_vhost_user_block_config(&mut self, drive_id: &str) -> Result<(), VmmError> {
+        self.mmio_device_manager
+            .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut VhostUserBlock| {
+                block.config_update().map_err(|err| format!("{:?}", err))
             })
             .map_err(VmmError::DeviceManager)
     }
