@@ -28,7 +28,7 @@ use std::fmt::Debug;
 use std::os::unix::io::AsRawFd;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use log::{debug, error, warn};
+use log::{error, warn};
 use utils::epoll::EventSet;
 
 use super::device::{Vsock, EVQ_INDEX, RXQ_INDEX, TXQ_INDEX};
@@ -41,8 +41,6 @@ where
     B: Debug + VsockBackend + 'static,
 {
     pub fn handle_rxq_event(&mut self, evset: EventSet) -> bool {
-        debug!("vsock: RX queue event");
-
         if evset != EventSet::IN {
             warn!("vsock: rxq unexpected event {:?}", evset);
             METRICS.vsock.rx_queue_event_fails.inc();
@@ -61,8 +59,6 @@ where
     }
 
     pub fn handle_txq_event(&mut self, evset: EventSet) -> bool {
-        debug!("vsock: TX queue event");
-
         if evset != EventSet::IN {
             warn!("vsock: txq unexpected event {:?}", evset);
             METRICS.vsock.tx_queue_event_fails.inc();
@@ -87,8 +83,6 @@ where
     }
 
     pub fn handle_evq_event(&mut self, evset: EventSet) -> bool {
-        debug!("vsock: event queue event");
-
         if evset != EventSet::IN {
             warn!("vsock: evq unexpected event {:?}", evset);
             METRICS.vsock.ev_queue_event_fails.inc();
@@ -104,8 +98,6 @@ where
 
     /// Notify backend of new events.
     pub fn notify_backend(&mut self, evset: EventSet) -> bool {
-        debug!("vsock: backend event");
-
         self.backend.notify(evset);
         // After the backend has been kicked, it might've freed up some resources, so we
         // can attempt to send it more data to process.
@@ -141,7 +133,6 @@ where
     }
 
     fn handle_activate_event(&self, ops: &mut EventOps) {
-        debug!("vsock: activate event");
         if let Err(err) = self.activate_evt.read() {
             error!("Failed to consume net activate event: {:?}", err);
         }

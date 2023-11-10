@@ -17,10 +17,15 @@ from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import (
     CmdBuilder,
+    ProcessManager,
     get_cpu_percent,
     get_kernel_version,
     run_cmd,
     summarize_cpu_percent,
+)
+from framework.utils_vhost_user_backend import (
+    VHOST_USER_SOCKET,
+    spawn_vhost_user_backend,
 )
 from integration_tests.performance.configs import defs
 
@@ -47,6 +52,9 @@ WARMUP_SEC = 10
 
 # Time (in seconds) for which fio runs after warmup is done
 RUNTIME_SEC = 300
+
+# VM guest memory size
+GUEST_MEM_MIB = 1024
 
 
 # pylint: disable=R0903
@@ -233,48 +241,18 @@ def consume_fio_output(cons, cpu_load, numjobs, mode, bs, env_id, logs_path):
     yield from read_values(cons, numjobs, env_id, mode, bs, "bw", logs_path)
 
 
-@pytest.mark.nonci
-@pytest.mark.timeout(RUNTIME_SEC * 1000)  # 1.40 hours
-@pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
-@pytest.mark.parametrize("fio_mode", ["randread", "randwrite"])
-@pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])
-def test_block_performance(
-    microvm_factory,
-    guest_kernel,
-    rootfs,
+def run_block_performance(
+    st_core,
     vcpus,
+    io_engine,
     fio_mode,
     fio_block_size,
-    io_engine,
-    st_core,
+    vm,
 ):
-    """
-    Execute block device emulation benchmarking scenarios.
-    """
-    guest_mem_mib = 1024
-    vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
-    vm.spawn(log_level="Info")
-    vm.basic_config(vcpu_count=vcpus, mem_size_mib=guest_mem_mib)
-    vm.add_net_iface()
-    # Add a secondary block device for benchmark tests.
-    fs = drive_tools.FilesystemFile(
-        os.path.join(vm.fsfiles, "scratch"), BLOCK_DEVICE_SIZE_MB
-    )
-    vm.add_drive("scratch", fs.path, io_engine=io_engine)
-    vm.start()
-
-    # Get names of threads in Firecracker.
-    current_cpu_id = 0
-    vm.pin_vmm(current_cpu_id)
-    current_cpu_id += 1
-    vm.pin_api(current_cpu_id)
-    for vcpu_id in range(vm.vcpus_count):
-        current_cpu_id += 1
-        vm.pin_vcpu(vcpu_id, current_cpu_id)
-
+    """Perform block performance measurement."""
     # define test dimensions
     st_core.name = TEST_ID
-    microvm_cfg = f"{vcpus}vcpu_{guest_mem_mib}mb.json"
+    microvm_cfg = f"{vcpus}vcpu_{GUEST_MEM_MIB}mb.json"
     st_core.custom.update(
         {
             "guest_config": microvm_cfg.removesuffix(".json"),
@@ -315,3 +293,105 @@ def test_block_performance(
 
     # Gather results and verify pass criteria.
     st_core.run_exercise()
+
+
+@pytest.mark.nonci
+@pytest.mark.timeout(RUNTIME_SEC * 1000)  # 1.40 hours
+@pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
+@pytest.mark.parametrize("fio_mode", ["randread", "randwrite"])
+@pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])
+def test_block_performance(
+    microvm_factory,
+    guest_kernel,
+    rootfs,
+    vcpus,
+    fio_mode,
+    fio_block_size,
+    io_engine,
+    st_core,
+):
+    """
+    Execute block device emulation benchmarking scenarios.
+    """
+    vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
+    vm.spawn(log_level="Info")
+    vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
+    vm.add_net_iface()
+    # Add a secondary block device for benchmark tests.
+    fs = drive_tools.FilesystemFile(
+        os.path.join(vm.fsfiles, "scratch"), BLOCK_DEVICE_SIZE_MB
+    )
+    vm.add_drive("scratch", fs.path, io_engine=io_engine)
+    vm.start()
+
+    # Get names of threads in Firecracker.
+    current_cpu_id = 0
+    vm.pin_vmm(current_cpu_id)
+    current_cpu_id += 1
+    vm.pin_api(current_cpu_id)
+    for vcpu_id in range(vm.vcpus_count):
+        current_cpu_id += 1
+        vm.pin_vcpu(vcpu_id, current_cpu_id)
+
+    run_block_performance(
+        st_core,
+        vcpus,
+        io_engine,
+        fio_mode,
+        fio_block_size,
+        vm,
+    )
+
+
+def pin_backend(backend, cpu_id: int):
+    """Pin the vhost-user backend to a cpu list."""
+    return ProcessManager.set_cpu_affinity(backend.pid, [cpu_id])
+
+
+@pytest.mark.nonci
+@pytest.mark.timeout(RUNTIME_SEC * 1000)  # 1.40 hours
+@pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
+@pytest.mark.parametrize("fio_mode", ["randread", "randwrite"])
+@pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])
+def test_block_vhost_user_performance(
+    microvm_factory,
+    guest_kernel,
+    rootfs,
+    vcpus,
+    fio_mode,
+    fio_block_size,
+    st_core,
+):
+    """
+    Execute block device emulation benchmarking scenarios.
+    """
+    vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
+    vm.spawn(log_level="Info")
+    vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
+    vm.add_net_iface()
+
+    # Add a secondary block device for benchmark tests.
+    fs = drive_tools.FilesystemFile(size=BLOCK_DEVICE_SIZE_MB)
+    backend = spawn_vhost_user_backend(vm, fs.path, readonly=False)
+    vm.add_vhost_user_block("scratch", VHOST_USER_SOCKET)
+    vm.start()
+
+    # Get names of threads in Firecracker.
+    current_cpu_id = 0
+    vm.pin_vmm(current_cpu_id)
+    current_cpu_id += 1
+    vm.pin_api(current_cpu_id)
+    current_cpu_id += 1
+    pin_backend(backend, current_cpu_id)
+    for vcpu_id in range(vm.vcpus_count):
+        current_cpu_id += 1
+        vm.pin_vcpu(vcpu_id, current_cpu_id)
+
+    run_block_performance(
+        st_core,
+        vcpus,
+        "vhost-user",
+        fio_mode,
+        fio_block_size,
+        vm,
+    )
