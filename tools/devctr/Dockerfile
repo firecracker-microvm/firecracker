@@ -18,6 +18,8 @@ ENV RUSTUP_HOME=/usr/local/rust
 ENV PATH="$PATH:$CARGO_HOME/bin"
 ENV LC_ALL=C.UTF-8
 ENV QEMU_VER="8.1.1"
+ENV CROSVM_VER="9d542e6dafa3a85acd1fb6cd6f1adfa1331c4e96"
+ENV CROSVM_TOOLCHAIN_VER="1.68.2"
 
 # Build and install Qemu vhost-user-blk backend
 #
@@ -86,6 +88,8 @@ RUN apt-get update \
         cmake \
         # for Qemu vhost-user-blk backend
         libglib2.0-dev \
+        # for crosvm (vhost-user-blk backend)
+        libcap2 \
     && rm -rf /var/lib/apt/lists/* \
     && pip3 install --upgrade pip poetry \
     && gem install mdl
@@ -96,12 +100,34 @@ RUN cd /tmp/poetry && \
     HOME=. POETRY_VIRTUALENVS_CREATE=false poetry install --only main --no-interaction \
     && rm -rf ~/.cache ~/.local /tmp/poetry
 
-# Install the Rust toolchain. Kani only work on x86, so only try to install it there.
+# Running the three as a single dockerfile command to avoid inflation of the image:
+# - Install the Rust toolchain. Kani only work on x86, so only try to install it there
+# - Build and install crosvm (used as vhost-user-blk backend)
+# - Clean up cargo compilation directories
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOLCHAIN" \
     && rustup target add $ARCH-unknown-linux-musl \
     && rustup component add llvm-tools-preview \
     && cargo install cargo-audit cargo-deny grcov cargo-sort \
     && (if [ "$ARCH" = "x86_64" ]; then cargo install kani-verifier && cargo kani setup; else true; fi) \
+    \
+    && apt-get update \
+    && apt-get -y install --no-install-recommends \
+        libcap-dev \
+        protobuf-compiler \
+    && git clone https://github.com/google/crosvm.git /tmp/crosvm \
+    && cd /tmp/crosvm && git checkout ${CROSVM_VER} \
+    && git submodule update --init \
+    && cargo build --no-default-features --release \
+    && strip ./target/release/crosvm \
+    && cp -a ./target/release/crosvm /usr/local/bin \
+    && apt-get purge -y \
+        libcap-dev \
+        protobuf-compiler \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/* \
+    && rustup toolchain uninstall ${CROSVM_TOOLCHAIN_VER}-${ARCH}-unknown-linux-gnu \
+    && cd && rm -r /tmp/crosvm \
+    \
     && rm -rf "$CARGO_HOME/registry" \
     && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
     && rm -rf "$CARGO_HOME/git" \
