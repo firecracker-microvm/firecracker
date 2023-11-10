@@ -35,7 +35,7 @@ import pytest
 
 import host_tools.cargo_build as build_tools
 from framework import defs, utils
-from framework.artifacts import firecracker_artifacts, kernel_params, rootfs_params
+from framework.artifacts import kernel_params, rootfs_params
 from framework.microvm import MicroVMFactory
 from framework.properties import global_props
 from framework.utils_cpu_templates import (
@@ -272,14 +272,6 @@ def microvm_factory(request, record_property, results_dir):
                 shutil.copy(uvm.metrics_file, dst)
 
     uvm_factory.kill()
-
-
-@pytest.fixture(params=firecracker_artifacts())
-def firecracker_release(request, record_property):
-    """Return all supported firecracker binaries."""
-    firecracker = request.param
-    record_property("firecracker_release", firecracker.name)
-    return firecracker
 
 
 @pytest.fixture(params=static_cpu_templates_params())
