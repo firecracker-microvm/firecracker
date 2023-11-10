@@ -23,6 +23,7 @@ pub mod rng;
 pub mod test_utils;
 pub mod vhost_user;
 pub mod vhost_user_block;
+pub mod vhost_user_metrics;
 pub mod virtio_block;
 pub mod vsock;
 
