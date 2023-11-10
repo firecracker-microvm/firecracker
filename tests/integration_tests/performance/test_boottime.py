@@ -152,6 +152,7 @@ def _configure_and_run_vm(microvm, network=False, initrd=False):
     if network:
         microvm.add_net_iface()
     microvm.start()
+    microvm.pin_threads(0)
 
 
 def find_events(log_data):
@@ -202,6 +203,7 @@ def test_boottime(
         )
         vm.add_net_iface()
         vm.start()
+        vm.pin_threads(0)
         boottime_us = _get_microvm_boottime(vm)
         metrics.put_metric("boot_time", boottime_us, unit="Microseconds")
         timestamps = find_events(vm.log_data)
