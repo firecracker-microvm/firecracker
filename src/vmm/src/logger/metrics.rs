@@ -74,6 +74,7 @@ use vm_superio::rtc_pl031::RtcEvents;
 use super::FcLineWriter;
 use crate::devices::virtio::net::metrics as net_metrics;
 use crate::devices::virtio::vhost_user_metrics;
+use crate::devices::virtio::rng::metrics as entropy_metrics;
 use crate::devices::virtio::virtio_block::metrics as block_metrics;
 use crate::devices::virtio::vsock::metrics as vsock_metrics;
 #[cfg(target_arch = "aarch64")]
@@ -877,38 +878,6 @@ impl VmmMetrics {
     }
 }
 
-#[derive(Debug, Default, Serialize)]
-pub struct EntropyDeviceMetrics {
-    /// Number of device activation failures
-    pub activate_fails: SharedIncMetric,
-    /// Number of entropy queue event handling failures
-    pub entropy_event_fails: SharedIncMetric,
-    /// Number of entropy requests handled
-    pub entropy_event_count: SharedIncMetric,
-    /// Number of entropy bytes provided to guest
-    pub entropy_bytes: SharedIncMetric,
-    /// Number of errors while getting random bytes on host
-    pub host_rng_fails: SharedIncMetric,
-    /// Number of times an entropy request was rate limited
-    pub entropy_rate_limiter_throttled: SharedIncMetric,
-    /// Number of events associated with the rate limiter
-    pub rate_limiter_event_count: SharedIncMetric,
-}
-impl EntropyDeviceMetrics {
-    /// Const default construction.
-    pub const fn new() -> Self {
-        Self {
-            activate_fails: SharedIncMetric::new(),
-            entropy_event_fails: SharedIncMetric::new(),
-            entropy_event_count: SharedIncMetric::new(),
-            entropy_bytes: SharedIncMetric::new(),
-            host_rng_fails: SharedIncMetric::new(),
-            entropy_rate_limiter_throttled: SharedIncMetric::new(),
-            rate_limiter_event_count: SharedIncMetric::new(),
-        }
-    }
-}
-
 // The sole purpose of this struct is to produce an UTC timestamp when an instance is serialized.
 #[derive(Debug, Default)]
 struct SerializeToUtcTimestampMs;
@@ -952,6 +921,7 @@ create_serialize_proxy!(VsockMetricsSerializeProxy, vsock_metrics);
 create_serialize_proxy!(BlockMetricsSerializeProxy, block_metrics);
 create_serialize_proxy!(NetMetricsSerializeProxy, net_metrics);
 create_serialize_proxy!(VhostUserMetricsSerializeProxy, vhost_user_metrics);
+create_serialize_proxy!(EntropyMetricsSerializeProxy, entropy_metrics);
 
 /// Structure storing all metrics while enforcing serialization support on them.
 #[derive(Debug, Default, Serialize)]
@@ -999,8 +969,9 @@ pub struct FirecrackerMetrics {
     #[serde(flatten)]
     /// Metrics related to virtio-vsockets.
     pub vsock: VsockMetricsSerializeProxy,
+    #[serde(flatten)]
     /// Metrics related to virtio-rng entropy device.
-    pub entropy: EntropyDeviceMetrics,
+    pub entropy_ser: EntropyMetricsSerializeProxy,
     #[serde(flatten)]
     /// Vhost-user device related metrics.
     pub vhost_user_ser: VhostUserMetricsSerializeProxy,
@@ -1030,7 +1001,7 @@ impl FirecrackerMetrics {
             uart: SerialDeviceMetrics::new(),
             signals: SignalMetrics::new(),
             vsock: VsockMetricsSerializeProxy {},
-            entropy: EntropyDeviceMetrics::new(),
+            entropy_ser: EntropyMetricsSerializeProxy {},
             vhost_user_ser: VhostUserMetricsSerializeProxy {},
         }
     }
