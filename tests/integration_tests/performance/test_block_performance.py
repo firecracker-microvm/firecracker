@@ -370,7 +370,7 @@ def test_block_vhost_user_performance(
     # Add a secondary block device for benchmark tests.
     fs = drive_tools.FilesystemFile(size=BLOCK_DEVICE_SIZE_MB)
     backend = spawn_vhost_user_backend(vm, fs.path, VHOST_USER_SOCKET, readonly=False)
-    vm.add_vhost_user_block("scratch", VHOST_USER_SOCKET)
+    vm.add_vhost_user_drive("scratch", VHOST_USER_SOCKET)
     vm.start()
 
     # Get names of threads in Firecracker.
