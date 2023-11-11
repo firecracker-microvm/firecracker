@@ -20,7 +20,7 @@ use log::error;
 use crate::devices::virtio::net::metrics::NetDeviceMetrics;
 use crate::devices::virtio::queue::QueueError;
 use crate::devices::virtio::vsock::VsockError;
-use crate::logger::{IncMetric, METRICS};
+use crate::logger::IncMetric;
 
 // Function used for reporting error in terms of logging
 // but also in terms of metrics of net event fails.
@@ -29,11 +29,6 @@ use crate::logger::{IncMetric, METRICS};
 pub(crate) fn report_net_event_fail(net_iface_metrics: &NetDeviceMetrics, err: DeviceError) {
     error!("{:?}", err);
     net_iface_metrics.event_fails.inc();
-}
-
-pub(crate) fn report_balloon_event_fail(err: virtio::balloon::BalloonError) {
-    error!("{:?}", err);
-    METRICS.balloon.event_fails.inc();
 }
 
 #[derive(Debug)]
