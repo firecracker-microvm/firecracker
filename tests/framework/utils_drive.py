@@ -46,7 +46,7 @@ def spawn_vhost_user_backend(vm, host_mem_path, socket_path, readonly=False):
     uid = vm.jailer.uid
     gid = vm.jailer.gid
 
-    sp = f"{vm.chroot()}{socket_path}"
+    sp = f"{vm.chroot()}/{socket_path}"
     args = ["vhost-user-blk", "-s", sp, "-b", host_mem_path]
     if readonly:
         args.append("-r")
