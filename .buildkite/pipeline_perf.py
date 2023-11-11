@@ -8,13 +8,13 @@ from common import COMMON_PARSER, group, overlay_dict, pipeline_to_json
 
 perf_test = {
     "virtio-block": {
-        "label": "🖴 Block Performance",
+        "label": "🖴 Virtio Block Performance",
         "test_path": "integration_tests/performance/test_block_performance.py::test_block_performance",
         "devtool_opts": "-c 1-10 -m 0",
         "timeout_in_minutes": 240,
     },
     "vhost-user-block": {
-        "label": "🖴 Block Performance",
+        "label": "🖴 Vhost-user Block Performance",
         "test_path": "integration_tests/performance/test_block_performance.py::test_block_vhost_user_performance",
         "devtool_opts": "-c 1-10 -m 0",
         "timeout_in_minutes": 240,
