@@ -6,8 +6,7 @@ use std::os::unix::io::AsRawFd;
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use utils::epoll::EventSet;
 
-use super::{DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX};
-use crate::devices::report_balloon_event_fail;
+use super::{report_balloon_event_fail, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX};
 use crate::devices::virtio::balloon::device::Balloon;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::logger::{error, warn};
