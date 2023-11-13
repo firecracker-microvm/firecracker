@@ -140,3 +140,47 @@ pub struct VhostUserDeviceMetrics {
     // Vhost-user activate time in microseconds.
     pub activate_time_us: SharedStoreMetric,
 }
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+    use crate::logger::{IncMetric, StoreMetric};
+
+    // vhost-user metrics has both SharedIncMetrics and SharedStoreMetrics
+    // In this test we try to test one field for each type by creating a
+    // dummy vhost_user_block metric named `vhost_user_block_drvN`.
+    // There is no specific reason to storing the measured time taken vs a
+    // random number in `init_time_us`.
+    // We add an additional test to confirm that `vhost_user_metrics::METRICS`
+    // actually has an entry for `vhost_user_block_drvN` and compare it.
+    // We chose serde_json to compare because that seemed easiest to compare
+    // the entire struct format and serialization of VhostUserDeviceMetrics.
+    #[test]
+    fn test_vhost_user_basic_metrics() {
+        let vhost_user_dev_name: String = String::from("vhost_user_block_drvN");
+        let start_time = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+        let vhost_user_metrics: Arc<VhostUserDeviceMetrics> =
+            VhostUserMetricsPerDevice::alloc(vhost_user_dev_name.clone());
+        let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time;
+        vhost_user_metrics.activate_fails.inc();
+        assert_eq!(vhost_user_metrics.activate_fails.count(), 1);
+
+        vhost_user_metrics.init_time_us.store(delta_us);
+        assert_eq!(vhost_user_metrics.init_time_us.fetch(), delta_us);
+
+        // fill another local variable with the same data and use it to compare with the METRICS
+        // entry
+        let vhost_user_metrics_backup: VhostUserDeviceMetrics = VhostUserDeviceMetrics::default();
+        vhost_user_metrics_backup.activate_fails.inc();
+        vhost_user_metrics_backup.init_time_us.store(delta_us);
+
+        // serializing METRICS also flushes the SharedIncMetric data so we have to use _backup
+        // variable for comparison.
+        let vhost_user_metrics_global: String =
+            serde_json::to_string(&METRICS.read().unwrap().metrics.get(&vhost_user_dev_name))
+                .unwrap();
+        let vhost_user_metrics_local: String =
+            serde_json::to_string(&vhost_user_metrics_backup).unwrap();
+        assert_eq!(vhost_user_metrics_local, vhost_user_metrics_global);
+    }
+}
