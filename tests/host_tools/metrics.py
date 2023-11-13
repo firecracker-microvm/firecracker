@@ -205,14 +205,14 @@ def format_with_reduced_unit(value, unit):
 
     return f"{reduced_value:.2f}{formatted_unit}"
 
+
 def validate_fc_metrics(metrics):
     """
     This functions makes sure that all components
-    of FirecrackerMetrics struct are present.
+    of firecracker_metrics struct are present.
     """
 
-
-    FirecrackerMetrics = {
+    firecracker_metrics = {
         "api_server": [
             "process_startup_time_us",
             "process_startup_time_cpu_us",
@@ -431,11 +431,23 @@ def validate_fc_metrics(metrics):
     assert abs(utc_timestamp_ms - metrics["utc_timestamp_ms"]) < 1000
 
     if platform.machine() == "aarch64":
-        FirecrackerMetrics["rtc"] = [
+        firecracker_metrics["rtc"] = [
             "error_count",
             "missed_read_count",
             "missed_write_count",
         ]
+
+    # add vhost-user metrics to the schema if applicable
+    vhost_user_devices = []
+    for metrics_name in metrics.keys():
+        if metrics_name.startswith("vhost_user_"):
+            firecracker_metrics[metrics_name] = [
+                "activate_fails",
+                "cfg_fails",
+                "init_time_us",
+                "activate_time_us",
+            ]
+            vhost_user_devices.append(metrics_name)
 
     firecracker_metrics_schema = {
         "type": "object",
@@ -443,7 +455,7 @@ def validate_fc_metrics(metrics):
         "required": [],
     }
 
-    for metrics_name, metrics_fields in FirecrackerMetrics.items():
+    for metrics_name, metrics_fields in firecracker_metrics.items():
         metrics_schema = {
             "type": "object",
             "required": metrics_fields,
@@ -482,6 +494,18 @@ def validate_fc_metrics(metrics):
                 else:
                     raise error
             metrics["rtc"]["error_count"] = temp_pop_metrics
+
+        for vhost_user_dev in vhost_user_devices:
+            temp_pop_metrics = metrics[vhost_user_dev].pop("activate_time_us")
+            try:
+                jsonschema.validate(instance=metrics, schema=firecracker_metrics_schema)
+            except jsonschema.exceptions.ValidationError as error:
+                if error.message.strip() == "'activate_time_us' is a required property":
+                    pass
+                else:
+                    raise error
+            metrics[vhost_user_dev]["activate_time_us"] = temp_pop_metrics
+
     validate_missing_metrics(metrics)
 
 
@@ -491,9 +515,10 @@ class FcDeviceMetrics:
     aggregation of metrics
     """
 
-    def __init__(self, name, num_dev):
+    def __init__(self, name, num_dev, aggr_supported=True):
         self.dev_name = name
         self.num_dev = num_dev
+        self.aggr_supported = aggr_supported
 
     def validate(self, microvm):
         """
@@ -501,27 +526,31 @@ class FcDeviceMetrics:
         """
         fc_metrics = microvm.flush_metrics()
 
-        # make sure all items of FirecrackerMetrics are as expected
+        # make sure all items of firecracker_metrics are as expected
         validate_fc_metrics(fc_metrics)
 
         # make sure "{self.name}" is aggregate of "{self.name}_*"
         # and that there are only {num_dev} entries of "{self.name}_*"
-        self.validate_aggregation(fc_metrics)
+        self.validate_per_device_metrics(fc_metrics)
 
-    def validate_aggregation(self, fc_metrics):
+    def validate_per_device_metrics(self, fc_metrics):
         """
         validate aggregation of device metrics
         """
-        metrics_aggregate = fc_metrics[self.dev_name]
         metrics_calculated = {}
         actual_num_devices = 0
         for component_metric_names, component_metric_values in fc_metrics.items():
-            if f"{self.dev_name}_" in component_metric_names:
+            if (
+                f"{self.dev_name}_" in component_metric_names
+                and component_metric_names.startswith(self.dev_name)
+            ):
                 actual_num_devices += 1
                 for metrics_name, metric_value in component_metric_values.items():
                     if metrics_name not in metrics_calculated:
                         metrics_calculated[metrics_name] = 0
                     metrics_calculated[metrics_name] += metric_value
 
-        assert metrics_aggregate == metrics_calculated
         assert self.num_dev == actual_num_devices
+        if self.aggr_supported:
+            metrics_aggregate = fc_metrics[self.dev_name]
+            assert metrics_aggregate == metrics_calculated
