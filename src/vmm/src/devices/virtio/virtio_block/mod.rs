@@ -3,10 +3,10 @@
 
 //! Implements a virtio block device.
 
-pub mod block_metrics;
 pub mod device;
 mod event_handler;
 mod io;
+pub mod metrics;
 pub mod persist;
 pub mod request;
 pub mod test_utils;

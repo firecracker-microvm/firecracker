@@ -33,9 +33,7 @@ use crate::devices::virtio::gen::virtio_blk::{
 };
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
-use crate::devices::virtio::virtio_block::block_metrics::{
-    BlockDeviceMetrics, BlockMetricsPerDevice,
-};
+use crate::devices::virtio::virtio_block::metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
 use crate::logger::{error, warn, IncMetric};
 use crate::rate_limiter::{BucketUpdate, RateLimiter};
