@@ -186,7 +186,7 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
                 let (_, new_config_space) = vu_handle
                     .vu
                     .get_config(
-                        VHOST_USER_CONFIG_OFFSET,
+                        0,
                         BLOCK_CONFIG_SPACE_SIZE,
                         VhostUserConfigFlags::WRITABLE,
                         &buffer,
