@@ -76,7 +76,7 @@
 //! The system implements 1 types of metrics:
 //! * Shared Incremental Metrics (SharedIncMetrics) - dedicated for the metrics which need a counter
 //! (i.e the number of times an API request failed). These metrics are reset upon flush.
-//! We use NET_METRICS instead of adding an entry of NetDeviceMetrics
+//! We use net::metrics::METRICS instead of adding an entry of NetDeviceMetrics
 //! in Net so that metrics are accessible to be flushed even from signal handlers.
 
 use std::collections::BTreeMap;
@@ -102,14 +102,14 @@ impl NetMetricsPerDevice {
     /// lock is always initialized so it is safe the unwrap
     /// the lock without a check.
     pub fn alloc(iface_id: String) -> Arc<NetDeviceMetrics> {
-        if NET_METRICS.read().unwrap().metrics.get(&iface_id).is_none() {
-            NET_METRICS
+        if METRICS.read().unwrap().metrics.get(&iface_id).is_none() {
+            METRICS
                 .write()
                 .unwrap()
                 .metrics
                 .insert(iface_id.clone(), Arc::new(NetDeviceMetrics::default()));
         }
-        NET_METRICS
+        METRICS
             .read()
             .unwrap()
             .metrics
@@ -122,14 +122,14 @@ impl NetMetricsPerDevice {
 /// Pool of Network-related metrics per device behind a lock to
 /// keep things thread safe. Since the lock is initialized here
 /// it is safe to unwrap it without any check.
-static NET_METRICS: RwLock<NetMetricsPerDevice> = RwLock::new(NetMetricsPerDevice {
+static METRICS: RwLock<NetMetricsPerDevice> = RwLock::new(NetMetricsPerDevice {
     metrics: BTreeMap::new(),
 });
 
 /// This function facilitates aggregation and serialization of
 /// per net device metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
-    let net_metrics = NET_METRICS.read().unwrap();
+    let net_metrics = METRICS.read().unwrap();
     let metrics_len = net_metrics.metrics.len();
     // +1 to accomodate aggregate net metrics
     let mut seq = serializer.serialize_map(Some(1 + metrics_len))?;
@@ -271,13 +271,13 @@ pub mod tests {
         // we have 5-23 irq for net devices so max 19 net devices.
         const MAX_NET_DEVICES: usize = 19;
 
-        assert!(NET_METRICS.read().is_ok());
-        assert!(NET_METRICS.write().is_ok());
+        assert!(METRICS.read().is_ok());
+        assert!(METRICS.write().is_ok());
 
         for i in 0..MAX_NET_DEVICES {
             let devn: String = format!("eth{}", i);
             NetMetricsPerDevice::alloc(devn.clone());
-            NET_METRICS
+            METRICS
                 .read()
                 .unwrap()
                 .metrics
@@ -285,7 +285,7 @@ pub mod tests {
                 .unwrap()
                 .activate_fails
                 .inc();
-            NET_METRICS
+            METRICS
                 .read()
                 .unwrap()
                 .metrics
@@ -293,7 +293,7 @@ pub mod tests {
                 .unwrap()
                 .rx_bytes_count
                 .add(10);
-            NET_METRICS
+            METRICS
                 .read()
                 .unwrap()
                 .metrics
@@ -306,7 +306,7 @@ pub mod tests {
         for i in 0..MAX_NET_DEVICES {
             let devn: String = format!("eth{}", i);
             assert!(
-                NET_METRICS
+                METRICS
                     .read()
                     .unwrap()
                     .metrics
@@ -317,7 +317,7 @@ pub mod tests {
                     >= 1
             );
             assert!(
-                NET_METRICS
+                METRICS
                     .read()
                     .unwrap()
                     .metrics
@@ -328,7 +328,7 @@ pub mod tests {
                     >= 10
             );
             assert_eq!(
-                NET_METRICS
+                METRICS
                     .read()
                     .unwrap()
                     .metrics
@@ -346,14 +346,14 @@ pub mod tests {
         // `test_net_dev_metrics` which also uses the same name.
         let devn = "eth0";
 
-        assert!(NET_METRICS.read().is_ok());
-        assert!(NET_METRICS.write().is_ok());
+        assert!(METRICS.read().is_ok());
+        assert!(METRICS.write().is_ok());
 
         NetMetricsPerDevice::alloc(String::from(devn));
-        assert!(NET_METRICS.read().is_ok());
-        assert!(NET_METRICS.read().unwrap().metrics.get(devn).is_some());
+        assert!(METRICS.read().is_ok());
+        assert!(METRICS.read().unwrap().metrics.get(devn).is_some());
 
-        NET_METRICS
+        METRICS
             .read()
             .unwrap()
             .metrics
@@ -362,7 +362,7 @@ pub mod tests {
             .activate_fails
             .inc();
         assert!(
-            NET_METRICS
+            METRICS
                 .read()
                 .unwrap()
                 .metrics
@@ -372,7 +372,7 @@ pub mod tests {
                 .count()
                 > 0,
             "{}",
-            NET_METRICS
+            METRICS
                 .read()
                 .unwrap()
                 .metrics
@@ -384,7 +384,7 @@ pub mod tests {
         // we expect only 2 tests (this and test_max_net_dev_metrics)
         // to update activate_fails count for eth0.
         assert!(
-            NET_METRICS
+            METRICS
                 .read()
                 .unwrap()
                 .metrics
@@ -394,7 +394,7 @@ pub mod tests {
                 .count()
                 <= 2,
             "{}",
-            NET_METRICS
+            METRICS
                 .read()
                 .unwrap()
                 .metrics
@@ -404,7 +404,7 @@ pub mod tests {
                 .count()
         );
 
-        NET_METRICS
+        METRICS
             .read()
             .unwrap()
             .metrics
@@ -412,7 +412,7 @@ pub mod tests {
             .unwrap()
             .activate_fails
             .inc();
-        NET_METRICS
+        METRICS
             .read()
             .unwrap()
             .metrics
@@ -421,7 +421,7 @@ pub mod tests {
             .rx_bytes_count
             .add(5);
         assert!(
-            NET_METRICS
+            METRICS
                 .read()
                 .unwrap()
                 .metrics
