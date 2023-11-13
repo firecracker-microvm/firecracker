@@ -73,6 +73,7 @@ use vm_superio::rtc_pl031::RtcEvents;
 
 use super::FcLineWriter;
 use crate::devices::virtio::net::metrics as net_metrics;
+use crate::devices::virtio::vhost_user_metrics;
 use crate::devices::virtio::virtio_block::metrics as block_metrics;
 use crate::devices::virtio::vsock::metrics as vsock_metrics;
 #[cfg(target_arch = "aarch64")]
@@ -950,6 +951,7 @@ macro_rules! create_serialize_proxy {
 create_serialize_proxy!(VsockMetricsSerializeProxy, vsock_metrics);
 create_serialize_proxy!(BlockMetricsSerializeProxy, block_metrics);
 create_serialize_proxy!(NetMetricsSerializeProxy, net_metrics);
+create_serialize_proxy!(VhostUserMetricsSerializeProxy, vhost_user_metrics);
 
 /// Structure storing all metrics while enforcing serialization support on them.
 #[derive(Debug, Default, Serialize)]
@@ -999,6 +1001,9 @@ pub struct FirecrackerMetrics {
     pub vsock: VsockMetricsSerializeProxy,
     /// Metrics related to virtio-rng entropy device.
     pub entropy: EntropyDeviceMetrics,
+    #[serde(flatten)]
+    /// Vhost-user device related metrics.
+    pub vhost_user_ser: VhostUserMetricsSerializeProxy,
 }
 impl FirecrackerMetrics {
     /// Const default construction.
@@ -1026,6 +1031,7 @@ impl FirecrackerMetrics {
             signals: SignalMetrics::new(),
             vsock: VsockMetricsSerializeProxy {},
             entropy: EntropyDeviceMetrics::new(),
+            vhost_user_ser: VhostUserMetricsSerializeProxy {},
         }
     }
 }
