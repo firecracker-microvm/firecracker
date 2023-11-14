@@ -175,41 +175,13 @@ The snapshot functionality is still in developer preview due to the following:
 
 ## Snapshot versioning
 
-The Firecracker snapshotting implementation offers support for snapshot versioning
-(`cross-version snapshots`) in the following contexts:
-
-- Saving snapshots at older versions
-
-  **DEPRECATED**: This feature is deprecated starting with version 1.5.0. It
-  will be removed in a subsequent release. After dropping support, Firecracker
-  will be able to create snapshots only for the version supported by the
-  Firecracker binary that launched the microVM and not for older versions.
-
-  This refers to being able to create a snapshot with any version in the
-  `[N, N + o]` interval, while running Firecracker version `N+o`.
-
-  The possibility to save snapshots at older versions might not be offered by
-  all Firecracker releases. Depending on the features that it introduces, a new
-  Firecracker release `v` might drop the possibility to save snapshots at any
-  versions older than `v`.
-
-  For example Firecracker v1.0 and v1.1 adds support for some additional virtio
-  features (e.g. notification suppression). These features lead the guest
-  drivers to behave in a very specific way and as a consequence the Firecracker
-  devices have to respond accordingly. As a result, the snapshots that are
-  created while these features are in use will not be backwards compatible with
-  previous versions of Firecracker since the devices that come with these older
-  versions do not behave in a way that’s compatible with the snapshotted guest
-  drivers.
-
-  The list of versions that break snapshot backwards compatibility: `1.0`, `1.1`
-- Loading snapshots from older versions (being able to load a snapshot created
-  by any Firecracker version in the `[N, N + o]` interval, in a Firecracker
-  version `N+o`).
-
-The design supports an unlimited number of versions, the value of `o` (maximum number
-of older versions that we can restore from / save a snapshot to, from the current
-version) will be defined later.
+The microVM state snapshot file uses a data format that has a version in the
+form of `MAJOR.MINOR.PATCH`. Each Firecracker binary supports a fixed version
+of the snapshot data format. When creating a snapshot, Firecracker will use the
+supported data format version. When loading snapshots, Firecracker will check
+that the snapshot version is compatible with the version it supports. More
+information about the snapshot data format and details about snapshot data
+format versions can be found at [versioning](./versioning.md).
 
 ## Snapshot API
 
@@ -294,7 +266,6 @@ curl --unix-socket /tmp/firecracker.socket -i \
             "snapshot_type": "Full",
             "snapshot_path": "./snapshot_file",
             "mem_file_path": "./mem_file",
-            "version": "1.0.0"
     }'
 ```
 
@@ -323,12 +294,6 @@ the snapshot. If they exist, the files will be truncated and overwritten.
   - If diff snapshots were enabled, the snapshot creation resets then the
     dirtied page bitmap and marks all pages clean (from a diff snapshot point
     of view).
-  - If a `version` is specified, the new snapshot is saved at that version,
-    otherwise it will be saved at the latest snapshot version of the running
-    Firecracker. The version is only used for the microVM state file as it
-    contains internal state structures for device emulation, vCPUs and others
-    that can change their format from a Firecracker version to another.
-    Versioning is not required for the block and memory files.
 
 - _on failure_: no side-effects.
 
@@ -336,11 +301,6 @@ the snapshot. If they exist, the files will be truncated and overwritten.
 
 - The separate block device file components of the snapshot have to be handled
   by the user.
-- If specified, `version` must match the firecracker version that introduced a
-  snapshot version, which may differ from the running Firecracker version. For
-  example, if you are running on `1.1.2` and want to target version `1.0.4`, you
-  should specify `1.0.0`. Not specifying `version` uses the latest snapshot
-  version available to that version.
 
 #### Creating diff snapshots
 
@@ -358,7 +318,6 @@ curl --unix-socket /tmp/firecracker.socket -i \
             "snapshot_type": "Diff",
             "snapshot_path": "./snapshot_file",
             "mem_file_path": "./mem_file",
-            "version": "1.0.0"
     }'
 ```
 
