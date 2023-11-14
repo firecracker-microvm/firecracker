@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use kvm_ioctls::VmFd;
-use log::error;
+use log::{error, warn};
 use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
@@ -19,8 +19,8 @@ use super::mmio::*;
 use crate::arch::DeviceType;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::balloon::{Balloon, BalloonError};
-use crate::devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
-use crate::devices::virtio::block::{Block, BlockError};
+use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::mmio::MmioTransport;
 use crate::devices::virtio::net::persist::{
     NetConstructorArgs, NetPersistError as NetError, NetState,
 };
@@ -30,13 +30,20 @@ use crate::devices::virtio::rng::persist::{
     EntropyConstructorArgs, EntropyPersistError as EntropyError, EntropyState,
 };
 use crate::devices::virtio::rng::Entropy;
+use crate::devices::virtio::vhost_user_block::device::VhostUserBlock;
+use crate::devices::virtio::vhost_user_block::persist::{
+    VhostUserBlockConstructorArgs, VhostUserBlockState,
+};
+use crate::devices::virtio::vhost_user_block::VhostUserBlockError;
+use crate::devices::virtio::virtio_block::persist::{VirtioBlockConstructorArgs, VirtioBlockState};
+use crate::devices::virtio::virtio_block::{VirtioBlock, VirtioBlockError};
 use crate::devices::virtio::vsock::persist::{
     VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
 };
-use crate::devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
-use crate::devices::virtio::{
-    MmioTransport, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG, TYPE_VSOCK,
+use crate::devices::virtio::vsock::{
+    Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError, TYPE_VSOCK,
 };
+use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG};
 #[cfg(target_arch = "aarch64")]
 use crate::logger;
 use crate::mmds::data_store::MmdsVersion;
@@ -49,7 +56,8 @@ use crate::EventManager;
 #[derive(Debug, derive_more::From)]
 pub enum DevicePersistError {
     Balloon(BalloonError),
-    Block(BlockError),
+    VirtioBlock(VirtioBlockError),
+    VhostUserBlock(VhostUserBlockError),
     DeviceManager(super::mmio::MmioError),
     MmioTransport,
     #[cfg(target_arch = "aarch64")]
@@ -75,14 +83,28 @@ pub struct ConnectedBalloonState {
     pub device_info: MMIODeviceInfo,
 }
 
-/// Holds the state of a block device connected to the MMIO space.
+/// Holds the state of a virtio block device connected to the MMIO space.
 // NOTICE: Any changes to this structure require a snapshot version bump.
 #[derive(Debug, Clone, Versionize)]
-pub struct ConnectedBlockState {
+pub struct ConnectedVirtioBlockState {
     /// Device identifier.
     pub device_id: String,
     /// Device state.
-    pub device_state: BlockState,
+    pub device_state: VirtioBlockState,
+    /// Mmio transport state.
+    pub transport_state: MmioTransportState,
+    /// VmmResources.
+    pub device_info: MMIODeviceInfo,
+}
+
+/// Holds the state of a vhost-user block device connected to the MMIO space.
+// NOTICE: Any changes to this structure require a snapshot version bump.
+#[derive(Debug, Clone, Versionize)]
+pub struct ConnectedVhostUserBlockState {
+    /// Device identifier.
+    pub device_id: String,
+    /// Device state.
+    pub device_state: VhostUserBlockState,
     /// Mmio transport state.
     pub transport_state: MmioTransportState,
     /// VmmResources.
@@ -174,8 +196,11 @@ pub struct DeviceStates {
     #[cfg(target_arch = "aarch64")]
     // State of legacy devices in MMIO space.
     pub legacy_devices: Vec<ConnectedLegacyState>,
-    /// Block device states.
-    pub block_devices: Vec<ConnectedBlockState>,
+    /// Virtio block device states.
+    pub virtio_block_devices: Vec<ConnectedVirtioBlockState>,
+    /// Vhost-user block device states.
+    #[version(start = 5, de_fn = "de_vhost_user_block")]
+    pub vhost_user_block_devices: Vec<ConnectedVhostUserBlockState>,
     /// Net device states.
     pub net_devices: Vec<ConnectedNetState>,
     /// Vsock device state.
@@ -195,13 +220,23 @@ pub struct DeviceStates {
 /// from a snapshot.
 #[derive(Debug)]
 pub enum SharedDeviceType {
-    Block(Arc<Mutex<Block>>),
+    VirtioBlock(Arc<Mutex<VirtioBlock>>),
+    VhostUserBlock(Arc<Mutex<VhostUserBlock>>),
     Network(Arc<Mutex<Net>>),
     Balloon(Arc<Mutex<Balloon>>),
     Vsock(Arc<Mutex<Vsock<VsockUnixBackend>>>),
     Entropy(Arc<Mutex<Entropy>>),
 }
 
+impl DeviceStates {
+    fn de_vhost_user_block(&mut self, source_version: u16) -> VersionizeResult<()> {
+        if source_version < 5 {
+            self.vhost_user_block_devices = vec![];
+        }
+
+        Ok(())
+    }
+}
 pub struct MMIODevManagerConstructorArgs<'a> {
     pub mem: GuestMemoryMmap,
     pub vm: &'a VmFd,
@@ -229,16 +264,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
     type Error = DevicePersistError;
 
     fn save(&self) -> Self::State {
-        let mut states = DeviceStates {
-            balloon_device: None,
-            block_devices: Vec::new(),
-            net_devices: Vec::new(),
-            vsock_device: None,
-            #[cfg(target_arch = "aarch64")]
-            legacy_devices: Vec::new(),
-            mmds_version: None,
-            entropy_device: None,
-        };
+        let mut states = DeviceStates::default();
         let _: Result<(), ()> = self.for_each_device(|devtype, devid, device_info, bus_dev| {
             if *devtype == crate::arch::DeviceType::BootTimer {
                 // No need to save BootTimer state.
@@ -279,15 +305,22 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         device_info: device_info.clone(),
                     });
                 }
+                // Both virtio-block and vhost-user-block share same device type.
                 TYPE_BLOCK => {
-                    let block = locked_device.as_mut_any().downcast_mut::<Block>().unwrap();
-                    block.prepare_save();
-                    states.block_devices.push(ConnectedBlockState {
-                        device_id: devid.clone(),
-                        device_state: block.save(),
-                        transport_state,
-                        device_info: device_info.clone(),
-                    });
+                    if let Some(block) = locked_device.as_mut_any().downcast_mut::<VirtioBlock>() {
+                        block.prepare_save();
+                        states.virtio_block_devices.push(ConnectedVirtioBlockState {
+                            device_id: devid.clone(),
+                            device_state: block.save(),
+                            transport_state,
+                            device_info: device_info.clone(),
+                        })
+                    } else {
+                        warn!(
+                            "Skipping vhost-user-block device. VhostUserBlock does not support \
+                             snapshotting yet"
+                        );
+                    }
                 }
                 TYPE_NET => {
                     let net = locked_device.as_any().downcast_ref::<Net>().unwrap();
@@ -413,6 +446,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         }
 
         let mut restore_helper = |device: Arc<Mutex<dyn VirtioDevice>>,
+                                  is_vhost_user: bool,
                                   as_subscriber: Arc<Mutex<dyn MutEventSubscriber>>,
                                   id: &String,
                                   state: &MmioTransportState,
@@ -422,6 +456,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             let restore_args = MmioTransportConstructorArgs {
                 mem: mem.clone(),
                 device,
+                is_vhost_user,
             };
             let mmio_transport = MmioTransport::restore(restore_args, state)
                 .map_err(|()| DevicePersistError::MmioTransport)?;
@@ -466,6 +501,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             restore_helper(
                 device.clone(),
+                false,
                 device,
                 &balloon_state.device_id,
                 &balloon_state.transport_state,
@@ -474,23 +510,46 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             )?;
         }
 
-        for block_state in &state.block_devices {
-            let device = Arc::new(Mutex::new(Block::restore(
-                BlockConstructorArgs { mem: mem.clone() },
-                &block_state.device_state,
+        for virtio_block_state in &state.virtio_block_devices {
+            let device = Arc::new(Mutex::new(VirtioBlock::restore(
+                VirtioBlockConstructorArgs { mem: mem.clone() },
+                &virtio_block_state.device_state,
             )?));
 
             (constructor_args.for_each_restored_device)(
                 constructor_args.vm_resources,
-                SharedDeviceType::Block(device.clone()),
+                SharedDeviceType::VirtioBlock(device.clone()),
             );
 
             restore_helper(
                 device.clone(),
+                false,
                 device,
-                &block_state.device_id,
-                &block_state.transport_state,
-                &block_state.device_info,
+                &virtio_block_state.device_id,
+                &virtio_block_state.transport_state,
+                &virtio_block_state.device_info,
+                constructor_args.event_manager,
+            )?;
+        }
+
+        for vhost_user_block_state in &state.vhost_user_block_devices {
+            let device = Arc::new(Mutex::new(VhostUserBlock::restore(
+                VhostUserBlockConstructorArgs { mem: mem.clone() },
+                &vhost_user_block_state.device_state,
+            )?));
+
+            (constructor_args.for_each_restored_device)(
+                constructor_args.vm_resources,
+                SharedDeviceType::VhostUserBlock(device.clone()),
+            );
+
+            restore_helper(
+                device.clone(),
+                true,
+                device,
+                &vhost_user_block_state.device_id,
+                &vhost_user_block_state.transport_state,
+                &vhost_user_block_state.device_info,
                 constructor_args.event_manager,
             )?;
         }
@@ -532,6 +591,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             restore_helper(
                 device.clone(),
+                false,
                 device,
                 &net_state.device_id,
                 &net_state.transport_state,
@@ -560,6 +620,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             restore_helper(
                 device.clone(),
+                false,
                 device,
                 &vsock_state.device_id,
                 &vsock_state.transport_state,
@@ -583,6 +644,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             restore_helper(
                 device.clone(),
+                false,
                 device,
                 &entropy_state.device_id,
                 &entropy_state.transport_state,
@@ -601,7 +663,7 @@ mod tests {
 
     use super::*;
     use crate::builder::tests::*;
-    use crate::devices::virtio::block::CacheType;
+    use crate::devices::virtio::block_common::CacheType;
     use crate::devices::virtio::net::persist::NetConfigSpaceState;
     use crate::resources::VmmConfig;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
@@ -616,8 +678,8 @@ mod tests {
         }
     }
 
-    impl PartialEq for ConnectedBlockState {
-        fn eq(&self, other: &ConnectedBlockState) -> bool {
+    impl PartialEq for ConnectedVirtioBlockState {
+        fn eq(&self, other: &ConnectedVirtioBlockState) -> bool {
             // Actual device state equality is checked by the device's tests.
             self.transport_state == other.transport_state && self.device_info == other.device_info
         }
@@ -640,7 +702,7 @@ mod tests {
     impl PartialEq for DeviceStates {
         fn eq(&self, other: &DeviceStates) -> bool {
             self.balloon_device == other.balloon_device
-                && self.block_devices == other.block_devices
+                && self.virtio_block_devices == other.virtio_block_devices
                 && self.net_devices == other.net_devices
                 && self.vsock_device == other.vsock_device
         }
@@ -817,13 +879,14 @@ mod tests {
   "drives": [
     {{
       "drive_id": "root",
-      "path_on_host": "{}",
-      "is_root_device": true,
       "partuuid": null,
-      "is_read_only": true,
+      "is_root_device": true,
       "cache_type": "Unsafe",
+      "is_read_only": true,
+      "path_on_host": "{}",
       "rate_limiter": null,
-      "io_engine": "Sync"
+      "io_engine": "Sync",
+      "socket": null
     }}
   ],
   "boot-source": {{

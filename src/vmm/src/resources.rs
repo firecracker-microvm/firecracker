@@ -204,8 +204,12 @@ impl VmResources {
     /// restoring from a snapshot).
     pub fn update_from_restored_device(&mut self, device: SharedDeviceType) {
         match device {
-            SharedDeviceType::Block(block) => {
-                self.block.add_device(block);
+            SharedDeviceType::VirtioBlock(block) => {
+                self.block.add_virtio_device(block);
+            }
+
+            SharedDeviceType::VhostUserBlock(block) => {
+                self.block.add_vhost_user_device(block);
             }
 
             SharedDeviceType::Network(network) => {
@@ -476,6 +480,8 @@ mod tests {
 
     use super::*;
     use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
+    use crate::devices::virtio::block_common::CacheType;
+    use crate::devices::virtio::virtio_block::VirtioBlockError;
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
     use crate::resources::VmResources;
     use crate::vmm_config::boot_source::{
@@ -517,13 +523,16 @@ mod tests {
         (
             BlockDeviceConfig {
                 drive_id: "block1".to_string(),
-                path_on_host: tmp_file.as_path().to_str().unwrap().to_string(),
-                is_root_device: false,
                 partuuid: Some("0eaa91a0-01".to_string()),
+                is_root_device: false,
                 cache_type: CacheType::Unsafe,
-                is_read_only: false,
+
+                is_read_only: Some(false),
+                path_on_host: Some(tmp_file.as_path().to_str().unwrap().to_string()),
                 rate_limiter: Some(RateLimiterConfig::default()),
                 file_engine_type: FileEngineType::default(),
+
+                socket: None,
             },
             tmp_file,
         )
@@ -665,7 +674,9 @@ mod tests {
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         ) {
-            Err(ResourcesError::BlockDevice(DriveError::InvalidBlockDevicePath(_))) => (),
+            Err(ResourcesError::BlockDevice(DriveError::CreateVirtioBlockDevice(
+                VirtioBlockError::BackingFile(_, _),
+            ))) => (),
             _ => unreachable!(),
         }
 
@@ -1498,10 +1509,10 @@ mod tests {
         let (mut new_block_device_cfg, _file) = default_block_cfg();
         let tmp_file = TempFile::new().unwrap();
         new_block_device_cfg.drive_id = "block2".to_string();
-        new_block_device_cfg.path_on_host = tmp_file.as_path().to_str().unwrap().to_string();
-        assert_eq!(vm_resources.block.list.len(), 1);
+        new_block_device_cfg.path_on_host = Some(tmp_file.as_path().to_str().unwrap().to_string());
+        assert_eq!(vm_resources.block.devices.len(), 1);
         vm_resources.set_block_device(new_block_device_cfg).unwrap();
-        assert_eq!(vm_resources.block.list.len(), 2);
+        assert_eq!(vm_resources.block.devices.len(), 2);
     }
 
     #[test]

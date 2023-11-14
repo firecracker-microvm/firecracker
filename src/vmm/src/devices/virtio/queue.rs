@@ -456,7 +456,7 @@ impl Queue {
     /// Fetch the available ring index (`virtq_avail->idx`) from guest memory.
     /// This is written by the driver, to indicate the next slot that will be filled in the avail
     /// ring.
-    fn avail_idx<M: GuestMemory>(&self, mem: &M) -> Wrapping<u16> {
+    pub fn avail_idx<M: GuestMemory>(&self, mem: &M) -> Wrapping<u16> {
         // Bound checks for queue inner data have already been performed, at device activation time,
         // via `self.is_valid()`, so it's safe to unwrap and use unchecked offsets here.
         // Note: the `MmioTransport` code ensures that queue addresses cannot be changed by the
@@ -570,9 +570,8 @@ mod verification {
     use vm_memory::guest_memory::GuestMemoryIterator;
     use vm_memory::{GuestMemoryRegion, MemoryRegionAddress};
 
-    use crate::devices::virtio::queue::Descriptor;
-    use crate::devices::virtio::{
-        DescriptorChain, Queue, FIRECRACKER_MAX_QUEUE_SIZE, VIRTQ_DESC_F_NEXT,
+    use crate::devices::virtio::queue::{
+        Descriptor, DescriptorChain, Queue, FIRECRACKER_MAX_QUEUE_SIZE, VIRTQ_DESC_F_NEXT,
     };
     use crate::vstate::memory::{Bytes, FileOffset, GuestAddress, GuestMemory, MmapRegion};
 
@@ -1069,8 +1068,8 @@ mod verification {
 mod tests {
 
     pub use super::*;
+    use crate::devices::virtio::queue::QueueError::{DescIndexOutOfBounds, UsedRing};
     use crate::devices::virtio::test_utils::{default_mem, single_region_mem, VirtQueue};
-    use crate::devices::virtio::QueueError::{DescIndexOutOfBounds, UsedRing};
     use crate::vstate::memory::{GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
 
     impl Queue {

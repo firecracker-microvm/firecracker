@@ -43,16 +43,20 @@ use crate::devices::legacy::serial::SerialOut;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
 use crate::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
-use crate::devices::virtio::{
-    Balloon, Block, Entropy, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend,
-};
+use crate::devices::virtio::balloon::Balloon;
+use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::mmio::MmioTransport;
+use crate::devices::virtio::net::Net;
+use crate::devices::virtio::rng::Entropy;
+use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::devices::BusDevice;
 #[cfg(target_arch = "aarch64")]
 use crate::logger;
-use crate::logger::error;
+use crate::logger::{debug, error};
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootConfig;
+use crate::vmm_config::drive::BlockDeviceType;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{MachineConfigUpdate, VmConfig, VmConfigError};
 use crate::vstate::memory::{
@@ -303,7 +307,7 @@ pub fn build_microvm_for_boot(
     attach_block_devices(
         &mut vmm,
         &mut boot_cmdline,
-        vm_resources.block.list.iter(),
+        vm_resources.block.devices.iter(),
         event_manager,
     )?;
     attach_net_devices(
@@ -376,14 +380,16 @@ pub fn build_and_boot_microvm(
     event_manager: &mut EventManager,
     seccomp_filters: &BpfThreadMap,
 ) -> Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
+    debug!("event_start: build microvm for boot");
     let vmm = build_microvm_for_boot(instance_info, vm_resources, event_manager, seccomp_filters)?;
-
+    debug!("event_end: build microvm for boot");
     // The vcpus start off in the `Paused` state, let them run.
+    debug!("event_start: boot microvm");
     vmm.lock()
         .unwrap()
         .resume_vm()
         .map_err(StartMicrovmError::Internal)?;
-
+    debug!("event_end: boot microvm");
     Ok(vmm)
 }
 
@@ -444,6 +450,7 @@ pub fn build_microvm_from_snapshot(
     })?;
 
     // Build Vmm.
+    debug!("event_start: build microvm from snapshot");
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
         event_manager,
@@ -541,6 +548,7 @@ pub fn build_microvm_from_snapshot(
             .get("vmm")
             .ok_or(BuildMicrovmFromSnapshotError::MissingVmmSeccompFilters)?,
     )?;
+    debug!("event_end: build microvm from snapshot");
 
     Ok(vmm)
 }
@@ -831,13 +839,14 @@ fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
     id: String,
     device: Arc<Mutex<T>>,
     cmdline: &mut LoaderKernelCmdline,
+    is_vhost_user: bool,
 ) -> Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
     event_manager.add_subscriber(device.clone());
 
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    let device = MmioTransport::new(vmm.guest_memory().clone(), device);
+    let device = MmioTransport::new(vmm.guest_memory().clone(), device, is_vhost_user);
     vmm.mmio_device_manager
         .register_mmio_virtio_for_boot(vmm.vm.fd(), id, device, cmdline)
         .map_err(RegisterMmioDevice)
@@ -871,33 +880,61 @@ fn attach_entropy_device(
         .id()
         .to_string();
 
-    attach_virtio_device(event_manager, vmm, id, entropy_device.clone(), cmdline)
+    attach_virtio_device(
+        event_manager,
+        vmm,
+        id,
+        entropy_device.clone(),
+        cmdline,
+        false,
+    )
 }
 
-fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
+fn attach_block_devices<'a, I: Iterator<Item = &'a BlockDeviceType> + Debug>(
     vmm: &mut Vmm,
     cmdline: &mut LoaderKernelCmdline,
     blocks: I,
     event_manager: &mut EventManager,
 ) -> Result<(), StartMicrovmError> {
-    for block in blocks {
-        let id = {
-            let locked = block.lock().expect("Poisoned lock");
-            if locked.is_root_device() {
-                cmdline.insert_str(if let Some(partuuid) = locked.partuuid() {
-                    format!("root=PARTUUID={}", partuuid)
-                } else {
-                    // If no PARTUUID was specified for the root device, try with the /dev/vda.
-                    "root=/dev/vda".to_string()
-                })?;
-
-                let flags = if locked.is_read_only() { "ro" } else { "rw" };
-                cmdline.insert_str(flags)?;
-            }
-            locked.id().clone()
+    macro_rules! attach_block {
+        ($block:ident, $is_vhost_user:ident) => {
+            let id = {
+                let locked = $block.lock().expect("Poisoned lock");
+                if locked.root_device {
+                    match locked.partuuid {
+                        Some(ref partuuid) => {
+                            cmdline.insert_str(format!("root=PARTUUID={}", partuuid))?
+                        }
+                        None => cmdline.insert_str("root=/dev/vda")?,
+                    }
+                    match locked.read_only {
+                        true => cmdline.insert_str("ro")?,
+                        false => cmdline.insert_str("rw")?,
+                    }
+                }
+                locked.id.clone()
+            };
+            // The device mutex mustn't be locked here otherwise it will deadlock.
+            attach_virtio_device(
+                event_manager,
+                vmm,
+                id,
+                $block.clone(),
+                cmdline,
+                $is_vhost_user,
+            )?;
         };
-        // The device mutex mustn't be locked here otherwise it will deadlock.
-        attach_virtio_device(event_manager, vmm, id, block.clone(), cmdline)?;
+    }
+
+    for block in blocks {
+        match block {
+            BlockDeviceType::VirtioBlock(block) => {
+                attach_block!(block, false);
+            }
+            BlockDeviceType::VhostUserBlock(block) => {
+                attach_block!(block, true);
+            }
+        };
     }
     Ok(())
 }
@@ -911,7 +948,7 @@ fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
     for net_device in net_devices {
         let id = net_device.lock().expect("Poisoned lock").id().clone();
         // The device mutex mustn't be locked here otherwise it will deadlock.
-        attach_virtio_device(event_manager, vmm, id, net_device.clone(), cmdline)?;
+        attach_virtio_device(event_manager, vmm, id, net_device.clone(), cmdline, false)?;
     }
     Ok(())
 }
@@ -924,7 +961,7 @@ fn attach_unixsock_vsock_device(
 ) -> Result<(), StartMicrovmError> {
     let id = String::from(unix_vsock.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    attach_virtio_device(event_manager, vmm, id, unix_vsock.clone(), cmdline)
+    attach_virtio_device(event_manager, vmm, id, unix_vsock.clone(), cmdline, false)
 }
 
 fn attach_balloon_device(
@@ -935,7 +972,7 @@ fn attach_balloon_device(
 ) -> Result<(), StartMicrovmError> {
     let id = String::from(balloon.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    attach_virtio_device(event_manager, vmm, id, balloon.clone(), cmdline)
+    attach_virtio_device(event_manager, vmm, id, balloon.clone(), cmdline, false)
 }
 
 // Adds `O_NONBLOCK` to the stdout flags.
@@ -961,14 +998,15 @@ pub mod tests {
 
     use super::*;
     use crate::arch::DeviceType;
+    use crate::devices::virtio::block_common::CacheType;
     use crate::devices::virtio::rng::device::ENTROPY_DEV_ID;
-    use crate::devices::virtio::vsock::VSOCK_DEV_ID;
-    use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_RNG, TYPE_VSOCK};
+    use crate::devices::virtio::vsock::{TYPE_VSOCK, VSOCK_DEV_ID};
+    use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_RNG};
     use crate::mmds::data_store::{Mmds, MmdsVersion};
     use crate::mmds::ns::MmdsNetworkStack;
     use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
     use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
-    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, CacheType, FileEngineType};
+    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, FileEngineType};
     use crate::vmm_config::entropy::{EntropyDeviceBuilder, EntropyDeviceConfig};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
@@ -1096,28 +1134,41 @@ pub mod tests {
     ) -> Vec<TempFile> {
         let mut block_dev_configs = BlockBuilder::new();
         let mut block_files = Vec::new();
-        for custom_block_cfg in &custom_block_cfgs {
+        for custom_block_cfg in custom_block_cfgs {
             block_files.push(TempFile::new().unwrap());
+
             let block_device_config = BlockDeviceConfig {
                 drive_id: String::from(&custom_block_cfg.drive_id),
-                path_on_host: block_files
-                    .last()
-                    .unwrap()
-                    .as_path()
-                    .to_str()
-                    .unwrap()
-                    .to_string(),
+                partuuid: custom_block_cfg.partuuid,
                 is_root_device: custom_block_cfg.is_root_device,
-                partuuid: custom_block_cfg.partuuid.clone(),
-                is_read_only: custom_block_cfg.is_read_only,
                 cache_type: custom_block_cfg.cache_type,
+
+                is_read_only: Some(custom_block_cfg.is_read_only),
+                path_on_host: Some(
+                    block_files
+                        .last()
+                        .unwrap()
+                        .as_path()
+                        .to_str()
+                        .unwrap()
+                        .to_string(),
+                ),
                 rate_limiter: None,
                 file_engine_type: FileEngineType::default(),
+
+                socket: None,
             };
+
             block_dev_configs.insert(block_device_config).unwrap();
         }
 
-        attach_block_devices(vmm, cmdline, block_dev_configs.list.iter(), event_manager).unwrap();
+        attach_block_devices(
+            vmm,
+            cmdline,
+            block_dev_configs.devices.iter(),
+            event_manager,
+        )
+        .unwrap();
         block_files
     }
 

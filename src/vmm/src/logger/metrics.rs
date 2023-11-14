@@ -72,8 +72,9 @@ use serde::{Serialize, Serializer};
 use vm_superio::rtc_pl031::RtcEvents;
 
 use super::FcLineWriter;
-use crate::devices::virtio::block_metrics;
 use crate::devices::virtio::net::metrics as net_metrics;
+use crate::devices::virtio::virtio_block::metrics as block_metrics;
+use crate::devices::virtio::vsock::metrics as vsock_metrics;
 #[cfg(target_arch = "aarch64")]
 use crate::warn;
 
@@ -875,78 +876,6 @@ impl VmmMetrics {
     }
 }
 
-/// Vsock-related metrics.
-#[derive(Debug, Default, Serialize)]
-pub struct VsockDeviceMetrics {
-    /// Number of times when activate failed on a vsock device.
-    pub activate_fails: SharedIncMetric,
-    /// Number of times when interacting with the space config of a vsock device failed.
-    pub cfg_fails: SharedIncMetric,
-    /// Number of times when handling RX queue events on a vsock device failed.
-    pub rx_queue_event_fails: SharedIncMetric,
-    /// Number of times when handling TX queue events on a vsock device failed.
-    pub tx_queue_event_fails: SharedIncMetric,
-    /// Number of times when handling event queue events on a vsock device failed.
-    pub ev_queue_event_fails: SharedIncMetric,
-    /// Number of times when handling muxer events on a vsock device failed.
-    pub muxer_event_fails: SharedIncMetric,
-    /// Number of times when handling connection events on a vsock device failed.
-    pub conn_event_fails: SharedIncMetric,
-    /// Number of events associated with the receiving queue.
-    pub rx_queue_event_count: SharedIncMetric,
-    /// Number of events associated with the transmitting queue.
-    pub tx_queue_event_count: SharedIncMetric,
-    /// Number of bytes received.
-    pub rx_bytes_count: SharedIncMetric,
-    /// Number of transmitted bytes.
-    pub tx_bytes_count: SharedIncMetric,
-    /// Number of packets received.
-    pub rx_packets_count: SharedIncMetric,
-    /// Number of transmitted packets.
-    pub tx_packets_count: SharedIncMetric,
-    /// Number of added connections.
-    pub conns_added: SharedIncMetric,
-    /// Number of killed connections.
-    pub conns_killed: SharedIncMetric,
-    /// Number of removed connections.
-    pub conns_removed: SharedIncMetric,
-    /// How many times the killq has been resynced.
-    pub killq_resync: SharedIncMetric,
-    /// How many flush fails have been seen.
-    pub tx_flush_fails: SharedIncMetric,
-    /// How many write fails have been seen.
-    pub tx_write_fails: SharedIncMetric,
-    /// Number of times read() has failed.
-    pub rx_read_fails: SharedIncMetric,
-}
-impl VsockDeviceMetrics {
-    /// Const default construction.
-    pub const fn new() -> Self {
-        Self {
-            activate_fails: SharedIncMetric::new(),
-            cfg_fails: SharedIncMetric::new(),
-            rx_queue_event_fails: SharedIncMetric::new(),
-            tx_queue_event_fails: SharedIncMetric::new(),
-            ev_queue_event_fails: SharedIncMetric::new(),
-            muxer_event_fails: SharedIncMetric::new(),
-            conn_event_fails: SharedIncMetric::new(),
-            rx_queue_event_count: SharedIncMetric::new(),
-            tx_queue_event_count: SharedIncMetric::new(),
-            rx_bytes_count: SharedIncMetric::new(),
-            tx_bytes_count: SharedIncMetric::new(),
-            rx_packets_count: SharedIncMetric::new(),
-            tx_packets_count: SharedIncMetric::new(),
-            conns_added: SharedIncMetric::new(),
-            conns_killed: SharedIncMetric::new(),
-            conns_removed: SharedIncMetric::new(),
-            killq_resync: SharedIncMetric::new(),
-            tx_flush_fails: SharedIncMetric::new(),
-            tx_write_fails: SharedIncMetric::new(),
-            rx_read_fails: SharedIncMetric::new(),
-        }
-    }
-}
-
 #[derive(Debug, Default, Serialize)]
 pub struct EntropyDeviceMetrics {
     /// Number of device activation failures
@@ -998,37 +927,29 @@ impl Serialize for SerializeToUtcTimestampMs {
     }
 }
 
-#[derive(Default, Debug)]
-// By using the below structure in FirecrackerMetrics it is easy
-// to serialise Firecracker app_metrics as a single json object which
-// otherwise would have required extra string manipulation to pack
-// block as part of the same json object as FirecrackerMetrics.
-pub struct BlockMetricsSerializeProxy;
+macro_rules! create_serialize_proxy {
+    // By using the below structure in FirecrackerMetrics it is easy
+    // to serialise Firecracker app_metrics as a single json object which
+    // otherwise would have required extra string manipulation to pack
+    // $metric_mod as part of the same json object as FirecrackerMetrics.
+    ($proxy_struct:ident, $metric_mod:ident) => {
+        #[derive(Default, Debug)]
+        pub struct $proxy_struct;
 
-impl Serialize for BlockMetricsSerializeProxy {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        block_metrics::flush_metrics(serializer)
-    }
+        impl Serialize for $proxy_struct {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: Serializer,
+            {
+                $metric_mod::flush_metrics(serializer)
+            }
+        }
+    };
 }
 
-#[derive(Default, Debug)]
-// By using the below structure in FirecrackerMetrics it is easy
-// to serialise Firecracker app_metrics as a single json object which
-// otherwise would have required extra string manipulation to pack
-// net as part of the same json object as FirecrackerMetrics.
-pub struct NetMetricsSerializeProxy;
-
-impl Serialize for NetMetricsSerializeProxy {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        net_metrics::flush_metrics(serializer)
-    }
-}
+create_serialize_proxy!(VsockMetricsSerializeProxy, vsock_metrics);
+create_serialize_proxy!(BlockMetricsSerializeProxy, block_metrics);
+create_serialize_proxy!(NetMetricsSerializeProxy, net_metrics);
 
 /// Structure storing all metrics while enforcing serialization support on them.
 #[derive(Debug, Default, Serialize)]
@@ -1073,8 +994,9 @@ pub struct FirecrackerMetrics {
     pub uart: SerialDeviceMetrics,
     /// Metrics related to signals.
     pub signals: SignalMetrics,
+    #[serde(flatten)]
     /// Metrics related to virtio-vsockets.
-    pub vsock: VsockDeviceMetrics,
+    pub vsock: VsockMetricsSerializeProxy,
     /// Metrics related to virtio-rng entropy device.
     pub entropy: EntropyDeviceMetrics,
 }
@@ -1102,7 +1024,7 @@ impl FirecrackerMetrics {
             vmm: VmmMetrics::new(),
             uart: SerialDeviceMetrics::new(),
             signals: SignalMetrics::new(),
-            vsock: VsockDeviceMetrics::new(),
+            vsock: VsockMetricsSerializeProxy {},
             entropy: EntropyDeviceMetrics::new(),
         }
     }

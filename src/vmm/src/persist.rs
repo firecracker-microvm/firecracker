@@ -588,8 +588,8 @@ mod tests {
     };
     #[cfg(target_arch = "aarch64")]
     use crate::construct_kvm_mpidrs;
+    use crate::devices::virtio::block_common::CacheType;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
-    use crate::vmm_config::drive::CacheType;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::tests::default_config;
     use crate::Vmm;
@@ -650,7 +650,7 @@ mod tests {
 
         // Only checking that all devices are saved, actual device state
         // is tested by that device's tests.
-        assert_eq!(states.block_devices.len(), 1);
+        assert_eq!(states.virtio_block_devices.len(), 1);
         assert_eq!(states.net_devices.len(), 1);
         assert!(states.vsock_device.is_some());
         assert!(states.balloon_device.is_some());

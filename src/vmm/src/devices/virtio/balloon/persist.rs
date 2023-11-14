@@ -14,8 +14,10 @@ use versionize_derive::Versionize;
 
 use super::*;
 use crate::devices::virtio::balloon::device::{BalloonStats, ConfigSpace};
+use crate::devices::virtio::device::DeviceState;
 use crate::devices::virtio::persist::VirtioDeviceState;
-use crate::devices::virtio::{DeviceState, FIRECRACKER_MAX_QUEUE_SIZE, TYPE_BALLOON};
+use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
+use crate::devices::virtio::TYPE_BALLOON;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// Information about the balloon config's that are saved

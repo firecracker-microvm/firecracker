@@ -13,6 +13,8 @@ use utils::u64_to_usize;
 const REBASE_SNAP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const BASE_FILE: &str = "base-file";
 const DIFF_FILE: &str = "diff-file";
+const DEPRECATION_MSG: &str = "This tool is deprecated and will be removed in the future. Please \
+                               use 'snapshot-editor' instead.\n";
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 enum FileError {
@@ -115,10 +117,6 @@ fn rebase(base_file: &mut File, diff_file: &mut File) -> Result<(), FileError> {
 }
 
 fn main() -> Result<(), RebaseSnapError> {
-    println!(
-        "This tool is deprecated and will be removed in the future. Please use 'snapshot-editor' \
-         instead."
-    );
     let result = main_exec();
     if let Err(e) = result {
         eprintln!("{}", e);
@@ -139,16 +137,18 @@ fn main_exec() -> Result<(), RebaseSnapError> {
     if arguments.flag_present("help") {
         println!("Rebase_snap v{}", REBASE_SNAP_VERSION);
         println!(
-            "Tool that copies all the non-sparse sections from a diff file onto a base file\n"
+            "Tool that copies all the non-sparse sections from a diff file onto a base file.\n"
         );
+        println!("{DEPRECATION_MSG}");
         println!("{}", arg_parser.formatted_help());
         return Ok(());
     }
     if arguments.flag_present("version") {
-        println!("Rebase_snap v{}\n", REBASE_SNAP_VERSION);
+        println!("Rebase_snap v{REBASE_SNAP_VERSION}\n{DEPRECATION_MSG}");
         return Ok(());
     }
 
+    println!("{DEPRECATION_MSG}");
     let (mut base_file, mut diff_file) = get_files(arguments).map_err(RebaseSnapError::SnapFile)?;
 
     rebase(&mut base_file, &mut diff_file).map_err(RebaseSnapError::RebaseFiles)?;

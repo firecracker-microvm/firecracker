@@ -388,31 +388,11 @@ def test_guest_cpu_config_change(test_microvm_with_api, tmp_path, cpu_template_h
     Verify that the guest CPU config has not changed since the baseline
     fingerprint was gathered.
     """
-    if (
-        global_props.host_linux_version == "4.14"
-        and global_props.instance == "c7g.metal"
-    ):
-        # The non-SVE kernel has a different value in 0x6030000000100040 because
-        # it's an old kernel.
-        pytest.skip("old kernel has different fingerprint")
     detect_fingerprint_change(
         test_microvm_with_api,
         tmp_path,
         cpu_template_helper,
         ["guest_cpu_config"],
-    )
-
-
-@pytest.mark.nonci
-def test_fingerprint_change(test_microvm_with_api, tmp_path, cpu_template_helper):
-    """
-    Verify that all the fields of the fingerprint has not changed since the
-    baseline fingerprint was gathered.
-    """
-    detect_fingerprint_change(
-        test_microvm_with_api,
-        tmp_path,
-        cpu_template_helper,
     )
 
 

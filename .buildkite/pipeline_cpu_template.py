@@ -7,7 +7,7 @@
 import argparse
 from enum import Enum
 
-from common import DEFAULT_PLATFORMS, group, pipeline_to_json
+from common import DEFAULT_INSTANCES, DEFAULT_PLATFORMS, group, pipeline_to_json
 
 
 class BkStep(str, Enum):
@@ -63,6 +63,14 @@ cpu_template_test = {
         BkStep.LABEL: "📖 cpu templates",
         "instances": ["m6g.metal", "c7g.metal"],
         "platforms": [("al2_armpatch", "linux_5.10")],
+    },
+    "fingerprint": {
+        BkStep.COMMAND: [
+            "tools/devtool -y test -- -m no_block_pr integration_tests/functional/test_cpu_template_helper.py -k test_guest_cpu_config_change",
+        ],
+        BkStep.LABEL: "🖐️ fingerprint",
+        "instances": DEFAULT_INSTANCES,
+        "platforms": DEFAULT_PLATFORMS,
     },
 }
 
@@ -164,6 +172,8 @@ def main():
     elif test_args.test == "cpuid_wrmsr":
         test_group = group_snapshot_restore(cpu_template_test[test_args.test])
     elif test_args.test == "aarch64_cpu_templates":
+        test_group = group_single(cpu_template_test[test_args.test])
+    elif test_args.test == "fingerprint":
         test_group = group_single(cpu_template_test[test_args.test])
 
     pipeline = {"steps": test_group}

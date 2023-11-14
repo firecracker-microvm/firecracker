@@ -3,20 +3,21 @@
 
 //! Implements a virtio block device.
 
-pub mod block_metrics;
 pub mod device;
 mod event_handler;
 mod io;
+pub mod metrics;
 pub mod persist;
 pub mod request;
 pub mod test_utils;
 
 use vm_memory::GuestMemoryError;
 
-pub use self::device::{Block, CacheType};
+pub use self::device::VirtioBlock;
 pub use self::event_handler::*;
 pub use self::request::*;
-use crate::devices::virtio::FIRECRACKER_MAX_QUEUE_SIZE;
+use super::queue::FIRECRACKER_MAX_QUEUE_SIZE;
+pub use crate::devices::virtio::block_common::CacheType;
 
 /// Size of config space for block device.
 pub const BLOCK_CONFIG_SPACE_SIZE: usize = 8;
@@ -34,7 +35,9 @@ pub const IO_URING_NUM_ENTRIES: u16 = 128;
 
 /// Errors the block device can trigger.
 #[derive(Debug)]
-pub enum BlockError {
+pub enum VirtioBlockError {
+    /// Cannot create config
+    Config,
     /// Guest gave us too few descriptors in a descriptor chain.
     DescriptorChainTooShort,
     /// Guest gave us a descriptor that was too short to use.

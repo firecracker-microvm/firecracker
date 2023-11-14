@@ -73,9 +73,9 @@
 //! The system implements 1 type of metrics:
 //! * Shared Incremental Metrics (SharedIncMetrics) - dedicated for the metrics which need a counter
 //! (i.e the number of times an API request failed). These metrics are reset upon flush.
-//! We add BlockDeviceMetrics entries from BLOCK_METRICS into Block device instead of
+//! We add BlockDeviceMetrics entries from block::metrics::METRICS into Block device instead of
 //! Block device having individual separate BlockDeviceMetrics entries because Block device is not
-//! accessible from signal handlers to flush metrics and BLOCK_METRICS is.
+//! accessible from signal handlers to flush metrics and block::metrics::METRICS is.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
@@ -100,20 +100,14 @@ impl BlockMetricsPerDevice {
     /// lock is always initialized so it is safe the unwrap
     /// the lock without a check.
     pub fn alloc(drive_id: String) -> Arc<BlockDeviceMetrics> {
-        if BLOCK_METRICS
-            .read()
-            .unwrap()
-            .metrics
-            .get(&drive_id)
-            .is_none()
-        {
-            BLOCK_METRICS
+        if METRICS.read().unwrap().metrics.get(&drive_id).is_none() {
+            METRICS
                 .write()
                 .unwrap()
                 .metrics
                 .insert(drive_id.clone(), Arc::new(BlockDeviceMetrics::default()));
         }
-        BLOCK_METRICS
+        METRICS
             .read()
             .unwrap()
             .metrics
@@ -126,14 +120,14 @@ impl BlockMetricsPerDevice {
 /// Pool of block-related metrics per device behind a lock to
 /// keep things thread safe. Since the lock is initialized here
 /// it is safe to unwrap it without any check.
-static BLOCK_METRICS: RwLock<BlockMetricsPerDevice> = RwLock::new(BlockMetricsPerDevice {
+static METRICS: RwLock<BlockMetricsPerDevice> = RwLock::new(BlockMetricsPerDevice {
     metrics: BTreeMap::new(),
 });
 
 /// This function facilitates aggregation and serialization of
 /// per block device metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
-    let block_metrics = BLOCK_METRICS.read().unwrap();
+    let block_metrics = METRICS.read().unwrap();
     let metrics_len = block_metrics.metrics.len();
     // +1 to accommodate aggregate block metrics
     let mut seq = serializer.serialize_map(Some(1 + metrics_len))?;
@@ -237,16 +231,16 @@ pub mod tests {
         // devices on aarch64 but we stick to 19 to keep test common.
         const MAX_BLOCK_DEVICES: usize = 19;
 
-        // This is to make sure that RwLock for BLOCK_METRICS is good.
-        assert!(BLOCK_METRICS.read().is_ok());
-        assert!(BLOCK_METRICS.write().is_ok());
+        // This is to make sure that RwLock for block::metrics::METRICS is good.
+        assert!(METRICS.read().is_ok());
+        assert!(METRICS.write().is_ok());
 
-        // BLOCK_METRICS is in short RwLock on Vec of BlockDeviceMetrics.
-        // Normally, pointer to unique entries of BLOCK_METRICS are stored
+        // block::metrics::METRICS is in short RwLock on Vec of BlockDeviceMetrics.
+        // Normally, pointer to unique entries of block::metrics::METRICS are stored
         // in Block device so that Block device can do self.metrics.* to
         // update a metric. We try to do something similar here without
         // using Block device by allocating max number of
-        // BlockDeviceMetrics in BLOCK_METRICS and store pointer to
+        // BlockDeviceMetrics in block::metrics::METRICS and store pointer to
         // each entry in the local `metrics` vec.
         // We then update 1 IncMetric and 2 SharedMetric for each metrics
         // and validate if the metrics for per device was updated as
@@ -286,9 +280,9 @@ pub mod tests {
         // `test_max_block_dev_metrics` which also uses the same name.
         let devn = "drv0";
 
-        // This is to make sure that RwLock for BLOCK_METRICS is good.
-        assert!(BLOCK_METRICS.read().is_ok());
-        assert!(BLOCK_METRICS.write().is_ok());
+        // This is to make sure that RwLock for block::metrics::METRICS is good.
+        assert!(METRICS.read().is_ok());
+        assert!(METRICS.write().is_ok());
 
         let test_metrics = BlockMetricsPerDevice::alloc(String::from(devn));
         // Test to update IncMetrics

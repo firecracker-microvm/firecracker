@@ -129,11 +129,12 @@ use crate::cpu_config::templates::CpuConfiguration;
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET};
-use crate::devices::virtio::balloon::BalloonError;
-use crate::devices::virtio::{
-    Balloon, BalloonConfig, BalloonStats, Block, Net, BALLOON_DEV_ID, TYPE_BALLOON, TYPE_BLOCK,
-    TYPE_NET,
+use crate::devices::virtio::balloon::{
+    Balloon, BalloonConfig, BalloonError, BalloonStats, BALLOON_DEV_ID,
 };
+use crate::devices::virtio::net::Net;
+use crate::devices::virtio::virtio_block::VirtioBlock;
+use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET};
 use crate::logger::{error, info, warn, MetricsError, METRICS};
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
@@ -631,7 +632,7 @@ impl Vmm {
         path_on_host: String,
     ) -> Result<(), VmmError> {
         self.mmio_device_manager
-            .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
+            .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut VirtioBlock| {
                 block
                     .update_disk_image(path_on_host)
                     .map_err(|err| format!("{:?}", err))
@@ -647,7 +648,7 @@ impl Vmm {
         rl_ops: BucketUpdate,
     ) -> Result<(), VmmError> {
         self.mmio_device_manager
-            .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
+            .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut VirtioBlock| {
                 block.update_rate_limiter(rl_bytes, rl_ops);
                 Ok(())
             })

@@ -14,6 +14,7 @@
 mod csm;
 mod device;
 mod event_handler;
+pub mod metrics;
 mod packet;
 pub mod persist;
 pub mod test_utils;
@@ -33,7 +34,7 @@ use crate::devices::virtio::persist::PersistError as VirtioStateError;
 use crate::vstate::memory::GuestMemoryMmap;
 
 mod defs {
-    use crate::devices::virtio::FIRECRACKER_MAX_QUEUE_SIZE;
+    use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 
     /// Device ID used in MMIO device identification.
     /// Because Vsock is unique per-vm, this ID can be hardcoded.

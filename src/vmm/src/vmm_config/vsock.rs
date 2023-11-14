@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-use crate::devices::virtio::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
+use crate::devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
 
 type MutexVsockUnix = Arc<Mutex<Vsock<VsockUnixBackend>>>;
 

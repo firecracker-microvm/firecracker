@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that ensure the boot time to init process is within spec."""
 
+import datetime
 import re
 import time
 
@@ -153,6 +154,25 @@ def _configure_and_run_vm(microvm, network=False, initrd=False):
     microvm.start()
 
 
+def find_events(log_data):
+    """
+    Parse events in the Firecracker logs
+
+    Events have this format:
+
+        TIMESTAMP [LOGLEVEL] event_(start|end): EVENT
+    """
+    ts_fmt = "%Y-%m-%dT%H:%M:%S.%f"
+    matches = re.findall(r"(.+) \[.+\] event_(start|end): (.*)", log_data)
+    timestamps = {}
+    for ts, when, what in matches:
+        evt1 = timestamps.setdefault(what, {})
+        evt1[when] = datetime.datetime.strptime(ts[:-3], ts_fmt)
+    for _, val in timestamps.items():
+        val["duration"] = val["end"] - val["start"]
+    return timestamps
+
+
 @pytest.mark.parametrize(
     "vcpu_count,mem_size_mib",
     [(1, 128), (1, 1024), (2, 2048), (4, 4096)],
@@ -184,3 +204,11 @@ def test_boottime(
         vm.start()
         boottime_us = _get_microvm_boottime(vm)
         metrics.put_metric("boot_time", boottime_us, unit="Microseconds")
+        timestamps = find_events(vm.log_data)
+        build_time = timestamps["build microvm for boot"]["duration"]
+        metrics.put_metric("build_time", build_time.microseconds, unit="Microseconds")
+        metrics.put_metric(
+            "guest_boot_time",
+            boottime_us - build_time.microseconds,
+            unit="Microseconds",
+        )

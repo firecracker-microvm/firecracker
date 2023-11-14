@@ -13,7 +13,9 @@ use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use utils::eventfd::EventFd;
 use utils::u64_to_usize;
 
-use super::super::{ActivateError, DeviceState, Queue, VirtioDevice, TYPE_BALLOON};
+use super::super::device::{DeviceState, VirtioDevice};
+use super::super::queue::Queue;
+use super::super::{ActivateError, TYPE_BALLOON};
 use super::util::{compact_page_frame_numbers, remove_range};
 use super::{
     BALLOON_DEV_ID, BALLOON_NUM_QUEUES, BALLOON_QUEUE_SIZES, DEFLATE_INDEX, INFLATE_INDEX,
@@ -25,8 +27,8 @@ use super::{
     VIRTIO_BALLOON_S_SWAP_OUT,
 };
 use crate::devices::virtio::balloon::BalloonError;
+use crate::devices::virtio::device::{IrqTrigger, IrqType};
 use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
-use crate::devices::virtio::{IrqTrigger, IrqType};
 use crate::logger::{IncMetric, METRICS};
 use crate::vstate::memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
@@ -654,8 +656,8 @@ pub(crate) mod tests {
     use crate::devices::virtio::balloon::test_utils::{
         check_request_completion, invoke_handler_for_queue_event, set_request,
     };
+    use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
-    use crate::devices::virtio::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::vstate::memory::{GuestAddress, GuestMemoryExtension};
 
     impl Balloon {

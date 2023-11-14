@@ -23,10 +23,14 @@ use crate::arch::DeviceType::Virtio;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
 use crate::devices::pseudo::BootTimer;
-use crate::devices::virtio::{
-    Balloon, Block, Entropy, MmioTransport, Net, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET,
-    TYPE_RNG, TYPE_VSOCK,
-};
+use crate::devices::virtio::balloon::Balloon;
+use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::mmio::MmioTransport;
+use crate::devices::virtio::net::Net;
+use crate::devices::virtio::rng::Entropy;
+use crate::devices::virtio::virtio_block::VirtioBlock;
+use crate::devices::virtio::vsock::TYPE_VSOCK;
+use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG};
 use crate::devices::BusDevice;
 #[cfg(target_arch = "x86_64")]
 use crate::vstate::memory::GuestAddress;
@@ -396,14 +400,18 @@ impl MMIODeviceManager {
                         }
                     }
                     TYPE_BLOCK => {
-                        let block = virtio.as_mut_any().downcast_mut::<Block>().unwrap();
-                        // If device is activated, kick the block queue(s) to make up for any
-                        // pending or in-flight epoll events we may have not captured in snapshot.
-                        // No need to kick Ratelimiters because they are restored 'unblocked' so
-                        // any inflight `timer_fd` events can be safely discarded.
-                        if block.is_activated() {
-                            info!("kick block {}.", id);
-                            block.process_virtio_queues();
+                        // We only care about kicking virtio block.
+                        // If we need to kick vhost-user-block we can do nothing.
+                        if let Some(block) = virtio.as_mut_any().downcast_mut::<VirtioBlock>() {
+                            // If device is activated, kick the block queue(s) to make up for any
+                            // pending or in-flight epoll events we may have not captured in
+                            // snapshot. No need to kick Ratelimiters
+                            // because they are restored 'unblocked' so
+                            // any inflight `timer_fd` events can be safely discarded.
+                            if block.is_activated() {
+                                info!("kick block {}.", id);
+                                block.process_virtio_queues();
+                            }
                         }
                     }
                     TYPE_NET => {
@@ -458,7 +466,9 @@ mod tests {
     use utils::eventfd::EventFd;
 
     use super::*;
-    use crate::devices::virtio::{ActivateError, Queue, VirtioDevice};
+    use crate::devices::virtio::device::VirtioDevice;
+    use crate::devices::virtio::queue::Queue;
+    use crate::devices::virtio::ActivateError;
     use crate::vstate::memory::{GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
     use crate::{builder, Vm};
 
@@ -469,11 +479,11 @@ mod tests {
             &mut self,
             vm: &VmFd,
             guest_mem: GuestMemoryMmap,
-            device: Arc<Mutex<dyn crate::devices::virtio::VirtioDevice>>,
+            device: Arc<Mutex<dyn VirtioDevice>>,
             cmdline: &mut kernel_cmdline::Cmdline,
             dev_id: &str,
         ) -> Result<u64, MmioError> {
-            let mmio_device = MmioTransport::new(guest_mem, device);
+            let mmio_device = MmioTransport::new(guest_mem, device, false);
             let device_info =
                 self.register_mmio_virtio_for_boot(vm, dev_id.to_string(), mmio_device, cmdline)?;
             Ok(device_info.addr)
@@ -510,7 +520,7 @@ mod tests {
         }
     }
 
-    impl crate::devices::virtio::VirtioDevice for DummyDevice {
+    impl VirtioDevice for DummyDevice {
         fn avail_features(&self) -> u64 {
             0
         }

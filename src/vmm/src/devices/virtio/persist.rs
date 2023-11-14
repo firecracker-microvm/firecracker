@@ -11,11 +11,10 @@ use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
-use super::device::*;
-use super::queue::*;
+use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use crate::devices::virtio::MmioTransport;
-use crate::vstate::memory::address::Address;
+use crate::devices::virtio::mmio::MmioTransport;
+use crate::devices::virtio::queue::Queue;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
 /// Errors thrown during restoring virtio state.
@@ -79,9 +78,9 @@ impl Persist<'_> for Queue {
             max_size: state.max_size,
             size: state.size,
             ready: state.ready,
-            desc_table: GuestAddress::new(state.desc_table),
-            avail_ring: GuestAddress::new(state.avail_ring),
-            used_ring: GuestAddress::new(state.used_ring),
+            desc_table: GuestAddress(state.desc_table),
+            avail_ring: GuestAddress(state.avail_ring),
+            used_ring: GuestAddress(state.used_ring),
             next_avail: state.next_avail,
             next_used: state.next_used,
             uses_notif_suppression: false,
@@ -206,6 +205,8 @@ pub struct MmioTransportConstructorArgs {
     pub mem: GuestMemoryMmap,
     /// Device associated with the current MMIO state.
     pub device: Arc<Mutex<dyn VirtioDevice>>,
+    /// Is device backed by vhost-user.
+    pub is_vhost_user: bool,
 }
 
 impl Persist<'_> for MmioTransport {
@@ -227,7 +228,11 @@ impl Persist<'_> for MmioTransport {
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
-        let mut transport = MmioTransport::new(constructor_args.mem, constructor_args.device);
+        let mut transport = MmioTransport::new(
+            constructor_args.mem,
+            constructor_args.device,
+            constructor_args.is_vhost_user,
+        );
         transport.features_select = state.features_select;
         transport.acked_features_select = state.acked_features_select;
         transport.queue_select = state.queue_select;
@@ -242,11 +247,14 @@ mod tests {
     use utils::tempfile::TempFile;
 
     use super::*;
-    use crate::devices::virtio::block::device::FileEngineType;
-    use crate::devices::virtio::block::test_utils::default_block_with_path;
     use crate::devices::virtio::mmio::tests::DummyDevice;
+    use crate::devices::virtio::net::test_utils::default_net;
+    use crate::devices::virtio::net::Net;
     use crate::devices::virtio::test_utils::default_mem;
-    use crate::devices::virtio::{net, Block, Net, Vsock, VsockUnixBackend};
+    use crate::devices::virtio::virtio_block::device::FileEngineType;
+    use crate::devices::virtio::virtio_block::test_utils::default_block_with_path;
+    use crate::devices::virtio::virtio_block::VirtioBlock;
+    use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 
     const DEFAULT_QUEUE_MAX_SIZE: u16 = 256;
     impl Default for QueueState {
@@ -389,7 +397,11 @@ mod tests {
             .serialize(&mut buf.as_mut_slice(), &version_map, 1)
             .unwrap();
 
-        let restore_args = MmioTransportConstructorArgs { mem, device };
+        let restore_args = MmioTransportConstructorArgs {
+            mem,
+            device,
+            is_vhost_user: false,
+        };
         let restored_mmio_transport = MmioTransport::restore(
             restore_args,
             &MmioTransportState::deserialize(&mut buf.as_slice(), &version_map, 1).unwrap(),
@@ -399,7 +411,7 @@ mod tests {
         assert_eq!(restored_mmio_transport, mmio_transport);
     }
 
-    fn default_block() -> (MmioTransport, GuestMemoryMmap, Arc<Mutex<Block>>) {
+    fn create_default_block() -> (MmioTransport, GuestMemoryMmap, Arc<Mutex<VirtioBlock>>) {
         let mem = default_mem();
 
         // Create backing file.
@@ -410,15 +422,15 @@ mod tests {
             FileEngineType::default(),
         );
         let block = Arc::new(Mutex::new(block));
-        let mmio_transport = MmioTransport::new(mem.clone(), block.clone());
+        let mmio_transport = MmioTransport::new(mem.clone(), block.clone(), false);
 
         (mmio_transport, mem, block)
     }
 
-    fn default_net() -> (MmioTransport, GuestMemoryMmap, Arc<Mutex<Net>>) {
+    fn create_default_net() -> (MmioTransport, GuestMemoryMmap, Arc<Mutex<Net>>) {
         let mem = default_mem();
-        let net = Arc::new(Mutex::new(net::test_utils::default_net()));
-        let mmio_transport = MmioTransport::new(mem.clone(), net.clone());
+        let net = Arc::new(Mutex::new(default_net()));
+        let mmio_transport = MmioTransport::new(mem.clone(), net.clone(), false);
 
         (mmio_transport, mem, net)
     }
@@ -438,20 +450,20 @@ mod tests {
         let backend = VsockUnixBackend::new(guest_cid, uds_path).unwrap();
         let vsock = Vsock::new(guest_cid, backend).unwrap();
         let vsock = Arc::new(Mutex::new(vsock));
-        let mmio_transport = MmioTransport::new(mem.clone(), vsock.clone());
+        let mmio_transport = MmioTransport::new(mem.clone(), vsock.clone(), false);
 
         (mmio_transport, mem, vsock)
     }
 
     #[test]
     fn test_block_over_mmiotransport_persistence() {
-        let (mmio_transport, mem, block) = default_block();
+        let (mmio_transport, mem, block) = create_default_block();
         generic_mmiotransport_persistence_test(mmio_transport, mem, block);
     }
 
     #[test]
     fn test_net_over_mmiotransport_persistence() {
-        let (mmio_transport, mem, net) = default_net();
+        let (mmio_transport, mem, net) = create_default_net();
         generic_mmiotransport_persistence_test(mmio_transport, mem, net);
     }
 

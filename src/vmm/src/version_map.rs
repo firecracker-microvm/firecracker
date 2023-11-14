@@ -10,9 +10,9 @@ use semver::Version;
 use versionize::{VersionMap, Versionize};
 
 use crate::device_manager::persist::DeviceStates;
-use crate::devices::virtio::block::persist::BlockState;
 use crate::devices::virtio::net::persist::NetConfigSpaceState;
-use crate::devices::virtio::{QueueState, VirtioDeviceState};
+use crate::devices::virtio::persist::{QueueState, VirtioDeviceState};
+use crate::devices::virtio::virtio_block::persist::VirtioBlockState;
 use crate::persist::VmInfo;
 use crate::vstate::vcpu::VcpuState;
 use crate::vstate::vm::VmState;
@@ -50,13 +50,13 @@ lazy_static! {
         version_map.new_version().set_type_version(DeviceStates::type_id(), 2);
 
         // v0.25 state change mappings.
-        version_map.new_version().set_type_version(BlockState::type_id(), 2);
+        version_map.new_version().set_type_version(VirtioBlockState::type_id(), 2);
         #[cfg(target_arch = "x86_64")]
         version_map.set_type_version(VcpuState::type_id(), 2);
 
         // v1.0 state change mappings.
         version_map.new_version().set_type_version(QueueState::type_id(), 2);
-        version_map.set_type_version(BlockState::type_id(), 3);
+        version_map.set_type_version(VirtioBlockState::type_id(), 3);
 
         // v1.1 state change mappings.
         version_map.new_version().set_type_version(DeviceStates::type_id(), 3);
@@ -86,6 +86,7 @@ lazy_static! {
         version_map.new_version();
 
         version_map.set_type_version(VirtioDeviceState::type_id(), 2);
+        version_map.set_type_version(DeviceStates::type_id(), 5);
 
         version_map
     };

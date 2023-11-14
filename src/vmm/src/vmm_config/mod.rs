@@ -153,8 +153,8 @@ impl From<&RateLimiter> for RateLimiterConfig {
 }
 
 impl RateLimiterConfig {
-    // Option<T> already implements From<T> so we have to use a custom one.
-    fn into_option(self) -> Option<RateLimiterConfig> {
+    /// Option<T> already implements From<T> so we have to use a custom one.
+    pub fn into_option(self) -> Option<RateLimiterConfig> {
         if self.bandwidth.is_some() || self.ops.is_some() {
             Some(self)
         } else {

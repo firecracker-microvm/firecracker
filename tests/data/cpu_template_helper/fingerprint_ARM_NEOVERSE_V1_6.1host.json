@@ -1,6 +1,6 @@
 {
-  "firecracker_version": "1.5.0-dev",
-  "kernel_version": "6.1.49-69.116.amzn2023.aarch64",
+  "firecracker_version": "1.6.0-dev",
+  "kernel_version": "6.1.59-84.139.amzn2023.aarch64",
   "microcode_version": "0x0000000000000001",
   "bios_version": "1.0",
   "bios_revision": "1.0",

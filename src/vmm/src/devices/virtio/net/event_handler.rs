@@ -6,9 +6,10 @@ use std::os::unix::io::AsRawFd;
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use utils::epoll::EventSet;
 
+use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::net::device::Net;
-use crate::devices::virtio::{VirtioDevice, RX_INDEX, TX_INDEX};
-use crate::logger::{debug, error, warn, IncMetric};
+use crate::devices::virtio::net::{RX_INDEX, TX_INDEX};
+use crate::logger::{error, warn, IncMetric};
 
 impl Net {
     fn register_runtime_events(&self, ops: &mut EventOps) {
@@ -39,7 +40,6 @@ impl Net {
     }
 
     fn process_activate_event(&self, ops: &mut EventOps) {
-        debug!("net: activate event");
         if let Err(err) = self.activate_evt.read() {
             error!("Failed to consume net activate event: {:?}", err);
         }

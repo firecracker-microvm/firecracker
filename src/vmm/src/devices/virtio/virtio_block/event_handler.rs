@@ -6,11 +6,11 @@ use event_manager::{EventOps, Events, MutEventSubscriber};
 use utils::epoll::EventSet;
 
 use super::io::FileEngine;
-use crate::devices::virtio::block::device::Block;
-use crate::devices::virtio::VirtioDevice;
-use crate::logger::{debug, error, warn};
+use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::virtio_block::device::VirtioBlock;
+use crate::logger::{error, warn};
 
-impl Block {
+impl VirtioBlock {
     fn register_runtime_events(&self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::new(&self.queue_evts[0], EventSet::IN)) {
             error!("Failed to register queue event: {}", err);
@@ -18,7 +18,7 @@ impl Block {
         if let Err(err) = ops.add(Events::new(&self.rate_limiter, EventSet::IN)) {
             error!("Failed to register ratelimiter event: {}", err);
         }
-        if let FileEngine::Async(engine) = self.disk.file_engine() {
+        if let FileEngine::Async(ref engine) = self.disk.file_engine {
             if let Err(err) = ops.add(Events::new(engine.completion_evt(), EventSet::IN)) {
                 error!("Failed to register IO engine completion event: {}", err);
             }
@@ -32,7 +32,6 @@ impl Block {
     }
 
     fn process_activate_event(&self, ops: &mut EventOps) {
-        debug!("block: activate event");
         if let Err(err) = self.activate_evt.read() {
             error!("Failed to consume block activate event: {:?}", err);
         }
@@ -43,7 +42,7 @@ impl Block {
     }
 }
 
-impl MutEventSubscriber for Block {
+impl MutEventSubscriber for VirtioBlock {
     // Handle an event for queue or rate limiter.
     fn process(&mut self, event: Events, ops: &mut EventOps) {
         let source = event.fd();
@@ -64,8 +63,8 @@ impl MutEventSubscriber for Block {
             let queue_evt = self.queue_evts[0].as_raw_fd();
             let rate_limiter_evt = self.rate_limiter.as_raw_fd();
             let activate_fd = self.activate_evt.as_raw_fd();
-            let maybe_completion_fd = match self.disk.file_engine() {
-                FileEngine::Async(engine) => Some(engine.completion_evt().as_raw_fd()),
+            let maybe_completion_fd = match self.disk.file_engine {
+                FileEngine::Async(ref engine) => Some(engine.completion_evt().as_raw_fd()),
                 FileEngine::Sync(_) => None,
             };
 
@@ -105,13 +104,13 @@ mod tests {
     use event_manager::{EventManager, SubscriberOps};
 
     use super::*;
-    use crate::devices::virtio::block::device::FileEngineType;
-    use crate::devices::virtio::block::test_utils::{
+    use crate::devices::virtio::queue::VIRTQ_DESC_F_NEXT;
+    use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
+    use crate::devices::virtio::virtio_block::device::FileEngineType;
+    use crate::devices::virtio::virtio_block::test_utils::{
         default_block, read_blk_req_descriptors, set_queue, simulate_async_completion_event,
     };
-    use crate::devices::virtio::gen::virtio_blk::{VIRTIO_BLK_S_OK, VIRTIO_BLK_T_OUT};
-    use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
-    use crate::devices::virtio::VIRTQ_DESC_F_NEXT;
+    use crate::devices::virtio::virtio_block::{VIRTIO_BLK_S_OK, VIRTIO_BLK_T_OUT};
     use crate::vstate::memory::{Bytes, GuestAddress};
 
     #[test]

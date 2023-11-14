@@ -11,19 +11,22 @@ use std::time::Duration;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
 use utils::tempfile::TempFile;
 
-use crate::devices::virtio::block::device::FileEngineType;
+use super::device::VirtioBlockConfig;
+use super::RequestHeader;
 #[cfg(test)]
-use crate::devices::virtio::block::io::FileEngine;
-use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+use crate::devices::virtio::device::IrqType;
+use crate::devices::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
+use crate::devices::virtio::virtio_block::device::FileEngineType;
 #[cfg(test)]
-use crate::devices::virtio::IrqType;
-use crate::devices::virtio::{Block, CacheType, Queue, RequestHeader};
+use crate::devices::virtio::virtio_block::io::FileEngine;
+use crate::devices::virtio::virtio_block::{CacheType, VirtioBlock};
 use crate::rate_limiter::RateLimiter;
+use crate::vmm_config::{RateLimiterConfig, TokenBucketConfig};
 use crate::vstate::memory::{Bytes, GuestAddress};
 
 /// Create a default Block instance to be used in tests.
-pub fn default_block(file_engine_type: FileEngineType) -> Block {
+pub fn default_block(file_engine_type: FileEngineType) -> VirtioBlock {
     // Create backing file.
     let f = TempFile::new().unwrap();
     f.as_file().set_len(0x1000).unwrap();
@@ -41,39 +44,48 @@ pub fn default_engine_type_for_kv() -> FileEngineType {
 }
 
 /// Create a default Block instance using file at the specified path to be used in tests.
-pub fn default_block_with_path(path: String, file_engine_type: FileEngineType) -> Block {
-    // Rate limiting is enabled but with a high operation rate (10 million ops/s).
-    let rate_limiter = RateLimiter::new(0, 0, 0, 100_000, 0, 10).unwrap();
-
-    let id = "test".to_string();
-    // The default block device is read-write and non-root.
-    Block::new(
-        id,
-        None,
-        CacheType::Unsafe,
-        path,
-        false,
-        false,
-        rate_limiter,
+pub fn default_block_with_path(path: String, file_engine_type: FileEngineType) -> VirtioBlock {
+    let config = VirtioBlockConfig {
+        drive_id: "test".to_string(),
+        path_on_host: path,
+        is_root_device: false,
+        partuuid: None,
+        is_read_only: false,
+        cache_type: CacheType::Unsafe,
+        // Rate limiting is enabled but with a high operation rate (10 million ops/s).
+        rate_limiter: Some(RateLimiterConfig {
+            bandwidth: Some(TokenBucketConfig {
+                size: 0,
+                one_time_burst: Some(0),
+                refill_time: 0,
+            }),
+            ops: Some(TokenBucketConfig {
+                size: 100_000,
+                one_time_burst: Some(0),
+                refill_time: 10,
+            }),
+        }),
         file_engine_type,
-    )
-    .unwrap()
+    };
+
+    // The default block device is read-write and non-root.
+    VirtioBlock::new(config).unwrap()
 }
 
-pub fn set_queue(blk: &mut Block, idx: usize, q: Queue) {
+pub fn set_queue(blk: &mut VirtioBlock, idx: usize, q: Queue) {
     blk.queues[idx] = q;
 }
 
-pub fn set_rate_limiter(blk: &mut Block, rl: RateLimiter) {
+pub fn set_rate_limiter(blk: &mut VirtioBlock, rl: RateLimiter) {
     blk.rate_limiter = rl;
 }
 
-pub fn rate_limiter(blk: &mut Block) -> &RateLimiter {
+pub fn rate_limiter(blk: &mut VirtioBlock) -> &RateLimiter {
     &blk.rate_limiter
 }
 
 #[cfg(test)]
-pub fn simulate_queue_event(b: &mut Block, maybe_expected_irq: Option<bool>) {
+pub fn simulate_queue_event(b: &mut VirtioBlock, maybe_expected_irq: Option<bool>) {
     // Trigger the queue event.
     b.queue_evts[0].write(1).unwrap();
     // Handle event.
@@ -85,8 +97,8 @@ pub fn simulate_queue_event(b: &mut Block, maybe_expected_irq: Option<bool>) {
 }
 
 #[cfg(test)]
-pub fn simulate_async_completion_event(b: &mut Block, expected_irq: bool) {
-    if let FileEngine::Async(engine) = b.disk.file_engine_mut() {
+pub fn simulate_async_completion_event(b: &mut VirtioBlock, expected_irq: bool) {
+    if let FileEngine::Async(ref mut engine) = b.disk.file_engine {
         // Wait for all the async operations to complete.
         engine.drain(false).unwrap();
         // Wait for the async completion event to be sent.
@@ -100,8 +112,8 @@ pub fn simulate_async_completion_event(b: &mut Block, expected_irq: bool) {
 }
 
 #[cfg(test)]
-pub fn simulate_queue_and_async_completion_events(b: &mut Block, expected_irq: bool) {
-    match b.disk.file_engine_mut() {
+pub fn simulate_queue_and_async_completion_events(b: &mut VirtioBlock, expected_irq: bool) {
+    match b.disk.file_engine {
         FileEngine::Async(_) => {
             simulate_queue_event(b, None);
             simulate_async_completion_event(b, expected_irq);
