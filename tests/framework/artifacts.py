@@ -25,7 +25,7 @@ def select_supported_kernels():
     hlv = packaging.version.parse(global_props.host_linux_version)
     supported_kernels = [r"vmlinux-4.14.\d+"]
     if (
-        global_props.instance == "c7g.metal"
+        global_props.cpu_model == "ARM_NEOVERSE_V1"
         and global_props.host_linux_version == "4.14"
     ):
         supported_kernels.append(r"vmlinux-5.10-no-sve.bin")
@@ -33,7 +33,7 @@ def select_supported_kernels():
         supported_kernels.append(r"vmlinux-5.10.\d+")
 
     # Support Linux 6.1 guest in a limited fashion
-    if global_props.instance == "c7g.metal" and (hlv.major, hlv.minor) >= (6, 1):
+    if global_props.cpu_model == "ARM_NEOVERSE_V1" and (hlv.major, hlv.minor) >= (6, 1):
         supported_kernels.append(r"vmlinux-6.1.\d+")
 
     return supported_kernels
