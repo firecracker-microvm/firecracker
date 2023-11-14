@@ -15,6 +15,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `VcpuExit::IoOut`. The average for these VM exits is not emitted since
   it can be deduced from the available emitted metrics.
 
+### Changed
+
+- [#4230](https://github.com/firecracker-microvm/firecracker/pull/4230):
+  Changed microVM snapshot format version strategy. Firecracker snapshot format
+  now has a version that is independent of Firecracker version. The current
+  version of the snapshot format is v1.0.0. From now on, the Firecracker binary
+  will define the snapshot format version it supports and it will only be able
+  to load snapshots with format that is backwards compatible with that version.
+  Users can pass the `--snapshot-version` flag to the Firecracker binary to see
+  its supported snapshot version format. This change renders all previous
+  Firecracker snapshots (up to Firecracker version v1.6.0) incompatible with
+  the current Firecracker version.
+
 ## [v1.6.0]
 
 ### Added
