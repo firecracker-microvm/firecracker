@@ -68,19 +68,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use serde::{Serialize, Serializer};
-#[cfg(target_arch = "aarch64")]
-use vm_superio::rtc_pl031::RtcEvents;
 
 use super::FcLineWriter;
 use crate::devices::legacy;
 use crate::devices::virtio::balloon::metrics as balloon_metrics;
 use crate::devices::virtio::net::metrics as net_metrics;
-use crate::devices::virtio::vhost_user_metrics;
 use crate::devices::virtio::rng::metrics as entropy_metrics;
+use crate::devices::virtio::vhost_user_metrics;
 use crate::devices::virtio::virtio_block::metrics as block_metrics;
 use crate::devices::virtio::vsock::metrics as vsock_metrics;
-#[cfg(target_arch = "aarch64")]
-use crate::warn;
 
 /// Static instance used for handling metrics.
 pub static METRICS: Metrics<FirecrackerMetrics, FcLineWriter> =
@@ -645,55 +641,6 @@ impl PerformanceMetrics {
     }
 }
 
-/// Metrics specific to the RTC device.
-#[cfg(target_arch = "aarch64")]
-#[derive(Debug, Default, Serialize)]
-pub struct RTCDeviceMetrics {
-    /// Errors triggered while using the RTC device.
-    pub error_count: SharedIncMetric,
-    /// Number of superfluous read intents on this RTC device.
-    pub missed_read_count: SharedIncMetric,
-    /// Number of superfluous write intents on this RTC device.
-    pub missed_write_count: SharedIncMetric,
-}
-#[cfg(target_arch = "aarch64")]
-impl RTCDeviceMetrics {
-    /// Const default construction.
-    pub const fn new() -> Self {
-        Self {
-            error_count: SharedIncMetric::new(),
-            missed_read_count: SharedIncMetric::new(),
-            missed_write_count: SharedIncMetric::new(),
-        }
-    }
-}
-
-#[cfg(target_arch = "aarch64")]
-impl RtcEvents for RTCDeviceMetrics {
-    fn invalid_read(&self) {
-        self.missed_read_count.inc();
-        self.error_count.inc();
-        warn!("Guest read at invalid offset.")
-    }
-
-    fn invalid_write(&self) {
-        self.missed_write_count.inc();
-        self.error_count.inc();
-        warn!("Guest write at invalid offset.")
-    }
-}
-
-#[cfg(target_arch = "aarch64")]
-impl RtcEvents for &'static RTCDeviceMetrics {
-    fn invalid_read(&self) {
-        RTCDeviceMetrics::invalid_read(self);
-    }
-
-    fn invalid_write(&self) {
-        RTCDeviceMetrics::invalid_write(self);
-    }
-}
-
 /// Metrics for the seccomp filtering.
 #[derive(Debug, Default, Serialize)]
 pub struct SeccompMetrics {
@@ -899,9 +846,6 @@ pub struct FirecrackerMetrics {
     pub patch_api_requests: PatchRequestsMetrics,
     /// Metrics related to API PUT requests.
     pub put_api_requests: PutRequestsMetrics,
-    #[cfg(target_arch = "aarch64")]
-    /// Metrics related to the RTC device.
-    pub rtc: RTCDeviceMetrics,
     /// Metrics related to seccomp filtering.
     pub seccomp: SeccompMetrics,
     /// Metrics related to a vcpu's functioning.
@@ -939,8 +883,6 @@ impl FirecrackerMetrics {
             net_ser: NetMetricsSerializeProxy {},
             patch_api_requests: PatchRequestsMetrics::new(),
             put_api_requests: PutRequestsMetrics::new(),
-            #[cfg(target_arch = "aarch64")]
-            rtc: RTCDeviceMetrics::new(),
             seccomp: SeccompMetrics::new(),
             vcpu: VcpuMetrics::new(),
             vmm: VmmMetrics::new(),
