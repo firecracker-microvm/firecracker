@@ -14,6 +14,8 @@ pub mod serial;
 use std::io;
 use std::ops::Deref;
 
+use serde::ser::SerializeMap;
+use serde::Serializer;
 use utils::eventfd::EventFd;
 use vm_superio::Trigger;
 
@@ -60,4 +62,11 @@ impl EventFdTrigger {
     pub fn get_event(&self) -> EventFd {
         self.0.try_clone().unwrap()
     }
+}
+
+/// Called by METRICS.flush(), this function facilitates serialization of aggregated metrics.
+pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
+    let mut seq = serializer.serialize_map(Some(1))?;
+    seq.serialize_entry("i8042", &i8042::METRICS)?;
+    seq.end()
 }

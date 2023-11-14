@@ -72,6 +72,7 @@ use serde::{Serialize, Serializer};
 use vm_superio::rtc_pl031::RtcEvents;
 
 use super::FcLineWriter;
+use crate::devices::legacy;
 use crate::devices::virtio::balloon::metrics as balloon_metrics;
 use crate::devices::virtio::net::metrics as net_metrics;
 use crate::devices::virtio::vhost_user_metrics;
@@ -526,36 +527,6 @@ impl DeprecatedApiMetrics {
     }
 }
 
-/// Metrics specific to the i8042 device.
-#[derive(Debug, Default, Serialize)]
-pub struct I8042DeviceMetrics {
-    /// Errors triggered while using the i8042 device.
-    pub error_count: SharedIncMetric,
-    /// Number of superfluous read intents on this i8042 device.
-    pub missed_read_count: SharedIncMetric,
-    /// Number of superfluous write intents on this i8042 device.
-    pub missed_write_count: SharedIncMetric,
-    /// Bytes read by this device.
-    pub read_count: SharedIncMetric,
-    /// Number of resets done by this device.
-    pub reset_count: SharedIncMetric,
-    /// Bytes written by this device.
-    pub write_count: SharedIncMetric,
-}
-impl I8042DeviceMetrics {
-    /// Const default construction.
-    pub const fn new() -> Self {
-        Self {
-            error_count: SharedIncMetric::new(),
-            missed_read_count: SharedIncMetric::new(),
-            missed_write_count: SharedIncMetric::new(),
-            read_count: SharedIncMetric::new(),
-            reset_count: SharedIncMetric::new(),
-            write_count: SharedIncMetric::new(),
-        }
-    }
-}
-
 /// Metrics for the logging subsystem.
 #[derive(Debug, Default, Serialize)]
 pub struct LoggerSystemMetrics {
@@ -894,6 +865,7 @@ create_serialize_proxy!(VhostUserMetricsSerializeProxy, vhost_user_metrics);
 create_serialize_proxy!(BalloonMetricsSerializeProxy, balloon_metrics);
 create_serialize_proxy!(EntropyMetricsSerializeProxy, entropy_metrics);
 create_serialize_proxy!(VsockMetricsSerializeProxy, vsock_metrics);
+create_serialize_proxy!(LegacyDevMetricsSerializeProxy, legacy);
 
 /// Structure storing all metrics while enforcing serialization support on them.
 #[derive(Debug, Default, Serialize)]
@@ -911,8 +883,9 @@ pub struct FirecrackerMetrics {
     pub deprecated_api: DeprecatedApiMetrics,
     /// Metrics related to API GET requests.
     pub get_api_requests: GetRequestsMetrics,
-    /// Metrics related to the i8042 device.
-    pub i8042: I8042DeviceMetrics,
+    #[serde(flatten)]
+    /// Metrics related to the legacy device.
+    pub legacy_dev_ser: LegacyDevMetricsSerializeProxy,
     /// Metrics related to performance measurements.
     pub latencies_us: PerformanceMetrics,
     /// Logging related metrics.
@@ -959,7 +932,7 @@ impl FirecrackerMetrics {
             block_ser: BlockMetricsSerializeProxy {},
             deprecated_api: DeprecatedApiMetrics::new(),
             get_api_requests: GetRequestsMetrics::new(),
-            i8042: I8042DeviceMetrics::new(),
+            legacy_dev_ser: LegacyDevMetricsSerializeProxy {},
             latencies_us: PerformanceMetrics::new(),
             logger: LoggerSystemMetrics::new(),
             mmds: MmdsMetrics::new(),
