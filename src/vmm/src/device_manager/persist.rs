@@ -44,8 +44,6 @@ use crate::devices::virtio::vsock::{
     Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError, TYPE_VSOCK,
 };
 use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG};
-#[cfg(target_arch = "aarch64")]
-use crate::logger;
 use crate::mmds::data_store::MmdsVersion;
 use crate::resources::VmResources;
 use crate::vmm_config::mmds::MmdsConfigError;
@@ -428,7 +426,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 }
                 if state.type_ == DeviceType::Rtc {
                     let rtc = crate::devices::legacy::RTCDevice(vm_superio::Rtc::with_events(
-                        &logger::METRICS.rtc,
+                        &crate::devices::legacy::rtc_pl031::METRICS,
                     ));
                     dev_manager
                         .address_allocator

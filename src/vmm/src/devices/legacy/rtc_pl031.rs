@@ -3,7 +3,59 @@
 
 use std::convert::TryInto;
 
-use crate::logger::{warn, IncMetric, RTCDeviceMetrics, METRICS};
+use serde::Serialize;
+use vm_superio::rtc_pl031::RtcEvents;
+
+use crate::logger::{warn, IncMetric, SharedIncMetric};
+
+/// Metrics specific to the RTC device.
+#[derive(Debug, Serialize)]
+pub struct RTCDeviceMetrics {
+    /// Errors triggered while using the RTC device.
+    pub error_count: SharedIncMetric,
+    /// Number of superfluous read intents on this RTC device.
+    pub missed_read_count: SharedIncMetric,
+    /// Number of superfluous write intents on this RTC device.
+    pub missed_write_count: SharedIncMetric,
+}
+
+impl RTCDeviceMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            error_count: SharedIncMetric::new(),
+            missed_read_count: SharedIncMetric::new(),
+            missed_write_count: SharedIncMetric::new(),
+        }
+    }
+}
+
+impl RtcEvents for RTCDeviceMetrics {
+    fn invalid_read(&self) {
+        self.missed_read_count.inc();
+        self.error_count.inc();
+        warn!("Guest read at invalid offset.")
+    }
+
+    fn invalid_write(&self) {
+        self.missed_write_count.inc();
+        self.error_count.inc();
+        warn!("Guest write at invalid offset.")
+    }
+}
+
+impl RtcEvents for &'static RTCDeviceMetrics {
+    fn invalid_read(&self) {
+        RTCDeviceMetrics::invalid_read(self);
+    }
+
+    fn invalid_write(&self) {
+        RTCDeviceMetrics::invalid_write(self);
+    }
+}
+
+/// Stores aggregated metrics
+pub static METRICS: RTCDeviceMetrics = RTCDeviceMetrics::new();
 
 /// Wrapper over vm_superio's RTC implementation.
 #[derive(Debug)]
@@ -36,7 +88,7 @@ impl RTCDevice {
                 offset,
                 data.len()
             );
-            METRICS.rtc.error_count.inc();
+            METRICS.error_count.inc();
         }
     }
 
@@ -51,7 +103,7 @@ impl RTCDevice {
                 offset,
                 data.len()
             );
-            METRICS.rtc.error_count.inc();
+            METRICS.error_count.inc();
         }
     }
 }

@@ -14,8 +14,6 @@ pub use logging::{
     LevelFilter, LevelFilterFromStrError, LoggerConfig, LoggerInitError, LoggerUpdateError,
     DEFAULT_INSTANCE_ID, DEFAULT_LEVEL, INSTANCE_ID, LOGGER,
 };
-#[cfg(target_arch = "aarch64")]
-pub use metrics::RTCDeviceMetrics;
 pub use metrics::{
     IncMetric, MetricsError, ProcessTimeReporter, SerialDeviceMetrics, SharedIncMetric,
     SharedStoreMetric, StoreMetric, METRICS,
