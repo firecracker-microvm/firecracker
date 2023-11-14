@@ -33,7 +33,7 @@ defaults = overlay_dict(defaults, args.step_param)
 
 optional_grp = group(
     "❓ Optional",
-    "./tools/devtool -y test -c 1-10 -m 0 -- ../tests/integration_tests/ -m 'no_block_pr and not nonci' --log-cli-level=INFO",
+    "./tools/devtool -y test --performance -c 1-10 -m 0 -- ../tests/integration_tests/ -m 'no_block_pr and not nonci' --log-cli-level=INFO",
     **defaults,
 )
 
