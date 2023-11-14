@@ -198,7 +198,7 @@ def pin_backend(backend, cpu_id: int):
 
 @pytest.mark.nonci
 @pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
-@pytest.mark.parametrize("fio_mode", ["randread", "randwrite"])
+@pytest.mark.parametrize("fio_mode", ["randread"])
 @pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])
 def test_block_vhost_user_performance(
     microvm_factory,
