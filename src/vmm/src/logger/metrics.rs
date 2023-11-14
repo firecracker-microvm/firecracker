@@ -656,36 +656,6 @@ impl SeccompMetrics {
     }
 }
 
-/// Metrics specific to the UART device.
-#[derive(Debug, Default, Serialize)]
-pub struct SerialDeviceMetrics {
-    /// Errors triggered while using the UART device.
-    pub error_count: SharedIncMetric,
-    /// Number of flush operations.
-    pub flush_count: SharedIncMetric,
-    /// Number of read calls that did not trigger a read.
-    pub missed_read_count: SharedIncMetric,
-    /// Number of write calls that did not trigger a write.
-    pub missed_write_count: SharedIncMetric,
-    /// Number of succeeded read calls.
-    pub read_count: SharedIncMetric,
-    /// Number of succeeded write calls.
-    pub write_count: SharedIncMetric,
-}
-impl SerialDeviceMetrics {
-    /// Const default construction.
-    pub const fn new() -> Self {
-        Self {
-            error_count: SharedIncMetric::new(),
-            flush_count: SharedIncMetric::new(),
-            missed_read_count: SharedIncMetric::new(),
-            missed_write_count: SharedIncMetric::new(),
-            read_count: SharedIncMetric::new(),
-            write_count: SharedIncMetric::new(),
-        }
-    }
-}
-
 /// Metrics related to signals.
 /// Deadly signals must be of `SharedStoreMetric` type, since they can ever be either 0 or 1.
 /// This avoids a tricky race condition caused by the unatomic serialize method of
@@ -852,8 +822,6 @@ pub struct FirecrackerMetrics {
     pub vcpu: VcpuMetrics,
     /// Metrics related to the virtual machine manager.
     pub vmm: VmmMetrics,
-    /// Metrics related to the UART device.
-    pub uart: SerialDeviceMetrics,
     /// Metrics related to signals.
     pub signals: SignalMetrics,
     #[serde(flatten)]
@@ -886,7 +854,6 @@ impl FirecrackerMetrics {
             seccomp: SeccompMetrics::new(),
             vcpu: VcpuMetrics::new(),
             vmm: VmmMetrics::new(),
-            uart: SerialDeviceMetrics::new(),
             signals: SignalMetrics::new(),
             vsock: VsockMetricsSerializeProxy {},
             entropy_ser: EntropyMetricsSerializeProxy {},

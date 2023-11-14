@@ -15,8 +15,8 @@ pub use logging::{
     DEFAULT_INSTANCE_ID, DEFAULT_LEVEL, INSTANCE_ID, LOGGER,
 };
 pub use metrics::{
-    IncMetric, MetricsError, ProcessTimeReporter, SerialDeviceMetrics, SharedIncMetric,
-    SharedStoreMetric, StoreMetric, METRICS,
+    IncMetric, MetricsError, ProcessTimeReporter, SharedIncMetric, SharedStoreMetric, StoreMetric,
+    METRICS,
 };
 
 /// Alias for `std::io::LineWriter<std::fs::File>`.
