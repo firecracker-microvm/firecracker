@@ -581,6 +581,11 @@ apply_linux_61_tweaks() {
 }
 
 
+# Modifies the processors C- and P-state configuration (x86_64 only) for consistent performance. This means
+# - Disable turbo boost (Intel only) by writing 1 to /sys/devices/system/cpu/intel_pstate/no_turbo
+# - Lock the CPUs' P-state to the highest non-turbo one (Intel only) by writing 100 to /sys/devices/system/cpu/intel_pstate/{min,max}_perf_pct
+# - Disable all idle C-states, meaning all CPu cores will idle by polling (busy looping) by writing 1 to /sys/devices/system/cpu/cpu*/cpuidle/state*/disable
+# - Set the cpu frequency governor to performance by writing "performance" to /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
 apply_performance_tweaks() {
   # m6a instances do not support the amd_pstate driver (yet), so nothing we can do there
   if [[ -d /sys/devices/system/cpu/intel_pstate ]]; then
@@ -649,6 +654,9 @@ cmd_test() {
                 shift
                 local cpuset_mems="$1"
                 ;;
+            "--performance")
+                local performance_tweaks=1;
+                ;;
             "--ab")
                 do_ab_test=1
                 ;;
@@ -678,7 +686,7 @@ cmd_test() {
     # namespaces, etc).
     # We need to run a privileged container to get that kind of access.
     env |grep -P "^(AWS_EMF_|BUILDKITE|CODECOV_)" > env.list
-    if [[ "$BUILDKITE" == "true" ]] && [[ "$(uname --machine)" == "x86_64" ]]; then
+    if [[ $performance_tweaks -eq 1 ]] && [[ "$(uname --machine)" == "x86_64" ]]; then
       say "Detected CI and performance tests, tuning CPU frequency scaling and idle states for reduced variability"
 
       apply_performance_tweaks
@@ -714,7 +722,7 @@ cmd_test() {
     cmd_fix_perms
 
     # undo performance tweaks (in case the instance gets recycled for a non-perf test)
-    if [[ "$BUILDKITE" == "true" ]] && [[ "$(uname --machine)" == "x86_64" ]]; then
+    if [[ $performance_tweaks -eq 1 ]] && [[ "$(uname --machine)" == "x86_64" ]]; then
       unapply_performance_tweaks
     fi
 

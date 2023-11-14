@@ -62,7 +62,7 @@ def build_group(test):
     test_path = test.pop("test_path")
     return group(
         label=test.pop("label"),
-        command=f"./tools/devtool -y test --ab {devtool_opts} -- {REVISION_A} {REVISION_B} --test {test_path}",
+        command=f"./tools/devtool -y test --performance --ab {devtool_opts} -- {REVISION_A} {REVISION_B} --test {test_path}",
         artifacts=["./test_results/*"],
         instances=test.pop("instances"),
         platforms=test.pop("platforms"),
