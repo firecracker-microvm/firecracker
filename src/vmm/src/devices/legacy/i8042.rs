@@ -9,9 +9,10 @@ use std::io;
 use std::num::Wrapping;
 
 use log::warn;
+use serde::Serialize;
 use utils::eventfd::EventFd;
 
-use crate::logger::{error, IncMetric, METRICS};
+use crate::logger::{error, IncMetric, SharedIncMetric};
 
 /// Errors thrown by the i8042 device.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -23,6 +24,39 @@ pub enum I8042Error {
     /// Could not trigger keyboard interrupt: {0}.
     KbdInterruptFailure(io::Error),
 }
+
+/// Metrics specific to the i8042 device.
+#[derive(Debug, Serialize)]
+pub(super) struct I8042DeviceMetrics {
+    /// Errors triggered while using the i8042 device.
+    error_count: SharedIncMetric,
+    /// Number of superfluous read intents on this i8042 device.
+    missed_read_count: SharedIncMetric,
+    /// Number of superfluous write intents on this i8042 device.
+    missed_write_count: SharedIncMetric,
+    /// Bytes read by this device.
+    read_count: SharedIncMetric,
+    /// Number of resets done by this device.
+    reset_count: SharedIncMetric,
+    /// Bytes written by this device.
+    write_count: SharedIncMetric,
+}
+impl I8042DeviceMetrics {
+    /// Const default construction.
+    const fn new() -> Self {
+        Self {
+            error_count: SharedIncMetric::new(),
+            missed_read_count: SharedIncMetric::new(),
+            missed_write_count: SharedIncMetric::new(),
+            read_count: SharedIncMetric::new(),
+            reset_count: SharedIncMetric::new(),
+            write_count: SharedIncMetric::new(),
+        }
+    }
+}
+
+/// Stores aggregated metrics
+pub(super) static METRICS: I8042DeviceMetrics = I8042DeviceMetrics::new();
 
 /// Offset of the status port (port 0x64)
 const OFS_STATUS: u64 = 4;
@@ -179,7 +213,7 @@ impl I8042Device {
     pub fn bus_read(&mut self, offset: u64, data: &mut [u8]) {
         // All our ports are byte-wide. We don't know how to handle any wider data.
         if data.len() != 1 {
-            METRICS.i8042.missed_read_count.inc();
+            METRICS.missed_read_count.inc();
             return;
         }
 
@@ -205,16 +239,16 @@ impl I8042Device {
             _ => read_ok = false,
         }
         if read_ok {
-            METRICS.i8042.read_count.add(data.len() as u64);
+            METRICS.read_count.add(data.len() as u64);
         } else {
-            METRICS.i8042.missed_read_count.inc();
+            METRICS.missed_read_count.inc();
         }
     }
 
     pub fn bus_write(&mut self, offset: u64, data: &[u8]) {
         // All our ports are byte-wide. We don't know how to handle any wider data.
         if data.len() != 1 {
-            METRICS.i8042.missed_write_count.inc();
+            METRICS.missed_write_count.inc();
             return;
         }
 
@@ -227,9 +261,9 @@ impl I8042Device {
                 // thread wakes up to handle this event.
                 if let Err(err) = self.reset_evt.write(1) {
                     error!("Failed to trigger i8042 reset event: {:?}", err);
-                    METRICS.i8042.error_count.inc();
+                    METRICS.error_count.inc();
                 }
-                METRICS.i8042.reset_count.inc();
+                METRICS.reset_count.inc();
             }
             OFS_STATUS if data[0] == CMD_READ_CTR => {
                 // The guest wants to read the control register.
@@ -297,9 +331,9 @@ impl I8042Device {
         }
 
         if write_ok {
-            METRICS.i8042.write_count.inc();
+            METRICS.write_count.inc();
         } else {
-            METRICS.i8042.missed_write_count.inc();
+            METRICS.missed_write_count.inc();
         }
     }
 }
@@ -342,7 +376,7 @@ mod tests {
         assert_eq!(data[0], CMD_RESET_CPU);
 
         // Check invalid `write`s.
-        let before = METRICS.i8042.missed_write_count.count();
+        let before = METRICS.missed_write_count.count();
         // offset != 0.
         i8042.bus_write(1, &data);
         // data != CMD_RESET_CPU
@@ -351,7 +385,7 @@ mod tests {
         // data.len() != 1
         let data = [CMD_RESET_CPU; 2];
         i8042.bus_write(1, &data);
-        assert_eq!(METRICS.i8042.missed_write_count.count(), before + 3);
+        assert_eq!(METRICS.missed_write_count.count(), before + 3);
     }
 
     #[test]
