@@ -686,10 +686,6 @@ cmd_test() {
     say "$(sed '/^processor.*: 0$/,/^processor.*: 1$/!d; /^processor.*: 1$/d' /proc/cpuinfo)"
     say "RPM microcode_ctl version: $(rpm -q microcode_ctl)"
 
-    # Testing (running Firecracker via the jailer) needs root access,
-    # in order to set-up the Firecracker jail (manipulating cgroups, net
-    # namespaces, etc).
-    # We need to run a privileged container to get that kind of access.
     env |grep -P "^(AWS_EMF_|BUILDKITE|CODECOV_)" > env.list
     if [[ $performance_tweaks -eq 1 ]] && [[ "$(uname --machine)" == "x86_64" ]]; then
       say "Detected CI and performance tests, tuning CPU frequency scaling and idle states for reduced variability"
@@ -705,6 +701,10 @@ cmd_test() {
       test_script="./tools/ab_test.py"
     fi
 
+    # Testing (running Firecracker via the jailer) needs root access,
+    # in order to set-up the Firecracker jail (manipulating cgroups, net
+    # namespaces, etc).
+    # We need to run a privileged container to get that kind of access.
     run_devctr \
         --privileged \
         --security-opt seccomp=unconfined \
