@@ -99,3 +99,21 @@ def spawn_vhost_user_backend(
         os.chown(socket_path, uid, gid)
 
     return proc
+
+
+def resize_vhost_user_drive(vm, new_size):
+    """
+    Resize vhost-user-blk drive and send config change notification.
+
+    This only works with the crosvm vhost-user-blk backend.
+    New size is in MB.
+    """
+
+    crosvm_ctr_socket_path = Path(vm.chroot()) / CROSVM_CTR_SOCKET_NAME.strip("/")
+    assert os.path.exists(
+        crosvm_ctr_socket_path
+    ), "crosvm backend must be spawned first"
+
+    utils.run_cmd(
+        f"crosvm disk resize 0 {new_size * 1024 * 1024} {crosvm_ctr_socket_path}"
+    )
