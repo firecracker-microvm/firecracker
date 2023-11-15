@@ -230,13 +230,13 @@ pub struct LevelFilterFromStrError(String);
 impl FromStr for LevelFilter {
     type Err = LevelFilterFromStrError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Off" | "OFF" => Ok(Self::Off),
-            "Trace" | "TRACE" => Ok(Self::Trace),
-            "Debug" | "DEBUG" => Ok(Self::Debug),
-            "Info" | "INFO" => Ok(Self::Info),
-            "Warn" | "WARN" | "Warning" | "WARNING" => Ok(Self::Warn),
-            "Error" | "ERROR" => Ok(Self::Error),
+        match s.to_ascii_lowercase().as_str() {
+            "off" => Ok(Self::Off),
+            "trace" => Ok(Self::Trace),
+            "debug" => Ok(Self::Debug),
+            "info" => Ok(Self::Info),
+            "warn" | "warning" => Ok(Self::Warn),
+            "error" => Ok(Self::Error),
             _ => Err(LevelFilterFromStrError(String::from(s))),
         }
     }
@@ -289,6 +289,13 @@ mod tests {
         assert_eq!(LevelFilter::from_str("Warn"), Ok(LevelFilter::Warn));
         assert_eq!(LevelFilter::from_str("Error"), Ok(LevelFilter::Error));
 
+        assert_eq!(LevelFilter::from_str("off"), Ok(LevelFilter::Off));
+        assert_eq!(LevelFilter::from_str("trace"), Ok(LevelFilter::Trace));
+        assert_eq!(LevelFilter::from_str("debug"), Ok(LevelFilter::Debug));
+        assert_eq!(LevelFilter::from_str("info"), Ok(LevelFilter::Info));
+        assert_eq!(LevelFilter::from_str("warn"), Ok(LevelFilter::Warn));
+        assert_eq!(LevelFilter::from_str("error"), Ok(LevelFilter::Error));
+
         assert_eq!(LevelFilter::from_str("OFF"), Ok(LevelFilter::Off));
         assert_eq!(LevelFilter::from_str("TRACE"), Ok(LevelFilter::Trace));
         assert_eq!(LevelFilter::from_str("DEBUG"), Ok(LevelFilter::Debug));
@@ -296,6 +303,7 @@ mod tests {
         assert_eq!(LevelFilter::from_str("WARN"), Ok(LevelFilter::Warn));
         assert_eq!(LevelFilter::from_str("ERROR"), Ok(LevelFilter::Error));
 
+        assert_eq!(LevelFilter::from_str("warning"), Ok(LevelFilter::Warn));
         assert_eq!(LevelFilter::from_str("Warning"), Ok(LevelFilter::Warn));
         assert_eq!(LevelFilter::from_str("WARNING"), Ok(LevelFilter::Warn));
     }
