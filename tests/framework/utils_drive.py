@@ -6,6 +6,7 @@
 import os
 import subprocess
 import time
+from pathlib import Path
 from subprocess import check_output
 
 from framework import utils
@@ -46,10 +47,16 @@ def spawn_vhost_user_backend(vm, host_mem_path, socket_path, readonly=False):
     uid = vm.jailer.uid
     gid = vm.jailer.gid
 
-    sp = f"{vm.chroot()}/{socket_path}"
-    args = ["vhost-user-blk", "-s", sp, "-b", host_mem_path]
+    host_vhost_user_socket_path = Path(vm.chroot()) / socket_path.strip("/")
+    args = [
+        "vhost-user-blk",
+        "--socket-path",
+        host_vhost_user_socket_path,
+        "--blk-file",
+        host_mem_path,
+    ]
     if readonly:
-        args.append("-r")
+        args.append("--read-only")
     proc = subprocess.Popen(args)
 
     # Give the backend time to initialise.
