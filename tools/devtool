@@ -582,9 +582,22 @@ apply_linux_61_tweaks() {
 
 
 apply_performance_tweaks() {
-  # Disable turbo boost. Some of our tests are performance tests, and we want minimum variability wrt processor frequency
-  # See also https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/processor_state_control.html
-  echo 1 |sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo &> /dev/null
+  # m6a instances do not support the amd_pstate driver (yet), so nothing we can do there
+  if [[ -d /sys/devices/system/cpu/intel_pstate ]]; then
+    # Disable turbo boost. Some of our tests are performance tests, and we want minimum variability wrt processor frequency
+    # See also https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/processor_state_control.html
+    echo 1 |sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo &> /dev/null
+
+    # Save old values to restore later
+    MIN_PERF_PCT=$(cat /sys/devices/system/cpu/intel_pstate/min_perf_pct)
+    MAX_PERF_PCT=$(cat /sys/devices/system/cpu/intel_pstate/max_perf_pct)
+
+    # Force the CPU to continuously stay in the highest, non-turbo P-state. The P-state will determine the
+    # CPU's clock frequency.
+    # https://www.kernel.org/doc/html/v4.12/admin-guide/pm/intel_pstate.html
+    echo 100 |sudo tee /sys/devices/system/cpu/intel_pstate/min_perf_pct
+    echo 100 |sudo tee /sys/devices/system/cpu/intel_pstate/max_perf_pct
+  fi
 
   # The governor is a linux component that can adjust CPU frequency. "performance" tells it to always run CPUs at
   # their maximum safe frequency. It seems to be the default for Amazon Linux, but it doesn't hurt to make this explicit.
@@ -602,14 +615,20 @@ apply_performance_tweaks() {
 }
 
 unapply_performance_tweaks() {
-  # reenable turbo boost
-  echo 0 |sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo &> /dev/null
+  if [[ -d /sys/devices/system/cpu/intel_pstate ]]; then
+    # reenable turbo boost
+    echo 0 |sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo &> /dev/null
+
+    # restore p-state limits
+    echo $MIN_PERF_PCT |sudo tee /sys/devices/system/cpu/intel_pstate/min_perf_pct &> /dev/null
+    echo $MAX_PERF_PCT |sudo tee /sys/devices/system/cpu/intel_pstate/max_perf_pct &> /dev/null
+  fi
+
+  # reenable deeper sleep states
+  echo 0 | sudo tee /sys/devices/system/cpu/cpu*/cpuidle/state*/disable &>/dev/null
 
   # We do not reset the governor, as keeping track of each CPUs configured governor is not trivial here. On our CI
   # instances, the performance governor is current the default anyway (2023/11/14)
-
-  # reenable deeper sleep states
-  echo 0 |sudo tee /sys/devices/system/cpu/cpu*/cpuidle/state*/disable &> /dev/null
 }
 
 
