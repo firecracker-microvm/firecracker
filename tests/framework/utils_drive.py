@@ -38,9 +38,6 @@ def partuuid_and_disk_path(rootfs_ubuntu_22, disk_path):
     return (partuuid, disk_path)
 
 
-VHOST_USER_SOCKET = "/vub.socket"
-
-
 def spawn_vhost_user_backend(vm, host_mem_path, socket_path, readonly=False):
     """Spawn vhost-user-blk backend."""
 
