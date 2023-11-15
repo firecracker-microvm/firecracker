@@ -6,12 +6,20 @@
 import os
 import subprocess
 import time
+from enum import Enum
 from pathlib import Path
 from subprocess import check_output
 
 from framework import utils
 
 MB = 1024 * 1024
+
+
+class VhostUserBlkBackendType(Enum):
+    """vhost-user-blk backend type"""
+
+    QEMU = "Qemu"
+    CROSVM = "Crosvm"
 
 
 def partuuid_and_disk_path(rootfs_ubuntu_22, disk_path):
@@ -38,22 +46,46 @@ def partuuid_and_disk_path(rootfs_ubuntu_22, disk_path):
     return (partuuid, disk_path)
 
 
-def spawn_vhost_user_backend(vm, host_mem_path, socket_path, readonly=False):
+CROSVM_CTR_SOCKET_NAME = "crosvm_ctr.socket"
+
+
+def spawn_vhost_user_backend(
+    vm, host_mem_path, socket_path, readonly=False, backend=VhostUserBlkBackendType.QEMU
+):
     """Spawn vhost-user-blk backend."""
 
     uid = vm.jailer.uid
     gid = vm.jailer.gid
-
     host_vhost_user_socket_path = Path(vm.chroot()) / socket_path.strip("/")
-    args = [
-        "vhost-user-blk",
-        "--socket-path",
-        host_vhost_user_socket_path,
-        "--blk-file",
-        host_mem_path,
-    ]
-    if readonly:
-        args.append("--read-only")
+
+    if backend == VhostUserBlkBackendType.QEMU:
+        args = [
+            "vhost-user-blk",
+            "--socket-path",
+            host_vhost_user_socket_path,
+            "--blk-file",
+            host_mem_path,
+        ]
+        if readonly:
+            args.append("--read-only")
+    elif backend == VhostUserBlkBackendType.CROSVM:
+        crosvm_ctr_socket_path = Path(vm.chroot()) / CROSVM_CTR_SOCKET_NAME.strip("/")
+        ro = ",ro" if readonly else ""
+        args = [
+            "crosvm",
+            "--log-level",
+            "off",
+            "devices",
+            "--disable-sandbox",
+            "--control-socket",
+            crosvm_ctr_socket_path,
+            "--block",
+            f"vhost={host_vhost_user_socket_path},path={host_mem_path}{ro}",
+        ]
+        if os.path.exists(crosvm_ctr_socket_path):
+            os.remove(crosvm_ctr_socket_path)
+    else:
+        assert False, f"unknown vhost-user-blk backend `{backend}`"
     proc = subprocess.Popen(args)
 
     # Give the backend time to initialise.
