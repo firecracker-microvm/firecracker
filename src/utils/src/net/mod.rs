@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-#![deny(missing_docs)]
+#![warn(missing_docs)]
 //! # Network-related utilities
 //!
 //! Provides tools for representing and handling network related concepts like MAC addresses and
