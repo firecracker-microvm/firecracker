@@ -1,7 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#![deny(missing_docs)]
+#![warn(missing_docs)]
 
 //! Implements the interface for intercepting API requests, forwarding them to the VMM
 //! and responding to the user.
