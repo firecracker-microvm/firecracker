@@ -6,6 +6,11 @@
 
 from common import COMMON_PARSER, group, overlay_dict, pipeline_to_json
 
+# In `devtool_opts`, we restrict both the set of CPUs on which the docker container's threads can run,
+# and its memory node. For the cpuset, we pick a continuous set of CPUs from a single NUMA node
+# that is large enough so that every firecracker thread can get its own core. We exclude core #0, as
+# the operating system sometimes uses it for book-keeping tasks. The memory node (-m parameter)
+# has to be the node associated with the NUMA node from which we picked CPUs.
 perf_test = {
     "virtio-block": {
         "label": "🖴 Virtio Block Performance",
