@@ -33,6 +33,7 @@ class CpuModel(str, Enum):
 CPU_DICT = {
     CpuVendor.INTEL: {
         "Intel(R) Xeon(R) Platinum 8175M CPU": "INTEL_SKYLAKE",
+        "Intel(R) Xeon(R) Platinum 8124M CPU": "INTEL_SKYLAKE",
         "Intel(R) Xeon(R) Platinum 8259CL CPU": "INTEL_CASCADELAKE",
         "Intel(R) Xeon(R) Platinum 8375C CPU": "INTEL_ICELAKE",
     },

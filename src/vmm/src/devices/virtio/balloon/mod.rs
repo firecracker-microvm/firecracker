@@ -5,15 +5,19 @@
 
 pub mod device;
 mod event_handler;
+pub mod metrics;
 pub mod persist;
 pub mod test_utils;
 mod util;
 
+use log::error;
 use vm_memory::GuestMemoryError;
 
 pub use self::device::{Balloon, BalloonConfig, BalloonStats};
 use super::queue::QueueError;
+use crate::devices::virtio::balloon::metrics::METRICS;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
+use crate::logger::IncMetric;
 
 /// Device ID used in MMIO device identification.
 /// Because Balloon is unique per-vm, this ID can be hardcoded.
@@ -103,4 +107,9 @@ pub enum RemoveRegionError {
     MadviseFail(std::io::Error),
     MmapFail(std::io::Error),
     RegionNotFound,
+}
+
+pub(super) fn report_balloon_event_fail(err: BalloonError) {
+    error!("{:?}", err);
+    METRICS.event_fails.inc();
 }

@@ -1,7 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#![deny(missing_docs)]
+#![warn(missing_docs)]
 
 //! Crate that implements Firecracker specific functionality as far as logging and metrics
 //! collecting.
@@ -14,11 +14,9 @@ pub use logging::{
     LevelFilter, LevelFilterFromStrError, LoggerConfig, LoggerInitError, LoggerUpdateError,
     DEFAULT_INSTANCE_ID, DEFAULT_LEVEL, INSTANCE_ID, LOGGER,
 };
-#[cfg(target_arch = "aarch64")]
-pub use metrics::RTCDeviceMetrics;
 pub use metrics::{
-    IncMetric, MetricsError, ProcessTimeReporter, SerialDeviceMetrics, SharedIncMetric,
-    SharedStoreMetric, StoreMetric, METRICS,
+    IncMetric, MetricsError, ProcessTimeReporter, SharedIncMetric, SharedStoreMetric, StoreMetric,
+    METRICS,
 };
 
 /// Alias for `std::io::LineWriter<std::fs::File>`.

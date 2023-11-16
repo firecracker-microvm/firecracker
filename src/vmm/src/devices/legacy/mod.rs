@@ -8,12 +8,14 @@
 //! Implements legacy devices (UART, RTC etc).
 mod i8042;
 #[cfg(target_arch = "aarch64")]
-mod rtc_pl031;
+pub mod rtc_pl031;
 pub mod serial;
 
 use std::io;
 use std::ops::Deref;
 
+use serde::ser::SerializeMap;
+use serde::Serializer;
 use utils::eventfd::EventFd;
 use vm_superio::Trigger;
 
@@ -60,4 +62,14 @@ impl EventFdTrigger {
     pub fn get_event(&self) -> EventFd {
         self.0.try_clone().unwrap()
     }
+}
+
+/// Called by METRICS.flush(), this function facilitates serialization of aggregated metrics.
+pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
+    let mut seq = serializer.serialize_map(Some(1))?;
+    seq.serialize_entry("i8042", &i8042::METRICS)?;
+    #[cfg(target_arch = "aarch64")]
+    seq.serialize_entry("rtc", &rtc_pl031::METRICS)?;
+    seq.serialize_entry("uart", &serial::METRICS)?;
+    seq.end()
 }

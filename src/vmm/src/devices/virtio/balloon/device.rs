@@ -16,6 +16,7 @@ use utils::u64_to_usize;
 use super::super::device::{DeviceState, VirtioDevice};
 use super::super::queue::Queue;
 use super::super::{ActivateError, TYPE_BALLOON};
+use super::metrics::METRICS;
 use super::util::{compact_page_frame_numbers, remove_range};
 use super::{
     BALLOON_DEV_ID, BALLOON_NUM_QUEUES, BALLOON_QUEUE_SIZES, DEFLATE_INDEX, INFLATE_INDEX,
@@ -29,7 +30,7 @@ use super::{
 use crate::devices::virtio::balloon::BalloonError;
 use crate::devices::virtio::device::{IrqTrigger, IrqType};
 use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
-use crate::logger::{IncMetric, METRICS};
+use crate::logger::IncMetric;
 use crate::vstate::memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
 const SIZE_OF_U32: usize = std::mem::size_of::<u32>();
@@ -285,7 +286,7 @@ impl Balloon {
     pub(crate) fn process_inflate(&mut self) -> Result<(), BalloonError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
-        METRICS.balloon.inflate_count.inc();
+        METRICS.inflate_count.inc();
 
         let queue = &mut self.queues[INFLATE_INDEX];
         // The pfn buffer index used during descriptor processing.
@@ -376,7 +377,7 @@ impl Balloon {
     pub(crate) fn process_deflate_queue(&mut self) -> Result<(), BalloonError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
-        METRICS.balloon.deflate_count.inc();
+        METRICS.deflate_count.inc();
 
         let queue = &mut self.queues[DEFLATE_INDEX];
         let mut needs_interrupt = false;
@@ -398,7 +399,7 @@ impl Balloon {
     pub(crate) fn process_stats_queue(&mut self) -> Result<(), BalloonError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
-        METRICS.balloon.stats_updates_count.inc();
+        METRICS.stats_updates_count.inc();
 
         while let Some(head) = self.queues[STATS_INDEX].pop(mem) {
             if let Some(prev_stats_desc) = self.stats_desc_index {
@@ -422,7 +423,7 @@ impl Balloon {
                     .read_obj::<BalloonStat>(addr)
                     .map_err(|_| BalloonError::MalformedDescriptor)?;
                 self.latest_stats.update_with_stat(&stat).map_err(|_| {
-                    METRICS.balloon.stats_update_fails.inc();
+                    METRICS.stats_update_fails.inc();
                     BalloonError::MalformedPayload
                 })?;
             }
@@ -435,7 +436,7 @@ impl Balloon {
 
     pub(crate) fn signal_used_queue(&self) -> Result<(), BalloonError> {
         self.irq_trigger.trigger_irq(IrqType::Vring).map_err(|err| {
-            METRICS.balloon.event_fails.inc();
+            METRICS.event_fails.inc();
             BalloonError::InterruptError(err)
         })
     }
@@ -628,7 +629,7 @@ impl VirtioDevice for Balloon {
         self.device_state = DeviceState::Activated(mem);
         if self.activate_evt.write(1).is_err() {
             error!("Balloon: Cannot write to activate_evt");
-            METRICS.balloon.activate_fails.inc();
+            METRICS.activate_fails.inc();
             self.device_state = DeviceState::Inactive;
             return Err(ActivateError::BadActivate);
         }
@@ -652,7 +653,7 @@ pub(crate) mod tests {
     use super::super::BALLOON_CONFIG_SPACE_SIZE;
     use super::*;
     use crate::check_metric_after_block;
-    use crate::devices::report_balloon_event_fail;
+    use crate::devices::virtio::balloon::report_balloon_event_fail;
     use crate::devices::virtio::balloon::test_utils::{
         check_request_completion, invoke_handler_for_queue_event, set_request,
     };
@@ -918,7 +919,7 @@ pub(crate) mod tests {
             );
 
             check_metric_after_block!(
-                METRICS.balloon.event_fails,
+                METRICS.event_fails,
                 1,
                 balloon
                     .process_inflate_queue_event()
@@ -945,7 +946,7 @@ pub(crate) mod tests {
             );
 
             check_metric_after_block!(
-                METRICS.balloon.inflate_count,
+                METRICS.inflate_count,
                 1,
                 invoke_handler_for_queue_event(&mut balloon, INFLATE_INDEX)
             );
@@ -978,7 +979,7 @@ pub(crate) mod tests {
                 VIRTQ_DESC_F_NEXT,
             );
             check_metric_after_block!(
-                METRICS.balloon.event_fails,
+                METRICS.event_fails,
                 1,
                 balloon
                     .process_deflate_queue_event()
@@ -998,7 +999,7 @@ pub(crate) mod tests {
                 VIRTQ_DESC_F_NEXT,
             );
             check_metric_after_block!(
-                METRICS.balloon.deflate_count,
+                METRICS.deflate_count,
                 1,
                 invoke_handler_for_queue_event(&mut balloon, DEFLATE_INDEX)
             );
@@ -1026,7 +1027,7 @@ pub(crate) mod tests {
                 VIRTQ_DESC_F_NEXT,
             );
             check_metric_after_block!(
-                METRICS.balloon.event_fails,
+                METRICS.event_fails,
                 1,
                 balloon
                     .process_stats_queue_event()
@@ -1063,7 +1064,7 @@ pub(crate) mod tests {
                 2 * u32::try_from(SIZE_OF_STAT).unwrap(),
                 VIRTQ_DESC_F_NEXT,
             );
-            check_metric_after_block!(METRICS.balloon.stats_updates_count, 1, {
+            check_metric_after_block!(METRICS.stats_updates_count, 1, {
                 // Trigger the queue event.
                 balloon.queue_events()[STATS_INDEX].write(1).unwrap();
                 balloon.process_stats_queue_event().unwrap();
@@ -1082,7 +1083,7 @@ pub(crate) mod tests {
             // we could just process the timer event and it would not
             // return an error.
             std::thread::sleep(Duration::from_secs(1));
-            check_metric_after_block!(METRICS.balloon.event_fails, 0, {
+            check_metric_after_block!(METRICS.event_fails, 0, {
                 // Trigger the timer event, which consumes the stats
                 // descriptor index and signals the used queue.
                 assert!(balloon.stats_desc_index.is_some());

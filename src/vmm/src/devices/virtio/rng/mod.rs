@@ -3,6 +3,7 @@
 
 pub mod device;
 mod event_handler;
+pub mod metrics;
 pub mod persist;
 
 pub use self::device::{Entropy, EntropyError};

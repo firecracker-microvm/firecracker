@@ -10,6 +10,7 @@ import host_tools.drive as drive_tools
 from framework import utils
 from framework.defs import LOCAL_BUILD_PATH
 from framework.utils_drive import partuuid_and_disk_path, spawn_vhost_user_backend
+from host_tools.metrics import FcDeviceMetrics
 
 
 @pytest.fixture
@@ -69,11 +70,15 @@ def test_vhost_user_block(microvm_factory, guest_kernel, rootfs_ubuntu_22):
     vm.basic_config(add_root_device=False)
     vm.add_vhost_user_drive("rootfs", vhost_user_socket, is_root_device=True)
     vm.add_net_iface()
+    vhost_user_block_metrics = FcDeviceMetrics(
+        "vhost_user_block", 1, aggr_supported=False
+    )
     vm.start()
 
     # Attempt to connect to the VM.
     # Verify if guest can run commands.
     exit_code, _, _ = vm.ssh.run("ls")
+
     assert exit_code == 0
 
     # Now check that vhost-user-block with rw is last.
@@ -83,6 +88,7 @@ def test_vhost_user_block(microvm_factory, guest_kernel, rootfs_ubuntu_22):
         "1-6": "/dev/vda",
     }
     _check_drives(vm, assert_dict, assert_dict.keys())
+    vhost_user_block_metrics.validate(vm)
 
 
 def test_vhost_user_block_read_write(microvm_factory, guest_kernel, rootfs_ubuntu_22):
@@ -206,6 +212,10 @@ def test_device_ordering(microvm_factory, guest_kernel, rootfs_ubuntu_22):
     # Adding forth block device.
     vm.add_vhost_user_drive("dummy_rootfs", vhost_user_socket_2)
 
+    block_metrics = FcDeviceMetrics("block", 2, aggr_supported=True)
+    vhost_user_block_metrics = FcDeviceMetrics(
+        "vhost_user_block", 2, aggr_supported=False
+    )
     vm.start()
 
     rootfs_size = rootfs_ubuntu_22.stat().st_size
@@ -233,6 +243,8 @@ def test_device_ordering(microvm_factory, guest_kernel, rootfs_ubuntu_22):
         "4-6": "/dev/vdd",
     }
     _check_drives(vm, assert_dict, assert_dict.keys())
+    block_metrics.validate(vm)
+    vhost_user_block_metrics.validate(vm)
 
 
 def test_partuuid_boot(
@@ -316,6 +328,9 @@ def test_partuuid_update(microvm_factory, guest_kernel, rootfs_ubuntu_22):
     _backend = spawn_vhost_user_backend(vm, rootfs_path, vhost_user_socket_2, True)
     vm.add_vhost_user_drive("rootfs", vhost_user_socket_2, is_root_device=True)
 
+    vhost_user_block_metrics = FcDeviceMetrics(
+        "vhost_user_block", 1, aggr_supported=False
+    )
     vm.start()
 
     # Attempt to connect to the VM.
@@ -330,3 +345,4 @@ def test_partuuid_update(microvm_factory, guest_kernel, rootfs_ubuntu_22):
         "1-6": "/dev/vda",
     }
     _check_drives(vm, assert_dict, assert_dict.keys())
+    vhost_user_block_metrics.validate(vm)
