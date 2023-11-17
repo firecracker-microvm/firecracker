@@ -3,24 +3,12 @@
 """Tests for vhost-user-block device."""
 
 import os
-
-import pytest
+import shutil
+from pathlib import Path
 
 import host_tools.drive as drive_tools
-from framework import utils
-from framework.defs import LOCAL_BUILD_PATH
 from framework.utils_drive import partuuid_and_disk_path, spawn_vhost_user_backend
 from host_tools.metrics import FcDeviceMetrics
-
-
-@pytest.fixture
-def partuuid_and_disk_path_host(rootfs_ubuntu_22):
-    """
-    We create a new file on the host, get its partuuid and use it as a rootfs.
-    """
-    disk_path = LOCAL_BUILD_PATH / "img" / "disk.img"
-    yield partuuid_and_disk_path(rootfs_ubuntu_22, disk_path)
-    disk_path.unlink()
 
 
 def _check_block_size(ssh_connection, dev_path, size):
@@ -56,11 +44,8 @@ def test_vhost_user_block(microvm_factory, guest_kernel, rootfs_ubuntu_22):
 
     vm = microvm_factory.build(guest_kernel, None, monitor_memory=False)
 
-    # Converting path from tmpfs ("./srv/..") to local
-    # path on the host ("../build/..")
-    rootfs_path = utils.to_local_dir_path(str(rootfs_ubuntu_22))
     # Launching vhost-user-block backend
-    _backend = spawn_vhost_user_backend(vm, rootfs_path, vhost_user_socket, True)
+    _backend = spawn_vhost_user_backend(vm, rootfs_ubuntu_22, vhost_user_socket, True)
 
     # We need to setup ssh keys manually because we did not specify rootfs
     # in microvm_factory.build method
@@ -102,18 +87,20 @@ def test_vhost_user_block_read_write(microvm_factory, guest_kernel, rootfs_ubunt
 
     vm = microvm_factory.build(guest_kernel, None, monitor_memory=False)
 
-    # Converting path from tmpfs ("./srv/..") to local
-    # path on the host ("../build/..")
-    rootfs_path = utils.to_local_dir_path(str(rootfs_ubuntu_22))
-    # Launching vhost-user-block backend
-    _backend = spawn_vhost_user_backend(vm, rootfs_path, vhost_user_socket, False)
-
     # We need to setup ssh keys manually because we did not specify rootfs
     # in microvm_factory.build method
     ssh_key = rootfs_ubuntu_22.with_suffix(".id_rsa")
     vm.ssh_key = ssh_key
     vm.spawn()
     vm.basic_config(add_root_device=False)
+
+    # Create a rw rootfs file that is unique to the microVM
+    rootfs_rw = Path(vm.chroot()) / "rootfs"
+    shutil.copy(rootfs_ubuntu_22, rootfs_rw)
+
+    # Launching vhost-user-block backend
+    _backend = spawn_vhost_user_backend(vm, rootfs_rw, vhost_user_socket, False)
+
     vm.add_vhost_user_drive("rootfs", vhost_user_socket, is_root_device=True)
     vm.add_net_iface()
     vm.start()
@@ -141,11 +128,8 @@ def test_vhost_user_block_disconnect(microvm_factory, guest_kernel, rootfs_ubunt
 
     vm = microvm_factory.build(guest_kernel, None, monitor_memory=False)
 
-    # Converting path from tmpfs ("./srv/..") to local
-    # path on the host ("../build/..")
-    rootfs_path = utils.to_local_dir_path(str(rootfs_ubuntu_22))
     # Launching vhost-user-block backend
-    _backend = spawn_vhost_user_backend(vm, rootfs_path, vhost_user_socket, True)
+    _backend = spawn_vhost_user_backend(vm, rootfs_ubuntu_22, vhost_user_socket, True)
 
     # We need to set up ssh keys manually because we did not specify rootfs
     # in microvm_factory.build method
@@ -182,11 +166,8 @@ def test_device_ordering(microvm_factory, guest_kernel, rootfs_ubuntu_22):
 
     vm = microvm_factory.build(guest_kernel, None, monitor_memory=False)
 
-    # Converting path from tmpfs ("./srv/..") to local
-    # path on the host ("../build/..")
-    rootfs_path = utils.to_local_dir_path(str(rootfs_ubuntu_22))
     # Launching vhost-user-block backend
-    _backend = spawn_vhost_user_backend(vm, rootfs_path, vhost_user_socket_1, True)
+    _backend = spawn_vhost_user_backend(vm, rootfs_ubuntu_22, vhost_user_socket_1, True)
 
     # We need to setup ssh keys manually because we did not specify rootfs
     # in microvm_factory.build method
@@ -207,8 +188,12 @@ def test_device_ordering(microvm_factory, guest_kernel, rootfs_ubuntu_22):
     fs2 = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "scratch2"), size=512)
     vm.add_drive("scratch2", fs2.path)
 
+    # Create a rw rootfs file that is unique to the microVM
+    rootfs_rw = Path(vm.chroot()) / "rootfs"
+    shutil.copy(rootfs_ubuntu_22, rootfs_rw)
+
     # Launching vhost-user-block backend
-    _backend2 = spawn_vhost_user_backend(vm, rootfs_path, vhost_user_socket_2, False)
+    _backend2 = spawn_vhost_user_backend(vm, rootfs_rw, vhost_user_socket_2, False)
     # Adding forth block device.
     vm.add_vhost_user_drive("dummy_rootfs", vhost_user_socket_2)
 
@@ -251,7 +236,6 @@ def test_partuuid_boot(
     microvm_factory,
     guest_kernel,
     rootfs_ubuntu_22,
-    partuuid_and_disk_path_host,
 ):
     """
     Test the output reported by blockdev when booting with PARTUUID.
@@ -259,13 +243,7 @@ def test_partuuid_boot(
 
     vhost_user_socket = "/vub.socket"
 
-    partuuid = partuuid_and_disk_path_host[0]
-    disk_path = partuuid_and_disk_path_host[1]
-
     vm = microvm_factory.build(guest_kernel, None, monitor_memory=False)
-
-    # Launching vhost-user-block backend
-    _backend = spawn_vhost_user_backend(vm, disk_path, vhost_user_socket, True)
 
     # We need to setup ssh keys manually because we did not specify rootfs
     # in microvm_factory.build method
@@ -273,6 +251,15 @@ def test_partuuid_boot(
     vm.ssh_key = ssh_key
     vm.spawn()
     vm.basic_config(add_root_device=False)
+
+    # Create a rootfs with partuuid unique to this microVM
+    partuuid, disk_path = partuuid_and_disk_path(
+        rootfs_ubuntu_22, Path(vm.chroot()) / "disk.img"
+    )
+
+    # Launching vhost-user-block backend
+    _backend = spawn_vhost_user_backend(vm, disk_path, vhost_user_socket, True)
+
     vm.add_vhost_user_drive(
         "1", vhost_user_socket, is_root_device=True, partuuid=partuuid
     )
@@ -303,11 +290,8 @@ def test_partuuid_update(microvm_factory, guest_kernel, rootfs_ubuntu_22):
 
     vm = microvm_factory.build(guest_kernel, None, monitor_memory=False)
 
-    # Converting path from tmpfs ("./srv/..") to local
-    # path on the host ("../build/..")
-    rootfs_path = utils.to_local_dir_path(str(rootfs_ubuntu_22))
     # Launching vhost-user-block backend
-    _backend = spawn_vhost_user_backend(vm, rootfs_path, vhost_user_socket_1, True)
+    _backend = spawn_vhost_user_backend(vm, rootfs_ubuntu_22, vhost_user_socket_1, True)
 
     # We need to setup ssh keys manually because we did not specify rootfs
     # in microvm_factory.build method
@@ -325,7 +309,7 @@ def test_partuuid_update(microvm_factory, guest_kernel, rootfs_ubuntu_22):
     # We need to craete new backend with another socket because when we updated
     # vhost-user-block device, old connection is closed, and qemu backend will
     # stop after connection is closed.
-    _backend = spawn_vhost_user_backend(vm, rootfs_path, vhost_user_socket_2, True)
+    _backend = spawn_vhost_user_backend(vm, rootfs_ubuntu_22, vhost_user_socket_2, True)
     vm.add_vhost_user_drive("rootfs", vhost_user_socket_2, is_root_device=True)
 
     vhost_user_block_metrics = FcDeviceMetrics(
