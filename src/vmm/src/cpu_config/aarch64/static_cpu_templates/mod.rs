@@ -48,7 +48,7 @@ mod tests {
 
     #[test]
     fn verify_consistency_with_json_templates() {
-        let static_templates = [(v1n1::v1n1(), "aarch64_v1n1.json")];
+        let static_templates = [(v1n1::v1n1(), "v1n1.json")];
 
         for (hardcoded_template, filename) in static_templates {
             let json_template = get_json_template(filename);
