@@ -20,8 +20,14 @@ from github import Github
 def build_tarball(release_dir, release_tgz, arch):
     """Build a release tarball with local assets"""
     # Do not include signatures in GitHub release since we aren't
-    # making those keys public
-    exclude_files = {"RELEASE_NOTES", "SHA256SUMS.sig"}
+    # making those keys public.
+    # Exclude CPU templates in GitHub release as they are already
+    # available on GitHub without any action (like building a binary).
+    exclude_files = {
+        "RELEASE_NOTES",
+        "SHA256SUMS.sig",
+        *[f.stem for f in Path("tests/data/static_cpu_templates").glob("*.json")],
+    }
     with tarfile.open(release_tgz, "w:gz") as tar:
         files = [x for x in release_dir.rglob("*") if x.is_file()]
         for asset in files:
