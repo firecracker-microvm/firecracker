@@ -23,7 +23,7 @@ from framework.utils import (
     run_cmd,
     summarize_cpu_percent,
 )
-from framework.utils_drive import spawn_vhost_user_backend
+from framework.utils_drive import VhostUserBlkBackendType, spawn_vhost_user_backend
 from integration_tests.performance.configs import defs
 
 TEST_ID = "block_performance"
@@ -370,7 +370,13 @@ def test_block_vhost_user_performance(
     # Add a secondary block device for benchmark tests.
     fs = drive_tools.FilesystemFile(size=BLOCK_DEVICE_SIZE_MB)
     vhost_user_socket = "/vub.socket"
-    backend = spawn_vhost_user_backend(vm, fs.path, vhost_user_socket, readonly=False)
+    backend = spawn_vhost_user_backend(
+        vm,
+        fs.path,
+        vhost_user_socket,
+        readonly=False,
+        backend=VhostUserBlkBackendType.QEMU,
+    )
     vm.add_vhost_user_drive("scratch", vhost_user_socket)
     vm.start()
 
