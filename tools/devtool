@@ -72,7 +72,7 @@
 DEVCTR_IMAGE_NO_TAG="public.ecr.aws/firecracker/fcuvm"
 
 # Development container tag
-DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v66}
+DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v67}
 
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
@@ -581,6 +581,67 @@ apply_linux_61_tweaks() {
 }
 
 
+# Modifies the processors C- and P-state configuration (x86_64 only) for consistent performance. This means
+# - Disable turbo boost (Intel only) by writing 1 to /sys/devices/system/cpu/intel_pstate/no_turbo
+# - Disable turbo boost (AMD only) by writing 0 to /sys/devices/system/cpu/cpufreq/boost
+# - Lock the CPUs' P-state to the highest non-turbo one (Intel only) by writing 100 to /sys/devices/system/cpu/intel_pstate/{min,max}_perf_pct
+# - Disable all idle C-states, meaning all CPu cores will idle by polling (busy looping) by writing 1 to /sys/devices/system/cpu/cpu*/cpuidle/state*/disable
+# - Set the cpu frequency governor to performance by writing "performance" to /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+apply_performance_tweaks() {
+  # m6a instances do not support the amd_pstate driver (yet), so nothing we can do there
+  if [[ -d /sys/devices/system/cpu/intel_pstate ]]; then
+    # Disable turbo boost. Some of our tests are performance tests, and we want minimum variability wrt processor frequency
+    # See also https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/processor_state_control.html
+    echo 1 |sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo &> /dev/null
+
+    # Save old values to restore later
+    MIN_PERF_PCT=$(cat /sys/devices/system/cpu/intel_pstate/min_perf_pct)
+    MAX_PERF_PCT=$(cat /sys/devices/system/cpu/intel_pstate/max_perf_pct)
+
+    # Force the CPU to continuously stay in the highest, non-turbo P-state. The P-state will determine the
+    # CPU's clock frequency.
+    # https://www.kernel.org/doc/html/v4.12/admin-guide/pm/intel_pstate.html
+    echo 100 |sudo tee /sys/devices/system/cpu/intel_pstate/min_perf_pct &> /dev/null
+    echo 100 |sudo tee /sys/devices/system/cpu/intel_pstate/max_perf_pct &> /dev/null
+  elif [[ -f /sys/devices/system/cpu/cpufreq/boost ]] && [ ! $(uname -r | grep 4.14) ]; then
+    echo 0 |sudo tee /sys/devices/system/cpu/cpufreq/boost &> /dev/null
+  fi
+
+  # The governor is a linux component that can adjust CPU frequency. "performance" tells it to always run CPUs at
+  # their maximum safe frequency. It seems to be the default for Amazon Linux, but it doesn't hurt to make this explicit.
+  # See also https://wiki.archlinux.org/title/CPU_frequency_scaling
+  echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor &> /dev/null
+
+  # When a CPU core has nothing to do, it enters an idle state, also called "C-state". These are enumerated, with C0
+  # being the shallowest idle state (corresponding to "currently executing instructions", aka "not actually idling"),
+  # and higher numbers being deeper sleep states (how many there are depends on the specific processor). The deeper
+  # a C-state a CPU core enters, the higher the latency to wake it up again. We can disable deeper C-states altogether
+  # by forcing each CPU core to constantly stay in C-0 (e.g. have them actively poll for new things to do).
+  # See also https://www.kernel.org/doc/html/v5.0/admin-guide/pm/cpuidle.html.
+  # The below also set "disable=1" on "state0", but this does not do anything (as disabling C-0 makes no sense).
+  echo 1 |sudo tee /sys/devices/system/cpu/cpu*/cpuidle/state*/disable &> /dev/null
+}
+
+unapply_performance_tweaks() {
+  if [[ -d /sys/devices/system/cpu/intel_pstate ]]; then
+    # reenable turbo boost
+    echo 0 |sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo &> /dev/null
+
+    # restore p-state limits
+    echo $MIN_PERF_PCT |sudo tee /sys/devices/system/cpu/intel_pstate/min_perf_pct &> /dev/null
+    echo $MAX_PERF_PCT |sudo tee /sys/devices/system/cpu/intel_pstate/max_perf_pct &> /dev/null
+  elif [[ -f /sys/devices/system/cpu/cpufreq/boost ]]; then
+    echo 1 | sudo tee /sys/devices/system/cpu/cpufreq/boost &> /dev/null
+  fi
+
+  # reenable deeper sleep states
+  echo 0 | sudo tee /sys/devices/system/cpu/cpu*/cpuidle/state*/disable &>/dev/null
+
+  # We do not reset the governor, as keeping track of each CPUs configured governor is not trivial here. On our CI
+  # instances, the performance governor is current the default anyway (2023/11/14)
+}
+
+
 # `$0 test` - run integration tests
 # Please see `$0 help` for more information.
 #
@@ -597,6 +658,9 @@ cmd_test() {
             "-m"|"--cpuset-mems")
                 shift
                 local cpuset_mems="$1"
+                ;;
+            "--performance")
+                local performance_tweaks=1;
                 ;;
             "--ab")
                 do_ab_test=1
@@ -621,26 +685,15 @@ cmd_test() {
     say "Kernel version: $(uname -r)"
     say "$(sed '/^processor.*: 0$/,/^processor.*: 1$/!d; /^processor.*: 1$/d' /proc/cpuinfo)"
     say "RPM microcode_ctl version: $(rpm -q microcode_ctl)"
-    say "Starting test run ..."
 
-    # Testing (running Firecracker via the jailer) needs root access,
-    # in order to set-up the Firecracker jail (manipulating cgroups, net
-    # namespaces, etc).
-    # We need to run a privileged container to get that kind of access.
     env |grep -P "^(AWS_EMF_|BUILDKITE|CODECOV_)" > env.list
+    if [[ $performance_tweaks -eq 1 ]] && [[ "$(uname --machine)" == "x86_64" ]]; then
+      say "Detected CI and performance tests, tuning CPU frequency scaling and idle states for reduced variability"
 
-    if [[ "$BUILDKITE" = "true" ]]; then
-      # Disable turbo boost. Some of our tests are performance tests, and we want minimum variability wrt processor frequency
-      # See also https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/processor_state_control.html
-      sudo sh -c "echo 1 > /sys/devices/system/cpu/intel_pstate/no_turbo" &> /dev/null
-
-      # The governor is a linux component that can adjust CPU frequency. "performance" tells it to always run CPUs at
-      # their maximum safe frequency. It seems to be the default for Amazon Linux, but it doesn't hurt to make this explicit.
-      # See also https://wiki.archlinux.org/title/CPU_frequency_scaling
-      sudo sh -c "echo "performance" | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor" &> /dev/null
-
-      say "Detected CI, tuning CPU frequency scaling for reduced variability"
+      apply_performance_tweaks
     fi
+
+    say "Starting test run ..."
 
     test_script="./tools/test.sh"
 
@@ -648,6 +701,10 @@ cmd_test() {
       test_script="./tools/ab_test.py"
     fi
 
+    # Testing (running Firecracker via the jailer) needs root access,
+    # in order to set-up the Firecracker jail (manipulating cgroups, net
+    # namespaces, etc).
+    # We need to run a privileged container to get that kind of access.
     run_devctr \
         --privileged \
         --security-opt seccomp=unconfined \
@@ -668,6 +725,11 @@ cmd_test() {
     # Running as root would have created some root-owned files under the build
     # dir. Let's fix that.
     cmd_fix_perms
+
+    # undo performance tweaks (in case the instance gets recycled for a non-perf test)
+    if [[ $performance_tweaks -eq 1 ]] && [[ "$(uname --machine)" == "x86_64" ]]; then
+      unapply_performance_tweaks
+    fi
 
     # do not leave behind env.list file
     rm env.list
