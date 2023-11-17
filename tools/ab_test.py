@@ -31,8 +31,9 @@ sys.path.append(str(Path(__file__).parent.parent / "tests"))
 
 # pylint:disable=wrong-import-position
 from framework import utils
-from framework.ab_test import check_regression, git_ab_test_with_binaries
+from framework.ab_test import check_regression, git_ab_test
 from framework.properties import global_props
+from host_tools.cargo_build import get_binary
 from host_tools.metrics import (
     emit_raw_emf,
     format_with_reduced_unit,
@@ -152,17 +153,13 @@ def load_data_series(report_path: Path, revision: str = None, *, reemit: bool = 
     return processed_emf
 
 
-def collect_data(firecracker_binary: Path, jailer_binary: Path, test: str):
+def collect_data(binary_dir: Path, test: str):
     """Executes the specified test using the provided firecracker binaries"""
-    # Ensure the binaries are in the same directory. Will always be the case if used with git_ab_test_with_binaries
-    assert jailer_binary.parent == firecracker_binary.parent
-
-    binary_dir = firecracker_binary.parent
     revision = binary_dir.name
 
     print("Collecting samples")
     _, stdout, _ = utils.run_cmd(
-        f"AWS_EMF_ENVIRONMENT=local AWS_EMF_NAMESPACE=local ./tools/test.sh --binary-dir=/firecracker/build/{revision} {test} -m ''"
+        f"AWS_EMF_ENVIRONMENT=local AWS_EMF_NAMESPACE=local ./tools/test.sh --binary-dir={binary_dir} {test} -m ''"
     )
     print(stdout.strip())
 
@@ -318,10 +315,13 @@ def ab_performance_test(
     )
     print(commit_list.strip())
 
-    git_ab_test_with_binaries(
-        lambda firecracker_binary, jailer_binary: collect_data(
-            firecracker_binary, jailer_binary, test
-        ),
+    def test_runner(workspace, _is_ab: bool):
+        utils.run_cmd("./tools/release.sh --profile release", cwd=workspace)
+        bin_dir = ".." / get_binary("firecracker", workspace_dir=workspace).parent
+        return collect_data(bin_dir, test)
+
+    return git_ab_test(
+        test_runner,
         lambda ah, be: analyze_data(
             ah,
             be,
