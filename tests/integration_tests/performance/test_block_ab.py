@@ -166,12 +166,7 @@ def test_block_performance(
     )
     vm.add_drive("scratch", fs.path, io_engine=io_engine)
     vm.start()
-
-    # Pin uVM threads to physical cores.
-    assert vm.pin_vmm(0), "Failed to pin firecracker thread."
-    assert vm.pin_api(1), "Failed to pin fc_api thread."
-    for i in range(vm.vcpus_count):
-        assert vm.pin_vcpu(i, i + 2), f"Failed to pin fc_vcpu {i} thread."
+    vm.pin_threads(0)
 
     logs_dir, cpu_load = run_fio(vm, fio_mode, fio_block_size)
 
@@ -225,13 +220,9 @@ def test_block_vhost_user_performance(
     backend = spawn_vhost_user_backend(vm, fs.path, vhost_user_socket, readonly=False)
     vm.add_vhost_user_drive("scratch", vhost_user_socket)
     vm.start()
+    vm.pin_threads(0)
 
-    # Pin uVM threads to physical cores.
-    assert vm.pin_vmm(0), "Failed to pin firecracker thread."
-    assert vm.pin_api(1), "Failed to pin fc_api thread."
-    pin_backend(backend, 2)
-    for i in range(vm.vcpus_count):
-        assert vm.pin_vcpu(i, i + 3), f"Failed to pin fc_vcpu {i} thread."
+    pin_backend(backend, vm.vcpus_count + 2)
 
     logs_dir, cpu_load = run_fio(vm, fio_mode, fio_block_size)
 

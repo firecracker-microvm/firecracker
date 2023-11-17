@@ -54,12 +54,7 @@ def network_microvm(request, microvm_factory, guest_kernel, rootfs):
     vm.basic_config(vcpu_count=request.param, mem_size_mib=GUEST_MEM_MIB)
     vm.add_net_iface()
     vm.start()
-
-    # Pin uVM threads to physical cores.
-    assert vm.pin_vmm(0), "Failed to pin firecracker thread."
-    assert vm.pin_api(1), "Failed to pin fc_api thread."
-    for i in range(vm.vcpus_count):
-        assert vm.pin_vcpu(i, i + 2), f"Failed to pin fc_vcpu {i} thread."
+    vm.pin_threads(0)
 
     return vm
 

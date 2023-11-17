@@ -77,7 +77,7 @@ defaults_for_performance = overlay_dict(
 
 performance_grp = group(
     "⏱ Performance",
-    "./tools/devtool -y test -- ../tests/integration_tests/performance/",
+    "./tools/devtool -y test --performance -c 1-10 -m 0 -- ../tests/integration_tests/performance/",
     **defaults_for_performance,
 )
 
