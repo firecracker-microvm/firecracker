@@ -349,7 +349,7 @@ cmd_help() {
     echo ""
     echo "Available commands:"
     echo ""
-    echo "    build [--debug|--release] [-l|--libc musl|gnu] [-- [<cargo args>]]"
+    echo "    build [--debug|--release] [-l|--libc musl|gnu]"
     echo "        Build the Firecracker binaries."
     echo "        Firecracker is built using the Rust build system (cargo). All arguments after --"
     echo "        will be passed through to cargo."
@@ -650,6 +650,7 @@ unapply_performance_tweaks() {
 #
 cmd_test() {
     do_ab_test=0
+    do_build=1
     # Parse any command line args.
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -668,6 +669,9 @@ cmd_test() {
             "--ab")
                 do_ab_test=1
                 ;;
+            "--no-build")
+                do_build=0
+                ;;
             "--")               { shift; break;     } ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
@@ -681,6 +685,7 @@ cmd_test() {
     ensure_devctr
     ensure_build_dir
     ensure_ci_artifacts
+    [ $do_build != 0 ] && cmd_build --release
 
     apply_linux_61_tweaks
 
@@ -866,7 +871,7 @@ cmd_mkdocs() {
 }
 
 cmd_checkstyle() {
-    cmd_test -- integration_tests/style -n 4 --dist worksteal
+    cmd_test --no-build -- integration_tests/style -n 4 --dist worksteal
 }
 
 # Check if able to run firecracker.
