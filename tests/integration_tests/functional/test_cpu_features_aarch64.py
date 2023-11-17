@@ -46,7 +46,7 @@ def _check_cpu_features_arm(test_microvm, guest_kv, template_name=None):
     match cpuid_utils.get_cpu_model_name(), guest_kv, template_name:
         case CpuModel.ARM_NEOVERSE_N1, _, "aarch64_remove_ssbs":
             expected_cpu_features = DEFAULT_G2_FEATURES_NO_SSBS
-        case CpuModel.ARM_NEOVERSE_N1, _, "aarch64_v1n1":
+        case CpuModel.ARM_NEOVERSE_N1, _, "v1n1":
             expected_cpu_features = DEFAULT_G2_FEATURES
         case CpuModel.ARM_NEOVERSE_N1, _, None:
             expected_cpu_features = DEFAULT_G2_FEATURES
@@ -60,7 +60,7 @@ def _check_cpu_features_arm(test_microvm, guest_kv, template_name=None):
         # [cm]7g with guest kernel 5.10 and later
         case CpuModel.ARM_NEOVERSE_V1, _, "aarch64_remove_ssbs":
             expected_cpu_features = DEFAULT_G3_FEATURES_NO_SSBS_5_10
-        case CpuModel.ARM_NEOVERSE_V1, _, "aarch64_v1n1":
+        case CpuModel.ARM_NEOVERSE_V1, _, "v1n1":
             expected_cpu_features = DEFAULT_G3_FEATURES_V1N1
         case CpuModel.ARM_NEOVERSE_V1, _, "aarch64_with_sve_and_pac":
             expected_cpu_features = DEFAULT_G3_FEATURES_WITH_SVE_AND_PAC_5_10
@@ -119,7 +119,7 @@ def test_cpu_features_with_static_template(
     vm.add_net_iface()
     vm.start()
     guest_kv = re.search(r"vmlinux-(\d+\.\d+)", guest_kernel.name).group(1)
-    _check_cpu_features_arm(vm, guest_kv, "aarch64_v1n1")
+    _check_cpu_features_arm(vm, guest_kv, "v1n1")
 
 
 @pytest.mark.skipif(
