@@ -50,7 +50,11 @@ CROSVM_CTR_SOCKET_NAME = "crosvm_ctr.socket"
 
 
 def spawn_vhost_user_backend(
-    vm, host_mem_path, socket_path, readonly=False, backend=VhostUserBlkBackendType.QEMU
+    vm,
+    host_mem_path,
+    socket_path,
+    readonly=False,
+    backend=VhostUserBlkBackendType.CROSVM,
 ):
     """Spawn vhost-user-blk backend."""
 
