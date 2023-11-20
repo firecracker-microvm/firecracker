@@ -52,8 +52,9 @@ perf_test = {
     },
     "memory-overhead": {
         "label": "💾 Memory Overhead",
-        "test_path": "integration_tests/performance/test_memory_overhead.py --noise-threshold 0.01",
+        "test_path": "integration_tests/performance/test_memory_overhead.py",
         "devtool_opts": "-c 1-10 -m 0",
+        "ab_opts": "--noise-threshold 0.01",
     },
 }
 
@@ -70,8 +71,9 @@ def build_group(test):
     """Build a Buildkite pipeline `group` step"""
     devtool_opts = test.pop("devtool_opts")
     test_path = test.pop("test_path")
+    ab_opts = test.pop("ab_opts", "")
     if REVISION_A:
-        command = f"./tools/devtool -y test --performance --ab {devtool_opts} -- {REVISION_A} {REVISION_B} --test {test_path}"
+        command = f"./tools/devtool -y test --performance --ab {devtool_opts} -- {REVISION_A} {REVISION_B} --test {test_path} {ab_opts}"
     else:
         command = f"./tools/devtool -y test --performance {devtool_opts} -- -m nonci {test_path}"
     return group(
