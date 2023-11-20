@@ -446,6 +446,7 @@ def validate_fc_metrics(metrics):
                 "cfg_fails",
                 "init_time_us",
                 "activate_time_us",
+                "config_change_time_us",
             ]
             vhost_user_devices.append(metrics_name)
 

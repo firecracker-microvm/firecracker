@@ -14,12 +14,14 @@
 //!     "cfg_fails": "SharedIncMetric",
 //!     "init_time_us": SharedStoreMetric,
 //!     "activate_time_us": SharedStoreMetric,
+//!     "config_change_time_us": SharedStoreMetric,
 //!  }
 //!  "vhost_user_{mod}_id1": {
 //!     "activate_fails": "SharedIncMetric",
 //!     "cfg_fails": "SharedIncMetric",
 //!     "init_time_us": SharedStoreMetric,
 //!     "activate_time_us": SharedStoreMetric,
+//!     "config_change_time_us": SharedStoreMetric,
 //!  }
 //!  ...
 //!  "vhost_user_{mod}_idN": {
@@ -27,12 +29,13 @@
 //!     "cfg_fails": "SharedIncMetric",
 //!     "init_time_us": SharedStoreMetric,
 //!     "activate_time_us": SharedStoreMetric,
+//!     "config_change_time_us": SharedStoreMetric,
 //!  }
 //! }
 //! ```
 //! Each `vhost_user` field in the example above is a serializable `VhostUserDeviceMetrics`
-//! structure collecting metrics such as `activate_fails`, `cfg_fails`, `init_time_us` and
-//! `activate_time_us` for the vhost_user device.
+//! structure collecting metrics such as `activate_fails`, `cfg_fails`, `init_time_us`,
+//! `activate_time_us` and `config_change_time_us` for the vhost_user device.
 //! For vhost-user block device having endpoint "/drives/drv0" the emitted metrics would be
 //! `vhost_user_block_drv0`.
 //! For vhost-user block device having endpoint "/drives/drvN" the emitted metrics would be
@@ -139,6 +142,8 @@ pub struct VhostUserDeviceMetrics {
     pub init_time_us: SharedStoreMetric,
     // Vhost-user activate time in microseconds.
     pub activate_time_us: SharedStoreMetric,
+    // Vhost-user config change time in microseconds.
+    pub config_change_time_us: SharedStoreMetric,
 }
 
 #[cfg(test)]
