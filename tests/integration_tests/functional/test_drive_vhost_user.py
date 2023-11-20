@@ -7,7 +7,11 @@ import shutil
 from pathlib import Path
 
 import host_tools.drive as drive_tools
-from framework.utils_drive import partuuid_and_disk_path, spawn_vhost_user_backend
+from framework.utils_drive import (
+    partuuid_and_disk_path,
+    resize_vhost_user_drive,
+    spawn_vhost_user_backend,
+)
 from host_tools.metrics import FcDeviceMetrics
 
 
@@ -330,3 +334,50 @@ def test_partuuid_update(microvm_factory, guest_kernel, rootfs_ubuntu_22):
     }
     _check_drives(vm, assert_dict, assert_dict.keys())
     vhost_user_block_metrics.validate(vm)
+
+
+def test_config_change(microvm_factory, guest_kernel, rootfs):
+    """
+    Verify handling of block device resize.
+    We expect that the guest will start reporting the updated size
+    after Firecracker handles a PATCH request to the vhost-user block device.
+    """
+
+    orig_size = 10  # MB
+    new_sizes = [20, 10, 30]  # MB
+    vhost_user_socket = "/vub.socket"
+    mkfs_mount_cmd = "mkfs.ext4 /dev/vdb && mkdir -p /tmp/tmp && mount /dev/vdb /tmp/tmp && umount /tmp/tmp"
+
+    vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
+    vm.spawn(log_level="Info")
+    vm.basic_config()
+    vm.add_net_iface()
+
+    # Add a block device to test resizing.
+    fs = drive_tools.FilesystemFile(size=orig_size)
+    _backend = spawn_vhost_user_backend(vm, fs.path, vhost_user_socket)
+    vm.add_vhost_user_drive("scratch", vhost_user_socket)
+    vm.start()
+
+    # Check that guest reports correct original size.
+    _check_block_size(vm.ssh, "/dev/vdb", orig_size * 1024 * 1024)
+
+    # Check that we can create a filesystem and mount it
+    ret, out, err = vm.ssh.run(mkfs_mount_cmd)
+    assert ret == 0, f"{ret}, {out}, {err}"
+
+    for new_size in new_sizes:
+        # Instruct the backend to resize the device.
+        # It will both resize the file and update its device config.
+        resize_vhost_user_drive(vm, new_size)
+
+        # Instruct Firecracker to reread device config and notify
+        # the guest of a config change.
+        vm.patch_drive("scratch")
+
+        # Check that guest reports correct new size.
+        _check_block_size(vm.ssh, "/dev/vdb", new_size * 1024 * 1024)
+
+        # Check that we can create a filesystem and mount it
+        ret, out, err = vm.ssh.run(mkfs_mount_cmd)
+        assert ret == 0, f"{new_size=}, {ret=}, {out=}, {err=}"
