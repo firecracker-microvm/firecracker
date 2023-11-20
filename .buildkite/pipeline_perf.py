@@ -11,7 +11,6 @@ from common import (
     group,
     overlay_dict,
     pipeline_to_json,
-    run_all_tests,
 )
 
 # In `devtool_opts`, we restrict both the set of CPUs on which the docker container's threads can run,
@@ -97,14 +96,20 @@ parser.add_argument(
     action="append",
 )
 
-changed_files = (
-    get_changed_files(f"{REVISION_A}..{REVISION_B}") if REVISION_A is not None else []
-)
+RUN_TESTS = True
+if REVISION_A is not None:
+    changed_files = get_changed_files(f"{REVISION_A}..{REVISION_B}")
+    # Our A/B-Testing setup by design only A/B-tests firecracker binaries.
+    # So we only trigger A/B-tests on file changes that have impact on the firecracker
+    # binary. These include ".rs" files, "Cargo.toml" and "Cargo.lock" files, as well
+    # as ".cargo/config".
+    RUN_TESTS = any(
+        x.suffix in [".rs", ".toml", ".lock", "config"] for x in changed_files
+    )
+
 group_steps = []
 
-if run_all_tests(
-    changed_files
-):  # run_all_tests will return `True` if changed_files == []
+if RUN_TESTS:
     args = parser.parse_args()
     tests = [perf_test[test] for test in args.test]
     for test_data in tests:
