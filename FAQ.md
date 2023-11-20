@@ -16,7 +16,7 @@ Fargate](https://aws.amazon.com/fargate/) to improve resource utilization and
 customer experience, while providing the security and isolation required of
 public cloud infrastructure. Firecracker started from Chromium OS's Virtual
 Machine Monitor,
-[crosvm](https://chromium.googlesource.com/chromiumos/platform/crosvm/), an open
+[crosvm](https://github.com/google/crosvm), an open
 source VMM written in Rust. Today, crosvm and Firecracker have diverged to
 serve very different customer needs. [Rust-vmm](https://github.com/rust-vmm) is
 an open source community where we collaborate with the crosvm maintainers and
