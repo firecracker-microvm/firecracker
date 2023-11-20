@@ -28,6 +28,6 @@ name = "five"
 name = "six"
 
 [dependencies]
-env_logger = "0.10.0"
+env_logger = "0.10.1"
 log = "0.4.20"
 log-instrument-macros = { path = "../log-instrument-macros" }
