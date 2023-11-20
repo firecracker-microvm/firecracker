@@ -62,11 +62,6 @@ PHASE_REPORT_KEY = pytest.StashKey[Dict[str, pytest.CollectReport]]()
 def pytest_addoption(parser):
     """Pytest hook. Add command line options."""
     parser.addoption(
-        "--perf-fail",
-        action="store_true",
-        help="fail the test if the baseline does not match",
-    )
-    parser.addoption(
         "--binary-dir",
         action="store",
         help="use firecracker/jailer binaries from this directory instead of compiling from source",
