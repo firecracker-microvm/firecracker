@@ -17,6 +17,22 @@ Firecracker, check out the [getting started guide](getting-started.md).
 Familiarity with socket programming, in particular Unix sockets, is also
 assumed.
 
+### Kernel configs
+
+- Host kernel config has: `CONFIG_VHOST_VSOCK=m`
+- Guest kernel config has: `CONFIG_VIRTIO_VSOCKETS=y`
+
+To confirm that vsock can be used, run below command inside guest:
+
+```bash
+ls /dev/vsock
+```
+
+and confirm that the `/dev/vsock` device is available.
+
+Reference the guest kernel configuration that Firecracker is
+using in its CI can be found [here](../resources/guest_configs/).
+
 ## Firecracker Virtio-vsock Design
 
 The Firecracker vsock device aims to provide full virtio-vsock support to
