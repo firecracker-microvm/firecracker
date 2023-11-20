@@ -31,4 +31,6 @@ def test_repo_validate_yaml():
 
     repo_root = Path("..")
     for path in repo_root.rglob("*.y*ml"):
+        if str(path).startswith("../build/"):
+            continue
         yaml.safe_load(path.open(encoding="utf-8"))
