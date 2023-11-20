@@ -256,6 +256,8 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
     }
 
     pub fn config_update(&mut self) -> Result<(), VhostUserBlockError> {
+        let start_time = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+
         // This buffer is used for config size check in vhost crate.
         let buffer = [0u8; BLOCK_CONFIG_SPACE_SIZE as usize];
         let (_, new_config_space) = self
@@ -272,6 +274,9 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
         self.irq_trigger
             .trigger_irq(IrqType::Config)
             .map_err(VhostUserBlockError::IrqTrigger)?;
+
+        let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time;
+        self.metrics.config_change_time_us.store(delta_us);
 
         Ok(())
     }
