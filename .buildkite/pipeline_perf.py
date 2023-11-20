@@ -29,6 +29,7 @@ perf_test = {
         "label": "🖴 vhost-user Block Performance",
         "test_path": "integration_tests/performance/test_block_ab.py::test_block_vhost_user_performance",
         "devtool_opts": "-c 1-10 -m 0",
+        "ab_opts": "--noise-threshold 0.1",
     },
     "network-latency": {
         "label": "🖧 Network Latency",
