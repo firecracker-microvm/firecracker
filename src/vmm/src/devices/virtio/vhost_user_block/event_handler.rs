@@ -63,7 +63,7 @@ impl MutEventSubscriber for VhostUserBlock {
         //  - on device activation (is-activated already true at this point),
         //  - on device restore from snapshot.
         if self.is_activated() {
-            error!("This a vhost backed block. Not sure why I received this event");
+            warn!("Vhost-user block: unexpected init event");
         } else {
             self.register_activate_event(ops);
         }
