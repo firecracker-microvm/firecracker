@@ -680,7 +680,7 @@ def populate_data_store(test_microvm, data_store):
 
 def start_screen_process(screen_log, session_name, binary_path, binary_params):
     """Start binary process into a screen session."""
-    start_cmd = "screen -L -Logfile {logfile} " "-dmS {session} {binary} {params}"
+    start_cmd = "screen -L -Logfile {logfile} -dmS {session} {binary} {params}"
     start_cmd = start_cmd.format(
         logfile=screen_log,
         session=session_name,

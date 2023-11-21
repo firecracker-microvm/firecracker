@@ -156,6 +156,7 @@ class Microvm:
         netns: net_tools.NetNs,
         monitor_memory: bool = True,
         jailer_kwargs: Optional[dict] = None,
+        numa_node=None,
     ):
         """Set up microVM attributes, paths, and data structures."""
         # pylint: disable=too-many-statements
@@ -210,6 +211,8 @@ class Microvm:
         self.disks = {}
         self.vcpus_count = None
         self.mem_size_bytes = None
+
+        self._numa_node = numa_node
 
         # Flag checked in destructor to see abnormal signal-induced crashes.
         self.expect_kill_by_signal = False
@@ -485,6 +488,7 @@ class Microvm:
     ):
         """Start a microVM as a daemon or in a screen session."""
         # pylint: disable=subprocess-run-check
+        # pylint: disable=too-many-branches
         self.jailer.setup()
         self.api = Api(self.jailer.api_socket_path())
 
@@ -519,11 +523,19 @@ class Microvm:
             # Checking the timings requires DEBUG level log messages
             self.time_api_requests = False
 
+        if not self.jailer.daemonize:
+            self.jailer.new_pid_ns = False
+
+        cmd = [str(self._jailer_binary_path)] + self.jailer.construct_param_list()
+        if self._numa_node is not None:
+            node = str(self._numa_node)
+            cmd = ["numactl", "-N", node, "-m", node] + cmd
+
         # When the daemonize flag is on, we want to clone-exec into the
         # jailer rather than executing it via spawning a shell.
         if self.jailer.daemonize:
             res = subprocess.Popen(
-                [str(self._jailer_binary_path)] + self.jailer.construct_param_list(),
+                cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -534,12 +546,11 @@ class Microvm:
             # Run Firecracker under screen. This is used when we want to access
             # the serial console. The file will collect the output from
             # 'screen'ed Firecracker.
-            self.jailer.new_pid_ns = False
             screen_pid, binary_pid = utils.start_screen_process(
                 self.screen_log,
                 self.screen_session,
-                self._jailer_binary_path,
-                self.jailer.construct_param_list(),
+                cmd[0],
+                cmd[1:],
             )
             self._screen_pid = screen_pid
             self._screen_firecracker_pid = binary_pid
