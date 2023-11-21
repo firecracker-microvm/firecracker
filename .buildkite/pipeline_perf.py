@@ -91,7 +91,7 @@ parser = COMMON_PARSER
 parser.add_argument(
     "--test",
     choices=list(perf_test.keys()),
-    default=list(perf_test.keys()),
+    required=False,
     help="performance test",
     action="append",
 )
@@ -111,7 +111,7 @@ group_steps = []
 
 if RUN_TESTS:
     args = parser.parse_args()
-    tests = [perf_test[test] for test in args.test]
+    tests = [perf_test[test] for test in args.test or perf_test.keys()]
     for test_data in tests:
         test_data.setdefault("platforms", args.platforms)
         test_data.setdefault("instances", args.instances)
