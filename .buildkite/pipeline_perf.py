@@ -61,15 +61,15 @@ def build_group(test):
 parser = COMMON_PARSER
 parser.add_argument(
     "--test",
-    required=True,
     choices=list(perf_test.keys()),
+    required=False,
     help="performance test",
     action="append",
 )
 parser.add_argument("--retries", type=int, default=0)
 args = parser.parse_args()
 group_steps = []
-tests = [perf_test[test] for test in args.test]
+tests = [perf_test[test] for test in args.test or perf_test.keys()]
 for test_data in tests:
     test_data.setdefault("platforms", args.platforms)
     test_data.setdefault("instances", args.instances)
