@@ -566,33 +566,6 @@ def get_cpu_percent(pid: int, iterations: int, omit: int) -> dict:
     return cpu_percentages
 
 
-def summarize_cpu_percent(cpu_percentages: dict):
-    """
-    Aggregates the results of `get_cpu_percent` into average utilization for the vmm thread, and total average
-    utilization of all vcpu threads
-
-    :param cpu_percentages: mapping {thread_name: { thread_id -> [cpu samples])}}.
-    :return: A tuple (vmm utilization, total vcpu utilization)
-    """
-
-    def avg(thread_name):
-        assert thread_name in cpu_percentages and cpu_percentages[thread_name]
-
-        # Generally, we expect there to be just one thread with any given name, but sometimes there's two 'firecracker'
-        # threads
-        data = list(cpu_percentages[thread_name].values())[0]
-        return sum(data) / len(data)
-
-    vcpu_util_total = 0
-
-    vcpu = 0
-    while f"fc_vcpu {vcpu}" in cpu_percentages:
-        vcpu_util_total += avg(f"fc_vcpu {vcpu}")
-        vcpu += 1
-
-    return avg("firecracker"), vcpu_util_total
-
-
 def run_guest_cmd(ssh_connection, cmd, expected, use_json=False):
     """Runs a shell command at the remote accessible via SSH"""
     _, stdout, stderr = ssh_connection.run(cmd)
