@@ -4,7 +4,7 @@ FROM ubuntu:22.04
 # The Rust toolchain layer will get updated most frequently, but we could keep the system
 # dependencies layer intact for much longer.
 
-ARG RUST_TOOLCHAIN="1.70.0"
+ARG RUST_TOOLCHAIN="1.73.0"
 ARG TMP_BUILD_DIR=/tmp/build
 ARG FIRECRACKER_SRC_DIR="/firecracker"
 ARG FIRECRACKER_BUILD_DIR="$FIRECRACKER_SRC_DIR/build"
@@ -91,6 +91,8 @@ RUN apt-get update \
         libglib2.0-dev \
         # for crosvm (vhost-user-blk backend)
         libcap2 \
+        # for debugging
+        gdb strace \
     && rm -rf /var/lib/apt/lists/* \
     && pip3 install --upgrade pip poetry \
     && gem install mdl
