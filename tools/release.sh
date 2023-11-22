@@ -101,6 +101,7 @@ VERSION=$(get-firecracker-version)
 PROFILE_DIR=$(get-profile-dir "$PROFILE")
 CARGO_TARGET=$ARCH-unknown-linux-$LIBC
 CARGO_TARGET_DIR=build/cargo_target/$CARGO_TARGET/$PROFILE_DIR
+RUST_TOOLCHAIN=$(cargo version | cut -f2 -d ' ')
 
 CARGO_REGISTRY_DIR="build/cargo_registry"
 CARGO_GIT_REGISTRY_DIR="build/cargo_git_registry"
@@ -124,7 +125,7 @@ if [ "$LIBC" == "gnu" ]; then
     ARTIFACTS=(firecracker seccompiler-bin rebase-snap cpu-template-helper snapshot-editor)
 fi
 
-say "Building version=$VERSION, profile=$PROFILE, target=$CARGO_TARGET..."
+say "Building version=$VERSION, profile=$PROFILE, target=$CARGO_TARGET, Rust toolchain=${RUST_TOOLCHAIN}..."
 # shellcheck disable=SC2086
 cargo build --target "$CARGO_TARGET" $CARGO_OPTS --workspace
 
