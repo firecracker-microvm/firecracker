@@ -10,7 +10,7 @@ use std::sync::{Mutex, OnceLock};
 use std::thread;
 
 use log::{Log, Metadata, Record};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use utils::time::LocalTime;
 
 use super::metrics::{IncMetric, METRICS};
@@ -200,25 +200,19 @@ pub struct LoggerConfig {
 /// the log level filter. It would be a breaking change to no longer support this. In the next
 /// breaking release this should be removed (replaced with `log::LevelFilter` and only supporting
 /// its default deserialization).
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum LevelFilter {
     /// [`log::LevelFilter:Off`]
-    #[serde(alias = "OFF")]
     Off,
     /// [`log::LevelFilter:Trace`]
-    #[serde(alias = "TRACE")]
     Trace,
     /// [`log::LevelFilter:Debug`]
-    #[serde(alias = "DEBUG")]
     Debug,
     /// [`log::LevelFilter:Info`]
-    #[serde(alias = "INFO")]
     Info,
     /// [`log::LevelFilter:Warn`]
-    #[serde(alias = "WARN", alias = "WARNING", alias = "Warning")]
     Warn,
     /// [`log::LevelFilter:Error`]
-    #[serde(alias = "ERROR")]
     Error,
 }
 impl From<LevelFilter> for log::LevelFilter {
@@ -231,6 +225,25 @@ impl From<LevelFilter> for log::LevelFilter {
             LevelFilter::Warn => log::LevelFilter::Warn,
             LevelFilter::Error => log::LevelFilter::Error,
         }
+    }
+}
+impl<'de> Deserialize<'de> for LevelFilter {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use serde::de::Error;
+        let key = String::deserialize(deserializer)?;
+        let level = match key.to_lowercase().as_str() {
+            "off" => Ok(LevelFilter::Off),
+            "trace" => Ok(LevelFilter::Trace),
+            "debug" => Ok(LevelFilter::Debug),
+            "info" => Ok(LevelFilter::Info),
+            "warn" | "warning" => Ok(LevelFilter::Warn),
+            "error" => Ok(LevelFilter::Error),
+            _ => Err(D::Error::custom("Invalid LevelFilter")),
+        };
+        level
     }
 }
 
@@ -287,37 +300,52 @@ mod tests {
             log::LevelFilter::Error
         );
     }
+
     #[test]
-    fn levelfilter_from_str() {
+    fn levelfilter_from_str_all_variants() {
+        use itertools::Itertools;
+
+        #[derive(Deserialize)]
+        struct Foo {
+            #[allow(dead_code)]
+            level: LevelFilter,
+        }
+
+        for (level, level_enum) in [
+            ("off", LevelFilter::Off),
+            ("trace", LevelFilter::Trace),
+            ("debug", LevelFilter::Debug),
+            ("info", LevelFilter::Info),
+            ("warn", LevelFilter::Warn),
+            ("warning", LevelFilter::Warn),
+            ("error", LevelFilter::Error),
+        ] {
+            let multi = level.chars().map(|_| 0..=1).multi_cartesian_product();
+            for combination in multi {
+                let variant = level
+                    .chars()
+                    .zip_eq(combination)
+                    .map(|(c, v)| match v {
+                        0 => c.to_ascii_lowercase(),
+                        1 => c.to_ascii_uppercase(),
+                        _ => unreachable!(),
+                    })
+                    .collect::<String>();
+
+                let ex = format!("{{ \"level\": \"{}\" }}", variant);
+                assert_eq!(LevelFilter::from_str(&variant), Ok(level_enum));
+                assert!(serde_json::from_str::<Foo>(&ex).is_ok(), "{ex}");
+            }
+        }
+        let ex = "{{ \"level\": \"blah\" }}".to_string();
+        assert!(
+            serde_json::from_str::<Foo>(&ex).is_err(),
+            "expected error got {ex:#?}"
+        );
         assert_eq!(
             LevelFilter::from_str("bad"),
             Err(LevelFilterFromStrError(String::from("bad")))
         );
-
-        assert_eq!(LevelFilter::from_str("Off"), Ok(LevelFilter::Off));
-        assert_eq!(LevelFilter::from_str("Trace"), Ok(LevelFilter::Trace));
-        assert_eq!(LevelFilter::from_str("Debug"), Ok(LevelFilter::Debug));
-        assert_eq!(LevelFilter::from_str("Info"), Ok(LevelFilter::Info));
-        assert_eq!(LevelFilter::from_str("Warn"), Ok(LevelFilter::Warn));
-        assert_eq!(LevelFilter::from_str("Error"), Ok(LevelFilter::Error));
-
-        assert_eq!(LevelFilter::from_str("off"), Ok(LevelFilter::Off));
-        assert_eq!(LevelFilter::from_str("trace"), Ok(LevelFilter::Trace));
-        assert_eq!(LevelFilter::from_str("debug"), Ok(LevelFilter::Debug));
-        assert_eq!(LevelFilter::from_str("info"), Ok(LevelFilter::Info));
-        assert_eq!(LevelFilter::from_str("warn"), Ok(LevelFilter::Warn));
-        assert_eq!(LevelFilter::from_str("error"), Ok(LevelFilter::Error));
-
-        assert_eq!(LevelFilter::from_str("OFF"), Ok(LevelFilter::Off));
-        assert_eq!(LevelFilter::from_str("TRACE"), Ok(LevelFilter::Trace));
-        assert_eq!(LevelFilter::from_str("DEBUG"), Ok(LevelFilter::Debug));
-        assert_eq!(LevelFilter::from_str("INFO"), Ok(LevelFilter::Info));
-        assert_eq!(LevelFilter::from_str("WARN"), Ok(LevelFilter::Warn));
-        assert_eq!(LevelFilter::from_str("ERROR"), Ok(LevelFilter::Error));
-
-        assert_eq!(LevelFilter::from_str("warning"), Ok(LevelFilter::Warn));
-        assert_eq!(LevelFilter::from_str("Warning"), Ok(LevelFilter::Warn));
-        assert_eq!(LevelFilter::from_str("WARNING"), Ok(LevelFilter::Warn));
     }
 
     #[test]
