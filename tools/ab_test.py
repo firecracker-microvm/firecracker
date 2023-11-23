@@ -327,7 +327,12 @@ if __name__ == "__main__":
         type=float,
         default=0.0,
     )
-    parser.add_argument("--noise-threshold", type=float, default=0.05)
+    parser.add_argument(
+        "--noise-threshold",
+        help="The minimal delta which a metric has to regress on average across all tests that emit it before the regressions will be considered valid.",
+        type=float,
+        default=0.05,
+    )
     args = parser.parse_args()
 
     ab_performance_test(
