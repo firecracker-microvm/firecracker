@@ -38,6 +38,7 @@ from framework.http_api import Api
 from framework.jailer import JailerContext
 from framework.microvm_helpers import MicrovmHelpers
 from framework.properties import global_props
+from framework.utils_drive import VhostUserBlkBackend, VhostUserBlkBackendType
 from host_tools.memory import MemoryMonitor
 
 LOG = logging.getLogger("microvm")
@@ -209,6 +210,7 @@ class Microvm:
         # device dictionaries
         self.iface = {}
         self.disks = {}
+        self.disks_vhost_user = {}
         self.vcpus_count = None
         self.mem_size_bytes = None
 
@@ -228,6 +230,13 @@ class Microvm:
     def kill(self):
         """All clean up associated with this microVM should go here."""
         # pylint: disable=subprocess-run-check
+
+        # We start with vhost-user backends,
+        # because if we stop Firecracker first, the backend will want
+        # to exit as well and this will cause a race condition.
+        for backend in self.disks_vhost_user.values():
+            backend.kill()
+        self.disks_vhost_user.clear()
 
         if (
             self.expect_kill_by_signal is False
@@ -466,6 +475,8 @@ class Microvm:
     def pin_threads(self, first_cpu):
         """
         Pins all microvm threads (VMM, API and vCPUs) to consecutive physical cpu core, starting with "first_cpu"
+
+        Return next "free" cpu core.
         """
         for vcpu, pcpu in enumerate(range(first_cpu, first_cpu + self.vcpus_count)):
             assert self.pin_vcpu(
@@ -480,6 +491,8 @@ class Microvm:
         assert self.pin_api(
             first_cpu + self.vcpus_count + 1
         ), "Failed to pin fc_api thread."
+
+        return first_cpu + self.vcpus_count + 2
 
     def spawn(
         self,
@@ -704,12 +717,27 @@ class Microvm:
     def add_vhost_user_drive(
         self,
         drive_id,
-        socket,
+        path_on_host,
         partuuid=None,
         is_root_device=False,
+        is_read_only=False,
         cache_type=None,
+        backend_type=VhostUserBlkBackendType.CROSVM,
     ):
         """Add a vhost-user block device."""
+
+        # It is possible that the user adds another drive
+        # with the same ID. In that case, we should clean
+        # the previous backend up first.
+        prev = self.disks_vhost_user.pop(drive_id, None)
+        if prev:
+            prev.kill()
+
+        backend = VhostUserBlkBackend.with_backend(
+            backend_type, path_on_host, self.chroot(), drive_id, is_read_only
+        )
+
+        socket = backend.spawn(self.jailer.uid, self.jailer.gid)
 
         self.api.drive.put(
             drive_id=drive_id,
@@ -718,6 +746,8 @@ class Microvm:
             is_root_device=is_root_device,
             cache_type=cache_type,
         )
+
+        self.disks_vhost_user[drive_id] = backend
 
     def patch_drive(self, drive_id, file=None):
         """Modify/patch an existing block device."""

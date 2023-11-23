@@ -9,6 +9,7 @@ import platform
 import re
 import resource
 import time
+from pathlib import Path
 
 import packaging.version
 import pytest
@@ -18,7 +19,6 @@ import host_tools.network as net_tools
 from framework import utils_cpuid
 from framework.utils import get_firecracker_version_from_toml, is_io_uring_supported
 from framework.utils_cpu_templates import nonci_on_arm
-from framework.utils_drive import spawn_vhost_user_backend
 
 MEM_LIMIT = 1000000000
 
@@ -749,12 +749,7 @@ def test_drive_patch(test_microvm_with_api):
     fs_vub = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, "scratch_vub")
     )
-    vhost_user_socket = "/vub.socket"
-    # Launching vhost-user-block backend
-    _backend = spawn_vhost_user_backend(
-        test_microvm, fs_vub.path, vhost_user_socket, False
-    )
-    test_microvm.add_vhost_user_drive("scratch_vub", vhost_user_socket)
+    test_microvm.add_vhost_user_drive("scratch_vub", fs_vub.path)
 
     # Patching drive before boot is not allowed.
     with pytest.raises(RuntimeError, match=NOT_SUPPORTED_BEFORE_START):
@@ -931,7 +926,10 @@ def _drive_patch(test_microvm):
             "path_on_host": None,
             "rate_limiter": None,
             "io_engine": None,
-            "socket": "/vub.socket",
+            "socket": str(
+                Path("/")
+                / test_microvm.disks_vhost_user["scratch_vub"].socket_path.name
+            ),
         },
     ]
 

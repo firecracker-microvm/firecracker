@@ -7,7 +7,6 @@ import time
 import pytest
 
 import host_tools.drive as drive_tools
-from framework.utils_drive import resize_vhost_user_drive, spawn_vhost_user_backend
 
 
 @pytest.mark.parametrize("vcpu_count", [1, 2], ids=["1vcpu", "2vcpu"])
@@ -28,7 +27,6 @@ def test_vhost_user_block_metrics(
     # Picked from test_config_change assuming that the intention is to change size from
     # low->high->low->high and so the numbers are not in monotonic sequence.
     new_sizes = [20, 10, 30]  # MB
-    vhost_user_socket = "/vub.socket"
 
     vm = microvm_factory.build(guest_kernel, rootfs_ubuntu_22, monitor_memory=False)
     vm.spawn(log_level="Info")
@@ -36,8 +34,7 @@ def test_vhost_user_block_metrics(
 
     # Add a block device to test resizing.
     fs = drive_tools.FilesystemFile(size=orig_size)
-    _backend = spawn_vhost_user_backend(vm, fs.path, vhost_user_socket)
-    vm.add_vhost_user_drive("scratch", vhost_user_socket)
+    vm.add_vhost_user_drive("scratch", fs.path)
     vm.start()
 
     # vhost-user-block is activated during boot but it takes a while so we wait.
@@ -71,7 +68,7 @@ def test_vhost_user_block_metrics(
     for new_size in new_sizes:
         # Instruct the backend to resize the device.
         # It will both resize the file and update its device config.
-        resize_vhost_user_drive(vm, new_size)
+        vm.disks_vhost_user["scratch"].resize(new_size)
 
         # Instruct Firecracker to reread device config and notify
         # the guest of a config change.
