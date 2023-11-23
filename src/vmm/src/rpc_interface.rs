@@ -20,7 +20,7 @@ use super::{
 };
 use crate::builder::StartMicrovmError;
 use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
-use crate::logger::{error, info, warn, LoggerConfig, *};
+use crate::logger::{info, warn, LoggerConfig, *};
 use crate::mmds::data_store::{self, Mmds};
 use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
 use crate::resources::VmmConfig;
@@ -42,7 +42,7 @@ use crate::vmm_config::net::{
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use crate::vmm_config::{self, RateLimiterUpdate};
-use crate::{EventManager, FcExitCode};
+use crate::EventManager;
 
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.).
@@ -247,7 +247,7 @@ pub struct PrebootApiController<'a> {
     boot_path: bool,
     // Some PrebootApiRequest errors are irrecoverable and Firecracker
     // should cleanly teardown if they occur.
-    fatal_error: Option<FcExitCode>,
+    fatal_error: Option<BuildMicrovmFromRequestsError>,
 }
 
 // TODO Remove when `EventManager` implements `std::fmt::Debug`.
@@ -287,6 +287,17 @@ pub type ApiRequest = Box<VmmAction>;
 /// Shorthand type for a response containing a boxed Result.
 pub type ApiResponse = Box<std::result::Result<VmmData, VmmActionError>>;
 
+/// Error type for `PrebootApiController::build_microvm_from_requests`.
+#[derive(Debug, thiserror::Error, displaydoc::Display, derive_more::From)]
+pub enum BuildMicrovmFromRequestsError {
+    /// Populating MMDS from file failed: {0:?}.
+    Mmds(data_store::Error),
+    /// Loading snapshot failed.
+    Restore,
+    /// Resuming MicroVM after loading snapshot failed.
+    Resume,
+}
+
 impl<'a> PrebootApiController<'a> {
     /// Constructor for the PrebootApiController.
     pub fn new(
@@ -320,7 +331,7 @@ impl<'a> PrebootApiController<'a> {
         boot_timer_enabled: bool,
         mmds_size_limit: usize,
         metadata_json: Option<&str>,
-    ) -> Result<(VmResources, Arc<Mutex<Vmm>>), FcExitCode> {
+    ) -> Result<(VmResources, Arc<Mutex<Vmm>>), BuildMicrovmFromRequestsError> {
         let mut vm_resources = VmResources::default();
         // Silence false clippy warning. Clippy suggests using
         // VmResources { boot_timer: boot_timer_enabled, ..Default::default() }; but this will
@@ -333,16 +344,9 @@ impl<'a> PrebootApiController<'a> {
 
         // Init the data store from file, if present.
         if let Some(data) = metadata_json {
-            vm_resources
-                .locked_mmds_or_default()
-                .put_data(
-                    serde_json::from_str(data)
-                        .expect("MMDS error: metadata provided not valid json"),
-                )
-                .map_err(|err| {
-                    error!("Populating MMDS from file failed: {:?}", err);
-                    crate::FcExitCode::GenericError
-                })?;
+            vm_resources.locked_mmds_or_default().put_data(
+                serde_json::from_str(data).expect("MMDS error: metadata provided not valid json"),
+            )?;
 
             info!("Successfully added metadata to mmds from file");
         }
@@ -376,8 +380,8 @@ impl<'a> PrebootApiController<'a> {
             to_api.send(Box::new(res)).expect("one-shot channel closed");
 
             // If any fatal errors were encountered, break the loop.
-            if let Some(exit_code) = preboot_controller.fatal_error {
-                return Err(exit_code);
+            if let Some(preboot_error) = preboot_controller.fatal_error {
+                return Err(preboot_error);
             }
         }
 
@@ -577,7 +581,7 @@ impl<'a> PrebootApiController<'a> {
         )
         .map_err(|err| {
             // If restore fails, we consider the process is too dirty to recover.
-            self.fatal_error = Some(FcExitCode::BadConfiguration);
+            self.fatal_error = Some(BuildMicrovmFromRequestsError::Restore);
             err
         })?;
         // Resume VM
@@ -587,7 +591,7 @@ impl<'a> PrebootApiController<'a> {
                 .resume_vm()
                 .map_err(|err| {
                     // If resume fails, we consider the process is too dirty to recover.
-                    self.fatal_error = Some(FcExitCode::BadConfiguration);
+                    self.fatal_error = Some(BuildMicrovmFromRequestsError::Resume);
                     err
                 })?;
         }
