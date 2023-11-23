@@ -867,6 +867,26 @@
                 ]
             },
             {
+                "syscall": "mmap",
+                "comment": "Used for allocating memory for FamStructWrapper called by KvmCpu::get_cpuid",
+                "args": [
+                    {
+                        "index": 3,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 34,
+                        "comment": "libc::MAP_ANONYMOUS|libc::MAP_PRIVATE"
+                    },
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 3,
+                        "comment": "libc::PROT_READ|libc::PROT_WRITE"
+                    }
+                ]
+            },
+            {
                 "syscall": "rt_sigaction",
                 "comment": "rt_sigaction is used by libc::abort during a panic to install the default handler for SIGABRT",
                 "args": [
