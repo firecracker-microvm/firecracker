@@ -10,8 +10,7 @@ from pathlib import Path
 import pytest
 
 import host_tools.drive as drive_tools
-from framework.utils import CmdBuilder, ProcessManager, get_cpu_percent, run_cmd
-from framework.utils_drive import spawn_vhost_user_backend
+from framework.utils import CmdBuilder, get_cpu_percent, run_cmd
 
 # size of the block device used in the test, in MB
 BLOCK_DEVICE_SIZE_MB = 2048
@@ -186,11 +185,6 @@ def test_block_performance(
     )
 
 
-def pin_backend(backend, cpu_id: int):
-    """Pin the vhost-user backend to a cpu list."""
-    return ProcessManager.set_cpu_affinity(backend.pid, [cpu_id])
-
-
 @pytest.mark.nonci
 @pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
 @pytest.mark.parametrize("fio_mode", ["randread"])
@@ -208,8 +202,6 @@ def test_block_vhost_user_performance(
     Execute block device emulation benchmarking scenarios.
     """
 
-    vhost_user_socket = "vub.socket"
-
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn(log_level="Info")
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
@@ -217,12 +209,10 @@ def test_block_vhost_user_performance(
 
     # Add a secondary block device for benchmark tests.
     fs = drive_tools.FilesystemFile(size=BLOCK_DEVICE_SIZE_MB)
-    backend = spawn_vhost_user_backend(vm, fs.path, vhost_user_socket, readonly=False)
-    vm.add_vhost_user_drive("scratch", vhost_user_socket)
+    vm.add_vhost_user_drive("scratch", fs.path)
     vm.start()
-    vm.pin_threads(0)
-
-    pin_backend(backend, vm.vcpus_count + 2)
+    next_cpu = vm.pin_threads(0)
+    vm.disks_vhost_user["scratch"].pin(next_cpu)
 
     logs_dir, cpu_load = run_fio(vm, fio_mode, fio_block_size)
 
