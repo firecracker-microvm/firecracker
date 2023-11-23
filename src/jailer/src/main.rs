@@ -64,6 +64,8 @@ pub enum JailerError {
     CreateDir(PathBuf, io::Error),
     #[error("Encountered interior \\0 while parsing a string")]
     CStringParsing(NulError),
+    #[error("Failed to daemonize: {0}")]
+    Daemonize(io::Error),
     #[error("Failed to open directory {0}: {1}")]
     DirOpen(String, String),
     #[error("Failed to duplicate fd: {0}")]

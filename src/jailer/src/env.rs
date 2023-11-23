@@ -8,7 +8,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{exit, Command, Stdio};
 use std::{fmt, io};
 
 use utils::arg_parser::Error::MissingValue;
@@ -674,12 +674,45 @@ impl Env {
 
         // Daemonize before exec, if so required (when the dev_null variable != None).
         if let Some(dev_null) = dev_null {
-            // Call setsid().
+            // We follow the double fork method to daemonize the jailer referring to
+            // https://0xjet.github.io/3OHA/2022/04/11/post.html
+            // setsid() will fail if the calling process is a process group leader.
+            // By calling fork(), we guarantee that the newly created process inherits
+            // the PGID from its parent and, therefore, is not a process group leader.
+            // SAFETY: Safe because it's a library function.
+            let child_pid = unsafe { libc::fork() };
+            if child_pid < 0 {
+                return Err(JailerError::Daemonize(io::Error::last_os_error()));
+            }
+
+            if child_pid != 0 {
+                // parent exiting
+                exit(0);
+            }
+
+            // Call setsid() in child
             // SAFETY: Safe because it's a library function.
             SyscallReturnCode(unsafe { libc::setsid() })
                 .into_empty_result()
                 .map_err(JailerError::SetSid)?;
 
+            // Daemons should not have controlling terminals.
+            // If a daemon has a controlling terminal, it can receive signals
+            // from it that might cause it to halt or exit unexpectedly.
+            // The second fork() ensures that grandchild is not a session,
+            // leader and thus cannot reacquire a controlling terminal.
+            // SAFETY: Safe because it's a library function.
+            let grandchild_pid = unsafe { libc::fork() };
+            if grandchild_pid < 0 {
+                return Err(JailerError::Daemonize(io::Error::last_os_error()));
+            }
+
+            if grandchild_pid != 0 {
+                // child exiting
+                exit(0);
+            }
+
+            // grandchild is the daemon
             // Replace the stdio file descriptors with the /dev/null fd.
             dup2(dev_null.as_raw_fd(), STDIN_FILENO)?;
             dup2(dev_null.as_raw_fd(), STDOUT_FILENO)?;
