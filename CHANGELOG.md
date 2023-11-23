@@ -22,20 +22,18 @@
 - [#4063](https://github.com/firecracker-microvm/firecracker/pull/4063):
   Adds source-level instrumentation based tracing. See
   [tracing](./docs/tracing.md) for more details.
-- [#4226](https://github.com/firecracker-microvm/firecracker/pull/4226):
-  Added support for vhost-user device metrics. Each vhost-user device will
-  emit metrics under the label `"vhost_user_{device}_{drive_id}"`.
-  E.g. the associated metrics for vhost-user block device with endpoint
-  `"/drives/rootfs"` will be available under `"vhost_user_block_rootfs"`
-  in the metrics json object.
 - [#4138](https://github.com/firecracker-microvm/firecracker/pull/4138),
   [#4170](https://github.com/firecracker-microvm/firecracker/pull/4170),
   [#4223](https://github.com/firecracker-microvm/firecracker/pull/4223),
+  [#4247](https://github.com/firecracker-microvm/firecracker/pull/4247),
   [#4226](https://github.com/firecracker-microvm/firecracker/pull/4226):
   Added support for vhost-user block devices. Firecracker implements
   a vhost-user frontend. Users are free to choose from existing open source
   backend solutions or their own implementation.
+  Known limitation: snapshotting is not currently supported for microVMs
+  containing vhost-user block devices.
   See the [related doc page](./docs/api_requests/block-vhost-user.md) for details.
+  The device emits metrics under the label `"vhost_user_{device}_{drive_id}"`.
 
 ### Changed
 
