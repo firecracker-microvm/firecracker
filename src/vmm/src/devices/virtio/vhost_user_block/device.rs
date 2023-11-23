@@ -28,7 +28,7 @@ use crate::devices::virtio::vhost_user_metrics::{
     VhostUserDeviceMetrics, VhostUserMetricsPerDevice,
 };
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
-use crate::logger::{IncMetric, StoreMetric};
+use crate::logger::{log_dev_preview_warning, IncMetric, StoreMetric};
 use crate::vmm_config::drive::BlockDeviceConfig;
 use crate::vstate::memory::GuestMemoryMmap;
 
@@ -164,6 +164,7 @@ impl<T: VhostUserHandleBackend> std::fmt::Debug for VhostUserBlockImpl<T> {
 
 impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
     pub fn new(config: VhostUserBlockConfig) -> Result<Self, VhostUserBlockError> {
+        log_dev_preview_warning("vhost-user-blk device", Option::None);
         let start_time = utils::time::get_time_us(utils::time::ClockType::Monotonic);
         let mut requested_features = AVAILABLE_FEATURES;
 
