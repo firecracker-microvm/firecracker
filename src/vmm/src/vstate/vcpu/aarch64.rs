@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::fmt::Debug;
+use std::fmt::{Debug, Write};
 
 use kvm_bindings::*;
 use kvm_ioctls::*;
@@ -285,8 +285,10 @@ impl Debug for VcpuState {
                 reg.as_slice()
                     .iter()
                     .rev()
-                    .map(|b| format!("{b:x}"))
-                    .collect::<String>()
+                    .fold(String::new(), |mut output, b| {
+                        let _ = write!(output, "{b:x}");
+                        output
+                    })
             )?;
         }
         Ok(())
