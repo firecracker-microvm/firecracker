@@ -15,14 +15,17 @@ use utils::eventfd::EventFd;
 use vmm::logger::{error, warn, ProcessTimeReporter};
 use vmm::resources::VmResources;
 use vmm::rpc_interface::{
-    ApiRequest, ApiResponse, PrebootApiController, RuntimeApiController, VmmAction,
+    ApiRequest, ApiResponse, BuildMicrovmFromRequestsError, PrebootApiController,
+    RuntimeApiController, VmmAction,
 };
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::{EventManager, FcExitCode, Vmm};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum ApiServerError {
-    /// MicroVMStopped with an error: {0:?}
+    /// Failed to build MicroVM: {0}.
+    BuildMicroVmError(BuildMicrovmFromRequestsError),
+    /// MicroVM stopped with an error: {0:?}
     MicroVMStoppedWithError(FcExitCode),
     /// Failed to open the API socket at: {0}. Check that it is not already used.
     FailedToBindSocket(String),
@@ -222,7 +225,7 @@ pub(crate) fn run_with_api(
             mmds_size_limit,
             metadata_json,
         )
-        .map_err(ApiServerError::MicroVMStoppedWithError),
+        .map_err(ApiServerError::BuildMicroVmError),
     };
 
     let result = build_result.and_then(|(vm_resources, vmm)| {
