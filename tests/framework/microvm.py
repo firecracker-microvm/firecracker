@@ -893,7 +893,10 @@ class MicroVMFactory:
             vm.kill()
             vm.jailer.cleanup()
             if len(vm.jailer.jailer_id) > 0:
-                shutil.rmtree(vm.jailer.chroot_base_with_id())
+                try:
+                    shutil.rmtree(vm.jailer.chroot_base_with_id())
+                except FileNotFoundError as e:
+                    pass
             vm.netns.cleanup()
 
 
