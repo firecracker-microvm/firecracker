@@ -578,7 +578,6 @@ fn guest_memory_from_uffd(
 #[cfg(test)]
 mod tests {
     use snapshot::Persist;
-    use utils::errno;
     use utils::tempfile::TempFile;
 
     use super::*;
@@ -691,75 +690,5 @@ mod tests {
             restored_microvm_state.device_states,
             microvm_state.device_states
         )
-    }
-
-    #[test]
-    fn test_create_snapshot_error_display() {
-        use crate::persist::CreateSnapshotError::*;
-        use crate::vstate::memory::MemoryError;
-
-        let err = DirtyBitmap(VmmError::DirtyBitmap(kvm_ioctls::Error::new(20)));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = InvalidVersionFormat;
-        let _ = format!("{}{:?}", err, err);
-
-        let err = UnsupportedVersion;
-        let _ = format!("{}{:?}", err, err);
-
-        let err = Memory(MemoryError::WriteMemory(
-            vm_memory::GuestMemoryError::HostAddressNotAvailable,
-        ));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = MemoryBackingFile("open", io::Error::from_raw_os_error(0));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = MicrovmState(MicrovmStateError::UnexpectedVcpuResponse);
-        let _ = format!("{}{:?}", err, err);
-
-        let err = SerializeMicrovmState(snapshot::Error::InvalidMagic(0));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = SnapshotBackingFile("open", io::Error::from_raw_os_error(0));
-        let _ = format!("{}{:?}", err, err);
-
-        #[cfg(target_arch = "x86_64")]
-        {
-            let err = TooManyDevices(0);
-            let _ = format!("{}{:?}", err, err);
-        }
-    }
-
-    #[test]
-    fn test_microvm_state_error_display() {
-        use crate::persist::MicrovmStateError::*;
-
-        let err = InvalidInput;
-        let _ = format!("{}{:?}", err, err);
-
-        let err = NotAllowed(String::from(""));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = RestoreDevices(DevicePersistError::MmioTransport);
-        let _ = format!("{}{:?}", err, err);
-
-        let err = RestoreVcpuState(vstate::vcpu::VcpuError::VcpuTlsInit);
-        let _ = format!("{}{:?}", err, err);
-
-        let err = RestoreVmState(vstate::vm::VmError::NotEnoughMemorySlots);
-        let _ = format!("{}{:?}", err, err);
-
-        let err = SaveVcpuState(vstate::vcpu::VcpuError::VcpuTlsNotPresent);
-        let _ = format!("{}{:?}", err, err);
-
-        let err = SaveVmState(vstate::vm::VmError::NotEnoughMemorySlots);
-        let _ = format!("{}{:?}", err, err);
-
-        let err = SignalVcpu(VcpuSendEventError(errno::Error::new(0)));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = UnexpectedVcpuResponse;
-        let _ = format!("{}{:?}", err, err);
     }
 }
