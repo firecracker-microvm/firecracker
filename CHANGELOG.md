@@ -68,6 +68,10 @@
   without an error: GenericError" when exiting after encountering an emulation
   error. It now correctly prints "RunWithApiError error: MicroVMStopped *with* an
   error: GenericError".
+- [#4242](https://github.com/firecracker-microvm/firecracker/pull/4242):
+  Fixed a bug introduced in #4047 that limited the `--level` option of logger
+  to Pascal-cased values (e.g. accepting "Info", but not "info"). It now
+  ignores case again.
 
 ## [1.5.0]
 
