@@ -6,6 +6,7 @@ import filecmp
 import logging
 import os
 import re
+import shutil
 from pathlib import Path
 
 import pytest
@@ -411,3 +412,49 @@ def test_create_large_diff_snapshot(test_microvm_with_api):
 
     # If the regression was not fixed, this would have failed. The Firecracker
     # process would have been taken down.
+
+
+def test_diff_snapshot_overlay(guest_kernel, rootfs, microvm_factory):
+    """
+    Tests that if we take a diff snapshot and direct firecracker to write it on
+    top of an existing snapshot file, it will successfully merge them.
+    """
+    basevm = microvm_factory.build(guest_kernel, rootfs)
+    basevm.spawn()
+    basevm.basic_config(track_dirty_pages=True)
+    basevm.add_net_iface()
+    basevm.start()
+
+    # Wait for microvm to be booted
+    rc, _, stderr = basevm.ssh.run("true")
+    assert rc == 0, stderr
+
+    # The first snapshot taken will always contain all memory (even if its specified as "diff").
+    # We use a diff snapshot here, as taking a full snapshot does not clear the dirty page tracking,
+    # meaning the `snapshot_diff()` call below would again dump the entire guest memory instead of
+    # only dirty regions.
+    full_snapshot = basevm.snapshot_diff()
+    basevm.resume()
+
+    # Run some command to dirty some pages
+    rc, _, stderr = basevm.ssh.run("true")
+    assert rc == 0, stderr
+
+    # First copy the base snapshot somewhere else, so we can make sure
+    # it will actually get updated
+    first_snapshot_backup = Path(basevm.chroot()) / "mem.old"
+    shutil.copyfile(full_snapshot.mem, first_snapshot_backup)
+
+    # One Microvm object will always write its snapshot files to the same location
+    merged_snapshot = basevm.snapshot_diff()
+    assert full_snapshot.mem == merged_snapshot.mem
+
+    assert not filecmp.cmp(merged_snapshot.mem, first_snapshot_backup, shallow=False)
+
+    new_vm = microvm_factory.build()
+    new_vm.spawn()
+    new_vm.restore_from_snapshot(merged_snapshot, resume=True)
+
+    # Run some command to check that the restored VM works
+    rc, _, stderr = new_vm.ssh.run("true")
+    assert rc == 0, stderr
