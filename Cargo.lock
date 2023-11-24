@@ -1494,6 +1494,7 @@ dependencies = [
  "device_tree",
  "displaydoc",
  "event-manager",
+ "itertools 0.12.0",
  "kvm-bindings",
  "kvm-ioctls",
  "lazy_static",
