@@ -616,6 +616,19 @@
                 ]
             },
             {
+                "syscall": "madvise",
+                "comment": "Triggered on some deallocation paths in musl free()",
+                "args": [
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 8,
+                        "comment": "libc::MADV_FREE"
+                    }
+                ]
+            },
+            {
                 "syscall": "mmap",
                 "comment": "Used for reading the timezone in LocalTime::now()",
                 "args": [
@@ -838,6 +851,19 @@
                         "op": "eq",
                         "val": 4,
                         "comment": "libc::MADV_DONTNEED"
+                    }
+                ]
+            },
+            {
+                "syscall": "madvise",
+                "comment": "Triggered on some deallocation paths in musl free()",
+                "args": [
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 8,
+                        "comment": "libc::MADV_FREE"
                     }
                 ]
             },
