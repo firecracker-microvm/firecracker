@@ -1006,7 +1006,7 @@ pub mod tests {
     use crate::mmds::ns::MmdsNetworkStack;
     use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
     use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
-    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, FileEngineType};
+    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
     use crate::vmm_config::entropy::{EntropyDeviceBuilder, EntropyDeviceConfig};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
@@ -1154,7 +1154,7 @@ pub mod tests {
                         .to_string(),
                 ),
                 rate_limiter: None,
-                file_engine_type: FileEngineType::default(),
+                file_engine_type: None,
 
                 socket: None,
             };

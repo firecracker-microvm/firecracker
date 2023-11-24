@@ -72,6 +72,7 @@ impl TryFrom<&BlockDeviceConfig> for VhostUserBlockConfig {
             && value.is_read_only.is_none()
             && value.path_on_host.is_none()
             && value.rate_limiter.is_none()
+            && value.file_engine_type.is_none()
         {
             Ok(Self {
                 drive_id: value.drive_id.clone(),
@@ -98,7 +99,7 @@ impl From<VhostUserBlockConfig> for BlockDeviceConfig {
             is_read_only: None,
             path_on_host: None,
             rate_limiter: None,
-            file_engine_type: Default::default(),
+            file_engine_type: None,
 
             socket: Some(value.socket),
         }
@@ -382,6 +383,7 @@ mod tests {
 
     use super::*;
     use crate::devices::virtio::mmio::VIRTIO_MMIO_INT_CONFIG;
+    use crate::devices::virtio::virtio_block::device::FileEngineType;
     use crate::utilities::test_utils::create_tmp_socket;
     use crate::vstate::memory::{FileOffset, GuestAddress, GuestMemoryExtension};
 
@@ -396,7 +398,7 @@ mod tests {
             is_read_only: None,
             path_on_host: None,
             rate_limiter: None,
-            file_engine_type: Default::default(),
+            file_engine_type: None,
 
             socket: Some("sock".to_string()),
         };
@@ -411,7 +413,7 @@ mod tests {
             is_read_only: Some(true),
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
-            file_engine_type: Default::default(),
+            file_engine_type: Some(FileEngineType::Sync),
 
             socket: None,
         };
@@ -426,7 +428,7 @@ mod tests {
             is_read_only: Some(true),
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
-            file_engine_type: Default::default(),
+            file_engine_type: Some(FileEngineType::Sync),
 
             socket: Some("sock".to_string()),
         };
