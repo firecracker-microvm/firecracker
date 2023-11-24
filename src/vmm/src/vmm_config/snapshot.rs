@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 /// The snapshot type options that are available when
 /// creating a new snapshot.
-#[derive(Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum SnapshotType {
     /// Diff snapshot.
     Diff,
