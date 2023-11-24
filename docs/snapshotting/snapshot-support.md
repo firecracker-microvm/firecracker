@@ -37,9 +37,10 @@ guest workload at that particular point in time.
 
 ### Supported platforms
 
-The Firecracker snapshot feature is in [developer preview](../RELEASE_POLICY.md)
-on all CPU micro-architectures listed in [README](../../README.md#supported-platforms).
-See [this section](#developer-preview-status) for more info.
+> [!WARNING]
+> The Firecracker snapshot feature is in [developer preview](../RELEASE_POLICY.md)
+> on all CPU micro-architectures listed in [README](../../README.md#supported-platforms).
+> See [this section](#developer-preview-status) for more info.
 
 ### Overview
 
