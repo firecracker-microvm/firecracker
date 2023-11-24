@@ -64,21 +64,6 @@ pub(crate) fn parse_patch_drive(
         ));
     }
 
-    // Validate request - we need to have at least one parameter set:
-    // - path_on_host
-    // - rate_limiter
-    if block_device_update_cfg.path_on_host.is_none()
-        && block_device_update_cfg.rate_limiter.is_none()
-    {
-        METRICS.patch_api_requests.drive_fails.inc();
-        return Err(Error::Generic(
-            StatusCode::BadRequest,
-            String::from(
-                "Please specify at least one property to patch: path_on_host, rate_limiter.",
-            ),
-        ));
-    }
-
     Ok(ParsedRequest::new_sync(VmmAction::UpdateBlockDevice(
         block_device_update_cfg,
     )))
@@ -117,12 +102,12 @@ mod tests {
         let res = parse_patch_drive(&Body::new(body), Some("1000"));
         assert!(res.is_err());
 
-        // PATCH with missing path_on_host field.
+        // PATCH with only drive_id field.
         let body = r#"{
-            "drive_id": "dummy_id"
+            "drive_id": "1000"
         }"#;
-        let res = parse_patch_drive(&Body::new(body), Some("dummy_id"));
-        assert!(res.is_err());
+        let res = parse_patch_drive(&Body::new(body), Some("1000"));
+        assert!(res.is_ok());
 
         // PATCH with missing drive_id field.
         let body = r#"{

@@ -704,13 +704,16 @@ class Microvm:
             cache_type=cache_type,
         )
 
-    def patch_drive(self, drive_id, file):
+    def patch_drive(self, drive_id, file=None):
         """Modify/patch an existing block device."""
-        self.api.drive.patch(
-            drive_id=drive_id,
-            path_on_host=self.create_jailed_resource(file.path),
-        )
-        self.disks[drive_id] = Path(file.path)
+        if file:
+            self.api.drive.patch(
+                drive_id=drive_id,
+                path_on_host=self.create_jailed_resource(file.path),
+            )
+            self.disks[drive_id] = Path(file.path)
+        else:
+            self.api.drive.patch(drive_id=drive_id)
 
     def add_net_iface(self, iface=None, api=True, **kwargs):
         """Add a network interface"""

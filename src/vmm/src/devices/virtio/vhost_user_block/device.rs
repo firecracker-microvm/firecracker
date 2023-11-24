@@ -17,7 +17,7 @@ use vhost::vhost_user::Frontend;
 
 use super::{VhostUserBlockError, NUM_QUEUES, QUEUE_SIZE};
 use crate::devices::virtio::block_common::CacheType;
-use crate::devices::virtio::device::{DeviceState, IrqTrigger, VirtioDevice};
+use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::devices::virtio::gen::virtio_blk::{
     VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_F_VERSION_1,
 };
@@ -181,7 +181,7 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
         // Get config from backend if CONFIG is acked or use empty buffer.
         let config_space =
             if acked_protocol_features & VhostUserProtocolFeatures::CONFIG.bits() != 0 {
-                // This buffer is read only. Ask vhost implementation why.
+                // This buffer is used for config size check in vhost crate.
                 let buffer = [0u8; BLOCK_CONFIG_SPACE_SIZE as usize];
                 let (_, new_config_space) = vu_handle
                     .vu
@@ -253,6 +253,32 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
             cache_type: self.cache_type,
             socket: self.vu_handle.socket_path.clone(),
         }
+    }
+
+    pub fn config_update(&mut self) -> Result<(), VhostUserBlockError> {
+        let start_time = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+
+        // This buffer is used for config size check in vhost crate.
+        let buffer = [0u8; BLOCK_CONFIG_SPACE_SIZE as usize];
+        let (_, new_config_space) = self
+            .vu_handle
+            .vu
+            .get_config(
+                0,
+                BLOCK_CONFIG_SPACE_SIZE,
+                VhostUserConfigFlags::WRITABLE,
+                &buffer,
+            )
+            .map_err(VhostUserBlockError::Vhost)?;
+        self.config_space = new_config_space;
+        self.irq_trigger
+            .trigger_irq(IrqType::Config)
+            .map_err(VhostUserBlockError::IrqTrigger)?;
+
+        let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time;
+        self.metrics.config_change_time_us.store(delta_us);
+
+        Ok(())
     }
 }
 
@@ -349,11 +375,13 @@ mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
     use std::os::unix::net::UnixStream;
+    use std::sync::atomic::Ordering;
 
     use utils::tempfile::TempFile;
     use vhost::{VhostUserMemoryRegionInfo, VringConfigData};
 
     use super::*;
+    use crate::devices::virtio::mmio::VIRTIO_MMIO_INT_CONFIG;
     use crate::utilities::test_utils::create_tmp_socket;
     use crate::vstate::memory::{FileOffset, GuestAddress, GuestMemoryExtension};
 
@@ -626,6 +654,15 @@ mod tests {
         // Writing to the config does nothing
         vhost_block.write_config(0x69, &[0]);
         assert_eq!(vhost_block.config_space, vec![0x69, 0x69, 0x69]);
+
+        // Testing [`config_update`]
+        vhost_block.config_space = vec![];
+        vhost_block.config_update().unwrap();
+        assert_eq!(vhost_block.config_space, vec![0x69, 0x69, 0x69]);
+        assert_eq!(
+            vhost_block.interrupt_status().load(Ordering::SeqCst),
+            VIRTIO_MMIO_INT_CONFIG
+        );
     }
 
     #[test]
