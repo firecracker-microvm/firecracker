@@ -62,6 +62,11 @@
 - [#4178](https://github.com/firecracker-microvm/firecracker/pull/4178):
   Fixed a bug reporting a non-zero exit code on successful shutdown when
   starting Firecracker with `--no-api`.
+- [#4261](https://github.com/firecracker-microvm/firecracker/pull/4261): Fixed
+  a bug where Firecracker would log "RunWithApiError error: MicroVMStopped
+  without an error: GenericError" when exiting after encountering an emulation
+  error. It now correctly prints "RunWithApiError error: MicroVMStopped *with* an
+  error: GenericError".
 
 ## [1.5.0]
 
