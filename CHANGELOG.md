@@ -14,6 +14,10 @@
 - [#4179](https://github.com/firecracker-microvm/firecracker/pull/4179):
   Fixed a bug reporting a non-zero exit code on successful shutdown when
   starting Firecracker with `--no-api`.
+- [#4270](https://github.com/firecracker-microvm/firecracker/pull/4270):
+  Fixed a bug introduced in #4047 that limited the `--level` option of logger
+  to Pascal-cased values (e.g. accepting "Info", but not "info"). It now
+  ignores case again.
 
 ## [1.5.0]
 
