@@ -14,6 +14,11 @@
 - [#4179](https://github.com/firecracker-microvm/firecracker/pull/4179):
   Fixed a bug reporting a non-zero exit code on successful shutdown when
   starting Firecracker with `--no-api`.
+- [#4271](https://github.com/firecracker-microvm/firecracker/pull/4271): Fixed
+  a bug where Firecracker would log "RunWithApiError error: MicroVMStopped
+  without an error: GenericError" when exiting after encountering an emulation
+  error. It now correctly prints "RunWithApiError error: MicroVMStopped *with* an
+  error: GenericError".
 - [#4270](https://github.com/firecracker-microvm/firecracker/pull/4270):
   Fixed a bug introduced in #4047 that limited the `--level` option of logger
   to Pascal-cased values (e.g. accepting "Info", but not "info"). It now
