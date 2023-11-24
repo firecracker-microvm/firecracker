@@ -878,7 +878,6 @@ mod tests {
     use crate::devices::virtio::vsock::VsockError;
     use crate::mmds::data_store::MmdsVersion;
     use crate::vmm_config::balloon::BalloonBuilder;
-    use crate::vmm_config::drive::FileEngineType;
     use crate::vmm_config::machine_config::VmConfig;
     use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
     use crate::vmm_config::vsock::VsockBuilder;
@@ -1406,7 +1405,7 @@ mod tests {
             is_read_only: Some(false),
             path_on_host: Some(String::new()),
             rate_limiter: None,
-            file_engine_type: FileEngineType::default(),
+            file_engine_type: None,
 
             socket: None,
         };
@@ -2086,7 +2085,7 @@ mod tests {
                 is_read_only: Some(false),
                 path_on_host: Some(String::new()),
                 rate_limiter: None,
-                file_engine_type: FileEngineType::default(),
+                file_engine_type: None,
 
                 socket: None,
             }),
@@ -2196,7 +2195,7 @@ mod tests {
             is_read_only: Some(false),
             path_on_host: Some(String::new()),
             rate_limiter: None,
-            file_engine_type: FileEngineType::default(),
+            file_engine_type: None,
 
             socket: None,
         };

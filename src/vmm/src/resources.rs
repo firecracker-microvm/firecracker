@@ -487,7 +487,7 @@ mod tests {
     use crate::vmm_config::boot_source::{
         BootConfig, BootSource, BootSourceConfig, DEFAULT_KERNEL_CMDLINE,
     };
-    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, FileEngineType};
+    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
     use crate::vmm_config::machine_config::{MachineConfig, VmConfigError};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
@@ -530,7 +530,7 @@ mod tests {
                 is_read_only: Some(false),
                 path_on_host: Some(tmp_file.as_path().to_str().unwrap().to_string()),
                 rate_limiter: Some(RateLimiterConfig::default()),
-                file_engine_type: FileEngineType::default(),
+                file_engine_type: None,
 
                 socket: None,
             },
@@ -1148,7 +1148,8 @@ mod tests {
                             "drive_id": "rootfs",
                             "path_on_host": "{}",
                             "is_root_device": true,
-                            "is_read_only": false
+                            "is_read_only": false,
+                            "io_engine": "Sync"
                         }}
                     ],
                     "network-interfaces": [
@@ -1222,7 +1223,8 @@ mod tests {
                             "drive_id": "rootfs",
                             "path_on_host": "{}",
                             "is_root_device": true,
-                            "is_read_only": false
+                            "is_read_only": false,
+                            "io_engine": "Sync"
                         }}
                     ],
                     "network-interfaces": [
@@ -1281,7 +1283,8 @@ mod tests {
                             "drive_id": "rootfs",
                             "path_on_host": "{}",
                             "is_root_device": true,
-                            "is_read_only": false
+                            "is_read_only": false,
+                            "io_engine": "Sync"
                         }}
                     ],
                     "network-interfaces": [
