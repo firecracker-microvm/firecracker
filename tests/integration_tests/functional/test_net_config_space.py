@@ -121,7 +121,7 @@ def _create_server(jailer, host_ip, port, iterations):
     cmd = 'python3 -c "{}"'.format(
         script.format(host_ip, port, iterations, PAYLOAD_DATA_SIZE)
     )
-    netns_cmd = jailer.netns_cmd_prefix() + cmd
+    netns_cmd = jailer.netns.cmd_prefix() + " " + cmd
     exit_code = subprocess.call(netns_cmd, shell=True)
     assert exit_code == 0
 

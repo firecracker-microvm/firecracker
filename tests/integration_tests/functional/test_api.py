@@ -18,6 +18,7 @@ import host_tools.network as net_tools
 from framework import utils_cpuid
 from framework.utils import get_firecracker_version_from_toml, is_io_uring_supported
 from framework.utils_cpu_templates import nonci_on_arm
+from framework.utils_drive import spawn_vhost_user_backend
 
 MEM_LIMIT = 1000000000
 
@@ -192,14 +193,14 @@ def test_net_api_put_update_pre_boot(test_microvm_with_api):
     test_microvm.spawn()
 
     first_if_name = "first_tap"
-    tap1 = net_tools.Tap(first_if_name, test_microvm.jailer.netns)
+    tap1 = net_tools.Tap(first_if_name, test_microvm.netns.id)
     test_microvm.api.network.put(
         iface_id="1", guest_mac="06:00:00:00:00:01", host_dev_name=tap1.name
     )
 
     # Adding new network interfaces is allowed.
     second_if_name = "second_tap"
-    tap2 = net_tools.Tap(second_if_name, test_microvm.jailer.netns)
+    tap2 = net_tools.Tap(second_if_name, test_microvm.netns.id)
     test_microvm.api.network.put(
         iface_id="2", guest_mac="07:00:00:00:00:01", host_dev_name=tap2.name
     )
@@ -228,7 +229,7 @@ def test_net_api_put_update_pre_boot(test_microvm_with_api):
     iface_id = "1"
     tapname = test_microvm.id[:8] + "tap" + iface_id
 
-    tap3 = net_tools.Tap(tapname, test_microvm.jailer.netns)
+    tap3 = net_tools.Tap(tapname, test_microvm.netns.id)
     test_microvm.api.network.put(
         iface_id=iface_id, host_dev_name=tap3.name, guest_mac="06:00:00:00:00:01"
     )
@@ -266,7 +267,7 @@ def test_api_mmds_config(test_microvm_with_api):
         test_microvm.api.mmds_config.put(network_interfaces=["foo"])
 
     # Attach network interface.
-    tap = net_tools.Tap("tap1", test_microvm.jailer.netns)
+    tap = net_tools.Tap("tap1", test_microvm.netns.id)
     test_microvm.api.network.put(
         iface_id="1", guest_mac="06:00:00:00:00:01", host_dev_name=tap.name
     )
@@ -485,7 +486,7 @@ def test_api_put_update_post_boot(test_microvm_with_api):
 
     iface_id = "1"
     tapname = test_microvm.id[:8] + "tap" + iface_id
-    tap1 = net_tools.Tap(tapname, test_microvm.jailer.netns)
+    tap1 = net_tools.Tap(tapname, test_microvm.netns.id)
 
     test_microvm.api.network.put(
         iface_id=iface_id, host_dev_name=tap1.name, guest_mac="06:00:00:00:00:01"
@@ -588,7 +589,7 @@ def test_rate_limiters_api_config(test_microvm_with_api):
     # Test network with tx bw rate-limiting.
     iface_id = "1"
     tapname = test_microvm.id[:8] + "tap" + iface_id
-    tap1 = net_tools.Tap(tapname, test_microvm.jailer.netns)
+    tap1 = net_tools.Tap(tapname, test_microvm.netns.id)
 
     test_microvm.api.network.put(
         iface_id=iface_id,
@@ -600,7 +601,7 @@ def test_rate_limiters_api_config(test_microvm_with_api):
     # Test network with rx bw rate-limiting.
     iface_id = "2"
     tapname = test_microvm.id[:8] + "tap" + iface_id
-    tap2 = net_tools.Tap(tapname, test_microvm.jailer.netns)
+    tap2 = net_tools.Tap(tapname, test_microvm.netns.id)
     test_microvm.api.network.put(
         iface_id=iface_id,
         guest_mac="06:00:00:00:00:02",
@@ -611,7 +612,7 @@ def test_rate_limiters_api_config(test_microvm_with_api):
     # Test network with tx and rx bw and ops rate-limiting.
     iface_id = "3"
     tapname = test_microvm.id[:8] + "tap" + iface_id
-    tap3 = net_tools.Tap(tapname, test_microvm.jailer.netns)
+    tap3 = net_tools.Tap(tapname, test_microvm.netns.id)
     test_microvm.api.network.put(
         iface_id=iface_id,
         guest_mac="06:00:00:00:00:03",
@@ -657,7 +658,7 @@ def test_api_patch_pre_boot(test_microvm_with_api):
 
     iface_id = "1"
     tapname = test_microvm.id[:8] + "tap" + iface_id
-    tap1 = net_tools.Tap(tapname, test_microvm.jailer.netns)
+    tap1 = net_tools.Tap(tapname, test_microvm.netns.id)
     test_microvm.api.network.put(
         iface_id=iface_id, host_dev_name=tap1.name, guest_mac="06:00:00:00:00:01"
     )
@@ -705,7 +706,7 @@ def test_negative_api_patch_post_boot(test_microvm_with_api):
 
     iface_id = "1"
     tapname = test_microvm.id[:8] + "tap" + iface_id
-    tap1 = net_tools.Tap(tapname, test_microvm.jailer.netns)
+    tap1 = net_tools.Tap(tapname, test_microvm.netns.id)
     test_microvm.api.network.put(
         iface_id=iface_id, host_dev_name=tap1.name, guest_mac="06:00:00:00:00:01"
     )
@@ -744,6 +745,16 @@ def test_drive_patch(test_microvm_with_api):
         is_read_only=False,
         io_engine="Async" if is_io_uring_supported() else "Sync",
     )
+
+    fs_vub = drive_tools.FilesystemFile(
+        os.path.join(test_microvm.fsfiles, "scratch_vub")
+    )
+    vhost_user_socket = "/vub.socket"
+    # Launching vhost-user-block backend
+    _backend = spawn_vhost_user_backend(
+        test_microvm, fs_vub.path, vhost_user_socket, False
+    )
+    test_microvm.add_vhost_user_drive("scratch_vub", vhost_user_socket)
 
     # Patching drive before boot is not allowed.
     with pytest.raises(RuntimeError, match=NOT_SUPPORTED_BEFORE_START):
@@ -795,10 +806,29 @@ def test_send_ctrl_alt_del(test_microvm_with_api):
 
 def _drive_patch(test_microvm):
     """Exercise drive patch test scenarios."""
-    # Patches without mandatory fields are not allowed.
-    expected_msg = "at least one property to patch: path_on_host, rate_limiter"
+    # Patches without mandatory fields for virtio block are not allowed.
+    expected_msg = "Invalid device type found on the MMIO bus. Please verify the request arguments."
     with pytest.raises(RuntimeError, match=expected_msg):
         test_microvm.api.drive.patch(drive_id="scratch")
+
+    # Patches with any fields for vhost-user block are not allowed.
+    expected_msg = "Invalid device type found on the MMIO bus. Please verify the request arguments."
+    with pytest.raises(RuntimeError, match=expected_msg):
+        test_microvm.api.drive.patch(
+            drive_id="scratch_vub",
+            path_on_host="some_path",
+        )
+
+    # Patches with any fields for vhost-user block are not allowed.
+    expected_msg = "Invalid device type found on the MMIO bus. Please verify the request arguments."
+    with pytest.raises(RuntimeError, match=expected_msg):
+        test_microvm.api.drive.patch(
+            drive_id="scratch_vub",
+            rate_limiter={
+                "bandwidth": {"size": 1000000, "refill_time": 100},
+                "ops": {"size": 1, "refill_time": 100},
+            },
+        )
 
     drive_path = "foo.bar"
 
@@ -891,6 +921,17 @@ def _drive_patch(test_microvm):
             },
             "io_engine": "Async" if is_io_uring_supported() else "Sync",
             "socket": None,
+        },
+        {
+            "drive_id": "scratch_vub",
+            "partuuid": None,
+            "is_root_device": False,
+            "cache_type": "Unsafe",
+            "is_read_only": None,
+            "path_on_host": None,
+            "rate_limiter": None,
+            "io_engine": "Sync",
+            "socket": "/vub.socket",
         },
     ]
 
@@ -1220,7 +1261,7 @@ def test_get_full_config(test_microvm_with_api):
     # Add a net device.
     iface_id = "1"
     tapname = test_microvm.id[:8] + "tap" + iface_id
-    tap1 = net_tools.Tap(tapname, test_microvm.jailer.netns)
+    tap1 = net_tools.Tap(tapname, test_microvm.netns.id)
     guest_mac = "06:00:00:00:00:01"
     tx_rl = {
         "bandwidth": {"size": 1000000, "refill_time": 100, "one_time_burst": None},

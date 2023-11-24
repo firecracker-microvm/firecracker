@@ -108,7 +108,7 @@ def test_rx_rate_limiting_cpu_load(test_microvm_with_api):
 
     # Run iperf client sending UDP traffic.
     iperf_cmd = "{} {} -u -c {} -b 1000000000 -t{} -f KBytes".format(
-        test_microvm.jailer.netns_cmd_prefix(),
+        test_microvm.netns.cmd_prefix(),
         IPERF_BINARY,
         iface.guest_ip,
         IPERF_TRANSMIT_TIME * 5,
@@ -137,7 +137,7 @@ def _check_tx_rate_limiting(test_microvm):
     eth2 = test_microvm.iface["eth2"]["iface"]
 
     # Start iperf server on the host as this is the tx rate limiting test.
-    _start_iperf_server_on_host(test_microvm.jailer.netns_cmd_prefix())
+    _start_iperf_server_on_host(test_microvm.netns.cmd_prefix())
 
     # First step: get the transfer rate when no rate limiting is enabled.
     # We are receiving the result in KBytes from iperf.
@@ -213,7 +213,7 @@ def _check_rx_rate_limiting(test_microvm):
     # Use iperf to obtain the bandwidth when there is burst to consume from,
     # send exactly BURST_SIZE packets.
     iperf_cmd = "{} {} -c {} -n {} -f KBytes -w {} -N".format(
-        test_microvm.jailer.netns_cmd_prefix(),
+        test_microvm.netns.cmd_prefix(),
         IPERF_BINARY,
         eth2.guest_ip,
         BURST_SIZE,
@@ -351,7 +351,7 @@ def _check_rx_bandwidth(test_microvm, guest_ip, expected_kbps):
 def _get_rx_bandwidth_with_duration(test_microvm, guest_ip, duration):
     """Check that the rate-limited RX bandwidth is close to what we expect."""
     iperf_cmd = "{} {} -c {} -t {} -f KBytes -w {} -N".format(
-        test_microvm.jailer.netns_cmd_prefix(),
+        test_microvm.netns.cmd_prefix(),
         IPERF_BINARY,
         guest_ip,
         duration,

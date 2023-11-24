@@ -14,7 +14,6 @@ def test_reboot(test_microvm_with_api):
     Test reboot from guest.
     """
     vm = test_microvm_with_api
-    vm.jailer.daemonize = False
     vm.spawn()
 
     # We don't need to monitor the memory for this test because we are

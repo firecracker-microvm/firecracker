@@ -72,6 +72,7 @@ RUN apt-get update \
         musl-tools \
         # needed for integration tests
         net-tools iproute2 iperf3 socat fdisk \
+        numactl \
         openssh-client \
         pkgconf \
         python3 python3-dev python3-pip \

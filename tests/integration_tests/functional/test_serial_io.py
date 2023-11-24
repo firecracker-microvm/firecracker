@@ -145,7 +145,6 @@ def test_serial_dos(test_microvm_with_api):
     # Set up the microVM with 1 vCPU and a serial console.
     microvm.basic_config(
         vcpu_count=1,
-        add_root_device=False,
         boot_args="console=ttyS0 reboot=k panic=1 pci=off",
     )
     microvm.start()

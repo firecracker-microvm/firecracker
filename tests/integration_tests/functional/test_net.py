@@ -40,7 +40,7 @@ def test_high_ingress_traffic(test_microvm_with_api):
     # If the net device breaks, iperf will freeze. We have to use a timeout.
     utils.run_cmd(
         "timeout 30 {} {} -c {} -u -V -b 1000000000 -t 30".format(
-            test_microvm.jailer.netns_cmd_prefix(),
+            test_microvm.netns.cmd_prefix(),
             IPERF_BINARY,
             guest_ip,
         ),
@@ -65,7 +65,7 @@ def test_multi_queue_unsupported(test_microvm_with_api):
     tapname = microvm.id[:8] + "tap1"
 
     utils.run_cmd(f"ip tuntap add name {tapname} mode tap multi_queue")
-    utils.run_cmd(f"ip link set {tapname} netns {microvm.jailer.netns}")
+    utils.run_cmd(f"ip link set {tapname} netns {microvm.netns.id}")
 
     expected_msg = re.escape(
         "Could not create the network device: Open tap device failed:"

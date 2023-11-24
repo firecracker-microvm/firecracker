@@ -236,17 +236,7 @@ def uffd_handler_paths():
 
 
 @pytest.fixture()
-def fc_tmp_path(test_fc_session_root_path):
-    """A tmp_path substitute
-
-    We should use pytest's tmp_path fixture instead of this, but this can create
-    very long paths, which can run into the UDS 108 character limit.
-    """
-    return Path(tempfile.mkdtemp(dir=test_fc_session_root_path))
-
-
-@pytest.fixture()
-def microvm_factory(fc_tmp_path, request, record_property, results_dir):
+def microvm_factory(request, record_property, results_dir):
     """Fixture to create microvms simply.
 
     In order to avoid running out of space when instantiating many microvms,
@@ -262,7 +252,9 @@ def microvm_factory(fc_tmp_path, request, record_property, results_dir):
         fc_binary_path, jailer_binary_path = build_tools.get_firecracker_binaries()
     record_property("firecracker_bin", str(fc_binary_path))
 
-    uvm_factory = MicroVMFactory(fc_tmp_path, fc_binary_path, jailer_binary_path)
+    # We could override the chroot base like so
+    # jailer_kwargs={"chroot_base": "/srv/jailo"}
+    uvm_factory = MicroVMFactory(fc_binary_path, jailer_binary_path)
     yield uvm_factory
 
     # if the test failed, save fc.log in test_results for troubleshooting
@@ -276,7 +268,6 @@ def microvm_factory(fc_tmp_path, request, record_property, results_dir):
             shutil.copy(uvm.log_file, dst)
 
     uvm_factory.kill()
-    shutil.rmtree(fc_tmp_path)
 
 
 @pytest.fixture(params=firecracker_artifacts())

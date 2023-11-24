@@ -8,7 +8,6 @@ import os
 import re
 import shutil
 import sys
-import tempfile
 from pathlib import Path
 
 # Hack to be able to import testing framework functions.
@@ -16,13 +15,8 @@ sys.path.append(os.path.join(os.getcwd(), "tests"))  # noqa: E402
 
 # pylint: disable=wrong-import-position
 from framework.artifacts import disks, kernels
-from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH
 from framework.microvm import MicroVMFactory
-from framework.utils import (
-    generate_mmds_get_request,
-    generate_mmds_session_token,
-    run_cmd,
-)
+from framework.utils import generate_mmds_get_request, generate_mmds_session_token
 from framework.utils_cpuid import CpuVendor, get_cpu_vendor
 from host_tools.cargo_build import get_firecracker_binaries
 
@@ -91,8 +85,7 @@ def main():
     # each guest kernel version.
     print("Cleanup")
     shutil.rmtree(SNAPSHOT_ARTIFACTS_ROOT_DIR, ignore_errors=True)
-    root_path = tempfile.mkdtemp(dir=DEFAULT_TEST_SESSION_ROOT_PATH)
-    vm_factory = MicroVMFactory(root_path, *get_firecracker_binaries())
+    vm_factory = MicroVMFactory(*get_firecracker_binaries())
 
     cpu_templates = ["None"]
     if get_cpu_vendor() == CpuVendor.INTEL:
@@ -129,8 +122,6 @@ def create_snapshots(vm, rootfs, kernel, cpu_template):
     vm.create_jailed_resource(rootfs)
     vm.create_jailed_resource(kernel)
 
-    # Create network namespace.
-    run_cmd(f"ip netns add {vm.jailer.netns}")
     for i in range(4):
         vm.add_net_iface(api=False)
 
