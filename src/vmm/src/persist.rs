@@ -200,7 +200,7 @@ pub fn create_snapshot(
         version_map,
     )?;
 
-    snapshot_memory_to_file(vmm, &params.mem_file_path, &params.snapshot_type)?;
+    snapshot_memory_to_file(vmm, &params.mem_file_path, params.snapshot_type)?;
 
     Ok(())
 }
@@ -234,7 +234,7 @@ fn snapshot_state_to_file(
 fn snapshot_memory_to_file(
     vmm: &Vmm,
     mem_file_path: &Path,
-    snapshot_type: &SnapshotType,
+    snapshot_type: SnapshotType,
 ) -> Result<(), CreateSnapshotError> {
     use self::CreateSnapshotError::*;
     let mut file = OpenOptions::new()
