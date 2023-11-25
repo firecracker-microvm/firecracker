@@ -580,6 +580,18 @@ class Microvm:
         ), f'Message ("{message}") not found in log data ("{self.log_data}").'
 
     @retry(wait=wait_fixed(0.2), stop=stop_after_attempt(5), reraise=True)
+    def get_exit_code(self):
+        """Get exit code from logging output"""
+        exit_msg_pattern = (
+            r"Firecracker exiting (with error|successfully). exit_code=(\d+)"
+        )
+        match = re.search(exit_msg_pattern, self.log_data)
+        if match:
+            exit_code = int(match.group(2))
+            return exit_code
+        raise AssertionError(f"unable to find exit code from the log: {self.log_data}")
+
+    @retry(wait=wait_fixed(0.2), stop=stop_after_attempt(5), reraise=True)
     def check_any_log_message(self, messages):
         """Wait until any message in `messages` appears in logging output."""
         for message in messages:
