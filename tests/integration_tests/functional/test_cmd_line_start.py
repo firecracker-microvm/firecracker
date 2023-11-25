@@ -168,8 +168,9 @@ def test_config_start_no_api_exit(uvm_plain, vm_config_file):
     test_microvm.ssh.run("reboot")  # Exit
     time.sleep(3)  # Wait for shutdown
 
-    # Check error log
-    test_microvm.check_log_message("Firecracker exited successfully")
+    # Check error log and exit code
+    test_microvm.check_log_message("Firecracker exiting successfully")
+    assert test_microvm.get_exit_code() == 0
 
 
 @pytest.mark.parametrize(
