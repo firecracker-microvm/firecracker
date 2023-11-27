@@ -57,11 +57,21 @@
 
 ### Fixed
 
-- Fixed a bug that ignored the `--show-log-origin` option, preventing it from
+- [#4171](https://github.com/firecracker-microvm/firecracker/pull/4171):
+  Fixed a bug that ignored the `--show-log-origin` option, preventing it from
   printing the source code file of the log messages.
 - [#4178](https://github.com/firecracker-microvm/firecracker/pull/4178):
   Fixed a bug reporting a non-zero exit code on successful shutdown when
   starting Firecracker with `--no-api`.
+- [#4261](https://github.com/firecracker-microvm/firecracker/pull/4261): Fixed
+  a bug where Firecracker would log "RunWithApiError error: MicroVMStopped
+  without an error: GenericError" when exiting after encountering an emulation
+  error. It now correctly prints "RunWithApiError error: MicroVMStopped *with* an
+  error: GenericError".
+- [#4242](https://github.com/firecracker-microvm/firecracker/pull/4242):
+  Fixed a bug introduced in #4047 that limited the `--level` option of logger
+  to Pascal-cased values (e.g. accepting "Info", but not "info"). It now
+  ignores case again.
 
 ## [1.5.0]
 
