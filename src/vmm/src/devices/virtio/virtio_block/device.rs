@@ -195,7 +195,7 @@ impl TryFrom<&BlockDeviceConfig> for VirtioBlockConfig {
                 is_read_only: value.is_read_only.unwrap_or(false),
                 path_on_host: value.path_on_host.as_ref().unwrap().clone(),
                 rate_limiter: value.rate_limiter,
-                file_engine_type: value.file_engine_type,
+                file_engine_type: value.file_engine_type.unwrap_or_default(),
             })
         } else {
             Err(VirtioBlockError::Config)
@@ -214,7 +214,7 @@ impl From<VirtioBlockConfig> for BlockDeviceConfig {
             is_read_only: Some(value.is_read_only),
             path_on_host: Some(value.path_on_host),
             rate_limiter: value.rate_limiter,
-            file_engine_type: value.file_engine_type,
+            file_engine_type: Some(value.file_engine_type),
 
             socket: None,
         }

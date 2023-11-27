@@ -14,11 +14,11 @@ jobs:
           curl -X POST https://api.buildkite.com/v2/organizations/firecracker/pipelines/performance-a-b-tests/builds \
                -H 'Content-Type: application/json' \
                -H 'Authorization: Bearer ${{ secrets.BUILDKITE_TOKEN }}' \
-               -d '{
-                    "commit": "HEAD",
-                    "branch": "${{ github.event.ref }}",
-                    "env": {
-                      "REVISION_A": "${{ github.event.before }}",
-                      "REVISION_B": "${{ github.event.after }}"
+               -d "{
+                    \"commit\": \"HEAD\",
+                    \"branch\": \"$GITHUB_REF_NAME\",
+                    \"env\": {
+                      \"REVISION_A\": \"${{ github.event.before }}\",
+                      \"REVISION_B\": \"${{ github.event.after }}\"
                     }
-                  }'
+                  }"

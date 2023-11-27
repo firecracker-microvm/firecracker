@@ -275,20 +275,25 @@ def ab_performance_test(
         ):
             failures.append((dimension_set, metric, result, unit))
 
-    failure_report = "\n".join(
-        f"\033[0;32m[Firecracker A/B-Test Runner]\033[0m A/B-testing shows a change of "
-        f"\033[0;31m\033[1m{format_with_reduced_unit(result.statistic, unit)}\033[0m "
-        f"(from {format_with_reduced_unit(statistics.mean(processed_emf_a[dimension_set][metric][0]), unit)} "
-        f"to {format_with_reduced_unit(statistics.mean(processed_emf_b[dimension_set][metric][0]), unit)}) "
-        f"for metric \033[1m{metric}\033[0m with \033[0;31m\033[1mp={result.pvalue}\033[0m. "
-        f"This means that observing a change of this magnitude or worse, assuming that performance "
-        f"characteristics did not change across the tested commits, has a probability of {result.pvalue:.2%}. "
-        f"Tested Dimensions:\n{json.dumps(dict(dimension_set), indent=2)}"
-        for (dimension_set, metric, result, unit) in failures
+    messages = []
+    for dimension_set, metric, result, unit in failures:
         # Sanity check as described above
-        if abs(statistics.mean(relative_changes_by_metric[metric])) > noise_threshold
-    )
-    assert not failure_report, "\n" + failure_report
+        if abs(statistics.mean(relative_changes_by_metric[metric])) > noise_threshold:
+            old_mean = statistics.mean(processed_emf_a[dimension_set][metric][0])
+            new_mean = statistics.mean(processed_emf_b[dimension_set][metric][0])
+
+            msg = (
+                f"\033[0;32m[Firecracker A/B-Test Runner]\033[0m A/B-testing shows a change of "
+                f"{format_with_reduced_unit(result.statistic, unit)}, or {result.statistic / old_mean:.2%}, "
+                f"(from {format_with_reduced_unit(old_mean, unit)} to {format_with_reduced_unit(new_mean, unit)}"
+                f"for metric \033[1m{metric}\033[0m with \033[0;31m\033[1mp={result.pvalue}\033[0m. "
+                f"This means that observing a change of this magnitude or worse, assuming that performance "
+                f"characteristics did not change across the tested commits, has a probability of {result.pvalue:.2%}. "
+                f"Tested Dimensions:\n{json.dumps(dict(dimension_set), indent=2)}"
+            )
+            messages.append(msg)
+
+    assert not messages, "\n" + "\n".join(messages)
     print("No regressions detected!")
 
 
@@ -322,7 +327,12 @@ if __name__ == "__main__":
         type=float,
         default=0.0,
     )
-    parser.add_argument("--noise-threshold", type=float, default=0.05)
+    parser.add_argument(
+        "--noise-threshold",
+        help="The minimal delta which a metric has to regress on average across all tests that emit it before the regressions will be considered valid.",
+        type=float,
+        default=0.05,
+    )
     args = parser.parse_args()
 
     ab_performance_test(

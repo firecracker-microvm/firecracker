@@ -60,9 +60,11 @@ pub struct BlockDeviceConfig {
     /// Rate Limiter for I/O operations.
     pub rate_limiter: Option<RateLimiterConfig>,
     /// The type of IO engine used by the device.
-    #[serde(default)]
+    // #[serde(default)]
+    // #[serde(rename = "io_engine")]
+    // pub file_engine_type: FileEngineType,
     #[serde(rename = "io_engine")]
-    pub file_engine_type: FileEngineType,
+    pub file_engine_type: Option<FileEngineType>,
 
     // VhostUserBlock specific fields
     /// Path to the vhost-user socket.
@@ -271,7 +273,7 @@ mod tests {
             is_read_only: Some(false),
             path_on_host: Some(dummy_path),
             rate_limiter: None,
-            file_engine_type: FileEngineType::default(),
+            file_engine_type: None,
 
             socket: None,
         };
@@ -310,7 +312,7 @@ mod tests {
             is_read_only: Some(true),
             path_on_host: Some(dummy_path),
             rate_limiter: None,
-            file_engine_type: FileEngineType::default(),
+            file_engine_type: None,
 
             socket: None,
         };
@@ -346,7 +348,7 @@ mod tests {
             is_read_only: Some(false),
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
-            file_engine_type: FileEngineType::default(),
+            file_engine_type: None,
 
             socket: None,
         };
@@ -362,7 +364,7 @@ mod tests {
             is_read_only: Some(false),
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
-            file_engine_type: FileEngineType::default(),
+            file_engine_type: None,
 
             socket: None,
         };
@@ -389,7 +391,7 @@ mod tests {
             is_read_only: Some(false),
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
-            file_engine_type: FileEngineType::default(),
+            file_engine_type: None,
 
             socket: None,
         };
@@ -405,7 +407,7 @@ mod tests {
             is_read_only: Some(false),
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
-            file_engine_type: FileEngineType::default(),
+            file_engine_type: None,
 
             socket: None,
         };
@@ -421,7 +423,7 @@ mod tests {
             is_read_only: Some(false),
             path_on_host: Some(dummy_path_3),
             rate_limiter: None,
-            file_engine_type: FileEngineType::default(),
+            file_engine_type: None,
 
             socket: None,
         };
@@ -468,7 +470,7 @@ mod tests {
             is_read_only: Some(false),
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
-            file_engine_type: FileEngineType::default(),
+            file_engine_type: None,
 
             socket: None,
         };
@@ -484,7 +486,7 @@ mod tests {
             is_read_only: Some(false),
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
-            file_engine_type: FileEngineType::default(),
+            file_engine_type: None,
 
             socket: None,
         };
@@ -500,7 +502,7 @@ mod tests {
             is_read_only: Some(false),
             path_on_host: Some(dummy_path_3),
             rate_limiter: None,
-            file_engine_type: FileEngineType::default(),
+            file_engine_type: None,
 
             socket: None,
         };
@@ -548,7 +550,7 @@ mod tests {
             is_read_only: Some(false),
             path_on_host: Some(dummy_path_1.clone()),
             rate_limiter: None,
-            file_engine_type: FileEngineType::default(),
+            file_engine_type: None,
 
             socket: None,
         };
@@ -564,7 +566,7 @@ mod tests {
             is_read_only: Some(false),
             path_on_host: Some(dummy_path_2.clone()),
             rate_limiter: None,
-            file_engine_type: FileEngineType::default(),
+            file_engine_type: None,
 
             socket: None,
         };
@@ -631,7 +633,7 @@ mod tests {
             is_read_only: Some(false),
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
-            file_engine_type: FileEngineType::default(),
+            file_engine_type: None,
 
             socket: None,
         };
@@ -647,7 +649,7 @@ mod tests {
             is_read_only: Some(false),
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
-            file_engine_type: FileEngineType::default(),
+            file_engine_type: None,
 
             socket: None,
         };
@@ -678,7 +680,7 @@ mod tests {
             is_read_only: Some(true),
             path_on_host: Some(dummy_file.as_path().to_str().unwrap().to_string()),
             rate_limiter: None,
-            file_engine_type: FileEngineType::default(),
+            file_engine_type: Some(FileEngineType::Sync),
 
             socket: None,
         };

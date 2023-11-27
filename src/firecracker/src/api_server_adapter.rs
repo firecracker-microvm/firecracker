@@ -15,16 +15,17 @@ use utils::eventfd::EventFd;
 use vmm::logger::{error, warn, ProcessTimeReporter};
 use vmm::resources::VmResources;
 use vmm::rpc_interface::{
-    ApiRequest, ApiResponse, PrebootApiController, RuntimeApiController, VmmAction,
+    ApiRequest, ApiResponse, BuildMicrovmFromRequestsError, PrebootApiController,
+    RuntimeApiController, VmmAction,
 };
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::{EventManager, FcExitCode, Vmm};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum ApiServerError {
-    /// MicroVMStopped without an error: {0:?}
-    MicroVMStoppedWithoutError(FcExitCode),
-    /// MicroVMStopped with an error: {0:?}
+    /// Failed to build MicroVM: {0}.
+    BuildMicroVmError(BuildMicrovmFromRequestsError),
+    /// MicroVM stopped with an error: {0:?}
     MicroVMStoppedWithError(FcExitCode),
     /// Failed to open the API socket at: {0}. Check that it is not already used.
     FailedToBindSocket(String),
@@ -52,7 +53,7 @@ impl ApiServerAdapter {
         vm_resources: VmResources,
         vmm: Arc<Mutex<Vmm>>,
         event_manager: &mut EventManager,
-    ) -> Result<(), FcExitCode> {
+    ) -> Result<(), ApiServerError> {
         let api_adapter = Arc::new(Mutex::new(Self {
             api_event_fd,
             from_api,
@@ -67,7 +68,7 @@ impl ApiServerAdapter {
 
             match vmm.lock().unwrap().shutdown_exit_code() {
                 Some(FcExitCode::Ok) => break,
-                Some(exit_code) => return Err(exit_code),
+                Some(exit_code) => return Err(ApiServerError::MicroVMStoppedWithError(exit_code)),
                 None => continue,
             }
         }
@@ -224,10 +225,10 @@ pub(crate) fn run_with_api(
             mmds_size_limit,
             metadata_json,
         )
-        .map_err(ApiServerError::MicroVMStoppedWithError),
+        .map_err(ApiServerError::BuildMicroVmError),
     };
 
-    let result = build_result.map(|(vm_resources, vmm)| {
+    let result = build_result.and_then(|(vm_resources, vmm)| {
         firecracker_metrics
             .lock()
             .expect("Poisoned lock")
@@ -248,9 +249,5 @@ pub(crate) fn run_with_api(
     // shutdown-internal and returns from its function.
     api_thread.join().expect("Api thread should join");
 
-    match result {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(exit_code)) => Err(ApiServerError::MicroVMStoppedWithoutError(exit_code)),
-        Err(exit_error) => Err(exit_error),
-    }
+    result
 }
