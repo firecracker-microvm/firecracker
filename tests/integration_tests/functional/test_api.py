@@ -930,7 +930,7 @@ def _drive_patch(test_microvm):
             "is_read_only": None,
             "path_on_host": None,
             "rate_limiter": None,
-            "io_engine": "Sync",
+            "io_engine": None,
             "socket": "/vub.socket",
         },
     ]
