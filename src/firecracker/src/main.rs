@@ -78,15 +78,13 @@ enum ResizeFdTableError {
 
 impl From<MainError> for FcExitCode {
     fn from(value: MainError) -> Self {
-        let exit_code = match value {
+        match value {
             MainError::ParseArguments(_) => FcExitCode::ArgParsing,
             MainError::InvalidLogLevel(_) => FcExitCode::BadConfiguration,
             MainError::RunWithApi(ApiServerError::MicroVMStoppedWithError(code)) => code,
             MainError::RunWithoutApiError(RunWithoutApiError::Shutdown(code)) => code,
             _ => FcExitCode::GenericError,
-        };
-
-        exit_code
+        }
     }
 }
 
