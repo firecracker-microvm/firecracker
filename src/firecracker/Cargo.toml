@@ -28,17 +28,17 @@ utils = { path = "../utils" }
 vmm = { path = "../vmm" }
 
 [dev-dependencies]
-cargo_toml = "0.17.0"
+cargo_toml = "0.17.1"
 regex = { version = "1.10.2", default-features = false, features = ["std", "unicode-perl"] }
 
 # Dev-Dependencies for uffd examples
-serde = { version = "1.0.192", features = ["derive"] }
+serde = { version = "1.0.193", features = ["derive"] }
 userfaultfd = "0.7.0"
 
 [build-dependencies]
 bincode = "1.2.1"
 seccompiler = { path = "../seccompiler" }
-serde = { version = "1.0.192" }
+serde = { version = "1.0.193" }
 serde_json = "1.0.108"
 
 [features]
