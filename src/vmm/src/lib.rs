@@ -131,7 +131,6 @@ use crate::devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET};
 use crate::devices::virtio::balloon::{
     Balloon, BalloonConfig, BalloonError, BalloonStats, BALLOON_DEV_ID,
 };
-use crate::devices::virtio::block::vhost_user::device::VhostUserBlock;
 use crate::devices::virtio::block::virtio::VirtioBlock;
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET};
@@ -644,12 +643,8 @@ impl Vmm {
     }
 
     /// Updates the rate limiter parameters for block device with `drive_id` id.
-    pub fn update_vhost_user_block_config(&mut self, drive_id: &str) -> Result<(), VmmError> {
-        self.mmio_device_manager
-            .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut VhostUserBlock| {
-                block.config_update().map_err(|err| format!("{:?}", err))
-            })
-            .map_err(VmmError::DeviceManager)
+    pub fn update_vhost_user_block_config(&mut self, _drive_id: &str) -> Result<(), VmmError> {
+        Ok(())
     }
 
     /// Updates the rate limiter parameters for net device with `net_id` id.
