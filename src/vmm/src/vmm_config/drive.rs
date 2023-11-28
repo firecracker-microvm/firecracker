@@ -8,8 +8,6 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use super::RateLimiterConfig;
-use crate::devices::virtio::block::vhost_user::device::{VhostUserBlock, VhostUserBlockConfig};
-use crate::devices::virtio::block::vhost_user::VhostUserBlockError;
 pub use crate::devices::virtio::block::virtio::device::FileEngineType;
 use crate::devices::virtio::block::virtio::device::VirtioBlockConfig;
 use crate::devices::virtio::block::virtio::{VirtioBlock, VirtioBlockError};
@@ -23,8 +21,6 @@ pub enum DriveError {
     InvalidBlockConfig,
     /// Unable to create the virtio block device: {0:?}
     CreateVirtioBlockDevice(VirtioBlockError),
-    /// Unable to create the vhost-user block device: {0:?}
-    CreateVhostUserBlockDevice(VhostUserBlockError),
     /// Cannot create RateLimiter: {0}
     CreateRateLimiter(io::Error),
     /// Unable to patch the block device: {0} Please verify the request arguments.
@@ -86,15 +82,6 @@ pub struct BlockDeviceUpdateConfig {
     pub rate_limiter: Option<RateLimiterConfig>,
 }
 
-/// Enum with all possible block device types.
-#[derive(Debug)]
-pub enum BlockDeviceType {
-    /// VirtioBlock type
-    VirtioBlock(Arc<Mutex<VirtioBlock>>),
-    /// VhostUserBlock type
-    VhostUserBlock(Arc<Mutex<VhostUserBlock>>),
-}
-
 /// Wrapper for the collection that holds all the Block Devices
 #[derive(Debug, Default)]
 pub struct BlockBuilder {
@@ -103,7 +90,7 @@ pub struct BlockBuilder {
     // Root Device should be the first in the list whether or not PARTUUID is
     // specified in order to avoid bugs in case of switching from partuuid boot
     // scenarios to /dev/vda boot type.
-    pub devices: VecDeque<BlockDeviceType>,
+    pub devices: VecDeque<Arc<Mutex<VirtioBlock>>>,
 }
 
 impl BlockBuilder {
@@ -118,10 +105,7 @@ impl BlockBuilder {
     fn has_root_device(&self) -> bool {
         // If there is a root device, it would be at the top of the list.
         if let Some(block) = self.devices.get(0) {
-            match block {
-                BlockDeviceType::VirtioBlock(b) => b.lock().expect("Poisoned lock").root_device,
-                BlockDeviceType::VhostUserBlock(b) => b.lock().expect("Poisoned lock").root_device,
-            }
+            block.lock().expect("Poisoned lock").root_device
         } else {
             false
         }
@@ -129,31 +113,17 @@ impl BlockBuilder {
 
     /// Gets the index of the device with the specified `drive_id` if it exists in the list.
     fn get_index_of_drive_id(&self, drive_id: &str) -> Option<usize> {
-        self.devices.iter().position(|b| match b {
-            BlockDeviceType::VirtioBlock(b) => b.lock().expect("Poisoned lock").id.eq(drive_id),
-            BlockDeviceType::VhostUserBlock(b) => b.lock().expect("Poisoned lock").id.eq(drive_id),
-        })
+        self.devices
+            .iter()
+            .position(|b| b.lock().expect("Poisoned lock").id.eq(drive_id))
     }
 
     /// Inserts an existing block device.
     pub fn add_virtio_device(&mut self, block_device: Arc<Mutex<VirtioBlock>>) {
         if block_device.lock().expect("Poisoned lock").root_device {
-            self.devices
-                .push_front(BlockDeviceType::VirtioBlock(block_device));
+            self.devices.push_front(block_device);
         } else {
-            self.devices
-                .push_back(BlockDeviceType::VirtioBlock(block_device));
-        }
-    }
-
-    /// Inserts an existing block device.
-    pub fn add_vhost_user_device(&mut self, block_device: Arc<Mutex<VhostUserBlock>>) {
-        if block_device.lock().expect("Poisoned lock").root_device {
-            self.devices
-                .push_front(BlockDeviceType::VhostUserBlock(block_device));
-        } else {
-            self.devices
-                .push_back(BlockDeviceType::VhostUserBlock(block_device));
+            self.devices.push_back(block_device);
         }
     }
 
@@ -171,15 +141,10 @@ impl BlockBuilder {
         }
 
         let block_dev = if let Ok(virtio_block_config) = VirtioBlockConfig::try_from(&config) {
-            BlockDeviceType::VirtioBlock(Arc::new(Mutex::new(
+            Arc::new(Mutex::new(
                 VirtioBlock::new(virtio_block_config)
                     .map_err(DriveError::CreateVirtioBlockDevice)?,
-            )))
-        } else if let Ok(vhost_user_block_config) = VhostUserBlockConfig::try_from(&config) {
-            BlockDeviceType::VhostUserBlock(Arc::new(Mutex::new(
-                VhostUserBlock::new(vhost_user_block_config)
-                    .map_err(DriveError::CreateVhostUserBlockDevice)?,
-            )))
+            ))
         } else {
             return Err(DriveError::InvalidBlockConfig);
         };
@@ -212,10 +177,7 @@ impl BlockBuilder {
     pub fn configs(&self) -> Vec<BlockDeviceConfig> {
         self.devices
             .iter()
-            .map(|b| match b {
-                BlockDeviceType::VirtioBlock(b) => b.lock().unwrap().config().into(),
-                BlockDeviceType::VhostUserBlock(b) => b.lock().unwrap().config().into(),
-            })
+            .map(|b| b.lock().unwrap().config().into())
             .collect()
     }
 }
@@ -283,19 +245,12 @@ mod tests {
 
         assert!(!block_devs.has_root_device());
         assert_eq!(block_devs.devices.len(), 1);
-
-        {
-            match block_devs.devices[0] {
-                BlockDeviceType::VirtioBlock(ref b) => {
-                    let block = b.lock().unwrap();
-                    assert_eq!(block.id, dummy_block_device.drive_id);
-                    assert_eq!(block.partuuid, dummy_block_device.partuuid);
-                    assert_eq!(block.read_only, dummy_block_device.is_read_only.unwrap());
-                }
-                BlockDeviceType::VhostUserBlock(_) => {}
-            }
-        }
         assert_eq!(block_devs.get_index_of_drive_id(&dummy_id), Some(0));
+
+        let block = block_devs.devices[0].lock().unwrap();
+        assert_eq!(block.id, dummy_block_device.drive_id);
+        assert_eq!(block.partuuid, dummy_block_device.partuuid);
+        assert_eq!(block.read_only, dummy_block_device.is_read_only.unwrap());
     }
 
     #[test]
@@ -322,17 +277,10 @@ mod tests {
 
         assert!(block_devs.has_root_device());
         assert_eq!(block_devs.devices.len(), 1);
-        {
-            match block_devs.devices[0] {
-                BlockDeviceType::VirtioBlock(ref b) => {
-                    let block = b.lock().unwrap();
-                    assert_eq!(block.id, dummy_block_device.drive_id);
-                    assert_eq!(block.partuuid, dummy_block_device.partuuid);
-                    assert_eq!(block.read_only, dummy_block_device.is_read_only.unwrap());
-                }
-                BlockDeviceType::VhostUserBlock(_) => {}
-            }
-        }
+        let block = block_devs.devices[0].lock().unwrap();
+        assert_eq!(block.id, dummy_block_device.drive_id);
+        assert_eq!(block.partuuid, dummy_block_device.partuuid);
+        assert_eq!(block.read_only, dummy_block_device.is_read_only.unwrap());
     }
 
     #[test]
@@ -436,24 +384,18 @@ mod tests {
         assert_eq!(block_devs.devices.len(), 3);
 
         let mut block_iter = block_devs.devices.iter();
-        match block_iter.next().unwrap() {
-            BlockDeviceType::VirtioBlock(ref b) => {
-                assert_eq!(b.lock().unwrap().id, root_block_device.drive_id)
-            }
-            BlockDeviceType::VhostUserBlock(_) => {}
-        }
-        match block_iter.next().unwrap() {
-            BlockDeviceType::VirtioBlock(ref b) => {
-                assert_eq!(b.lock().unwrap().id, dummy_block_dev_2.drive_id)
-            }
-            BlockDeviceType::VhostUserBlock(_) => {}
-        }
-        match block_iter.next().unwrap() {
-            BlockDeviceType::VirtioBlock(ref b) => {
-                assert_eq!(b.lock().unwrap().id, dummy_block_dev_3.drive_id)
-            }
-            BlockDeviceType::VhostUserBlock(_) => {}
-        }
+        assert_eq!(
+            block_iter.next().unwrap().lock().unwrap().id,
+            root_block_device.drive_id
+        );
+        assert_eq!(
+            block_iter.next().unwrap().lock().unwrap().id,
+            dummy_block_dev_2.drive_id
+        );
+        assert_eq!(
+            block_iter.next().unwrap().lock().unwrap().id,
+            dummy_block_dev_3.drive_id
+        );
     }
 
     #[test]
@@ -517,24 +459,18 @@ mod tests {
         let mut block_iter = block_devs.devices.iter();
         // The root device should be first in the list no matter of the order in
         // which the devices were added.
-        match block_iter.next().unwrap() {
-            BlockDeviceType::VirtioBlock(ref b) => {
-                assert_eq!(b.lock().unwrap().id, root_block_device.drive_id)
-            }
-            BlockDeviceType::VhostUserBlock(_) => {}
-        }
-        match block_iter.next().unwrap() {
-            BlockDeviceType::VirtioBlock(ref b) => {
-                assert_eq!(b.lock().unwrap().id, dummy_block_dev_2.drive_id)
-            }
-            BlockDeviceType::VhostUserBlock(_) => {}
-        }
-        match block_iter.next().unwrap() {
-            BlockDeviceType::VirtioBlock(ref b) => {
-                assert_eq!(b.lock().unwrap().id, dummy_block_dev_3.drive_id)
-            }
-            BlockDeviceType::VhostUserBlock(_) => {}
-        }
+        assert_eq!(
+            block_iter.next().unwrap().lock().unwrap().id,
+            root_block_device.drive_id
+        );
+        assert_eq!(
+            block_iter.next().unwrap().lock().unwrap().id,
+            dummy_block_dev_2.drive_id
+        );
+        assert_eq!(
+            block_iter.next().unwrap().lock().unwrap().id,
+            dummy_block_dev_3.drive_id
+        );
     }
 
     #[test]
@@ -601,10 +537,7 @@ mod tests {
             .get_index_of_drive_id(&dummy_block_device_2.drive_id)
             .unwrap();
         // Validate update was successful.
-        match block_devs.devices[index] {
-            BlockDeviceType::VirtioBlock(ref b) => assert!(b.lock().unwrap().read_only),
-            BlockDeviceType::VhostUserBlock(_) => {}
-        }
+        assert!(block_devs.devices[index].lock().unwrap().read_only);
 
         // Update with invalid path.
         let dummy_path_3 = String::from("test_update_3");
@@ -659,12 +592,7 @@ mod tests {
         block_devs.insert(root_block_device_new).unwrap();
         assert!(block_devs.has_root_device());
         // Verify it's been moved to the first position.
-        match block_devs.devices[0] {
-            BlockDeviceType::VirtioBlock(ref b) => {
-                assert_eq!(b.lock().unwrap().id, root_block_id)
-            }
-            BlockDeviceType::VhostUserBlock(_) => {}
-        }
+        assert_eq!(block_devs.devices[0].lock().unwrap().id, root_block_id);
     }
 
     #[test]
@@ -714,9 +642,9 @@ mod tests {
 
         block_devs.add_virtio_device(Arc::new(Mutex::new(block)));
         assert_eq!(block_devs.devices.len(), 1);
-        match block_devs.devices.pop_back().unwrap() {
-            BlockDeviceType::VirtioBlock(ref b) => assert_eq!(b.lock().unwrap().id, block_id),
-            BlockDeviceType::VhostUserBlock(_) => {}
-        }
+        assert_eq!(
+            block_devs.devices.pop_back().unwrap().lock().unwrap().id,
+            block_id
+        );
     }
 }

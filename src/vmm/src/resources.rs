@@ -208,9 +208,7 @@ impl VmResources {
                 self.block.add_virtio_device(block);
             }
 
-            SharedDeviceType::VhostUserBlock(block) => {
-                self.block.add_vhost_user_device(block);
-            }
+            SharedDeviceType::VhostUserBlock(_block) => {}
 
             SharedDeviceType::Network(network) => {
                 self.net_builder.add_device(network);
