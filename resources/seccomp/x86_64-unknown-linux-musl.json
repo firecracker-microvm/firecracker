@@ -10,9 +10,6 @@
                 "syscall": "epoll_pwait"
             },
             {
-                "syscall": "exit"
-            },
-            {
                 "syscall": "exit_group"
             },
             {
@@ -59,10 +56,6 @@
                 "comment": "Called for expanding the heap"
             },
             {
-                "syscall": "clock_gettime",
-                "comment": "Used for metrics and logging, via the helpers in utils/src/time.rs. It's not called on some platforms, because of vdso optimisations."
-            },
-            {
                 "syscall": "connect",
                 "comment": "Needed for vsock"
             },
@@ -77,10 +70,6 @@
             {
                 "syscall": "lseek",
                 "comment": "Used by the block device"
-            },
-            {
-                "syscall": "mremap",
-                "comment": "Used for re-allocating large memory regions, for example vectors"
             },
             {
                 "syscall": "munmap",
@@ -223,19 +212,6 @@
             },
             {
                 "syscall": "mmap",
-                "comment": "Used for reading the timezone in LocalTime::now()",
-                "args": [
-                    {
-                        "index": 3,
-                        "type": "dword",
-                        "op": "eq",
-                        "val": 1,
-                        "comment": "libc::MAP_SHARED"
-                    }
-                ]
-            },
-            {
-                "syscall": "mmap",
                 "comment": "Used by rust's stdlib, particularly when creating a diff snapshot of a VM with ~16 GB of memory",
                 "args": [
                     {
@@ -257,19 +233,6 @@
                         "op": "eq",
                         "val": 32769,
                         "comment": "libc::MAP_SHARED | libc::MAP_POPULATE"
-                    }
-                ]
-            },
-            {
-                "syscall": "rt_sigaction",
-                "comment": "rt_sigaction is used by libc::abort during a panic to install the default handler for SIGABRT",
-                "args": [
-                    {
-                        "index": 0,
-                        "type": "dword",
-                        "op": "eq",
-                        "val": 6,
-                        "comment": "SIGABRT"
                     }
                 ]
             },
@@ -360,32 +323,6 @@
                         "op": "eq",
                         "val": 21523,
                         "comment": "TIOCGWINSZ"
-                    }
-                ]
-            },
-            {
-                "syscall": "ioctl",
-                "comment": "Triggered on shutdown, to restore the initial terminal settings, only when Firecracker was launched from a shell.",
-                "args": [
-                    {
-                        "index": 1,
-                        "type": "dword",
-                        "op": "eq",
-                        "val": 21505,
-                        "comment": "TCGETS"
-                    }
-                ]
-            },
-            {
-                "syscall": "ioctl",
-                "comment": "Triggered on shutdown, to restore the initial terminal settings, only when Firecracker was launched from a shell.",
-                "args": [
-                    {
-                        "index": 1,
-                        "type": "dword",
-                        "op": "eq",
-                        "val": 21506,
-                        "comment": "TCSETS"
                     }
                 ]
             },
