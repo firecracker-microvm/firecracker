@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Utilities for test host microVM network setup."""
 
+import ipaddress
 import random
 import string
 from dataclasses import dataclass, field
@@ -199,6 +200,11 @@ class NetIfaceConfig:
     def guest_mac(self):
         """Return the guest MAC address."""
         return mac_from_ip(self.guest_ip)
+
+    @property
+    def network(self):
+        """Return the guest network"""
+        return ipaddress.IPv4Interface(f"{self.host_ip}/{self.netmask_len}").network
 
     @staticmethod
     def with_id(i, netmask_len=30):
