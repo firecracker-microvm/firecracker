@@ -43,7 +43,7 @@ use crate::devices::legacy::serial::SerialOut;
 use crate::devices::legacy::RTCDevice;
 use crate::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
 use crate::devices::virtio::balloon::Balloon;
-use crate::devices::virtio::block::virtio::VirtioBlock;
+use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::mmio::MmioTransport;
 use crate::devices::virtio::net::Net;
@@ -840,7 +840,7 @@ fn attach_entropy_device(
     )
 }
 
-fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<VirtioBlock>>> + Debug>(
+fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
     vmm: &mut Vmm,
     cmdline: &mut LoaderKernelCmdline,
     blocks: I,

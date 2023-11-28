@@ -8,10 +8,9 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use super::RateLimiterConfig;
+use crate::devices::virtio::block::device::{Block, BlockConfig};
 pub use crate::devices::virtio::block::virtio::device::FileEngineType;
-use crate::devices::virtio::block::virtio::device::VirtioBlockConfig;
-use crate::devices::virtio::block::virtio::{VirtioBlock, VirtioBlockError};
-use crate::devices::virtio::block::CacheType;
+use crate::devices::virtio::block::{BlockError, CacheType};
 use crate::VmmError;
 
 /// Errors associated with the operations allowed on a drive.
@@ -20,7 +19,7 @@ pub enum DriveError {
     /// Unabled to create block device from config
     InvalidBlockConfig,
     /// Unable to create the virtio block device: {0:?}
-    CreateVirtioBlockDevice(VirtioBlockError),
+    CreateBlockDevice(BlockError),
     /// Cannot create RateLimiter: {0}
     CreateRateLimiter(io::Error),
     /// Unable to patch the block device: {0} Please verify the request arguments.
@@ -90,7 +89,7 @@ pub struct BlockBuilder {
     // Root Device should be the first in the list whether or not PARTUUID is
     // specified in order to avoid bugs in case of switching from partuuid boot
     // scenarios to /dev/vda boot type.
-    pub devices: VecDeque<Arc<Mutex<VirtioBlock>>>,
+    pub devices: VecDeque<Arc<Mutex<Block>>>,
 }
 
 impl BlockBuilder {
@@ -119,7 +118,7 @@ impl BlockBuilder {
     }
 
     /// Inserts an existing block device.
-    pub fn add_virtio_device(&mut self, block_device: Arc<Mutex<VirtioBlock>>) {
+    pub fn add_virtio_device(&mut self, block_device: Arc<Mutex<Block>>) {
         if block_device.lock().expect("Poisoned lock").root_device {
             self.devices.push_front(block_device);
         } else {
@@ -140,10 +139,9 @@ impl BlockBuilder {
             return Err(DriveError::RootBlockDeviceAlreadyAdded);
         }
 
-        let block_dev = if let Ok(virtio_block_config) = VirtioBlockConfig::try_from(&config) {
+        let block_dev = if let Ok(virtio_block_config) = BlockConfig::try_from(&config) {
             Arc::new(Mutex::new(
-                VirtioBlock::new(virtio_block_config)
-                    .map_err(DriveError::CreateVirtioBlockDevice)?,
+                Block::new(virtio_block_config).map_err(DriveError::CreateBlockDevice)?,
             ))
         } else {
             return Err(DriveError::InvalidBlockConfig);
@@ -187,7 +185,7 @@ mod tests {
     use utils::tempfile::TempFile;
 
     use super::*;
-    use crate::devices::virtio::block::virtio::device::VirtioBlockConfig;
+    use crate::devices::virtio::block::device::BlockConfig;
 
     impl PartialEq for DriveError {
         fn eq(&self, other: &DriveError) -> bool {
@@ -544,9 +542,7 @@ mod tests {
         dummy_block_device_2.path_on_host = Some(dummy_path_3);
         assert!(matches!(
             block_devs.insert(dummy_block_device_2.clone()),
-            Err(DriveError::CreateVirtioBlockDevice(
-                VirtioBlockError::BackingFile(_, _)
-            ))
+            Err(DriveError::CreateBlockDevice(BlockError::BackingFile(_, _)))
         ));
 
         // Update with 2 root block devices.
@@ -627,7 +623,7 @@ mod tests {
         let backing_file = TempFile::new().unwrap();
 
         let block_id = "test_id";
-        let config = VirtioBlockConfig {
+        let config = BlockConfig {
             drive_id: block_id.to_string(),
             path_on_host: backing_file.as_path().to_str().unwrap().to_string(),
             is_root_device: true,
@@ -638,7 +634,7 @@ mod tests {
             file_engine_type: FileEngineType::default(),
         };
 
-        let block = VirtioBlock::new(config).unwrap();
+        let block = Block::new(config).unwrap();
 
         block_devs.add_virtio_device(Arc::new(Mutex::new(block)));
         assert_eq!(block_devs.devices.len(), 1);

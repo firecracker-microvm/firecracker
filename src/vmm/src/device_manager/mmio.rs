@@ -23,7 +23,7 @@ use crate::arch::DeviceType::Virtio;
 use crate::devices::legacy::RTCDevice;
 use crate::devices::pseudo::BootTimer;
 use crate::devices::virtio::balloon::Balloon;
-use crate::devices::virtio::block::virtio::VirtioBlock;
+use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::mmio::MmioTransport;
 use crate::devices::virtio::net::Net;
@@ -400,7 +400,7 @@ impl MMIODeviceManager {
                     TYPE_BLOCK => {
                         // We only care about kicking virtio block.
                         // If we need to kick vhost-user-block we can do nothing.
-                        if let Some(block) = virtio.as_mut_any().downcast_mut::<VirtioBlock>() {
+                        if let Some(block) = virtio.as_mut_any().downcast_mut::<Block>() {
                             // If device is activated, kick the block queue(s) to make up for any
                             // pending or in-flight epoll events we may have not captured in
                             // snapshot. No need to kick Ratelimiters

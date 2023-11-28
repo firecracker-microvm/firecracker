@@ -649,7 +649,7 @@ mod tests {
 
         // Only checking that all devices are saved, actual device state
         // is tested by that device's tests.
-        assert_eq!(states.virtio_block_devices.len(), 1);
+        assert_eq!(states.block_devices.len(), 1);
         assert_eq!(states.net_devices.len(), 1);
         assert!(states.vsock_device.is_some());
         assert!(states.balloon_device.is_some());

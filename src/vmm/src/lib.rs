@@ -131,7 +131,7 @@ use crate::devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET};
 use crate::devices::virtio::balloon::{
     Balloon, BalloonConfig, BalloonError, BalloonStats, BALLOON_DEV_ID,
 };
-use crate::devices::virtio::block::virtio::VirtioBlock;
+use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET};
 use crate::logger::{error, info, warn, MetricsError, METRICS};
@@ -619,7 +619,7 @@ impl Vmm {
         path_on_host: String,
     ) -> Result<(), VmmError> {
         self.mmio_device_manager
-            .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut VirtioBlock| {
+            .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
                 block
                     .update_disk_image(path_on_host)
                     .map_err(|err| format!("{:?}", err))
@@ -635,7 +635,7 @@ impl Vmm {
         rl_ops: BucketUpdate,
     ) -> Result<(), VmmError> {
         self.mmio_device_manager
-            .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut VirtioBlock| {
+            .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
                 block.update_rate_limiter(rl_bytes, rl_ops);
                 Ok(())
             })
