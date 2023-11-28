@@ -252,6 +252,9 @@ class Microvm:
             self.expect_kill_by_signal = True
             utils.run_cmd("kill -9 {} || true".format(self.screen_pid))
 
+        # Mark the microVM as not spawned, so we avoid trying to kill twice.
+        self._spawned = False
+
         if self.time_api_requests:
             self._validate_api_response_times()
 
@@ -910,6 +913,8 @@ class MicroVMFactory:
             if len(vm.jailer.jailer_id) > 0:
                 shutil.rmtree(vm.jailer.chroot_base_with_id())
             vm.netns.cleanup()
+
+        self.vms.clear()
 
 
 class Serial:
