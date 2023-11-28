@@ -2,8 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 use serde::{Deserialize, Serialize};
 
+pub mod device;
+pub mod persist;
 pub mod vhost_user;
 pub mod virtio;
+
+pub use virtio::device::VirtioBlock;
+pub use virtio::VirtioBlockError;
 
 /// Configuration options for disk caching.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
