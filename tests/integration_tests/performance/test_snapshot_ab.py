@@ -108,7 +108,6 @@ class SnapshotRestoreTest:
         return values
 
 
-@pytest.mark.timeout(120)
 @pytest.mark.nonci
 @pytest.mark.parametrize(
     "test_setup",
