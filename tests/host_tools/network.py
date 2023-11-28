@@ -193,7 +193,7 @@ class NetIfaceConfig:
     guest_ip: str
     tap_name: str
     dev_name: str
-    netmask: int
+    netmask_len: int
 
     @property
     def guest_mac(self):
@@ -201,13 +201,14 @@ class NetIfaceConfig:
         return mac_from_ip(self.guest_ip)
 
     @staticmethod
-    def with_id(i):
+    def with_id(i, netmask_len=30):
         """Define network iface with id `i`."""
         return NetIfaceConfig(
             host_ip=f"192.168.{i}.1",
             guest_ip=f"192.168.{i}.2",
             tap_name=f"tap{i}",
             dev_name=f"eth{i}",
+            netmask_len=netmask_len,
         )
 
 
