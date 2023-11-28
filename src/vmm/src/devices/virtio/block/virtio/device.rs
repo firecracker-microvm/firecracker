@@ -26,14 +26,14 @@ use super::{
     io as block_io, VirtioBlockError, BLOCK_CONFIG_SPACE_SIZE, BLOCK_QUEUE_SIZES, SECTOR_SHIFT,
     SECTOR_SIZE,
 };
-use crate::devices::virtio::block_common::CacheType;
+use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
+use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::devices::virtio::gen::virtio_blk::{
     VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES, VIRTIO_F_VERSION_1,
 };
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
-use crate::devices::virtio::virtio_block::metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
 use crate::logger::{error, warn, IncMetric};
 use crate::rate_limiter::{BucketUpdate, RateLimiter};
@@ -658,7 +658,7 @@ impl VirtioDevice for VirtioBlock {
 
         if self.activate_evt.write(1).is_err() {
             error!("Block: Cannot write to activate_evt");
-            return Err(super::super::ActivateError::BadActivate);
+            return Err(ActivateError::BadActivate);
         }
         self.device_state = DeviceState::Activated(mem);
         Ok(())
@@ -697,14 +697,14 @@ mod tests {
 
     use super::*;
     use crate::check_metric_after_block;
-    use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
-    use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
-    use crate::devices::virtio::virtio_block::test_utils::{
+    use crate::devices::virtio::block::virtio::test_utils::{
         default_block, default_engine_type_for_kv, read_blk_req_descriptors, set_queue,
         set_rate_limiter, simulate_async_completion_event,
         simulate_queue_and_async_completion_events, simulate_queue_event,
     };
-    use crate::devices::virtio::virtio_block::IO_URING_NUM_ENTRIES;
+    use crate::devices::virtio::block::virtio::IO_URING_NUM_ENTRIES;
+    use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+    use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
     use crate::rate_limiter::TokenType;
     use crate::vstate::memory::{Address, Bytes, GuestAddress};
 

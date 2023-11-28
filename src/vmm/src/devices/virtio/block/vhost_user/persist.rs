@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::device::VhostUserBlock;
 use super::VhostUserBlockError;
-use crate::devices::virtio::block_common::CacheType;
+use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::snapshot::Persist;
 use crate::vstate::memory::GuestMemoryMmap;

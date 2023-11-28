@@ -4,8 +4,8 @@ use event_manager::{EventOps, Events, MutEventSubscriber};
 use utils::epoll::EventSet;
 
 use super::io::FileEngine;
+use crate::devices::virtio::block::virtio::device::VirtioBlock;
 use crate::devices::virtio::device::VirtioDevice;
-use crate::devices::virtio::virtio_block::device::VirtioBlock;
 use crate::logger::{error, warn};
 
 impl VirtioBlock {
@@ -118,13 +118,13 @@ mod tests {
     use event_manager::{EventManager, SubscriberOps};
 
     use super::*;
-    use crate::devices::virtio::queue::VIRTQ_DESC_F_NEXT;
-    use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
-    use crate::devices::virtio::virtio_block::device::FileEngineType;
-    use crate::devices::virtio::virtio_block::test_utils::{
+    use crate::devices::virtio::block::virtio::device::FileEngineType;
+    use crate::devices::virtio::block::virtio::test_utils::{
         default_block, read_blk_req_descriptors, set_queue, simulate_async_completion_event,
     };
-    use crate::devices::virtio::virtio_block::{VIRTIO_BLK_S_OK, VIRTIO_BLK_T_OUT};
+    use crate::devices::virtio::block::virtio::{VIRTIO_BLK_S_OK, VIRTIO_BLK_T_OUT};
+    use crate::devices::virtio::queue::VIRTQ_DESC_F_NEXT;
+    use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
     use crate::vstate::memory::{Bytes, GuestAddress};
 
     #[test]
