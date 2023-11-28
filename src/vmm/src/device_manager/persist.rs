@@ -17,10 +17,9 @@ use super::mmio::*;
 use crate::arch::DeviceType;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::balloon::{Balloon, BalloonError};
-use crate::devices::virtio::block::virtio::persist::{
-    VirtioBlockConstructorArgs, VirtioBlockState,
-};
-use crate::devices::virtio::block::virtio::{VirtioBlock, VirtioBlockError};
+use crate::devices::virtio::block::device::Block;
+use crate::devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
+use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::mmio::MmioTransport;
 use crate::devices::virtio::net::persist::{
@@ -51,8 +50,8 @@ use crate::EventManager;
 pub enum DevicePersistError {
     /// Balloon: {0}
     Balloon(#[from] BalloonError),
-    /// VirtioBlock: {0}
-    VirtioBlock(#[from] VirtioBlockError),
+    /// Block: {0}
+    Block(#[from] BlockError),
     /// Device manager: {0}
     DeviceManager(#[from] super::mmio::MmioError),
     /// Mmio transport
@@ -87,11 +86,11 @@ pub struct ConnectedBalloonState {
 
 /// Holds the state of a virtio block device connected to the MMIO space.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConnectedVirtioBlockState {
+pub struct ConnectedBlockState {
     /// Device identifier.
     pub device_id: String,
     /// Device state.
-    pub device_state: VirtioBlockState,
+    pub device_state: BlockState,
     /// Mmio transport state.
     pub transport_state: MmioTransportState,
     /// VmmResources.
@@ -179,7 +178,7 @@ pub struct DeviceStates {
     // State of legacy devices in MMIO space.
     pub legacy_devices: Vec<ConnectedLegacyState>,
     /// Virtio block device states.
-    pub virtio_block_devices: Vec<ConnectedVirtioBlockState>,
+    pub block_devices: Vec<ConnectedBlockState>,
     /// Net device states.
     pub net_devices: Vec<ConnectedNetState>,
     /// Vsock device state.
@@ -196,7 +195,7 @@ pub struct DeviceStates {
 /// types when restoring from a snapshot.
 #[derive(Debug)]
 pub enum SharedDeviceType {
-    VirtioBlock(Arc<Mutex<VirtioBlock>>),
+    VirtioBlock(Arc<Mutex<Block>>),
     Network(Arc<Mutex<Net>>),
     Balloon(Arc<Mutex<Balloon>>),
     Vsock(Arc<Mutex<Vsock<VsockUnixBackend>>>),
@@ -273,12 +272,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 }
                 // Both virtio-block and vhost-user-block share same device type.
                 TYPE_BLOCK => {
-                    let block = locked_device
-                        .as_mut_any()
-                        .downcast_mut::<VirtioBlock>()
-                        .unwrap();
+                    let block = locked_device.as_mut_any().downcast_mut::<Block>().unwrap();
                     block.prepare_save();
-                    states.virtio_block_devices.push(ConnectedVirtioBlockState {
+                    states.block_devices.push(ConnectedBlockState {
                         device_id: devid.clone(),
                         device_state: block.save(),
                         transport_state,
@@ -473,10 +469,10 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             )?;
         }
 
-        for virtio_block_state in &state.virtio_block_devices {
-            let device = Arc::new(Mutex::new(VirtioBlock::restore(
-                VirtioBlockConstructorArgs { mem: mem.clone() },
-                &virtio_block_state.device_state,
+        for block_state in &state.block_devices {
+            let device = Arc::new(Mutex::new(Block::restore(
+                BlockConstructorArgs { mem: mem.clone() },
+                &block_state.device_state,
             )?));
 
             (constructor_args.for_each_restored_device)(
@@ -488,9 +484,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 device.clone(),
                 false,
                 device,
-                &virtio_block_state.device_id,
-                &virtio_block_state.transport_state,
-                &virtio_block_state.device_info,
+                &block_state.device_id,
+                &block_state.transport_state,
+                &block_state.device_info,
                 constructor_args.event_manager,
             )?;
         }
@@ -619,8 +615,8 @@ mod tests {
         }
     }
 
-    impl PartialEq for ConnectedVirtioBlockState {
-        fn eq(&self, other: &ConnectedVirtioBlockState) -> bool {
+    impl PartialEq for ConnectedBlockState {
+        fn eq(&self, other: &ConnectedBlockState) -> bool {
             // Actual device state equality is checked by the device's tests.
             self.transport_state == other.transport_state && self.device_info == other.device_info
         }
@@ -643,7 +639,7 @@ mod tests {
     impl PartialEq for DeviceStates {
         fn eq(&self, other: &DeviceStates) -> bool {
             self.balloon_device == other.balloon_device
-                && self.virtio_block_devices == other.virtio_block_devices
+                && self.block_devices == other.block_devices
                 && self.net_devices == other.net_devices
                 && self.vsock_device == other.vsock_device
         }

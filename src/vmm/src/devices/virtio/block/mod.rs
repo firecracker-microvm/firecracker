@@ -7,8 +7,7 @@ pub mod persist;
 pub mod vhost_user;
 pub mod virtio;
 
-pub use virtio::device::VirtioBlock;
-pub use virtio::VirtioBlockError;
+pub type BlockError = virtio::VirtioBlockError;
 
 /// Configuration options for disk caching.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
