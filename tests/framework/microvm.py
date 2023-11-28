@@ -633,6 +633,7 @@ class Microvm:
         track_dirty_pages: bool = False,
         rootfs_io_engine=None,
         cpu_template: Optional[str] = None,
+        enable_entropy_device=False,
     ):
         """Shortcut for quickly configuring a microVM.
 
@@ -689,6 +690,9 @@ class Microvm:
                 is_read_only=read_only,
                 io_engine=rootfs_io_engine,
             )
+
+        if enable_entropy_device:
+            self.enable_entropy_device()
 
     def add_drive(
         self,
@@ -875,6 +879,10 @@ class Microvm:
             resume_vm=resume,
         )
         return True
+
+    def enable_entropy_device(self):
+        """Enable entropy device for microVM"""
+        self.api.entropy.put()
 
     def restore_from_path(self, snap_dir: Path, **kwargs):
         """Restore snapshot from a path"""
