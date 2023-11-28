@@ -1,7 +1,9 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-
 use serde::{Deserialize, Serialize};
+
+pub mod vhost_user;
+pub mod virtio;
 
 /// Configuration options for disk caching.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]

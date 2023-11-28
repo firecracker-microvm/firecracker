@@ -948,7 +948,7 @@ pub mod tests {
 
     use super::*;
     use crate::arch::DeviceType;
-    use crate::devices::virtio::block_common::CacheType;
+    use crate::devices::virtio::block::CacheType;
     use crate::devices::virtio::rng::device::ENTROPY_DEV_ID;
     use crate::devices::virtio::vsock::{TYPE_VSOCK, VSOCK_DEV_ID};
     use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_RNG};

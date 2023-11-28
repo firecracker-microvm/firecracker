@@ -477,8 +477,8 @@ mod tests {
 
     use super::*;
     use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
-    use crate::devices::virtio::block_common::CacheType;
-    use crate::devices::virtio::virtio_block::VirtioBlockError;
+    use crate::devices::virtio::block::virtio::VirtioBlockError;
+    use crate::devices::virtio::block::CacheType;
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
     use crate::resources::VmResources;
     use crate::vmm_config::boot_source::{

@@ -113,7 +113,6 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 
-use devices::virtio::vhost_user_block::device::VhostUserBlock;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use seccompiler::BpfProgram;
 use userfaultfd::Uffd;
@@ -132,8 +131,9 @@ use crate::devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET};
 use crate::devices::virtio::balloon::{
     Balloon, BalloonConfig, BalloonError, BalloonStats, BALLOON_DEV_ID,
 };
+use crate::devices::virtio::block::vhost_user::device::VhostUserBlock;
+use crate::devices::virtio::block::virtio::VirtioBlock;
 use crate::devices::virtio::net::Net;
-use crate::devices::virtio::virtio_block::VirtioBlock;
 use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET};
 use crate::logger::{error, info, warn, MetricsError, METRICS};
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
