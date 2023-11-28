@@ -42,7 +42,6 @@ from framework.utils_cpu_templates import (
     custom_cpu_templates_params,
     static_cpu_templates_params,
 )
-from host_tools.ip_generator import network_config, subnet_generator
 from host_tools.metrics import get_metrics_logger
 
 # This codebase uses Python features available in Python 3.10 or above
