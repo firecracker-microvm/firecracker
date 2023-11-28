@@ -189,11 +189,11 @@ class Tap:
 class NetIfaceConfig:
     """Defines a network interface configuration."""
 
-    host_ip: str = "192.168.0.1"
-    guest_ip: str = "192.168.0.2"
-    tap_name: str = "tap0"
-    dev_name: str = "eth0"
-    netmask: int = 30
+    host_ip: str
+    guest_ip: str
+    tap_name: str
+    dev_name: str
+    netmask: int
 
     @property
     def guest_mac(self):
