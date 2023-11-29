@@ -15,9 +15,8 @@ use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
 use crate::rate_limiter::BucketUpdate;
 use crate::snapshot::Persist;
+use crate::vmm_config::drive::BlockDeviceConfig;
 use crate::vstate::memory::GuestMemoryMmap;
-
-pub type BlockConfig = VirtioBlockConfig;
 
 #[derive(Debug)]
 pub enum Block {
@@ -25,15 +24,19 @@ pub enum Block {
 }
 
 impl Block {
-    pub fn new(config: BlockConfig) -> Result<Block, BlockError> {
-        Ok(Self::Virtio(
-            VirtioBlock::new(config).map_err(BlockError::VirtioBackend)?,
-        ))
+    pub fn new(config: BlockDeviceConfig) -> Result<Block, BlockError> {
+        if let Ok(config) = VirtioBlockConfig::try_from(&config) {
+            Ok(Self::Virtio(
+                VirtioBlock::new(config).map_err(BlockError::VirtioBackend)?,
+            ))
+        } else {
+            return Err(BlockError::InvalidBlockConfig);
+        }
     }
 
-    pub fn config(&self) -> BlockConfig {
+    pub fn config(&self) -> BlockDeviceConfig {
         match self {
-            Self::Virtio(b) => b.config(),
+            Self::Virtio(b) => b.config().into(),
         }
     }
 

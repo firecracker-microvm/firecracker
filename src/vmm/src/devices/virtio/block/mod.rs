@@ -24,6 +24,10 @@ pub enum CacheType {
 /// Errors the block device can trigger.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BlockError {
+    /// Invalid block config.
+    InvalidBlockConfig,
+    /// Can not restore any backend.
+    BackendRestore,
     /// Virtio backend error: {0}
     VirtioBackend(VirtioBlockError),
 }
