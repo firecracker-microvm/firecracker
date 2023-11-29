@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 use serde::{Deserialize, Serialize};
 
+use self::vhost_user::VhostUserBlockError;
 use self::virtio::VirtioBlockError;
 
 pub mod device;
@@ -26,8 +27,12 @@ pub enum CacheType {
 pub enum BlockError {
     /// Invalid block config.
     InvalidBlockConfig,
+    /// Running method expected different backend.
+    InvalidBlockBackend,
     /// Can not restore any backend.
     BackendRestore,
     /// Virtio backend error: {0}
     VirtioBackend(VirtioBlockError),
+    /// Vhost user backend error: {0}
+    VhostUserBackend(VhostUserBlockError),
 }
