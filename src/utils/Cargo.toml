@@ -18,10 +18,10 @@ versionize = "0.1.10"
 versionize_derive = "0.1.6"
 vmm-sys-util = "0.11.2"
 vm-memory = { version = "0.13.0", features = ["backend-mmap", "backend-bitmap"] }
-log-instrument = { path = "../log-instrument", optional = true }
+log-instrument = { path = "../log-instrument" }
 
 [dev-dependencies]
 serde_json = "1.0.99"
 
 [features]
-tracing = ["log-instrument"]
+tracing = []
