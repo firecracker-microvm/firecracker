@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::vhost_user::persist::VhostUserBlockState;
 use super::virtio::persist::VirtioBlockState;
 use crate::vstate::memory::GuestMemoryMmap;
 
@@ -10,6 +11,7 @@ use crate::vstate::memory::GuestMemoryMmap;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BlockState {
     Virtio(VirtioBlockState),
+    VhostUser(VhostUserBlockState),
 }
 
 /// Auxiliary structure for creating a device when resuming from a snapshot.
