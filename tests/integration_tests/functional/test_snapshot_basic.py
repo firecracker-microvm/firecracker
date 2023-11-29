@@ -112,6 +112,7 @@ def test_5_snapshots(
 
     logger.info("Create %s #0.", snapshot_type)
     # Create a snapshot from a microvm.
+    start_guest_echo_server(vm)
     snapshot = vm.make_snapshot(snapshot_type)
     base_snapshot = snapshot
 
@@ -120,17 +121,23 @@ def test_5_snapshots(
         microvm = microvm_factory.build()
         microvm.spawn()
         microvm.restore_from_snapshot(snapshot, resume=True)
+        # TODO: SIGCONT here and SIGSTOP later before creating snapshot
+        # is a temporary fix to avoid vsock timeout in
+        # _vsock_connect_to_guest(). This will be removed once we
+        # find the right solution for the timeout.
+        vm.ssh.run("pkill -SIGCONT socat")
         # Test vsock guest-initiated connections.
         path = os.path.join(
             microvm.path, make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
         )
         check_guest_connections(microvm, path, vm_blob_path, blob_hash)
         # Test vsock host-initiated connections.
-        path = start_guest_echo_server(microvm)
+        path = os.path.join(microvm.jailer.chroot_path(), VSOCK_UDS_PATH)
         check_host_connections(path, blob_path, blob_hash)
 
         # Check that the root device is not corrupted.
         check_filesystem(microvm.ssh, "squashfs", "/dev/vda")
+        vm.ssh.run("pkill -SIGSTOP socat")
 
         logger.info("Create snapshot %s #%d.", snapshot_type, i + 1)
         snapshot = microvm.make_snapshot(snapshot_type)
