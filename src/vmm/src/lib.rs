@@ -644,8 +644,12 @@ impl Vmm {
     }
 
     /// Updates the rate limiter parameters for block device with `drive_id` id.
-    pub fn update_vhost_user_block_config(&mut self, _drive_id: &str) -> Result<(), VmmError> {
-        Ok(())
+    pub fn update_vhost_user_block_config(&mut self, drive_id: &str) -> Result<(), VmmError> {
+        self.mmio_device_manager
+            .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
+                block.update_config().map_err(|err| format!("{:?}", err))
+            })
+            .map_err(VmmError::DeviceManager)
     }
 
     /// Updates the rate limiter parameters for net device with `net_id` id.
