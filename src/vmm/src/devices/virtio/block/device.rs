@@ -26,7 +26,9 @@ pub enum Block {
 
 impl Block {
     pub fn new(config: BlockConfig) -> Result<Block, BlockError> {
-        Ok(Self::Virtio(VirtioBlock::new(config)?))
+        Ok(Self::Virtio(
+            VirtioBlock::new(config).map_err(BlockError::VirtioBackend)?,
+        ))
     }
 
     pub fn config(&self) -> BlockConfig {
@@ -37,7 +39,9 @@ impl Block {
 
     pub fn update_disk_image(&mut self, disk_image_path: String) -> Result<(), BlockError> {
         match self {
-            Self::Virtio(b) => b.update_disk_image(disk_image_path),
+            Self::Virtio(b) => b
+                .update_disk_image(disk_image_path)
+                .map_err(BlockError::VirtioBackend),
         }
     }
 
@@ -205,7 +209,9 @@ impl Persist<'_> for Block {
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
         match state {
-            BlockState::Virtio(s) => Ok(Self::Virtio(VirtioBlock::restore(constructor_args, s)?)),
+            BlockState::Virtio(s) => Ok(Self::Virtio(
+                VirtioBlock::restore(constructor_args, s).map_err(BlockError::VirtioBackend)?,
+            )),
         }
     }
 }

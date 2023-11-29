@@ -473,6 +473,7 @@ mod tests {
 
     use super::*;
     use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
+    use crate::devices::virtio::block::virtio::VirtioBlockError;
     use crate::devices::virtio::block::{BlockError, CacheType};
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
     use crate::resources::VmResources;
@@ -685,7 +686,7 @@ mod tests {
             matches!(
                 error,
                 ResourcesError::BlockDevice(DriveError::CreateBlockDevice(
-                    BlockError::BackingFile(_, _),
+                    BlockError::VirtioBackend(VirtioBlockError::BackingFile(_, _)),
                 ))
             ),
             "{:?}",
