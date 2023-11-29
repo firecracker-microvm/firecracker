@@ -72,6 +72,13 @@ impl Block {
         }
     }
 
+    pub fn update_config(&mut self) -> Result<(), BlockError> {
+        match self {
+            Self::Virtio(_) => Err(BlockError::InvalidBlockBackend),
+            Self::VhostUser(ref mut b) => b.config_update().map_err(BlockError::VhostUserBackend),
+        }
+    }
+
     pub fn prepare_save(&mut self) {
         match self {
             Self::Virtio(b) => b.prepare_save(),
