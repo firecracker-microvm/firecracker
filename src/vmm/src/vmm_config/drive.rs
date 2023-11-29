@@ -186,6 +186,7 @@ mod tests {
 
     use super::*;
     use crate::devices::virtio::block::device::BlockConfig;
+    use crate::devices::virtio::block::virtio::VirtioBlockError;
 
     impl PartialEq for DriveError {
         fn eq(&self, other: &DriveError) -> bool {
@@ -542,7 +543,9 @@ mod tests {
         dummy_block_device_2.path_on_host = Some(dummy_path_3);
         assert!(matches!(
             block_devs.insert(dummy_block_device_2.clone()),
-            Err(DriveError::CreateBlockDevice(BlockError::BackingFile(_, _)))
+            Err(DriveError::CreateBlockDevice(BlockError::VirtioBackend(
+                VirtioBlockError::BackingFile(_, _)
+            )))
         ));
 
         // Update with 2 root block devices.
