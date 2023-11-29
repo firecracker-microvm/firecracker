@@ -636,8 +636,9 @@ impl Vmm {
     ) -> Result<(), VmmError> {
         self.mmio_device_manager
             .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
-                block.update_rate_limiter(rl_bytes, rl_ops);
-                Ok(())
+                block
+                    .update_rate_limiter(rl_bytes, rl_ops)
+                    .map_err(|err| err.to_string())
             })
             .map_err(VmmError::DeviceManager)
     }

@@ -847,24 +847,31 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
     event_manager: &mut EventManager,
 ) -> Result<(), StartMicrovmError> {
     for block in blocks {
-        let id = {
+        let (id, is_vhost_user) = {
             let locked = block.lock().expect("Poisoned lock");
-            if locked.root_device {
-                match locked.partuuid {
+            if locked.root_device() {
+                match locked.partuuid() {
                     Some(ref partuuid) => {
                         cmdline.insert_str(format!("root=PARTUUID={}", partuuid))?
                     }
                     None => cmdline.insert_str("root=/dev/vda")?,
                 }
-                match locked.read_only {
+                match locked.read_only() {
                     true => cmdline.insert_str("ro")?,
                     false => cmdline.insert_str("rw")?,
                 }
             }
-            locked.id.clone()
+            (locked.id().to_string(), locked.is_vhost_user())
         };
         // The device mutex mustn't be locked here otherwise it will deadlock.
-        attach_virtio_device(event_manager, vmm, id, block.clone(), cmdline, false)?;
+        attach_virtio_device(
+            event_manager,
+            vmm,
+            id,
+            block.clone(),
+            cmdline,
+            is_vhost_user,
+        )?;
     }
     Ok(())
 }
