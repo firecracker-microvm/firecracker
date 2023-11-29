@@ -50,7 +50,7 @@ def uvm_with_partuuid(uvm_plain, record_property, rootfs_ubuntu_22, tmp_path):
     disk_img.unlink()
 
 
-def test_rescan_file(test_microvm_with_api):
+def test_rescan_file(test_microvm_with_api, io_engine):
     """
     Verify that rescan works with a file-backed virtio device.
     """
@@ -66,7 +66,7 @@ def test_rescan_file(test_microvm_with_api):
     fs = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, "scratch"), size=block_size
     )
-    test_microvm.add_drive("scratch", fs.path)
+    test_microvm.add_drive("scratch", fs.path, io_engine=io_engine)
 
     test_microvm.start()
 
@@ -91,7 +91,7 @@ def test_rescan_file(test_microvm_with_api):
     _check_block_size(test_microvm.ssh, "/dev/vdb", fs.size())
 
 
-def test_device_ordering(test_microvm_with_api):
+def test_device_ordering(test_microvm_with_api, io_engine):
     """
     Verify device ordering.
 
@@ -105,7 +105,7 @@ def test_device_ordering(test_microvm_with_api):
     fs1 = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, "scratch1"), size=128
     )
-    test_microvm.add_drive("scratch1", fs1.path)
+    test_microvm.add_drive("scratch1", fs1.path, io_engine=io_engine)
 
     # Set up the microVM with 1 vCPUs, 256 MiB of RAM and a root file system
     # (this is the second block device added).
@@ -116,7 +116,7 @@ def test_device_ordering(test_microvm_with_api):
     fs2 = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, "scratch2"), size=512
     )
-    test_microvm.add_drive("scratch2", fs2.path)
+    test_microvm.add_drive("scratch2", fs2.path, io_engine=io_engine)
 
     test_microvm.start()
 
@@ -139,7 +139,7 @@ def test_device_ordering(test_microvm_with_api):
     _check_block_size(ssh_connection, "/dev/vdc", fs2.size())
 
 
-def test_rescan_dev(test_microvm_with_api):
+def test_rescan_dev(test_microvm_with_api, io_engine):
     """
     Verify that rescan works with a device-backed virtio device.
     """
@@ -152,7 +152,7 @@ def test_rescan_dev(test_microvm_with_api):
 
     # Add a scratch block device.
     fs1 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "fs1"))
-    test_microvm.add_drive("scratch", fs1.path)
+    test_microvm.add_drive("scratch", fs1.path, io_engine=io_engine)
 
     test_microvm.start()
 
@@ -179,7 +179,7 @@ def test_rescan_dev(test_microvm_with_api):
             utils.run_cmd(["losetup", "--detach", loopback_device])
 
 
-def test_non_partuuid_boot(test_microvm_with_api):
+def test_non_partuuid_boot(test_microvm_with_api, io_engine):
     """
     Test the output reported by blockdev when booting from /dev/vda.
     """
@@ -192,7 +192,7 @@ def test_non_partuuid_boot(test_microvm_with_api):
 
     # Add another read-only block device.
     fs = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "readonly"))
-    test_microvm.add_drive("scratch", fs.path, is_read_only=True)
+    test_microvm.add_drive("scratch", fs.path, is_read_only=True, io_engine=io_engine)
 
     test_microvm.start()
 
@@ -210,7 +210,7 @@ def test_non_partuuid_boot(test_microvm_with_api):
     _check_drives(test_microvm, assert_dict, keys_array)
 
 
-def test_partuuid_boot(uvm_with_partuuid):
+def test_partuuid_boot(uvm_with_partuuid, io_engine):
     """
     Test the output reported by blockdev when booting with PARTUUID.
     """
@@ -221,6 +221,7 @@ def test_partuuid_boot(uvm_with_partuuid):
         test_microvm.rootfs_file,
         is_root_device=True,
         partuuid=test_microvm.partuuid,
+        io_engine=io_engine,
     )
     test_microvm.start()
 
@@ -233,7 +234,7 @@ def test_partuuid_boot(uvm_with_partuuid):
     _check_drives(test_microvm, assert_dict, keys_array)
 
 
-def test_partuuid_update(test_microvm_with_api):
+def test_partuuid_update(test_microvm_with_api, io_engine):
     """
     Test successful switching from PARTUUID boot to /dev/vda boot.
     """
@@ -246,7 +247,11 @@ def test_partuuid_update(test_microvm_with_api):
 
     # Add the root block device specified through PARTUUID.
     test_microvm.add_drive(
-        "rootfs", test_microvm.rootfs_file, is_root_device=True, partuuid="0eaa91a0-01"
+        "rootfs",
+        test_microvm.rootfs_file,
+        is_root_device=True,
+        partuuid="0eaa91a0-01",
+        io_engine=io_engine,
     )
 
     # Update the root block device to boot from /dev/vda.
@@ -254,6 +259,7 @@ def test_partuuid_update(test_microvm_with_api):
         "rootfs",
         test_microvm.rootfs_file,
         is_root_device=True,
+        io_engine=io_engine,
     )
 
     test_microvm.start()
@@ -266,7 +272,7 @@ def test_partuuid_update(test_microvm_with_api):
     _check_drives(test_microvm, assert_dict, keys_array)
 
 
-def test_patch_drive(test_microvm_with_api):
+def test_patch_drive(test_microvm_with_api, io_engine):
     """
     Test replacing the backing filesystem after guest boot works.
     """
@@ -278,9 +284,11 @@ def test_patch_drive(test_microvm_with_api):
     test_microvm.add_net_iface()
 
     fs1 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "scratch"))
-    test_microvm.add_drive("scratch", fs1.path)
+    test_microvm.add_drive("scratch", fs1.path, io_engine=io_engine)
 
     test_microvm.start()
+
+    _check_mount(test_microvm.ssh, "/dev/vdb")
 
     # Updates to `path_on_host` with a valid path are allowed.
     fs2 = drive_tools.FilesystemFile(
@@ -289,6 +297,8 @@ def test_patch_drive(test_microvm_with_api):
     test_microvm.api.drive.patch(
         drive_id="scratch", path_on_host=test_microvm.create_jailed_resource(fs2.path)
     )
+
+    _check_mount(test_microvm.ssh, "/dev/vdb")
 
     # The `lsblk` command should output 2 lines to STDOUT: "SIZE" and the size
     # of the device, in bytes.
@@ -301,7 +311,7 @@ def test_patch_drive(test_microvm_with_api):
     assert lines[1].strip() == size_bytes_str
 
 
-def test_no_flush(test_microvm_with_api):
+def test_no_flush(test_microvm_with_api, io_engine):
     """
     Verify default block ignores flush.
     """
@@ -316,6 +326,7 @@ def test_no_flush(test_microvm_with_api):
         "rootfs",
         test_microvm.rootfs_file,
         is_root_device=True,
+        io_engine=io_engine,
     )
     test_microvm.start()
 
@@ -334,7 +345,7 @@ def test_no_flush(test_microvm_with_api):
     assert fc_metrics["block"]["flush_count"] == 0
 
 
-def test_flush(uvm_plain_rw):
+def test_flush(uvm_plain_rw, io_engine):
     """
     Verify block with flush actually flushes.
     """
@@ -349,6 +360,7 @@ def test_flush(uvm_plain_rw):
         test_microvm.rootfs_file,
         is_root_device=True,
         cache_type="Writeback",
+        io_engine=io_engine,
     )
     test_microvm.start()
 
@@ -428,3 +440,10 @@ def _check_drives(test_microvm, assert_dict, keys_array):
     _, stdout, stderr = test_microvm.ssh.run("blockdev --report")
     assert stderr == ""
     _process_blockdev_output(stdout, assert_dict, keys_array)
+
+
+def _check_mount(ssh_connection, dev_path):
+    _, _, stderr = ssh_connection.run(f"mount {dev_path} /tmp", timeout=30.0)
+    assert stderr == ""
+    _, _, stderr = ssh_connection.run("umount /tmp", timeout=30.0)
+    assert stderr == ""
