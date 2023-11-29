@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::fs::File;
 use std::marker::PhantomData;
+use std::os::fd::RawFd;
 use std::os::unix::io::AsRawFd;
 
 use utils::eventfd::EventFd;
@@ -13,7 +14,7 @@ use crate::devices::virtio::virtio_block::io::UserDataError;
 use crate::devices::virtio::virtio_block::IO_URING_NUM_ENTRIES;
 use crate::io_uring::operation::{Cqe, OpCode, Operation};
 use crate::io_uring::restriction::Restriction;
-use crate::io_uring::{IoUring, IoUringError};
+use crate::io_uring::{self, IoUring, IoUringError};
 use crate::logger::log_dev_preview_warning;
 use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryExtension, GuestMemoryMmap};
 
@@ -66,13 +67,10 @@ impl<T: Debug> WrappedUserData<T> {
 }
 
 impl<T: Debug> AsyncFileEngine<T> {
-    pub fn from_file(file: File) -> Result<AsyncFileEngine<T>, AsyncIoError> {
-        log_dev_preview_warning("Async file IO", Option::None);
-
-        let completion_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(AsyncIoError::EventFd)?;
-        let ring = IoUring::new(
+    fn new_ring(file: &File, completion_fd: RawFd) -> Result<IoUring, io_uring::IoUringError> {
+        IoUring::new(
             u32::from(IO_URING_NUM_ENTRIES),
-            vec![&file],
+            vec![file],
             vec![
                 // Make sure we only allow operations on pre-registered fds.
                 Restriction::RequireFixedFds,
@@ -81,9 +79,16 @@ impl<T: Debug> AsyncFileEngine<T> {
                 Restriction::AllowOpCode(OpCode::Write),
                 Restriction::AllowOpCode(OpCode::Fsync),
             ],
-            Some(completion_evt.as_raw_fd()),
+            Some(completion_fd),
         )
-        .map_err(AsyncIoError::IoUring)?;
+    }
+
+    pub fn from_file(file: File) -> Result<AsyncFileEngine<T>, AsyncIoError> {
+        log_dev_preview_warning("Async file IO", Option::None);
+
+        let completion_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(AsyncIoError::EventFd)?;
+        let ring =
+            Self::new_ring(&file, completion_evt.as_raw_fd()).map_err(AsyncIoError::IoUring)?;
 
         Ok(AsyncFileEngine {
             file,
@@ -91,6 +96,15 @@ impl<T: Debug> AsyncFileEngine<T> {
             completion_evt,
             phantom: PhantomData,
         })
+    }
+
+    pub fn update_file(&mut self, file: File) -> Result<(), AsyncIoError> {
+        let ring = Self::new_ring(&file, self.completion_evt.as_raw_fd())
+            .map_err(AsyncIoError::IoUring)?;
+
+        self.file = file;
+        self.ring = ring;
+        Ok(())
     }
 
     #[cfg(test)]
