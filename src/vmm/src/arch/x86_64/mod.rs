@@ -35,12 +35,12 @@ const E820_RAM: u32 = 1;
 const E820_RESERVED: u32 = 2;
 
 /// Errors thrown while configuring x86_64 system.
-#[derive(Debug, PartialEq, Eq, derive_more::From)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
 pub enum ConfigurationError {
     /// Invalid e820 setup params.
     E820Configuration,
-    /// Error writing MP table to memory.
-    MpTableSetup(mptable::MptableError),
+    /// Error writing MP table to memory: {0}
+    MpTableSetup(#[from] mptable::MptableError),
     /// Error writing the zero page of guest memory.
     ZeroPageSetup,
     /// Failed to compute initrd address.

@@ -7,7 +7,6 @@
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 
-use thiserror::Error;
 use utils::eventfd::EventFd;
 use vhost::vhost_user::message::*;
 use vhost::vhost_user::{Frontend, VhostUserFrontend};
@@ -19,7 +18,7 @@ use crate::devices::virtio::queue::Queue;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// vhost-user error.
-#[derive(Error, Debug, displaydoc::Display)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum VhostUserError {
     /// Invalid available address
     AvailAddress(GuestMemoryError),

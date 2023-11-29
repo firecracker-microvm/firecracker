@@ -82,7 +82,7 @@ bitflags! {
 pub type PayloadSource<'a, R> = Option<(&'a R, Wrapping<u32>)>;
 
 /// Describes errors which may occur during a passive open.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
 pub enum PassiveOpenError {
     /// The incoming segment is not a valid `SYN`.
     InvalidSyn,
@@ -91,7 +91,7 @@ pub enum PassiveOpenError {
 }
 
 /// Describes errors which may occur when an existing connection receives a TCP segment.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
 pub enum RecvError {
     /// The payload length is larger than the receive buffer size.
     BufferTooSmall,
@@ -100,23 +100,26 @@ pub enum RecvError {
 }
 
 /// Describes errors which may occur when a connection attempts to write a segment.
-#[derive(Debug, PartialEq, Eq, derive_more::From)]
+/// Needs `rustfmt::skip` to make multiline comments work
+#[rustfmt::skip]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
 pub enum WriteNextError {
     /// The connection cannot write the segment because it has been previously reset.
     ConnectionReset,
     /// The write sends additional data after a `FIN` has been transmitted.
     DataAfterFin,
-    /// The remaining MSS (which can be reduced by IP and/or TCP options) is not large enough to
-    /// write the segment.
+    /** The remaining MSS (which can be reduced by IP and/or TCP options) is not large enough to \
+    write the segment. */
     MssRemaining,
-    /// The payload source specifies a buffer larger than [`MAX_WINDOW_SIZE`].
-    ///
-    /// [`MAX_WINDOW_SIZE`]: ../constant.MAX_WINDOW_SIZE.html
+    // The payload source specifies a buffer larger than [`MAX_WINDOW_SIZE`].
+    //
+    // [`MAX_WINDOW_SIZE`]: ../constant.MAX_WINDOW_SIZE.html
+    /// The payload source is too large.
     PayloadBufTooLarge,
     /// The payload source does not contain the first sequence number that should be sent.
     PayloadMissingSeq,
-    /// An error occurred during the actual write to the buffer.
-    TcpSegment(TcpSegmentError),
+    /// An error occurred during the actual write to the buffer: {0}
+    TcpSegment(#[from] TcpSegmentError),
 }
 
 /// Contains the state information and implements the logic for a minimalist TCP connection.

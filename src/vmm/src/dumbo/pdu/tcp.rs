@@ -73,7 +73,7 @@ bitflags! {
 }
 
 /// Describes the errors which may occur while handling TCP segments.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
 pub enum Error {
     /// Invalid checksum.
     Checksum,

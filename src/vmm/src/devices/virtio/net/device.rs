@@ -46,12 +46,17 @@ use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap};
 
 const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 enum FrontendError {
+    /// Add user.
     AddUsed,
+    /// Descriptor chain too mall.
     DescriptorChainTooSmall,
+    /// Empty queue.
     EmptyQueue,
+    /// Guest memory error: {0}
     GuestMemory(GuestMemoryError),
+    /// Read only descriptor.
     ReadOnlyDescriptor,
 }
 

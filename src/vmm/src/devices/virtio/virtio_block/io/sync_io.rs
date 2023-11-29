@@ -8,11 +8,15 @@ use vm_memory::{GuestMemoryError, ReadVolatile, WriteVolatile};
 
 use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum SyncIoError {
+    /// Flush: {0}
     Flush(std::io::Error),
+    /// Seek: {0}
     Seek(std::io::Error),
+    /// SyncAll: {0}
     SyncAll(std::io::Error),
+    /// Transfer: {0}
     Transfer(GuestMemoryError),
 }
 

@@ -18,13 +18,19 @@ use crate::io_uring::{self, IoUring, IoUringError};
 use crate::logger::log_dev_preview_warning;
 use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryExtension, GuestMemoryMmap};
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum AsyncIoError {
+    /// IO: {0}
     IO(std::io::Error),
+    /// IoUring: {0}
     IoUring(IoUringError),
+    /// Submit: {0}
     Submit(std::io::Error),
+    /// SyncAll: {0}
     SyncAll(std::io::Error),
+    /// EventFd: {0}
     EventFd(std::io::Error),
+    /// GuestMemory: {0}
     GuestMemory(GuestMemoryError),
 }
 

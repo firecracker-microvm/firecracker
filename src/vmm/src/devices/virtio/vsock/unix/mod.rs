@@ -27,21 +27,21 @@ mod defs {
 }
 
 /// Vsock backend related errors.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum VsockUnixBackendError {
-    /// Error registering a new epoll-listening FD.
+    /// Error registering a new epoll-listening FD: {0}
     EpollAdd(std::io::Error),
-    /// Error creating an epoll FD.
+    /// Error creating an epoll FD: {0}
     EpollFdCreate(std::io::Error),
     /// The host made an invalid vsock port connection request.
     InvalidPortRequest,
-    /// Error accepting a new connection from the host-side Unix socket.
+    /// Error accepting a new connection from the host-side Unix socket: {0}
     UnixAccept(std::io::Error),
-    /// Error binding to the host-side Unix socket.
+    /// Error binding to the host-side Unix socket: {0}
     UnixBind(std::io::Error),
-    /// Error connecting to a host-side Unix socket.
+    /// Error connecting to a host-side Unix socket: {0}
     UnixConnect(std::io::Error),
-    /// Error reading from host-side Unix socket.
+    /// Error reading from host-side Unix socket: {0}
     UnixRead(std::io::Error),
     /// Muxer connection limit reached.
     TooManyConnections,

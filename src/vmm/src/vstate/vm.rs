@@ -29,78 +29,54 @@ use crate::cpu_config::templates::KvmCapability;
 use crate::vstate::memory::{Address, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 /// Errors associated with the wrappers over KVM ioctls.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+/// Needs `rustfmt::skip` to make multiline comments work
+#[rustfmt::skip]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
 pub enum VmError {
-    /// The host kernel reports an invalid KVM API version.
-    #[error("The host kernel reports an invalid KVM API version: {0}")]
+    /// The host kernel reports an invalid KVM API version: {0}
     ApiVersion(i32),
-    /// Cannot initialize the KVM context due to missing capabilities.
-    #[error("Missing KVM capabilities: {0:x?}")]
+    /// Missing KVM capabilities: {0:x?}
     Capabilities(u32),
-    /// Cannot initialize the KVM context.
-    #[error("{}", ({
-        if .0.errno() == libc::EACCES {
-            format!(
-                "Error creating KVM object. [{}]\nMake sure the user \
-                launching the firecracker process is configured on the /dev/kvm file's ACL.",
-                .0
-            )
-        } else {
-            format!("Error creating KVM object. [{}]", .0)
-        }
-    }))]
+    /**  Error creating KVM object: {0} Make sure the user launching the firecracker process is \
+    configured on the /dev/kvm file's ACL. */
     Kvm(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
-    /// Failed to get MSR index list to save into snapshots.
-    #[error("Failed to get MSR index list to save into snapshots: {0}")]
+    /// Failed to get MSR index list to save into snapshots: {0}
     GetMsrsToSave(#[from] crate::arch::x86_64::msr::MsrError),
-    /// The number of configured slots is bigger than the maximum reported by KVM.
-    #[error("The number of configured slots is bigger than the maximum reported by KVM")]
+    /// The number of configured slots is bigger than the maximum reported by KVM
     NotEnoughMemorySlots,
-    /// Cannot set the memory regions.
-    #[error("Cannot set the memory regions: {0}")]
+    /// Cannot set the memory regions: {0}
     SetUserMemoryRegion(kvm_ioctls::Error),
     #[cfg(target_arch = "aarch64")]
-    /// Cannot create the global interrupt controller.
-    #[error("Error creating the global interrupt controller: {0:?}")]
+    /// Error creating the global interrupt controller: {0}
     VmCreateGIC(crate::arch::aarch64::gic::GicError),
-    /// Cannot open the VM file descriptor.
-    #[error("Cannot open the VM file descriptor: {0}")]
+    /// Cannot open the VM file descriptor: {0}
     VmFd(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
-    /// Failed to get KVM vm pit state.
-    #[error("Failed to get KVM vm pit state: {0}")]
+    /// Failed to get KVM vm pit state: {0}
     VmGetPit2(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
-    /// Failed to get KVM vm clock.
-    #[error("Failed to get KVM vm clock: {0}")]
+    /// Failed to get KVM vm clock: {0}
     VmGetClock(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
-    /// Failed to get KVM vm irqchip.
-    #[error("Failed to get KVM vm irqchip: {0}")]
+    /// Failed to get KVM vm irqchip: {0}
     VmGetIrqChip(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
-    /// Failed to set KVM vm pit state.
-    #[error("Failed to set KVM vm pit state: {0}")]
+    /// Failed to set KVM vm pit state: {0}
     VmSetPit2(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
-    /// Failed to set KVM vm clock.
-    #[error("Failed to set KVM vm clock: {0}")]
+    /// Failed to set KVM vm clock: {0}
     VmSetClock(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
-    /// Failed to set KVM vm irqchip.
-    #[error("Failed to set KVM vm irqchip: {0}")]
+    /// Failed to set KVM vm irqchip: {0}
     VmSetIrqChip(kvm_ioctls::Error),
-    /// Cannot configure the microvm.
-    #[error("Cannot configure the microvm: {0}")]
+    /// Cannot configure the microvm: {0}
     VmSetup(kvm_ioctls::Error),
     #[cfg(target_arch = "aarch64")]
-    /// Failed to save the VM's GIC state.
-    #[error("Failed to save the VM's GIC state: {0:?}")]
+    /// Failed to save the VM's GIC state: {0}
     SaveGic(crate::arch::aarch64::gic::GicError),
     #[cfg(target_arch = "aarch64")]
-    /// Failed to restore the VM's GIC state.
-    #[error("Failed to restore the VM's GIC state: {0:?}")]
+    /// Failed to restore the VM's GIC state: {0}
     RestoreGic(crate::arch::aarch64::gic::GicError),
 }
 
@@ -109,17 +85,17 @@ pub enum VmError {
 #[cfg(target_arch = "x86_64")]
 #[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq, Eq)]
 pub enum RestoreStateError {
-    /// {0}
+    /// Set PIT2 error: {0}
     SetPit2(kvm_ioctls::Error),
-    /// {0}
+    /// Set clock error: {0}
     SetClock(kvm_ioctls::Error),
-    /// {0}
+    /// Set IrqChipPicMaster error: {0}
     SetIrqChipPicMaster(kvm_ioctls::Error),
-    /// {0}
+    /// Set IrqChipPicSlave error: {0}
     SetIrqChipPicSlave(kvm_ioctls::Error),
-    /// {0}
+    /// Set IrqChipIoAPIC error: {0}
     SetIrqChipIoAPIC(kvm_ioctls::Error),
-    /// {0}
+    /// VM error: {0}
     VmError(VmError),
 }
 

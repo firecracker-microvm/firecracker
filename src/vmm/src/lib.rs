@@ -201,7 +201,7 @@ pub enum VmmError {
     #[cfg(target_arch = "aarch64")]
     /// Invalid command line error.
     Cmdline,
-    /// {0}
+    /// Device manager error: {0}
     DeviceManager(device_manager::mmio::MmioError),
     /// Error getting the KVM dirty bitmap. {0}
     DirtyBitmap(kvm_ioctls::Error),
@@ -263,17 +263,17 @@ pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
     guest_memory.iter().map(|region| region.len()).sum::<u64>() >> 20
 }
 
-/// Error type for [`Vmm::emulate_serial_init`].
-#[derive(Debug, derive_more::From, thiserror::Error)]
-#[error("Emulate serial init error: {0}")]
-pub struct EmulateSerialInitError(std::io::Error);
+// Error type for [`Vmm::emulate_serial_init`].
+/// Emulate serial init error: {0}
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub struct EmulateSerialInitError(#[from] std::io::Error);
 
 /// Error type for [`Vmm::start_vcpus`].
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum StartVcpusError {
-    /// {0}
+    /// VMM observer init error: {0}
     VmmObserverInit(#[from] utils::errno::Error),
-    /// {0}
+    /// Vcpu handle error: {0}
     VcpuHandle(#[from] StartThreadedError),
 }
 

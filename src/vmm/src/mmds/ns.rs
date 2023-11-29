@@ -36,19 +36,26 @@ const DEFAULT_TCP_PORT: u16 = 80;
 const DEFAULT_MAX_CONNECTIONS: usize = 30;
 const DEFAULT_MAX_PENDING_RESETS: usize = 100;
 
-#[derive(Debug, PartialEq, derive_more::From)]
+#[derive(Debug, PartialEq, thiserror::Error, displaydoc::Display)]
 enum WriteArpFrameError {
+    /// NoPendingArpReply
     NoPendingArpReply,
-    Arp(ArpFrameError),
-    Ethernet(EthernetFrameError),
+    /// ARP error: {0}
+    Arp(#[from] ArpFrameError),
+    /// Ethernet error: {0}
+    Ethernet(#[from] EthernetFrameError),
 }
 
-#[derive(Debug, PartialEq, derive_more::From)]
+#[derive(Debug, PartialEq, thiserror::Error, displaydoc::Display)]
 enum WritePacketError {
-    IPv4Packet(IPv4PacketError),
-    Ethernet(EthernetFrameError),
-    TcpSegment(TcpSegmentError),
-    WriteNext(WriteNextError),
+    /// IPv4Packet error: {0}
+    IPv4Packet(#[from] IPv4PacketError),
+    /// Ethernet error: {0}
+    Ethernet(#[from] EthernetFrameError),
+    /// TcpSegment error: {0}
+    TcpSegment(#[from] TcpSegmentError),
+    /// WriteNext error: {0}
+    WriteNext(#[from] WriteNextError),
 }
 
 #[derive(Debug)]

@@ -8,9 +8,11 @@ use vm_memory::mmap::MmapRegionError;
 
 use crate::vstate::memory::MmapRegion;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum MmapError {
+    /// Os: {0}
     Os(IOError),
+    /// BuildMmapRegion: {0}
     BuildMmapRegion(MmapRegionError),
 }
 

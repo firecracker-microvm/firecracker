@@ -13,13 +13,13 @@ use crate::io_uring::bindings;
 use crate::io_uring::operation::Cqe;
 use crate::vstate::memory::MmapRegion;
 
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 /// CQueue Error.
 pub enum CQueueError {
-    /// Error mapping the ring.
-    Mmap(MmapError),
-    /// Error reading/writing volatile memory.
-    VolatileMemory(VolatileMemoryError),
+    /// Error mapping the ring: {0}
+    Mmap(#[from] MmapError),
+    /// Error reading/writing volatile memory: {0}
+    VolatileMemory(#[from] VolatileMemoryError),
 }
 
 #[derive(Debug)]

@@ -11,10 +11,10 @@ use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 pub mod persist;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 /// Describes the errors that may occur while handling rate limiter events.
 pub enum Error {
-    /// The event handler was called spuriously.
+    /// The event handler was called spuriously: {0}
     SpuriousRateLimiterEvent(&'static str),
 }
 

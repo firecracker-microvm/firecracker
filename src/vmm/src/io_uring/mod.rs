@@ -31,38 +31,38 @@ const REQUIRED_OPS: [OpCode; 2] = [OpCode::Read, OpCode::Write];
 // Taken from linux/fs/io_uring.c
 const IORING_MAX_FIXED_FILES: usize = 1 << 15;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 /// IoUring Error.
 pub enum IoUringError {
-    /// Error originating in the completion queue.
+    /// Error originating in the completion queue: {0}
     CQueue(CQueueError),
-    /// Could not enable the ring.
+    /// Could not enable the ring: {0}
     Enable(IOError),
-    /// A FamStructWrapper operation has failed.
+    /// A FamStructWrapper operation has failed: {0}
     Fam(utils::fam::Error),
     /// The number of ops in the ring is >= CQ::count
     FullCQueue,
-    /// Fd was not registered.
+    /// Fd was not registered: {0}
     InvalidFixedFd(FixedFd),
     /// There are no registered fds.
     NoRegisteredFds,
-    /// Error probing the io_uring subsystem.
+    /// Error probing the io_uring subsystem: {0}
     Probe(IOError),
-    /// Could not register eventfd.
+    /// Could not register eventfd: {0}
     RegisterEventfd(IOError),
-    /// Could not register file.
+    /// Could not register file: {0}
     RegisterFile(IOError),
     /// Attempted to register too many files.
     RegisterFileLimitExceeded,
-    /// Could not register restrictions.
+    /// Could not register restrictions: {0}
     RegisterRestrictions(IOError),
-    /// Error calling io_uring_setup.
+    /// Error calling io_uring_setup: {0}
     Setup(IOError),
-    /// Error originating in the submission queue.
+    /// Error originating in the submission queue: {0}
     SQueue(SQueueError),
-    /// Required feature is not supported on the host kernel.
+    /// Required feature is not supported on the host kernel: {0}
     UnsupportedFeature(&'static str),
-    /// Required operation is not supported on the host kernel.
+    /// Required operation is not supported on the host kernel: {0}
     UnsupportedOperation(&'static str),
 }
 

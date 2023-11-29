@@ -24,11 +24,15 @@ pub enum FileEngineOk<T> {
     Executed(UserDataOk<T>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BlockIoError {
+    /// Sync error: {0}
     Sync(SyncIoError),
+    /// Async error: {0}
     Async(AsyncIoError),
+    /// Unsupported engine type: {0:?}
     UnsupportedEngine(FileEngineType),
+    /// Could not get kernel version: {0}
     GetKernelVersion(utils::kernel_version::Error),
 }
 

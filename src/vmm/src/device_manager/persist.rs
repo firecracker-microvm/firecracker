@@ -51,20 +51,31 @@ use crate::vstate::memory::GuestMemoryMmap;
 use crate::EventManager;
 
 /// Errors for (de)serialization of the MMIO device manager.
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum DevicePersistError {
-    Balloon(BalloonError),
-    VirtioBlock(VirtioBlockError),
-    VhostUserBlock(VhostUserBlockError),
-    DeviceManager(super::mmio::MmioError),
+    /// Balloon: {0}
+    Balloon(#[from] BalloonError),
+    /// VirtioBlock: {0}
+    VirtioBlock(#[from] VirtioBlockError),
+    /// VhostUserBlock: {0}
+    VhostUserBlock(#[from] VhostUserBlockError),
+    /// Device manager: {0}
+    DeviceManager(#[from] super::mmio::MmioError),
+    /// Mmio transport
     MmioTransport,
     #[cfg(target_arch = "aarch64")]
-    Legacy(crate::VmmError),
-    Net(NetError),
-    Vsock(VsockError),
-    VsockUnixBackend(VsockUnixBackendError),
-    MmdsConfig(MmdsConfigError),
-    Entropy(EntropyError),
+    /// Legacy: {0}
+    Legacy(#[from] crate::VmmError),
+    /// Net: {0}
+    Net(#[from] NetError),
+    /// Vsock: {0}
+    Vsock(#[from] VsockError),
+    /// VsockUnixBackend: {0}
+    VsockUnixBackend(#[from] VsockUnixBackendError),
+    /// MmdsConfig: {0}
+    MmdsConfig(#[from] MmdsConfigError),
+    /// Entropy: {0}
+    Entropy(#[from] EntropyError),
 }
 
 /// Holds the state of a balloon device connected to the MMIO space.

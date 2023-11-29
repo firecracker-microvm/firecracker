@@ -27,7 +27,7 @@ pub const ETHERTYPE_ARP: u16 = 0x0806;
 pub const ETHERTYPE_IPV4: u16 = 0x0800;
 
 /// Describes the errors which may occur when handling Ethernet frames.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
 pub enum Error {
     /// The specified byte sequence is shorter than the Ethernet header length.
     SliceTooShort,

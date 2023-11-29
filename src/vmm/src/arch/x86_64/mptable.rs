@@ -36,7 +36,7 @@ unsafe impl ByteValued for mpspec::mpf_intel {}
 // MPTABLE, describing VCPUS.
 const MPTABLE_START: u64 = 0x9fc00;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
 pub enum MptableError {
     /// There was too little guest memory to store the entire MP table.
     NotEnoughMemory,
