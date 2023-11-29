@@ -71,19 +71,20 @@ pub struct DiskProperties {
 }
 
 impl DiskProperties {
-    pub fn new(
-        disk_image_path: String,
-        is_disk_read_only: bool,
-        file_engine_type: FileEngineType,
-    ) -> Result<Self, VirtioBlockError> {
-        let mut disk_image = OpenOptions::new()
+    // Helper function that opens the file with the proper access permissions
+    fn open_file(disk_image_path: &str, is_disk_read_only: bool) -> Result<File, VirtioBlockError> {
+        OpenOptions::new()
             .read(true)
             .write(!is_disk_read_only)
             .open(PathBuf::from(&disk_image_path))
-            .map_err(|x| VirtioBlockError::BackingFile(x, disk_image_path.clone()))?;
+            .map_err(|x| VirtioBlockError::BackingFile(x, disk_image_path.to_string()))
+    }
+
+    // Helper function that gets the size of the file
+    fn file_size(disk_image_path: &str, disk_image: &mut File) -> Result<u64, VirtioBlockError> {
         let disk_size = disk_image
             .seek(SeekFrom::End(0))
-            .map_err(|x| VirtioBlockError::BackingFile(x, disk_image_path.clone()))?;
+            .map_err(|x| VirtioBlockError::BackingFile(x, disk_image_path.to_string()))?;
 
         // We only support disk size, which uses the first two words of the configuration space.
         // If the image is not a multiple of the sector size, the tail bits are not exposed.
@@ -95,6 +96,17 @@ impl DiskProperties {
             );
         }
 
+        Ok(disk_size)
+    }
+
+    /// Create a new file for the block device using a FileEngine
+    pub fn new(
+        disk_image_path: String,
+        is_disk_read_only: bool,
+        file_engine_type: FileEngineType,
+    ) -> Result<Self, VirtioBlockError> {
+        let mut disk_image = Self::open_file(&disk_image_path, is_disk_read_only)?;
+        let disk_size = Self::file_size(&disk_image_path, &mut disk_image)?;
         let image_id = Self::build_disk_image_id(&disk_image);
 
         Ok(Self {
@@ -104,6 +116,25 @@ impl DiskProperties {
             nsectors: disk_size >> SECTOR_SHIFT,
             image_id,
         })
+    }
+
+    /// Update the path to the file backing the block device
+    pub fn update(
+        &mut self,
+        disk_image_path: String,
+        is_disk_read_only: bool,
+    ) -> Result<(), VirtioBlockError> {
+        let mut disk_image = Self::open_file(&disk_image_path, is_disk_read_only)?;
+        let disk_size = Self::file_size(&disk_image_path, &mut disk_image)?;
+
+        self.image_id = Self::build_disk_image_id(&disk_image);
+        self.file_engine
+            .update_file_path(disk_image)
+            .map_err(VirtioBlockError::FileEngine)?;
+        self.nsectors = disk_size >> SECTOR_SHIFT;
+        self.file_path = disk_image_path;
+
+        Ok(())
     }
 
     fn build_device_id(disk_file: &File) -> Result<String, VirtioBlockError> {
@@ -506,9 +537,7 @@ impl VirtioBlock {
 
     /// Update the backing file and the config space of the block device.
     pub fn update_disk_image(&mut self, disk_image_path: String) -> Result<(), VirtioBlockError> {
-        let disk_properties =
-            DiskProperties::new(disk_image_path, self.read_only, self.file_engine_type())?;
-        self.disk = disk_properties;
+        self.disk.update(disk_image_path, self.read_only)?;
         self.config_space = self.disk.virtio_block_config_space();
 
         // Kick the driver to pick up the changes.
