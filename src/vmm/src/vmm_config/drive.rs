@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use super::RateLimiterConfig;
-use crate::devices::virtio::block::device::{Block, BlockConfig};
+use crate::devices::virtio::block::device::Block;
 pub use crate::devices::virtio::block::virtio::device::FileEngineType;
 use crate::devices::virtio::block::{BlockError, CacheType};
 use crate::VmmError;
@@ -16,8 +16,6 @@ use crate::VmmError;
 /// Errors associated with the operations allowed on a drive.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum DriveError {
-    /// Unabled to create block device from config
-    InvalidBlockConfig,
     /// Unable to create the virtio block device: {0:?}
     CreateBlockDevice(BlockError),
     /// Cannot create RateLimiter: {0}
@@ -132,26 +130,23 @@ impl BlockBuilder {
     pub fn insert(&mut self, config: BlockDeviceConfig) -> Result<(), DriveError> {
         let position = self.get_index_of_drive_id(&config.drive_id);
         let has_root_device = self.has_root_device();
+        let configured_as_root = config.is_root_device;
 
         // Don't allow adding a second root block device.
         // If the new device cfg is root and not an update to the existing root, fail fast.
-        if config.is_root_device && has_root_device && position != Some(0) {
+        if configured_as_root && has_root_device && position != Some(0) {
             return Err(DriveError::RootBlockDeviceAlreadyAdded);
         }
 
-        let block_dev = if let Ok(virtio_block_config) = BlockConfig::try_from(&config) {
-            Arc::new(Mutex::new(
-                Block::new(virtio_block_config).map_err(DriveError::CreateBlockDevice)?,
-            ))
-        } else {
-            return Err(DriveError::InvalidBlockConfig);
-        };
+        let block_dev = Arc::new(Mutex::new(
+            Block::new(config).map_err(DriveError::CreateBlockDevice)?,
+        ));
 
         // If the id of the drive already exists in the list, the operation is update/overwrite.
         match position {
             // New block device.
             None => {
-                if config.is_root_device {
+                if configured_as_root {
                     self.devices.push_front(block_dev);
                 } else {
                     self.devices.push_back(block_dev);
@@ -162,7 +157,7 @@ impl BlockBuilder {
                 // Update the slot with the new block.
                 self.devices[index] = block_dev;
                 // Check if the root block device is being updated.
-                if index != 0 && config.is_root_device {
+                if index != 0 && configured_as_root {
                     // Make sure the root device is on the first position.
                     self.devices.swap(0, index);
                 }
@@ -175,7 +170,7 @@ impl BlockBuilder {
     pub fn configs(&self) -> Vec<BlockDeviceConfig> {
         self.devices
             .iter()
-            .map(|b| b.lock().unwrap().config().into())
+            .map(|b| b.lock().unwrap().config())
             .collect()
     }
 }
@@ -185,7 +180,6 @@ mod tests {
     use utils::tempfile::TempFile;
 
     use super::*;
-    use crate::devices::virtio::block::device::BlockConfig;
     use crate::devices::virtio::block::virtio::VirtioBlockError;
 
     impl PartialEq for DriveError {
@@ -626,15 +620,18 @@ mod tests {
         let backing_file = TempFile::new().unwrap();
 
         let block_id = "test_id";
-        let config = BlockConfig {
+        let config = BlockDeviceConfig {
             drive_id: block_id.to_string(),
-            path_on_host: backing_file.as_path().to_str().unwrap().to_string(),
-            is_root_device: true,
             partuuid: None,
-            is_read_only: true,
+            is_root_device: true,
             cache_type: CacheType::default(),
+
+            is_read_only: Some(true),
+            path_on_host: Some(backing_file.as_path().to_str().unwrap().to_string()),
             rate_limiter: None,
-            file_engine_type: FileEngineType::default(),
+            file_engine_type: None,
+
+            socket: None,
         };
 
         let block = Block::new(config).unwrap();
