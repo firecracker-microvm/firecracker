@@ -196,7 +196,7 @@ impl Persist<'_> for Block {
 
     fn save(&self) -> Self::State {
         match self {
-            Self::Virtio(b) => b.save(),
+            Self::Virtio(b) => BlockState::Virtio(b.save()),
         }
     }
 
@@ -204,6 +204,8 @@ impl Persist<'_> for Block {
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
-        Ok(Self::Virtio(VirtioBlock::restore(constructor_args, state)?))
+        match state {
+            BlockState::Virtio(s) => Ok(Self::Virtio(VirtioBlock::restore(constructor_args, s)?)),
+        }
     }
 }
