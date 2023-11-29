@@ -84,20 +84,20 @@ pub(crate) struct DiskProperties {
 }
 
 impl DiskProperties {
-    pub fn new(
-        disk_image_path: String,
-        is_disk_read_only: bool,
-        cache_type: CacheType,
-        file_engine_type: FileEngineType,
-    ) -> Result<Self, BlockError> {
-        let mut disk_image = OpenOptions::new()
+    // Helper function that opens the file with the proper access permissions
+    fn open_file(disk_image_path: &str, is_disk_read_only: bool) -> Result<File, BlockError> {
+        OpenOptions::new()
             .read(true)
             .write(!is_disk_read_only)
             .open(PathBuf::from(&disk_image_path))
-            .map_err(|x| BlockError::BackingFile(x, disk_image_path.clone()))?;
+            .map_err(|x| BlockError::BackingFile(x, disk_image_path.to_string()))
+    }
+
+    // Helper function that gets the size of the file
+    fn file_size(disk_image_path: &str, disk_image: &mut File) -> Result<u64, BlockError> {
         let disk_size = disk_image
             .seek(SeekFrom::End(0))
-            .map_err(|x| BlockError::BackingFile(x, disk_image_path.clone()))?;
+            .map_err(|x| BlockError::BackingFile(x, disk_image_path.to_string()))?;
 
         // We only support disk size, which uses the first two words of the configuration space.
         // If the image is not a multiple of the sector size, the tail bits are not exposed.
@@ -109,6 +109,19 @@ impl DiskProperties {
             );
         }
 
+        Ok(disk_size)
+    }
+
+    /// Create a new file for the block device using a FileEngine
+    pub fn new(
+        disk_image_path: String,
+        is_disk_read_only: bool,
+        cache_type: CacheType,
+        file_engine_type: FileEngineType,
+    ) -> Result<Self, BlockError> {
+        let mut disk_image = Self::open_file(&disk_image_path, is_disk_read_only)?;
+        let disk_size = Self::file_size(&disk_image_path, &mut disk_image)?;
+
         Ok(Self {
             cache_type,
             nsectors: disk_size >> SECTOR_SHIFT,
@@ -117,6 +130,25 @@ impl DiskProperties {
             file_engine: FileEngine::from_file(disk_image, file_engine_type)
                 .map_err(BlockError::FileEngine)?,
         })
+    }
+
+    /// Update the path to the file backing the block device
+    pub fn update(
+        &mut self,
+        disk_image_path: String,
+        is_disk_read_only: bool,
+    ) -> Result<(), BlockError> {
+        let mut disk_image = Self::open_file(&disk_image_path, is_disk_read_only)?;
+        let disk_size = Self::file_size(&disk_image_path, &mut disk_image)?;
+
+        self.image_id = Self::build_disk_image_id(&disk_image);
+        self.file_engine
+            .update_file_path(disk_image)
+            .map_err(BlockError::FileEngine)?;
+        self.nsectors = disk_size >> SECTOR_SHIFT;
+        self.file_path = disk_image_path;
+
+        Ok(())
     }
 
     pub fn file_engine(&self) -> &FileEngine<PendingRequest> {
@@ -453,13 +485,7 @@ impl Block {
 
     /// Update the backing file and the config space of the block device.
     pub fn update_disk_image(&mut self, disk_image_path: String) -> Result<(), BlockError> {
-        let disk_properties = DiskProperties::new(
-            disk_image_path,
-            self.is_read_only(),
-            self.cache_type(),
-            self.file_engine_type(),
-        )?;
-        self.disk = disk_properties;
+        self.disk.update(disk_image_path, self.is_read_only())?;
         self.config_space = self.disk.virtio_block_config_space();
 
         // Kick the driver to pick up the changes.
