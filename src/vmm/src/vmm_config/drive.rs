@@ -104,7 +104,7 @@ impl BlockBuilder {
     fn has_root_device(&self) -> bool {
         // If there is a root device, it would be at the top of the list.
         if let Some(block) = self.devices.get(0) {
-            block.lock().expect("Poisoned lock").root_device
+            block.lock().expect("Poisoned lock").root_device()
         } else {
             false
         }
@@ -114,12 +114,12 @@ impl BlockBuilder {
     fn get_index_of_drive_id(&self, drive_id: &str) -> Option<usize> {
         self.devices
             .iter()
-            .position(|b| b.lock().expect("Poisoned lock").id.eq(drive_id))
+            .position(|b| b.lock().expect("Poisoned lock").id().eq(drive_id))
     }
 
     /// Inserts an existing block device.
     pub fn add_virtio_device(&mut self, block_device: Arc<Mutex<Block>>) {
-        if block_device.lock().expect("Poisoned lock").root_device {
+        if block_device.lock().expect("Poisoned lock").root_device() {
             self.devices.push_front(block_device);
         } else {
             self.devices.push_back(block_device);
@@ -246,9 +246,9 @@ mod tests {
         assert_eq!(block_devs.get_index_of_drive_id(&dummy_id), Some(0));
 
         let block = block_devs.devices[0].lock().unwrap();
-        assert_eq!(block.id, dummy_block_device.drive_id);
-        assert_eq!(block.partuuid, dummy_block_device.partuuid);
-        assert_eq!(block.read_only, dummy_block_device.is_read_only.unwrap());
+        assert_eq!(block.id(), dummy_block_device.drive_id);
+        assert_eq!(block.partuuid(), &dummy_block_device.partuuid);
+        assert_eq!(block.read_only(), dummy_block_device.is_read_only.unwrap());
     }
 
     #[test]
@@ -276,9 +276,9 @@ mod tests {
         assert!(block_devs.has_root_device());
         assert_eq!(block_devs.devices.len(), 1);
         let block = block_devs.devices[0].lock().unwrap();
-        assert_eq!(block.id, dummy_block_device.drive_id);
-        assert_eq!(block.partuuid, dummy_block_device.partuuid);
-        assert_eq!(block.read_only, dummy_block_device.is_read_only.unwrap());
+        assert_eq!(block.id(), dummy_block_device.drive_id);
+        assert_eq!(block.partuuid(), &dummy_block_device.partuuid);
+        assert_eq!(block.read_only(), dummy_block_device.is_read_only.unwrap());
     }
 
     #[test]
@@ -383,15 +383,15 @@ mod tests {
 
         let mut block_iter = block_devs.devices.iter();
         assert_eq!(
-            block_iter.next().unwrap().lock().unwrap().id,
+            block_iter.next().unwrap().lock().unwrap().id(),
             root_block_device.drive_id
         );
         assert_eq!(
-            block_iter.next().unwrap().lock().unwrap().id,
+            block_iter.next().unwrap().lock().unwrap().id(),
             dummy_block_dev_2.drive_id
         );
         assert_eq!(
-            block_iter.next().unwrap().lock().unwrap().id,
+            block_iter.next().unwrap().lock().unwrap().id(),
             dummy_block_dev_3.drive_id
         );
     }
@@ -458,15 +458,15 @@ mod tests {
         // The root device should be first in the list no matter of the order in
         // which the devices were added.
         assert_eq!(
-            block_iter.next().unwrap().lock().unwrap().id,
+            block_iter.next().unwrap().lock().unwrap().id(),
             root_block_device.drive_id
         );
         assert_eq!(
-            block_iter.next().unwrap().lock().unwrap().id,
+            block_iter.next().unwrap().lock().unwrap().id(),
             dummy_block_dev_2.drive_id
         );
         assert_eq!(
-            block_iter.next().unwrap().lock().unwrap().id,
+            block_iter.next().unwrap().lock().unwrap().id(),
             dummy_block_dev_3.drive_id
         );
     }
@@ -535,7 +535,7 @@ mod tests {
             .get_index_of_drive_id(&dummy_block_device_2.drive_id)
             .unwrap();
         // Validate update was successful.
-        assert!(block_devs.devices[index].lock().unwrap().read_only);
+        assert!(block_devs.devices[index].lock().unwrap().read_only());
 
         // Update with invalid path.
         let dummy_path_3 = String::from("test_update_3");
@@ -588,7 +588,7 @@ mod tests {
         block_devs.insert(root_block_device_new).unwrap();
         assert!(block_devs.has_root_device());
         // Verify it's been moved to the first position.
-        assert_eq!(block_devs.devices[0].lock().unwrap().id, root_block_id);
+        assert_eq!(block_devs.devices[0].lock().unwrap().id(), root_block_id);
     }
 
     #[test]
@@ -639,7 +639,7 @@ mod tests {
         block_devs.add_virtio_device(Arc::new(Mutex::new(block)));
         assert_eq!(block_devs.devices.len(), 1);
         assert_eq!(
-            block_devs.devices.pop_back().unwrap().lock().unwrap().id,
+            block_devs.devices.pop_back().unwrap().lock().unwrap().id(),
             block_id
         );
     }
