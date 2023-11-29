@@ -30,34 +30,34 @@ use crate::vmm_config::net::*;
 use crate::vmm_config::vsock::*;
 
 /// Errors encountered when configuring microVM resources.
-#[derive(Debug, thiserror::Error, displaydoc::Display, derive_more::From)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum ResourcesError {
     /// Balloon device error: {0}
-    BalloonDevice(BalloonConfigError),
+    BalloonDevice(#[from] BalloonConfigError),
     /// Block device error: {0}
-    BlockDevice(DriveError),
+    BlockDevice(#[from] DriveError),
     /// Boot source error: {0}
-    BootSource(BootSourceConfigError),
+    BootSource(#[from] BootSourceConfigError),
     /// File operation error: {0}
-    File(std::io::Error),
+    File(#[from] std::io::Error),
     /// Invalid JSON: {0}
-    InvalidJson(serde_json::Error),
+    InvalidJson(#[from] serde_json::Error),
     /// Logger error: {0}
-    Logger(crate::logger::LoggerUpdateError),
+    Logger(#[from] crate::logger::LoggerUpdateError),
     /// Metrics error: {0}
-    Metrics(MetricsConfigError),
+    Metrics(#[from] MetricsConfigError),
     /// MMDS error: {0}
-    Mmds(mmds::data_store::Error),
+    Mmds(#[from] mmds::data_store::Error),
     /// MMDS config error: {0}
-    MmdsConfig(MmdsConfigError),
+    MmdsConfig(#[from] MmdsConfigError),
     /// Network device error: {0}
-    NetDevice(NetworkInterfaceError),
+    NetDevice(#[from] NetworkInterfaceError),
     /// VM config error: {0}
-    VmConfig(VmConfigError),
+    VmConfig(#[from] VmConfigError),
     /// Vsock device error: {0}
-    VsockDevice(VsockConfigError),
+    VsockDevice(#[from] VsockConfigError),
     /// Entropy device error: {0}
-    EntropyDevice(EntropyDeviceError),
+    EntropyDevice(#[from] EntropyDeviceError),
 }
 
 /// Used for configuring a vmm from one single json passed to the Firecracker process.

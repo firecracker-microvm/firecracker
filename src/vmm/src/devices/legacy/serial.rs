@@ -60,8 +60,9 @@ impl SerialDeviceMetrics {
 /// Stores aggregated metrics
 pub(super) static METRICS: SerialDeviceMetrics = SerialDeviceMetrics::new();
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum RawIOError {
+    /// Serial error: {0:?}
     Serial(SerialError<io::Error>),
 }
 

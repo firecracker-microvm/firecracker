@@ -106,7 +106,7 @@ mod defs {
 }
 
 /// Vsock device related errors.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum VsockError {
     /// The vsock data/buffer virtio descriptor length is smaller than expected.
     BufDescTooSmall,
@@ -114,15 +114,15 @@ pub enum VsockError {
     BufDescMissing,
     /// Empty queue
     EmptyQueue,
-    /// EventFd error
+    /// EventFd error: {0}
     EventFd(std::io::Error),
-    /// Chained GuestMemoryMmap error.
+    /// Chained GuestMemoryMmap error: {0}
     GuestMemoryMmap(GuestMemoryError),
     /// Bounds check failed on guest memory pointer.
     GuestMemoryBounds,
-    /// The vsock header descriptor length is too small.
+    /// The vsock header descriptor length is too small: {0}
     HdrDescTooSmall(u32),
-    /// The vsock header `len` field holds an invalid value.
+    /// The vsock header `len` field holds an invalid value: {0}
     InvalidPktLen(u32),
     /// A data fetch was attempted when no data was available.
     NoData,
@@ -132,8 +132,9 @@ pub enum VsockError {
     UnreadableDescriptor,
     /// Encountered an unexpected read-only virtio descriptor.
     UnwritableDescriptor,
-    /// Invalid virtio configuration.
+    /// Invalid virtio configuration: {0}
     VirtioState(VirtioStateError),
+    /// Vsock uds backend error: {0}
     VsockUdsBackend(VsockUnixBackendError),
 }
 

@@ -66,19 +66,19 @@ const VIRTIO_BALLOON_S_HTLB_PGALLOC: u16 = 8;
 const VIRTIO_BALLOON_S_HTLB_PGFAIL: u16 = 9;
 
 /// Balloon device related errors.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BalloonError {
-    /// Activation error.
+    /// Activation error: {0}
     Activate(super::ActivateError),
     /// No balloon device found.
     DeviceNotFound,
     /// Device not activated yet.
     DeviceNotActive,
-    /// EventFd error.
+    /// EventFd error: {0}
     EventFd(std::io::Error),
-    /// Guest gave us bad memory addresses.
+    /// Guest gave us bad memory addresses: {0}
     GuestMemory(GuestMemoryError),
-    /// Received error while sending an interrupt.
+    /// Received error while sending an interrupt: {0}
     InterruptError(std::io::Error),
     /// Guest gave us a malformed descriptor.
     MalformedDescriptor,
@@ -92,20 +92,25 @@ pub enum BalloonError {
     StatisticsStateChange,
     /// Amount of pages requested cannot fit in `u32`.
     TooManyPagesRequested,
-    /// Error while processing the virt queues.
+    /// Error while processing the virt queues: {0}
     Queue(QueueError),
-    /// Error removing a memory region at inflate time.
+    /// Error removing a memory region at inflate time: {0}
     RemoveMemoryRegion(RemoveRegionError),
-    /// Error creating the statistics timer.
+    /// Error creating the statistics timer: {0}
     Timer(std::io::Error),
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum RemoveRegionError {
+    /// Address translation error.
     AddressTranslation,
+    /// Malformed guest address range.
     MalformedRange,
+    /// Error calling madvise: {0}
     MadviseFail(std::io::Error),
+    /// Error calling mmap: {0}
     MmapFail(std::io::Error),
+    /// Region not found.
     RegionNotFound,
 }
 

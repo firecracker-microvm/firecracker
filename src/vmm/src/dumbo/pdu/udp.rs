@@ -29,14 +29,13 @@ pub const UDP_HEADER_SIZE: usize = 8;
 const IPV4_MAX_UDP_PACKET_SIZE: u16 = 65507;
 
 /// Represents errors which may occur while parsing or writing a datagram.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
 pub enum Error {
     /// Invalid checksum.
     Checksum,
     /// The specified byte sequence is shorter than the Ethernet header length.
     DatagramTooShort,
-    /// The payload to be added to the UDP packet exceeds the size allowed
-    /// by the used IP version.
+    /// The payload to be added to the UDP packet exceeds the size allowed by the used IP version.
     PayloadTooBig,
 }
 

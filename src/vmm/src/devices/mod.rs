@@ -31,20 +31,20 @@ pub(crate) fn report_net_event_fail(net_iface_metrics: &NetDeviceMetrics, err: D
     net_iface_metrics.event_fails.inc();
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum DeviceError {
     /// Failed to read from the TAP device.
     FailedReadTap,
-    /// Failed to signal irq.
+    /// Failed to signal irq: {0}
     FailedSignalingIrq(io::Error),
-    /// IO error.
+    /// IO error: {0}
     IoError(io::Error),
     /// Device received malformed payload.
     MalformedPayload,
     /// Device received malformed descriptor.
     MalformedDescriptor,
-    /// Error during queue processing.
+    /// Error during queue processing: {0}
     QueueError(QueueError),
-    /// Vsock device error.
+    /// Vsock device error: {0}
     VsockError(VsockError),
 }

@@ -78,14 +78,14 @@ pub struct NetConstructorArgs {
 }
 
 /// Errors triggered when trying to construct a network device at resume time.
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum NetPersistError {
-    /// Failed to create a network device.
-    CreateNet(super::NetError),
-    /// Failed to create a rate limiter.
-    CreateRateLimiter(io::Error),
-    /// Failed to re-create the virtio state (i.e queues etc).
-    VirtioState(VirtioStateError),
+    /// Failed to create a network device: {0}
+    CreateNet(#[from] super::NetError),
+    /// Failed to create a rate limiter: {0}
+    CreateRateLimiter(#[from] io::Error),
+    /// Failed to re-create the virtio state (i.e queues etc): {0}
+    VirtioState(#[from] VirtioStateError),
     /// Indicator that no MMDS is associated with this device.
     NoMmdsDataStore,
 }

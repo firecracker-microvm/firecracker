@@ -6,12 +6,16 @@ use std::result::Result;
 
 use libc::{uname, utsname};
 
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum Error {
-    Uname(IoError),
-    InvalidUtf8(std::string::FromUtf8Error),
+    /// Error calling uname: {0}
+    Uname(#[from] IoError),
+    /// Invalid utf-8: {0}
+    InvalidUtf8(#[from] std::string::FromUtf8Error),
+    /// Invalid kernel version format
     InvalidFormat,
-    InvalidInt(std::num::ParseIntError),
+    /// Invalid integer: {0}
+    InvalidInt(#[from] std::num::ParseIntError),
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd)]

@@ -57,12 +57,12 @@ pub enum WriteEvent {
 ///
 /// [`receive_packet`]: struct.TcpIPv4Handler.html#method.receive_packet
 /// [`TcpIPv4Handler`]: struct.TcpIPv4Handler.html
-#[derive(Debug, PartialEq, Eq, derive_more::From)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
 pub enum RecvError {
     /// The inner segment has an invalid destination port.
     InvalidPort,
-    /// The handler encountered an error while parsing the inner TCP segment.
-    TcpSegment(TcpSegmentError),
+    /// The handler encountered an error while parsing the inner TCP segment: {0}
+    TcpSegment(#[from] TcpSegmentError),
 }
 
 /// Describes errors which may be encountered by the [`write_next_packet`] method from
@@ -70,12 +70,12 @@ pub enum RecvError {
 ///
 /// [`write_next_packet`]: struct.TcpIPv4Handler.html#method.write_next_packet
 /// [`TcpIPv4Handler`]: struct.TcpIPv4Handler.html
-#[derive(Debug, PartialEq, Eq, derive_more::From)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
 pub enum WriteNextError {
-    /// There was an error while writing the contents of the IPv4 packet.
-    IPv4Packet(IPv4PacketError),
-    /// There was an error while writing the contents of the inner TCP segment.
-    TcpSegment(TcpSegmentError),
+    /// There was an error while writing the contents of the IPv4 packet: {0}
+    IPv4Packet(#[from] IPv4PacketError),
+    /// There was an error while writing the contents of the inner TCP segment: {0}
+    TcpSegment(#[from] TcpSegmentError),
 }
 
 // Generally speaking, a TCP/IPv4 connection is identified using the four-tuple (src_addr, src_port,

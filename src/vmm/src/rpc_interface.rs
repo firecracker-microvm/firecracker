@@ -131,50 +131,50 @@ pub enum VmmAction {
 }
 
 /// Wrapper for all errors associated with VMM actions.
-#[derive(Debug, thiserror::Error, displaydoc::Display, derive_more::From)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum VmmActionError {
-    /// {0}
-    BalloonConfig(BalloonConfigError),
-    /// {0}
-    BootSource(BootSourceConfigError),
-    /// {0}
-    CreateSnapshot(CreateSnapshotError),
-    /// {0}
-    ConfigureCpu(GuestConfigError),
-    /// {0}
-    DriveConfig(DriveError),
-    /// {0}
-    EntropyDevice(EntropyDeviceError),
-    /// Internal Vmm error: {0}
-    InternalVmm(VmmError),
-    /// Load microVM snapshot error: {0}
-    LoadSnapshot(LoadSnapshotError),
-    /// {0}
-    Logger(crate::logger::LoggerUpdateError),
-    /// {0}
-    MachineConfig(VmConfigError),
-    /// {0}
-    Metrics(MetricsConfigError),
+    /// Balloon config error: {0}
+    BalloonConfig(#[from] BalloonConfigError),
+    /// Boot source error: {0}
+    BootSource(#[from] BootSourceConfigError),
+    /// Create snapshot error: {0}
+    CreateSnapshot(#[from] CreateSnapshotError),
+    /// Configure CPU error: {0}
+    ConfigureCpu(#[from] GuestConfigError),
+    /// Drive config error: {0}
+    DriveConfig(#[from] DriveError),
+    /// Entropy device error: {0}
+    EntropyDevice(#[from] EntropyDeviceError),
+    /// Internal VMM error: {0}
+    InternalVmm(#[from] VmmError),
+    /// Load snapshot error: {0}
+    LoadSnapshot(#[from] LoadSnapshotError),
+    /// Logger error: {0}
+    Logger(#[from] crate::logger::LoggerUpdateError),
+    /// Machine config error: {0}
+    MachineConfig(#[from] VmConfigError),
+    /// Metrics error: {0}
+    Metrics(#[from] MetricsConfigError),
     #[from(ignore)]
-    /// {0}
-    Mmds(data_store::Error),
-    /// {0}
-    MmdsConfig(MmdsConfigError),
+    /// MMDS error: {0}
+    Mmds(#[from] data_store::Error),
+    /// MMMDS config error: {0}
+    MmdsConfig(#[from] MmdsConfigError),
     #[from(ignore)]
-    /// {0}
+    /// MMDS limit exceeded error: {0}
     MmdsLimitExceeded(data_store::Error),
-    /// {0}
-    NetworkConfig(NetworkInterfaceError),
+    /// Network config error: {0}
+    NetworkConfig(#[from] NetworkInterfaceError),
     /// The requested operation is not supported: {0}
     NotSupported(String),
     /// The requested operation is not supported after starting the microVM.
     OperationNotSupportedPostBoot,
     /// The requested operation is not supported before starting the microVM.
     OperationNotSupportedPreBoot,
-    /// {0}
-    StartMicrovm(StartMicrovmError),
-    /// {0}
-    VsockConfig(VsockConfigError),
+    /// Start microvm error: {0}
+    StartMicrovm(#[from] StartMicrovmError),
+    /// Vsock config error: {0}
+    VsockConfig(#[from] VsockConfigError),
 }
 
 /// The enum represents the response sent by the VMM in case of success. The response is either

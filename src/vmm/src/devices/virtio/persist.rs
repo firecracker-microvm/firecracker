@@ -18,7 +18,7 @@ use crate::devices::virtio::queue::Queue;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
 /// Errors thrown during restoring virtio state.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum PersistError {
     /// Snapshot state contains invalid queue info.
     InvalidInput,

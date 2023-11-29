@@ -34,7 +34,7 @@ pub const BLOCK_QUEUE_SIZES: [u16; BLOCK_NUM_QUEUES] = [FIRECRACKER_MAX_QUEUE_SI
 pub const IO_URING_NUM_ENTRIES: u16 = 128;
 
 /// Errors the block device can trigger.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum VirtioBlockError {
     /// Cannot create config
     Config,
@@ -54,16 +54,16 @@ pub enum VirtioBlockError {
     UnexpectedReadOnlyDescriptor,
     /// Guest gave us a write only descriptor that protocol says to read from.
     UnexpectedWriteOnlyDescriptor,
-    // Error coming from the IO engine.
+    /// Error coming from the IO engine: {0}
     FileEngine(io::BlockIoError),
-    // Error manipulating the backing file.
+    /// Error manipulating the backing file: {0} {1}
     BackingFile(std::io::Error, String),
-    /// Error opening eventfd.
+    /// Error opening eventfd: {0}
     EventFd(std::io::Error),
-    /// Error creating an irqfd.
+    /// Error creating an irqfd: {0}
     IrqTrigger(std::io::Error),
-    /// Error coming from the rate limiter.
+    /// Error coming from the rate limiter: {0}
     RateLimiter(std::io::Error),
-    // Persistence error.
+    /// Persistence error: {0}
     Persist(crate::devices::virtio::persist::PersistError),
 }

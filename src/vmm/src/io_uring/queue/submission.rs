@@ -16,17 +16,17 @@ use crate::io_uring::bindings;
 use crate::io_uring::operation::Sqe;
 use crate::vstate::memory::{Bytes, MmapRegion};
 
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 /// SQueue Error.
 pub enum SQueueError {
     /// The queue is full.
     FullQueue,
-    /// Error mapping the ring.
-    Mmap(MmapError),
-    /// Error reading/writing volatile memory.
-    VolatileMemory(VolatileMemoryError),
-    /// Error returned by `io_uring_enter`.
-    Submit(IOError),
+    /// Error mapping the ring: {0}
+    Mmap(#[from] MmapError),
+    /// Error reading/writing volatile memory: {0}
+    VolatileMemory(#[from] VolatileMemoryError),
+    /// Error returned by `io_uring_enter`: {0}
+    Submit(#[from] IOError),
 }
 
 #[derive(Debug)]

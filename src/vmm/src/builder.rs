@@ -65,84 +65,54 @@ use crate::vstate::vm::Vm;
 use crate::{device_manager, EventManager, RestoreVcpusError, Vmm, VmmError};
 
 /// Errors associated with starting the instance.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum StartMicrovmError {
-    /// Unable to attach block device to Vmm.
-    #[error("Unable to attach block device to Vmm: {0}")]
+    /// Unable to attach block device to Vmm: {0}
     AttachBlockDevice(io::Error),
-    /// This error is thrown by the minimal boot loader implementation.
-    #[error("System configuration error: {0:?}")]
+    /// System configuration error: {0}
     ConfigureSystem(crate::arch::ConfigurationError),
-    /// Error using CPU template to configure vCPUs
-    #[error("Failed to create guest config: {0:?}")]
+    /// Failed to create guest config: {0}
     CreateGuestConfig(#[from] GuestConfigError),
-    /// Internal errors are due to resource exhaustion.
-    #[error("Cannot create network device. {}", format!("{:?}", .0).replace('\"', ""))]
+    /// Cannot create network device: {0}
     CreateNetDevice(crate::devices::virtio::net::NetError),
-    /// Failed to create a `RateLimiter` object.
-    #[error("Cannot create RateLimiter: {0}")]
+    /// Cannot create RateLimiter: {0}
     CreateRateLimiter(io::Error),
-    /// Legacy devices work with Event file descriptors and the creation can fail because
-    /// of resource exhaustion.
+    /// Error creating legacy device: {0}
     #[cfg(target_arch = "x86_64")]
-    #[error("Error creating legacy device: {0}")]
     CreateLegacyDevice(device_manager::legacy::LegacyDeviceError),
-    /// Memory regions are overlapping or mmap fails.
-    #[error("Invalid Memory Configuration: {}", format!("{:?}", .0).replace('\"', ""))]
+    /// Invalid Memory Configuration: {0}
     GuestMemory(crate::vstate::memory::MemoryError),
     /// Cannot load initrd due to an invalid memory configuration.
-    #[error("Cannot load initrd due to an invalid memory configuration.")]
     InitrdLoad,
-    /// Cannot load initrd due to an invalid image.
-    #[error("Cannot load initrd due to an invalid image: {0}")]
+    /// Cannot load initrd due to an invalid image: {0}
     InitrdRead(io::Error),
-    /// Internal error encountered while starting a microVM.
-    #[error("Internal error while starting microVM: {0}")]
+    /// Internal error while starting microVM: {0}
     Internal(VmmError),
-    /// Failed to get CPU template.
-    #[error("Failed to get CPU template: {0}")]
+    /// Failed to get CPU template: {0}
     GetCpuTemplate(#[from] GetCpuTemplateError),
-    /// The kernel command line is invalid.
-    #[error("Invalid kernel command line: {0}")]
+    /// Invalid kernel command line: {0}
     KernelCmdline(String),
-    /// Cannot load kernel due to invalid memory configuration or invalid kernel image.
-    #[error(
-        "Cannot load kernel due to invalid memory configuration or invalid kernel image: {}",
-        format!("{}", .0).replace('\"', "")
-    )]
+    /// Cannot load kernel due to invalid memory configuration or invalid kernel image: {0}
     KernelLoader(linux_loader::loader::Error),
-    /// Cannot load command line string.
-    #[error("Cannot load command line string: {}", format!("{}", .0).replace('\"', ""))]
+    /// Cannot load command line string: {0}
     LoadCommandline(linux_loader::loader::Error),
-    /// Cannot start the VM because the kernel builder was not configured.
-    #[error("Cannot start microvm without kernel configuration.")]
+    /// Cannot start microvm without kernel configuration.
     MissingKernelConfig,
-    /// Cannot start the VM because the size of the guest memory  was not specified.
-    #[error("Cannot start microvm without guest mem_size config.")]
+    /// Cannot start microvm without guest mem_size config.
     MissingMemSizeConfig,
-    /// The seccomp filter map is missing a key.
-    #[error("No seccomp filter for thread category: {0}")]
+    /// No seccomp filter for thread category: {0}
     MissingSeccompFilters(String),
     /// The net device configuration is missing the tap device.
-    #[error("The net device configuration is missing the tap device.")]
     NetDeviceNotConfigured,
-    /// Cannot open the block device backing file.
-    #[error("Cannot open the block device backing file: {}", format!("{:?}", .0).replace('\"', ""))]
+    /// Cannot open the block device backing file: {0}
     OpenBlockDevice(io::Error),
-    /// Cannot initialize a MMIO Device or add a device to the MMIO Bus or cmdline.
-    #[error(
-        "Cannot initialize a MMIO Device or add a device to the MMIO Bus or cmdline: {}",
-        format!("{}", .0).replace('\"', "")
-    )]
+    /// Cannot initialize a MMIO Device or add a device to the MMIO Bus or cmdline: {0}
     RegisterMmioDevice(device_manager::mmio::MmioError),
-    /// Cannot restore microvm state.
-    #[error("Cannot restore microvm state: {0}")]
+    /// Cannot restore microvm state: {0}
     RestoreMicrovmState(MicrovmStateError),
-    /// Unable to set VmResources.
-    #[error("Cannot set vm resources: {0}")]
+    /// Cannot set vm resources: {0}
     SetVmResources(VmConfigError),
-    /// Failed to create an Entropy device
-    #[error("Cannot create the entropy device: {0}")]
+    /// Cannot create the entropy device: {0}
     CreateEntropyDevice(crate::devices::virtio::rng::EntropyError),
 }
 

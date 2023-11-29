@@ -60,7 +60,7 @@ pub const TYPE_BALLOON: u32 = 5;
 pub const NOTIFY_REG_OFFSET: u32 = 0x50;
 
 /// Errors triggered when activating a VirtioDevice.
-#[derive(Debug, displaydoc::Display)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum ActivateError {
     /// Epoll error.
     EpollCtl(IOError),

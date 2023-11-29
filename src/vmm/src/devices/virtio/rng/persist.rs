@@ -30,11 +30,14 @@ impl EntropyConstructorArgs {
     }
 }
 
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum EntropyPersistError {
-    CreateEntropy(EntropyError),
-    VirtioState(VirtioStateError),
-    RestoreRateLimiter(std::io::Error),
+    /// Create entropy: {0}
+    CreateEntropy(#[from] EntropyError),
+    /// Virtio state: {0}
+    VirtioState(#[from] VirtioStateError),
+    /// Restore rate limiter: {0}
+    RestoreRateLimiter(#[from] std::io::Error),
 }
 
 impl Persist<'_> for Entropy {

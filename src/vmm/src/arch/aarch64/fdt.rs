@@ -53,12 +53,14 @@ pub trait DeviceInfoForFDT {
 }
 
 /// Errors thrown while configuring the Flattened Device Tree for aarch64.
-#[derive(Debug, derive_more::From)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum FdtError {
-    CreateFdt(VmFdtError),
+    /// Create FDT error: {0}
+    CreateFdt(#[from] VmFdtError),
+    /// Read cache info error: {0}
     ReadCacheInfo(String),
     /// Failure in writing FDT in memory.
-    WriteFdtToMemory(GuestMemoryError),
+    WriteFdtToMemory(#[from] GuestMemoryError),
 }
 
 /// Creates the flattened device tree for this aarch64 microVM.

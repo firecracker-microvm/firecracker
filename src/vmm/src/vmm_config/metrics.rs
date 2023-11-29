@@ -17,10 +17,9 @@ pub struct MetricsConfig {
 }
 
 /// Errors associated with actions on the `MetricsConfig`.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum MetricsConfigError {
-    /// Cannot initialize the metrics system due to bad user input.
-    #[error("{}", format!("{:?}", .0).replace('\"', ""))]
+    /// Cannot initialize the metrics system due to bad user input: {0}
     InitializationFailure(String),
 }
 
