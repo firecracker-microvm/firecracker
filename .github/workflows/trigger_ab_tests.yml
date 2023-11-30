@@ -23,7 +23,7 @@ jobs:
           # meaning we will schedule a build of the A/B-testing pipeline to check the just-merged PR for
           # performance regressions.
           for f in $(git --no-pager diff --name-only ${{ github.event.before }}..${{ github.event.after }}); do
-            if [[ "$(basename $f)" =~ (\.(rs|toml|lock)|config)$ ]] || [[ "$f" ~= ^resources/seccomp/ ]]; then
+            if [[ "$(basename $f)" =~ (\.(rs|toml|lock)|config)$ ]] || [[ "$f" =~ ^resources/seccomp/ ]]; then
               should_schedule_ab_test=1
             fi
           done
