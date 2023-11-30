@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use kvm_ioctls::VmFd;
-use log::error;
+use log::{error, warn};
 use serde::{Deserialize, Serialize};
 use vm_allocator::AllocPolicy;
 
@@ -177,7 +177,7 @@ pub struct DeviceStates {
     #[cfg(target_arch = "aarch64")]
     // State of legacy devices in MMIO space.
     pub legacy_devices: Vec<ConnectedLegacyState>,
-    /// Virtio block device states.
+    /// Block device states.
     pub block_devices: Vec<ConnectedBlockState>,
     /// Net device states.
     pub net_devices: Vec<ConnectedNetState>,
@@ -273,13 +273,20 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 // Both virtio-block and vhost-user-block share same device type.
                 TYPE_BLOCK => {
                     let block = locked_device.as_mut_any().downcast_mut::<Block>().unwrap();
-                    block.prepare_save();
-                    states.block_devices.push(ConnectedBlockState {
-                        device_id: devid.clone(),
-                        device_state: block.save(),
-                        transport_state,
-                        device_info: device_info.clone(),
-                    })
+                    if block.is_vhost_user() {
+                        warn!(
+                            "Skipping vhost-user-block device. VhostUserBlock does not support \
+                             snapshotting yet"
+                        );
+                    } else {
+                        block.prepare_save();
+                        states.block_devices.push(ConnectedBlockState {
+                            device_id: devid.clone(),
+                            device_state: block.save(),
+                            transport_state,
+                            device_info: device_info.clone(),
+                        })
+                    }
                 }
                 TYPE_NET => {
                     let net = locked_device.as_any().downcast_ref::<Net>().unwrap();
