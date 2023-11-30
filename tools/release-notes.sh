@@ -26,7 +26,8 @@ changelog="$FC_ROOT_DIR/CHANGELOG.md"
 
 # Patterns for the sections in the changelog corresponding to the versions.
 pat_curr="/^##\s\[$curr_ver\]/"
-pat_prev="/^##\s\[.+]/ && NR>3"
+# Match the previous version, skipping the 8 lines at the top.
+pat_prev="/^##\s\[.+]/ && NR>8"
 # Extract the section enclosed between the 2 headers and strip off the first
 # 2 and last 2 lines (one is blank and one contains the header `## [A.B.C]`).
 # Then, replace `-` with `*` and remove section headers.
