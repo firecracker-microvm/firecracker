@@ -61,7 +61,7 @@ build_grp = group(
 
 functional_grp = group(
     "⚙ Functional and security 🔒",
-    "./tools/devtool -y test -- -n 32 --dist worksteal integration_tests/{{functional,security}}",
+    "./tools/devtool -y test -- --timeout 60 -n 32 --dist worksteal integration_tests/{{functional,security}}",
     **defaults,
 )
 
