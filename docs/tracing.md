@@ -33,16 +33,35 @@ outputting a `Trace` level log when entering and exiting every function.
 It is disabled by default at compile-time. Tracing functionality has no
 impact on the release binary.
 
+You can use `cargo run --bin clippy-tracing --` to build and run the
+latest version in the repo or you can run
+`cargo install --path src/clippy-tracing` to install the binary then use
+`clippy-tracing` to run this binary.
+
+You can run `clippy-tracing --help` for help.
+
 To enable tracing in Firecracker, add instrumentation with:
 
 ```
 clippy-tracing \
---action fix \
---path ./src \
---exclude vmm_config/logger.rs,virtio/gen,bindings.rs,net/gen,benches,logger/,signal_handler.rs,time.rs
+  --action fix \
+  --path ./src \
+  --exclude \
+    benches,\
+    virtio/gen,bindings.rs,net/gen,\
+    log-instrument-macros/,log-instrument/,clippy-tracing/,\
+    vmm_config/logger.rs,logger/,signal_handler.rs,time.rs
 ```
 
-and re-compile with `--features tracing`:
+`--exclude` can be used to avoid adding instrumentation to specific
+files, here it is used to avoid adding instrumentation in:
+
+- tests.
+- bindings.
+- the instrumentation tooling.
+- logger functionality that may form an infinite loop.
+
+After adding instrumentation re-compile with `--features tracing`:
 
 ```
 cargo build --features tracing
