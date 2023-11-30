@@ -7,11 +7,7 @@ import shutil
 from pathlib import Path
 
 import host_tools.drive as drive_tools
-from framework.utils_drive import (
-    partuuid_and_disk_path,
-    resize_vhost_user_drive,
-    spawn_vhost_user_backend,
-)
+from framework.utils_drive import partuuid_and_disk_path
 from host_tools.metrics import FcDeviceMetrics
 
 
@@ -44,12 +40,7 @@ def test_vhost_user_block(microvm_factory, guest_kernel, rootfs_ubuntu_22):
     vhost-user-block as a root device.
     """
 
-    vhost_user_socket = "/vub.socket"
-
     vm = microvm_factory.build(guest_kernel, None, monitor_memory=False)
-
-    # Launching vhost-user-block backend
-    _backend = spawn_vhost_user_backend(vm, rootfs_ubuntu_22, vhost_user_socket, True)
 
     # We need to setup ssh keys manually because we did not specify rootfs
     # in microvm_factory.build method
@@ -57,7 +48,9 @@ def test_vhost_user_block(microvm_factory, guest_kernel, rootfs_ubuntu_22):
     vm.ssh_key = ssh_key
     vm.spawn()
     vm.basic_config(add_root_device=False)
-    vm.add_vhost_user_drive("rootfs", vhost_user_socket, is_root_device=True)
+    vm.add_vhost_user_drive(
+        "rootfs", rootfs_ubuntu_22, is_root_device=True, is_read_only=True
+    )
     vm.add_net_iface()
     vhost_user_block_metrics = FcDeviceMetrics(
         "vhost_user_block", 1, aggr_supported=False
@@ -87,8 +80,6 @@ def test_vhost_user_block_read_write(microvm_factory, guest_kernel, rootfs_ubunt
     This test configures vhost-user-block to be read write.
     """
 
-    vhost_user_socket = "/vub.socket"
-
     vm = microvm_factory.build(guest_kernel, None, monitor_memory=False)
 
     # We need to setup ssh keys manually because we did not specify rootfs
@@ -102,10 +93,7 @@ def test_vhost_user_block_read_write(microvm_factory, guest_kernel, rootfs_ubunt
     rootfs_rw = Path(vm.chroot()) / "rootfs"
     shutil.copy(rootfs_ubuntu_22, rootfs_rw)
 
-    # Launching vhost-user-block backend
-    _backend = spawn_vhost_user_backend(vm, rootfs_rw, vhost_user_socket, False)
-
-    vm.add_vhost_user_drive("rootfs", vhost_user_socket, is_root_device=True)
+    vm.add_vhost_user_drive("rootfs", rootfs_rw, is_root_device=True)
     vm.add_net_iface()
     vm.start()
 
@@ -128,12 +116,7 @@ def test_vhost_user_block_disconnect(microvm_factory, guest_kernel, rootfs_ubunt
     Test that even if backend is killed, Firecracker is still responsive.
     """
 
-    vhost_user_socket = "/vub.socket"
-
     vm = microvm_factory.build(guest_kernel, None, monitor_memory=False)
-
-    # Launching vhost-user-block backend
-    _backend = spawn_vhost_user_backend(vm, rootfs_ubuntu_22, vhost_user_socket, True)
 
     # We need to set up ssh keys manually because we did not specify rootfs
     # in microvm_factory.build method
@@ -141,7 +124,9 @@ def test_vhost_user_block_disconnect(microvm_factory, guest_kernel, rootfs_ubunt
     vm.ssh_key = ssh_key
     vm.spawn()
     vm.basic_config(add_root_device=False)
-    vm.add_vhost_user_drive("rootfs", vhost_user_socket, is_root_device=True)
+    vm.add_vhost_user_drive(
+        "rootfs", rootfs_ubuntu_22, is_root_device=True, is_read_only=True
+    )
     vm.add_net_iface()
     vm.start()
 
@@ -151,7 +136,8 @@ def test_vhost_user_block_disconnect(microvm_factory, guest_kernel, rootfs_ubunt
     assert exit_code == 0
 
     # Killing the backend
-    _backend.kill()
+    vm.disks_vhost_user["rootfs"].kill()
+    del vm.disks_vhost_user["rootfs"]
 
     # Verify that Firecracker is still responsive
     _config = vm.api.vm_config.get().json()
@@ -165,13 +151,7 @@ def test_device_ordering(microvm_factory, guest_kernel, rootfs_ubuntu_22):
     the order of the other devices should match their configuration order.
     """
 
-    vhost_user_socket_1 = "/vub_1.socket"
-    vhost_user_socket_2 = "/vub_2.socket"
-
     vm = microvm_factory.build(guest_kernel, None, monitor_memory=False)
-
-    # Launching vhost-user-block backend
-    _backend = spawn_vhost_user_backend(vm, rootfs_ubuntu_22, vhost_user_socket_1, True)
 
     # We need to setup ssh keys manually because we did not specify rootfs
     # in microvm_factory.build method
@@ -186,7 +166,9 @@ def test_device_ordering(microvm_factory, guest_kernel, rootfs_ubuntu_22):
     vm.add_drive("scratch1", fs1.path)
 
     # Adding second block device (rootfs)
-    vm.add_vhost_user_drive("rootfs", vhost_user_socket_1, is_root_device=True)
+    vm.add_vhost_user_drive(
+        "rootfs", rootfs_ubuntu_22, is_root_device=True, is_read_only=True
+    )
 
     # Adding third block device.
     fs2 = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "scratch2"), size=512)
@@ -196,10 +178,8 @@ def test_device_ordering(microvm_factory, guest_kernel, rootfs_ubuntu_22):
     rootfs_rw = Path(vm.chroot()) / "rootfs"
     shutil.copy(rootfs_ubuntu_22, rootfs_rw)
 
-    # Launching vhost-user-block backend
-    _backend2 = spawn_vhost_user_backend(vm, rootfs_rw, vhost_user_socket_2, False)
     # Adding forth block device.
-    vm.add_vhost_user_drive("dummy_rootfs", vhost_user_socket_2)
+    vm.add_vhost_user_drive("dummy_rootfs", rootfs_rw)
 
     block_metrics = FcDeviceMetrics("block", 2, aggr_supported=True)
     vhost_user_block_metrics = FcDeviceMetrics(
@@ -245,8 +225,6 @@ def test_partuuid_boot(
     Test the output reported by blockdev when booting with PARTUUID.
     """
 
-    vhost_user_socket = "/vub.socket"
-
     vm = microvm_factory.build(guest_kernel, None, monitor_memory=False)
 
     # We need to setup ssh keys manually because we did not specify rootfs
@@ -261,11 +239,8 @@ def test_partuuid_boot(
         rootfs_ubuntu_22, Path(vm.chroot()) / "disk.img"
     )
 
-    # Launching vhost-user-block backend
-    _backend = spawn_vhost_user_backend(vm, disk_path, vhost_user_socket, True)
-
     vm.add_vhost_user_drive(
-        "1", vhost_user_socket, is_root_device=True, partuuid=partuuid
+        "1", disk_path, is_root_device=True, partuuid=partuuid, is_read_only=True
     )
     vm.add_net_iface()
     vm.start()
@@ -289,13 +264,7 @@ def test_partuuid_update(microvm_factory, guest_kernel, rootfs_ubuntu_22):
     Test successful switching from PARTUUID boot to /dev/vda boot.
     """
 
-    vhost_user_socket_1 = "/vub_1.socket"
-    vhost_user_socket_2 = "/vub_2.socket"
-
     vm = microvm_factory.build(guest_kernel, None, monitor_memory=False)
-
-    # Launching vhost-user-block backend
-    _backend = spawn_vhost_user_backend(vm, rootfs_ubuntu_22, vhost_user_socket_1, True)
 
     # We need to setup ssh keys manually because we did not specify rootfs
     # in microvm_factory.build method
@@ -307,14 +276,17 @@ def test_partuuid_update(microvm_factory, guest_kernel, rootfs_ubuntu_22):
 
     # Add the root block device specified through PARTUUID.
     vm.add_vhost_user_drive(
-        "rootfs", vhost_user_socket_1, is_root_device=True, partuuid="0eaa91a0-01"
+        "rootfs",
+        rootfs_ubuntu_22,
+        is_root_device=True,
+        partuuid="0eaa91a0-01",
+        is_read_only=True,
     )
 
-    # We need to craete new backend with another socket because when we updated
-    # vhost-user-block device, old connection is closed, and qemu backend will
-    # stop after connection is closed.
-    _backend = spawn_vhost_user_backend(vm, rootfs_ubuntu_22, vhost_user_socket_2, True)
-    vm.add_vhost_user_drive("rootfs", vhost_user_socket_2, is_root_device=True)
+    # Adding a drive with the same ID creates another backend with another socket.
+    vm.add_vhost_user_drive(
+        "rootfs", rootfs_ubuntu_22, is_root_device=True, is_read_only=True
+    )
 
     vhost_user_block_metrics = FcDeviceMetrics(
         "vhost_user_block", 1, aggr_supported=False
@@ -345,7 +317,6 @@ def test_config_change(microvm_factory, guest_kernel, rootfs):
 
     orig_size = 10  # MB
     new_sizes = [20, 10, 30]  # MB
-    vhost_user_socket = "/vub.socket"
     mkfs_mount_cmd = "mkfs.ext4 /dev/vdb && mkdir -p /tmp/tmp && mount /dev/vdb /tmp/tmp && umount /tmp/tmp"
 
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
@@ -355,8 +326,7 @@ def test_config_change(microvm_factory, guest_kernel, rootfs):
 
     # Add a block device to test resizing.
     fs = drive_tools.FilesystemFile(size=orig_size)
-    _backend = spawn_vhost_user_backend(vm, fs.path, vhost_user_socket)
-    vm.add_vhost_user_drive("scratch", vhost_user_socket)
+    vm.add_vhost_user_drive("scratch", fs.path)
     vm.start()
 
     # Check that guest reports correct original size.
@@ -369,7 +339,7 @@ def test_config_change(microvm_factory, guest_kernel, rootfs):
     for new_size in new_sizes:
         # Instruct the backend to resize the device.
         # It will both resize the file and update its device config.
-        resize_vhost_user_drive(vm, new_size)
+        vm.disks_vhost_user["scratch"].resize(new_size)
 
         # Instruct Firecracker to reread device config and notify
         # the guest of a config change.
