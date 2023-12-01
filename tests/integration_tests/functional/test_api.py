@@ -795,19 +795,13 @@ def test_send_ctrl_alt_del(test_microvm_with_api):
 
     # If everything goes as expected, the guest OS will issue a reboot,
     # causing Firecracker to exit.
-    # We'll keep poking Firecracker for at most 30 seconds, waiting for it
-    # to die.
-    start_time = time.time()
-    shutdown_ok = False
-    while time.time() - start_time < 30:
-        try:
-            os.kill(firecracker_pid, 0)
-            time.sleep(0.01)
-        except OSError:
-            shutdown_ok = True
-            break
-
-    assert shutdown_ok
+    # waitpid should block until the Firecracker process has exited. If
+    # it has already exited by the time we call waitpid, WNOHANG causes
+    # waitpid to raise a ChildProcessError exception.
+    try:
+        os.waitpid(firecracker_pid, os.WNOHANG)
+    except ChildProcessError:
+        pass
 
 
 def _drive_patch(test_microvm):
