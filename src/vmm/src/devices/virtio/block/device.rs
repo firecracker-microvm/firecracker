@@ -75,7 +75,7 @@ impl Block {
     pub fn update_config(&mut self) -> Result<(), BlockError> {
         match self {
             Self::Virtio(_) => Err(BlockError::InvalidBlockBackend),
-            Self::VhostUser(ref mut b) => b.config_update().map_err(BlockError::VhostUserBackend),
+            Self::VhostUser(b) => b.config_update().map_err(BlockError::VhostUserBackend),
         }
     }
 
