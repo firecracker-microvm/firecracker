@@ -515,6 +515,7 @@ impl KvmVcpu {
         match exit {
             VcpuExit::IoIn(addr, data) => {
                 if let Some(pio_bus) = &self.pio_bus {
+                    let _metric = METRICS.vcpu.exit_io_in_agg.record_latency_metrics();
                     pio_bus.read(u64::from(addr), data);
                     METRICS.vcpu.exit_io_in.inc();
                 }
@@ -522,6 +523,7 @@ impl KvmVcpu {
             }
             VcpuExit::IoOut(addr, data) => {
                 if let Some(pio_bus) = &self.pio_bus {
+                    let _metric = METRICS.vcpu.exit_io_out_agg.record_latency_metrics();
                     pio_bus.write(u64::from(addr), data);
                     METRICS.vcpu.exit_io_out.inc();
                 }
