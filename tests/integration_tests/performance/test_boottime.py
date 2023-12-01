@@ -129,6 +129,7 @@ def _configure_and_run_vm(microvm, network=False, initrd=False):
         "vcpu_count": 1,
         "mem_size_mib": 128,
         "boot_args": DEFAULT_BOOT_ARGS + " init=/usr/local/bin/init",
+        "enable_entropy_device": True,
     }
     if initrd:
         config["add_root_device"] = False
@@ -186,6 +187,7 @@ def test_boottime(
             vcpu_count=vcpu_count,
             mem_size_mib=mem_size_mib,
             boot_args=DEFAULT_BOOT_ARGS + " init=/usr/local/bin/init",
+            enable_entropy_device=True,
         )
         vm.add_net_iface()
         vm.start()
