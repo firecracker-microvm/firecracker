@@ -73,6 +73,10 @@
   Fixed a bug introduced in #4047 that limited the `--level` option of logger
   to Pascal-cased values (e.g. accepting "Info", but not "info"). It now
   ignores case again.
+- [#4286](https://github.com/firecracker-microvm/firecracker/pull/4286):
+  Fixed a bug in the asynchronous virtio-block engine that rendered the device
+  non-functional after a PATCH request was issued to Firecracker for updating
+  the path to the host-side backing file of the device.
 
 ## [1.5.0]
 
