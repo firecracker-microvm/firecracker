@@ -1,6 +1,6 @@
 [package]
 name = "snapshot-editor"
-version = "1.5.0"
+version = "1.5.1"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2021"
 license = "Apache-2.0"
