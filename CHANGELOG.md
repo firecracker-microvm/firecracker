@@ -35,6 +35,11 @@
   containing vhost-user block devices.
   See the [related doc page](./docs/api_requests/block-vhost-user.md) for details.
   The device emits metrics under the label `"vhost_user_{device}_{drive_id}"`.
+- Document [a caveat to the jailer][1] when using the `--parent-cgroup` option,
+  which results in it being ignored by the jailer. Refer to the [jailer
+  documentation](./docs/jailer.md#caveats) for a workaround.
+
+[1]: https://github.com/firecracker-microvm/firecracker/issues/4287
 
 ### Changed
 
