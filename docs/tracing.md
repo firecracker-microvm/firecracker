@@ -46,11 +46,10 @@ To enable tracing in Firecracker, add instrumentation with:
 clippy-tracing \
   --action fix \
   --path ./src \
-  --exclude \
-    benches,\
-    virtio/gen,bindings.rs,net/gen,\
-    log-instrument-macros/,log-instrument/,clippy-tracing/,\
-    vmm_config/logger.rs,logger/,signal_handler.rs,time.rs
+  --exclude benches \
+  --exclude virtio/gen,bindings.rs,net/gen \
+  --exclude log-instrument-macros/,log-instrument/,clippy-tracing/ \
+  --exclude vmm_config/logger.rs,logger/,signal_handler.rs,time.rs
 ```
 
 `--exclude` can be used to avoid adding instrumentation to specific
