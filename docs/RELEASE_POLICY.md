@@ -86,7 +86,7 @@ also be specifying the supported kernel versions.
 
 | Release | Release Date | Latest Patch | Min. end of support | Official end of Support        |
 |--------:|-------------:|-------------:|--------------------:|:-------------------------------|
-|    v1.5 |   2023-10-09 |       v1.5.0 |          2024-04-09 | Supported                      |
+|    v1.5 |   2023-10-09 |       v1.5.1 |          2024-04-09 | Supported                      |
 |    v1.4 |   2023-07-20 |       v1.4.1 |          2024-01-20 | Supported                      |
 |    v1.3 |   2023-03-02 |       v1.3.3 |          2023-09-02 | 2023-10-09 (v1.5 released)     |
 |    v1.2 |   2022-11-30 |       v1.2.1 |          2023-05-30 | 2023-07-20 (v1.4 released)     |
