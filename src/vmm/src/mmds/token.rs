@@ -9,6 +9,7 @@ use std::path::Path;
 use std::{fmt, io};
 
 use aes_gcm::{AeadInPlace, Aes256Gcm, Key, KeyInit, Nonce};
+use base64::Engine;
 use bincode::{DefaultOptions, Error as BincodeError, Options};
 use serde::{Deserialize, Serialize};
 use utils::time::{get_time_ms, ClockType};
@@ -289,12 +290,13 @@ impl Token {
         let token_bytes: Vec<u8> = bincode::serialize(self)?;
 
         // Encode token structure bytes into base64.
-        Ok(base64::encode_config(token_bytes, base64::STANDARD))
+        Ok(base64::engine::general_purpose::STANDARD.encode(token_bytes))
     }
 
     /// Decode token structure from base64 string.
     fn base64_decode(encoded_token: &str) -> Result<Self, Error> {
-        let token_bytes = base64::decode_config(encoded_token, base64::STANDARD)
+        let token_bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded_token)
             .map_err(|_| Error::ExpiryExtraction)?;
 
         let token: Token = DefaultOptions::new()
