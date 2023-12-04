@@ -18,4 +18,4 @@ thiserror = "1.0.50"
 utils = { path = "../utils" }
 
 [features]
-tracing = ["log-instrument"]
+tracing = ["log-instrument", "utils/tracing"]

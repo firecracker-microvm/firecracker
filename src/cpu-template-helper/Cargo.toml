@@ -25,4 +25,4 @@ vmm = { path = "../vmm" }
 utils = { path = "../utils" }
 
 [features]
-tracing = ["log-instrument"]
+tracing = ["log-instrument", "vmm/tracing"]

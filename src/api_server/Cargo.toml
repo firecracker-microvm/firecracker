@@ -26,4 +26,4 @@ vmm = { path = "../vmm" }
 libc = "0.2.117"
 
 [features]
-tracing = ["log-instrument"]
+tracing = ["log-instrument", "utils/tracing", "vmm/tracing"]
