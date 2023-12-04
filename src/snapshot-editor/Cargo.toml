@@ -24,4 +24,4 @@ fc_utils = { package = "utils", path = "../utils" }
 clap-num = "1.0.2"
 
 [features]
-tracing = ["log-instrument"]
+tracing = ["log-instrument", "fc_utils/tracing", "vmm/tracing"]
