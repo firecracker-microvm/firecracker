@@ -256,13 +256,14 @@ def test_cmp_full_and_first_diff_mem(microvm_factory, guest_kernel, rootfs):
 
     logger.info("Create full snapshot.")
     # Create full snapshot.
-    full_snapshot = vm.snapshot_full()
+    full_snapshot = vm.snapshot_full(mem_path="mem_full")
 
     logger.info("Create diff snapshot.")
     # Create diff snapshot.
     diff_snapshot = vm.snapshot_diff()
 
-    assert filecmp.cmp(full_snapshot.mem, diff_snapshot.mem)
+    assert full_snapshot.mem != diff_snapshot.mem
+    assert filecmp.cmp(full_snapshot.mem, diff_snapshot.mem, shallow=False)
 
 
 def test_negative_postload_api(test_microvm_with_api, microvm_factory):
