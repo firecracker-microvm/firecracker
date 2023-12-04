@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- [#4287](https://github.com/firecracker-microvm/firecracker/issues/4287)
+  Document a caveat to the jailer docs when using the `--parent-cgroup` option,
+  which results in it being ignored by the jailer. Refer to the [jailer
+  documentation](./docs/jailer.md#caveats) for a workaround.
+
 ### Changed
 
 - [#4191](https://github.com/firecracker-microvm/firecracker/pull/4191):
