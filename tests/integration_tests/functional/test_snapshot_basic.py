@@ -458,3 +458,43 @@ def test_diff_snapshot_overlay(guest_kernel, rootfs, microvm_factory):
     # Run some command to check that the restored VM works
     rc, _, stderr = new_vm.ssh.run("true")
     assert rc == 0, stderr
+
+
+def test_snapshot_overwrite_self(guest_kernel, rootfs, microvm_factory):
+    """Tests that if we try to take a snapshot that would overwrite the
+    very file from which the current VM is stored, nothing happens.
+
+    Note that even though we map the file as MAP_PRIVATE, the documentation
+    of mmap does not specify what should happen if the file is changed after being
+    mmap'd (https://man7.org/linux/man-pages/man2/mmap.2.html). It seems that
+    these changes can propagate to the mmap'd memory region."""
+    base_vm = microvm_factory.build(guest_kernel, rootfs)
+    base_vm.spawn()
+    base_vm.basic_config()
+    base_vm.add_net_iface()
+    base_vm.start()
+
+    # Wait for microvm to be booted
+    rc, _, stderr = base_vm.ssh.run("true")
+    assert rc == 0, stderr
+
+    snapshot = base_vm.snapshot_full()
+    base_vm.kill()
+
+    vm = microvm_factory.build()
+    vm.spawn()
+    vm.restore_from_snapshot(snapshot, resume=True)
+
+    # When restoring a snapshot, vm.restore_from_snapshot first copies
+    # the memory file (inside of the jailer) to /mem.src
+    currently_loaded = Path(vm.chroot()) / "mem.src"
+
+    assert currently_loaded.exists()
+
+    vm.snapshot_full(mem_path="mem.src")
+    vm.resume()
+
+    # Check the overwriting the snapshot file from which this microvm was originally
+    # restored, with a new snapshot of this vm, does not break the VM
+    rc, _, stderr = vm.ssh.run("true")
+    assert rc == 0, stderr
