@@ -230,7 +230,7 @@ def test_load_snapshot_failure_handling(test_microvm_with_api):
     wait_process_termination(vm.firecracker_pid)
 
 
-def test_cmp_full_and_first_diff_mem(microvm_factory, guest_kernel, rootfs):
+def test_cmp_full_and_first_diff_mem(uvm_plain_any):
     """
     Compare memory of 2 consecutive full and diff snapshots.
 
@@ -241,7 +241,7 @@ def test_cmp_full_and_first_diff_mem(microvm_factory, guest_kernel, rootfs):
     """
     logger = logging.getLogger("snapshot_sequence")
 
-    vm = microvm_factory.build(guest_kernel, rootfs)
+    vm = uvm_plain_any
     vm.spawn()
     vm.basic_config(
         vcpu_count=2,

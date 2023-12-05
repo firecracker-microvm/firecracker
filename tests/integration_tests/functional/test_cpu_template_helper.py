@@ -272,9 +272,7 @@ def get_guest_msrs(microvm, msr_index_list):
     ),
 )
 def test_cpu_config_dump_vs_actual(
-    microvm_factory,
-    guest_kernel,
-    rootfs,
+    uvm_plain_any,
     cpu_template_helper,
     tmp_path,
 ):
@@ -282,7 +280,7 @@ def test_cpu_config_dump_vs_actual(
     Verify that the dumped CPU config matches the actual CPU config inside
     guest.
     """
-    microvm = microvm_factory.build(guest_kernel, rootfs)
+    microvm = uvm_plain_any
     microvm.spawn()
     microvm.basic_config()
     vm_config_path = save_vm_config(microvm, tmp_path)

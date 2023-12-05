@@ -538,11 +538,11 @@ def test_snapshot_compatibility(microvm_factory, guest_kernel, rootfs):
     vm.snapshot_full()
 
 
-def test_memory_scrub(microvm_factory, guest_kernel, rootfs):
+def test_memory_scrub(uvm_plain_any):
     """
     Test that the memory is zeroed after deflate.
     """
-    microvm = microvm_factory.build(guest_kernel, rootfs)
+    microvm = uvm_plain_any
     microvm.spawn()
     microvm.basic_config(vcpu_count=2, mem_size_mib=256)
     microvm.add_net_iface()
