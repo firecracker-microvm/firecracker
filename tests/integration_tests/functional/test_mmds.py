@@ -18,7 +18,6 @@ from framework.utils import (
     populate_data_store,
     run_guest_cmd,
 )
-from host_tools.cargo_build import get_firecracker_binaries
 
 # Minimum lifetime of token.
 MIN_TOKEN_TTL_SECONDS = 1
@@ -88,9 +87,12 @@ def _validate_mmds_snapshot(
     basevm.kill()
 
     # Load microVM clone from snapshot.
-    microvm = microvm_factory.build(
-        fc_binary_path=fc_binary_path, jailer_binary_path=jailer_binary_path
-    )
+    kwargs = {}
+    if fc_binary_path:
+        kwargs["fc_binary_path"] = fc_binary_path
+    if jailer_binary_path:
+        kwargs["jailer_binary_path"] = jailer_binary_path
+    microvm = microvm_factory.build(**kwargs)
     microvm.spawn()
     microvm.restore_from_snapshot(snapshot)
     microvm.resume()
@@ -640,7 +642,6 @@ def test_mmds_older_snapshot(
         microvm,
         microvm_factory,
         mmds_version,
-        *get_firecracker_binaries(),
     )
 
 

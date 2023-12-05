@@ -28,7 +28,6 @@ from framework.utils_vsock import (
     make_host_port_path,
     start_guest_echo_server,
 )
-from host_tools.cargo_build import get_firecracker_binaries
 
 
 def _get_guest_drive_size(ssh_connection, guest_dev_name="/dev/vdb"):
@@ -59,7 +58,7 @@ def test_snapshot_current_version(uvm_nano):
     snapshot = vm.snapshot_full()
 
     # Fetch Firecracker binary for the latest version
-    fc_binary, _ = get_firecracker_binaries()
+    fc_binary = uvm_nano.fc_binary_path
     # Verify the output of `--describe-snapshot` command line parameter
     cmd = [str(fc_binary)] + ["--describe-snapshot", str(snapshot.vmstate)]
 

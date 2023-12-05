@@ -11,17 +11,15 @@ import platform
 
 import pytest
 
-import host_tools.cargo_build as host
-
 MACHINE = platform.machine()
 
 
 @pytest.mark.timeout(500)
-def test_firecracker_binary_size(record_property, metrics):
+def test_firecracker_binary_size(record_property, metrics, microvm_factory):
     """
     Test if the size of the firecracker binary is within expected ranges.
     """
-    fc_binary = host.get_binary("firecracker")
+    fc_binary = microvm_factory.fc_binary_path
     result = fc_binary.stat().st_size
     record_property("firecracker_binary_size", f"{result}B")
     metrics.set_dimensions({"cpu_arch": MACHINE})
@@ -29,11 +27,11 @@ def test_firecracker_binary_size(record_property, metrics):
 
 
 @pytest.mark.timeout(500)
-def test_jailer_binary_size(record_property, metrics):
+def test_jailer_binary_size(record_property, metrics, microvm_factory):
     """
     Test if the size of the jailer binary is within expected ranges.
     """
-    jailer_binary = host.get_binary("jailer")
+    jailer_binary = microvm_factory.jailer_binary_path
     result = jailer_binary.stat().st_size
     record_property("jailer_binary_size", f"{result}B")
     metrics.set_dimensions({"cpu_arch": MACHINE})
