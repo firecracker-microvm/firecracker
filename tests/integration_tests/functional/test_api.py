@@ -92,7 +92,7 @@ def test_drive_io_engine(test_microvm_with_api):
     assert test_microvm.api.vm_config.get().json()["drives"][0]["io_engine"] == "Sync"
 
 
-def test_api_put_update_pre_boot(test_microvm_with_api):
+def test_api_put_update_pre_boot(test_microvm_with_api, io_engine):
     """
     Test that PUT updates are allowed before the microvm boots.
 
@@ -111,6 +111,7 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
         path_on_host=test_microvm.create_jailed_resource(fs1.path),
         is_root_device=False,
         is_read_only=False,
+        io_engine=io_engine,
     )
 
     # Updates to `kernel_image_path` with an invalid path are not allowed.
@@ -132,6 +133,7 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
             path_on_host="foo.bar",
             is_read_only=True,
             is_root_device=True,
+            io_engine=io_engine,
         )
 
     # Updates to `is_root_device` that result in two root block devices are not
@@ -142,6 +144,7 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
             path_on_host=test_microvm.get_jailed_resource(fs1.path),
             is_read_only=False,
             is_root_device=True,
+            io_engine=io_engine,
         )
 
     # Valid updates to `path_on_host` and `is_read_only` are allowed.
@@ -151,6 +154,7 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
         path_on_host=test_microvm.create_jailed_resource(fs2.path),
         is_read_only=True,
         is_root_device=False,
+        io_engine=io_engine,
     )
 
     # Valid updates to all fields in the machine configuration are allowed.
@@ -473,7 +477,7 @@ def test_api_cpu_config(test_microvm_with_api, custom_cpu_template):
     test_microvm.api.cpu_config.put(**custom_cpu_template["template"])
 
 
-def test_api_put_update_post_boot(test_microvm_with_api):
+def test_api_put_update_post_boot(test_microvm_with_api, io_engine):
     """
     Test that PUT updates are rejected after the microvm boots.
     """
@@ -520,6 +524,7 @@ def test_api_put_update_post_boot(test_microvm_with_api):
             path_on_host=test_microvm.jailer.jailed_path(test_microvm.rootfs_file),
             is_read_only=False,
             is_root_device=True,
+            io_engine=io_engine,
         )
 
     # MMDS config is not allowed post-boot.
@@ -532,7 +537,7 @@ def test_api_put_update_post_boot(test_microvm_with_api):
         test_microvm.api.mmds_config.put(**mmds_config)
 
 
-def test_rate_limiters_api_config(test_microvm_with_api):
+def test_rate_limiters_api_config(test_microvm_with_api, io_engine):
     """
     Test the IO rate limiter API config.
     """
@@ -549,6 +554,7 @@ def test_rate_limiters_api_config(test_microvm_with_api):
         is_read_only=False,
         is_root_device=False,
         rate_limiter={"bandwidth": {"size": 1000000, "refill_time": 100}},
+        io_engine=io_engine,
     )
 
     # Test drive with ops rate-limiting.
@@ -559,6 +565,7 @@ def test_rate_limiters_api_config(test_microvm_with_api):
         is_read_only=False,
         is_root_device=False,
         rate_limiter={"ops": {"size": 1, "refill_time": 100}},
+        io_engine=io_engine,
     )
 
     # Test drive with bw and ops rate-limiting.
@@ -572,6 +579,7 @@ def test_rate_limiters_api_config(test_microvm_with_api):
             "bandwidth": {"size": 1000000, "refill_time": 100},
             "ops": {"size": 1, "refill_time": 100},
         },
+        io_engine=io_engine,
     )
 
     # Test drive with 'empty' rate-limiting (same as not specifying the field)
@@ -582,6 +590,7 @@ def test_rate_limiters_api_config(test_microvm_with_api):
         is_read_only=False,
         is_root_device=False,
         rate_limiter={},
+        io_engine=io_engine,
     )
 
     # Test the NET rate limiting API.
@@ -636,7 +645,7 @@ def test_rate_limiters_api_config(test_microvm_with_api):
     )
 
 
-def test_api_patch_pre_boot(test_microvm_with_api):
+def test_api_patch_pre_boot(test_microvm_with_api, io_engine):
     """
     Test that PATCH updates are not allowed before the microvm boots.
     """
@@ -654,6 +663,7 @@ def test_api_patch_pre_boot(test_microvm_with_api):
         path_on_host=test_microvm.create_jailed_resource(fs1.path),
         is_root_device=False,
         is_read_only=False,
+        io_engine=io_engine,
     )
 
     iface_id = "1"
@@ -685,7 +695,7 @@ def test_api_patch_pre_boot(test_microvm_with_api):
         test_microvm.api.network.patch(iface_id=iface_id)
 
 
-def test_negative_api_patch_post_boot(test_microvm_with_api):
+def test_negative_api_patch_post_boot(test_microvm_with_api, io_engine):
     """
     Test PATCH updates that are not allowed after the microvm boots.
     """
@@ -702,6 +712,7 @@ def test_negative_api_patch_post_boot(test_microvm_with_api):
         path_on_host=test_microvm.create_jailed_resource(fs1.path),
         is_root_device=False,
         is_read_only=False,
+        io_engine=io_engine,
     )
 
     iface_id = "1"
@@ -784,19 +795,13 @@ def test_send_ctrl_alt_del(test_microvm_with_api):
 
     # If everything goes as expected, the guest OS will issue a reboot,
     # causing Firecracker to exit.
-    # We'll keep poking Firecracker for at most 30 seconds, waiting for it
-    # to die.
-    start_time = time.time()
-    shutdown_ok = False
-    while time.time() - start_time < 30:
-        try:
-            os.kill(firecracker_pid, 0)
-            time.sleep(0.01)
-        except OSError:
-            shutdown_ok = True
-            break
-
-    assert shutdown_ok
+    # waitpid should block until the Firecracker process has exited. If
+    # it has already exited by the time we call waitpid, WNOHANG causes
+    # waitpid to raise a ChildProcessError exception.
+    try:
+        os.waitpid(firecracker_pid, os.WNOHANG)
+    except ChildProcessError:
+        pass
 
 
 def _drive_patch(test_microvm):

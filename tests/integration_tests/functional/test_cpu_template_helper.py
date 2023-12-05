@@ -285,13 +285,20 @@ def test_cpu_config_dump_vs_actual(
     microvm = microvm_factory.build(guest_kernel, rootfs)
     microvm.spawn()
     microvm.basic_config()
-    microvm.add_net_iface()
     vm_config_path = save_vm_config(microvm, tmp_path)
 
     # Dump CPU config with the helper tool.
     cpu_config_path = tmp_path / "cpu_config.json"
     cpu_template_helper.template_dump(vm_config_path, cpu_config_path)
     dump_cpu_config = build_cpu_config_dict(cpu_config_path)
+
+    # Add the network interface after we dump the CPU config via
+    # the CPU template helper tool. The tool creates a microVM with
+    # the config we pass it. When we pass it network configuration, we
+    # run in some sort of race condition with TAP device creation.
+    # CPU template helper tool doesn't need the network device configuration
+    # so, add it to `microvm` after we have dumped the CPU config.
+    microvm.add_net_iface()
 
     # Retrieve actual CPU config from guest
     microvm.start()
