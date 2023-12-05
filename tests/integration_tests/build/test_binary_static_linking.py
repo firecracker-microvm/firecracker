@@ -5,16 +5,15 @@
 """
 
 import pytest
-import host_tools.cargo_build as host
 from framework import utils
 
 
 @pytest.mark.timeout(500)
-def test_firecracker_binary_static_linking():
+def test_firecracker_binary_static_linking(microvm_factory):
     """
     Test to make sure the firecracker binary is statically linked.
     """
-    fc_binary_path = host.get_binary("firecracker")
+    fc_binary_path = microvm_factory.fc_binary_path
     _, stdout, stderr = utils.run_cmd(f"file {fc_binary_path}")
     assert "" in stderr
     # expected "statically linked" for aarch64 and
