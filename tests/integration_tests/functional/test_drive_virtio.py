@@ -23,11 +23,11 @@ def partuuid_and_disk_path_tmpfs(rootfs_ubuntu_22, tmp_path):
     disk_path.unlink()
 
 
-def test_rescan_file(test_microvm_with_api, io_engine):
+def test_rescan_file(uvm_plain_any, io_engine):
     """
     Verify that rescan works with a file-backed virtio device.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain_any
     test_microvm.spawn()
 
     # Set up the microVM with 1 vCPUs, 256 MiB of RAM and a root file system
@@ -64,14 +64,14 @@ def test_rescan_file(test_microvm_with_api, io_engine):
     _check_block_size(test_microvm.ssh, "/dev/vdb", fs.size())
 
 
-def test_device_ordering(test_microvm_with_api, io_engine):
+def test_device_ordering(uvm_plain_any, io_engine):
     """
     Verify device ordering.
 
     The root device should correspond to /dev/vda in the guest and
     the order of the other devices should match their configuration order.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain_any
     test_microvm.spawn()
 
     # Add first scratch block device.
@@ -112,11 +112,11 @@ def test_device_ordering(test_microvm_with_api, io_engine):
     _check_block_size(ssh_connection, "/dev/vdc", fs2.size())
 
 
-def test_rescan_dev(test_microvm_with_api, io_engine):
+def test_rescan_dev(uvm_plain_any, io_engine):
     """
     Verify that rescan works with a device-backed virtio device.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain_any
     test_microvm.spawn()
 
     # Set up the microVM with 1 vCPUs, 256 MiB of RAM and a root file system
@@ -152,11 +152,11 @@ def test_rescan_dev(test_microvm_with_api, io_engine):
             utils.run_cmd(["losetup", "--detach", loopback_device])
 
 
-def test_non_partuuid_boot(test_microvm_with_api, io_engine):
+def test_non_partuuid_boot(uvm_plain_any, io_engine):
     """
     Test the output reported by blockdev when booting from /dev/vda.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain_any
     test_microvm.spawn()
 
     # Sets up the microVM with 1 vCPUs, 256 MiB of RAM and a root file system
@@ -183,7 +183,7 @@ def test_non_partuuid_boot(test_microvm_with_api, io_engine):
     _check_drives(test_microvm, assert_dict, keys_array)
 
 
-def test_partuuid_boot(test_microvm_with_api, partuuid_and_disk_path_tmpfs, io_engine):
+def test_partuuid_boot(uvm_plain_any, partuuid_and_disk_path_tmpfs, io_engine):
     """
     Test the output reported by blockdev when booting with PARTUUID.
     """
@@ -191,7 +191,7 @@ def test_partuuid_boot(test_microvm_with_api, partuuid_and_disk_path_tmpfs, io_e
     partuuid = partuuid_and_disk_path_tmpfs[0]
     disk_path = partuuid_and_disk_path_tmpfs[1]
 
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain_any
     test_microvm.spawn()
 
     # Sets up the microVM with 1 vCPUs, 256 MiB of RAM and without root file system
@@ -217,11 +217,11 @@ def test_partuuid_boot(test_microvm_with_api, partuuid_and_disk_path_tmpfs, io_e
     _check_drives(test_microvm, assert_dict, keys_array)
 
 
-def test_partuuid_update(test_microvm_with_api, io_engine):
+def test_partuuid_update(uvm_plain_any, io_engine):
     """
     Test successful switching from PARTUUID boot to /dev/vda boot.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain_any
     test_microvm.spawn()
 
     # Set up the microVM with 1 vCPUs, 256 MiB of RAM
@@ -255,11 +255,11 @@ def test_partuuid_update(test_microvm_with_api, io_engine):
     _check_drives(test_microvm, assert_dict, keys_array)
 
 
-def test_patch_drive(test_microvm_with_api, io_engine):
+def test_patch_drive(uvm_plain_any, io_engine):
     """
     Test replacing the backing filesystem after guest boot works.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain_any
     test_microvm.spawn()
 
     # Set up the microVM with 1 vCPUs, 256 MiB of RAM and a root file system
@@ -294,11 +294,11 @@ def test_patch_drive(test_microvm_with_api, io_engine):
     assert lines[1].strip() == size_bytes_str
 
 
-def test_no_flush(test_microvm_with_api, io_engine):
+def test_no_flush(uvm_plain_any, io_engine):
     """
     Verify default block ignores flush.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain_any
     test_microvm.spawn()
 
     test_microvm.basic_config(vcpu_count=1, add_root_device=False)
