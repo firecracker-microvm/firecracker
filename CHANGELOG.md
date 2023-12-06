@@ -1052,7 +1052,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and to run as a daemon.
 - Enabled PATCH operations on `/drives` resources.
 
-## Changed
+### Changed
 
 - The microVM `id` supplied to the jailer may now contain alphanumeric
   characters and hyphens, up to a maximum length of 64 characters.
