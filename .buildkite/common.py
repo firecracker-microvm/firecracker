@@ -110,6 +110,23 @@ def run_all_tests(changed_files):
     )
 
 
+def devtool_test(devtool_opts=None, pytest_opts=None, binary_dir=None):
+    """Generate a `devtool test` command"""
+    cmds = []
+    parts = ["./tools/devtool -y test"]
+    if devtool_opts:
+        parts.append(devtool_opts)
+    parts.append("--")
+    if binary_dir is not None:
+        cmds.append(f'buildkite-agent artifact download "{binary_dir}/$(uname -m)/*" .')
+        cmds.append(f"chmod -v a+x {binary_dir}/**/*")
+        parts.append(f"--binary-dir=../{binary_dir}/$(uname -m)")
+    if pytest_opts:
+        parts.append(pytest_opts)
+    cmds.append(" ".join(parts))
+    return cmds
+
+
 class DictAction(argparse.Action):
     """An argparse action that can receive a nested dictionary
 
@@ -157,5 +174,12 @@ COMMON_PARSER.add_argument(
     required=False,
     action=DictAction,
     default={},
+    type=str,
+)
+COMMON_PARSER.add_argument(
+    "--binary-dir",
+    help="Use the Firecracker binaries from this path",
+    required=False,
+    default=None,
     type=str,
 )

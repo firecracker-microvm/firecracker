@@ -171,9 +171,9 @@ class Microvm:
         self.initrd_file = None
         self.boot_args = None
 
-        self._fc_binary_path = Path(fc_binary_path)
+        self.fc_binary_path = Path(fc_binary_path)
         assert fc_binary_path.exists()
-        self._jailer_binary_path = Path(jailer_binary_path)
+        self.jailer_binary_path = Path(jailer_binary_path)
         assert jailer_binary_path.exists()
 
         jailer_kwargs = jailer_kwargs or {}
@@ -181,7 +181,7 @@ class Microvm:
         # Create the jailer context associated with this microvm.
         self.jailer = JailerContext(
             jailer_id=self._microvm_id,
-            exec_file=self._fc_binary_path,
+            exec_file=self.fc_binary_path,
             netns=netns,
             new_pid_ns=True,
             **jailer_kwargs,
@@ -329,7 +329,7 @@ class Microvm:
     @property
     def firecracker_version(self):
         """Return the version of the Firecracker executable."""
-        _, stdout, _ = utils.run_cmd(f"{self._fc_binary_path} --version")
+        _, stdout, _ = utils.run_cmd(f"{self.fc_binary_path} --version")
         return re.match(r"^Firecracker v(.+)", stdout.partition("\n")[0]).group(1)
 
     @property
@@ -542,7 +542,7 @@ class Microvm:
         if not self.jailer.daemonize:
             self.jailer.new_pid_ns = False
 
-        cmd = [str(self._jailer_binary_path)] + self.jailer.construct_param_list()
+        cmd = [str(self.jailer_binary_path)] + self.jailer.construct_param_list()
         if self._numa_node is not None:
             node = str(self._numa_node)
             cmd = ["numactl", "-N", node, "-m", node] + cmd

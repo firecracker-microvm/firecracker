@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from framework.utils import run_cmd
-from host_tools.cargo_build import get_firecracker_binaries
 from host_tools.metrics import validate_fc_metrics
 
 
@@ -36,8 +35,8 @@ def test_describe_snapshot_all_versions(
     print(vm.log_data)
     vm.kill()
 
-    # Fetch Firecracker binary for the latest version
-    fc_binary, _ = get_firecracker_binaries()
+    # Fetch Firecracker binary
+    fc_binary = microvm_factory.fc_binary_path
     # Verify the output of `--describe-snapshot` command line parameter
     cmd = [fc_binary] + ["--describe-snapshot", snapshot.vmstate]
     code, stdout, stderr = run_cmd(cmd)
@@ -106,12 +105,12 @@ def test_cli_metrics_if_resume_no_metrics(uvm_plain, microvm_factory):
     assert not metrics2.exists()
 
 
-def test_cli_no_params():
+def test_cli_no_params(microvm_factory):
     """
     Test running firecracker with no parameters should work
     """
 
-    fc_binary, _ = get_firecracker_binaries()
+    fc_binary = microvm_factory.fc_binary_path
     process = subprocess.Popen(fc_binary)
     try:
         process.communicate(timeout=3)

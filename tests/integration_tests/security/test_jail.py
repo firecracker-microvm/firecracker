@@ -16,7 +16,6 @@ import pytest
 import requests
 import urllib3
 
-import host_tools.cargo_build as build_tools
 from framework.defs import FC_BINARY_NAME
 from framework.jailer import JailerContext
 
@@ -60,12 +59,11 @@ def test_empty_jailer_id(test_microvm_with_api):
     Test that the jailer ID cannot be empty.
     """
     test_microvm = test_microvm_with_api
-    fc_binary, _ = build_tools.get_firecracker_binaries()
 
     # Set the jailer ID to None.
     test_microvm.jailer = JailerContext(
         jailer_id="",
-        exec_file=fc_binary,
+        exec_file=test_microvm.fc_binary_path,
     )
 
     # pylint: disable=W0703
