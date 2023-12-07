@@ -4,8 +4,7 @@
 
 In order to test the vsock device connection state machine, these tests will:
 - Generate a 20MiB random data blob;
-- Use `host_tools/vsock_helper.c` to start a listening echo server inside the
-  guest VM;
+- Use `socat` to start a listening echo server inside the guest VM;
 - Run 50, concurrent, host-initiated connections, each transfering the random
   blob to and from the guest echo server;
 - For every connection, check that the data received back from the echo server
@@ -17,7 +16,6 @@ In order to test the vsock device connection state machine, these tests will:
 import os.path
 from socket import timeout as SocketTimeout
 
-import host_tools.logging as log_tools
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
     VSOCK_UDS_PATH,
@@ -28,7 +26,9 @@ from framework.utils_vsock import (
     check_vsock_device,
     make_blob,
     make_host_port_path,
+    start_guest_echo_server,
 )
+from host_tools.metrics import validate_fc_metrics
 
 NEGATIVE_TEST_CONNECTION_COUNT = 100
 TEST_WORKER_COUNT = 10
@@ -46,14 +46,15 @@ def test_vsock(test_microvm_with_api, bin_vsock_path, test_fc_session_root_path)
 
     vm.basic_config()
     vm.add_net_iface()
-    vm.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/{}".format(VSOCK_UDS_PATH))
-
+    vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
     vm.start()
 
     check_vsock_device(vm, bin_vsock_path, test_fc_session_root_path, vm.ssh)
+    metrics = vm.flush_metrics()
+    validate_fc_metrics(metrics)
 
 
-def negative_test_host_connections(vm, uds_path, blob_path, blob_hash):
+def negative_test_host_connections(vm, blob_path, blob_hash):
     """Negative test for host-initiated connections.
 
     This will start a daemonized echo server on the guest VM, and then spawn
@@ -61,9 +62,7 @@ def negative_test_host_connections(vm, uds_path, blob_path, blob_hash):
     Closes the UDS sockets while data is in flight.
     """
 
-    cmd = "/tmp/vsock_helper echosrv -d {}".format(ECHO_SERVER_PORT)
-    ecode, _, _ = vm.ssh.execute_command(cmd)
-    assert ecode == 0
+    uds_path = start_guest_echo_server(vm)
 
     workers = []
     for _ in range(NEGATIVE_TEST_CONNECTION_COUNT):
@@ -76,47 +75,13 @@ def negative_test_host_connections(vm, uds_path, blob_path, blob_hash):
         wrk.join()
 
     # Validate that Firecracker is still up and running.
-    ecode, _, _ = vm.ssh.execute_command("sync")
+    ecode, _, _ = vm.ssh.run("sync")
     # Should fail if Firecracker exited from SIGPIPE handler.
     assert ecode == 0
 
-    # Validate vsock emulation still accepts connections and works
-    # as expected.
-    check_host_connections(vm, uds_path, blob_path, blob_hash)
+    metrics = vm.flush_metrics()
+    validate_fc_metrics(metrics)
 
-
-def test_vsock_epipe(test_microvm_with_api, bin_vsock_path, test_fc_session_root_path):
-    """
-    Vsock negative test to validate SIGPIPE/EPIPE handling.
-    """
-    vm = test_microvm_with_api
-    vm.spawn()
-    vm.basic_config()
-    vm.add_net_iface()
-    vm.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/{}".format(VSOCK_UDS_PATH))
-
-    # Configure metrics to assert against `sigpipe` count.
-    metrics_fifo_path = os.path.join(vm.path, "metrics_fifo")
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    response = vm.metrics.put(metrics_path=vm.create_jailed_resource(metrics_fifo.path))
-    assert vm.api_session.is_status_no_content(response.status_code)
-
-    vm.start()
-
-    # Generate the random data blob file, 20MB
-    blob_path, blob_hash = make_blob(test_fc_session_root_path, 20 * 2**20)
-    vm_blob_path = "/tmp/vsock/test.blob"
-
-    # Set up a tmpfs drive on the guest, so we can copy the blob there.
-    # Guest-initiated connections (echo workers) will use this blob.
-    _copy_vsock_data_to_guest(vm.ssh, blob_path, vm_blob_path, bin_vsock_path)
-
-    path = os.path.join(vm.jailer.chroot_path(), VSOCK_UDS_PATH)
-    # Negative test for host-initiated connections that
-    # are closed with in flight data.
-    negative_test_host_connections(vm, path, blob_path, blob_hash)
-
-    metrics = vm.flush_metrics(metrics_fifo)
     # Validate that at least 1 `SIGPIPE` signal was received.
     # Since we are reusing the existing echo server which triggers
     # reads/writes on the UDS backend connections, these might be closed
@@ -127,6 +92,39 @@ def test_vsock_epipe(test_microvm_with_api, bin_vsock_path, test_fc_session_root
     # If this ever fails due to 100 closes before read() we must
     # add extra tooling that will trigger only writes().
     assert metrics["signals"]["sigpipe"] > 0
+
+    # Validate vsock emulation still accepts connections and works
+    # as expected. Use the default blob size to speed up the test.
+    blob_path, blob_hash = make_blob(os.path.dirname(blob_path))
+    check_host_connections(uds_path, blob_path, blob_hash)
+    metrics = vm.flush_metrics()
+    validate_fc_metrics(metrics)
+
+
+def test_vsock_epipe(test_microvm_with_api, bin_vsock_path, test_fc_session_root_path):
+    """
+    Vsock negative test to validate SIGPIPE/EPIPE handling.
+    """
+    vm = test_microvm_with_api
+    vm.spawn()
+    vm.basic_config()
+    vm.add_net_iface()
+    vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
+    vm.start()
+
+    # Generate the random data blob file, 20MB
+    blob_path, blob_hash = make_blob(test_fc_session_root_path, 20 * 2**20)
+    vm_blob_path = "/tmp/vsock/test.blob"
+
+    # Set up a tmpfs drive on the guest, so we can copy the blob there.
+    # Guest-initiated connections (echo workers) will use this blob.
+    _copy_vsock_data_to_guest(vm.ssh, blob_path, vm_blob_path, bin_vsock_path)
+
+    # Negative test for host-initiated connections that
+    # are closed with in flight data.
+    negative_test_host_connections(vm, blob_path, blob_hash)
+    metrics = vm.flush_metrics()
+    validate_fc_metrics(metrics)
 
 
 def test_vsock_transport_reset(
@@ -149,9 +147,7 @@ def test_vsock_transport_reset(
     """
     test_vm = uvm_nano
     test_vm.add_net_iface()
-    test_vm.vsock.put(
-        vsock_id="vsock0", guest_cid=3, uds_path="/{}".format(VSOCK_UDS_PATH)
-    )
+    test_vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
     test_vm.start()
 
     # Generate the random data blob file.
@@ -163,10 +159,7 @@ def test_vsock_transport_reset(
     _copy_vsock_data_to_guest(test_vm.ssh, blob_path, vm_blob_path, bin_vsock_path)
 
     # Start guest echo server.
-    path = os.path.join(test_vm.jailer.chroot_path(), VSOCK_UDS_PATH)
-    cmd = f"/tmp/vsock_helper echosrv -d {ECHO_SERVER_PORT}"
-    ecode, _, _ = test_vm.ssh.run(cmd)
-    assert ecode == 0
+    path = start_guest_echo_server(test_vm)
 
     # Start host workers that connect to the guest server.
     workers = []
@@ -187,8 +180,8 @@ def test_vsock_transport_reset(
         # Whatever we send to the server, it should return the same
         # value.
         buf = bytearray("TEST\n".encode("utf-8"))
-        worker.sock.send(buf)
         try:
+            worker.sock.send(buf)
             # Arbitrary timeout, we set this so the socket won't block as
             # it shouldn't receive anything.
             worker.sock.settimeout(0.25)
@@ -198,10 +191,12 @@ def test_vsock_transport_reset(
                 assert False, "Connection not closed: response recieved '{}'".format(
                     response.decode("utf-8")
                 )
-        except SocketTimeout:
+        except (SocketTimeout, ConnectionResetError, BrokenPipeError):
             assert True
 
     # Terminate VM.
+    metrics = test_vm.flush_metrics()
+    validate_fc_metrics(metrics)
     test_vm.kill()
 
     # Load snapshot.
@@ -217,4 +212,6 @@ def test_vsock_transport_reset(
 
     # Test host-initiated connections.
     path = os.path.join(vm2.jailer.chroot_path(), VSOCK_UDS_PATH)
-    check_host_connections(vm2, path, blob_path, blob_hash)
+    check_host_connections(path, blob_path, blob_hash)
+    metrics = vm2.flush_metrics()
+    validate_fc_metrics(metrics)

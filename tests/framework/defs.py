@@ -5,20 +5,11 @@
 import platform
 from pathlib import Path
 
-# URL prefix used for the API calls through a UNIX domain socket
-API_USOCKET_URL_PREFIX = "http+unix://"
-
 # Firecracker's binary name
 FC_BINARY_NAME = "firecracker"
 
-# Jailer's binary name
-JAILER_BINARY_NAME = "jailer"
-
 # The Firecracker sources workspace dir
 FC_WORKSPACE_DIR = Path(__file__).parent.parent.parent.resolve()
-
-# Cargo target dir for the Firecracker workspace. Set via .cargo/config
-FC_WORKSPACE_TARGET_DIR = FC_WORKSPACE_DIR / "build/cargo_target"
 
 # Cargo build directory for seccompiler
 SECCOMPILER_TARGET_DIR = FC_WORKSPACE_DIR / "build/seccompiler"
@@ -32,12 +23,11 @@ MAX_API_CALL_DURATION_MS = 700
 # Default test session root directory path
 DEFAULT_TEST_SESSION_ROOT_PATH = "/srv"
 
+# Default test session artifacts path
+LOCAL_BUILD_PATH = FC_WORKSPACE_DIR / "build/"
+
 # Absolute path to the test results folder
 TEST_RESULTS_DIR = FC_WORKSPACE_DIR / "test_results"
-
-# Name of the file that stores firecracker's PID when launched by jailer with
-#  `--new-pid-ns`.
-FC_PID_FILE_NAME = "firecracker.pid"
 
 # The minimum required host kernel version for which io_uring is supported in
 # Firecracker.
@@ -49,6 +39,6 @@ IMG_DIR = Path(DEFAULT_TEST_SESSION_ROOT_PATH) / "img"
 
 # fall-back to the local directory
 if not IMG_DIR.exists():
-    IMG_DIR = Path(__file__).joinpath("../../../build/img").resolve()
+    IMG_DIR = LOCAL_BUILD_PATH / "img"
 
 ARTIFACT_DIR = IMG_DIR / platform.machine()

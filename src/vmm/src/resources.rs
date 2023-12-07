@@ -5,13 +5,15 @@ use std::convert::From;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use mmds::data_store::{Mmds, MmdsVersion};
-use mmds::ns::MmdsNetworkStack;
 use serde::{Deserialize, Serialize};
 use utils::net::ipv4addr::is_link_local_valid;
 
 use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::device_manager::persist::SharedDeviceType;
+use crate::logger::info;
+use crate::mmds;
+use crate::mmds::data_store::{Mmds, MmdsVersion};
+use crate::mmds::ns::MmdsNetworkStack;
 use crate::vmm_config::balloon::*;
 use crate::vmm_config::boot_source::{
     BootConfig, BootSource, BootSourceConfig, BootSourceConfigError,
@@ -19,7 +21,6 @@ use crate::vmm_config::boot_source::{
 use crate::vmm_config::drive::*;
 use crate::vmm_config::entropy::*;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
 use crate::vmm_config::machine_config::{
     MachineConfig, MachineConfigUpdate, VmConfig, VmConfigError,
 };
@@ -29,46 +30,33 @@ use crate::vmm_config::net::*;
 use crate::vmm_config::vsock::*;
 
 /// Errors encountered when configuring microVM resources.
-#[derive(Debug, thiserror::Error, derive_more::From)]
+#[derive(Debug, thiserror::Error, displaydoc::Display, derive_more::From)]
 pub enum ResourcesError {
-    /// Balloon device configuration error.
-    #[error("Balloon device error: {0}")]
+    /// Balloon device error: {0}
     BalloonDevice(BalloonConfigError),
-    /// Block device configuration error.
-    #[error("Block device error: {0}")]
+    /// Block device error: {0}
     BlockDevice(DriveError),
-    /// Boot source configuration error.
-    #[error("Boot source error: {0}")]
+    /// Boot source error: {0}
     BootSource(BootSourceConfigError),
-    /// File operation error.
-    #[error("File operation error: {0}")]
+    /// File operation error: {0}
     File(std::io::Error),
-    /// JSON is invalid.
-    #[error("Invalid JSON: {0}")]
+    /// Invalid JSON: {0}
     InvalidJson(serde_json::Error),
-    /// Logger configuration error.
-    #[error("Logger error: {0}")]
-    Logger(LoggerConfigError),
-    /// Metrics system configuration error.
-    #[error("Metrics error: {0}")]
+    /// Logger error: {0}
+    Logger(crate::logger::LoggerUpdateError),
+    /// Metrics error: {0}
     Metrics(MetricsConfigError),
-    /// MMDS error.
-    #[error("MMDS error: {0}")]
+    /// MMDS error: {0}
     Mmds(mmds::data_store::Error),
-    /// MMDS configuration error.
-    #[error("MMDS config error: {0}")]
+    /// MMDS config error: {0}
     MmdsConfig(MmdsConfigError),
-    /// Net device configuration error.
-    #[error("Network device error: {0}")]
+    /// Network device error: {0}
     NetDevice(NetworkInterfaceError),
-    /// microVM vCpus or memory configuration error.
-    #[error("VM config error: {0}")]
+    /// VM config error: {0}
     VmConfig(VmConfigError),
-    /// Vsock device configuration error.
-    #[error("Vsock device error: {0}")]
+    /// Vsock device error: {0}
     VsockDevice(VsockConfigError),
-    /// Entropy device configuration error.
-    #[error("Entropy device error: {0}")]
+    /// Entropy device error: {0}
     EntropyDevice(EntropyDeviceError),
 }
 
@@ -84,7 +72,7 @@ pub struct VmmConfig {
     #[serde(rename = "cpu-config")]
     cpu_config: Option<PathBuf>,
     #[serde(rename = "logger")]
-    logger: Option<LoggerConfig>,
+    logger: Option<crate::logger::LoggerConfig>,
     #[serde(rename = "machine-config")]
     machine_config: Option<MachineConfig>,
     #[serde(rename = "metrics")]
@@ -137,8 +125,8 @@ impl VmResources {
     ) -> Result<Self, ResourcesError> {
         let vmm_config = serde_json::from_str::<VmmConfig>(config_json)?;
 
-        if let Some(logger) = vmm_config.logger {
-            init_logger(logger, instance_info)?;
+        if let Some(logger_config) = vmm_config.logger {
+            crate::logger::LOGGER.update(logger_config)?;
         }
 
         if let Some(metrics) = vmm_config.metrics {
@@ -184,7 +172,7 @@ impl VmResources {
             resources.locked_mmds_or_default().put_data(
                 serde_json::from_str(data).expect("MMDS error: metadata provided not valid json"),
             )?;
-            log::info!("Successfully added metadata to mmds from file");
+            info!("Successfully added metadata to mmds from file");
         }
 
         if let Some(mmds_config) = vmm_config.mmds_config {
@@ -216,8 +204,12 @@ impl VmResources {
     /// restoring from a snapshot).
     pub fn update_from_restored_device(&mut self, device: SharedDeviceType) {
         match device {
-            SharedDeviceType::Block(block) => {
-                self.block.add_device(block);
+            SharedDeviceType::VirtioBlock(block) => {
+                self.block.add_virtio_device(block);
+            }
+
+            SharedDeviceType::VhostUserBlock(block) => {
+                self.block.add_vhost_user_device(block);
             }
 
             SharedDeviceType::Network(network) => {
@@ -482,19 +474,20 @@ mod tests {
     use std::os::linux::fs::MetadataExt;
     use std::str::FromStr;
 
-    use logger::{LevelFilter, LOGGER};
     use serde_json::{Map, Value};
     use utils::net::mac::MacAddr;
     use utils::tempfile::TempFile;
 
     use super::*;
     use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
+    use crate::devices::virtio::block_common::CacheType;
+    use crate::devices::virtio::virtio_block::VirtioBlockError;
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
     use crate::resources::VmResources;
     use crate::vmm_config::boot_source::{
         BootConfig, BootSource, BootSourceConfig, DEFAULT_KERNEL_CMDLINE,
     };
-    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, FileEngineType};
+    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
     use crate::vmm_config::machine_config::{MachineConfig, VmConfigError};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
@@ -530,13 +523,16 @@ mod tests {
         (
             BlockDeviceConfig {
                 drive_id: "block1".to_string(),
-                path_on_host: tmp_file.as_path().to_str().unwrap().to_string(),
-                is_root_device: false,
                 partuuid: Some("0eaa91a0-01".to_string()),
+                is_root_device: false,
                 cache_type: CacheType::Unsafe,
-                is_read_only: false,
+
+                is_read_only: Some(false),
+                path_on_host: Some(tmp_file.as_path().to_str().unwrap().to_string()),
                 rate_limiter: Some(RateLimiterConfig::default()),
-                file_engine_type: FileEngineType::default(),
+                file_engine_type: None,
+
+                socket: None,
             },
             tmp_file,
         )
@@ -678,7 +674,9 @@ mod tests {
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         ) {
-            Err(ResourcesError::BlockDevice(DriveError::InvalidBlockDevicePath(_))) => (),
+            Err(ResourcesError::BlockDevice(DriveError::CreateVirtioBlockDevice(
+                VirtioBlockError::BackingFile(_, _),
+            ))) => (),
             _ => unreachable!(),
         }
 
@@ -862,12 +860,9 @@ mod tests {
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         ) {
-            Err(ResourcesError::Logger(LoggerConfigError::InitializationFailure { .. })) => (),
+            Err(ResourcesError::Logger(crate::logger::LoggerUpdateError(_))) => (),
             _ => unreachable!(),
         }
-
-        // The previous call enables the logger. We need to disable it.
-        LOGGER.set_max_level(LevelFilter::Off);
 
         // Invalid path for metrics pipe.
         json = format!(
@@ -1153,7 +1148,8 @@ mod tests {
                             "drive_id": "rootfs",
                             "path_on_host": "{}",
                             "is_root_device": true,
-                            "is_read_only": false
+                            "is_read_only": false,
+                            "io_engine": "Sync"
                         }}
                     ],
                     "network-interfaces": [
@@ -1227,7 +1223,8 @@ mod tests {
                             "drive_id": "rootfs",
                             "path_on_host": "{}",
                             "is_root_device": true,
-                            "is_read_only": false
+                            "is_read_only": false,
+                            "io_engine": "Sync"
                         }}
                     ],
                     "network-interfaces": [
@@ -1286,7 +1283,8 @@ mod tests {
                             "drive_id": "rootfs",
                             "path_on_host": "{}",
                             "is_root_device": true,
-                            "is_read_only": false
+                            "is_read_only": false,
+                            "io_engine": "Sync"
                         }}
                     ],
                     "network-interfaces": [
@@ -1448,7 +1446,7 @@ mod tests {
     #[test]
     fn test_set_boot_source() {
         let tmp_file = TempFile::new().unwrap();
-        let cmdline = "reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0";
+        let cmdline = "reboot=k panic=1 pci=off nomodule 8250.nr_uarts=0";
         let expected_boot_cfg = BootSourceConfig {
             kernel_image_path: String::from(tmp_file.as_path().to_str().unwrap()),
             initrd_path: Some(String::from(tmp_file.as_path().to_str().unwrap())),
@@ -1514,10 +1512,10 @@ mod tests {
         let (mut new_block_device_cfg, _file) = default_block_cfg();
         let tmp_file = TempFile::new().unwrap();
         new_block_device_cfg.drive_id = "block2".to_string();
-        new_block_device_cfg.path_on_host = tmp_file.as_path().to_str().unwrap().to_string();
-        assert_eq!(vm_resources.block.list.len(), 1);
+        new_block_device_cfg.path_on_host = Some(tmp_file.as_path().to_str().unwrap().to_string());
+        assert_eq!(vm_resources.block.devices.len(), 1);
         vm_resources.set_block_device(new_block_device_cfg).unwrap();
-        assert_eq!(vm_resources.block.list.len(), 2);
+        assert_eq!(vm_resources.block.devices.len(), 2);
     }
 
     #[test]

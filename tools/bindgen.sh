@@ -34,7 +34,8 @@ function fc-bindgen {
     clippy::ptr_as_ptr,
     clippy::undocumented_unsafe_blocks,
     clippy::cast_lossless,
-    missing_debug_implementations
+    missing_debug_implementations,
+    clippy::tests_outside_test_module
 )]
 
 EOF
@@ -44,14 +45,14 @@ EOF
 KERNEL_HEADERS_HOME="/usr"
 
 info "BINDGEN sockios.h"
-fc-bindgen "$KERNEL_HEADERS_HOME/include/linux/sockios.h" |replace_linux_int_types >src/net_gen/src/sockios.rs
+fc-bindgen "$KERNEL_HEADERS_HOME/include/linux/sockios.h" |replace_linux_int_types >src/vmm/src/devices/virtio/net/gen/sockios.rs
 
 info "BINDGEN if.h"
 fc-bindgen "$KERNEL_HEADERS_HOME/include/linux/if.h" \
            --allowlist-var='IF.*' \
            --allowlist-type='if.*' \
            --allowlist-type="net_device.*" \
-           -- -D __UAPI_DEF_IF_IFNAMSIZ -D __UAPI_DEF_IF_NET_DEVICE_FLAGS -D __UAPI_DEF_IF_IFREQ -D __UAPI_DEF_IF_IFMAP >src/net_gen/src/iff.rs
+           -- -D __UAPI_DEF_IF_IFNAMSIZ -D __UAPI_DEF_IF_NET_DEVICE_FLAGS -D __UAPI_DEF_IF_IFREQ -D __UAPI_DEF_IF_IFMAP >src/vmm/src/devices/virtio/net/gen/iff.rs
 
 info "BINDGEN if_tun.h"
 fc-bindgen \
@@ -63,31 +64,31 @@ fc-bindgen \
     --allowlist-var='IFF_VNET_HDR' \
     --allowlist-var='ETH_.*' \
     --allowlist-type='ifreq' \
-   "$KERNEL_HEADERS_HOME/include/linux/if_tun.h" >src/net_gen/src/if_tun.rs
+   "$KERNEL_HEADERS_HOME/include/linux/if_tun.h" >src/vmm/src/devices/virtio/net/gen/if_tun.rs
 
 info "BINDGEN virtio_ring.h"
 fc-bindgen \
     --allowlist-var "VIRTIO_RING_F_EVENT_IDX" \
-    "$KERNEL_HEADERS_HOME/include/linux/virtio_ring.h" >src/virtio_gen/src/virtio_ring.rs
+    "$KERNEL_HEADERS_HOME/include/linux/virtio_ring.h" >src/vmm/src/devices/virtio/gen/virtio_ring.rs
 
 info "BINDGEN virtio_blk.h"
 fc-bindgen \
     --allowlist-var "VIRTIO_BLK_.*" \
     --allowlist-var "VIRTIO_F_.*" \
-    "$KERNEL_HEADERS_HOME/include/linux/virtio_blk.h" >src/virtio_gen/src/virtio_blk.rs
+    "$KERNEL_HEADERS_HOME/include/linux/virtio_blk.h" >src/vmm/src/devices/virtio/gen/virtio_blk.rs
 
 info "BINDGEN virtio_net.h"
 fc-bindgen \
     --allowlist-var "VIRTIO_NET_F_.*" \
     --allowlist-var "VIRTIO_F_.*" \
     --allowlist-type "virtio_net_hdr_v1" \
-    "$KERNEL_HEADERS_HOME/include/linux/virtio_net.h" >src/virtio_gen/src/virtio_net.rs
+    "$KERNEL_HEADERS_HOME/include/linux/virtio_net.h" >src/vmm/src/devices/virtio/gen/virtio_net.rs
 
 info "BINDGEN virtio_rng.h"
 fc-bindgen \
     --allowlist-var "VIRTIO_RNG_.*" \
     --allowlist-var "VIRTIO_F_.*" \
-    "$KERNEL_HEADERS_HOME/include/linux/virtio_rng.h" >src/virtio_gen/src/virtio_rng.rs
+    "$KERNEL_HEADERS_HOME/include/linux/virtio_rng.h" >src/vmm/src/devices/virtio/gen/virtio_rng.rs
 
 # https://www.kernel.org/doc/Documentation/kbuild/headers_install.txt
 # The Linux repo is huge. Just copy what we need.
@@ -150,7 +151,7 @@ fc-bindgen \
 
 # Apply any patches
 # src/virtio_gen
-for crate in src/net_gen; do
+for crate in src/vmm/src/devices/virtio/net/gen/; do
     for patch in $(dirname $0)/bindgen-patches/$(basename $crate)/*.patch; do
         echo PATCH $crate/$patch
         (cd $crate; patch -p1) <$patch

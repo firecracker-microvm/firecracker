@@ -238,4 +238,5 @@ validation check.
 
 | Register name        | ID                 |
 |----------------------|--------------------|
+| Program Counter      | 0x6030000000100040 |
 | KVM_REG_ARM_TIMER_CNT| 0x603000000013df1a |

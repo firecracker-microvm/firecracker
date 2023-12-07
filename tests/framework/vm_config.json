@@ -7,13 +7,14 @@
   "drives": [
     {
       "drive_id": "rootfs",
-      "path_on_host": "bionic.rootfs.ext4",
-      "is_root_device": true,
       "partuuid": null,
-      "is_read_only": false,
+      "is_root_device": true,
       "cache_type": "Unsafe",
+      "is_read_only": false,
+      "path_on_host": "bionic.rootfs.ext4",
       "io_engine": "Sync",
-      "rate_limiter": null
+      "rate_limiter": null,
+      "socket": null
     }
   ],
   "machine-config": {

@@ -52,7 +52,7 @@ pub struct MuxerKillQ {
 }
 
 impl MuxerKillQ {
-    const SIZE: usize = defs::MUXER_KILLQ_SIZE;
+    const SIZE: usize = defs::MUXER_KILLQ_SIZE as usize;
 
     /// Trivial kill queue constructor.
     pub fn new() -> Self {

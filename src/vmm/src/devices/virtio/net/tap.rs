@@ -11,11 +11,11 @@ use std::io::{Error as IoError, Read, Write};
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
-use net_gen::ifreq;
 use utils::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 use utils::{ioctl_ioc_nr, ioctl_iow_nr};
 
 use crate::devices::virtio::iovec::IoVecBuffer;
+use crate::devices::virtio::net::gen;
 #[cfg(test)]
 use crate::devices::virtio::net::test_utils::Mocks;
 
@@ -24,25 +24,18 @@ use crate::devices::virtio::net::test_utils::Mocks;
 const IFACE_NAME_MAX_LEN: usize = 16;
 
 /// List of errors the tap implementation can throw.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum TapError {
-    /// Couldn't open /dev/net/tun
-    #[error("Couldn't open /dev/net/tun: {0}")]
+    /// Couldn't open /dev/net/tun: {0}
     OpenTun(IoError),
     /// Invalid interface name
-    #[error("Invalid interface name")]
     InvalidIfname,
-    /// Error while creating ifreq structure
-    #[error(
-        "Error while creating ifreq structure: {0}. Invalid TUN/TAP Backend provided by {1}. \
-         Check our documentation on setting up the network devices."
-    )]
+    #[rustfmt::skip]
+    #[doc = "Error while creating ifreq structure: {0}. Invalid TUN/TAP Backend provided by {1}. Check our documentation on setting up the network devices."]
     IfreqExecuteError(IoError, String),
-    /// Error while setting the offload flags
-    #[error("Error while setting the offload flags: {0}")]
+    /// Error while setting the offload flags: {0}
     SetOffloadFlags(IoError),
-    /// Error while setting size of the vnet header
-    #[error("Error while setting size of the vnet header: {0}")]
+    /// Error while setting size of the vnet header: {0}
     SetSizeOfVnetHdr(IoError),
 }
 
@@ -83,7 +76,7 @@ fn build_terminated_if_name(if_name: &str) -> Result<[u8; IFACE_NAME_MAX_LEN], T
 }
 
 #[derive(Copy, Clone)]
-pub struct IfReqBuilder(ifreq);
+pub struct IfReqBuilder(gen::ifreq);
 
 impl fmt::Debug for IfReqBuilder {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -114,7 +107,7 @@ impl IfReqBuilder {
         mut self,
         socket: &F,
         ioctl: u64,
-    ) -> std::io::Result<ifreq> {
+    ) -> std::io::Result<gen::ifreq> {
         // SAFETY: ioctl is safe. Called with a valid socket fd, and we check the return.
         if unsafe { ioctl_with_mut_ref(socket, ioctl, &mut self.0) } < 0 {
             return Err(IoError::last_os_error());
@@ -148,7 +141,7 @@ impl Tap {
         let terminated_if_name = build_terminated_if_name(if_name)?;
         let ifreq = IfReqBuilder::new()
             .if_name(&terminated_if_name)
-            .flags((net_gen::IFF_TAP | net_gen::IFF_NO_PI | net_gen::IFF_VNET_HDR) as i16)
+            .flags(i16::try_from(gen::IFF_TAP | gen::IFF_NO_PI | gen::IFF_VNET_HDR).unwrap())
             .execute(&tuntap, TUNSETIFF())
             .map_err(|io_error| TapError::IfreqExecuteError(io_error, if_name.to_owned()))?;
 
@@ -235,9 +228,8 @@ pub mod tests {
 
     use std::os::unix::ffi::OsStrExt;
 
-    use net_gen::ETH_HLEN;
-
     use super::*;
+    use crate::devices::virtio::net::gen;
     use crate::devices::virtio::net::test_utils::{enable, if_index, TapTrafficSimulator};
 
     // The size of the virtio net header
@@ -250,7 +242,7 @@ pub mod tests {
     fn test_tap_name() {
         // Sanity check that the assumed max iface name length is correct.
         assert_eq!(IFACE_NAME_MAX_LEN, unsafe {
-            net_gen::ifreq__bindgen_ty_1::default().ifrn_name.len()
+            gen::ifreq__bindgen_ty_1::default().ifrn_name.len()
         });
 
         // Empty name - The tap should be named "tap0" by default
@@ -339,7 +331,7 @@ pub mod tests {
 
         let mut packet = [0u8; PACKET_SIZE];
         let payload = utils::rand::rand_alphanumerics(PAYLOAD_SIZE);
-        packet[ETH_HLEN as usize..payload.len() + ETH_HLEN as usize]
+        packet[gen::ETH_HLEN as usize..payload.len() + gen::ETH_HLEN as usize]
             .copy_from_slice(payload.as_bytes());
         assert!(tap.write(&packet).is_ok());
 
@@ -358,7 +350,8 @@ pub mod tests {
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&tap));
 
         let mut fragment1 = utils::rand::rand_bytes(PAYLOAD_SIZE);
-        fragment1.as_mut_slice()[..ETH_HLEN as usize].copy_from_slice(&[0; ETH_HLEN as usize]);
+        fragment1.as_mut_slice()[..gen::ETH_HLEN as usize]
+            .copy_from_slice(&[0; gen::ETH_HLEN as usize]);
         let fragment2 = utils::rand::rand_bytes(PAYLOAD_SIZE);
         let fragment3 = utils::rand::rand_bytes(PAYLOAD_SIZE);
 

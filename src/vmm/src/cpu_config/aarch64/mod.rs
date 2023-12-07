@@ -33,10 +33,16 @@ impl CpuConfiguration {
         for (modifier, mut reg) in template.reg_modifiers.iter().zip(self.regs.iter_mut()) {
             match reg.size() {
                 RegSize::U32 => {
-                    reg.set_value(modifier.bitmap.apply(u128::from(reg.value::<u32, 4>())) as u32);
+                    reg.set_value(
+                        (modifier.bitmap.apply(u128::from(reg.value::<u32, 4>())) & 0xFFFF_FFFF)
+                            as u32,
+                    );
                 }
                 RegSize::U64 => {
-                    reg.set_value(modifier.bitmap.apply(u128::from(reg.value::<u64, 8>())) as u64);
+                    reg.set_value(
+                        (modifier.bitmap.apply(u128::from(reg.value::<u64, 8>()))
+                            & 0xFFFF_FFFF_FFFF_FFFF) as u64,
+                    );
                 }
                 RegSize::U128 => {
                     reg.set_value(modifier.bitmap.apply(reg.value::<u128, 16>()));

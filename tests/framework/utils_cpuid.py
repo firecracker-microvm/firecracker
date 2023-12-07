@@ -19,9 +19,21 @@ class CpuVendor(Enum):
     ARM = auto()
 
 
+class CpuModel(str, Enum):
+    """CPU models"""
+
+    AMD_MILAN = "AMD_MILAN"
+    ARM_NEOVERSE_N1 = "ARM_NEOVERSE_N1"
+    ARM_NEOVERSE_V1 = "ARM_NEOVERSE_V1"
+    INTEL_SKYLAKE = "INTEL_SKYLAKE"
+    INTEL_CASCADELAKE = "INTEL_CASCADELAKE"
+    INTEL_ICELAKE = "INTEL_ICELAKE"
+
+
 CPU_DICT = {
     CpuVendor.INTEL: {
         "Intel(R) Xeon(R) Platinum 8175M CPU": "INTEL_SKYLAKE",
+        "Intel(R) Xeon(R) Platinum 8124M CPU": "INTEL_SKYLAKE",
         "Intel(R) Xeon(R) Platinum 8259CL CPU": "INTEL_CASCADELAKE",
         "Intel(R) Xeon(R) Platinum 8375C CPU": "INTEL_ICELAKE",
     },
@@ -83,7 +95,7 @@ def check_guest_cpuid_output(
     vm, guest_cmd, expected_header, expected_separator, expected_key_value_store
 ):
     """Parse cpuid output inside guest and match with expected one."""
-    _, stdout, stderr = vm.ssh.execute_command(guest_cmd)
+    _, stdout, stderr = vm.ssh.run(guest_cmd)
 
     assert stderr == ""
     for line in stdout.split("\n"):
@@ -149,7 +161,7 @@ def get_guest_cpuid(vm, leaf=None, subleaf=None):
         read_cpuid_cmd = f"cpuid -r -l {leaf} -s {subleaf} | head -n 2 | grep -v CPU"
     else:
         read_cpuid_cmd = "cpuid -r | sed '/CPU 1/q' | grep -v CPU"
-    _, stdout, stderr = vm.ssh.execute_command(read_cpuid_cmd)
+    _, stdout, stderr = vm.ssh.run(read_cpuid_cmd)
     assert stderr == ""
 
     return build_cpuid_dict(stdout)

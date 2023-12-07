@@ -2,20 +2,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::io::Write;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 use std::time::Duration;
 use std::{cmp, fmt};
 
 use log::error;
-use logger::{IncMetric, METRICS};
 use serde::Serialize;
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use utils::eventfd::EventFd;
-use utils::vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
-use virtio_gen::virtio_blk::VIRTIO_F_VERSION_1;
+use utils::u64_to_usize;
 
-use super::super::{ActivateError, DeviceState, Queue, VirtioDevice, TYPE_BALLOON};
+use super::super::device::{DeviceState, VirtioDevice};
+use super::super::queue::Queue;
+use super::super::{ActivateError, TYPE_BALLOON};
+use super::metrics::METRICS;
 use super::util::{compact_page_frame_numbers, remove_range};
 use super::{
     BALLOON_DEV_ID, BALLOON_NUM_QUEUES, BALLOON_QUEUE_SIZES, DEFLATE_INDEX, INFLATE_INDEX,
@@ -27,7 +28,10 @@ use super::{
     VIRTIO_BALLOON_S_SWAP_OUT,
 };
 use crate::devices::virtio::balloon::BalloonError;
-use crate::devices::virtio::{IrqTrigger, IrqType};
+use crate::devices::virtio::device::{IrqTrigger, IrqType};
+use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
+use crate::logger::IncMetric;
+use crate::vstate::memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
 const SIZE_OF_U32: usize = std::mem::size_of::<u32>();
 const SIZE_OF_STAT: usize = std::mem::size_of::<BalloonStat>();
@@ -282,7 +286,7 @@ impl Balloon {
     pub(crate) fn process_inflate(&mut self) -> Result<(), BalloonError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
-        METRICS.balloon.inflate_count.inc();
+        METRICS.inflate_count.inc();
 
         let queue = &mut self.queues[INFLATE_INDEX];
         // The pfn buffer index used during descriptor processing.
@@ -373,7 +377,7 @@ impl Balloon {
     pub(crate) fn process_deflate_queue(&mut self) -> Result<(), BalloonError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
-        METRICS.balloon.deflate_count.inc();
+        METRICS.deflate_count.inc();
 
         let queue = &mut self.queues[DEFLATE_INDEX];
         let mut needs_interrupt = false;
@@ -395,7 +399,7 @@ impl Balloon {
     pub(crate) fn process_stats_queue(&mut self) -> Result<(), BalloonError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
-        METRICS.balloon.stats_updates_count.inc();
+        METRICS.stats_updates_count.inc();
 
         while let Some(head) = self.queues[STATS_INDEX].pop(mem) {
             if let Some(prev_stats_desc) = self.stats_desc_index {
@@ -419,7 +423,7 @@ impl Balloon {
                     .read_obj::<BalloonStat>(addr)
                     .map_err(|_| BalloonError::MalformedDescriptor)?;
                 self.latest_stats.update_with_stat(&stat).map_err(|_| {
-                    METRICS.balloon.stats_update_fails.inc();
+                    METRICS.stats_update_fails.inc();
                     BalloonError::MalformedPayload
                 })?;
             }
@@ -432,7 +436,7 @@ impl Balloon {
 
     pub(crate) fn signal_used_queue(&self) -> Result<(), BalloonError> {
         self.irq_trigger.trigger_irq(IrqType::Vring).map_err(|err| {
-            METRICS.balloon.event_fails.inc();
+            METRICS.event_fails.inc();
             BalloonError::InterruptError(err)
         })
     }
@@ -585,7 +589,7 @@ impl VirtioDevice for Balloon {
         &self.irq_trigger.irq_evt
     }
 
-    fn interrupt_status(&self) -> Arc<AtomicUsize> {
+    fn interrupt_status(&self) -> Arc<AtomicU32> {
         self.irq_trigger.irq_status.clone()
     }
 
@@ -600,7 +604,7 @@ impl VirtioDevice for Balloon {
         if let Some(end) = offset.checked_add(data.len() as u64) {
             // This write can't fail, offset and end are checked against config_len.
             data.write_all(
-                &config_space_bytes[offset as usize..cmp::min(end, config_len) as usize],
+                &config_space_bytes[u64_to_usize(offset)..u64_to_usize(cmp::min(end, config_len))],
             )
             .unwrap();
         }
@@ -612,8 +616,8 @@ impl VirtioDevice for Balloon {
         let end = start.and_then(|s| s.checked_add(data.len()));
         let Some(dst) = start
             .zip(end)
-            .and_then(|(start, end)| config_space_bytes.get_mut(start..end)) else
-        {
+            .and_then(|(start, end)| config_space_bytes.get_mut(start..end))
+        else {
             error!("Failed to write config space");
             return;
         };
@@ -625,7 +629,7 @@ impl VirtioDevice for Balloon {
         self.device_state = DeviceState::Activated(mem);
         if self.activate_evt.write(1).is_err() {
             error!("Balloon: Cannot write to activate_evt");
-            METRICS.balloon.activate_fails.inc();
+            METRICS.activate_fails.inc();
             self.device_state = DeviceState::Inactive;
             return Err(ActivateError::BadActivate);
         }
@@ -646,17 +650,16 @@ impl VirtioDevice for Balloon {
 pub(crate) mod tests {
     use std::u32;
 
-    use utils::vm_memory::GuestAddress;
-
     use super::super::BALLOON_CONFIG_SPACE_SIZE;
     use super::*;
     use crate::check_metric_after_block;
-    use crate::devices::report_balloon_event_fail;
+    use crate::devices::virtio::balloon::report_balloon_event_fail;
     use crate::devices::virtio::balloon::test_utils::{
         check_request_completion, invoke_handler_for_queue_event, set_request,
     };
+    use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
-    use crate::devices::virtio::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+    use crate::vstate::memory::{GuestAddress, GuestMemoryExtension};
 
     impl Balloon {
         pub(crate) fn set_queue(&mut self, idx: usize, q: Queue) {
@@ -740,8 +743,8 @@ pub(crate) mod tests {
     #[test]
     fn test_virtio_features() {
         // Test all feature combinations.
-        for deflate_on_oom in vec![true, false].iter() {
-            for stats_interval in vec![0, 1].iter() {
+        for deflate_on_oom in [true, false].iter() {
+            for stats_interval in [0, 1].iter() {
                 let mut balloon = Balloon::new(0, *deflate_on_oom, *stats_interval, false).unwrap();
                 assert_eq!(balloon.device_type(), TYPE_BALLOON);
 
@@ -749,7 +752,10 @@ pub(crate) mod tests {
                     | (u64::from(*deflate_on_oom) << VIRTIO_BALLOON_F_DEFLATE_ON_OOM)
                     | ((u64::from(*stats_interval)) << VIRTIO_BALLOON_F_STATS_VQ);
 
-                assert_eq!(balloon.avail_features_by_page(0), features as u32);
+                assert_eq!(
+                    balloon.avail_features_by_page(0),
+                    (features & 0xFFFFFFFF) as u32
+                );
                 assert_eq!(balloon.avail_features_by_page(1), (features >> 32) as u32);
                 for i in 2..10 {
                     assert_eq!(balloon.avail_features_by_page(i), 0u32);
@@ -849,7 +855,7 @@ pub(crate) mod tests {
                 &infq,
                 0,
                 page_addr,
-                SIZE_OF_U32 as u32,
+                SIZE_OF_U32.try_into().unwrap(),
                 VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE,
             );
 
@@ -869,7 +875,7 @@ pub(crate) mod tests {
                 &infq,
                 1,
                 page_addr,
-                SIZE_OF_U32 as u32 + 1,
+                u32::try_from(SIZE_OF_U32).unwrap() + 1,
                 VIRTQ_DESC_F_NEXT,
             );
 
@@ -904,10 +910,16 @@ pub(crate) mod tests {
         // to trigger the inflate event queue.
         {
             mem.write_obj::<u32>(0x1, GuestAddress(page_addr)).unwrap();
-            set_request(&infq, 0, page_addr, SIZE_OF_U32 as u32, VIRTQ_DESC_F_NEXT);
+            set_request(
+                &infq,
+                0,
+                page_addr,
+                SIZE_OF_U32.try_into().unwrap(),
+                VIRTQ_DESC_F_NEXT,
+            );
 
             check_metric_after_block!(
-                METRICS.balloon.event_fails,
+                METRICS.event_fails,
                 1,
                 balloon
                     .process_inflate_queue_event()
@@ -925,10 +937,16 @@ pub(crate) mod tests {
         // Test the happy case.
         {
             mem.write_obj::<u32>(0x1, GuestAddress(page_addr)).unwrap();
-            set_request(&infq, 0, page_addr, SIZE_OF_U32 as u32, VIRTQ_DESC_F_NEXT);
+            set_request(
+                &infq,
+                0,
+                page_addr,
+                SIZE_OF_U32.try_into().unwrap(),
+                VIRTQ_DESC_F_NEXT,
+            );
 
             check_metric_after_block!(
-                METRICS.balloon.inflate_count,
+                METRICS.inflate_count,
                 1,
                 invoke_handler_for_queue_event(&mut balloon, INFLATE_INDEX)
             );
@@ -953,9 +971,15 @@ pub(crate) mod tests {
 
         // Error case: forgot to trigger deflate event queue.
         {
-            set_request(&defq, 0, page_addr, SIZE_OF_U32 as u32, VIRTQ_DESC_F_NEXT);
+            set_request(
+                &defq,
+                0,
+                page_addr,
+                SIZE_OF_U32.try_into().unwrap(),
+                VIRTQ_DESC_F_NEXT,
+            );
             check_metric_after_block!(
-                METRICS.balloon.event_fails,
+                METRICS.event_fails,
                 1,
                 balloon
                     .process_deflate_queue_event()
@@ -967,9 +991,15 @@ pub(crate) mod tests {
 
         // Happy case.
         {
-            set_request(&defq, 1, page_addr, SIZE_OF_U32 as u32, VIRTQ_DESC_F_NEXT);
+            set_request(
+                &defq,
+                1,
+                page_addr,
+                SIZE_OF_U32.try_into().unwrap(),
+                VIRTQ_DESC_F_NEXT,
+            );
             check_metric_after_block!(
-                METRICS.balloon.deflate_count,
+                METRICS.deflate_count,
                 1,
                 invoke_handler_for_queue_event(&mut balloon, DEFLATE_INDEX)
             );
@@ -989,9 +1019,15 @@ pub(crate) mod tests {
 
         // Error case: forgot to trigger stats event queue.
         {
-            set_request(&statsq, 0, 0x1000, SIZE_OF_STAT as u32, VIRTQ_DESC_F_NEXT);
+            set_request(
+                &statsq,
+                0,
+                0x1000,
+                SIZE_OF_STAT.try_into().unwrap(),
+                VIRTQ_DESC_F_NEXT,
+            );
             check_metric_after_block!(
-                METRICS.balloon.event_fails,
+                METRICS.event_fails,
                 1,
                 balloon
                     .process_stats_queue_event()
@@ -1025,10 +1061,10 @@ pub(crate) mod tests {
                 &statsq,
                 0,
                 page_addr,
-                2 * SIZE_OF_STAT as u32,
+                2 * u32::try_from(SIZE_OF_STAT).unwrap(),
                 VIRTQ_DESC_F_NEXT,
             );
-            check_metric_after_block!(METRICS.balloon.stats_updates_count, 1, {
+            check_metric_after_block!(METRICS.stats_updates_count, 1, {
                 // Trigger the queue event.
                 balloon.queue_events()[STATS_INDEX].write(1).unwrap();
                 balloon.process_stats_queue_event().unwrap();
@@ -1047,7 +1083,7 @@ pub(crate) mod tests {
             // we could just process the timer event and it would not
             // return an error.
             std::thread::sleep(Duration::from_secs(1));
-            check_metric_after_block!(METRICS.balloon.event_fails, 0, {
+            check_metric_after_block!(METRICS.event_fails, 0, {
                 // Trigger the timer event, which consumes the stats
                 // descriptor index and signals the used queue.
                 assert!(balloon.stats_desc_index.is_some());
@@ -1062,6 +1098,12 @@ pub(crate) mod tests {
     fn test_process_balloon_queues() {
         let mut balloon = Balloon::new(0x10, true, 0, false).unwrap();
         let mem = default_mem();
+        let infq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        let defq = VirtQueue::new(GuestAddress(0), &mem, 16);
+
+        balloon.set_queue(INFLATE_INDEX, infq.create_queue());
+        balloon.set_queue(DEFLATE_INDEX, defq.create_queue());
+
         balloon.activate(mem).unwrap();
         balloon.process_virtio_queues()
     }
@@ -1095,11 +1137,7 @@ pub(crate) mod tests {
         assert!(balloon.update_size(1).is_err());
         // Switch the state to active.
         balloon.device_state = DeviceState::Activated(
-            utils::vm_memory::test_utils::create_guest_memory_unguarded(
-                &[(GuestAddress(0x0), 0x1)],
-                false,
-            )
-            .unwrap(),
+            GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0x0), 0x1)], false).unwrap(),
         );
 
         assert_eq!(balloon.num_pages(), 0);

@@ -2,13 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """Utilities for test host microVM network setup."""
 
-import contextlib
 import random
 import string
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from nsenter import Namespace
-from retry import retry
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from framework import utils
 
@@ -25,9 +24,9 @@ class SSHConnection:
     ssh -i ssh_key_path username@hostname
     """
 
-    def __init__(self, netns_path, ssh_key: Path, host, user):
+    def __init__(self, netns, ssh_key: Path, host, user):
         """Instantiate a SSH client and connect to a microVM."""
-        self.netns_file_path = netns_path
+        self.netns = netns
         self.ssh_key = ssh_key
         # check that the key exists and the permissions are 0o400
         # This saves a lot of debugging time.
@@ -57,29 +56,31 @@ class SSHConnection:
         """Convert a path to remote"""
         return f"{self.user}@{self.host}:{path}"
 
-    def scp_put(self, local_path, remote_path):
+    def _scp(self, path1, path2, options):
+        """Copy files to/from the VM using scp."""
+        ecode, _, stderr = self._exec(["scp", *options, path1, path2])
+        assert ecode == 0, stderr
+
+    def scp_put(self, local_path, remote_path, recursive=False):
         """Copy files to the VM using scp."""
-        cmd = [
-            "scp",
-            *self.options,
-            local_path,
-            self.remote_path(remote_path),
-        ]
-        ecode, _, stderr = self._exec(cmd)
-        assert ecode == 0, stderr
+        opts = self.options.copy()
+        if recursive:
+            opts.append("-r")
+        self._scp(local_path, self.remote_path(remote_path), opts)
 
-    def scp_get(self, remote_path, local_path):
+    def scp_get(self, remote_path, local_path, recursive=False):
         """Copy files from the VM using scp."""
-        cmd = [
-            "scp",
-            *self.options,
-            self.remote_path(remote_path),
-            local_path,
-        ]
-        ecode, _, stderr = self._exec(cmd)
-        assert ecode == 0, stderr
+        opts = self.options.copy()
+        if recursive:
+            opts.append("-r")
+        self._scp(self.remote_path(remote_path), local_path, opts)
 
-    @retry(ConnectionError, delay=0.15, tries=20)
+    @retry(
+        retry=retry_if_exception_type(ConnectionError),
+        wait=wait_fixed(0.15),
+        stop=stop_after_attempt(20),
+        reraise=True,
+    )
     def _init_connection(self):
         """Create an initial SSH client connection (retry until it works).
 
@@ -88,11 +89,11 @@ class SSHConnection:
         We'll keep trying to execute a remote command that can't fail
         (`/bin/true`), until we get a successful (0) exit code.
         """
-        ecode, _, _ = self.execute_command("true")
+        ecode, _, _ = self.run("true")
         if ecode != 0:
             raise ConnectionError
 
-    def execute_command(self, cmd_string):
+    def run(self, cmd_string, timeout=None):
         """Execute the command passed as a string in the ssh context."""
         return self._exec(
             [
@@ -100,23 +101,15 @@ class SSHConnection:
                 *self.options,
                 f"{self.user}@{self.host}",
                 cmd_string,
-            ]
+            ],
+            timeout,
         )
 
-    run = execute_command
-
-    def _exec(self, cmd):
+    def _exec(self, cmd, timeout=None):
         """Private function that handles the ssh client invocation."""
-
-        # TODO: If a microvm runs in a particular network namespace, we have to
-        # temporarily switch to that namespace when doing something that routes
-        # packets over the network, otherwise the destination will not be
-        # reachable. Use a better setup/solution at some point!
-        ctx = contextlib.nullcontext()
-        if self.netns_file_path is not None:
-            ctx = Namespace(self.netns_file_path, "net")
-        with ctx:
-            return utils.run_cmd(cmd, ignore_return_code=True)
+        if self.netns is not None:
+            cmd = ["ip", "netns", "exec", self.netns] + cmd
+        return utils.run_cmd(cmd, ignore_return_code=True, timeout=timeout)
 
 
 def mac_from_ip(ip_address):
@@ -140,7 +133,7 @@ def mac_from_ip(ip_address):
 def get_guest_net_if_name(ssh_connection, guest_ip):
     """Get network interface name based on its IPv4 address."""
     cmd = "ip a s | grep '{}' | tr -s ' ' | cut -d' ' -f6".format(guest_ip)
-    _, guest_if_name, _ = ssh_connection.execute_command(cmd)
+    _, guest_if_name, _ = ssh_connection.run(cmd)
     if_name = guest_if_name.strip()
     return if_name if if_name != "" else None
 
@@ -190,3 +183,69 @@ class Tap:
 
     def __repr__(self):
         return f"<Tap name={self.name} netns={self.netns}>"
+
+
+@dataclass(frozen=True, repr=True)
+class NetIfaceConfig:
+    """Defines a network interface configuration."""
+
+    host_ip: str = "192.168.0.1"
+    guest_ip: str = "192.168.0.2"
+    tap_name: str = "tap0"
+    dev_name: str = "eth0"
+    netmask: int = 30
+
+    @property
+    def guest_mac(self):
+        """Return the guest MAC address."""
+        return mac_from_ip(self.guest_ip)
+
+    @staticmethod
+    def with_id(i):
+        """Define network iface with id `i`."""
+        return NetIfaceConfig(
+            host_ip=f"192.168.{i}.1",
+            guest_ip=f"192.168.{i}.2",
+            tap_name=f"tap{i}",
+            dev_name=f"eth{i}",
+        )
+
+
+@dataclass(frozen=True, repr=True)
+class NetNs:
+    """Defines a network namespace."""
+
+    id: str
+    taps: dict[str, Tap] = field(init=False, default_factory=dict)
+
+    @property
+    def path(self):
+        """Get the host netns file path.
+
+        Returns the path on the host to the file which represents the netns.
+        """
+        return Path("/var/run/netns") / self.id
+
+    def cmd_prefix(self):
+        """Return the jailer context netns file prefix."""
+        return f"ip netns exec {self.id}"
+
+    def setup(self):
+        """Set up this network namespace."""
+        if not self.path.exists():
+            utils.run_cmd(f"ip netns add {self.id}")
+
+    def cleanup(self):
+        """Clean up this network namespace."""
+        if self.path.exists():
+            utils.run_cmd(f"ip netns del {self.id}")
+
+    def add_tap(self, name, ip):
+        """Add a TAP device to the namespace
+
+        We assume that a Tap is always configured with the same IP.
+        """
+        if name not in self.taps:
+            tap = Tap(name, self.id, ip)
+            self.taps[name] = tap
+        return self.taps[name]

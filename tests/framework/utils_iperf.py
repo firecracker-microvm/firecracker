@@ -7,7 +7,7 @@ import json
 import time
 
 from framework import utils
-from framework.utils import CmdBuilder, CpuMap, get_cpu_percent, summarize_cpu_percent
+from framework.utils import CmdBuilder, CpuMap, get_cpu_percent
 
 DURATION = "duration"
 IPERF3_END_RESULTS_TAG = "end"
@@ -57,11 +57,13 @@ class IPerf3Test:
         assert self._num_clients < CpuMap.len() - self._microvm.vcpus_count - 2
 
         for server_idx in range(self._num_clients):
-            cmd = self.host_command(server_idx).build()
             assigned_cpu = CpuMap(first_free_cpu)
-            utils.run_cmd(
-                f"taskset --cpu-list {assigned_cpu} {self._microvm.jailer.netns_cmd_prefix()} {cmd}"
+            cmd = (
+                self.host_command(server_idx)
+                .with_arg("--affinity", assigned_cpu)
+                .build()
             )
+            utils.run_cmd(f"{self._microvm.netns.cmd_prefix()} {cmd}")
             first_free_cpu += 1
 
         time.sleep(SERVER_STARTUP_TIME_SEC)
@@ -70,7 +72,7 @@ class IPerf3Test:
             futures = []
             cpu_load_future = executor.submit(
                 get_cpu_percent,
-                self._microvm.jailer_clone_pid,
+                self._microvm.firecracker_pid,
                 # Ignore the final two data points as they are impacted by test teardown
                 self._runtime - 2,
                 self._omit,
@@ -105,12 +107,14 @@ class IPerf3Test:
         mode = MODE_MAP[self._mode][client_idx % len(MODE_MAP[self._mode])]
 
         # Add the port where the iperf3 client is going to send/receive.
-        cmd = self.guest_command(client_idx).with_arg(mode).build()
-
-        pinned_cmd = (
-            f"taskset --cpu-list {client_idx % self._microvm.vcpus_count} {cmd}"
+        cmd = (
+            self.guest_command(client_idx)
+            .with_arg(mode)
+            .with_arg("--affinity", client_idx % self._microvm.vcpus_count)
+            .build()
         )
-        rc, stdout, stderr = self._microvm.ssh.execute_command(pinned_cmd)
+
+        rc, stdout, stderr = self._microvm.ssh.run(cmd)
 
         assert rc == 0, stderr
 
@@ -132,38 +136,31 @@ class IPerf3Test:
         return cmd
 
 
-def consume_iperf3_output(stats_consumer, iperf_result):
+def emit_iperf3_metrics(metrics, iperf_result, omit):
     """Consume the iperf3 data produced by the tcp/vsock throughput performance tests"""
+    for cpu_util_data_point in list(
+        iperf_result["cpu_load_raw"]["firecracker"].values()
+    )[0]:
+        metrics.put_metric("cpu_utilization_vmm", cpu_util_data_point, "Percent")
 
-    for iperf3_raw in iperf_result["g2h"] + iperf_result["h2g"]:
-        total_received = iperf3_raw[IPERF3_END_RESULTS_TAG]["sum_received"]
-        duration = float(total_received["seconds"])
-        stats_consumer.consume_data(DURATION, duration)
+    data_points = zip(
+        *[time_series["intervals"][omit:] for time_series in iperf_result["g2h"]]
+    )
 
-        # Computed at the receiving end.
-        total_recv_bytes = int(total_received["bytes"])
-        tput = round((total_recv_bytes * 8) / (1024 * 1024 * duration), 2)
-        stats_consumer.consume_data(THROUGHPUT, tput)
+    for point_in_time in data_points:
+        metrics.put_metric(
+            "throughput_guest_to_host",
+            sum(interval["sum"]["bits_per_second"] for interval in point_in_time),
+            "Bits/Second",
+        )
 
-    vmm_util, vcpu_util = summarize_cpu_percent(iperf_result["cpu_load_raw"])
+    data_points = zip(
+        *[time_series["intervals"][omit:] for time_series in iperf_result["h2g"]]
+    )
 
-    stats_consumer.consume_stat("Avg", CPU_UTILIZATION_VMM, vmm_util)
-    stats_consumer.consume_stat("Avg", CPU_UTILIZATION_VCPUS_TOTAL, vcpu_util)
-
-    for idx, time_series in enumerate(iperf_result["g2h"]):
-        yield from [
-            (f"{THROUGHPUT}_g2h_{idx}", x["sum"]["bits_per_second"], "Megabits/Second")
-            for x in time_series["intervals"]
-        ]
-
-    for idx, time_series in enumerate(iperf_result["h2g"]):
-        yield from [
-            (f"{THROUGHPUT}_h2g_{idx}", x["sum"]["bits_per_second"], "Megabits/Second")
-            for x in time_series["intervals"]
-        ]
-
-    for thread_name, data in iperf_result["cpu_load_raw"].items():
-        yield from [
-            (f"cpu_utilization_{thread_name}", x, "Percent")
-            for x in list(data.values())[0]
-        ]
+    for point_in_time in data_points:
+        metrics.put_metric(
+            "throughput_host_to_guest",
+            sum(interval["sum"]["bits_per_second"] for interval in point_in_time),
+            "Bits/Second",
+        )

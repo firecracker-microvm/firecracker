@@ -6,6 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 
 use kvm_bindings::{
     kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
@@ -13,15 +14,15 @@ use kvm_bindings::{
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
 use log::{error, warn};
-use logger::{IncMetric, METRICS};
-use utils::vm_memory::{Address, GuestAddress, GuestMemoryMmap};
-use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
+use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
 use crate::arch::x86_64::interrupts;
 use crate::arch::x86_64::msr::{create_boot_msr_entries, MsrError};
 use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use crate::cpu_config::x86_64::{cpuid, CpuConfiguration};
+use crate::logger::{IncMetric, METRICS};
+use crate::vstate::memory::{Address, GuestAddress, GuestMemoryMmap};
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
 use crate::vstate::vm::Vm;
 
@@ -29,109 +30,77 @@ use crate::vstate::vm::Vm;
 // The value of 250 parts per million is based on
 // the QEMU approach, more details here:
 // https://bugzilla.redhat.com/show_bug.cgi?id=1839095
-const TSC_KHZ_TOL: f64 = 250.0 / 1_000_000.0;
+const TSC_KHZ_TOL_NUMERATOR: u32 = 250;
+const TSC_KHZ_TOL_DENOMINATOR: u32 = 1_000_000;
 
 /// Errors associated with the wrappers over KVM ioctls.
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
 pub enum KvmVcpuError {
-    /// Failed to convert CPUID type.
-    #[error("Failed to convert `kvm_bindings::CpuId` to `Cpuid`: {0}")]
+    /// Failed to convert `kvm_bindings::CpuId` to `Cpuid`: {0}
     ConvertCpuidType(#[from] cpuid::CpuidTryFromKvmCpuid),
-    /// A FamStructWrapper operation has failed.
-    #[error("Failed FamStructWrapper operation: {0:?}")]
+    /// Failed FamStructWrapper operation: {0:?}
     Fam(#[from] utils::fam::Error),
-    /// Error configuring the floating point related registers
-    #[error("Error configuring the floating point related registers: {0:?}")]
+    /// Error configuring the floating point related registers: {0:?}
     FpuConfiguration(crate::arch::x86_64::regs::RegsError),
-    /// Failed to get dumpable MSR index list.
-    #[error("Failed to get dumpable MSR index list: {0}")]
+    /// Failed to get dumpable MSR index list: {0}
     GetMsrsToDump(#[from] crate::arch::x86_64::msr::MsrError),
-    /// Cannot set the local interruption due to bad configuration.
-    #[error("Cannot set the local interruption due to bad configuration: {0:?}")]
+    /// Cannot set the local interruption due to bad configuration: {0:?}
     LocalIntConfiguration(crate::arch::x86_64::interrupts::InterruptError),
-    /// Error configuring the general purpose registers
-    #[error("Error configuring the general purpose registers: {0:?}")]
+    /// Error configuring the general purpose registers: {0:?}
     RegsConfiguration(crate::arch::x86_64::regs::RegsError),
-    /// Error configuring the special registers
-    #[error("Error configuring the special registers: {0:?}")]
+    /// Error configuring the special registers: {0:?}
     SregsConfiguration(crate::arch::x86_64::regs::RegsError),
-    /// Cannot open the VCPU file descriptor.
-    #[error("Cannot open the VCPU file descriptor: {0}")]
+    /// Cannot open the VCPU file descriptor: {0}
     VcpuFd(kvm_ioctls::Error),
-    /// Failed to get KVM vcpu debug regs.
-    #[error("Failed to get KVM vcpu debug regs: {0}")]
+    /// Failed to get KVM vcpu debug regs: {0}
     VcpuGetDebugRegs(kvm_ioctls::Error),
-    /// Failed to get KVM vcpu lapic.
-    #[error("Failed to get KVM vcpu lapic: {0}")]
+    /// Failed to get KVM vcpu lapic: {0}
     VcpuGetLapic(kvm_ioctls::Error),
-    /// Failed to get KVM vcpu mp state.
-    #[error("Failed to get KVM vcpu mp state: {0}")]
+    /// Failed to get KVM vcpu mp state: {0}
     VcpuGetMpState(kvm_ioctls::Error),
-    /// The number of MSRS returned by the kernel is unexpected.
-    #[error("Unexpected number of MSRS reported by the kernel")]
+    /// Unexpected number of MSRS reported by the kernel
     VcpuGetMsrsIncomplete,
-    /// Failed to get KVM vcpu msrs.
-    #[error("Failed to get KVM vcpu msrs: {0}")]
+    /// Failed to get KVM vcpu msrs: {0}
     VcpuGetMsrs(kvm_ioctls::Error),
-    /// Failed to get KVM vcpu regs.
-    #[error("Failed to get KVM vcpu regs: {0}")]
+    /// Failed to get KVM vcpu regs: {0}
     VcpuGetRegs(kvm_ioctls::Error),
-    /// Failed to get KVM vcpu sregs.
-    #[error("Failed to get KVM vcpu sregs: {0}")]
+    /// Failed to get KVM vcpu sregs: {0}
     VcpuGetSregs(kvm_ioctls::Error),
-    /// Failed to get KVM vcpu event.
-    #[error("Failed to get KVM vcpu event: {0}")]
+    /// Failed to get KVM vcpu event: {0}
     VcpuGetVcpuEvents(kvm_ioctls::Error),
-    /// Failed to get KVM vcpu xcrs.
-    #[error("Failed to get KVM vcpu xcrs: {0}")]
+    /// Failed to get KVM vcpu xcrs: {0}
     VcpuGetXcrs(kvm_ioctls::Error),
-    /// Failed to get KVM vcpu xsave.
-    #[error("Failed to get KVM vcpu xsave: {0}")]
+    /// Failed to get KVM vcpu xsave: {0}
     VcpuGetXsave(kvm_ioctls::Error),
-    /// Failed to get KVM vcpu cpuid.
-    #[error("Failed to get KVM vcpu cpuid: {0}")]
+    /// Failed to get KVM vcpu cpuid: {0}
     VcpuGetCpuid(kvm_ioctls::Error),
-    /// Failed to get KVM TSC freq.
-    #[error("Failed to get KVM TSC frequency: {0}")]
+    /// Failed to get KVM TSC frequency: {0}
     VcpuGetTsc(kvm_ioctls::Error),
-    /// Failed to set KVM vcpu cpuid.
-    #[error("Failed to set KVM vcpu cpuid: {0}")]
+    /// Failed to set KVM vcpu cpuid: {0}
     VcpuSetCpuid(kvm_ioctls::Error),
-    /// Failed to set KVM vcpu debug regs.
-    #[error("Failed to set KVM vcpu debug regs: {0}")]
+    /// Failed to set KVM vcpu debug regs: {0}
     VcpuSetDebugRegs(kvm_ioctls::Error),
-    /// Failed to set KVM vcpu lapic.
-    #[error("Failed to set KVM vcpu lapic: {0}")]
+    /// Failed to set KVM vcpu lapic: {0}
     VcpuSetLapic(kvm_ioctls::Error),
-    /// Failed to set KVM vcpu mp state.
-    #[error("Failed to set KVM vcpu mp state: {0}")]
+    /// Failed to set KVM vcpu mp state: {0}
     VcpuSetMpState(kvm_ioctls::Error),
-    /// Failed to set KVM vcpu msrs.
-    #[error("Failed to set KVM vcpu msrs: {0}")]
+    /// Failed to set KVM vcpu msrs: {0}
     VcpuSetMsrs(kvm_ioctls::Error),
-    /// Failed to set all KVM vcpu MSRs. Only a partial set was done.
-    #[error("Failed to set all KVM MSRs for this vCPU. Only a partial write was done.")]
+    /// Failed to set all KVM MSRs for this vCPU. Only a partial write was done.
     VcpuSetMsrsIncomplete,
-    /// Failed to set KVM vcpu regs.
-    #[error("Failed to set KVM vcpu regs: {0}")]
+    /// Failed to set KVM vcpu regs: {0}
     VcpuSetRegs(kvm_ioctls::Error),
-    /// Failed to set KVM vcpu sregs.
-    #[error("Failed to set KVM vcpu sregs: {0}")]
+    /// Failed to set KVM vcpu sregs: {0}
     VcpuSetSregs(kvm_ioctls::Error),
-    /// Failed to set KVM vcpu event.
-    #[error("Failed to set KVM vcpu event: {0}")]
+    /// Failed to set KVM vcpu event: {0}
     VcpuSetVcpuEvents(kvm_ioctls::Error),
-    /// Failed to set KVM vcpu xcrs.
-    #[error("Failed to set KVM vcpu xcrs: {0}")]
+    /// Failed to set KVM vcpu xcrs: {0}
     VcpuSetXcrs(kvm_ioctls::Error),
-    /// Failed to set KVM vcpu xsave.
-    #[error("Failed to set KVM vcpu xsave: {0}")]
+    /// Failed to set KVM vcpu xsave: {0}
     VcpuSetXsave(kvm_ioctls::Error),
-    /// Failed to set KVM TSC freq.
-    #[error("Failed to set KVM TSC frequency: {0}")]
+    /// Failed to set KVM TSC frequency: {0}
     VcpuSetTsc(kvm_ioctls::Error),
-    /// Failed to apply CPU template.
-    #[error("Failed to apply CPU template")]
+    /// Failed to apply CPU template
     VcpuTemplateError,
 }
 
@@ -146,36 +115,37 @@ pub struct GetTscError(utils::errno::Error);
 pub struct SetTscError(#[from] kvm_ioctls::Error);
 
 /// Error type for [`KvmVcpu::configure`].
-#[derive(Debug, thiserror::Error, Eq, PartialEq)]
+#[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
 pub enum KvmVcpuConfigureError {
-    #[error("Failed to convert `Cpuid` to `kvm_bindings::CpuId`: {0}")]
+    /// Failed to convert `Cpuid` to `kvm_bindings::CpuId`: {0}
     ConvertCpuidType(#[from] utils::fam::Error),
-    /// Failed to apply modifications to CPUID.
-    #[error("Failed to apply modifications to CPUID: {0}")]
+    /// Failed to apply modifications to CPUID: {0}
     NormalizeCpuidError(#[from] cpuid::NormalizeCpuidError),
-    #[error("Failed to set CPUID: {0}")]
+    /// Failed to set CPUID: {0}
     SetCpuid(#[from] utils::errno::Error),
-    #[error("Failed to set MSRs: {0}")]
+    /// Failed to set MSRs: {0}
     SetMsrs(#[from] MsrError),
-    #[error("Failed to setup registers: {0}")]
+    /// Failed to setup registers: {0}
     SetupRegisters(#[from] SetupRegistersError),
-    #[error("Failed to setup FPU: {0}")]
+    /// Failed to setup FPU: {0}
     SetupFpu(#[from] SetupFpuError),
-    #[error("Failed to setup special registers: {0}")]
+    /// Failed to setup special registers: {0}
     SetupSpecialRegisters(#[from] SetupSpecialRegistersError),
-    #[error("Failed to configure LAPICs: {0}")]
+    /// Failed to configure LAPICs: {0}
     SetLint(#[from] interrupts::InterruptError),
 }
 
 /// A wrapper around creating and using a kvm x86_64 vcpu.
 #[derive(Debug)]
 pub struct KvmVcpu {
+    /// Index of vcpu.
     pub index: u8,
+    /// KVM vcpu fd.
     pub fd: VcpuFd,
-
+    /// Pio bus.
     pub pio_bus: Option<crate::devices::Bus>,
+    /// Mmio bus.
     pub mmio_bus: Option<crate::devices::Bus>,
-
     msrs_to_save: HashSet<u32>,
 }
 
@@ -471,10 +441,10 @@ impl KvmVcpu {
         // per million beacuse it is common for TSC frequency
         // to differ due to calibration at boot time.
         let diff = (i64::from(self.get_tsc_khz()?) - i64::from(state_tsc_freq)).abs();
-        Ok(diff > (f64::from(state_tsc_freq) * TSC_KHZ_TOL).round() as i64)
+        Ok(diff > i64::from(state_tsc_freq * TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR))
     }
 
-    // Scale the TSC frequency of this vCPU to the one provided as a parameter.
+    /// Scale the TSC frequency of this vCPU to the one provided as a parameter.
     pub fn set_tsc_khz(&self, tsc_freq: u32) -> Result<(), SetTscError> {
         self.fd.set_tsc_khz(tsc_freq).map_err(SetTscError)
     }
@@ -571,43 +541,67 @@ impl KvmVcpu {
     }
 }
 
-#[derive(Debug, Clone, Versionize)]
+#[derive(Clone, Versionize)]
 /// Structure holding VCPU kvm state.
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VcpuState {
+    /// CpuId.
     pub cpuid: CpuId,
+    /// Msrs.
     #[version(end = 3, default_fn = "default_msrs")]
     pub msrs: Msrs,
-    #[version(start = 3, de_fn = "de_saved_msrs", ser_fn = "ser_saved_msrs")]
+    /// Saved msrs.
+    #[version(start = 3, de_fn = "de_saved_msrs")]
     pub saved_msrs: Vec<Msrs>,
+    /// Debug regs.
     pub debug_regs: kvm_debugregs,
+    /// Lapic.
     pub lapic: kvm_lapic_state,
+    /// Mp state
     pub mp_state: kvm_mp_state,
+    /// Kvm regs.
     pub regs: kvm_regs,
+    /// Sregs.
     pub sregs: kvm_sregs,
+    /// Vcpu events
     pub vcpu_events: kvm_vcpu_events,
+    /// Xcrs.
     pub xcrs: kvm_xcrs,
+    /// Xsave.
     pub xsave: kvm_xsave,
-    #[version(start = 2, default_fn = "default_tsc_khz", ser_fn = "ser_tsc")]
+    /// Tsc khz.
+    #[version(start = 2, default_fn = "default_tsc_khz")]
     pub tsc_khz: Option<u32>,
+}
+
+impl Debug for VcpuState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut debug_kvm_regs: Vec<kvm_bindings::kvm_msrs> = Vec::new();
+        for kvm_msrs in self.saved_msrs.iter() {
+            debug_kvm_regs = kvm_msrs.clone().into_raw();
+            debug_kvm_regs.sort_by_key(|msr| (msr.nmsrs, msr.pad));
+        }
+        f.debug_struct("VcpuState")
+            .field("cpuid", &self.cpuid)
+            .field("msrs", &self.msrs)
+            .field("saved_msrs", &debug_kvm_regs)
+            .field("debug_regs", &self.debug_regs)
+            .field("lapic", &self.lapic)
+            .field("mp_state", &self.mp_state)
+            .field("regs", &self.regs)
+            .field("sregs", &self.sregs)
+            .field("vcpu_events", &self.vcpu_events)
+            .field("xcrs", &self.xcrs)
+            .field("xsave", &self.xsave)
+            .field("tsc_khz", &self.tsc_khz)
+            .finish()
+    }
 }
 
 impl VcpuState {
     fn default_tsc_khz(_: u16) -> Option<u32> {
         warn!("CPU TSC freq not found in snapshot");
         None
-    }
-
-    fn ser_tsc(&mut self, _target_version: u16) -> VersionizeResult<()> {
-        // v0.24 and older versions do not support TSC scaling.
-        warn!(
-            "Saving to older snapshot version, TSC freq {}",
-            self.tsc_khz
-                .map(|freq| freq.to_string() + "KHz not included in snapshot.")
-                .unwrap_or_else(|| "not available.".to_string())
-        );
-
-        Ok(())
     }
 
     fn default_msrs(_source_version: u16) -> Msrs {
@@ -621,30 +615,6 @@ impl VcpuState {
             self.saved_msrs.push(self.msrs.clone());
         }
         Ok(())
-    }
-
-    fn ser_saved_msrs(&mut self, target_version: u16) -> VersionizeResult<()> {
-        match self.saved_msrs.len() {
-            0 => Err(VersionizeError::Serialize(
-                "Cannot serialize MSRs because the MSR list is empty".to_string(),
-            )),
-            1 => {
-                if target_version < 3 {
-                    self.msrs = self.saved_msrs[0].clone();
-                    Ok(())
-                } else {
-                    Err(VersionizeError::Serialize(format!(
-                        "Cannot serialize MSRs to target version {}",
-                        target_version
-                    )))
-                }
-            }
-            _ => Err(VersionizeError::Serialize(
-                "Cannot serialize MSRs. The uVM state needs to save
-                 more MSRs than the target snapshot version supports."
-                    .to_string(),
-            )),
-        }
     }
 }
 
@@ -911,7 +881,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cast_sign_loss, clippy::redundant_clone)] // always positive, no u32::try_from(f64)
+    #[allow(clippy::redundant_clone)]
     fn test_is_tsc_scaling_required() {
         // Test `is_tsc_scaling_required` as if it were on the same
         // CPU model as the one in the snapshot state.
@@ -921,7 +891,10 @@ mod tests {
         {
             // The frequency difference is within tolerance.
             let mut state = orig_state.clone();
-            state.tsc_khz = Some(state.tsc_khz.unwrap() + (TSC_KHZ_TOL / 2.0).round() as u32);
+            state.tsc_khz = Some(
+                state.tsc_khz.unwrap()
+                    + state.tsc_khz.unwrap() * TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR / 2,
+            );
             assert!(!vcpu
                 .is_tsc_scaling_required(state.tsc_khz.unwrap())
                 .unwrap());
@@ -930,19 +903,24 @@ mod tests {
         {
             // The frequency difference is over the tolerance.
             let mut state = orig_state;
-            state.tsc_khz = Some(state.tsc_khz.unwrap() + (TSC_KHZ_TOL * 2.0).round() as u32);
-            assert!(!vcpu
+            state.tsc_khz = Some(
+                state.tsc_khz.unwrap()
+                    + state.tsc_khz.unwrap() * TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR * 2,
+            );
+            assert!(vcpu
                 .is_tsc_scaling_required(state.tsc_khz.unwrap())
                 .unwrap());
         }
     }
 
     #[test]
-    #[allow(clippy::cast_sign_loss)] // always positive, no u32::try_from(f64)
     fn test_set_tsc() {
         let (vm, vcpu, _) = setup_vcpu(0x1000);
         let mut state = vcpu.save_state().unwrap();
-        state.tsc_khz = Some(state.tsc_khz.unwrap() + (TSC_KHZ_TOL * 2.0).round() as u32);
+        state.tsc_khz = Some(
+            state.tsc_khz.unwrap()
+                + state.tsc_khz.unwrap() * TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR * 2,
+        );
 
         if vm.fd().check_extension(Cap::TscControl) {
             assert!(vcpu.set_tsc_khz(state.tsc_khz.unwrap()).is_ok());

@@ -5,13 +5,20 @@
 import filecmp
 import logging
 import os
+import re
+import shutil
 from pathlib import Path
 
 import pytest
 
 import host_tools.drive as drive_tools
 from framework.microvm import SnapshotType
-from framework.utils import check_filesystem, wait_process_termination
+from framework.utils import (
+    check_filesystem,
+    get_firecracker_version_from_toml,
+    run_cmd,
+    wait_process_termination,
+)
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
     VSOCK_UDS_PATH,
@@ -20,6 +27,7 @@ from framework.utils_vsock import (
     check_host_connections,
     make_blob,
     make_host_port_path,
+    start_guest_echo_server,
 )
 
 
@@ -27,10 +35,36 @@ def _get_guest_drive_size(ssh_connection, guest_dev_name="/dev/vdb"):
     # `lsblk` command outputs 2 lines to STDOUT:
     # "SIZE" and the size of the device, in bytes.
     blksize_cmd = "lsblk -b {} --output SIZE".format(guest_dev_name)
-    _, stdout, stderr = ssh_connection.execute_command(blksize_cmd)
+    _, stdout, stderr = ssh_connection.run(blksize_cmd)
     assert stderr == ""
     lines = stdout.split("\n")
     return lines[1].strip()
+
+
+def test_snapshot_current_version(uvm_nano):
+    """Tests taking a snapshot at the version specified in Cargo.toml
+
+    Check that it is possible to take a snapshot at the version of the upcoming
+    release (during the release process this ensures that if we release version
+    x.y, then taking a snapshot at version x.y works - something we'd otherwise
+    only be able to test once the x.y binary has been uploaded to S3, at which
+    point it is too late, see also the 1.3 release).
+    """
+    vm = uvm_nano
+    vm.start()
+
+    version = get_firecracker_version_from_toml()
+    # normalize to a snapshot version
+    version = f"{version.major}.{version.minor}.0"
+    snapshot = vm.snapshot_full()
+
+    # Fetch Firecracker binary for the latest version
+    fc_binary = uvm_nano.fc_binary_path
+    # Verify the output of `--describe-snapshot` command line parameter
+    cmd = [str(fc_binary)] + ["--describe-snapshot", str(snapshot.vmstate)]
+
+    _, stdout, _ = run_cmd(cmd)
+    assert version in stdout
 
 
 # Testing matrix:
@@ -39,6 +73,7 @@ def _get_guest_drive_size(ssh_connection, guest_dev_name="/dev/vdb"):
 # - Microvm: 2vCPU with 512 MB RAM
 # TODO: Multiple microvm sizes must be tested in the async pipeline.
 @pytest.mark.parametrize("snapshot_type", [SnapshotType.DIFF, SnapshotType.FULL])
+@pytest.mark.parametrize("use_snapshot_editor", [False, True])
 def test_5_snapshots(
     bin_vsock_path,
     tmp_path,
@@ -46,6 +81,7 @@ def test_5_snapshots(
     guest_kernel,
     rootfs,
     snapshot_type,
+    use_snapshot_editor,
 ):
     """
     Create and load 5 snapshots.
@@ -62,7 +98,7 @@ def test_5_snapshots(
         track_dirty_pages=diff_snapshots,
     )
     vm.add_net_iface()
-    vm.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=VSOCK_UDS_PATH)
+    vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=VSOCK_UDS_PATH)
     vm.start()
     # Verify if guest can run commands.
     exit_code, _, _ = vm.ssh.run("sync")
@@ -76,6 +112,7 @@ def test_5_snapshots(
 
     logger.info("Create %s #0.", snapshot_type)
     # Create a snapshot from a microvm.
+    start_guest_echo_server(vm)
     snapshot = vm.make_snapshot(snapshot_type)
     base_snapshot = snapshot
 
@@ -84,6 +121,11 @@ def test_5_snapshots(
         microvm = microvm_factory.build()
         microvm.spawn()
         microvm.restore_from_snapshot(snapshot, resume=True)
+        # TODO: SIGCONT here and SIGSTOP later before creating snapshot
+        # is a temporary fix to avoid vsock timeout in
+        # _vsock_connect_to_guest(). This will be removed once we
+        # find the right solution for the timeout.
+        vm.ssh.run("pkill -SIGCONT socat")
         # Test vsock guest-initiated connections.
         path = os.path.join(
             microvm.path, make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
@@ -91,10 +133,11 @@ def test_5_snapshots(
         check_guest_connections(microvm, path, vm_blob_path, blob_hash)
         # Test vsock host-initiated connections.
         path = os.path.join(microvm.jailer.chroot_path(), VSOCK_UDS_PATH)
-        check_host_connections(microvm, path, blob_path, blob_hash)
+        check_host_connections(path, blob_path, blob_hash)
 
         # Check that the root device is not corrupted.
         check_filesystem(microvm.ssh, "squashfs", "/dev/vda")
+        vm.ssh.run("pkill -SIGSTOP socat")
 
         logger.info("Create snapshot %s #%d.", snapshot_type, i + 1)
         snapshot = microvm.make_snapshot(snapshot_type)
@@ -103,7 +146,9 @@ def test_5_snapshots(
         # current layer.
         if snapshot.is_diff:
             logger.info("Base: %s, Layer: %s", base_snapshot.mem, snapshot.mem)
-            snapshot = snapshot.rebase_snapshot(base_snapshot)
+            snapshot = snapshot.rebase_snapshot(
+                base_snapshot, use_snapshot_editor=use_snapshot_editor
+            )
 
         # Update the base for next iteration.
         base_snapshot = snapshot
@@ -155,7 +200,6 @@ def test_load_snapshot_failure_handling(test_microvm_with_api):
     """
     Test error case of loading empty snapshot files.
     """
-    logger = logging.getLogger("snapshot_load_failure")
     vm = test_microvm_with_api
     vm.spawn(log_level="Info")
 
@@ -174,20 +218,16 @@ def test_load_snapshot_failure_handling(test_microvm_with_api):
     jailed_vmstate = vm.create_jailed_resource(snapshot_vmstate)
 
     # Load the snapshot
-    response = vm.snapshot.load(mem_file_path=jailed_mem, snapshot_path=jailed_vmstate)
-
-    logger.info(
-        "Response status code %d, content: %s.", response.status_code, response.text
-    )
-    assert vm.api_session.is_status_bad_request(response.status_code)
-    assert (
+    expected_msg = (
         "Load microVM snapshot error: Failed to restore from snapshot: Failed to get snapshot "
         "state from file: Failed to load snapshot state from file: Snapshot file is smaller "
         "than CRC length."
-    ) in response.text
+    )
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.snapshot_load.put(mem_file_path=jailed_mem, snapshot_path=jailed_vmstate)
 
     # Check if FC process is closed
-    wait_process_termination(vm.jailer_clone_pid)
+    wait_process_termination(vm.firecracker_pid)
 
 
 def test_cmp_full_and_first_diff_mem(microvm_factory, guest_kernel, rootfs):
@@ -212,18 +252,19 @@ def test_cmp_full_and_first_diff_mem(microvm_factory, guest_kernel, rootfs):
     vm.start()
 
     # Verify if guest can run commands.
-    exit_code, _, _ = vm.ssh.execute_command("sync")
+    exit_code, _, _ = vm.ssh.run("sync")
     assert exit_code == 0
 
     logger.info("Create full snapshot.")
     # Create full snapshot.
-    full_snapshot = vm.snapshot_full()
+    full_snapshot = vm.snapshot_full(mem_path="mem_full")
 
     logger.info("Create diff snapshot.")
     # Create diff snapshot.
     diff_snapshot = vm.snapshot_diff()
 
-    assert filecmp.cmp(full_snapshot.mem, diff_snapshot.mem)
+    assert full_snapshot.mem != diff_snapshot.mem
+    assert filecmp.cmp(full_snapshot.mem, diff_snapshot.mem, shallow=False)
 
 
 def test_negative_postload_api(test_microvm_with_api, microvm_factory):
@@ -246,18 +287,14 @@ def test_negative_postload_api(test_microvm_with_api, microvm_factory):
     # Do not resume, just load, so we can still call APIs that work.
     microvm = microvm_factory.build()
     microvm.spawn()
-    microvm.restore_from_snapshot(snapshot)
+    microvm.restore_from_snapshot(snapshot, resume=True)
 
     fail_msg = "The requested operation is not supported after starting the microVM"
-    response = microvm.actions.put(action_type="InstanceStart")
-    assert fail_msg in response.text
+    with pytest.raises(RuntimeError, match=fail_msg):
+        microvm.api.actions.put(action_type="InstanceStart")
 
-    try:
+    with pytest.raises(RuntimeError, match=fail_msg):
         microvm.basic_config()
-    except AssertionError as error:
-        assert fail_msg in str(error)
-    else:
-        assert False, "Negative test failed"
 
 
 def test_negative_snapshot_permissions(uvm_plain_rw, microvm_factory):
@@ -273,13 +310,8 @@ def test_negative_snapshot_permissions(uvm_plain_rw, microvm_factory):
     # Remove write permissions.
     os.chmod(basevm.jailer.chroot_path(), 0o444)
 
-    try:
-        snapshot = basevm.snapshot_full()
-    except AssertionError as error:
-        # Check if proper error is returned.
-        assert "Permission denied" in str(error)
-    else:
-        assert False, "Negative test failed"
+    with pytest.raises(RuntimeError, match="Permission denied"):
+        basevm.snapshot_full()
 
     # Restore proper permissions.
     os.chmod(basevm.jailer.chroot_path(), 0o744)
@@ -294,17 +326,13 @@ def test_negative_snapshot_permissions(uvm_plain_rw, microvm_factory):
     microvm = microvm_factory.build()
     microvm.spawn()
 
-    try:
+    expected_err = re.escape(
+        "Load microVM snapshot error: Failed to restore from snapshot: Failed to load guest "
+        "memory: Error creating guest memory from file: Failed to load guest memory: "
+        "Permission denied (os error 13)"
+    )
+    with pytest.raises(RuntimeError, match=expected_err):
         microvm.restore_from_snapshot(snapshot, resume=True)
-    except AssertionError as error:
-        # Check if proper error is returned.
-        assert (
-            "Load microVM snapshot error: Failed to restore from snapshot: Failed to load guest "
-            "memory: Error creating guest memory from file: Failed to load guest memory: "
-            "Permission denied (os error 13)"
-        ) in str(error)
-    else:
-        assert False, "Negative test failed"
 
     # Remove permissions for state file.
     os.chmod(snapshot.vmstate, 0o000)
@@ -312,16 +340,12 @@ def test_negative_snapshot_permissions(uvm_plain_rw, microvm_factory):
     microvm = microvm_factory.build()
     microvm.spawn()
 
-    try:
+    expected_err = re.escape(
+        "Load microVM snapshot error: Failed to restore from snapshot: Failed to get snapshot "
+        "state from file: Failed to open snapshot file: Permission denied (os error 13)"
+    )
+    with pytest.raises(RuntimeError, match=expected_err):
         microvm.restore_from_snapshot(snapshot, resume=True)
-    except AssertionError as error:
-        # Check if proper error is returned.
-        assert (
-            "Load microVM snapshot error: Failed to restore from snapshot: Failed to get snapshot "
-            "state from file: Failed to open snapshot file: Permission denied (os error 13)"
-        ) in str(error)
-    else:
-        assert False, "Negative test failed"
 
     # Restore permissions for state file.
     os.chmod(snapshot.vmstate, 0o744)
@@ -333,13 +357,9 @@ def test_negative_snapshot_permissions(uvm_plain_rw, microvm_factory):
     microvm = microvm_factory.build()
     microvm.spawn()
 
-    try:
+    expected_err = "Block(BackingFile(Os { code: 13, kind: PermissionDenied"
+    with pytest.raises(RuntimeError, match=re.escape(expected_err)):
         microvm.restore_from_snapshot(snapshot, resume=True)
-    except AssertionError as error:
-        # Check if proper error is returned.
-        assert "Block(BackingFile(Os { code: 13, kind: PermissionDenied" in str(error)
-    else:
-        assert False, "Negative test failed"
 
 
 def test_negative_snapshot_create(uvm_nano):
@@ -349,22 +369,21 @@ def test_negative_snapshot_create(uvm_nano):
     vm = uvm_nano
     vm.start()
 
-    response = vm.snapshot.create(
-        mem_file_path="memfile", snapshot_path="statefile", diff=False
-    )
+    with pytest.raises(RuntimeError, match="save/restore unavailable while running"):
+        vm.api.snapshot_create.put(
+            mem_file_path="memfile", snapshot_path="statefile", snapshot_type="Full"
+        )
 
-    assert vm.api_session.is_status_bad_request(response.status_code)
-    assert "save/restore unavailable while running" in response.text
-
-    response = vm.vm.patch(state="Paused")
-    assert vm.api_session.is_status_no_content(response.status_code)
+    vm.api.vm.patch(state="Paused")
 
     # Try diff with dirty pages tracking disabled.
-    response = vm.snapshot.create(
-        mem_file_path="memfile", snapshot_path="statefile", diff=True
+    expected_msg = (
+        "Diff snapshots are not allowed on uVMs with dirty page tracking disabled"
     )
-    msg = "Diff snapshots are not allowed on uVMs with dirty page" " tracking disabled"
-    assert msg in response.text
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.snapshot_create.put(
+            mem_file_path="memfile", snapshot_path="statefile", snapshot_type="Diff"
+        )
     assert not os.path.exists("statefile")
     assert not os.path.exists("memfile")
 
@@ -385,13 +404,97 @@ def test_create_large_diff_snapshot(test_microvm_with_api):
     vm.basic_config(mem_size_mib=16 * 1024, track_dirty_pages=True)
     vm.start()
 
-    response = vm.vm.patch(state="Paused")
-    assert vm.api_session.is_status_no_content(response.status_code)
+    vm.api.vm.patch(state="Paused")
 
-    response = vm.snapshot.create(
-        mem_file_path="memfile", snapshot_path="statefile", diff=True
+    vm.api.snapshot_create.put(
+        mem_file_path="memfile", snapshot_path="statefile", snapshot_type="Diff"
     )
 
     # If the regression was not fixed, this would have failed. The Firecracker
     # process would have been taken down.
-    assert vm.api_session.is_status_no_content(response.status_code)
+
+
+def test_diff_snapshot_overlay(guest_kernel, rootfs, microvm_factory):
+    """
+    Tests that if we take a diff snapshot and direct firecracker to write it on
+    top of an existing snapshot file, it will successfully merge them.
+    """
+    basevm = microvm_factory.build(guest_kernel, rootfs)
+    basevm.spawn()
+    basevm.basic_config(track_dirty_pages=True)
+    basevm.add_net_iface()
+    basevm.start()
+
+    # Wait for microvm to be booted
+    rc, _, stderr = basevm.ssh.run("true")
+    assert rc == 0, stderr
+
+    # The first snapshot taken will always contain all memory (even if its specified as "diff").
+    # We use a diff snapshot here, as taking a full snapshot does not clear the dirty page tracking,
+    # meaning the `snapshot_diff()` call below would again dump the entire guest memory instead of
+    # only dirty regions.
+    full_snapshot = basevm.snapshot_diff()
+    basevm.resume()
+
+    # Run some command to dirty some pages
+    rc, _, stderr = basevm.ssh.run("true")
+    assert rc == 0, stderr
+
+    # First copy the base snapshot somewhere else, so we can make sure
+    # it will actually get updated
+    first_snapshot_backup = Path(basevm.chroot()) / "mem.old"
+    shutil.copyfile(full_snapshot.mem, first_snapshot_backup)
+
+    # One Microvm object will always write its snapshot files to the same location
+    merged_snapshot = basevm.snapshot_diff()
+    assert full_snapshot.mem == merged_snapshot.mem
+
+    assert not filecmp.cmp(merged_snapshot.mem, first_snapshot_backup, shallow=False)
+
+    new_vm = microvm_factory.build()
+    new_vm.spawn()
+    new_vm.restore_from_snapshot(merged_snapshot, resume=True)
+
+    # Run some command to check that the restored VM works
+    rc, _, stderr = new_vm.ssh.run("true")
+    assert rc == 0, stderr
+
+
+def test_snapshot_overwrite_self(guest_kernel, rootfs, microvm_factory):
+    """Tests that if we try to take a snapshot that would overwrite the
+    very file from which the current VM is stored, nothing happens.
+
+    Note that even though we map the file as MAP_PRIVATE, the documentation
+    of mmap does not specify what should happen if the file is changed after being
+    mmap'd (https://man7.org/linux/man-pages/man2/mmap.2.html). It seems that
+    these changes can propagate to the mmap'd memory region."""
+    base_vm = microvm_factory.build(guest_kernel, rootfs)
+    base_vm.spawn()
+    base_vm.basic_config()
+    base_vm.add_net_iface()
+    base_vm.start()
+
+    # Wait for microvm to be booted
+    rc, _, stderr = base_vm.ssh.run("true")
+    assert rc == 0, stderr
+
+    snapshot = base_vm.snapshot_full()
+    base_vm.kill()
+
+    vm = microvm_factory.build()
+    vm.spawn()
+    vm.restore_from_snapshot(snapshot, resume=True)
+
+    # When restoring a snapshot, vm.restore_from_snapshot first copies
+    # the memory file (inside of the jailer) to /mem.src
+    currently_loaded = Path(vm.chroot()) / "mem.src"
+
+    assert currently_loaded.exists()
+
+    vm.snapshot_full(mem_path="mem.src")
+    vm.resume()
+
+    # Check the overwriting the snapshot file from which this microvm was originally
+    # restored, with a new snapshot of this vm, does not break the VM
+    rc, _, stderr = vm.ssh.run("true")
+    assert rc == 0, stderr

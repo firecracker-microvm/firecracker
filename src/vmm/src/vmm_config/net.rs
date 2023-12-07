@@ -9,8 +9,7 @@ use serde::{Deserialize, Serialize};
 use utils::net::mac::MacAddr;
 
 use super::RateLimiterConfig;
-use crate::devices::virtio::net::TapError;
-use crate::devices::virtio::Net;
+use crate::devices::virtio::net::{Net, TapError};
 use crate::VmmError;
 
 /// This struct represents the strongly typed equivalent of the json body from net iface
@@ -60,22 +59,17 @@ pub struct NetworkInterfaceUpdateConfig {
 }
 
 /// Errors associated with the operations allowed on a net device.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum NetworkInterfaceError {
-    /// Could not create the network device.
-    #[error("Could not create the network device: {0}")]
+    /// Could not create the network device: {0}
     CreateNetworkDevice(#[from] crate::devices::virtio::net::NetError),
-    /// Failed to create a `RateLimiter` object
-    #[error("Cannot create the rate limiter: {0}")]
+    /// Cannot create the rate limiter: {0}
     CreateRateLimiter(#[from] std::io::Error),
-    /// Error during interface update (patch).
-    #[error("Unable to update the net device: {0}")]
+    /// Unable to update the net device: {0}
     DeviceUpdate(#[from] VmmError),
-    /// The MAC address is already in use.
-    #[error("The MAC address is already in use: {0}")]
+    /// The MAC address is already in use: {0}
     GuestMacAddressInUse(String),
-    /// Cannot open/create the tap device.
-    #[error("Cannot open/create the tap device: {0}")]
+    /// Cannot open/create the tap device: {0}
     OpenTap(#[from] TapError),
 }
 
@@ -89,7 +83,7 @@ impl NetBuilder {
     /// Creates an empty list of Network Devices.
     pub fn new() -> Self {
         NetBuilder {
-            /// List of built network devices.
+            // List of built network devices.
             net_devices: Vec::new(),
         }
     }

@@ -1,7 +1,11 @@
 # Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Tests for the net device."""
+
+import re
 import time
+
+import pytest
 
 from framework import utils
 
@@ -29,14 +33,14 @@ def test_high_ingress_traffic(test_microvm_with_api):
     test_microvm.start()
 
     # Start iperf3 server on the guest.
-    test_microvm.ssh.execute_command("{} -sD\n".format(IPERF_BINARY))
+    test_microvm.ssh.run("{} -sD\n".format(IPERF_BINARY))
     time.sleep(1)
 
     # Start iperf3 client on the host. Send 1Gbps UDP traffic.
     # If the net device breaks, iperf will freeze. We have to use a timeout.
     utils.run_cmd(
         "timeout 30 {} {} -c {} -u -V -b 1000000000 -t 30".format(
-            test_microvm.jailer.netns_cmd_prefix(),
+            test_microvm.netns.cmd_prefix(),
             IPERF_BINARY,
             guest_ip,
         ),
@@ -46,7 +50,7 @@ def test_high_ingress_traffic(test_microvm_with_api):
     # Check if the high ingress traffic broke the net interface.
     # If the net interface still works we should be able to execute
     # ssh commands.
-    exit_code, _, _ = test_microvm.ssh.execute_command("echo success\n")
+    exit_code, _, _ = test_microvm.ssh.run("echo success\n")
     assert exit_code == 0
 
 
@@ -61,17 +65,18 @@ def test_multi_queue_unsupported(test_microvm_with_api):
     tapname = microvm.id[:8] + "tap1"
 
     utils.run_cmd(f"ip tuntap add name {tapname} mode tap multi_queue")
-    utils.run_cmd(f"ip link set {tapname} netns {microvm.jailer.netns}")
+    utils.run_cmd(f"ip link set {tapname} netns {microvm.netns.id}")
 
-    response = microvm.network.put(
-        iface_id="eth0",
-        host_dev_name=tapname,
-        guest_mac="AA:FC:00:00:00:01",
-    )
-
-    assert response.json()["fault_message"] == (
+    expected_msg = re.escape(
         "Could not create the network device: Open tap device failed:"
         " Error while creating ifreq structure: Invalid argument (os error 22)."
-        " Invalid TUN/TAP Backend provided by {}. Check our documentation on setting"
+        f" Invalid TUN/TAP Backend provided by {tapname}. Check our documentation on setting"
         " up the network devices."
-    ).format(tapname)
+    )
+
+    with pytest.raises(RuntimeError, match=expected_msg):
+        microvm.api.network.put(
+            iface_id="eth0",
+            host_dev_name=tapname,
+            guest_mac="AA:FC:00:00:00:01",
+        )

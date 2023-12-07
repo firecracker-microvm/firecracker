@@ -19,13 +19,11 @@ use crate::devices::legacy::serial::SerialOut;
 use crate::devices::legacy::{EventFdTrigger, SerialDevice, SerialEventsWrapper};
 
 /// Errors corresponding to the `PortIODeviceManager`.
-#[derive(Debug, derive_more::From, thiserror::Error)]
+#[derive(Debug, derive_more::From, thiserror::Error, displaydoc::Display)]
 pub enum LegacyDeviceError {
-    /// Cannot add legacy device to Bus.
-    #[error("Failed to add legacy device to Bus: {0}")]
+    /// Failed to add legacy device to Bus: {0}
     BusError(crate::devices::BusError),
-    /// Cannot create EventFd.
-    #[error("Failed to create EventFd: {0}")]
+    /// Failed to create EventFd: {0}
     EventFd(std::io::Error),
 }
 
@@ -173,18 +171,16 @@ impl PortIODeviceManager {
 
 #[cfg(test)]
 mod tests {
-    use utils::vm_memory::GuestAddress;
-
     use super::*;
+    use crate::vstate::memory::{GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
+    use crate::Vm;
 
     #[test]
     fn test_register_legacy_devices() {
-        let guest_mem = utils::vm_memory::test_utils::create_anon_guest_memory(
-            &[(GuestAddress(0x0), 0x1000)],
-            false,
-        )
-        .unwrap();
-        let mut vm = crate::builder::setup_kvm_vm(&guest_mem, false).unwrap();
+        let guest_mem =
+            GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0x0), 0x1000)], false).unwrap();
+        let mut vm = Vm::new(vec![]).unwrap();
+        vm.memory_init(&guest_mem, false).unwrap();
         crate::builder::setup_interrupt_controller(&mut vm).unwrap();
         let mut ldm = PortIODeviceManager::new(
             Arc::new(Mutex::new(BusDevice::Serial(SerialDevice {

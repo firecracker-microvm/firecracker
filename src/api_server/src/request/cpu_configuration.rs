@@ -1,8 +1,8 @@
 // Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use logger::{IncMetric, METRICS};
 use vmm::cpu_config::templates::CustomCpuTemplate;
+use vmm::logger::{IncMetric, METRICS};
 
 use super::super::VmmAction;
 use crate::parsed_request::{Error, ParsedRequest};
@@ -22,9 +22,9 @@ pub(crate) fn parse_put_cpu_config(body: &Body) -> Result<ParsedRequest, Error> 
 
 #[cfg(test)]
 mod tests {
-    use logger::{IncMetric, METRICS};
     use micro_http::Body;
     use vmm::cpu_config::templates::test_utils::{build_test_template, TEST_INVALID_TEMPLATE_JSON};
+    use vmm::logger::{IncMetric, METRICS};
     use vmm::rpc_interface::VmmAction;
 
     use super::*;
@@ -40,18 +40,14 @@ mod tests {
         );
         let cpu_template_json = cpu_config_json_result.unwrap();
 
-        {
-            match vmm_action_from_request(
-                parse_put_cpu_config(&Body::new(cpu_template_json.as_bytes())).unwrap(),
-            ) {
-                VmmAction::PutCpuConfiguration(received_cpu_template) => {
-                    // Test that the CPU config to be used for KVM config is the
-                    // the same that was read in from a test file.
-                    assert_eq!(cpu_template, received_cpu_template);
-                }
-                _ => panic!("Test failed - Expected VmmAction::PutCpuConfiguration() call"),
-            }
-        }
+        // Test that the CPU config to be used for KVM config is the same that
+        // was read in from a test file.
+        assert_eq!(
+            vmm_action_from_request(
+                parse_put_cpu_config(&Body::new(cpu_template_json.as_bytes())).unwrap()
+            ),
+            VmmAction::PutCpuConfiguration(cpu_template)
+        );
 
         // Test empty request succeeds
         let parse_cpu_config_result = parse_put_cpu_config(&Body::new(r#"{ }"#));

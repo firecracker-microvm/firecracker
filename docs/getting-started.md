@@ -66,23 +66,56 @@ an execution jail, set up by the [`jailer`](../src/jailer/) binary. This is how
 our [integration test suite](#running-the-integration-test-suite) does it. This
 guide will not use the [`jailer`](../src/jailer/).
 
+### Getting a rootfs and Guest Kernel Image
+
+To successfully start a microVM with you will need an uncompressed Linux kernel binary,
+and an ext4 file system image (to use as rootfs). This guide uses a 5.10 kernel image
+with a Ubuntu 22.04 rootfs from our CI:
+
 ```bash
 ARCH="$(uname -m)"
 
 # Download a linux kernel binary
-wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.5/${ARCH}/vmlinux-5.10.186
+wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.6/${ARCH}/vmlinux-5.10.198
 
 # Download a rootfs
-wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.5/${ARCH}/ubuntu-22.04.ext4
+wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.6/${ARCH}/ubuntu-22.04.ext4
 
 # Download the ssh key for the rootfs
-wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.5/${ARCH}/ubuntu-22.04.id_rsa
+wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.6/${ARCH}/ubuntu-22.04.id_rsa
 
 # Set user read permission on the ssh key
 chmod 400 ./ubuntu-22.04.id_rsa
+```
+
+### Getting a Firecracker Binary
+
+There are two options for getting a firecracker binary:
+
+- Downloading an official firecracker release from our
+  [release page](https://github.com/firecracker-microvm/firecracker/releases), or
+- Building firecracker from source.
+
+To download the latest firecracker release, run
+
+```bash
+ARCH="$(uname -m)"
+release_url="https://github.com/firecracker-microvm/firecracker/releases"
+latest=$(basename $(curl -fsSLI -o /dev/null -w  %{url_effective} ${release_url}/latest))
+curl -L ${release_url}/download/${latest}/firecracker-${latest}-${ARCH}.tgz \
+| tar -xz
+
+# Rename the binary to "firecracker"
+mv release-${latest}-$(uname -m)/firecracker-${latest}-${ARCH} firecracker
+```
+
+To instead build firecracker from source, you will need to have `docker` installed:
+
+```bash
+ARCH="$(uname -m)"
 
 # Clone the firecracker repository
-git clone https://github.com/firecracker-microvm/firecracker
+git clone https://github.com/firecracker-microvm/firecracker firecracker_src
 
 # Start docker
 sudo systemctl start docker
@@ -94,16 +127,26 @@ sudo systemctl start docker
 # This will produce the firecracker and jailer binaries under
 # `./firecracker/build/cargo_target/${toolchain}/debug`.
 #
-sudo ./firecracker/tools/devtool build
+sudo ./firecracker_src/tools/devtool build
 
+# Rename the binary to "firecracker"
+sudo cp ./firecracker_src/build/cargo_target/${ARCH}-unknown-linux-musl/debug/firecracker firecracker
+```
+
+### Starting Firecracker
+
+Running firecracker will require two terminals, the first one running the
+firecracker binary, and a second one for communicating with the firecracker
+process via HTTP requests:
+
+```bash
 API_SOCKET="/tmp/firecracker.socket"
 
 # Remove API unix socket
-rm -f $API_SOCKET
+sudo rm -f $API_SOCKET
 
 # Run firecracker
-./firecracker/build/cargo_target/${ARCH}-unknown-linux-musl/debug/firecracker \
-    --api-sock "${API_SOCKET}"
+sudo ./firecracker --api-sock "${API_SOCKET}"
 ```
 
 In a new terminal (do not close the 1st one):
@@ -147,7 +190,7 @@ curl -X PUT --unix-socket "${API_SOCKET}" \
     }" \
     "http://localhost/logger"
 
-KERNEL="./vmlinux-5.10.186"
+KERNEL="./vmlinux-5.10.198"
 KERNEL_BOOT_ARGS="console=ttyS0 reboot=k panic=1 pci=off"
 
 ARCH=$(uname -m)

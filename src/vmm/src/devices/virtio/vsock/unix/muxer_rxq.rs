@@ -31,7 +31,7 @@ pub struct MuxerRxQ {
 }
 
 impl MuxerRxQ {
-    const SIZE: usize = defs::MUXER_RXQ_SIZE;
+    const SIZE: usize = defs::MUXER_RXQ_SIZE as usize;
 
     /// Trivial RX queue constructor.
     pub fn new() -> Self {

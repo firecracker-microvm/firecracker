@@ -1,7 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use logger::{IncMetric, METRICS};
+use vmm::logger::{IncMetric, METRICS};
 use vmm::vmm_config::boot_source::BootSourceConfig;
 
 use super::super::VmmAction;
@@ -27,10 +27,10 @@ mod tests {
         assert!(parse_put_boot_source(&Body::new("invalid_payload")).is_err());
 
         let body = r#"{
-                "kernel_image_path": "/foo/bar",
-                "initrd_path": "/bar/foo",
-                "boot_args": "foobar"
-              }"#;
+            "kernel_image_path": "/foo/bar",
+            "initrd_path": "/bar/foo",
+            "boot_args": "foobar"
+        }"#;
         let same_body = BootSourceConfig {
             kernel_image_path: String::from("/foo/bar"),
             initrd_path: Some(String::from("/bar/foo")),

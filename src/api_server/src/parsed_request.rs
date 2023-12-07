@@ -3,10 +3,10 @@
 
 use std::fmt::Debug;
 
-use logger::{error, info, log_enabled, Level};
 use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 use serde::ser::Serialize;
 use serde_json::Value;
+use vmm::logger::{error, info, log_enabled, Level};
 use vmm::rpc_interface::{VmmAction, VmmActionError};
 
 use super::VmmData;
@@ -32,7 +32,6 @@ use crate::ApiServer;
 #[derive(Debug)]
 pub(crate) enum RequestAction {
     Sync(Box<VmmAction>),
-    ShutdownInternal, // !!! not an API, used by shutdown to thread::join the API thread
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -97,9 +96,6 @@ impl TryFrom<&Request> for ParsedRequest {
             (Method::Put, "mmds", Some(body)) => parse_put_mmds(body, path_tokens.next()),
             (Method::Put, "network-interfaces", Some(body)) => {
                 parse_put_net(body, path_tokens.next())
-            }
-            (Method::Put, "shutdown-internal", None) => {
-                Ok(ParsedRequest::new(RequestAction::ShutdownInternal))
             }
             (Method::Put, "snapshot", Some(body)) => parse_put_snapshot(body, path_tokens.next()),
             (Method::Put, "vsock", Some(body)) => parse_put_vsock(body),
@@ -343,7 +339,6 @@ pub mod tests {
                 (RequestAction::Sync(ref sync_req), RequestAction::Sync(ref other_sync_req)) => {
                     sync_req == other_sync_req
                 }
-                _ => false,
             }
         }
     }
@@ -351,7 +346,6 @@ pub mod tests {
     pub(crate) fn vmm_action_from_request(req: ParsedRequest) -> VmmAction {
         match req.action {
             RequestAction::Sync(vmm_action) => *vmm_action,
-            _ => panic!("Invalid request"),
         }
     }
 
@@ -364,7 +358,6 @@ pub mod tests {
                 assert_eq!(req_msg, msg);
                 *vmm_action
             }
-            _ => panic!("Invalid request"),
         }
     }
 
@@ -846,8 +839,7 @@ pub mod tests {
     fn test_try_from_put_snapshot() {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
-        let body =
-            "{ \"snapshot_path\": \"foo\", \"mem_file_path\": \"bar\", \"version\": \"0.23.0\" }";
+        let body = "{ \"snapshot_path\": \"foo\", \"mem_file_path\": \"bar\" }";
         sender
             .write_all(http_request("PUT", "/snapshot/create", Some(body)).as_bytes())
             .unwrap();
@@ -874,21 +866,6 @@ pub mod tests {
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
         assert!(ParsedRequest::try_from(&req).is_ok());
-    }
-
-    #[test]
-    fn test_try_from_put_shutdown() {
-        let (mut sender, receiver) = UnixStream::pair().unwrap();
-        let mut connection = HttpConnection::new(receiver);
-        sender
-            .write_all(http_request("PUT", "/shutdown-internal", None).as_bytes())
-            .unwrap();
-        assert!(connection.try_read().is_ok());
-        let req = connection.pop_parsed_request().unwrap();
-        match ParsedRequest::try_from(&req).unwrap().into_parts() {
-            (RequestAction::ShutdownInternal, _) => (),
-            _ => panic!("wrong parsed request"),
-        };
     }
 
     #[test]

@@ -4,17 +4,19 @@
 //! Defines state and support structures for persisting Vsock devices and backends.
 
 use std::fmt::Debug;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
 use snapshot::Persist;
-use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 
 use super::*;
+use crate::devices::virtio::device::DeviceState;
 use crate::devices::virtio::persist::VirtioDeviceState;
-use crate::devices::virtio::{DeviceState, TYPE_VSOCK};
+use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
+use crate::devices::virtio::vsock::TYPE_VSOCK;
+use crate::vstate::memory::GuestMemoryMmap;
 
 /// The Vsock serializable state.
 // NOTICE: Any changes to this structure require a snapshot version bump.
@@ -117,7 +119,7 @@ where
                 &constructor_args.mem,
                 TYPE_VSOCK,
                 defs::VSOCK_NUM_QUEUES,
-                defs::VSOCK_QUEUE_SIZE,
+                FIRECRACKER_MAX_QUEUE_SIZE,
             )
             .map_err(VsockError::VirtioState)?;
         let mut vsock = Self::with_queues(state.cid, constructor_args.backend, queues)?;
@@ -125,7 +127,7 @@ where
         vsock.acked_features = state.virtio_state.acked_features;
         vsock.avail_features = state.virtio_state.avail_features;
         vsock.irq_trigger.irq_status =
-            Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
+            Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
         vsock.device_state = if state.virtio_state.activated {
             DeviceState::Activated(constructor_args.mem)
         } else {

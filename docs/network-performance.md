@@ -7,11 +7,11 @@ Scope of the measurements is to illustrate the limits for the emulation thread.
 
 ## TCP Throughput
 
-Segment size/ Direction | 1460bytes | 256bytes | 128bytes | 96bytes
---- | --- | --- | --- |---
-Ingress| 25Gbps | 23Gbps | 20Gbps | 18Gbps
-Egress | 25Gbps | 23Gbps | 20Gbps | 18Gbps
-Bidirectional | 18Gbps | 18Gbps | 18Gbps | 18Gbps
+| Segment size/ Direction | 1460bytes | 256bytes | 128bytes | 96bytes |
+| --- | --- | --- | --- |--- |
+| Ingress| 25Gbps | 23Gbps | 20Gbps | 18Gbps |
+| Egress | 25Gbps | 23Gbps | 20Gbps | 18Gbps |
+| Bidirectional | 18Gbps | 18Gbps | 18Gbps | 18Gbps |
 
 **Setup and test description**
 Throughput measurements were done using [iperf3](https://iperf.fr/). The target

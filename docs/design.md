@@ -136,6 +136,8 @@ specifying token bucket configurations for ingress and egress. Each token
 bucket is defined via the bucket size, I/O cost, refill rate, maximum burst,
 and initial value. This enables the customer to define flexible rate limiters
 that support bursts or specific bandwidth/operations limitations.
+For vhost-user devices, customers should implement rate limiting on the
+side of the vhost-user backend that they provide.
 
 ### MicroVM Metadata Service
 

@@ -10,13 +10,11 @@ use kvm_ioctls::VcpuFd;
 use utils::byte_order;
 
 /// Errors thrown while configuring the LAPIC.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq, Eq)]
 pub enum InterruptError {
-    /// Failure in getting the LAPIC configuration.
-    #[error("Failure in getting the LAPIC configuration: {0}")]
+    /// Failure in getting the LAPIC configuration: {0}
     GetLapic(kvm_ioctls::Error),
-    /// Failure in setting the LAPIC configuration.
-    #[error("Failure in setting the LAPIC configuration: {0}")]
+    /// Failure in setting the LAPIC configuration: {0}
     SetLapic(kvm_ioctls::Error),
 }
 

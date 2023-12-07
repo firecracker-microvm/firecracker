@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that the --seccomp-filter parameter works as expected."""
 
-import json
 import os
 import platform
 import tempfile
@@ -12,7 +11,6 @@ import psutil
 import pytest
 import requests
 
-import host_tools.logging as log_tools
 from framework import utils
 from host_tools.cargo_build import run_seccompiler_bin
 
@@ -32,15 +30,15 @@ def _custom_filter_setup(test_microvm, json_filter):
 
 
 def _config_file_setup(test_microvm, vm_config_file):
-    test_microvm.create_jailed_resource(test_microvm.kernel_file, create_jail=True)
-    test_microvm.create_jailed_resource(test_microvm.rootfs_file, create_jail=True)
+    test_microvm.create_jailed_resource(test_microvm.kernel_file)
+    test_microvm.create_jailed_resource(test_microvm.rootfs_file)
 
     vm_config_path = os.path.join(test_microvm.path, os.path.basename(vm_config_file))
     with open(vm_config_file, encoding="utf-8") as f1:
         with open(vm_config_path, "w", encoding="utf-8") as f2:
             for line in f1:
                 f2.write(line)
-    test_microvm.create_jailed_resource(vm_config_path, create_jail=True)
+    test_microvm.create_jailed_resource(vm_config_path)
     test_microvm.jailer.extra_args = {"config-file": os.path.basename(vm_config_file)}
 
     test_microvm.jailer.extra_args.update({"no-api": None})
@@ -81,7 +79,7 @@ def test_allow_all(test_microvm_with_api):
 
     test_microvm.start()
 
-    utils.assert_seccomp_level(test_microvm.jailer_clone_pid, "2")
+    utils.assert_seccomp_level(test_microvm.firecracker_pid, "2")
 
 
 def test_working_filter(test_microvm_with_api):
@@ -142,7 +140,7 @@ def test_working_filter(test_microvm_with_api):
     test_microvm.start()
 
     # level should be 2, with no additional errors
-    utils.assert_seccomp_level(test_microvm.jailer_clone_pid, "2")
+    utils.assert_seccomp_level(test_microvm.firecracker_pid, "2")
 
 
 def test_failing_filter(test_microvm_with_api):
@@ -179,19 +177,11 @@ def test_failing_filter(test_microvm_with_api):
     )
 
     test_microvm.spawn()
-
     test_microvm.basic_config(vcpu_count=1)
-
-    metrics_fifo_path = os.path.join(test_microvm.path, "metrics_fifo")
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    response = test_microvm.metrics.put(
-        metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
-    )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Try to start the VM with error checking off, because it will fail.
     try:
-        test_microvm.start(check=False)
+        test_microvm.start()
     except requests.exceptions.ConnectionError:
         pass
 
@@ -207,16 +197,16 @@ def test_failing_filter(test_microvm_with_api):
     )
 
     # Check the metrics
-    lines = metrics_fifo.sequential_reader(100)
+    datapoints = test_microvm.get_all_metrics()
 
     num_faults = 0
-    for line in lines:
-        num_faults += json.loads(line)["seccomp"]["num_faults"]
+    for datapoint in datapoints:
+        num_faults += datapoint["seccomp"]["num_faults"]
 
     assert num_faults >= 1
 
     # assert that the process was killed
-    assert not psutil.pid_exists(test_microvm.jailer_clone_pid)
+    assert not psutil.pid_exists(test_microvm.firecracker_pid)
 
 
 @pytest.mark.parametrize("vm_config_file", ["framework/vm_config.json"])
@@ -244,4 +234,4 @@ def test_invalid_bpf(test_microvm_with_api, vm_config_file):
     time.sleep(1)
 
     # assert that the process was killed
-    assert not psutil.pid_exists(test_microvm.jailer_clone_pid)
+    assert not psutil.pid_exists(test_microvm.firecracker_pid)

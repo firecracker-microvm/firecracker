@@ -10,11 +10,12 @@ use semver::Version;
 use versionize::{VersionMap, Versionize};
 
 use crate::device_manager::persist::DeviceStates;
-use crate::devices::virtio::block::persist::BlockState;
 use crate::devices::virtio::net::persist::NetConfigSpaceState;
-use crate::devices::virtio::QueueState;
+use crate::devices::virtio::persist::{QueueState, VirtioDeviceState};
+use crate::devices::virtio::virtio_block::persist::VirtioBlockState;
 use crate::persist::VmInfo;
 use crate::vstate::vcpu::VcpuState;
+use crate::vstate::vm::VmState;
 
 /// Snap version for Firecracker v0.23
 #[cfg(target_arch = "x86_64")]
@@ -35,6 +36,8 @@ pub const FC_V1_3_SNAP_VERSION: u16 = 7;
 pub const FC_V1_4_SNAP_VERSION: u16 = 8;
 /// Snap version for Firecracker v1.5
 pub const FC_V1_5_SNAP_VERSION: u16 = 9;
+/// Snap version for Firecracker v1.6
+pub const FC_V1_6_SNAP_VERSION: u16 = 10;
 
 lazy_static! {
     // Note: until we have a better design, this needs to be updated when the version changes.
@@ -47,13 +50,13 @@ lazy_static! {
         version_map.new_version().set_type_version(DeviceStates::type_id(), 2);
 
         // v0.25 state change mappings.
-        version_map.new_version().set_type_version(BlockState::type_id(), 2);
+        version_map.new_version().set_type_version(VirtioBlockState::type_id(), 2);
         #[cfg(target_arch = "x86_64")]
         version_map.set_type_version(VcpuState::type_id(), 2);
 
         // v1.0 state change mappings.
         version_map.new_version().set_type_version(QueueState::type_id(), 2);
-        version_map.set_type_version(BlockState::type_id(), 3);
+        version_map.set_type_version(VirtioBlockState::type_id(), 3);
 
         // v1.1 state change mappings.
         version_map.new_version().set_type_version(DeviceStates::type_id(), 3);
@@ -76,6 +79,14 @@ lazy_static! {
         version_map.new_version();
         #[cfg(target_arch = "aarch64")]
         version_map.set_type_version(VcpuState::type_id(), 2);
+
+        version_map.set_type_version(VmState::type_id(), 2);
+
+        // v1.6 state change mappings
+        version_map.new_version();
+
+        version_map.set_type_version(VirtioDeviceState::type_id(), 2);
+        version_map.set_type_version(DeviceStates::type_id(), 5);
 
         version_map
     };
@@ -104,6 +115,7 @@ lazy_static! {
         mapping.insert(Version::new(1, 3, 0), FC_V1_3_SNAP_VERSION);
         mapping.insert(Version::new(1, 4, 0), FC_V1_4_SNAP_VERSION);
         mapping.insert(Version::new(1, 5, 0), FC_V1_5_SNAP_VERSION);
+        mapping.insert(Version::new(1, 6, 0), FC_V1_6_SNAP_VERSION);
 
         mapping
     };

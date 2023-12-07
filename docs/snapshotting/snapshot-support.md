@@ -37,9 +37,10 @@ guest workload at that particular point in time.
 
 ### Supported platforms
 
-The Firecracker snapshot feature is in [developer preview](../RELEASE_POLICY.md)
-on all CPU micro-architectures listed in [README](../../README.md#supported-platforms).
-See [this section](#developer-preview-status) for more info.
+> [!WARNING]
+> The Firecracker snapshot feature is in [developer preview](../RELEASE_POLICY.md)
+> on all CPU micro-architectures listed in [README](../../README.md#supported-platforms).
+> See [this section](#developer-preview-status) for more info.
 
 ### Overview
 
@@ -149,6 +150,9 @@ The snapshot functionality is still in developer preview due to the following:
   Please see [Vsock device limitation](#vsock-device-limitation).
 - Snapshotting on arm64 works for both GICv2 and GICv3 enabled guests.
   However, restoring between different GIC version is not possible.
+- If a [CPU template](../cpu_templates/cpu-templates.md) is not used on x86_64,
+  overwrites of `MSR_IA32_TSX_CTRL` MSR value will not be preserved after
+  restoring from a snapshot.
 
 ## Firecracker Snapshotting characteristics
 
@@ -175,6 +179,11 @@ The Firecracker snapshotting implementation offers support for snapshot versioni
 (`cross-version snapshots`) in the following contexts:
 
 - Saving snapshots at older versions
+
+  **DEPRECATED**: This feature is deprecated starting with version 1.5.0. It
+  will be removed in a subsequent release. After dropping support, Firecracker
+  will be able to create snapshots only for the version supported by the
+  Firecracker binary that launched the microVM and not for older versions.
 
   This refers to being able to create a snapshot with any version in the
   `[N, N + o]` interval, while running Firecracker version `N+o`.
@@ -244,10 +253,21 @@ created by a subsequent `/snapshot/create` API call. The order in which the
 snapshots were created matters and they should be merged in the same order
 in which they were created. To merge a `diff` snapshot memory file on
 top of a base, users should copy its content over the base. This can be done
-using the `rebase-snap` tool provided with the firecracker release:
+using the `rebase-snap` (deprecated) or `snapshot-editor` tools provided with the
+firecracker release:
+
+`rebase-snap` (deprecated) example:
 
 ```bash
 rebase-snap --base-file path/to/base --diff-file path/to/layer
+```
+
+`snapshot-editor` example:
+
+```bash
+snapshot-editor edit-memory rebase \
+     --memory-path path/to/base \
+     --diff-path path/to/layer
 ```
 
 After executing the command above, the base would be a resumable snapshot memory

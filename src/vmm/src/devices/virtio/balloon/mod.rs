@@ -5,27 +5,34 @@
 
 pub mod device;
 mod event_handler;
+pub mod metrics;
 pub mod persist;
 pub mod test_utils;
 mod util;
 
-use utils::vm_memory::GuestMemoryError;
+use log::error;
+use vm_memory::GuestMemoryError;
 
 pub use self::device::{Balloon, BalloonConfig, BalloonStats};
+use super::queue::QueueError;
+use crate::devices::virtio::balloon::metrics::METRICS;
+use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
+use crate::logger::IncMetric;
 
 /// Device ID used in MMIO device identification.
 /// Because Balloon is unique per-vm, this ID can be hardcoded.
 pub const BALLOON_DEV_ID: &str = "balloon";
 /// The size of the config space.
 pub const BALLOON_CONFIG_SPACE_SIZE: usize = 8;
-/// Max size of virtio queues.
-pub const BALLOON_QUEUE_SIZE: u16 = 256;
 /// Number of virtio queues.
 pub const BALLOON_NUM_QUEUES: usize = 3;
 /// Virtio queue sizes, in number of descriptor chain heads.
 //  There are 3 queues for a virtio device (in this order): RX, TX, Event
-pub const BALLOON_QUEUE_SIZES: [u16; BALLOON_NUM_QUEUES] =
-    [BALLOON_QUEUE_SIZE, BALLOON_QUEUE_SIZE, BALLOON_QUEUE_SIZE];
+pub const BALLOON_QUEUE_SIZES: [u16; BALLOON_NUM_QUEUES] = [
+    FIRECRACKER_MAX_QUEUE_SIZE,
+    FIRECRACKER_MAX_QUEUE_SIZE,
+    FIRECRACKER_MAX_QUEUE_SIZE,
+];
 // Number of 4K pages in a MiB.
 pub const MIB_TO_4K_PAGES: u32 = 256;
 /// The maximum number of pages that can be received in a single descriptor.
@@ -86,7 +93,7 @@ pub enum BalloonError {
     /// Amount of pages requested cannot fit in `u32`.
     TooManyPagesRequested,
     /// Error while processing the virt queues.
-    Queue(super::QueueError),
+    Queue(QueueError),
     /// Error removing a memory region at inflate time.
     RemoveMemoryRegion(RemoveRegionError),
     /// Error creating the statistics timer.
@@ -100,4 +107,9 @@ pub enum RemoveRegionError {
     MadviseFail(std::io::Error),
     MmapFail(std::io::Error),
     RegionNotFound,
+}
+
+pub(super) fn report_balloon_event_fail(err: BalloonError) {
+    error!("{:?}", err);
+    METRICS.event_fails.inc();
 }

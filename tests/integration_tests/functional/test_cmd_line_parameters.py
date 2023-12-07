@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that ensure the correctness of the command line parameters."""
 
-import platform
+import subprocess
 from pathlib import Path
 
-import host_tools.logging as log_tools
+import pytest
+
 from framework.utils import run_cmd
-from host_tools.cargo_build import get_firecracker_binaries
+from host_tools.metrics import validate_fc_metrics
 
 
 def test_describe_snapshot_all_versions(
@@ -34,8 +35,8 @@ def test_describe_snapshot_all_versions(
     print(vm.log_data)
     vm.kill()
 
-    # Fetch Firecracker binary for the latest version
-    fc_binary, _ = get_firecracker_binaries()
+    # Fetch Firecracker binary
+    fc_binary = microvm_factory.fc_binary_path
     # Verify the output of `--describe-snapshot` command line parameter
     cmd = [fc_binary] + ["--describe-snapshot", snapshot.vmstate]
     code, stdout, stderr = run_cmd(cmd)
@@ -49,40 +50,12 @@ def test_cli_metrics_path(uvm_plain):
     Test --metrics-path parameter
     """
     microvm = uvm_plain
-    metrics_fifo_path = Path(microvm.path) / "metrics_ndjson.fifo"
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    microvm.spawn(metrics_path=metrics_fifo_path)
+    metrics_path = Path(microvm.path) / "my_metrics.ndjson"
+    microvm.spawn(metrics_path=metrics_path)
     microvm.basic_config()
     microvm.start()
-    metrics = microvm.flush_metrics(metrics_fifo)
-
-    exp_keys = [
-        "utc_timestamp_ms",
-        "api_server",
-        "balloon",
-        "block",
-        "deprecated_api",
-        "get_api_requests",
-        "i8042",
-        "latencies_us",
-        "logger",
-        "mmds",
-        "net",
-        "patch_api_requests",
-        "put_api_requests",
-        "seccomp",
-        "vcpu",
-        "vmm",
-        "uart",
-        "signals",
-        "vsock",
-        "entropy",
-    ]
-
-    if platform.machine() == "aarch64":
-        exp_keys.append("rtc")
-
-    assert set(metrics.keys()) == set(exp_keys)
+    metrics = microvm.flush_metrics()
+    validate_fc_metrics(metrics)
 
 
 def test_cli_metrics_path_if_metrics_initialized_twice_fail(test_microvm_with_api):
@@ -101,15 +74,12 @@ def test_cli_metrics_path_if_metrics_initialized_twice_fail(test_microvm_with_ap
     # Then try to configure it with PUT /metrics
     metrics2_path = Path(microvm.path) / "metrics2.ndjson"
     metrics2_path.touch()
-    response = microvm.metrics.put(
-        metrics_path=microvm.create_jailed_resource(metrics2_path)
-    )
 
-    # It should fail with HTTP 400 because it's already configured
-    assert response.status_code == 400
-    assert response.json() == {
-        "fault_message": "Reinitialization of metrics not allowed."
-    }
+    # It should fail with because it's already configured
+    with pytest.raises(RuntimeError, match="Reinitialization of metrics not allowed."):
+        microvm.api.metrics.put(
+            metrics_path=microvm.create_jailed_resource(metrics2_path)
+        )
 
 
 def test_cli_metrics_if_resume_no_metrics(uvm_plain, microvm_factory):
@@ -133,3 +103,18 @@ def test_cli_metrics_if_resume_no_metrics(uvm_plain, microvm_factory):
     # Then: the old metrics configuration does not exist
     metrics2 = Path(uvm2.jailer.chroot_path()) / metrics_path.name
     assert not metrics2.exists()
+
+
+def test_cli_no_params(microvm_factory):
+    """
+    Test running firecracker with no parameters should work
+    """
+
+    fc_binary = microvm_factory.fc_binary_path
+    process = subprocess.Popen(fc_binary)
+    try:
+        process.communicate(timeout=3)
+        assert process.returncode is None
+    except subprocess.TimeoutExpired:
+        # The good case
+        process.kill()

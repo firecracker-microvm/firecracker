@@ -32,22 +32,19 @@ use crate::common::BpfProgram;
 use crate::syscall_table::SyscallTable;
 
 /// Errors compiling Filters into BPF.
-#[derive(Debug, PartialEq, thiserror::Error)]
-pub(crate) enum CompilationError {
-    /// Filter and default actions are equal.
-    #[error("`filter_action` and `default_action` are equal.")]
+#[derive(Debug, PartialEq, thiserror::Error, displaydoc::Display)]
+pub enum CompilationError {
+    /// `filter_action` and `default_action` are equal.
     IdenticalActions,
-    /// Error from the SeccompFilter.
-    #[error("{0}")]
+    /// {0}
     Filter(#[from] FilterError),
-    /// Invalid syscall name for the given arch.
-    #[error("Invalid syscall name: {0} for given arch: {1:?}.")]
+    /// Invalid syscall name: {0} for given arch: {1:?}.
     SyscallName(String, TargetArch),
 }
 
 /// Deserializable object that represents the Json filter file.
 #[derive(Debug)]
-pub(crate) struct JsonFile(pub BTreeMap<String, Filter>);
+pub struct JsonFile(pub BTreeMap<String, Filter>);
 
 // Implement a custom deserializer, that returns an error for duplicate thread keys.
 impl<'de> Deserialize<'de> for JsonFile {
@@ -87,7 +84,7 @@ impl<'de> Deserialize<'de> for JsonFile {
 /// Deserializable object representing a syscall rule.
 #[derive(Debug, Deserialize, PartialEq, Clone)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct SyscallRule {
+pub struct SyscallRule {
     /// Name of the syscall.
     syscall: String,
     /// Rule conditions.
@@ -116,7 +113,7 @@ impl SyscallRule {
 /// Deserializable seccomp filter. Refers to one thread category.
 #[derive(Deserialize, PartialEq, Debug, Clone)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Filter {
+pub struct Filter {
     /// Default action if no rules match. e.g. `Kill` for an AllowList.
     default_action: SeccompAction,
     /// Default action if a rule matches. e.g. `Allow` for an AllowList.
@@ -146,7 +143,7 @@ impl Filter {
 /// [`BpfProgram`](../common/type.BpfProgram.html)s.
 /// Uses the [`SeccompFilter`](../backend/struct.SeccompFilter.html) interface as an IR language.
 #[derive(Debug)]
-pub(crate) struct Compiler {
+pub struct Compiler {
     /// Target architecture. Can be different from the current `target_arch`.
     arch: TargetArch,
     /// Target-specific syscall table.
@@ -206,7 +203,7 @@ impl Compiler {
                 .syscall_table
                 .get_syscall_nr(&syscall_name)
                 .ok_or_else(|| CompilationError::SyscallName(syscall_name.clone(), self.arch))?;
-            let rule_accumulator = rule_map.entry(syscall_nr).or_insert_with(Vec::new);
+            let rule_accumulator = rule_map.entry(syscall_nr).or_default();
 
             match syscall_rule.conditions {
                 Some(conditions) => rule_accumulator.push(SeccompRule::new(conditions, action)),

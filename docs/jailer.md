@@ -271,10 +271,6 @@ Note: default value for `<api-sock>` is `/run/firecracker.socket`.
   binary file in a new PID namespace, in order to become a pseudo-init process.
   Alternatively, the user can spawn the jailer in a new PID namespace via a
   combination of `clone()` with the `CLONE_NEWPID` flag and `exec()`.
-- When running with `--daemonize`, the jailer will fail to start if it's a
-  process group leader, because `setsid()` returns an error in this case.
-  Spawning the jailer via `clone()` and `exec()` also ensures it cannot be a
-  process group leader.
 - We run the jailer as the `root` user; it actually requires a more restricted
   set of capabilities, but that's to be determined as features stabilize.
 - The jailer can only log messages to stdout/err for now, which is why the
@@ -286,3 +282,8 @@ Note: default value for `<api-sock>` is `/run/firecracker.socket`.
 - If all the cgroup controllers are bunched up on a single mount point using
   the "all" option, our current program logic will complain it cannot detect
   individual controller mount points.
+
+- [#4287](https://github.com/firecracker-microvm/firecracker/issues/4287) When
+  starting a jailer with `--parent-cgroup` specified but no cgroup flags
+  specified, then the rules in the parent cgroup folder are ignored. To
+  work around, use a dummy cgroup parameter like `--cgroup=memory.max=max`.

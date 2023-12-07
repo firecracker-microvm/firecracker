@@ -9,34 +9,27 @@ use std::path::PathBuf;
 
 use kvm_bindings::*;
 use kvm_ioctls::VcpuFd;
-use utils::vm_memory::GuestMemoryMmap;
 
 use super::get_fdt_addr;
 use super::regs::*;
+use crate::vstate::memory::GuestMemoryMmap;
 
 /// Errors thrown while setting aarch64 registers.
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
 pub enum VcpuError {
-    /// Failed to get a register value.
-    #[error("Failed to get register {0}: {1}")]
+    /// Failed to get register {0}: {1}
     GetOneReg(u64, kvm_ioctls::Error),
-    /// Failed to set a register value.
-    #[error("Failed to set register {0}: {1}")]
+    /// Failed to set register {0}: {1}
     SetOneReg(u64, kvm_ioctls::Error),
-    /// Failed to get the register list.
-    #[error("Failed to retrieve list of registers: {0}")]
+    /// Failed to retrieve list of registers: {0}
     GetRegList(kvm_ioctls::Error),
-    /// Failed to get multiprocessor state.
-    #[error("Failed to get multiprocessor state: {0}")]
+    /// Failed to get multiprocessor state: {0}
     GetMp(kvm_ioctls::Error),
-    /// Failed to Set multiprocessor state.
-    #[error("Failed to set multiprocessor state: {0}")]
+    /// Failed to set multiprocessor state: {0}
     SetMp(kvm_ioctls::Error),
-    /// A FamStructWrapper operation has failed.
-    #[error("Failed FamStructWrapper operation: {0:?}")]
+    /// Failed FamStructWrapper operation: {0:?}
     Fam(utils::fam::Error),
-    /// Failed to get midr_el1 from host.
-    #[error("{0}")]
+    /// {0}
     GetMidrEl1(String),
 }
 
@@ -49,7 +42,7 @@ pub enum VcpuError {
 pub fn get_manufacturer_id_from_state(regs: &Aarch64RegisterVec) -> Result<u32, VcpuError> {
     let midr_el1 = regs.iter().find(|reg| reg.id == MIDR_EL1);
     match midr_el1 {
-        Some(register) => Ok(register.value::<u64, 8>() as u32 >> 24),
+        Some(register) => Ok(((register.value::<u64, 8>() >> 24) & 0xFF) as u32),
         None => Err(VcpuError::GetMidrEl1(
             "Failed to find MIDR_EL1 in vCPU state!".to_string(),
         )),
@@ -208,6 +201,7 @@ mod tests {
 
     use super::*;
     use crate::arch::aarch64::{arch_memory_regions, layout};
+    use crate::vstate::memory::GuestMemoryExtension;
 
     #[test]
     fn test_setup_regs() {
@@ -215,8 +209,8 @@ mod tests {
         let vm = kvm.create_vm().unwrap();
         let vcpu = vm.create_vcpu(0).unwrap();
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = utils::vm_memory::test_utils::create_anon_guest_memory(&regions, false)
-            .expect("Cannot initialize memory");
+        let mem =
+            GuestMemoryMmap::from_raw_regions(&regions, false).expect("Cannot initialize memory");
 
         let res = setup_boot_regs(&vcpu, 0, 0x0, &mem);
         assert!(matches!(

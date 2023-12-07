@@ -4,6 +4,10 @@
         "filter_action": "allow",
         "filter": [
             {
+                "syscall": "stat",
+                "comment": "Used when creating snapshots in vmm:persist::snapshot_memory_to_file through std::fs::File::metadata"
+            },
+            {
                 "syscall": "epoll_ctl"
             },
             {
@@ -440,6 +444,14 @@
             {
                 "syscall": "sched_yield",
                 "comment": "Used by the rust standard library in std::sync::mpmc. Firecracker uses mpsc channels from this module for inter-thread communication"
+            },
+            {
+                "syscall": "sendmsg",
+                "comment": "Used by vhost-user frontend to communicate with the backend"
+            },
+            {
+                "syscall": "recvmsg",
+                "comment": "Used by vhost-user frontend to read response from the backend"
             }
         ]
     },
@@ -1183,6 +1195,10 @@
             {
                 "syscall": "sched_yield",
                 "comment": "Used by the rust standard library in std::sync::mpmc. Firecracker uses mpsc channels from this module for inter-thread communication"
+            },
+            {
+                "syscall": "sendmsg",
+                "comment": "Used by vhost-user frontend to communicate with the backend"
             }
         ]
     }

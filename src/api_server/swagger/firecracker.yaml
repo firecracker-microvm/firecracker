@@ -5,7 +5,7 @@ info:
     The API is accessible through HTTP calls on specific URLs
     carrying JSON modeled data.
     The transport medium is a Unix Domain Socket.
-  version: 1.5.0-dev
+  version: 1.6.0-dev
   termsOfService: ""
   contact:
     email: "compute-capsule@amazon.com"
@@ -826,6 +826,8 @@ definitions:
     description:
       The CPU Template defines a set of flags to be disabled from the microvm so that
       the features exposed to the guest are the same as in the selected instance type.
+      This parameter has been deprecated and it will be removed in future Firecracker
+      release.
     enum:
       - C3
       - T2
@@ -856,31 +858,36 @@ definitions:
     type: object
     required:
       - drive_id
-      - is_read_only
       - is_root_device
-      - path_on_host
     properties:
       drive_id:
         type: string
-      cache_type:
-        type: string
-        description:
-          Represents the caching strategy for the block device.
-        enum: ["Unsafe", "Writeback"]
-        default: "Unsafe"
-      is_read_only:
-        type: boolean
-      is_root_device:
-        type: boolean
       partuuid:
         type: string
         description:
           Represents the unique id of the boot partition of this device. It is
           optional and it will be taken into account only if the is_root_device
           field is true.
+      is_root_device:
+        type: boolean
+      cache_type:
+        type: string
+        description:
+          Represents the caching strategy for the block device.
+        enum: ["Unsafe", "Writeback"]
+        default: "Unsafe"
+
+      # VirtioBlock specific parameters
+      is_read_only:
+        type: boolean
+        description:
+          Is block read only. 
+          This field is required for virtio-block config and should be omitted for vhost-user-block configuration.
       path_on_host:
         type: string
-        description: Host level path for the guest drive
+        description:
+          Host level path for the guest drive.
+          This field is required for virtio-block config and should be omitted for vhost-user-block configuration.
       rate_limiter:
         $ref: "#/definitions/RateLimiter"
       io_engine:
@@ -888,8 +895,16 @@ definitions:
         description:
           Type of the IO engine used by the device. "Async" is supported on
           host kernels newer than 5.10.51.
+          This field is optional for virtio-block config and should be omitted for vhost-user-block configuration.
         enum: ["Sync", "Async"]
         default: "Sync"
+
+      # VhostUserBlock specific parameters
+      socket:
+        type: string
+        description:
+          Path to the socket of vhost-user-block backend.
+          This field is required for vhost-user-block config should be omitted for virtio-block configuration.
 
   Error:
     type: object
@@ -975,14 +990,12 @@ definitions:
     type: object
     description:
       Describes the configuration option for the logging capability.
-    required:
-      - log_path
     properties:
       level:
         type: string
         description: Set the level. The possible values are case-insensitive.
-        enum: [Error, Warning, Info, Debug]
-        default: Warning
+        enum: [Error, Warning, Info, Debug, Trace, Off]
+        default: Info
       log_path:
         type: string
         description: Path to the named pipe or file for the human readable log output.
@@ -994,6 +1007,10 @@ definitions:
         type: boolean
         description: Whether or not to include the file path and line number of the log's origin.
         default: false
+      module:
+        type: string
+        description: The module path to filter log messages by.
+        example: api_server::request
 
   MachineConfiguration:
     type: object
@@ -1123,7 +1140,9 @@ definitions:
         type: string
       path_on_host:
         type: string
-        description: Host level path for the guest drive
+        description:
+          Host level path for the guest drive.
+          This field is optional for virtio-block config and should be omitted for vhost-user-block configuration.
       rate_limiter:
         $ref: "#/definitions/RateLimiter"
 
@@ -1147,6 +1166,7 @@ definitions:
     description:
       Defines an IO rate limiter with independent bytes/s and ops/s limits.
       Limits are defined by configuring each of the _bandwidth_ and _ops_ token buckets.
+      This field is optional for virtio-block config and should be omitted for vhost-user-block configuration.
     properties:
       bandwidth:
         $ref: "#/definitions/TokenBucket"
@@ -1175,11 +1195,6 @@ definitions:
         description:
           Type of snapshot to create. It is optional and by default, a full
           snapshot is created.
-      version:
-        type: string
-        description:
-          The microVM version for which we want to create the snapshot.
-          It is optional and it defaults to the current version.
 
   SnapshotLoadParams:
     type: object
@@ -1197,8 +1212,8 @@ definitions:
         type: string
         description:
           Path to the file that contains the guest memory to be loaded.
-          This parameter has been deprecated and is only allowed if
-          `mem_backend` is not present.
+          It is only allowed if `mem_backend` is not present. This parameter has
+          been deprecated and it will be removed in future Firecracker release.
       mem_backend:
         $ref: "#/definitions/MemoryBackend"
         description:
@@ -1301,4 +1316,6 @@ definitions:
         description: Path to UNIX domain socket, used to proxy vsock connections.
       vsock_id:
         type: string
-        description: This parameter has been deprecated since v1.0.0.
+        description:
+          This parameter has been deprecated and it will be removed in future
+          Firecracker release.

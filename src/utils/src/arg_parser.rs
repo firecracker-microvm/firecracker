@@ -12,22 +12,17 @@ const HELP_ARG: &str = "--help";
 const VERSION_ARG: &str = "--version";
 
 /// Errors associated with parsing and validating arguments.
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
 pub enum Error {
-    /// The argument B cannot be used together with argument A.
-    #[error("Argument '{1}' cannot be used together with argument '{0}'.")]
+    /// Argument '{1}' cannot be used together with argument '{0}'.
     ForbiddenArgument(String, String),
-    /// The required argument was not provided.
-    #[error("Argument '{0}' required, but not found.")]
+    /// Argument '{0}' required, but not found.
     MissingArgument(String),
-    /// A value for the argument was not provided.
-    #[error("The argument '{0}' requires a value, but none was supplied.")]
+    /// The argument '{0}' requires a value, but none was supplied.
     MissingValue(String),
-    /// The provided argument was not expected.
-    #[error("Found argument '{0}' which wasn't expected, or isn't valid in this context.")]
+    /// Found argument '{0}' which wasn't expected, or isn't valid in this context.
     UnexpectedArgument(String),
-    /// The argument was provided more than once.
-    #[error("The argument '{0}' was provided more than once.")]
+    /// The argument '{0}' was provided more than once.
     DuplicateArgument(String),
 }
 

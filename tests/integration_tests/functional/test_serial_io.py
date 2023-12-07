@@ -9,7 +9,6 @@ import subprocess
 import termios
 import time
 
-import host_tools.logging as log_tools
 from framework import utils
 from framework.microvm import Serial
 from framework.state_machine import TestState
@@ -146,19 +145,18 @@ def test_serial_dos(test_microvm_with_api):
     # Set up the microVM with 1 vCPU and a serial console.
     microvm.basic_config(
         vcpu_count=1,
-        add_root_device=False,
         boot_args="console=ttyS0 reboot=k panic=1 pci=off",
     )
     microvm.start()
 
     # Open an fd for firecracker process terminal.
-    tty_path = f"/proc/{microvm.jailer_clone_pid}/fd/0"
+    tty_path = f"/proc/{microvm.firecracker_pid}/fd/0"
     tty_fd = os.open(tty_path, os.O_RDWR)
 
     # Check if the total memory size changed.
-    before_size = get_total_mem_size(microvm.jailer_clone_pid)
+    before_size = get_total_mem_size(microvm.firecracker_pid)
     send_bytes(tty_fd, 100000000, timeout=1)
-    after_size = get_total_mem_size(microvm.jailer_clone_pid)
+    after_size = get_total_mem_size(microvm.firecracker_pid)
     assert before_size == after_size, (
         "The memory size of the "
         "Firecracker process "
@@ -181,19 +179,10 @@ def test_serial_block(test_microvm_with_api):
         boot_args="console=ttyS0 reboot=k panic=1 pci=off",
     )
     test_microvm.add_net_iface()
-
-    # Configure the metrics.
-    metrics_fifo_path = os.path.join(test_microvm.path, "metrics_fifo")
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    response = test_microvm.metrics.put(
-        metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
-    )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
     test_microvm.start()
 
     # Get an initial reading of missed writes to the serial.
-    fc_metrics = test_microvm.flush_metrics(metrics_fifo)
+    fc_metrics = test_microvm.flush_metrics()
     init_count = fc_metrics["uart"]["missed_write_count"]
 
     screen_pid = test_microvm.screen_pid
@@ -201,20 +190,20 @@ def test_serial_block(test_microvm_with_api):
     subprocess.check_call("kill -s STOP {}".format(screen_pid), shell=True)
 
     # Generate a random text file.
-    exit_code, _, _ = test_microvm.ssh.execute_command(
+    exit_code, _, _ = test_microvm.ssh.run(
         "base64 /dev/urandom | head -c 100000 > /tmp/file.txt"
     )
 
     # Dump output to terminal
-    exit_code, _, _ = test_microvm.ssh.execute_command("cat /tmp/file.txt > /dev/ttyS0")
+    exit_code, _, _ = test_microvm.ssh.run("cat /tmp/file.txt > /dev/ttyS0")
     assert exit_code == 0
 
     # Check that the vCPU isn't blocked.
-    exit_code, _, _ = test_microvm.ssh.execute_command("cd /")
+    exit_code, _, _ = test_microvm.ssh.run("cd /")
     assert exit_code == 0
 
     # Check the metrics to see if the serial missed bytes.
-    fc_metrics = test_microvm.flush_metrics(metrics_fifo)
+    fc_metrics = test_microvm.flush_metrics()
     last_count = fc_metrics["uart"]["missed_write_count"]
 
     # Should be significantly more than before the `cat` command.

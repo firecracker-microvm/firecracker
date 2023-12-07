@@ -13,18 +13,19 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use mmds::data_store::Mmds;
-use mmds::ns::MmdsNetworkStack;
 use utils::net::mac::MacAddr;
-use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 
 #[cfg(test)]
 use crate::devices::virtio::net::device::vnet_hdr_len;
 use crate::devices::virtio::net::tap::{IfReqBuilder, Tap};
+use crate::devices::virtio::net::Net;
+use crate::devices::virtio::queue::{Queue, QueueError};
 use crate::devices::virtio::test_utils::VirtQueue;
-use crate::devices::virtio::{Net, Queue, QueueError};
 use crate::devices::DeviceError;
+use crate::mmds::data_store::Mmds;
+use crate::mmds::ns::MmdsNetworkStack;
 use crate::rate_limiter::RateLimiter;
+use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
 static NEXT_INDEX: AtomicUsize = AtomicUsize::new(1);
 
@@ -158,9 +159,9 @@ impl TapTrafficSimulator {
         // SAFETY: `sock_addr` is a valid pointer and safe to derference.
         unsafe {
             let sock_addr: *mut libc::sockaddr_ll = send_addr_ptr.cast::<libc::sockaddr_ll>();
-            (*sock_addr).sll_family = libc::AF_PACKET as libc::sa_family_t;
-            (*sock_addr).sll_protocol = (libc::ETH_P_ALL as u16).to_be();
-            (*sock_addr).sll_halen = libc::ETH_ALEN as u8;
+            (*sock_addr).sll_family = libc::sa_family_t::try_from(libc::AF_PACKET).unwrap();
+            (*sock_addr).sll_protocol = u16::try_from(libc::ETH_P_ALL).unwrap().to_be();
+            (*sock_addr).sll_halen = u8::try_from(libc::ETH_ALEN).unwrap();
             (*sock_addr).sll_ifindex = tap_index;
         }
 
@@ -171,7 +172,7 @@ impl TapTrafficSimulator {
             libc::bind(
                 socket.as_raw_fd(),
                 send_addr_ptr.cast(),
-                mem::size_of::<libc::sockaddr_ll>() as libc::socklen_t,
+                libc::socklen_t::try_from(mem::size_of::<libc::sockaddr_ll>()).unwrap(),
             )
         };
         if ret == -1 {
@@ -191,8 +192,8 @@ impl TapTrafficSimulator {
             // sizeof::<libc::sockaddr_ll>(), so to return an owned value of sockaddr_ll
             // from the stack-local libc::sockaddr_storage that we have, we need to
             // 1. Create a zeroed out libc::sockaddr_ll,
-            // 2. Copy over the first size_of::<libc::sockaddr_ll>() bytes into the struct we
-            //    want to return
+            // 2. Copy over the first size_of::<libc::sockaddr_ll>() bytes into the struct we want
+            //    to return
             // We cannot simply return "*(send_addr_ptr as *const libc::sockaddr_ll)", as this
             // would return a reference to a variable that lives in the stack frame of the current
             // function, and which will no longer be valid after returning.
@@ -211,7 +212,7 @@ impl TapTrafficSimulator {
                 buf.len(),
                 0,
                 (&self.send_addr as *const libc::sockaddr_ll).cast(),
-                mem::size_of::<libc::sockaddr_ll>() as libc::socklen_t,
+                libc::socklen_t::try_from(mem::size_of::<libc::sockaddr_ll>()).unwrap(),
             )
         };
         if res == -1 {
@@ -228,7 +229,7 @@ impl TapTrafficSimulator {
                 buf.len(),
                 0,
                 (&mut mem::zeroed() as *mut libc::sockaddr_storage).cast(),
-                &mut (mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t),
+                &mut libc::socklen_t::try_from(mem::size_of::<libc::sockaddr_storage>()).unwrap(),
             )
         };
         if ret == -1 {
@@ -262,7 +263,7 @@ pub fn if_index(tap: &Tap) -> i32 {
     let sock = create_socket();
     let ifreq = IfReqBuilder::new()
         .if_name(&tap.if_name)
-        .execute(&sock, c_ulong::from(net_gen::sockios::SIOCGIFINDEX))
+        .execute(&sock, c_ulong::from(super::gen::sockios::SIOCGIFINDEX))
         .unwrap();
 
     // SAFETY: Using this union variant is safe since `SIOCGIFINDEX` returns an integer.
@@ -285,11 +286,13 @@ pub fn enable(tap: &Tap) {
     IfReqBuilder::new()
         .if_name(&tap.if_name)
         .flags(
-            (net_gen::net_device_flags_IFF_UP
-                | net_gen::net_device_flags_IFF_RUNNING
-                | net_gen::net_device_flags_IFF_NOARP) as i16,
+            (crate::devices::virtio::net::gen::net_device_flags_IFF_UP
+                | crate::devices::virtio::net::gen::net_device_flags_IFF_RUNNING
+                | crate::devices::virtio::net::gen::net_device_flags_IFF_NOARP)
+                .try_into()
+                .unwrap(),
         )
-        .execute(&sock, c_ulong::from(net_gen::sockios::SIOCSIFFLAGS))
+        .execute(&sock, c_ulong::from(super::gen::sockios::SIOCSIFFLAGS))
         .unwrap();
 }
 
@@ -306,23 +309,23 @@ pub(crate) fn inject_tap_tx_frame(net: &Net, len: usize) -> Vec<u8> {
     frame
 }
 
-pub fn write_element_in_queue(net: &Net, idx: usize, val: u64) -> Result<(), DeviceError> {
-    if idx > net.queue_evts.len() {
+pub fn write_element_in_queue(net: &Net, idx: u16, val: u64) -> Result<(), DeviceError> {
+    if idx as usize > net.queue_evts.len() {
         return Err(DeviceError::QueueError(QueueError::DescIndexOutOfBounds(
-            idx as u16,
+            idx,
         )));
     }
-    net.queue_evts[idx].write(val).unwrap();
+    net.queue_evts[idx as usize].write(val).unwrap();
     Ok(())
 }
 
-pub fn get_element_from_queue(net: &Net, idx: usize) -> Result<u64, DeviceError> {
-    if idx > net.queue_evts.len() {
+pub fn get_element_from_queue(net: &Net, idx: u16) -> Result<u64, DeviceError> {
+    if idx as usize > net.queue_evts.len() {
         return Err(DeviceError::QueueError(QueueError::DescIndexOutOfBounds(
-            idx as u16,
+            idx,
         )));
     }
-    Ok(u64::try_from(net.queue_evts[idx].as_raw_fd()).unwrap())
+    Ok(u64::try_from(net.queue_evts[idx as usize].as_raw_fd()).unwrap())
 }
 
 pub fn default_guest_mac() -> MacAddr {
@@ -349,19 +352,20 @@ pub mod test {
     use std::{cmp, fmt, mem};
 
     use event_manager::{EventManager, SubscriberId, SubscriberOps};
-    use logger::{IncMetric, METRICS};
-    use net_gen::ETH_HLEN;
-    use utils::vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
     use crate::check_metric_after_block;
+    use crate::devices::virtio::device::{IrqType, VirtioDevice};
     use crate::devices::virtio::net::device::vnet_hdr_len;
+    use crate::devices::virtio::net::gen::ETH_HLEN;
     use crate::devices::virtio::net::test_utils::{
         assign_queues, default_net, inject_tap_tx_frame, NetEvent, NetQueue, ReadTapMock,
     };
+    use crate::devices::virtio::net::{Net, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX};
+    use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
-    use crate::devices::virtio::{
-        IrqType, Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, VIRTQ_DESC_F_NEXT,
-        VIRTQ_DESC_F_WRITE,
+    use crate::logger::IncMetric;
+    use crate::vstate::memory::{
+        Address, Bytes, GuestAddress, GuestMemoryExtension, GuestMemoryMmap,
     };
 
     pub struct TestHelper<'a> {
@@ -392,11 +396,9 @@ pub mod test {
         pub fn get_default() -> TestHelper<'a> {
             let mut event_manager = EventManager::new().unwrap();
             let mut net = default_net();
-            let mem = utils::vm_memory::test_utils::create_guest_memory_unguarded(
-                &[(GuestAddress(0), MAX_BUFFER_SIZE)],
-                false,
-            )
-            .unwrap();
+            let mem =
+                GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), MAX_BUFFER_SIZE)], false)
+                    .unwrap();
             // transmute mem_ref lifetime to 'a
             let mem_ref = unsafe { mem::transmute::<&GuestMemoryMmap, &'a GuestMemoryMmap>(&mem) };
 
@@ -493,7 +495,7 @@ pub mod test {
             // Inject frame to tap and run epoll.
             let frame = inject_tap_tx_frame(&self.net(), frame_len);
             check_metric_after_block!(
-                METRICS.net.rx_packets_count,
+                self.net().metrics.rx_packets_count,
                 0,
                 self.event_manager.run_with_timeout(100).unwrap()
             );
@@ -514,10 +516,14 @@ pub mod test {
             self.add_desc_chain(
                 NetQueue::Rx,
                 0,
-                &[(0, expected_frame.len() as u32, VIRTQ_DESC_F_WRITE)],
+                &[(
+                    0,
+                    u32::try_from(expected_frame.len()).unwrap(),
+                    VIRTQ_DESC_F_WRITE,
+                )],
             );
             check_metric_after_block!(
-                METRICS.net.rx_packets_count,
+                self.net().metrics.rx_packets_count,
                 1,
                 self.event_manager.run_with_timeout(100).unwrap()
             );
@@ -525,7 +531,7 @@ pub mod test {
             assert_eq!(self.rxq.used.idx.get(), used_idx + 1);
             assert!(&self.net().irq_trigger.has_pending_irq(IrqType::Vring));
             self.rxq
-                .check_used_elem(used_idx, 0, expected_frame.len() as u32);
+                .check_used_elem(used_idx, 0, expected_frame.len().try_into().unwrap());
             self.rxq.dtable[0].check_data(expected_frame);
         }
 

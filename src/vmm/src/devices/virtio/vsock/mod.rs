@@ -14,6 +14,7 @@
 mod csm;
 mod device;
 mod event_handler;
+pub mod metrics;
 mod packet;
 pub mod persist;
 pub mod test_utils;
@@ -23,30 +24,35 @@ use std::os::unix::io::AsRawFd;
 
 use packet::VsockPacket;
 use utils::epoll::EventSet;
-use utils::vm_memory::{GuestMemoryError, GuestMemoryMmap};
+use vm_memory::GuestMemoryError;
 
 pub use self::defs::uapi::VIRTIO_ID_VSOCK as TYPE_VSOCK;
 pub use self::defs::VSOCK_DEV_ID;
 pub use self::device::Vsock;
 pub use self::unix::{VsockUnixBackend, VsockUnixBackendError};
 use crate::devices::virtio::persist::PersistError as VirtioStateError;
+use crate::vstate::memory::GuestMemoryMmap;
 
 mod defs {
+    use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
+
     /// Device ID used in MMIO device identification.
     /// Because Vsock is unique per-vm, this ID can be hardcoded.
     pub const VSOCK_DEV_ID: &str = "vsock";
 
     /// Number of virtio queues.
     pub const VSOCK_NUM_QUEUES: usize = 3;
-    /// Max size of virtio queues.
-    pub const VSOCK_QUEUE_SIZE: u16 = 256;
+
     /// Virtio queue sizes, in number of descriptor chain heads.
     /// There are 3 queues for a virtio device (in this order): RX, TX, Event
-    pub const VSOCK_QUEUE_SIZES: [u16; VSOCK_NUM_QUEUES] =
-        [VSOCK_QUEUE_SIZE, VSOCK_QUEUE_SIZE, VSOCK_QUEUE_SIZE];
+    pub const VSOCK_QUEUE_SIZES: [u16; VSOCK_NUM_QUEUES] = [
+        FIRECRACKER_MAX_QUEUE_SIZE,
+        FIRECRACKER_MAX_QUEUE_SIZE,
+        FIRECRACKER_MAX_QUEUE_SIZE,
+    ];
 
     /// Max vsock packet data/buffer size.
-    pub const MAX_PKT_BUF_SIZE: usize = 64 * 1024;
+    pub const MAX_PKT_BUF_SIZE: u32 = 64 * 1024;
 
     pub mod uapi {
 

@@ -6,9 +6,11 @@ use std::fmt::Debug;
 use std::io::Write;
 use std::num::Wrapping;
 
-use utils::vm_memory::{BitmapSlice, Bytes, VolatileMemoryError, VolatileSlice, WriteVolatile};
+use utils::wrap_usize_to_u32;
+use vm_memory::{VolatileMemoryError, VolatileSlice, WriteVolatile};
 
 use super::{defs, VsockCsmError};
+use crate::vstate::memory::{BitmapSlice, Bytes};
 
 /// A simple ring-buffer implementation, used by vsock connections to buffer TX (guest -> host)
 /// data.  Memory for this buffer is allocated lazily, since buffering will only be needed when
@@ -76,7 +78,7 @@ impl TxBuf {
 
         // Either way, we've just pushed exactly `src.len()` bytes, so that's the amount by
         // which the (wrapping) buffer head needs to move forward.
-        self.head += Wrapping(src.len() as u32);
+        self.head += wrap_usize_to_u32(src.len());
 
         Ok(())
     }
@@ -111,7 +113,7 @@ impl TxBuf {
             .map_err(VsockCsmError::TxBufFlush)?;
 
         // Move the buffer tail ahead by the amount (of bytes) we were able to flush out.
-        self.tail += Wrapping(written as u32);
+        self.tail += wrap_usize_to_u32(written);
 
         // If we weren't able to flush out as much as we tried, there's no point in attempting
         // our second write.
@@ -234,9 +236,7 @@ mod tests {
     fn test_push_wrap() {
         let mut txbuf = TxBuf::new();
         let mut sink = TestSink::new();
-        let mut tmp: Vec<u8> = Vec::new();
-
-        tmp.resize(TxBuf::SIZE - 2, 0);
+        let mut tmp: Vec<u8> = vec![0; TxBuf::SIZE - 2];
         txbuf
             .push(&VolatileSlice::from(tmp.as_mut_slice()))
             .unwrap();

@@ -18,7 +18,7 @@ mod chroot;
 mod env;
 mod resource_limits;
 
-const JAILER_VERSION: &str = env!("FIRECRACKER_VERSION");
+const JAILER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, thiserror::Error)]
 pub enum JailerError {
@@ -64,6 +64,8 @@ pub enum JailerError {
     CreateDir(PathBuf, io::Error),
     #[error("Encountered interior \\0 while parsing a string")]
     CStringParsing(NulError),
+    #[error("Failed to daemonize: {0}")]
+    Daemonize(io::Error),
     #[error("Failed to open directory {0}: {1}")]
     DirOpen(String, String),
     #[error("Failed to duplicate fd: {0}")]
@@ -91,7 +93,7 @@ pub enum JailerError {
     #[error("Failed to create the jail root directory before pivoting root: {0}")]
     MkdirOldRoot(io::Error),
     #[error("Failed to create {1} via mknod inside the jail: {0}")]
-    MknodDev(io::Error, &'static str),
+    MknodDev(io::Error, String),
     #[error("Failed to bind mount the jail root directory: {0}")]
     MountBind(io::Error),
     #[error("Failed to change the propagation type to slave: {0}")]
@@ -254,7 +256,7 @@ fn close_fds_by_close_range() -> Result<(), JailerError> {
             libc::c_uint::MAX,
             libc::CLOSE_RANGE_UNSHARE,
         )
-    } as libc::c_int)
+    })
     .into_empty_result()
     .map_err(JailerError::CloseRange)
 }

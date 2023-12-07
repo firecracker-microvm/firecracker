@@ -6,10 +6,10 @@ customers effectively plan their Firecracker based operations.
 
 ## Firecracker releases
 
-Firecracker uses [semantic versioning 2.0.0](http://semver.org/) for all
-releases. By definition, the API version implemented by a Firecracker binary
-is equivalent to that binary’s version. Semantic versions are comprised of
-three fields in the form: `vMAJOR.MINOR.PATCH`. Additional labels for
+Firecracker uses [semantic versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
+for all releases. By definition, the API version implemented by a Firecracker
+binary is equivalent to that binary’s version. Semantic versions are comprised
+of three fields in the form: `vMAJOR.MINOR.PATCH`. Additional labels for
 pre-release and build metadata are available as extensions to the
 MAJOR.MINOR.PATCH format.
 
@@ -85,13 +85,14 @@ also be specifying the supported kernel versions.
 ## Release Status
 
 | Release | Release Date | Latest Patch | Min. end of support | Official end of Support        |
-| ------: | -----------: | -----------: | ------------------: | :----------------------------- |
-| v1.4    |   2023-07-20 | v1.4.1       |          2024-01-20 | Supported                      |
-| v1.3    |   2023-03-02 | v1.3.3       |          2023-09-02 | Supported                      |
-| v1.2    |   2022-11-30 | v1.2.1       |          2023-05-30 | 2023-07-20 (v1.4 released)     |
-| v1.1    |   2022-05-06 | v1.1.4       |          2022-11-06 | 2023-03-02 (v1.3 released)     |
-| v1.0    |   2022-01-31 | v1.0.2       |          2022-07-31 | 2022-11-30 (v1.2 released)     |
-| v0.25   |   2021-03-13 | v0.25.2      |          2021-09-13 | 2022-03-13 (end of 1y support) |
+|--------:|-------------:|-------------:|--------------------:|:-------------------------------|
+|    v1.5 |   2023-10-09 |       v1.5.1 |          2024-04-09 | Supported                      |
+|    v1.4 |   2023-07-20 |       v1.4.1 |          2024-01-20 | Supported                      |
+|    v1.3 |   2023-03-02 |       v1.3.3 |          2023-09-02 | 2023-10-09 (v1.5 released)     |
+|    v1.2 |   2022-11-30 |       v1.2.1 |          2023-05-30 | 2023-07-20 (v1.4 released)     |
+|    v1.1 |   2022-05-06 |       v1.1.4 |          2022-11-06 | 2023-03-02 (v1.3 released)     |
+|    v1.0 |   2022-01-31 |       v1.0.2 |          2022-07-31 | 2022-11-30 (v1.2 released)     |
+|   v0.25 |   2021-03-13 |      v0.25.2 |          2021-09-13 | 2022-03-13 (end of 1y support) |
 
 ## API support
 
@@ -108,18 +109,12 @@ work as expected with all Firecracker binary versions X.V.W, where V >= Y.
 
 ### Deprecation of elements in the API
 
-We will consider a deprecated API endpoint to be an endpoint which still has
-backing functionality and can be used, but will be removed completely along
-with said functionality in an upcoming API version. All deprecated endpoints
-are supported until at least the next MAJOR version release, where they _may
-be removed_.
-
-When elements of the API are deprecated in a MINOR release, they will still
-work for the longest of the following:
-
-* all subsequent Firecracker MINOR releases of the same MAJOR release;
-* any Firecracker MINOR release for at least 6 months from release date;
-* the next 2 Firecracker releases, regardless if they are MAJOR or MINOR.
+Firecracker uses [semantic versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
+in terms of deprecating and removing API elements. We will consider a deprecated
+API element to be an element which still has backing functionality and will be
+supported at least until the next MAJOR version, where they _will be removed_.
+The support period of deprecated API elements is tied to
+[the Firecracker release support](https://github.com/firecracker-microvm/firecracker/blob/main/docs/RELEASE_POLICY.md#release-support).
 
 ## Developer preview features
 

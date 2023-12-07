@@ -28,54 +28,51 @@ use std::fmt::Debug;
 use std::os::unix::io::AsRawFd;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use log::{debug, error, warn};
-use logger::{IncMetric, METRICS};
+use log::{error, warn};
 use utils::epoll::EventSet;
 
 use super::device::{Vsock, EVQ_INDEX, RXQ_INDEX, TXQ_INDEX};
 use super::VsockBackend;
-use crate::devices::virtio::VirtioDevice;
+use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::vsock::metrics::METRICS;
+use crate::logger::IncMetric;
 
 impl<B> Vsock<B>
 where
     B: Debug + VsockBackend + 'static,
 {
     pub fn handle_rxq_event(&mut self, evset: EventSet) -> bool {
-        debug!("vsock: RX queue event");
-
         if evset != EventSet::IN {
             warn!("vsock: rxq unexpected event {:?}", evset);
-            METRICS.vsock.rx_queue_event_fails.inc();
+            METRICS.rx_queue_event_fails.inc();
             return false;
         }
 
         let mut raise_irq = false;
         if let Err(err) = self.queue_events[RXQ_INDEX].read() {
             error!("Failed to get vsock rx queue event: {:?}", err);
-            METRICS.vsock.rx_queue_event_fails.inc();
+            METRICS.rx_queue_event_fails.inc();
         } else if self.backend.has_pending_rx() {
             raise_irq |= self.process_rx();
-            METRICS.vsock.rx_queue_event_count.inc();
+            METRICS.rx_queue_event_count.inc();
         }
         raise_irq
     }
 
     pub fn handle_txq_event(&mut self, evset: EventSet) -> bool {
-        debug!("vsock: TX queue event");
-
         if evset != EventSet::IN {
             warn!("vsock: txq unexpected event {:?}", evset);
-            METRICS.vsock.tx_queue_event_fails.inc();
+            METRICS.tx_queue_event_fails.inc();
             return false;
         }
 
         let mut raise_irq = false;
         if let Err(err) = self.queue_events[TXQ_INDEX].read() {
             error!("Failed to get vsock tx queue event: {:?}", err);
-            METRICS.vsock.tx_queue_event_fails.inc();
+            METRICS.tx_queue_event_fails.inc();
         } else {
             raise_irq |= self.process_tx();
-            METRICS.vsock.tx_queue_event_count.inc();
+            METRICS.tx_queue_event_count.inc();
             // The backend may have queued up responses to the packets we sent during
             // TX queue processing. If that happened, we need to fetch those responses
             // and place them into RX buffers.
@@ -87,25 +84,21 @@ where
     }
 
     pub fn handle_evq_event(&mut self, evset: EventSet) -> bool {
-        debug!("vsock: event queue event");
-
         if evset != EventSet::IN {
             warn!("vsock: evq unexpected event {:?}", evset);
-            METRICS.vsock.ev_queue_event_fails.inc();
+            METRICS.ev_queue_event_fails.inc();
             return false;
         }
 
         if let Err(err) = self.queue_events[EVQ_INDEX].read() {
             error!("Failed to consume vsock evq event: {:?}", err);
-            METRICS.vsock.ev_queue_event_fails.inc();
+            METRICS.ev_queue_event_fails.inc();
         }
         false
     }
 
     /// Notify backend of new events.
     pub fn notify_backend(&mut self, evset: EventSet) -> bool {
-        debug!("vsock: backend event");
-
         self.backend.notify(evset);
         // After the backend has been kicked, it might've freed up some resources, so we
         // can attempt to send it more data to process.
@@ -141,7 +134,6 @@ where
     }
 
     fn handle_activate_event(&self, ops: &mut EventOps) {
-        debug!("vsock: activate event");
         if let Err(err) = self.activate_evt.read() {
             error!("Failed to consume net activate event: {:?}", err);
         }
@@ -208,12 +200,12 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use event_manager::{EventManager, SubscriberOps};
-    use utils::vm_memory::Bytes;
 
     use super::super::*;
     use super::*;
     use crate::devices::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
     use crate::devices::virtio::vsock::test_utils::{EventHandlerContext, TestContext};
+    use crate::vstate::memory::{Bytes, GuestMemoryExtension};
 
     #[test]
     fn test_txq_event() {
@@ -413,7 +405,7 @@ mod tests {
     // desc_idx = 0 we are altering the header (first descriptor in the chain), and when
     // desc_idx = 1 we are altering the packet buffer.
     fn vsock_bof_helper(test_ctx: &mut TestContext, desc_idx: usize, addr: u64, len: u32) {
-        use utils::vm_memory::GuestAddress;
+        use crate::vstate::memory::GuestAddress;
 
         assert!(desc_idx <= 1);
 
@@ -453,15 +445,15 @@ mod tests {
 
     #[test]
     fn test_vsock_bof() {
-        use utils::vm_memory::GuestAddress;
+        use crate::vstate::memory::GuestAddress;
 
-        const GAP_SIZE: usize = 768 << 20;
+        const GAP_SIZE: u32 = 768 << 20;
         const FIRST_AFTER_GAP: usize = 1 << 32;
-        const GAP_START_ADDR: usize = FIRST_AFTER_GAP - GAP_SIZE;
+        const GAP_START_ADDR: usize = FIRST_AFTER_GAP - GAP_SIZE as usize;
         const MIB: usize = 1 << 20;
 
         let mut test_ctx = TestContext::new();
-        test_ctx.mem = utils::vm_memory::test_utils::create_anon_guest_memory(
+        test_ctx.mem = GuestMemoryMmap::from_raw_regions(
             &[
                 (GuestAddress(0), 8 * MIB),
                 (GuestAddress((GAP_START_ADDR - MIB) as u64), MIB),
@@ -489,26 +481,16 @@ mod tests {
             &mut test_ctx,
             0,
             GAP_START_ADDR as u64 - 1,
-            VSOCK_PKT_HDR_SIZE as u32,
+            VSOCK_PKT_HDR_SIZE,
         );
 
         // Let's check what happens when the buffer descriptor crosses into the gap, but does
         // not go past its right edge.
-        vsock_bof_helper(
-            &mut test_ctx,
-            1,
-            GAP_START_ADDR as u64 - 4,
-            GAP_SIZE as u32 + 4,
-        );
+        vsock_bof_helper(&mut test_ctx, 1, GAP_START_ADDR as u64 - 4, GAP_SIZE + 4);
 
         // Let's modify the buffer descriptor addr and len such that it crosses over the MMIO gap,
         // and check we cannot assemble the VsockPkts.
-        vsock_bof_helper(
-            &mut test_ctx,
-            1,
-            GAP_START_ADDR as u64 - 4,
-            GAP_SIZE as u32 + 100,
-        );
+        vsock_bof_helper(&mut test_ctx, 1, GAP_START_ADDR as u64 - 4, GAP_SIZE + 100);
     }
 
     #[test]

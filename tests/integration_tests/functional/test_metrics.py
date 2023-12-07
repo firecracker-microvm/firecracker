@@ -2,12 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests the metrics system."""
 
-import datetime
-import math
 import os
-import platform
 
-import host_tools.logging as log_tools
+import host_tools.drive as drive_tools
+from host_tools.metrics import FcDeviceMetrics, validate_fc_metrics
 
 
 def test_flush_metrics(test_microvm_with_api):
@@ -17,53 +15,73 @@ def test_flush_metrics(test_microvm_with_api):
     microvm = test_microvm_with_api
     microvm.spawn()
     microvm.basic_config()
-
-    # Configure metrics system.
-    metrics_fifo_path = os.path.join(microvm.path, "metrics_fifo")
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-
-    response = microvm.metrics.put(
-        metrics_path=microvm.create_jailed_resource(metrics_fifo.path)
-    )
-    assert microvm.api_session.is_status_no_content(response.status_code)
-
     microvm.start()
 
-    metrics = microvm.flush_metrics(metrics_fifo)
+    metrics = microvm.flush_metrics()
+    validate_fc_metrics(metrics)
 
-    exp_keys = [
-        "utc_timestamp_ms",
-        "api_server",
-        "balloon",
-        "block",
-        "deprecated_api",
-        "get_api_requests",
-        "i8042",
-        "latencies_us",
-        "logger",
-        "mmds",
-        "net",
-        "patch_api_requests",
-        "put_api_requests",
-        "seccomp",
-        "vcpu",
-        "vmm",
-        "uart",
-        "signals",
-        "vsock",
-        "entropy",
-    ]
 
-    if platform.machine() == "aarch64":
-        exp_keys.append("rtc")
+def test_net_metrics(test_microvm_with_api):
+    """
+    Validate that NetDeviceMetrics doesn't have a breaking change
+    and "net" is aggregate of all "net_*" in the json object.
+    """
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
 
-    assert set(metrics.keys()) == set(exp_keys)
+    # Set up a basic microVM.
+    test_microvm.basic_config()
 
-    utc_time = datetime.datetime.now(datetime.timezone.utc)
-    utc_timestamp_ms = math.floor(utc_time.timestamp() * 1000)
+    # randomly selected 10 as the number of net devices to test
+    num_net_devices = 10
 
-    # Assert that the absolute difference is less than 1 second, to check that
-    # the reported utc_timestamp_ms is actually a UTC timestamp from the Unix
-    # Epoch.Regression test for:
-    # https://github.com/firecracker-microvm/firecracker/issues/2639
-    assert abs(utc_timestamp_ms - metrics["utc_timestamp_ms"]) < 1000
+    net_metrics = FcDeviceMetrics("net", num_net_devices)
+
+    # create more than 1 net devices to test aggregation
+    for _ in range(num_net_devices):
+        test_microvm.add_net_iface()
+    test_microvm.start()
+
+    # check that the started microvm has "net" and "NUM_NET_DEVICES" number of "net_" metrics
+    net_metrics.validate(test_microvm)
+
+    for i in range(num_net_devices):
+        # Test that network devices attached are operational.
+        # Verify if guest can run commands.
+        exit_code, _, _ = test_microvm.ssh_iface(i).run("sync")
+        # test that we get metrics while interacting with different interfaces
+        net_metrics.validate(test_microvm)
+        assert exit_code == 0
+
+
+def test_block_metrics(test_microvm_with_api):
+    """
+    Validate that BlockDeviceMetrics doesn't have a breaking change
+    and "block" is aggregate of all "block_*" in the json object.
+    """
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
+
+    # Add first scratch block device.
+    fs1 = drive_tools.FilesystemFile(
+        os.path.join(test_microvm.fsfiles, "scratch1"), size=128
+    )
+    test_microvm.add_drive("scratch1", fs1.path)
+
+    # Set up a basic microVM.
+    # (this is the second block device added).
+    test_microvm.basic_config()
+
+    # Add the third block device.
+    fs2 = drive_tools.FilesystemFile(
+        os.path.join(test_microvm.fsfiles, "scratch2"), size=512
+    )
+    test_microvm.add_drive("scratch2", fs2.path)
+
+    num_block_devices = 3
+    block_metrics = FcDeviceMetrics("block", num_block_devices)
+
+    test_microvm.start()
+
+    # check that the started microvm has "block" and "num_block_devices" number of "block_" metrics
+    block_metrics.validate(test_microvm)

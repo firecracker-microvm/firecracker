@@ -9,11 +9,12 @@ use std::os::unix::io::RawFd;
 use std::sync::atomic::Ordering;
 
 use utils::syscall::SyscallReturnCode;
-use utils::vm_memory::{Bytes, MmapRegion, VolatileMemory, VolatileMemoryError};
+use vm_memory::{VolatileMemory, VolatileMemoryError};
 
 use super::mmap::{mmap, MmapError};
 use crate::io_uring::bindings;
 use crate::io_uring::operation::Sqe;
+use crate::vstate::memory::{Bytes, MmapRegion};
 
 #[derive(Debug, derive_more::From)]
 /// SQueue Error.
@@ -142,7 +143,7 @@ impl SubmissionQueue {
                 flags,
                 std::ptr::null::<libc::sigset_t>(),
             )
-        } as libc::c_int)
+        })
         .into_result()?;
         // It's safe to convert to u32 since the syscall didn't return an error.
         let submitted = u32::try_from(submitted).unwrap();

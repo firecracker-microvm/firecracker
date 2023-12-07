@@ -3,20 +3,22 @@
 
 //! Defines the structures needed for saving/restoring balloon devices.
 
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 use std::time::Duration;
 
 use snapshot::Persist;
 use timerfd::{SetTimeFlags, TimerState};
-use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
 use super::*;
 use crate::devices::virtio::balloon::device::{BalloonStats, ConfigSpace};
+use crate::devices::virtio::device::DeviceState;
 use crate::devices::virtio::persist::VirtioDeviceState;
-use crate::devices::virtio::{DeviceState, TYPE_BALLOON};
+use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
+use crate::devices::virtio::TYPE_BALLOON;
+use crate::vstate::memory::GuestMemoryMmap;
 
 /// Information about the balloon config's that are saved
 /// at snapshot.
@@ -137,11 +139,11 @@ impl Persist<'_> for Balloon {
                 &constructor_args.mem,
                 TYPE_BALLOON,
                 num_queues,
-                BALLOON_QUEUE_SIZE,
+                FIRECRACKER_MAX_QUEUE_SIZE,
             )
             .map_err(|_| Self::Error::QueueRestoreError)?;
         balloon.irq_trigger.irq_status =
-            Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
+            Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
         balloon.avail_features = state.virtio_state.avail_features;
         balloon.acked_features = state.virtio_state.acked_features;
         balloon.latest_stats = state.latest_stats.create_stats();

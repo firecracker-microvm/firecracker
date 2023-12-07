@@ -25,22 +25,20 @@ use std::fmt::Debug;
 pub use common_types::*;
 use serde::de::Error as SerdeError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
+use versionize_derive::Versionize;
 
 /// Error for GetCpuTemplate trait.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq, Eq)]
 pub enum GetCpuTemplateError {
     #[cfg(target_arch = "x86_64")]
-    /// Failed to get CPU vendor information.
-    #[error("Failed to get CPU vendor information: {0}")]
+    /// Failed to get CPU vendor information: {0}
     GetCpuVendor(crate::cpu_config::x86_64::cpuid::common::GetCpuidError),
-    /// CPU Vendor mismatched between the actual CPU and CPU template.
-    #[error("CPU vendor mismatched between actual CPU and CPU template.")]
+    /// CPU vendor mismatched between actual CPU and CPU template.
     CpuVendorMismatched,
-    /// Invalid static CPU template.
-    #[error("Invalid static CPU template: {0}")]
+    /// Invalid static CPU template: {0}
     InvalidStaticCpuTemplate(StaticCpuTemplate),
-    /// Invalid CPU model.
-    #[error("The current CPU model is not permitted to apply the CPU template.")]
+    /// The current CPU model is not permitted to apply the CPU template.
     InvalidCpuModel,
 }
 
@@ -65,11 +63,24 @@ pub enum CpuTemplateType {
     Static(StaticCpuTemplate),
 }
 
+// This conversion is only used for snapshot, but the static CPU template
+// information has not been saved into snapshot since v1.1.
 impl From<&Option<CpuTemplateType>> for StaticCpuTemplate {
     fn from(value: &Option<CpuTemplateType>) -> Self {
         match value {
             Some(CpuTemplateType::Static(template)) => *template,
             Some(CpuTemplateType::Custom(_)) | None => StaticCpuTemplate::None,
+        }
+    }
+}
+
+// This conversion is used when converting `&VmConfig` to `MachineConfig` to
+// respond `GET /machine-config` and `GET /vm`.
+impl From<&CpuTemplateType> for StaticCpuTemplate {
+    fn from(value: &CpuTemplateType) -> Self {
+        match value {
+            CpuTemplateType::Static(template) => *template,
+            CpuTemplateType::Custom(_) => StaticCpuTemplate::None,
         }
     }
 }
@@ -89,6 +100,59 @@ impl TryFrom<&str> for CustomCpuTemplate {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         CustomCpuTemplate::try_from(value.as_bytes())
+    }
+}
+
+/// Struct to represent user defined kvm capability.
+/// Users can add or remove kvm capabilities to be checked
+/// by FC in addition to those FC checks by default.
+#[derive(Debug, Clone, Eq, PartialEq, Versionize)]
+pub enum KvmCapability {
+    /// Add capability to the check list.
+    Add(u32),
+    /// Remove capability from the check list.
+    Remove(u32),
+}
+
+impl Serialize for KvmCapability {
+    /// Serialize KvmCapability into a string.
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let s = match self {
+            KvmCapability::Add(cap) => format!("{cap}"),
+            KvmCapability::Remove(cap) => format!("!{cap}"),
+        };
+        serializer.serialize_str(&s)
+    }
+}
+
+impl<'de> Deserialize<'de> for KvmCapability {
+    /// Deserialize string into a KvmCapability.
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let original_str = <String as Deserialize>::deserialize(deserializer)?;
+
+        let parse_err = |e| {
+            D::Error::custom(format!(
+                "Failed to parse string [{}] as a kvm capability - can not convert to numeric: {}",
+                original_str, e
+            ))
+        };
+
+        match original_str.strip_prefix('!') {
+            Some(s) => {
+                let v = s.parse::<u32>().map_err(parse_err)?;
+                Ok(Self::Remove(v))
+            }
+            None => {
+                let v = original_str.parse::<u32>().map_err(parse_err)?;
+                Ok(Self::Add(v))
+            }
+        }
     }
 }
 
@@ -112,6 +176,88 @@ where
     #[inline]
     pub fn apply(&self, value: V) -> V {
         (value & !self.filter) | self.value
+    }
+}
+
+impl<V> Serialize for RegisterValueFilter<V>
+where
+    V: Numeric + Debug,
+{
+    /// Serialize combination of value and filter into a single tri state string
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut bitmap_str = Vec::with_capacity(V::BITS as usize + 2);
+        bitmap_str.push(b'0');
+        bitmap_str.push(b'b');
+
+        for i in (0..V::BITS).rev() {
+            match self.filter.bit(i) {
+                true => {
+                    let val = self.value.bit(i);
+                    bitmap_str.push(b'0' + u8::from(val));
+                }
+                false => bitmap_str.push(b'x'),
+            }
+        }
+
+        // # Safety:
+        // We know that bitmap_str contains only ASCII characters
+        let s = unsafe { std::str::from_utf8_unchecked(&bitmap_str) };
+
+        serializer.serialize_str(s)
+    }
+}
+
+impl<'de, V> Deserialize<'de> for RegisterValueFilter<V>
+where
+    V: Numeric + Debug,
+{
+    /// Deserialize a composite bitmap string into a value pair
+    /// input string: "010x"
+    /// result: {
+    ///     filter: 1110
+    ///     value: 0100
+    /// }
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let original_str = <String as Deserialize>::deserialize(deserializer)?;
+
+        let stripped_str = original_str.strip_prefix("0b").unwrap_or(&original_str);
+
+        let (mut filter, mut value) = (V::zero(), V::zero());
+        let mut i = 0;
+        for s in stripped_str.as_bytes().iter().rev() {
+            if V::BITS == i {
+                return Err(D::Error::custom(format!(
+                    "Failed to parse string [{}] as a bitmap - string is too long",
+                    original_str
+                )));
+            }
+
+            match s {
+                b'_' => continue,
+                b'x' => {}
+                b'0' => {
+                    filter |= V::one() << i;
+                }
+                b'1' => {
+                    filter |= V::one() << i;
+                    value |= V::one() << i;
+                }
+                c => {
+                    return Err(D::Error::custom(format!(
+                        "Failed to parse string [{}] as a bitmap - unknown character: {}",
+                        original_str, c
+                    )))
+                }
+            }
+            i += 1;
+        }
+        Ok(RegisterValueFilter { filter, value })
     }
 }
 
@@ -162,91 +308,32 @@ impl_numeric!(u32);
 impl_numeric!(u64);
 impl_numeric!(u128);
 
-impl<V> Serialize for RegisterValueFilter<V>
-where
-    V: Numeric + Debug,
-{
-    /// Serialize combination of value and filter into a single tri state string
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut bitmap_str = Vec::with_capacity(V::BITS as usize + 2);
-        bitmap_str.push(b'0');
-        bitmap_str.push(b'b');
-
-        for i in (0..V::BITS).rev() {
-            match self.filter.bit(i) {
-                true => {
-                    let val = self.value.bit(i);
-                    bitmap_str.push(b'0' + u8::from(val));
-                }
-                false => bitmap_str.push(b'x'),
-            }
-        }
-
-        // # Safety:
-        // We know that bitmap_str contains only ASCII characters
-        let s = unsafe { std::str::from_utf8_unchecked(&bitmap_str) };
-
-        serializer.serialize_str(s)
-    }
-}
-
-impl<'de, V> Deserialize<'de> for RegisterValueFilter<V>
-where
-    V: Numeric + Debug,
-{
-    /// Deserialize a composite bitmap string into a value pair
-    /// input string: "010x"
-    /// result: {
-    ///     filter: 1110
-    ///     value: 0100
-    /// }
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let original_str = String::deserialize(deserializer)?;
-
-        let stripped_str = original_str.strip_prefix("0b").unwrap_or(&original_str);
-
-        let (mut filter, mut value) = (V::zero(), V::zero());
-        let mut i = 0;
-        for s in stripped_str.as_bytes().iter().rev() {
-            if V::BITS == i {
-                return Err(D::Error::custom(format!(
-                    "Failed to parse string [{}] as a bitmap - string is too long",
-                    original_str
-                )));
-            }
-
-            match s {
-                b'_' => continue,
-                b'x' => {}
-                b'0' => {
-                    filter |= V::one() << i;
-                }
-                b'1' => {
-                    filter |= V::one() << i;
-                    value |= V::one() << i;
-                }
-                c => {
-                    return Err(D::Error::custom(format!(
-                        "Failed to parse string [{}] as a bitmap - unknown character: {}",
-                        original_str, c
-                    )))
-                }
-            }
-            i += 1;
-        }
-        Ok(RegisterValueFilter { filter, value })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_kvm_capability_serde() {
+        let kvm_cap = KvmCapability::Add(69);
+
+        let expected_str = "\"69\"";
+        let serialized = serde_json::to_string(&kvm_cap).unwrap();
+        assert_eq!(&serialized, expected_str);
+
+        let kvm_cap = KvmCapability::Remove(69);
+
+        let expected_str = "\"!69\"";
+        let serialized = serde_json::to_string(&kvm_cap).unwrap();
+        assert_eq!(&serialized, expected_str);
+
+        let serialized = "\"69\"";
+        let deserialized: KvmCapability = serde_json::from_str(serialized).unwrap();
+        assert_eq!(deserialized, KvmCapability::Add(69));
+
+        let serialized = "\"!69\"";
+        let deserialized: KvmCapability = serde_json::from_str(serialized).unwrap();
+        assert_eq!(deserialized, KvmCapability::Remove(69));
+    }
 
     #[test]
     fn test_register_value_filter_serde() {

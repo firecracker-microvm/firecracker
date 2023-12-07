@@ -20,8 +20,14 @@ from github import Github
 def build_tarball(release_dir, release_tgz, arch):
     """Build a release tarball with local assets"""
     # Do not include signatures in GitHub release since we aren't
-    # making those keys public
-    exclude_files = {"RELEASE_NOTES", "SHA256SUMS.sig"}
+    # making those keys public.
+    # Exclude CPU templates in GitHub release as they are already
+    # available on GitHub without any action (like building a binary).
+    exclude_files = {
+        "RELEASE_NOTES",
+        "SHA256SUMS.sig",
+        *[f.stem for f in Path("tests/data/static_cpu_templates").glob("*.json")],
+    }
     with tarfile.open(release_tgz, "w:gz") as tar:
         files = [x for x in release_dir.rglob("*") if x.is_file()]
         for asset in files:
@@ -56,6 +62,8 @@ def github_release(tag_version, repo, github_token):
         assets.append(release_tgz)
         assets.append(sha256sums)
 
+    assets.append(Path("test_results.tar.gz"))
+
     message_file = Path(f"release-{tag_version}-x86_64") / "RELEASE_NOTES"
     message = message_file.read_text()
 
@@ -76,7 +84,7 @@ def github_release(tag_version, repo, github_token):
         content_type = "application/octet-stream"
         if asset.suffix == ".txt":
             content_type = "text/plain"
-        elif asset.suffix == ".tgz":
+        elif asset.suffix in {".tgz", ".gz"}:
             content_type = "application/gzip"
         print(f"Uploading asset {asset} with content-type={content_type}")
         gh_release.upload_asset(str(asset), label=asset.name, content_type=content_type)

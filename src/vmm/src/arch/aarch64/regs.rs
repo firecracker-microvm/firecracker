@@ -73,6 +73,8 @@ macro_rules! arm64_core_reg_id {
 }
 pub(crate) use arm64_core_reg_id;
 
+use crate::vstate::memory::ByteValued;
+
 /// This macro computes the ID of a specific ARM64 system register similar to how
 /// the kernel C macro does.
 /// https://elixir.bootlin.com/linux/v4.20.17/source/arch/arm64/include/uapi/asm/kvm.h#L203
@@ -135,27 +137,27 @@ pub enum RegSize {
 
 impl RegSize {
     /// Size of u8 register in bytes
-    pub const U8_SIZE: u64 = 1;
+    pub const U8_SIZE: usize = 1;
     /// Size of u16 register in bytes
-    pub const U16_SIZE: u64 = 2;
+    pub const U16_SIZE: usize = 2;
     /// Size of u32 register in bytes
-    pub const U32_SIZE: u64 = 4;
+    pub const U32_SIZE: usize = 4;
     /// Size of u64 register in bytes
-    pub const U64_SIZE: u64 = 8;
+    pub const U64_SIZE: usize = 8;
     /// Size of u128 register in bytes
-    pub const U128_SIZE: u64 = 16;
+    pub const U128_SIZE: usize = 16;
     /// Size of u256 register in bytes
-    pub const U256_SIZE: u64 = 32;
+    pub const U256_SIZE: usize = 32;
     /// Size of u512 register in bytes
-    pub const U512_SIZE: u64 = 64;
+    pub const U512_SIZE: usize = 64;
     /// Size of u1024 register in bytes
-    pub const U1024_SIZE: u64 = 128;
+    pub const U1024_SIZE: usize = 128;
     /// Size of u2048 register in bytes
-    pub const U2048_SIZE: u64 = 256;
+    pub const U2048_SIZE: usize = 256;
 }
 
-impl From<u64> for RegSize {
-    fn from(value: u64) -> Self {
+impl From<usize> for RegSize {
+    fn from(value: usize) -> Self {
         match value {
             RegSize::U8_SIZE => RegSize::U8,
             RegSize::U16_SIZE => RegSize::U16,
@@ -171,7 +173,7 @@ impl From<u64> for RegSize {
     }
 }
 
-impl From<RegSize> for u64 {
+impl From<RegSize> for usize {
     fn from(value: RegSize) -> Self {
         match value {
             RegSize::U8 => RegSize::U8_SIZE,
@@ -188,8 +190,8 @@ impl From<RegSize> for u64 {
 }
 
 /// Returns register size in bytes
-pub fn reg_size(reg_id: u64) -> u64 {
-    2_u64.pow(((reg_id & KVM_REG_SIZE_MASK) >> KVM_REG_SIZE_SHIFT) as u32)
+pub fn reg_size(reg_id: u64) -> usize {
+    2_usize.pow(((reg_id & KVM_REG_SIZE_MASK) >> KVM_REG_SIZE_SHIFT) as u32)
 }
 
 /// Storage for aarch64 registers with different sizes.
@@ -293,7 +295,7 @@ impl Versionize for Aarch64RegisterVec {
         Self: Sized,
     {
         let inner = Aarch64RegisterVecInner::deserialize(reader, version_map, source_version)?;
-        let mut total_size: u64 = 0;
+        let mut total_size: usize = 0;
         for id in inner.ids.iter() {
             let reg_size = reg_size(*id);
             if RegSize::U2048_SIZE < reg_size {
@@ -305,7 +307,7 @@ impl Versionize for Aarch64RegisterVec {
             }
             total_size += reg_size;
         }
-        if total_size as usize != inner.data.len() {
+        if total_size != inner.data.len() {
             Err(VersionizeError::Deserialize(
                 "Failed to deserialize aarch64 registers. Sum of registers sizes is not equal to \
                  registers data length"
@@ -336,7 +338,7 @@ impl<'a> Iterator for Aarch64RegisterVecIterator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if self.index < self.ids.len() {
             let id = self.ids[self.index];
-            let reg_size = reg_size(id) as usize;
+            let reg_size = reg_size(id);
             let reg_ref = Aarch64RegisterRef {
                 id,
                 data: &self.data[self.offset..self.offset + reg_size],
@@ -365,7 +367,7 @@ impl<'a> Iterator for Aarch64RegisterVecIteratorMut<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if self.index < self.ids.len() {
             let id = self.ids[self.index];
-            let reg_size = reg_size(id) as usize;
+            let reg_size = reg_size(id);
 
             let data = std::mem::take(&mut self.data);
             let (head, tail) = data.split_at_mut(reg_size);
@@ -395,7 +397,7 @@ impl<'a> Aarch64RegisterRef<'a> {
     /// will panic.
     pub fn new(id: u64, data: &'a [u8]) -> Self {
         assert_eq!(
-            reg_size(id) as usize,
+            reg_size(id),
             data.len(),
             "Attempt to create a register reference with incompatible id and data length"
         );
@@ -437,7 +439,7 @@ impl<'a> Aarch64RegisterRefMut<'a> {
     /// will panic.
     pub fn new(id: u64, data: &'a mut [u8]) -> Self {
         assert_eq!(
-            reg_size(id) as usize,
+            reg_size(id),
             data.len(),
             "Attempt to create a register reference with incompatible id and data length"
         );
@@ -502,19 +504,13 @@ impl<'a> TryFrom<Aarch64RegisterRef<'a>> for Aarch64RegisterOld {
     }
 }
 
-impl<'a> TryFrom<&Aarch64RegisterOld> for Aarch64RegisterRef<'a> {
+impl<'a> TryFrom<&'a Aarch64RegisterOld> for Aarch64RegisterRef<'a> {
     type Error = &'static str;
 
-    fn try_from(value: &Aarch64RegisterOld) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a Aarch64RegisterOld) -> Result<Self, Self::Error> {
         // # Safety:
         // `self.data` is a valid memory and slice size is valid for this type.
-        let data_ref = unsafe {
-            std::slice::from_raw_parts(
-                (&value.data as *const u128).cast::<u8>(),
-                std::mem::size_of::<u128>(),
-            )
-        };
-
+        let data_ref = value.data.as_slice();
         let reg_size = reg_size(value.id);
         if RegSize::U2048_SIZE < reg_size {
             return Err("Registers bigger then 2048 bits are not supported");
@@ -784,7 +780,7 @@ mod tests {
         let bytes = 69_u64.to_le_bytes();
         let reg_ref = Aarch64RegisterRef::new(KVM_REG_SIZE_U64, &bytes);
 
-        assert_eq!(u64::from(reg_ref.size()), 8);
+        assert_eq!(usize::from(reg_ref.size()), 8);
         assert_eq!(reg_ref.value::<u64, 8>(), 69);
     }
 
@@ -813,7 +809,7 @@ mod tests {
         let mut bytes = 69_u64.to_le_bytes();
         let mut reg_ref = Aarch64RegisterRefMut::new(KVM_REG_SIZE_U64, &mut bytes);
 
-        assert_eq!(u64::from(reg_ref.size()), 8);
+        assert_eq!(usize::from(reg_ref.size()), 8);
         assert_eq!(reg_ref.value::<u64, 8>(), 69);
         reg_ref.set_value(reg_ref.value::<u64, 8>() + 1);
         assert_eq!(reg_ref.value::<u64, 8>(), 70);
@@ -848,7 +844,7 @@ mod tests {
 
         let reg_ref: Aarch64RegisterRef = (&old_reg).try_into().unwrap();
         assert_eq!(old_reg.id, reg_ref.id);
-        assert_eq!(old_reg.data as u64, reg_ref.value::<u64, 8>());
+        assert_eq!(old_reg.data, u128::from(reg_ref.value::<u64, 8>()));
 
         let old_reg = Aarch64RegisterOld {
             id: KVM_REG_SIZE_U256,
@@ -875,7 +871,7 @@ mod tests {
 
         let reg: Aarch64RegisterOld = reg_ref.try_into().unwrap();
         assert_eq!(reg.id, reg_ref.id);
-        assert_eq!(reg.data as u64, reg_ref.value::<u64, 8>());
+        assert_eq!(reg.data, u128::from(reg_ref.value::<u64, 8>()));
 
         let reg_ref = Aarch64RegisterRef::new(KVM_REG_SIZE_U256, &[0_u8; 32]);
 

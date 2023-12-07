@@ -22,8 +22,6 @@ pub mod drive;
 pub mod entropy;
 /// Wrapper over the microVM general information attached to the microVM.
 pub mod instance_info;
-/// Wrapper for configuring the logger.
-pub mod logger;
 /// Wrapper for configuring the memory and CPU of the microVM.
 pub mod machine_config;
 /// Wrapper for configuring the metrics.
@@ -155,8 +153,8 @@ impl From<&RateLimiter> for RateLimiterConfig {
 }
 
 impl RateLimiterConfig {
-    // Option<T> already implements From<T> so we have to use a custom one.
-    fn into_option(self) -> Option<RateLimiterConfig> {
+    /// Option<T> already implements From<T> so we have to use a custom one.
+    pub fn into_option(self) -> Option<RateLimiterConfig> {
         if self.bandwidth.is_some() || self.ops.is_some() {
             Some(self)
         } else {

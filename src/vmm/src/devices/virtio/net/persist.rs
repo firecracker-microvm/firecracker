@@ -4,25 +4,27 @@
 //! Defines the structures needed for saving/restoring net devices.
 
 use std::io;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 
 use log::warn;
-use mmds::data_store::Mmds;
-use mmds::ns::MmdsNetworkStack;
-use mmds::persist::MmdsNetworkStackState;
 use snapshot::Persist;
 use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
-use utils::vm_memory::GuestMemoryMmap;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
 use super::device::Net;
-use super::{NET_NUM_QUEUES, NET_QUEUE_SIZE};
+use super::NET_NUM_QUEUES;
+use crate::devices::virtio::device::DeviceState;
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
-use crate::devices::virtio::{DeviceState, TYPE_NET};
+use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
+use crate::devices::virtio::TYPE_NET;
+use crate::mmds::data_store::Mmds;
+use crate::mmds::ns::MmdsNetworkStack;
+use crate::mmds::persist::MmdsNetworkStackState;
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::rate_limiter::RateLimiter;
+use crate::vstate::memory::GuestMemoryMmap;
 
 /// Information about the network config's that are saved
 /// at snapshot.
@@ -30,8 +32,8 @@ use crate::rate_limiter::RateLimiter;
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct NetConfigSpaceState {
     #[version(end = 2, default_fn = "def_guest_mac_old")]
-    guest_mac: [u8; MAC_ADDR_LEN],
-    #[version(start = 2, de_fn = "de_guest_mac_v2", ser_fn = "ser_guest_mac_v2")]
+    guest_mac: [u8; MAC_ADDR_LEN as usize],
+    #[version(start = 2, de_fn = "de_guest_mac_v2")]
     guest_mac_v2: Option<MacAddr>,
 }
 
@@ -45,17 +47,7 @@ impl NetConfigSpaceState {
         Ok(())
     }
 
-    fn ser_guest_mac_v2(&mut self, _target_version: u16) -> VersionizeResult<()> {
-        // v1.1 and older versions do not have optional MAC address.
-        warn!("Saving to older snapshot version, optional MAC address will not be saved.");
-        match self.guest_mac_v2 {
-            Some(mac) => self.guest_mac = mac.into(),
-            None => self.guest_mac = Default::default(),
-        }
-        Ok(())
-    }
-
-    fn def_guest_mac_old(_: u16) -> [u8; MAC_ADDR_LEN] {
+    fn def_guest_mac_old(_: u16) -> [u8; MAC_ADDR_LEN as usize] {
         // v1.2 and newer don't use this field anyway
         Default::default()
     }
@@ -154,10 +146,9 @@ impl Persist<'_> for Net {
             &constructor_args.mem,
             TYPE_NET,
             NET_NUM_QUEUES,
-            NET_QUEUE_SIZE,
+            FIRECRACKER_MAX_QUEUE_SIZE,
         )?;
-        net.irq_trigger.irq_status =
-            Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
+        net.irq_trigger.irq_status = Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
         net.avail_features = state.virtio_state.avail_features;
         net.acked_features = state.virtio_state.acked_features;
 

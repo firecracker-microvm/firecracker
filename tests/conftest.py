@@ -1,8 +1,6 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Pytest fixtures and redefined-outer-name don't mix well. Disable it.
-# pylint:disable=redefined-outer-name
 # We import some fixtures that are unused. Disable that too.
 # pylint:disable=unused-import
 
@@ -26,23 +24,23 @@ designed with the following goals in mind:
 
 import inspect
 import os
-import platform
 import re
 import shutil
 import sys
 import tempfile
 from pathlib import Path
+from typing import Dict
 
 import pytest
 
 import host_tools.cargo_build as build_tools
 from framework import defs, utils
 from framework.artifacts import firecracker_artifacts, kernel_params, rootfs_params
-from framework.microvm import Microvm
+from framework.microvm import MicroVMFactory
 from framework.properties import global_props
 from framework.utils_cpu_templates import (
-    SUPPORTED_CPU_TEMPLATES,
-    SUPPORTED_CUSTOM_CPU_TEMPLATES,
+    custom_cpu_templates_params,
+    static_cpu_templates_params,
 )
 from host_tools.ip_generator import network_config, subnet_generator
 from host_tools.metrics import get_metrics_logger
@@ -58,15 +56,32 @@ if os.geteuid() != 0:
 
 
 METRICS = get_metrics_logger()
+PHASE_REPORT_KEY = pytest.StashKey[Dict[str, pytest.CollectReport]]()
 
 
 def pytest_addoption(parser):
     """Pytest hook. Add command line options."""
     parser.addoption(
-        "--perf-fail",
-        action="store_true",
-        help="fail the test if the baseline does not match",
+        "--binary-dir",
+        action="store",
+        help="use firecracker/jailer binaries from this directory instead of compiling from source",
     )
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_makereport(item, call):  # pylint:disable=unused-argument
+    """Plugin to get test results in fixtures
+
+    https://docs.pytest.org/en/latest/example/simple.html#making-test-result-information-available-in-fixtures
+    """
+    # execute all other hooks to obtain the report object
+    rep = yield
+
+    # store test results for each phase of a call, which can
+    # be "setup", "call", "teardown"
+    item.stash.setdefault(PHASE_REPORT_KEY, {})[rep.when] = rep
+
+    return rep
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -172,18 +187,6 @@ def test_fc_session_root_path():
 
 
 @pytest.fixture(scope="session")
-def bin_cloner_path(test_fc_session_root_path):
-    """Build a binary that `clone`s into the jailer.
-
-    It's necessary because Python doesn't interface well with the `clone()`
-    syscall directly.
-    """
-    cloner_bin_path = os.path.join(test_fc_session_root_path, "newpid_cloner")
-    build_tools.gcc_compile("host_tools/newpid_cloner.c", cloner_bin_path)
-    yield cloner_bin_path
-
-
-@pytest.fixture(scope="session")
 def bin_vsock_path(test_fc_session_root_path):
     """Build a simple vsock client/server application."""
     vsock_helper_bin_path = os.path.join(test_fc_session_root_path, "vsock_helper")
@@ -205,8 +208,8 @@ def change_net_config_space_bin(test_fc_session_root_path):
     yield change_net_config_space_bin
 
 
-@pytest.fixture(scope="session")
-def bin_seccomp_paths(test_fc_session_root_path):
+@pytest.fixture
+def bin_seccomp_paths():
     """Build jailers and jailed binaries to test seccomp.
 
     They currently consist of:
@@ -215,63 +218,25 @@ def bin_seccomp_paths(test_fc_session_root_path):
     * a jailed binary that follows the seccomp rules;
     * a jailed binary that breaks the seccomp rules.
     """
-    seccomp_build_path = (
-        Path(test_fc_session_root_path) / build_tools.CARGO_RELEASE_REL_PATH
-    )
-    release_binaries_path = seccomp_build_path / build_tools.RELEASE_BINARIES_REL_PATH
-
-    seccomp_examples = ["jailer", "harmless", "malicious", "panic"]
-
-    demos = {}
-
-    for example in seccomp_examples:
-        build_tools.cargo_build(
-            seccomp_build_path,
-            f"--release --target {platform.machine()}-unknown-linux-musl --example seccomp_{example}",
-        )
-
-        demos[f"demo_{example}"] = release_binaries_path / f"examples/seccomp_{example}"
-
+    demos = {
+        f"demo_{example}": build_tools.get_example(f"seccomp_{example}")
+        for example in ["jailer", "harmless", "malicious", "panic"]
+    }
     yield demos
 
 
-@pytest.fixture(scope="session")
-def uffd_handler_paths(test_fc_session_root_path):
+@pytest.fixture
+def uffd_handler_paths():
     """Build UFFD handler binaries."""
-    uffd_build_path = (
-        Path(test_fc_session_root_path) / build_tools.CARGO_RELEASE_REL_PATH
-    )
-    release_binaries_path = uffd_build_path / build_tools.RELEASE_BINARIES_REL_PATH
-
-    uffd_handlers = ["malicious", "valid"]
-
-    handlers = {}
-
-    for handler in uffd_handlers:
-        build_tools.cargo_build(
-            uffd_build_path,
-            f"--release --target {platform.machine()}-unknown-linux-musl --example uffd_{handler}_handler",
-        )
-
-        handlers[f"{handler}_handler"] = (
-            release_binaries_path / f"examples/uffd_{handler}_handler"
-        )
-
+    handlers = {
+        f"{handler}_handler": build_tools.get_example(f"uffd_{handler}_handler")
+        for handler in ["malicious", "valid"]
+    }
     yield handlers
 
 
 @pytest.fixture()
-def fc_tmp_path(test_fc_session_root_path):
-    """A tmp_path substitute
-
-    We should use pytest's tmp_path fixture instead of this, but this can create
-    very long paths, which can run into the UDS 108 character limit.
-    """
-    return Path(tempfile.mkdtemp(dir=test_fc_session_root_path))
-
-
-@pytest.fixture()
-def microvm_factory(fc_tmp_path, bin_cloner_path):
+def microvm_factory(request, record_property, results_dir):
     """Fixture to create microvms simply.
 
     In order to avoid running out of space when instantiating many microvms,
@@ -280,45 +245,30 @@ def microvm_factory(fc_tmp_path, bin_cloner_path):
     One can comment the removal line, if it helps with debugging.
     """
 
-    class MicroVMFactory:
-        """MicroVM factory"""
+    if binary_dir := request.config.getoption("--binary-dir"):
+        fc_binary_path = Path(binary_dir) / "firecracker"
+        jailer_binary_path = Path(binary_dir) / "jailer"
+        if not fc_binary_path.exists():
+            raise RuntimeError("Firecracker binary does not exist")
+    else:
+        fc_binary_path, jailer_binary_path = build_tools.get_firecracker_binaries()
+    record_property("firecracker_bin", str(fc_binary_path))
 
-        def __init__(self, tmp_path, bin_cloner):
-            self.tmp_path = Path(tmp_path)
-            self.bin_cloner_path = bin_cloner
-            self.vms = []
-
-        def build(self, kernel=None, rootfs=None, **kwargs):
-            """Build a microvm"""
-            vm = Microvm(
-                resource_path=self.tmp_path,
-                bin_cloner_path=self.bin_cloner_path,
-                **kwargs,
-            )
-            self.vms.append(vm)
-            if kernel is not None:
-                vm.kernel_file = kernel
-            if rootfs is not None:
-                ssh_key = rootfs.with_suffix(".id_rsa")
-                # copy only iff not a read-only rootfs
-                rootfs_path = rootfs
-                if rootfs_path.suffix != ".squashfs":
-                    rootfs_path = Path(vm.path) / rootfs.name
-                    shutil.copyfile(rootfs, rootfs_path)
-                vm.rootfs_file = rootfs_path
-                vm.ssh_key = ssh_key
-            return vm
-
-        def kill(self):
-            """Clean up all built VMs"""
-            for vm in self.vms:
-                vm.kill()
-                vm.jailer.cleanup()
-                shutil.rmtree(vm.jailer.chroot_base_with_id())
-            shutil.rmtree(self.tmp_path)
-
-    uvm_factory = MicroVMFactory(fc_tmp_path, bin_cloner_path)
+    # We could override the chroot base like so
+    # jailer_kwargs={"chroot_base": "/srv/jailo"}
+    uvm_factory = MicroVMFactory(fc_binary_path, jailer_binary_path)
     yield uvm_factory
+
+    # if the test failed, save fc.log in test_results for troubleshooting
+    report = request.node.stash[PHASE_REPORT_KEY]
+    if "call" in report and report["call"].failed:
+        for uvm in uvm_factory.vms:
+            if not uvm.log_file.exists():
+                continue
+            dst = results_dir / uvm.id / uvm.log_file.name
+            dst.parent.mkdir()
+            shutil.copy(uvm.log_file, dst)
+
     uvm_factory.kill()
 
 
@@ -330,14 +280,14 @@ def firecracker_release(request, record_property):
     return firecracker
 
 
-@pytest.fixture(params=SUPPORTED_CPU_TEMPLATES)
+@pytest.fixture(params=static_cpu_templates_params())
 def cpu_template(request, record_property):
-    """Return all CPU templates supported by the vendor."""
-    record_property("cpu_template", request.param)
+    """Return all static CPU templates supported by the vendor."""
+    record_property("static_cpu_template", request.param)
     return request.param
 
 
-@pytest.fixture(params=SUPPORTED_CUSTOM_CPU_TEMPLATES)
+@pytest.fixture(params=custom_cpu_templates_params())
 def custom_cpu_template(request, record_property):
     """Return all dummy custom CPU templates supported by the vendor."""
     record_property("custom_cpu_template", request.param["name"])
@@ -440,6 +390,15 @@ def artifact_dir():
 
 
 @pytest.fixture
+def uvm_plain_any(microvm_factory, guest_kernel, rootfs_ubuntu_22):
+    """All guest kernels
+    kernel: all
+    rootfs: Ubuntu 22.04
+    """
+    return microvm_factory.build(guest_kernel, rootfs_ubuntu_22)
+
+
+@pytest.fixture
 def uvm_with_initrd(
     microvm_factory, guest_kernel_linux_5_10, record_property, artifact_dir
 ):
@@ -451,16 +410,6 @@ def uvm_with_initrd(
     uvm = microvm_factory.build(guest_kernel_linux_5_10)
     uvm.initrd_file = fs
     yield uvm
-
-
-@pytest.fixture
-def uvm_legacy(microvm_factory, record_property, artifact_dir):
-    """vm with legacy artifacts (old kernel, Ubuntu 18.04 rootfs)"""
-    kernel = artifact_dir / "legacy/vmlinux.bin"
-    fs = artifact_dir / "legacy/bionic-msrtools.ext4"
-    record_property("kernel", kernel.name)
-    record_property("rootfs", fs.name)
-    yield microvm_factory.build(kernel, fs)
 
 
 # backwards compatibility

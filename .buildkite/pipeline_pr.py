@@ -6,6 +6,7 @@
 
 from common import (
     COMMON_PARSER,
+    devtool_test,
     get_changed_files,
     group,
     overlay_dict,
@@ -36,10 +37,21 @@ defaults = {
 }
 defaults = overlay_dict(defaults, args.step_param)
 
-devtool_build_grp = group(
-    "📦 Devtool Sanity Build",
-    "./tools/devtool -y build",
-    **defaults,
+defaults_once_per_architecture = defaults.copy()
+defaults_once_per_architecture["instances"] = ["m5d.metal", "c7g.metal"]
+defaults_once_per_architecture["platforms"] = [("al2", "linux_5.10")]
+
+
+devctr_grp = group(
+    "🐋 Dev Container Sanity Build",
+    "./tools/devtool -y build_devctr",
+    **defaults_once_per_architecture,
+)
+
+release_grp = group(
+    "📦 Release Sanity Build",
+    "./tools/devtool -y make_release",
+    **defaults_once_per_architecture,
 )
 
 build_grp = group(
@@ -48,21 +60,12 @@ build_grp = group(
     **defaults,
 )
 
-functional_1_grp = group(
-    "⚙ Functional [a-n]",
-    "./tools/devtool -y test -- `cd tests; ls integration_tests/functional/test_[a-n]*.py`",
-    **defaults,
-)
-
-functional_2_grp = group(
-    "⚙ Functional [o-z]",
-    "./tools/devtool -y test -- `cd tests; ls integration_tests/functional/test_[o-z]*.py`",
-    **defaults,
-)
-
-security_grp = group(
-    "🔒 Security",
-    "./tools/devtool -y test -- ../tests/integration_tests/security/",
+functional_grp = group(
+    "⚙ Functional and security 🔒",
+    devtool_test(
+        pytest_opts="-n 8 --dist worksteal integration_tests/{{functional,security}}",
+        binary_dir=args.binary_dir,
+    ),
     **defaults,
 )
 
@@ -78,7 +81,11 @@ defaults_for_performance = overlay_dict(
 
 performance_grp = group(
     "⏱ Performance",
-    "./tools/devtool -y test -- ../tests/integration_tests/performance/",
+    devtool_test(
+        devtool_opts="--performance -c 1-10 -m 0",
+        pytest_opts="../tests/integration_tests/performance/",
+        binary_dir=args.binary_dir,
+    ),
     **defaults_for_performance,
 )
 
@@ -86,7 +93,7 @@ defaults_for_kani = overlay_dict(
     defaults_for_performance,
     {
         # Kani runs fastest on m6i.metal
-        "instances": ["m6i.metal"],
+        "instances": ["m6a.metal"],
         "platforms": [("al2", "linux_5.10")],
         "timeout_in_minutes": 300,
     },
@@ -104,16 +111,21 @@ steps = [step_style]
 changed_files = get_changed_files("main")
 
 # run sanity build of devtool if Dockerfile is changed
-if any(x.parts[-1] == "Dockerfile" for x in changed_files):
-    steps += [devtool_build_grp]
+if any(x.name == "Dockerfile" for x in changed_files):
+    steps.append(devctr_grp)
+
+if any(x.parent.name == "tools" and "release" in x.name for x in changed_files):
+    steps.append(release_grp)
+
+if not changed_files or any(
+    x.suffix in [".rs", ".toml", ".lock"] for x in changed_files
+):
+    steps.append(kani_grp)
 
 if run_all_tests(changed_files):
     steps += [
-        kani_grp,
         build_grp,
-        functional_1_grp,
-        functional_2_grp,
-        security_grp,
+        functional_grp,
         performance_grp,
     ]
 

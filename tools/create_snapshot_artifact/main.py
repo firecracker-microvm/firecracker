@@ -8,28 +8,19 @@ import os
 import re
 import shutil
 import sys
-import tempfile
 from pathlib import Path
 
 # Hack to be able to import testing framework functions.
 sys.path.append(os.path.join(os.getcwd(), "tests"))  # noqa: E402
 
 # pylint: disable=wrong-import-position
-# The test infra assumes it is running from the `tests` directory.
-os.chdir("tests")
 from framework.artifacts import disks, kernels
-from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH
-from framework.microvm import Microvm
-from framework.utils import (
-    generate_mmds_get_request,
-    generate_mmds_session_token,
-    run_cmd,
-)
+from framework.microvm import MicroVMFactory
+from framework.utils import generate_mmds_get_request, generate_mmds_session_token
 from framework.utils_cpuid import CpuVendor, get_cpu_vendor
-from host_tools.cargo_build import gcc_compile
+from host_tools.cargo_build import get_firecracker_binaries
 
-# restore directory
-os.chdir("..")
+# pylint: enable=wrong-import-position
 
 # Default IPv4 address to route MMDS requests.
 IPV4_ADDRESS = "169.254.169.254"
@@ -40,34 +31,17 @@ VM_CONFIG_FILE = "tools/create_snapshot_artifact/complex_vm_config.json"
 SNAPSHOT_ARTIFACTS_ROOT_DIR = "snapshot_artifacts"
 
 
-def compile_file(file_name, dest_path, bin_name):
-    """
-    Compile source file using gcc.
-
-    The resulted executable is placed at `/dest_path/bin_name`.
-    """
-    host_tools_path = os.path.join(os.getcwd(), "tests/host_tools")
-
-    source_file_path = os.path.join(host_tools_path, file_name)
-    bin_file_path = os.path.join(dest_path, bin_name)
-    gcc_compile(source_file_path, bin_file_path)
-    return bin_file_path
-
-
 def populate_mmds(microvm, data_store):
     """Populate MMDS contents with json data provided."""
     # MMDS should be empty.
-    response = microvm.mmds.get()
-    assert microvm.api_session.is_status_ok(response.status_code)
+    response = microvm.api.mmds.get()
     assert response.json() == {}
 
     # Populate MMDS with data.
-    response = microvm.mmds.put(json=data_store)
-    assert microvm.api_session.is_status_no_content(response.status_code)
+    microvm.api.mmds.put(**data_store)
 
     # Ensure data is persistent inside the data store.
-    response = microvm.mmds.get()
-    assert microvm.api_session.is_status_ok(response.status_code)
+    response = microvm.api.mmds.get()
     assert response.json() == data_store
 
 
@@ -75,14 +49,14 @@ def validate_mmds(ssh_connection, data_store):
     """Validate that MMDS contents fetched from the guest."""
     # Configure interface to route MMDS requests
     cmd = "ip route add {} dev {}".format(IPV4_ADDRESS, NET_IFACE_FOR_MMDS)
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _, stdout, stderr = ssh_connection.run(cmd)
     assert stdout == stderr == ""
 
     # Fetch metadata to ensure MMDS is accessible.
     token = generate_mmds_session_token(ssh_connection, IPV4_ADDRESS, token_ttl=60)
 
     cmd = generate_mmds_get_request(IPV4_ADDRESS, token=token)
-    _, stdout, _ = ssh_connection.execute_command(cmd)
+    _, stdout, _ = ssh_connection.run(cmd)
     assert json.loads(stdout) == data_store
 
 
@@ -111,12 +85,7 @@ def main():
     # each guest kernel version.
     print("Cleanup")
     shutil.rmtree(SNAPSHOT_ARTIFACTS_ROOT_DIR, ignore_errors=True)
-    root_path = tempfile.mkdtemp(dir=DEFAULT_TEST_SESSION_ROOT_PATH)
-
-    # Compile new-pid cloner helper.
-    bin_cloner_path = compile_file(
-        file_name="newpid_cloner.c", bin_name="newpid_cloner", dest_path=root_path
-    )
+    vm_factory = MicroVMFactory(*get_firecracker_binaries())
 
     cpu_templates = ["None"]
     if get_cpu_vendor() == CpuVendor.INTEL:
@@ -126,10 +95,7 @@ def main():
         for kernel in kernels(glob="vmlinux-*"):
             for rootfs in disks(glob="ubuntu-*.squashfs"):
                 print(kernel, rootfs, cpu_template)
-                vm = Microvm(
-                    resource_path=root_path,
-                    bin_cloner_path=bin_cloner_path,
-                )
+                vm = vm_factory.build()
                 create_snapshots(vm, rootfs, kernel, cpu_template)
 
 
@@ -147,7 +113,7 @@ def create_snapshots(vm, rootfs, kernel, cpu_template):
     obj["drives"][0]["path_on_host"] = rootfs.name
     obj["drives"][0]["is_read_only"] = True
     obj["machine-config"]["cpu_template"] = cpu_template
-    vm.create_jailed_resource(vm_config_file, create_jail=True)
+    vm.create_jailed_resource(vm_config_file)
     vm_config = Path(vm.chroot()) / vm_config_file.name
     vm_config.write_text(json.dumps(obj))
     vm.jailer.extra_args = {"config-file": vm_config_file.name}
@@ -156,8 +122,6 @@ def create_snapshots(vm, rootfs, kernel, cpu_template):
     vm.create_jailed_resource(rootfs)
     vm.create_jailed_resource(kernel)
 
-    # Create network namespace.
-    run_cmd(f"ip netns add {vm.jailer.netns}")
     for i in range(4):
         vm.add_net_iface(api=False)
 

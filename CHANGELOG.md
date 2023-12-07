@@ -1,8 +1,125 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
 ## [Unreleased]
 
 ### Added
+
+- [#4145](https://github.com/firecracker-microvm/firecracker/pull/4145):
+  Added support for per net device metrics. In addition to aggregate metrics `net`,
+  each individual net device will emit metrics under the label `"net_{iface_id}"`.
+  E.g. the associated metrics for the endpoint `"/network-interfaces/eth0"` will
+  be available under `"net_eth0"` in the metrics json object.
+- [#4202](https://github.com/firecracker-microvm/firecracker/pull/4202):
+  Added support for per block device metrics. In addition to aggregate metrics `block`,
+  each individual block device will emit metrics under the label `"block_{drive_id}"`.
+  E.g. the associated metrics for the endpoint `"/drives/{drive_id}"` will
+  be available under `"block_drive_id"` in the metrics json object.
+- [#4205](https://github.com/firecracker-microvm/firecracker/pull/4205):
+  Added a new `vm-state` subcommand to `info-vmstate` command in the
+  `snapshot-editor` tool to print MicrovmState of vmstate snapshot file in
+  a readable format. Also made the `vcpu-states` subcommand available on
+  x86_64.
+- [#4063](https://github.com/firecracker-microvm/firecracker/pull/4063):
+  Added source-level instrumentation based tracing. See
+  [tracing](./docs/tracing.md) for more details.
+- [#4138](https://github.com/firecracker-microvm/firecracker/pull/4138),
+  [#4170](https://github.com/firecracker-microvm/firecracker/pull/4170),
+  [#4223](https://github.com/firecracker-microvm/firecracker/pull/4223),
+  [#4247](https://github.com/firecracker-microvm/firecracker/pull/4247),
+  [#4226](https://github.com/firecracker-microvm/firecracker/pull/4226):
+  Added **developer preview only** (NOT for production use) support for
+  vhost-user block devices.
+  Firecracker implements a vhost-user frontend. Users are free to choose
+  from existing open source backend solutions or their own implementation.
+  Known limitation: snapshotting is not currently supported for microVMs
+  containing vhost-user block devices.
+  See the [related doc page](./docs/api_requests/block-vhost-user.md) for details.
+  The device emits metrics under the label `"vhost_user_{device}_{drive_id}"`.
+- Document [a caveat to the jailer][1] when using the `--parent-cgroup` option,
+  which results in it being ignored by the jailer. Refer to the [jailer
+  documentation](./docs/jailer.md#caveats) for a workaround.
+
+[1]: https://github.com/firecracker-microvm/firecracker/issues/4287
+
+### Changed
+
+- Simplified and clarified the removal policy of deprecated API elements
+  to follow semantic versioning 2.0.0. For more information, please refer to
+  [this GitHub discussion](https://github.com/firecracker-microvm/firecracker/discussions/4135).
+- [#4180](https://github.com/firecracker-microvm/firecracker/pull/4180):
+  Refactored error propagation to avoid logging and printing an error on
+  exits with a zero exit code. Now, on successful exit
+  "Firecracker exited successfully" is logged.
+- [#4194](https://github.com/firecracker-microvm/firecracker/pull/4194):
+  Removed support for creating Firecracker snapshots targeting older versions
+  of Firecracker. With this change, running 'firecracker --version' will not
+  print the supported snapshot versions.
+- [#4301](https://github.com/firecracker-microvm/firecracker/pull/4301):
+  Allow merging of diff snapshots into base snapshots by directly writing
+  the diff snapshot on top of the base snapshot's memory file. This can be
+  done by setting the `mem_file_path` to the path of the pre-existing full
+  snapshot.
+
+### Deprecated
+
+- [#4209](https://github.com/firecracker-microvm/firecracker/pull/4209):
+  `rebase-snap` tool is now deprecated. Users should use `snapshot-editor`
+  for rebasing diff snapshots.
+
+### Fixed
+
+- [#4171](https://github.com/firecracker-microvm/firecracker/pull/4171):
+  Fixed a bug that ignored the `--show-log-origin` option, preventing it from
+  printing the source code file of the log messages.
+- [#4178](https://github.com/firecracker-microvm/firecracker/pull/4178):
+  Fixed a bug reporting a non-zero exit code on successful shutdown when
+  starting Firecracker with `--no-api`.
+- [#4261](https://github.com/firecracker-microvm/firecracker/pull/4261): Fixed
+  a bug where Firecracker would log "RunWithApiError error: MicroVMStopped
+  without an error: GenericError" when exiting after encountering an emulation
+  error. It now correctly prints "RunWithApiError error: MicroVMStopped *with* an
+  error: GenericError".
+- [#4242](https://github.com/firecracker-microvm/firecracker/pull/4242):
+  Fixed a bug introduced in #4047 that limited the `--level` option of logger
+  to Pascal-cased values (e.g. accepting "Info", but not "info"). It now
+  ignores case again.
+- [#4286](https://github.com/firecracker-microvm/firecracker/pull/4286):
+  Fixed a bug in the asynchronous virtio-block engine that rendered the device
+  non-functional after a PATCH request was issued to Firecracker for updating
+  the path to the host-side backing file of the device.
+- [#4301](https://github.com/firecracker-microvm/firecracker/pull/4301):
+  Fixed a bug where if Firecracker was instructed to take a snapshot of a
+  microvm which itself was restored from a snapshot, specifying `mem_file_path`
+  to be the path of the memory file from which the microvm was restored would
+  result in both the microvm and the snapshot being corrupted. It now instead
+  performs a "write-back" of all memory that was updated since the snapshot
+  was originally loaded.
+
+## [1.5.0]
+
+### Added
+
+- [#3837](https://github.com/firecracker-microvm/firecracker/issues/3837): Added
+  official support for Linux 6.1. See
+  [prod-host-setup](./docs/prod-host-setup.md) for some security and performance
+  considerations.
+- [#4045](https://github.com/firecracker-microvm/firecracker/pull/4045)
+  and [#4075](https://github.com/firecracker-microvm/firecracker/pull/4075):
+  Added `snapshot-editor` tool for modifications of snapshot files.
+  It allows for rebasing of memory snapshot files, printing and
+  removing aarch64 registers from the vmstate and obtaining snapshot version.
+- [#3967](https://github.com/firecracker-microvm/firecracker/pull/3967/):
+  Added new fields to the custom CPU templates. (aarch64 only) `vcpu_features`
+  field allows modifications of vCPU features enabled during vCPU
+  initialization. `kvm_capabilities` field allows modifications of KVM
+  capability checks that Firecracker performs during boot. If any of
+  these fields are in use, minimal target snapshot version is
+  restricted to 1.5.
 
 ### Changed
 
@@ -16,6 +133,34 @@
   or a FIFO pipe. This fixes logged warnings about the serial device failing to
   initialize if the process is daemonized (in which case stdin is /dev/null instead
   of a terminal).
+- Changed to show a warning message when launching a microVM with C3 template on
+  a processor prior to Intel Cascade Lake, because the guest kernel does not
+  apply the mitigation against MMIO stale data vulnerability when it is running
+  on a processor that does not enumerate FBSDP_NO, PSDP_NO and SBDR_SSDP_NO on
+  IA32_ARCH_CAPABILITIES MSR.
+- Made Firecracker resize its file descriptor table on process start. It now
+  preallocates the in-kernel fdtable to hold `RLIMIT_NOFILE` many fds (or 2048
+  if no limit is set). This avoids the kernel reallocating the fdtable during
+  Firecracker operations, resulting in a 30ms to 70ms reduction of snapshot
+  restore times for medium to large microVMs with many devices attached.
+- Changed the dump feature of `cpu-template-helper` tool not to enumerate program
+  counter (PC) on ARM because it is determined by the given kernel image and
+  it is useless in the custom CPU template context.
+- The ability to create snapshots for an older version of Firecracker is now
+  deprecated. As a result, the `version` body field in `PUT` on
+  `/snapshot/create` request in deprecated.
+- Added support for the /dev/userfaultfd device available on linux kernels >=
+  6.1. This is the default for creating UFFD handlers on these kernel versions.
+  If it is unavailable, Firecracker falls back to the userfaultfd syscall.
+- Deprecated `cpu_template` field in `PUT` and `PATCH` requests on `/machine-config`
+  API, which is used to set a static CPU template. Custom CPU templates added in
+  v1.4.0 are available as an improved iteration of the static CPU templates. For
+  more information about the transition from static CPU templates to custom CPU
+  templates, please refer to [this GitHub discussion](https://github.com/firecracker-microvm/firecracker/discussions/4135).
+- Changed default log level from
+  [`Warn`](https://docs.rs/log/latest/log/enum.Level.html#variant.Warn) to
+  [`Info`](https://docs.rs/log/latest/log/enum.Level.html#variant.Info). This
+  results in more logs being output by default.
 
 ### Fixed
 
@@ -25,6 +170,23 @@
   and the FXSR bit (CPUID.80000001h:EDX[24]).
 - Fixed the T2A CPU template to set the RstrFpErrPtrs bit
   (CPUID.80000008h:EBX[2]).
+- Fixed a bug where Firecracker would crash during boot if a guest set up a virtio
+  queue that partially overlapped with the MMIO gap. Now Firecracker instead
+  correctly refuses to activate the corresponding virtio device.
+- Fixed the T2CL CPU template to pass through security mitigation bits that are
+  listed by KVM as bits able to be passed through. By making the most use of the
+  available hardware security mitigations on a processor that a guest is running
+  on, the guest might be able to benefit from performance improvements.
+- Fixed the T2S CPU template to set the GDS_NO bit of the IA32_ARCH_CAPABILITIES
+  MSR to 1 in accordance with an Intel microcode update. To use the template
+  securely, users should apply the latest microcode update on the host.
+- Fixed the spelling of the `nomodule` param passed in the default kernel
+  command line parameters. This is a **breaking change** for setups that
+  use the default kernel command line which also depend on being able to
+  load kernel modules at runtime. This may also break setups which use the
+  default kernel command line and which use an init binary that
+  inadvertently depends on the misspelled param ("nomodules") being
+  present at the command line, since this param will no longer be passed.
 
 ## [1.4.0]
 

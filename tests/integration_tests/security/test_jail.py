@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that verify the jailer's behavior."""
 
-# pylint: disable=redefined-outer-name
-
 import functools
 import http.client as http_client
 import os
@@ -11,13 +9,13 @@ import resource
 import stat
 import subprocess
 import time
+from pathlib import Path
 
 import psutil
 import pytest
 import requests
 import urllib3
 
-import host_tools.cargo_build as build_tools
 from framework.defs import FC_BINARY_NAME
 from framework.jailer import JailerContext
 
@@ -56,33 +54,16 @@ def check_stats(filepath, stats, uid, gid):
     assert st.st_mode ^ stats == 0
 
 
-def test_default_chroot(test_microvm_with_api):
-    """
-    Test that the jailer assigns a default chroot if none is specified.
-    """
-    test_microvm = test_microvm_with_api
-
-    # Start customizing arguments.
-    # Test that firecracker's default chroot folder is indeed `/srv/jailer`.
-    test_microvm.jailer.chroot_base = None
-
-    test_microvm.spawn()
-
-    # Test the expected outcome.
-    assert os.path.exists(test_microvm.jailer.api_socket_path())
-
-
 def test_empty_jailer_id(test_microvm_with_api):
     """
     Test that the jailer ID cannot be empty.
     """
     test_microvm = test_microvm_with_api
-    fc_binary, _ = build_tools.get_firecracker_binaries()
 
     # Set the jailer ID to None.
     test_microvm.jailer = JailerContext(
         jailer_id="",
-        exec_file=fc_binary,
+        exec_file=test_microvm.fc_binary_path,
     )
 
     # pylint: disable=W0703
@@ -108,6 +89,8 @@ def test_exec_file_not_exist(test_microvm_with_api, tmp_path):
 
     # Error case 1: No such file exists
     pseudo_exec_file_path = tmp_path / "pseudo_firecracker_exec_file"
+    fc_dir = Path("/srv/jailer") / pseudo_exec_file_path.name / test_microvm.id
+    fc_dir.mkdir(parents=True, exist_ok=True)
     test_microvm.jailer.exec_file = pseudo_exec_file_path
 
     with pytest.raises(
@@ -120,6 +103,8 @@ def test_exec_file_not_exist(test_microvm_with_api, tmp_path):
     # Error case 2: Not a file
     pseudo_exec_dir_path = tmp_path / "firecracker_test_dir"
     pseudo_exec_dir_path.mkdir()
+    fc_dir = Path("/srv/jailer") / pseudo_exec_dir_path.name / test_microvm.id
+    fc_dir.mkdir(parents=True, exist_ok=True)
     test_microvm.jailer.exec_file = pseudo_exec_dir_path
 
     with pytest.raises(
@@ -131,6 +116,8 @@ def test_exec_file_not_exist(test_microvm_with_api, tmp_path):
     # Error case 3: Filename without "firecracker"
     pseudo_exec_file_path = tmp_path / "foobarbaz"
     pseudo_exec_file_path.touch()
+    fc_dir = Path("/srv/jailer") / pseudo_exec_file_path.name / test_microvm.id
+    fc_dir.mkdir(parents=True, exist_ok=True)
     test_microvm.jailer.exec_file = pseudo_exec_file_path
 
     with pytest.raises(
@@ -216,7 +203,7 @@ def cgroup_v2_available():
     return os.path.isfile("/sys/fs/cgroup/cgroup.controllers")
 
 
-@pytest.fixture
+@pytest.fixture(scope="session", autouse=True)
 def sys_setup_cgroups():
     """Configure cgroupfs in order to run the tests.
 
@@ -226,43 +213,6 @@ def sys_setup_cgroups():
     container while the system is using cgroup-v2.
     """
     cgroup_version = 2 if cgroup_v2_available() else 1
-    if cgroup_version == 2:
-        # Cgroup-v2 adds a no internal process constraint which means that
-        # non-root cgroups can distribute domain resources to their children
-        # only when they don’t have any processes of their own.
-        # When a Docker container is created, the processes running inside
-        # the container are added to a cgroup which the container sees
-        # as the root cgroup. This prevents creation of using domain cgroups.
-        cgroup_root = None
-
-        # find the group-v2 mount point
-        with open("/proc/mounts", encoding="utf-8") as proc_mounts:
-            mounts = proc_mounts.readlines()
-            for line in mounts:
-                if "cgroup2" in line:
-                    cgroup_root = line.split(" ")[1]
-        assert cgroup_root
-
-        # the root cgroup on the host would not contain the "cgroup.type" file
-        # if the root cgroup contains this file this means that a new
-        # namespace was created and this container was switched to that
-        if os.path.exists(f"{cgroup_root}/cgroup.type"):
-            root_procs = []
-            # get all the processes that were added in the root cgroup
-            with open(f"{cgroup_root}/cgroup.procs", encoding="utf-8") as procs:
-                root_procs = [x.strip() for x in procs.readlines()]
-
-            # now create a new domain cgroup and migrate the processes
-            # to that cgroup
-            os.makedirs(f"{cgroup_root}/system", exist_ok=True)
-            for pid in root_procs:
-                with open(
-                    f"{cgroup_root}/system/cgroup.procs", "a", encoding="utf-8"
-                ) as sys_procs:
-                    sys_procs.write(str(pid))
-            # at this point there should be no processes added to internal
-            # cgroup nodes so new domain cgroups can be created starting
-            # from the root cgroup
     yield cgroup_version
 
 
@@ -491,7 +441,6 @@ def test_cgroups_without_numa(test_microvm_with_api, sys_setup_cgroups):
 @pytest.mark.skipif(
     cgroup_v2_available() is True, reason="Requires system with cgroup-v1 enabled."
 )
-@pytest.mark.usefixtures("sys_setup_cgroups")
 def test_v1_default_cgroups(test_microvm_with_api):
     """
     Test if the jailer is using cgroup-v1 by default.
@@ -515,11 +464,9 @@ def test_args_default_resource_limits(test_microvm_with_api):
     Test the default resource limits are correctly set by the jailer.
     """
     test_microvm = test_microvm_with_api
-
     test_microvm.spawn()
-
     # Get firecracker's PID
-    pid = int(test_microvm.jailer_clone_pid)
+    pid = test_microvm.firecracker_pid
     assert pid != 0
 
     # Fetch firecracker process limits for number of open fds
@@ -541,35 +488,49 @@ def test_args_resource_limits(test_microvm_with_api):
     """
     test_microvm = test_microvm_with_api
     test_microvm.jailer.resource_limits = RESOURCE_LIMITS
-
     test_microvm.spawn()
-
     # Get firecracker's PID
-    pid = int(test_microvm.jailer_clone_pid)
+    pid = test_microvm.firecracker_pid
     assert pid != 0
 
     # Check limit values were correctly set.
     check_limits(pid, NOFILE, FSIZE)
 
 
-def test_negative_file_size_limit(uvm_plain):
+def test_positive_file_size_limit(uvm_plain):
     """
-    Test creating snapshot file fails when size exceeds `fsize` limit.
+    Test creating vm succeeds when memory size is under `fsize` limit.
     """
+
+    vm_mem_size = 128
+    jail_limit = (vm_mem_size + 1) << 20
+
     test_microvm = uvm_plain
-    test_microvm.jailer.resource_limits = ["fsize=1024"]
+    test_microvm.jailer.resource_limits = [f"fsize={jail_limit}"]
     test_microvm.spawn()
-    test_microvm.basic_config()
+    test_microvm.basic_config(mem_size_mib=vm_mem_size)
+
+    # Attempt to start a vm.
     test_microvm.start()
 
-    test_microvm.pause()
 
-    # Attempt to create a snapshot.
+def test_negative_file_size_limit(uvm_plain):
+    """
+    Test creating vm fails when memory size exceeds `fsize` limit.
+    This is caused by the fact that we back guest memory by memfd.
+    """
+
+    vm_mem_size = 128
+    jail_limit = (vm_mem_size - 1) << 20
+
+    test_microvm = uvm_plain
+    test_microvm.jailer.resource_limits = [f"fsize={jail_limit}"]
+    test_microvm.spawn()
+    test_microvm.basic_config(mem_size_mib=vm_mem_size)
+
+    # Attempt to start a vm.
     try:
-        test_microvm.snapshot.create(
-            mem_file_path="/vm.mem",
-            snapshot_path="/vm.vmstate",
-        )
+        test_microvm.start()
     except (
         http_client.RemoteDisconnected,
         urllib3.exceptions.ProtocolError,
@@ -582,7 +543,7 @@ def test_negative_file_size_limit(uvm_plain):
         test_microvm.check_log_message(msg)
         time.sleep(1)
         # Check that the process was terminated.
-        assert not psutil.pid_exists(test_microvm.jailer_clone_pid)
+        assert not psutil.pid_exists(test_microvm.firecracker_pid)
     else:
         assert False, "Negative test failed"
 
@@ -597,9 +558,8 @@ def test_negative_no_file_limit(test_microvm_with_api):
     # pylint: disable=W0703
     try:
         test_microvm.spawn()
-    except Exception as error:
+    except RuntimeError as error:
         assert "No file descriptors available (os error 24)" in str(error)
-        assert test_microvm.jailer_clone_pid is None
     else:
         assert False, "Negative test failed"
 
@@ -609,14 +569,11 @@ def test_new_pid_ns_resource_limits(test_microvm_with_api):
     Test that Firecracker process inherits jailer resource limits.
     """
     test_microvm = test_microvm_with_api
-
-    test_microvm.jailer.new_pid_ns = True
     test_microvm.jailer.resource_limits = RESOURCE_LIMITS
-
     test_microvm.spawn()
 
     # Get Firecracker's PID.
-    fc_pid = test_microvm.pid_in_new_ns
+    fc_pid = test_microvm.firecracker_pid
 
     # Check limit values were correctly set.
     check_limits(fc_pid, NOFILE, FSIZE)
@@ -627,13 +584,9 @@ def test_new_pid_namespace(test_microvm_with_api):
     Test that Firecracker is spawned in a new PID namespace if requested.
     """
     test_microvm = test_microvm_with_api
-
-    test_microvm.jailer.new_pid_ns = True
-
     test_microvm.spawn()
-
     # Check that the PID file exists.
-    fc_pid = test_microvm.pid_in_new_ns
+    fc_pid = test_microvm.firecracker_pid
 
     # Validate the PID.
     stdout = subprocess.check_output("pidof firecracker", shell=True)

@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for the virtio-rng device"""
 
-# pylint:disable=redefined-outer-name
-
 import pytest
 
 from framework.properties import global_props
@@ -18,10 +16,7 @@ def uvm_with_rng(uvm_nano, request):
     """Fixture of a microvm with virtio-rng configured"""
     rate_limiter = request.param
     uvm_nano.add_net_iface()
-    response = uvm_nano.entropy.put(rate_limiter=rate_limiter)
-    assert uvm_nano.api_session.is_status_no_content(
-        response.status_code
-    ), response.text
+    uvm_nano.api.entropy.put(rate_limiter=rate_limiter)
     uvm_nano.start()
     # Just stuff it in the microvm so we can look at it later
     uvm_nano.rng_rate_limiter = rate_limiter
@@ -42,11 +37,11 @@ def test_rng_not_present(uvm_nano):
     # the device should exist in the guest filesystem but we should
     # not be able to get random numbers out of it.
     cmd = "test -e /dev/hwrng"
-    ecode, _, _ = vm.ssh.execute_command(cmd)
+    ecode, _, _ = vm.ssh.run(cmd)
     assert ecode == 0
 
     cmd = "dd if=/dev/hwrng of=/dev/null bs=10 count=1"
-    ecode, _, _ = vm.ssh.execute_command(cmd)
+    ecode, _, _ = vm.ssh.run(cmd)
     assert ecode == 1
 
 
@@ -135,7 +130,7 @@ def _get_throughput(ssh, random_bytes):
     # Issue a `dd` command to request 100 times `random_bytes` from the device.
     # 100 here is used to get enough confidence on the achieved throughput.
     cmd = "dd if=/dev/hwrng of=/dev/null bs={} count=100".format(random_bytes)
-    exit_code, _, stderr = ssh.execute_command(cmd)
+    exit_code, _, stderr = ssh.run(cmd)
     assert exit_code == 0, stderr
 
     # dd gives its output on stderr

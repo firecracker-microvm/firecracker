@@ -3,7 +3,59 @@
 
 use std::convert::TryInto;
 
-use logger::{warn, IncMetric, RTCDeviceMetrics, METRICS};
+use serde::Serialize;
+use vm_superio::rtc_pl031::RtcEvents;
+
+use crate::logger::{warn, IncMetric, SharedIncMetric};
+
+/// Metrics specific to the RTC device.
+#[derive(Debug, Serialize)]
+pub struct RTCDeviceMetrics {
+    /// Errors triggered while using the RTC device.
+    pub error_count: SharedIncMetric,
+    /// Number of superfluous read intents on this RTC device.
+    pub missed_read_count: SharedIncMetric,
+    /// Number of superfluous write intents on this RTC device.
+    pub missed_write_count: SharedIncMetric,
+}
+
+impl RTCDeviceMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            error_count: SharedIncMetric::new(),
+            missed_read_count: SharedIncMetric::new(),
+            missed_write_count: SharedIncMetric::new(),
+        }
+    }
+}
+
+impl RtcEvents for RTCDeviceMetrics {
+    fn invalid_read(&self) {
+        self.missed_read_count.inc();
+        self.error_count.inc();
+        warn!("Guest read at invalid offset.")
+    }
+
+    fn invalid_write(&self) {
+        self.missed_write_count.inc();
+        self.error_count.inc();
+        warn!("Guest write at invalid offset.")
+    }
+}
+
+impl RtcEvents for &'static RTCDeviceMetrics {
+    fn invalid_read(&self) {
+        RTCDeviceMetrics::invalid_read(self);
+    }
+
+    fn invalid_write(&self) {
+        RTCDeviceMetrics::invalid_write(self);
+    }
+}
+
+/// Stores aggregated metrics
+pub static METRICS: RTCDeviceMetrics = RTCDeviceMetrics::new();
 
 /// Wrapper over vm_superio's RTC implementation.
 #[derive(Debug)]
@@ -26,40 +78,42 @@ impl std::ops::DerefMut for RTCDevice {
 // Implements Bus functions for AMBA PL031 RTC device
 impl RTCDevice {
     pub fn bus_read(&mut self, offset: u64, data: &mut [u8]) {
-        if data.len() == 4 {
+        if let (Ok(offset), 4) = (u16::try_from(offset), data.len()) {
             // read() function from RTC implementation expects a slice of
             // len 4, and we just validated that this is the data lengt
-            self.read(offset as u16, data.try_into().unwrap())
+            self.read(offset, data.try_into().unwrap())
         } else {
             warn!(
-                "Found invalid data length while trying to read from the RTC: {}",
+                "Found invalid data offset/length while trying to read from the RTC: {}, {}",
+                offset,
                 data.len()
             );
-            METRICS.rtc.error_count.inc();
+            METRICS.error_count.inc();
         }
     }
 
     pub fn bus_write(&mut self, offset: u64, data: &[u8]) {
-        if data.len() == 4 {
+        if let (Ok(offset), 4) = (u16::try_from(offset), data.len()) {
             // write() function from RTC implementation expects a slice of
             // len 4, and we just validated that this is the data length
-            self.write(offset as u16, data.try_into().unwrap())
+            self.write(offset, data.try_into().unwrap())
         } else {
             warn!(
-                "Found invalid data length while trying to write to the RTC: {}",
+                "Found invalid data offset/length while trying to write to the RTC: {}, {}",
+                offset,
                 data.len()
             );
-            METRICS.rtc.error_count.inc();
+            METRICS.error_count.inc();
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use logger::IncMetric;
     use vm_superio::Rtc;
 
     use super::*;
+    use crate::logger::IncMetric;
 
     #[test]
     fn test_rtc_device() {

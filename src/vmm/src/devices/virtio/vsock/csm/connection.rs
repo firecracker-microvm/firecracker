@@ -29,17 +29,16 @@ use std::fmt::Debug;
 // Short primer on the vsock protocol
 // ----------------------------------
 //
-// 1. Establishing a connection
-//    A vsock connection is considered established after a two-way handshake:
+// 1. Establishing a connection A vsock connection is considered established after a two-way
+//    handshake:
 //    - the initiating peer sends a connection request packet (`hdr.op` == VSOCK_OP_REQUEST);
 //      then
 //    - the listening peer sends back a connection response packet (`hdr.op` ==
 //      VSOCK_OP_RESPONSE).
 //
-// 2. Terminating a connection
-//    When a peer wants to shut down an established connection, it sends a VSOCK_OP_SHUTDOWN
-//    packet. Two header flags are used with VSOCK_OP_SHUTDOWN, indicating the sender's
-//    intention:
+// 2. Terminating a connection When a peer wants to shut down an established connection, it
+//    sends a VSOCK_OP_SHUTDOWN packet. Two header flags are used with VSOCK_OP_SHUTDOWN,
+//    indicating the sender's intention:
 //    - VSOCK_FLAGS_SHUTDOWN_RCV: the sender will receive no more data for this connection; and
 //    - VSOCK_FLAGS_SHUTDOWN_SEND: the sender will send no more data for this connection.
 //    After a shutdown packet, the receiving peer will have some protocol-undefined time to
@@ -51,14 +50,13 @@ use std::fmt::Debug;
 //          cannot be taken back.  That is, `hdr.flags` will be ORed between subsequent
 //          VSOCK_OP_SHUTDOWN packets.
 //
-// 3. Flow control
-//    Before sending a data packet (VSOCK_OP_RW), the sender must make sure that the receiver
-//    has enough free buffer space to store that data. If this condition is not respected, the
-//    receiving peer's behaviour is undefined. In this implementation, we forcefully terminate
-//    the connection by sending back a VSOCK_OP_RST packet.
-//    Note: all buffer space information is computed and stored on a per-connection basis.
-//    Peers keep each other informed about the free buffer space they have by filling in two
-//    packet header members with each packet they send:
+// 3. Flow control Before sending a data packet (VSOCK_OP_RW), the sender must make sure that
+//    the receiver has enough free buffer space to store that data. If this condition is not
+//    respected, the receiving peer's behaviour is undefined. In this implementation, we
+//    forcefully terminate the connection by sending back a VSOCK_OP_RST packet. Note: all
+//    buffer space information is computed and stored on a per-connection basis. Peers keep
+//    each other informed about the free buffer space they have by filling in two packet header
+//    members with each packet they send:
 //    - `hdr.buf_alloc`: the total buffer space the peer has allocated for receiving data; and
 //    - `hdr.fwd_cnt`: the total number of bytes the peer has successfully flushed out of its
 //      buffer.
@@ -85,15 +83,19 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 
 use log::{debug, error, info, warn};
-use logger::{IncMetric, METRICS};
 use utils::epoll::EventSet;
-use utils::vm_memory::{GuestMemoryError, GuestMemoryMmap, ReadVolatile, WriteVolatile};
+use utils::wrap_usize_to_u32;
+use vm_memory::io::{ReadVolatile, WriteVolatile};
+use vm_memory::GuestMemoryError;
 
 use super::super::defs::uapi;
 use super::super::packet::VsockPacket;
 use super::super::{VsockChannel, VsockEpollListener, VsockError};
 use super::txbuf::TxBuf;
 use super::{defs, ConnState, PendingRx, PendingRxSet, VsockCsmError};
+use crate::devices::virtio::vsock::metrics::METRICS;
+use crate::logger::IncMetric;
+use crate::vstate::memory::GuestMemoryMmap;
 
 /// Trait that vsock connection backends need to implement.
 ///
@@ -162,7 +164,7 @@ where
         // Perform some generic initialization that is the same for any packet operation (e.g.
         // source, destination, credit, etc).
         self.init_pkt(pkt);
-        METRICS.vsock.rx_packets_count.inc();
+        METRICS.rx_packets_count.inc();
 
         // If forceful termination is pending, there's no point in checking for anything else.
         // It's dead, Jim.
@@ -233,8 +235,11 @@ where
                     } else {
                         // On a successful data read, we fill in the packet with the RW op, and
                         // length of the read data.
-                        pkt.set_op(uapi::VSOCK_OP_RW).set_len(read_cnt as u32);
-                        METRICS.vsock.rx_bytes_count.add(read_cnt);
+                        // Safe to unwrap because read_cnt is no more than max_len, which is bounded
+                        // by self.peer_avail_credit(), a u32 internally.
+                        pkt.set_op(uapi::VSOCK_OP_RW)
+                            .set_len(u32::try_from(read_cnt).unwrap());
+                        METRICS.rx_bytes_count.add(read_cnt as u64);
                     }
                     self.rx_cnt += Wrapping(pkt.len());
                     self.last_fwd_cnt_to_peer = self.fwd_cnt;
@@ -254,7 +259,7 @@ where
                 Err(err) => {
                     // We are not expecting any other errors when reading from the underlying
                     // stream. If any show up, we'll immediately kill this connection.
-                    METRICS.vsock.rx_read_fails.inc();
+                    METRICS.rx_read_fails.inc();
                     error!(
                         "vsock: error reading from backing stream: lp={}, pp={}, err={:?}",
                         self.local_port, self.peer_port, err
@@ -291,7 +296,7 @@ where
         // Update the peer credit information.
         self.peer_buf_alloc = pkt.buf_alloc();
         self.peer_fwd_cnt = Wrapping(pkt.fwd_cnt());
-        METRICS.vsock.tx_packets_count.inc();
+        METRICS.tx_packets_count.inc();
 
         match self.state {
             // Most frequent case: this is an established connection that needs to forward some
@@ -453,7 +458,7 @@ where
             // Data can be written to the host stream. Time to flush out the TX buffer.
             //
             if self.tx_buf.is_empty() {
-                METRICS.vsock.conn_event_fails.inc();
+                METRICS.conn_event_fails.inc();
                 info!("vsock: connection received unexpected EPOLLOUT event");
                 return;
             }
@@ -461,7 +466,7 @@ where
                 .tx_buf
                 .flush_to(&mut self.stream)
                 .unwrap_or_else(|err| {
-                    METRICS.vsock.tx_flush_fails.inc();
+                    METRICS.tx_flush_fails.inc();
                     warn!(
                         "vsock: error flushing TX buf for (lp={}, pp={}): {:?}",
                         self.local_port, self.peer_port, err
@@ -477,8 +482,8 @@ where
                     };
                     0
                 });
-            self.fwd_cnt += Wrapping(flushed as u32);
-            METRICS.vsock.tx_bytes_count.add(flushed);
+            self.fwd_cnt += wrap_usize_to_u32(flushed);
+            METRICS.tx_bytes_count.add(flushed as u64);
 
             // If this connection was shutting down, but is waiting to drain the TX buffer
             // before forceful termination, the wait might be over.
@@ -624,13 +629,14 @@ where
             Err(err) => {
                 // We don't know how to handle any other write error, so we'll send it up
                 // the call chain.
-                METRICS.vsock.tx_write_fails.inc();
+                METRICS.tx_write_fails.inc();
                 return Err(err);
             }
         };
         // Move the "forwarded bytes" counter ahead by how much we were able to send out.
-        self.fwd_cnt += Wrapping(written as u32);
-        METRICS.vsock.tx_bytes_count.add(written);
+        // Safe to unwrap because the maximum value is pkt.len(), which is a u32.
+        self.fwd_cnt += wrap_usize_to_u32(written);
+        METRICS.tx_bytes_count.add(written as u64);
 
         // If we couldn't write the whole slice, we'll need to push the remaining data to our
         // buffer.
@@ -674,12 +680,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Error as IoError, ErrorKind, Read, Write};
+    use std::io::{Error as IoError, ErrorKind, Write};
     use std::os::unix::io::RawFd;
     use std::time::{Duration, Instant};
 
     use utils::eventfd::EventFd;
-    use utils::vm_memory::{BitmapSlice, Bytes, VolatileSlice};
+    use vm_memory::{VolatileMemoryError, VolatileSlice};
 
     use super::super::super::defs::uapi;
     use super::super::defs as csm_defs;
@@ -687,6 +693,7 @@ mod tests {
     use crate::devices::virtio::vsock::device::RXQ_INDEX;
     use crate::devices::virtio::vsock::test_utils;
     use crate::devices::virtio::vsock::test_utils::TestContext;
+    use crate::vstate::memory::BitmapSlice;
 
     const LOCAL_CID: u64 = 2;
     const PEER_CID: u64 = 3;
@@ -733,48 +740,45 @@ mod tests {
         }
     }
 
-    impl Read for TestStream {
-        fn read(&mut self, data: &mut [u8]) -> Result<usize, IoError> {
-            match self.read_state {
-                StreamState::Closed => Ok(0),
-                StreamState::Error(kind) => Err(IoError::new(kind, "whatevs")),
-                StreamState::Ready => {
-                    if self.read_buf.is_empty() {
-                        return Err(IoError::new(ErrorKind::WouldBlock, "EAGAIN"));
-                    }
-                    let len = std::cmp::min(data.len(), self.read_buf.len());
-                    assert_ne!(len, 0);
-                    data[..len].copy_from_slice(&self.read_buf[..len]);
-                    self.read_buf = self.read_buf.split_off(len);
-                    Ok(len)
-                }
-                StreamState::WouldBlock => Err(IoError::new(ErrorKind::WouldBlock, "EAGAIN")),
-            }
-        }
-    }
-
     impl ReadVolatile for TestStream {
         fn read_volatile<B: BitmapSlice>(
             &mut self,
             buf: &mut VolatileSlice<B>,
-        ) -> Result<usize, utils::vm_memory::VolatileMemoryError> {
-            // Test code, the additional copy incurred by read_from is fine
-            buf.read_from(0, self, buf.len())
+        ) -> Result<usize, VolatileMemoryError> {
+            match self.read_state {
+                StreamState::Closed => Ok(0),
+                StreamState::Error(kind) => Err(vm_memory::VolatileMemoryError::IOError(
+                    IoError::new(kind, "whatevs"),
+                )),
+                StreamState::Ready => {
+                    if self.read_buf.is_empty() {
+                        return Err(vm_memory::VolatileMemoryError::IOError(IoError::new(
+                            ErrorKind::WouldBlock,
+                            "EAGAIN",
+                        )));
+                    }
+                    let len = std::cmp::min(buf.len(), self.read_buf.len());
+                    assert_ne!(len, 0);
+                    buf.copy_from(&self.read_buf[..len]);
+                    self.read_buf = self.read_buf.split_off(len);
+                    Ok(len)
+                }
+                StreamState::WouldBlock => Err(vm_memory::VolatileMemoryError::IOError(
+                    IoError::new(ErrorKind::WouldBlock, "EAGAIN"),
+                )),
+            }
         }
     }
 
     impl Write for TestStream {
         fn write(&mut self, data: &[u8]) -> Result<usize, IoError> {
-            match self.write_state {
-                StreamState::Closed => Err(IoError::new(ErrorKind::BrokenPipe, "EPIPE")),
-                StreamState::Error(kind) => Err(IoError::new(kind, "whatevs")),
-                StreamState::Ready => {
-                    self.write_buf.extend_from_slice(data);
-                    Ok(data.len())
-                }
-                StreamState::WouldBlock => Err(IoError::new(ErrorKind::WouldBlock, "EAGAIN")),
-            }
+            self.write_volatile(&VolatileSlice::from(data.to_vec().as_mut_slice()))
+                .map_err(|err| match err {
+                    vm_memory::VolatileMemoryError::IOError(io_err) => io_err,
+                    _ => unreachable!(),
+                })
         }
+
         fn flush(&mut self) -> Result<(), IoError> {
             Ok(())
         }
@@ -784,9 +788,21 @@ mod tests {
         fn write_volatile<B: BitmapSlice>(
             &mut self,
             buf: &VolatileSlice<B>,
-        ) -> Result<usize, utils::vm_memory::VolatileMemoryError> {
-            // Test code, the additional copy incurred by write_to is fine
-            buf.write_to(0, self, buf.len())
+        ) -> Result<usize, VolatileMemoryError> {
+            match self.write_state {
+                StreamState::Closed => Err(VolatileMemoryError::IOError(IoError::new(
+                    ErrorKind::BrokenPipe,
+                    "EPIPE",
+                ))),
+                StreamState::Error(kind) => {
+                    Err(VolatileMemoryError::IOError(IoError::new(kind, "whatevs")))
+                }
+                StreamState::Ready => self.write_buf.write_volatile(buf),
+                StreamState::WouldBlock => Err(VolatileMemoryError::IOError(IoError::new(
+                    ErrorKind::WouldBlock,
+                    "EAGAIN",
+                ))),
+            }
         }
     }
 
@@ -923,7 +939,7 @@ mod tests {
 
         fn init_data_pkt(&mut self, mut data: &[u8]) -> &VsockPacket {
             assert!(data.len() <= self.pkt.buf_size());
-            self.init_pkt(uapi::VSOCK_OP_RW, data.len() as u32);
+            self.init_pkt(uapi::VSOCK_OP_RW, u32::try_from(data.len()).unwrap());
 
             let len = data.len();
             self.pkt
@@ -1171,7 +1187,10 @@ mod tests {
         assert!(ctx.conn.has_pending_rx());
         ctx.recv();
         assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_CREDIT_UPDATE);
-        assert_eq!(ctx.pkt.fwd_cnt(), initial_fwd_cnt + data.len() as u32 * 2);
+        assert_eq!(
+            ctx.pkt.fwd_cnt() as usize,
+            initial_fwd_cnt as usize + data.len() * 2,
+        );
         assert_eq!(ctx.conn.fwd_cnt, ctx.conn.last_fwd_cnt_to_peer);
     }
 
@@ -1264,7 +1283,7 @@ mod tests {
         // Fill up the TX buffer.
         let data = vec![0u8; ctx.pkt.buf_size()];
         ctx.init_data_pkt(data.as_slice());
-        for _i in 0..(csm_defs::CONN_TX_BUF_SIZE / data.len() as u32) {
+        for _i in 0..(csm_defs::CONN_TX_BUF_SIZE as usize / data.len()) {
             ctx.send();
         }
 

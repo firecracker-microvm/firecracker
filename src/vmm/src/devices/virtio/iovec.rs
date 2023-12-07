@@ -1,111 +1,20 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::marker::PhantomData;
-
 use libc::{c_void, iovec, size_t};
-use utils::vm_memory::{Bitmap, GuestMemory, GuestMemoryMmap};
+use vm_memory::GuestMemoryError;
 
-use crate::devices::virtio::DescriptorChain;
+use crate::devices::virtio::queue::DescriptorChain;
+use crate::vstate::memory::{Bitmap, GuestMemory, GuestMemoryMmap};
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum IoVecError {
-    /// We found a write-only descriptor where read-only was expected
-    #[error("Tried to create an `IoVec` from a write-only descriptor chain")]
+    /// Tried to create an `IoVec` from a write-only descriptor chain
     WriteOnlyDescriptor,
-    /// We found a read-only descriptor where write-only was expected
-    #[error("Tried to create an 'IoVecMut` from a read-only descriptor chain")]
+    /// Tried to create an 'IoVecMut` from a read-only descriptor chain
     ReadOnlyDescriptor,
-    /// An error happened with guest memory handling
-    #[error("Guest memory error: {0}")]
-    GuestMemory(#[from] utils::vm_memory::GuestMemoryError),
-}
-
-// Describes a sub-region of a buffer described as a slice of `iovec` structs.
-#[derive(Debug)]
-struct IovVecSubregion<'a> {
-    // An iterator of the iovec items we are iterating
-    iovecs: Vec<iovec>,
-    // Lifetime of the origin buffer
-    phantom: PhantomData<&'a iovec>,
-}
-
-impl<'a> IovVecSubregion<'a> {
-    // Create a new `IovVecSubregion`
-    //
-    // Given an initial buffer (described as a collecetion of `iovec` structs) and a sub-region
-    // inside it, in the form of [offset; size] create a "sub-region" inside it, if the sub-region
-    // does not fall outside the original buffer, i.e. `offset` is not after the end of the original
-    // buffer.
-    //
-    // # Arguments
-    //
-    // * `iovecs` - A slice of `iovec` structures describing the buffer.
-    // * `len`    - The total length of the buffer, i.e. the sum of the lengths of all `iovec`
-    //   structs.
-    // * `offset` - The offset inside the buffer at which the sub-region starts.
-    // * `size`   - The size of the sub-region
-    //
-    // # Returns
-    //
-    // If the sub-region is within the range of the buffer, i.e. the offset is not past the end of
-    // the buffer, it will return an `IovVecSubregion`.
-    fn new(iovecs: &'a [iovec], len: usize, mut offset: usize, mut size: usize) -> Option<Self> {
-        // Out-of-bounds sub-region
-        if offset >= len {
-            return None;
-        }
-
-        // Empty sub-region
-        if size == 0 {
-            return None;
-        }
-
-        let sub_regions = iovecs
-            .iter()
-            .filter_map(|iov| {
-                // If offset is bigger than the length of the current `iovec`, this `iovec` is not
-                // part of the sub-range
-                if offset >= iov.iov_len {
-                    offset -= iov.iov_len;
-                    return None;
-                }
-
-                // No more `iovec` structs needed
-                if size == 0 {
-                    return None;
-                }
-
-                // SAFETY: This is safe because we chacked that `offset < iov.iov_len`.
-                let iov_base = unsafe { iov.iov_base.add(offset) };
-                let iov_len = std::cmp::min(iov.iov_len - offset, size);
-                offset = 0;
-                size -= iov_len;
-
-                Some(iovec { iov_base, iov_len })
-            })
-            .collect();
-
-        Some(Self {
-            iovecs: sub_regions,
-            phantom: PhantomData,
-        })
-    }
-
-    #[cfg(test)]
-    fn len(&self) -> usize {
-        self.iovecs.iter().fold(0, |acc, iov| acc + iov.iov_len)
-    }
-}
-
-impl<'a> IntoIterator for IovVecSubregion<'a> {
-    type Item = iovec;
-
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iovecs.into_iter()
-    }
+    /// Guest memory error: {0}
+    GuestMemory(#[from] GuestMemoryError),
 }
 
 /// This is essentially a wrapper of a `Vec<libc::iovec>` which can be passed to `libc::writev`.
@@ -141,6 +50,7 @@ impl IoVecBuffer {
             // region in the GuestMemoryMmap.
             let iov_base = mem
                 .get_slice(desc.addr, desc.len as usize)?
+                .ptr_guard_mut()
                 .as_ptr()
                 .cast::<c_void>();
             vecs.push(iovec {
@@ -170,9 +80,51 @@ impl IoVecBuffer {
         self.vecs.len()
     }
 
-    /// Get a sub-region of the buffer
-    fn sub_region(&self, offset: usize, size: usize) -> Option<IovVecSubregion> {
-        IovVecSubregion::new(&self.vecs, self.len, offset, size)
+    // Read data from a subregion of the IoVecBuffer.
+    //
+    // This will read data into `buf` from a subregion that starts at `offset` and it is
+    // `buf.len()` long in the `buf` slice. Here we assume that [`offset`, `offset` + `buf.len()`]
+    // is within range, so it is the responsibility of the caller function to perform the necessary
+    // checks.
+    fn read_subregion(&self, buf: &mut [u8], mut offset: usize) -> usize {
+        debug_assert!(offset + buf.len() <= self.len());
+        let mut bytes = 0;
+        let mut buf_ptr = buf.as_mut_ptr();
+        for iov in self.vecs.iter() {
+            // We filled up all of `buf`, we 're done.
+            if bytes == buf.len() {
+                break;
+            }
+
+            // While `offset` is past the end of an `iov`, this `iov` is not
+            // part of the subregion.
+            if offset >= iov.iov_len {
+                offset -= iov.iov_len;
+                continue;
+            }
+
+            // SAFETY: This is safe because we checked that `offset < iov.iov_len`.
+            let src = unsafe { iov.iov_base.add(offset).cast::<u8>() };
+            let len = std::cmp::min(iov.iov_len - offset, buf.len() - bytes);
+            offset = 0;
+
+            // SAFETY:
+            // The call to `copy_nonoverlapping` is safe because:
+            // 1. `iov` describes a valid range in guest memory. The constructor of `IoVecBuffer`
+            //    has checked that.
+            // 2. `buf_ptr` is a pointer inside the `buf` slice. We only get this pointer using safe
+            //    methods.
+            // 3. Both pointers point to `u8` elements, so they're always aligned.
+            // 4. The memory regions these pointers point to are not overlapping. `src` points to
+            //    guest physical memory and `buf_ptr` to Firecracker-owned memory.
+            unsafe {
+                std::ptr::copy_nonoverlapping(src, buf_ptr, len);
+            }
+            buf_ptr = buf[len..].as_mut_ptr();
+            bytes += len;
+        }
+
+        bytes
     }
 
     /// Reads a number of bytes from the `IoVecBuffer` starting at a given offset.
@@ -184,32 +136,14 @@ impl IoVecBuffer {
     ///
     /// The number of bytes read (if any)
     pub fn read_at(&self, buf: &mut [u8], offset: usize) -> Option<usize> {
-        self.sub_region(offset, buf.len()).map(|sub_region| {
-            let mut bytes = 0;
-            let mut buf_ptr = buf.as_mut_ptr();
-
-            sub_region.into_iter().for_each(|iov| {
-                let src = iov.iov_base.cast::<u8>();
-                // SAFETY:
-                // The call to `copy_nonoverlapping` is safe because:
-                // 1. `iov` is a an iovec describing a segment inside `Self`. `IoVecSubregion` has
-                //    performed all necessary bound checks.
-                // 2. `buf_ptr` is a pointer inside the memory of `buf`
-                // 3. Both pointers point to `u8` elements, so they're always aligned.
-                // 4. The memory regions these pointers point to are not overlapping. `src` points
-                //    to guest physical memory and `buf_ptr` to Firecracker-owned memory.
-                //
-                // `buf_ptr.add()` is safe because `IoVecSubregion` gives us `iovec` structs that
-                // their size adds up to `buf.len()`.
-                unsafe {
-                    std::ptr::copy_nonoverlapping(src, buf_ptr, iov.iov_len);
-                    buf_ptr = buf_ptr.add(iov.iov_len);
-                }
-                bytes += iov.iov_len;
-            });
-
-            bytes
-        })
+        if offset < self.len() {
+            // Make sure we only read up to the end of the `IoVecBuffer`.
+            let size = buf.len().min(self.len() - offset);
+            Some(self.read_subregion(&mut buf[..size], offset))
+        } else {
+            // If `offset` is past size, there's nothing to read.
+            None
+        }
     }
 }
 
@@ -250,7 +184,7 @@ impl IoVecBufferMut {
             // vm-memory related information after converting down to iovecs.
             slice.bitmap().mark_dirty(0, desc.len as usize);
 
-            let iov_base = slice.as_ptr().cast::<c_void>();
+            let iov_base = slice.ptr_guard_mut().as_ptr().cast::<c_void>();
             vecs.push(iovec {
                 iov_base,
                 iov_len: desc.len as size_t,
@@ -266,9 +200,51 @@ impl IoVecBufferMut {
         self.len
     }
 
-    /// Get a sub-region of the buffer
-    fn sub_region(&self, offset: usize, size: usize) -> Option<IovVecSubregion> {
-        IovVecSubregion::new(&self.vecs, self.len, offset, size)
+    // Write data into a subregion of the IoVecBuffer.
+    //
+    // This will write data from `buf` into a subregion that starts at `offset` and it is
+    // `buf.len()` long in the `buf` slice. Here we assume that [`offset`, `offset` + `buf.len()`]
+    // is within range, so it is the responsibility of the caller function to perform the necessary
+    // checks.
+    fn write_subregion(&self, buf: &[u8], mut offset: usize) -> usize {
+        debug_assert!(offset + buf.len() <= self.len());
+        let mut bytes = 0;
+        let mut buf_ptr = buf.as_ptr();
+        for iov in self.vecs.iter() {
+            // We read all of `buf`, we 're done.
+            if bytes == buf.len() {
+                break;
+            }
+
+            // While `offset` is past the end of an `iov`, this `iov` is not
+            // part of the subregion.
+            if offset >= iov.iov_len {
+                offset -= iov.iov_len;
+                continue;
+            }
+
+            // SAFETY: This is safe because we checked that `offset < iov.iov_len`.
+            let dst = unsafe { iov.iov_base.add(offset).cast::<u8>() };
+            let len = std::cmp::min(iov.iov_len - offset, buf.len() - bytes);
+            offset = 0;
+
+            // SAFETY:
+            // The call to `copy_nonoverlapping` is safe because:
+            // 1. `iov` describes a valid range in guest memory. The constructor of `IoVecBufferMut`
+            //    has checked that.
+            // 2. `buf_ptr` is a pointer inside the `buf` slice. We only get this pointer using safe
+            //    methods.
+            // 3. Both pointers point to `u8` elements, so they're always aligned.
+            // 4. The memory regions these pointers point to are not overlapping. `dst` points to
+            //    guest physical memory and `buf_ptr` to Firecracker-owned memory.
+            unsafe {
+                std::ptr::copy_nonoverlapping(buf_ptr, dst, len);
+            }
+            buf_ptr = buf[len..].as_ptr();
+            bytes += len;
+        }
+
+        bytes
     }
 
     /// Writes a number of bytes into the `IoVecBufferMut` starting at a given offset.
@@ -281,44 +257,25 @@ impl IoVecBufferMut {
     ///
     /// The number of bytes written (if any)
     pub fn write_at(&mut self, buf: &[u8], offset: usize) -> Option<usize> {
-        self.sub_region(offset, buf.len()).map(|sub_region| {
-            let mut bytes = 0;
-            let mut buf_ptr = buf.as_ptr();
-
-            sub_region.into_iter().for_each(|iov| {
-                let dst = iov.iov_base.cast::<u8>();
-                // SAFETY:
-                // The call to `copy_nonoverlapping` is safe because:
-                // 1. `iov` is a an iovec describing a segment inside `Self`. `IoVecSubregion` has
-                //    performed all necessary bound checks.
-                // 2. `buf_ptr` is a pointer inside the memory of `buf`
-                // 3. Both pointers point to `u8` elements, so they're always aligned.
-                // 4. The memory regions these pointers point to are not overlapping. `src` points
-                //    to guest physical memory and `buf_ptr` to Firecracker-owned memory.
-                //
-                // `buf_ptr.add()` is safe because `IoVecSubregion` gives us `iovec` structs that
-                // their size adds up to `buf.len()`.
-                unsafe {
-                    std::ptr::copy_nonoverlapping(buf_ptr, dst, iov.iov_len);
-                    buf_ptr = buf_ptr.add(iov.iov_len);
-                }
-                bytes += iov.iov_len;
-            });
-
-            bytes
-        })
+        if offset < self.len() {
+            // Make sure we only write up to the end of the `IoVecBufferMut`.
+            let size = buf.len().min(self.len() - offset);
+            Some(self.write_subregion(&buf[..size], offset))
+        } else {
+            // We cannot write past the end of the `IoVecBufferMut`.
+            None
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use libc::{c_void, iovec};
-    use utils::vm_memory::test_utils::create_anon_guest_memory;
-    use utils::vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 
     use super::{IoVecBuffer, IoVecBufferMut};
     use crate::devices::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::VirtQueue;
+    use crate::vstate::memory::{Bytes, GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
 
     impl<'a> From<&'a [u8]> for IoVecBuffer {
         fn from(buf: &'a [u8]) -> Self {
@@ -363,7 +320,7 @@ mod tests {
     }
 
     fn default_mem() -> GuestMemoryMmap {
-        create_anon_guest_memory(
+        GuestMemoryMmap::from_raw_regions(
             &[
                 (GuestAddress(0), 0x10000),
                 (GuestAddress(0x20000), 0x10000),
@@ -387,7 +344,7 @@ mod tests {
         };
 
         for j in 0..4 {
-            vq.dtable[j].set(0x20000 + 64 * j as u64, 64, flags, (j + 1) as u16);
+            vq.dtable[j as usize].set(0x20000 + 64 * u64::from(j), 64, flags, j + 1);
         }
 
         // one chain: (0, 1, 2, 3)
@@ -563,51 +520,118 @@ mod tests {
         vq.dtable[2].check_data(&test_vec3);
         vq.dtable[3].check_data(&test_vec4);
     }
+}
 
-    #[test]
-    fn test_sub_range() {
-        let mem = default_mem();
-        let (mut q, _) = read_only_chain(&mem);
-        let head = q.pop(&mem).unwrap();
+#[cfg(kani)]
+mod verification {
+    use std::mem::ManuallyDrop;
 
-        // This is a descriptor chain with 4 elements 64 bytes long each,
-        // so 256 bytes long.
-        let iovec = IoVecBuffer::from_descriptor_chain(&mem, head).unwrap();
+    use libc::{c_void, iovec};
 
-        // Sub-ranges past the end of the buffer are invalid
-        assert!(iovec.sub_region(iovec.len(), 256).is_none());
+    use super::{IoVecBuffer, IoVecBufferMut};
 
-        // Getting an empty sub-range is invalid
-        assert!(iovec.sub_region(0, 0).is_none());
+    // Maximum memory size to use for our buffers. For the time being 1KB.
+    const GUEST_MEMORY_SIZE: usize = 1 << 10;
 
-        // Let's take the whole region
-        let sub = iovec.sub_region(0, iovec.len()).unwrap();
-        assert_eq!(iovec.len(), sub.len());
+    // Maximum number of descriptors in a chain to use in our proofs. The value is selected upon
+    // experimenting with the execution time. Typically, in our virtio devices we use queues of up
+    // to 256 entries which is the theoretical maximum length of a `DescriptorChain`, but in reality
+    // our code does not make any assumption about the length of the chain, apart from it being
+    // >= 1.
+    const MAX_DESC_LENGTH: usize = 4;
 
-        // Let's take a valid sub-region that ends past the the end of the buffer
-        let sub = iovec.sub_region(128, 256).unwrap();
-        assert_eq!(128, sub.len());
+    fn create_iovecs(mem: *mut u8, size: usize) -> (Vec<iovec>, usize) {
+        let nr_descs: usize = kani::any_where(|&n| n <= MAX_DESC_LENGTH);
+        let mut vecs: Vec<iovec> = Vec::with_capacity(nr_descs);
+        let mut len = 0usize;
+        for _ in 0..nr_descs {
+            // The `IoVecBuffer(Mut)` constructors ensure that the memory region described by every
+            // `Descriptor` in the chain is a valid, i.e. it is memory with then guest's memory
+            // mmap. The assumption, here, that the last address is within the memory object's
+            // bound substitutes these checks that `IoVecBuffer(Mut)::new() performs.`
+            let addr: usize = kani::any();
+            let iov_len: usize =
+                kani::any_where(|&len| matches!(addr.checked_add(len), Some(x) if x <= size));
+            let iov_base = unsafe { mem.offset(addr.try_into().unwrap()) } as *mut c_void;
 
-        // Getting a sub-region that falls in a single iovec of the buffer
-        for i in 0..4 {
-            let sub = iovec.sub_region(10 + i * 64, 50).unwrap();
-            assert_eq!(50, sub.len());
-            assert_eq!(1, sub.iovecs.len());
-            // SAFETY: All `iovecs` are 64 bytes long
-            assert_eq!(sub.iovecs[0].iov_base, unsafe {
-                iovec.vecs[i].iov_base.add(10)
-            });
+            vecs.push(iovec { iov_base, iov_len });
+            len += iov_len;
         }
 
-        // Get a sub-region that traverses more than one iovec of the buffer
-        let sub = iovec.sub_region(10, 100).unwrap();
-        assert_eq!(100, sub.len());
-        assert_eq!(2, sub.iovecs.len());
-        // SAFETY: all `iovecs` are 64 bytes long
-        assert_eq!(sub.iovecs[0].iov_base, unsafe {
-            iovec.vecs[0].iov_base.add(10)
-        });
+        (vecs, len)
+    }
 
-        assert_eq!(sub.iovecs[1].iov_base, iovec.vecs[1].iov_base);
+    impl kani::Arbitrary for IoVecBuffer {
+        fn any() -> Self {
+            // We only read from `IoVecBuffer`, so create here a guest memory object, with arbitrary
+            // contents and size up to GUEST_MEMORY_SIZE.
+            let mut mem = ManuallyDrop::new(kani::vec::exact_vec::<u8, GUEST_MEMORY_SIZE>());
+            let (vecs, len) = create_iovecs(mem.as_mut_ptr(), mem.len());
+            Self { vecs, len }
+        }
+    }
+
+    impl kani::Arbitrary for IoVecBufferMut {
+        fn any() -> Self {
+            // We only write into `IoVecBufferMut` objects, so we can simply create a guest memory
+            // object initialized to zeroes, trying to be nice to Kani.
+            let mem = unsafe {
+                std::alloc::alloc_zeroed(std::alloc::Layout::from_size_align_unchecked(
+                    GUEST_MEMORY_SIZE,
+                    16,
+                ))
+            };
+
+            let (vecs, len) = create_iovecs(mem, GUEST_MEMORY_SIZE);
+            Self { vecs, len }
+        }
+    }
+
+    #[kani::proof]
+    #[kani::unwind(5)]
+    #[kani::solver(cadical)]
+    fn verify_read_from_iovec() {
+        let iov: IoVecBuffer = kani::any();
+
+        let mut buf = vec![0; GUEST_MEMORY_SIZE];
+        let offset: usize = kani::any();
+
+        // We can't really check the contents that the operation here writes into `buf`, because
+        // our `IoVecBuffer` being completely arbitrary can contain overlapping memory regions, so
+        // checking the data copied is not exactly trivial.
+        //
+        // What we can verify is the bytes that we read out from guest memory:
+        // * `None`, if `offset` is past the guest memory.
+        // * `Some(bytes)`, otherwise. In this case, `bytes` is:
+        //    - `buf.len()`, if `offset + buf.len() < iov.len()`;
+        //    - `iov.len() - offset`, otherwise.
+        match iov.read_at(&mut buf, offset) {
+            None => assert!(offset >= iov.len()),
+            Some(bytes) => assert_eq!(bytes, buf.len().min(iov.len() - offset)),
+        }
+    }
+
+    #[kani::proof]
+    #[kani::unwind(5)]
+    #[kani::solver(cadical)]
+    fn verify_write_to_iovec() {
+        let mut iov_mut: IoVecBufferMut = kani::any();
+
+        let buf = kani::vec::any_vec::<u8, GUEST_MEMORY_SIZE>();
+        let offset: usize = kani::any();
+
+        // We can't really check the contents that the operation here writes into `IoVecBufferMut`,
+        // because our `IoVecBufferMut` being completely arbitrary can contain overlapping memory
+        // regions, so checking the data copied is not exactly trivial.
+        //
+        // What we can verify is the bytes that we write into guest memory:
+        // * `None`, if `offset` is past the guest memory.
+        // * `Some(bytes)`, otherwise. In this case, `bytes` is:
+        //    - `buf.len()`, if `offset + buf.len() < iov.len()`;
+        //    - `iov.len() - offset`, otherwise.
+        match iov_mut.write_at(&buf, offset) {
+            None => assert!(offset >= iov_mut.len()),
+            Some(bytes) => assert_eq!(bytes, buf.len().min(iov_mut.len() - offset)),
+        }
     }
 }

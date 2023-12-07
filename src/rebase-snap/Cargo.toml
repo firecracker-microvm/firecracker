@@ -1,9 +1,8 @@
 [package]
 name = "rebase-snap"
-version = "1.5.0-dev"
+version = "1.6.0-dev"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2021"
-build = "../../build.rs"
 license = "Apache-2.0"
 
 [[bin]]
@@ -11,7 +10,12 @@ name = "rebase-snap"
 bench = false
 
 [dependencies]
-libc = "0.2.147"
-thiserror = "1.0.40"
+displaydoc = "0.2.4"
+libc = "0.2.150"
+log-instrument = { path = "../log-instrument", optional = true }
+thiserror = "1.0.50"
 
 utils = { path = "../utils" }
+
+[features]
+tracing = ["log-instrument", "utils/tracing"]

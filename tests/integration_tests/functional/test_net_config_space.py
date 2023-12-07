@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests on devices config space."""
 
-import os
 import platform
 import random
 import re
@@ -10,7 +9,6 @@ import string
 import subprocess
 from threading import Thread
 
-import host_tools.logging as log_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
 
 # pylint: disable=global-statement
@@ -21,6 +19,7 @@ def test_net_change_mac_address(test_microvm_with_api, change_net_config_space_b
     """
     Test changing the MAC address of the network device.
     """
+
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
     test_microvm.basic_config(boot_args="ipv6.disable=1")
@@ -29,15 +28,6 @@ def test_net_change_mac_address(test_microvm_with_api, change_net_config_space_b
     test_microvm.add_net_iface()
     # Control interface ('eth1' in guest).
     test_microvm.add_net_iface()
-
-    # Configure metrics, to get later the `tx_spoofed_mac_count`.
-    metrics_fifo_path = os.path.join(test_microvm.path, "metrics_fifo")
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    response = test_microvm.metrics.put(
-        metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
-    )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
     test_microvm.start()
 
     # Create the control ssh connection.
@@ -51,7 +41,7 @@ def test_net_change_mac_address(test_microvm_with_api, change_net_config_space_b
     iterations = 1
     _exchange_data(test_microvm.jailer, ssh_conn, host_ip0, host_port, iterations)
 
-    fc_metrics = test_microvm.flush_metrics(metrics_fifo)
+    fc_metrics = test_microvm.flush_metrics()
     assert fc_metrics["net"]["tx_spoofed_mac_count"] == 0
 
     # Change the MAC address of the network data interface.
@@ -68,7 +58,7 @@ def test_net_change_mac_address(test_microvm_with_api, change_net_config_space_b
 
     # `tx_spoofed_mac_count` metric was incremented due to the MAC address
     # change.
-    fc_metrics = test_microvm.flush_metrics(metrics_fifo)
+    fc_metrics = test_microvm.flush_metrics()
     assert fc_metrics["net"]["tx_spoofed_mac_count"] > 0
 
     net_addr_base = _get_net_mem_addr_base(ssh_conn, guest_if1_name)
@@ -91,15 +81,15 @@ def test_net_change_mac_address(test_microvm_with_api, change_net_config_space_b
     # Discard any parasite data exchange which might've been
     # happened on the emulation thread while the config space
     # was changed on the vCPU thread.
-    test_microvm.flush_metrics(metrics_fifo)
+    test_microvm.flush_metrics()
 
     _exchange_data(test_microvm.jailer, ssh_conn, host_ip0, host_port, iterations)
-    fc_metrics = test_microvm.flush_metrics(metrics_fifo)
+    fc_metrics = test_microvm.flush_metrics()
     assert fc_metrics["net"]["tx_spoofed_mac_count"] == 0
 
     # Try again, just to be extra sure.
     _exchange_data(test_microvm.jailer, ssh_conn, host_ip0, host_port, iterations)
-    fc_metrics = test_microvm.flush_metrics(metrics_fifo)
+    fc_metrics = test_microvm.flush_metrics()
     assert fc_metrics["net"]["tx_spoofed_mac_count"] == 0
 
 
@@ -131,7 +121,7 @@ def _create_server(jailer, host_ip, port, iterations):
     cmd = 'python3 -c "{}"'.format(
         script.format(host_ip, port, iterations, PAYLOAD_DATA_SIZE)
     )
-    netns_cmd = jailer.netns_cmd_prefix() + cmd
+    netns_cmd = jailer.netns.cmd_prefix() + " " + cmd
     exit_code = subprocess.call(netns_cmd, shell=True)
     assert exit_code == 0
 
@@ -164,7 +154,7 @@ def _send_data_g2h(ssh_connection, host_ip, host_port, iterations, data, retries
     )
 
     # Wait server to initialize.
-    exit_code, _, stderr = ssh_connection.execute_command(cmd)
+    exit_code, _, stderr = ssh_connection.run(cmd)
     # If this assert fails, a connection refused happened.
     assert exit_code == 0, stderr
     assert stderr == ""
@@ -203,7 +193,7 @@ def _change_guest_if_mac(ssh_connection, guest_if_mac, guest_if_name):
     cmd = "ip link set dev {} address ".format(guest_if_name) + guest_if_mac
     # The connection will be down, because changing the mac will issue down/up
     # on the interface.
-    ssh_connection.execute_command(cmd)
+    ssh_connection.run(cmd)
 
 
 def _get_net_mem_addr_base(ssh_connection, if_name):
@@ -211,14 +201,12 @@ def _get_net_mem_addr_base(ssh_connection, if_name):
     if platform.machine() == "x86_64":
         sys_virtio_mmio_cmdline = "/sys/devices/virtio-mmio-cmdline/"
         cmd = "ls {} | grep virtio-mmio. | sed 's/virtio-mmio.//'"
-        exit_code, stdout, _ = ssh_connection.execute_command(
-            cmd.format(sys_virtio_mmio_cmdline)
-        )
+        exit_code, stdout, _ = ssh_connection.run(cmd.format(sys_virtio_mmio_cmdline))
         assert exit_code == 0
         virtio_devs_idx = stdout.split()
 
         cmd = "cat /proc/cmdline"
-        exit_code, cmd_line, _ = ssh_connection.execute_command(cmd)
+        exit_code, cmd_line, _ = ssh_connection.run(cmd)
         assert exit_code == 0
         pattern_dev = re.compile("(virtio_mmio.device=4K@0x[0-9a-f]+:[0-9]+)+")
         pattern_addr = re.compile("virtio_mmio.device=4K@(0x[0-9a-f]+):[0-9]+")
@@ -233,7 +221,7 @@ def _get_net_mem_addr_base(ssh_connection, if_name):
 
         cmd = "ls {}/virtio-mmio.{}/virtio{}/net"
         for idx in virtio_devs_idx:
-            _, guest_if_name, _ = ssh_connection.execute_command(
+            _, guest_if_name, _ = ssh_connection.run(
                 cmd.format(sys_virtio_mmio_cmdline, idx, idx)
             )
             if guest_if_name.strip() == if_name:
@@ -241,7 +229,7 @@ def _get_net_mem_addr_base(ssh_connection, if_name):
     elif platform.machine() == "aarch64":
         sys_virtio_mmio_cmdline = "/sys/devices/platform"
         cmd = "ls {} | grep .virtio_mmio".format(sys_virtio_mmio_cmdline)
-        rc, stdout, _ = ssh_connection.execute_command(cmd)
+        rc, stdout, _ = ssh_connection.run(cmd)
         assert rc == 0
 
         virtio_devs = stdout.split()
@@ -252,7 +240,7 @@ def _get_net_mem_addr_base(ssh_connection, if_name):
         # accordingly when parsed inside `change_config_space.c`.
         hex_prefix = "0x"
         for idx, dev in enumerate(virtio_devs):
-            _, guest_if_name, _ = ssh_connection.execute_command(
+            _, guest_if_name, _ = ssh_connection.run(
                 cmd.format(sys_virtio_mmio_cmdline, dev, idx)
             )
             if guest_if_name.strip() == if_name:

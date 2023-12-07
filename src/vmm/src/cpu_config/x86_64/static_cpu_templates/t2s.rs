@@ -254,13 +254,15 @@ pub fn t2s() -> CustomCpuTemplate {
             // - Bit 22: Reserved
             // - Bit 23: OVERCLOCKING_STATUS
             // - Bit 24: PBRSB_NO
+            // - Bit 26: GDS_NO
             // - Bits 63-25: Reserved
             RegisterModifier {
             addr: 0x10a,
             bitmap: RegisterValueFilter {
                 filter: 0b1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111,
-                value: 0b0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_1000_0000_1100_0100_1100,
+                value: 0b0000_0000_0000_0000_0000_0000_0000_0000_0000_0100_0000_1000_0000_1100_0100_1100,
             },
         }],
+        ..Default::default()
     }
 }

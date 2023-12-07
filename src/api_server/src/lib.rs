@@ -1,7 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#![deny(missing_docs)]
+#![warn(missing_docs)]
 
 //! Implements the interface for intercepting API requests, forwarding them to the VMM
 //! and responding to the user.
@@ -13,9 +13,6 @@ mod request;
 use std::fmt::Debug;
 use std::sync::mpsc;
 
-use logger::{
-    debug, error, info, update_metric_with_elapsed_time, warn, ProcessTimeReporter, METRICS,
-};
 pub use micro_http::{
     Body, HttpServer, Method, Request, RequestError, Response, ServerError, ServerRequest,
     ServerResponse, StatusCode, Version,
@@ -23,6 +20,9 @@ pub use micro_http::{
 use seccompiler::BpfProgramRef;
 use serde_json::json;
 use utils::eventfd::EventFd;
+use vmm::logger::{
+    debug, error, info, update_metric_with_elapsed_time, warn, ProcessTimeReporter, METRICS,
+};
 use vmm::rpc_interface::{ApiRequest, ApiResponse, VmmAction, VmmData};
 use vmm::vmm_config::snapshot::SnapshotType;
 
@@ -38,8 +38,6 @@ pub struct ApiServer {
     /// FD on which we notify the VMM that we have sent at least one
     /// `VmmRequest`.
     to_vmm_fd: EventFd,
-    /// If this flag is set, the API thread will go down.
-    shutdown_flag: bool,
 }
 
 impl ApiServer {
@@ -55,7 +53,6 @@ impl ApiServer {
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
-            shutdown_flag: false,
         }
     }
 
@@ -97,6 +94,11 @@ impl ApiServer {
         loop {
             let request_vec = match server.requests() {
                 Ok(vec) => vec,
+                Err(ServerError::ShutdownEvent) => {
+                    server.flush_outgoing_writes();
+                    debug!("shutdown request received, API server thread ending.");
+                    return;
+                }
                 Err(err) => {
                     // print request error, but keep server running
                     error!("API Server error on retrieving incoming request: {}", err);
@@ -116,14 +118,6 @@ impl ApiServer {
                 let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic)
                     - request_processing_start_us;
                 debug!("Total previous API call duration: {} us.", delta_us);
-
-                if self.shutdown_flag {
-                    server.flush_outgoing_writes();
-                    debug!(
-                        "/shutdown-internal request received, API server thread now ending itself"
-                    );
-                    return;
-                }
             }
         }
     }
@@ -139,10 +133,6 @@ impl ApiServer {
                 let mut response = match req_action {
                     RequestAction::Sync(vmm_action) => {
                         self.serve_vmm_action_request(vmm_action, request_processing_start_us)
-                    }
-                    RequestAction::ShutdownInternal => {
-                        self.shutdown_flag = true;
-                        Response::new(Version::Http11, StatusCode::NoContent)
                     }
                 };
                 if let Some(message) = parsing_info.take_deprecation_message() {
@@ -219,11 +209,11 @@ mod tests {
     use std::sync::mpsc::channel;
     use std::thread;
 
-    use logger::StoreMetric;
     use micro_http::HttpConnection;
     use utils::tempfile::TempFile;
     use utils::time::ClockType;
     use vmm::builder::StartMicrovmError;
+    use vmm::logger::StoreMetric;
     use vmm::rpc_interface::VmmActionError;
     use vmm::seccomp_filters::get_empty_filters;
     use vmm::vmm_config::instance_info::InstanceInfo;
@@ -237,21 +227,21 @@ mod tests {
     /// test deserialization and logging.
     #[cfg(target_arch = "x86_64")]
     const TEST_UNESCAPED_JSON_TEMPLATE: &str = r#"{
-      "msr_modifiers": [
-        {
-          "addr": "0x0\n\n\n\nTEST\n\n\n\n",
-          "bitmap": "0b00"
-        }
-      ]
+        "msr_modifiers": [
+            {
+                "addr": "0x0\n\n\n\nTEST\n\n\n\n",
+                "bitmap": "0b00"
+            }
+        ]
     }"#;
     #[cfg(target_arch = "aarch64")]
     pub const TEST_UNESCAPED_JSON_TEMPLATE: &str = r#"{
-      "reg_modifiers": [
-        {
-          "addr": "0x0\n\n\n\nTEST\n\n\n\n",
-          "bitmap": "0b00"
-        }
-      ]
+        "reg_modifiers": [
+            {
+                "addr": "0x0\n\n\n\nTEST\n\n\n\n",
+                "bitmap": "0b00"
+            }
+        ]
     }"#;
 
     #[test]
@@ -291,7 +281,6 @@ mod tests {
                 snapshot_type: SnapshotType::Diff,
                 snapshot_path: PathBuf::new(),
                 mem_file_path: PathBuf::new(),
-                version: None,
             })),
             start_time_us,
         );
@@ -305,7 +294,6 @@ mod tests {
                 snapshot_type: SnapshotType::Diff,
                 snapshot_path: PathBuf::new(),
                 mem_file_path: PathBuf::new(),
-                version: None,
             })),
             start_time_us,
         );
@@ -477,5 +465,39 @@ mod tests {
                               the limit of 50 allowed by server.\nAll previous \
                               unanswered requests will be dropped.\" }";
         assert_eq!(&buf[..], &error_message[..]);
+    }
+
+    #[test]
+    fn test_kill_switch() {
+        let mut tmp_socket = TempFile::new().unwrap();
+        tmp_socket.remove().unwrap();
+        let path_to_socket = tmp_socket.as_path().to_str().unwrap().to_owned();
+
+        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        let (api_request_sender, _from_api) = channel();
+        let (_to_api, vmm_response_receiver) = channel();
+        let seccomp_filters = get_empty_filters();
+
+        let api_kill_switch = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        let kill_switch = api_kill_switch.try_clone().unwrap();
+
+        let mut server = HttpServer::new(PathBuf::from(path_to_socket)).unwrap();
+        server.add_kill_switch(kill_switch).unwrap();
+
+        let api_thread = thread::Builder::new()
+            .name("fc_api_test".to_owned())
+            .spawn(move || {
+                ApiServer::new(api_request_sender, vmm_response_receiver, to_vmm_fd).run(
+                    server,
+                    ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
+                    seccomp_filters.get("api").unwrap(),
+                    vmm::HTTP_MAX_PAYLOAD_SIZE,
+                )
+            })
+            .unwrap();
+        // Signal the API thread it should shut down.
+        api_kill_switch.write(1).unwrap();
+        // Verify API thread was brought down.
+        api_thread.join().unwrap();
     }
 }

@@ -5,8 +5,10 @@ synchronous IO engine for executing the device requests, based on blocking
 system calls.
 
 Firecracker 1.0.0 adds support for an asynchronous block device IO engine.
-Support is currently in **developer preview**. See
-[this section](#developer-preview-status) for more info.
+
+> [!WARNING]
+> Support is currently in **developer preview**. See
+> [this section](#developer-preview-status) for more info.
 
 The `Async` engine leverages [`io_uring`](https://kernel.dk/io_uring.pdf) for
 executing requests in an async manner, therefore getting overall higher
@@ -21,6 +23,9 @@ with the `io_engine` field taking two possible values:
 
 The `Sync` variant is the default, in order to provide backwards compatibility
 with older Firecracker versions.
+
+**Note** [vhost-user block device](./block-vhost-user.md) is another option
+for block IO that requires an external backend process.
 
 ## Example configuration
 

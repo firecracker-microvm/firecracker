@@ -12,10 +12,9 @@ use std::collections::btree_map::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 /// Errors triggered during bus operations.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BusError {
-    /// The insertion failed because the new device overlapped with an old device.
-    #[error("New device overlaps with an old device.")]
+    /// New device overlaps with an old device.
     Overlap,
 }
 
@@ -38,7 +37,7 @@ impl Ord for BusRange {
 
 impl PartialOrd for BusRange {
     fn partial_cmp(&self, other: &BusRange) -> Option<Ordering> {
-        self.0.partial_cmp(&other.0)
+        Some(self.cmp(other))
     }
 }
 
@@ -57,7 +56,7 @@ use event_manager::{EventOps, Events, MutEventSubscriber};
 use super::legacy::RTCDevice;
 use super::legacy::{I8042Device, SerialDevice};
 use super::pseudo::BootTimer;
-use super::virtio::MmioTransport;
+use super::virtio::mmio::MmioTransport;
 
 #[derive(Debug)]
 pub enum BusDevice {
@@ -91,13 +90,13 @@ pub struct ConstantDevice;
 impl ConstantDevice {
     pub fn bus_read(&mut self, offset: u64, data: &mut [u8]) {
         for (i, v) in data.iter_mut().enumerate() {
-            *v = (offset as u8) + (i as u8);
+            *v = ((offset + i as u64) & 0xff) as u8;
         }
     }
 
     fn bus_write(&mut self, offset: u64, data: &[u8]) {
         for (i, v) in data.iter().enumerate() {
-            assert_eq!(*v, (offset as u8) + (i as u8))
+            assert_eq!(*v, ((offset + i as u64) & 0xff) as u8)
         }
     }
 }

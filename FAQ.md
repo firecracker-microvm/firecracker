@@ -16,7 +16,7 @@ Fargate](https://aws.amazon.com/fargate/) to improve resource utilization and
 customer experience, while providing the security and isolation required of
 public cloud infrastructure. Firecracker started from Chromium OS's Virtual
 Machine Monitor,
-[crosvm](https://chromium.googlesource.com/chromiumos/platform/crosvm/), an open
+[crosvm](https://github.com/google/crosvm), an open
 source VMM written in Rust. Today, crosvm and Firecracker have diverged to
 serve very different customer needs. [Rust-vmm](https://github.com/rust-vmm) is
 an open source community where we collaborate with the crosvm maintainers and
@@ -134,7 +134,7 @@ line that enables the serial console (which goes in the `boot_args` field of
 the `/boot-source` Firecracker API resource):
 
 ```console
-console=ttyS0 reboot=k panic=1 pci=off nomodules
+console=ttyS0 reboot=k panic=1 pci=off nomodule
 ```
 
 ### How can I configure multiple Ethernet devices through the kernel command line?
@@ -175,7 +175,7 @@ For example when using `chrony`:
 1. Restart the `chrony` daemon.
 
 You can see more info about the `refclock` parameters
-[here](https://chrony.tuxfamily.org/doc/3.4/chrony.conf.html#refclock).
+[here](https://chrony-project.org/doc/3.4/chrony.conf.html#refclock).
 Adjust them according to your needs.
 
 ### Each Firecracker opens 20+ file descriptors. Is this an issue?

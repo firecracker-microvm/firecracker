@@ -25,7 +25,7 @@ fn get_base(entry: u64) -> u64 {
 }
 
 fn get_limit(entry: u64) -> u32 {
-    ((((entry) & 0x000F_0000_0000_0000) >> 32) | ((entry) & 0x0000_0000_0000_FFFF)) as u32
+    ((((entry) & 0x000F_0000_0000_0000) >> 32) as u32) | (((entry) & 0x0000_0000_0000_FFFF) as u32)
 }
 
 fn get_g(entry: u64) -> u8 {

@@ -8,15 +8,16 @@ use std::os::unix::io::{AsRawFd, RawFd};
 
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
-use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 
+use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 use crate::devices::virtio::test_utils::{single_region_mem, VirtQueue as GuestQ};
 use crate::devices::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
 use crate::devices::virtio::vsock::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
-use crate::devices::virtio::{
-    VirtioDevice, Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
-    VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE,
+use crate::devices::virtio::vsock::{
+    Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
 };
+use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
 #[derive(Debug)]
 pub struct TestBackend {
@@ -144,7 +145,7 @@ impl TestContext {
         // Set up one available descriptor in the RX queue.
         guest_rxvq.dtable[0].set(
             0x0040_0000,
-            VSOCK_PKT_HDR_SIZE as u32,
+            VSOCK_PKT_HDR_SIZE,
             VIRTQ_DESC_F_WRITE | VIRTQ_DESC_F_NEXT,
             1,
         );
@@ -154,7 +155,7 @@ impl TestContext {
         guest_rxvq.avail.idx.set(1);
 
         // Set up one available descriptor in the TX queue.
-        guest_txvq.dtable[0].set(0x0050_0000, VSOCK_PKT_HDR_SIZE as u32, VIRTQ_DESC_F_NEXT, 1);
+        guest_txvq.dtable[0].set(0x0050_0000, VSOCK_PKT_HDR_SIZE, VIRTQ_DESC_F_NEXT, 1);
         guest_txvq.dtable[1].set(0x0050_1000, 4096, 0, 0);
         guest_txvq.avail.ring[0].set(0);
         guest_txvq.avail.idx.set(1);

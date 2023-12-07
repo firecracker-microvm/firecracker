@@ -10,12 +10,13 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::arch::x86_64::cpu_model::CpuModel;
 use crate::cpu_config::templates::{
-    CpuTemplateType, GetCpuTemplate, GetCpuTemplateError, RegisterValueFilter,
+    CpuTemplateType, GetCpuTemplate, GetCpuTemplateError, KvmCapability, RegisterValueFilter,
 };
 use crate::cpu_config::templates_serde::*;
 use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
 use crate::cpu_config::x86_64::cpuid::{KvmCpuidFlags, VENDOR_ID_AMD, VENDOR_ID_INTEL};
 use crate::cpu_config::x86_64::static_cpu_templates::{c3, t2, t2a, t2cl, t2s, StaticCpuTemplate};
+use crate::logger::warn;
 
 impl GetCpuTemplate for Option<CpuTemplateType> {
     fn get_cpu_template(&self) -> Result<Cow<CustomCpuTemplate>, GetCpuTemplateError> {
@@ -30,6 +31,14 @@ impl GetCpuTemplate for Option<CpuTemplateType> {
                         StaticCpuTemplate::C3 => {
                             if &vendor_id != VENDOR_ID_INTEL {
                                 return Err(CpuVendorMismatched);
+                            }
+                            if !CpuModel::get_cpu_model().is_at_least_cascade_lake() {
+                                warn!(
+                                    "On processors that do not enumerate FBSDP_NO, PSDP_NO and \
+                                     SBDR_SSDP_NO on IA32_ARCH_CAPABILITIES MSR, the guest kernel \
+                                     does not apply the mitigation against MMIO stale data \
+                                     vulnerability."
+                                );
                             }
                             Ok(Cow::Owned(c3::c3()))
                         }
@@ -122,6 +131,10 @@ pub struct CpuidLeafModifier {
 #[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CustomCpuTemplate {
+    /// Additional kvm capabilities to check before
+    /// configuring vcpus.
+    #[serde(default)]
+    pub kvm_capabilities: Vec<KvmCapability>,
     /// Modifiers for CPUID configuration.
     #[serde(default)]
     pub cpuid_modifiers: Vec<CpuidLeafModifier>,

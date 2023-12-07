@@ -6,15 +6,17 @@
 // found in the THIRD-PARTY file.
 
 use std::fmt;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
-use log::warn;
 use utils::eventfd::EventFd;
-use utils::vm_memory::GuestMemoryMmap;
 
-use super::{ActivateError, Queue};
-use crate::devices::virtio::{AsAny, VIRTIO_MMIO_INT_CONFIG, VIRTIO_MMIO_INT_VRING};
+use super::mmio::{VIRTIO_MMIO_INT_CONFIG, VIRTIO_MMIO_INT_VRING};
+use super::queue::Queue;
+use super::ActivateError;
+use crate::devices::virtio::AsAny;
+use crate::logger::{error, warn};
+use crate::vstate::memory::GuestMemoryMmap;
 
 /// Enum that indicates if a VirtioDevice is inactive or has been activated
 /// and memory attached to it.
@@ -54,14 +56,14 @@ pub enum IrqType {
 /// Helper struct that is responsible for triggering guest IRQs
 #[derive(Debug)]
 pub struct IrqTrigger {
-    pub(crate) irq_status: Arc<AtomicUsize>,
+    pub(crate) irq_status: Arc<AtomicU32>,
     pub(crate) irq_evt: EventFd,
 }
 
 impl IrqTrigger {
     pub fn new() -> std::io::Result<Self> {
         Ok(Self {
-            irq_status: Arc::new(AtomicUsize::new(0)),
+            irq_status: Arc::new(AtomicU32::new(0)),
             irq_evt: EventFd::new(libc::EFD_NONBLOCK)?,
         })
     }
@@ -71,10 +73,10 @@ impl IrqTrigger {
             IrqType::Config => VIRTIO_MMIO_INT_CONFIG,
             IrqType::Vring => VIRTIO_MMIO_INT_VRING,
         };
-        self.irq_status.fetch_or(irq as usize, Ordering::SeqCst);
+        self.irq_status.fetch_or(irq, Ordering::SeqCst);
 
         self.irq_evt.write(1).map_err(|err| {
-            log::error!("Failed to send irq to the guest: {:?}", err);
+            error!("Failed to send irq to the guest: {:?}", err);
             err
         })?;
 
@@ -121,14 +123,14 @@ pub trait VirtioDevice: AsAny + Send {
     fn interrupt_evt(&self) -> &EventFd;
 
     /// Returns the current device interrupt status.
-    fn interrupt_status(&self) -> Arc<AtomicUsize>;
+    fn interrupt_status(&self) -> Arc<AtomicU32>;
 
     /// The set of feature bits shifted by `page * 32`.
     fn avail_features_by_page(&self, page: u32) -> u32 {
         let avail_features = self.avail_features();
         match page {
             // Get the lower 32-bits of the features bitfield.
-            0 => avail_features as u32,
+            0 => (avail_features & 0xFFFFFFFF) as u32,
             // Get the upper 32-bits of the features bitfield.
             1 => (avail_features >> 32) as u32,
             _ => {
@@ -196,7 +198,7 @@ pub(crate) mod tests {
                     return false;
                 }
 
-                let irq_status = self.irq_status.load(Ordering::SeqCst) as u32;
+                let irq_status = self.irq_status.load(Ordering::SeqCst);
                 return matches!(
                     (irq_status, irq_type),
                     (VIRTIO_MMIO_INT_CONFIG, IrqType::Config)
@@ -268,7 +270,7 @@ pub(crate) mod tests {
             todo!()
         }
 
-        fn interrupt_status(&self) -> Arc<AtomicUsize> {
+        fn interrupt_status(&self) -> Arc<AtomicU32> {
             todo!()
         }
 

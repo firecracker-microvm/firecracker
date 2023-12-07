@@ -21,12 +21,18 @@ pub mod regs;
 use linux_loader::configurator::linux::LinuxBootConfigurator;
 use linux_loader::configurator::{BootConfigurator, BootParams};
 use linux_loader::loader::bootparam::boot_params;
-use utils::vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
+use utils::u64_to_usize;
 
 use crate::arch::InitrdConfig;
+use crate::vstate::memory::{
+    Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion,
+};
 
 // Value taken from https://elixir.bootlin.com/linux/v5.10.68/source/arch/x86/include/uapi/asm/e820.h#L31
+// Usable normal RAM
 const E820_RAM: u32 = 1;
+// Reserved area that should be avoided during memory allocations
+const E820_RESERVED: u32 = 2;
 
 /// Errors thrown while configuring x86_64 system.
 #[derive(Debug, PartialEq, Eq, derive_more::From)]
@@ -41,8 +47,12 @@ pub enum ConfigurationError {
     InitrdAddress,
 }
 
-// Where BIOS/VGA magic would live on a real PC.
+// EBDA is located in the last 1 KiB of the first 640KiB of memory, i.e in the range:
+// [0x9FC00, 0x9FFFF]
+// We mark first [0x0, EBDA_START] region as usable RAM
+// and [EBDA_START, (EBDA_START + EBDA_SIZE)] as reserved.
 const EBDA_START: u64 = 0x9fc00;
+const EBDA_SIZE: u64 = 1 << 10;
 const FIRST_ADDR_PAST_32BITS: u64 = 1 << 32;
 /// Size of MMIO gap at top of 32-bit address space.
 pub const MEM_32BIT_GAP_SIZE: u64 = 768 << 20;
@@ -58,12 +68,12 @@ pub const MMIO_MEM_SIZE: u64 = MEM_32BIT_GAP_SIZE;
 pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
     // It's safe to cast MMIO_MEM_START to usize because it fits in a u32 variable
     // (It points to an address in the 32 bit space).
-    match size.checked_sub(MMIO_MEM_START as usize) {
+    match size.checked_sub(usize::try_from(MMIO_MEM_START).unwrap()) {
         // case1: guest memory fits before the gap
         None | Some(0) => vec![(GuestAddress(0), size)],
         // case2: guest memory extends beyond the gap
         Some(remaining) => vec![
-            (GuestAddress(0), MMIO_MEM_START as usize),
+            (GuestAddress(0), usize::try_from(MMIO_MEM_START).unwrap()),
             (GuestAddress(FIRST_ADDR_PAST_32BITS), remaining),
         ],
     }
@@ -82,8 +92,7 @@ pub fn initrd_load_addr(
     let first_region = guest_mem
         .find_region(GuestAddress::new(0))
         .ok_or(ConfigurationError::InitrdAddress)?;
-    // It's safe to cast to usize because the size of a region can't be greater than usize.
-    let lowmem_size = first_region.len() as usize;
+    let lowmem_size = u64_to_usize(first_region.len());
 
     if lowmem_size < initrd_size {
         return Err(ConfigurationError::InitrdAddress);
@@ -126,15 +135,16 @@ pub fn configure_system(
     params.hdr.type_of_loader = KERNEL_LOADER_OTHER;
     params.hdr.boot_flag = KERNEL_BOOT_FLAG_MAGIC;
     params.hdr.header = KERNEL_HDR_MAGIC;
-    params.hdr.cmd_line_ptr = cmdline_addr.raw_value() as u32;
-    params.hdr.cmdline_size = cmdline_size as u32;
+    params.hdr.cmd_line_ptr = u32::try_from(cmdline_addr.raw_value()).unwrap();
+    params.hdr.cmdline_size = u32::try_from(cmdline_size).unwrap();
     params.hdr.kernel_alignment = KERNEL_MIN_ALIGNMENT_BYTES;
     if let Some(initrd_config) = initrd {
-        params.hdr.ramdisk_image = initrd_config.address.raw_value() as u32;
-        params.hdr.ramdisk_size = initrd_config.size as u32;
+        params.hdr.ramdisk_image = u32::try_from(initrd_config.address.raw_value()).unwrap();
+        params.hdr.ramdisk_size = u32::try_from(initrd_config.size).unwrap();
     }
 
     add_e820_entry(&mut params, 0, EBDA_START, E820_RAM)?;
+    add_e820_entry(&mut params, EBDA_START, EBDA_SIZE, E820_RESERVED)?;
 
     let last_addr = guest_mem.last_addr();
     if last_addr < end_32bit_gap_start {
@@ -183,7 +193,7 @@ fn add_e820_entry(
     size: u64,
     mem_type: u32,
 ) -> Result<(), ConfigurationError> {
-    if params.e820_entries >= params.e820_table.len() as u8 {
+    if params.e820_entries as usize >= params.e820_table.len() {
         return Err(ConfigurationError::E820Configuration);
     }
 
@@ -200,6 +210,7 @@ mod tests {
     use linux_loader::loader::bootparam::boot_e820_entry;
 
     use super::*;
+    use crate::vstate::memory::GuestMemoryExtension;
 
     #[test]
     fn regions_lt_4gb() {
@@ -220,11 +231,7 @@ mod tests {
     #[test]
     fn test_system_configuration() {
         let no_vcpus = 4;
-        let gm = utils::vm_memory::test_utils::create_anon_guest_memory(
-            &[(GuestAddress(0), 0x10000)],
-            false,
-        )
-        .unwrap();
+        let gm = GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), 0x10000)], false).unwrap();
         let config_err = configure_system(&gm, GuestAddress(0), 0, &None, 1);
         assert!(config_err.is_err());
         assert_eq!(
@@ -235,22 +242,19 @@ mod tests {
         // Now assigning some memory that falls before the 32bit memory hole.
         let mem_size = 128 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
-        let gm = utils::vm_memory::test_utils::create_anon_guest_memory(&arch_mem_regions, false)
-            .unwrap();
+        let gm = GuestMemoryMmap::from_raw_regions(&arch_mem_regions, false).unwrap();
         configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
 
         // Now assigning some memory that is equal to the start of the 32bit memory hole.
         let mem_size = 3328 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
-        let gm = utils::vm_memory::test_utils::create_anon_guest_memory(&arch_mem_regions, false)
-            .unwrap();
+        let gm = GuestMemoryMmap::from_raw_regions(&arch_mem_regions, false).unwrap();
         configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
 
         // Now assigning some memory that falls after the 32bit memory hole.
         let mem_size = 3330 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
-        let gm = utils::vm_memory::test_utils::create_anon_guest_memory(&arch_mem_regions, false)
-            .unwrap();
+        let gm = GuestMemoryMmap::from_raw_regions(&arch_mem_regions, false).unwrap();
         configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
     }
 
@@ -284,7 +288,7 @@ mod tests {
 
         // Exercise the scenario where the field storing the length of the e820 entry table is
         // is bigger than the allocated memory.
-        params.e820_entries = params.e820_table.len() as u8 + 1;
+        params.e820_entries = u8::try_from(params.e820_table.len()).unwrap() + 1;
         assert!(add_e820_entry(
             &mut params,
             e820_map[0].addr,

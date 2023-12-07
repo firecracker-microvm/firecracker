@@ -32,7 +32,7 @@ def test_enosys_error_code(uvm_plain):
     vm.start()
 
     # Check if FC process is closed
-    wait_process_termination(vm.jailer_clone_pid)
+    wait_process_termination(vm.firecracker_pid)
 
     vm.check_log_message(
         "Received ENOSYS error because KVM failed to emulate an instruction."

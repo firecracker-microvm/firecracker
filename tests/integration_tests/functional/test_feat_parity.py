@@ -221,34 +221,3 @@ def test_feat_parity_cpuid_sec(vm):
         must_be_set,
         must_be_unset,
     )
-
-
-def test_feat_parity_msr_arch_cap(vm):
-    """
-    Verify availability and value of the IA32_ARCH_CAPABILITIES MSR for T2CL and T2A CPU templates.
-    """
-    arch_capabilities_addr = "0x10a"
-    rdmsr_cmd = f"rdmsr {arch_capabilities_addr}"
-    _, stdout, stderr = vm.ssh.execute_command(rdmsr_cmd)
-
-    cpu_template = vm.full_cfg.get().json()["machine-config"]["cpu_template"]
-
-    if cpu_template == "T2CL":
-        assert stderr == ""
-        actual = int(stdout.strip(), 16)
-        # fmt: off
-        expected = (
-            (1 << 0) | # RDCL_NO
-            (1 << 1) | # IBRS_ALL
-            (1 << 3) | # SKIP_L1DFL_VMENTRY
-            (1 << 5) | # MDS_NO
-            (1 << 6) | # IF_PSCHANGE_MC_NO
-            (1 << 7) # TSX_CTRL
-        )
-        if global_props.cpu_codename == "INTEL_CASCADELAKE":
-            expected |= (1 << 19) # RRSBA
-        # fmt: on
-        assert actual == expected, f"{actual=:#x} != {expected=:#x}"
-    elif cpu_template == "T2A":
-        # IA32_ARCH_CAPABILITIES shall not be available
-        assert stderr != ""

@@ -1,7 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use logger::{IncMetric, METRICS};
+use vmm::logger::{IncMetric, METRICS};
 use vmm::vmm_config::metrics::MetricsConfig;
 
 use super::super::VmmAction;
@@ -28,21 +28,19 @@ mod tests {
     #[test]
     fn test_parse_put_metrics_request() {
         let body = r#"{
-                "metrics_path": "metrics"
-              }"#;
-
-        let expected_cfg = MetricsConfig {
+            "metrics_path": "metrics"
+        }"#;
+        let expected_config = MetricsConfig {
             metrics_path: PathBuf::from("metrics"),
         };
-        match vmm_action_from_request(parse_put_metrics(&Body::new(body)).unwrap()) {
-            VmmAction::ConfigureMetrics(cfg) => assert_eq!(cfg, expected_cfg),
-            _ => panic!("Test failed."),
-        }
+        assert_eq!(
+            vmm_action_from_request(parse_put_metrics(&Body::new(body)).unwrap()),
+            VmmAction::ConfigureMetrics(expected_config)
+        );
 
         let invalid_body = r#"{
-                "invalid_field": "metrics"
-              }"#;
-
+            "invalid_field": "metrics"
+        }"#;
         assert!(parse_put_metrics(&Body::new(invalid_body)).is_err());
     }
 }

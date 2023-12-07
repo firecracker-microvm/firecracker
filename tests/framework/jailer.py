@@ -7,7 +7,7 @@ import shutil
 import stat
 from pathlib import Path
 
-from retry.api import retry_call
+from tenacity import Retrying, retry_if_exception_type, stop_after_delay
 
 from framework import defs, utils
 from framework.defs import FC_BINARY_NAME
@@ -30,7 +30,6 @@ class JailerContext:
     uid = None
     gid = None
     chroot_base = None
-    netns = None
     daemonize = None
     new_pid_ns = None
     extra_args = None
@@ -63,11 +62,12 @@ class JailerContext:
         further adjusted by each test even with None values.
         """
         self.jailer_id = jailer_id
+        assert jailer_id is not None
         self.exec_file = exec_file
         self.uid = uid
         self.gid = gid
-        self.chroot_base = chroot_base
-        self.netns = netns if netns is not None else jailer_id
+        self.chroot_base = Path(chroot_base)
+        self.netns = netns
         self.daemonize = daemonize
         self.new_pid_ns = new_pid_ns
         self.extra_args = extra_args
@@ -76,8 +76,7 @@ class JailerContext:
         self.resource_limits = resource_limits
         self.cgroup_ver = cgroup_ver
         self.parent_cgroup = parent_cgroup
-        self.ramfs_subdir_name = "ramfs"
-        self._ramfs_path = None
+        assert chroot_base is not None
 
     # Disabling 'too-many-branches' warning for this function as it needs to
     # check every argument, so the number of branches will increase
@@ -104,7 +103,7 @@ class JailerContext:
         if self.chroot_base is not None:
             jailer_param_list.extend(["--chroot-base-dir", str(self.chroot_base)])
         if self.netns is not None:
-            jailer_param_list.extend(["--netns", str(self.netns_file_path())])
+            jailer_param_list.extend(["--netns", str(self.netns.path)])
         if self.daemonize:
             jailer_param_list.append("--daemonize")
         if self.new_pid_ns:
@@ -134,11 +133,7 @@ class JailerContext:
 
     def chroot_base_with_id(self):
         """Return the MicroVM chroot base + MicroVM ID."""
-        return os.path.join(
-            self.chroot_base if self.chroot_base is not None else DEFAULT_CHROOT_PATH,
-            Path(self.exec_file).name,
-            self.jailer_id,
-        )
+        return self.chroot_base / Path(self.exec_file).name / self.jailer_id
 
     def api_socket_path(self):
         """Return the MicroVM API socket path."""
@@ -148,16 +143,7 @@ class JailerContext:
         """Return the MicroVM chroot path."""
         return os.path.join(self.chroot_base_with_id(), "root")
 
-    def chroot_ramfs_path(self):
-        """Return the MicroVM chroot ramfs subfolder path."""
-        return os.path.join(self.chroot_path(), self.ramfs_subdir_name)
-
-    @property
-    def uses_ramfs(self):
-        """Is this jailer using ramfs?"""
-        return self._ramfs_path is not None
-
-    def jailed_path(self, file_path, create=False, create_jail=False):
+    def jailed_path(self, file_path, create=False, subdir="."):
         """Create a hard link or block special device owned by uid:gid.
 
         Create a hard link or block special device from the specified file,
@@ -166,10 +152,9 @@ class JailerContext:
         """
         file_path = Path(file_path)
         chroot_path = Path(self.chroot_path())
-        global_p = chroot_path / file_path.name
-        if create_jail:
-            chroot_path.mkdir(parents=True, exist_ok=True)
-        jailed_p = Path("/") / file_path.name
+        global_p = chroot_path / subdir / file_path.name
+        global_p.parent.mkdir(parents=True, exist_ok=True)
+        jailed_p = Path("/") / subdir / file_path.name
         if create:
             stat_src = file_path.stat()
             if file_path.is_block_device():
@@ -188,74 +173,12 @@ class JailerContext:
             os.chown(global_p, self.uid, self.gid)
         return str(jailed_p)
 
-    def copy_into_root(self, file_path, create_jail=False):
-        """Copy a file in the jail root, owned by uid:gid.
-
-        Copy a file in the jail root, creating the folder path if
-        not existent, then change their owner to uid:gid.
-        """
-        global_path = os.path.join(self.chroot_path(), file_path.strip(os.path.sep))
-        if create_jail:
-            os.makedirs(self.chroot_path(), exist_ok=True)
-
-        os.makedirs(os.path.dirname(global_path), exist_ok=True)
-
-        shutil.copy(file_path, global_path)
-
-        cmd = "chown {}:{} {}".format(self.uid, self.gid, global_path)
-        utils.run_cmd(cmd)
-
-    def netns_file_path(self):
-        """Get the host netns file path for a jailer context.
-
-        Returns the path on the host to the file which represents the netns,
-        and which must be passed to the jailer as the value of the --netns
-        parameter, when in use.
-        """
-        if self.netns:
-            return "/var/run/netns/{}".format(self.netns)
-        return None
-
-    def netns_cmd_prefix(self):
-        """Return the jailer context netns file prefix."""
-        if self.netns:
-            return "ip netns exec {} ".format(self.netns)
-        return ""
-
-    def setup(self, use_ramdisk=False):
+    def setup(self):
         """Set up this jailer context."""
-        os.makedirs(
-            self.chroot_base if self.chroot_base is not None else DEFAULT_CHROOT_PATH,
-            exist_ok=True,
-        )
-
-        if use_ramdisk:
-            self._ramfs_path = self.chroot_ramfs_path()
-            os.makedirs(self._ramfs_path, exist_ok=True)
-            ramdisk_name = "ramfs-{}".format(self.jailer_id)
-            utils.run_cmd(
-                "mount -t ramfs -o size=1M {} {}".format(ramdisk_name, self._ramfs_path)
-            )
-            cmd = "chown {}:{} {}".format(self.uid, self.gid, self._ramfs_path)
-            utils.run_cmd(cmd)
-
-        if self.netns and self.netns not in utils.run_cmd("ip netns list")[1]:
-            utils.run_cmd("ip netns add {}".format(self.netns))
+        os.makedirs(self.chroot_base, exist_ok=True)
 
     def cleanup(self):
         """Clean up this jailer context."""
-        # pylint: disable=subprocess-run-check
-        if self._ramfs_path:
-            utils.run_cmd("umount {}".format(self._ramfs_path), ignore_return_code=True)
-
-        if self.netns and os.path.exists("/var/run/netns/{}".format(self.netns)):
-            try:
-                utils.run_cmd("ip netns del {}".format(self.netns))
-            except ChildProcessError:
-                # Sometimes, a race condition in pytest causes this destructor to run twice.
-                # Long-term, we'll want to do cleanup properly, but for now we ignore
-                # the exception
-                pass
 
         # Remove the cgroup folders associated with this microvm.
         # The base /sys/fs/cgroup/<controller>/firecracker folder will remain,
@@ -273,12 +196,13 @@ class JailerContext:
                 # Obtain the tasks from each cgroup and wait on them before
                 # removing the microvm's associated cgroup folder.
                 try:
-                    retry_call(
-                        f=self._kill_cgroup_tasks,
-                        fargs=[controller],
-                        exceptions=TimeoutError,
-                        max_delay=5,
-                    )
+                    for attempt in Retrying(
+                        retry=retry_if_exception_type(TimeoutError),
+                        stop=stop_after_delay(5),
+                        reraise=True,
+                    ):
+                        with attempt:
+                            self._kill_cgroup_tasks(controller)
                 except TimeoutError:
                     pass
 
@@ -317,3 +241,8 @@ class JailerContext:
             if os.path.exists("/proc/{}".format(task)):
                 raise TimeoutError
         return True
+
+    @property
+    def pid_file(self):
+        """Return the PID file of the jailed process"""
+        return Path(self.chroot_path()) / (self.exec_file.name + ".pid")

@@ -19,7 +19,7 @@ pub mod aarch64;
 #[cfg(target_arch = "x86_64")]
 pub mod x86_64;
 
-pub const CPU_TEMPLATE_HELPER_VERSION: &str = env!("FIRECRACKER_VERSION");
+pub const CPU_TEMPLATE_HELPER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Trait for key of `HashMap`-based modifier.
 ///
@@ -58,13 +58,11 @@ impl<V: Numeric> DiffString<V> for V {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum UtilsError {
-    /// Failed to create VmResources.
-    #[error("Failed to create VmResources: {0}")]
+    /// Failed to create VmResources: {0}
     CreateVmResources(vmm::resources::ResourcesError),
-    /// Failed to build microVM.
-    #[error("Failed to build microVM: {0}")]
+    /// Failed to build microVM: {0}
     BuildMicroVm(#[from] StartMicrovmError),
 }
 

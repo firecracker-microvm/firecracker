@@ -1,7 +1,7 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#![deny(missing_docs)]
+#![warn(missing_docs)]
 
 #[allow(clippy::undocumented_unsafe_blocks)]
 mod bindings;
@@ -122,10 +122,12 @@ impl IoUring {
                 libc::SYS_io_uring_setup,
                 num_entries,
                 &mut params as *mut io_uring_params,
-            ) as libc::c_int
+            )
         })
         .into_result()
         .map_err(IoUringError::Setup)?;
+        // Safe to unwrap because the fd is valid.
+        let fd = RawFd::try_from(fd).unwrap();
 
         // SAFETY: Safe because the fd is valid and because this struct owns the fd.
         let file = unsafe { File::from_raw_fd(fd) };
@@ -245,7 +247,7 @@ impl IoUring {
                 std::ptr::null::<libc::c_void>(),
                 0,
             )
-        } as libc::c_int)
+        })
         .into_empty_result()
         .map_err(IoUringError::Enable)
     }
@@ -274,13 +276,13 @@ impl IoUring {
                     .as_mut_slice()
                     .as_mut_ptr() as *const _,
                 files.len(),
-            ) as libc::c_int
+            )
         })
         .into_empty_result()
         .map_err(IoUringError::RegisterFile)?;
 
         // Safe to truncate since files.len() < IORING_MAX_FIXED_FILES
-        self.registered_fds_count += files.len() as u32;
+        self.registered_fds_count += u32::try_from(files.len()).unwrap();
         Ok(())
     }
 
@@ -293,7 +295,7 @@ impl IoUring {
                 bindings::IORING_REGISTER_EVENTFD,
                 (&fd) as *const _,
                 1,
-            ) as libc::c_int
+            )
         })
         .into_empty_result()
         .map_err(IoUringError::RegisterEventfd)
@@ -318,7 +320,7 @@ impl IoUring {
                     .as_mut_ptr(),
                 restrictions.len(),
             )
-        } as libc::c_int)
+        })
         .into_empty_result()
         .map_err(IoUringError::RegisterRestrictions)
     }
@@ -349,7 +351,7 @@ impl IoUring {
                 probes.as_mut_fam_struct_ptr(),
                 PROBE_LEN,
             )
-        } as libc::c_int)
+        })
         .into_empty_result()
         .map_err(IoUringError::Probe)?;
 
@@ -382,11 +384,12 @@ mod tests {
     use utils::skip_if_io_uring_unsupported;
     use utils::syscall::SyscallReturnCode;
     use utils::tempfile::TempFile;
-    use utils::vm_memory::{Bytes, MmapRegion, VolatileMemory};
+    use vm_memory::VolatileMemory;
 
     /// -------------------------------------
     /// BEGIN PROPERTY BASED TESTING
     use super::*;
+    use crate::vstate::memory::{Bytes, MmapRegion};
 
     fn drain_cqueue(ring: &mut IoUring) {
         while let Some(entry) = unsafe { ring.pop::<u32>().unwrap() } {
@@ -469,28 +472,28 @@ mod tests {
         // Verifies that the files are identical afterwards and that the read operations returned
         // the same values.
 
-        const FILE_LEN: usize = 1024;
+        const FILE_LEN: u32 = 1024;
         // The number of arbitrary operations in a testrun.
         const OPS_COUNT: usize = 2000;
         const RING_SIZE: u32 = 128;
 
         // Allocate and init memory for holding the data that will be written into the file.
-        let write_mem_region = setup_mem_region(FILE_LEN);
+        let write_mem_region = setup_mem_region(FILE_LEN as usize);
 
-        let sync_read_mem_region = setup_mem_region(FILE_LEN);
+        let sync_read_mem_region = setup_mem_region(FILE_LEN as usize);
 
-        let async_read_mem_region = setup_mem_region(FILE_LEN);
+        let async_read_mem_region = setup_mem_region(FILE_LEN as usize);
 
         // Init the write buffers with 0,1,2,...
         for i in 0..FILE_LEN {
             write_mem_region
                 .as_volatile_slice()
-                .write_obj((i % (u8::MAX as usize)) as u8, i)
+                .write_obj(u8::try_from(i % u32::from(u8::MAX)).unwrap(), i as usize)
                 .unwrap();
         }
 
         // Create two files and init their contents to zeros.
-        let init_contents = [0u8; FILE_LEN];
+        let init_contents = [0u8; FILE_LEN as usize];
         let file_async = TempFile::new().unwrap().into_file();
         file_async.write_all_at(&init_contents, 0).unwrap();
 
@@ -510,7 +513,7 @@ mod tests {
 
         runner
             .run(
-                &proptest::collection::vec(arbitrary_rw_operation(FILE_LEN as u32), OPS_COUNT),
+                &proptest::collection::vec(arbitrary_rw_operation(FILE_LEN), OPS_COUNT),
                 |set| {
                     let mut ring =
                         IoUring::new(RING_SIZE, vec![&file_async], vec![], None).unwrap();
@@ -526,7 +529,7 @@ mod tests {
                                             as *const libc::c_void,
                                         operation.len.unwrap() as usize,
                                         i64::try_from(operation.offset.unwrap()).unwrap(),
-                                    ) as libc::c_int
+                                    )
                                 })
                                 .into_result()
                                 .unwrap(),
@@ -542,7 +545,7 @@ mod tests {
                                             .cast::<libc::c_void>(),
                                         operation.len.unwrap() as usize,
                                         i64::try_from(operation.offset.unwrap()).unwrap(),
-                                    ) as libc::c_int
+                                    )
                                 })
                                 .into_result()
                                 .unwrap(),
@@ -588,11 +591,11 @@ mod tests {
                     drain_cqueue(&mut ring);
 
                     // Get the write result for async IO.
-                    let mut async_result = [0u8; FILE_LEN];
+                    let mut async_result = [0u8; FILE_LEN as usize];
                     file_async.read_exact_at(&mut async_result, 0).unwrap();
 
                     // Get the write result for sync IO.
-                    let mut sync_result = [0u8; FILE_LEN];
+                    let mut sync_result = [0u8; FILE_LEN as usize];
                     file_sync.read_exact_at(&mut sync_result, 0).unwrap();
 
                     // Now compare the write results.

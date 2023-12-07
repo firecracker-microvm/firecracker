@@ -13,12 +13,14 @@ use utils::eventfd::EventFd;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
 use utils::skip_if_io_uring_unsupported;
 use utils::tempfile::TempFile;
-use utils::vm_memory::{Bytes, MmapRegion, VolatileMemory};
+use vm_memory::VolatileMemory;
+use vmm::vstate::memory::{Bytes, MmapRegion};
 
 mod test_utils {
-    use utils::vm_memory::{MmapRegion, VolatileMemory};
+    use vm_memory::VolatileMemory;
     use vmm::io_uring::operation::{OpCode, Operation};
     use vmm::io_uring::{IoUring, IoUringError, SQueueError};
+    use vmm::vstate::memory::MmapRegion;
 
     fn drain_cqueue(ring: &mut IoUring) {
         while let Some(entry) = unsafe { ring.pop::<usize>().unwrap() } {
@@ -41,6 +43,7 @@ mod test_utils {
                             .as_volatile_slice()
                             .subslice(i, 1)
                             .unwrap()
+                            .ptr_guard_mut()
                             .as_ptr() as usize,
                         1,
                         i as u64,
@@ -52,6 +55,7 @@ mod test_utils {
                             .as_volatile_slice()
                             .subslice(i, 1)
                             .unwrap()
+                            .ptr_guard_mut()
                             .as_ptr() as usize,
                         1,
                         i as u64,

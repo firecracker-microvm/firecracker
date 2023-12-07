@@ -5,9 +5,9 @@ use libc::{
     c_int, c_void, siginfo_t, SIGBUS, SIGHUP, SIGILL, SIGPIPE, SIGSEGV, SIGSYS, SIGXCPU, SIGXFSZ,
 };
 use log::error;
-use logger::{IncMetric, StoreMetric, METRICS};
 use utils::signal::register_signal_handler;
 
+use crate::logger::{IncMetric, StoreMetric, METRICS};
 use crate::FcExitCode;
 
 // The offset of `si_syscall` (offending syscall identifier) within the siginfo structure
@@ -68,7 +68,6 @@ fn log_sigsys_err(si_code: c_int, info: *mut siginfo_t) {
     // SAFETY: Other signals which might do async unsafe things incompatible with the rest of this
     // function are blocked due to the sa_mask used when registering the signal handler.
     let syscall = unsafe { *(info as *const i32).offset(SI_OFF_SYSCALL) };
-    let syscall = usize::try_from(syscall).unwrap();
     error!(
         "Shutting down VM after intercepting a bad syscall ({}).",
         syscall

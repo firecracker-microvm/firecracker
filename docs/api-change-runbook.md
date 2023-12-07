@@ -62,8 +62,8 @@ non-exhaustive list of such changes:
 ## Implementing API changes
 
 API changes result in version increases. As Firecracker’s support policy is
-based on [semantic versioning][1], we will look at API changes from this point
-of view.
+based on [semantic versioning 2.0.0][1], we will look at API changes from this
+point of view.
 
 > Given a version number MAJOR.MINOR.PATCH, increment the:
 > MAJOR version when you make incompatible API changes;
@@ -247,9 +247,6 @@ Firecracker API.
   * Update any relevant documentation.
 * We update the python integration tests to reflect the change (reference
   implementation in [this commit][4]).
-  * We find the relevant resource in `tests/framework/resources.py` and
-    update its API, in this case by making the `vsock_id` parameter optional
-    in `Vsock.create_json()`.
   * We refactor the relevant
     `tests/integration_tests/functional/test_api.py` test to use the artifact
     model instead of the fixture one. If the test already uses the artifact
@@ -271,7 +268,7 @@ Firecracker API.
     the header anyway, resulting in a fail in our test when it shouldn’t.
   * Fix all other failing integration tests.
 
-[1]: https://semver.org/
+[1]: https://semver.org/spec/v2.0.0.html
 [2]: https://github.com/firecracker-microvm/firecracker/pull/2763
 [3]: https://github.com/firecracker-microvm/firecracker/commit/83aa098245a42ad93a6b70ccd70ad593cf453a3c
 [4]: https://github.com/firecracker-microvm/firecracker/commit/472a81dbccd89562578919b76d87c30ee7db17aa

@@ -20,13 +20,13 @@ use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
 /// The number of tuples (the ones separated by ":") contained in a MAC address.
-pub const MAC_ADDR_LEN: usize = 6;
+pub const MAC_ADDR_LEN: u8 = 6;
 
 /// Represents a MAC address
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Versionize)]
 /// Representation of a MAC address.
 pub struct MacAddr {
-    bytes: [u8; MAC_ADDR_LEN],
+    bytes: [u8; MAC_ADDR_LEN as usize],
 }
 
 impl fmt::Display for MacAddr {
@@ -69,13 +69,13 @@ impl FromStr for MacAddr {
     /// ```
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let v: Vec<&str> = s.split(':').collect();
-        let mut bytes = [0u8; MAC_ADDR_LEN];
+        let mut bytes = [0u8; MAC_ADDR_LEN as usize];
 
-        if v.len() != MAC_ADDR_LEN {
+        if v.len() != MAC_ADDR_LEN as usize {
             return Err(String::from(s));
         }
 
-        for i in 0..MAC_ADDR_LEN {
+        for i in 0..MAC_ADDR_LEN as usize {
             if v[i].len() != 2 {
                 return Err(String::from(s));
             }
@@ -103,7 +103,7 @@ impl MacAddr {
     pub fn from_bytes_unchecked(src: &[u8]) -> MacAddr {
         // TODO: using something like std::mem::uninitialized could avoid the extra initialization,
         // if this ever becomes a performance bottleneck.
-        let mut bytes = [0u8; MAC_ADDR_LEN];
+        let mut bytes = [0u8; MAC_ADDR_LEN as usize];
         bytes[..].copy_from_slice(src);
 
         MacAddr { bytes }

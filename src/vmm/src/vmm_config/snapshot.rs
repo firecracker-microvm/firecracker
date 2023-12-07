@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 /// The snapshot type options that are available when
 /// creating a new snapshot.
-#[derive(Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum SnapshotType {
     /// Diff snapshot.
     Diff,
@@ -45,9 +45,6 @@ pub struct CreateSnapshotParams {
     pub snapshot_path: PathBuf,
     /// Path to the file that will contain the guest memory.
     pub mem_file_path: PathBuf,
-    /// Optional field for the microVM version. The default
-    /// value is the current version.
-    pub version: Option<Version>,
 }
 
 /// Stores the configuration that will be used for loading a snapshot.

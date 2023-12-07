@@ -1,12 +1,16 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#![deny(missing_docs)]
+#![warn(missing_docs)]
 
 //! The library crate that defines common helper functions that are generally used in
 //! conjunction with seccompiler-bin.
 
-mod common;
+pub mod backend;
+pub mod common;
+pub mod compiler;
+/// Syscall tables
+pub mod syscall_table;
 
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -33,21 +37,18 @@ struct sock_fprog {
 pub type BpfProgramRef<'a> = &'a [sock_filter];
 
 /// Binary filter deserialization errors.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum DeserializationError {
-    /// Error when doing bincode deserialization.
-    #[error("Bincode deserialization failed: {0}")]
+    /// Bincode deserialization failed: {0}
     Bincode(BincodeError),
 }
 
 /// Filter installation errors.
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
 pub enum InstallationError {
-    /// Filter exceeds the maximum number of instructions that a BPF program can have.
-    #[error("Filter length exceeds the maximum size of {BPF_MAX_LEN} instructions ")]
+    /// Filter length exceeds the maximum size of {BPF_MAX_LEN:} instructions
     FilterTooLarge,
-    /// Error returned by `prctl`.
-    #[error("`prctl` syscall failed with error code: {0}")]
+    /// prctl` syscall failed with error code: {0}
     Prctl(i32),
 }
 
@@ -88,7 +89,9 @@ pub fn apply_filter(bpf_filter: BpfProgramRef) -> std::result::Result<(), Instal
 
     // If the program length is greater than the limit allowed by the kernel,
     // fail quickly. Otherwise, `prctl` will give a more cryptic error code.
-    if bpf_filter.len() > BPF_MAX_LEN {
+    let bpf_filter_len =
+        u16::try_from(bpf_filter.len()).map_err(|_| InstallationError::FilterTooLarge)?;
+    if bpf_filter_len > BPF_MAX_LEN {
         return Err(InstallationError::FilterTooLarge);
     }
 
@@ -102,7 +105,7 @@ pub fn apply_filter(bpf_filter: BpfProgramRef) -> std::result::Result<(), Instal
         }
 
         let bpf_prog = sock_fprog {
-            len: bpf_filter.len() as u16,
+            len: bpf_filter_len,
             filter: bpf_filter.as_ptr(),
         };
         let bpf_prog_ptr = &bpf_prog as *const sock_fprog;

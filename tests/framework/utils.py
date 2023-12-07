@@ -10,20 +10,30 @@ import os
 import platform
 import re
 import signal
+import stat
 import subprocess
-import threading
 import time
 import typing
 from collections import defaultdict, namedtuple
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict
 
 import packaging.version
 import psutil
-from retry import retry
-from retry.api import retry_call
+from tenacity import (
+    Retrying,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_fixed,
+)
 
-from framework.defs import MIN_KERNEL_VERSION_FOR_IO_URING
+from framework.defs import (
+    DEFAULT_TEST_SESSION_ROOT_PATH,
+    LOCAL_BUILD_PATH,
+    MIN_KERNEL_VERSION_FOR_IO_URING,
+)
 
 FLUSH_CMD = 'screen -S {session} -X colon "logfile flush 0^M"'
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
@@ -89,28 +99,90 @@ class ProcessManager:
         return cpu_percentages
 
 
+@contextmanager
+def chroot(path):
+    """
+    Create a chroot environment for running some code
+    """
+
+    # Need to keep these around so we can exit the chroot
+    real_root = os.open("/", os.O_RDONLY)
+    working_dir = os.getcwd()
+
+    try:
+        # Jump in the chroot
+        os.chroot(path)
+        os.chdir("/")
+        yield
+
+    finally:
+        # Jump out of the chroot
+        os.fchdir(real_root)
+        os.chroot(".")
+        os.chdir(working_dir)
+
+
 class UffdHandler:
     """Describe the UFFD page fault handler process."""
 
-    def __init__(self, name, args):
+    def __init__(self, name, socket_path, mem_file, chroot_path, log_file_name):
         """Instantiate the handler process with arguments."""
         self._proc = None
-        self._args = [f"/{name}"]
-        self._args.extend(args)
+        self._handler_name = name
+        self._socket_path = socket_path
+        self._mem_file = mem_file
+        self._chroot = chroot_path
+        self._log_file = log_file_name
 
-    def spawn(self):
+    def spawn(self, uid, gid):
         """Spawn handler process using arguments provided."""
-        self._proc = subprocess.Popen(
-            self._args, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        )
 
+        with chroot(self._chroot):
+            st = os.stat(self._handler_name)
+            os.chmod(self._handler_name, st.st_mode | stat.S_IEXEC)
+
+            chroot_log_file = Path("/") / self._log_file
+            with open(chroot_log_file, "w", encoding="utf-8") as logfile:
+                args = [f"/{self._handler_name}", self._socket_path, self._mem_file]
+                self._proc = subprocess.Popen(
+                    args, stdout=logfile, stderr=subprocess.STDOUT
+                )
+
+            # Give it time start and fail, if it really has too (bad things happen).
+            time.sleep(1)
+            if not self.is_running():
+                print(chroot_log_file.read_text(encoding="utf-8"))
+                assert False, "Could not start PF handler!"
+
+            # The page fault handler will create the socket path with root rights.
+            # Change rights to the jailer's.
+            os.chown(self._socket_path, uid, gid)
+
+    @property
     def proc(self):
         """Return UFFD handler process."""
         return self._proc
 
+    def is_running(self):
+        """Check if UFFD process is running"""
+        return self.proc is not None and self.proc.poll() is None
+
+    @property
+    def log_file(self):
+        """Return the path to the UFFD handler's log file"""
+        return Path(self._chroot) / Path(self._log_file)
+
+    @property
+    def log_data(self):
+        """Return the log data of the UFFD handler"""
+        if self.log_file is None:
+            return ""
+        return self.log_file.read_text(encoding="utf-8")
+
     def __del__(self):
         """Tear down the UFFD handler process."""
-        self._proc.kill()
+        if self.proc is not None:
+            self.proc.kill()
 
 
 # pylint: disable=too-few-public-methods
@@ -238,27 +310,6 @@ class CmdBuilder:
         return cmd
 
 
-class StoppableThread(threading.Thread):
-    """
-    Thread class with a stop() method.
-
-    The thread itself has to check regularly for the stopped() condition.
-    """
-
-    def __init__(self, *args, **kwargs):
-        """Set up a Stoppable thread."""
-        super().__init__(*args, **kwargs)
-        self._should_stop = False
-
-    def stop(self):
-        """Set that the thread should stop."""
-        self._should_stop = True
-
-    def stopped(self):
-        """Check if the thread was stopped."""
-        return self._should_stop
-
-
 # pylint: disable=R0903
 class DictQuery:
     """Utility class to query python dicts key paths.
@@ -334,6 +385,16 @@ class ExceptionAggregator(Exception):
         return "\n\n".join(self.failures)
 
 
+def to_local_dir_path(tmp_dir_path: str) -> str:
+    """
+    Converts path from tmp dir to path on the host.
+    """
+
+    return tmp_dir_path.replace(
+        str(DEFAULT_TEST_SESSION_ROOT_PATH), str(LOCAL_BUILD_PATH)
+    )
+
+
 def search_output_from_cmd(cmd: str, find_regex: typing.Pattern) -> typing.Match:
     """
     Run a shell command and search a given regex object in stdout.
@@ -394,9 +455,7 @@ def get_free_mem_ssh(ssh_connection):
     :param ssh_connection: connection to the guest
     :return: available mem column output of 'free'
     """
-    _, stdout, stderr = ssh_connection.execute_command(
-        "cat /proc/meminfo | grep MemAvailable"
-    )
+    _, stdout, stderr = ssh_connection.run("cat /proc/meminfo | grep MemAvailable")
     assert stderr == ""
 
     # Split "MemAvailable:   123456 kB" and validate it
@@ -408,7 +467,7 @@ def get_free_mem_ssh(ssh_connection):
     raise Exception("Available memory not found in `/proc/meminfo")
 
 
-def run_cmd_sync(cmd, ignore_return_code=False, no_shell=False, cwd=None):
+def run_cmd_sync(cmd, ignore_return_code=False, no_shell=False, cwd=None, timeout=None):
     """
     Execute a given command.
 
@@ -429,7 +488,7 @@ def run_cmd_sync(cmd, ignore_return_code=False, no_shell=False, cwd=None):
         )
 
     # Capture stdout/stderr
-    stdout, stderr = proc.communicate()
+    stdout, stderr = proc.communicate(timeout=timeout)
 
     output_message = f"\n[{proc.pid}] Command:\n{cmd}"
     # Append stdout/stderr to the output message
@@ -453,18 +512,14 @@ def run_cmd_sync(cmd, ignore_return_code=False, no_shell=False, cwd=None):
     return CommandReturn(proc.returncode, stdout.decode(), stderr.decode())
 
 
-def run_cmd(cmd, ignore_return_code=False, no_shell=False, cwd=None):
+def run_cmd(cmd, **kwargs):
     """
     Run a command using the sync function that logs the output.
 
     :param cmd: command to run
-    :param ignore_return_code: whether a non-zero return code should be ignored
-    :param noshell: don't run the command in a sub-shell
     :returns: tuple of (return code, stdout, stderr)
     """
-    return run_cmd_sync(
-        cmd=cmd, ignore_return_code=ignore_return_code, no_shell=no_shell, cwd=cwd
-    )
+    return run_cmd_sync(cmd, **kwargs)
 
 
 def eager_map(func, iterable):
@@ -511,42 +566,15 @@ def get_cpu_percent(pid: int, iterations: int, omit: int) -> dict:
     return cpu_percentages
 
 
-def summarize_cpu_percent(cpu_percentages: dict):
-    """
-    Aggregates the results of `get_cpu_percent` into average utilization for the vmm thread, and total average
-    utilization of all vcpu threads
-
-    :param cpu_percentages: mapping {thread_name: { thread_id -> [cpu samples])}}.
-    :return: A tuple (vmm utilization, total vcpu utilization)
-    """
-
-    def avg(thread_name):
-        assert thread_name in cpu_percentages and cpu_percentages[thread_name]
-
-        # Generally, we expect there to be just one thread with any given name, but sometimes there's two 'firecracker'
-        # threads
-        data = list(cpu_percentages[thread_name].values())[0]
-        return sum(data) / len(data)
-
-    vcpu_util_total = 0
-
-    vcpu = 0
-    while f"fc_vcpu {vcpu}" in cpu_percentages:
-        vcpu_util_total += avg(f"fc_vcpu {vcpu}")
-        vcpu += 1
-
-    return avg("firecracker"), vcpu_util_total
-
-
 def run_guest_cmd(ssh_connection, cmd, expected, use_json=False):
     """Runs a shell command at the remote accessible via SSH"""
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _, stdout, stderr = ssh_connection.run(cmd)
     assert stderr == ""
     stdout = stdout if not use_json else json.loads(stdout)
     assert stdout == expected
 
 
-@retry(delay=0.5, tries=5)
+@retry(wait=wait_fixed(0.5), stop=stop_after_attempt(5), reraise=True)
 def wait_process_termination(p_pid):
     """Wait for a process to terminate.
 
@@ -574,37 +602,6 @@ def get_firecracker_version_from_toml():
     return packaging.version.parse(stdout)
 
 
-def compare_versions(first, second):
-    """
-    Compare two versions with format `X.Y.Z`.
-
-    :param first: first version string
-    :param second: second version string
-    :returns: 0 if equal, <0 if first < second, >0 if second < first
-    """
-    first = list(map(int, first.split(".")))
-    second = list(map(int, second.split(".")))
-
-    for i in range(3):
-        diff = first[i] - second[i]
-        if diff != 0:
-            return diff
-
-    return 0
-
-
-def sanitize_version(version):
-    """
-    Get rid of dirty version information.
-
-    Transform version from format `vX.Y.Z-W` to `X.Y.Z`.
-    """
-    if version[0].isalpha():
-        version = version[1:]
-
-    return version.split("-", 1)[0]
-
-
 def get_kernel_version(level=2):
     """Return the current kernel version in format `major.minor.patch`."""
     linux_version = platform.release()
@@ -624,7 +621,9 @@ def is_io_uring_supported():
 
     ...version.
     """
-    return compare_versions(get_kernel_version(), MIN_KERNEL_VERSION_FOR_IO_URING) >= 0
+    kv = packaging.version.parse(get_kernel_version())
+    min_kv = packaging.version.parse(MIN_KERNEL_VERSION_FOR_IO_URING)
+    return kv >= min_kv
 
 
 def generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl):
@@ -633,7 +632,7 @@ def generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl):
     cmd += " -X PUT"
     cmd += ' -H  "X-metadata-token-ttl-seconds: {}"'.format(token_ttl)
     cmd += " http://{}/latest/api/token".format(ipv4_address)
-    _, stdout, _ = ssh_connection.execute_command(cmd)
+    _, stdout, _ = ssh_connection.run(cmd)
     token = stdout
 
     return token
@@ -655,46 +654,33 @@ def generate_mmds_get_request(ipv4_address, token=None, app_json=True):
     return cmd
 
 
-def configure_mmds(
-    test_microvm, iface_ids, version=None, ipv4_address=None, fc_version=None
-):
+def configure_mmds(test_microvm, iface_ids, version=None, ipv4_address=None):
     """Configure mmds service."""
     mmds_config = {"network_interfaces": iface_ids}
 
     if version is not None:
         mmds_config["version"] = version
 
-    # For versions prior to v1.0.0, the mmds config only contains
-    # the ipv4_address.
-    if fc_version is not None and compare_versions(fc_version, "1.0.0") < 0:
-        mmds_config = {}
-
     if ipv4_address:
         mmds_config["ipv4_address"] = ipv4_address
 
-    response = test_microvm.mmds.put_config(json=mmds_config)
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
+    response = test_microvm.api.mmds_config.put(**mmds_config)
     return response
 
 
 def populate_data_store(test_microvm, data_store):
     """Populate the MMDS data store of the microvm with the provided data"""
-    response = test_microvm.mmds.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
+    response = test_microvm.api.mmds.get()
     assert response.json() == {}
 
-    response = test_microvm.mmds.put(json=data_store)
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
-    response = test_microvm.mmds.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
+    test_microvm.api.mmds.put(**data_store)
+    response = test_microvm.api.mmds.get()
     assert response.json() == data_store
 
 
 def start_screen_process(screen_log, session_name, binary_path, binary_params):
     """Start binary process into a screen session."""
-    start_cmd = "screen -L -Logfile {logfile} " "-dmS {session} {binary} {params}"
+    start_cmd = "screen -L -Logfile {logfile} -dmS {session} {binary} {params}"
     start_cmd = start_cmd.format(
         logfile=screen_log,
         session=session_name,
@@ -707,17 +693,19 @@ def start_screen_process(screen_log, session_name, binary_path, binary_params):
     # Build a regex object to match (number).session_name
     regex_object = re.compile(r"([0-9]+)\.{}".format(session_name))
 
-    # Run 'screen -ls' in a retry_call loop, 30 times with a 1s
-    # delay between calls.
-    # If the output of 'screen -ls' matches the regex object, it will
-    # return the PID. Otherwise, a RuntimeError will be raised.
-    screen_pid = retry_call(
-        search_output_from_cmd,
-        fkwargs={"cmd": "screen -ls", "find_regex": regex_object},
-        exceptions=RuntimeError,
-        tries=30,
-        delay=1,
-    ).group(1)
+    # Run 'screen -ls' in a retry loop, 30 times with a 1s delay between calls.
+    # If the output of 'screen -ls' matches the regex object, it will return the
+    # PID. Otherwise, a RuntimeError will be raised.
+    for attempt in Retrying(
+        retry=retry_if_exception_type(RuntimeError),
+        stop=stop_after_attempt(30),
+        wait=wait_fixed(1),
+        reraise=True,
+    ):
+        with attempt:
+            screen_pid = search_output_from_cmd(
+                cmd="screen -ls", find_regex=regex_object
+            ).group(1)
 
     # Make sure the screen process launched successfully
     # As the parent process for the binary.
@@ -730,7 +718,7 @@ def start_screen_process(screen_log, session_name, binary_path, binary_params):
     children_count = len(screen_ps.children())
     if children_count != 1:
         raise RuntimeError(
-            f"Failed to retrieve child process id for binary {binary_path}. "
+            f"Failed to retrieve child process id for binary '{binary_path}' "
             f"screen session process had [{children_count}]"
         )
 
@@ -745,7 +733,7 @@ def guest_run_fio_iteration(ssh_connection, iteration):
         --output /tmp/fio{} > /dev/null &""".format(
         iteration
     )
-    exit_code, _, stderr = ssh_connection.execute_command(fio)
+    exit_code, _, stderr = ssh_connection.run(fio)
     assert exit_code == 0, stderr
 
 
@@ -754,18 +742,18 @@ def check_filesystem(ssh_connection, disk_fmt, disk):
     if disk_fmt == "squashfs":
         return
     cmd = "fsck.{} -n {}".format(disk_fmt, disk)
-    exit_code, _, stderr = ssh_connection.execute_command(cmd)
+    exit_code, _, stderr = ssh_connection.run(cmd)
     assert exit_code == 0, stderr
 
 
 def check_entropy(ssh_connection):
     """Check that we can get random numbers from /dev/hwrng"""
     cmd = "dd if=/dev/hwrng of=/dev/null bs=4096 count=1"
-    exit_code, _, stderr = ssh_connection.execute_command(cmd)
+    exit_code, _, stderr = ssh_connection.run(cmd)
     assert exit_code == 0, stderr
 
 
-@retry(delay=0.5, tries=5)
+@retry(wait=wait_fixed(0.5), stop=stop_after_attempt(5), reraise=True)
 def wait_process_running(process):
     """Wait for a process to run.
 

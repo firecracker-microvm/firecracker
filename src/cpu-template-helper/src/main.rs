@@ -13,25 +13,25 @@ mod fingerprint;
 mod template;
 mod utils;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 enum HelperError {
-    #[error("Failed to operate file: {0}")]
+    /// Failed to operate file: {0}
     FileIo(#[from] std::io::Error),
-    #[error("{0}")]
+    /// {0}
     FingerprintCompare(#[from] fingerprint::compare::FingerprintCompareError),
-    #[error("{0}")]
+    /// {0}
     FingerprintDump(#[from] fingerprint::dump::FingerprintDumpError),
-    #[error("CPU template is not specified: {0}")]
+    /// CPU template is not specified: {0}
     NoCpuTemplate(#[from] GetCpuTemplateError),
-    #[error("Failed to serialize/deserialize JSON file: {0}")]
+    /// Failed to serialize/deserialize JSON file: {0}
     Serde(#[from] serde_json::Error),
-    #[error("{0}")]
+    /// {0}
     Utils(#[from] UtilsError),
-    #[error("{0}")]
+    /// {0}
     TemplateDump(#[from] template::dump::DumpError),
-    #[error("{0}")]
+    /// {0}
     TemplateStrip(#[from] template::strip::StripError),
-    #[error("{0}")]
+    /// {0}
     TemplateVerify(#[from] template::verify::VerifyError),
 }
 

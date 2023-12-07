@@ -160,7 +160,7 @@ def test_brand_string(test_microvm_with_api):
     test_microvm.start()
 
     guest_cmd = "cat /proc/cpuinfo | grep 'model name' | head -1"
-    _, stdout, stderr = test_microvm.ssh.execute_command(guest_cmd)
+    _, stdout, stderr = test_microvm.ssh.run(guest_cmd)
     assert stderr == ""
 
     line = stdout.rstrip()
@@ -351,7 +351,7 @@ def dump_msr_state_to_file(dump_fname, ssh_conn, shared_names):
     ssh_conn.scp_put(
         shared_names["msr_reader_host_fname"], shared_names["msr_reader_guest_fname"]
     )
-    _, stdout, stderr = ssh_conn.execute_command(shared_names["msr_reader_guest_fname"])
+    _, stdout, stderr = ssh_conn.run(shared_names["msr_reader_guest_fname"])
     assert stderr == ""
 
     with open(dump_fname, "w", encoding="UTF-8") as file:
@@ -406,9 +406,7 @@ def test_cpu_wrmsr_snapshot(
     wrmsr_input_guest_fname = "/tmp/wrmsr_input.txt"
     vm.ssh.scp_put(wrmsr_input_host_fname, wrmsr_input_guest_fname)
 
-    _, _, stderr = vm.ssh.execute_command(
-        f"{msr_writer_guest_fname} {wrmsr_input_guest_fname}"
-    )
+    _, _, stderr = vm.ssh.run(f"{msr_writer_guest_fname} {wrmsr_input_guest_fname}")
     assert stderr == ""
 
     # Dump MSR state to a file that will be published to S3 for the 2nd part of the test
@@ -507,7 +505,7 @@ def dump_cpuid_to_file(dump_fname, ssh_conn):
     """
     Read CPUID via SSH and dump it into a file.
     """
-    _, stdout, stderr = ssh_conn.execute_command("cpuid --one-cpu")
+    _, stdout, stderr = ssh_conn.run("cpuid --one-cpu")
     assert stderr == ""
     dump_fname.write_text(stdout, encoding="UTF-8")
 
@@ -647,13 +645,14 @@ def test_cpu_template(test_microvm_with_api, cpu_template):
     )
     test_microvm.add_net_iface()
 
-    response = test_microvm.actions.put(action_type="InstanceStart")
     if cpuid_utils.get_cpu_vendor() != cpuid_utils.CpuVendor.INTEL:
         # We shouldn't be able to apply Intel templates on AMD hosts
-        assert test_microvm.api_session.is_status_bad_request(response.status_code)
+        with pytest.raises(RuntimeError):
+            test_microvm.start()
         return
 
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    test_microvm.start()
+
     check_masked_features(test_microvm, cpu_template)
     check_enabled_features(test_microvm, cpu_template)
 
@@ -932,3 +931,30 @@ def check_enabled_features(test_microvm, cpu_template):
         cpuid_utils.check_guest_cpuid_output(
             test_microvm, "cpuid -1", None, "=", t2_enabled_features
         )
+
+
+@pytest.mark.skipif(PLATFORM != "x86_64", reason="This test is specific to x86_64.")
+def test_c3_on_skylake_show_warning(uvm_plain, cpu_template):
+    """
+    This test verifies that the warning message about MMIO stale data mitigation
+    is displayed only on Intel Skylake with C3 template.
+    """
+    uvm = uvm_plain
+    uvm.spawn()
+    uvm.basic_config(
+        vcpu_count=2,
+        mem_size_mib=256,
+        cpu_template=cpu_template,
+    )
+    uvm.start()
+
+    message = (
+        "On processors that do not enumerate FBSDP_NO, PSDP_NO and "
+        "SBDR_SSDP_NO on IA32_ARCH_CAPABILITIES MSR, the guest kernel "
+        "does not apply the mitigation against MMIO stale data "
+        "vulnerability."
+    )
+    if cpu_template == "C3" and global_props.cpu_codename == "INTEL_SKYLAKE":
+        assert message in uvm.log_data
+    else:
+        assert message not in uvm.log_data

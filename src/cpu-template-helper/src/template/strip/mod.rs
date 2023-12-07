@@ -18,10 +18,9 @@ mod x86_64;
 #[cfg(target_arch = "x86_64")]
 pub use x86_64::strip;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum StripError {
     /// The number of inputs should be two or more.
-    #[error("The number of inputs should be two or more.")]
     NumberOfInputs,
 }
 

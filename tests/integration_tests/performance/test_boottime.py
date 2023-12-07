@@ -2,8 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that ensure the boot time to init process is within spec."""
 
-# pylint:disable=redefined-outer-name
-
+import datetime
 import re
 import time
 
@@ -18,7 +17,7 @@ MAX_BOOT_TIME_US = 150000
 TIMESTAMP_LOG_REGEX = r"Guest-boot-time\s+\=\s+(\d+)\s+us"
 
 DEFAULT_BOOT_ARGS = (
-    "reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0"
+    "reboot=k panic=1 pci=off nomodule 8250.nr_uarts=0"
     " i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd"
 )
 
@@ -26,6 +25,7 @@ DEFAULT_BOOT_ARGS = (
 DIMENSIONS = {
     "instance": global_props.instance,
     "cpu_model": global_props.cpu_model,
+    "host_os": global_props.host_os,
     "host_kernel": "linux-" + global_props.host_linux_version,
 }
 
@@ -55,11 +55,6 @@ def test_no_boottime(test_microvm_with_api):
     assert not timestamps
 
 
-# temporarily disable this test in 6.1
-@pytest.mark.xfail(
-    global_props.host_linux_version == "6.1",
-    reason="perf regression under investigation",
-)
 def test_boottime_no_network(fast_microvm, record_property, metrics):
     """
     Check boot time of microVM without a network device.
@@ -78,11 +73,6 @@ def test_boottime_no_network(fast_microvm, record_property, metrics):
     ), f"boot time {boottime_us} cannot be greater than: {MAX_BOOT_TIME_US} us"
 
 
-# temporarily disable this test in 6.1
-@pytest.mark.xfail(
-    global_props.host_linux_version == "6.1",
-    reason="perf regression under investigation",
-)
 def test_boottime_with_network(fast_microvm, record_property, metrics):
     """Check boot time of microVM with a network device."""
     vm = fast_microvm
@@ -139,6 +129,7 @@ def _configure_and_run_vm(microvm, network=False, initrd=False):
         "vcpu_count": 1,
         "mem_size_mib": 128,
         "boot_args": DEFAULT_BOOT_ARGS + " init=/usr/local/bin/init",
+        "enable_entropy_device": True,
     }
     if initrd:
         config["add_root_device"] = False
@@ -148,3 +139,66 @@ def _configure_and_run_vm(microvm, network=False, initrd=False):
     if network:
         microvm.add_net_iface()
     microvm.start()
+    microvm.pin_threads(0)
+
+
+def find_events(log_data):
+    """
+    Parse events in the Firecracker logs
+
+    Events have this format:
+
+        TIMESTAMP [LOGLEVEL] event_(start|end): EVENT
+    """
+    ts_fmt = "%Y-%m-%dT%H:%M:%S.%f"
+    matches = re.findall(r"(.+) \[.+\] event_(start|end): (.*)", log_data)
+    timestamps = {}
+    for ts, when, what in matches:
+        evt1 = timestamps.setdefault(what, {})
+        evt1[when] = datetime.datetime.strptime(ts[:-3], ts_fmt)
+    for _, val in timestamps.items():
+        val["duration"] = val["end"] - val["start"]
+    return timestamps
+
+
+@pytest.mark.parametrize(
+    "vcpu_count,mem_size_mib",
+    [(1, 128), (1, 1024), (2, 2048), (4, 4096)],
+)
+def test_boottime(
+    microvm_factory, guest_kernel, rootfs, vcpu_count, mem_size_mib, metrics
+):
+    """Test boot time with different guest configurations"""
+
+    metrics.set_dimensions(
+        {
+            **DIMENSIONS,
+            "guest_kernel": guest_kernel.name,
+            "vcpus": str(vcpu_count),
+            "mem_size_mib": str(mem_size_mib),
+        }
+    )
+
+    for _ in range(10):
+        vm = microvm_factory.build(guest_kernel, rootfs)
+        vm.jailer.extra_args.update({"boot-timer": None})
+        vm.spawn()
+        vm.basic_config(
+            vcpu_count=vcpu_count,
+            mem_size_mib=mem_size_mib,
+            boot_args=DEFAULT_BOOT_ARGS + " init=/usr/local/bin/init",
+            enable_entropy_device=True,
+        )
+        vm.add_net_iface()
+        vm.start()
+        vm.pin_threads(0)
+        boottime_us = _get_microvm_boottime(vm)
+        metrics.put_metric("boot_time", boottime_us, unit="Microseconds")
+        timestamps = find_events(vm.log_data)
+        build_time = timestamps["build microvm for boot"]["duration"]
+        metrics.put_metric("build_time", build_time.microseconds, unit="Microseconds")
+        metrics.put_metric(
+            "guest_boot_time",
+            boottime_us - build_time.microseconds,
+            unit="Microseconds",
+        )

@@ -81,7 +81,7 @@ const SECCOMP_DATA_ARG_SIZE: u8 = 8;
 
 /// Dummy placeholder type for a JSON comment. Holds no value.
 #[derive(PartialEq, Debug, Clone)]
-pub(crate) struct Comment;
+pub struct Comment;
 
 impl<'de> Deserialize<'de> for Comment {
     fn deserialize<D>(_deserializer: D) -> std::result::Result<Comment, D::Error>
@@ -95,29 +95,24 @@ impl<'de> Deserialize<'de> for Comment {
 }
 
 /// Seccomp filter errors.
-#[derive(Debug, PartialEq, thiserror::Error)]
-pub(crate) enum FilterError {
-    /// Attempting to add an empty vector of rules to the rule chain of a syscall.
-    #[error("The seccomp rules vector is empty.")]
+#[derive(Debug, PartialEq, thiserror::Error, displaydoc::Display)]
+pub enum FilterError {
+    /// The seccomp rules vector is empty.
     EmptyRulesVector,
-    /// Filter exceeds the maximum number of instructions that a BPF program can have.
-    #[error("The seccomp filter contains too many BPF instructions.")]
+    /// The seccomp filter contains too many BPF instructions.
     FilterTooLarge,
-    /// Argument number that exceeds the maximum value.
-    #[error("The seccomp rule contains an invalid argument number.")]
+    /// The seccomp rule contains an invalid argument number.
     InvalidArgumentNumber,
-    /// Error related to the target arch.
-    #[error("{0:?}")]
+    /// {0:?}
     Arch(TargetArchError),
-    /// Conflicting rules in filter.
-    #[error("Syscall {0} has conflicting rules.")]
+    /// Syscall {0} has conflicting rules.
     ConflictingRules(i64),
 }
 
 /// Supported target architectures.
 #[allow(non_camel_case_types)]
 #[derive(Debug, PartialEq, Clone, Copy)]
-pub(crate) enum TargetArch {
+pub enum TargetArch {
     /// x86_64 arch
     x86_64,
     /// aarch64 arch
@@ -125,10 +120,9 @@ pub(crate) enum TargetArch {
 }
 
 /// Errors related to target arch.
-#[derive(Debug, PartialEq, thiserror::Error)]
-pub(crate) enum TargetArchError {
-    /// Invalid string.
-    #[error("Invalid target arch string: {0}")]
+#[derive(Debug, PartialEq, thiserror::Error, displaydoc::Display)]
+pub enum TargetArchError {
+    /// Invalid target arch string: {0}
     InvalidString(String),
 }
 
@@ -170,7 +164,7 @@ impl From<TargetArch> for &str {
 /// Comparison to perform when matching a condition.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum SeccompCmpOp {
+pub enum SeccompCmpOp {
     /// Argument value is equal to the specified value.
     Eq,
     /// Argument value is greater than or equal to the specified value.
@@ -190,7 +184,7 @@ pub(crate) enum SeccompCmpOp {
 /// Seccomp argument value length.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum SeccompCmpArgLen {
+pub enum SeccompCmpArgLen {
     /// Argument value length is 4 bytes.
     Dword,
     /// Argument value length is 8 bytes.
@@ -200,7 +194,7 @@ pub(crate) enum SeccompCmpArgLen {
 /// Condition that syscall must match in order to satisfy a rule.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct SeccompCondition {
+pub struct SeccompCondition {
     /// Index of the argument that is to be compared.
     #[serde(rename = "index")]
     arg_number: u8,
@@ -220,7 +214,7 @@ pub(crate) struct SeccompCondition {
 /// Actions that `seccomp` can apply to process calling a syscall.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum SeccompAction {
+pub enum SeccompAction {
     /// Allows syscall.
     Allow,
     /// Returns from syscall with specified error number.
@@ -243,7 +237,7 @@ pub(crate) enum SeccompAction {
 /// The action of the first rule that matches will be applied to the calling process.
 /// If no rule matches the default action is applied.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct SeccompRule {
+pub struct SeccompRule {
     /// Conditions of rule that need to match in order for the rule to get matched.
     conditions: Vec<SeccompCondition>,
     /// Action applied to calling process if rule gets matched.
@@ -251,11 +245,11 @@ pub(crate) struct SeccompRule {
 }
 
 /// Type that associates the syscall number to its SeccompRules.
-pub(crate) type SeccompRuleMap = BTreeMap<i64, Vec<SeccompRule>>;
+pub type SeccompRuleMap = BTreeMap<i64, Vec<SeccompRule>>;
 
 /// Filter containing rules assigned to syscall numbers.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct SeccompFilter {
+pub struct SeccompFilter {
     /// Map of syscall numbers and corresponding rule chains.
     rules: SeccompRuleMap,
     /// Default action to apply to syscall numbers that do not exist in the hash map.
@@ -285,7 +279,7 @@ impl SeccompCondition {
     /// [`SeccompCondition`]: struct.SeccompCondition.html
     fn value_segments(&self) -> (u32, u32, u8, u8) {
         // Splits the specified value into its most significant and least significant halves.
-        let (msb, lsb) = ((self.value >> 32) as u32, self.value as u32);
+        let (msb, lsb) = ((self.value >> 32) as u32, (self.value & 0xFFFFFFFF) as u32);
 
         // Offset to the argument specified by `arg_number`.
         // Cannot overflow because the value will be at most 16 + 6 * 8 = 64.
@@ -437,8 +431,11 @@ impl SeccompCondition {
     fn into_masked_eq_bpf(self, offset: u8, mask: u64) -> Vec<sock_filter> {
         let (_, _, msb_offset, lsb_offset) = self.value_segments();
         let masked_value = self.value & mask;
-        let (msb, lsb) = ((masked_value >> 32) as u32, masked_value as u32);
-        let (mask_msb, mask_lsb) = ((mask >> 32) as u32, mask as u32);
+        let (msb, lsb) = (
+            (masked_value >> 32) as u32,
+            (masked_value & 0xFFFFFFFF) as u32,
+        );
+        let (mask_msb, mask_lsb) = ((mask >> 32) as u32, (mask & 0xFFFFFFFF) as u32);
 
         let mut bpf = match self.arg_len {
             SeccompCmpArgLen::Dword => vec![],
@@ -731,7 +728,7 @@ impl SeccompFilter {
         accumulator.push(built_syscall);
 
         // BPF programs are limited to 4096 statements.
-        if *filter_len >= BPF_MAX_LEN {
+        if *filter_len >= usize::from(BPF_MAX_LEN) {
             return Err(FilterError::FilterTooLarge);
         }
 
@@ -787,7 +784,7 @@ impl TryInto<BpfProgram> for SeccompFilter {
             .into_iter()
             .for_each(|mut instructions| result.append(&mut instructions));
 
-        if result.len() >= BPF_MAX_LEN {
+        if result.len() >= usize::from(BPF_MAX_LEN) {
             return Err(FilterError::FilterTooLarge);
         }
 
@@ -920,7 +917,7 @@ mod tests {
                 assert_eq!(rc, 0);
             }
             let bpf_prog = sock_fprog {
-                len: bpf_filter.len() as u16,
+                len: u16::try_from(bpf_filter.len()).unwrap(),
                 filter: bpf_filter.as_ptr(),
             };
             let bpf_prog_ptr = &bpf_prog as *const sock_fprog;
@@ -947,7 +944,7 @@ mod tests {
         for syscall in EXTRA_SYSCALLS.iter() {
             rule_map
                 .entry(*syscall)
-                .or_insert_with(std::vec::Vec::new)
+                .or_default()
                 .append(&mut vec![SeccompRule::new(vec![], SeccompAction::Allow)]);
         }
 

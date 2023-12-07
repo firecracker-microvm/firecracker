@@ -4,12 +4,12 @@
 use std::os::unix::io::AsRawFd;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use log::{error, warn};
 use utils::epoll::EventSet;
 
-use crate::devices::report_balloon_event_fail;
+use super::{report_balloon_event_fail, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX};
 use crate::devices::virtio::balloon::device::Balloon;
-use crate::devices::virtio::{VirtioDevice, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX};
+use crate::devices::virtio::device::VirtioDevice;
+use crate::logger::{error, warn};
 
 impl Balloon {
     fn register_runtime_events(&self, ops: &mut EventOps) {
@@ -36,7 +36,6 @@ impl Balloon {
     }
 
     fn process_activate_event(&self, ops: &mut EventOps) {
-        log::debug!("balloon: activate event");
         if let Err(err) = self.activate_evt.read() {
             error!("Failed to consume balloon activate event: {:?}", err);
         }
@@ -113,11 +112,11 @@ pub mod tests {
     use std::sync::{Arc, Mutex};
 
     use event_manager::{EventManager, SubscriberOps};
-    use utils::vm_memory::GuestAddress;
 
     use super::*;
     use crate::devices::virtio::balloon::test_utils::set_request;
     use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
+    use crate::vstate::memory::GuestAddress;
 
     #[test]
     fn test_event_handler() {

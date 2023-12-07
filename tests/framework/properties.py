@@ -7,7 +7,7 @@
 """
 Metadata we want to attach to tests for further analysis and troubleshooting
 """
-
+import os
 import platform
 import re
 import subprocess
@@ -35,6 +35,26 @@ def get_os_version():
     return match.group(1)
 
 
+def get_host_os(kv: str = None):
+    """
+    Extract OS information from the kernel if it's there.
+
+    This only works for AL2 and AL2023
+
+    >>> get_host_os("6.1.41-63.118.amzn2023.x86_64")
+    amzn2023
+    """
+    if kv is None:
+        kv = platform.release()
+    parts = kv.split("-")
+    if len(parts) < 2:
+        return None
+    misc = parts[1].split(".")
+    if len(misc) > 2 and misc[2] in {"amzn2", "amzn2023"}:
+        return misc[2]
+    return None
+
+
 class GlobalProps:
     """Class to hold metadata about the testrun environment"""
 
@@ -52,11 +72,20 @@ class GlobalProps:
         # major.minor.patch
         self.host_linux_patch = get_kernel_version(2)
         self.os = get_os_version()
+        self.host_os = get_host_os()
         self.libc_ver = "-".join(platform.libc_ver())
-        self.git_commit_id = run_cmd("git rev-parse HEAD")
-        self.git_branch = run_cmd("git show -s --pretty=%D HEAD")
-        self.git_origin_url = run_cmd("git config --get remote.origin.url")
         self.rust_version = run_cmd("rustc --version |awk '{print $2}'")
+        self.buildkite_pipeline_slug = os.environ.get("BUILDKITE_PIPELINE_SLUG")
+        self.buildkite_build_number = os.environ.get("BUILDKITE_BUILD_NUMBER")
+
+        if self._in_git_repo():
+            self.git_commit_id = run_cmd("git rev-parse HEAD")
+            self.git_branch = run_cmd("git show -s --pretty=%D HEAD")
+            self.git_origin_url = run_cmd("git config --get remote.origin.url")
+        else:
+            self.git_commit_id = None
+            self.git_branch = None
+            self.git_origin_url = None
 
         self.environment = self._detect_environment()
         if self.is_ec2:
@@ -84,6 +113,12 @@ class GlobalProps:
         except Exception:
             return "local"
 
+    def _in_git_repo(self):
+        try:
+            run_cmd("git rev-parse --show-toplevel")
+        except subprocess.CalledProcessError:
+            return False
+        return True
+
 
 global_props = GlobalProps()
-# TBD could do a props fixture for tests to use...

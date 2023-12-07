@@ -26,7 +26,7 @@ from integration_tests.functional.test_balloon import (
 
 def _test_balloon(microvm):
     # Get the firecracker pid.
-    firecracker_pid = microvm.jailer_clone_pid
+    firecracker_pid = microvm.firecracker_pid
 
     # Check memory usage.
     first_reading = get_stable_rss_mem_by_pid(firecracker_pid)
@@ -37,8 +37,7 @@ def _test_balloon(microvm):
     assert second_reading > first_reading
 
     # Inflate the balloon. Get back 200MB.
-    response = microvm.balloon.patch(amount_mib=200)
-    assert microvm.api_session.is_status_no_content(response.status_code)
+    microvm.api.balloon.patch(amount_mib=200)
 
     third_reading = get_stable_rss_mem_by_pid(firecracker_pid)
     # Ensure that there is a reduction in RSS.
@@ -57,7 +56,7 @@ def _test_mmds(vm, mmds_net_iface):
     cmd = "ip route add {} dev {}".format(
         mmds_net_iface.guest_ip, mmds_net_iface.dev_name
     )
-    code, _, _ = vm.ssh.execute_command(cmd)
+    code, _, _ = vm.ssh.run(cmd)
     assert code == 0
 
     # The base microVM had MMDS version 2 configured, which was persisted
@@ -65,7 +64,7 @@ def _test_mmds(vm, mmds_net_iface):
     token = generate_mmds_session_token(vm.ssh, mmds_ipv4_address, token_ttl=60)
 
     cmd = generate_mmds_get_request(mmds_ipv4_address, token=token)
-    _, stdout, _ = vm.ssh.execute_command(cmd)
+    _, stdout, _ = vm.ssh.run(cmd)
     assert json.load(stdout) == data_store
 
 
@@ -105,14 +104,12 @@ def test_snap_restore_from_artifacts(
         vm.resume()
 
         # Ensure microVM is running.
-        response = vm.machine_cfg.get()
-        assert vm.api_session.is_status_ok(response.status_code)
         assert vm.state == "Running"
 
         # Test that net devices have connectivity after restore.
         for idx, iface in enumerate(vm.iface.values()["iface"]):
             logger.info("Testing net device %s...", iface.dev_name)
-            exit_code, _, _ = vm.ssh_iface(idx).execute_command("sync")
+            exit_code, _, _ = vm.ssh_iface(idx).run("sync")
             assert exit_code == 0
 
         logger.info("Testing data store behavior...")

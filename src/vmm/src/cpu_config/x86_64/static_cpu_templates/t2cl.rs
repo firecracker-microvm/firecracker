@@ -240,43 +240,53 @@ pub fn t2cl() -> CustomCpuTemplate {
         ],
         msr_modifiers: vec![
             // IA32_ARCH_CAPABILITIES:
-            // - Bit 00: RDCL_NO (Intel SDM) / Reserved (AMD APM)
-            // - Bit 01: IBRS_ALL (Intel SDM) / Reserved (AMD APM)
-            // - Bit 02: RSBA (Intel SDM) / Reserved (AMD APM)
-            //   This bit is passed-through intentionally.
-            //   See https://github.com/firecracker-microvm/firecracker/pull/3907
-            // - Bit 03: SKIP_L1DFL_VMENTRY (Intel SDM) / Reserved (AMD APM)
-            // - Bit 04: SSB_NO (Intel SDM) / Reserved (AMD APM)
-            // - Bit 05: MDS_NO (Intel SDM) / Reserved (AMD APM)
-            // - Bit 06: IF_PSCHANGE_MC_NO (Intel SDM) / Reserved (AMD APM)
-            // - Bit 07: TSX_CTRL (Intel SDM) / Reserved (AMD APM)
-            // - Bit 08: TAA_NO (Intel SDM) / Reserved (AMD APM)
-            // - Bit 09: MCU_CONTROL (Intel SDM) / Reserved (AMD APM)
-            // - Bit 10: MISC_PACKAGE_CTLS (Intel SDM) / Reserved (AMD APM)
-            // - Bit 11: ENERGY_FILTERING_CTL (Intel SDM) / Reserved (AMD APM)
-            // - Bit 12: DOITM (Intel SDM) / Reserved (AMD APM)
-            // - Bit 13: SBDR_SSDP_NO (Intel SDM) / Reserved (AMD APM)
-            // - Bit 14: FBSDP_NO (Intel SDM) / Reserved (AMD APM)
-            // - Bit 15: PSDP_NO (Intel SDM) / Reserved (AMD APM)
-            // - Bit 16: Reserved (Intel SDM) / Reserved (AMD APM)
-            // - Bit 17: FB_CLEAR (Intel SDM) / Reserved (AMD APM)
-            // - Bit 18: FB_CLEAR_CTRL (Intel SDM) / Reserved (AMD APM)
-            // - Bit 19: RRSBA (Intel SDM) / Reserved (AMD APM)
-            //   This is bit passed-through intentionally.
-            //   See https://github.com/firecracker-microvm/firecracker/pull/3907
-            // - Bit 20: BHI_NO (Intel SDM) / Reserved (AMD APM)
-            // - Bit 21: XAPIC_DISABLE_STATUS (Intel SDM) / Reserved (AMD APM)
-            // - Bit 22: Reserved (Intel SDM) / Reserved (AMD APM)
-            // - Bit 23: OVERCLOCKING_STATUS (Intel SDM) / Reserved (AMD APM)
-            // - Bit 24: PBRSB_NO (Intel SDM) / Reserved (AMD APM)
-            // - Bits 63-25: Reserved (Intel SDM) / Reserved (AMD APM)
+            // - Bit 09: MCU_CONTROL
+            // - Bit 10: MISC_PACKAGE_CTLS
+            // - Bit 11: ENERGY_FILTERING_CTL
+            // - Bit 12: DOITM
+            // - Bit 16: Reserved
+            // - Bit 18: FB_CLEAR_CTRL
+            // - Bit 20: BHI_NO
+            // - Bit 21: XAPIC_DISABLE_STATUS
+            // - Bit 22: Reserved
+            // - Bit 23: OVERCLOCKING_STATUS
+            // - Bit 25: GDS_CTRL
+            // - Bits 63-27: Reserved (Intel SDM)
+            //
+            // As T2CL template does not aim to provide an ability to migrate securely guests across
+            // different processors, there is no need to mask hardware security mitigation bits off
+            // only to make it appear to the guest as if it's running on the most vulnerable of the
+            // supported processors. Guests might be able to benefit from performance improvements
+            // by making the most use of available mitigations on the processor. Thus, T2CL template
+            // passes through security mitigation bits that KVM thinks are able to be passed
+            // through. The list of such bits are found in the following link.
+            // https://elixir.bootlin.com/linux/v6.1.46/source/arch/x86/kvm/x86.c#L1600
+            // - Bit 00: RDCL_NO
+            // - Bit 01: IBRS_ALL
+            // - Bit 02: RSBA
+            // - Bit 03: SKIP_L1DFL_VMENTRY
+            // - Bit 04: SSB_NO
+            // - Bit 05: MDS_NO
+            // - Bit 06: IF_PSCHANGE_MC_NO
+            // - Bit 07: TSX_CTRL
+            // - Bit 08: TAA_NO
+            // - Bit 13: SBDR_SSDP_NO
+            // - Bit 14: FBSDP_NO
+            // - Bit 15: PSDP_NO
+            // - Bit 17: FB_CLEAR
+            // - Bit 19: RRSBA
+            // - Bit 24: PBRSB_NO
+            // - Bit 26: GDS_NO
+            //
+            // Note that this MSR is specific to Intel processors.
             RegisterModifier {
                 addr: 0x10a,
                 bitmap: RegisterValueFilter {
-                    filter: 0b1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_0111_1111_1111_1111_1011,
-                    value: 0b0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_1110_1011,
+                    filter: 0b1111_1111_1111_1111_1111_1111_1111_1111_1111_1010_1111_0101_0001_1110_0000_0000,
+                    value: 0b0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
                 },
             },
         ],
+        ..Default::default()
     }
 }

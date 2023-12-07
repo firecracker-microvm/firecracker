@@ -1,7 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0<Paste>
 
-use logger::{IncMetric, METRICS};
+use vmm::logger::{IncMetric, METRICS};
 use vmm::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig};
 
 use super::super::VmmAction;
@@ -64,21 +64,6 @@ pub(crate) fn parse_patch_drive(
         ));
     }
 
-    // Validate request - we need to have at least one parameter set:
-    // - path_on_host
-    // - rate_limiter
-    if block_device_update_cfg.path_on_host.is_none()
-        && block_device_update_cfg.rate_limiter.is_none()
-    {
-        METRICS.patch_api_requests.drive_fails.inc();
-        return Err(Error::Generic(
-            StatusCode::BadRequest,
-            String::from(
-                "Please specify at least one property to patch: path_on_host, rate_limiter.",
-            ),
-        ));
-    }
-
     Ok(ParsedRequest::new_sync(VmmAction::UpdateBlockDevice(
         block_device_update_cfg,
     )))
@@ -96,68 +81,69 @@ mod tests {
 
         // PATCH with invalid fields.
         let body = r#"{
-                "drive_id": "bar",
-                "is_read_only": false
-              }"#;
+            "drive_id": "bar",
+            "is_read_only": false
+        }"#;
         assert!(parse_patch_drive(&Body::new(body), Some("2")).is_err());
 
         // PATCH with invalid types on fields. Adding a drive_id as number instead of string.
         let body = r#"{
-                "drive_id": 1000,
-                "path_on_host": "dummy"
-              }"#;
+            "drive_id": 1000,
+            "path_on_host": "dummy"
+        }"#;
         let res = parse_patch_drive(&Body::new(body), Some("1000"));
         assert!(res.is_err());
 
         // PATCH with invalid types on fields. Adding a path_on_host as bool instead of string.
         let body = r#"{
-                "drive_id": 1000,
-                "path_on_host": true
-              }"#;
+            "drive_id": 1000,
+            "path_on_host": true
+        }"#;
         let res = parse_patch_drive(&Body::new(body), Some("1000"));
         assert!(res.is_err());
 
-        // PATCH with missing path_on_host field.
+        // PATCH with only drive_id field.
         let body = r#"{
-                "drive_id": "dummy_id"
-              }"#;
-        let res = parse_patch_drive(&Body::new(body), Some("dummy_id"));
-        assert!(res.is_err());
+            "drive_id": "1000"
+        }"#;
+        let res = parse_patch_drive(&Body::new(body), Some("1000"));
+        assert!(res.is_ok());
 
         // PATCH with missing drive_id field.
         let body = r#"{
-                "path_on_host": true
-              }"#;
+            "path_on_host": true
+        }"#;
         let res = parse_patch_drive(&Body::new(body), Some("1000"));
         assert!(res.is_err());
 
         // PATCH that tries to update something else other than path_on_host.
         let body = r#"{
-                "drive_id": "dummy_id",
-                "path_on_host": "dummy_host",
-                "is_read_only": false
-              }"#;
+            "drive_id": "dummy_id",
+            "path_on_host": "dummy_host",
+            "is_read_only": false
+        }"#;
         let res = parse_patch_drive(&Body::new(body), Some("1234"));
         assert!(res.is_err());
 
         // PATCH with payload that is not a json.
         let body = r#"{
-                "fields": "dummy_field"
-              }"#;
+            "fields": "dummy_field"
+        }"#;
         assert!(parse_patch_drive(&Body::new(body), Some("1234")).is_err());
 
         let body = r#"{
-                "drive_id": "foo",
-                "path_on_host": "dummy"
-              }"#;
-        #[allow(clippy::match_wild_err_arm)]
-        match vmm_action_from_request(parse_patch_drive(&Body::new(body), Some("foo")).unwrap()) {
-            VmmAction::UpdateBlockDevice(cfg) => {
-                assert_eq!(cfg.drive_id, "foo".to_string());
-                assert_eq!(cfg.path_on_host.unwrap(), "dummy".to_string());
-            }
-            _ => panic!("Test failed: Invalid parameters"),
+            "drive_id": "foo",
+            "path_on_host": "dummy"
+        }"#;
+        let expected_config = BlockDeviceUpdateConfig {
+            drive_id: "foo".to_string(),
+            path_on_host: Some("dummy".to_string()),
+            rate_limiter: None,
         };
+        assert_eq!(
+            vmm_action_from_request(parse_patch_drive(&Body::new(body), Some("foo")).unwrap()),
+            VmmAction::UpdateBlockDevice(expected_config)
+        );
 
         let body = r#"{
             "drive_id": "foo",
@@ -219,9 +205,9 @@ mod tests {
 
         // PUT with invalid fields.
         let body = r#"{
-                "drive_id": "bar",
-                "is_read_only": false
-              }"#;
+            "drive_id": "bar",
+            "is_read_only": false
+        }"#;
         assert!(parse_put_drive(&Body::new(body), Some("2")).is_err());
 
         // PUT with missing all optional fields.
@@ -238,26 +224,26 @@ mod tests {
 
         // PUT with the complete configuration.
         let body = r#"{
-                "drive_id": "1000",
-                "path_on_host": "dummy",
-                "is_root_device": true,
-                "partuuid": "string",
-                "is_read_only": true,
-                "cache_type": "Unsafe",
-                "io_engine": "Sync",
-                "rate_limiter": {
-                    "bandwidth": {
-                        "size": 0,
-                        "one_time_burst": 0,
-                        "refill_time": 0
-                    },
-                    "ops": {
+            "drive_id": "1000",
+            "path_on_host": "dummy",
+            "is_root_device": true,
+            "partuuid": "string",
+            "is_read_only": true,
+            "cache_type": "Unsafe",
+            "io_engine": "Sync",
+            "rate_limiter": {
+                "bandwidth": {
                     "size": 0,
                     "one_time_burst": 0,
                     "refill_time": 0
-                    }
+                },
+                "ops": {
+                    "size": 0,
+                    "one_time_burst": 0,
+                    "refill_time": 0
                 }
-            }"#;
+            }
+        }"#;
         assert!(parse_put_drive(&Body::new(body), Some("1000")).is_ok());
     }
 }

@@ -8,16 +8,15 @@
 /// device model.
 ///
 /// The vsock muxer has two main roles:
-/// 1. Vsock connection multiplexer:
-///    It's the muxer's job to create, manage, and terminate `VsockConnection` objects. The
-///    muxer also routes packets to their owning connections. It does so via a connection
-///    `HashMap`, keyed by what is basically a (host_port, guest_port) tuple.
-///    Vsock packet traffic needs to be inspected, in order to detect connection request
+/// 1. Vsock connection multiplexer: It's the muxer's job to create, manage, and terminate
+///    `VsockConnection` objects. The muxer also routes packets to their owning connections. It
+///    does so via a connection `HashMap`, keyed by what is basically a (host_port, guest_port)
+///    tuple. Vsock packet traffic needs to be inspected, in order to detect connection request
 ///    packets (leading to the creation of a new connection), and connection reset packets
 ///    (leading to the termination of an existing connection). All other packets, though, must
 ///    belong to an existing connection and, as such, the muxer simply forwards them.
-/// 2. Event dispatcher
-///    There are three event categories that the vsock backend is interested it:
+/// 2. Event dispatcher There are three event categories that the vsock backend is interested
+///    it:
 ///    1. A new host-initiated connection is ready to be accepted from the listening host Unix
 ///       socket;
 ///    2. Data is available for reading from a newly-accepted host-initiated connection (i.e.
@@ -37,9 +36,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 
 use log::{debug, error, info, warn};
-use logger::{IncMetric, METRICS};
 use utils::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
-use utils::vm_memory::GuestMemoryMmap;
 
 use super::super::csm::ConnState;
 use super::super::defs::uapi;
@@ -48,6 +45,9 @@ use super::super::{VsockBackend, VsockChannel, VsockEpollListener, VsockError};
 use super::muxer_killq::MuxerKillQ;
 use super::muxer_rxq::MuxerRxQ;
 use super::{defs, MuxerConnection, VsockUnixBackendError};
+use crate::devices::virtio::vsock::metrics::METRICS;
+use crate::logger::IncMetric;
+use crate::vstate::memory::GuestMemoryMmap;
 
 /// A unique identifier of a `MuxerConnection` object. Connections are stored in a hash map,
 /// keyed by a `ConnMapKey` object.
@@ -277,8 +277,6 @@ impl VsockEpollListener for VsockMuxer {
 
     /// Notify the muxer about a pending event having occured under its nested epoll FD.
     fn notify(&mut self, _: EventSet) {
-        debug!("vsock: muxer received kick");
-
         let mut epoll_events = vec![EpollEvent::new(EventSet::empty(), 0); 32];
         match self.epoll.wait(0, epoll_events.as_mut_slice()) {
             Ok(ev_cnt) => {
@@ -294,7 +292,7 @@ impl VsockEpollListener for VsockMuxer {
             }
             Err(err) => {
                 warn!("vsock: failed to consume muxer epoll event: {}", err);
-                METRICS.vsock.muxer_event_fails.inc();
+                METRICS.muxer_event_fails.inc();
             }
         }
     }
@@ -417,7 +415,7 @@ impl VsockMuxer {
                     "vsock: unexpected event: fd={:?}, evset={:?}",
                     fd, event_set
                 );
-                METRICS.vsock.muxer_event_fails.inc();
+                METRICS.muxer_event_fails.inc();
             }
         }
     }
@@ -507,7 +505,7 @@ impl VsockMuxer {
                 self.rxq.push(MuxerRx::ConnRx(key));
             }
             self.conn_map.insert(key, conn);
-            METRICS.vsock.conns_added.inc();
+            METRICS.conns_added.inc();
         })
     }
 
@@ -515,7 +513,7 @@ impl VsockMuxer {
     fn remove_connection(&mut self, key: ConnMapKey) {
         if let Some(conn) = self.conn_map.remove(&key) {
             self.remove_listener(conn.as_raw_fd());
-            METRICS.vsock.conns_removed.inc();
+            METRICS.conns_removed.inc();
         }
         self.free_local_port(key.local_port);
     }
@@ -525,7 +523,7 @@ impl VsockMuxer {
     /// it an RST packet.
     fn kill_connection(&mut self, key: ConnMapKey) {
         let mut had_rx = false;
-        METRICS.vsock.conns_killed.inc();
+        METRICS.conns_killed.inc();
 
         self.conn_map.entry(key).and_modify(|conn| {
             had_rx = conn.has_pending_rx();
@@ -718,7 +716,7 @@ impl VsockMuxer {
                                 "vsock: error updating epoll listener for (lp={}, pp={}): {:?}",
                                 key.local_port, key.peer_port, err
                             );
-                            METRICS.vsock.muxer_event_fails.inc();
+                            METRICS.muxer_event_fails.inc();
                         });
                 }
             } else {
@@ -737,7 +735,7 @@ impl VsockMuxer {
                         "vsock: error updating epoll listener for (lp={}, pp={}): {:?}",
                         key.local_port, key.peer_port, err
                     );
-                    METRICS.vsock.muxer_event_fails.inc();
+                    METRICS.muxer_event_fails.inc();
                 });
             }
         }
@@ -761,7 +759,7 @@ impl VsockMuxer {
 
         if self.killq.is_empty() && !self.killq.is_synced() {
             self.killq = MuxerKillQ::from_conn_map(&self.conn_map);
-            METRICS.vsock.killq_resync.inc();
+            METRICS.killq_resync.inc();
             // If we've just re-created the kill queue, we can sweep it again; maybe there's
             // more to kill.
             self.sweep_killq();
@@ -867,7 +865,7 @@ mod tests {
         ) -> &mut VsockPacket {
             assert!(data.len() <= self.pkt.buf_size());
             self.init_pkt(local_port, peer_port, uapi::VSOCK_OP_RW)
-                .set_len(data.len() as u32);
+                .set_len(u32::try_from(data.len()).unwrap());
 
             let data_len = data.len(); // store in tmp var to make borrow checker happy.
             self.pkt
@@ -955,7 +953,7 @@ mod tests {
             self.init_pkt(local_port, peer_port, uapi::VSOCK_OP_RESPONSE);
             self.send();
 
-            let mut buf = vec![0u8; 32];
+            let mut buf = [0u8; 32];
             let len = stream.read(&mut buf[..]).unwrap();
             assert_eq!(&buf[..len], format!("OK {}\n", local_port).as_bytes());
 
@@ -1006,13 +1004,13 @@ mod tests {
 
         assert_eq!(conn.get_polled_evset(), EventSet::IN);
 
-        assert_eq!(METRICS.vsock.conn_event_fails.count(), 0);
+        assert_eq!(METRICS.conn_event_fails.count(), 0);
 
         let conn_eventfd = conn.as_raw_fd();
 
         ctx.muxer.handle_event(conn_eventfd, EventSet::OUT);
 
-        assert_eq!(METRICS.vsock.conn_event_fails.count(), 1);
+        assert_eq!(METRICS.conn_event_fails.count(), 1);
     }
 
     #[test]
@@ -1247,7 +1245,7 @@ mod tests {
         let mut streams: Vec<UnixStream> = Vec::new();
 
         for peer_port in peer_port_first..peer_port_first + defs::MUXER_RXQ_SIZE {
-            ctx.init_pkt(local_port, peer_port as u32, uapi::VSOCK_OP_REQUEST);
+            ctx.init_pkt(local_port, peer_port, uapi::VSOCK_OP_REQUEST);
             ctx.send();
             streams.push(listener.accept());
         }
@@ -1259,7 +1257,7 @@ mod tests {
         // One more queued reply should desync the RX queue.
         ctx.init_pkt(
             local_port,
-            (peer_port_first + defs::MUXER_RXQ_SIZE) as u32,
+            peer_port_first + defs::MUXER_RXQ_SIZE,
             uapi::VSOCK_OP_REQUEST,
         );
         ctx.send();
@@ -1268,11 +1266,7 @@ mod tests {
         // With an out-of-sync queue, an RST should evict any non-RST packet from the queue, and
         // take its place. We'll check that by making sure that the last packet popped from the
         // queue is an RST.
-        ctx.init_pkt(
-            local_port + 1,
-            peer_port_first as u32,
-            uapi::VSOCK_OP_REQUEST,
-        );
+        ctx.init_pkt(local_port + 1, peer_port_first, uapi::VSOCK_OP_REQUEST);
         ctx.send();
 
         for peer_port in peer_port_first..peer_port_first + defs::MUXER_RXQ_SIZE - 1 {
@@ -1280,7 +1274,7 @@ mod tests {
             assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RESPONSE);
             // The response order should hold. The evicted response should have been the last
             // enqueued.
-            assert_eq!(ctx.pkt.dst_port(), peer_port as u32);
+            assert_eq!(ctx.pkt.dst_port(), peer_port);
         }
         // There should be one more packet in the queue: the RST.
         assert_eq!(ctx.muxer.rxq.len(), 1);
@@ -1315,19 +1309,19 @@ mod tests {
         let mut listener = ctx.create_local_listener(local_port);
 
         // Save metrics relevant for this test.
-        let conns_added = METRICS.vsock.conns_added.count();
-        let conns_killed = METRICS.vsock.conns_killed.count();
-        let conns_removed = METRICS.vsock.conns_removed.count();
-        let killq_resync = METRICS.vsock.killq_resync.count();
+        let conns_added = METRICS.conns_added.count();
+        let conns_killed = METRICS.conns_killed.count();
+        let conns_removed = METRICS.conns_removed.count();
+        let killq_resync = METRICS.killq_resync.count();
 
         for peer_port in peer_port_first..=peer_port_last {
-            ctx.init_pkt(local_port, peer_port as u32, uapi::VSOCK_OP_REQUEST);
+            ctx.init_pkt(local_port, peer_port, uapi::VSOCK_OP_REQUEST);
             ctx.send();
             ctx.notify_muxer();
             ctx.recv();
             assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RESPONSE);
             assert_eq!(ctx.pkt.src_port(), local_port);
-            assert_eq!(ctx.pkt.dst_port(), peer_port as u32);
+            assert_eq!(ctx.pkt.dst_port(), peer_port);
             {
                 let _stream = listener.accept();
             }
@@ -1335,7 +1329,7 @@ mod tests {
             ctx.recv();
             assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_SHUTDOWN);
             assert_eq!(ctx.pkt.src_port(), local_port);
-            assert_eq!(ctx.pkt.dst_port(), peer_port as u32);
+            assert_eq!(ctx.pkt.dst_port(), peer_port);
             // The kill queue should be synchronized, up until the `defs::MUXER_KILLQ_SIZE`th
             // connection we schedule for termination.
             assert_eq!(
@@ -1353,29 +1347,25 @@ mod tests {
         ));
 
         // Trigger a kill queue sweep, by requesting a new connection.
-        ctx.init_pkt(
-            local_port,
-            peer_port_last as u32 + 1,
-            uapi::VSOCK_OP_REQUEST,
-        );
+        ctx.init_pkt(local_port, peer_port_last + 1, uapi::VSOCK_OP_REQUEST);
         ctx.send();
 
         // Check that MUXER_KILLQ_SIZE + 2 connections were added
         // We count +2, because there are two extra connections being
         // done outside of the loop.
         assert_eq!(
-            METRICS.vsock.conns_added.count(),
-            conns_added + defs::MUXER_KILLQ_SIZE + 2
+            METRICS.conns_added.count(),
+            conns_added + u64::from(defs::MUXER_KILLQ_SIZE) + 2
         );
         // Check that MUXER_KILLQ_SIZE connections were killed
         assert_eq!(
-            METRICS.vsock.conns_killed.count(),
-            conns_killed + defs::MUXER_KILLQ_SIZE
+            METRICS.conns_killed.count(),
+            conns_killed + u64::from(defs::MUXER_KILLQ_SIZE)
         );
         // No connections should be removed at this point.
-        assert_eq!(METRICS.vsock.conns_removed.count(), conns_removed);
+        assert_eq!(METRICS.conns_removed.count(), conns_removed);
 
-        assert_eq!(METRICS.vsock.killq_resync.count(), killq_resync + 1);
+        assert_eq!(METRICS.killq_resync.count(), killq_resync + 1);
         // After sweeping the kill queue, it should now be synced (assuming the RX queue is larger
         // than the kill queue, since an RST packet will be queued for each killed connection).
         assert!(ctx.muxer.killq.is_synced());
@@ -1390,15 +1380,15 @@ mod tests {
 
         // The connections should have been removed here.
         assert_eq!(
-            METRICS.vsock.conns_removed.count(),
-            conns_removed + defs::MUXER_KILLQ_SIZE
+            METRICS.conns_removed.count(),
+            conns_removed + u64::from(defs::MUXER_KILLQ_SIZE)
         );
 
         // There should be one more packet in the RX queue: the connection response our request
         // that triggered the kill queue sweep.
         ctx.recv();
         assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RESPONSE);
-        assert_eq!(ctx.pkt.dst_port(), peer_port_last as u32 + 1);
+        assert_eq!(ctx.pkt.dst_port(), peer_port_last + 1);
 
         assert!(!ctx.muxer.has_pending_rx());
     }
@@ -1465,14 +1455,14 @@ mod tests {
     #[test]
     fn test_vsock_basic_metrics() {
         // Save the metrics values that we need tested.
-        let mut tx_packets_count = METRICS.vsock.tx_packets_count.count();
-        let mut rx_packets_count = METRICS.vsock.rx_packets_count.count();
+        let mut tx_packets_count = METRICS.tx_packets_count.count();
+        let mut rx_packets_count = METRICS.rx_packets_count.count();
 
-        let tx_bytes_count = METRICS.vsock.tx_bytes_count.count();
-        let rx_bytes_count = METRICS.vsock.rx_bytes_count.count();
+        let tx_bytes_count = METRICS.tx_bytes_count.count();
+        let rx_bytes_count = METRICS.rx_bytes_count.count();
 
-        let conns_added = METRICS.vsock.conns_added.count();
-        let conns_removed = METRICS.vsock.conns_removed.count();
+        let conns_added = METRICS.conns_added.count();
+        let conns_removed = METRICS.conns_removed.count();
 
         // Create a basic connection.
         let mut ctx = MuxerTestContext::new("vsock_basic_metrics");
@@ -1481,18 +1471,18 @@ mod tests {
 
         // Once the handshake is done, we check that the TX bytes count has
         // not been increased.
-        assert_eq!(METRICS.vsock.tx_bytes_count.count(), tx_bytes_count);
+        assert_eq!(METRICS.tx_bytes_count.count(), tx_bytes_count);
 
         // Check that one packet was sent through the handshake.
-        assert_eq!(METRICS.vsock.tx_packets_count.count(), tx_packets_count + 1);
-        tx_packets_count = METRICS.vsock.tx_packets_count.count();
+        assert_eq!(METRICS.tx_packets_count.count(), tx_packets_count + 1);
+        tx_packets_count = METRICS.tx_packets_count.count();
 
         // Check that one packet was received through the handshake.
-        assert_eq!(METRICS.vsock.rx_packets_count.count(), rx_packets_count + 1);
-        rx_packets_count = METRICS.vsock.rx_packets_count.count();
+        assert_eq!(METRICS.rx_packets_count.count(), rx_packets_count + 1);
+        rx_packets_count = METRICS.rx_packets_count.count();
 
         // Check that a new connection was added.
-        assert_eq!(METRICS.vsock.conns_added.count(), conns_added + 1);
+        assert_eq!(METRICS.conns_added.count(), conns_added + 1);
 
         // Send some data from guest to host.
         let data = [1, 2, 3, 4];
@@ -1501,12 +1491,12 @@ mod tests {
 
         // Check that tx_bytes was incremented.
         assert_eq!(
-            METRICS.vsock.tx_bytes_count.count(),
-            tx_bytes_count + data.len()
+            METRICS.tx_bytes_count.count(),
+            tx_bytes_count + data.len() as u64
         );
 
         // Check that one packet was accounted for.
-        assert_eq!(METRICS.vsock.tx_packets_count.count(), tx_packets_count + 1);
+        assert_eq!(METRICS.tx_packets_count.count(), tx_packets_count + 1);
 
         // Send some data from the host to the guest.
         let data = [1, 2, 3, 4, 5, 6];
@@ -1515,12 +1505,12 @@ mod tests {
         ctx.recv();
 
         // Check that a packet was received.
-        assert_eq!(METRICS.vsock.rx_packets_count.count(), rx_packets_count + 1);
+        assert_eq!(METRICS.rx_packets_count.count(), rx_packets_count + 1);
 
         // Check that the 6 bytes have been received.
         assert_eq!(
-            METRICS.vsock.rx_bytes_count.count(),
-            rx_bytes_count + data.len()
+            METRICS.rx_bytes_count.count(),
+            rx_bytes_count + data.len() as u64
         );
 
         // Send a connection reset.
@@ -1528,6 +1518,6 @@ mod tests {
         ctx.send();
 
         // Check that the connection was removed.
-        assert_eq!(METRICS.vsock.conns_removed.count(), conns_removed + 1);
+        assert_eq!(METRICS.conns_removed.count(), conns_removed + 1);
     }
 }

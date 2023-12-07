@@ -20,22 +20,24 @@ use std::fmt::Debug;
 /// - a TX queue FD;
 /// - an event queue FD; and
 /// - a backend FD.
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
-use log::{debug, error, warn};
-use logger::{IncMetric, METRICS};
+use log::{error, warn};
 use utils::byte_order;
 use utils::eventfd::EventFd;
-use utils::vm_memory::{Bytes, GuestMemoryMmap};
 
 use super::super::super::DeviceError;
 use super::defs::uapi;
 use super::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
 use super::{defs, VsockBackend};
-use crate::devices::virtio::{
-    ActivateError, DeviceState, IrqTrigger, IrqType, Queue as VirtQueue, VirtioDevice, VsockError,
-};
+use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
+use crate::devices::virtio::queue::Queue as VirtQueue;
+use crate::devices::virtio::vsock::metrics::METRICS;
+use crate::devices::virtio::vsock::VsockError;
+use crate::devices::virtio::ActivateError;
+use crate::logger::IncMetric;
+use crate::vstate::memory::{Bytes, GuestMemoryMmap};
 
 pub(crate) const RXQ_INDEX: usize = 0;
 pub(crate) const TXQ_INDEX: usize = 1;
@@ -70,9 +72,9 @@ pub struct Vsock<B> {
 }
 
 // TODO: Detect / handle queue deadlock:
-// 1. If the driver halts RX queue processing, we'll need to notify `self.backend`, so that it
-//    can unregister any EPOLLIN listeners, since otherwise it will keep spinning, unable to consume
-//    its EPOLLIN events.
+// 1. If the driver halts RX queue processing, we'll need to notify `self.backend`, so that it can
+//    unregister any EPOLLIN listeners, since otherwise it will keep spinning, unable to consume its
+//    EPOLLIN events.
 
 impl<B> Vsock<B>
 where
@@ -130,7 +132,6 @@ where
     /// Signal the guest driver that we've used some virtio buffers that it had previously made
     /// available.
     pub fn signal_used_queue(&self) -> Result<(), DeviceError> {
-        debug!("vsock: raising IRQ");
         self.irq_trigger
             .trigger_irq(IrqType::Vring)
             .map_err(DeviceError::FailedSignalingIrq)
@@ -140,7 +141,6 @@ where
     /// have pending. Return `true` if descriptors have been added to the used ring, and `false`
     /// otherwise.
     pub fn process_rx(&mut self) -> bool {
-        debug!("vsock: process_rx()");
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
@@ -154,7 +154,7 @@ where
                             // This addition cannot overflow, because packet length
                             // is previously validated against `MAX_PKT_BUF_SIZE`
                             // bound as part of `commit_hdr()`.
-                            Ok(()) => VSOCK_PKT_HDR_SIZE as u32 + pkt.len(),
+                            Ok(()) => VSOCK_PKT_HDR_SIZE + pkt.len(),
                             Err(err) => {
                                 warn!(
                                     "vsock: Error writing packet header to guest memory: \
@@ -193,7 +193,6 @@ where
     /// to the backend for processing. Return `true` if descriptors have been added to the used
     /// ring, and `false` otherwise.
     pub fn process_tx(&mut self) -> bool {
-        debug!("vsock::process_tx()");
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
@@ -238,7 +237,7 @@ where
         let mem = self.device_state.mem().unwrap();
 
         let head = self.queues[EVQ_INDEX].pop(mem).ok_or_else(|| {
-            METRICS.vsock.ev_queue_event_fails.inc();
+            METRICS.ev_queue_event_fails.inc();
             DeviceError::VsockError(VsockError::EmptyQueue)
         })?;
 
@@ -293,7 +292,7 @@ where
         &self.irq_trigger.irq_evt
     }
 
-    fn interrupt_status(&self) -> Arc<AtomicUsize> {
+    fn interrupt_status(&self) -> Arc<AtomicU32> {
         self.irq_trigger.irq_status.clone()
     }
 
@@ -307,7 +306,7 @@ where
                 byte_order::write_le_u32(data, ((self.cid() >> 32) & 0xffff_ffff) as u32)
             }
             _ => {
-                METRICS.vsock.cfg_fails.inc();
+                METRICS.cfg_fails.inc();
                 warn!(
                     "vsock: virtio-vsock received invalid read request of {} bytes at offset {}",
                     data.len(),
@@ -318,7 +317,7 @@ where
     }
 
     fn write_config(&mut self, offset: u64, data: &[u8]) {
-        METRICS.vsock.cfg_fails.inc();
+        METRICS.cfg_fails.inc();
         warn!(
             "vsock: guest driver attempted to write device config (offset={:x}, len={:x})",
             offset,
@@ -328,7 +327,7 @@ where
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
         if self.queues.len() != defs::VSOCK_NUM_QUEUES {
-            METRICS.vsock.activate_fails.inc();
+            METRICS.activate_fails.inc();
             error!(
                 "Cannot perform activate. Expected {} queue(s), got {}",
                 defs::VSOCK_NUM_QUEUES,
@@ -338,7 +337,7 @@ where
         }
 
         if self.activate_evt.write(1).is_err() {
-            METRICS.vsock.activate_fails.inc();
+            METRICS.activate_fails.inc();
             error!("Cannot write to activate_evt",);
             return Err(ActivateError::BadActivate);
         }

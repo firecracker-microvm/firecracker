@@ -1,0 +1,35 @@
+[package]
+name = "log-instrument"
+version = "0.3.0"
+authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
+edition = "2021"
+description = "Offers an attribute procedural macro that adds `log::trace!` events at the start and end of attributed functions."
+license = "Apache-2.0"
+
+[lib]
+bench = false
+
+[[example]]
+name = "one"
+
+[[example]]
+name = "two"
+
+[[example]]
+name = "three"
+
+[[example]]
+name = "four"
+
+[[example]]
+name = "five"
+
+[[example]]
+name = "six"
+
+[dependencies]
+log = "0.4.20"
+log-instrument-macros = { path = "../log-instrument-macros" }
+
+[dev-dependencies]
+env_logger = "0.10.1"

@@ -3,9 +3,11 @@
 
 use std::io;
 
-use utils::vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
+use utils::u64_to_usize;
 
 use super::{RemoveRegionError, MAX_PAGE_COMPACT_BUFFER};
+use crate::logger::error;
+use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 /// This takes a vector of page frame numbers, and compacts them
 /// into ranges of consecutive pages. The result is a vector
@@ -35,7 +37,7 @@ pub(crate) fn compact_page_frame_numbers(v: &mut [u32]) -> Vec<(u32, u32)> {
         // Skip duplicate pages. This will ensure we only consider
         // distinct PFNs.
         if page_frame_number == v[pfn_index - 1] {
-            log::error!("Skipping duplicate PFN {}.", page_frame_number);
+            error!("Skipping duplicate PFN {}.", page_frame_number);
             continue;
         }
 
@@ -87,7 +89,7 @@ pub(crate) fn remove_range(
             let ret = unsafe {
                 libc::mmap(
                     phys_address.cast(),
-                    range_len as usize,
+                    u64_to_usize(range_len),
                     libc::PROT_READ | libc::PROT_WRITE,
                     libc::MAP_FIXED | libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
                     -1,
@@ -102,7 +104,7 @@ pub(crate) fn remove_range(
         // Madvise the region in order to mark it as not used.
         // SAFETY: The address and length are known to be valid.
         let ret = unsafe {
-            let range_len = range_len as usize;
+            let range_len = u64_to_usize(range_len);
             libc::madvise(phys_address.cast(), range_len, libc::MADV_DONTNEED)
         };
         if ret < 0 {
@@ -119,9 +121,8 @@ pub(crate) fn remove_range(
 mod tests {
     use std::fmt::Debug;
 
-    use utils::vm_memory::Bytes;
-
     use super::*;
+    use crate::vstate::memory::Bytes;
 
     /// This asserts that $lhs matches $rhs.
     macro_rules! assert_match {

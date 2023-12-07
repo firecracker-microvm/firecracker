@@ -18,13 +18,15 @@
 use std::fmt::Debug;
 use std::io::ErrorKind;
 
-use utils::vm_memory::{
-    Address, AtomicBitmap, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError,
-    GuestMemoryMmap, ReadVolatile, VolatileMemoryError, VolatileSlice, WriteVolatile, BS,
+use vm_memory::{
+    GuestMemoryError, ReadVolatile, VolatileMemoryError, VolatileSlice, WriteVolatile,
 };
 
-use super::super::DescriptorChain;
 use super::{defs, VsockError};
+use crate::devices::virtio::queue::DescriptorChain;
+use crate::vstate::memory::{
+    Address, AtomicBitmap, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, BS,
+};
 
 // The vsock packet header is defined by the C struct:
 //
@@ -79,7 +81,7 @@ pub struct VsockPacketHeader {
 }
 
 /// The vsock packet header struct size (the struct is packed).
-pub const VSOCK_PKT_HDR_SIZE: usize = 44;
+pub const VSOCK_PKT_HDR_SIZE: u32 = 44;
 
 // SAFETY: `VsockPacketHeader` is a POD and contains no padding.
 unsafe impl ByteValued for VsockPacketHeader {}
@@ -120,12 +122,15 @@ impl VsockPacket {
         Self::check_desc_write_only(hdr_desc, expected_write_only)?;
 
         // Validate the packet header address
-        if !hdr_desc.mem.check_range(hdr_desc.addr, VSOCK_PKT_HDR_SIZE) {
+        if !hdr_desc
+            .mem
+            .check_range(hdr_desc.addr, VSOCK_PKT_HDR_SIZE as usize)
+        {
             return Err(VsockError::GuestMemoryBounds);
         }
 
         // The packet header should fit inside the head descriptor.
-        if hdr_desc.len < VSOCK_PKT_HDR_SIZE as u32 {
+        if hdr_desc.len < VSOCK_PKT_HDR_SIZE {
             return Err(VsockError::HdrDescTooSmall(hdr_desc.len));
         }
 
@@ -167,7 +172,10 @@ impl VsockPacket {
         Self::check_hdr_desc(hdr_desc, false)?;
 
         // Validate the packet header address
-        if !hdr_desc.mem.check_range(hdr_desc.addr, VSOCK_PKT_HDR_SIZE) {
+        if !hdr_desc
+            .mem
+            .check_range(hdr_desc.addr, VSOCK_PKT_HDR_SIZE as usize)
+        {
             return Err(VsockError::GuestMemoryBounds);
         }
 
@@ -241,7 +249,7 @@ impl VsockPacket {
 
     /// Verifies packet length against `MAX_PKT_BUF_SIZE` limit.
     pub fn check_len(&self) -> Result<(), VsockError> {
-        if self.len() > defs::MAX_PKT_BUF_SIZE as u32 {
+        if self.len() > defs::MAX_PKT_BUF_SIZE {
             return Err(VsockError::InvalidPktLen(self.len()));
         }
 
@@ -429,14 +437,14 @@ impl VsockPacket {
 
 #[cfg(test)]
 mod tests {
-    use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 
     use super::*;
+    use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
     use crate::devices::virtio::test_utils::VirtqDesc as GuestQDesc;
     use crate::devices::virtio::vsock::defs::MAX_PKT_BUF_SIZE;
     use crate::devices::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
     use crate::devices::virtio::vsock::test_utils::TestContext;
-    use crate::devices::virtio::VIRTQ_DESC_F_WRITE;
+    use crate::vstate::memory::{GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
 
     macro_rules! create_context {
         ($test_ctx:ident, $handler_ctx:ident) => {
@@ -476,7 +484,10 @@ mod tests {
 
     #[test]
     fn test_packet_hdr_size() {
-        assert_eq!(VSOCK_PKT_HDR_SIZE, std::mem::size_of::<VsockPacketHeader>());
+        assert_eq!(
+            VSOCK_PKT_HDR_SIZE as usize,
+            std::mem::size_of::<VsockPacketHeader>(),
+        );
     }
 
     #[test]
@@ -516,7 +527,7 @@ mod tests {
             create_context!(test_ctx, handler_ctx);
             handler_ctx.guest_txvq.dtable[0]
                 .len
-                .set(VSOCK_PKT_HDR_SIZE as u32 - 1);
+                .set(VSOCK_PKT_HDR_SIZE - 1);
             expect_asm_error!(tx, test_ctx, handler_ctx, VsockError::HdrDescTooSmall(_));
         }
 
@@ -537,7 +548,7 @@ mod tests {
         {
             create_context!(test_ctx, handler_ctx);
             set_pkt_len(
-                MAX_PKT_BUF_SIZE as u32 + 1,
+                MAX_PKT_BUF_SIZE + 1,
                 &handler_ctx.guest_txvq.dtable[0],
                 &test_ctx.mem,
             );
@@ -606,7 +617,7 @@ mod tests {
             create_context!(test_ctx, handler_ctx);
             handler_ctx.guest_rxvq.dtable[0]
                 .len
-                .set(VSOCK_PKT_HDR_SIZE as u32 - 1);
+                .set(VSOCK_PKT_HDR_SIZE - 1);
             expect_asm_error!(rx, test_ctx, handler_ctx, VsockError::HdrDescTooSmall(_));
         }
 
@@ -698,7 +709,9 @@ mod tests {
         assert_eq!(pkt.buf_addr.unwrap().raw_value(), buf_desc.addr.get());
 
         let zeros = vec![0_u8; pkt.buf_size()];
-        let data: Vec<u8> = (0..pkt.buf_size()).map(|i| (i % 0x100) as u8).collect();
+        let data: Vec<u8> = (0..pkt.buf_size())
+            .map(|i| ((i as u64) & 0xff) as u8)
+            .collect();
         for offset in 0..pkt.buf_size() {
             buf_desc.set_data(&zeros);
 
@@ -747,7 +760,7 @@ mod tests {
     fn test_check_bounds_for_buffer_access_edge_cases() {
         let mut test_ctx = TestContext::new();
 
-        test_ctx.mem = utils::vm_memory::test_utils::create_guest_memory_unguarded(
+        test_ctx.mem = GuestMemoryMmap::from_raw_regions(
             &[
                 (GuestAddress(0), 500),
                 (GuestAddress(500), 100),

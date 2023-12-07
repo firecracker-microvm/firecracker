@@ -1,0 +1,42 @@
+on:
+  push:
+    branches:
+      - main
+      - firecracker-v*
+
+jobs:
+  trigger_ab_test:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.forced == false }}
+    steps:
+      - name: "Check out repository"
+        uses: actions/checkout@v4
+        with:
+          # Required to make it fetch more than the just fetched commits (we need it to resolve at least one commit
+          # _before_ what was pushed so that below "git diff" works.
+          fetch-depth: 0
+      - name: "Trigger Buildkite Pipeline"
+        run: |
+          should_schedule_ab_test=0
+          # Iterates over all files modified in the just-merged PR. If any of them is rust-related (e.g. .rs, .toml, 
+          # .lock or .cargo/config) or a seccomp definition (resources/seccomp/*), sets `should_schedule_ab_test` to 1, 
+          # meaning we will schedule a build of the A/B-testing pipeline to check the just-merged PR for
+          # performance regressions.
+          for f in $(git --no-pager diff --name-only ${{ github.event.before }}..${{ github.event.after }}); do
+            if [[ "$(basename $f)" =~ (\.(rs|toml|lock)|config)$ ]] || [[ "$f" =~ ^resources/seccomp/ ]]; then
+              should_schedule_ab_test=1
+            fi
+          done
+          if [[ $should_schedule_ab_test -eq 1 ]]; then
+            curl -X POST https://api.buildkite.com/v2/organizations/firecracker/pipelines/performance-a-b-tests/builds \
+                 -H 'Content-Type: application/json' \
+                 -H 'Authorization: Bearer ${{ secrets.BUILDKITE_TOKEN }}' \
+                 -d "{
+                      \"commit\": \"HEAD\",
+                      \"branch\": \"$GITHUB_REF_NAME\",
+                      \"env\": {
+                        \"REVISION_A\": \"${{ github.event.before }}\",
+                        \"REVISION_B\": \"${{ github.event.after }}\"
+                      }
+                    }"
+          fi

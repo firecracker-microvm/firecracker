@@ -132,21 +132,16 @@ We test all combinations of:
 
 | Instance   | Host OS & Kernel   | Guest Rootfs   | Guest Kernel   |
 | :--------- | :----------------- | :------------- | :------------- |
-| m5d.metal  | al2    linux_4.1   | ubuntu 18.04   | linux_4.14     |
+| m5d.metal  | al2    linux_4.1   | ubuntu 22.04   | linux_4.14     |
 | m6i.metal  | al2    linux_5.10  |                | linux_5.10     |
-| m6a.metal  |                    |                |                |
+| m6a.metal  | al2023 linux_6.1   |                |                |
 | m6g.metal  |                    |                |                |
 | c7g.metal  |                    |                |                |
 
 ## Known issues and Limitations
 
-- The [SendCtrlAltDel](docs/api_requests/actions.md#sendctrlaltdel) API request
-  is not supported for aarch64 enabled microVMs.
-- If a CPU template is not used on x86_64, overwrites of `MSR_IA32_TSX_CTRL` MSR
-  value will not be preserved after restoring from a snapshot.
 - The `pl031` RTC device on aarch64 does not support interrupts, so guest
   programs which use an RTC alarm (e.g. `hwclock`) will not work.
-- Issues and limitations related to snapshots are described in a [separate document](docs/snapshotting/snapshot-support.md#limitations).
 
 ## Performance
 

@@ -3,13 +3,14 @@
 """Tests the format of human readable logs.
 
 It checks the response of the API configuration calls and the logs that show
-up in the configured logging FIFO.
+up in the configured logging file.
 """
-import os
+
 import re
+from pathlib import Path
 from time import strptime
 
-import host_tools.logging as log_tools
+import pytest
 
 # Array of supported log levels of the current logging system.
 # Do not change order of values inside this array as logic depends on this.
@@ -70,66 +71,25 @@ def check_log_message_format(log_str, instance_id, level, show_level, show_origi
         assert tag_level_no <= configured_level_no
 
 
-def test_no_origin_logs(test_microvm_with_api):
-    """
-    Check that logs do not contain the origin (i.e file and line number).
-    """
-    _test_log_config(microvm=test_microvm_with_api, show_level=True, show_origin=False)
-
-
-def test_no_level_logs(test_microvm_with_api):
-    """
-    Check that logs do not contain the level.
-    """
-    _test_log_config(microvm=test_microvm_with_api, show_level=False, show_origin=True)
-
-
-def test_no_nada_logs(test_microvm_with_api):
-    """
-    Check that logs do not contain either level or origin.
-    """
-    _test_log_config(microvm=test_microvm_with_api, show_level=False, show_origin=False)
-
-
-def test_info_logs(test_microvm_with_api):
-    """
-    Check output of logs when minimum level to be displayed is info.
-    """
-    _test_log_config(microvm=test_microvm_with_api)
-
-
-def test_warn_logs(test_microvm_with_api):
-    """
-    Check output of logs when minimum level to be displayed is warning.
-    """
-    _test_log_config(microvm=test_microvm_with_api, log_level="Warning")
-
-
-def test_error_logs(test_microvm_with_api):
-    """
-    Check output of logs when minimum level of logs displayed is error.
-    """
-    _test_log_config(microvm=test_microvm_with_api, log_level="Error")
-
-
 def test_log_config_failure(test_microvm_with_api):
     """
     Check passing invalid FIFOs is detected and reported as an error.
     """
     microvm = test_microvm_with_api
-    microvm.spawn(create_logger=False)
+    microvm.spawn(log_file=None)
     microvm.basic_config()
 
-    response = microvm.logger.put(
-        log_path="invalid log fifo",
-        level="Info",
-        show_level=True,
-        show_log_origin=True,
-    )
     # only works if log level is Debug
     microvm.time_api_requests = False
-    assert microvm.api_session.is_status_bad_request(response.status_code)
-    assert response.json()["fault_message"]
+
+    expected_msg = re.escape("No such file or directory (os error 2)")
+    with pytest.raises(RuntimeError, match=expected_msg):
+        microvm.api.logger.put(
+            log_path="invalid log file",
+            level="Info",
+            show_level=True,
+            show_log_origin=True,
+        )
 
 
 def test_api_requests_logs(test_microvm_with_api):
@@ -137,27 +97,24 @@ def test_api_requests_logs(test_microvm_with_api):
     Test that API requests are logged.
     """
     microvm = test_microvm_with_api
-    microvm.spawn(create_logger=False)
+    microvm.spawn(log_file=None)
     microvm.basic_config()
 
     # Configure logging.
-    log_fifo_path = os.path.join(microvm.path, "log_fifo")
-    log_fifo = log_tools.Fifo(log_fifo_path)
-
-    response = microvm.logger.put(
-        log_path=microvm.create_jailed_resource(log_fifo.path),
+    log_path = Path(microvm.path) / "log"
+    log_path.touch()
+    microvm.api.logger.put(
+        log_path=microvm.create_jailed_resource(log_path),
         level="Info",
         show_level=True,
         show_log_origin=True,
     )
+    microvm.log_file = log_path
     # only works if log level is Debug
     microvm.time_api_requests = False
-    assert microvm.api_session.is_status_no_content(response.status_code)
-    microvm.start_console_logger(log_fifo)
 
     # Check that a Patch request on /machine-config is logged.
-    response = microvm.machine_cfg.patch(vcpu_count=4)
-    assert microvm.api_session.is_status_no_content(response.status_code)
+    microvm.api.machine_config.patch(vcpu_count=4)
     # We are not interested in the actual body. Just check that the log
     # message also has the string "body" in it.
     microvm.check_log_message(
@@ -165,75 +122,81 @@ def test_api_requests_logs(test_microvm_with_api):
     )
 
     # Check that a Put request on /machine-config is logged.
-    response = microvm.machine_cfg.put(vcpu_count=4, mem_size_mib=128)
-    assert microvm.api_session.is_status_no_content(response.status_code)
+    microvm.api.machine_config.put(vcpu_count=4, mem_size_mib=128)
     microvm.check_log_message(
         "The API server received a Put request " 'on "/machine-config" with body'
     )
 
     # Check that a Get request on /machine-config is logged without the
     # body.
-    response = microvm.machine_cfg.get()
-    assert microvm.api_session.is_status_ok(response.status_code)
+    microvm.api.machine_config.get()
     microvm.check_log_message(
         "The API server received a Get request " 'on "/machine-config".'
     )
 
+    # Re-configure logging.
+    log_path = Path(microvm.path) / "new_log"
+    log_path.touch()
+    microvm.api.logger.put(
+        log_path=microvm.create_jailed_resource(log_path),
+        level="Info",
+        show_level=True,
+        show_log_origin=True,
+    )
+    microvm.log_file = log_path
+
     # Check that all requests on /mmds are logged without the body.
     dummy_json = {"latest": {"meta-data": {"ami-id": "dummy"}}}
-    response = microvm.mmds.put(json=dummy_json)
-    assert microvm.api_session.is_status_no_content(response.status_code)
+    microvm.api.mmds.put(json=dummy_json)
     microvm.check_log_message('The API server received a Put request on "/mmds".')
 
-    response = microvm.mmds.patch(json=dummy_json)
-    assert microvm.api_session.is_status_no_content(response.status_code)
+    microvm.api.mmds.patch(json=dummy_json)
     microvm.check_log_message('The API server received a Patch request on "/mmds".')
 
-    response = microvm.mmds.get()
-    assert microvm.api_session.is_status_ok(response.status_code)
+    microvm.api.mmds.get()
     microvm.check_log_message('The API server received a Get request on "/mmds".')
 
     # Check that the fault message return by the client is also logged in the
     # FIFO.
-    response = microvm.boot.put(kernel_image_path="inexistent_path")
-    assert microvm.api_session.is_status_bad_request(response.status_code)
-    fault_message = (
-        "The kernel file cannot be opened: No such file or " "directory (os error 2)"
+    fault_msg = (
+        "The kernel file cannot be opened: No such file or directory (os error 2)"
     )
-    assert fault_message in response.text
+    with pytest.raises(RuntimeError, match=re.escape(fault_msg)):
+        microvm.api.boot.put(kernel_image_path="inexistent_path")
     microvm.check_log_message(
         "Received Error. "
         "Status code: 400 Bad Request. "
-        "Message: {}".format(fault_message)
+        "Message: {}".format(fault_msg)
     )
 
 
-# pylint: disable=W0102
-def _test_log_config(microvm, log_level="Info", show_level=True, show_origin=True):
+@pytest.mark.parametrize(
+    "log_level,show_level,show_origin",
+    [
+        ("Info", True, True),
+        ("Info", False, True),
+        ("Info", True, False),
+        ("Info", False, False),
+        ("Error", False, False),
+        ("Warning", False, False),
+    ],
+)
+def test_log_config(uvm_plain, log_level, show_level, show_origin):
     """Exercises different scenarios for testing the logging config."""
-    microvm.spawn(create_logger=False)
-    # only works if log level is Debug
-    microvm.time_api_requests = False
-
-    # Configure logging.
-    log_fifo_path = os.path.join(microvm.path, "log_fifo")
-    log_fifo = log_tools.Fifo(log_fifo_path)
-    response = microvm.logger.put(
-        log_path=microvm.create_jailed_resource(log_fifo.path),
-        level=log_level,
-        show_level=show_level,
-        show_log_origin=show_origin,
+    microvm = uvm_plain
+    microvm.spawn(
+        log_level=log_level, log_show_level=show_level, log_show_origin=show_origin
     )
-    assert microvm.api_session.is_status_no_content(response.status_code)
-
-    microvm.start_console_logger(log_fifo)
-
     microvm.basic_config()
     microvm.start()
-
     lines = microvm.log_data.splitlines()
-    for idx, line in enumerate(lines):
-        if idx == 0:
-            assert line.startswith("Running Firecracker")
-            continue
+
+    # Check for `Running Firecracker` message.
+    configured_level_no = LOG_LEVELS.index(to_formal_log_level(log_level))
+    info_level_no = LOG_LEVELS.index("INFO")
+    if info_level_no <= configured_level_no:
+        assert "Running Firecracker" in lines[0]
+
+    # Check format of messages
+    for line in lines:
         check_log_message_format(line, microvm.id, log_level, show_level, show_origin)

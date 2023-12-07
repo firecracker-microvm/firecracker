@@ -6,14 +6,16 @@
 // found in the THIRD-PARTY file.
 
 use std::fmt::Debug;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use log::warn;
 use utils::byte_order;
-use utils::vm_memory::{GuestAddress, GuestMemoryMmap};
 
-use super::{device_status, *};
+use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::device_status;
+use crate::devices::virtio::queue::Queue;
+use crate::logger::warn;
+use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
 // TODO crosvm uses 0 here, but IIRC virtio specified some other vendor id that should be used
 const VENDOR_ID: u32 = 0;
@@ -54,12 +56,17 @@ pub struct MmioTransport {
     pub(crate) device_status: u32,
     pub(crate) config_generation: u32,
     mem: GuestMemoryMmap,
-    pub(crate) interrupt_status: Arc<AtomicUsize>,
+    pub(crate) interrupt_status: Arc<AtomicU32>,
+    pub is_vhost_user: bool,
 }
 
 impl MmioTransport {
     /// Constructs a new MMIO transport for the given virtio device.
-    pub fn new(mem: GuestMemoryMmap, device: Arc<Mutex<dyn VirtioDevice>>) -> MmioTransport {
+    pub fn new(
+        mem: GuestMemoryMmap,
+        device: Arc<Mutex<dyn VirtioDevice>>,
+        is_vhost_user: bool,
+    ) -> MmioTransport {
         let interrupt_status = device.lock().expect("Poisoned lock").interrupt_status();
 
         MmioTransport {
@@ -71,6 +78,7 @@ impl MmioTransport {
             config_generation: 0,
             mem,
             interrupt_status,
+            is_vhost_user,
         }
     }
 
@@ -146,9 +154,8 @@ impl MmioTransport {
         self.queue_select = 0;
         self.interrupt_status.store(0, Ordering::SeqCst);
         self.device_status = device_status::INIT;
-        // . Keep interrupt_evt and queue_evts as is. There may be pending
-        //   notifications in those eventfds, but nothing will happen other
-        //   than supurious wakeups.
+        // . Keep interrupt_evt and queue_evts as is. There may be pending notifications in those
+        //   eventfds, but nothing will happen other than supurious wakeups.
         // . Do not reset config_generation and keep it monotonically increasing
         for queue in self.locked_device().queues_mut() {
             *queue = Queue::new(queue.get_max_size());
@@ -238,7 +245,30 @@ impl MmioTransport {
                     }
                     0x34 => self.with_queue(0, |q| u32::from(q.get_max_size())),
                     0x44 => self.with_queue(0, |q| u32::from(q.ready)),
-                    0x60 => self.interrupt_status.load(Ordering::SeqCst) as u32,
+                    0x60 => {
+                        // For vhost-user backed devices we need some additional
+                        // logic to differentiate between `VIRTIO_MMIO_INT_VRING`
+                        // and `VIRTIO_MMIO_INT_CONFIG` statuses.
+                        // Because backend cannot propagate any interrupt status
+                        // changes to the FC we always try to serve the `VIRTIO_MMIO_INT_VRING`
+                        // status. But in case when backend changes the configuration and
+                        // user triggers the manual notification, FC needs to send
+                        // `VIRTIO_MMIO_INT_CONFIG`. We know that for vhost-user devices the
+                        // interrupt status can only be 0 (no one set any bits) or
+                        // `VIRTIO_MMIO_INT_CONFIG`. Based on this knowledge we can simply
+                        // check if the current interrupt_status is equal to the
+                        // `VIRTIO_MMIO_INT_CONFIG` or not to understand if we need to send
+                        // `VIRTIO_MMIO_INT_CONFIG` or
+                        // `VIRTIO_MMIO_INT_VRING`.
+                        let is = self.interrupt_status.load(Ordering::SeqCst);
+                        if !self.is_vhost_user {
+                            is
+                        } else if is == VIRTIO_MMIO_INT_CONFIG {
+                            VIRTIO_MMIO_INT_CONFIG
+                        } else {
+                            VIRTIO_MMIO_INT_VRING
+                        }
+                    }
                     0x70 => self.device_status,
                     0xfc => self.config_generation,
                     _ => {
@@ -289,12 +319,11 @@ impl MmioTransport {
                     }
                     0x24 => self.acked_features_select = v,
                     0x30 => self.queue_select = v,
-                    0x38 => self.update_queue_field(|q| q.size = v as u16),
+                    0x38 => self.update_queue_field(|q| q.size = (v & 0xffff) as u16),
                     0x44 => self.update_queue_field(|q| q.ready = v == 1),
                     0x64 => {
                         if self.check_device_status(device_status::DRIVER_OK, 0) {
-                            self.interrupt_status
-                                .fetch_and(!(v as usize), Ordering::SeqCst);
+                            self.interrupt_status.fetch_and(!v, Ordering::SeqCst);
                         }
                     }
                     0x70 => self.set_device_status(v),
@@ -331,16 +360,18 @@ impl MmioTransport {
 pub(crate) mod tests {
     use utils::byte_order::{read_le_u32, write_le_u32};
     use utils::eventfd::EventFd;
-    use utils::vm_memory::GuestMemoryMmap;
+    use utils::u64_to_usize;
 
     use super::*;
+    use crate::devices::virtio::ActivateError;
+    use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap};
 
     #[derive(Debug)]
     pub(crate) struct DummyDevice {
         acked_features: u64,
         avail_features: u64,
         interrupt_evt: EventFd,
-        interrupt_status: Arc<AtomicUsize>,
+        interrupt_status: Arc<AtomicU32>,
         queue_evts: Vec<EventFd>,
         queues: Vec<Queue>,
         device_activated: bool,
@@ -353,7 +384,7 @@ pub(crate) mod tests {
                 acked_features: 0,
                 avail_features: 0,
                 interrupt_evt: EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-                interrupt_status: Arc::new(AtomicUsize::new(0)),
+                interrupt_status: Arc::new(AtomicU32::new(0)),
                 queue_evts: vec![
                     EventFd::new(libc::EFD_NONBLOCK).unwrap(),
                     EventFd::new(libc::EFD_NONBLOCK).unwrap(),
@@ -402,17 +433,17 @@ pub(crate) mod tests {
             &self.interrupt_evt
         }
 
-        fn interrupt_status(&self) -> Arc<AtomicUsize> {
+        fn interrupt_status(&self) -> Arc<AtomicU32> {
             self.interrupt_status.clone()
         }
 
         fn read_config(&self, offset: u64, data: &mut [u8]) {
-            data.copy_from_slice(&self.config_bytes[offset as usize..]);
+            data.copy_from_slice(&self.config_bytes[u64_to_usize(offset)..]);
         }
 
         fn write_config(&mut self, offset: u64, data: &[u8]) {
             for (i, item) in data.iter().enumerate() {
-                self.config_bytes[offset as usize + i] = *item;
+                self.config_bytes[u64_to_usize(offset) + i] = *item;
             }
         }
 
@@ -427,22 +458,18 @@ pub(crate) mod tests {
     }
 
     fn set_device_status(d: &mut MmioTransport, status: u32) {
-        let mut buf = vec![0; 4];
+        let mut buf = [0; 4];
         write_le_u32(&mut buf[..], status);
         d.bus_write(0x70, &buf[..]);
     }
 
     #[test]
     fn test_new() {
-        let m = utils::vm_memory::test_utils::create_anon_guest_memory(
-            &[(GuestAddress(0), 0x1000)],
-            false,
-        )
-        .unwrap();
+        let m = GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), 0x1000)], false).unwrap();
         let mut dummy = DummyDevice::new();
         // Validate reset is no-op.
         assert!(dummy.reset().is_none());
-        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(dummy)));
+        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(dummy)), false);
 
         // We just make sure here that the implementation of a mmio device behaves as we expect,
         // given a known virtio device implementation (the dummy device).
@@ -470,12 +497,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_bus_device_read() {
-        let m = utils::vm_memory::test_utils::create_anon_guest_memory(
-            &[(GuestAddress(0), 0x1000)],
-            false,
-        )
-        .unwrap();
-        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())));
+        let m = GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), 0x1000)], false).unwrap();
+        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())), false);
 
         let mut buf = vec![0xff, 0, 0xfe, 0];
         let buf_copy = buf.to_vec();
@@ -526,6 +549,17 @@ pub(crate) mod tests {
         d.bus_read(0x60, &mut buf[..]);
         assert_eq!(read_le_u32(&buf[..]), 111);
 
+        d.is_vhost_user = true;
+        d.interrupt_status.store(0, Ordering::SeqCst);
+        d.bus_read(0x60, &mut buf[..]);
+        assert_eq!(read_le_u32(&buf[..]), VIRTIO_MMIO_INT_VRING);
+
+        d.is_vhost_user = true;
+        d.interrupt_status
+            .store(VIRTIO_MMIO_INT_CONFIG, Ordering::SeqCst);
+        d.bus_read(0x60, &mut buf[..]);
+        assert_eq!(read_le_u32(&buf[..]), VIRTIO_MMIO_INT_CONFIG);
+
         d.bus_read(0x70, &mut buf[..]);
         assert_eq!(read_le_u32(&buf[..]), 0);
 
@@ -552,13 +586,9 @@ pub(crate) mod tests {
     #[test]
     #[allow(clippy::cognitive_complexity)]
     fn test_bus_device_write() {
-        let m = utils::vm_memory::test_utils::create_anon_guest_memory(
-            &[(GuestAddress(0), 0x1000)],
-            false,
-        )
-        .unwrap();
+        let m = GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), 0x1000)], false).unwrap();
         let dummy_dev = Arc::new(Mutex::new(DummyDevice::new()));
-        let mut d = MmioTransport::new(m, dummy_dev.clone());
+        let mut d = MmioTransport::new(m, dummy_dev.clone(), false);
         let mut buf = vec![0; 5];
         write_le_u32(&mut buf[..4], 1);
 
@@ -715,12 +745,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_bus_device_activate() {
-        let m = utils::vm_memory::test_utils::create_anon_guest_memory(
-            &[(GuestAddress(0), 0x1000)],
-            false,
-        )
-        .unwrap();
-        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())));
+        let m = GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), 0x1000)], false).unwrap();
+        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())), false);
 
         assert!(!d.are_queues_valid());
         assert!(!d.locked_device().is_activated());
@@ -752,10 +778,10 @@ pub(crate) mod tests {
             device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FEATURES_OK
         );
 
-        let mut buf = vec![0; 4];
+        let mut buf = [0; 4];
         let queue_len = d.locked_device().queues().len();
         for q in 0..queue_len {
-            d.queue_select = q as u32;
+            d.queue_select = q.try_into().unwrap();
             write_le_u32(&mut buf[..], 16);
             d.bus_write(0x38, &buf[..]);
             write_le_u32(&mut buf[..], 1);
@@ -805,10 +831,10 @@ pub(crate) mod tests {
         );
 
         // Setup queue data structures
-        let mut buf = vec![0; 4];
+        let mut buf = [0; 4];
         let queues_count = d.locked_device().queues().len();
         for q in 0..queues_count {
-            d.queue_select = q as u32;
+            d.queue_select = q.try_into().unwrap();
             write_le_u32(&mut buf[..], 16);
             d.bus_write(0x38, &buf[..]);
             write_le_u32(&mut buf[..], 1);
@@ -837,13 +863,9 @@ pub(crate) mod tests {
 
     #[test]
     fn test_bus_device_reset() {
-        let m = utils::vm_memory::test_utils::create_anon_guest_memory(
-            &[(GuestAddress(0), 0x1000)],
-            false,
-        )
-        .unwrap();
-        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())));
-        let mut buf = vec![0; 4];
+        let m = GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), 0x1000)], false).unwrap();
+        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())), false);
+        let mut buf = [0; 4];
 
         assert!(!d.are_queues_valid());
         assert!(!d.locked_device().is_activated());

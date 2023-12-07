@@ -4,9 +4,6 @@
 use std::fmt::{self, Debug};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use log::{error, info, warn};
-use logger::*;
-use mmds::data_store::{self, Mmds};
 use seccompiler::BpfThreadMap;
 use serde_json::Value;
 #[cfg(test)]
@@ -23,6 +20,8 @@ use super::{
 };
 use crate::builder::StartMicrovmError;
 use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
+use crate::logger::{info, warn, LoggerConfig, *};
+use crate::mmds::data_store::{self, Mmds};
 use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
 use crate::resources::VmmConfig;
 use crate::version_map::VERSION_MAP;
@@ -34,7 +33,6 @@ use crate::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use crate::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig, DriveError};
 use crate::vmm_config::entropy::{EntropyDeviceConfig, EntropyDeviceError};
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::logger::{LoggerConfig, LoggerConfigError};
 use crate::vmm_config::machine_config::{MachineConfig, MachineConfigUpdate, VmConfigError};
 use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
@@ -44,7 +42,7 @@ use crate::vmm_config::net::{
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use crate::vmm_config::{self, RateLimiterUpdate};
-use crate::{EventManager, FcExitCode};
+use crate::EventManager;
 
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.).
@@ -133,71 +131,49 @@ pub enum VmmAction {
 }
 
 /// Wrapper for all errors associated with VMM actions.
-#[derive(Debug, thiserror::Error, derive_more::From)]
+#[derive(Debug, thiserror::Error, displaydoc::Display, derive_more::From)]
 pub enum VmmActionError {
-    /// The action `SetBalloonDevice` failed because of bad user input.
-    #[error("{0}")]
+    /// {0}
     BalloonConfig(BalloonConfigError),
-    /// The action `ConfigureBootSource` failed because of bad user input.
-    #[error("{0}")]
+    /// {0}
     BootSource(BootSourceConfigError),
-    /// The action `CreateSnapshot` failed.
-    #[error("{0}")]
+    /// {0}
     CreateSnapshot(CreateSnapshotError),
-    /// The action `ConfigureCpu` failed.
-    #[error("{0}")]
+    /// {0}
     ConfigureCpu(GuestConfigError),
-    /// One of the actions `InsertBlockDevice` or `UpdateBlockDevicePath`
-    /// failed because of bad user input.
-    #[error("{0}")]
+    /// {0}
     DriveConfig(DriveError),
-    /// `SetEntropyDevice` action failed because of bad user input.
-    #[error("{0}")]
+    /// {0}
     EntropyDevice(EntropyDeviceError),
-    /// Internal Vmm error.
-    #[error("Internal Vmm error: {0}")]
+    /// Internal Vmm error: {0}
     InternalVmm(VmmError),
-    /// Loading a microVM snapshot failed.
-    #[error("Load microVM snapshot error: {0}")]
+    /// Load microVM snapshot error: {0}
     LoadSnapshot(LoadSnapshotError),
-    /// The action `ConfigureLogger` failed because of bad user input.
-    #[error("{0}")]
-    Logger(LoggerConfigError),
-    /// One of the actions `GetVmConfiguration` or `UpdateVmConfiguration` failed because of bad
-    /// input.
-    #[error("{0}")]
+    /// {0}
+    Logger(crate::logger::LoggerUpdateError),
+    /// {0}
     MachineConfig(VmConfigError),
-    /// The action `ConfigureMetrics` failed because of bad user input.
-    #[error("{0}")]
+    /// {0}
     Metrics(MetricsConfigError),
-    /// One of the `GetMmds`, `PutMmds` or `PatchMmds` actions failed.
     #[from(ignore)]
-    #[error("{0}")]
+    /// {0}
     Mmds(data_store::Error),
-    /// The action `SetMmdsConfiguration` failed because of bad user input.
-    #[error("{0}")]
+    /// {0}
     MmdsConfig(MmdsConfigError),
-    /// Mmds contents update failed due to exceeding the data store limit.
     #[from(ignore)]
-    #[error("{0}")]
+    /// {0}
     MmdsLimitExceeded(data_store::Error),
-    /// The action `InsertNetworkDevice` failed because of bad user input.
-    #[error("{0}")]
+    /// {0}
     NetworkConfig(NetworkInterfaceError),
-    /// The requested operation is not supported.
-    #[error("The requested operation is not supported: {0}")]
+    /// The requested operation is not supported: {0}
     NotSupported(String),
     /// The requested operation is not supported after starting the microVM.
-    #[error("The requested operation is not supported after starting the microVM.")]
     OperationNotSupportedPostBoot,
     /// The requested operation is not supported before starting the microVM.
-    #[error("The requested operation is not supported before starting the microVM.")]
     OperationNotSupportedPreBoot,
-    /// The action `StartMicroVm` failed because of an internal error.
-    #[error("{0}")]
+    /// {0}
     StartMicrovm(StartMicrovmError),
-    /// The action `SetVsockDevice` failed because of bad user input.
-    #[error("{0}")]
+    /// {0}
     VsockConfig(VsockConfigError),
 }
 
@@ -271,7 +247,7 @@ pub struct PrebootApiController<'a> {
     boot_path: bool,
     // Some PrebootApiRequest errors are irrecoverable and Firecracker
     // should cleanly teardown if they occur.
-    fatal_error: Option<FcExitCode>,
+    fatal_error: Option<BuildMicrovmFromRequestsError>,
 }
 
 // TODO Remove when `EventManager` implements `std::fmt::Debug`.
@@ -296,16 +272,13 @@ impl MmdsRequestHandler for PrebootApiController<'_> {
 }
 
 /// Error type for [`PrebootApiController::load_snapshot`]
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum LoadSnapshotError {
     /// Loading a microVM snapshot not allowed after configuring boot-specific resources.
-    #[error("Loading a microVM snapshot not allowed after configuring boot-specific resources.")]
     LoadSnapshotNotAllowed,
-    /// Failed to restore from snapshot.
-    #[error("Failed to restore from snapshot: {0}")]
+    /// Failed to restore from snapshot: {0}
     RestoreFromSnapshot(#[from] RestoreFromSnapshotError),
-    /// Failed to resume microVM.
-    #[error("Failed to resume microVM: {0}")]
+    /// Failed to resume microVM: {0}
     ResumeMicrovm(#[from] VmmError),
 }
 
@@ -313,6 +286,17 @@ pub enum LoadSnapshotError {
 pub type ApiRequest = Box<VmmAction>;
 /// Shorthand type for a response containing a boxed Result.
 pub type ApiResponse = Box<std::result::Result<VmmData, VmmActionError>>;
+
+/// Error type for `PrebootApiController::build_microvm_from_requests`.
+#[derive(Debug, thiserror::Error, displaydoc::Display, derive_more::From)]
+pub enum BuildMicrovmFromRequestsError {
+    /// Populating MMDS from file failed: {0:?}.
+    Mmds(data_store::Error),
+    /// Loading snapshot failed.
+    Restore,
+    /// Resuming MicroVM after loading snapshot failed.
+    Resume,
+}
 
 impl<'a> PrebootApiController<'a> {
     /// Constructor for the PrebootApiController.
@@ -347,7 +331,7 @@ impl<'a> PrebootApiController<'a> {
         boot_timer_enabled: bool,
         mmds_size_limit: usize,
         metadata_json: Option<&str>,
-    ) -> Result<(VmResources, Arc<Mutex<Vmm>>), FcExitCode> {
+    ) -> Result<(VmResources, Arc<Mutex<Vmm>>), BuildMicrovmFromRequestsError> {
         let mut vm_resources = VmResources::default();
         // Silence false clippy warning. Clippy suggests using
         // VmResources { boot_timer: boot_timer_enabled, ..Default::default() }; but this will
@@ -360,16 +344,9 @@ impl<'a> PrebootApiController<'a> {
 
         // Init the data store from file, if present.
         if let Some(data) = metadata_json {
-            vm_resources
-                .locked_mmds_or_default()
-                .put_data(
-                    serde_json::from_str(data)
-                        .expect("MMDS error: metadata provided not valid json"),
-                )
-                .map_err(|err| {
-                    error!("Populating MMDS from file failed: {:?}", err);
-                    crate::FcExitCode::GenericError
-                })?;
+            vm_resources.locked_mmds_or_default().put_data(
+                serde_json::from_str(data).expect("MMDS error: metadata provided not valid json"),
+            )?;
 
             info!("Successfully added metadata to mmds from file");
         }
@@ -403,8 +380,8 @@ impl<'a> PrebootApiController<'a> {
             to_api.send(Box::new(res)).expect("one-shot channel closed");
 
             // If any fatal errors were encountered, break the loop.
-            if let Some(exit_code) = preboot_controller.fatal_error {
-                return Err(exit_code);
+            if let Some(preboot_error) = preboot_controller.fatal_error {
+                return Err(preboot_error);
             }
         }
 
@@ -424,11 +401,10 @@ impl<'a> PrebootApiController<'a> {
         match request {
             // Supported operations allowed pre-boot.
             ConfigureBootSource(config) => self.set_boot_source(config),
-            ConfigureLogger(logger_cfg) => {
-                vmm_config::logger::init_logger(logger_cfg, &self.instance_info)
-                    .map(|()| VmmData::Empty)
-                    .map_err(VmmActionError::Logger)
-            }
+            ConfigureLogger(logger_cfg) => crate::logger::LOGGER
+                .update(logger_cfg)
+                .map(|()| VmmData::Empty)
+                .map_err(VmmActionError::Logger),
             ConfigureMetrics(metrics_cfg) => vmm_config::metrics::init_metrics(metrics_cfg)
                 .map(|()| VmmData::Empty)
                 .map_err(VmmActionError::Metrics),
@@ -605,7 +581,7 @@ impl<'a> PrebootApiController<'a> {
         )
         .map_err(|err| {
             // If restore fails, we consider the process is too dirty to recover.
-            self.fatal_error = Some(FcExitCode::BadConfiguration);
+            self.fatal_error = Some(BuildMicrovmFromRequestsError::Restore);
             err
         })?;
         // Resume VM
@@ -615,7 +591,7 @@ impl<'a> PrebootApiController<'a> {
                 .resume_vm()
                 .map_err(|err| {
                     // If resume fails, we consider the process is too dirty to recover.
-                    self.fatal_error = Some(FcExitCode::BadConfiguration);
+                    self.fatal_error = Some(BuildMicrovmFromRequestsError::Resume);
                     err
                 })?;
         }
@@ -839,6 +815,15 @@ impl RuntimeApiController {
         new_cfg: BlockDeviceUpdateConfig,
     ) -> Result<VmmData, VmmActionError> {
         let mut vmm = self.vmm.lock().expect("Poisoned lock");
+
+        // vhost-user-block updates
+        if new_cfg.path_on_host.is_none() && new_cfg.rate_limiter.is_none() {
+            vmm.update_vhost_user_block_config(&new_cfg.drive_id)
+                .map(|()| VmmData::Empty)
+                .map_err(DriveError::DeviceUpdate)?;
+        }
+
+        // virtio-block updates
         if let Some(new_path) = new_cfg.path_on_host {
             vmm.update_block_device_path(&new_cfg.drive_id, new_path)
                 .map(|()| VmmData::Empty)
@@ -882,18 +867,17 @@ mod tests {
     use std::io;
     use std::path::PathBuf;
 
-    use mmds::data_store::MmdsVersion;
     use seccompiler::BpfThreadMap;
 
     use super::*;
     use crate::cpu_config::templates::test_utils::build_test_template;
     use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
     use crate::devices::virtio::balloon::{BalloonConfig, BalloonError};
+    use crate::devices::virtio::block_common::CacheType;
     use crate::devices::virtio::rng::EntropyError;
-    use crate::devices::virtio::VsockError;
+    use crate::devices::virtio::vsock::VsockError;
+    use crate::mmds::data_store::MmdsVersion;
     use crate::vmm_config::balloon::BalloonBuilder;
-    use crate::vmm_config::drive::{CacheType, FileEngineType};
-    use crate::vmm_config::logger::LoggerLevel;
     use crate::vmm_config::machine_config::VmConfig;
     use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
     use crate::vmm_config::vsock::VsockBuilder;
@@ -1112,6 +1096,7 @@ mod tests {
         pub update_balloon_config_called: bool,
         pub update_balloon_stats_config_called: bool,
         pub update_block_device_path_called: bool,
+        pub update_block_device_vhost_user_config_called: bool,
         pub update_net_rate_limiters_called: bool,
         // when `true`, all self methods are forced to fail
         pub force_errors: bool,
@@ -1193,6 +1178,16 @@ mod tests {
             _: crate::rate_limiter::BucketUpdate,
             _: crate::rate_limiter::BucketUpdate,
         ) -> Result<(), VmmError> {
+            Ok(())
+        }
+
+        pub fn update_vhost_user_block_config(&mut self, _: &str) -> Result<(), VmmError> {
+            if self.force_errors {
+                return Err(VmmError::DeviceManager(
+                    crate::device_manager::mmio::MmioError::InvalidDeviceType,
+                ));
+            }
+            self.update_block_device_vhost_user_config_called = true;
             Ok(())
         }
 
@@ -1401,31 +1396,26 @@ mod tests {
 
     #[test]
     fn test_preboot_insert_block_dev() {
-        let req = VmmAction::InsertBlockDevice(BlockDeviceConfig {
-            path_on_host: String::new(),
-            is_root_device: false,
-            partuuid: None,
-            cache_type: CacheType::Unsafe,
-            is_read_only: false,
+        let config = BlockDeviceConfig {
             drive_id: String::new(),
+            partuuid: None,
+            is_root_device: false,
+            cache_type: CacheType::Unsafe,
+
+            is_read_only: Some(false),
+            path_on_host: Some(String::new()),
             rate_limiter: None,
-            file_engine_type: FileEngineType::default(),
-        });
+            file_engine_type: None,
+
+            socket: None,
+        };
+        let req = VmmAction::InsertBlockDevice(config.clone());
         check_preboot_request(req, |result, vm_res| {
             assert_eq!(result, Ok(VmmData::Empty));
             assert!(vm_res.block_set)
         });
 
-        let req = VmmAction::InsertBlockDevice(BlockDeviceConfig {
-            path_on_host: String::new(),
-            is_root_device: false,
-            partuuid: None,
-            cache_type: CacheType::Unsafe,
-            is_read_only: false,
-            drive_id: String::new(),
-            rate_limiter: None,
-            file_engine_type: FileEngineType::default(),
-        });
+        let req = VmmAction::InsertBlockDevice(config);
         check_preboot_request_err(
             req,
             VmmActionError::DriveConfig(DriveError::RootBlockDeviceAlreadyAdded),
@@ -1826,7 +1816,6 @@ mod tests {
                 snapshot_type: SnapshotType::Full,
                 snapshot_path: PathBuf::new(),
                 mem_file_path: PathBuf::new(),
-                version: None,
             }),
             VmmActionError::OperationNotSupportedPreBoot,
         );
@@ -2019,6 +2008,27 @@ mod tests {
     }
 
     #[test]
+    fn test_runtime_update_block_device_vhost_user_config() {
+        let req = VmmAction::UpdateBlockDevice(BlockDeviceUpdateConfig {
+            ..Default::default()
+        });
+        check_runtime_request(req, |result, vmm| {
+            assert_eq!(result, Ok(VmmData::Empty));
+            assert!(vmm.update_block_device_vhost_user_config_called)
+        });
+
+        let req = VmmAction::UpdateBlockDevice(BlockDeviceUpdateConfig {
+            ..Default::default()
+        });
+        check_runtime_request_err(
+            req,
+            VmmActionError::DriveConfig(DriveError::DeviceUpdate(VmmError::DeviceManager(
+                crate::device_manager::mmio::MmioError::InvalidDeviceType,
+            ))),
+        );
+    }
+
+    #[test]
     fn test_runtime_update_net_rate_limiters() {
         let req = VmmAction::UpdateNetworkInterface(NetworkInterfaceUpdateConfig {
             iface_id: String::new(),
@@ -2051,10 +2061,11 @@ mod tests {
         );
         check_runtime_request_err(
             VmmAction::ConfigureLogger(LoggerConfig {
-                log_path: PathBuf::new(),
-                level: LoggerLevel::Debug,
-                show_level: false,
-                show_log_origin: false,
+                log_path: Some(PathBuf::new()),
+                level: Some(crate::logger::LevelFilter::Debug),
+                show_level: Some(false),
+                show_log_origin: Some(false),
+                module: None,
             }),
             VmmActionError::OperationNotSupportedPostBoot,
         );
@@ -2066,14 +2077,17 @@ mod tests {
         );
         check_runtime_request_err(
             VmmAction::InsertBlockDevice(BlockDeviceConfig {
-                path_on_host: String::new(),
-                is_root_device: false,
-                partuuid: None,
-                cache_type: CacheType::Unsafe,
-                is_read_only: false,
                 drive_id: String::new(),
+                partuuid: None,
+                is_root_device: false,
+                cache_type: CacheType::Unsafe,
+
+                is_read_only: Some(false),
+                path_on_host: Some(String::new()),
                 rate_limiter: None,
-                file_engine_type: FileEngineType::default(),
+                file_engine_type: None,
+
+                socket: None,
             }),
             VmmActionError::OperationNotSupportedPostBoot,
         );
@@ -2172,16 +2186,21 @@ mod tests {
         let req = VmmAction::ConfigureBootSource(BootSourceConfig::default());
         verify_load_snap_disallowed_after_boot_resources(req, "ConfigureBootSource");
 
-        let req = VmmAction::InsertBlockDevice(BlockDeviceConfig {
-            path_on_host: String::new(),
-            is_root_device: false,
-            partuuid: None,
-            cache_type: CacheType::Unsafe,
-            is_read_only: false,
+        let config = BlockDeviceConfig {
             drive_id: String::new(),
+            partuuid: None,
+            is_root_device: false,
+            cache_type: CacheType::Unsafe,
+
+            is_read_only: Some(false),
+            path_on_host: Some(String::new()),
             rate_limiter: None,
-            file_engine_type: FileEngineType::default(),
-        });
+            file_engine_type: None,
+
+            socket: None,
+        };
+
+        let req = VmmAction::InsertBlockDevice(config);
         verify_load_snap_disallowed_after_boot_resources(req, "InsertBlockDevice");
 
         let req = VmmAction::InsertNetworkDevice(NetworkInterfaceConfig {

@@ -8,36 +8,39 @@ use std::os::unix::io::AsRawFd;
 
 use utils::arg_parser::{ArgParser, Argument, Arguments, Error as ArgError};
 use utils::seek_hole::SeekHole;
+use utils::u64_to_usize;
 
-const REBASE_SNAP_VERSION: &str = env!("FIRECRACKER_VERSION");
+const REBASE_SNAP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const BASE_FILE: &str = "base-file";
 const DIFF_FILE: &str = "diff-file";
+const DEPRECATION_MSG: &str = "This tool is deprecated and will be removed in the future. Please \
+                               use 'snapshot-editor' instead.\n";
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 enum FileError {
-    #[error("Invalid base file: {0:?}")]
+    /// Invalid base file: {0:?}
     InvalidBaseFile(std::io::Error),
-    #[error("Invalid diff file: {0:?}")]
+    /// Invalid diff file: {0:?}
     InvalidDiffFile(std::io::Error),
-    #[error("Failed to seek data: {0:?}")]
+    /// Failed to seek data: {0:?}
     SeekData(std::io::Error),
-    #[error("Failed to seek hole: {0:?}")]
+    /// Failed to seek hole: {0:?}
     SeekHole(std::io::Error),
-    #[error("Failed to seek: {0:?}")]
+    /// Failed to seek: {0:?}
     Seek(std::io::Error),
-    #[error("Failed to send the file: {0:?}")]
+    /// Failed to send the file: {0:?}
     SendFile(std::io::Error),
-    #[error("Failed to get metadata: {0:?}")]
+    /// Failed to get metadata: {0:?}
     Metadata(std::io::Error),
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 enum RebaseSnapError {
-    #[error("Arguments parsing error: {0} \n\nFor more information try --help.")]
+    /// Arguments parsing error: {0} \n\nFor more information try --help.
     ArgParse(ArgError),
-    #[error("Error parsing the cmd line args: {0}")]
+    /// Error parsing the cmd line args: {0}
     SnapFile(FileError),
-    #[error("Error merging the files: {0}")]
+    /// Error merging the files: {0}
     RebaseFiles(FileError),
 }
 
@@ -101,7 +104,7 @@ fn rebase(base_file: &mut File, diff_file: &mut File) -> Result<(), FileError> {
                     base_file.as_raw_fd(),
                     diff_file.as_raw_fd(),
                     (&mut cursor as *mut u64).cast::<i64>(),
-                    block_end.saturating_sub(cursor) as usize,
+                    u64_to_usize(block_end.saturating_sub(cursor)),
                 )
             };
             if num_transferred_bytes < 0 {
@@ -134,16 +137,18 @@ fn main_exec() -> Result<(), RebaseSnapError> {
     if arguments.flag_present("help") {
         println!("Rebase_snap v{}", REBASE_SNAP_VERSION);
         println!(
-            "Tool that copies all the non-sparse sections from a diff file onto a base file\n"
+            "Tool that copies all the non-sparse sections from a diff file onto a base file.\n"
         );
+        println!("{DEPRECATION_MSG}");
         println!("{}", arg_parser.formatted_help());
         return Ok(());
     }
     if arguments.flag_present("version") {
-        println!("Rebase_snap v{}\n", REBASE_SNAP_VERSION);
+        println!("Rebase_snap v{REBASE_SNAP_VERSION}\n{DEPRECATION_MSG}");
         return Ok(());
     }
 
+    println!("{DEPRECATION_MSG}");
     let (mut base_file, mut diff_file) = get_files(arguments).map_err(RebaseSnapError::SnapFile)?;
 
     rebase(&mut base_file, &mut diff_file).map_err(RebaseSnapError::RebaseFiles)?;
@@ -290,7 +295,7 @@ mod tests {
             let base_block = rand::rand_alphanumerics(block_size).into_string().unwrap();
             base_file.write_all(base_block.as_bytes()).unwrap();
             diff_file
-                .seek(SeekFrom::Current(block_size as i64))
+                .seek(SeekFrom::Current(i64::try_from(block_size).unwrap()))
                 .unwrap();
             expected_result.append(&mut base_block.into_bytes());
 

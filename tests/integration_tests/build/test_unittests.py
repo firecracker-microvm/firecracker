@@ -20,11 +20,12 @@ def test_unittests(test_fc_session_root_path):
     """
     Run unit and doc tests for all supported targets.
     """
-    extra_args = "--target {} ".format(TARGET)
 
+    extra_args = f"--target {TARGET}"
     host.cargo_test(test_fc_session_root_path, extra_args=extra_args)
 
 
 def test_benchmarks_compile():
     """Checks that all benchmarks compile"""
+
     host.cargo("bench", f"--all --no-run --target {TARGET}")

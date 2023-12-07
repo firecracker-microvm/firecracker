@@ -14,13 +14,16 @@ serde = { version = "1.0.136", features = ["derive"] }
 serde_derive = "1.0.136"
 serde_json = "1.0.78"
 thiserror = "1.0.32"
+displaydoc = "0.2.4"
+log-instrument = { path = "../log-instrument", optional = true }
 
-logger = { path = "../logger" }
-micro_http = { git = "https://github.com/firecracker-microvm/micro-http", rev = "4b18a04" }
-mmds = { path = "../mmds" }
+micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 seccompiler = { path = "../seccompiler" }
 utils = { path = "../utils" }
 vmm = { path = "../vmm" }
 
 [dev-dependencies]
 libc = "0.2.117"
+
+[features]
+tracing = ["log-instrument", "utils/tracing", "vmm/tracing"]

@@ -115,17 +115,13 @@ if [ "$PROFILE" = "release" ]; then
     CARGO_OPTS+=" --release"
 fi
 
-# Artificially trigger a re-run of the build script,
-# to make sure that `firecracker --version` reports the latest changes.
-touch build.rs
-
-ARTIFACTS=(firecracker jailer seccompiler-bin rebase-snap cpu-template-helper)
+ARTIFACTS=(firecracker jailer seccompiler-bin rebase-snap cpu-template-helper snapshot-editor)
 
 if [ "$LIBC" == "gnu" ]; then
     # Don't build jailer. See commit 3bf285c8f
     echo "Not building jailer because glibc selected instead of musl"
     CARGO_OPTS+=" --exclude jailer"
-    ARTIFACTS=(firecracker seccompiler-bin rebase-snap cpu-template-helper)
+    ARTIFACTS=(firecracker seccompiler-bin rebase-snap cpu-template-helper snapshot-editor)
 fi
 
 say "Building version=$VERSION, profile=$PROFILE, target=$CARGO_TARGET..."
@@ -133,6 +129,16 @@ say "Building version=$VERSION, profile=$PROFILE, target=$CARGO_TARGET..."
 cargo build --target "$CARGO_TARGET" $CARGO_OPTS --workspace
 
 say "Binaries placed under $CARGO_TARGET_DIR"
+
+# Check static linking:
+# expected "statically linked" for aarch64 and
+# "static-pie linked" for x86_64
+binary_format=$(file $CARGO_TARGET_DIR/firecracker)
+if [[ "$PROFILE" = "release"
+        && "$binary_format" != *"statically linked"*
+        && "$binary_format" != *"static-pie linked"* ]]; then
+    die "Binary not statically linked: $binary_format"
+fi
 
 # # # # Make a release
 if [ -z "$MAKE_RELEASE" ]; then
@@ -157,7 +163,10 @@ cp -v -t "$RELEASE_DIR" LICENSE NOTICE THIRD-PARTY
 check_swagger_artifact src/api_server/swagger/firecracker.yaml "$VERSION"
 cp -v src/api_server/swagger/firecracker.yaml "$RELEASE_DIR/firecracker_spec-$VERSION.yaml"
 
-cp -v tests/test-report.json "$RELEASE_DIR/"
+CPU_TEMPLATES=(c3 t2 t2s t2cl t2a v1n1)
+for template in "${CPU_TEMPLATES[@]}"; do
+    cp -v tests/data/static_cpu_templates/$template.json $RELEASE_DIR/$template-$VERSION.json
+done
 
 (
     cd "$RELEASE_DIR"

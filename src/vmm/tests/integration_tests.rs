@@ -17,7 +17,7 @@ use vmm::utilities::test_utils::dirty_tracking_vmm;
 use vmm::utilities::test_utils::{create_vmm, default_vmm, default_vmm_no_boot};
 use vmm::version_map::VERSION_MAP;
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
-use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType, Version};
+use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
 use vmm::{DumpCpuConfigError, EventManager, FcExitCode};
 
 #[test]
@@ -189,7 +189,6 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
         snapshot_type,
         snapshot_path: snapshot_file.as_path().to_path_buf(),
         mem_file_path: memory_file.as_path().to_path_buf(),
-        version: Some(Version::new(0, 24, 0)),
     };
     let vm_info = VmInfo {
         mem_size_mib: 1u64,
@@ -213,7 +212,7 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
     let snapshot_path = snapshot_file.as_path().to_path_buf();
     let snapshot_file_metadata = std::fs::metadata(snapshot_path).unwrap();
     let snapshot_len = snapshot_file_metadata.len() as usize;
-    let restored_microvm_state: MicrovmState = Snapshot::load(
+    let (restored_microvm_state, _) = Snapshot::load::<_, MicrovmState>(
         &mut snapshot_file.as_file(),
         snapshot_len,
         VERSION_MAP.clone(),
@@ -224,7 +223,13 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
 
     // Verify deserialized data.
     // The default vmm has no devices and one vCPU.
-    assert_eq!(restored_microvm_state.device_states.block_devices.len(), 0);
+    assert_eq!(
+        restored_microvm_state
+            .device_states
+            .virtio_block_devices
+            .len(),
+        0
+    );
     assert_eq!(restored_microvm_state.device_states.net_devices.len(), 0);
     assert!(restored_microvm_state.device_states.vsock_device.is_none());
     assert_eq!(restored_microvm_state.vcpu_states.len(), 1);
@@ -233,8 +238,7 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
 }
 
 fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
-    use utils::vm_memory::GuestMemoryMmap;
-    use vmm::memory_snapshot::SnapshotMemory;
+    use vmm::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap};
 
     let mut event_manager = EventManager::new().unwrap();
     let empty_seccomp_filters = get_empty_filters();
@@ -243,13 +247,13 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
     let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();
     let snapshot_len = snapshot_file_metadata.len() as usize;
     snapshot_file.as_file().seek(SeekFrom::Start(0)).unwrap();
-    let microvm_state: MicrovmState = Snapshot::load(
+    let (microvm_state, _) = Snapshot::load::<_, MicrovmState>(
         &mut snapshot_file.as_file(),
         snapshot_len,
         VERSION_MAP.clone(),
     )
     .unwrap();
-    let mem = GuestMemoryMmap::restore(
+    let mem = GuestMemoryMmap::from_state(
         Some(memory_file.as_file()),
         &microvm_state.memory_state,
         false,
@@ -347,10 +351,11 @@ fn get_microvm_state_from_snapshot() -> MicrovmState {
     let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();
     let snapshot_len = snapshot_file_metadata.len() as usize;
     snapshot_file.as_file().seek(SeekFrom::Start(0)).unwrap();
-    Snapshot::load(
+    let (state, _) = Snapshot::load(
         &mut snapshot_file.as_file(),
         snapshot_len,
         VERSION_MAP.clone(),
     )
-    .unwrap()
+    .unwrap();
+    state
 }

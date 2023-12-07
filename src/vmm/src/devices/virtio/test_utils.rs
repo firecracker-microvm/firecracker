@@ -8,9 +8,10 @@ use std::marker::PhantomData;
 use std::mem;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use utils::vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
+use utils::u64_to_usize;
 
-use crate::devices::virtio::Queue;
+use crate::devices::virtio::queue::Queue;
+use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
 
 #[macro_export]
 macro_rules! check_metric_after_block {
@@ -24,8 +25,7 @@ macro_rules! check_metric_after_block {
 /// Creates a [`GuestMemoryMmap`] with a single region of the given size starting at guest physical
 /// address 0
 pub fn single_region_mem(region_size: usize) -> GuestMemoryMmap {
-    utils::vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), region_size)], false)
-        .unwrap()
+    GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), region_size)], false).unwrap()
 }
 
 /// Creates a [`GuestMemoryMmap`] with a single region  of size 65536 (= 0x10000 hex) starting at
@@ -58,7 +58,7 @@ pub struct SomeplaceInMemory<'a, T> {
 // The ByteValued trait is required to use mem.read_obj_from_addr and write_obj_at_addr.
 impl<'a, T> SomeplaceInMemory<'a, T>
 where
-    T: Debug + utils::vm_memory::ByteValued,
+    T: Debug + crate::vstate::memory::ByteValued,
 {
     fn new(location: GuestAddress, mem: &'a GuestMemoryMmap) -> Self {
         SomeplaceInMemory {
@@ -179,7 +179,7 @@ pub struct VirtqRing<'a, T> {
 
 impl<'a, T> VirtqRing<'a, T>
 where
-    T: Debug + utils::vm_memory::ByteValued,
+    T: Debug + crate::vstate::memory::ByteValued,
 {
     fn new(start: GuestAddress, mem: &'a GuestMemoryMmap, qsize: u16, alignment: usize) -> Self {
         assert_eq!(start.0 & (alignment as u64 - 1), 0);
@@ -223,7 +223,7 @@ pub struct VirtqUsedElem {
 }
 
 // SAFETY: `VirtqUsedElem` is a POD and contains no padding.
-unsafe impl utils::vm_memory::ByteValued for VirtqUsedElem {}
+unsafe impl crate::vstate::memory::ByteValued for VirtqUsedElem {}
 
 pub type VirtqAvail<'a> = VirtqRing<'a, u16>;
 pub type VirtqUsed<'a> = VirtqRing<'a, VirtqUsedElem>;
@@ -260,7 +260,7 @@ impl<'a> VirtQueue<'a> {
         let mut x = avail.end().0;
         x = (x + USED_ALIGN - 1) & !(USED_ALIGN - 1);
 
-        let used = VirtqUsed::new(GuestAddress(x), mem, qsize, USED_ALIGN as usize);
+        let used = VirtqUsed::new(GuestAddress(x), mem, qsize, u64_to_usize(USED_ALIGN));
 
         VirtQueue {
             dtable,
@@ -274,7 +274,8 @@ impl<'a> VirtQueue<'a> {
     }
 
     pub fn size(&self) -> u16 {
-        self.dtable.len() as u16
+        // Safe to unwrap because the size is specified as a u16 when the table is first created.
+        self.dtable.len().try_into().unwrap()
     }
 
     pub fn dtable_start(&self) -> GuestAddress {
@@ -324,17 +325,15 @@ pub(crate) mod test {
     use std::sync::{Arc, Mutex, MutexGuard};
 
     use event_manager::{EventManager, MutEventSubscriber, SubscriberId, SubscriberOps};
-    use utils::vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
+    use crate::devices::virtio::device::VirtioDevice;
+    use crate::devices::virtio::net::MAX_BUFFER_SIZE;
+    use crate::devices::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT};
     use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
-    use crate::devices::virtio::{Queue, VirtioDevice, MAX_BUFFER_SIZE, VIRTQ_DESC_F_NEXT};
+    use crate::vstate::memory::{Address, GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
 
     pub fn create_virtio_mem() -> GuestMemoryMmap {
-        utils::vm_memory::test_utils::create_guest_memory_unguarded(
-            &[(GuestAddress(0), MAX_BUFFER_SIZE)],
-            false,
-        )
-        .unwrap()
+        GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), MAX_BUFFER_SIZE)], false).unwrap()
     }
 
     /// Provides functionality necessary for testing a VirtIO device with

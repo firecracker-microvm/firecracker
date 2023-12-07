@@ -9,15 +9,14 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::fmt::Debug;
 
-use utils::vm_memory::{
-    Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
-};
 use vm_fdt::{Error as VmFdtError, FdtWriter, FdtWriterNode};
+use vm_memory::GuestMemoryError;
 
 use super::super::{DeviceType, InitrdConfig};
 use super::cache_info::{read_cache_config, CacheEntry};
 use super::get_fdt_addr;
 use super::gic::GICDevice;
+use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 // This is a value for uniquely identifying the FDT node declaring the interrupt controller.
 const GIC_PHANDLE: u32 = 1;
@@ -142,7 +141,7 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<(), FdtEr
             // https://github.com/devicetree-org/devicetree-specification/releases/download/v0.3/devicetree-specification-v0.3.pdf,
             // section 3.8.
             if let Some(size) = cache.size_ {
-                fdt.property_u32(cache.type_.of_cache_size(), size as u32)?;
+                fdt.property_u32(cache.type_.of_cache_size(), size)?;
             }
             if let Some(line_size) = cache.line_size {
                 fdt.property_u32(cache.type_.of_cache_line_size(), u32::from(line_size))?;
@@ -169,8 +168,11 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<(), FdtEr
             // The operation is safe since we already checked when creating cache attributes that
             // cpus_per_unit is not 0 (.e look for mask_str2bit_count function).
             let cache_phandle = LAST_CACHE_PHANDLE
-                - (num_cpus * (cache.level - 2) as usize + cpu_index / cache.cpus_per_unit as usize)
-                    as u32;
+                - u32::try_from(
+                    num_cpus * (cache.level - 2) as usize
+                        + cpu_index / cache.cpus_per_unit as usize,
+                )
+                .unwrap(); // Safe because the number of CPUs is bounded
 
             if prev_level != cache.level {
                 fdt.property_u32("next-level-cache", cache_phandle)?;
@@ -189,7 +191,7 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<(), FdtEr
                 fdt.property_string("compatible", "cache")?;
                 fdt.property_u32("cache-level", u32::from(cache.level))?;
                 if let Some(size) = cache.size_ {
-                    fdt.property_u32(cache.type_.of_cache_size(), size as u32)?;
+                    fdt.property_u32(cache.type_.of_cache_size(), size)?;
                 }
                 if let Some(line_size) = cache.line_size {
                     fdt.property_u32(cache.type_.of_cache_line_size(), u32::from(line_size))?;
@@ -424,6 +426,7 @@ mod tests {
     use super::*;
     use crate::arch::aarch64::gic::create_gic;
     use crate::arch::aarch64::{arch_memory_regions, layout};
+    use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap};
 
     const LEN: u64 = 4096;
 
@@ -446,7 +449,7 @@ mod tests {
     }
     // The `load` function from the `device_tree` will mistakenly check the actual size
     // of the buffer with the allocated size. This works around that.
-    fn set_size(buf: &mut [u8], pos: usize, val: usize) {
+    fn set_size(buf: &mut [u8], pos: usize, val: u32) {
         buf[pos] = ((val >> 24) & 0xff) as u8;
         buf[pos + 1] = ((val >> 16) & 0xff) as u8;
         buf[pos + 2] = ((val >> 8) & 0xff) as u8;
@@ -456,8 +459,8 @@ mod tests {
     #[test]
     fn test_create_fdt_with_devices() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = utils::vm_memory::test_utils::create_anon_guest_memory(&regions, false)
-            .expect("Cannot initialize memory");
+        let mem =
+            GuestMemoryMmap::from_raw_regions(&regions, false).expect("Cannot initialize memory");
 
         let dev_info: HashMap<(DeviceType, std::string::String), MMIODeviceInfo> = [
             (
@@ -496,8 +499,8 @@ mod tests {
     #[test]
     fn test_create_fdt() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = utils::vm_memory::test_utils::create_anon_guest_memory(&regions, false)
-            .expect("Cannot initialize memory");
+        let mem =
+            GuestMemoryMmap::from_raw_regions(&regions, false).expect("Cannot initialize memory");
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1, None).unwrap();
@@ -538,7 +541,7 @@ mod tests {
         // }
 
         let pos = 4;
-        let val = layout::FDT_MAX_SIZE;
+        let val = u32::try_from(layout::FDT_MAX_SIZE).unwrap();
         let mut buf = vec![];
         buf.extend_from_slice(saved_dtb_bytes);
 
@@ -554,8 +557,8 @@ mod tests {
     #[test]
     fn test_create_fdt_with_initrd() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = utils::vm_memory::test_utils::create_anon_guest_memory(&regions, false)
-            .expect("Cannot initialize memory");
+        let mem =
+            GuestMemoryMmap::from_raw_regions(&regions, false).expect("Cannot initialize memory");
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1, None).unwrap();
@@ -601,7 +604,7 @@ mod tests {
         // }
 
         let pos = 4;
-        let val = layout::FDT_MAX_SIZE;
+        let val = u32::try_from(layout::FDT_MAX_SIZE).unwrap();
         let mut buf = vec![];
         buf.extend_from_slice(saved_dtb_bytes);
 
