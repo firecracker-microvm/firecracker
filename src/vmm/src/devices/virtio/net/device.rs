@@ -589,7 +589,7 @@ impl Net {
         while let Some(head) = tx_queue.pop_or_enable_notification(mem) {
             let head_index = head.index;
             // Parse IoVecBuffer from descriptor head
-            let buffer = match IoVecBuffer::from_descriptor_chain(mem, head) {
+            let buffer = match IoVecBuffer::from_descriptor_chain(head) {
                 Ok(buffer) => buffer,
                 Err(_) => {
                     self.metrics.tx_fails.inc();

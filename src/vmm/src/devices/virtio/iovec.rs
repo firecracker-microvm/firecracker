@@ -5,7 +5,7 @@ use libc::{c_void, iovec, size_t};
 use vm_memory::GuestMemoryError;
 
 use crate::devices::virtio::queue::DescriptorChain;
-use crate::vstate::memory::{Bitmap, GuestMemory, GuestMemoryMmap};
+use crate::vstate::memory::{Bitmap, GuestMemory};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum IoVecError {
@@ -32,10 +32,7 @@ pub(crate) struct IoVecBuffer {
 
 impl IoVecBuffer {
     /// Create an `IoVecBuffer` from a `DescriptorChain`
-    pub fn from_descriptor_chain(
-        mem: &GuestMemoryMmap,
-        head: DescriptorChain,
-    ) -> Result<Self, IoVecError> {
+    pub fn from_descriptor_chain(head: DescriptorChain) -> Result<Self, IoVecError> {
         let mut vecs = vec![];
         let mut len = 0usize;
 
@@ -48,7 +45,8 @@ impl IoVecBuffer {
             // We use get_slice instead of `get_host_address` here in order to have the whole
             // range of the descriptor chain checked, i.e. [addr, addr + len) is a valid memory
             // region in the GuestMemoryMmap.
-            let iov_base = mem
+            let iov_base = desc
+                .mem
                 .get_slice(desc.addr, desc.len as usize)?
                 .ptr_guard_mut()
                 .as_ptr()
@@ -162,10 +160,7 @@ pub(crate) struct IoVecBufferMut {
 
 impl IoVecBufferMut {
     /// Create an `IoVecBufferMut` from a `DescriptorChain`
-    pub fn from_descriptor_chain(
-        mem: &GuestMemoryMmap,
-        head: DescriptorChain,
-    ) -> Result<Self, IoVecError> {
+    pub fn from_descriptor_chain(head: DescriptorChain) -> Result<Self, IoVecError> {
         let mut vecs = vec![];
         let mut len = 0usize;
 
@@ -177,7 +172,7 @@ impl IoVecBufferMut {
             // We use get_slice instead of `get_host_address` here in order to have the whole
             // range of the descriptor chain checked, i.e. [addr, addr + len) is a valid memory
             // region in the GuestMemoryMmap.
-            let slice = mem.get_slice(desc.addr, desc.len as usize)?;
+            let slice = desc.mem.get_slice(desc.addr, desc.len as usize)?;
 
             // We need to mark the area of guest memory that will be mutated through this
             // IoVecBufferMut as dirty ahead of time, as we loose access to all
@@ -374,19 +369,19 @@ mod tests {
         let mem = default_mem();
         let (mut q, _) = read_only_chain(&mem);
         let head = q.pop(&mem).unwrap();
-        assert!(IoVecBuffer::from_descriptor_chain(&mem, head).is_ok());
+        assert!(IoVecBuffer::from_descriptor_chain(head).is_ok());
 
         let (mut q, _) = write_only_chain(&mem);
         let head = q.pop(&mem).unwrap();
-        assert!(IoVecBuffer::from_descriptor_chain(&mem, head).is_err());
+        assert!(IoVecBuffer::from_descriptor_chain(head).is_err());
 
         let (mut q, _) = read_only_chain(&mem);
         let head = q.pop(&mem).unwrap();
-        assert!(IoVecBufferMut::from_descriptor_chain(&mem, head).is_err());
+        assert!(IoVecBufferMut::from_descriptor_chain(head).is_err());
 
         let (mut q, _) = write_only_chain(&mem);
         let head = q.pop(&mem).unwrap();
-        assert!(IoVecBufferMut::from_descriptor_chain(&mem, head).is_ok());
+        assert!(IoVecBufferMut::from_descriptor_chain(head).is_ok());
     }
 
     #[test]
@@ -395,7 +390,7 @@ mod tests {
         let (mut q, _) = read_only_chain(&mem);
         let head = q.pop(&mem).unwrap();
 
-        let iovec = IoVecBuffer::from_descriptor_chain(&mem, head).unwrap();
+        let iovec = IoVecBuffer::from_descriptor_chain(head).unwrap();
         assert_eq!(iovec.len(), 4 * 64);
     }
 
@@ -405,7 +400,7 @@ mod tests {
         let (mut q, _) = write_only_chain(&mem);
         let head = q.pop(&mem).unwrap();
 
-        let iovec = IoVecBufferMut::from_descriptor_chain(&mem, head).unwrap();
+        let iovec = IoVecBufferMut::from_descriptor_chain(head).unwrap();
         assert_eq!(iovec.len(), 4 * 64);
     }
 
@@ -415,7 +410,7 @@ mod tests {
         let (mut q, _) = read_only_chain(&mem);
         let head = q.pop(&mem).unwrap();
 
-        let iovec = IoVecBuffer::from_descriptor_chain(&mem, head).unwrap();
+        let iovec = IoVecBuffer::from_descriptor_chain(head).unwrap();
 
         let mut buf = vec![0; 5];
         assert_eq!(iovec.read_at(&mut buf[..4], 0), Some(4));
@@ -444,7 +439,7 @@ mod tests {
         // This is a descriptor chain with 4 elements 64 bytes long each.
         let head = q.pop(&mem).unwrap();
 
-        let mut iovec = IoVecBufferMut::from_descriptor_chain(&mem, head).unwrap();
+        let mut iovec = IoVecBufferMut::from_descriptor_chain(head).unwrap();
         let buf = vec![0u8, 1, 2, 3, 4];
 
         // One test vector for each part of the chain
