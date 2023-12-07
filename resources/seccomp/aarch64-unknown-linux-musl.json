@@ -4,6 +4,10 @@
         "filter_action": "allow",
         "filter": [
             {
+                "syscall": "newfstatat",
+                "comment": "Used when creating snapshots in vmm:persist::snapshot_memory_to_file through std::fs::File::metadata"
+            },
+            {
                 "syscall": "epoll_ctl"
             },
             {
