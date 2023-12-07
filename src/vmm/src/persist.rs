@@ -174,6 +174,9 @@ pub enum CreateSnapshotError {
     SerializeMicrovmState(snapshot::Error),
     /// Cannot perform {0} on the snapshot backing file: {1}
     SnapshotBackingFile(&'static str, io::Error),
+    #[rustfmt::skip]
+    #[doc = "Size mismatch when writing diff snapshot on top of base layer: base layer size is {0} but diff layer is size {1}."]
+    SnapshotBackingFileLengthMismatch(u64, u64),
     #[cfg(target_arch = "x86_64")]
     #[rustfmt::skip]
     #[doc = "Too many devices attached: {0}. The maximum number allowed for the snapshot data version requested is {FC_V0_23_MAX_DEVICES:}."]
@@ -200,7 +203,7 @@ pub fn create_snapshot(
         version_map,
     )?;
 
-    snapshot_memory_to_file(vmm, &params.mem_file_path, &params.snapshot_type)?;
+    snapshot_memory_to_file(vmm, &params.mem_file_path, params.snapshot_type)?;
 
     Ok(())
 }
@@ -231,23 +234,54 @@ fn snapshot_state_to_file(
         .map_err(|err| SnapshotBackingFile("sync_all", err))
 }
 
+/// Takes a snapshot of the virtual machine running inside the given [`Vmm`] and saves it to
+/// `mem_file_path`.
+///
+/// If `snapshot_type` is [`SnapshotType::Diff`], and `mem_file_path` exists and is a snapshot file
+/// of matching size, then the diff snapshot will be directly merged into the existing snapshot.
+/// Otherwise, existing files are simply overwritten.
 fn snapshot_memory_to_file(
     vmm: &Vmm,
     mem_file_path: &Path,
-    snapshot_type: &SnapshotType,
+    snapshot_type: SnapshotType,
 ) -> Result<(), CreateSnapshotError> {
     use self::CreateSnapshotError::*;
+
+    // Need to check this here, as we create the file in the line below
+    let file_existed = mem_file_path.exists();
+
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)
-        .truncate(true)
         .open(mem_file_path)
         .map_err(|err| MemoryBackingFile("open", err))?;
 
-    // Set the length of the file to the full size of the memory area.
+    // Determine what size our total memory area is.
     let mem_size_mib = mem_size_mib(vmm.guest_memory());
-    file.set_len(mem_size_mib * 1024 * 1024)
-        .map_err(|err| MemoryBackingFile("set_length", err))?;
+    let expected_size = mem_size_mib * 1024 * 1024;
+
+    if file_existed {
+        let file_size = file
+            .metadata()
+            .map_err(|e| MemoryBackingFile("get_metadata", e))?
+            .len();
+
+        // Here we only truncate the file if the size mismatches.
+        // - For full snapshots, the entire file's contents will be overwritten anyway. We have to
+        //   avoid truncating here to deal with the edge case where it represents the snapshot file
+        //   from which this very microVM was loaded (as modifying the memory file would be
+        //   reflected in the mmap of the file, meaning a truncate operation would zero out guest
+        //   memory, and thus corrupt the VM).
+        // - For diff snapshots, we want to merge the diff layer directly into the file.
+        if file_size != expected_size {
+            file.set_len(0)
+                .map_err(|err| MemoryBackingFile("truncate", err))?;
+        }
+    }
+
+    // Set the length of the file to the full size of the memory area.
+    file.set_len(expected_size)
+        .map_err(|e| MemoryBackingFile("set_length", e))?;
 
     match snapshot_type {
         SnapshotType::Diff => {
@@ -578,7 +612,6 @@ fn guest_memory_from_uffd(
 #[cfg(test)]
 mod tests {
     use snapshot::Persist;
-    use utils::errno;
     use utils::tempfile::TempFile;
 
     use super::*;
@@ -691,75 +724,5 @@ mod tests {
             restored_microvm_state.device_states,
             microvm_state.device_states
         )
-    }
-
-    #[test]
-    fn test_create_snapshot_error_display() {
-        use crate::persist::CreateSnapshotError::*;
-        use crate::vstate::memory::MemoryError;
-
-        let err = DirtyBitmap(VmmError::DirtyBitmap(kvm_ioctls::Error::new(20)));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = InvalidVersionFormat;
-        let _ = format!("{}{:?}", err, err);
-
-        let err = UnsupportedVersion;
-        let _ = format!("{}{:?}", err, err);
-
-        let err = Memory(MemoryError::WriteMemory(
-            vm_memory::GuestMemoryError::HostAddressNotAvailable,
-        ));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = MemoryBackingFile("open", io::Error::from_raw_os_error(0));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = MicrovmState(MicrovmStateError::UnexpectedVcpuResponse);
-        let _ = format!("{}{:?}", err, err);
-
-        let err = SerializeMicrovmState(snapshot::Error::InvalidMagic(0));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = SnapshotBackingFile("open", io::Error::from_raw_os_error(0));
-        let _ = format!("{}{:?}", err, err);
-
-        #[cfg(target_arch = "x86_64")]
-        {
-            let err = TooManyDevices(0);
-            let _ = format!("{}{:?}", err, err);
-        }
-    }
-
-    #[test]
-    fn test_microvm_state_error_display() {
-        use crate::persist::MicrovmStateError::*;
-
-        let err = InvalidInput;
-        let _ = format!("{}{:?}", err, err);
-
-        let err = NotAllowed(String::from(""));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = RestoreDevices(DevicePersistError::MmioTransport);
-        let _ = format!("{}{:?}", err, err);
-
-        let err = RestoreVcpuState(vstate::vcpu::VcpuError::VcpuTlsInit);
-        let _ = format!("{}{:?}", err, err);
-
-        let err = RestoreVmState(vstate::vm::VmError::NotEnoughMemorySlots);
-        let _ = format!("{}{:?}", err, err);
-
-        let err = SaveVcpuState(vstate::vcpu::VcpuError::VcpuTlsNotPresent);
-        let _ = format!("{}{:?}", err, err);
-
-        let err = SaveVmState(vstate::vm::VmError::NotEnoughMemorySlots);
-        let _ = format!("{}{:?}", err, err);
-
-        let err = SignalVcpu(VcpuSendEventError(errno::Error::new(0)));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = UnexpectedVcpuResponse;
-        let _ = format!("{}{:?}", err, err);
     }
 }

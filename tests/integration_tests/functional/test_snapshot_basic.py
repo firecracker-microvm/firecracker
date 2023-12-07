@@ -6,6 +6,7 @@ import filecmp
 import logging
 import os
 import re
+import shutil
 from pathlib import Path
 
 import pytest
@@ -256,13 +257,14 @@ def test_cmp_full_and_first_diff_mem(microvm_factory, guest_kernel, rootfs):
 
     logger.info("Create full snapshot.")
     # Create full snapshot.
-    full_snapshot = vm.snapshot_full()
+    full_snapshot = vm.snapshot_full(mem_path="mem_full")
 
     logger.info("Create diff snapshot.")
     # Create diff snapshot.
     diff_snapshot = vm.snapshot_diff()
 
-    assert filecmp.cmp(full_snapshot.mem, diff_snapshot.mem)
+    assert full_snapshot.mem != diff_snapshot.mem
+    assert filecmp.cmp(full_snapshot.mem, diff_snapshot.mem, shallow=False)
 
 
 def test_negative_postload_api(test_microvm_with_api, microvm_factory):
@@ -410,3 +412,89 @@ def test_create_large_diff_snapshot(test_microvm_with_api):
 
     # If the regression was not fixed, this would have failed. The Firecracker
     # process would have been taken down.
+
+
+def test_diff_snapshot_overlay(guest_kernel, rootfs, microvm_factory):
+    """
+    Tests that if we take a diff snapshot and direct firecracker to write it on
+    top of an existing snapshot file, it will successfully merge them.
+    """
+    basevm = microvm_factory.build(guest_kernel, rootfs)
+    basevm.spawn()
+    basevm.basic_config(track_dirty_pages=True)
+    basevm.add_net_iface()
+    basevm.start()
+
+    # Wait for microvm to be booted
+    rc, _, stderr = basevm.ssh.run("true")
+    assert rc == 0, stderr
+
+    # The first snapshot taken will always contain all memory (even if its specified as "diff").
+    # We use a diff snapshot here, as taking a full snapshot does not clear the dirty page tracking,
+    # meaning the `snapshot_diff()` call below would again dump the entire guest memory instead of
+    # only dirty regions.
+    full_snapshot = basevm.snapshot_diff()
+    basevm.resume()
+
+    # Run some command to dirty some pages
+    rc, _, stderr = basevm.ssh.run("true")
+    assert rc == 0, stderr
+
+    # First copy the base snapshot somewhere else, so we can make sure
+    # it will actually get updated
+    first_snapshot_backup = Path(basevm.chroot()) / "mem.old"
+    shutil.copyfile(full_snapshot.mem, first_snapshot_backup)
+
+    # One Microvm object will always write its snapshot files to the same location
+    merged_snapshot = basevm.snapshot_diff()
+    assert full_snapshot.mem == merged_snapshot.mem
+
+    assert not filecmp.cmp(merged_snapshot.mem, first_snapshot_backup, shallow=False)
+
+    new_vm = microvm_factory.build()
+    new_vm.spawn()
+    new_vm.restore_from_snapshot(merged_snapshot, resume=True)
+
+    # Run some command to check that the restored VM works
+    rc, _, stderr = new_vm.ssh.run("true")
+    assert rc == 0, stderr
+
+
+def test_snapshot_overwrite_self(guest_kernel, rootfs, microvm_factory):
+    """Tests that if we try to take a snapshot that would overwrite the
+    very file from which the current VM is stored, nothing happens.
+
+    Note that even though we map the file as MAP_PRIVATE, the documentation
+    of mmap does not specify what should happen if the file is changed after being
+    mmap'd (https://man7.org/linux/man-pages/man2/mmap.2.html). It seems that
+    these changes can propagate to the mmap'd memory region."""
+    base_vm = microvm_factory.build(guest_kernel, rootfs)
+    base_vm.spawn()
+    base_vm.basic_config()
+    base_vm.add_net_iface()
+    base_vm.start()
+
+    # Wait for microvm to be booted
+    rc, _, stderr = base_vm.ssh.run("true")
+    assert rc == 0, stderr
+
+    snapshot = base_vm.snapshot_full()
+    base_vm.kill()
+
+    vm = microvm_factory.build()
+    vm.spawn()
+    vm.restore_from_snapshot(snapshot, resume=True)
+
+    # When restoring a snapshot, vm.restore_from_snapshot first copies
+    # the memory file (inside of the jailer) to /mem.src
+    currently_loaded = Path(vm.chroot()) / "mem.src"
+
+    assert currently_loaded.exists()
+
+    vm.snapshot_full(mem_path="mem.src")
+    vm.resume()
+
+    # Check the overwriting the snapshot file from which this microvm was originally
+    # restored, with a new snapshot of this vm, does not break the VM
+    rc, _, stderr = vm.ssh.run("true")
+    assert rc == 0, stderr
