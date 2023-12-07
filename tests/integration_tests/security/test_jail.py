@@ -216,8 +216,12 @@ def sys_setup_cgroups():
     yield cgroup_version
 
 
-def check_cgroups_v1(cgroups, cgroup_location, jailer_id, parent_cgroup=FC_BINARY_NAME):
+def check_cgroups_v1(cgroups, jailer_id, parent_cgroup=FC_BINARY_NAME):
     """Assert that every cgroupv1 in cgroups is correctly set."""
+    # We assume sysfs cgroups are mounted here.
+    cgroup_location = "/sys/fs/cgroup"
+    assert os.path.isdir(cgroup_location)
+
     for cgroup in cgroups:
         controller = cgroup.split(".")[0]
         file_name, value = cgroup.split("=")
@@ -231,55 +235,37 @@ def check_cgroups_v1(cgroups, cgroup_location, jailer_id, parent_cgroup=FC_BINAR
         assert open(tasks_file, "r", encoding="utf-8").readline().strip().isdigit()
 
 
-def check_cgroups_v2(cgroups, cgroup_location, jailer_id, parent_cgroup=FC_BINARY_NAME):
+def check_cgroups_v2(vm):
     """Assert that every cgroupv2 in cgroups is correctly set."""
-    cg_locations = {
-        "root": f"{cgroup_location}",
-        "fc": f"{cgroup_location}/{parent_cgroup}",
-        "jail": f"{cgroup_location}/{parent_cgroup}/{jailer_id}",
-    }
-    for cgroup in cgroups:
+    # We assume sysfs cgroups are mounted here.
+    cg_root = Path("/sys/fs/cgroup")
+    assert cg_root.is_dir()
+    parent_cgroup = vm.jailer.parent_cgroup
+    if parent_cgroup is None:
+        parent_cgroup = FC_BINARY_NAME
+    cg_parent = cg_root / parent_cgroup
+    cg_jail = cg_parent / vm.jailer.jailer_id
+    for cgroup in vm.jailer.cgroups:
         controller = cgroup.split(".")[0]
         file_name, value = cgroup.split("=")
-        procs_file = f'{cg_locations["jail"]}/cgroup.procs'
-        file = f'{cg_locations["jail"]}/{file_name}'
+        procs = cg_jail.joinpath("cgroup.procs").read_text().splitlines()
+        file = cg_jail / file_name
 
-        assert (
-            controller
-            in open(f'{cg_locations["root"]}/cgroup.controllers', "r", encoding="utf-8")
-            .readline()
-            .strip()
-        )
-        assert (
-            controller
-            in open(
-                f'{cg_locations["root"]}/cgroup.subtree_control', "r", encoding="utf-8"
+        assert file.read_text().strip() == value
+
+        assert all(x.isnumeric() for x in procs)
+        assert str(vm.firecracker_pid) in procs
+
+        for cgroup in [cg_root, cg_parent, cg_jail]:
+            assert controller in cgroup.joinpath("cgroup.controllers").read_text(
+                encoding="ascii"
             )
-            .readline()
-            .strip()
-        )
-        assert (
-            controller
-            in open(f'{cg_locations["fc"]}/cgroup.controllers', "r", encoding="utf-8")
-            .readline()
-            .strip()
-        )
-        assert (
-            controller
-            in open(
-                f'{cg_locations["fc"]}/cgroup.subtree_control', "r", encoding="utf-8"
+            # don't check since there are no children cgroups
+            if cgroup == cg_jail:
+                continue
+            assert controller in cgroup.joinpath("cgroup.subtree_control").read_text(
+                encoding="ascii"
             )
-            .readline()
-            .strip()
-        )
-        assert (
-            controller
-            in open(f'{cg_locations["jail"]}/cgroup.controllers', "r", encoding="utf-8")
-            .readline()
-            .strip()
-        )
-        assert open(file, "r", encoding="utf-8").readline().strip() == value
-        assert open(procs_file, "r", encoding="utf-8").readline().strip().isdigit()
 
 
 def get_cpus(node):
@@ -326,18 +312,10 @@ def test_cgroups(test_microvm_with_api, sys_setup_cgroups):
 
     test_microvm.spawn()
 
-    # We assume sysfs cgroups are mounted here.
-    sys_cgroup = "/sys/fs/cgroup"
-    assert os.path.isdir(sys_cgroup)
-
     if test_microvm.jailer.cgroup_ver == 1:
-        check_cgroups_v1(
-            test_microvm.jailer.cgroups, sys_cgroup, test_microvm.jailer.jailer_id
-        )
+        check_cgroups_v1(test_microvm.jailer.cgroups, test_microvm.jailer.jailer_id)
     else:
-        check_cgroups_v2(
-            test_microvm.jailer.cgroups, sys_cgroup, test_microvm.jailer.jailer_id
-        )
+        check_cgroups_v2(test_microvm)
 
 
 def test_cgroups_custom_parent(test_microvm_with_api, sys_setup_cgroups):
@@ -362,24 +340,14 @@ def test_cgroups_custom_parent(test_microvm_with_api, sys_setup_cgroups):
 
     test_microvm.spawn()
 
-    # We assume sysfs cgroups are mounted here.
-    sys_cgroup = "/sys/fs/cgroup"
-    assert os.path.isdir(sys_cgroup)
-
     if test_microvm.jailer.cgroup_ver == 1:
         check_cgroups_v1(
             test_microvm.jailer.cgroups,
-            sys_cgroup,
             test_microvm.jailer.jailer_id,
             test_microvm.jailer.parent_cgroup,
         )
     else:
-        check_cgroups_v2(
-            test_microvm.jailer.cgroups,
-            sys_cgroup,
-            test_microvm.jailer.jailer_id,
-            test_microvm.jailer.parent_cgroup,
-        )
+        check_cgroups_v2(test_microvm)
 
 
 def test_node_cgroups(test_microvm_with_api, sys_setup_cgroups):
@@ -397,18 +365,10 @@ def test_node_cgroups(test_microvm_with_api, sys_setup_cgroups):
 
     test_microvm.spawn()
 
-    # We assume sysfs cgroups are mounted here.
-    sys_cgroup = "/sys/fs/cgroup"
-    assert os.path.isdir(sys_cgroup)
-
     if test_microvm.jailer.cgroup_ver == 1:
-        check_cgroups_v1(
-            test_microvm.jailer.cgroups, sys_cgroup, test_microvm.jailer.jailer_id
-        )
+        check_cgroups_v1(test_microvm.jailer.cgroups, test_microvm.jailer.jailer_id)
     else:
-        check_cgroups_v2(
-            test_microvm.jailer.cgroups, sys_cgroup, test_microvm.jailer.jailer_id
-        )
+        check_cgroups_v2(test_microvm)
 
 
 def test_cgroups_without_numa(test_microvm_with_api, sys_setup_cgroups):
@@ -424,18 +384,10 @@ def test_cgroups_without_numa(test_microvm_with_api, sys_setup_cgroups):
 
     test_microvm.spawn()
 
-    # We assume sysfs cgroups are mounted here.
-    sys_cgroup = "/sys/fs/cgroup"
-    assert os.path.isdir(sys_cgroup)
-
     if test_microvm.jailer.cgroup_ver == 1:
-        check_cgroups_v1(
-            test_microvm.jailer.cgroups, sys_cgroup, test_microvm.jailer.jailer_id
-        )
+        check_cgroups_v1(test_microvm.jailer.cgroups, test_microvm.jailer.jailer_id)
     else:
-        check_cgroups_v2(
-            test_microvm.jailer.cgroups, sys_cgroup, test_microvm.jailer.jailer_id
-        )
+        check_cgroups_v2(test_microvm)
 
 
 @pytest.mark.skipif(
@@ -450,13 +402,8 @@ def test_v1_default_cgroups(test_microvm_with_api):
 
     test_microvm.spawn()
 
-    # We assume sysfs cgroups are mounted here.
-    sys_cgroup = "/sys/fs/cgroup"
-    assert os.path.isdir(sys_cgroup)
+    check_cgroups_v1(test_microvm.jailer.cgroups, test_microvm.jailer.jailer_id)
 
-    check_cgroups_v1(
-        test_microvm.jailer.cgroups, sys_cgroup, test_microvm.jailer.jailer_id
-    )
 
 
 def test_args_default_resource_limits(test_microvm_with_api):
