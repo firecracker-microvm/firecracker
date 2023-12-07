@@ -343,21 +343,12 @@ impl Env {
     }
 
     fn exec_into_new_pid_ns(&mut self, chroot_exec_file: PathBuf) -> Result<(), JailerError> {
-        // Compute jailer's total CPU time up to the current time.
-        self.jailer_cpu_time_us =
-            utils::time::get_time_us(utils::time::ClockType::ProcessCpu) - self.start_time_cpu_us;
-
         // Duplicate the current process. The child process will belong to the previously created
         // PID namespace. The current process will not be moved into the newly created namespace,
         // but its first child will assume the role of init(1) in the new namespace.
         let pid = clone(std::ptr::null_mut(), libc::CLONE_NEWPID)?;
         match pid {
-            0 => {
-                // Reset process start time.
-                self.start_time_cpu_us = 0;
-
-                Err(JailerError::Exec(self.exec_command(chroot_exec_file)))
-            }
+            0 => Err(JailerError::Exec(self.exec_command(chroot_exec_file))),
             child_pid => {
                 // Save the PID of the process running the exec file provided
                 // inside <chroot_exec_file>.pid file.
@@ -674,6 +665,9 @@ impl Env {
 
         // Daemonize before exec, if so required (when the dev_null variable != None).
         if let Some(dev_null) = dev_null {
+            // Meter CPU usage before fork()
+            self.jailer_cpu_time_us = utils::time::get_time_us(utils::time::ClockType::ProcessCpu);
+
             // We follow the double fork method to daemonize the jailer referring to
             // https://0xjet.github.io/3OHA/2022/04/11/post.html
             // setsid() will fail if the calling process is a process group leader.
@@ -695,6 +689,9 @@ impl Env {
             SyscallReturnCode(unsafe { libc::setsid() })
                 .into_empty_result()
                 .map_err(JailerError::SetSid)?;
+
+            // Meter CPU usage before fork()
+            self.jailer_cpu_time_us += utils::time::get_time_us(utils::time::ClockType::ProcessCpu);
 
             // Daemons should not have controlling terminals.
             // If a daemon has a controlling terminal, it can receive signals
@@ -718,6 +715,12 @@ impl Env {
             dup2(dev_null.as_raw_fd(), STDOUT_FILENO)?;
             dup2(dev_null.as_raw_fd(), STDERR_FILENO)?;
         }
+
+        // Compute jailer's total CPU time up to the current time.
+        self.jailer_cpu_time_us +=
+            utils::time::get_time_us(utils::time::ClockType::ProcessCpu) - self.start_time_cpu_us;
+        // Reset process start time.
+        self.start_time_cpu_us = 0;
 
         // If specified, exec the provided binary into a new PID namespace.
         if self.new_pid_ns {
