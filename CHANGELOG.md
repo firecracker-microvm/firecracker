@@ -59,6 +59,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Removed support for creating Firecracker snapshots targeting older versions
   of Firecracker. With this change, running 'firecracker --version' will not
   print the supported snapshot versions.
+- [#4301](https://github.com/firecracker-microvm/firecracker/pull/4301):
+  Allow merging of diff snapshots into base snapshots by directly writing
+  the diff snapshot on top of the base snapshot's memory file. This can be
+  done by setting the `mem_file_path` to the path of the pre-existing full
+  snapshot.
 
 ### Deprecated
 
@@ -87,6 +92,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Fixed a bug in the asynchronous virtio-block engine that rendered the device
   non-functional after a PATCH request was issued to Firecracker for updating
   the path to the host-side backing file of the device.
+- [#4301](https://github.com/firecracker-microvm/firecracker/pull/4301):
+  Fixed a bug where if Firecracker was instructed to take a snapshot of a
+  microvm which itself was restored from a snapshot, specifying `mem_file_path`
+  to be the path of the memory file from which the microvm was restored would
+  result in both the microvm and the snapshot being corrupted. It now instead
+  performs a "write-back" of all memory that was updated since the snapshot
+  was originally loaded.
 
 ## [1.5.0]
 
