@@ -46,6 +46,8 @@ jailer --id <id> \
   the jailer will write all cgroup parameters specified through `--cgroup` in
   `/sys/fs/cgroup/<controller_name>/all_uvms/external_uvms/<id>`. By default, the
   parent cgroup is `exec-file`.
+  If there are no `--cgroup` parameters specified and `--group-version=2` was
+  passed, then the jailer will move the process to the specified cgroup.
 - `cgroup-version` is used to select which type of cgroup hierarchy to use for
   the creation of cgroups. The default value is "1" which means that cgroups
   specified with the `cgroup` argument will be created within a v1 hierarchy.
