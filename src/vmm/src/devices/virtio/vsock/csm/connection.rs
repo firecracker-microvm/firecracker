@@ -160,7 +160,11 @@ where
     /// - `Err(VsockError::NoData)`: there was no data available with which to fill in the packet;
     /// - `Err(VsockError::PktBufMissing)`: the packet would've been filled in with data, but it is
     ///   missing the data buffer.
-    fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> Result<(), VsockError> {
+    fn recv_pkt(
+        &mut self,
+        pkt: &mut VsockPacket,
+        _mem: &GuestMemoryMmap,
+    ) -> Result<(), VsockError> {
         // Perform some generic initialization that is the same for any packet operation (e.g.
         // source, destination, credit, etc).
         self.init_pkt(pkt);
@@ -219,7 +223,7 @@ where
             let max_len = std::cmp::min(pkt.buf_size(), self.peer_avail_credit());
 
             // Read data from the stream straight to the RX buffer, for maximum throughput.
-            match pkt.read_at_offset_from(mem, 0, &mut self.stream, max_len) {
+            match pkt.read_at_offset_from(&mut self.stream, 0, max_len) {
                 Ok(read_cnt) => {
                     if read_cnt == 0 {
                         // A 0-length read means the host stream was closed down. In that case,
@@ -604,7 +608,7 @@ where
     ///
     /// Raw data can either be sent straight to the host stream, or to our TX buffer, if the
     /// former fails.
-    fn send_bytes(&mut self, mem: &GuestMemoryMmap, pkt: &VsockPacket) -> Result<(), VsockError> {
+    fn send_bytes(&mut self, _mem: &GuestMemoryMmap, pkt: &VsockPacket) -> Result<(), VsockError> {
         let len = pkt.len() as usize;
 
         // If there is data in the TX buffer, that means we're already registered for EPOLLOUT
@@ -613,12 +617,12 @@ where
         // attempt to drain the TX buffer then.
         if !self.tx_buf.is_empty() {
             return pkt
-                .write_from_offset_to(mem, 0, &mut self.tx_buf, len)
+                .write_from_offset_to(&mut self.tx_buf, 0, len)
                 .map(|_| ());
         }
 
         // The TX buffer is empty, so we can try to write straight to the host stream.
-        let written = match pkt.write_from_offset_to(mem, 0, &mut self.stream, len) {
+        let written = match pkt.write_from_offset_to(&mut self.stream, 0, len) {
             Ok(cnt) => cnt,
             Err(VsockError::GuestMemoryMmap(GuestMemoryError::IOError(err)))
                 if err.kind() == ErrorKind::WouldBlock =>
@@ -641,7 +645,7 @@ where
         // If we couldn't write the whole slice, we'll need to push the remaining data to our
         // buffer.
         if written < len {
-            pkt.write_from_offset_to(mem, written, &mut self.tx_buf, len - written)?;
+            pkt.write_from_offset_to(&mut self.tx_buf, written, len - written)?;
         }
 
         Ok(())
