@@ -34,14 +34,14 @@ NEGATIVE_TEST_CONNECTION_COUNT = 100
 TEST_WORKER_COUNT = 10
 
 
-def test_vsock(test_microvm_with_api, bin_vsock_path, test_fc_session_root_path):
+def test_vsock(uvm_plain_any, bin_vsock_path, test_fc_session_root_path):
     """
     Test guest and host vsock initiated connections.
 
     Check the module docstring for details on the setup.
     """
 
-    vm = test_microvm_with_api
+    vm = uvm_plain_any
     vm.spawn()
 
     vm.basic_config()
