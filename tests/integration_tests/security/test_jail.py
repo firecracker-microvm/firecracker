@@ -249,6 +249,13 @@ def check_cgroups_v2(vm):
         parent_cgroup = FC_BINARY_NAME
     cg_parent = cg.root / parent_cgroup
     cg_jail = cg_parent / vm.jailer.jailer_id
+
+    # if no cgroups were specified, then the jailer should move the FC process
+    # to the parent group
+    if len(vm.jailer.cgroups) == 0:
+        procs = cg_parent.joinpath("cgroup.procs").read_text().splitlines()
+        assert str(vm.firecracker_pid) in procs
+
     for cgroup in vm.jailer.cgroups:
         controller = cgroup.split(".")[0]
         file_name, value = cgroup.split("=")
@@ -405,6 +412,24 @@ def test_v1_default_cgroups(test_microvm_with_api, cgroups_info):
     test_microvm.spawn()
     check_cgroups_v1(test_microvm.jailer.cgroups, test_microvm.jailer.jailer_id)
 
+
+def test_cgroups_custom_parent_move(test_microvm_with_api, cgroups_info):
+    """
+    Test cgroups when a custom parent cgroup is used and no cgroups are specified
+
+    In this case we just want to move under the parent cgroup
+    """
+    if cgroups_info.version != 2:
+        pytest.skip("cgroupsv2 only")
+    test_microvm = test_microvm_with_api
+    test_microvm.jailer.cgroup_ver = cgroups_info.version
+    # Make it somewhat unique so it doesn't conflict with other test runs
+    parent_cgroup = f"custom_cgroup/{test_microvm.id[:8]}"
+    test_microvm.jailer.parent_cgroup = parent_cgroup
+
+    cgroups_info.new_cgroup(parent_cgroup)
+    test_microvm.spawn()
+    check_cgroups_v2(test_microvm)
 
 
 def test_args_default_resource_limits(test_microvm_with_api):
