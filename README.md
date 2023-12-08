@@ -136,7 +136,7 @@ We test all combinations of:
 | m6i.metal | al2    linux_5.10 |              | linux_5.10   |
 | m6a.metal | al2023 linux_6.1  |              |              |
 | m6g.metal |                   |              |              |
-| c7g.metal |                   |              |              |
+| m7g.metal |                   |              |              |
 
 ## Known issues and Limitations
 
