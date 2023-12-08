@@ -15,7 +15,7 @@ DEFAULT_INSTANCES = [
     "m6i.metal",
     "m6a.metal",
     "m6g.metal",
-    "c7g.metal",
+    "m7g.metal",
 ]
 
 DEFAULT_PLATFORMS = [

@@ -38,7 +38,7 @@ defaults = {
 defaults = overlay_dict(defaults, args.step_param)
 
 defaults_once_per_architecture = defaults.copy()
-defaults_once_per_architecture["instances"] = ["m6i.metal", "c7g.metal"]
+defaults_once_per_architecture["instances"] = ["m6i.metal", "m7g.metal"]
 defaults_once_per_architecture["platforms"] = [("al2", "linux_5.10")]
 
 
