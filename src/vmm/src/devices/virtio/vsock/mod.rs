@@ -30,6 +30,7 @@ pub use self::defs::uapi::VIRTIO_ID_VSOCK as TYPE_VSOCK;
 pub use self::defs::VSOCK_DEV_ID;
 pub use self::device::Vsock;
 pub use self::unix::{VsockUnixBackend, VsockUnixBackendError};
+use crate::devices::virtio::iovec::IoVecError;
 use crate::devices::virtio::persist::PersistError as VirtioStateError;
 use crate::vstate::memory::GuestMemoryMmap;
 
@@ -121,7 +122,7 @@ pub enum VsockError {
     /// Bounds check failed on guest memory pointer.
     GuestMemoryBounds,
     /// The vsock header descriptor length is too small: {0}
-    HdrDescTooSmall(u32),
+    HdrDescTooSmall(usize),
     /// The vsock header `len` field holds an invalid value: {0}
     InvalidPktLen(u32),
     /// A data fetch was attempted when no data was available.
@@ -136,6 +137,16 @@ pub enum VsockError {
     VirtioState(VirtioStateError),
     /// Vsock uds backend error: {0}
     VsockUdsBackend(VsockUnixBackendError),
+}
+
+impl From<IoVecError> for VsockError {
+    fn from(value: IoVecError) -> Self {
+        match value {
+            IoVecError::WriteOnlyDescriptor => VsockError::UnreadableDescriptor,
+            IoVecError::ReadOnlyDescriptor => VsockError::UnwritableDescriptor,
+            IoVecError::GuestMemory(err) => VsockError::GuestMemoryMmap(err),
+        }
+    }
 }
 
 /// A passive, event-driven object, that needs to be notified whenever an epoll-able event occurs.
