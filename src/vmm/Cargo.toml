@@ -34,7 +34,7 @@ vm-superio = "0.7.0"
 vm-memory = { version = "0.13.1", features = ["backend-mmap", "backend-bitmap"] }
 log = { version = "0.4.17", features = ["std", "serde"] }
 aes-gcm =  { version = "0.10.1", default-features = false, features = ["aes"] }
-base64 = "0.13.0"
+base64 = "0.21.0"
 bincode = "1.2.1"
 micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 log-instrument = { path = "../log-instrument", optional = true }
