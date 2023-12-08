@@ -62,11 +62,12 @@ impl TryFrom<&Request> for ParsedRequest {
     type Error = Error;
     fn try_from(request: &Request) -> Result<Self, Self::Error> {
         let request_uri = request.uri().get_abs_path().to_string();
-        log_received_api_request(describe(
+        let description = describe(
             request.method(),
             request_uri.as_str(),
             request.body.as_ref(),
-        ));
+        );
+        info!("The API server received a {description}.");
 
         // Split request uri by '/' by doing:
         // 1. Trim starting '/' characters
@@ -205,14 +206,6 @@ impl ParsedRequest {
     pub(crate) fn new_sync(vmm_action: VmmAction) -> ParsedRequest {
         ParsedRequest::new(RequestAction::Sync(Box::new(vmm_action)))
     }
-}
-
-/// Helper function for writing the received API requests to the log.
-///
-/// The `info` macro is used for logging.
-#[inline]
-fn log_received_api_request(api_description: String) {
-    info!("The API server received a {}.", api_description);
 }
 
 /// Helper function for metric-logging purposes on API requests.
