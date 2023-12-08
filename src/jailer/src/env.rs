@@ -233,11 +233,24 @@ impl Env {
             .parse::<u8>()
             .map_err(|_| JailerError::CgroupInvalidVersion(cgroup_ver.to_string()))?;
 
-        let mut cgroup_builder = None;
+        let cgroups_args: &[String] = arguments.multiple_values("cgroup").unwrap_or_default();
+
+        // If the --parent-cgroup exists, and we have no other cgroups,
+        // then the intent is to move the process to that cgroup.
+        // Only applies to cgroupsv2 since it's a unified hierarchy
+        if cgroups_args.is_empty() && cgroup_ver == 2 {
+            let mut builder = CgroupBuilder::new(cgroup_ver)?;
+            let cg_parent = builder.get_v2_hierarchy_path()?.join(parent_cgroup);
+            let cg_parent_procs = cg_parent.join("cgroup.procs");
+            if cg_parent.exists() {
+                fs::write(cg_parent_procs, std::process::id().to_string())
+                    .map_err(|_| JailerError::CgroupWrite(io::Error::last_os_error()))?;
+            }
+        }
 
         // cgroup format: <cgroup_controller>.<cgroup_property>=<value>,...
         if let Some(cgroups_args) = arguments.multiple_values("cgroup") {
-            let builder = cgroup_builder.get_or_insert(CgroupBuilder::new(cgroup_ver)?);
+            let mut builder = CgroupBuilder::new(cgroup_ver)?;
             for cg in cgroups_args {
                 let aux: Vec<&str> = cg.split('=').collect();
                 if aux.len() != 2 || aux[1].is_empty() {
