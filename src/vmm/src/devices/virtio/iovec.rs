@@ -4,6 +4,7 @@
 use std::io::ErrorKind;
 
 use libc::{c_void, iovec, size_t};
+use smallvec::SmallVec;
 use vm_memory::{
     GuestMemoryError, ReadVolatile, VolatileMemoryError, VolatileSlice, WriteVolatile,
 };
@@ -29,7 +30,7 @@ pub enum IoVecError {
 #[derive(Debug)]
 pub struct IoVecBuffer {
     // container of the memory regions included in this IO vector
-    vecs: Vec<iovec>,
+    vecs: SmallVec<[iovec; 4]>,
     // Total length of the IoVecBuffer
     len: usize,
 }
@@ -37,7 +38,7 @@ pub struct IoVecBuffer {
 impl IoVecBuffer {
     /// Create an `IoVecBuffer` from a `DescriptorChain`
     pub fn from_descriptor_chain(head: DescriptorChain) -> Result<Self, IoVecError> {
-        let mut vecs = vec![];
+        let mut vecs = SmallVec::new();
         let mut len = 0usize;
 
         let mut next_descriptor = Some(head);
@@ -164,7 +165,7 @@ impl IoVecBuffer {
 #[derive(Debug)]
 pub struct IoVecBufferMut {
     // container of the memory regions included in this IO vector
-    vecs: Vec<iovec>,
+    vecs: SmallVec<[iovec; 4]>,
     // Total length of the IoVecBufferMut
     len: usize,
 }
@@ -172,7 +173,7 @@ pub struct IoVecBufferMut {
 impl IoVecBufferMut {
     /// Create an `IoVecBufferMut` from a `DescriptorChain`
     pub fn from_descriptor_chain(head: DescriptorChain) -> Result<Self, IoVecError> {
-        let mut vecs = vec![];
+        let mut vecs = SmallVec::new();
         let mut len = 0usize;
 
         for desc in head {
@@ -295,7 +296,8 @@ mod tests {
                 vecs: vec![iovec {
                     iov_base: buf.as_ptr() as *mut c_void,
                     iov_len: buf.len(),
-                }],
+                }]
+                .into(),
                 len: buf.len(),
             }
         }
@@ -325,7 +327,8 @@ mod tests {
                 vecs: vec![iovec {
                     iov_base: buf.as_mut_ptr().cast::<c_void>(),
                     iov_len: buf.len(),
-                }],
+                }]
+                .into(),
                 len: buf.len(),
             }
         }
@@ -544,6 +547,7 @@ mod verification {
     use std::mem::ManuallyDrop;
 
     use libc::{c_void, iovec};
+    use smallvec::SmallVec;
 
     use super::{IoVecBuffer, IoVecBufferMut};
 
@@ -557,7 +561,7 @@ mod verification {
     // >= 1.
     const MAX_DESC_LENGTH: usize = 4;
 
-    fn create_iovecs(mem: *mut u8, size: usize) -> (Vec<iovec>, usize) {
+    fn create_iovecs(mem: *mut u8, size: usize) -> (SmallVec<[iovec; 4]>, usize) {
         let nr_descs: usize = kani::any_where(|&n| n <= MAX_DESC_LENGTH);
         let mut vecs: Vec<iovec> = Vec::with_capacity(nr_descs);
         let mut len = 0usize;
@@ -575,7 +579,7 @@ mod verification {
             len += iov_len;
         }
 
-        (vecs, len)
+        (vecs.into(), len)
     }
 
     impl kani::Arbitrary for IoVecBuffer {
