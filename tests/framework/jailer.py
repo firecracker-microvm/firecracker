@@ -72,7 +72,7 @@ class JailerContext:
         self.new_pid_ns = new_pid_ns
         self.extra_args = extra_args
         self.api_socket_name = DEFAULT_USOCKET_NAME
-        self.cgroups = cgroups
+        self.cgroups = cgroups or []
         self.resource_limits = resource_limits
         self.cgroup_ver = cgroup_ver
         self.parent_cgroup = parent_cgroup
@@ -112,7 +112,7 @@ class JailerContext:
             jailer_param_list.extend(["--parent-cgroup", str(self.parent_cgroup)])
         if self.cgroup_ver:
             jailer_param_list.extend(["--cgroup-version", str(self.cgroup_ver)])
-        if self.cgroups is not None:
+        if self.cgroups:
             for cgroup in self.cgroups:
                 jailer_param_list.extend(["--cgroup", str(cgroup)])
         if self.resource_limits is not None:
