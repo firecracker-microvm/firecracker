@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that verify the jailer's behavior."""
 
-import functools
 import http.client as http_client
 import os
 import resource
@@ -196,24 +195,30 @@ def test_arbitrary_usocket_location(test_microvm_with_api):
     )
 
 
-@functools.lru_cache(maxsize=None)
-def cgroup_v2_available():
-    """Check if cgroup-v2 is enabled on the system."""
-    # https://rootlesscontaine.rs/getting-started/common/cgroup2/#checking-whether-cgroup-v2-is-already-enabled
-    return os.path.isfile("/sys/fs/cgroup/cgroup.controllers")
+class Cgroups:
+    """Helper class to work with cgroups"""
+
+    def __init__(self):
+        self.root = Path("/sys/fs/cgroup")
+        self.version = 2
+        # https://rootlesscontaine.rs/getting-started/common/cgroup2/#checking-whether-cgroup-v2-is-already-enabled
+        if not self.root.joinpath("cgroup.controllers").exists():
+            self.version = 1
+
+    def new_cgroup(self, cgname):
+        """Create a new cgroup"""
+        self.root.joinpath(cgname).mkdir(parents=True)
+
+    def move_pid(self, cgname, pid):
+        """Move a PID to a cgroup"""
+        cg_pids = self.root.joinpath(f"{cgname}/cgroup.procs")
+        cg_pids.write_text(f"{pid}\n", encoding="ascii")
 
 
 @pytest.fixture(scope="session", autouse=True)
-def sys_setup_cgroups():
-    """Configure cgroupfs in order to run the tests.
-
-    This fixture sets up the cgroups on the system to enable processes
-    spawned by the tests be able to create cgroups successfully.
-    This set-up is important to do when running from inside a Docker
-    container while the system is using cgroup-v2.
-    """
-    cgroup_version = 2 if cgroup_v2_available() else 1
-    yield cgroup_version
+def cgroups_info():
+    """Return a fixture with the cgroups available in the system"""
+    return Cgroups()
 
 
 def check_cgroups_v1(cgroups, jailer_id, parent_cgroup=FC_BINARY_NAME):
@@ -237,13 +242,12 @@ def check_cgroups_v1(cgroups, jailer_id, parent_cgroup=FC_BINARY_NAME):
 
 def check_cgroups_v2(vm):
     """Assert that every cgroupv2 in cgroups is correctly set."""
-    # We assume sysfs cgroups are mounted here.
-    cg_root = Path("/sys/fs/cgroup")
-    assert cg_root.is_dir()
+    cg = Cgroups()
+    assert cg.root.is_dir()
     parent_cgroup = vm.jailer.parent_cgroup
     if parent_cgroup is None:
         parent_cgroup = FC_BINARY_NAME
-    cg_parent = cg_root / parent_cgroup
+    cg_parent = cg.root / parent_cgroup
     cg_jail = cg_parent / vm.jailer.jailer_id
     for cgroup in vm.jailer.cgroups:
         controller = cgroup.split(".")[0]
@@ -256,7 +260,7 @@ def check_cgroups_v2(vm):
         assert all(x.isnumeric() for x in procs)
         assert str(vm.firecracker_pid) in procs
 
-        for cgroup in [cg_root, cg_parent, cg_jail]:
+        for cgroup in [cg.root, cg_parent, cg_jail]:
             assert controller in cgroup.joinpath("cgroup.controllers").read_text(
                 encoding="ascii"
             )
@@ -290,12 +294,12 @@ def check_limits(pid, no_file, fsize):
     assert hard == fsize
 
 
-def test_cgroups(test_microvm_with_api, sys_setup_cgroups):
+def test_cgroups(test_microvm_with_api, cgroups_info):
     """
     Test the cgroups are correctly set by the jailer.
     """
     test_microvm = test_microvm_with_api
-    test_microvm.jailer.cgroup_ver = sys_setup_cgroups
+    test_microvm.jailer.cgroup_ver = cgroups_info.version
     if test_microvm.jailer.cgroup_ver == 2:
         test_microvm.jailer.cgroups = ["cpu.weight.nice=10"]
     else:
@@ -318,12 +322,12 @@ def test_cgroups(test_microvm_with_api, sys_setup_cgroups):
         check_cgroups_v2(test_microvm)
 
 
-def test_cgroups_custom_parent(test_microvm_with_api, sys_setup_cgroups):
+def test_cgroups_custom_parent(test_microvm_with_api, cgroups_info):
     """
     Test cgroups when a custom parent cgroup is used.
     """
     test_microvm = test_microvm_with_api
-    test_microvm.jailer.cgroup_ver = sys_setup_cgroups
+    test_microvm.jailer.cgroup_ver = cgroups_info.version
     test_microvm.jailer.parent_cgroup = "custom_cgroup/group2"
     if test_microvm.jailer.cgroup_ver == 2:
         test_microvm.jailer.cgroups = ["cpu.weight=2"]
@@ -350,12 +354,12 @@ def test_cgroups_custom_parent(test_microvm_with_api, sys_setup_cgroups):
         check_cgroups_v2(test_microvm)
 
 
-def test_node_cgroups(test_microvm_with_api, sys_setup_cgroups):
+def test_node_cgroups(test_microvm_with_api, cgroups_info):
     """
     Test the numa node cgroups are correctly set by the jailer.
     """
     test_microvm = test_microvm_with_api
-    test_microvm.jailer.cgroup_ver = sys_setup_cgroups
+    test_microvm.jailer.cgroup_ver = cgroups_info.version
 
     # Retrieve CPUs from NUMA node 0.
     node_cpus = get_cpus(0)
@@ -371,12 +375,12 @@ def test_node_cgroups(test_microvm_with_api, sys_setup_cgroups):
         check_cgroups_v2(test_microvm)
 
 
-def test_cgroups_without_numa(test_microvm_with_api, sys_setup_cgroups):
+def test_cgroups_without_numa(test_microvm_with_api, cgroups_info):
     """
     Test the cgroups are correctly set by the jailer, without numa assignment.
     """
     test_microvm = test_microvm_with_api
-    test_microvm.jailer.cgroup_ver = sys_setup_cgroups
+    test_microvm.jailer.cgroup_ver = cgroups_info.version
     if test_microvm.jailer.cgroup_ver == 2:
         test_microvm.jailer.cgroups = ["cpu.weight=2"]
     else:
@@ -390,18 +394,15 @@ def test_cgroups_without_numa(test_microvm_with_api, sys_setup_cgroups):
         check_cgroups_v2(test_microvm)
 
 
-@pytest.mark.skipif(
-    cgroup_v2_available() is True, reason="Requires system with cgroup-v1 enabled."
-)
-def test_v1_default_cgroups(test_microvm_with_api):
+def test_v1_default_cgroups(test_microvm_with_api, cgroups_info):
     """
     Test if the jailer is using cgroup-v1 by default.
     """
+    if cgroups_info.version != 1:
+        pytest.skip(reason="Requires system with cgroup-v1 enabled.")
     test_microvm = test_microvm_with_api
     test_microvm.jailer.cgroups = ["cpu.shares=2"]
-
     test_microvm.spawn()
-
     check_cgroups_v1(test_microvm.jailer.cgroups, test_microvm.jailer.jailer_id)
 
 
