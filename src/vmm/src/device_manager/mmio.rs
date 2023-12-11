@@ -467,7 +467,7 @@ mod tests {
 
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
-    use crate::devices::virtio::queue::Queue;
+    use crate::devices::virtio::queue::{Queue, QueueIter, QueueIterMut};
     use crate::devices::virtio::ActivateError;
     use crate::vstate::memory::{GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
     use crate::{builder, Vm};
@@ -535,12 +535,12 @@ mod tests {
             0
         }
 
-        fn queues(&self) -> &[Queue] {
-            &self.queues
+        fn queues(&self) -> QueueIter {
+            self.queues.iter()
         }
 
-        fn queues_mut(&mut self) -> &mut [Queue] {
-            &mut self.queues
+        fn queues_mut(&mut self) -> QueueIterMut {
+            self.queues.iter_mut()
         }
 
         fn queue_events(&self) -> &[EventFd] {

@@ -32,7 +32,7 @@ use crate::devices::virtio::gen::virtio_blk::{
     VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES, VIRTIO_F_VERSION_1,
 };
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use crate::devices::virtio::queue::Queue;
+use crate::devices::virtio::queue::{Queue, QueueIter, QueueIterMut};
 use crate::devices::virtio::virtio_block::metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
 use crate::logger::{error, warn, IncMetric};
@@ -596,12 +596,12 @@ impl VirtioDevice for VirtioBlock {
         TYPE_BLOCK
     }
 
-    fn queues(&self) -> &[Queue] {
-        &self.queues
+    fn queues(&self) -> QueueIter {
+        self.queues.iter()
     }
 
-    fn queues_mut(&mut self) -> &mut [Queue] {
-        &mut self.queues
+    fn queues_mut(&mut self) -> QueueIterMut {
+        self.queues.iter_mut()
     }
 
     fn queue_events(&self) -> &[EventFd] {

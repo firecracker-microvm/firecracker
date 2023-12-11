@@ -32,7 +32,7 @@ use super::defs::uapi;
 use super::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
 use super::{defs, VsockBackend};
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
-use crate::devices::virtio::queue::Queue as VirtQueue;
+use crate::devices::virtio::queue::{Queue as VirtQueue, QueueIter, QueueIterMut};
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::devices::virtio::vsock::VsockError;
 use crate::devices::virtio::ActivateError;
@@ -276,12 +276,12 @@ where
         uapi::VIRTIO_ID_VSOCK
     }
 
-    fn queues(&self) -> &[VirtQueue] {
-        &self.queues
+    fn queues(&self) -> QueueIter {
+        self.queues.iter()
     }
 
-    fn queues_mut(&mut self) -> &mut [VirtQueue] {
-        &mut self.queues
+    fn queues_mut(&mut self) -> QueueIterMut {
+        self.queues.iter_mut()
     }
 
     fn queue_events(&self) -> &[EventFd] {

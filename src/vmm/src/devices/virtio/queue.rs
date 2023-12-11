@@ -36,6 +36,9 @@ pub enum QueueError {
     UsedRing(#[from] vm_memory::GuestMemoryError),
 }
 
+pub type QueueIter<'a> = std::slice::Iter<'a, Queue>;
+pub type QueueIterMut<'a> = std::slice::IterMut<'a, Queue>;
+
 /// A virtio descriptor constraints with C representative.
 #[repr(C)]
 #[derive(Default, Clone, Copy)]

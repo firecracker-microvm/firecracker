@@ -118,7 +118,7 @@ impl VirtioDeviceState {
             device_type: device.device_type(),
             avail_features: device.avail_features(),
             acked_features: device.acked_features(),
-            queues: device.queues().iter().map(Persist::save).collect(),
+            queues: device.queues().map(Persist::save).collect(),
             interrupt_status: device.interrupt_status().load(Ordering::Relaxed),
             interrupt_status_old: device.interrupt_status().load(Ordering::Relaxed) as usize,
             activated: device.is_activated(),

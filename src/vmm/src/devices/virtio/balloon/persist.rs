@@ -209,7 +209,7 @@ mod tests {
         assert_eq!(restored_balloon.acked_features, balloon.acked_features);
         assert_eq!(restored_balloon.avail_features, balloon.avail_features);
         assert_eq!(restored_balloon.config_space, balloon.config_space);
-        assert_eq!(restored_balloon.queues(), balloon.queues());
+        assert!(restored_balloon.queues().eq(balloon.queues()));
         assert_eq!(
             restored_balloon.interrupt_status().load(Ordering::Relaxed),
             balloon.interrupt_status().load(Ordering::Relaxed)

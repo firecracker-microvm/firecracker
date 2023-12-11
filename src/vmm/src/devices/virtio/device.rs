@@ -12,8 +12,8 @@ use std::sync::Arc;
 use utils::eventfd::EventFd;
 
 use super::mmio::{VIRTIO_MMIO_INT_CONFIG, VIRTIO_MMIO_INT_VRING};
-use super::queue::Queue;
 use super::ActivateError;
+use crate::devices::virtio::queue::{QueueIter, QueueIterMut};
 use crate::devices::virtio::AsAny;
 use crate::logger::{error, warn};
 use crate::vstate::memory::GuestMemoryMmap;
@@ -111,10 +111,10 @@ pub trait VirtioDevice: AsAny + Send {
     fn device_type(&self) -> u32;
 
     /// Returns the device queues.
-    fn queues(&self) -> &[Queue];
+    fn queues(&self) -> QueueIter;
 
     /// Returns a mutable reference to the device queues.
-    fn queues_mut(&mut self) -> &mut [Queue];
+    fn queues_mut(&mut self) -> QueueIterMut;
 
     /// Returns the device queues event fds.
     fn queue_events(&self) -> &[EventFd];
@@ -190,6 +190,7 @@ impl fmt::Debug for dyn VirtioDevice {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::devices::virtio::queue::{QueueIter, QueueIterMut};
 
     impl IrqTrigger {
         pub fn has_pending_irq(&self, irq_type: IrqType) -> bool {
@@ -254,11 +255,11 @@ pub(crate) mod tests {
             todo!()
         }
 
-        fn queues(&self) -> &[Queue] {
+        fn queues(&self) -> QueueIter {
             todo!()
         }
 
-        fn queues_mut(&mut self) -> &mut [Queue] {
+        fn queues_mut(&mut self) -> QueueIterMut {
             todo!()
         }
 

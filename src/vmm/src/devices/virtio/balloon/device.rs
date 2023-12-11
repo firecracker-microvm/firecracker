@@ -14,7 +14,6 @@ use utils::eventfd::EventFd;
 use utils::u64_to_usize;
 
 use super::super::device::{DeviceState, VirtioDevice};
-use super::super::queue::Queue;
 use super::super::{ActivateError, TYPE_BALLOON};
 use super::metrics::METRICS;
 use super::util::{compact_page_frame_numbers, remove_range};
@@ -30,6 +29,7 @@ use super::{
 use crate::devices::virtio::balloon::BalloonError;
 use crate::devices::virtio::device::{IrqTrigger, IrqType};
 use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
+use crate::devices::virtio::queue::{Queue, QueueIter, QueueIterMut};
 use crate::logger::IncMetric;
 use crate::vstate::memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
@@ -573,12 +573,12 @@ impl VirtioDevice for Balloon {
         TYPE_BALLOON
     }
 
-    fn queues(&self) -> &[Queue] {
-        &self.queues
+    fn queues(&self) -> QueueIter {
+        self.queues.iter()
     }
 
-    fn queues_mut(&mut self) -> &mut [Queue] {
-        &mut self.queues
+    fn queues_mut(&mut self) -> QueueIterMut {
+        self.queues.iter_mut()
     }
 
     fn queue_events(&self) -> &[EventFd] {

@@ -33,7 +33,7 @@ use crate::devices::virtio::net::tap::Tap;
 use crate::devices::virtio::net::{
     gen, NetError, NetQueue, MAX_BUFFER_SIZE, NET_QUEUE_SIZES, RX_INDEX, TX_INDEX,
 };
-use crate::devices::virtio::queue::{DescriptorChain, Queue};
+use crate::devices::virtio::queue::{DescriptorChain, Queue, QueueIter, QueueIterMut};
 use crate::devices::virtio::{ActivateError, TYPE_NET};
 use crate::devices::{report_net_event_fail, DeviceError};
 use crate::dumbo::pdu::arp::ETH_IPV4_FRAME_LEN;
@@ -787,12 +787,12 @@ impl VirtioDevice for Net {
         TYPE_NET
     }
 
-    fn queues(&self) -> &[Queue] {
-        &self.queues
+    fn queues(&self) -> QueueIter {
+        self.queues.iter()
     }
 
-    fn queues_mut(&mut self) -> &mut [Queue] {
-        &mut self.queues
+    fn queues_mut(&mut self) -> QueueIterMut {
+        self.queues.iter_mut()
     }
 
     fn queue_events(&self) -> &[EventFd] {
@@ -845,7 +845,7 @@ impl VirtioDevice for Net {
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
         let event_idx = self.has_feature(u64::from(VIRTIO_RING_F_EVENT_IDX));
         if event_idx {
-            for queue in &mut self.queues {
+            for queue in self.queues_mut() {
                 queue.enable_notif_suppression();
             }
         }
@@ -2007,10 +2007,9 @@ pub mod tests {
         let net = th.net.lock().unwrap();
 
         // Test queues count (TX and RX).
-        let queues = net.queues();
-        assert_eq!(queues.len(), NET_QUEUE_SIZES.len());
-        assert_eq!(queues[RX_INDEX].size(), th.rxq.size());
-        assert_eq!(queues[TX_INDEX].size(), th.txq.size());
+        assert_eq!(net.queues().count(), NET_QUEUE_SIZES.len());
+        assert_eq!(net.queues().nth(RX_INDEX).unwrap().size(), th.rxq.size());
+        assert_eq!(net.queues().nth(TX_INDEX).unwrap().size(), th.txq.size());
 
         // Test corresponding queues events.
         assert_eq!(net.queue_events().len(), NET_QUEUE_SIZES.len());
@@ -2028,8 +2027,7 @@ pub mod tests {
         th.activate_net();
 
         let net = th.net();
-        let queues = net.queues();
-        assert!(queues[RX_INDEX].uses_notif_suppression());
-        assert!(queues[TX_INDEX].uses_notif_suppression());
+        assert!(net.queues().nth(RX_INDEX).unwrap().uses_notif_suppression());
+        assert!(net.queues().nth(TX_INDEX).unwrap().uses_notif_suppression());
     }
 }

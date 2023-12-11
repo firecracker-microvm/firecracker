@@ -97,10 +97,7 @@ impl MmioTransport {
     }
 
     fn are_queues_valid(&self) -> bool {
-        self.locked_device()
-            .queues()
-            .iter()
-            .all(|q| q.is_valid(&self.mem))
+        self.locked_device().queues().all(|q| q.is_valid(&self.mem))
     }
 
     fn with_queue<U, F>(&self, d: U, f: F) -> U
@@ -111,7 +108,7 @@ impl MmioTransport {
         match self
             .locked_device()
             .queues()
-            .get(self.queue_select as usize)
+            .nth(self.queue_select as usize)
         {
             Some(queue) => f(queue),
             None => d,
@@ -122,7 +119,7 @@ impl MmioTransport {
         if let Some(queue) = self
             .locked_device()
             .queues_mut()
-            .get_mut(self.queue_select as usize)
+            .nth(self.queue_select as usize)
         {
             f(queue);
             true
@@ -363,6 +360,7 @@ pub(crate) mod tests {
     use utils::u64_to_usize;
 
     use super::*;
+    use crate::devices::virtio::queue::{Queue, QueueIter, QueueIterMut};
     use crate::devices::virtio::ActivateError;
     use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap};
 
@@ -417,12 +415,12 @@ pub(crate) mod tests {
             123
         }
 
-        fn queues(&self) -> &[Queue] {
-            &self.queues
+        fn queues(&self) -> QueueIter {
+            self.queues.iter()
         }
 
-        fn queues_mut(&mut self) -> &mut [Queue] {
-            &mut self.queues
+        fn queues_mut(&mut self) -> QueueIterMut {
+            self.queues.iter_mut()
         }
 
         fn queue_events(&self) -> &[EventFd] {
@@ -482,7 +480,11 @@ pub(crate) mod tests {
         assert_eq!(d.with_queue(0, |q| q.max_size()), 16);
         assert!(d.with_queue_mut(|q| q.set_size(16)));
         assert_eq!(
-            d.locked_device().queues()[d.queue_select as usize].size(),
+            d.locked_device()
+                .queues()
+                .nth(d.queue_select as usize)
+                .unwrap()
+                .size(),
             16
         );
 
@@ -490,7 +492,11 @@ pub(crate) mod tests {
         assert_eq!(d.with_queue(0, |q| q.max_size()), 32);
         assert!(d.with_queue_mut(|q| q.set_size(16)));
         assert_eq!(
-            d.locked_device().queues()[d.queue_select as usize].size(),
+            d.locked_device()
+                .queues()
+                .nth(d.queue_select as usize)
+                .unwrap()
+                .size(),
             16
         );
 
@@ -673,43 +679,52 @@ pub(crate) mod tests {
         assert_eq!(d.queue_select, 3);
 
         d.queue_select = 0;
-        assert_eq!(d.locked_device().queues()[0].size(), 0);
+        assert_eq!(d.locked_device().queues().nth(0).unwrap().size(), 0);
         write_le_u32(&mut buf[..], 16);
         d.bus_write(0x38, &buf[..]);
-        assert_eq!(d.locked_device().queues()[0].size(), 16);
+        assert_eq!(d.locked_device().queues().nth(0).unwrap().size(), 16);
 
-        assert!(!d.locked_device().queues()[0].ready());
+        assert!(!d.locked_device().queues().nth(0).unwrap().ready());
         write_le_u32(&mut buf[..], 1);
         d.bus_write(0x44, &buf[..]);
-        assert!(d.locked_device().queues()[0].ready());
+        assert!(d.locked_device().queues().nth(0).unwrap().ready());
 
-        assert_eq!(d.locked_device().queues()[0].desc_table().0, 0);
+        assert_eq!(d.locked_device().queues().nth(0).unwrap().desc_table().0, 0);
         write_le_u32(&mut buf[..], 123);
         d.bus_write(0x80, &buf[..]);
-        assert_eq!(d.locked_device().queues()[0].desc_table().0, 123);
+        assert_eq!(
+            d.locked_device().queues().nth(0).unwrap().desc_table().0,
+            123
+        );
         d.bus_write(0x84, &buf[..]);
         assert_eq!(
-            d.locked_device().queues()[0].desc_table().0,
+            d.locked_device().queues().nth(0).unwrap().desc_table().0,
             123 + (123 << 32)
         );
 
-        assert_eq!(d.locked_device().queues()[0].avail_ring().0, 0);
+        assert_eq!(d.locked_device().queues().nth(0).unwrap().avail_ring().0, 0);
         write_le_u32(&mut buf[..], 124);
         d.bus_write(0x90, &buf[..]);
-        assert_eq!(d.locked_device().queues()[0].avail_ring().0, 124);
+        assert_eq!(
+            d.locked_device().queues().nth(0).unwrap().avail_ring().0,
+            124
+        );
         d.bus_write(0x94, &buf[..]);
         assert_eq!(
-            d.locked_device().queues()[0].avail_ring().0,
+            d.locked_device().queues().nth(0).unwrap().avail_ring().0,
             124 + (124 << 32)
         );
 
-        assert_eq!(d.locked_device().queues()[0].used_ring().0, 0);
+        assert_eq!(d.locked_device().queues().nth(0).unwrap().used_ring().0, 0);
         write_le_u32(&mut buf[..], 125);
         d.bus_write(0xa0, &buf[..]);
-        assert_eq!(d.locked_device().queues()[0].used_ring().0, 125);
+        assert_eq!(
+            d.locked_device().queues().nth(0).unwrap().used_ring().0,
+            125
+        );
         d.bus_write(0xa4, &buf[..]);
         assert_eq!(
-            d.locked_device().queues()[0].used_ring().0,
+            d.locked_device().queues().nth(0).unwrap().used_ring().0,
             125 + (125 << 32)
         );
 

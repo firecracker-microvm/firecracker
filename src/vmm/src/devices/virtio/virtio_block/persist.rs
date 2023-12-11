@@ -328,7 +328,7 @@ mod tests {
         assert_eq!(restored_block.device_type(), TYPE_BLOCK);
         assert_eq!(restored_block.avail_features(), block.avail_features());
         assert_eq!(restored_block.acked_features(), block.acked_features());
-        assert_eq!(restored_block.queues(), block.queues());
+        assert!(restored_block.queues().eq(block.queues()));
         assert_eq!(
             restored_block.interrupt_status().load(Ordering::Relaxed),
             block.interrupt_status().load(Ordering::Relaxed)

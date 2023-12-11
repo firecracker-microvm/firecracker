@@ -14,7 +14,7 @@ use super::{RNG_NUM_QUEUES, RNG_QUEUE};
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::devices::virtio::gen::virtio_rng::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::iovec::IoVecBufferMut;
-use crate::devices::virtio::queue::{Queue, FIRECRACKER_MAX_QUEUE_SIZE};
+use crate::devices::virtio::queue::{Queue, QueueIter, QueueIterMut, FIRECRACKER_MAX_QUEUE_SIZE};
 use crate::devices::virtio::{ActivateError, TYPE_RNG};
 use crate::devices::DeviceError;
 use crate::logger::{debug, error, IncMetric};
@@ -246,12 +246,12 @@ impl VirtioDevice for Entropy {
         TYPE_RNG
     }
 
-    fn queues(&self) -> &[Queue] {
-        &self.queues
+    fn queues(&self) -> QueueIter {
+        self.queues.iter()
     }
 
-    fn queues_mut(&mut self) -> &mut [Queue] {
-        &mut self.queues
+    fn queues_mut(&mut self) -> QueueIterMut {
+        self.queues.iter_mut()
     }
 
     fn queue_events(&self) -> &[EventFd] {
@@ -430,14 +430,24 @@ mod tests {
         let mut entropy_dev = th.device();
 
         // This should succeed, we just added two descriptors
-        let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop(&mem).unwrap();
+        let desc = entropy_dev
+            .queues_mut()
+            .nth(RNG_QUEUE)
+            .unwrap()
+            .pop(&mem)
+            .unwrap();
         assert!(matches!(
             IoVecBufferMut::from_descriptor_chain(&mem, desc,),
             Err(crate::devices::virtio::iovec::IoVecError::ReadOnlyDescriptor)
         ));
 
         // This should succeed, we should have one more descriptor
-        let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop(&mem).unwrap();
+        let desc = entropy_dev
+            .queues_mut()
+            .nth(RNG_QUEUE)
+            .unwrap()
+            .pop(&mem)
+            .unwrap();
         let mut iovec = IoVecBufferMut::from_descriptor_chain(&mem, desc).unwrap();
         assert!(entropy_dev.handle_one(&mut iovec).is_ok());
     }
