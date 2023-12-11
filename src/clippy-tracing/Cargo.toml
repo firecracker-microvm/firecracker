@@ -14,7 +14,7 @@ clap = { version = "4.4.11", features = ["derive"] }
 itertools = "0.12.0"
 proc-macro2 = { version = "1.0.70", features = ["span-locations"] }
 quote = "1.0.28"
-syn = { version = "2.0.39", features = ["full", "extra-traits", "visit", "visit-mut", "printing"] } 
+syn = { version = "2.0.40", features = ["full", "extra-traits", "visit", "visit-mut", "printing"] } 
 walkdir = "2.3.3"
 
 [dev-dependencies]
