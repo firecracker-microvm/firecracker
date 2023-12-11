@@ -75,8 +75,7 @@ def test_drive_io_engine(test_microvm_with_api):
             test_microvm.api.drive.put(io_engine="Async", **kwargs)
         # The Async engine is not supported for older kernels.
         test_microvm.check_log_message(
-            "Received Error. Status code: 400 Bad Request. Message: Unable"
-            " to create the virtio block device: FileEngine(UnsupportedEngine(Async))"
+            "Received Error. Status code: 400 Bad Request. Message: Drive config error: Unable to create the virtio block device: FileEngine(UnsupportedEngine(Async))"
         )
 
         # Now configure the default engine type and check that it works.
@@ -394,7 +393,7 @@ def test_api_machine_config(test_microvm_with_api):
     test_microvm.api.machine_config.patch(mem_size_mib=bad_size)
 
     fail_msg = re.escape(
-        "Invalid Memory Configuration: MemfdSetLen(Custom { kind: InvalidInput, error: TryFromIntError(()) })"
+        "Invalid Memory Configuration: Cannot resize memfd file: Custom { kind: InvalidInput, error: TryFromIntError(()) }"
     )
     with pytest.raises(RuntimeError, match=fail_msg):
         test_microvm.start()
@@ -852,8 +851,8 @@ def _drive_patch(test_microvm):
 
     # Updates to `path_on_host` with an invalid path are not allowed.
     expected_msg = (
-        "Unable to patch the block device: BackingFile(Os { code: 2, "
-        f'kind: NotFound, message: "No such file or directory" }}, "{drive_path}")'
+        "Unable to patch the block device: Device manager error: BackingFile(Os { code: 2, "
+        f'kind: NotFound, message: "No such file or directory" }}, "{drive_path}") Please verify the request arguments.'
     )
     with pytest.raises(RuntimeError, match=re.escape(expected_msg)):
         test_microvm.api.drive.patch(drive_id="scratch", path_on_host=drive_path)
