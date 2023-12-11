@@ -158,9 +158,7 @@ def test_api_requests_logs(test_microvm_with_api):
 
     # Check that the fault message return by the client is also logged in the
     # FIFO.
-    fault_msg = (
-        "The kernel file cannot be opened: No such file or directory (os error 2)"
-    )
+    fault_msg = "Boot source error: The kernel file cannot be opened: No such file or directory (os error 2)"
     with pytest.raises(RuntimeError, match=re.escape(fault_msg)):
         microvm.api.boot.put(kernel_image_path="inexistent_path")
     microvm.check_log_message(
