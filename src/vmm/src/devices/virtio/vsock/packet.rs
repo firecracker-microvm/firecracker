@@ -358,6 +358,7 @@ impl VsockPacket {
 
 #[cfg(test)]
 mod tests {
+    use vm_memory::Bytes;
 
     use super::*;
     use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
@@ -365,14 +366,14 @@ mod tests {
     use crate::devices::virtio::vsock::defs::MAX_PKT_BUF_SIZE;
     use crate::devices::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
     use crate::devices::virtio::vsock::test_utils::TestContext;
-    use crate::vstate::memory::{GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
+    use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
     macro_rules! create_context {
         ($test_ctx:ident, $handler_ctx:ident) => {
             let $test_ctx = TestContext::new();
             let mut $handler_ctx = $test_ctx.create_event_handler_context();
             // For TX packets, hdr.len should be set to a valid value.
-            set_pkt_len(1024, &$handler_ctx.guest_txvq.dtable[0], &$test_ctx.mem);
+            set_pkt_len(4096, &$handler_ctx.guest_txvq.dtable[0], &$test_ctx.mem);
         };
     }
 
@@ -384,15 +385,12 @@ mod tests {
             expect_asm_error!($test_ctx, $handler_ctx, $err, from_rx_virtq_head, RXQ_INDEX);
         };
         ($test_ctx:expr, $handler_ctx:expr, $err:pat, $ctor:ident, $vq_index:ident) => {
-            match VsockPacket::$ctor(
-                &$handler_ctx.device.queues[$vq_index]
+            let result = VsockPacket::$ctor(
+                $handler_ctx.device.queues[$vq_index]
                     .pop(&$test_ctx.mem)
                     .unwrap(),
-            ) {
-                Err($err) => (),
-                Ok(_) => panic!("Packet assembly should've failed!"),
-                Err(other) => panic!("Packet assembly failed with: {:?}", other),
-            }
+            );
+            assert!(matches!(result, Err($err)), "{:?}", result)
         };
     }
 
@@ -414,12 +412,12 @@ mod tests {
     #[test]
     #[allow(clippy::cognitive_complexity)]
     fn test_tx_packet_assembly() {
-        // Test case: successful TX packet assembly.
+        // Test case: successful TX packet assembly as linux < 6.1 would build them.
         {
             create_context!(test_ctx, handler_ctx);
 
             let pkt = VsockPacket::from_tx_virtq_head(
-                &handler_ctx.device.queues[TXQ_INDEX]
+                handler_ctx.device.queues[TXQ_INDEX]
                     .pop(&test_ctx.mem)
                     .unwrap(),
             )
@@ -427,10 +425,6 @@ mod tests {
             assert_eq!(
                 pkt.buf_size(),
                 handler_ctx.guest_txvq.dtable[1].len.get() as usize
-            );
-            assert_eq!(
-                pkt.buf_addr.unwrap().0,
-                handler_ctx.guest_txvq.dtable[1].addr.get()
             );
         }
 
@@ -449,6 +443,7 @@ mod tests {
             handler_ctx.guest_txvq.dtable[0]
                 .len
                 .set(VSOCK_PKT_HDR_SIZE - 1);
+            handler_ctx.guest_txvq.dtable[1].len.set(0);
             expect_asm_error!(tx, test_ctx, handler_ctx, VsockError::HdrDescTooSmall(_));
         }
 
@@ -456,13 +451,12 @@ mod tests {
         {
             create_context!(test_ctx, handler_ctx);
             set_pkt_len(0, &handler_ctx.guest_txvq.dtable[0], &test_ctx.mem);
-            let pkt = VsockPacket::from_tx_virtq_head(
-                &handler_ctx.device.queues[TXQ_INDEX]
+            VsockPacket::from_tx_virtq_head(
+                handler_ctx.device.queues[TXQ_INDEX]
                     .pop(&test_ctx.mem)
                     .unwrap(),
             )
             .unwrap();
-            assert!(pkt.buf_addr.is_none());
         }
 
         // Test case: TX packet has more data than we can handle.
@@ -483,7 +477,7 @@ mod tests {
             create_context!(test_ctx, handler_ctx);
             set_pkt_len(1024, &handler_ctx.guest_txvq.dtable[0], &test_ctx.mem);
             handler_ctx.guest_txvq.dtable[0].flags.set(0);
-            expect_asm_error!(tx, test_ctx, handler_ctx, VsockError::BufDescMissing);
+            expect_asm_error!(tx, test_ctx, handler_ctx, VsockError::BufDescTooSmall);
         }
 
         // Test case: error on write-only buf descriptor.
@@ -511,18 +505,14 @@ mod tests {
         {
             create_context!(test_ctx, handler_ctx);
             let pkt = VsockPacket::from_rx_virtq_head(
-                &handler_ctx.device.queues[RXQ_INDEX]
+                handler_ctx.device.queues[RXQ_INDEX]
                     .pop(&test_ctx.mem)
                     .unwrap(),
             )
             .unwrap();
             assert_eq!(
-                pkt.buf_size,
+                pkt.buf_size(),
                 handler_ctx.guest_rxvq.dtable[1].len.get() as usize
-            );
-            assert_eq!(
-                pkt.buf_addr.unwrap().0,
-                handler_ctx.guest_rxvq.dtable[1].addr.get()
             );
         }
 
@@ -533,22 +523,14 @@ mod tests {
             expect_asm_error!(rx, test_ctx, handler_ctx, VsockError::UnwritableDescriptor);
         }
 
-        // Test case: RX descriptor head cannot fit the entire packet header.
+        // Test case: RX descriptor chain cannot fit packet header
         {
             create_context!(test_ctx, handler_ctx);
             handler_ctx.guest_rxvq.dtable[0]
                 .len
                 .set(VSOCK_PKT_HDR_SIZE - 1);
+            handler_ctx.guest_rxvq.dtable[1].len.set(0);
             expect_asm_error!(rx, test_ctx, handler_ctx, VsockError::HdrDescTooSmall(_));
-        }
-
-        // Test case: RX descriptor chain is missing the packet buffer descriptor.
-        {
-            create_context!(test_ctx, handler_ctx);
-            handler_ctx.guest_rxvq.dtable[0]
-                .flags
-                .set(VIRTQ_DESC_F_WRITE);
-            expect_asm_error!(rx, test_ctx, handler_ctx, VsockError::BufDescMissing);
         }
     }
 
@@ -568,7 +550,7 @@ mod tests {
 
         create_context!(test_ctx, handler_ctx);
         let mut pkt = VsockPacket::from_rx_virtq_head(
-            &handler_ctx.device.queues[RXQ_INDEX]
+            handler_ctx.device.queues[RXQ_INDEX]
                 .pop(&test_ctx.mem)
                 .unwrap(),
         )
@@ -618,8 +600,17 @@ mod tests {
     #[test]
     fn test_packet_buf() {
         create_context!(test_ctx, handler_ctx);
+        // create_context gives us an rx descriptor chain and a tx descriptor chain pointing to the
+        // same area of memory. We need both a rx-view and a tx-view into the packet, as tx-queue
+        // buffers are read only, while rx queue buffers are write-only
         let mut pkt = VsockPacket::from_rx_virtq_head(
-            &handler_ctx.device.queues[RXQ_INDEX]
+            handler_ctx.device.queues[RXQ_INDEX]
+                .pop(&test_ctx.mem)
+                .unwrap(),
+        )
+        .unwrap();
+        let pkt2 = VsockPacket::from_tx_virtq_head(
+            handler_ctx.device.queues[TXQ_INDEX]
                 .pop(&test_ctx.mem)
                 .unwrap(),
         )
@@ -627,8 +618,6 @@ mod tests {
 
         let buf_desc = &mut handler_ctx.guest_rxvq.dtable[1];
         assert_eq!(pkt.buf_size(), buf_desc.len.get() as usize);
-        assert_eq!(pkt.buf_addr.unwrap().raw_value(), buf_desc.addr.get());
-
         let zeros = vec![0_u8; pkt.buf_size()];
         let data: Vec<u8> = (0..pkt.buf_size())
             .map(|i| ((i as u64) & 0xff) as u8)
@@ -639,24 +628,14 @@ mod tests {
             let mut expected_data = zeros[..offset].to_vec();
             expected_data.extend_from_slice(&data[..pkt.buf_size() - offset]);
 
-            pkt.read_at_offset_from(
-                &test_ctx.mem,
-                offset,
-                &mut data.as_slice(),
-                pkt.buf_size() - offset,
-            )
-            .unwrap();
+            pkt.read_at_offset_from(&mut data.as_slice(), offset, pkt.buf_size() - offset)
+                .unwrap();
 
             buf_desc.check_data(&expected_data);
 
             let mut buf = vec![0; pkt.buf_size()];
-            pkt.write_from_offset_to(
-                &test_ctx.mem,
-                offset,
-                &mut buf.as_mut_slice(),
-                pkt.buf_size() - offset,
-            )
-            .unwrap();
+            pkt2.write_from_offset_to(&mut buf.as_mut_slice(), offset, pkt.buf_size() - offset)
+                .unwrap();
             assert_eq!(&buf[..pkt.buf_size() - offset], &expected_data[offset..]);
         }
 
@@ -669,49 +648,10 @@ mod tests {
         let mut buf = vec![0; pkt.buf_size()];
         for (offset, count) in oob_cases {
             assert!(pkt
-                .read_at_offset_from(&test_ctx.mem, offset, &mut data.as_slice(), count)
+                .read_at_offset_from(&mut data.as_slice(), offset, count)
                 .is_err());
-            assert!(pkt
-                .write_from_offset_to(&test_ctx.mem, offset, &mut buf.as_mut_slice(), count)
-                .is_err());
-        }
-    }
-
-    #[test]
-    fn test_check_bounds_for_buffer_access_edge_cases() {
-        let mut test_ctx = TestContext::new();
-
-        test_ctx.mem = GuestMemoryMmap::from_raw_regions(
-            &[
-                (GuestAddress(0), 500),
-                (GuestAddress(500), 100),
-                (GuestAddress(600), 100),
-            ],
-            false,
-        )
-        .unwrap();
-
-        let edge_cases = vec![
-            // valid packet, but offset = buf_size
-            (GuestAddress(100), 100, 100, 0),
-            // valid packet, but offset > buf_size
-            (GuestAddress(100), 100, 101, 0),
-            // valid packet, but offset + count > buf_size
-            (GuestAddress(100), 100, 50, 51),
-            // packet that crosses into the Gap
-            (GuestAddress(450), 100, 0, 100),
-            // packet that crosses over the Gap
-            (GuestAddress(450), 200, 0, 200),
-        ];
-        for (buf_addr, buf_size, offset, count) in edge_cases {
-            let pkt = VsockPacket {
-                hdr_addr: GuestAddress(0),
-                hdr: Default::default(),
-                buf_addr: Some(buf_addr),
-                buf_size,
-            };
-            assert!(pkt
-                .check_bounds_for_buffer_access(&test_ctx.mem, offset, count)
+            assert!(pkt2
+                .write_from_offset_to(&mut buf.as_mut_slice(), offset, count)
                 .is_err());
         }
     }
