@@ -22,6 +22,14 @@ pub enum IoVecError {
     GuestMemory(#[from] GuestMemoryError),
 }
 
+// Using SmallVec in the kani proofs causes kani to use unbounded amounts of memory
+// during post-processing, and then crash.
+// TODO: remove new-type once kani performance regression are resolved
+#[cfg(kani)]
+type IoVecVec = Vec<iovec>;
+#[cfg(not(kani))]
+type IoVecVec = SmallVec<[iovec; 4]>;
+
 /// This is essentially a wrapper of a `Vec<libc::iovec>` which can be passed to `libc::writev`.
 ///
 /// It describes a buffer passed to us by the guest that is scattered across multiple
@@ -30,7 +38,7 @@ pub enum IoVecError {
 #[derive(Debug)]
 pub struct IoVecBuffer {
     // container of the memory regions included in this IO vector
-    vecs: SmallVec<[iovec; 4]>,
+    vecs: IoVecVec,
     // Total length of the IoVecBuffer
     len: usize,
 }
@@ -38,7 +46,7 @@ pub struct IoVecBuffer {
 impl IoVecBuffer {
     /// Create an `IoVecBuffer` from a `DescriptorChain`
     pub fn from_descriptor_chain(head: DescriptorChain) -> Result<Self, IoVecError> {
-        let mut vecs = SmallVec::new();
+        let mut vecs = IoVecVec::new();
         let mut len = 0usize;
 
         let mut next_descriptor = Some(head);
@@ -165,7 +173,7 @@ impl IoVecBuffer {
 #[derive(Debug)]
 pub struct IoVecBufferMut {
     // container of the memory regions included in this IO vector
-    vecs: SmallVec<[iovec; 4]>,
+    vecs: IoVecVec,
     // Total length of the IoVecBufferMut
     len: usize,
 }
@@ -173,7 +181,7 @@ pub struct IoVecBufferMut {
 impl IoVecBufferMut {
     /// Create an `IoVecBufferMut` from a `DescriptorChain`
     pub fn from_descriptor_chain(head: DescriptorChain) -> Result<Self, IoVecError> {
-        let mut vecs = SmallVec::new();
+        let mut vecs = IoVecVec::new();
         let mut len = 0usize;
 
         for desc in head {
@@ -547,9 +555,11 @@ mod verification {
     use std::mem::ManuallyDrop;
 
     use libc::{c_void, iovec};
-    use smallvec::SmallVec;
+    use vm_memory::bitmap::BitmapSlice;
+    use vm_memory::volatile_memory::Error;
+    use vm_memory::VolatileSlice;
 
-    use super::{IoVecBuffer, IoVecBufferMut};
+    use super::{IoVecBuffer, IoVecBufferMut, IoVecVec};
 
     // Maximum memory size to use for our buffers. For the time being 1KB.
     const GUEST_MEMORY_SIZE: usize = 1 << 10;
@@ -561,7 +571,7 @@ mod verification {
     // >= 1.
     const MAX_DESC_LENGTH: usize = 4;
 
-    fn create_iovecs(mem: *mut u8, size: usize) -> (SmallVec<[iovec; 4]>, usize) {
+    fn create_iovecs(mem: *mut u8, size: usize) -> (IoVecVec, usize) {
         let nr_descs: usize = kani::any_where(|&n| n <= MAX_DESC_LENGTH);
         let mut vecs: Vec<iovec> = Vec::with_capacity(nr_descs);
         let mut len = 0usize;
@@ -579,7 +589,7 @@ mod verification {
             len += iov_len;
         }
 
-        (vecs.into(), len)
+        (vecs, len)
     }
 
     impl kani::Arbitrary for IoVecBuffer {
@@ -608,6 +618,42 @@ mod verification {
         }
     }
 
+    // A mock for the Read-/WriteVolatile implementation for u8 slices that does
+    // not go through rust-vmm's machinery (which would cause kani get stuck during post processing)
+    struct KaniBuffer<'a>(&'a mut [u8]);
+
+    impl vm_memory::ReadVolatile for KaniBuffer<'_> {
+        fn read_volatile<B: BitmapSlice>(
+            &mut self,
+            buf: &mut VolatileSlice<B>,
+        ) -> Result<usize, vm_memory::VolatileMemoryError> {
+            let count = buf.len().min(self.0.len());
+            unsafe {
+                std::ptr::copy_nonoverlapping(self.0.as_ptr(), buf.ptr_guard_mut().as_ptr(), count);
+            }
+            self.0 = std::mem::take(&mut self.0).split_at_mut(count).1;
+            Ok(count)
+        }
+    }
+
+    impl vm_memory::WriteVolatile for KaniBuffer<'_> {
+        fn write_volatile<B: BitmapSlice>(
+            &mut self,
+            buf: &VolatileSlice<B>,
+        ) -> Result<usize, vm_memory::VolatileMemoryError> {
+            let count = buf.len().min(self.0.len());
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    buf.ptr_guard_mut().as_ptr(),
+                    self.0.as_mut_ptr(),
+                    count,
+                );
+            }
+            self.0 = std::mem::take(&mut self.0).split_at_mut(count).1;
+            Ok(count)
+        }
+    }
+
     #[kani::proof]
     #[kani::unwind(5)]
     #[kani::solver(cadical)]
@@ -622,14 +668,15 @@ mod verification {
         // checking the data copied is not exactly trivial.
         //
         // What we can verify is the bytes that we read out from guest memory:
-        // * `None`, if `offset` is past the guest memory.
-        // * `Some(bytes)`, otherwise. In this case, `bytes` is:
         //    - `buf.len()`, if `offset + buf.len() < iov.len()`;
         //    - `iov.len() - offset`, otherwise.
-        match iov.read_at(&mut buf, offset) {
-            None => assert!(offset >= iov.len()),
-            Some(bytes) => assert_eq!(bytes, buf.len().min(iov.len() - offset)),
-        }
+        // Furthermore, we know our Read-/WriteVolatile implementation above is infallible, so
+        // provided that the logic inside read_volatile_at is correct, we should always get Ok(...)
+        assert_eq!(
+            iov.read_volatile_at(&mut KaniBuffer(&mut buf), offset, GUEST_MEMORY_SIZE)
+                .unwrap(),
+            buf.len().min(iov.len().saturating_sub(offset))
+        );
     }
 
     #[kani::proof]
@@ -638,7 +685,7 @@ mod verification {
     fn verify_write_to_iovec() {
         let mut iov_mut: IoVecBufferMut = kani::any();
 
-        let buf = kani::vec::any_vec::<u8, GUEST_MEMORY_SIZE>();
+        let mut buf = kani::vec::any_vec::<u8, GUEST_MEMORY_SIZE>();
         let offset: usize = kani::any();
 
         // We can't really check the contents that the operation here writes into `IoVecBufferMut`,
@@ -646,13 +693,15 @@ mod verification {
         // regions, so checking the data copied is not exactly trivial.
         //
         // What we can verify is the bytes that we write into guest memory:
-        // * `None`, if `offset` is past the guest memory.
-        // * `Some(bytes)`, otherwise. In this case, `bytes` is:
         //    - `buf.len()`, if `offset + buf.len() < iov.len()`;
         //    - `iov.len() - offset`, otherwise.
-        match iov_mut.write_at(&buf, offset) {
-            None => assert!(offset >= iov_mut.len()),
-            Some(bytes) => assert_eq!(bytes, buf.len().min(iov_mut.len() - offset)),
-        }
+        // Furthermore, we know our Read-/WriteVolatile implementation above is infallible, so
+        // provided that the logic inside write_volatile_at is correct, we should always get Ok(...)
+        assert_eq!(
+            iov_mut
+                .write_volatile_at(&mut KaniBuffer(&mut buf), offset, GUEST_MEMORY_SIZE)
+                .unwrap(),
+            buf.len().min(iov_mut.len().saturating_sub(offset))
+        );
     }
 }
