@@ -1,6 +1,6 @@
 {
   "firecracker_version": "1.7.0-dev",
-  "kernel_version": "5.10.205-195.804.amzn2.x86_64",
+  "kernel_version": "5.10.205-195.807.amzn2.x86_64",
   "microcode_version": "0x2007006",
   "bios_version": "1.0",
   "bios_revision": "3.80",
@@ -183,7 +183,7 @@
           },
           {
             "register": "ecx",
-            "bitmap": "0b00000000000000001011111111111111"
+            "bitmap": "0b00000000000000001000111111111111"
           },
           {
             "register": "edx",
@@ -969,7 +969,7 @@
           },
           {
             "register": "edx",
-            "bitmap": "0b00110101001011100011001000100000"
+            "bitmap": "0b00110000001011100011001100100000"
           }
         ]
       },
