@@ -158,7 +158,7 @@ impl MmioTransport {
         //   eventfds, but nothing will happen other than supurious wakeups.
         // . Do not reset config_generation and keep it monotonically increasing
         for queue in self.locked_device().queues_mut() {
-            *queue = Queue::new(queue.get_max_size());
+            *queue = Queue::new(queue.max_size());
         }
     }
 
@@ -243,8 +243,8 @@ impl MmioTransport {
                         }
                         features
                     }
-                    0x34 => self.with_queue(0, |q| u32::from(q.get_max_size())),
-                    0x44 => self.with_queue(0, |q| u32::from(q.ready)),
+                    0x34 => self.with_queue(0, |q| u32::from(q.max_size())),
+                    0x44 => self.with_queue(0, |q| u32::from(q.ready())),
                     0x60 => {
                         // For vhost-user backed devices we need some additional
                         // logic to differentiate between `VIRTIO_MMIO_INT_VRING`
@@ -319,20 +319,20 @@ impl MmioTransport {
                     }
                     0x24 => self.acked_features_select = v,
                     0x30 => self.queue_select = v,
-                    0x38 => self.update_queue_field(|q| q.size = (v & 0xffff) as u16),
-                    0x44 => self.update_queue_field(|q| q.ready = v == 1),
+                    0x38 => self.update_queue_field(|q| q.set_size(v as u16)),
+                    0x44 => self.update_queue_field(|q| q.set_ready(v == 1)),
                     0x64 => {
                         if self.check_device_status(device_status::DRIVER_OK, 0) {
                             self.interrupt_status.fetch_and(!v, Ordering::SeqCst);
                         }
                     }
                     0x70 => self.set_device_status(v),
-                    0x80 => self.update_queue_field(|q| lo(&mut q.desc_table, v)),
-                    0x84 => self.update_queue_field(|q| hi(&mut q.desc_table, v)),
-                    0x90 => self.update_queue_field(|q| lo(&mut q.avail_ring, v)),
-                    0x94 => self.update_queue_field(|q| hi(&mut q.avail_ring, v)),
-                    0xa0 => self.update_queue_field(|q| lo(&mut q.used_ring, v)),
-                    0xa4 => self.update_queue_field(|q| hi(&mut q.used_ring, v)),
+                    0x80 => self.update_queue_field(|q| lo(q.desc_table_mut(), v)),
+                    0x84 => self.update_queue_field(|q| hi(q.desc_table_mut(), v)),
+                    0x90 => self.update_queue_field(|q| lo(q.avail_ring_mut(), v)),
+                    0x94 => self.update_queue_field(|q| hi(q.avail_ring_mut(), v)),
+                    0xa0 => self.update_queue_field(|q| lo(q.used_ring_mut(), v)),
+                    0xa4 => self.update_queue_field(|q| hi(q.used_ring_mut(), v)),
                     _ => {
                         warn!("unknown virtio mmio register write: 0x{:x}", offset);
                     }
@@ -479,18 +479,24 @@ pub(crate) mod tests {
         assert!(!d.are_queues_valid());
 
         d.queue_select = 0;
-        assert_eq!(d.with_queue(0, Queue::get_max_size), 16);
-        assert!(d.with_queue_mut(|q| q.size = 16));
-        assert_eq!(d.locked_device().queues()[d.queue_select as usize].size, 16);
+        assert_eq!(d.with_queue(0, |q| q.max_size()), 16);
+        assert!(d.with_queue_mut(|q| q.set_size(16)));
+        assert_eq!(
+            d.locked_device().queues()[d.queue_select as usize].size(),
+            16
+        );
 
         d.queue_select = 1;
-        assert_eq!(d.with_queue(0, Queue::get_max_size), 32);
-        assert!(d.with_queue_mut(|q| q.size = 16));
-        assert_eq!(d.locked_device().queues()[d.queue_select as usize].size, 16);
+        assert_eq!(d.with_queue(0, |q| q.max_size()), 32);
+        assert!(d.with_queue_mut(|q| q.set_size(16)));
+        assert_eq!(
+            d.locked_device().queues()[d.queue_select as usize].size(),
+            16
+        );
 
         d.queue_select = 2;
-        assert_eq!(d.with_queue(0, Queue::get_max_size), 0);
-        assert!(!d.with_queue_mut(|q| q.size = 16));
+        assert_eq!(d.with_queue(0, |q| q.max_size()), 0);
+        assert!(!d.with_queue_mut(|q| q.set_size(16)));
 
         assert!(!d.are_queues_valid());
     }
@@ -667,42 +673,45 @@ pub(crate) mod tests {
         assert_eq!(d.queue_select, 3);
 
         d.queue_select = 0;
-        assert_eq!(d.locked_device().queues()[0].size, 0);
+        assert_eq!(d.locked_device().queues()[0].size(), 0);
         write_le_u32(&mut buf[..], 16);
         d.bus_write(0x38, &buf[..]);
-        assert_eq!(d.locked_device().queues()[0].size, 16);
+        assert_eq!(d.locked_device().queues()[0].size(), 16);
 
-        assert!(!d.locked_device().queues()[0].ready);
+        assert!(!d.locked_device().queues()[0].ready());
         write_le_u32(&mut buf[..], 1);
         d.bus_write(0x44, &buf[..]);
-        assert!(d.locked_device().queues()[0].ready);
+        assert!(d.locked_device().queues()[0].ready());
 
-        assert_eq!(d.locked_device().queues()[0].desc_table.0, 0);
+        assert_eq!(d.locked_device().queues()[0].desc_table().0, 0);
         write_le_u32(&mut buf[..], 123);
         d.bus_write(0x80, &buf[..]);
-        assert_eq!(d.locked_device().queues()[0].desc_table.0, 123);
+        assert_eq!(d.locked_device().queues()[0].desc_table().0, 123);
         d.bus_write(0x84, &buf[..]);
         assert_eq!(
-            d.locked_device().queues()[0].desc_table.0,
+            d.locked_device().queues()[0].desc_table().0,
             123 + (123 << 32)
         );
 
-        assert_eq!(d.locked_device().queues()[0].avail_ring.0, 0);
+        assert_eq!(d.locked_device().queues()[0].avail_ring().0, 0);
         write_le_u32(&mut buf[..], 124);
         d.bus_write(0x90, &buf[..]);
-        assert_eq!(d.locked_device().queues()[0].avail_ring.0, 124);
+        assert_eq!(d.locked_device().queues()[0].avail_ring().0, 124);
         d.bus_write(0x94, &buf[..]);
         assert_eq!(
-            d.locked_device().queues()[0].avail_ring.0,
+            d.locked_device().queues()[0].avail_ring().0,
             124 + (124 << 32)
         );
 
-        assert_eq!(d.locked_device().queues()[0].used_ring.0, 0);
+        assert_eq!(d.locked_device().queues()[0].used_ring().0, 0);
         write_le_u32(&mut buf[..], 125);
         d.bus_write(0xa0, &buf[..]);
-        assert_eq!(d.locked_device().queues()[0].used_ring.0, 125);
+        assert_eq!(d.locked_device().queues()[0].used_ring().0, 125);
         d.bus_write(0xa4, &buf[..]);
-        assert_eq!(d.locked_device().queues()[0].used_ring.0, 125 + (125 << 32));
+        assert_eq!(
+            d.locked_device().queues()[0].used_ring().0,
+            125 + (125 << 32)
+        );
 
         set_device_status(
             &mut d,

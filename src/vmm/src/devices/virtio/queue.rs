@@ -183,19 +183,19 @@ pub struct Queue {
     pub(crate) max_size: u16,
 
     /// The queue size in elements the driver selected
-    pub size: u16,
+    pub(crate) size: u16,
 
     /// Indicates if the queue is finished with configuration
-    pub ready: bool,
+    pub(crate) ready: bool,
 
     /// Guest physical address of the descriptor table
-    pub desc_table: GuestAddress,
+    pub(crate) desc_table: GuestAddress,
 
     /// Guest physical address of the available ring
-    pub avail_ring: GuestAddress,
+    pub(crate) avail_ring: GuestAddress,
 
     /// Guest physical address of the used ring
-    pub used_ring: GuestAddress,
+    pub(crate) used_ring: GuestAddress,
 
     pub(crate) next_avail: Wrapping<u16>,
     pub(crate) next_used: Wrapping<u16>,
@@ -225,8 +225,52 @@ impl Queue {
     }
 
     /// Maximum size of the queue.
-    pub fn get_max_size(&self) -> u16 {
+    pub fn max_size(&self) -> u16 {
         self.max_size
+    }
+
+    pub fn size(&self) -> u16 {
+        self.size
+    }
+
+    pub fn ready(&self) -> bool {
+        self.ready
+    }
+
+    pub fn desc_table(&self) -> GuestAddress {
+        self.desc_table
+    }
+
+    pub fn avail_ring(&self) -> GuestAddress {
+        self.avail_ring
+    }
+
+    pub fn used_ring(&self) -> GuestAddress {
+        self.used_ring
+    }
+
+    pub fn desc_table_mut(&mut self) -> &mut GuestAddress {
+        &mut self.desc_table
+    }
+
+    pub fn avail_ring_mut(&mut self) -> &mut GuestAddress {
+        &mut self.avail_ring
+    }
+
+    pub fn used_ring_mut(&mut self) -> &mut GuestAddress {
+        &mut self.used_ring
+    }
+
+    pub fn set_max_size(&mut self, val: u16) {
+        self.max_size = val;
+    }
+
+    pub fn set_size(&mut self, val: u16) {
+        self.size = val;
+    }
+
+    pub fn set_ready(&mut self, val: bool) {
+        self.ready = val;
     }
 
     /// Return the actual size of the queue, as the driver may not set up a
@@ -347,7 +391,7 @@ impl Queue {
         &mut self,
         mem: &'b M,
     ) -> Option<DescriptorChain<'b, M>> {
-        if !self.uses_notif_suppression {
+        if !self.uses_notif_suppression() {
             return self.pop(mem);
         }
 
@@ -499,7 +543,7 @@ impl Queue {
 
         // If the device doesn't use notification suppression, we'll continue to get notifications
         // no matter what.
-        if !self.uses_notif_suppression {
+        if !self.uses_notif_suppression() {
             return true;
         }
 
@@ -533,6 +577,10 @@ impl Queue {
         self.uses_notif_suppression = true;
     }
 
+    pub fn uses_notif_suppression(&self) -> bool {
+        self.uses_notif_suppression
+    }
+
     /// Check if we need to kick the guest.
     ///
     /// Please note this method has side effects: once it returns `true`, it considers the
@@ -544,7 +592,7 @@ impl Queue {
         debug_assert!(self.is_layout_valid(mem));
 
         // If the device doesn't use notification suppression, always return true
-        if !self.uses_notif_suppression {
+        if !self.uses_notif_suppression() {
             return true;
         }
 
@@ -959,8 +1007,8 @@ mod verification {
     fn verify_actual_size() {
         let ProofContext(queue, _) = kani::any();
 
-        assert!(queue.actual_size() <= queue.get_max_size());
-        assert!(queue.actual_size() <= queue.size);
+        assert!(queue.actual_size() <= queue.max_size());
+        assert!(queue.actual_size() <= queue.size());
     }
 
     #[kani::proof]
@@ -1075,7 +1123,7 @@ mod tests {
     impl Queue {
         fn avail_event(&self, mem: &GuestMemoryMmap) -> u16 {
             let avail_event_addr = self
-                .used_ring
+                .used_ring()
                 .unchecked_add(u64::from(4 + 8 * self.actual_size()));
 
             mem.read_obj::<u16>(avail_event_addr).unwrap()
@@ -1171,7 +1219,7 @@ mod tests {
         assert!(!q.is_valid(m));
         m.write_obj::<u16>(5_u16, q.avail_ring.unchecked_add(2))
             .unwrap();
-        q.max_size = 2;
+        q.set_max_size(2);
         assert!(!q.is_valid(m));
 
         // reset dirtied values
@@ -1182,23 +1230,23 @@ mod tests {
 
         // or if the various addresses are off
 
-        q.desc_table = GuestAddress(0xffff_ffff);
+        *q.desc_table_mut() = GuestAddress(0xffff_ffff);
         assert!(!q.is_valid(m));
-        q.desc_table = GuestAddress(0x1001);
+        *q.desc_table_mut() = GuestAddress(0x1001);
         assert!(!q.is_valid(m));
-        q.desc_table = vq.dtable_start();
+        *q.desc_table_mut() = vq.dtable_start();
 
-        q.avail_ring = GuestAddress(0xffff_ffff);
+        *q.avail_ring_mut() = GuestAddress(0xffff_ffff);
         assert!(!q.is_valid(m));
-        q.avail_ring = GuestAddress(0x1001);
+        *q.avail_ring_mut() = GuestAddress(0x1001);
         assert!(!q.is_valid(m));
-        q.avail_ring = vq.avail_start();
+        *q.avail_ring_mut() = vq.avail_start();
 
-        q.used_ring = GuestAddress(0xffff_ffff);
+        *q.used_ring_mut() = GuestAddress(0xffff_ffff);
         assert!(!q.is_valid(m));
-        q.used_ring = GuestAddress(0x1001);
+        *q.used_ring_mut() = GuestAddress(0x1001);
         assert!(!q.is_valid(m));
-        q.used_ring = vq.used_start();
+        *q.used_ring_mut() = vq.used_start();
     }
 
     #[test]
@@ -1351,7 +1399,7 @@ mod tests {
         let vq = VirtQueue::new(GuestAddress(0), m, 4);
         let mut q = vq.create_queue();
 
-        q.uses_notif_suppression = true;
+        q.enable_notif_suppression();
 
         // Create 1 descriptor chain of 4.
         for j in 0..4 {
@@ -1476,7 +1524,7 @@ mod tests {
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
         let mut q = vq.create_queue();
 
-        q.ready = true;
+        q.set_ready(true);
 
         // We create a simple descriptor chain
         vq.dtable[0].set(0x1000_u64, 0x1000, 0, 0);

@@ -294,11 +294,11 @@ impl<'a> VirtQueue<'a> {
     pub fn create_queue(&self) -> Queue {
         let mut q = Queue::new(self.size());
 
-        q.size = self.size();
-        q.ready = true;
-        q.desc_table = self.dtable_start();
-        q.avail_ring = self.avail_start();
-        q.used_ring = self.used_start();
+        q.set_size(self.size());
+        q.set_ready(true);
+        *q.desc_table_mut() = self.dtable_start();
+        *q.avail_ring_mut() = self.avail_start();
+        *q.used_ring_mut() = self.used_start();
 
         q
     }

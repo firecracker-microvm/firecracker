@@ -2009,8 +2009,8 @@ pub mod tests {
         // Test queues count (TX and RX).
         let queues = net.queues();
         assert_eq!(queues.len(), NET_QUEUE_SIZES.len());
-        assert_eq!(queues[RX_INDEX].size, th.rxq.size());
-        assert_eq!(queues[TX_INDEX].size, th.txq.size());
+        assert_eq!(queues[RX_INDEX].size(), th.rxq.size());
+        assert_eq!(queues[TX_INDEX].size(), th.txq.size());
 
         // Test corresponding queues events.
         assert_eq!(net.queue_events().len(), NET_QUEUE_SIZES.len());
@@ -2029,7 +2029,7 @@ pub mod tests {
 
         let net = th.net();
         let queues = net.queues();
-        assert!(queues[RX_INDEX].uses_notif_suppression);
-        assert!(queues[TX_INDEX].uses_notif_suppression);
+        assert!(queues[RX_INDEX].uses_notif_suppression());
+        assert!(queues[TX_INDEX].uses_notif_suppression());
     }
 }

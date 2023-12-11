@@ -61,12 +61,12 @@ impl Persist<'_> for Queue {
 
     fn save(&self) -> Self::State {
         QueueState {
-            max_size: self.max_size,
-            size: self.size,
-            ready: self.ready,
-            desc_table: self.desc_table.0,
-            avail_ring: self.avail_ring.0,
-            used_ring: self.used_ring.0,
+            max_size: self.max_size(),
+            size: self.size(),
+            ready: self.ready(),
+            desc_table: self.desc_table().0,
+            avail_ring: self.avail_ring().0,
+            used_ring: self.used_ring().0,
             next_avail: self.next_avail,
             next_used: self.next_used,
             num_added: self.num_added,
@@ -161,7 +161,7 @@ impl VirtioDeviceState {
 
         for q in &queues {
             // Sanity check queue size and queue max size.
-            if q.max_size != expected_queue_max_size || q.size > expected_queue_max_size {
+            if q.max_size() != expected_queue_max_size || q.size() > expected_queue_max_size {
                 return Err(PersistError::InvalidInput);
             }
             // Snapshot can happen at any time, including during device configuration/activation
