@@ -191,7 +191,7 @@ fn exclude() {
                             lhs + rhs\n}";
 
     let dir_path = format!("/tmp/{}", Uuid::new_v4());
-    let _dir = std::fs::create_dir(&dir_path).unwrap();
+    std::fs::create_dir(&dir_path).unwrap();
 
     dbg!(&dir_path);
 
