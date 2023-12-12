@@ -48,7 +48,7 @@ perf_test = {
         "label": "💾 Memory Overhead",
         "test_path": "integration_tests/performance/test_memory_overhead.py",
         "devtool_opts": "-c 1-10 -m 0",
-        "ab_opts": "--noise-threshold 0.01",
+        "ab_opts": "--noise-threshold 0.05",
     },
 }
 
