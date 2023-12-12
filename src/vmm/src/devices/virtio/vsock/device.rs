@@ -150,7 +150,7 @@ where
             let index = head.index;
             let used_len = match VsockPacket::from_rx_virtq_head(head) {
                 Ok(mut pkt) => {
-                    if self.backend.recv_pkt(&mut pkt, mem).is_ok() {
+                    if self.backend.recv_pkt(&mut pkt).is_ok() {
                         match pkt.commit_hdr() {
                             // This addition cannot overflow, because packet length
                             // is previously validated against `MAX_PKT_BUF_SIZE`
@@ -215,7 +215,7 @@ where
                 }
             };
 
-            if self.backend.send_pkt(&pkt, mem).is_err() {
+            if self.backend.send_pkt(&pkt).is_err() {
                 self.queues[TXQ_INDEX].undo_pop();
                 break;
             }

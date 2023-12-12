@@ -205,7 +205,7 @@ mod tests {
     use super::*;
     use crate::devices::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
     use crate::devices::virtio::vsock::test_utils::{EventHandlerContext, TestContext};
-    use crate::vstate::memory::{Bytes, GuestMemoryExtension};
+    use crate::vstate::memory::{Bytes, GuestMemoryExtension, GuestMemoryMmap};
 
     #[test]
     fn test_txq_event() {
