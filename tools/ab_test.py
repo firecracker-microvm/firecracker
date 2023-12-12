@@ -49,6 +49,11 @@ IGNORED = [
         "host_kernel": "linux-5.10",
         "vcpus": "1",
     },
+    # High volatility due to AMI.
+    {
+        "instance": "m6i.metal",
+        "host_kernel": "linux-5.10",
+    },
 ]
 
 
