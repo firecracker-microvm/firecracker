@@ -132,21 +132,7 @@ set up a Ubuntu-based VM on GCE with nested KVM enablement can be found in GCE
     ```
 
 1. The next step is to create a VM image able to run nested KVM (as outlined
- [here](https://cloud.google.com/compute/docs/instances/enable-nested-virtualization-vm-instances)).
-
-    **IMPORTANT:** Notice that Firecracker requires a relatively new kernel,
-    so you should use a recent Linux distribution image - such as Ubuntu 18
-    (used in the commands below), or equivalent.
-
-    ```console
-    $ FC_VDISK=disk-ub18
-    $ FC_IMAGE=ub18-nested-kvm
-    $ gcloud compute disks create ${FC_VDISK} \
-    --image-project ubuntu-os-cloud --image-family ubuntu-1804-lts
-    $ gcloud compute images create ${FC_IMAGE} --source-disk ${FC_VDISK} \
-    --source-disk-zone ${FC_ZONE} \
-    --licenses "https://www.googleapis.com/compute/v1/projects/vm-options/global/licenses/enable-vmx"
-    ```
+ [here](https://cloud.google.com/compute/docs/instances/nested-virtualization/enabling)).
 
 1. Now we create the VM:
 
@@ -160,8 +146,9 @@ set up a Ubuntu-based VM on GCE with nested KVM enablement can be found in GCE
 
     ```console
     $ FC_VM=firecracker-vm
-    $ gcloud compute instances create ${FC_VM} --zone ${FC_ZONE} \
-    --image ${FC_IMAGE}
+    $ gcloud compute instances create ${FC_VM} --enable-nested-virtualization \
+    --zone=${FC_ZONE} --min-cpu-platform="Intel Haswell" \
+    --machine-type=n1-standard-2
     ```
 
 1. Connect to the VM via SSH.
@@ -175,7 +162,7 @@ set up a Ubuntu-based VM on GCE with nested KVM enablement can be found in GCE
     uploaded to GCE. Done! You should see the prompt of the new VM:
 
     ```console
-    ubuntu@firecracker-vm:~$
+    [YOUR_USER_NAME]@firecracker-vm:~$
     ```
 
 1. Verify that VMX is enabled, enable KVM
@@ -183,10 +170,15 @@ set up a Ubuntu-based VM on GCE with nested KVM enablement can be found in GCE
     ```console
     $ grep -cw vmx /proc/cpuinfo
     1
+    $ apt-get update
+    $ apt-get install acl
     $ sudo setfacl -m u:${USER}:rw /dev/kvm
     $ [ -r /dev/kvm ] && [ -w /dev/kvm ] && echo "OK" || echo "FAIL"
     OK
     ```
+
+Depending on your machine you will get a different number, but anything except 0
+means `KVM` is enabled.
 
 Now you can continue with the Firecracker [Getting Started](getting-started.md)
 instructions to install and configure Firecracker in the new VM.
