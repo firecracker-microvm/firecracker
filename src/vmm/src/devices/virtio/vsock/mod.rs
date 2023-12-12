@@ -110,8 +110,6 @@ mod defs {
 pub enum VsockError {
     /// The vsock data/buffer virtio descriptor length is smaller than expected.
     BufDescTooSmall,
-    /// The vsock data/buffer virtio descriptor is expected, but missing.
-    BufDescMissing,
     /// Empty queue
     EmptyQueue,
     /// EventFd error: {0}

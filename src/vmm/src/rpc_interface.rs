@@ -1012,7 +1012,7 @@ mod tests {
         pub fn set_vsock_device(&mut self, _: VsockDeviceConfig) -> Result<(), VsockConfigError> {
             if self.force_errors {
                 return Err(VsockConfigError::CreateVsockDevice(
-                    VsockError::BufDescMissing,
+                    VsockError::GuestMemoryBounds,
                 ));
             }
             self.vsock_set = true;
@@ -1471,7 +1471,7 @@ mod tests {
         check_preboot_request_err(
             req,
             VmmActionError::VsockConfig(VsockConfigError::CreateVsockDevice(
-                VsockError::BufDescMissing,
+                VsockError::GuestMemoryBounds,
             )),
         );
     }
