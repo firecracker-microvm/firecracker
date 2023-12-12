@@ -95,7 +95,6 @@ use super::txbuf::TxBuf;
 use super::{defs, ConnState, PendingRx, PendingRxSet, VsockCsmError};
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::logger::IncMetric;
-use crate::vstate::memory::GuestMemoryMmap;
 
 /// Trait that vsock connection backends need to implement.
 ///
@@ -160,11 +159,7 @@ where
     /// - `Err(VsockError::NoData)`: there was no data available with which to fill in the packet;
     /// - `Err(VsockError::PktBufMissing)`: the packet would've been filled in with data, but it is
     ///   missing the data buffer.
-    fn recv_pkt(
-        &mut self,
-        pkt: &mut VsockPacket,
-        _mem: &GuestMemoryMmap,
-    ) -> Result<(), VsockError> {
+    fn recv_pkt(&mut self, pkt: &mut VsockPacket) -> Result<(), VsockError> {
         // Perform some generic initialization that is the same for any packet operation (e.g.
         // source, destination, credit, etc).
         self.init_pkt(pkt);
@@ -296,7 +291,7 @@ where
     ///
     /// Returns:
     /// always `Ok(())`: the packet has been consumed;
-    fn send_pkt(&mut self, pkt: &VsockPacket, mem: &GuestMemoryMmap) -> Result<(), VsockError> {
+    fn send_pkt(&mut self, pkt: &VsockPacket) -> Result<(), VsockError> {
         // Update the peer credit information.
         self.peer_buf_alloc = pkt.buf_alloc();
         self.peer_fwd_cnt = Wrapping(pkt.fwd_cnt());
@@ -318,7 +313,7 @@ where
                 }
 
                 // Unwrapping here is safe, since we just checked `pkt.buf()` above.
-                if let Err(err) = self.send_bytes(mem, pkt) {
+                if let Err(err) = self.send_bytes(pkt) {
                     // If we can't write to the host stream, that's an unrecoverable error, so
                     // we'll terminate this connection.
                     warn!(
@@ -608,7 +603,7 @@ where
     ///
     /// Raw data can either be sent straight to the host stream, or to our TX buffer, if the
     /// former fails.
-    fn send_bytes(&mut self, _mem: &GuestMemoryMmap, pkt: &VsockPacket) -> Result<(), VsockError> {
+    fn send_bytes(&mut self, pkt: &VsockPacket) -> Result<(), VsockError> {
         let len = pkt.len() as usize;
 
         // If there is data in the TX buffer, that means we're already registered for EPOLLOUT
@@ -899,7 +894,7 @@ mod tests {
                         PEER_BUF_ALLOC,
                     );
                     assert!(conn.has_pending_rx());
-                    conn.recv_pkt(&mut rx_pkt, &vsock_test_ctx.mem).unwrap();
+                    conn.recv_pkt(&mut rx_pkt).unwrap();
                     assert_eq!(rx_pkt.op(), uapi::VSOCK_OP_RESPONSE);
                     conn
                 }
@@ -926,15 +921,11 @@ mod tests {
         }
 
         fn send(&mut self) {
-            self.conn
-                .send_pkt(&self.tx_pkt, &self._vsock_test_ctx.mem)
-                .unwrap();
+            self.conn.send_pkt(&self.tx_pkt).unwrap();
         }
 
         fn recv(&mut self) {
-            self.conn
-                .recv_pkt(&mut self.rx_pkt, &self._vsock_test_ctx.mem)
-                .unwrap();
+            self.conn.recv_pkt(&mut self.rx_pkt).unwrap();
         }
 
         fn notify_epollin(&mut self) {
@@ -1028,7 +1019,7 @@ mod tests {
         assert_eq!(&buf, data);
 
         // There's no more data in the stream, so `recv_pkt` should yield `VsockError::NoData`.
-        match ctx.conn.recv_pkt(&mut ctx.tx_pkt, &ctx._vsock_test_ctx.mem) {
+        match ctx.conn.recv_pkt(&mut ctx.tx_pkt) {
             Err(VsockError::NoData) => (),
             other => panic!("{:?}", other),
         }
