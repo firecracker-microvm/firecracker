@@ -107,9 +107,10 @@ mod defs {
 
 /// Vsock device related errors.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
+#[rustfmt::skip]
 pub enum VsockError {
-    /// The vsock data/buffer virtio descriptor length is smaller than expected.
-    BufDescTooSmall,
+    /** The total length of the descriptor chain ({0}) is too short to hold a packet of length {1} + header */
+    DescChainTooShortForPacket(usize, u32),
     /// Empty queue
     EmptyQueue,
     /// EventFd error: {0}
@@ -118,8 +119,9 @@ pub enum VsockError {
     GuestMemoryMmap(GuestMemoryError),
     /// Bounds check failed on guest memory pointer.
     GuestMemoryBounds,
-    /// The vsock header descriptor length is too small: {0}
-    HdrDescTooSmall(usize),
+    /** The total length of the descriptor chain ({0}) is less than the number of bytes required\
+    to hold a vsock packet header.*/
+    DescChainTooShortForHeader(usize),
     /// The vsock header `len` field holds an invalid value: {0}
     InvalidPktLen(u32),
     /// A data fetch was attempted when no data was available.

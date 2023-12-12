@@ -116,19 +116,19 @@ impl VsockPacket {
     /// Returns
     /// - [`VsockError::UnreadableDescriptor`] if the provided descriptor chain contains any
     ///   descriptor not marked as writable.
-    /// - [`VsockError::HdrDescTooSmall`] if the descriptor chain's total buffer length is
-    ///   insufficient to hold the 44 byte vsock header
+    /// - [`VsockError::DescChainTooShortForHeader`] if the descriptor chain's total buffer length
+    ///   is insufficient to hold the 44 byte vsock header
     /// - [`VsockError::InvalidPktLen`] if the contained vsock header describes a vsock packet whose
     ///   length would exceed [`defs::MAX_PKT_BUR_SIZE`].
-    /// - [`VsockError::BufDescTooSmall`] if the contained vsock header describes a vsock packet
-    ///   whose length exceeds the descriptor chain's actual total buffer length.
+    /// - [`VsockError::DescChainTooShortForPacket`] if the contained vsock header describes a vsock
+    ///   packet whose length exceeds the descriptor chain's actual total buffer length.
     pub fn from_tx_virtq_head(chain: DescriptorChain) -> Result<Self, VsockError> {
         let buffer = IoVecBuffer::from_descriptor_chain(chain)?;
 
         let mut hdr = VsockPacketHeader::default();
         let header_bytes_read = buffer.read_at(hdr.as_mut_slice(), 0).unwrap_or(0);
         if header_bytes_read < VSOCK_PKT_HDR_SIZE as usize {
-            return Err(VsockError::HdrDescTooSmall(header_bytes_read));
+            return Err(VsockError::DescChainTooShortForHeader(header_bytes_read));
         }
 
         if hdr.len > defs::MAX_PKT_BUF_SIZE {
@@ -136,7 +136,10 @@ impl VsockPacket {
         }
 
         if (hdr.len as usize) > buffer.len() - VSOCK_PKT_HDR_SIZE as usize {
-            return Err(VsockError::BufDescTooSmall);
+            return Err(VsockError::DescChainTooShortForPacket(
+                buffer.len(),
+                hdr.len,
+            ));
         }
 
         Ok(VsockPacket {
@@ -148,13 +151,13 @@ impl VsockPacket {
     /// Create the packet wrapper from an RX virtq chain head.
     ///
     /// ## Errors
-    /// Returns [`VsockError::HdrDescTooSmall`] if the descriptor chain's total buffer length is
-    /// insufficient to hold the 44 byte vsock header
+    /// Returns [`VsockError::DescChainTooShortForHeader`] if the descriptor chain's total buffer
+    /// length is insufficient to hold the 44 byte vsock header
     pub fn from_rx_virtq_head(chain: DescriptorChain) -> Result<Self, VsockError> {
         let buffer = IoVecBufferMut::from_descriptor_chain(chain)?;
 
         if buffer.len() < VSOCK_PKT_HDR_SIZE as usize {
-            return Err(VsockError::HdrDescTooSmall(buffer.len()));
+            return Err(VsockError::DescChainTooShortForHeader(buffer.len()));
         }
 
         Ok(Self {
@@ -444,7 +447,12 @@ mod tests {
                 .len
                 .set(VSOCK_PKT_HDR_SIZE - 1);
             handler_ctx.guest_txvq.dtable[1].len.set(0);
-            expect_asm_error!(tx, test_ctx, handler_ctx, VsockError::HdrDescTooSmall(_));
+            expect_asm_error!(
+                tx,
+                test_ctx,
+                handler_ctx,
+                VsockError::DescChainTooShortForHeader(_)
+            );
         }
 
         // Test case: zero-length TX packet.
@@ -477,7 +485,12 @@ mod tests {
             create_context!(test_ctx, handler_ctx);
             set_pkt_len(1024, &handler_ctx.guest_txvq.dtable[0], &test_ctx.mem);
             handler_ctx.guest_txvq.dtable[0].flags.set(0);
-            expect_asm_error!(tx, test_ctx, handler_ctx, VsockError::BufDescTooSmall);
+            expect_asm_error!(
+                tx,
+                test_ctx,
+                handler_ctx,
+                VsockError::DescChainTooShortForPacket(44, 1024)
+            );
         }
 
         // Test case: error on write-only buf descriptor.
@@ -495,7 +508,12 @@ mod tests {
             create_context!(test_ctx, handler_ctx);
             set_pkt_len(8 * 1024, &handler_ctx.guest_txvq.dtable[0], &test_ctx.mem);
             handler_ctx.guest_txvq.dtable[1].len.set(4 * 1024);
-            expect_asm_error!(tx, test_ctx, handler_ctx, VsockError::BufDescTooSmall);
+            expect_asm_error!(
+                tx,
+                test_ctx,
+                handler_ctx,
+                VsockError::DescChainTooShortForPacket(4140, 8192)
+            );
         }
     }
 
@@ -530,7 +548,12 @@ mod tests {
                 .len
                 .set(VSOCK_PKT_HDR_SIZE - 1);
             handler_ctx.guest_rxvq.dtable[1].len.set(0);
-            expect_asm_error!(rx, test_ctx, handler_ctx, VsockError::HdrDescTooSmall(_));
+            expect_asm_error!(
+                rx,
+                test_ctx,
+                handler_ctx,
+                VsockError::DescChainTooShortForHeader(_)
+            );
         }
     }
 
