@@ -45,10 +45,9 @@ perf_test = {
         "devtool_opts": "-c 1-10 -m 0",
     },
     "memory-overhead": {
-        "label": "💾 Memory Overhead",
-        "test_path": "integration_tests/performance/test_memory_overhead.py",
+        "label": "💾 Memory Overhead and 👢 Boottime",
+        "test_path": "'integration_tests/performance/test_memory_overhead.py integration_tests/performance/test_boottime.py::test_boottime'",
         "devtool_opts": "-c 1-10 -m 0",
-        "ab_opts": "--noise-threshold 0.01",
     },
 }
 

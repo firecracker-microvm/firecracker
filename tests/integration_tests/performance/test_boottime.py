@@ -173,6 +173,7 @@ def test_boottime(
     metrics.set_dimensions(
         {
             **DIMENSIONS,
+            "performance_test": "test_boottime",
             "guest_kernel": guest_kernel.name,
             "vcpus": str(vcpu_count),
             "mem_size_mib": str(mem_size_mib),
