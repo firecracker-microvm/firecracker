@@ -14,23 +14,23 @@ from common import COMMON_PARSER, devtool_test, group, overlay_dict, pipeline_to
 # has to be the node associated with the NUMA node from which we picked CPUs.
 perf_test = {
     "virtio-block": {
-        "label": "🖴 Virtio Block Performance",
+        "label": "💿 Virtio Block Performance",
         "test_path": "integration_tests/performance/test_block_ab.py::test_block_performance",
         "devtool_opts": "-c 1-10 -m 0",
     },
     "vhost-user-block": {
-        "label": "🖴 vhost-user Block Performance",
+        "label": "💿 vhost-user Block Performance",
         "test_path": "integration_tests/performance/test_block_ab.py::test_block_vhost_user_performance",
         "devtool_opts": "-c 1-10 -m 0",
         "ab_opts": "--noise-threshold 0.1",
     },
     "network-latency": {
-        "label": "🖧 Network Latency",
+        "label": "📠 Network Latency",
         "test_path": "integration_tests/performance/test_network_ab.py::test_network_latency",
         "devtool_opts": "-c 1-10 -m 0",
     },
     "network-throughput": {
-        "label": "🖧 Network TCP Throughput",
+        "label": "📠 Network TCP Throughput",
         "test_path": "integration_tests/performance/test_network_ab.py::test_network_tcp_throughput",
         "devtool_opts": "-c 1-10 -m 0",
     },
