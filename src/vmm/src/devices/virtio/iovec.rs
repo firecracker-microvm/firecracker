@@ -98,16 +98,29 @@ impl IoVecBuffer {
     ///
     /// # Returns
     ///
-    /// The number of bytes read (if any)
-    pub fn read_at(&self, mut buf: &mut [u8], offset: usize) -> Option<usize> {
+    /// `Ok(())` if `buf` was filled by reading from this [`IoVecBuffer`],
+    /// `Err(VolatileMemoryError::PartialBuffer)` if only part of `buf` could not be filled, and
+    /// `Err(VolatileMemoryError::OutOfBounds)` if `offset >= self.len()`.
+    pub fn read_exact_volatile_at(
+        &self,
+        mut buf: &mut [u8],
+        offset: usize,
+    ) -> Result<(), VolatileMemoryError> {
         if offset < self.len() {
-            // Make sure we only read up to the end of the `IoVecBuffer`.
-            let size = buf.len().min(self.len() - offset);
-            // write_volatile for &mut [u8] is infallible
-            self.read_volatile_at(&mut buf, offset, size).ok()
+            let expected = buf.len();
+            let bytes_read = self.read_volatile_at(&mut buf, offset, expected)?;
+
+            if bytes_read != expected {
+                return Err(VolatileMemoryError::PartialBuffer {
+                    expected,
+                    completed: bytes_read,
+                });
+            }
+
+            Ok(())
         } else {
             // If `offset` is past size, there's nothing to read.
-            None
+            Err(VolatileMemoryError::OutOfBounds { addr: offset })
         }
     }
 
@@ -223,15 +236,29 @@ impl IoVecBufferMut {
     ///
     /// # Returns
     ///
-    /// The number of bytes written (if any)
-    pub fn write_at(&mut self, mut buf: &[u8], offset: usize) -> Option<usize> {
+    /// `Ok(())` if the entire contents of `buf` could be written to this [`IoVecBufferMut`],
+    /// `Err(VolatileMemoryError::PartialBuffer)` if only part of `buf` could be transferred, and
+    /// `Err(VolatileMemoryError::OutOfBounds)` if `offset >= self.len()`.
+    pub fn write_all_volatile_at(
+        &mut self,
+        mut buf: &[u8],
+        offset: usize,
+    ) -> Result<(), VolatileMemoryError> {
         if offset < self.len() {
-            // Make sure we only write up to the end of the `IoVecBufferMut`.
-            let size = buf.len().min(self.len() - offset);
-            self.write_volatile_at(&mut buf, offset, size).ok()
+            let expected = buf.len();
+            let bytes_written = self.write_volatile_at(&mut buf, offset, expected)?;
+
+            if bytes_written != expected {
+                return Err(VolatileMemoryError::PartialBuffer {
+                    expected,
+                    completed: bytes_written,
+                });
+            }
+
+            Ok(())
         } else {
             // We cannot write past the end of the `IoVecBufferMut`.
-            None
+            Err(VolatileMemoryError::OutOfBounds { addr: offset })
         }
     }
 
@@ -292,6 +319,7 @@ impl IoVecBufferMut {
 #[cfg(test)]
 mod tests {
     use libc::{c_void, iovec};
+    use vm_memory::VolatileMemoryError;
 
     use super::{IoVecBuffer, IoVecBufferMut};
     use crate::devices::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
@@ -397,7 +425,7 @@ mod tests {
         let mem = default_mem();
         let (mut q, _) = read_only_chain(&mem);
         let head = q.pop(&mem).unwrap();
-        assert!(IoVecBuffer::from_descriptor_chain(head).is_ok());
+        IoVecBuffer::from_descriptor_chain(head).unwrap();
 
         let (mut q, _) = write_only_chain(&mem);
         let head = q.pop(&mem).unwrap();
@@ -409,7 +437,7 @@ mod tests {
 
         let (mut q, _) = write_only_chain(&mem);
         let head = q.pop(&mem).unwrap();
-        assert!(IoVecBufferMut::from_descriptor_chain(head).is_ok());
+        IoVecBufferMut::from_descriptor_chain(head).unwrap();
     }
 
     #[test]
@@ -440,28 +468,48 @@ mod tests {
 
         let iovec = IoVecBuffer::from_descriptor_chain(head).unwrap();
 
-        let mut buf = vec![0; 257];
-        assert_eq!(iovec.read_at(&mut buf[..], 0), Some(256));
+        let mut buf = vec![0u8; 257];
+        assert_eq!(
+            iovec
+                .read_volatile_at(&mut buf.as_mut_slice(), 0, 257)
+                .unwrap(),
+            256
+        );
         assert_eq!(buf[0..256], (0..=255).collect::<Vec<_>>());
         assert_eq!(buf[256], 0);
 
         let mut buf = vec![0; 5];
-        assert_eq!(iovec.read_at(&mut buf[..4], 0), Some(4));
+        iovec.read_exact_volatile_at(&mut buf[..4], 0).unwrap();
         assert_eq!(buf, vec![0u8, 1, 2, 3, 0]);
 
-        assert_eq!(iovec.read_at(&mut buf, 0), Some(5));
+        iovec.read_exact_volatile_at(&mut buf, 0).unwrap();
         assert_eq!(buf, vec![0u8, 1, 2, 3, 4]);
 
-        assert_eq!(iovec.read_at(&mut buf, 1), Some(5));
+        iovec.read_exact_volatile_at(&mut buf, 1).unwrap();
         assert_eq!(buf, vec![1u8, 2, 3, 4, 5]);
 
-        assert_eq!(iovec.read_at(&mut buf, 60), Some(5));
+        iovec.read_exact_volatile_at(&mut buf, 60).unwrap();
         assert_eq!(buf, vec![60u8, 61, 62, 63, 64]);
 
-        assert_eq!(iovec.read_at(&mut buf, 252), Some(4));
+        assert_eq!(
+            iovec
+                .read_volatile_at(&mut buf.as_mut_slice(), 252, 5)
+                .unwrap(),
+            4
+        );
         assert_eq!(buf[0..4], vec![252u8, 253, 254, 255]);
 
-        assert_eq!(iovec.read_at(&mut buf, 256), None);
+        assert!(matches!(
+            iovec.read_exact_volatile_at(&mut buf, 252),
+            Err(VolatileMemoryError::PartialBuffer {
+                expected: 5,
+                completed: 4
+            })
+        ));
+        assert!(matches!(
+            iovec.read_exact_volatile_at(&mut buf, 256),
+            Err(VolatileMemoryError::OutOfBounds { addr: 256 })
+        ));
     }
 
     #[test]
@@ -482,10 +530,10 @@ mod tests {
         let mut test_vec4 = vec![0u8; 64];
 
         // Control test: Initially all three regions should be zero
-        assert_eq!(iovec.write_at(&test_vec1, 0), Some(64));
-        assert_eq!(iovec.write_at(&test_vec2, 64), Some(64));
-        assert_eq!(iovec.write_at(&test_vec3, 128), Some(64));
-        assert_eq!(iovec.write_at(&test_vec4, 192), Some(64));
+        iovec.write_all_volatile_at(&test_vec1, 0).unwrap();
+        iovec.write_all_volatile_at(&test_vec2, 64).unwrap();
+        iovec.write_all_volatile_at(&test_vec3, 128).unwrap();
+        iovec.write_all_volatile_at(&test_vec4, 192).unwrap();
         vq.dtable[0].check_data(&test_vec1);
         vq.dtable[1].check_data(&test_vec2);
         vq.dtable[2].check_data(&test_vec3);
@@ -494,7 +542,7 @@ mod tests {
         // Let's initialize test_vec1 with our buffer.
         test_vec1[..buf.len()].copy_from_slice(&buf);
         // And write just a part of it
-        assert_eq!(iovec.write_at(&buf[..3], 0), Some(3));
+        iovec.write_all_volatile_at(&buf[..3], 0).unwrap();
         // Not all 5 bytes from buf should be written in memory,
         // just 3 of them.
         vq.dtable[0].check_data(&[0u8, 1, 2, 0, 0]);
@@ -503,7 +551,7 @@ mod tests {
         vq.dtable[3].check_data(&test_vec4);
         // But if we write the whole `buf` in memory then all
         // of it should be observable.
-        assert_eq!(iovec.write_at(&buf, 0), Some(5));
+        iovec.write_all_volatile_at(&buf, 0).unwrap();
         vq.dtable[0].check_data(&test_vec1);
         vq.dtable[1].check_data(&test_vec2);
         vq.dtable[2].check_data(&test_vec3);
@@ -512,7 +560,7 @@ mod tests {
         // We are now writing with an offset of 1. So, initialize
         // the corresponding part of `test_vec1`
         test_vec1[1..buf.len() + 1].copy_from_slice(&buf);
-        assert_eq!(iovec.write_at(&buf, 1), Some(5));
+        iovec.write_all_volatile_at(&buf, 1).unwrap();
         vq.dtable[0].check_data(&test_vec1);
         vq.dtable[1].check_data(&test_vec2);
         vq.dtable[2].check_data(&test_vec3);
@@ -523,7 +571,7 @@ mod tests {
         // first region and one byte on the second
         test_vec1[60..64].copy_from_slice(&buf[0..4]);
         test_vec2[0] = 4;
-        assert_eq!(iovec.write_at(&buf, 60), Some(5));
+        iovec.write_all_volatile_at(&buf, 60).unwrap();
         vq.dtable[0].check_data(&test_vec1);
         vq.dtable[1].check_data(&test_vec2);
         vq.dtable[2].check_data(&test_vec3);
@@ -535,14 +583,20 @@ mod tests {
         // Now perform a write that does not fit in the buffer. Try writing
         // 5 bytes at offset 252 (only 4 bytes left).
         test_vec4[60..64].copy_from_slice(&buf[0..4]);
-        assert_eq!(iovec.write_at(&buf, 252), Some(4));
+        assert_eq!(
+            iovec.write_volatile_at(&mut &*buf, 252, buf.len()).unwrap(),
+            4
+        );
         vq.dtable[0].check_data(&test_vec1);
         vq.dtable[1].check_data(&test_vec2);
         vq.dtable[2].check_data(&test_vec3);
         vq.dtable[3].check_data(&test_vec4);
 
         // Trying to add past the end of the buffer should not write anything
-        assert_eq!(iovec.write_at(&buf, 256), None);
+        assert!(matches!(
+            iovec.write_all_volatile_at(&buf, 256),
+            Err(VolatileMemoryError::OutOfBounds { addr: 256 })
+        ));
         vq.dtable[0].check_data(&test_vec1);
         vq.dtable[1].check_data(&test_vec2);
         vq.dtable[2].check_data(&test_vec3);

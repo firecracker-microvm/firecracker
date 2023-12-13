@@ -119,7 +119,8 @@ impl Entropy {
         })?;
 
         // It is ok to unwrap here. We are writing `iovec.len()` bytes at offset 0.
-        Ok(iovec.write_at(&rand_bytes, 0).unwrap().try_into().unwrap())
+        iovec.write_all_volatile_at(&rand_bytes, 0).unwrap();
+        Ok(iovec.len().try_into().unwrap())
     }
 
     fn process_entropy_queue(&mut self) {
