@@ -17,6 +17,7 @@
 
 use std::fmt::Debug;
 
+use vm_memory::volatile_memory::Error;
 use vm_memory::{GuestMemoryError, ReadVolatile, WriteVolatile};
 
 use super::{defs, VsockError};
@@ -126,9 +127,12 @@ impl VsockPacket {
         let buffer = IoVecBuffer::from_descriptor_chain(chain)?;
 
         let mut hdr = VsockPacketHeader::default();
-        let header_bytes_read = buffer.read_at(hdr.as_mut_slice(), 0).unwrap_or(0);
-        if header_bytes_read < VSOCK_PKT_HDR_SIZE as usize {
-            return Err(VsockError::DescChainTooShortForHeader(header_bytes_read));
+        match buffer.read_exact_volatile_at(hdr.as_mut_slice(), 0) {
+            Ok(()) => (),
+            Err(Error::PartialBuffer { completed, .. }) => {
+                return Err(VsockError::DescChainTooShortForHeader(completed))
+            }
+            Err(err) => return Err(VsockError::GuestMemoryMmap(err.into())),
         }
 
         if hdr.len > defs::MAX_PKT_BUF_SIZE {
@@ -190,12 +194,10 @@ impl VsockPacket {
                     return Err(VsockError::InvalidPktLen(self.hdr.len));
                 }
 
-                let bytes_written = buffer.write_at(self.hdr.as_slice(), 0);
-
-                // We check the the buffer has sufficient size in from_rx_virtq_head
-                debug_assert_eq!(bytes_written, Some(VSOCK_PKT_HDR_SIZE as usize));
-
-                Ok(())
+                buffer
+                    .write_all_volatile_at(self.hdr.as_slice(), 0)
+                    .map_err(GuestMemoryError::from)
+                    .map_err(VsockError::GuestMemoryMmap)
             }
         }
     }
