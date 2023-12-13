@@ -43,6 +43,12 @@ const BASE_MAGIC_ID: u64 = 0x0710_1984_8664_0000u64;
 #[cfg(target_arch = "aarch64")]
 const BASE_MAGIC_ID: u64 = 0x0710_1984_AAAA_0000u64;
 
+#[cfg(target_arch = "powerpc64")]
+const BASE_MAGIC_ID: u64 = 0x0710_1984_CC64_0000u64;
+
+#[cfg(target_arch = "riscv64")]
+const BASE_MAGIC_ID: u64 = 0x0710_1984_C564_0000u64;
+
 /// Error definitions for the Snapshot API.
 #[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq)]
 pub enum Error {
@@ -326,6 +332,10 @@ mod tests {
         let good_magic_id = 0x0710_1984_8664_0001u64;
         #[cfg(target_arch = "aarch64")]
         let good_magic_id = 0x0710_1984_AAAA_0001u64;
+        #[cfg(target_arch = "powerpc64")]
+        let good_magic_id = 0x0710_1984_CC64_0001u64;
+        #[cfg(target_arch = "riscv64")]
+        let good_magic_id = 0x0710_1984_C564_0001u64;
 
         assert_eq!(get_format_version(good_magic_id).unwrap(), 1u16);
 
@@ -550,6 +560,10 @@ mod tests {
         let expected_err = Error::Crc64(0x1960_4E6A_A13F_6615);
         #[cfg(target_arch = "x86_64")]
         let expected_err = Error::Crc64(0x103F_8F52_8F51_20B1);
+        #[cfg(target_arch = "powerpc64")]
+        let expected_err = Error::Crc64(0x33D0_CCE5_DA3C_CCEA);
+        #[cfg(target_arch = "riscv64")]
+        let expected_err = Error::Crc64(0xFAC5_E225_5586_9011);
 
         let load_result: Result<(Test1, _), Error> =
             Snapshot::load(&mut snapshot_mem.as_slice(), 38, vm);

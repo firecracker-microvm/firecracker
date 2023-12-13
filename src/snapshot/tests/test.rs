@@ -53,6 +53,14 @@ fn test_hardcoded_snapshot_deserialization() {
         0xAA,
         #[cfg(target_arch = "aarch64")]
         0xAA,
+        #[cfg(target_arch = "powerpc64")]
+        0x64,
+        #[cfg(target_arch = "powerpc64")]
+        0xCC,
+        #[cfg(target_arch = "riscv64")]
+        0x64,
+        #[cfg(target_arch = "riscv64")]
+        0xC5,
         #[cfg(target_arch = "x86_64")]
         0x64,
         #[cfg(target_arch = "x86_64")]
@@ -75,10 +83,19 @@ fn test_hardcoded_snapshot_deserialization() {
         0xAA,
         #[cfg(target_arch = "aarch64")]
         0xAA,
+        #[cfg(target_arch = "powerpc64")]
+        0x64,
+        #[cfg(target_arch = "powerpc64")]
+        0xCC,
+        #[cfg(target_arch = "riscv64")]
+        0x64,
+        #[cfg(target_arch = "riscv64")]
+        0xC5,
         #[cfg(target_arch = "x86_64")]
         0x64,
         #[cfg(target_arch = "x86_64")]
-        0x86, 0x84, 0x19, 0x10, 0x07,
+        0x86,
+        0x84, 0x19, 0x10, 0x07,
         // Version 2 +
         0x02, 0x00,
         // `a` field +
@@ -129,6 +146,14 @@ fn test_invalid_format_version() {
         0xAA,
         #[cfg(target_arch = "aarch64")]
         0xAA,
+        #[cfg(target_arch = "powerpc64")]
+        0x64,
+        #[cfg(target_arch = "powerpc64")]
+        0xCC,
+        #[cfg(target_arch = "riscv64")]
+        0x64,
+        #[cfg(target_arch = "riscv64")]
+        0xC5,
         #[cfg(target_arch = "x86_64")]
         0x64,
         #[cfg(target_arch = "x86_64")]
@@ -156,6 +181,14 @@ fn test_invalid_format_version() {
         0xAA,
         #[cfg(target_arch = "aarch64")]
         0xAA,
+        #[cfg(target_arch = "powerpc64")]
+        0x64,
+        #[cfg(target_arch = "powerpc64")]
+        0xCC,
+        #[cfg(target_arch = "riscv64")]
+        0x64,
+        #[cfg(target_arch = "riscv64")]
+        0xC5,
         #[cfg(target_arch = "x86_64")]
         0x64,
         #[cfg(target_arch = "x86_64")]
@@ -185,6 +218,14 @@ fn test_invalid_data_version() {
         0xAA,
         #[cfg(target_arch = "aarch64")]
         0xAA,
+        #[cfg(target_arch = "powerpc64")]
+        0x64,
+        #[cfg(target_arch = "powerpc64")]
+        0xCC,
+        #[cfg(target_arch = "riscv64")]
+        0x64,
+        #[cfg(target_arch = "riscv64")]
+        0xC5,
         #[cfg(target_arch = "x86_64")]
         0x64,
         #[cfg(target_arch = "x86_64")]
@@ -211,6 +252,14 @@ fn test_invalid_data_version() {
         0xAA,
         #[cfg(target_arch = "aarch64")]
         0xAA,
+        #[cfg(target_arch = "powerpc64")]
+        0x64,
+        #[cfg(target_arch = "powerpc64")]
+        0xCC,
+        #[cfg(target_arch = "riscv64")]
+        0x64,
+        #[cfg(target_arch = "riscv64")]
+        0xC5,
         #[cfg(target_arch = "x86_64")]
         0x64,
         #[cfg(target_arch = "x86_64")]
