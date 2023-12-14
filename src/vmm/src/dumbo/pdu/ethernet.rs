@@ -301,7 +301,7 @@ mod kani_proofs {
             assert_eq!(ethernet.len(), slice_length);
             assert_eq!(ethernet.payload().len(), slice_length - PAYLOAD_OFFSET);
         } else {
-            assert!(ethernet.is_err());
+            ethernet.unwrap_err();
         }
     }
 

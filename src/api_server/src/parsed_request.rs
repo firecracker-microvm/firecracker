@@ -403,16 +403,16 @@ pub mod tests {
         sender
             .write_all(http_request("GET", "none", Some("body")).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
 
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_err());
+        ParsedRequest::try_from(&req).unwrap_err();
     }
 
     #[test]
     fn test_checked_id() {
-        assert!(checked_id("dummy").is_ok());
-        assert!(checked_id("dummy_1").is_ok());
+        checked_id("dummy").unwrap();
+        checked_id("dummy_1").unwrap();
 
         assert_eq!(
             format!("{}", checked_id("").unwrap_err()),
@@ -431,7 +431,7 @@ pub mod tests {
         sender
             .write_all(http_request("GET", "/mmds", Some("body")).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
         let parsed_request = ParsedRequest::try_from(&req);
         assert!(matches!(
@@ -447,7 +447,7 @@ pub mod tests {
         sender
             .write_all(http_request("PUT", "/mmds", None).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
         let parsed_request = ParsedRequest::try_from(&req);
         assert!(matches!(
@@ -463,7 +463,7 @@ pub mod tests {
         sender
             .write_all(http_request("PATCH", "/mmds", None).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
         let parsed_request = ParsedRequest::try_from(&req);
         assert!(matches!(
@@ -478,7 +478,7 @@ pub mod tests {
         let mut buf = Cursor::new(vec![0]);
         let response: Response =
             Error::Generic(StatusCode::BadRequest, "message".to_string()).into();
-        assert!(response.write_all(&mut buf).is_ok());
+        response.write_all(&mut buf).unwrap();
         let body = ApiServer::json_fault_message("message");
         let expected_response = http_response(&body, 400);
         assert_eq!(buf.into_inner(), expected_response.as_bytes());
@@ -486,7 +486,7 @@ pub mod tests {
         // Empty ID error.
         let mut buf = Cursor::new(vec![0]);
         let response: Response = Error::EmptyID.into();
-        assert!(response.write_all(&mut buf).is_ok());
+        response.write_all(&mut buf).unwrap();
         let body = ApiServer::json_fault_message("The ID cannot be empty.");
         let expected_response = http_response(&body, 400);
         assert_eq!(buf.into_inner(), expected_response.as_bytes());
@@ -494,7 +494,7 @@ pub mod tests {
         // Invalid ID error.
         let mut buf = Cursor::new(vec![0]);
         let response: Response = Error::InvalidID.into();
-        assert!(response.write_all(&mut buf).is_ok());
+        response.write_all(&mut buf).unwrap();
         let body = ApiServer::json_fault_message(
             "API Resource IDs can only contain alphanumeric characters and underscores.",
         );
@@ -504,7 +504,7 @@ pub mod tests {
         // Invalid path or method error.
         let mut buf = Cursor::new(vec![0]);
         let response: Response = Error::InvalidPathMethod("path".to_string(), Method::Get).into();
-        assert!(response.write_all(&mut buf).is_ok());
+        response.write_all(&mut buf).unwrap();
         let body = ApiServer::json_fault_message(format!(
             "Invalid request method and/or path: {} {}.",
             std::str::from_utf8(Method::Get.raw()).unwrap(),
@@ -517,7 +517,7 @@ pub mod tests {
         let mut buf = Cursor::new(vec![0]);
         let serde_error = serde_json::Value::from_str("").unwrap_err();
         let response: Response = Error::SerdeJson(serde_error).into();
-        assert!(response.write_all(&mut buf).is_ok());
+        response.write_all(&mut buf).unwrap();
         let body = ApiServer::json_fault_message(
             "An error occurred when deserializing the json body of a request: EOF while parsing a \
              value at line 1 column 0.",
@@ -573,7 +573,7 @@ pub mod tests {
                 ),
             };
             let response = ParsedRequest::convert_to_response(&data);
-            assert!(response.write_all(&mut buf).is_ok());
+            response.write_all(&mut buf).unwrap();
             assert_eq!(buf.into_inner(), expected_response.as_bytes());
         };
 
@@ -608,9 +608,9 @@ pub mod tests {
         sender
             .write_all(http_request("GET", "/", None).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
     }
 
     #[test]
@@ -620,9 +620,9 @@ pub mod tests {
         sender
             .write_all(http_request("GET", "/balloon", None).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
     }
 
     #[test]
@@ -632,9 +632,9 @@ pub mod tests {
         sender
             .write_all(http_request("GET", "/balloon/statistics", None).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
     }
 
     #[test]
@@ -644,9 +644,9 @@ pub mod tests {
         sender
             .write_all(http_request("GET", "/machine-config", None).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
     }
 
     #[test]
@@ -656,9 +656,9 @@ pub mod tests {
         sender
             .write_all(http_request("GET", "/mmds", None).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
     }
 
     #[test]
@@ -668,9 +668,9 @@ pub mod tests {
         sender
             .write_all(http_request("GET", "/version", None).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
     }
 
     #[test]
@@ -681,9 +681,9 @@ pub mod tests {
         sender
             .write_all(http_request("PUT", "/actions", Some(body)).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
     }
 
     #[test]
@@ -695,9 +695,9 @@ pub mod tests {
         sender
             .write_all(http_request("PUT", "/balloon", Some(body)).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
     }
 
     #[test]
@@ -710,9 +710,9 @@ pub mod tests {
         sender
             .write_all(http_request("PUT", "/entropy", Some(body)).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
     }
 
     #[test]
@@ -723,9 +723,9 @@ pub mod tests {
         sender
             .write_all(http_request("PUT", "/boot-source", Some(body)).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
     }
 
     #[test]
@@ -740,9 +740,9 @@ pub mod tests {
         sender
             .write_all(http_request("PUT", "/drives/string", Some(body)).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
     }
 
     #[test]
@@ -754,9 +754,9 @@ pub mod tests {
         sender
             .write_all(http_request("PUT", "/logger", Some(body)).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
     }
 
     #[test]
@@ -767,9 +767,9 @@ pub mod tests {
         sender
             .write_all(http_request("PUT", "/machine-config", Some(body)).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
     }
 
     #[test]
@@ -780,9 +780,9 @@ pub mod tests {
         sender
             .write_all(http_request("PUT", "/metrics", Some(body)).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
     }
 
     #[test]
@@ -794,26 +794,26 @@ pub mod tests {
         sender
             .write_all(http_request("PUT", "/mmds", Some("{}")).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
 
         let body = "{\"foo\":\"bar\"}";
         sender
             .write_all(http_request("PUT", "/mmds", Some(body)).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
 
         // `/mmds/config`
         let body = "{ \"ipv4_address\": \"169.254.170.2\", \"network_interfaces\": [\"iface0\"] }";
         sender
             .write_all(http_request("PUT", "/mmds/config", Some(body)).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
     }
 
     #[test]
@@ -830,9 +830,9 @@ pub mod tests {
         sender
             .write_all(http_request("PUT", "/network-interfaces/string", Some(body)).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
     }
 
     #[test]
@@ -843,9 +843,9 @@ pub mod tests {
         sender
             .write_all(http_request("PUT", "/snapshot/create", Some(body)).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
 
         let body = "{ \"snapshot_path\": \"foo\", \"mem_backend\": { \"backend_type\": \"File\", \
                     \"backend_path\": \"bar\" }, \"enable_diff_snapshots\": true }";
@@ -853,9 +853,9 @@ pub mod tests {
             .write_all(http_request("PUT", "/snapshot/load", Some(body)).as_bytes())
             .unwrap();
 
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
 
         let body =
             "{ \"snapshot_path\": \"foo\", \"mem_file_path\": \"bar\", \"resume_vm\": true }";
@@ -863,9 +863,9 @@ pub mod tests {
             .write_all(http_request("PUT", "/snapshot/load", Some(body)).as_bytes())
             .unwrap();
 
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
     }
 
     #[test]
@@ -876,9 +876,9 @@ pub mod tests {
         sender
             .write_all(http_request("PATCH", "/vm", Some(body)).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
     }
 
     #[test]
@@ -889,9 +889,9 @@ pub mod tests {
         sender
             .write_all(http_request("PUT", "/vsock", Some(body)).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
     }
 
     #[test]
@@ -902,16 +902,16 @@ pub mod tests {
         sender
             .write_all(http_request("PATCH", "/balloon", Some(body)).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
         let body = "{ \"stats_polling_interval_s\": 1 }";
         sender
             .write_all(http_request("PATCH", "/balloon/statistics", Some(body)).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
     }
 
     #[test]
@@ -922,9 +922,9 @@ pub mod tests {
         sender
             .write_all(http_request("PATCH", "/drives/string", Some(body)).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
     }
 
     #[test]
@@ -935,20 +935,20 @@ pub mod tests {
         sender
             .write_all(http_request("PATCH", "/machine-config", Some(body)).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
         let body =
             "{ \"vcpu_count\": 1, \"mem_size_mib\": 1, \"smt\": false, \"cpu_template\": \"C3\" }";
         sender
             .write_all(http_request("PATCH", "/machine-config", Some(body)).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
         #[cfg(target_arch = "x86_64")]
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
         #[cfg(target_arch = "aarch64")]
-        assert!(ParsedRequest::try_from(&req).is_err());
+        ParsedRequest::try_from(&req).unwrap_err();
     }
 
     #[test]
@@ -965,8 +965,8 @@ pub mod tests {
         let cpu_config_json = cpu_config_json_result.unwrap();
         let result =
             sender.write_all(http_request("PUT", "/cpu-config", Some(&cpu_config_json)).as_bytes());
-        assert!(result.is_ok());
-        assert!(connection.try_read().is_ok());
+        result.unwrap();
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
         let request_result = ParsedRequest::try_from(&req);
         assert!(request_result.is_ok(), "{}", request_result.err().unwrap());
@@ -979,9 +979,9 @@ pub mod tests {
         sender
             .write_all(http_request("PATCH", "/mmds", Some("{}")).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
     }
 
     #[test]
@@ -992,8 +992,8 @@ pub mod tests {
         sender
             .write_all(http_request("PATCH", "/network-interfaces/string", Some(body)).as_bytes())
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from(&req).is_ok());
+        ParsedRequest::try_from(&req).unwrap();
     }
 }

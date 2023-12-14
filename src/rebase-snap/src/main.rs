@@ -237,7 +237,7 @@ mod tests {
                 .as_ref(),
             )
             .unwrap();
-        assert!(get_files(arguments).is_ok());
+        get_files(arguments).unwrap();
     }
 
     fn check_file_content(file: &mut File, expected_content: &[u8]) {

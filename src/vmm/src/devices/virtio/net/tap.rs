@@ -316,7 +316,7 @@ pub mod tests {
         tap_traffic_simulator.push_tx_packet(packet.as_bytes());
 
         let mut buf = [0u8; PACKET_SIZE];
-        assert!(tap.read(&mut buf).is_ok());
+        assert_eq!(tap.read(&mut buf).unwrap(), PAYLOAD_SIZE + VNET_HDR_SIZE);
         assert_eq!(
             &buf[VNET_HDR_SIZE..packet.len() + VNET_HDR_SIZE],
             packet.as_bytes()
@@ -333,7 +333,7 @@ pub mod tests {
         let payload = utils::rand::rand_alphanumerics(PAYLOAD_SIZE);
         packet[gen::ETH_HLEN as usize..payload.len() + gen::ETH_HLEN as usize]
             .copy_from_slice(payload.as_bytes());
-        assert!(tap.write(&packet).is_ok());
+        assert_eq!(tap.write(&packet).unwrap(), PACKET_SIZE);
 
         let mut read_buf = [0u8; PACKET_SIZE];
         assert!(tap_traffic_simulator.pop_rx_packet(&mut read_buf));
@@ -361,7 +361,7 @@ pub mod tests {
             fragment3.as_slice(),
         ]);
 
-        assert!(tap.write_iovec(&scattered).is_ok());
+        tap.write_iovec(&scattered).unwrap();
 
         let mut read_buf = vec![0u8; scattered.len()];
         assert!(tap_traffic_simulator.pop_rx_packet(&mut read_buf));

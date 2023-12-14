@@ -723,7 +723,7 @@ mod tests {
 
             socket: None,
         };
-        assert!(VirtioBlockConfig::try_from(&block_config).is_ok());
+        VirtioBlockConfig::try_from(&block_config).unwrap();
 
         let block_config = BlockDeviceConfig {
             drive_id: "".to_string(),
@@ -738,7 +738,7 @@ mod tests {
 
             socket: Some("sock".to_string()),
         };
-        assert!(VirtioBlockConfig::try_from(&block_config).is_err());
+        VirtioBlockConfig::try_from(&block_config).unwrap_err();
 
         let block_config = BlockDeviceConfig {
             drive_id: "".to_string(),
@@ -753,7 +753,7 @@ mod tests {
 
             socket: Some("sock".to_string()),
         };
-        assert!(VirtioBlockConfig::try_from(&block_config).is_err());
+        VirtioBlockConfig::try_from(&block_config).unwrap_err();
     }
 
     #[test]
@@ -780,12 +780,16 @@ mod tests {
         // Testing `backing_file.virtio_block_disk_image_id()` implies
         // duplicating that logic in tests, so skipping it.
 
-        assert!(DiskProperties::new(
+        let res = DiskProperties::new(
             "invalid-disk-path".to_string(),
             true,
             default_engine_type_for_kv(),
-        )
-        .is_err());
+        );
+        assert!(
+            matches!(res, Err(VirtioBlockError::BackingFile(_, _))),
+            "{:?}",
+            res
+        );
     }
 
     #[test]
@@ -1461,7 +1465,6 @@ mod tests {
             assert_eq!(vq.used.ring[0].get().len, 21);
             assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
 
-            assert!(blk_metadata.is_ok());
             let blk_meta = blk_metadata.unwrap();
             let expected_device_id = format!(
                 "{}{}{}",
@@ -1471,7 +1474,7 @@ mod tests {
             );
 
             let mut buf = [0; VIRTIO_BLK_ID_BYTES as usize];
-            assert!(mem.read_slice(&mut buf, data_addr).is_ok());
+            mem.read_slice(&mut buf, data_addr).unwrap();
             let chars_to_trim: &[char] = &['\u{0}'];
             let received_device_id = String::from_utf8(buf.to_ascii_lowercase())
                 .unwrap()

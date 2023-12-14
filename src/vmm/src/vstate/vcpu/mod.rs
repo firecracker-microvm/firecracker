@@ -722,17 +722,14 @@ pub mod tests {
         let (_vm, mut vcpu, _vm_mem) = setup_vcpu(0x1000);
         vcpu.test_vcpu_exit_reason = Mutex::new(Some(Ok(VcpuExit::Hlt)));
         let res = vcpu.run_emulation();
-        assert!(res.is_ok());
         assert_eq!(res.unwrap(), VcpuEmulation::Stopped);
 
         *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::Shutdown));
         let res = vcpu.run_emulation();
-        assert!(res.is_ok());
         assert_eq!(res.unwrap(), VcpuEmulation::Stopped);
 
         *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::FailEntry(0, 0)));
         let res = vcpu.run_emulation();
-        assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
             format!(
@@ -743,7 +740,6 @@ pub mod tests {
 
         *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::InternalError));
         let res = vcpu.run_emulation();
-        assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
             format!(
@@ -754,17 +750,14 @@ pub mod tests {
 
         *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::SystemEvent(2, 0)));
         let res = vcpu.run_emulation();
-        assert!(res.is_ok());
         assert_eq!(res.unwrap(), VcpuEmulation::Stopped);
 
         *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::SystemEvent(1, 0)));
         let res = vcpu.run_emulation();
-        assert!(res.is_ok());
         assert_eq!(res.unwrap(), VcpuEmulation::Stopped);
 
         *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::SystemEvent(3, 0)));
         let res = vcpu.run_emulation();
-        assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
             format!(
@@ -776,20 +769,17 @@ pub mod tests {
         // Check what happens with an unhandled exit reason.
         *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::Unknown));
         let res = vcpu.run_emulation();
-        assert!(res.is_err());
         assert_eq!(
-            res.err().unwrap().to_string(),
+            res.unwrap_err().to_string(),
             "Unexpected kvm exit received: Unknown".to_string()
         );
 
         *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Err(errno::Error::new(libc::EAGAIN)));
         let res = vcpu.run_emulation();
-        assert!(res.is_ok());
         assert_eq!(res.unwrap(), VcpuEmulation::Handled);
 
         *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Err(errno::Error::new(libc::ENOSYS)));
         let res = vcpu.run_emulation();
-        assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
             format!(
@@ -803,12 +793,10 @@ pub mod tests {
 
         *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Err(errno::Error::new(libc::EINTR)));
         let res = vcpu.run_emulation();
-        assert!(res.is_ok());
         assert_eq!(res.unwrap(), VcpuEmulation::Interrupted);
 
         *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Err(errno::Error::new(libc::EINVAL)));
         let res = vcpu.run_emulation();
-        assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
             format!(
@@ -829,7 +817,6 @@ pub mod tests {
                 Some(Ok(VcpuExit::MmioRead(addr, &mut DATA)));
         }
         let res = vcpu.run_emulation();
-        assert!(res.is_ok());
         assert_eq!(res.unwrap(), VcpuEmulation::Handled);
 
         unsafe {
@@ -837,7 +824,6 @@ pub mod tests {
                 Some(Ok(VcpuExit::MmioWrite(addr, &DATA)));
         }
         let res = vcpu.run_emulation();
-        assert!(res.is_ok());
         assert_eq!(res.unwrap(), VcpuEmulation::Handled);
     }
 
@@ -981,7 +967,7 @@ pub mod tests {
 
         // Running on the TLS vcpu should fail before we actually initialize it.
         unsafe {
-            assert!(Vcpu::run_on_thread_local(|_| ()).is_err());
+            Vcpu::run_on_thread_local(|_| ()).unwrap_err();
         }
 
         // Initialize vcpu TLS.
@@ -991,19 +977,19 @@ pub mod tests {
         // the one in TLS.
         vcpu.kvm_vcpu.index = 12;
         unsafe {
-            assert!(Vcpu::run_on_thread_local(|v| assert_eq!(v.kvm_vcpu.index, 12)).is_ok());
+            Vcpu::run_on_thread_local(|v| assert_eq!(v.kvm_vcpu.index, 12)).unwrap();
         }
 
         // Reset vcpu TLS.
-        assert!(vcpu.reset_thread_local_data().is_ok());
+        vcpu.reset_thread_local_data().unwrap();
 
         // Running on the TLS vcpu after TLS reset should fail.
         unsafe {
-            assert!(Vcpu::run_on_thread_local(|_| ()).is_err());
+            Vcpu::run_on_thread_local(|_| ()).unwrap_err();
         }
 
         // Second reset should return error.
-        assert!(vcpu.reset_thread_local_data().is_err());
+        vcpu.reset_thread_local_data().unwrap_err();
     }
 
     #[test]
@@ -1170,6 +1156,6 @@ pub mod tests {
 
     #[test]
     fn test_vcpu_rtsig_offset() {
-        assert!(validate_signal_num(sigrtmin() + VCPU_RTSIG_OFFSET).is_ok());
+        validate_signal_num(sigrtmin() + VCPU_RTSIG_OFFSET).unwrap();
     }
 }

@@ -41,6 +41,6 @@ mod tests {
         let invalid_body = r#"{
             "invalid_field": "metrics"
         }"#;
-        assert!(parse_put_metrics(&Body::new(invalid_body)).is_err());
+        parse_put_metrics(&Body::new(invalid_body)).unwrap_err();
     }
 }

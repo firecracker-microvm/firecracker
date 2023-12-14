@@ -372,7 +372,7 @@ mod tests {
 
     #[test]
     fn test_mask_str2bit_count() {
-        assert!(mask_str2bit_count("00000000,00000001").is_ok());
+        mask_str2bit_count("00000000,00000001").unwrap();
         let res = mask_str2bit_count("00000000,00000000");
 
         assert!(
@@ -392,8 +392,8 @@ mod tests {
 
     #[test]
     fn test_to_bytes() {
-        assert!(to_bytes(&mut "64K".to_string()).is_ok());
-        assert!(to_bytes(&mut "64M".to_string()).is_ok());
+        to_bytes(&mut "64K".to_string()).unwrap();
+        to_bytes(&mut "64M".to_string()).unwrap();
 
         match to_bytes(&mut "64KK".to_string()) {
             Err(err) => assert_eq!(
@@ -426,13 +426,11 @@ mod tests {
         map1.remove("index0/type");
         let engine = CacheEngine::new(&map1);
         let res = CacheEntry::from_index(0, engine.store.as_ref());
-        assert!(res.is_err());
         // We did create the level file but we still do not have the type file.
         assert!(matches!(res.unwrap_err(), CacheInfoError::MissingCacheType));
 
         let engine = CacheEngine::new(&default_map);
         let res = CacheEntry::from_index(0, engine.store.as_ref());
-        assert!(res.is_err());
         assert_eq!(
             format!("{}", res.unwrap_err()),
             "shared cpu map, coherency line size, size, number of sets",
@@ -572,7 +570,7 @@ mod tests {
         let mut l1_caches: Vec<CacheEntry> = Vec::new();
         let mut non_l1_caches: Vec<CacheEntry> = Vec::new();
         // We use sysfs for extracting the cache information.
-        assert!(read_cache_config(&mut l1_caches, &mut non_l1_caches).is_ok());
+        read_cache_config(&mut l1_caches, &mut non_l1_caches).unwrap();
         assert_eq!(l1_caches.len(), 2);
         assert_eq!(l1_caches.len(), 2);
     }

@@ -740,21 +740,21 @@ mod tests {
         );
 
         #[cfg(target_arch = "x86_64")]
-        assert!(VmResources::from_json(
+        VmResources::from_json(
             json.as_str(),
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
-            None
+            None,
         )
-        .is_ok());
+        .unwrap();
         #[cfg(target_arch = "aarch64")]
-        assert!(VmResources::from_json(
+        VmResources::from_json(
             json.as_str(),
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
-            None
+            None,
         )
-        .is_err());
+        .unwrap_err();
 
         // Valid config for x86 but invalid on aarch64 since it uses cpu_template.
         json = format!(
@@ -781,21 +781,21 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
         #[cfg(target_arch = "x86_64")]
-        assert!(VmResources::from_json(
+        VmResources::from_json(
             json.as_str(),
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
-            None
+            None,
         )
-        .is_ok());
+        .unwrap();
         #[cfg(target_arch = "aarch64")]
-        assert!(VmResources::from_json(
+        VmResources::from_json(
             json.as_str(),
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
-            None
+            None,
         )
-        .is_err());
+        .unwrap_err();
 
         // Invalid memory size.
         json = format!(
@@ -976,13 +976,13 @@ mod tests {
             kernel_file.as_path().to_str().unwrap(),
             rootfs_file.as_path().to_str().unwrap(),
         );
-        assert!(VmResources::from_json(
+        VmResources::from_json(
             json.as_str(),
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
-            None
+            None,
         )
-        .is_ok());
+        .unwrap();
 
         // Test all configuration, this time trying to set default configuration
         // for version and IPv4 address.
@@ -1385,7 +1385,7 @@ mod tests {
 
         // mem_size_mib compatible with balloon size.
         aux_vm_config.mem_size_mib = Some(256);
-        assert!(vm_resources.update_vm_config(&aux_vm_config).is_ok());
+        vm_resources.update_vm_config(&aux_vm_config).unwrap();
     }
 
     #[test]
@@ -1416,7 +1416,9 @@ mod tests {
         let mut vm_resources = default_vm_resources();
         vm_resources.balloon = BalloonBuilder::new();
         new_balloon_cfg.amount_mib = 256;
-        assert!(vm_resources.set_balloon_device(new_balloon_cfg).is_err());
+        vm_resources
+            .set_balloon_device(new_balloon_cfg)
+            .unwrap_err();
     }
 
     #[test]

@@ -316,34 +316,33 @@ mod tests {
         let mut bus = Bus::new();
         let dummy = Arc::new(Mutex::new(BusDevice::Dummy(DummyDevice)));
         // Insert len should not be 0.
-        assert!(bus.insert(dummy.clone(), 0x10, 0).is_err());
-        assert!(bus.insert(dummy.clone(), 0x10, 0x10).is_ok());
+        bus.insert(dummy.clone(), 0x10, 0).unwrap_err();
+        bus.insert(dummy.clone(), 0x10, 0x10).unwrap();
 
         let result = bus.insert(dummy.clone(), 0x0f, 0x10);
         // This overlaps the address space of the existing bus device at 0x10.
-        assert!(result.is_err());
-        assert_eq!(format!("{:?}", result), "Err(Overlap)");
+        assert!(matches!(result, Err(BusError::Overlap)), "{:?}", result);
 
         // This overlaps the address space of the existing bus device at 0x10.
-        assert!(bus.insert(dummy.clone(), 0x10, 0x10).is_err());
+        bus.insert(dummy.clone(), 0x10, 0x10).unwrap_err();
         // This overlaps the address space of the existing bus device at 0x10.
-        assert!(bus.insert(dummy.clone(), 0x10, 0x15).is_err());
+        bus.insert(dummy.clone(), 0x10, 0x15).unwrap_err();
         // This overlaps the address space of the existing bus device at 0x10.
-        assert!(bus.insert(dummy.clone(), 0x12, 0x15).is_err());
+        bus.insert(dummy.clone(), 0x12, 0x15).unwrap_err();
         // This overlaps the address space of the existing bus device at 0x10.
-        assert!(bus.insert(dummy.clone(), 0x12, 0x01).is_err());
+        bus.insert(dummy.clone(), 0x12, 0x01).unwrap_err();
         // This overlaps the address space of the existing bus device at 0x10.
-        assert!(bus.insert(dummy.clone(), 0x0, 0x20).is_err());
-        assert!(bus.insert(dummy.clone(), 0x20, 0x05).is_ok());
-        assert!(bus.insert(dummy.clone(), 0x25, 0x05).is_ok());
-        assert!(bus.insert(dummy, 0x0, 0x10).is_ok());
+        bus.insert(dummy.clone(), 0x0, 0x20).unwrap_err();
+        bus.insert(dummy.clone(), 0x20, 0x05).unwrap();
+        bus.insert(dummy.clone(), 0x25, 0x05).unwrap();
+        bus.insert(dummy, 0x0, 0x10).unwrap();
     }
 
     #[test]
     fn bus_read_write() {
         let mut bus = Bus::new();
         let dummy = Arc::new(Mutex::new(BusDevice::Dummy(DummyDevice)));
-        assert!(bus.insert(dummy, 0x10, 0x10).is_ok());
+        bus.insert(dummy, 0x10, 0x10).unwrap();
         assert!(bus.read(0x10, &mut [0, 0, 0, 0]));
         assert!(bus.write(0x10, &[0, 0, 0, 0]));
         assert!(bus.read(0x11, &mut [0, 0, 0, 0]));
@@ -360,7 +359,7 @@ mod tests {
     fn bus_read_write_values() {
         let mut bus = Bus::new();
         let dummy = Arc::new(Mutex::new(BusDevice::Constant(ConstantDevice)));
-        assert!(bus.insert(dummy, 0x10, 0x10).is_ok());
+        bus.insert(dummy, 0x10, 0x10).unwrap();
 
         let mut values = [0, 1, 2, 3];
         assert!(bus.read(0x10, &mut values));
@@ -381,13 +380,12 @@ mod tests {
 
         let mut bus = Bus::new();
         let mut data = [1, 2, 3, 4];
-        assert!(bus
-            .insert(
-                Arc::new(Mutex::new(BusDevice::Dummy(DummyDevice))),
-                0x10,
-                0x10
-            )
-            .is_ok());
+        bus.insert(
+            Arc::new(Mutex::new(BusDevice::Dummy(DummyDevice))),
+            0x10,
+            0x10,
+        )
+        .unwrap();
         assert!(bus.write(0x10, &data));
         let bus_clone = bus.clone();
         assert!(bus.read(0x10, &mut data));

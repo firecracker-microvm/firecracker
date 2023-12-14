@@ -158,7 +158,7 @@ mod tests {
             "invalid_field": "foo",
             "mem_file_path": "bar"
         }"#;
-        assert!(parse_put_snapshot(&Body::new(invalid_body), Some("create")).is_err());
+        parse_put_snapshot(&Body::new(invalid_body), Some("create")).unwrap_err();
 
         let body = r#"{
             "snapshot_path": "foo",
@@ -331,8 +331,8 @@ mod tests {
             "An error occurred when deserializing the json body of a request: missing field \
              `snapshot_path` at line 6 column 9."
         );
-        assert!(parse_put_snapshot(&Body::new(body), Some("invalid")).is_err());
-        assert!(parse_put_snapshot(&Body::new(body), None).is_err());
+        parse_put_snapshot(&Body::new(body), Some("invalid")).unwrap_err();
+        parse_put_snapshot(&Body::new(body), None).unwrap_err();
     }
 
     #[test]
@@ -354,6 +354,6 @@ mod tests {
         let invalid_body = r#"{
             "invalid": "Paused"
         }"#;
-        assert!(parse_patch_vm_state(&Body::new(invalid_body)).is_err());
+        parse_patch_vm_state(&Body::new(invalid_body)).unwrap_err();
     }
 }

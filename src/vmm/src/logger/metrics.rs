@@ -889,13 +889,13 @@ mod tests {
         assert!(res.is_ok() && !res.unwrap());
 
         let f = TempFile::new().expect("Failed to create temporary metrics file");
-        assert!(m.init(LineWriter::new(f.into_file())).is_ok());
+        m.init(LineWriter::new(f.into_file())).unwrap();
 
-        assert!(m.write().is_ok());
+        m.write().unwrap();
 
         let f = TempFile::new().expect("Failed to create temporary metrics file");
 
-        assert!(m.init(LineWriter::new(f.into_file())).is_err());
+        m.init(LineWriter::new(f.into_file())).unwrap_err();
     }
 
     #[test]
@@ -944,7 +944,7 @@ mod tests {
     #[test]
     fn test_serialize() {
         let s = serde_json::to_string(&FirecrackerMetrics::default());
-        assert!(s.is_ok());
+        s.unwrap();
     }
 
     #[test]

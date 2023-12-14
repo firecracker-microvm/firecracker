@@ -403,7 +403,7 @@ mod tests {
 
             socket: Some("sock".to_string()),
         };
-        assert!(VhostUserBlockConfig::try_from(&block_config).is_ok());
+        VhostUserBlockConfig::try_from(&block_config).unwrap();
 
         let block_config = BlockDeviceConfig {
             drive_id: "".to_string(),
@@ -418,7 +418,7 @@ mod tests {
 
             socket: None,
         };
-        assert!(VhostUserBlockConfig::try_from(&block_config).is_err());
+        VhostUserBlockConfig::try_from(&block_config).unwrap_err();
 
         let block_config = BlockDeviceConfig {
             drive_id: "".to_string(),
@@ -433,7 +433,7 @@ mod tests {
 
             socket: Some("sock".to_string()),
         };
-        assert!(VhostUserBlockConfig::try_from(&block_config).is_err());
+        VhostUserBlockConfig::try_from(&block_config).unwrap_err();
     }
 
     #[test]
