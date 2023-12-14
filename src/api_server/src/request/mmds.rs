@@ -75,7 +75,7 @@ mod tests {
 
     #[test]
     fn test_parse_get_mmds_request() {
-        assert!(parse_get_mmds().is_ok());
+        parse_get_mmds().unwrap();
         assert!(METRICS.get_api_requests.mmds_count.count() > 0);
     }
 
@@ -84,10 +84,10 @@ mod tests {
         let body = r#"{
             "foo": "bar"
         }"#;
-        assert!(parse_put_mmds(&Body::new(body), None).is_ok());
+        parse_put_mmds(&Body::new(body), None).unwrap();
 
         let invalid_body = "invalid_body";
-        assert!(parse_put_mmds(&Body::new(invalid_body), None).is_err());
+        parse_put_mmds(&Body::new(invalid_body), None).unwrap_err();
         assert!(METRICS.put_api_requests.mmds_fails.count() > 0);
 
         // Test `config` path.
@@ -97,37 +97,37 @@ mod tests {
             "network_interfaces": []
         }"#;
         let config_path = "config";
-        assert!(parse_put_mmds(&Body::new(body), Some(config_path)).is_ok());
+        parse_put_mmds(&Body::new(body), Some(config_path)).unwrap();
 
         let body = r#"{
             "network_interfaces": []
         }"#;
-        assert!(parse_put_mmds(&Body::new(body), Some(config_path)).is_ok());
+        parse_put_mmds(&Body::new(body), Some(config_path)).unwrap();
 
         let body = r#"{
             "version": "foo",
             "ipv4_address": "169.254.170.2",
             "network_interfaces": []
         }"#;
-        assert!(parse_put_mmds(&Body::new(body), Some(config_path)).is_err());
+        parse_put_mmds(&Body::new(body), Some(config_path)).unwrap_err();
 
         let body = r#"{
             "version": "V2"
         }"#;
-        assert!(parse_put_mmds(&Body::new(body), Some(config_path)).is_err());
+        parse_put_mmds(&Body::new(body), Some(config_path)).unwrap_err();
 
         let body = r#"{
             "ipv4_address": "",
             "network_interfaces": []
         }"#;
-        assert!(parse_put_mmds(&Body::new(body), Some(config_path)).is_err());
+        parse_put_mmds(&Body::new(body), Some(config_path)).unwrap_err();
 
         let invalid_config_body = r#"{
             "invalid_config": "invalid_value"
         }"#;
-        assert!(parse_put_mmds(&Body::new(invalid_config_body), Some(config_path)).is_err());
-        assert!(parse_put_mmds(&Body::new(body), Some("invalid_path")).is_err());
-        assert!(parse_put_mmds(&Body::new(invalid_body), Some(config_path)).is_err());
+        parse_put_mmds(&Body::new(invalid_config_body), Some(config_path)).unwrap_err();
+        parse_put_mmds(&Body::new(body), Some("invalid_path")).unwrap_err();
+        parse_put_mmds(&Body::new(invalid_body), Some(config_path)).unwrap_err();
     }
 
     #[test]
@@ -169,9 +169,9 @@ mod tests {
         let body = r#"{
             "foo": "bar"
         }"#;
-        assert!(parse_patch_mmds(&Body::new(body)).is_ok());
+        parse_patch_mmds(&Body::new(body)).unwrap();
         assert!(METRICS.patch_api_requests.mmds_count.count() > 0);
-        assert!(parse_patch_mmds(&Body::new("invalid_body")).is_err());
+        parse_patch_mmds(&Body::new("invalid_body")).unwrap_err();
         assert!(METRICS.patch_api_requests.mmds_fails.count() > 0);
     }
 }

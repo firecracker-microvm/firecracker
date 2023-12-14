@@ -183,31 +183,27 @@ mod tests {
 
         let gicr_typer = 123;
         let res = get_icc_regs(gic_fd.device_fd(), gicr_typer);
-        assert!(res.is_ok());
         let mut state = res.unwrap();
         assert_eq!(state.main_icc_regs.len(), 7);
         assert_eq!(state.ap_icc_regs.len(), 8);
 
-        assert!(set_icc_regs(gic_fd.device_fd(), gicr_typer, &state).is_ok());
+        set_icc_regs(gic_fd.device_fd(), gicr_typer, &state).unwrap();
 
         for reg in state.ap_icc_regs.iter_mut() {
             *reg = None;
         }
         let res = set_icc_regs(gic_fd.device_fd(), gicr_typer, &state);
-        assert!(res.is_err());
         assert_eq!(format!("{:?}", res.unwrap_err()), "InvalidVgicSysRegState");
 
         unsafe { libc::close(gic_fd.device_fd().as_raw_fd()) };
 
         let res = set_icc_regs(gic_fd.device_fd(), gicr_typer, &state);
-        assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
             "DeviceAttribute(Error(9), true, 6)"
         );
 
         let res = get_icc_regs(gic_fd.device_fd(), gicr_typer);
-        assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
             "DeviceAttribute(Error(9), false, 6)"

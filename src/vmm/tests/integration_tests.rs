@@ -80,11 +80,11 @@ fn test_pause_resume_microvm() {
 
     // There's a race between this thread and the vcpu thread, but this thread
     // should be able to pause vcpu thread before it finishes running its test-binary.
-    assert!(vmm.lock().unwrap().pause_vm().is_ok());
+    vmm.lock().unwrap().pause_vm().unwrap();
     // Pausing again the microVM should not fail (microVM remains in the
     // `Paused` state).
-    assert!(vmm.lock().unwrap().pause_vm().is_ok());
-    assert!(vmm.lock().unwrap().resume_vm().is_ok());
+    vmm.lock().unwrap().pause_vm().unwrap();
+    vmm.lock().unwrap().resume_vm().unwrap();
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 }
 
@@ -304,7 +304,7 @@ fn test_snapshot_load_sanity_checks() {
 
     let mut microvm_state = get_microvm_state_from_snapshot();
 
-    assert!(snapshot_state_sanity_check(&microvm_state).is_ok());
+    snapshot_state_sanity_check(&microvm_state).unwrap();
 
     // Remove memory regions.
     microvm_state.memory_state.regions.clear();

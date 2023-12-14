@@ -104,23 +104,20 @@ mod tests {
 
         let gicr_typer = 123;
         let res = get_redist_regs(gic_fd.device_fd(), gicr_typer);
-        assert!(res.is_ok());
         let state = res.unwrap();
         assert_eq!(state.len(), 14);
 
-        assert!(set_redist_regs(gic_fd.device_fd(), gicr_typer, &state).is_ok());
+        set_redist_regs(gic_fd.device_fd(), gicr_typer, &state).unwrap();
 
         unsafe { libc::close(gic_fd.device_fd().as_raw_fd()) };
 
         let res = set_redist_regs(gic_fd.device_fd(), gicr_typer, &state);
-        assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
             "DeviceAttribute(Error(9), true, 5)"
         );
 
         let res = get_redist_regs(gic_fd.device_fd(), gicr_typer);
-        assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
             "DeviceAttribute(Error(9), false, 5)"

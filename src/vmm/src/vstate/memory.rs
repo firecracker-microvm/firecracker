@@ -724,10 +724,10 @@ mod tests {
         let memfd = create_memfd(size).unwrap();
 
         assert_eq!(memfd.as_file().metadata().unwrap().len(), size_mb);
-        assert!(memfd.as_file().set_len(0x69).is_err());
+        memfd.as_file().set_len(0x69).unwrap_err();
 
         let mut seals = memfd::SealsHashSet::new();
         seals.insert(memfd::FileSeal::SealGrow);
-        assert!(memfd.add_seals(&seals).is_err());
+        memfd.add_seals(&seals).unwrap_err();
     }
 }

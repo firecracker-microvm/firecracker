@@ -61,23 +61,21 @@ mod tests {
         let valid_string = "0b1000101";
         let deserializer: StrDeserializer<Error> = valid_string.into_deserializer();
         let valid_value = deserialize_from_str_u32(deserializer);
-        assert!(valid_value.is_ok());
         assert_eq!(valid_value.unwrap(), 69);
 
         let valid_string = "0x0045";
         let deserializer: StrDeserializer<Error> = valid_string.into_deserializer();
         let valid_value = deserialize_from_str_u32(deserializer);
-        assert!(valid_value.is_ok());
         assert_eq!(valid_value.unwrap(), 69);
 
         let invalid_string = "xϽ69";
         let deserializer: StrDeserializer<Error> = invalid_string.into_deserializer();
         let invalid_value = deserialize_from_str_u32(deserializer);
-        assert!(invalid_value.is_err());
+        invalid_value.unwrap_err();
 
         let invalid_string = "69";
         let deserializer: StrDeserializer<Error> = invalid_string.into_deserializer();
         let invalid_value = deserialize_from_str_u32(deserializer);
-        assert!(invalid_value.is_err());
+        invalid_value.unwrap_err();
     }
 }

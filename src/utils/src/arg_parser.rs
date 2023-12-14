@@ -642,7 +642,7 @@ mod tests {
             .map(String::from)
             .collect::<Vec<String>>();
 
-        assert!(arguments.parse(&args).is_ok());
+        arguments.parse(&args).unwrap();
         assert!(arguments.args.contains_key("help"));
 
         arguments = arg_parser.arguments().clone();
@@ -652,7 +652,7 @@ mod tests {
             .map(String::from)
             .collect::<Vec<String>>();
 
-        assert!(arguments.parse(&args).is_ok());
+        arguments.parse(&args).unwrap();
         assert!(arguments.args.contains_key("version"));
 
         arguments = arg_parser.arguments().clone();
@@ -917,7 +917,7 @@ mod tests {
         .map(String::from)
         .collect::<Vec<String>>();
 
-        assert!(arguments.parse(&args).is_ok());
+        arguments.parse(&args).unwrap();
         assert!(arguments.extra_args.contains(&"--extra-flag".to_string()));
     }
 
@@ -1017,7 +1017,7 @@ mod tests {
             .map(String::from)
             .collect::<Vec<String>>();
 
-        assert!(arguments.parse(&args).is_ok());
+        arguments.parse(&args).unwrap();
 
         arguments = arg_parser.arguments().clone();
 
@@ -1027,7 +1027,7 @@ mod tests {
             .map(String::from)
             .collect::<Vec<String>>();
 
-        assert!(arguments.parse(&args).is_ok());
+        arguments.parse(&args).unwrap();
 
         // Check dulicates require a value
         let args = vec!["binary-name", "--multiple", "--multiple", "2"]

@@ -222,7 +222,7 @@ mod tests {
         vm.get_preferred_target(&mut kvi).unwrap();
         vcpu.vcpu_init(&kvi).unwrap();
 
-        assert!(setup_boot_regs(&vcpu, 0, 0x0, &mem).is_ok());
+        setup_boot_regs(&vcpu, 0, 0x0, &mem).unwrap();
     }
 
     #[test]
@@ -273,15 +273,14 @@ mod tests {
         vm.get_preferred_target(&mut kvi).unwrap();
 
         let res = get_mpstate(&vcpu);
-        assert!(res.is_ok());
-        assert!(set_mpstate(&vcpu, res.unwrap()).is_ok());
+        set_mpstate(&vcpu, res.unwrap()).unwrap();
 
         unsafe { libc::close(vcpu.as_raw_fd()) };
 
         let res = get_mpstate(&vcpu);
-        assert!(matches!(res.unwrap_err(), VcpuError::GetMp(_)));
+        assert!(matches!(res, Err(VcpuError::GetMp(_))), "{:?}", res);
 
         let res = set_mpstate(&vcpu, kvm_mp_state::default());
-        assert!(matches!(res.unwrap_err(), VcpuError::SetMp(_)));
+        assert!(matches!(res, Err(VcpuError::SetMp(_))), "{:?}", res);
     }
 }

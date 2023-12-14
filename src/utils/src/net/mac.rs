@@ -149,16 +149,16 @@ mod tests {
     #[test]
     fn test_mac_addr() {
         // too long
-        assert!(MacAddr::from_str("aa:aa:aa:aa:aa:aa:aa").is_err());
+        MacAddr::from_str("aa:aa:aa:aa:aa:aa:aa").unwrap_err();
 
         // invalid hex
-        assert!(MacAddr::from_str("aa:aa:aa:aa:aa:ax").is_err());
+        MacAddr::from_str("aa:aa:aa:aa:aa:ax").unwrap_err();
 
         // single digit mac address component should be invalid
-        assert!(MacAddr::from_str("aa:aa:aa:aa:aa:b").is_err());
+        MacAddr::from_str("aa:aa:aa:aa:aa:b").unwrap_err();
 
         // components with more than two digits should also be invalid
-        assert!(MacAddr::from_str("aa:aa:aa:aa:aa:bbb").is_err());
+        MacAddr::from_str("aa:aa:aa:aa:aa:bbb").unwrap_err();
 
         let mac = MacAddr::from_str("12:34:56:78:9a:BC").unwrap();
 

@@ -324,7 +324,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(setup_mptable(&mem, num_cpus).is_err());
+        setup_mptable(&mem, num_cpus).unwrap_err();
     }
 
     #[test]

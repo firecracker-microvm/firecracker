@@ -24,7 +24,7 @@ mod tests {
 
     #[test]
     fn test_parse_boot_request() {
-        assert!(parse_put_boot_source(&Body::new("invalid_payload")).is_err());
+        parse_put_boot_source(&Body::new("invalid_payload")).unwrap_err();
 
         let body = r#"{
             "kernel_image_path": "/foo/bar",
@@ -36,10 +36,11 @@ mod tests {
             initrd_path: Some(String::from("/bar/foo")),
             boot_args: Some(String::from("foobar")),
         };
-        let result = parse_put_boot_source(&Body::new(body));
-        assert!(result.is_ok());
-        let parsed_req = result.unwrap_or_else(|_e| panic!("Failed test."));
+        let parsed_req = parse_put_boot_source(&Body::new(body)).unwrap();
 
-        assert!(parsed_req == ParsedRequest::new_sync(VmmAction::ConfigureBootSource(same_body)));
+        assert_eq!(
+            parsed_req,
+            ParsedRequest::new_sync(VmmAction::ConfigureBootSource(same_body))
+        );
     }
 }

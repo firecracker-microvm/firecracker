@@ -605,9 +605,8 @@ mod tests {
         let mut buf = vec![0; 10000];
         let version_map = VersionMap::new();
 
-        assert!(v
-            .serialize(&mut buf.as_mut_slice(), &version_map, 1)
-            .is_ok());
+        v.serialize(&mut buf.as_mut_slice(), &version_map, 1)
+            .unwrap();
         let restored =
             <Aarch64RegisterVec as Versionize>::deserialize(&mut buf.as_slice(), &version_map, 1)
                 .unwrap();
@@ -636,18 +635,13 @@ mod tests {
         let mut buf = vec![0; 10000];
         let version_map = VersionMap::new();
 
-        assert!(v
-            .serialize(&mut buf.as_mut_slice(), &version_map, 1)
-            .is_ok());
+        v.serialize(&mut buf.as_mut_slice(), &version_map, 1)
+            .unwrap();
 
         // Total size of registers according IDs are 16 + 16 = 32,
         // but actual data size is 8 + 16 = 24.
-        assert!(<Aarch64RegisterVec as Versionize>::deserialize(
-            &mut buf.as_slice(),
-            &version_map,
-            1
-        )
-        .is_err());
+        <Aarch64RegisterVec as Versionize>::deserialize(&mut buf.as_slice(), &version_map, 1)
+            .unwrap_err();
     }
 
     #[test]
@@ -667,17 +661,12 @@ mod tests {
         let mut buf = vec![0; 10000];
         let version_map = VersionMap::new();
 
-        assert!(v
-            .serialize(&mut buf.as_mut_slice(), &version_map, 1)
-            .is_ok());
+        v.serialize(&mut buf.as_mut_slice(), &version_map, 1)
+            .unwrap();
 
         // 4096 bit wide registers are not supported.
-        assert!(<Aarch64RegisterVec as Versionize>::deserialize(
-            &mut buf.as_slice(),
-            &version_map,
-            1
-        )
-        .is_err());
+        <Aarch64RegisterVec as Versionize>::deserialize(&mut buf.as_slice(), &version_map, 1)
+            .unwrap_err();
     }
 
     #[test]
@@ -852,7 +841,7 @@ mod tests {
         };
 
         let reg_ref: Result<Aarch64RegisterRef, _> = (&old_reg).try_into();
-        assert!(reg_ref.is_err());
+        reg_ref.unwrap_err();
 
         // 4096 bit wide reg ID.
         let old_reg = Aarch64RegisterOld {
@@ -861,7 +850,7 @@ mod tests {
         };
 
         let reg_ref: Result<Aarch64RegisterRef, _> = (&old_reg).try_into();
-        assert!(reg_ref.is_err());
+        reg_ref.unwrap_err();
     }
 
     #[test]
@@ -876,6 +865,6 @@ mod tests {
         let reg_ref = Aarch64RegisterRef::new(KVM_REG_SIZE_U256, &[0_u8; 32]);
 
         let reg: Result<Aarch64RegisterOld, _> = reg_ref.try_into();
-        assert!(reg.is_err());
+        reg.unwrap_err();
     }
 }

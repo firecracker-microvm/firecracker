@@ -576,7 +576,7 @@ mod tests {
             data: 0,
             ..Default::default()
         }];
-        assert!(set_msrs(&vcpu, &msr_entries).is_ok());
+        set_msrs(&vcpu, &msr_entries).unwrap();
     }
 
     #[test]

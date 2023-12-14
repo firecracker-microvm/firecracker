@@ -112,7 +112,7 @@ mod tests {
     use super::*;
     #[test]
     fn test_get() {
-        assert!(KernelVersion::get().is_ok());
+        KernelVersion::get().unwrap();
     }
 
     #[test]
@@ -133,12 +133,12 @@ mod tests {
 
     #[test]
     fn test_parse_invalid() {
-        assert!(KernelVersion::parse("".to_string()).is_err());
-        assert!(KernelVersion::parse("ffff".to_string()).is_err());
-        assert!(KernelVersion::parse("ffff.55.0".to_string()).is_err());
-        assert!(KernelVersion::parse("5.10.".to_string()).is_err());
-        assert!(KernelVersion::parse("5.0".to_string()).is_err());
-        assert!(KernelVersion::parse("5.0fff".to_string()).is_err());
+        KernelVersion::parse("".to_string()).unwrap_err();
+        KernelVersion::parse("ffff".to_string()).unwrap_err();
+        KernelVersion::parse("ffff.55.0".to_string()).unwrap_err();
+        KernelVersion::parse("5.10.".to_string()).unwrap_err();
+        KernelVersion::parse("5.0".to_string()).unwrap_err();
+        KernelVersion::parse("5.0fff".to_string()).unwrap_err();
     }
 
     #[test]

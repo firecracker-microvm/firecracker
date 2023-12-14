@@ -184,11 +184,11 @@ mod tests {
     #[test]
     fn test_signal_handler() {
         let child = thread::spawn(move || {
-            assert!(register_signal_handlers().is_ok());
+            register_signal_handlers().unwrap();
 
             let filter = make_test_seccomp_bpf_filter();
 
-            assert!(seccompiler::apply_filter(&filter).is_ok());
+            seccompiler::apply_filter(&filter).unwrap();
             assert_eq!(METRICS.seccomp.num_faults.fetch(), 0);
 
             // Call the forbidden `SYS_mkdirat`.
@@ -236,7 +236,7 @@ mod tests {
                 syscall(libc::SYS_kill, process::id(), SIGILL);
             }
         });
-        assert!(child.join().is_ok());
+        child.join().unwrap();
 
         assert!(METRICS.seccomp.num_faults.fetch() >= 1);
         assert!(METRICS.signals.sigbus.fetch() >= 1);

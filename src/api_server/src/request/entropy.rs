@@ -18,16 +18,16 @@ mod tests {
 
     #[test]
     fn test_parse_put_entropy_request() {
-        assert!(parse_put_entropy(&Body::new("invalid_payload")).is_err());
+        parse_put_entropy(&Body::new("invalid_payload")).unwrap_err();
 
         // PUT with invalid fields.
         let body = r#"{
             "some_id": 4
         }"#;
-        assert!(parse_put_entropy(&Body::new(body)).is_err());
+        parse_put_entropy(&Body::new(body)).unwrap_err();
 
         // PUT with valid fields.
         let body = r#"{}"#;
-        assert!(parse_put_entropy(&Body::new(body)).is_ok());
+        parse_put_entropy(&Body::new(body)).unwrap();
     }
 }

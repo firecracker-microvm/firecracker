@@ -175,6 +175,6 @@ mod tests {
     fn test_create_gic() {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
-        assert!(create_gic(&vm, 1, None).is_ok());
+        create_gic(&vm, 1, None).unwrap();
     }
 }

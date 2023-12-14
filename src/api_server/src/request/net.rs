@@ -86,9 +86,9 @@ mod tests {
             "guest_mac": "12:34:56:78:9A:BC"
         }"#;
         // 1. Exercise infamous "The id from the path does not match id from the body!".
-        assert!(parse_put_net(&Body::new(body), Some("bar")).is_err());
+        parse_put_net(&Body::new(body), Some("bar")).unwrap_err();
         // 2. The `id_from_path` cannot be None.
-        assert!(parse_put_net(&Body::new(body), None).is_err());
+        parse_put_net(&Body::new(body), None).unwrap_err();
 
         // 3. Success case.
         let expected_config = serde_json::from_str::<NetworkInterfaceConfig>(body).unwrap();
@@ -113,7 +113,7 @@ mod tests {
                 }
             }
         }"#;
-        assert!(parse_put_net(&Body::new(body), Some("foo")).is_err());
+        parse_put_net(&Body::new(body), Some("foo")).unwrap_err();
     }
 
     #[test]
@@ -124,9 +124,9 @@ mod tests {
             "tx_rate_limiter": {}
         }"#;
         // 1. Exercise infamous "The id from the path does not match id from the body!".
-        assert!(parse_patch_net(&Body::new(body), Some("bar")).is_err());
+        parse_patch_net(&Body::new(body), Some("bar")).unwrap_err();
         // 2. The `id_from_path` cannot be None.
-        assert!(parse_patch_net(&Body::new(body), None).is_err());
+        parse_patch_net(&Body::new(body), None).unwrap_err();
 
         // 3. Success case.
         let expected_config = serde_json::from_str::<NetworkInterfaceUpdateConfig>(body).unwrap();
@@ -151,6 +151,6 @@ mod tests {
                 }
             }
         }"#;
-        assert!(parse_patch_net(&Body::new(body), Some("foo")).is_err());
+        parse_patch_net(&Body::new(body), Some("foo")).unwrap_err();
     }
 }

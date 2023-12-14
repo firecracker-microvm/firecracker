@@ -232,8 +232,8 @@ pub mod tests {
         const MAX_BLOCK_DEVICES: usize = 19;
 
         // This is to make sure that RwLock for block::metrics::METRICS is good.
-        assert!(METRICS.read().is_ok());
-        assert!(METRICS.write().is_ok());
+        drop(METRICS.read().unwrap());
+        drop(METRICS.write().unwrap());
 
         // block::metrics::METRICS is in short RwLock on Vec of BlockDeviceMetrics.
         // Normally, pointer to unique entries of block::metrics::METRICS are stored
@@ -281,8 +281,8 @@ pub mod tests {
         let devn = "drv0";
 
         // This is to make sure that RwLock for block::metrics::METRICS is good.
-        assert!(METRICS.read().is_ok());
-        assert!(METRICS.write().is_ok());
+        drop(METRICS.read().unwrap());
+        drop(METRICS.write().unwrap());
 
         let test_metrics = BlockMetricsPerDevice::alloc(String::from(devn));
         // Test to update IncMetrics
