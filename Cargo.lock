@@ -1167,6 +1167,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a7cee0529a6d40f580e7a5e6c495c8fbfe21b7b52795ed4bb5e62cdf92bc6380"
 
 [[package]]
+name = "smallvec"
+version = "1.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4dccd0940a2dcdf68d092b8cbab7dc0ad8fa938bf95787e1b916b0e3d0e8e970"
+
+[[package]]
 name = "snapshot"
 version = "0.1.0"
 dependencies = [
@@ -1509,6 +1515,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "smallvec",
  "snapshot",
  "thiserror",
  "timerfd",

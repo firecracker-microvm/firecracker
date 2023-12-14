@@ -42,6 +42,7 @@ log-instrument = { path = "../log-instrument", optional = true }
 seccompiler = { path = "../seccompiler" }
 snapshot = { path = "../snapshot"}
 utils = { path = "../utils" }
+smallvec = "1.11.2"
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 vm-fdt = "0.2.0"

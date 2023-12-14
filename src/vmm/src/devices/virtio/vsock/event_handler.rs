@@ -205,7 +205,7 @@ mod tests {
     use super::*;
     use crate::devices::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
     use crate::devices::virtio::vsock::test_utils::{EventHandlerContext, TestContext};
-    use crate::vstate::memory::{Bytes, GuestMemoryExtension};
+    use crate::vstate::memory::{Bytes, GuestMemoryExtension, GuestMemoryMmap};
 
     #[test]
     fn test_txq_event() {
@@ -266,8 +266,9 @@ mod tests {
             let mut ctx = test_ctx.create_event_handler_context();
             ctx.mock_activate(test_ctx.mem.clone());
 
-            // Invalidate the packet header descriptor, by setting its length to 0.
+            // Invalidate the descriptor chain, by setting its length to 0.
             ctx.guest_txvq.dtable[0].len.set(0);
+            ctx.guest_txvq.dtable[1].len.set(0);
             ctx.signal_txq_event();
 
             // The available descriptor should have been consumed, but no packet should have
@@ -327,8 +328,9 @@ mod tests {
             let mut ctx = test_ctx.create_event_handler_context();
             ctx.mock_activate(test_ctx.mem.clone());
 
-            // Invalidate the packet header descriptor, by setting its length to 0.
+            // Invalidate the descriptor chain, by setting its length to 0.
             ctx.guest_rxvq.dtable[0].len.set(0);
+            ctx.guest_rxvq.dtable[1].len.set(0);
 
             // The chain should've been processed, without employing the backend.
             assert!(ctx.device.process_rx());
@@ -416,7 +418,7 @@ mod tests {
             // If the descriptor chain is already declared invalid, there's no reason to assemble
             // a packet.
             if let Some(rx_desc) = ctx.device.queues[RXQ_INDEX].pop(&test_ctx.mem) {
-                assert!(VsockPacket::from_rx_virtq_head(&rx_desc).is_err());
+                assert!(VsockPacket::from_rx_virtq_head(rx_desc).is_err());
             }
         }
 
@@ -438,7 +440,7 @@ mod tests {
             ctx.guest_txvq.dtable[desc_idx].len.set(len);
 
             if let Some(tx_desc) = ctx.device.queues[TXQ_INDEX].pop(&test_ctx.mem) {
-                assert!(VsockPacket::from_tx_virtq_head(&tx_desc).is_err());
+                assert!(VsockPacket::from_tx_virtq_head(tx_desc).is_err());
             }
         }
     }
@@ -467,13 +469,13 @@ mod tests {
         {
             let mut ctx = test_ctx.create_event_handler_context();
             let rx_desc = ctx.device.queues[RXQ_INDEX].pop(&test_ctx.mem).unwrap();
-            assert!(VsockPacket::from_rx_virtq_head(&rx_desc).is_ok());
+            assert!(VsockPacket::from_rx_virtq_head(rx_desc).is_ok());
         }
 
         {
             let mut ctx = test_ctx.create_event_handler_context();
             let tx_desc = ctx.device.queues[TXQ_INDEX].pop(&test_ctx.mem).unwrap();
-            assert!(VsockPacket::from_tx_virtq_head(&tx_desc).is_ok());
+            assert!(VsockPacket::from_tx_virtq_head(tx_desc).is_ok());
         }
 
         // Let's check what happens when the header descriptor is right before the gap.

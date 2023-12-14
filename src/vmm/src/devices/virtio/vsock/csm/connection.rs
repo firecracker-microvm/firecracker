@@ -95,7 +95,6 @@ use super::txbuf::TxBuf;
 use super::{defs, ConnState, PendingRx, PendingRxSet, VsockCsmError};
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::logger::IncMetric;
-use crate::vstate::memory::GuestMemoryMmap;
 
 /// Trait that vsock connection backends need to implement.
 ///
@@ -160,7 +159,7 @@ where
     /// - `Err(VsockError::NoData)`: there was no data available with which to fill in the packet;
     /// - `Err(VsockError::PktBufMissing)`: the packet would've been filled in with data, but it is
     ///   missing the data buffer.
-    fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> Result<(), VsockError> {
+    fn recv_pkt(&mut self, pkt: &mut VsockPacket) -> Result<(), VsockError> {
         // Perform some generic initialization that is the same for any packet operation (e.g.
         // source, destination, credit, etc).
         self.init_pkt(pkt);
@@ -219,7 +218,7 @@ where
             let max_len = std::cmp::min(pkt.buf_size(), self.peer_avail_credit());
 
             // Read data from the stream straight to the RX buffer, for maximum throughput.
-            match pkt.read_at_offset_from(mem, 0, &mut self.stream, max_len) {
+            match pkt.read_at_offset_from(&mut self.stream, 0, max_len) {
                 Ok(read_cnt) => {
                     if read_cnt == 0 {
                         // A 0-length read means the host stream was closed down. In that case,
@@ -292,7 +291,7 @@ where
     ///
     /// Returns:
     /// always `Ok(())`: the packet has been consumed;
-    fn send_pkt(&mut self, pkt: &VsockPacket, mem: &GuestMemoryMmap) -> Result<(), VsockError> {
+    fn send_pkt(&mut self, pkt: &VsockPacket) -> Result<(), VsockError> {
         // Update the peer credit information.
         self.peer_buf_alloc = pkt.buf_alloc();
         self.peer_fwd_cnt = Wrapping(pkt.fwd_cnt());
@@ -314,7 +313,7 @@ where
                 }
 
                 // Unwrapping here is safe, since we just checked `pkt.buf()` above.
-                if let Err(err) = self.send_bytes(mem, pkt) {
+                if let Err(err) = self.send_bytes(pkt) {
                     // If we can't write to the host stream, that's an unrecoverable error, so
                     // we'll terminate this connection.
                     warn!(
@@ -604,7 +603,7 @@ where
     ///
     /// Raw data can either be sent straight to the host stream, or to our TX buffer, if the
     /// former fails.
-    fn send_bytes(&mut self, mem: &GuestMemoryMmap, pkt: &VsockPacket) -> Result<(), VsockError> {
+    fn send_bytes(&mut self, pkt: &VsockPacket) -> Result<(), VsockError> {
         let len = pkt.len() as usize;
 
         // If there is data in the TX buffer, that means we're already registered for EPOLLOUT
@@ -613,12 +612,12 @@ where
         // attempt to drain the TX buffer then.
         if !self.tx_buf.is_empty() {
             return pkt
-                .write_from_offset_to(mem, 0, &mut self.tx_buf, len)
+                .write_from_offset_to(&mut self.tx_buf, 0, len)
                 .map(|_| ());
         }
 
         // The TX buffer is empty, so we can try to write straight to the host stream.
-        let written = match pkt.write_from_offset_to(mem, 0, &mut self.stream, len) {
+        let written = match pkt.write_from_offset_to(&mut self.stream, 0, len) {
             Ok(cnt) => cnt,
             Err(VsockError::GuestMemoryMmap(GuestMemoryError::IOError(err)))
                 if err.kind() == ErrorKind::WouldBlock =>
@@ -641,7 +640,7 @@ where
         // If we couldn't write the whole slice, we'll need to push the remaining data to our
         // buffer.
         if written < len {
-            pkt.write_from_offset_to(mem, written, &mut self.tx_buf, len - written)?;
+            pkt.write_from_offset_to(&mut self.tx_buf, written, len - written)?;
         }
 
         Ok(())
@@ -690,7 +689,7 @@ mod tests {
     use super::super::super::defs::uapi;
     use super::super::defs as csm_defs;
     use super::*;
-    use crate::devices::virtio::vsock::device::RXQ_INDEX;
+    use crate::devices::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
     use crate::devices::virtio::vsock::test_utils;
     use crate::devices::virtio::vsock::test_utils::TestContext;
     use crate::vstate::memory::BitmapSlice;
@@ -846,7 +845,9 @@ mod tests {
     #[derive(Debug)]
     struct CsmTestContext {
         _vsock_test_ctx: TestContext,
-        pkt: VsockPacket,
+        // Two views of the same in-memory packet. rx-view for writing, tx-view for reading
+        rx_pkt: VsockPacket,
+        tx_pkt: VsockPacket,
         conn: VsockConnection<TestStream>,
     }
 
@@ -859,8 +860,14 @@ mod tests {
             let vsock_test_ctx = TestContext::new();
             let mut handler_ctx = vsock_test_ctx.create_event_handler_context();
             let stream = TestStream::new();
-            let mut pkt = VsockPacket::from_rx_virtq_head(
-                &handler_ctx.device.queues[RXQ_INDEX]
+            let mut rx_pkt = VsockPacket::from_rx_virtq_head(
+                handler_ctx.device.queues[RXQ_INDEX]
+                    .pop(&vsock_test_ctx.mem)
+                    .unwrap(),
+            )
+            .unwrap();
+            let tx_pkt = VsockPacket::from_tx_virtq_head(
+                handler_ctx.device.queues[TXQ_INDEX]
                     .pop(&vsock_test_ctx.mem)
                     .unwrap(),
             )
@@ -887,8 +894,8 @@ mod tests {
                         PEER_BUF_ALLOC,
                     );
                     assert!(conn.has_pending_rx());
-                    conn.recv_pkt(&mut pkt, &vsock_test_ctx.mem).unwrap();
-                    assert_eq!(pkt.op(), uapi::VSOCK_OP_RESPONSE);
+                    conn.recv_pkt(&mut rx_pkt).unwrap();
+                    assert_eq!(rx_pkt.op(), uapi::VSOCK_OP_RESPONSE);
                     conn
                 }
                 other => panic!("invalid ctx state: {:?}", other),
@@ -896,7 +903,8 @@ mod tests {
             assert_eq!(conn.state, conn_state);
             Self {
                 _vsock_test_ctx: vsock_test_ctx,
-                pkt,
+                rx_pkt,
+                tx_pkt,
                 conn,
             }
         }
@@ -913,15 +921,11 @@ mod tests {
         }
 
         fn send(&mut self) {
-            self.conn
-                .send_pkt(&self.pkt, &self._vsock_test_ctx.mem)
-                .unwrap();
+            self.conn.send_pkt(&self.tx_pkt).unwrap();
         }
 
         fn recv(&mut self) {
-            self.conn
-                .recv_pkt(&mut self.pkt, &self._vsock_test_ctx.mem)
-                .unwrap();
+            self.conn.recv_pkt(&mut self.rx_pkt).unwrap();
         }
 
         fn notify_epollin(&mut self) {
@@ -933,19 +937,17 @@ mod tests {
             self.conn.notify(EventSet::OUT);
         }
 
-        fn init_pkt(&mut self, op: u16, len: u32) -> &mut VsockPacket {
-            init_pkt(&mut self.pkt, op, len)
+        fn init_tx_pkt(&mut self, op: u16, len: u32) -> &mut VsockPacket {
+            init_pkt(&mut self.tx_pkt, op, len)
         }
 
-        fn init_data_pkt(&mut self, mut data: &[u8]) -> &VsockPacket {
-            assert!(data.len() <= self.pkt.buf_size());
-            self.init_pkt(uapi::VSOCK_OP_RW, u32::try_from(data.len()).unwrap());
+        fn init_data_tx_pkt(&mut self, mut data: &[u8]) -> &VsockPacket {
+            assert!(data.len() <= self.tx_pkt.buf_size());
+            self.init_tx_pkt(uapi::VSOCK_OP_RW, u32::try_from(data.len()).unwrap());
 
             let len = data.len();
-            self.pkt
-                .read_at_offset_from(&self._vsock_test_ctx.mem, 0, &mut data, len)
-                .unwrap();
-            &self.pkt
+            self.rx_pkt.read_at_offset_from(&mut data, 0, len).unwrap();
+            &self.tx_pkt
         }
     }
 
@@ -956,13 +958,13 @@ mod tests {
         ctx.recv();
         // For peer-initiated requests, our connection should always yield a vsock reponse packet,
         // in order to establish the connection.
-        assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RESPONSE);
-        assert_eq!(ctx.pkt.src_cid(), LOCAL_CID);
-        assert_eq!(ctx.pkt.dst_cid(), PEER_CID);
-        assert_eq!(ctx.pkt.src_port(), LOCAL_PORT);
-        assert_eq!(ctx.pkt.dst_port(), PEER_PORT);
-        assert_eq!(ctx.pkt.type_(), uapi::VSOCK_TYPE_STREAM);
-        assert_eq!(ctx.pkt.len(), 0);
+        assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RESPONSE);
+        assert_eq!(ctx.rx_pkt.src_cid(), LOCAL_CID);
+        assert_eq!(ctx.rx_pkt.dst_cid(), PEER_CID);
+        assert_eq!(ctx.rx_pkt.src_port(), LOCAL_PORT);
+        assert_eq!(ctx.rx_pkt.dst_port(), PEER_PORT);
+        assert_eq!(ctx.rx_pkt.type_(), uapi::VSOCK_TYPE_STREAM);
+        assert_eq!(ctx.rx_pkt.len(), 0);
         // After yielding the response packet, the connection should have transitioned to the
         // established state.
         assert_eq!(ctx.conn.state, ConnState::Established);
@@ -977,11 +979,11 @@ mod tests {
         // armed.
         assert!(!ctx.conn.will_expire());
         ctx.recv();
-        assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_REQUEST);
+        assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_REQUEST);
         // Since the request might time-out, the kill timer should now be armed.
         assert!(ctx.conn.will_expire());
         assert!(!ctx.conn.has_expired());
-        ctx.init_pkt(uapi::VSOCK_OP_RESPONSE, 0);
+        ctx.init_tx_pkt(uapi::VSOCK_OP_RESPONSE, 0);
         ctx.send();
         // Upon receiving a connection response, the connection should have transitioned to the
         // established state, and the kill timer should've been disarmed.
@@ -993,7 +995,7 @@ mod tests {
     fn test_local_request_timeout() {
         let mut ctx = CsmTestContext::new(ConnState::LocalInit);
         ctx.recv();
-        assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_REQUEST);
+        assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_REQUEST);
         assert!(ctx.conn.will_expire());
         assert!(!ctx.conn.has_expired());
         std::thread::sleep(std::time::Duration::from_millis(
@@ -1010,14 +1012,14 @@ mod tests {
         assert_eq!(ctx.conn.as_raw_fd(), ctx.conn.stream.as_raw_fd());
         ctx.notify_epollin();
         ctx.recv();
-        assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RW);
-        assert_eq!(ctx.pkt.len() as usize, data.len());
+        assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RW);
+        assert_eq!(ctx.rx_pkt.len() as usize, data.len());
 
-        let buf = test_utils::read_packet_data(&ctx.pkt, &ctx._vsock_test_ctx.mem, 4);
+        let buf = test_utils::read_packet_data(&ctx.tx_pkt, 4);
         assert_eq!(&buf, data);
 
         // There's no more data in the stream, so `recv_pkt` should yield `VsockError::NoData`.
-        match ctx.conn.recv_pkt(&mut ctx.pkt, &ctx._vsock_test_ctx.mem) {
+        match ctx.conn.recv_pkt(&mut ctx.tx_pkt) {
             Err(VsockError::NoData) => (),
             other => panic!("{:?}", other),
         }
@@ -1026,7 +1028,7 @@ mod tests {
         ctx.conn.state = ConnState::LocalClosed;
         ctx.notify_epollin();
         ctx.recv();
-        assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RST);
+        assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RST);
     }
 
     #[test]
@@ -1040,9 +1042,9 @@ mod tests {
         // When the host-side stream is closed, we can neither send not receive any more data.
         // Therefore, the vsock shutdown packet that we'll deliver to the guest must contain both
         // the no-more-send and the no-more-recv indications.
-        assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_SHUTDOWN);
-        assert_ne!(ctx.pkt.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_SEND, 0);
-        assert_ne!(ctx.pkt.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_RCV, 0);
+        assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_SHUTDOWN);
+        assert_ne!(ctx.rx_pkt.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_SEND, 0);
+        assert_ne!(ctx.rx_pkt.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_RCV, 0);
 
         // The kill timer should now be armed.
         assert!(ctx.conn.will_expire());
@@ -1059,14 +1061,14 @@ mod tests {
         {
             let mut ctx = CsmTestContext::new_established();
 
-            ctx.init_pkt(uapi::VSOCK_OP_SHUTDOWN, 0)
+            ctx.init_tx_pkt(uapi::VSOCK_OP_SHUTDOWN, 0)
                 .set_flags(uapi::VSOCK_FLAGS_SHUTDOWN_RCV);
             ctx.send();
             assert_eq!(ctx.conn.state, ConnState::PeerClosed(true, false));
 
             // Attempting to reset the no-more-recv indication should not work
             // (we are only setting the no-more-send indication here).
-            ctx.pkt.set_flags(uapi::VSOCK_FLAGS_SHUTDOWN_SEND);
+            ctx.tx_pkt.set_flags(uapi::VSOCK_FLAGS_SHUTDOWN_SEND);
             ctx.send();
             assert_eq!(ctx.conn.state, ConnState::PeerClosed(true, true));
         }
@@ -1078,17 +1080,17 @@ mod tests {
             let data = &[1, 2, 3, 4];
             let mut ctx = CsmTestContext::new_established();
             ctx.set_stream(TestStream::new_with_read_buf(data));
-            ctx.init_pkt(uapi::VSOCK_OP_SHUTDOWN, 0)
+            ctx.init_tx_pkt(uapi::VSOCK_OP_SHUTDOWN, 0)
                 .set_flags(uapi::VSOCK_FLAGS_SHUTDOWN_SEND);
             ctx.send();
             ctx.notify_epollin();
             ctx.recv();
-            assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RW);
+            assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RW);
 
-            let buf = test_utils::read_packet_data(&ctx.pkt, &ctx._vsock_test_ctx.mem, 4);
+            let buf = test_utils::read_packet_data(&ctx.tx_pkt, 4);
             assert_eq!(&buf, data);
 
-            ctx.init_data_pkt(data);
+            ctx.init_data_tx_pkt(data);
             ctx.send();
             assert_eq!(ctx.conn.stream.write_buf.len(), 0);
             assert!(ctx.conn.tx_buf.is_empty());
@@ -1099,29 +1101,29 @@ mod tests {
         // - attempting to read data from it should yield an RST packet.
         {
             let mut ctx = CsmTestContext::new_established();
-            ctx.init_pkt(uapi::VSOCK_OP_SHUTDOWN, 0)
+            ctx.init_tx_pkt(uapi::VSOCK_OP_SHUTDOWN, 0)
                 .set_flags(uapi::VSOCK_FLAGS_SHUTDOWN_RCV);
             ctx.send();
             let data = &[1, 2, 3, 4];
-            ctx.init_data_pkt(data);
+            ctx.init_data_tx_pkt(data);
             ctx.send();
             assert_eq!(ctx.conn.stream.write_buf, data.to_vec());
 
             ctx.notify_epollin();
             ctx.recv();
-            assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RST);
+            assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RST);
         }
 
         // Test case: setting both no-more-send and no-more-recv indications should have the
         // connection confirm termination (i.e. yield an RST).
         {
             let mut ctx = CsmTestContext::new_established();
-            ctx.init_pkt(uapi::VSOCK_OP_SHUTDOWN, 0)
+            ctx.init_tx_pkt(uapi::VSOCK_OP_SHUTDOWN, 0)
                 .set_flags(uapi::VSOCK_FLAGS_SHUTDOWN_RCV | uapi::VSOCK_FLAGS_SHUTDOWN_SEND);
             ctx.send();
             assert!(ctx.conn.has_pending_rx());
             ctx.recv();
-            assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RST);
+            assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RST);
         }
     }
 
@@ -1133,7 +1135,7 @@ mod tests {
         ctx.set_stream(stream);
         ctx.notify_epollin();
         ctx.recv();
-        assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RST);
+        assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RST);
     }
 
     #[test]
@@ -1142,19 +1144,19 @@ mod tests {
         ctx.set_peer_credit(0);
         ctx.notify_epollin();
         ctx.recv();
-        assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_CREDIT_REQUEST);
+        assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_CREDIT_REQUEST);
     }
 
     #[test]
     fn test_credit_request_from_peer() {
         let mut ctx = CsmTestContext::new_established();
-        ctx.init_pkt(uapi::VSOCK_OP_CREDIT_REQUEST, 0);
+        ctx.init_tx_pkt(uapi::VSOCK_OP_CREDIT_REQUEST, 0);
         ctx.send();
         assert!(ctx.conn.has_pending_rx());
         ctx.recv();
-        assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_CREDIT_UPDATE);
-        assert_eq!(ctx.pkt.buf_alloc(), csm_defs::CONN_TX_BUF_SIZE);
-        assert_eq!(ctx.pkt.fwd_cnt(), ctx.conn.fwd_cnt.0);
+        assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_CREDIT_UPDATE);
+        assert_eq!(ctx.rx_pkt.buf_alloc(), csm_defs::CONN_TX_BUF_SIZE);
+        assert_eq!(ctx.rx_pkt.fwd_cnt(), ctx.conn.fwd_cnt.0);
     }
 
     #[test]
@@ -1175,20 +1177,20 @@ mod tests {
         let data = &[1, 2, 3, 4];
 
         // Check that there is no pending RX.
-        ctx.init_data_pkt(data);
+        ctx.init_data_tx_pkt(data);
         ctx.send();
         assert!(!ctx.conn.has_pending_rx());
 
         // Send a packet again.
-        ctx.init_data_pkt(data);
+        ctx.init_data_tx_pkt(data);
         ctx.send();
 
         // The CSM should now have a credit update available for the peer.
         assert!(ctx.conn.has_pending_rx());
         ctx.recv();
-        assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_CREDIT_UPDATE);
+        assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_CREDIT_UPDATE);
         assert_eq!(
-            ctx.pkt.fwd_cnt() as usize,
+            ctx.rx_pkt.fwd_cnt() as usize,
             initial_fwd_cnt as usize + data.len() * 2,
         );
         assert_eq!(ctx.conn.fwd_cnt, ctx.conn.last_fwd_cnt_to_peer);
@@ -1210,7 +1212,7 @@ mod tests {
             // Send some data through the connection. The backing stream is set to reject writes,
             // so the data should end up in the TX buffer.
             let data = &[1, 2, 3, 4];
-            ctx.init_data_pkt(data);
+            ctx.init_data_tx_pkt(data);
             ctx.send();
 
             // When there's data in the TX buffer, the connection should ask to be notified when it
@@ -1237,13 +1239,13 @@ mod tests {
             ctx.set_stream(stream);
 
             let data = &[1, 2, 3, 4];
-            ctx.init_data_pkt(data);
+            ctx.init_data_tx_pkt(data);
             ctx.send();
 
             assert_eq!(ctx.conn.state, ConnState::Killed);
             assert!(ctx.conn.has_pending_rx());
             ctx.recv();
-            assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RST);
+            assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RST);
         }
 
         // Test case: notifying a connection that it can flush its TX buffer to a broken stream
@@ -1258,7 +1260,7 @@ mod tests {
             // Send some data through the connection. The backing stream is set to reject writes,
             // so the data should end up in the TX buffer.
             let data = &[1, 2, 3, 4];
-            ctx.init_data_pkt(data);
+            ctx.init_data_tx_pkt(data);
             ctx.send();
 
             // Set the backing stream to error out on write.
@@ -1281,8 +1283,8 @@ mod tests {
         ctx.set_stream(stream);
 
         // Fill up the TX buffer.
-        let data = vec![0u8; ctx.pkt.buf_size()];
-        ctx.init_data_pkt(data.as_slice());
+        let data = vec![0u8; ctx.tx_pkt.buf_size()];
+        ctx.init_data_tx_pkt(data.as_slice());
         for _i in 0..(csm_defs::CONN_TX_BUF_SIZE as usize / data.len()) {
             ctx.send();
         }
@@ -1294,6 +1296,6 @@ mod tests {
         assert_eq!(ctx.conn.state, ConnState::Killed);
         assert!(ctx.conn.has_pending_rx());
         ctx.recv();
-        assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RST);
+        assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RST);
     }
 }

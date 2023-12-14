@@ -61,7 +61,7 @@ impl Default for TestBackend {
 }
 
 impl VsockChannel for TestBackend {
-    fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> Result<(), VsockError> {
+    fn recv_pkt(&mut self, pkt: &mut VsockPacket) -> Result<(), VsockError> {
         let cool_buf = [0xDu8, 0xE, 0xA, 0xD, 0xB, 0xE, 0xE, 0xF];
         match self.rx_err.take() {
             None => {
@@ -70,7 +70,7 @@ impl VsockChannel for TestBackend {
                     let buf: Vec<u8> = (0..buf_size)
                         .map(|i| cool_buf[i % cool_buf.len()])
                         .collect();
-                    pkt.read_at_offset_from(mem, 0, &mut buf.as_slice(), buf_size)
+                    pkt.read_at_offset_from(&mut buf.as_slice(), 0, buf_size)
                         .unwrap();
                 }
                 self.rx_ok_cnt += 1;
@@ -80,7 +80,7 @@ impl VsockChannel for TestBackend {
         }
     }
 
-    fn send_pkt(&mut self, _pkt: &VsockPacket, _mem: &GuestMemoryMmap) -> Result<(), VsockError> {
+    fn send_pkt(&mut self, _pkt: &VsockPacket) -> Result<(), VsockError> {
         match self.tx_err.take() {
             None => {
                 self.tx_ok_cnt += 1;
@@ -155,10 +155,14 @@ impl TestContext {
         guest_rxvq.avail.idx.set(1);
 
         // Set up one available descriptor in the TX queue.
-        guest_txvq.dtable[0].set(0x0050_0000, VSOCK_PKT_HDR_SIZE, VIRTQ_DESC_F_NEXT, 1);
-        guest_txvq.dtable[1].set(0x0050_1000, 4096, 0, 0);
+        guest_txvq.dtable[0].set(0x0040_0000, VSOCK_PKT_HDR_SIZE, VIRTQ_DESC_F_NEXT, 1);
+        guest_txvq.dtable[1].set(0x0040_1000, 4096, 0, 0);
         guest_txvq.avail.ring[0].set(0);
         guest_txvq.avail.idx.set(1);
+
+        // Both descriptors above point to the same area of guest memory, to work around
+        // the fact that through the TX queue, the memory is read-only, and through the RX queue,
+        // the memory is write-only.
 
         let queues = vec![rxvq, txvq, evvq];
         EventHandlerContext {
@@ -201,9 +205,9 @@ impl<'a> EventHandlerContext<'a> {
 }
 
 #[cfg(test)]
-pub fn read_packet_data(pkt: &VsockPacket, mem: &GuestMemoryMmap, how_much: usize) -> Vec<u8> {
+pub fn read_packet_data(pkt: &VsockPacket, how_much: usize) -> Vec<u8> {
     let mut buf = vec![0; how_much];
-    pkt.write_from_offset_to(mem, 0, &mut buf.as_mut_slice(), how_much)
+    pkt.write_from_offset_to(&mut buf.as_mut_slice(), 0, how_much)
         .unwrap();
     buf
 }

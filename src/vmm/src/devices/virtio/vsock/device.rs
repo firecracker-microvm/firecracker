@@ -147,10 +147,11 @@ where
         let mut have_used = false;
 
         while let Some(head) = self.queues[RXQ_INDEX].pop(mem) {
-            let used_len = match VsockPacket::from_rx_virtq_head(&head) {
+            let index = head.index;
+            let used_len = match VsockPacket::from_rx_virtq_head(head) {
                 Ok(mut pkt) => {
-                    if self.backend.recv_pkt(&mut pkt, mem).is_ok() {
-                        match pkt.commit_hdr(mem) {
+                    if self.backend.recv_pkt(&mut pkt).is_ok() {
+                        match pkt.commit_hdr() {
                             // This addition cannot overflow, because packet length
                             // is previously validated against `MAX_PKT_BUF_SIZE`
                             // bound as part of `commit_hdr()`.
@@ -180,9 +181,9 @@ where
 
             have_used = true;
             self.queues[RXQ_INDEX]
-                .add_used(mem, head.index, used_len)
+                .add_used(mem, index, used_len)
                 .unwrap_or_else(|err| {
-                    error!("Failed to add available descriptor {}: {}", head.index, err)
+                    error!("Failed to add available descriptor {}: {}", index, err)
                 });
         }
 
@@ -199,30 +200,31 @@ where
         let mut have_used = false;
 
         while let Some(head) = self.queues[TXQ_INDEX].pop(mem) {
-            let pkt = match VsockPacket::from_tx_virtq_head(&head) {
+            let index = head.index;
+            let pkt = match VsockPacket::from_tx_virtq_head(head) {
                 Ok(pkt) => pkt,
                 Err(err) => {
                     error!("vsock: error reading TX packet: {:?}", err);
                     have_used = true;
                     self.queues[TXQ_INDEX]
-                        .add_used(mem, head.index, 0)
+                        .add_used(mem, index, 0)
                         .unwrap_or_else(|err| {
-                            error!("Failed to add available descriptor {}: {}", head.index, err);
+                            error!("Failed to add available descriptor {}: {}", index, err);
                         });
                     continue;
                 }
             };
 
-            if self.backend.send_pkt(&pkt, mem).is_err() {
+            if self.backend.send_pkt(&pkt).is_err() {
                 self.queues[TXQ_INDEX].undo_pop();
                 break;
             }
 
             have_used = true;
             self.queues[TXQ_INDEX]
-                .add_used(mem, head.index, 0)
+                .add_used(mem, index, 0)
                 .unwrap_or_else(|err| {
-                    error!("Failed to add available descriptor {}: {}", head.index, err);
+                    error!("Failed to add available descriptor {}: {}", index, err);
                 });
         }
 

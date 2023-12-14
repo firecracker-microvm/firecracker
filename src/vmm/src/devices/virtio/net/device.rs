@@ -444,13 +444,15 @@ impl Net {
         guest_mac: Option<MacAddr>,
         net_metrics: &NetDeviceMetrics,
     ) -> Result<bool, NetError> {
-        // Read the frame headers from the IoVecBuffer. This will return None
-        // if the frame_iovec is empty.
-        let header_len = frame_iovec.read_at(headers, 0).ok_or_else(|| {
-            error!("Received empty TX buffer");
-            net_metrics.tx_malformed_frames.inc();
-            NetError::VnetHeaderMissing
-        })?;
+        // Read the frame headers from the IoVecBuffer
+        let max_header_len = headers.len();
+        let header_len = frame_iovec
+            .read_volatile_at(&mut &mut *headers, 0, max_header_len)
+            .map_err(|err| {
+                error!("Received malformed TX buffer: {:?}", err);
+                net_metrics.tx_malformed_frames.inc();
+                NetError::VnetHeaderMissing
+            })?;
 
         let headers = frame_bytes_from_buf(&headers[..header_len]).map_err(|e| {
             error!("VNET headers missing in TX frame");
@@ -463,7 +465,9 @@ impl Net {
                 let mut frame = vec![0u8; frame_iovec.len() - vnet_hdr_len()];
                 // Ok to unwrap here, because we are passing a buffer that has the exact size
                 // of the `IoVecBuffer` minus the VNET headers.
-                frame_iovec.read_at(&mut frame, vnet_hdr_len()).unwrap();
+                frame_iovec
+                    .read_exact_volatile_at(&mut frame, vnet_hdr_len())
+                    .unwrap();
                 let _ = ns.detour_frame(&frame);
                 METRICS.mmds.rx_accepted.inc();
 
@@ -589,7 +593,7 @@ impl Net {
         while let Some(head) = tx_queue.pop_or_enable_notification(mem) {
             let head_index = head.index;
             // Parse IoVecBuffer from descriptor head
-            let buffer = match IoVecBuffer::from_descriptor_chain(mem, head) {
+            let buffer = match IoVecBuffer::from_descriptor_chain(head) {
                 Ok(buffer) => buffer,
                 Err(_) => {
                     self.metrics.tx_fails.inc();
@@ -1510,7 +1514,7 @@ pub mod tests {
         let buffer = IoVecBuffer::from(&frame_buf[..frame_len]);
 
         let mut headers = vec![0; frame_hdr_len()];
-        buffer.read_at(&mut headers, 0).unwrap();
+        buffer.read_exact_volatile_at(&mut headers, 0).unwrap();
 
         // Call the code which sends the packet to the host or MMDS.
         // Validate the frame was consumed by MMDS and that the metrics reflect that.

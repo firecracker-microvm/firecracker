@@ -119,7 +119,8 @@ impl Entropy {
         })?;
 
         // It is ok to unwrap here. We are writing `iovec.len()` bytes at offset 0.
-        Ok(iovec.write_at(&rand_bytes, 0).unwrap().try_into().unwrap())
+        iovec.write_all_volatile_at(&rand_bytes, 0).unwrap();
+        Ok(iovec.len().try_into().unwrap())
     }
 
     fn process_entropy_queue(&mut self) {
@@ -131,7 +132,7 @@ impl Entropy {
             let index = desc.index;
             METRICS.entropy_event_count.inc();
 
-            let bytes = match IoVecBufferMut::from_descriptor_chain(mem, desc) {
+            let bytes = match IoVecBufferMut::from_descriptor_chain(desc) {
                 Ok(mut iovec) => {
                     debug!(
                         "entropy: guest request for {} bytes of entropy",
@@ -432,13 +433,13 @@ mod tests {
         // This should succeed, we just added two descriptors
         let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop(&mem).unwrap();
         assert!(matches!(
-            IoVecBufferMut::from_descriptor_chain(&mem, desc,),
+            IoVecBufferMut::from_descriptor_chain(desc),
             Err(crate::devices::virtio::iovec::IoVecError::ReadOnlyDescriptor)
         ));
 
         // This should succeed, we should have one more descriptor
         let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop(&mem).unwrap();
-        let mut iovec = IoVecBufferMut::from_descriptor_chain(&mem, desc).unwrap();
+        let mut iovec = IoVecBufferMut::from_descriptor_chain(desc).unwrap();
         assert!(entropy_dev.handle_one(&mut iovec).is_ok());
     }
 
