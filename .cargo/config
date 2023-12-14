@@ -11,6 +11,7 @@ rustflags = [
   "-Wmissing_debug_implementations",
   "-Wclippy::exit",
   "-Wclippy::tests_outside_test_module",
+  "-Wclippy::assertions_on_result_states"
 ]
 
 [net]
