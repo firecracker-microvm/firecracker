@@ -32,8 +32,6 @@ pub enum JailerError {
     CgroupLineNotFound(String, String),
     #[error("Cgroup invalid file: {0}")]
     CgroupInvalidFile(String),
-    #[error("Expected value {0} for {2}. Current value: {1}")]
-    CgroupWrite(String, String, String),
     #[error("Invalid format for cgroups: {0}")]
     CgroupFormat(String),
     #[error("Hierarchy not found: {0}")]
@@ -44,6 +42,8 @@ pub enum JailerError {
     CgroupInvalidVersion(String),
     #[error("Parent cgroup path is invalid. Path should not be absolute or contain '..' or '.'")]
     CgroupInvalidParentPath(),
+    #[error("Failed to write to cgroups file: {0}")]
+    CgroupWrite(io::Error),
     #[error("Failed to change owner for {0:?}: {1}")]
     ChangeFileOwner(PathBuf, io::Error),
     #[error("Failed to chdir into chroot directory: {0}")]

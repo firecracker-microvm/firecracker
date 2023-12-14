@@ -48,6 +48,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- [#4309](https://github.com/firecracker-microvm/firecracker/pull/4309): The
+  jailer's option `--parent-cgroup` will move the process to that cgroup if no
+  `cgroup` options are provided.
 - Simplified and clarified the removal policy of deprecated API elements
   to follow semantic versioning 2.0.0. For more information, please refer to
   [this GitHub discussion](https://github.com/firecracker-microvm/firecracker/discussions/4135).

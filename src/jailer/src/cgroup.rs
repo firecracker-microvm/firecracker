@@ -161,6 +161,16 @@ impl CgroupBuilder {
             }
         }
     }
+
+    // Returns the path to the root of the hierarchy
+    pub fn get_v2_hierarchy_path(&mut self) -> Result<&PathBuf, JailerError> {
+        match self.hierarchies.entry("unified".to_string()) {
+            Occupied(entry) => Ok(entry.into_mut()),
+            Vacant(_entry) => Err(JailerError::CgroupHierarchyMissing(
+                "cgroupsv2 hierarchy missing".to_string(),
+            )),
+        }
+    }
 }
 
 #[derive(Debug)]
