@@ -23,6 +23,7 @@ use crate::mmds::data_store::{Error as MmdsError, Mmds, MmdsVersion, OutputForma
 use crate::mmds::token::PATH_TO_TOKEN;
 use crate::mmds::token_headers::REJECTED_HEADER;
 
+#[rustfmt::skip]
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 /// MMDS token errors
 pub enum Error {
@@ -34,8 +35,7 @@ pub enum Error {
     MethodNotAllowed,
     /// No MMDS token provided. Use `X-metadata-token` header to specify the session token.
     NoTokenProvided,
-    #[rustfmt::skip]
-    #[doc = "Token time to live value not found. Use `X-metadata-token-ttl-seconds` header to specify the token's lifetime."]
+    /// Token time to live value not found. Use `X-metadata-token-ttl-seconds` header to specify the token's lifetime.
     NoTtlProvided,
     /// Resource not found: {0}.
     ResourceNotFound(String),

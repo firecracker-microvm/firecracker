@@ -57,10 +57,10 @@ pub enum GetMaxCpusPerPackageError {
 }
 
 /// Error type for setting leaf b section of `IntelCpuid::normalize`.
+#[rustfmt::skip]
 #[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
 pub enum ExtendedTopologyError {
-    #[rustfmt::skip]
-    #[doc = "Failed to set `Number of bits to shift right on x2APIC ID to get a unique topology ID of the next level type`: {0}"]
+    /// Failed to set `Number of bits to shift right on x2APIC ID to get a unique topology ID of the next level type`: {0}
     ApicId(CheckedAssignError),
     /// Failed to set `Number of logical processors at this level type`: {0}
     LogicalProcessors(CheckedAssignError),

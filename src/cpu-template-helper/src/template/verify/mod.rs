@@ -22,8 +22,8 @@ pub use x86_64::verify;
 pub enum VerifyError {
     /// {0} not found in CPU configuration.
     KeyNotFound(String),
-    #[rustfmt::skip]
-    #[doc = "Value for {0} mismatched.\n{1}"]
+    /** Value for {0} mismatched.
+    {1} */
     ValueMismatched(String, String),
 }
 

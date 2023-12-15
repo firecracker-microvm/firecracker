@@ -153,12 +153,12 @@ pub enum MicrovmStateError {
 }
 
 /// Errors associated with creating a snapshot.
+#[rustfmt::skip]
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum CreateSnapshotError {
     /// Cannot get dirty bitmap: {0}
     DirtyBitmap(VmmError),
-    #[rustfmt::skip]
-    #[doc = "The virtio devices use a features that is incompatible with older versions of Firecracker: {0}"]
+    /// The virtio devices use a features that is incompatible with older versions of Firecracker: {0}
     IncompatibleVirtioFeature(&'static str),
     /// Invalid microVM version format
     InvalidVersionFormat,
@@ -174,12 +174,10 @@ pub enum CreateSnapshotError {
     SerializeMicrovmState(snapshot::Error),
     /// Cannot perform {0} on the snapshot backing file: {1}
     SnapshotBackingFile(&'static str, io::Error),
-    #[rustfmt::skip]
-    #[doc = "Size mismatch when writing diff snapshot on top of base layer: base layer size is {0} but diff layer is size {1}."]
+    /// Size mismatch when writing diff snapshot on top of base layer: base layer size is {0} but diff layer is size {1}.
     SnapshotBackingFileLengthMismatch(u64, u64),
     #[cfg(target_arch = "x86_64")]
-    #[rustfmt::skip]
-    #[doc = "Too many devices attached: {0}. The maximum number allowed for the snapshot data version requested is {FC_V0_23_MAX_DEVICES:}."]
+    /// Too many devices attached: {0}. The maximum number allowed for the snapshot data version requested is {FC_V0_23_MAX_DEVICES:}.
     TooManyDevices(usize),
 }
 

@@ -45,6 +45,7 @@ const TOKEN_LENGTH_LIMIT: usize = 70;
 /// too much memory when deserializing tokens.
 const DESERIALIZATION_BYTES_LIMIT: usize = std::mem::size_of::<Token>();
 
+#[rustfmt::skip]
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum Error {
     /// Failed to extract entropy from /dev/urandom entropy pool: {0}.
@@ -53,8 +54,7 @@ pub enum Error {
     ExpiryExtraction,
     /// Invalid token authority state.
     InvalidState,
-    #[rustfmt::skip]
-    #[doc= "Invalid time to live value provided for token: {0}. Please provide a value between {MIN_TOKEN_TTL_SECONDS:} and {MAX_TOKEN_TTL_SECONDS:}."]
+    /// Invalid time to live value provided for token: {0}. Please provide a value between {MIN_TOKEN_TTL_SECONDS:} and {MAX_TOKEN_TTL_SECONDS:}.
     InvalidTtlValue(u32),
     /// Bincode serialization failed: {0}.
     Serialization(#[from] BincodeError),
