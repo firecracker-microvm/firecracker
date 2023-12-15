@@ -1,0 +1,17 @@
+# Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# We keep a rust-toolchain file checked into the repository such that in the
+# rare event that we need to do an A/B-test across toolchains, cargo will
+# download the toolchains of the A and B revisions on the fly (if they do not
+# match the toolchain installed in the environment in which the test is
+# executed). This is needed for example if a toolchain upgrade introduces a new
+# syscall into our seccomp filters. Then, since our PR CI contains A/B-tests,
+# we will compile a version of Firecracker that does not have this syscall
+# allowlisted using a toolchain that requires it, causing the A/B-test to
+# always fail.
+[toolchain]
+channel = "1.73.0"
+targets = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"]
+profile = "minimal"
+
