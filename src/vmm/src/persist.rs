@@ -136,17 +136,17 @@ pub enum MicrovmStateError {
     InvalidInput,
     /// Operation not allowed: {0}
     NotAllowed(String),
-    /// Cannot restore devices: {0:?}
+    /// Cannot restore devices: {0}
     RestoreDevices(DevicePersistError),
-    /// Cannot restore Vcpu state: {0:?}
+    /// Cannot restore Vcpu state: {0}
     RestoreVcpuState(vstate::vcpu::VcpuError),
-    /// Cannot restore Vm state: {0:?}
+    /// Cannot restore Vm state: {0}
     RestoreVmState(vstate::vm::VmError),
-    /// Cannot save Vcpu state: {0:?}
+    /// Cannot save Vcpu state: {0}
     SaveVcpuState(vstate::vcpu::VcpuError),
-    /// Cannot save Vm state: {0:?}
+    /// Cannot save Vm state: {0}
     SaveVmState(vstate::vm::VmError),
-    /// Cannot signal Vcpu: {0:?}
+    /// Cannot signal Vcpu: {0}
     SignalVcpu(VcpuSendEventError),
     /// Vcpu is in unexpected state.
     UnexpectedVcpuResponse,
