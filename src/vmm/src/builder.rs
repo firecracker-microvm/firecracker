@@ -1152,7 +1152,7 @@ pub mod tests {
         net_builder.build(net_config).unwrap();
 
         let res = attach_net_devices(vmm, cmdline, net_builder.iter(), event_manager);
-        assert!(res.is_ok());
+        res.unwrap();
     }
 
     pub(crate) fn insert_net_device_with_mmds(
@@ -1185,7 +1185,7 @@ pub mod tests {
         let vsock = VsockBuilder::create_unixsock_vsock(vsock_config).unwrap();
         let vsock = Arc::new(Mutex::new(vsock));
 
-        assert!(attach_unixsock_vsock_device(vmm, cmdline, &vsock, event_manager).is_ok());
+        attach_unixsock_vsock_device(vmm, cmdline, &vsock, event_manager).unwrap();
 
         assert!(vmm
             .mmio_device_manager
@@ -1202,7 +1202,7 @@ pub mod tests {
         let mut builder = EntropyDeviceBuilder::new();
         let entropy = builder.build(entropy_config).unwrap();
 
-        assert!(attach_entropy_device(vmm, cmdline, &entropy, event_manager).is_ok());
+        attach_entropy_device(vmm, cmdline, &entropy, event_manager).unwrap();
 
         assert!(vmm
             .mmio_device_manager
@@ -1217,10 +1217,10 @@ pub mod tests {
         balloon_config: BalloonDeviceConfig,
     ) {
         let mut builder = BalloonBuilder::new();
-        assert!(builder.set(balloon_config).is_ok());
+        builder.set(balloon_config).unwrap();
         let balloon = builder.get().unwrap();
 
-        assert!(attach_balloon_device(vmm, cmdline, balloon, event_manager).is_ok());
+        attach_balloon_device(vmm, cmdline, balloon, event_manager).unwrap();
 
         assert!(vmm
             .mmio_device_manager
@@ -1265,7 +1265,6 @@ pub mod tests {
         let gm = create_guest_mem_with_size(mem_size + crate::arch::aarch64::layout::FDT_MAX_SIZE);
 
         let res = load_initrd(&gm, &mut tempfile);
-        assert!(res.is_ok());
         let initrd = res.unwrap();
         assert!(gm.address_in_range(initrd.address));
         assert_eq!(initrd.size, image.len());
@@ -1279,10 +1278,10 @@ pub mod tests {
         let mut tempfile = tempfile.into_file();
         tempfile.write_all(&image).unwrap();
         let res = load_initrd(&gm, &mut tempfile);
-        assert!(res.is_err());
-        assert_eq!(
-            StartMicrovmError::InitrdLoad.to_string(),
-            res.err().unwrap().to_string()
+        assert!(
+            matches!(res, Err(StartMicrovmError::InitrdLoad)),
+            "{:?}",
+            res
         );
     }
 
@@ -1298,10 +1297,10 @@ pub mod tests {
         );
 
         let res = load_initrd(&gm, &mut tempfile);
-        assert!(res.is_err());
-        assert_eq!(
-            StartMicrovmError::InitrdLoad.to_string(),
-            res.err().unwrap().to_string()
+        assert!(
+            matches!(res, Err(StartMicrovmError::InitrdLoad)),
+            "{:?}",
+            res
         );
     }
 
@@ -1362,7 +1361,7 @@ pub mod tests {
 
         // We can not attach it once more.
         let mut net_builder = NetBuilder::new();
-        assert!(net_builder.build(network_interface).is_err());
+        net_builder.build(network_interface).unwrap_err();
     }
 
     #[test]
@@ -1549,7 +1548,7 @@ pub mod tests {
         let request_ts = TimestampUs::default();
 
         let res = attach_boot_timer_device(&mut vmm, request_ts);
-        assert!(res.is_ok());
+        res.unwrap();
         assert!(vmm
             .mmio_device_manager
             .get_device(DeviceType::BootTimer, &DeviceType::BootTimer.to_string())

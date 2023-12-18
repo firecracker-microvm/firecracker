@@ -233,7 +233,6 @@ mod tests {
         let no_vcpus = 4;
         let gm = GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), 0x10000)], false).unwrap();
         let config_err = configure_system(&gm, GuestAddress(0), 0, &None, 1);
-        assert!(config_err.is_err());
         assert_eq!(
             config_err.unwrap_err(),
             super::ConfigurationError::MpTableSetup(mptable::MptableError::NotEnoughMemory)

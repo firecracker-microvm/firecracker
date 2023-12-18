@@ -187,7 +187,7 @@ mod tests {
         mem.write(&ones[..], GuestAddress(0)).unwrap();
 
         // Remove the first page.
-        assert!(remove_range(&mem, (GuestAddress(0), page_size as u64), false).is_ok());
+        remove_range(&mem, (GuestAddress(0), page_size as u64), false).unwrap();
 
         // Check that the first page is zeroed.
         let mut actual_page = vec![0u8; page_size];
@@ -228,7 +228,7 @@ mod tests {
         mem.write(&ones[..], GuestAddress(0)).unwrap();
 
         // Remove the first page.
-        assert!(remove_range(&mem, (GuestAddress(0), page_size as u64), true).is_ok());
+        remove_range(&mem, (GuestAddress(0), page_size as u64), true).unwrap();
 
         // Check that the first page is zeroed.
         let mut actual_page = vec![0u8; page_size];

@@ -429,11 +429,11 @@ mod tests {
 
         let (mut q, _) = write_only_chain(&mem);
         let head = q.pop(&mem).unwrap();
-        assert!(IoVecBuffer::from_descriptor_chain(head).is_err());
+        IoVecBuffer::from_descriptor_chain(head).unwrap_err();
 
         let (mut q, _) = read_only_chain(&mem);
         let head = q.pop(&mem).unwrap();
-        assert!(IoVecBufferMut::from_descriptor_chain(head).is_err());
+        IoVecBufferMut::from_descriptor_chain(head).unwrap_err();
 
         let (mut q, _) = write_only_chain(&mem);
         let head = q.pop(&mem).unwrap();

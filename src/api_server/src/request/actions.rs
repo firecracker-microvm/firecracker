@@ -59,7 +59,7 @@ mod tests {
     #[test]
     fn test_parse_put_actions_request() {
         {
-            assert!(parse_put_actions(&Body::new("invalid_body")).is_err());
+            parse_put_actions(&Body::new("invalid_body")).unwrap_err();
 
             let json = r#"{
                 "action_type": "InstanceStart"
@@ -67,8 +67,7 @@ mod tests {
 
             let req: ParsedRequest = ParsedRequest::new_sync(VmmAction::StartMicroVm);
             let result = parse_put_actions(&Body::new(json));
-            assert!(result.is_ok());
-            assert!(result.unwrap().eq(&req));
+            assert_eq!(result.unwrap(), req);
         }
 
         #[cfg(target_arch = "x86_64")]
@@ -79,8 +78,7 @@ mod tests {
 
             let req: ParsedRequest = ParsedRequest::new_sync(VmmAction::SendCtrlAltDel);
             let result = parse_put_actions(&Body::new(json));
-            assert!(result.is_ok());
-            assert!(result.unwrap().eq(&req));
+            assert_eq!(result.unwrap(), req);
         }
 
         #[cfg(target_arch = "aarch64")]
@@ -90,7 +88,7 @@ mod tests {
             }"#;
 
             let result = parse_put_actions(&Body::new(json));
-            assert!(result.is_err());
+            result.unwrap_err();
         }
 
         {
@@ -100,8 +98,7 @@ mod tests {
 
             let req: ParsedRequest = ParsedRequest::new_sync(VmmAction::FlushMetrics);
             let result = parse_put_actions(&Body::new(json));
-            assert!(result.is_ok());
-            assert!(result.unwrap().eq(&req));
+            assert_eq!(result.unwrap(), req);
         }
     }
 }

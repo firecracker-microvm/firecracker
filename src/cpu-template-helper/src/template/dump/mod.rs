@@ -47,6 +47,6 @@ mod tests {
             generate_config(&kernel_image_path, tmp_file.as_path().to_str().unwrap());
         let (vmm, _) = build_microvm_from_config(&valid_config).unwrap();
 
-        assert!(dump(vmm).is_ok());
+        dump(vmm).unwrap();
     }
 }

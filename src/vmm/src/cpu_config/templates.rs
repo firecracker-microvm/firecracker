@@ -359,10 +359,10 @@ mod tests {
 
         let serialized = "\"0b0_xϽ1_xx_xx\"";
         let deserialized: Result<RegisterValueFilter<u8>, _> = serde_json::from_str(serialized);
-        assert!(deserialized.is_err());
+        deserialized.unwrap_err();
 
         let serialized = "\"0b0000_0000_0\"";
         let deserialized: Result<RegisterValueFilter<u8>, _> = serde_json::from_str(serialized);
-        assert!(deserialized.is_err());
+        deserialized.unwrap_err();
     }
 }

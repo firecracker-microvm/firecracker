@@ -46,7 +46,7 @@ mod tests {
         let desc = MetricsConfig {
             metrics_path: PathBuf::from("not_found_file_metrics"),
         };
-        assert!(init_metrics(desc).is_err());
+        init_metrics(desc).unwrap_err();
 
         // Initializing metrics with valid pipe is ok.
         let metrics_file = TempFile::new().unwrap();
@@ -54,7 +54,7 @@ mod tests {
             metrics_path: metrics_file.as_path().to_path_buf(),
         };
 
-        assert!(init_metrics(desc.clone()).is_ok());
-        assert!(init_metrics(desc).is_err());
+        init_metrics(desc.clone()).unwrap();
+        init_metrics(desc).unwrap_err();
     }
 }

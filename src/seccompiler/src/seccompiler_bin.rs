@@ -500,7 +500,7 @@ mod tests {
                 .as_ref(),
             )
             .unwrap();
-        assert!(get_argument_values(arguments).is_err());
+        get_argument_values(arguments).unwrap_err();
 
         // invalid value supplied to --basic
         let arguments = &mut arg_parser.arguments().clone();
@@ -561,7 +561,7 @@ mod tests {
             };
 
             // do the compilation & check for errors
-            assert!(compile(&arguments).is_ok());
+            compile(&arguments).unwrap();
 
             // also check with is_basic: true
             let arguments = Arguments {
@@ -572,7 +572,7 @@ mod tests {
             };
 
             // do the compilation & check for errors
-            assert!(compile(&arguments).is_ok());
+            compile(&arguments).unwrap();
         }
     }
 }

@@ -450,7 +450,7 @@ mod tests {
 
         // Test that trying to read a request header that goes outside of the
         // memory boundary fails.
-        assert!(RequestHeader::read_from(&mem, GuestAddress(0x1000)).is_err());
+        RequestHeader::read_from(&mem, GuestAddress(0x1000)).unwrap_err();
     }
 
     #[test]

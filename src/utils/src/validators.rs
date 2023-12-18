@@ -42,7 +42,7 @@ mod tests {
             format!("{}", validate_instance_id("").unwrap_err()),
             "Invalid len (0);  the length must be between 1 and 64"
         );
-        assert!(validate_instance_id("12-3aa").is_ok());
+        validate_instance_id("12-3aa").unwrap();
         assert_eq!(
             format!("{}", validate_instance_id("12_3aa").unwrap_err()),
             "Invalid char (_) at position 2"

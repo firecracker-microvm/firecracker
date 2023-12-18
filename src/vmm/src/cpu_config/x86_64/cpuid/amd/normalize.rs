@@ -447,7 +447,7 @@ mod tests {
                 },
             },
         )]));
-        assert!(cpuid.update_structured_extended_entry().is_ok());
+        cpuid.update_structured_extended_entry().unwrap();
         assert_eq!(
             cpuid
                 .get(&CpuidKey {

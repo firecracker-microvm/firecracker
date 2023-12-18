@@ -140,7 +140,7 @@ mod tests {
         // Malformed bincode binary.
         {
             let data = "adassafvc".to_string();
-            assert!(deserialize_binary(data.as_bytes(), None).is_err());
+            deserialize_binary(data.as_bytes(), None).unwrap_err();
         }
 
         // Test that the binary deserialization is correct, and that the thread keys

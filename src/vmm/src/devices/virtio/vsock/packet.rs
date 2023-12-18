@@ -672,12 +672,10 @@ mod tests {
         ];
         let mut buf = vec![0; pkt.buf_size()];
         for (offset, count) in oob_cases {
-            assert!(pkt
-                .read_at_offset_from(&mut data.as_slice(), offset, count)
-                .is_err());
-            assert!(pkt2
-                .write_from_offset_to(&mut buf.as_mut_slice(), offset, count)
-                .is_err());
+            let res = pkt.read_at_offset_from(&mut data.as_slice(), offset, count);
+            assert!(matches!(res, Err(VsockError::GuestMemoryBounds)));
+            let res = pkt2.write_from_offset_to(&mut buf.as_mut_slice(), offset, count);
+            assert!(matches!(res, Err(VsockError::GuestMemoryBounds)));
         }
     }
 }

@@ -440,7 +440,7 @@ mod tests {
         // This should succeed, we should have one more descriptor
         let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop(&mem).unwrap();
         let mut iovec = IoVecBufferMut::from_descriptor_chain(desc).unwrap();
-        assert!(entropy_dev.handle_one(&mut iovec).is_ok());
+        entropy_dev.handle_one(&mut iovec).unwrap();
     }
 
     #[test]

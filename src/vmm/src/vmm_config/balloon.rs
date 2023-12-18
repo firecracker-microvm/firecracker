@@ -125,7 +125,7 @@ impl BalloonBuilder {
 impl Default for BalloonBuilder {
     fn default() -> BalloonBuilder {
         let mut balloon = BalloonBuilder::new();
-        assert!(balloon.set(BalloonDeviceConfig::default()).is_ok());
+        balloon.set(BalloonDeviceConfig::default()).unwrap();
         balloon
     }
 }

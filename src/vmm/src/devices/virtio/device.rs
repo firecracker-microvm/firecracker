@@ -228,8 +228,8 @@ pub(crate) mod tests {
 
         // Check trigger_irq() failure case (irq_evt is full).
         irq_trigger.irq_evt.write(u64::MAX - 1).unwrap();
-        assert!(irq_trigger.trigger_irq(IrqType::Config).is_err());
-        assert!(irq_trigger.trigger_irq(IrqType::Vring).is_err());
+        irq_trigger.trigger_irq(IrqType::Config).unwrap_err();
+        irq_trigger.trigger_irq(IrqType::Vring).unwrap_err();
     }
 
     #[derive(Debug)]

@@ -271,8 +271,8 @@ pub mod tests {
         // we have 5-23 irq for net devices so max 19 net devices.
         const MAX_NET_DEVICES: usize = 19;
 
-        assert!(METRICS.read().is_ok());
-        assert!(METRICS.write().is_ok());
+        drop(METRICS.read().unwrap());
+        drop(METRICS.write().unwrap());
 
         for i in 0..MAX_NET_DEVICES {
             let devn: String = format!("eth{}", i);
@@ -346,11 +346,10 @@ pub mod tests {
         // `test_net_dev_metrics` which also uses the same name.
         let devn = "eth0";
 
-        assert!(METRICS.read().is_ok());
-        assert!(METRICS.write().is_ok());
+        drop(METRICS.read().unwrap());
+        drop(METRICS.write().unwrap());
 
         NetMetricsPerDevice::alloc(String::from(devn));
-        assert!(METRICS.read().is_ok());
         assert!(METRICS.read().unwrap().metrics.get(devn).is_some());
 
         METRICS

@@ -204,7 +204,7 @@ mod tests {
                     ]
                 }"#,
         );
-        assert!(cpu_config_result.is_ok());
+        cpu_config_result.unwrap();
     }
 
     #[test]
@@ -216,7 +216,7 @@ mod tests {
                     "vcpu_features":[{"index":0,"bitmap":"0b1100000"}]
                 }"#,
         );
-        assert!(cpu_config_result.is_err());
+        cpu_config_result.unwrap_err();
 
         // Malformed vcpu features
         let cpu_config_result = serde_json::from_str::<CustomCpuTemplate>(
@@ -225,7 +225,7 @@ mod tests {
                     "vcpu_features":[{"index":0,"bitmap":"0b11abc00"}]
                 }"#,
         );
-        assert!(cpu_config_result.is_err());
+        cpu_config_result.unwrap_err();
 
         // Malformed register address
         let cpu_config_result = serde_json::from_str::<CustomCpuTemplate>(
@@ -238,7 +238,6 @@ mod tests {
                     ]
                 }"#,
         );
-        assert!(cpu_config_result.is_err());
         let error_msg: String = cpu_config_result.unwrap_err().to_string();
         // Formatted error expected clarifying the number system prefix is missing
         assert!(
@@ -258,7 +257,6 @@ mod tests {
                     ]
                 }"#,
         );
-        assert!(cpu_config_result.is_err());
         assert!(cpu_config_result
             .unwrap_err()
             .to_string()
@@ -275,7 +273,6 @@ mod tests {
                     ]
                 }"#,
         );
-        assert!(cpu_config_result.is_err());
         assert!(cpu_config_result.unwrap_err().to_string().contains(
             "Failed to parse string [0bx0?1_0_0x_?x1xxxx00xxx1xxxxxxxxxxx1] as a bitmap"
         ));
@@ -291,7 +288,6 @@ mod tests {
                     ]
                 }"#,
         );
-        assert!(cpu_config_result.is_err());
         assert!(cpu_config_result
             .unwrap_err()
             .to_string()
@@ -309,11 +305,9 @@ mod tests {
     fn test_serialization_lifecycle() {
         let template = build_test_template();
         let template_json_str_result = serde_json::to_string_pretty(&template);
-        assert!(&template_json_str_result.is_ok());
         let template_json = template_json_str_result.unwrap();
 
         let deserialization_result = serde_json::from_str::<CustomCpuTemplate>(&template_json);
-        assert!(deserialization_result.is_ok());
         assert_eq!(template, deserialization_result.unwrap());
     }
 
@@ -376,7 +370,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        assert!(template.validate().is_ok());
+        template.validate().unwrap();
 
         // 32 bit reg with too long filter
         let template = CustomCpuTemplate {
@@ -389,7 +383,7 @@ mod tests {
             }],
             ..Default::default()
         };
-        assert!(template.validate().is_err());
+        template.validate().unwrap_err();
 
         // 32 bit reg with too long value
         let template = CustomCpuTemplate {
@@ -402,7 +396,7 @@ mod tests {
             }],
             ..Default::default()
         };
-        assert!(template.validate().is_err());
+        template.validate().unwrap_err();
 
         // 16 bit unsupporteed reg
         let template = CustomCpuTemplate {
@@ -415,6 +409,6 @@ mod tests {
             }],
             ..Default::default()
         };
-        assert!(template.validate().is_err());
+        template.validate().unwrap_err();
     }
 }

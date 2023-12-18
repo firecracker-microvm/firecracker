@@ -389,7 +389,6 @@ mod tests {
                     ],
                 }"#,
         );
-        assert!(cpu_template_result.is_err());
         assert!(cpu_template_result
             .unwrap_err()
             .to_string()
@@ -406,7 +405,6 @@ mod tests {
                     ]
                 }"#,
         );
-        assert!(cpu_template_result.is_err());
         let error_msg: String = cpu_template_result.unwrap_err().to_string();
         // Formatted error expected clarifying the number system prefix is missing
         assert!(
@@ -433,7 +431,6 @@ mod tests {
                     ],
                 }"#,
         );
-        assert!(cpu_template_result.is_err());
         let error_msg: String = cpu_template_result.unwrap_err().to_string();
         // Formatted error expected clarifying the number system prefix is missing
         assert!(
@@ -452,7 +449,6 @@ mod tests {
                     ]
                 }"#,
         );
-        assert!(cpu_template_result.is_err());
         assert!(cpu_template_result.unwrap_err().to_string().contains(
             "Failed to parse string [0bx0?1_0_0x_?x1xxxx00xxx1xxxxxxxxxxx1] as a bitmap"
         ));
@@ -467,7 +463,6 @@ mod tests {
                     ]
                 }"#,
         );
-        assert!(cpu_template_result.is_err());
         assert!(cpu_template_result
             .unwrap_err()
             .to_string()
@@ -486,11 +481,9 @@ mod tests {
     fn test_serialization_lifecycle() {
         let template = build_test_template();
         let template_json_str_result = serde_json::to_string_pretty(&template);
-        assert!(&template_json_str_result.is_ok());
         let template_json = template_json_str_result.unwrap();
 
         let deserialization_result = serde_json::from_str::<CustomCpuTemplate>(&template_json);
-        assert!(deserialization_result.is_ok());
         assert_eq!(template, deserialization_result.unwrap());
     }
 

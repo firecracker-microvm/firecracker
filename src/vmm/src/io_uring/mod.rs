@@ -393,7 +393,7 @@ mod tests {
 
     fn drain_cqueue(ring: &mut IoUring) {
         while let Some(entry) = unsafe { ring.pop::<u32>().unwrap() } {
-            assert!(entry.result().is_ok());
+            entry.result().unwrap();
 
             // Assert that there were no partial writes.
             let count = entry.result().unwrap();
