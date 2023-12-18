@@ -139,7 +139,7 @@ mod tests {
 
         let file = TempFile::new().unwrap().into_file();
 
-        assert!(get_filters(SeccompConfig::Custom(file)).is_err());
+        get_filters(SeccompConfig::Custom(file)).unwrap_err();
     }
 
     #[test]

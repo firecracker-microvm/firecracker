@@ -214,13 +214,13 @@ mod tests {
         let mut mem = vec![0; 4096];
         let version_map = VersionMap::new();
 
-        assert!(<VirtioBlock as Persist>::save(&block)
+        <VirtioBlock as Persist>::save(&block)
             .serialize(&mut mem.as_mut_slice(), &version_map, 2)
-            .is_ok());
+            .unwrap();
 
-        assert!(<VirtioBlock as Persist>::save(&block)
+        <VirtioBlock as Persist>::save(&block)
             .serialize(&mut mem.as_mut_slice(), &version_map, 3)
-            .is_ok());
+            .unwrap();
     }
 
     #[test]

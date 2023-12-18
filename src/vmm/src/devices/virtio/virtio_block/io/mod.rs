@@ -358,9 +358,9 @@ pub mod tests {
         assert_eq!(buf, data.as_slice());
 
         // Check other ops
-        assert!(engine.flush(()).is_ok());
-        assert!(engine.drain(true).is_ok());
-        assert!(engine.drain_and_flush(true).is_ok());
+        engine.flush(()).unwrap();
+        engine.drain(true).unwrap();
+        engine.drain_and_flush(true).unwrap();
     }
 
     #[test]
@@ -369,7 +369,7 @@ pub mod tests {
 
         // Check invalid file
         let file = unsafe { File::from_raw_fd(-2) };
-        assert!(FileEngine::<()>::from_file(file, FileEngineType::Async).is_err());
+        FileEngine::<()>::from_file(file, FileEngineType::Async).unwrap_err();
 
         // Create backing file.
         let file = TempFile::new().unwrap().into_file();
@@ -423,7 +423,7 @@ pub mod tests {
         assert_queued!(engine.flush(()));
         assert_async_execution(&mem, &mut engine, 0);
 
-        assert!(engine.drain(true).is_ok());
-        assert!(engine.drain_and_flush(true).is_ok());
+        engine.drain(true).unwrap();
+        engine.drain_and_flush(true).unwrap();
     }
 }

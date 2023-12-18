@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::fmt::Debug;
+use std::fmt::{Debug, Write};
 
 use kvm_bindings::*;
 use kvm_ioctls::*;
@@ -285,8 +285,10 @@ impl Debug for VcpuState {
                 reg.as_slice()
                     .iter()
                     .rev()
-                    .map(|b| format!("{b:x}"))
-                    .collect::<String>()
+                    .fold(String::new(), |mut output, b| {
+                        let _ = write!(output, "{b:x}");
+                        output
+                    })
             )?;
         }
         Ok(())
@@ -347,7 +349,6 @@ mod tests {
         unsafe { libc::close(vm.fd().as_raw_fd()) };
 
         let err = KvmVcpu::new(0, &vm);
-        assert!(err.is_err());
         assert_eq!(
             err.err().unwrap().to_string(),
             "Error creating vcpu: Bad file descriptor (os error 9)".to_string()
@@ -363,13 +364,12 @@ mod tests {
             smt: false,
             cpu_config: CpuConfiguration::default(),
         };
-        assert!(vcpu
-            .configure(
-                &vm_mem,
-                GuestAddress(crate::arch::get_kernel_start()),
-                &vcpu_config,
-            )
-            .is_ok());
+        vcpu.configure(
+            &vm_mem,
+            GuestAddress(crate::arch::get_kernel_start()),
+            &vcpu_config,
+        )
+        .unwrap();
 
         unsafe { libc::close(vcpu.fd.as_raw_fd()) };
 
@@ -378,7 +378,6 @@ mod tests {
             GuestAddress(crate::arch::get_kernel_start()),
             &vcpu_config,
         );
-        assert!(err.is_err());
         assert_eq!(
             err.unwrap_err(),
             KvmVcpuError::ConfigureRegisters(ArchError::SetOneReg(
@@ -416,7 +415,6 @@ mod tests {
         let (vm, mut vcpu, _) = setup_vcpu(0x10000);
         unsafe { libc::close(vm.fd().as_raw_fd()) };
         let err = vcpu.init(vm.fd(), &[]);
-        assert!(err.is_err());
         assert_eq!(
             err.err().unwrap().to_string(),
             "Error getting the vcpu preferred target: Bad file descriptor (os error 9)".to_string()
@@ -431,7 +429,6 @@ mod tests {
 
         // Calling KVM_GET_REGLIST before KVM_VCPU_INIT will result in error.
         let res = vcpu.save_state();
-        assert!(res.is_err());
         assert!(matches!(
             res.unwrap_err(),
             KvmVcpuError::SaveState(ArchError::GetRegList(_))
@@ -447,7 +444,6 @@ mod tests {
             ..Default::default()
         };
         let res = vcpu.restore_state(vm.fd(), &faulty_vcpu_state);
-        assert!(res.is_err());
         assert!(matches!(
             res.unwrap_err(),
             KvmVcpuError::RestoreState(ArchError::SetOneReg(0, _))
@@ -470,7 +466,7 @@ mod tests {
         let vcpu = KvmVcpu::new(0, &vm).unwrap();
         vm.setup_irqchip(1).unwrap();
 
-        assert!(vcpu.dump_cpu_config().is_err());
+        vcpu.dump_cpu_config().unwrap_err();
     }
 
     #[test]
@@ -481,16 +477,16 @@ mod tests {
         vm.setup_irqchip(1).unwrap();
         vcpu.init(vm.fd(), &[]).unwrap();
 
-        assert!(vcpu.dump_cpu_config().is_ok());
+        vcpu.dump_cpu_config().unwrap();
     }
 
     #[test]
     fn test_setup_non_boot_vcpu() {
         let (vm, _) = setup_vm(0x1000);
         let mut vcpu1 = KvmVcpu::new(0, &vm).unwrap();
-        assert!(vcpu1.init(vm.fd(), &[]).is_ok());
+        vcpu1.init(vm.fd(), &[]).unwrap();
         let mut vcpu2 = KvmVcpu::new(1, &vm).unwrap();
-        assert!(vcpu2.init(vm.fd(), &[]).is_ok());
+        vcpu2.init(vm.fd(), &[]).unwrap();
     }
 
     #[test]
@@ -500,7 +496,7 @@ mod tests {
         // - X1: 0x6030 0000 0010 0002
         let (_, vcpu, _) = setup_vcpu(0x10000);
         let reg_list = Vec::<u64>::from([0x6030000000100000, 0x6030000000100002]);
-        assert!(get_registers(&vcpu.fd, &reg_list, &mut Aarch64RegisterVec::default()).is_ok());
+        get_registers(&vcpu.fd, &reg_list, &mut Aarch64RegisterVec::default()).unwrap();
     }
 
     #[test]
@@ -508,6 +504,6 @@ mod tests {
         // Test `get_regs()` with invalid register IDs.
         let (_, vcpu, _) = setup_vcpu(0x10000);
         let reg_list = Vec::<u64>::from([0x6030000000100001, 0x6030000000100003]);
-        assert!(get_registers(&vcpu.fd, &reg_list, &mut Aarch64RegisterVec::default()).is_err());
+        get_registers(&vcpu.fd, &reg_list, &mut Aarch64RegisterVec::default()).unwrap_err();
     }
 }

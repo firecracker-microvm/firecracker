@@ -151,18 +151,16 @@ impl<'a> VirtqDesc<'a> {
     pub fn set_data(&mut self, data: &[u8]) {
         assert!(self.len.get() as usize >= data.len());
         let mem = self.addr.mem;
-        assert!(mem
-            .write_slice(data, GuestAddress::new(self.addr.get()))
-            .is_ok());
+        mem.write_slice(data, GuestAddress::new(self.addr.get()))
+            .unwrap();
     }
 
     pub fn check_data(&self, expected_data: &[u8]) {
         assert!(self.len.get() as usize >= expected_data.len());
         let mem = self.addr.mem;
         let mut buf = vec![0; expected_data.len()];
-        assert!(mem
-            .read_slice(&mut buf, GuestAddress::new(self.addr.get()))
-            .is_ok());
+        mem.read_slice(&mut buf, GuestAddress::new(self.addr.get()))
+            .unwrap();
         assert_eq!(buf.as_slice(), expected_data);
     }
 }

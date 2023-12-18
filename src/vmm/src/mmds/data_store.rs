@@ -321,7 +321,7 @@ mod tests {
 
         mmds.put_data(serde_json::from_str(mmds_json).unwrap())
             .unwrap();
-        assert!(mmds.check_data_store_initialized().is_ok());
+        mmds.check_data_store_initialized().unwrap();
 
         assert_eq!(mmds.get_data_str(), mmds_json);
 
@@ -512,7 +512,7 @@ mod tests {
             "age": "100"
         }"#;
         let data_store: Value = serde_json::from_str(data).unwrap();
-        assert!(mmds.patch_data(data_store).is_ok());
+        mmds.patch_data(data_store).unwrap();
 
         let data = r#"{
             "name": {
@@ -532,13 +532,13 @@ mod tests {
             "age": "43"
         }"#;
         let data_store: Value = serde_json::from_str(data).unwrap();
-        assert!(mmds.patch_data(data_store).is_ok());
+        mmds.patch_data(data_store).unwrap();
 
         let filling = (0..51151).map(|_| "X").collect::<String>();
         let data = "{\"new_key\": \"".to_string() + &filling + "\"}";
 
         let data_store: Value = serde_json::from_str(&data).unwrap();
-        assert!(mmds.patch_data(data_store).is_ok());
+        mmds.patch_data(data_store).unwrap();
 
         let data = "{\"new_key2\" : \"smth\"}";
         let data_store: Value = serde_json::from_str(data).unwrap();
@@ -550,13 +550,13 @@ mod tests {
 
         let data = "{\"new_key\" : \"smth\"}";
         let data_store: Value = serde_json::from_str(data).unwrap();
-        assert!(mmds.patch_data(data_store).is_ok());
+        mmds.patch_data(data_store).unwrap();
         assert!(mmds.get_data_str().contains("smth"));
         assert_eq!(mmds.get_data_str().len(), 53);
 
         let data = "{\"new_key2\" : \"smth2\"}";
         let data_store: Value = serde_json::from_str(data).unwrap();
-        assert!(mmds.patch_data(data_store).is_ok());
+        mmds.patch_data(data_store).unwrap();
         assert!(mmds.get_data_str().contains("smth2"));
         assert_eq!(mmds.get_data_str().len(), 72);
     }

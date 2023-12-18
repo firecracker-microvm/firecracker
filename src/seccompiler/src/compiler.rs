@@ -506,11 +506,11 @@ mod tests {
         // We don't test the BPF compilation in this module.
         // This is done in the seccomp/lib.rs module.
         // Here, we only test the (Filter -> SeccompFilter) transformations. (High-level -> IR)
-        assert!(compiler
+        compiler
             .compile_blob(correct_filters.clone(), false)
-            .is_ok());
+            .unwrap();
         // Also test with basic filtering on.
-        assert!(compiler.compile_blob(correct_filters, true).is_ok());
+        compiler.compile_blob(correct_filters, true).unwrap();
     }
 
     #[test]

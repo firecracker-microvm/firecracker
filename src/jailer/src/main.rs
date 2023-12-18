@@ -400,23 +400,22 @@ mod tests {
             "/tmp/jailer/tests/close_fds/_{}",
             rand::rand_alphanumerics(4).into_string().unwrap()
         );
-        assert!(fs::create_dir_all(&tmp_dir_path).is_ok());
+        fs::create_dir_all(&tmp_dir_path).unwrap();
 
         let mut fds = Vec::new();
         for i in 0..n {
             let maybe_file = File::create(format!("{}/{}", &tmp_dir_path, i));
-            assert!(maybe_file.is_ok());
             fds.push(maybe_file.unwrap().into_raw_fd());
         }
 
-        assert!(test_fn().is_ok());
+        test_fn().unwrap();
 
         for fd in fds {
             let is_fd_opened = unsafe { libc::fcntl(fd, libc::F_GETFD) } == 0;
             assert!(!is_fd_opened);
         }
 
-        assert!(fs::remove_dir_all(tmp_dir_path).is_ok());
+        fs::remove_dir_all(tmp_dir_path).unwrap();
     }
 
     #[test]

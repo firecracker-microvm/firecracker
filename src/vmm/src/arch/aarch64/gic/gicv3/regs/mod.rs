@@ -61,7 +61,6 @@ mod tests {
         let mpidr = vec![1];
         let res = save_state(gic_fd, &mpidr);
         // We will receive an error if trying to call before creating vcpu.
-        assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
             "DeviceAttribute(Error(22), false, 5)"
@@ -91,7 +90,7 @@ mod tests {
 
         assert_eq!(gicd_statusr.chunks[0], val);
         assert_eq!(vm_state.dist.len(), 12);
-        assert!(restore_state(gic_fd, &mpidr, &vm_state).is_ok());
-        assert!(restore_state(gic_fd, &[1, 2], &vm_state).is_err());
+        restore_state(gic_fd, &mpidr, &vm_state).unwrap();
+        restore_state(gic_fd, &[1, 2], &vm_state).unwrap_err();
     }
 }

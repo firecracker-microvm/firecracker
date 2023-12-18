@@ -68,7 +68,7 @@ mod tests {
         // Test case for invalid payload
         let unparsable_cpu_config_result =
             parse_put_cpu_config(&Body::new("<unparseable_payload>"));
-        assert!(unparsable_cpu_config_result.is_err());
+        unparsable_cpu_config_result.unwrap_err();
         assert_eq!(
             METRICS.put_api_requests.cpu_cfg_fails.count(),
             expected_err_count
@@ -78,11 +78,14 @@ mod tests {
         let invalid_put_result = parse_put_cpu_config(&Body::new(TEST_INVALID_TEMPLATE_JSON));
         expected_err_count += 1;
 
-        assert!(invalid_put_result.is_err());
         assert_eq!(
             METRICS.put_api_requests.cpu_cfg_fails.count(),
             expected_err_count
         );
-        assert!(matches!(invalid_put_result, Err(Error::SerdeJson(_))));
+        assert!(
+            matches!(invalid_put_result, Err(Error::SerdeJson(_))),
+            "{:?}",
+            invalid_put_result
+        );
     }
 }

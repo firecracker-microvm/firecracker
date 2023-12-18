@@ -562,7 +562,7 @@ mod tests {
             // The mutable borrow of buf will end here.
         }
 
-        assert!(IPv4Packet::from_bytes(buf.as_ref(), true).is_ok());
+        IPv4Packet::from_bytes(buf.as_ref(), true).unwrap();
 
         // Now let's check some error conditions.
 

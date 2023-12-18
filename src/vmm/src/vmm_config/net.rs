@@ -224,20 +224,20 @@ mod tests {
 
         // Test create.
         let netif_1 = create_netif(id_1, host_dev_name_1, guest_mac_1);
-        assert!(net_builder.build(netif_1).is_ok());
+        net_builder.build(netif_1).unwrap();
         assert_eq!(net_builder.net_devices.len(), 1);
 
         // Test update mac address (this test does not modify the tap).
         guest_mac_1 = "01:23:45:67:89:0b";
         let netif_1 = create_netif(id_1, host_dev_name_1, guest_mac_1);
 
-        assert!(net_builder.build(netif_1).is_ok());
+        net_builder.build(netif_1).unwrap();
         assert_eq!(net_builder.net_devices.len(), 1);
 
         // Test update host_dev_name (the tap will be updated).
         host_dev_name_1 = "dev2";
         let netif_1 = create_netif(id_1, host_dev_name_1, guest_mac_1);
-        assert!(net_builder.build(netif_1).is_ok());
+        net_builder.build(netif_1).unwrap();
         assert_eq!(net_builder.net_devices.len(), 1);
     }
 
@@ -251,7 +251,7 @@ mod tests {
 
         // Adding the first valid network config.
         let netif_1 = create_netif(id_1, host_dev_name_1, guest_mac_1);
-        assert!(net_builder.build(netif_1).is_ok());
+        net_builder.build(netif_1).unwrap();
 
         // Error Cases for CREATE
         // Error Case: Add new network config with the same mac as netif_1.
@@ -283,7 +283,7 @@ mod tests {
 
         // Adding the second valid network config.
         let netif_2 = create_netif(id_2, host_dev_name_2, guest_mac_2);
-        assert!(net_builder.build(netif_2).is_ok());
+        net_builder.build(netif_2).unwrap();
 
         // Error Cases for UPDATE
         // Error Case: Update netif_2 mac using the same mac as netif_1.
@@ -321,7 +321,7 @@ mod tests {
         );
 
         let mut net_builder = NetBuilder::new();
-        assert!(net_builder.build(net_if_cfg.clone()).is_ok());
+        net_builder.build(net_if_cfg.clone()).unwrap();
         assert_eq!(net_builder.net_devices.len(), 1);
 
         let configs = net_builder.configs();

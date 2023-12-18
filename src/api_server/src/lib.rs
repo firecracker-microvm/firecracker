@@ -323,7 +323,7 @@ mod tests {
                 }",
             )
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
         let response = api_server.handle_request(&req, 0);
         assert_eq!(response.status(), StatusCode::BadRequest);
@@ -335,7 +335,7 @@ mod tests {
             ))))
             .unwrap();
         sender.write_all(b"GET / HTTP/1.1\r\n\r\n").unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
         let response = api_server.handle_request(&req, 0);
         assert_eq!(response.status(), StatusCode::OK);
@@ -348,7 +348,7 @@ mod tests {
                 Content-Length: 2\r\n\r\n{}",
             )
             .unwrap();
-        assert!(connection.try_read().is_ok());
+        connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
         let response = api_server.handle_request(&req, 0);
         assert_eq!(response.status(), StatusCode::BadRequest);
@@ -358,7 +358,6 @@ mod tests {
     fn test_handle_request_logging() {
         let cpu_template_json = TEST_UNESCAPED_JSON_TEMPLATE;
         let result = parse_put_cpu_config(&Body::new(cpu_template_json.as_bytes()));
-        assert!(result.is_err());
         let result_error = result.unwrap_err();
         let err_msg = format!("{}", result_error);
         assert_ne!(
@@ -410,12 +409,12 @@ mod tests {
         let mut sock = UnixStream::connect(PathBuf::from(path_to_socket)).unwrap();
 
         // Send a GET InstanceInfo request.
-        assert!(sock.write_all(b"GET / HTTP/1.1\r\n\r\n").is_ok());
+        sock.write_all(b"GET / HTTP/1.1\r\n\r\n").unwrap();
         let mut buf: [u8; 100] = [0; 100];
         assert!(sock.read(&mut buf[..]).unwrap() > 0);
 
         // Send an erroneous request.
-        assert!(sock.write_all(b"OPTIONS / HTTP/1.1\r\n\r\n").is_ok());
+        sock.write_all(b"OPTIONS / HTTP/1.1\r\n\r\n").unwrap();
         let mut buf: [u8; 100] = [0; 100];
         assert!(sock.read(&mut buf[..]).unwrap() > 0);
     }
@@ -448,12 +447,11 @@ mod tests {
         let mut sock = UnixStream::connect(PathBuf::from(path_to_socket)).unwrap();
 
         // Send a GET mmds request.
-        assert!(sock
-            .write_all(
-                b"PUT http://localhost/home HTTP/1.1\r\n\
-                  Content-Length: 50000\r\n\r\naaaaaa"
-            )
-            .is_ok());
+        sock.write_all(
+            b"PUT http://localhost/home HTTP/1.1\r\n\
+                  Content-Length: 50000\r\n\r\naaaaaa",
+        )
+        .unwrap();
         let mut buf: [u8; 265] = [0; 265];
         assert!(sock.read(&mut buf[..]).unwrap() > 0);
         let error_message = b"HTTP/1.1 400 \r\n\

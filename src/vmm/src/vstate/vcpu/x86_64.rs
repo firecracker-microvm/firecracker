@@ -877,7 +877,7 @@ mod tests {
         };
         vcpu.configure(&vm_mem, GuestAddress(0), &vcpu_config)
             .unwrap();
-        assert!(vcpu.dump_cpu_config().is_ok());
+        vcpu.dump_cpu_config().unwrap();
     }
 
     #[test]
@@ -923,14 +923,14 @@ mod tests {
         );
 
         if vm.fd().check_extension(Cap::TscControl) {
-            assert!(vcpu.set_tsc_khz(state.tsc_khz.unwrap()).is_ok());
+            vcpu.set_tsc_khz(state.tsc_khz.unwrap()).unwrap();
             if vm.fd().check_extension(Cap::GetTscKhz) {
                 assert_eq!(vcpu.get_tsc_khz().ok(), state.tsc_khz);
             } else {
-                assert!(vcpu.get_tsc_khz().is_err());
+                vcpu.get_tsc_khz().unwrap_err();
             }
         } else {
-            assert!(vcpu.set_tsc_khz(state.tsc_khz.unwrap()).is_err());
+            vcpu.set_tsc_khz(state.tsc_khz.unwrap()).unwrap_err();
         }
     }
 
@@ -939,9 +939,8 @@ mod tests {
         // Test `get_msrs()` with the MSR indices that should be serialized into snapshots.
         // The MSR indices should be valid and this test should succeed.
         let (_, vcpu, _) = setup_vcpu(0x1000);
-        assert!(vcpu
-            .get_msrs(&vcpu.msrs_to_save.iter().copied().collect::<Vec<_>>())
-            .is_ok());
+        vcpu.get_msrs(&vcpu.msrs_to_save.iter().copied().collect::<Vec<_>>())
+            .unwrap();
     }
 
     #[test]
@@ -952,7 +951,7 @@ mod tests {
 
         let kvm = kvm_ioctls::Kvm::new().unwrap();
         let msrs_to_dump = crate::arch::x86_64::msr::get_msrs_to_dump(&kvm).unwrap();
-        assert!(vcpu.get_msrs(msrs_to_dump.as_slice()).is_ok());
+        vcpu.get_msrs(msrs_to_dump.as_slice()).unwrap();
     }
 
     #[test]
