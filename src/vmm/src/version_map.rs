@@ -38,6 +38,8 @@ pub const FC_V1_4_SNAP_VERSION: u16 = 8;
 pub const FC_V1_5_SNAP_VERSION: u16 = 9;
 /// Snap version for Firecracker v1.6
 pub const FC_V1_6_SNAP_VERSION: u16 = 10;
+/// Snap version for Firecracker v1.7
+pub const FC_V1_7_SNAP_VERSION: u16 = 11;
 
 lazy_static! {
     // Note: until we have a better design, this needs to be updated when the version changes.
@@ -88,6 +90,9 @@ lazy_static! {
         version_map.set_type_version(VirtioDeviceState::type_id(), 2);
         version_map.set_type_version(DeviceStates::type_id(), 5);
 
+        // v1.7 state change mappings
+        version_map.new_version();
+
         version_map
     };
 
@@ -116,6 +121,7 @@ lazy_static! {
         mapping.insert(Version::new(1, 4, 0), FC_V1_4_SNAP_VERSION);
         mapping.insert(Version::new(1, 5, 0), FC_V1_5_SNAP_VERSION);
         mapping.insert(Version::new(1, 6, 0), FC_V1_6_SNAP_VERSION);
+        mapping.insert(Version::new(1, 7, 0), FC_V1_7_SNAP_VERSION);
 
         mapping
     };
