@@ -299,12 +299,12 @@ pub enum KvmGetSupportedCpuidError {
 }
 
 /// Error type for conversion from `kvm_bindings::CpuId` to `Cpuid`.
+#[rustfmt::skip]
 #[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq, Eq)]
 pub enum CpuidTryFromKvmCpuid {
     /// Leaf 0 not found in the given `kvm_bindings::CpuId`.
     MissingLeaf0,
-    #[rustfmt::skip]
-    #[doc = "Unsupported CPUID manufacturer id: \"{0:?}\" (only 'GenuineIntel' and 'AuthenticAMD' are supported)."]
+    /// Unsupported CPUID manufacturer id: \"{0:?}\" (only 'GenuineIntel' and 'AuthenticAMD' are supported).
     UnsupportedVendor([u8; 12]),
 }
 

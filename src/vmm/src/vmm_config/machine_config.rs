@@ -13,17 +13,16 @@ pub const DEFAULT_MEM_SIZE_MIB: usize = 128;
 pub const MAX_SUPPORTED_VCPUS: u8 = 32;
 
 /// Errors associated with configuring the microVM.
+#[rustfmt::skip]
 #[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq, Eq)]
 pub enum VmConfigError {
     /// The memory size (MiB) is smaller than the previously set balloon device target size.
     IncompatibleBalloonSize,
     /// The memory size (MiB) is invalid.
     InvalidMemorySize,
-    #[rustfmt::skip]
-    #[doc = "The vCPU number is invalid! The vCPU number can only be 1 or an even number when SMT is enabled."]
+    /// The vCPU number is invalid! The vCPU number can only be 1 or an even number when SMT is enabled.
     InvalidVcpuCount,
-    #[rustfmt::skip]
-    #[doc = "Could not get the configuration of the previously installed balloon device to validate the memory size."]
+    /// Could not get the configuration of the previously installed balloon device to validate the memory size.
     InvalidVmState,
 }
 

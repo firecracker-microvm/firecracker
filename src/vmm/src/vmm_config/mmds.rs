@@ -39,14 +39,14 @@ impl MmdsConfig {
 }
 
 /// MMDS configuration related errors.
+#[rustfmt::skip]
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum MmdsConfigError {
     /// The list of network interface IDs that allow forwarding MMDS requests is empty.
     EmptyNetworkIfaceList,
     /// The MMDS IPv4 address is not link local.
     InvalidIpv4Addr,
-    #[rustfmt::skip]
-    #[doc = "The list of network interface IDs provided contains at least one ID that does not correspond to any existing network interface."]
+    /// The list of network interface IDs provided contains at least one ID that does not correspond to any existing network interface.
     InvalidNetworkInterfaceId,
     /// The MMDS could not be configured to version {0}: {1}
     MmdsVersion(MmdsVersion, data_store::Error),
