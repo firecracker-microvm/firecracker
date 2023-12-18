@@ -616,6 +616,19 @@
                 ]
             },
             {
+                "syscall": "madvise",
+                "comment": "Triggered on some deallocation paths in musl free()",
+                "args": [
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 8,
+                        "comment": "libc::MADV_FREE"
+                    }
+                ]
+            },
+            {
                 "syscall": "mmap",
                 "comment": "Used for reading the timezone in LocalTime::now()",
                 "args": [
@@ -842,6 +855,19 @@
                 ]
             },
             {
+                "syscall": "madvise",
+                "comment": "Triggered on some deallocation paths in musl free()",
+                "args": [
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 8,
+                        "comment": "libc::MADV_FREE"
+                    }
+                ]
+            },
+            {
                 "syscall": "mmap",
                 "comment": "Used for reading the timezone in LocalTime::now()",
                 "args": [
@@ -851,6 +877,26 @@
                         "op": "eq",
                         "val": 1,
                         "comment": "libc::MAP_SHARED"
+                    }
+                ]
+            },
+            {
+                "syscall": "mmap",
+                "comment": "Used for allocating memory for FamStructWrapper called by KvmCpu::get_cpuid",
+                "args": [
+                    {
+                        "index": 3,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 34,
+                        "comment": "libc::MAP_ANONYMOUS|libc::MAP_PRIVATE"
+                    },
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 3,
+                        "comment": "libc::PROT_READ|libc::PROT_WRITE"
                     }
                 ]
             },
