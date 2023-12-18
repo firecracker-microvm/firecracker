@@ -18,7 +18,7 @@ event-manager = "0.3.0"
 libc = "0.2.151"
 log-instrument = { path = "../log-instrument", optional = true }
 serde_json = "1.0.108"
-thiserror = "1.0.50"
+thiserror = "1.0.51"
 timerfd = "1.5.0"
 
 api_server = { path = "../api_server" }
@@ -28,7 +28,7 @@ utils = { path = "../utils" }
 vmm = { path = "../vmm" }
 
 [dev-dependencies]
-cargo_toml = "0.17.1"
+cargo_toml = "0.17.2"
 regex = { version = "1.10.2", default-features = false, features = ["std", "unicode-perl"] }
 
 # Dev-Dependencies for uffd examples
