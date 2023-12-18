@@ -486,7 +486,7 @@ pub(crate) mod tests {
         let gm = GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), mem_size)], false).unwrap();
 
         let vm = Vm::new(vec![]).expect("Cannot create new vm");
-        assert!(vm.memory_init(&gm, false).is_ok());
+        vm.memory_init(&gm, false).unwrap();
 
         (vm, gm)
     }
@@ -494,7 +494,7 @@ pub(crate) mod tests {
     #[test]
     fn test_new() {
         // Testing with a valid /dev/kvm descriptor.
-        assert!(Vm::new(vec![]).is_ok());
+        Vm::new(vec![]).unwrap();
     }
 
     #[test]
@@ -521,7 +521,7 @@ pub(crate) mod tests {
 
         // Create valid memory region and test that the initialization is successful.
         let gm = GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), 0x1000)], false).unwrap();
-        assert!(vm.memory_init(&gm, true).is_ok());
+        vm.memory_init(&gm, true).unwrap();
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -529,7 +529,7 @@ pub(crate) mod tests {
     fn test_vm_save_restore_state() {
         let vm = Vm::new(vec![]).expect("new vm failed");
         // Irqchips, clock and pitstate are not configured so trying to save state should fail.
-        assert!(vm.save_state().is_err());
+        vm.save_state().unwrap_err();
 
         let (vm, _mem) = setup_vm(0x1000);
         vm.setup_irqchip().unwrap();
@@ -547,7 +547,7 @@ pub(crate) mod tests {
         let (mut vm, _mem) = setup_vm(0x1000);
         vm.setup_irqchip().unwrap();
 
-        assert!(vm.restore_state(&vm_state).is_ok());
+        vm.restore_state(&vm_state).unwrap();
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -565,18 +565,18 @@ pub(crate) mod tests {
         // Try to restore an invalid PIC Master chip ID
         let orig_master_chip_id = vm_state.pic_master.chip_id;
         vm_state.pic_master.chip_id = KVM_NR_IRQCHIPS;
-        assert!(vm.restore_state(&vm_state).is_err());
+        vm.restore_state(&vm_state).unwrap_err();
         vm_state.pic_master.chip_id = orig_master_chip_id;
 
         // Try to restore an invalid PIC Slave chip ID
         let orig_slave_chip_id = vm_state.pic_slave.chip_id;
         vm_state.pic_slave.chip_id = KVM_NR_IRQCHIPS;
-        assert!(vm.restore_state(&vm_state).is_err());
+        vm.restore_state(&vm_state).unwrap_err();
         vm_state.pic_slave.chip_id = orig_slave_chip_id;
 
         // Try to restore an invalid IOPIC chip ID
         vm_state.ioapic.chip_id = KVM_NR_IRQCHIPS;
-        assert!(vm.restore_state(&vm_state).is_err());
+        vm.restore_state(&vm_state).unwrap_err();
     }
 
     #[test]
@@ -585,7 +585,7 @@ pub(crate) mod tests {
 
         let gm = GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), 0x1000)], false).unwrap();
         let res = vm.set_kvm_memory_regions(&gm, false);
-        assert!(res.is_ok());
+        res.unwrap();
 
         // Trying to set a memory region with a size that is not a multiple of PAGE_SIZE
         // will result in error.

@@ -1389,7 +1389,7 @@ mod tests {
     // Checks that rule gets translated correctly into BPF statements.
     #[test]
     fn test_rule_bpf_output() {
-        assert!(Cond::new(6, ArgLen::Qword, Eq, 1).is_err());
+        Cond::new(6, ArgLen::Qword, Eq, 1).unwrap_err();
 
         // Builds rule.
         let rule = SeccompRule::new(
@@ -1515,7 +1515,7 @@ mod tests {
         {
             let mut empty_rule_map = BTreeMap::new();
             empty_rule_map.insert(1, vec![]);
-            assert!(SeccompFilter::new(empty_rule_map, SeccompAction::Allow, ARCH).is_err());
+            SeccompFilter::new(empty_rule_map, SeccompAction::Allow, ARCH).unwrap_err();
         }
 
         let filter = create_test_bpf_filter(ArgLen::Dword);
@@ -1566,7 +1566,7 @@ mod tests {
         {
             let mut empty_rule_map = BTreeMap::new();
             empty_rule_map.insert(1, vec![]);
-            assert!(SeccompFilter::new(empty_rule_map, SeccompAction::Allow, ARCH).is_err());
+            SeccompFilter::new(empty_rule_map, SeccompAction::Allow, ARCH).unwrap_err();
         }
 
         let filter = create_test_bpf_filter(ArgLen::Qword);
@@ -1767,7 +1767,7 @@ mod tests {
         );
 
         // Valid argument number
-        assert!(Cond::new(0, ArgLen::Dword, Eq, 65).is_ok());
+        Cond::new(0, ArgLen::Dword, Eq, 65).unwrap();
     }
 
     #[test]

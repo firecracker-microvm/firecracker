@@ -117,7 +117,7 @@ mod tests {
         assert!(kvm.check_extension(kvm_ioctls::Cap::Irqchip));
         let vm = kvm.create_vm().unwrap();
         // the get_lapic ioctl will fail if there is no irqchip created beforehand.
-        assert!(vm.create_irq_chip().is_ok());
+        vm.create_irq_chip().unwrap();
         let vcpu = vm.create_vcpu(0).unwrap();
         let klapic_before: kvm_lapic_state = vcpu.get_lapic().unwrap();
 
@@ -144,6 +144,6 @@ mod tests {
         let vcpu = vm.create_vcpu(0).unwrap();
         // 'get_lapic' ioctl triggered by the 'set_lint' function will fail if there is no
         // irqchip created beforehand.
-        assert!(set_lint(&vcpu).is_err());
+        set_lint(&vcpu).unwrap_err();
     }
 }

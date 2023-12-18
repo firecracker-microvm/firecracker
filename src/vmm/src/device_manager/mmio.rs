@@ -600,13 +600,13 @@ mod tests {
         let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
         #[cfg(target_arch = "x86_64")]
-        assert!(builder::setup_interrupt_controller(&mut vm).is_ok());
+        builder::setup_interrupt_controller(&mut vm).unwrap();
         #[cfg(target_arch = "aarch64")]
-        assert!(builder::setup_interrupt_controller(&mut vm, 1).is_ok());
+        builder::setup_interrupt_controller(&mut vm, 1).unwrap();
 
-        assert!(device_manager
+        device_manager
             .register_virtio_test_device(vm.fd(), guest_mem, dummy, &mut cmdline, "dummy")
-            .is_ok());
+            .unwrap();
     }
 
     #[test]
@@ -629,9 +629,9 @@ mod tests {
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         #[cfg(target_arch = "x86_64")]
-        assert!(builder::setup_interrupt_controller(&mut vm).is_ok());
+        builder::setup_interrupt_controller(&mut vm).unwrap();
         #[cfg(target_arch = "aarch64")]
-        assert!(builder::setup_interrupt_controller(&mut vm, 1).is_ok());
+        builder::setup_interrupt_controller(&mut vm, 1).unwrap();
 
         for _i in crate::arch::IRQ_BASE..=crate::arch::IRQ_MAX {
             device_manager
@@ -684,9 +684,9 @@ mod tests {
         let mem_clone = guest_mem.clone();
 
         #[cfg(target_arch = "x86_64")]
-        assert!(builder::setup_interrupt_controller(&mut vm).is_ok());
+        builder::setup_interrupt_controller(&mut vm).unwrap();
         #[cfg(target_arch = "aarch64")]
-        assert!(builder::setup_interrupt_controller(&mut vm, 1).is_ok());
+        builder::setup_interrupt_controller(&mut vm, 1).unwrap();
 
         let mut device_manager = MMIODeviceManager::new(
             0xd000_0000,
@@ -776,6 +776,6 @@ mod tests {
             "Failed to allocate requested resource: The requested resource is not available."
                 .to_string()
         );
-        assert!(device_manager.allocate_mmio_resources(0).is_ok());
+        device_manager.allocate_mmio_resources(0).unwrap();
     }
 }

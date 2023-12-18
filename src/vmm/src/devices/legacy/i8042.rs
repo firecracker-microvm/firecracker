@@ -366,7 +366,7 @@ mod tests {
         // Check if reset works.
         // Write 1 to the reset event fd, so that read doesn't block in case the event fd
         // counter doesn't change (for 0 it blocks).
-        assert!(reset_evt.write(1).is_ok());
+        reset_evt.write(1).unwrap();
         let mut data = [CMD_RESET_CPU];
         i8042.bus_write(OFS_STATUS, &data);
         assert_eq!(reset_evt.read().unwrap(), 2);

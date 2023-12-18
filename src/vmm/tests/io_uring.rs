@@ -24,7 +24,7 @@ mod test_utils {
 
     fn drain_cqueue(ring: &mut IoUring) {
         while let Some(entry) = unsafe { ring.pop::<usize>().unwrap() } {
-            assert!(entry.result().is_ok());
+            entry.result().unwrap();
         }
     }
 
@@ -241,7 +241,7 @@ fn test_ring_push() {
         assert_eq!(ring.num_ops(), NUM_ENTRIES);
 
         // Full Ring.
-        assert!(ring.submit().is_ok());
+        ring.submit().unwrap();
         // Wait for the io_uring ops to reach the CQ
         thread::sleep(Duration::from_millis(150));
         for _ in 0..NUM_ENTRIES {
@@ -250,7 +250,7 @@ fn test_ring_push() {
             }
             .is_ok());
         }
-        assert!(ring.submit().is_ok());
+        ring.submit().unwrap();
         // Wait for the io_uring ops to reach the CQ
         thread::sleep(Duration::from_millis(150));
         assert_eq!(ring.num_ops(), NUM_ENTRIES * 2);

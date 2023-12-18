@@ -189,7 +189,7 @@ pub struct CgroupV1 {
 #[derive(Debug)]
 pub struct CgroupV2(CgroupBase);
 
-pub trait Cgroup {
+pub trait Cgroup: Debug {
     // Write the cgroup value into the cgroup property file.
     fn write_value(&self) -> Result<(), JailerError>;
 
@@ -569,46 +569,46 @@ mod tests {
     #[test]
     fn test_cgroup_builder_no_mounts() {
         let builder = CgroupBuilder::new(1);
-        assert!(builder.is_err());
+        builder.unwrap_err();
     }
 
     #[test]
     fn test_cgroup_builder_v1() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
-        assert!(mock_cgroups.add_v1_mounts().is_ok());
+        mock_cgroups.add_v1_mounts().unwrap();
         let builder = CgroupBuilder::new(1);
-        assert!(builder.is_ok());
+        builder.unwrap();
     }
 
     #[test]
     fn test_cgroup_builder_v2() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
-        assert!(mock_cgroups.add_v2_mounts().is_ok());
+        mock_cgroups.add_v2_mounts().unwrap();
         let builder = CgroupBuilder::new(2);
-        assert!(builder.is_ok());
+        builder.unwrap();
     }
 
     #[test]
     fn test_cgroup_builder_v2_with_v1_mounts() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
-        assert!(mock_cgroups.add_v1_mounts().is_ok());
+        mock_cgroups.add_v1_mounts().unwrap();
         let builder = CgroupBuilder::new(2);
-        assert!(builder.is_err());
+        builder.unwrap_err();
     }
 
     #[test]
     fn test_cgroup_builder_v1_with_v2_mounts() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
-        assert!(mock_cgroups.add_v2_mounts().is_ok());
+        mock_cgroups.add_v2_mounts().unwrap();
         let builder = CgroupBuilder::new(1);
-        assert!(builder.is_err());
+        builder.unwrap_err();
     }
 
     #[test]
     fn test_cgroup_build() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
-        assert!(mock_cgroups.add_v1_mounts().is_ok());
-        assert!(mock_cgroups.add_v2_mounts().is_ok());
+        mock_cgroups.add_v1_mounts().unwrap();
+        mock_cgroups.add_v2_mounts().unwrap();
 
         for v in &[1, 2] {
             let mut builder = CgroupBuilder::new(*v).unwrap();
@@ -619,15 +619,15 @@ mod tests {
                 "101",
                 Path::new("fc_test_cg"),
             );
-            assert!(cg.is_ok());
+            cg.unwrap();
         }
     }
 
     #[test]
     fn test_cgroup_build_invalid() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
-        assert!(mock_cgroups.add_v1_mounts().is_ok());
-        assert!(mock_cgroups.add_v2_mounts().is_ok());
+        mock_cgroups.add_v1_mounts().unwrap();
+        mock_cgroups.add_v2_mounts().unwrap();
 
         for v in &[1, 2] {
             let mut builder = CgroupBuilder::new(*v).unwrap();
@@ -637,16 +637,16 @@ mod tests {
                 "101",
                 Path::new("fc_test_cg"),
             );
-            assert!(cg.is_err());
+            cg.unwrap_err();
         }
     }
 
     #[test]
     fn test_cgroup_v2_write_value() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
-        assert!(mock_cgroups.add_v2_mounts().is_ok());
+        mock_cgroups.add_v2_mounts().unwrap();
         let builder = CgroupBuilder::new(2);
-        assert!(builder.is_ok());
+        builder.unwrap();
 
         let mut builder = CgroupBuilder::new(2).unwrap();
         let cg = builder.new_cgroup(
@@ -655,7 +655,6 @@ mod tests {
             "101",
             Path::new("fc_test_cgv2"),
         );
-        assert!(cg.is_ok());
         let cg = cg.unwrap();
 
         let cg_root = PathBuf::from(format!("{}/unified", MockCgroupFs::MOCK_SYS_CGROUPS_DIR));
@@ -674,7 +673,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(cg.write_value().is_ok());
+        cg.write_value().unwrap();
 
         // check that the value was written correctly
         assert!(cg_root.join("fc_test_cgv2/101/cpuset.mems").exists());
@@ -709,8 +708,11 @@ mod tests {
         let dir2 = TempDir::new_in(dir.as_path()).expect("Cannot create temporary directory.");
         let mut path2 = PathBuf::from(dir2.as_path());
         let result = inherit_from_parent(&mut PathBuf::from(&path2), "inexistent", 1);
-        assert!(result.is_err());
-        assert!(format!("{:?}", result).contains("ReadToString"));
+        assert!(
+            matches!(result, Err(JailerError::ReadToString(_, _))),
+            "{:?}",
+            result
+        );
 
         // 2. If parent file exists and is empty, will go one level up, and return error because
         // the grandparent file does not exist.
@@ -720,8 +722,11 @@ mod tests {
             named_file.as_path().to_str().unwrap(),
             1,
         );
-        assert!(result.is_err());
-        assert!(format!("{:?}", result).contains("CgroupInheritFromParent"));
+        assert!(
+            matches!(result, Err(JailerError::CgroupInheritFromParent(_, _))),
+            "{:?}",
+            result
+        );
 
         let child_file = dir2.as_path().join(named_file.as_path().to_str().unwrap());
 
@@ -730,7 +735,7 @@ mod tests {
         let some_line = "Parent line";
         writeln!(named_file.as_file(), "{}", some_line).expect("Cannot write to file.");
         let result = inherit_from_parent(&mut path2, named_file.as_path().to_str().unwrap(), 1);
-        assert!(result.is_ok());
+        result.unwrap();
         let res = readln_special(&child_file).expect("Cannot read from file.");
         assert!(res == some_line);
     }
@@ -741,25 +746,37 @@ mod tests {
 
         // Check valid file.
         let mut result = get_controller_from_filename(file);
-        assert!(result.is_ok());
-        assert!(matches!(result, Ok(ctrl) if ctrl == "cpuset"));
+        assert!(
+            matches!(result, Ok(ctrl) if ctrl == "cpuset"),
+            "{:?}",
+            result
+        );
 
         // Check valid file with multiple '.'.
         file = "memory.swap.high";
         result = get_controller_from_filename(file);
-        assert!(result.is_ok());
-        assert!(matches!(result, Ok(ctrl) if ctrl == "memory"));
+        assert!(
+            matches!(result, Ok(ctrl) if ctrl == "memory"),
+            "{:?}",
+            result
+        );
 
         // Check invalid file
         file = "cpusetcpu";
         result = get_controller_from_filename(file);
-        assert!(result.is_err());
-        assert!(format!("{:?}", result).contains("CgroupInvalidFile"));
+        assert!(
+            matches!(result, Err(JailerError::CgroupInvalidFile(_))),
+            "{:?}",
+            result
+        );
 
         // Check empty file
         file = "";
         result = get_controller_from_filename(file);
-        assert!(result.is_err());
-        assert!(format!("{:?}", result).contains("CgroupInvalidFile"));
+        assert!(
+            matches!(result, Err(JailerError::CgroupInvalidFile(_))),
+            "{:?}",
+            result
+        );
     }
 }

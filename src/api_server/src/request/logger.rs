@@ -72,6 +72,6 @@ mod tests {
             "show_level": false,
             "show_log_origin": false
         }"#;
-        assert!(parse_put_logger(&Body::new(invalid_body)).is_err());
+        parse_put_logger(&Body::new(invalid_body)).unwrap_err();
     }
 }

@@ -841,7 +841,7 @@ pub(crate) mod tests {
 
         // Fill the second page with non-zero bytes.
         for i in 0..0x1000 {
-            assert!(mem.write_obj::<u8>(1, GuestAddress((1 << 12) + i)).is_ok());
+            mem.write_obj::<u8>(1, GuestAddress((1 << 12) + i)).unwrap();
         }
 
         // Will write the page frame number of the affected frame at this
@@ -899,7 +899,7 @@ pub(crate) mod tests {
 
         // Fill the third page with non-zero bytes.
         for i in 0..0x1000 {
-            assert!(mem.write_obj::<u8>(1, GuestAddress((1 << 12) + i)).is_ok());
+            mem.write_obj::<u8>(1, GuestAddress((1 << 12) + i)).unwrap();
         }
 
         // Will write the page frame number of the affected frame at this
@@ -1087,7 +1087,7 @@ pub(crate) mod tests {
                 // Trigger the timer event, which consumes the stats
                 // descriptor index and signals the used queue.
                 assert!(balloon.stats_desc_index.is_some());
-                assert!(balloon.process_stats_timer_event().is_ok());
+                balloon.process_stats_timer_event().unwrap();
                 assert!(balloon.stats_desc_index.is_none());
                 assert!(balloon.irq_trigger.has_pending_irq(IrqType::Vring));
             });
@@ -1117,7 +1117,7 @@ pub(crate) mod tests {
             format!("{:?}", balloon.update_stats_polling_interval(1)),
             "Err(StatisticsStateChange)"
         );
-        assert!(balloon.update_stats_polling_interval(0).is_ok());
+        balloon.update_stats_polling_interval(0).unwrap();
 
         let mut balloon = Balloon::new(0, true, 1, false).unwrap();
         let mem = default_mem();
@@ -1126,15 +1126,15 @@ pub(crate) mod tests {
             format!("{:?}", balloon.update_stats_polling_interval(0)),
             "Err(StatisticsStateChange)"
         );
-        assert!(balloon.update_stats_polling_interval(1).is_ok());
-        assert!(balloon.update_stats_polling_interval(2).is_ok());
+        balloon.update_stats_polling_interval(1).unwrap();
+        balloon.update_stats_polling_interval(2).unwrap();
     }
 
     #[test]
     fn test_num_pages() {
         let mut balloon = Balloon::new(0, true, 0, false).unwrap();
         // Assert that we can't update an inactive device.
-        assert!(balloon.update_size(1).is_err());
+        balloon.update_size(1).unwrap_err();
         // Switch the state to active.
         balloon.device_state = DeviceState::Activated(
             GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0x0), 0x1)], false).unwrap(),
@@ -1147,7 +1147,7 @@ pub(crate) mod tests {
         balloon.update_actual_pages(0x1234);
         balloon.update_num_pages(0x100);
         assert_eq!(balloon.num_pages(), 0x100);
-        assert!(balloon.update_size(16).is_ok());
+        balloon.update_size(16).unwrap();
 
         let mut actual_config = vec![0; BALLOON_CONFIG_SPACE_SIZE];
         balloon.read_config(0, &mut actual_config);

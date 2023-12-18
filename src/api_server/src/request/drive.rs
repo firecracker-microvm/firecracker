@@ -76,15 +76,15 @@ mod tests {
 
     #[test]
     fn test_parse_patch_drive_request() {
-        assert!(parse_patch_drive(&Body::new("invalid_payload"), None).is_err());
-        assert!(parse_patch_drive(&Body::new("invalid_payload"), Some("id")).is_err());
+        parse_patch_drive(&Body::new("invalid_payload"), None).unwrap_err();
+        parse_patch_drive(&Body::new("invalid_payload"), Some("id")).unwrap_err();
 
         // PATCH with invalid fields.
         let body = r#"{
             "drive_id": "bar",
             "is_read_only": false
         }"#;
-        assert!(parse_patch_drive(&Body::new(body), Some("2")).is_err());
+        parse_patch_drive(&Body::new(body), Some("2")).unwrap_err();
 
         // PATCH with invalid types on fields. Adding a drive_id as number instead of string.
         let body = r#"{
@@ -92,7 +92,7 @@ mod tests {
             "path_on_host": "dummy"
         }"#;
         let res = parse_patch_drive(&Body::new(body), Some("1000"));
-        assert!(res.is_err());
+        res.unwrap_err();
 
         // PATCH with invalid types on fields. Adding a path_on_host as bool instead of string.
         let body = r#"{
@@ -100,21 +100,21 @@ mod tests {
             "path_on_host": true
         }"#;
         let res = parse_patch_drive(&Body::new(body), Some("1000"));
-        assert!(res.is_err());
+        res.unwrap_err();
 
         // PATCH with only drive_id field.
         let body = r#"{
             "drive_id": "1000"
         }"#;
         let res = parse_patch_drive(&Body::new(body), Some("1000"));
-        assert!(res.is_ok());
+        res.unwrap();
 
         // PATCH with missing drive_id field.
         let body = r#"{
             "path_on_host": true
         }"#;
         let res = parse_patch_drive(&Body::new(body), Some("1000"));
-        assert!(res.is_err());
+        res.unwrap_err();
 
         // PATCH that tries to update something else other than path_on_host.
         let body = r#"{
@@ -123,13 +123,13 @@ mod tests {
             "is_read_only": false
         }"#;
         let res = parse_patch_drive(&Body::new(body), Some("1234"));
-        assert!(res.is_err());
+        res.unwrap_err();
 
         // PATCH with payload that is not a json.
         let body = r#"{
             "fields": "dummy_field"
         }"#;
-        assert!(parse_patch_drive(&Body::new(body), Some("1234")).is_err());
+        parse_patch_drive(&Body::new(body), Some("1234")).unwrap_err();
 
         let body = r#"{
             "drive_id": "foo",
@@ -150,7 +150,7 @@ mod tests {
             "path_on_host": "dummy"
         }"#;
         // Must fail since the drive id differs from id_from_path (foo vs bar).
-        assert!(parse_patch_drive(&Body::new(body), Some("bar")).is_err());
+        parse_patch_drive(&Body::new(body), Some("bar")).unwrap_err();
 
         let body = r#"{
             "drive_id": "foo",
@@ -166,7 +166,7 @@ mod tests {
             }
         }"#;
         // Validate that updating just the ratelimiter works.
-        assert!(parse_patch_drive(&Body::new(body), Some("foo")).is_ok());
+        parse_patch_drive(&Body::new(body), Some("foo")).unwrap();
 
         let body = r#"{
             "drive_id": "foo",
@@ -183,7 +183,7 @@ mod tests {
             }
         }"#;
         // Validate that updating both path and rate limiter succeds.
-        assert!(parse_patch_drive(&Body::new(body), Some("foo")).is_ok());
+        parse_patch_drive(&Body::new(body), Some("foo")).unwrap();
 
         let body = r#"{
             "drive_id": "foo",
@@ -195,20 +195,20 @@ mod tests {
             }
         }"#;
         // Validate that parse_patch_drive fails for invalid rate limiter cfg.
-        assert!(parse_patch_drive(&Body::new(body), Some("foo")).is_err());
+        parse_patch_drive(&Body::new(body), Some("foo")).unwrap_err();
     }
 
     #[test]
     fn test_parse_put_drive_request() {
-        assert!(parse_put_drive(&Body::new("invalid_payload"), None).is_err());
-        assert!(parse_put_drive(&Body::new("invalid_payload"), Some("id")).is_err());
+        parse_put_drive(&Body::new("invalid_payload"), None).unwrap_err();
+        parse_put_drive(&Body::new("invalid_payload"), Some("id")).unwrap_err();
 
         // PUT with invalid fields.
         let body = r#"{
             "drive_id": "bar",
             "is_read_only": false
         }"#;
-        assert!(parse_put_drive(&Body::new(body), Some("2")).is_err());
+        parse_put_drive(&Body::new(body), Some("2")).unwrap_err();
 
         // PUT with missing all optional fields.
         let body = r#"{
@@ -217,10 +217,10 @@ mod tests {
             "is_root_device": true,
             "is_read_only": true
         }"#;
-        assert!(parse_put_drive(&Body::new(body), Some("1000")).is_ok());
+        parse_put_drive(&Body::new(body), Some("1000")).unwrap();
 
         // PUT with invalid types on fields. Adding a drive_id as number instead of string.
-        assert!(parse_put_drive(&Body::new(body), Some("foo")).is_err());
+        parse_put_drive(&Body::new(body), Some("foo")).unwrap_err();
 
         // PUT with the complete configuration.
         let body = r#"{
@@ -244,6 +244,6 @@ mod tests {
                 }
             }
         }"#;
-        assert!(parse_put_drive(&Body::new(body), Some("1000")).is_ok());
+        parse_put_drive(&Body::new(body), Some("1000")).unwrap();
     }
 }

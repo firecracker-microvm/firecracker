@@ -44,13 +44,13 @@ mod tests {
             "guest_cid": 42,
             "uds_path": "vsock.sock"
         }"#;
-        assert!(parse_put_vsock(&Body::new(body)).is_ok());
+        parse_put_vsock(&Body::new(body)).unwrap();
 
         let body = r#"{
             "guest_cid": 42,
             "invalid_field": false
         }"#;
-        assert!(parse_put_vsock(&Body::new(body)).is_err());
+        parse_put_vsock(&Body::new(body)).unwrap_err();
     }
 
     #[test]

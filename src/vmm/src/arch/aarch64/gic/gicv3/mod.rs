@@ -211,12 +211,11 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1, Some(GICVersion::GICV3)).expect("Cannot create gic");
-        assert!(save_pending_tables(gic.device_fd()).is_ok());
+        save_pending_tables(gic.device_fd()).unwrap();
 
         unsafe { libc::close(gic.device_fd().as_raw_fd()) };
 
         let res = save_pending_tables(gic.device_fd());
-        assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
             "DeviceAttribute(Error(9), true, 4)"

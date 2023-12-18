@@ -1496,7 +1496,7 @@ pub mod tests {
         let arp_request =
             EthIPv4ArpFrame::write_request(frame.payload_mut(), src_mac, src_ip, dst_mac, dst_ip);
         // Validate success.
-        assert!(arp_request.is_ok());
+        arp_request.unwrap();
 
         (frame_buf, frame_len)
     }

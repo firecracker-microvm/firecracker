@@ -337,7 +337,7 @@ mod tests {
         let vcpu = vm.create_vcpu(0).unwrap();
         let gm = create_guest_mem(None);
 
-        assert!(vcpu.set_sregs(&Default::default()).is_ok());
+        vcpu.set_sregs(&Default::default()).unwrap();
         setup_sregs(&gm, &vcpu).unwrap();
 
         let mut sregs: kvm_sregs = vcpu.get_sregs().unwrap();
@@ -359,7 +359,7 @@ mod tests {
             gdt_entry(0xc093, 0, 0xfffff), // DATA
             gdt_entry(0x808b, 0, 0xfffff), // TSS
         ];
-        assert!(write_gdt_table(&gdt_table, &gm).is_err());
+        write_gdt_table(&gdt_table, &gm).unwrap_err();
 
         // We allocate exactly the amount needed to write four u64 to `BOOT_GDT_OFFSET`.
         let gm = create_guest_mem(Some(
@@ -372,7 +372,7 @@ mod tests {
             gdt_entry(0xc093, 0, 0xfffff), // DATA
             gdt_entry(0x808b, 0, 0xfffff), // TSS
         ];
-        assert!(write_gdt_table(&gdt_table, &gm).is_ok());
+        write_gdt_table(&gdt_table, &gm).unwrap();
     }
 
     #[test]
@@ -380,11 +380,11 @@ mod tests {
         // Not enough memory for the a u64 value to fit.
         let gm = create_guest_mem(Some(BOOT_IDT_OFFSET));
         let val = 0x100;
-        assert!(write_idt_value(val, &gm).is_err());
+        write_idt_value(val, &gm).unwrap_err();
 
         let gm = create_guest_mem(Some(BOOT_IDT_OFFSET + mem::size_of::<u64>() as u64));
         // We have allocated exactly the amount neded to write an u64 to `BOOT_IDT_OFFSET`.
-        assert!(write_idt_value(val, &gm).is_ok());
+        write_idt_value(val, &gm).unwrap();
     }
 
     #[test]
@@ -400,13 +400,13 @@ mod tests {
     fn test_setup_page_tables() {
         let mut sregs: kvm_sregs = Default::default();
         let gm = create_guest_mem(Some(PML4_START));
-        assert!(setup_page_tables(&gm, &mut sregs).is_err());
+        setup_page_tables(&gm, &mut sregs).unwrap_err();
 
         let gm = create_guest_mem(Some(PDPTE_START));
-        assert!(setup_page_tables(&gm, &mut sregs).is_err());
+        setup_page_tables(&gm, &mut sregs).unwrap_err();
 
         let gm = create_guest_mem(Some(PDE_START));
-        assert!(setup_page_tables(&gm, &mut sregs).is_err());
+        setup_page_tables(&gm, &mut sregs).unwrap_err();
 
         let gm = create_guest_mem(None);
         setup_page_tables(&gm, &mut sregs).unwrap();

@@ -436,7 +436,7 @@ mod tests {
 
         // Decode invalid base64 bytes sequence.
         encoded_token.push('x');
-        assert!(Token::base64_decode(&encoded_token).is_err());
+        Token::base64_decode(&encoded_token).unwrap_err();
     }
 
     #[test]

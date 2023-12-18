@@ -80,26 +80,26 @@ mod tests {
 
     #[test]
     fn test_parse_get_machine_config_request() {
-        assert!(parse_get_machine_config().is_ok());
+        parse_get_machine_config().unwrap();
         assert!(METRICS.get_api_requests.machine_cfg_count.count() > 0);
     }
 
     #[test]
     fn test_parse_put_machine_config_request() {
         // 1. Test case for invalid payload.
-        assert!(parse_put_machine_config(&Body::new("invalid_payload")).is_err());
+        parse_put_machine_config(&Body::new("invalid_payload")).unwrap_err();
         assert!(METRICS.put_api_requests.machine_cfg_fails.count() > 0);
 
         // 2. Test case for mandatory fields.
         let body = r#"{
             "mem_size_mib": 1024
         }"#;
-        assert!(parse_put_machine_config(&Body::new(body)).is_err());
+        parse_put_machine_config(&Body::new(body)).unwrap_err();
 
         let body = r#"{
             "vcpu_count": 8
         }"#;
-        assert!(parse_put_machine_config(&Body::new(body)).is_err());
+        parse_put_machine_config(&Body::new(body)).unwrap_err();
 
         // 3. Test case for success scenarios for both architectures.
         let body = r#"{
@@ -177,7 +177,7 @@ mod tests {
         }
         #[cfg(target_arch = "aarch64")]
         {
-            assert!(parse_put_machine_config(&Body::new(body)).is_err());
+            parse_put_machine_config(&Body::new(body)).unwrap_err();
         }
 
         // 5. Test that setting `smt: true` is successful on x86_64 while on aarch64, it is not.
@@ -203,35 +203,35 @@ mod tests {
         }
         #[cfg(target_arch = "aarch64")]
         {
-            assert!(parse_put_machine_config(&Body::new(body)).is_err());
+            parse_put_machine_config(&Body::new(body)).unwrap_err();
         }
     }
 
     #[test]
     fn test_parse_patch_machine_config_request() {
         // 1. Test cases for invalid payload.
-        assert!(parse_patch_machine_config(&Body::new("invalid_payload")).is_err());
+        parse_patch_machine_config(&Body::new("invalid_payload")).unwrap_err();
 
         // 2. Check currently supported fields that can be patched.
         let body = r#"{
             "track_dirty_pages": true
         }"#;
-        assert!(parse_patch_machine_config(&Body::new(body)).is_ok());
+        parse_patch_machine_config(&Body::new(body)).unwrap();
 
         // On aarch64, CPU template is also not patch compatible.
         let body = r#"{
             "cpu_template": "T2"
         }"#;
         #[cfg(target_arch = "aarch64")]
-        assert!(parse_patch_machine_config(&Body::new(body)).is_err());
+        parse_patch_machine_config(&Body::new(body)).unwrap_err();
         #[cfg(target_arch = "x86_64")]
-        assert!(parse_patch_machine_config(&Body::new(body)).is_ok());
+        parse_patch_machine_config(&Body::new(body)).unwrap();
 
         let body = r#"{
             "vcpu_count": 8,
             "mem_size_mib": 1024
         }"#;
-        assert!(parse_patch_machine_config(&Body::new(body)).is_ok());
+        parse_patch_machine_config(&Body::new(body)).unwrap();
 
         // On aarch64, we allow `smt` to be configured to `false` but not `true`.
         let body = r#"{
@@ -239,11 +239,11 @@ mod tests {
             "mem_size_mib": 1024,
             "smt": false
         }"#;
-        assert!(parse_patch_machine_config(&Body::new(body)).is_ok());
+        parse_patch_machine_config(&Body::new(body)).unwrap();
 
         // 3. Check to see if an empty body returns an error.
         let body = r#"{}"#;
-        assert!(parse_patch_machine_config(&Body::new(body)).is_err());
+        parse_patch_machine_config(&Body::new(body)).unwrap_err();
     }
 
     #[test]

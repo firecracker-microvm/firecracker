@@ -583,7 +583,7 @@ mod tests {
             cpu_bits,
             cpus_per_core,
         );
-        assert!(result.is_ok());
+        result.unwrap();
         assert!(intel_cpuid.inner().contains_key(&CpuidKey {
             leaf: 0xb,
             subleaf: 0x1
@@ -607,7 +607,7 @@ mod tests {
         )])));
         let result =
             amd_cpuid.update_extended_topology_entry(cpu_index, cpu_count, cpu_bits, cpus_per_core);
-        assert!(result.is_ok());
+        result.unwrap();
         assert!(amd_cpuid.inner().contains_key(&CpuidKey {
             leaf: 0xb,
             subleaf: 0x1
