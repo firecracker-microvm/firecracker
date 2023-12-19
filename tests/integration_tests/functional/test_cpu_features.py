@@ -439,11 +439,12 @@ def check_msrs_are_equal(before_df, after_df):
 
     # We first want to see if the same set of MSRs are exposed in the microvm.
     # Drop the VALUE columns and compare the 2 dataframes.
-    impl_diff = pd.concat(
-        [before_df.drop(columns="VALUE"), after_df.drop(columns="VALUE")],
-        keys=["before", "after"],
-    ).drop_duplicates(keep=False)
-    assert impl_diff.empty, f"\n {impl_diff.to_string()}"
+    join = pd.merge(before_df, after_df, on="MSR_ADDR", how="outer", indicator=True)
+    removed = join[join["_merge"] == "left_only"]
+    added = join[join["_merge"] == "right_only"]
+
+    assert removed.empty, f"New MSRs added:\n{removed[['MSR_ADDR', 'VALUE_x']]}"
+    assert added.empty, f"MSRs removed:\n{added[['MSR_ADDR', 'VALUE_y']]}"
 
     # Remove MSR that can change at runtime.
     before_df = before_df[~before_df["MSR_ADDR"].isin(MSR_EXCEPTION_LIST)]
