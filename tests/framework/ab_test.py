@@ -279,16 +279,21 @@ def temporary_checkout(revision: str):
     happen along the way.
     """
     with TemporaryDirectory() as tmp_dir:
+        basename = Path(tmp_dir).name
+        ret, _, _ = utils.run_cmd(
+            f"git cat-file -t {revision}", ignore_return_code=True
+        )
+        if ret != 0:
+            # git didn't recognize this object, so maybe it is a branch; qualify it
+            revision = f"origin/{revision}"
+        # make a temp branch for that commit so we can directly check it out
+        utils.run_cmd(f"git branch {basename} {revision}")
         # `git clone` can take a path instead of an URL, which causes it to create a copy of the
         # repository at the given path. However, that path needs to point to the root of a repository,
         # it cannot be some arbitrary subdirectory. Therefore:
         _, git_root, _ = utils.run_cmd("git rev-parse --show-toplevel")
         # split off the '\n' at the end of the stdout
-        utils.run_cmd(f"git clone {git_root.strip()} {tmp_dir}")
-
-        with chdir(tmp_dir):
-            utils.run_cmd(f"git checkout {revision}")
-
+        utils.run_cmd(f"git clone -b {basename} {git_root.strip()} {tmp_dir}")
         yield Path(tmp_dir)
 
         # If we compiled firecracker inside the checkout, python's recursive shutil.rmdir will
