@@ -20,6 +20,8 @@ from pathlib import Path
 import psutil
 import pytest
 
+from host_tools.fcmetrics import FCMetricsMonitor
+
 # If guest memory is >3328MB, it is split in a 2nd region
 X86_MEMORY_GAP_START = 3328 * 2**20
 
@@ -42,6 +44,11 @@ def test_memory_overhead(
         microvm.basic_config(vcpu_count=vcpu_count, mem_size_mib=mem_size_mib)
         microvm.add_net_iface()
         microvm.start()
+        metrics.set_dimensions(
+            {"performance_test": "test_memory_overhead", **microvm.dimensions}
+        )
+        fcmetrics = FCMetricsMonitor(microvm, metrics)
+        fcmetrics.start()
 
         # check that the vm is running
         microvm.ssh.run("true")
@@ -72,9 +79,6 @@ def test_memory_overhead(
                 mem_stats["overhead_size"] += pmmap.size
                 mem_stats["overhead_rss"] += pmmap.rss
 
-        metrics.set_dimensions(
-            {"performance_test": "test_memory_overhead", **microvm.dimensions}
-        )
         for key, value in mem_stats.items():
             metrics.put_metric(key, value, unit="Bytes")
 
@@ -82,3 +86,4 @@ def test_memory_overhead(
         for metric in ["uss", "text"]:
             val = getattr(mem_info, metric)
             metrics.put_metric(metric, val, unit="Bytes")
+        fcmetrics.stop()
