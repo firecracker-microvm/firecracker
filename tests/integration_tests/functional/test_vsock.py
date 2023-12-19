@@ -28,7 +28,7 @@ from framework.utils_vsock import (
     make_host_port_path,
     start_guest_echo_server,
 )
-from host_tools.metrics import validate_fc_metrics
+from host_tools.fcmetrics import validate_fc_metrics
 
 NEGATIVE_TEST_CONNECTION_COUNT = 100
 TEST_WORKER_COUNT = 10
