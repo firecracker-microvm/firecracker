@@ -8,7 +8,7 @@ from pathlib import Path
 
 import host_tools.drive as drive_tools
 from framework.utils_drive import partuuid_and_disk_path
-from host_tools.metrics import FcDeviceMetrics
+from host_tools.fcmetrics import FcDeviceMetrics
 
 
 def _check_block_size(ssh_connection, dev_path, size):

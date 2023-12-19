@@ -5,7 +5,7 @@
 import os
 
 import host_tools.drive as drive_tools
-from host_tools.metrics import FcDeviceMetrics, validate_fc_metrics
+from host_tools.fcmetrics import FcDeviceMetrics, validate_fc_metrics
 
 
 def test_flush_metrics(test_microvm_with_api):

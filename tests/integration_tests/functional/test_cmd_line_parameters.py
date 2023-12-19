@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from framework.utils import run_cmd
-from host_tools.metrics import validate_fc_metrics
+from host_tools.fcmetrics import validate_fc_metrics
 
 
 def test_describe_snapshot_all_versions(
