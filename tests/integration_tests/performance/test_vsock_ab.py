@@ -8,6 +8,7 @@ import pytest
 
 from framework.utils_iperf import IPerf3Test, emit_iperf3_metrics
 from framework.utils_vsock import VSOCK_UDS_PATH, make_host_port_path
+from host_tools.fcmetrics import FCMetricsMonitor
 
 
 class VsockIPerf3Test(IPerf3Test):
@@ -92,10 +93,6 @@ def test_vsock_throughput(
     # Create a vsock device
     vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/" + VSOCK_UDS_PATH)
     vm.start()
-    vm.pin_threads(0)
-
-    test = VsockIPerf3Test(vm, mode, payload_length)
-    data = test.run_test(vm.vcpus_count + 2)
 
     metrics.set_dimensions(
         {
@@ -105,5 +102,13 @@ def test_vsock_throughput(
             **vm.dimensions,
         }
     )
+    fcmetrics = FCMetricsMonitor(vm, metrics)
+    fcmetrics.start()
+
+    vm.pin_threads(0)
+
+    test = VsockIPerf3Test(vm, mode, payload_length)
+    data = test.run_test(vm.vcpus_count + 2)
 
     emit_iperf3_metrics(metrics, data, VsockIPerf3Test.WARMUP_SEC)
+    fcmetrics.stop()
