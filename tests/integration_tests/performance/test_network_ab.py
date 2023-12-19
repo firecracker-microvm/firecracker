@@ -7,6 +7,7 @@ import re
 import pytest
 
 from framework.utils_iperf import IPerf3Test, emit_iperf3_metrics
+from host_tools.fcmetrics import FCMetricsMonitor
 
 # each iteration is 15 * 30 * 0.2s = 90s
 ROUNDS = 15
@@ -75,6 +76,16 @@ def test_network_latency(network_microvm, metrics, iteration):
     false-positive rate we have been seeing from this test.
     """
 
+    metrics.set_dimensions(
+        {
+            "performance_test": "test_network_latency",
+            **network_microvm.dimensions,
+            "iteration": str(iteration),
+        }
+    )
+    fcmetrics = FCMetricsMonitor(network_microvm, metrics)
+    fcmetrics.start()
+
     samples = []
     host_ip = network_microvm.iface["eth0"]["iface"].host_ip
 
@@ -86,16 +97,9 @@ def test_network_latency(network_microvm, metrics, iteration):
 
         samples.extend(consume_ping_output(ping_output))
 
-    metrics.set_dimensions(
-        {
-            "performance_test": "test_network_latency",
-            **network_microvm.dimensions,
-            "iteration": str(iteration),
-        }
-    )
-
     for sample in samples:
         metrics.put_metric("ping_latency", sample, "Milliseconds")
+    fcmetrics.stop()
 
 
 class TcpIPerf3Test(IPerf3Test):
@@ -148,14 +152,6 @@ def test_network_tcp_throughput(
     if mode == "bd" and network_microvm.vcpus_count < 2:
         pytest.skip("bidrectional test only done with at least 2 vcpus")
 
-    test = TcpIPerf3Test(
-        network_microvm,
-        mode,
-        network_microvm.iface["eth0"]["iface"].host_ip,
-        payload_length,
-    )
-    data = test.run_test(network_microvm.vcpus_count + 2)
-
     metrics.set_dimensions(
         {
             "performance_test": "test_network_tcp_throughput",
@@ -164,5 +160,16 @@ def test_network_tcp_throughput(
             **network_microvm.dimensions,
         }
     )
+    fcmetrics = FCMetricsMonitor(network_microvm, metrics)
+    fcmetrics.start()
+
+    test = TcpIPerf3Test(
+        network_microvm,
+        mode,
+        network_microvm.iface["eth0"]["iface"].host_ip,
+        payload_length,
+    )
+    data = test.run_test(network_microvm.vcpus_count + 2)
 
     emit_iperf3_metrics(metrics, data, TcpIPerf3Test.WARMUP_SEC)
+    fcmetrics.stop()
