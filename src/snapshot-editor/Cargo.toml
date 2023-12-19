@@ -15,7 +15,7 @@ displaydoc = "0.2.4"
 libc = "0.2.151"
 log-instrument = { path = "../log-instrument", optional = true }
 snapshot = { path = "../snapshot" }
-thiserror = "1.0.50"
+thiserror = "1.0.51"
 vmm = { path = "../vmm" }
 
 fc_utils = { package = "utils", path = "../utils" }
