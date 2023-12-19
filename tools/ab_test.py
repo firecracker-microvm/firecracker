@@ -91,8 +91,12 @@ def reemit_emf_and_get_data(log_entry: str, revision: str):
     result = {
         key: (value, find_unit(emf, key))
         for key, value in emf.items()
-        if isinstance(value, list)
+        if "fc_metrics" not in key and isinstance(value, list)
     }
+    # Since we don't consider metrics having fc_metrics in key
+    # result could be empty so, return empty dimensions as well
+    if not result:
+        return {}, {}
 
     return extract_dimensions(emf), result
 
