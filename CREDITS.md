@@ -17,9 +17,11 @@ written in Rust with a focus on safety and security. Thanks go to:
 
 Contributors to the Firecracker repository:
 
+* Aaqa Ishtyaq <aaqaishtyaq@gmail.com>
 * Aaron Hill <aa1ronham@gmail.com>
 * Aaron O'Mullan <aaron.omullan@gmail.com>
 * Abhijeet Kasurde <akasurde@redhat.com>
+* acatangiu <adrian@parity.io>
 * Adam Leskis <leskis@gmail.com>
 * Adrian Catangiu <acatan@amazon.com>
 * Ahmed Abouzied <ahmedaabouzied44@gmail.com>
@@ -39,6 +41,7 @@ Contributors to the Firecracker repository:
 * Andrei Cipu <acipu@amazon.com>
 * Andrei Sandu <sandreim@amazon.com>
 * Andrii Radyk <ander.ender@gmail.com>
+* andros21 <andrea.ros21@murena.io>
 * Angus McInnes <angus@amcinnes.info>
 * Arjun Ramachandrula <avrdev77@gmail.com>
 * Arun Gupta <arun.gupta@gmail.com>
@@ -56,9 +59,12 @@ Contributors to the Firecracker repository:
 * binoychitale <binoychitale@gmail.com>
 * Bob Potter <bobby.potter@gmail.com>
 * Bogdan Ionita <bci@amazon.com>
+* Brandon Duffany <brandon@buildbuddy.io>
 * Caleb Albers <7110138+CalebAlbers@users.noreply.github.com>
 * Cam Mannett <camden.mannett@protonmail.ch>
+* Carlos López <carlos.lopez@suse.com>
 * chaos matrix <mythsphoenix@outlook.com>
+* Char1ee <xingjianli59@gmail.com>
 * Chinmay Kousik <chinmaykousik1@gmail.com>
 * Chris Christensen <christianchristensen@gmail.com>
 * Christian González <cgonzalez@opennebula.io>
@@ -68,6 +74,7 @@ Contributors to the Firecracker repository:
 * Colton J. McCurdy <mccurdyc22@gmail.com>
 * Constantin Musca <mcostin@amazon.com>
 * CuriousCorrelation <curiouscorrelation@protonmail.com>
+* czybjtu <smartczy@outlook.com>
 * Damien Stanton <damien.stanton@gmail.com>
 * Dan Horobeanu <dhr@amazon.com>
 * Dan Lemmond <d.j.lemmond@gmail.com>
@@ -75,11 +82,13 @@ Contributors to the Firecracker repository:
 * Deepesh Pathak <deepshpathak@gmail.com>
 * defunct <defunct@defunct.io>
 * Denis Andrejew <da.colonel@gmail.com>
+* Derek Manwaring <derekmn@amazon.com>
 * Diana Popa <dpopa@amazon.com>
 * Dmitrii <dmitrii.ustiugov@epfl.ch>
 * Eduard Kyvenko <eduard.kyvenko@gmail.com>
 * Egor Lazarchuk <yegorlz@amazon.co.uk>
 * EvanJP <evanp1999@gmail.com>
+* Felipe R. Monteiro <felisous@amazon.com>
 * Filippo Sironi <sironi@amazon.de>
 * Fraser Pringle <fraser.pringle@gmail.com>
 * Gabe Jackson <gj@mail.co.de>
@@ -90,6 +99,7 @@ Contributors to the Firecracker repository:
 * Gilad Naaman <gilad@naaman.io>
 * Greg Dunn <gregdunn@amazon.com>
 * Gregory Brzeski <gregory@brzeski.pl>
+* Grzegorz Uriasz <gorbak25@gmail.com>
 * Gulshan Kumar <kumargu@amazon.com>
 * Gábor Lipták <gliptak@gmail.com>
 * hacker65536 <s.hacker65536@gmail.com>
@@ -106,13 +116,16 @@ Contributors to the Firecracker repository:
 * Javier Romero <xavinux@gmail.com>
 * Jeff Widman <jeff@jeffwidman.com>
 * Jerome Gravel-Niquet <jeromegn@gmail.com>
+* Jing Yang <k.jingyang@gmail.com>
 * Joel Winarske <joel.winarske@linux.com>
 * jonas serrano <jonas.corp@gmail.com>
+* Jonathan Browne <12983479+JBYoshi@users.noreply.github.com>
 * Jonathan Woollett-Light <jcawl@amazon.co.uk>
 * Josh Abraham <sinisterpatrician@gmail.com>
 * Josh McConnell <jmcconnell26@qub.ac.uk>
 * Joshua Abraham <sinisterpatrician@gmail.com>
 * Julian Stecklina <js@alien8.de>
+* Justus Adam <justbldr@amazon.com>
 * Ján Mochňak <mochja@users.noreply.github.com>
 * karthik nedunchezhiyan <karthik.n@zohocorp.com>
 * KarthikVelayutham <karthik.velayutham@gmail.com>
@@ -129,6 +142,7 @@ Contributors to the Firecracker repository:
 * Lorenzo Fontana <fontanalorenz@gmail.com>
 * LOU Xun <aquarhead@ela.build>
 * Lucas Zanela <me@lucaszanella.com>
+* Lukas Schwerdtfeger <lukas.schwerdtfeger@gmail.com>
 * Luminita Voicu <lumivo@amazon.com>
 * maciejhirsz <maciej.hirsz@gmail.com>
 * Malhar Vora <mlvora.2010@gmail.com>
@@ -157,6 +171,7 @@ Contributors to the Firecracker repository:
 * not required <bertdeb@gmail.com>
 * Pablo Barbáchano <pablob@amazon.com>
 * Patrick Roy <roypat@amazon.co.uk>
+* Paweł Bęza <pawel.beza99@gmail.com>
 * Peng Tao <bergwolf@gmail.com>
 * Penny Zheng <penny.zheng@arm.com>
 * Peter Hrvola <peter.hrvola@hotmail.com>
@@ -179,6 +194,7 @@ Contributors to the Firecracker repository:
 * Ryan Russell <git@ryanrussell.org>
 * Ryan Summerlin <summerlinryan@gmail.com>
 * Sam Jackson <sam@clique.app>
+* Samuel Knox <knoxsa@oregonstate.edu>
 * Samuel Ortiz <sameo@linux.intel.com>
 * Sean Lavine <freewil@users.noreply.github.com>
 * Sebastien Boeuf <sebastien.boeuf@intel.com>
