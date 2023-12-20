@@ -107,8 +107,10 @@ RUN cd /tmp/poetry && \
 # - Install the Rust toolchain. Kani only work on x86, so only try to install it there
 # - Build and install crosvm (used as vhost-user-blk backend)
 # - Clean up cargo compilation directories
+# - Always install both x86_64 and aarch64 musl targets, as our rust-toolchain.toml would force on-the-fly installation of both anyway
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOLCHAIN" \
-    && rustup target add $ARCH-unknown-linux-musl \
+    && rustup target add x86_64-unknown-linux-musl \
+    && rustup target add aarch64-unknown-linux-musl \
     && rustup component add llvm-tools-preview \
     && cargo install cargo-audit cargo-deny grcov cargo-sort \
     && (if [ "$ARCH" = "x86_64" ]; then cargo install kani-verifier && cargo kani setup; else true; fi) \
