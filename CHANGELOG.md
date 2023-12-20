@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.6.0]
+
 ### Added
 
 - [#4145](https://github.com/firecracker-microvm/firecracker/pull/4145):
@@ -40,11 +42,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   containing vhost-user block devices.
   See the [related doc page](./docs/api_requests/block-vhost-user.md) for details.
   The device emits metrics under the label `"vhost_user_{device}_{drive_id}"`.
-- Document [a caveat to the jailer][1] when using the `--parent-cgroup` option,
-  which results in it being ignored by the jailer. Refer to the [jailer
-  documentation](./docs/jailer.md#caveats) for a workaround.
-
-[1]: https://github.com/firecracker-microvm/firecracker/issues/4287
 
 ### Changed
 
