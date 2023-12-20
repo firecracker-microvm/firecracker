@@ -114,7 +114,10 @@ changed_files = get_changed_files("main")
 if any(x.name == "Dockerfile" for x in changed_files):
     steps.append(devctr_grp)
 
-if any(x.parent.name == "tools" and "release" in x.name for x in changed_files):
+if any(
+    x.parent.name == "tools" and ("release" in x.name or x.name == "devtool")
+    for x in changed_files
+):
     steps.append(release_grp)
 
 if not changed_files or any(
