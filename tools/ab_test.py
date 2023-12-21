@@ -78,16 +78,11 @@ def extract_dimensions(emf):
     return {key: emf[key] for key in emf if key in dimension_list}
 
 
-def reemit_emf_and_get_data(log_entry: str, revision: str):
-    """Parses the given EMF log entry, and reemits it, overwriting the attached "git_commit_id" field
-    with the given revision
+def process_log_entry(emf: dict):
+    """Parses the given EMF log entry
 
     Returns the entries dimensions and its list-valued properties/metrics, together with their units
     """
-    emf = json.loads(log_entry)
-    emf["git_commit_id"] = revision
-    emit_raw_emf(emf)
-
     result = {
         key: (value, find_unit(emf, key))
         for key, value in emf.items()
@@ -109,22 +104,31 @@ def find_unit(emf: dict, metric: str):
     return metrics.get(metric, "None")
 
 
-def load_data_series(revision: str):
+def load_data_series(report_path: Path, revision: str = None, *, reemit: bool = False):
     """Loads the data series relevant for A/B-testing from test_results/test-report.json
     into a dictionary mapping each message's cloudwatch dimensions to a dictionary of
     its list-valued properties/metrics.
 
-    Also reemits all EMF logs."""
+    If `reemit` is True, it also reemits all EMF logs to a local EMF agent,
+    overwriting the attached "git_commit_id" field with the given revision."""
     # Dictionary mapping EMF dimensions to A/B-testable metrics/properties
     processed_emf = {}
 
-    report = json.loads(Path("test_results/test-report.json").read_text("UTF-8"))
+    report = json.loads(report_path.read_text("UTF-8"))
     for test in report["tests"]:
         for line in test["teardown"]["stdout"].splitlines():
             # Only look at EMF log messages. If we ever have other stdout that starts with braces,
             # we will need to rethink this heuristic.
             if line.startswith("{"):
-                dimensions, result = reemit_emf_and_get_data(line, revision)
+                emf = json.loads(line)
+
+                if reemit:
+                    assert revision is not None
+
+                    emf["git_commit_id"] = revision
+                    emit_raw_emf(emf)
+
+                dimensions, result = process_log_entry(emf)
 
                 if not dimensions:
                     continue
@@ -160,7 +164,9 @@ def collect_data(firecracker_binary: Path, jailer_binary: Path, test: str):
     )
     print(stdout.strip())
 
-    return load_data_series(revision)
+    return load_data_series(
+        Path("test_results/test-report.json"), revision, reemit=True
+    )
 
 
 def analyze_data(processed_emf_a, processed_emf_b, *, n_resamples: int = 9999):
@@ -315,15 +321,34 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Executes Firecracker's A/B testsuite across the specified commits"
     )
-    parser.add_argument(
+    subparsers = parser.add_subparsers(help="commands", dest="command", required=True)
+    run_parser = subparsers.add_parser(
+        "run",
+        help="Run an specific test of our test suite as an A/B-test across two specified commits",
+    )
+    run_parser.add_argument(
         "a_revision",
         help="The baseline revision compared to which we want to avoid regressing",
     )
-    parser.add_argument(
+    run_parser.add_argument(
         "b_revision",
         help="The revision whose performance we want to compare against the results from a_revision",
     )
-    parser.add_argument("--test", help="The test to run", required=True)
+    run_parser.add_argument("--test", help="The test to run", required=True)
+    analyze_parser = subparsers.add_parser(
+        "analyze",
+        help="Analyze the results of two manually ran tests based on their test-report.json files",
+    )
+    analyze_parser.add_argument(
+        "report_a",
+        help="The path to the test-report.json file of the baseline run",
+        type=Path,
+    )
+    analyze_parser.add_argument(
+        "report_b",
+        help="The path to the test-report.json file of the run whose performance we want to compare against report_a",
+        type=Path,
+    )
     parser.add_argument(
         "--significance",
         help="The p-value threshold that needs to be crossed for a test result to be considered significant",
@@ -344,12 +369,18 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    ab_performance_test(
-        # These will show up in Cloudwatch, so canonicalize to long commit SHAs
-        canonicalize_revision(args.a_revision),
-        canonicalize_revision(args.b_revision),
-        args.test,
-        args.significance,
-        args.relative_strength,
-        args.noise_threshold,
-    )
+    if args.command == "run":
+        ab_performance_test(
+            # These will show up in Cloudwatch, so canonicalize to long commit SHAs
+            canonicalize_revision(args.a_revision),
+            canonicalize_revision(args.b_revision),
+            args.test,
+            args.significance,
+            args.relative_strength,
+            args.noise_threshold,
+        )
+    else:
+        data_a = load_data_series(args.report_a)
+        data_b = load_data_series(args.report_b)
+
+        analyze_data(data_a, data_b)
