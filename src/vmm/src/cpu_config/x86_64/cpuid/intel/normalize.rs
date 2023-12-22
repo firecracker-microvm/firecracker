@@ -9,7 +9,7 @@ use crate::cpu_config::x86_64::cpuid::{
     BRAND_STRING_LENGTH,
 };
 
-/// Error type for [`IntelCpuid::normalize`].
+/// Error type for [`super::IntelCpuid::normalize`].
 #[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
 pub enum NormalizeCpuidError {
     /// Failed to set deterministic cache leaf: {0}
@@ -26,7 +26,7 @@ pub enum NormalizeCpuidError {
     ApplyBrandString(MissingBrandStringLeaves),
 }
 
-/// Error type for setting leaf 4 section of `IntelCpuid::normalize`.
+/// Error type for setting leaf 4 section of [`super::IntelCpuid::normalize`].
 // `displaydoc::Display` does not support multi-line comments, `rustfmt` will format these comments
 // across multiple lines, so we skip formatting here. This can be removed when
 // https://github.com/yaahc/displaydoc/issues/44 is resolved.
@@ -227,7 +227,7 @@ impl super::IntelCpuid {
     }
 }
 
-/// Error type for [`IntelCpuid::default_brand_string`].
+/// Error type for [`default_brand_string`].
 #[derive(Debug, Eq, PartialEq, thiserror::Error, displaydoc::Display)]
 pub enum DefaultBrandStringError {
     /// Missing frequency: {0:?}.

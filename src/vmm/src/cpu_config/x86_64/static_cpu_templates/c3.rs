@@ -57,7 +57,7 @@ use crate::cpu_config::x86_64::custom_cpu_template::{
 /// =====
 ///
 /// References:
-/// - Intel SDM: https://cdrdv2.intel.com/v1/dl/getContent/671200
+/// - Intel SDM: <https://cdrdv2.intel.com/v1/dl/getContent/671200>
 #[allow(clippy::unusual_byte_groupings)]
 pub fn c3() -> CustomCpuTemplate {
     CustomCpuTemplate {

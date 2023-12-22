@@ -5,7 +5,7 @@ use crate::cpu_config::x86_64::cpuid::{
     cpuid, CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags,
 };
 
-/// Error type for [`Cpuid::normalize`].
+/// Error type for [`super::Cpuid::normalize`].
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
 pub enum NormalizeCpuidError {
@@ -165,8 +165,8 @@ impl super::Cpuid {
     /// # Errors
     ///
     /// When:
-    /// - [`IntelCpuid::normalize`] errors.
-    /// - [`AmdCpuid::normalize`] errors.
+    /// - [`super::IntelCpuid::normalize`] errors.
+    /// - [`super::AmdCpuid::normalize`] errors.
     // As we pass through host frequency, we require CPUID and thus `cfg(cpuid)`.
     #[inline]
     pub fn normalize(

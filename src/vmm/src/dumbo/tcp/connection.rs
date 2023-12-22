@@ -155,7 +155,7 @@ pub enum WriteNextError {
 /// user to supply an opaque `u64` timestamp value when invoking send or receive functionality. The
 /// timestamps must be non-decreasing, and are mainly used for retransmission timeouts.
 ///
-/// See https://github.com/firecracker-microvm/firecracker/blob/main/docs/mmds/mmds-design.md#dumbo
+/// See [mmds-design](https://github.com/firecracker-microvm/firecracker/blob/main/docs/mmds/mmds-design.md#dumbo)
 /// for why we are able to make these simplifications. Specifically, we want to stress that no
 /// traffic handled by dumbo ever leaves a microVM.
 ///

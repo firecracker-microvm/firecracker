@@ -113,8 +113,8 @@ pub trait NetworkBytesMut: NetworkBytes + DerefMut<Target = [u8]> {
     ///
     /// # Panics
     ///
-    /// If `value` cannot be written into `self` at the given `offset` (e.g. if `offset > self.len()
-    /// - size_of::<u16>()`).
+    /// If `value` cannot be written into `self` at the given `offset`
+    /// (e.g. if `offset > self.len() - size_of::<u16>()`).
     #[inline]
     fn htons_unchecked(&mut self, offset: usize, value: u16) {
         assert!(offset <= self.len() - std::mem::size_of::<u16>());
@@ -125,8 +125,8 @@ pub trait NetworkBytesMut: NetworkBytes + DerefMut<Target = [u8]> {
     ///
     /// # Panics
     ///
-    /// If `value` cannot be written into `self` at the given `offset` (e.g. if `offset > self.len()
-    /// - size_of::<u32>()`).
+    /// If `value` cannot be written into `self` at the given `offset`
+    /// (e.g. if `offset > self.len() - size_of::<u32>()`).
     #[inline]
     fn htonl_unchecked(&mut self, offset: usize, value: u32) {
         assert!(offset <= self.len() - std::mem::size_of::<u32>());

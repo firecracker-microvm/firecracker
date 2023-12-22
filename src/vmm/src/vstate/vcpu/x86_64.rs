@@ -293,7 +293,7 @@ impl KvmVcpu {
     ///
     /// KVM only supports getting `KVM_MAX_MSR_ENTRIES` at a time, so we divide
     /// the list of MSR indices into chunks, call `KVM_GET_MSRS` for each
-    /// chunk, and collect into a Vec<Msrs>.
+    /// chunk, and collect into a [`Vec<Msrs>`].
     ///
     /// # Arguments
     ///
