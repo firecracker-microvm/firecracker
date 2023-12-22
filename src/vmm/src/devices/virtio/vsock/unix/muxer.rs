@@ -74,7 +74,7 @@ enum EpollListener {
     Connection { key: ConnMapKey, evset: EventSet },
     /// A listener interested in new host-initiated connections.
     HostSock,
-    /// A listener interested in reading host "connect <port>" commands from a freshly
+    /// A listener interested in reading host `connect <port>` commands from a freshly
     /// connected host socket.
     LocalStream(UnixStream),
 }
@@ -98,7 +98,7 @@ pub struct VsockMuxer {
     /// The Unix socket, through which host-initiated connections are accepted.
     host_sock: UnixListener,
     /// The file system path of the host-side Unix socket. This is used to figure out the path
-    /// to Unix sockets listening on specific ports. I.e. "<this path>_<port number>".
+    /// to Unix sockets listening on specific ports. I.e. `"<this path>_<port number>"`.
     pub(crate) host_sock_path: String,
     /// The nested epoll event set, used to register epoll listeners.
     epoll: Epoll,

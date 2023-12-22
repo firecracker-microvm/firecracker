@@ -225,8 +225,8 @@ pub struct DeviceStates {
     pub entropy_device: Option<ConnectedEntropyState>,
 }
 
-/// A type used to extract the concrete Arc<Mutex<T>> for each of the device types when restoring
-/// from a snapshot.
+/// A type used to extract the concrete `Arc<Mutex<T>>` for each of the device
+/// types when restoring from a snapshot.
 #[derive(Debug)]
 pub enum SharedDeviceType {
     VirtioBlock(Arc<Mutex<VirtioBlock>>),

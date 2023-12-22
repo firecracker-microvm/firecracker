@@ -186,7 +186,7 @@ impl Mmds {
     /// Currently, only JSON objects and strings can be IMDS formatted.
     ///
     /// See the docs for detailed description of the IMDS format:
-    /// https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html
+    /// <https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html>
     ///
     /// # Examples
     ///

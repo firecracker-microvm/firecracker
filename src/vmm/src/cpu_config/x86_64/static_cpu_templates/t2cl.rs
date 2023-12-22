@@ -13,9 +13,9 @@ use crate::cpu_config::x86_64::custom_cpu_template::{
 /// instruction set feature partity with AMD Milan using T2A template.
 ///
 /// References:
-/// - Intel SDM: https://cdrdv2.intel.com/v1/dl/getContent/671200
-/// - AMD APM: https://www.amd.com/system/files/TechDocs/40332.pdf
-/// - CPUID Enumeration and Architectural MSRs: https://www.intel.com/content/www/us/en/developer/articles/technical/software-security-guidance/technical-documentation/cpuid-enumeration-and-architectural-msrs.html
+/// - Intel SDM: <https://cdrdv2.intel.com/v1/dl/getContent/671200>
+/// - AMD APM: <https://www.amd.com/system/files/TechDocs/40332.pdf>
+/// - CPUID Enumeration and Architectural MSRs: <https://www.intel.com/content/www/us/en/developer/articles/technical/software-security-guidance/technical-documentation/cpuid-enumeration-and-architectural-msrs.html>
 #[allow(clippy::unusual_byte_groupings)]
 pub fn t2cl() -> CustomCpuTemplate {
     CustomCpuTemplate {

@@ -321,7 +321,7 @@ fn clean_env_vars() {
     }
 }
 
-/// Turns an AsRef<Path> into a CString (c style string).
+/// Turns an [`AsRef<Path>`] into a [`CString`] (c style string).
 /// The expect should not fail, since Linux paths only contain valid Unicode chars (do they?),
 /// and do not contain null bytes (do they?).
 pub fn to_cstring<T: AsRef<Path> + Debug>(path: T) -> Result<CString, JailerError> {

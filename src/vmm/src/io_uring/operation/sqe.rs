@@ -27,8 +27,8 @@ impl Sqe {
     /// Consume the sqe and return the `user_data`.
     ///
     /// # Safety
-    /// Safe only if you guarantee that this is a valid pointer to some memory where there is a
-    /// value of type T created from a Box<T>.
+    /// Safe only if you guarantee that this is a valid pointer to some memory
+    /// where there is a value of type `T` created from a [`Box<T>`].
     pub(crate) unsafe fn user_data<T: Debug>(self) -> T {
         *Box::from_raw(self.0.user_data as *mut T)
     }
