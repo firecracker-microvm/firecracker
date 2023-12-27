@@ -833,26 +833,7 @@ cmd_test_debug() {
 # Example: `devtool fmt`
 #
 cmd_fmt() {
-
-    # Parse any command line args.
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            "-h"|"--help")      { cmd_help; exit 1; } ;;
-            *)
-                die "Unknown argument: $1. Please use --help for help."
-            ;;
-        esac
-        shift
-    done
-
-    ensure_devctr
-
-    say "Applying rustfmt ..."
-    run_devctr \
-        --user "$(id -u):$(id -g)" \
-        --workdir "$CTR_FC_ROOT_DIR" \
-        -- \
-        cargo fmt --all
+    cmd_sh "cargo fmt --all -- --config $(tr '\n' ',' <tests/fmt.toml)"
 }
 
 cmd_mkdocs() {
