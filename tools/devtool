@@ -417,6 +417,9 @@ cmd_help() {
 
     test_sandbox
         Run Firecracker in an IPython REPL
+
+    mkdocs
+        Use 'cargo doc' to generate rustdoc documentation
 EOF
 }
 
@@ -852,6 +855,9 @@ cmd_fmt() {
         cargo fmt --all
 }
 
+cmd_mkdocs() {
+    cmd_sh "cargo doc --workspace --no-deps --document-private-items"
+}
 
 # Check if able to run firecracker.
 # ../docs/getting-started.md#prerequisites
