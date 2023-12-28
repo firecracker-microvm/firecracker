@@ -388,44 +388,40 @@ def flush_fc_metrics_to_cw(fc_metrics, metrics):
         since some tests might not want to assert on them while
         some tests might want to assert on some but not others.
     """
+
+    def walk_key(full_key, keys):
+        for key, value in keys.items():
+            final_full_key = full_key + "." + key
+            if isinstance(value, dict):
+                walk_key(final_full_key, value)
+            else:
+                # values are 0 when:
+                # - there is no update
+                # - device is not used
+                # - SharedIncMetric reset to 0 on flush so if
+                #   there is no change metric the values remain 0.
+                # We can save the amount of bytes we export to
+                # CloudWatch in these cases.
+                # however it is difficult to differentiate if a 0
+                # should be skipped or upload because it could be
+                # an expected value in some cases so we upload
+                # all the metrics even if data is 0.
+                unit = get_emf_unit_for_fc_metrics(final_full_key)
+                metrics.put_metric(f"fc_metrics.{final_full_key}", value, unit=unit)
+
     # List of SharedStoreMetric that once updated have the same value thoughout the life of vm
     metrics_to_export_once = {
-        "api_server.process_startup_time_us",
-        "api_server.process_startup_time_cpu_us",
-        "latencies_us.full_create_snapshot",
-        "latencies_us.diff_create_snapshot",
-        "latencies_us.load_snapshot",
-        "latencies_us.pause_vm",
-        "latencies_us.resume_vm",
-        "latencies_us.vmm_full_create_snapshot",
-        "latencies_us.vmm_diff_create_snapshot",
-        "latencies_us.vmm_load_snapshot",
-        "latencies_us.vmm_pause_vm",
-        "latencies_us.vmm_resume_vm",
+        "api_server",
+        "latencies_us",
     }
     skip = set()
     for group, keys in fc_metrics.items():
         if group == "utc_timestamp_ms":
             continue
-        for key, value in keys.items():
-            full_key = f"{group}.{key}"
-            # values are 0 when:
-            # - there is no update
-            # - device is not used
-            # - SharedIncMetric reset to 0 on flush so if
-            #   there is no change metric the values remain 0.
-            # We can save the amount of bytes we export to
-            # CloudWatch in these cases.
-            # however it is difficult to differentiate if a 0
-            # should be skipped or upload because it could be
-            # an expected value in some cases so we upload
-            # all the metrics even if data is 0.
-            if full_key in skip:
-                continue
-            unit = get_emf_unit_for_fc_metrics(key)
-            metrics.put_metric(f"fc_metrics.{full_key}", value, unit=unit)
-            if full_key in metrics_to_export_once:
-                skip.add(full_key)
+        if group not in skip:
+            walk_key(group, keys)
+            if group in metrics_to_export_once:
+                skip.add(group)
 
 
 class FCMetricsMonitor(Thread):
