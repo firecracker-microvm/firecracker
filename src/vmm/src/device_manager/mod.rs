@@ -11,3 +11,5 @@ pub mod legacy;
 pub mod mmio;
 /// Device managers (de)serialization support.
 pub mod persist;
+/// Resource manager for devices.
+pub mod resources;

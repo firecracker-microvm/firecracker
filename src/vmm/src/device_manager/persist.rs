@@ -4,6 +4,7 @@
 //! Provides functionality for saving/restoring the MMIO device manager and its devices.
 
 use std::fmt::{self, Debug};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use event_manager::{MutEventSubscriber, SubscriberOps};
@@ -13,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use vm_allocator::AllocPolicy;
 
 use super::mmio::*;
+use super::resources::ResourceAllocator;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::DeviceType;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
@@ -208,6 +210,7 @@ pub struct MMIODevManagerConstructorArgs<'a> {
     pub mem: GuestMemoryMmap,
     pub vm: &'a VmFd,
     pub event_manager: &'a mut EventManager,
+    pub resource_allocator: Rc<ResourceAllocator>,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
 }
@@ -357,12 +360,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
-        let mut dev_manager = MMIODeviceManager::new(
-            crate::arch::MMIO_MEM_START,
-            crate::arch::MMIO_MEM_SIZE,
-            (crate::arch::IRQ_BASE, crate::arch::IRQ_MAX),
-        )
-        .map_err(Self::Error::DeviceManager)?;
+        let mut dev_manager = MMIODeviceManager::new(constructor_args.resource_allocator)
+            .map_err(Self::Error::DeviceManager)?;
         let mem = &constructor_args.mem;
         let vm = constructor_args.vm;
 
@@ -377,8 +376,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     )?;
 
                     dev_manager
-                        .address_allocator
-                        .allocate(
+                        .resource_allocator
+                        .allocate_mmio_memory(
                             MMIO_LEN,
                             MMIO_LEN,
                             AllocPolicy::ExactMatch(state.device_info.addr),
@@ -398,8 +397,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         &crate::devices::legacy::rtc_pl031::METRICS,
                     ));
                     dev_manager
-                        .address_allocator
-                        .allocate(
+                        .resource_allocator
+                        .allocate_mmio_memory(
                             MMIO_LEN,
                             MMIO_LEN,
                             AllocPolicy::ExactMatch(state.device_info.addr),
@@ -439,8 +438,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             // `IdAllocator` under `dev_manager`.
 
             dev_manager
-                .address_allocator
-                .allocate(
+                .resource_allocator
+                .allocate_mmio_memory(
                     MMIO_LEN,
                     MMIO_LEN,
                     AllocPolicy::ExactMatch(device_info.addr),
@@ -650,16 +649,10 @@ mod tests {
 
     impl MMIODeviceManager {
         fn soft_clone(&self) -> Self {
-            let dummy_mmio_base = 0;
-            let dummy_irq_range = (0, 0);
             // We can unwrap here as we create with values directly in scope we
             // know will results in `Ok`
-            let mut clone = MMIODeviceManager::new(
-                dummy_mmio_base,
-                crate::arch::MMIO_MEM_SIZE,
-                dummy_irq_range,
-            )
-            .unwrap();
+            let mut clone =
+                MMIODeviceManager::new(Rc::new(ResourceAllocator::new().unwrap())).unwrap();
             // We only care about the device hashmap.
             clone.id_to_dev_info = self.id_to_dev_info.clone();
             clone
@@ -688,6 +681,7 @@ mod tests {
         // These need to survive so the restored blocks find them.
         let _block_files;
         let mut tmp_sock_file = TempFile::new().unwrap();
+        let resource_allocator = Rc::new(ResourceAllocator::new().unwrap());
         tmp_sock_file.remove().unwrap();
         // Set up a vmm with one of each device, and get the serialized DeviceStates.
         let original_mmio_device_manager = {
@@ -755,6 +749,7 @@ mod tests {
             mem: vmm.guest_memory().clone(),
             vm: vmm.vm.fd(),
             event_manager: &mut event_manager,
+            resource_allocator: resource_allocator.clone(),
             vm_resources,
             instance_id: "microvm-id",
         };

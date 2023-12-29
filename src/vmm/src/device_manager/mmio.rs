@@ -7,14 +7,16 @@
 
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use kvm_ioctls::{IoEventAddress, VmFd};
 use linux_loader::cmdline as kernel_cmdline;
 use log::info;
 use serde::{Deserialize, Serialize};
-use vm_allocator::{AddressAllocator, AllocPolicy, IdAllocator};
+use vm_allocator::AllocPolicy;
 
+use super::resources::ResourceAllocator;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::aarch64::DeviceInfoForFDT;
 use crate::arch::DeviceType;
@@ -38,7 +40,7 @@ use crate::vstate::memory::GuestAddress;
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum MmioError {
     /// Failed to allocate requested resource: {0}
-    Allocator(vm_allocator::Error),
+    Allocator(#[from] vm_allocator::Error),
     /// Failed to insert device on the bus: {0}
     BusInsert(crate::devices::BusError),
     /// Failed to allocate requested resourc: {0}
@@ -78,39 +80,29 @@ pub struct MMIODeviceInfo {
 #[derive(Debug)]
 pub struct MMIODeviceManager {
     pub(crate) bus: crate::devices::Bus,
-    pub(crate) irq_allocator: IdAllocator,
-    pub(crate) address_allocator: AddressAllocator,
+    pub(crate) resource_allocator: Rc<ResourceAllocator>,
     pub(crate) id_to_dev_info: HashMap<(DeviceType, String), MMIODeviceInfo>,
 }
 
 impl MMIODeviceManager {
     /// Create a new DeviceManager handling mmio devices (virtio net, block).
-    pub fn new(
-        mmio_base: u64,
-        mmio_size: u64,
-        (irq_start, irq_end): (u32, u32),
-    ) -> Result<MMIODeviceManager, MmioError> {
+    pub fn new(resource_allocator: Rc<ResourceAllocator>) -> Result<MMIODeviceManager, MmioError> {
         Ok(MMIODeviceManager {
-            irq_allocator: IdAllocator::new(irq_start, irq_end).map_err(MmioError::Allocator)?,
-            address_allocator: AddressAllocator::new(mmio_base, mmio_size)
-                .map_err(MmioError::Allocator)?,
             bus: crate::devices::Bus::new(),
+            resource_allocator,
             id_to_dev_info: HashMap::new(),
         })
     }
 
     /// Allocates resources for a new device to be added.
     fn allocate_mmio_resources(&mut self, irq_count: u32) -> Result<MMIODeviceInfo, MmioError> {
-        let irqs = (0..irq_count)
-            .map(|_| self.irq_allocator.allocate_id())
-            .collect::<vm_allocator::Result<_>>()
-            .map_err(MmioError::Allocator)?;
+        let irqs = self.resource_allocator.allocate_gsi(irq_count)?;
         let device_info = MMIODeviceInfo {
-            addr: self
-                .address_allocator
-                .allocate(MMIO_LEN, MMIO_LEN, AllocPolicy::FirstMatch)
-                .map_err(MmioError::Allocator)?
-                .start(),
+            addr: self.resource_allocator.allocate_mmio_memory(
+                MMIO_LEN,
+                MMIO_LEN,
+                AllocPolicy::FirstMatch,
+            )?,
             len: MMIO_LEN,
             irqs,
         };
@@ -578,6 +570,10 @@ mod tests {
         }
     }
 
+    fn default_mmio_manager() -> MMIODeviceManager {
+        MMIODeviceManager::new(Rc::new(ResourceAllocator::new().unwrap())).unwrap()
+    }
+
     #[test]
     fn test_register_virtio_device() {
         let start_addr1 = GuestAddress(0x0);
@@ -585,12 +581,7 @@ mod tests {
         let guest_mem = multi_region_mem(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
         let mut vm = Vm::new(vec![]).unwrap();
         vm.memory_init(&guest_mem, false).unwrap();
-        let mut device_manager = MMIODeviceManager::new(
-            0xd000_0000,
-            crate::arch::MMIO_MEM_SIZE,
-            (crate::arch::IRQ_BASE, crate::arch::IRQ_MAX),
-        )
-        .unwrap();
+        let mut device_manager = default_mmio_manager();
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
@@ -611,12 +602,7 @@ mod tests {
         let guest_mem = multi_region_mem(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
         let mut vm = Vm::new(vec![]).unwrap();
         vm.memory_init(&guest_mem, false).unwrap();
-        let mut device_manager = MMIODeviceManager::new(
-            0xd000_0000,
-            crate::arch::MMIO_MEM_SIZE,
-            (crate::arch::IRQ_BASE, crate::arch::IRQ_MAX),
-        )
-        .unwrap();
+        let mut device_manager = default_mmio_manager();
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         #[cfg(target_arch = "x86_64")]
@@ -675,12 +661,7 @@ mod tests {
         #[cfg(target_arch = "aarch64")]
         builder::setup_interrupt_controller(&mut vm, 1).unwrap();
 
-        let mut device_manager = MMIODeviceManager::new(
-            0xd000_0000,
-            crate::arch::MMIO_MEM_SIZE,
-            (crate::arch::IRQ_BASE, crate::arch::IRQ_MAX),
-        )
-        .unwrap();
+        let mut device_manager = default_mmio_manager();
         let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
 
@@ -729,12 +710,7 @@ mod tests {
 
     #[test]
     fn test_slot_irq_allocation() {
-        let mut device_manager = MMIODeviceManager::new(
-            0xd000_0000,
-            crate::arch::MMIO_MEM_SIZE,
-            (crate::arch::IRQ_BASE, crate::arch::IRQ_MAX),
-        )
-        .unwrap();
+        let mut device_manager = default_mmio_manager();
         let device_info = device_manager.allocate_mmio_resources(0).unwrap();
         assert_eq!(device_info.irqs.len(), 0);
         let device_info = device_manager.allocate_mmio_resources(1).unwrap();
@@ -750,14 +726,10 @@ mod tests {
                 .to_string()
         );
 
-        for i in crate::arch::IRQ_BASE..crate::arch::IRQ_MAX {
-            device_manager.irq_allocator.free_id(i).unwrap();
-        }
-
         let device_info = device_manager
             .allocate_mmio_resources(crate::arch::IRQ_MAX - crate::arch::IRQ_BASE - 1)
             .unwrap();
-        assert_eq!(device_info.irqs[16], crate::arch::IRQ_BASE + 16);
+        assert_eq!(device_info.irqs[16], crate::arch::IRQ_BASE + 17);
         assert_eq!(
             format!("{}", device_manager.allocate_mmio_resources(2).unwrap_err()),
             "Failed to allocate requested resource: The requested resource is not available."
