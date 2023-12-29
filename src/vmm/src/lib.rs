@@ -277,19 +277,6 @@ pub enum StartVcpusError {
     VcpuHandle(#[from] StartThreadedError),
 }
 
-/// Error type for [`Vmm::restore_vcpu_states`]
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum RestoreVcpusError {
-    /// Failed to send event: {0}
-    SendEvent(#[from] VcpuSendEventError),
-    /// Unexpected vCPU response.
-    UnexpectedVcpuResponse,
-    /// Failed to restore vCPU state: {0}
-    RestoreVcpuState(#[from] vcpu::VcpuError),
-    /// Not allowed: {0}
-    NotAllowed(String),
-}
-
 /// Error type for [`Vmm::dump_cpu_config()`]
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum DumpCpuConfigError {
