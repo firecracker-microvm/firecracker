@@ -77,3 +77,56 @@ Otherwise, if the path points to a normal file, you can simply do:
 ```shell script
 cat metrics.file
 ```
+
+## Metrics emitted by Firecracker
+
+The metrics emitted by Firecracker are in JSON format.
+Below are the keys present in each metrics json object emitted by Firecracker:
+
+```
+"api_server"
+"balloon"
+"block"
+"deprecated_api"
+"entropy"
+"get_api_requests"
+"i8042"
+"latencies_us"
+"logger"
+"mmds"
+"net"
+"patch_api_requests"
+"put_api_requests"
+"rtc"
+"seccomp"
+"signals"
+"uart"
+"vcpu"
+"vhost_user_block"
+"vmm"
+"vsock"
+```
+
+Below table explains where Firecracker metrics are defined :
+
+| Metrics key | Device  | Additional comments |
+|-------|-------|-------|
+|   balloon                     |    [BalloonDeviceMetrics](../src/vmm/src/devices/virtio/balloon/metrics.rs)       | Respresent metrics for the Balloon device.|
+|   block                       |    [BlockDeviceMetrics](../src/vmm/src/devices/virtio/virtio_block/metrics.rs)    | Respresent aggregate metrics for Virtio Block device.|
+|   block_{block_drive_id}      |    [BlockDeviceMetrics](../src/vmm/src/devices/virtio/virtio_block/metrics.rs)    | Respresent Virtio Block device metrics for the endpoint `"/drives/{drive_id}"` e.g. `"block_rootfs":` represent metrics for the endpoint `"/drives/rootfs"`|
+|   i8042                       |    [I8042DeviceMetrics](../src/vmm/src/devices/legacy/i8042.rs)                   | Respresent Metrics specific to the i8042 device.|
+|   net                         |    [NetDeviceMetrics](../src/vmm/src/devices/virtio/net/metrics.rs)               | Respresent aggregate metrics for Virtio Net device.|
+|   net_{iface_id}              |    [NetDeviceMetrics](../src/vmm/src/devices/virtio/net/metrics.rs)               | Respresent Virtio Net device metrics for the endpoint `"/network-interfaces/{iface_id}"` e.g. `net_eth0` represent metrics for the endpoint `"/network-interfaces/eth0"`|
+|   rtc                         |    [RTCDeviceMetrics](../src/vmm/src/devices/legacy/serial.rs)                    | Respresent Metrics specific to the RTC device. `Note`: this is emitted only on `aarch64`.|
+|   uart                        |    [SerialDeviceMetrics](../src/vmm/src/devices/legacy/serial.rs)                 | Respresent Metrics specific to the serial device.|
+|   vhost_user_{dev}_{dev_id}   |    [VhostUserDeviceMetrics](../src/vmm/src/devices/virtio/vhost_user_metrics.rs)  | Respresent Vhost-user device metrics for the device `dev` and device id `dev_id`. e.g. `"vhost_user_block_rootfs":` represent metrics for vhost-user block device having the endpoint `"/drives/rootfs"`|
+|   vsock                       |    [VsockDeviceMetrics](../src/vmm/src/devices/virtio/vsock/metrics.rs)           | Respresent Metrics specific to the vsock device.|
+|   entropy                     |    [EntropyDeviceMetrics](../src/vmm/src/devices/virtio/rng/metrics.rs)           | Respresent Metrics specific to the entropy device.|
+|   "api_server"<br>"deprecated_api"<br>"get_api_requests"<br>"latencies_us"<br>"logger"<br>"mmds"<br>"patch_api_requests"<br>"put_api_requests"<br>"seccomp"<br>"signals"<br>"vcpu"<br>"vmm"      |   [metrics.rs](../src/vmm/src/logger/metrics.rs)  |   Rest of the metrics are defined in the same file metrics.rs.|
+
+Note:
+Firecracker emits all the above metrics regardless of the presense of
+that component i.e. even if `vsock` device is not attached to the
+Microvm, Firecracker will still emit the Vsock metrics with key as
+`vsock` and value of all metrics defined in `VsockDeviceMetrics` as
+`0`.

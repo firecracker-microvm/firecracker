@@ -14,6 +14,7 @@ import time
 from threading import Thread
 
 import jsonschema
+import pytest
 
 
 def validate_fc_metrics(metrics):
@@ -283,38 +284,28 @@ def validate_fc_metrics(metrics):
         # remove some metrics and confirm that fields and not just top level metrics
         # are validated.
         temp_pop_metrics = metrics["api_server"].pop("process_startup_time_us")
-        try:
+        with pytest.raises(
+            jsonschema.ValidationError,
+            match="'process_startup_time_us' is a required property",
+        ):
             jsonschema.validate(instance=metrics, schema=firecracker_metrics_schema)
-        except jsonschema.exceptions.ValidationError as error:
-            if (
-                error.message.strip()
-                == "'process_startup_time_us' is a required property"
-            ):
-                pass
-            else:
-                raise error
         metrics["api_server"]["process_startup_time_us"] = temp_pop_metrics
 
         if platform.machine() == "aarch64":
             temp_pop_metrics = metrics["rtc"].pop("error_count")
-            try:
+            with pytest.raises(
+                jsonschema.ValidationError, match="'error_count' is a required property"
+            ):
                 jsonschema.validate(instance=metrics, schema=firecracker_metrics_schema)
-            except jsonschema.exceptions.ValidationError as error:
-                if error.message.strip() == "'error_count' is a required property":
-                    pass
-                else:
-                    raise error
             metrics["rtc"]["error_count"] = temp_pop_metrics
 
         for vhost_user_dev in vhost_user_devices:
             temp_pop_metrics = metrics[vhost_user_dev].pop("activate_time_us")
-            try:
+            with pytest.raises(
+                jsonschema.ValidationError,
+                match="'activate_time_us' is a required property",
+            ):
                 jsonschema.validate(instance=metrics, schema=firecracker_metrics_schema)
-            except jsonschema.exceptions.ValidationError as error:
-                if error.message.strip() == "'activate_time_us' is a required property":
-                    pass
-                else:
-                    raise error
             metrics[vhost_user_dev]["activate_time_us"] = temp_pop_metrics
 
     validate_missing_metrics(metrics)
