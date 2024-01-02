@@ -10,6 +10,7 @@ import pytest
 
 import host_tools.drive as drive_tools
 from framework.microvm import Microvm
+from host_tools.fcmetrics import FCMetricsMonitor
 
 USEC_IN_MSEC = 1000
 ITERATIONS = 30
@@ -76,7 +77,7 @@ class SnapshotRestoreTest:
 
         return vm
 
-    def sample_latency(self, microvm_factory, snapshot) -> List[float]:
+    def sample_latency(self, microvm_factory, snapshot, metrics_logger) -> List[float]:
         """Collects latency samples for the microvm configuration specified by this instance"""
         values = []
 
@@ -86,6 +87,9 @@ class SnapshotRestoreTest:
             )
             microvm.spawn()
             microvm.restore_from_snapshot(snapshot, resume=True)
+
+            fcmetrics = FCMetricsMonitor(microvm, metrics_logger)
+            fcmetrics.start()
 
             # Check if guest still runs commands.
             exit_code, _, _ = microvm.ssh.run("true")
@@ -102,6 +106,7 @@ class SnapshotRestoreTest:
                     break
             assert value > 0
             values.append(value)
+            fcmetrics.stop()
             microvm.kill()
 
         snapshot.delete()
@@ -136,13 +141,6 @@ def test_restore_latency(
     """
     vm = test_setup.configure_vm(microvm_factory, guest_kernel_linux_4_14, rootfs)
     vm.start()
-    snapshot = vm.snapshot_full()
-    vm.kill()
-
-    samples = test_setup.sample_latency(
-        microvm_factory,
-        snapshot,
-    )
 
     metrics.set_dimensions(
         {
@@ -153,6 +151,18 @@ def test_restore_latency(
             "balloon_devices": str(int(test_setup.all_devices)),
             **vm.dimensions,
         }
+    )
+    fcmetrics = FCMetricsMonitor(vm, metrics)
+    fcmetrics.start()
+
+    snapshot = vm.snapshot_full()
+    fcmetrics.stop()
+    vm.kill()
+
+    samples = test_setup.sample_latency(
+        microvm_factory,
+        snapshot,
+        metrics,
     )
 
     for sample in samples:

@@ -11,6 +11,7 @@ import pytest
 
 import host_tools.drive as drive_tools
 from framework.utils import CmdBuilder, get_cpu_percent, run_cmd
+from host_tools.fcmetrics import FCMetricsMonitor
 
 # size of the block device used in the test, in MB
 BLOCK_DEVICE_SIZE_MB = 2048
@@ -165,14 +166,6 @@ def test_block_performance(
     )
     vm.add_drive("scratch", fs.path, io_engine=io_engine)
     vm.start()
-    vm.pin_threads(0)
-
-    logs_dir, cpu_load = run_fio(vm, fio_mode, fio_block_size)
-
-    process_fio_logs(vm, fio_mode, logs_dir, metrics)
-
-    for cpu_util_data_point in list(cpu_load["firecracker"].values())[0]:
-        metrics.put_metric("cpu_utilization_vmm", cpu_util_data_point, "Percent")
 
     metrics.set_dimensions(
         {
@@ -183,6 +176,19 @@ def test_block_performance(
             **vm.dimensions,
         }
     )
+    fcmetrics = FCMetricsMonitor(vm, metrics)
+    fcmetrics.start()
+
+    vm.pin_threads(0)
+
+    logs_dir, cpu_load = run_fio(vm, fio_mode, fio_block_size)
+
+    process_fio_logs(vm, fio_mode, logs_dir, metrics)
+
+    for cpu_util_data_point in list(cpu_load["firecracker"].values())[0]:
+        metrics.put_metric("cpu_utilization_vmm", cpu_util_data_point, "Percent")
+
+    fcmetrics.stop()
 
 
 @pytest.mark.nonci
@@ -211,15 +217,6 @@ def test_block_vhost_user_performance(
     fs = drive_tools.FilesystemFile(size=BLOCK_DEVICE_SIZE_MB)
     vm.add_vhost_user_drive("scratch", fs.path)
     vm.start()
-    next_cpu = vm.pin_threads(0)
-    vm.disks_vhost_user["scratch"].pin(next_cpu)
-
-    logs_dir, cpu_load = run_fio(vm, fio_mode, fio_block_size)
-
-    process_fio_logs(vm, fio_mode, logs_dir, metrics)
-
-    for cpu_util_data_point in list(cpu_load["firecracker"].values())[0]:
-        metrics.put_metric("cpu_utilization_vmm", cpu_util_data_point, "Percent")
 
     metrics.set_dimensions(
         {
@@ -230,3 +227,17 @@ def test_block_vhost_user_performance(
             **vm.dimensions,
         }
     )
+    fcmetrics = FCMetricsMonitor(vm, metrics)
+    fcmetrics.start()
+
+    next_cpu = vm.pin_threads(0)
+    vm.disks_vhost_user["scratch"].pin(next_cpu)
+
+    logs_dir, cpu_load = run_fio(vm, fio_mode, fio_block_size)
+
+    process_fio_logs(vm, fio_mode, logs_dir, metrics)
+
+    for cpu_util_data_point in list(cpu_load["firecracker"].values())[0]:
+        metrics.put_metric("cpu_utilization_vmm", cpu_util_data_point, "Percent")
+
+    fcmetrics.stop()
