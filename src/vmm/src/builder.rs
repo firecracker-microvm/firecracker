@@ -60,9 +60,9 @@ use crate::vmm_config::machine_config::{MachineConfigUpdate, VmConfig, VmConfigE
 use crate::vstate::memory::{
     create_memfd, GuestAddress, GuestMemory, GuestMemoryExtension, GuestMemoryMmap,
 };
-use crate::vstate::vcpu::{Vcpu, VcpuConfig};
+use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuError};
 use crate::vstate::vm::Vm;
-use crate::{device_manager, EventManager, RestoreVcpusError, Vmm, VmmError};
+use crate::{device_manager, EventManager, Vmm, VmmError};
 
 /// Errors associated with starting the instance.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -391,7 +391,7 @@ pub enum BuildMicrovmFromSnapshotError {
     /// Failed to start vCPUs: {0}
     StartVcpus(#[from] crate::StartVcpusError),
     /// Failed to restore vCPUs: {0}
-    RestoreVcpus(#[from] RestoreVcpusError),
+    RestoreVcpus(#[from] VcpuError),
     /// Failed to apply VMM secccomp filter as none found.
     MissingVmmSeccompFilters,
     /// Failed to apply VMM secccomp filter: {0}
@@ -449,8 +449,7 @@ pub fn build_microvm_from_snapshot(
         for (vcpu, state) in vcpus.iter_mut().zip(microvm_state.vcpu_states.iter()) {
             vcpu.kvm_vcpu
                 .restore_state(vmm.vm.fd(), state)
-                .map_err(crate::vstate::vcpu::VcpuError::VcpuResponse)
-                .map_err(RestoreVcpusError::RestoreVcpuState)
+                .map_err(VcpuError::VcpuResponse)
                 .map_err(BuildMicrovmFromSnapshotError::RestoreVcpus)?;
         }
         let mpidrs = construct_kvm_mpidrs(&microvm_state.vcpu_states);
@@ -462,8 +461,7 @@ pub fn build_microvm_from_snapshot(
     for (vcpu, state) in vcpus.iter_mut().zip(microvm_state.vcpu_states.iter()) {
         vcpu.kvm_vcpu
             .restore_state(state)
-            .map_err(crate::vstate::vcpu::VcpuError::VcpuResponse)
-            .map_err(RestoreVcpusError::RestoreVcpuState)
+            .map_err(VcpuError::VcpuResponse)
             .map_err(BuildMicrovmFromSnapshotError::RestoreVcpus)?;
     }
 
