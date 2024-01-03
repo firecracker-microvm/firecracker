@@ -183,7 +183,7 @@ dependencies = [
  "regex",
  "rustc-hash",
  "shlex",
- "syn 2.0.44",
+ "syn 2.0.48",
  "which",
 ]
 
@@ -289,9 +289,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.4.12"
+version = "4.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcfab8ba68f3668e89f6ff60f5b205cea56aa7b769451a59f34b8682f51c056d"
+checksum = "52bdc885e4cacc7f7c9eedc1ef6da641603180c783c41a15c264944deeaab642"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -327,7 +327,7 @@ dependencies = [
  "heck",
  "proc-macro2",
  "quote",
- "syn 2.0.44",
+ "syn 2.0.48",
 ]
 
 [[package]]
@@ -344,7 +344,7 @@ dependencies = [
  "itertools 0.12.0",
  "proc-macro2",
  "quote",
- "syn 2.0.44",
+ "syn 2.0.48",
  "uuid",
  "walkdir",
 ]
@@ -381,18 +381,18 @@ dependencies = [
 
 [[package]]
 name = "cpufeatures"
-version = "0.2.11"
+version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce420fe07aecd3e67c5f910618fe65e94158f6dcc0adf44e00d69ce2bdfe0fd0"
+checksum = "53fe5e26ff1b7aef8bca9c6080520cfb8d9333c7568e1829cef191a9723e5504"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "crc64"
-version = "1.0.0"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55626594feae15d266d52440b26ff77de0e22230cf0c113abe619084c1ddc910"
+checksum = "2707e3afba5e19b75d582d88bc79237418f2a2a2d673d01cf9b03633b46e98f3"
 
 [[package]]
 name = "criterion"
@@ -472,7 +472,7 @@ checksum = "487585f4d0c6655fe74905e2504d8ad6908e4db67f744eb140876906c2f3175d"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.44",
+ "syn 2.0.48",
 ]
 
 [[package]]
@@ -518,9 +518,9 @@ dependencies = [
 
 [[package]]
 name = "event-manager"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bbb5f730c95a458654dee0afb13f1ebb4fc3d7b772789d5f30713ec68fed75d"
+checksum = "90b16fe5161a1160c9c7cece9f7504f2412ef5e2c0643d1e322eccf37692a42b"
 dependencies = [
  "libc",
  "vmm-sys-util",
@@ -710,8 +710,8 @@ dependencies = [
 
 [[package]]
 name = "kvm-bindings"
-version = "0.6.0"
-source = "git+https://github.com/firecracker-microvm/kvm-bindings?tag=v0.6.0-2#b1585959b4ac4075629765fb90ecf298a3203bfc"
+version = "0.7.0"
+source = "git+https://github.com/firecracker-microvm/kvm-bindings?tag=v0.7.0-1#93af344a93b83b39cdfea0d0a860b3b57d29d28b"
 dependencies = [
  "versionize",
  "versionize_derive",
@@ -720,10 +720,11 @@ dependencies = [
 
 [[package]]
 name = "kvm-ioctls"
-version = "0.15.0"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9bdde2b46ee7b6587ef79f751019c4726c4f2d3e4628df5d69f3f9c5cb6c6bd4"
+checksum = "9002dff009755414f22b962ec6ae6980b07d6d8b06e5297b1062019d72bd6a8c"
 dependencies = [
+ "bitflags 2.4.1",
  "kvm-bindings",
  "libc",
  "vmm-sys-util",
@@ -743,9 +744,9 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "libc"
-version = "0.2.151"
+version = "0.2.152"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "302d7ab3130588088d277783b1e2d2e10c9e9e4a16dd9050e6ec93fb3e7048f4"
+checksum = "13e3bf6590cbc649f4d1a3eefc9d5d6eb746f5200ffb04e5e142700b8faa56e7"
 
 [[package]]
 name = "libloading"
@@ -769,7 +770,7 @@ version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "132a531b85b3a164012ab682c72f8f2cce7757f187be5f60782fd2b4cda9cb34"
 dependencies = [
- "vm-memory",
+ "vm-memory 0.13.1",
 ]
 
 [[package]]
@@ -808,7 +809,7 @@ version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.44",
+ "syn 2.0.48",
 ]
 
 [[package]]
@@ -829,7 +830,7 @@ dependencies = [
 [[package]]
 name = "micro_http"
 version = "0.1.0"
-source = "git+https://github.com/firecracker-microvm/micro-http#a4d632f2c5ea45712c0d2002dc909a63879e85c3"
+source = "git+https://github.com/firecracker-microvm/micro-http#e75dfa1eeea23b69caa7407bc2c3a76d7b7262fb"
 dependencies = [
  "libc",
  "vmm-sys-util",
@@ -928,19 +929,19 @@ checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
 
 [[package]]
 name = "prettyplease"
-version = "0.2.15"
+version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae005bd773ab59b4725093fd7df83fd7892f7d8eafb48dbd7de6e024e4215f9d"
+checksum = "a41cf62165e97c7f814d2221421dbb9afcbcdb0a88068e5ea206e19951c2cbb5"
 dependencies = [
  "proc-macro2",
- "syn 2.0.44",
+ "syn 2.0.48",
 ]
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.73"
+version = "1.0.76"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2dd5e8a1f1029c43224ad5898e50140c2aebb1705f19e67c918ebf5b9e797fe1"
+checksum = "95fc56cda0b5c3325f5fbbd7ff9fda9e02bb00bb3dac51252d2f1bfa1cb8cc8c"
 dependencies = [
  "unicode-ident",
 ]
@@ -963,9 +964,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.34"
+version = "1.0.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22a37c9326af5ed140c86a46655b5278de879853be5573c01df185b6f49a580a"
+checksum = "291ec9ab5efd934aaf503a6466c5d5251535d108ee747472c3977cc5acc868ef"
 dependencies = [
  "proc-macro2",
 ]
@@ -1113,38 +1114,38 @@ dependencies = [
 
 [[package]]
 name = "semver"
-version = "1.0.20"
+version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "836fa6a3e1e547f9a2c4040802ec865b5d85f4014efe00555d7090a3dcaa1090"
+checksum = "b97ed7a9823b74f99c7742f5336af7be5ecd3eeafcb1507d1fa93347b1d589b0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "serde"
-version = "1.0.193"
+version = "1.0.195"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25dd9975e68d0cb5aa1120c288333fc98731bd1dd12f561e468ea4728c042b89"
+checksum = "63261df402c67811e9ac6def069e4786148c4563f4b50fd4bf30aa370d626b02"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.193"
+version = "1.0.195"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43576ca501357b9b071ac53cdc7da8ef0cbd9493d8df094cd821777ea6e894d3"
+checksum = "46fe8f8603d81ba86327b23a2e9cdf49e1255fb94a4c5f297f6ee0547178ea2c"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.44",
+ "syn 2.0.48",
 ]
 
 [[package]]
 name = "serde_json"
-version = "1.0.109"
+version = "1.0.111"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb0652c533506ad7a2e353cce269330d6afd8bdfb6d75e0ace5b35aacbd7b9e9"
+checksum = "176e46fa42316f18edd598015a5166857fc835ec732f5215eac6b7bdbf0a84f4"
 dependencies = [
  "itoa",
  "ryu",
@@ -1225,9 +1226,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.44"
+version = "2.0.48"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92d27c2c202598d05175a6dd3af46824b7f747f8d8e9b14c623f19fa5069735d"
+checksum = "0f3531638e407dfc0814761abb7c00a5b54992b849452a0646b7f65c9f770f3f"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1245,22 +1246,22 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.53"
+version = "1.0.56"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2cd5904763bad08ad5513ddbb12cf2ae273ca53fa9f68e843e236ec6dfccc09"
+checksum = "d54378c645627613241d077a3a79db965db602882668f9136ac42af9ecb730ad"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.53"
+version = "1.0.56"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3dcf4a824cce0aeacd6f38ae6f24234c8e80d68632338ebaa1443b5df9e29e19"
+checksum = "fa0faa943b50f3db30a20aa7e265dbc66076993efed8463e8de414e5d06d3471"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.44",
+ "syn 2.0.48",
 ]
 
 [[package]]
@@ -1394,7 +1395,7 @@ dependencies = [
  "thiserror",
  "versionize",
  "versionize_derive",
- "vm-memory",
+ "vm-memory 0.13.1",
  "vmm-sys-util",
 ]
 
@@ -1415,9 +1416,9 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 
 [[package]]
 name = "versionize"
-version = "0.1.10"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dca4b7062e7e6d685901e815c35f9671e059de97c1c0905eeff8592f3fff442f"
+checksum = "62929d59c7f6730b7298fcb363760550f4db6e353fbac4076d447d0e82799d6d"
 dependencies = [
  "bincode",
  "crc64",
@@ -1443,13 +1444,13 @@ dependencies = [
 
 [[package]]
 name = "vhost"
-version = "0.9.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "289adfce099c71f8310f895932ccd978f352ca494ea47496dbe20d4241888b82"
+checksum = "2b64e816d0d49769fbfaa1494eb77cc2a3ddc526ead05c7f922cb7d64106286f"
 dependencies = [
  "bitflags 2.4.1",
  "libc",
- "vm-memory",
+ "vm-memory 0.14.0",
  "vmm-sys-util",
 ]
 
@@ -1474,6 +1475,17 @@ name = "vm-memory"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5376c9ee5ebe2103a310d8241936cfb93c946734b0479a4fa5bdf7a64abbacd8"
+dependencies = [
+ "libc",
+ "thiserror",
+ "winapi",
+]
+
+[[package]]
+name = "vm-memory"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74ffc42216c32c35f858fa4bfdcd9b61017dfd691e0240268fdc85dbf59e5459"
 dependencies = [
  "libc",
  "thiserror",
@@ -1526,15 +1538,15 @@ dependencies = [
  "vhost",
  "vm-allocator",
  "vm-fdt",
- "vm-memory",
+ "vm-memory 0.13.1",
  "vm-superio",
 ]
 
 [[package]]
 name = "vmm-sys-util"
-version = "0.11.2"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48b7b084231214f7427041e4220d77dfe726897a6d41fddee450696e66ff2a29"
+checksum = "1d1435039746e20da4f8d507a72ee1b916f7b4b05af7a91c093d2c6561934ede"
 dependencies = [
  "bitflags 1.3.2",
  "libc",
@@ -1733,9 +1745,9 @@ checksum = "dff9641d1cd4be8d1a070daf9e3773c5f67e78b4d9d42263020c057706765c04"
 
 [[package]]
 name = "winnow"
-version = "0.5.31"
+version = "0.5.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97a4882e6b134d6c28953a387571f1acdd3496830d5e36c5e3a1075580ea641c"
+checksum = "b7520bbdec7211caa7c4e682eb1fbe07abe20cee6756b6e00f537c82c11816aa"
 dependencies = [
  "memchr",
 ]
