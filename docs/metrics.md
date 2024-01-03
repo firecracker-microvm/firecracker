@@ -130,3 +130,20 @@ that component i.e. even if `vsock` device is not attached to the
 Microvm, Firecracker will still emit the Vsock metrics with key as
 `vsock` and value of all metrics defined in `VsockDeviceMetrics` as
 `0`.
+
+### Units for Firecracker metrics:
+
+Units for Firecracker metrics are embedded in their name.<br/>
+Below pseudo code should be to extract units from Firecracker metrics name:<br/>
+Note: An example of full_key for below logic is `"vcpu.exit_io_in_agg.min_us"`
+
+```
+    if substring "_bytes" or "_bytes_count" is present in any subkey of full_key
+        Unit is "Bytes"
+    else substring "_ms" is present in any subkey of full_key
+        Unit is "Milliseconds"
+    else substring "_us" is present in any subkey of full_key
+        Unit is "Microseconds"
+    else
+        Unit is "Count"
+```
