@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- [#4346](https://github.com/firecracker-microvm/firecracker/pull/4346):
+  Added support to emit aggregate (minimum/maximum/sum) latency for
+  `VcpuExit::MmioRead`, `VcpuExit::MmioWrite`, `VcpuExit::IoIn` and
+  `VcpuExit::IoOut`. The average for these VM exits is not emitted since
+  it can be deduced from the available emitted metrics.
+
 ## [v1.6.0]
 
 ### Added
