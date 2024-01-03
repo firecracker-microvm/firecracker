@@ -294,7 +294,7 @@ impl Vcpu {
                 // Nothing special to do.
                 self.response_sender
                     .send(VcpuResponse::Paused)
-                    .expect("failed to send pause status");
+                    .expect("vcpu channel unexpectedly closed");
 
                 // TODO: we should call `KVM_KVMCLOCK_CTRL` here to make sure
                 // TODO continued: the guest soft lockup watchdog does not panic on Resume.
@@ -305,7 +305,7 @@ impl Vcpu {
             Ok(VcpuEvent::Resume) => {
                 self.response_sender
                     .send(VcpuResponse::Resumed)
-                    .expect("failed to send resume status");
+                    .expect("vcpu channel unexpectedly closed");
             }
             // SaveState cannot be performed on a running Vcpu.
             Ok(VcpuEvent::SaveState) => {
@@ -313,7 +313,7 @@ impl Vcpu {
                     .send(VcpuResponse::NotAllowed(String::from(
                         "save/restore unavailable while running",
                     )))
-                    .expect("failed to send save not allowed status");
+                    .expect("vcpu channel unexpectedly closed");
             }
             // DumpCpuConfig cannot be performed on a running Vcpu.
             Ok(VcpuEvent::DumpCpuConfig) => {
@@ -321,7 +321,7 @@ impl Vcpu {
                     .send(VcpuResponse::NotAllowed(String::from(
                         "cpu config dump is unavailable while running",
                     )))
-                    .expect("failed to send save not allowed status");
+                    .expect("vcpu channel unexpectedly closed");
             }
             Ok(VcpuEvent::Finish) => return StateMachine::finish(),
             // Unhandled exit of the other end.
@@ -382,7 +382,7 @@ impl Vcpu {
                     .unwrap_or_else(|err| {
                         self.response_sender
                             .send(VcpuResponse::Error(VcpuError::VcpuResponse(err)))
-                            .expect("vcpu channel unnexpectedly closed");
+                            .expect("vcpu channel unexpectedly closed");
                     });
 
                 StateMachine::next(Self::paused)
@@ -399,9 +399,9 @@ impl Vcpu {
     // Transition to the exited state and finish on command.
     fn exit(&mut self, exit_code: FcExitCode) -> StateMachine<Self> {
         // To avoid cycles, all teardown paths take the following route:
-        // +------------------------+----------------------------+------------------------+
-        // |        Vmm             |           Action           |           Vcpu         |
-        // +------------------------+----------------------------+------------------------+
+        //   +------------------------+----------------------------+------------------------+
+        //   |        Vmm             |           Action           |           Vcpu         |
+        //   +------------------------+----------------------------+------------------------+
         // 1 |                        |                            | vcpu.exit(exit_code)   |
         // 2 |                        |                            | vcpu.exit_evt.write(1) |
         // 3 |                        | <--- EventFd::exit_evt --- |                        |
@@ -410,7 +410,7 @@ impl Vcpu {
         // 6 |                        |                            | StateMachine::finish() |
         // 7 | VcpuHandle::join()     |                            |                        |
         // 8 | vmm.shutdown_exit_code becomes Some(exit_code) breaking the main event loop  |
-        // +------------------------+----------------------------+------------------------+
+        //   +------------------------+----------------------------+------------------------+
         // Vcpu initiated teardown starts from `fn Vcpu::exit()` (step 1).
         // Vmm initiated teardown starts from `pub fn Vmm::stop()` (step 4).
         // Once `vmm.shutdown_exit_code` becomes `Some(exit_code)`, it is the upper layer's
