@@ -67,7 +67,12 @@ def test_reboot(test_microvm_with_api, network_config):
     assert len(lines) == 1
 
     if platform.machine() != "x86_64":
-        vm.check_log_message("Received KVM_SYSTEM_EVENT: type: 2, event: 0")
+        message = (
+            "Received KVM_SYSTEM_EVENT: type: 2, event: [0]"
+            if "6.1" in platform.release()
+            else "Received KVM_SYSTEM_EVENT: type: 2, event: []"
+        )
+        vm.check_log_message(message)
         vm.check_log_message("Vmm is stopping.")
 
     # Make sure that the FC process was not killed by a seccomp fault
