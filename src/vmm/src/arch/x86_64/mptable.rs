@@ -121,6 +121,7 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), MptableE
     let mut base_mp = GuestAddress(MPTABLE_START);
 
     let mp_size = compute_mp_size(num_cpus);
+    let mut mp_num_entries: u16 = 0;
 
     let mut checksum: u8 = 0;
     let ioapicid: u8 = num_cpus + 1;
@@ -151,6 +152,7 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), MptableE
         mem.write_obj(mpf_intel, base_mp)
             .map_err(|_| MptableError::WriteMpfIntel)?;
         base_mp = base_mp.unchecked_add(size);
+        mp_num_entries += 1;
     }
 
     // We set the location of the mpc_table here but we can't fill it out until we have the length
@@ -179,6 +181,7 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), MptableE
                 .map_err(|_| MptableError::WriteMpcCpu)?;
             base_mp = base_mp.unchecked_add(size);
             checksum = checksum.wrapping_add(compute_checksum(&mpc_cpu));
+            mp_num_entries += 1;
         }
     }
     {
@@ -192,6 +195,7 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), MptableE
             .map_err(|_| MptableError::WriteMpcBus)?;
         base_mp = base_mp.unchecked_add(size);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_bus));
+        mp_num_entries += 1;
     }
     {
         let size = mem::size_of::<mpspec::mpc_ioapic>() as u64;
@@ -206,6 +210,7 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), MptableE
             .map_err(|_| MptableError::WriteMpcIoapic)?;
         base_mp = base_mp.unchecked_add(size);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_ioapic));
+        mp_num_entries += 1;
     }
     // Per kvm_setup_default_irq_routing() in kernel
     for i in 0..=u8::try_from(IRQ_MAX).map_err(|_| MptableError::TooManyIrqs)? {
@@ -223,6 +228,7 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), MptableE
             .map_err(|_| MptableError::WriteMpcIntsrc)?;
         base_mp = base_mp.unchecked_add(size);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_intsrc));
+        mp_num_entries += 1;
     }
     {
         let size = mem::size_of::<mpspec::mpc_lintsrc>() as u64;
@@ -239,6 +245,7 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), MptableE
             .map_err(|_| MptableError::WriteMpcLintsrc)?;
         base_mp = base_mp.unchecked_add(size);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_lintsrc));
+        mp_num_entries += 1;
     }
     {
         let size = mem::size_of::<mpspec::mpc_lintsrc>() as u64;
@@ -255,6 +262,7 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), MptableE
             .map_err(|_| MptableError::WriteMpcLintsrc)?;
         base_mp = base_mp.unchecked_add(size);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_lintsrc));
+        mp_num_entries += 1;
     }
 
     // At this point we know the size of the mp_table.
@@ -271,6 +279,7 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), MptableE
                 .unwrap(),
             spec: MPC_SPEC,
             oem: MPC_OEM,
+            oemcount: mp_num_entries,
             productid: MPC_PRODUCT_ID,
             lapic: APIC_DEFAULT_PHYS_BASE,
             ..Default::default()
@@ -367,6 +376,39 @@ mod tests {
                 .fold(0u8, |accum, &item| accum.wrapping_add(item)),
             0
         );
+    }
+
+    #[test]
+    fn mpc_entry_count() {
+        let num_cpus = 1;
+        let mem = GuestMemoryMmap::from_raw_regions(
+            &[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus))],
+            false,
+        )
+        .unwrap();
+
+        setup_mptable(&mem, num_cpus).unwrap();
+
+        let mpf_intel: mpspec::mpf_intel = mem.read_obj(GuestAddress(MPTABLE_START)).unwrap();
+        let mpc_offset = GuestAddress(u64::from(mpf_intel.physptr));
+        let mpc_table: mpspec::mpc_table = mem.read_obj(mpc_offset).unwrap();
+
+        let expected_entry_count =
+            // Intel floating point
+            1
+            // CPU
+            + u16::from(num_cpus)
+            // IOAPIC
+            + 1
+            // ISA Bus
+            + 1
+            // IRQ
+            + u16::try_from(IRQ_MAX).unwrap() + 1
+            // Interrupt source ExtINT
+            + 1
+            // Interrupt source NMI
+            + 1;
+        assert_eq!(mpc_table.oemcount, expected_entry_count);
     }
 
     #[test]
