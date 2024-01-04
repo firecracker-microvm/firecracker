@@ -26,7 +26,7 @@ fn exit_with_code(exit_code: FcExitCode) {
         error!("Failed to write metrics while stopping: {}", err);
     }
     // SAFETY: Safe because we're terminating the process anyway.
-    unsafe { libc::_exit(exit_code as i32) };
+    unsafe { libc::_exit(i32::from(u8::from(exit_code))) };
 }
 
 macro_rules! generate_handler {
@@ -67,7 +67,7 @@ fn log_sigsys_err(si_code: c_int, info: *mut siginfo_t) {
 
     // SAFETY: Other signals which might do async unsafe things incompatible with the rest of this
     // function are blocked due to the sa_mask used when registering the signal handler.
-    let syscall = unsafe { *(info as *const i32).offset(SI_OFF_SYSCALL) };
+    let syscall = unsafe { *info.cast::<i32>().offset(SI_OFF_SYSCALL) };
     error!(
         "Shutting down VM after intercepting a bad syscall ({}).",
         syscall

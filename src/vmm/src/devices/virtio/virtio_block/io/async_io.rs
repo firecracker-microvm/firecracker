@@ -10,6 +10,7 @@ use std::os::unix::io::AsRawFd;
 use utils::eventfd::EventFd;
 use vm_memory::GuestMemoryError;
 
+use utils::u32_to_usize;
 use crate::devices::virtio::virtio_block::io::UserDataError;
 use crate::devices::virtio::virtio_block::IO_URING_NUM_ENTRIES;
 use crate::io_uring::operation::{Cqe, OpCode, Operation};
@@ -65,7 +66,7 @@ impl<T: Debug> WrappedUserData<T> {
 
     fn mark_dirty_mem_and_unwrap(self, mem: &GuestMemoryMmap, count: u32) -> T {
         if let Some(addr) = self.addr {
-            mem.mark_dirty(addr, count as usize)
+            mem.mark_dirty(addr, u32_to_usize(count))
         }
 
         self.user_data
@@ -130,7 +131,7 @@ impl<T: Debug> AsyncFileEngine<T> {
         count: u32,
         user_data: T,
     ) -> Result<(), UserDataError<T, AsyncIoError>> {
-        let buf = match mem.get_slice(addr, count as usize) {
+        let buf = match mem.get_slice(addr, u32_to_usize(count)) {
             Ok(slice) => slice.ptr_guard_mut().as_ptr(),
             Err(err) => {
                 return Err(UserDataError {
@@ -145,6 +146,7 @@ impl<T: Debug> AsyncFileEngine<T> {
         // SAFETY: Safe because we trust that the host kernel will pass us back a completed entry
         // with this same `user_data`, so that the value will not be leaked.
         unsafe {
+            #[allow(clippy::as_conversions)]
             self.ring.push(Operation::read(
                 0,
                 buf as usize,
@@ -167,7 +169,7 @@ impl<T: Debug> AsyncFileEngine<T> {
         count: u32,
         user_data: T,
     ) -> Result<(), UserDataError<T, AsyncIoError>> {
-        let buf = match mem.get_slice(addr, count as usize) {
+        let buf = match mem.get_slice(addr, u32_to_usize(count)) {
             Ok(slice) => slice.ptr_guard_mut().as_ptr(),
             Err(err) => {
                 return Err(UserDataError {
@@ -182,6 +184,7 @@ impl<T: Debug> AsyncFileEngine<T> {
         // SAFETY: Safe because we trust that the host kernel will pass us back a completed entry
         // with this same `user_data`, so that the value will not be leaked.
         unsafe {
+            #[allow(clippy::as_conversions)]
             self.ring.push(Operation::write(
                 0,
                 buf as usize,

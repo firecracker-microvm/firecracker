@@ -5,6 +5,7 @@ use std::fs::OpenOptions;
 use std::io::{Seek, SeekFrom};
 use std::os::fd::AsRawFd;
 use std::path::PathBuf;
+use std::ptr::addr_of_mut;
 
 use clap::Subcommand;
 use fc_utils::seek_hole::SeekHole;
@@ -89,7 +90,7 @@ fn rebase(memory_path: PathBuf, diff_path: PathBuf) -> Result<(), EditMemoryErro
                 libc::sendfile64(
                     base_file.as_raw_fd(),
                     diff_file.as_raw_fd(),
-                    (&mut cursor as *mut u64).cast::<i64>(),
+                    addr_of_mut!(cursor).cast::<i64>(),
                     u64_to_usize(block_end.saturating_sub(cursor)),
                 )
             };

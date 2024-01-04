@@ -18,7 +18,7 @@ use block_io::FileEngine;
 use serde::{Deserialize, Serialize};
 use utils::eventfd::EventFd;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
-use utils::u64_to_usize;
+use utils::{u64_to_usize, usize_to_u64, u32_to_usize};
 
 use super::io::async_io;
 use super::request::*;
@@ -67,7 +67,7 @@ pub struct DiskProperties {
     pub file_path: String,
     pub file_engine: FileEngine<PendingRequest>,
     pub nsectors: u64,
-    pub image_id: [u8; VIRTIO_BLK_ID_BYTES as usize],
+    pub image_id: [u8; u32_to_usize(VIRTIO_BLK_ID_BYTES)],
 }
 
 impl DiskProperties {
@@ -151,8 +151,8 @@ impl DiskProperties {
         Ok(device_id)
     }
 
-    fn build_disk_image_id(disk_file: &File) -> [u8; VIRTIO_BLK_ID_BYTES as usize] {
-        let mut default_id = [0; VIRTIO_BLK_ID_BYTES as usize];
+    fn build_disk_image_id(disk_file: &File) -> [u8; u32_to_usize(VIRTIO_BLK_ID_BYTES)] {
+        let mut default_id = [0; u32_to_usize(VIRTIO_BLK_ID_BYTES)];
         match Self::build_device_id(disk_file) {
             Err(_) => {
                 warn!("Could not generate device id. We'll use a default.");
@@ -161,7 +161,7 @@ impl DiskProperties {
                 // The kernel only knows to read a maximum of VIRTIO_BLK_ID_BYTES.
                 // This will also zero out any leftover bytes.
                 let disk_id = disk_id_string.as_bytes();
-                let bytes_to_copy = cmp::min(disk_id.len(), VIRTIO_BLK_ID_BYTES as usize);
+                let bytes_to_copy = cmp::min(disk_id.len(), u32_to_usize(VIRTIO_BLK_ID_BYTES));
                 default_id[..bytes_to_copy].copy_from_slice(&disk_id[..bytes_to_copy]);
             }
         }
@@ -175,6 +175,7 @@ impl DiskProperties {
         // The config space is little endian.
         let mut config = Vec::with_capacity(BLOCK_CONFIG_SPACE_SIZE);
         for i in 0..BLOCK_CONFIG_SPACE_SIZE {
+            #[allow(clippy::as_conversions)]
             config.push(((self.nsectors >> (8 * i)) & 0xff) as u8);
         }
         config
@@ -618,13 +619,13 @@ impl VirtioDevice for VirtioBlock {
     }
 
     fn read_config(&self, offset: u64, mut data: &mut [u8]) {
-        let config_len = self.config_space.len() as u64;
+        let config_len = usize_to_u64(self.config_space.len());
         if offset >= config_len {
             error!("Failed to read config space");
             self.metrics.cfg_fails.inc();
             return;
         }
-        if let Some(end) = offset.checked_add(data.len() as u64) {
+        if let Some(end) = offset.checked_add(usize_to_u64(data.len())) {
             // This write can't fail, offset and end are checked against config_len.
             data.write_all(
                 &self.config_space[u64_to_usize(offset)..u64_to_usize(cmp::min(end, config_len))],
@@ -1473,7 +1474,7 @@ mod tests {
                 blk_meta.st_ino()
             );
 
-            let mut buf = [0; VIRTIO_BLK_ID_BYTES as usize];
+            let mut buf = [0; u32_to_usize(VIRTIO_BLK_ID_BYTES)];
             mem.read_slice(&mut buf, data_addr).unwrap();
             let chars_to_trim: &[char] = &['\u{0}'];
             let received_device_id = String::from_utf8(buf.to_ascii_lowercase())
@@ -1794,11 +1795,11 @@ mod tests {
         let f = TempFile::new().unwrap();
         let path = f.as_path();
         let mdata = metadata(path).unwrap();
-        let mut id = vec![0; VIRTIO_BLK_ID_BYTES as usize];
+        let mut id = vec![0; u32_to_usize(VIRTIO_BLK_ID_BYTES)];
         let str_id = format!("{}{}{}", mdata.st_dev(), mdata.st_rdev(), mdata.st_ino());
         let part_id = str_id.as_bytes();
-        id[..cmp::min(part_id.len(), VIRTIO_BLK_ID_BYTES as usize)]
-            .clone_from_slice(&part_id[..cmp::min(part_id.len(), VIRTIO_BLK_ID_BYTES as usize)]);
+        id[..cmp::min(part_id.len(), u32_to_usize(VIRTIO_BLK_ID_BYTES))]
+            .clone_from_slice(&part_id[..cmp::min(part_id.len(), u32_to_usize(VIRTIO_BLK_ID_BYTES))]);
 
         block
             .update_disk_image(String::from(path.to_str().unwrap()))

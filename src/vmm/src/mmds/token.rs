@@ -13,6 +13,7 @@ use base64::Engine;
 use bincode::{DefaultOptions, Error as BincodeError, Options};
 use serde::{Deserialize, Serialize};
 use utils::time::{get_time_ms, ClockType};
+use utils::usize_to_u64;
 
 /// Length of initialization vector.
 pub const IV_LEN: usize = 12;
@@ -302,7 +303,7 @@ impl Token {
         let token: Token = DefaultOptions::new()
             .with_fixint_encoding()
             .allow_trailing_bytes()
-            .with_limit(DESERIALIZATION_BYTES_LIMIT as u64)
+            .with_limit(usize_to_u64(DESERIALIZATION_BYTES_LIMIT))
             .deserialize(&token_bytes)
             .map_err(|_| Error::ExpiryExtraction)?;
         Ok(token)

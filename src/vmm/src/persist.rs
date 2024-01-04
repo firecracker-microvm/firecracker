@@ -16,7 +16,7 @@ use serde::Serialize;
 use snapshot::Snapshot;
 use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use utils::sock_ctrl_msg::ScmSocket;
-use utils::u64_to_usize;
+use utils::{u64_to_usize,usize_to_u64};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
@@ -84,7 +84,7 @@ impl VmInfo {
 impl From<&VmResources> for VmInfo {
     fn from(value: &VmResources) -> Self {
         Self {
-            mem_size_mib: value.vm_config.mem_size_mib as u64,
+            mem_size_mib: usize_to_u64(value.vm_config.mem_size_mib),
             smt: value.vm_config.smt,
             cpu_template: StaticCpuTemplate::from(&value.vm_config.cpu_template),
             boot_source: value.boot_source_config().clone(),
@@ -555,8 +555,9 @@ fn guest_memory_from_uffd(
         let host_base_addr = mem_region.as_ptr();
         let size = mem_region.size();
 
-        uffd.register(host_base_addr.cast(), size as _)
+        uffd.register(host_base_addr.cast(), size)
             .map_err(GuestMemoryFromUffdError::Register)?;
+        #[allow(clippy::as_conversions)]
         backend_mappings.push(GuestRegionUffdMapping {
             base_host_virt_addr: host_base_addr as u64,
             size,

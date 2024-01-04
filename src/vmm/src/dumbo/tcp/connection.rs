@@ -8,6 +8,7 @@
 
 use std::fmt::Debug;
 use std::num::{NonZeroU16, NonZeroU64, NonZeroUsize, Wrapping};
+use utils::u32_to_usize;
 
 use bitflags::bitflags;
 use utils::rand::xor_pseudo_rng_u32;
@@ -942,7 +943,7 @@ impl Connection {
             // We only proceed with writing a data segment if the previously computed bounds
             // delimit a valid sequence number interval.
             if seq_after(actual_end, seq_to_send) {
-                let max_payload_len = (actual_end - seq_to_send).0 as usize;
+                let max_payload_len = u32_to_usize((actual_end - seq_to_send).0);
 
                 // We always set the ACK flag for data segments.
                 let tcp_flags = TcpFlags::ACK;

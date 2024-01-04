@@ -93,7 +93,7 @@ fn main() -> ExitCode {
     if let Err(err) = result {
         error!("{err}");
         eprintln!("Error: {err:?}");
-        let exit_code = FcExitCode::from(err) as u8;
+        let exit_code = u8::from(FcExitCode::from(err));
         error!("Firecracker exiting with error. exit_code={exit_code}");
         ExitCode::from(exit_code)
     } else {
@@ -441,7 +441,7 @@ fn resize_fdtable() -> Result<(), ResizeFdTableError> {
     };
 
     // SAFETY: We pass a pointer to a valid area of memory to which we have exclusive mutable access
-    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut rlimit as *mut libc::rlimit) } < 0 {
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut rlimit) } < 0 {
         return Err(ResizeFdTableError::GetRlimit);
     }
 

@@ -3,6 +3,7 @@
 
 use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};
+use utils::u32_to_usize;
 
 use vm_memory::{GuestMemoryError, ReadVolatile, WriteVolatile};
 
@@ -53,7 +54,7 @@ impl SyncFileEngine {
         self.file
             .seek(SeekFrom::Start(offset))
             .map_err(SyncIoError::Seek)?;
-        mem.get_slice(addr, count as usize)
+        mem.get_slice(addr, u32_to_usize(count))
             .and_then(|mut slice| Ok(self.file.read_exact_volatile(&mut slice)?))
             .map_err(SyncIoError::Transfer)?;
         Ok(count)
@@ -69,7 +70,7 @@ impl SyncFileEngine {
         self.file
             .seek(SeekFrom::Start(offset))
             .map_err(SyncIoError::Seek)?;
-        mem.get_slice(addr, count as usize)
+        mem.get_slice(addr, u32_to_usize(count))
             .and_then(|slice| Ok(self.file.write_all_volatile(&slice)?))
             .map_err(SyncIoError::Transfer)?;
         Ok(count)

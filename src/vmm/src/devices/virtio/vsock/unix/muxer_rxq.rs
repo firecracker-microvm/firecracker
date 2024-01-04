@@ -16,6 +16,7 @@
 /// performed here, as part of building an RX queue from the connection pool. When an
 /// out-of-sync is drained, the muxer will discard it, and attempt to rebuild a synced one.
 use std::collections::{HashMap, VecDeque};
+use utils::usize_to_u32;
 
 use super::super::VsockChannel;
 use super::muxer::{ConnMapKey, MuxerRx};
@@ -31,7 +32,7 @@ pub struct MuxerRxQ {
 }
 
 impl MuxerRxQ {
-    const SIZE: usize = defs::MUXER_RXQ_SIZE as usize;
+    const SIZE: usize = usize_to_u32(defs::MUXER_RXQ_SIZE);
 
     /// Trivial RX queue constructor.
     pub fn new() -> Self {

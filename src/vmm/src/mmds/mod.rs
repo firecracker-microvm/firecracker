@@ -18,6 +18,7 @@ use micro_http::{
 };
 use serde_json::{Map, Value};
 use token_headers::TokenHeaders;
+use utils::u32_to_usize;
 
 use crate::mmds::data_store::{Error as MmdsError, Mmds, MmdsVersion, OutputFormat};
 use crate::mmds::token::PATH_TO_TOKEN;
@@ -87,7 +88,7 @@ pub fn json_patch(target: &mut Value, patch: &Value) {
 
 // Make the URI a correct JSON pointer value.
 fn sanitize_uri(mut uri: String) -> String {
-    let mut len = u32::MAX as usize;
+    let mut len = u32_to_usize(u32::MAX);
     // Loop while the deduping decreases the sanitized len.
     // Each iteration will attempt to dedup "//".
     while uri.len() < len {

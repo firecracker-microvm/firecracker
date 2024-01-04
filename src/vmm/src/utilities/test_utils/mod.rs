@@ -68,7 +68,7 @@ pub fn dirty_tracking_vmm(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, Event
 }
 
 #[allow(clippy::undocumented_unsafe_blocks)]
-#[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::as_conversions)]
 pub fn create_tmp_socket() -> (TempDir, String) {
     let tmp_dir = TempDir::new().unwrap();
     let tmp_dir_path_str = tmp_dir.as_path().to_str().unwrap();

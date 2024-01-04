@@ -94,7 +94,7 @@ impl<'a, T: NetworkBytes + Debug> IPv4Packet<'a, T> {
             return Err(Error::Version);
         }
 
-        let total_len = packet.total_len() as usize;
+        let total_len = usize::from(packet.total_len());
 
         if total_len < header_len.into() {
             return Err(Error::InvalidTotalLen);
@@ -157,6 +157,7 @@ impl<'a, T: NetworkBytes + Debug> IPv4Packet<'a, T> {
     }
 
     /// Returns the values of the `flags` and `fragment offset` header fields.
+    #[allow(clippy::as_conversions)]
     #[inline]
     pub fn flags_and_fragment_offset(&self) -> (u8, u16) {
         let x = self.bytes.ntohs_unchecked(FLAGS_AND_FRAGMENTOFF_OFFSET);

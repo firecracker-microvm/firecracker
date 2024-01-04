@@ -5,6 +5,7 @@ use std::env;
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom};
 use std::os::unix::io::AsRawFd;
+use std::ptr::addr_of_mut;
 
 use utils::arg_parser::{ArgParser, Argument, Arguments, Error as ArgError};
 use utils::seek_hole::SeekHole;
@@ -103,7 +104,7 @@ fn rebase(base_file: &mut File, diff_file: &mut File) -> Result<(), FileError> {
                 libc::sendfile64(
                     base_file.as_raw_fd(),
                     diff_file.as_raw_fd(),
-                    (&mut cursor as *mut u64).cast::<i64>(),
+                    addr_of_mut!(cursor).cast::<i64>(),
                     u64_to_usize(block_end.saturating_sub(cursor)),
                 )
             };

@@ -258,7 +258,7 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
                 }
                 _ => {
                     // Some other option; just skip opt_len bytes in total.
-                    i += b[i + 1] as usize;
+                    i += usize::from(b[i + 1]);
                     continue;
                 }
             }

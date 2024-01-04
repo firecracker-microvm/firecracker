@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use snapshot::Persist;
 use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
+use utils::u8_to_usize;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
@@ -18,7 +19,7 @@ use crate::mmds::data_store::Mmds;
 /// State of a MmdsNetworkStack.
 #[derive(Debug, Clone, Versionize)]
 pub struct MmdsNetworkStackState {
-    mac_addr: [u8; MAC_ADDR_LEN as usize],
+    mac_addr: [u8; u8_to_usize(MAC_ADDR_LEN)],
     ipv4_addr: u32,
     tcp_port: u16,
     max_connections: usize,
@@ -31,7 +32,7 @@ impl Persist<'_> for MmdsNetworkStack {
     type Error = ();
 
     fn save(&self) -> Self::State {
-        let mut mac_addr = [0; MAC_ADDR_LEN as usize];
+        let mut mac_addr = [0; u8_to_usize(MAC_ADDR_LEN)];
         mac_addr.copy_from_slice(self.mac_addr.get_bytes());
 
         MmdsNetworkStackState {

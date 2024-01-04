@@ -82,6 +82,7 @@ use std::num::Wrapping;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 
+use utils::{usize_to_u32,usize_to_u64, u32_to_usize};
 use log::{debug, error, info, warn};
 use utils::epoll::EventSet;
 use utils::wrap_usize_to_u32;
@@ -238,7 +239,7 @@ where
                         // by self.peer_avail_credit(), a u32 internally.
                         pkt.set_op(uapi::VSOCK_OP_RW)
                             .set_len(u32::try_from(read_cnt).unwrap());
-                        METRICS.rx_bytes_count.add(read_cnt as u64);
+                        METRICS.rx_bytes_count.add(usize_to_u64(read_cnt));
                     }
                     self.rx_cnt += Wrapping(pkt.len());
                     self.last_fwd_cnt_to_peer = self.fwd_cnt;
@@ -482,7 +483,7 @@ where
                     0
                 });
             self.fwd_cnt += wrap_usize_to_u32(flushed);
-            METRICS.tx_bytes_count.add(flushed as u64);
+            METRICS.tx_bytes_count.add(usize_to_u64(flushed));
 
             // If this connection was shutting down, but is waiting to drain the TX buffer
             // before forceful termination, the wait might be over.
@@ -604,7 +605,7 @@ where
     /// Raw data can either be sent straight to the host stream, or to our TX buffer, if the
     /// former fails.
     fn send_bytes(&mut self, pkt: &VsockPacket) -> Result<(), VsockError> {
-        let len = pkt.len() as usize;
+        let len = u32_to_usize(pkt.len());
 
         // If there is data in the TX buffer, that means we're already registered for EPOLLOUT
         // events on the underlying stream. Therefore, there's no point in attempting a write
@@ -635,7 +636,7 @@ where
         // Move the "forwarded bytes" counter ahead by how much we were able to send out.
         // Safe to unwrap because the maximum value is pkt.len(), which is a u32.
         self.fwd_cnt += wrap_usize_to_u32(written);
-        METRICS.tx_bytes_count.add(written as u64);
+        METRICS.tx_bytes_count.add(usize_to_u64(written));
 
         // If we couldn't write the whole slice, we'll need to push the remaining data to our
         // buffer.
@@ -662,7 +663,7 @@ where
     /// Get the maximum number of bytes that we can send to our peer, without overflowing its
     /// buffer.
     fn peer_avail_credit(&self) -> usize {
-        (Wrapping(self.peer_buf_alloc) - (self.rx_cnt - self.peer_fwd_cnt)).0 as usize
+        usize_to_u32((Wrapping(self.peer_buf_alloc) - (self.rx_cnt - self.peer_fwd_cnt)).0)
     }
 
     /// Prepare a packet header for transmission to our peer.

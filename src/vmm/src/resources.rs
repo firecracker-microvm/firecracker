@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
+use utils::u32_to_usize;
 use utils::net::ipv4addr::is_link_local_valid;
 
 use crate::cpu_config::templates::CustomCpuTemplate;
@@ -253,11 +254,11 @@ impl VmResources {
         // of the balloon device, if present.
         if self.balloon.get().is_some()
             && self.vm_config.mem_size_mib
-                < self
+                < u32_to_usize(self
                     .balloon
                     .get_config()
                     .map_err(|_| VmConfigError::InvalidVmState)?
-                    .amount_mib as usize
+                    .amount_mib)
         {
             return Err(VmConfigError::IncompatibleBalloonSize);
         }
@@ -320,7 +321,7 @@ impl VmResources {
     ) -> Result<(), BalloonConfigError> {
         // The balloon cannot have a target size greater than the size of
         // the guest memory.
-        if config.amount_mib as usize > self.vm_config.mem_size_mib {
+        if u32_to_usize(config.amount_mib) > self.vm_config.mem_size_mib {
             return Err(BalloonConfigError::TooManyPagesRequested);
         }
 

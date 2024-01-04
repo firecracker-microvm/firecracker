@@ -9,6 +9,7 @@
 
 use std::fmt::Debug;
 use std::net::Ipv4Addr;
+use utils::usize_to_u32;
 
 use crate::dumbo::pdu::bytes::NetworkBytes;
 use crate::dumbo::pdu::ipv4::{PROTOCOL_TCP, PROTOCOL_UDP};
@@ -55,8 +56,17 @@ impl<T: Debug> Incomplete<T> {
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 enum ChecksumProto {
-    Tcp = PROTOCOL_TCP,
-    Udp = PROTOCOL_UDP,
+    Tcp,
+    Udp,
+}
+
+impl From<ChecksumProto> for u8 {
+    fn from(x: ChecksumProto) -> u8 {
+        match x {
+            ChecksumProto::Tcp => PROTOCOL_TCP,
+            ChecksumProto::Udp => PROTOCOL_UDP,
+        }
+    }
 }
 
 /// Computes the checksum of a TCP/UDP packet. Since both protocols use
@@ -81,16 +91,16 @@ fn compute_checksum<T: NetworkBytes + Debug>(
 ) -> u16 {
     let mut sum = 0usize;
 
-    let a = u32::from(src_addr) as usize;
+    let a = usize_to_u32(u32::from(src_addr));
     sum += a & 0xffff;
     sum += a >> 16;
 
-    let b = u32::from(dst_addr) as usize;
+    let b = usize_to_u32(u32::from(dst_addr));
     sum += b & 0xffff;
     sum += b >> 16;
 
     let len = bytes.len();
-    sum += protocol as usize;
+    sum += usize::from(u8::from(protocol));
     sum += len;
 
     for i in 0..len / 2 {

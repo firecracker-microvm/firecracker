@@ -8,9 +8,8 @@
     non_upper_case_globals,
     dead_code,
     non_snake_case,
-    clippy::ptr_as_ptr,
+    clippy::as_conversions,
     clippy::undocumented_unsafe_blocks,
-    clippy::cast_lossless,
     missing_debug_implementations,
     clippy::tests_outside_test_module
 )]

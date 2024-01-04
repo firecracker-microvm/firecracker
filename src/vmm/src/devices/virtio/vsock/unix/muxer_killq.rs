@@ -26,6 +26,7 @@
 /// expiring in the future.
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
+use utils::usize_to_u32;
 
 use super::muxer::ConnMapKey;
 use super::{defs, MuxerConnection};
@@ -52,7 +53,7 @@ pub struct MuxerKillQ {
 }
 
 impl MuxerKillQ {
-    const SIZE: usize = defs::MUXER_KILLQ_SIZE as usize;
+    const SIZE: usize = usize_to_u32(defs::MUXER_KILLQ_SIZE);
 
     /// Trivial kill queue constructor.
     pub fn new() -> Self {

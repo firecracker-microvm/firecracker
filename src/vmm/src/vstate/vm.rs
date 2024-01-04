@@ -138,7 +138,7 @@ impl Vm {
 
         // Check that KVM has the correct version.
         // Safe to cast because this is a constant.
-        #[allow(clippy::cast_possible_wrap)]
+        #[allow(clippy::as_conversions)]
         if kvm.get_api_version() != KVM_API_VERSION as i32 {
             return Err(VmError::ApiVersion(kvm.get_api_version()));
         }
@@ -225,6 +225,7 @@ impl Vm {
         Ok(())
     }
 
+    #[allow(clippy::as_conversions)]
     pub(crate) fn set_kvm_memory_regions(
         &self,
         guest_mem: &GuestMemoryMmap,

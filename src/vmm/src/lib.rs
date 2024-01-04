@@ -157,32 +157,54 @@ pub type EventManager = BaseEventManager<Arc<Mutex<dyn MutEventSubscriber>>>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FcExitCode {
     /// Success exit code.
-    Ok = 0,
+    Ok,
     /// Generic error exit code.
-    GenericError = 1,
+    GenericError,
     /// Generic exit code for an error considered not possible to occur if the program logic is
     /// sound.
-    UnexpectedError = 2,
+    UnexpectedError,
     /// Firecracker was shut down after intercepting a restricted system call.
-    BadSyscall = 148,
+    BadSyscall,
     /// Firecracker was shut down after intercepting `SIGBUS`.
-    SIGBUS = 149,
+    SIGBUS,
     /// Firecracker was shut down after intercepting `SIGSEGV`.
-    SIGSEGV = 150,
+    SIGSEGV,
     /// Firecracker was shut down after intercepting `SIGXFSZ`.
-    SIGXFSZ = 151,
+    SIGXFSZ,
     /// Firecracker was shut down after intercepting `SIGXCPU`.
-    SIGXCPU = 154,
+    SIGXCPU,
     /// Firecracker was shut down after intercepting `SIGPIPE`.
-    SIGPIPE = 155,
+    SIGPIPE,
     /// Firecracker was shut down after intercepting `SIGHUP`.
-    SIGHUP = 156,
+    SIGHUP,
     /// Firecracker was shut down after intercepting `SIGILL`.
-    SIGILL = 157,
+    SIGILL,
     /// Bad configuration for microvm's resources, when using a single json.
-    BadConfiguration = 152,
+    BadConfiguration,
     /// Command line arguments parsing error.
-    ArgParsing = 153,
+    ArgParsing,
+}
+
+impl From<FcExitCode> for u8 {
+    fn from(x: FcExitCode) -> u8 {
+        use FcExitCode::*;
+        
+        match x {
+            Ok => 0,
+            GenericError => 1,
+            UnexpectedError => 2,
+            BadSyscall => 148,
+            SIGBUS => 149,
+            SIGSEGV => 150,
+            SIGXFSZ => 151,
+            SIGXCPU => 154,
+            SIGPIPE => 155,
+            SIGHUP => 156,
+            SIGILL => 157,
+            BadConfiguration => 152,
+            ArgParsing => 153,
+        }
+    }
 }
 
 /// Timeout used in recv_timeout, when waiting for a vcpu response on

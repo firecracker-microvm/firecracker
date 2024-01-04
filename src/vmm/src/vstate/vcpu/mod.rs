@@ -12,6 +12,7 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::Mutex;
 use std::sync::{Arc, Barrier};
 use std::{fmt, io, thread};
+use std::ptr::addr_of;
 
 use kvm_bindings::{KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN};
 use kvm_ioctls::VcpuExit;
@@ -118,7 +119,7 @@ impl Vcpu {
             if cell.get().is_some() {
                 return Err(VcpuError::VcpuTlsInit);
             }
-            cell.set(Some(self as *const Vcpu));
+            cell.set(Some(addr_of!(*self)));
             Ok(())
         })
     }
@@ -134,7 +135,7 @@ impl Vcpu {
         // _before_ running this, then there is nothing we can do.
         Self::TLS_VCPU_PTR.with(|cell: &VcpuCell| {
             if let Some(vcpu_ptr) = cell.get() {
-                if vcpu_ptr == self as *const Vcpu {
+                if vcpu_ptr == addr_of!(*self) {
                     Self::TLS_VCPU_PTR.with(|cell: &VcpuCell| cell.take());
                     return Ok(());
                 }

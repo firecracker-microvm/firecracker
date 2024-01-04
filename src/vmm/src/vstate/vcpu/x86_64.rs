@@ -496,8 +496,10 @@ impl KvmVcpu {
         self.fd
             .set_lapic(&state.lapic)
             .map_err(KvmVcpuError::VcpuSetLapic)?;
+        
         for msrs in &state.saved_msrs {
             let nmsrs = self.fd.set_msrs(msrs).map_err(KvmVcpuError::VcpuSetMsrs)?;
+            #[allow(clippy::as_conversions)]
             if nmsrs < msrs.as_fam_struct_ref().nmsrs as usize {
                 return Err(KvmVcpuError::VcpuSetMsrsIncomplete);
             }

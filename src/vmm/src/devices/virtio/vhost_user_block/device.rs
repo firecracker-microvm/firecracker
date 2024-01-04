@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use log::error;
 use utils::eventfd::EventFd;
-use utils::u64_to_usize;
+use utils::{u64_to_usize,usize_to_u64};
 use vhost::vhost_user::message::*;
 use vhost::vhost_user::Frontend;
 
@@ -329,7 +329,7 @@ impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlock
             self.metrics.cfg_fails.inc();
             return;
         }
-        if let Some(end) = offset.checked_add(data.len() as u64) {
+        if let Some(end) = offset.checked_add(usize_to_u64(data.len())) {
             // This write can't fail, offset and end are checked against config_len.
             data.write_all(
                 &self.config_space[u64_to_usize(offset)..u64_to_usize(cmp::min(end, config_len))],

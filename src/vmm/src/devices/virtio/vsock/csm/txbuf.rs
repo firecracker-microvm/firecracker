@@ -5,6 +5,7 @@
 use std::fmt::Debug;
 use std::io::Write;
 use std::num::Wrapping;
+use utils::usize_to_u32;
 
 use utils::wrap_usize_to_u32;
 use vm_memory::{VolatileMemoryError, VolatileSlice, WriteVolatile};
@@ -27,7 +28,7 @@ pub struct TxBuf {
 
 impl TxBuf {
     /// Total buffer size, in bytes.
-    const SIZE: usize = defs::CONN_TX_BUF_SIZE as usize;
+    const SIZE: usize = usize_to_u32(defs::CONN_TX_BUF_SIZE);
 
     /// Ring-buffer constructor.
     pub fn new() -> Self {
@@ -41,7 +42,7 @@ impl TxBuf {
     /// Get the used length of this buffer - number of bytes that have been pushed in, but not
     /// yet flushed out.
     pub fn len(&self) -> usize {
-        (self.head - self.tail).0 as usize
+        usize_to_u32((self.head - self.tail).0)
     }
 
     /// Push a byte slice onto the ring-buffer.
@@ -59,7 +60,7 @@ impl TxBuf {
             .get_or_insert_with(|| vec![0u8; Self::SIZE].into_boxed_slice());
 
         // Buffer head, as an offset into the data slice.
-        let head_ofs = self.head.0 as usize % Self::SIZE;
+        let head_ofs = usize_to_u32(self.head.0) % Self::SIZE;
 
         // Pushing a slice to this buffer can take either one or two slice copies: - one copy,
         // if the slice fits between `head_ofs` and `Self::SIZE`; or - two copies, if the
@@ -94,7 +95,7 @@ impl TxBuf {
         }
 
         // Buffer tail, as an offset into the buffer data slice.
-        let tail_ofs = self.tail.0 as usize % Self::SIZE;
+        let tail_ofs = usize_to_u32(self.tail.0) % Self::SIZE;
 
         // Flushing the buffer can take either one or two writes:
         // - one write, if the tail doesn't need to wrap around to reach the head; or

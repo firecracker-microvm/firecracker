@@ -7,6 +7,7 @@
 
 use std::fs::File;
 use std::io::SeekFrom;
+use utils::usize_to_u64;
 
 use utils::{errno, get_page_size, u64_to_usize};
 use versionize::{VersionMap, Versionize, VersionizeResult};
@@ -135,7 +136,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
             .map(|(guest_address, region_size)| {
                 let file_clone = file.try_clone().map_err(MemoryError::FileError)?;
                 let file_offset = FileOffset::new(file_clone, offset);
-                offset += *region_size as u64;
+                offset += usize_to_u64(*region_size);
                 Ok((file_offset, *guest_address, *region_size))
             })
             .collect::<Result<Vec<_>, MemoryError>>()?;
@@ -304,9 +305,9 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                             if write_size == 0 {
                                 // Seek forward over the unmodified pages.
                                 writer
-                                    .seek(SeekFrom::Start(writer_offset + page_offset as u64))
+                                    .seek(SeekFrom::Start(writer_offset + usize_to_u64(page_offset)))
                                     .unwrap();
-                                dirty_batch_start = page_offset as u64;
+                                dirty_batch_start = usize_to_u64(page_offset);
                             }
                             write_size += page_size;
                         } else if write_size > 0 {
@@ -349,7 +350,7 @@ pub fn create_memfd(size: usize) -> Result<memfd::Memfd, MemoryError> {
     // Resize to guest mem size.
     mem_file
         .as_file()
-        .set_len(mem_size as u64)
+        .set_len(usize_to_u64(mem_size))
         .map_err(MemoryError::MemfdSetLen)?;
 
     // Add seals to prevent further resizing.

@@ -16,6 +16,7 @@ use std::num::{NonZeroU16, NonZeroU64, Wrapping};
 
 use micro_http::{Body, Request, RequestError, Response, StatusCode, Version};
 use utils::time::timestamp_cycles;
+use utils::u32_to_usize;
 
 use crate::dumbo::pdu::bytes::NetworkBytes;
 use crate::dumbo::pdu::tcp::TcpSegment;
@@ -45,7 +46,7 @@ const RCV_BUF_MAX_SIZE: u32 = 2500;
 pub struct Endpoint {
     // A fixed size buffer used to store bytes received via TCP. If the current request does not
     // fit within, we reset the connection, since we see this as a hard memory bound.
-    receive_buf: [u8; RCV_BUF_MAX_SIZE as usize],
+    receive_buf: [u8; u32_to_usize(RCV_BUF_MAX_SIZE)],
     // Represents the next available position in the buffer.
     receive_buf_left: usize,
     // This is filled with the HTTP response bytes after we parse a request and generate the reply.
@@ -102,7 +103,7 @@ impl Endpoint {
         )?;
 
         Ok(Endpoint {
-            receive_buf: [0u8; RCV_BUF_MAX_SIZE as usize],
+            receive_buf: [0u8; u32_to_usize(RCV_BUF_MAX_SIZE)],
             receive_buf_left: 0,
             response_buf: Vec::new(),
             // TODO: Using first_not_sent() makes sense here because a connection is currently
@@ -218,7 +219,7 @@ impl Endpoint {
                         response.write_all(&mut self.response_buf).unwrap();
 
                         // Sanity check because the current logic operates under this assumption.
-                        assert!(self.response_buf.len() < u32::MAX as usize);
+                        assert!(self.response_buf.len() < u32_to_usize(u32::MAX));
 
                         // We have to remove the bytes up to end from receive_buf, by shifting the
                         // others to the beginning of the buffer, and updating receive_buf_left.
@@ -261,7 +262,7 @@ impl Endpoint {
         let tcp_payload_src = if !self.response_buf.is_empty() {
             let offset = self.response_seq - self.initial_response_seq;
             Some((
-                self.response_buf.split_at(offset.0 as usize).1,
+                self.response_buf.split_at(u32_to_usize(offset.0)).1,
                 self.response_seq,
             ))
         } else {

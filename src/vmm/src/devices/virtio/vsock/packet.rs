@@ -19,6 +19,7 @@ use std::fmt::Debug;
 
 use vm_memory::volatile_memory::Error;
 use vm_memory::{GuestMemoryError, ReadVolatile, WriteVolatile};
+use utils::usize_to_u32;
 
 use super::{defs, VsockError};
 use crate::devices::virtio::iovec::{IoVecBuffer, IoVecBufferMut};
@@ -139,7 +140,7 @@ impl VsockPacket {
             return Err(VsockError::InvalidPktLen(hdr.len));
         }
 
-        if (hdr.len as usize) > buffer.len() - VSOCK_PKT_HDR_SIZE as usize {
+        if usize_to_u32(hdr.len) > buffer.len() - usize_to_u32(VSOCK_PKT_HDR_SIZE) {
             return Err(VsockError::DescChainTooShortForPacket(
                 buffer.len(),
                 hdr.len,
@@ -160,7 +161,7 @@ impl VsockPacket {
     pub fn from_rx_virtq_head(chain: DescriptorChain) -> Result<Self, VsockError> {
         let buffer = IoVecBufferMut::from_descriptor_chain(chain)?;
 
-        if buffer.len() < VSOCK_PKT_HDR_SIZE as usize {
+        if buffer.len() < usize_to_u32(VSOCK_PKT_HDR_SIZE) {
             return Err(VsockError::DescChainTooShortForHeader(buffer.len()));
         }
 
@@ -212,7 +213,7 @@ impl VsockPacket {
             VsockPacketBuffer::Tx(ref iovec_buf) => iovec_buf.len(),
             VsockPacketBuffer::Rx(ref iovec_buf) => iovec_buf.len(),
         };
-        chain_length - VSOCK_PKT_HDR_SIZE as usize
+        chain_length - usize_to_u32(VSOCK_PKT_HDR_SIZE)
     }
 
     pub fn read_at_offset_from<T: ReadVolatile + Debug>(
@@ -227,14 +228,14 @@ impl VsockPacket {
                 if count
                     > buffer
                         .len()
-                        .saturating_sub(VSOCK_PKT_HDR_SIZE as usize)
+                        .saturating_sub(usize_to_u32(VSOCK_PKT_HDR_SIZE))
                         .saturating_sub(offset)
                 {
                     return Err(VsockError::GuestMemoryBounds);
                 }
 
                 buffer
-                    .write_volatile_at(src, offset + VSOCK_PKT_HDR_SIZE as usize, count)
+                    .write_volatile_at(src, offset + usize_to_u32(VSOCK_PKT_HDR_SIZE), count)
                     .map_err(|err| VsockError::GuestMemoryMmap(GuestMemoryError::from(err)))
             }
         }
@@ -251,14 +252,14 @@ impl VsockPacket {
                 if count
                     > buffer
                         .len()
-                        .saturating_sub(VSOCK_PKT_HDR_SIZE as usize)
+                        .saturating_sub(usize_to_u32(VSOCK_PKT_HDR_SIZE))
                         .saturating_sub(offset)
                 {
                     return Err(VsockError::GuestMemoryBounds);
                 }
 
                 buffer
-                    .read_volatile_at(dst, offset + VSOCK_PKT_HDR_SIZE as usize, count)
+                    .read_volatile_at(dst, offset + usize_to_u32(VSOCK_PKT_HDR_SIZE), count)
                     .map_err(|err| VsockError::GuestMemoryMmap(GuestMemoryError::from(err)))
             }
             VsockPacketBuffer::Rx(_) => Err(VsockError::UnreadableDescriptor),

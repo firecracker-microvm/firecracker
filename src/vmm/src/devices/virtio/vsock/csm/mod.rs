@@ -59,20 +59,34 @@ pub enum ConnState {
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum PendingRx {
     /// We need to yield a connection request packet (VSOCK_OP_REQUEST).
-    Request = 0,
+    Request,
     /// We need to yield a connection response packet (VSOCK_OP_RESPONSE).
-    Response = 1,
+    Response,
     /// We need to yield a forceful connection termination packet (VSOCK_OP_RST).
-    Rst = 2,
+    Rst,
     /// We need to yield a data packet (VSOCK_OP_RW), by reading from the AF_UNIX socket.
-    Rw = 3,
+    Rw ,
     /// We need to yield a credit update packet (VSOCK_OP_CREDIT_UPDATE).
-    CreditUpdate = 4,
+    CreditUpdate,
 }
 impl PendingRx {
     /// Transform the enum value into a bitmask, that can be used for set operations.
     fn into_mask(self) -> u16 {
-        1u16 << (self as u16)
+        1u16 << u16::from(u8::from(self))
+    }
+}
+
+impl From<PendingRx> for u8 {
+    fn from(x: PendingRx) -> u8 {
+        use PendingRx::*;
+
+        match x {
+            Request => 0,
+            Response => 1,
+            Rst => 2,
+            Rw => 3,
+            CreditUpdate => 4,
+        }
     }
 }
 
