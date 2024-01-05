@@ -692,7 +692,84 @@ impl SignalMetrics {
     }
 }
 
-/// Metrics specific to VCPUs' mode of functioning.
+/// Provides efficient way to record LatencyAggregateMetrics
+#[derive(Debug)]
+pub struct LatencyMetricsRecorder<'a> {
+    start_time: u64,
+    metric: &'a LatencyAggregateMetrics,
+}
+
+impl<'a> LatencyMetricsRecorder<'a> {
+    /// Const default construction.
+    fn new(metric: &'a LatencyAggregateMetrics) -> Self {
+        Self {
+            start_time: utils::time::get_time_us(utils::time::ClockType::Monotonic),
+            metric,
+        }
+    }
+}
+impl<'a> Drop for LatencyMetricsRecorder<'a> {
+    /// records aggregate (min/max/sum) for the given metric
+    /// This captures delta between self.start_time and current time
+    /// and updates min/max/sum metrics.
+    ///  self.start_time is recorded in new() and metrics are updated in drop
+    fn drop(&mut self) {
+        let delta_us =
+            utils::time::get_time_us(utils::time::ClockType::Monotonic) - self.start_time;
+        self.metric.sum_us.add(delta_us);
+        let min_us = self.metric.min_us.fetch();
+        let max_us = self.metric.max_us.fetch();
+        if (0 == min_us) || (min_us > delta_us) {
+            self.metric.min_us.store(delta_us);
+        }
+        if (0 == max_us) || (max_us < delta_us) {
+            self.metric.max_us.store(delta_us);
+        }
+    }
+}
+
+/// Used to record Aggregate (min/max/sum) of latency metrics
+#[derive(Debug, Default, Serialize)]
+pub struct LatencyAggregateMetrics {
+    /// represents minimum value of the metrics in microseconds
+    pub min_us: SharedStoreMetric,
+    /// represents maximum value of the metrics in microseconds
+    pub max_us: SharedStoreMetric,
+    /// represents sum of the metrics in microseconds
+    pub sum_us: SharedIncMetric,
+}
+impl LatencyAggregateMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            min_us: SharedStoreMetric::new(),
+            max_us: SharedStoreMetric::new(),
+            sum_us: SharedIncMetric::new(),
+        }
+    }
+
+    /// returns a latency recorder which captures stores start_time
+    /// and updates the actual metrics at the end of recorders lifetime.
+    /// in short instead of below 2 lines :
+    /// 1st for start_time_us = get_time_us()
+    /// 2nd for delta_time_us = get_time_us() - start_time; and metrics.store(delta_time_us)
+    /// we have just `_m = metrics.record_latency_metrics()`
+    pub fn record_latency_metrics(&self) -> LatencyMetricsRecorder {
+        LatencyMetricsRecorder::new(self)
+    }
+}
+
+/// Structure provides Metrics specific to VCPUs' mode of functioning.
+/// Sample_count or number of kvm exits for IO and MMIO VM exits are covered by:
+/// `exit_io_in`, `exit_io_out`, `exit_mmio_read` and , `exit_mmio_write`.
+/// Count of other vm exits for events like shutdown/hlt/errors are
+/// covered by existing "failures" metric.
+/// The only vm exit for which sample_count is not covered is system
+/// event reset/shutdown but that should be fine since they are not
+/// failures and the vm is terminated anyways.
+/// LatencyAggregateMetrics only covers minimum, maximum and sum
+/// because average can be deduced from available metrics. e.g.
+/// dividing `exit_io_in_agg.sum_us` by exit_io_in` gives average of KVM exits handling input IO.
 #[derive(Debug, Default, Serialize)]
 pub struct VcpuMetrics {
     /// Number of KVM exits for handling input IO.
@@ -705,6 +782,14 @@ pub struct VcpuMetrics {
     pub exit_mmio_write: SharedIncMetric,
     /// Number of errors during this VCPU's run.
     pub failures: SharedIncMetric,
+    /// Provides Min/max/sum for KVM exits handling input IO.
+    pub exit_io_in_agg: LatencyAggregateMetrics,
+    /// Provides Min/max/sum for KVM exits handling output IO.
+    pub exit_io_out_agg: LatencyAggregateMetrics,
+    /// Provides Min/max/sum for KVM exits handling MMIO reads.
+    pub exit_mmio_read_agg: LatencyAggregateMetrics,
+    /// Provides Min/max/sum for KVM exits handling MMIO writes.
+    pub exit_mmio_write_agg: LatencyAggregateMetrics,
 }
 impl VcpuMetrics {
     /// Const default construction.
@@ -715,6 +800,10 @@ impl VcpuMetrics {
             exit_mmio_read: SharedIncMetric::new(),
             exit_mmio_write: SharedIncMetric::new(),
             failures: SharedIncMetric::new(),
+            exit_io_in_agg: LatencyAggregateMetrics::new(),
+            exit_io_out_agg: LatencyAggregateMetrics::new(),
+            exit_mmio_read_agg: LatencyAggregateMetrics::new(),
+            exit_mmio_write_agg: LatencyAggregateMetrics::new(),
         }
     }
 }

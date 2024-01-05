@@ -450,6 +450,7 @@ impl Vcpu {
             Ok(run) => match run {
                 VcpuExit::MmioRead(addr, data) => {
                     if let Some(mmio_bus) = &self.kvm_vcpu.mmio_bus {
+                        let _metric = METRICS.vcpu.exit_mmio_read_agg.record_latency_metrics();
                         mmio_bus.read(addr, data);
                         METRICS.vcpu.exit_mmio_read.inc();
                     }
@@ -457,6 +458,7 @@ impl Vcpu {
                 }
                 VcpuExit::MmioWrite(addr, data) => {
                     if let Some(mmio_bus) = &self.kvm_vcpu.mmio_bus {
+                        let _metric = METRICS.vcpu.exit_mmio_write_agg.record_latency_metrics();
                         mmio_bus.write(addr, data);
                         METRICS.vcpu.exit_mmio_write.inc();
                     }
