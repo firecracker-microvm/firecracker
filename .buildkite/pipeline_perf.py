@@ -69,7 +69,7 @@ def build_group(test):
     pytest_opts = ""
     if REVISION_A:
         devtool_opts += " --ab"
-        pytest_opts = f"{REVISION_A} {REVISION_B} --test {test_path} {ab_opts}"
+        pytest_opts = f" {ab_opts} run {REVISION_A} {REVISION_B} --test {test_path}"
     else:
         pytest_opts += f" -m nonci {test_path}"
     binary_dir = test.pop("binary_dir")
