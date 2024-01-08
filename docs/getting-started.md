@@ -165,14 +165,16 @@ sudo ip link set dev "$TAP_DEV" up
 # Enable ip forwarding
 sudo sh -c "echo 1 > /proc/sys/net/ipv4/ip_forward"
 
+HOST_IFACE="eth0"
+
 # Set up microVM internet access
-sudo iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE || true
+sudo iptables -t nat -D POSTROUTING -o "$HOST_IFACE" -j MASQUERADE || true
 sudo iptables -D FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT \
     || true
-sudo iptables -D FORWARD -i tap0 -o eth0 -j ACCEPT || true
-sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+sudo iptables -D FORWARD -i tap0 -o "$HOST_IFACE" -j ACCEPT || true
+sudo iptables -t nat -A POSTROUTING -o "$HOST_IFACE" -j MASQUERADE
 sudo iptables -I FORWARD 1 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-sudo iptables -I FORWARD 1 -i tap0 -o eth0 -j ACCEPT
+sudo iptables -I FORWARD 1 -i tap0 -o "$HOST_IFACE" -j ACCEPT
 
 API_SOCKET="/tmp/firecracker.socket"
 LOGFILE="./firecracker.log"
@@ -279,6 +281,9 @@ names of their fields are the same that are used in the API requests.
 
 An example of configuration file is provided:
 [`tests/framework/vm_config.json`](../tests/framework/vm_config.json).
+
+Once the guest is booted, refer [network-setup](./network-setup.md#in-the-guest)
+to bring up the network in the guest machine.
 
 After the microVM is started you can still use the socket to send API requests
 for post-boot operations.
