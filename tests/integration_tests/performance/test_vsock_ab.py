@@ -110,5 +110,5 @@ def test_vsock_throughput(
     test = VsockIPerf3Test(vm, mode, payload_length)
     data = test.run_test(vm.vcpus_count + 2)
 
-    emit_iperf3_metrics(metrics, data, VsockIPerf3Test.WARMUP_SEC)
     fcmetrics.stop()
+    emit_iperf3_metrics(metrics, data, VsockIPerf3Test.WARMUP_SEC)

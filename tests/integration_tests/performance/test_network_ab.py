@@ -96,10 +96,10 @@ def test_network_latency(network_microvm, metrics, iteration):
         assert rc == 0, stderr
 
         samples.extend(consume_ping_output(ping_output))
+    fcmetrics.stop()
 
     for sample in samples:
         metrics.put_metric("ping_latency", sample, "Milliseconds")
-    fcmetrics.stop()
 
 
 class TcpIPerf3Test(IPerf3Test):
