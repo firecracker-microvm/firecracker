@@ -3,6 +3,7 @@
 
 """Microvm helper functions for interactive use"""
 
+import ipaddress
 import os
 import platform
 import subprocess
@@ -39,12 +40,22 @@ class DockerInfo:
         """Return this container's id"""
         return platform.node()
 
+    @property
+    def in_docker(self):
+        """Are we running inside a Docker container?"""
+        return Path("/.dockerenv").exists()
+
 
 DOCKER = DockerInfo()
 
 
 class MicrovmHelpers:
     """Microvm helper functions for interactive use"""
+
+    # keep track of assigned subnets
+    shared_subnet_ctr = 0
+    _supernet = ipaddress.IPv4Network("10.0.0.0/16")
+    _subnets_gen = _supernet.subnets(new_prefix=30)
 
     def __init__(self, vm):
         self.vm = vm
@@ -124,21 +135,31 @@ class MicrovmHelpers:
         """How to get into this container from outside"""
         return f"docker exec -it {DOCKER.id}"
 
-    def enable_ip_forwarding(self):
-        """
-        Enables IP forwarding
+    def enable_ip_forwarding(self, iface="eth0"):
+        """Enables IP forwarding in the guest"""
+        if DOCKER.in_docker:
+            docker_apt_install("iptables")
 
-        TBD this only works for a single microvm. allow several microvms.
-          we need to make the veth network smaller and **allocate** them
-          accordingly
-        """
-        docker_apt_install("iptables")
+        i = MicrovmHelpers.shared_subnet_ctr
+        MicrovmHelpers.shared_subnet_ctr += 1
         netns = self.vm.netns.id
-        vethhost = "vethhost0"
-        vethhost_ip = "10.0.0.1"
-        veth_net = "10.0.0.0/255.255.255.0"
-        tap_net = "192.168.0.0/255.255.255.0"
-        tap_host_ip = self.vm.iface["eth0"]["iface"].host_ip
+        veth_host = f"vethhost{i}"
+        veth_vpn = f"vethvpn{i}"
+        veth_net = next(self._subnets_gen)
+        veth_host_ip, veth_vpn_ip = list(veth_net.hosts())
+        iface = self.vm.iface[iface]["iface"]
+        tap_host_ip = iface.host_ip
+        tap_dev = iface.tap_name
+        tap_net = iface.network.with_netmask  # i.e. 192.168.7.0/255.255.255.0
+        # get the device associated with the default route
+        upstream_dev = (
+            subprocess.check_output(
+                "ip -j route list default |jq -r '.[0].dev'",
+                shell=True,
+            )
+            .decode("ascii")
+            .strip()
+        )
 
         def run(cmd):
             return subprocess.run(cmd, shell=True, check=True)
@@ -148,27 +169,39 @@ class MicrovmHelpers:
 
         # outside netns
         # iptables -L -v -n
-        run(f"ip link add name {vethhost} type veth peer name vethvpn0 netns {netns}")
-        run(f"ip addr add {vethhost_ip}/24 dev {vethhost}")
-        run_in_netns("ip addr add 10.0.0.2/24 dev vethvpn0")
-        run(f"ip link set {vethhost} up")
-        run_in_netns("ip link set vethvpn0 up")
+        run(
+            f"ip link add name {veth_host} type veth peer name {veth_vpn} netns {netns}"
+        )
+        run(f"ip addr add {veth_host_ip}/{veth_net.prefixlen} dev {veth_host}")
+        run_in_netns(f"ip addr add {veth_vpn_ip}/{veth_net.prefixlen} dev {veth_vpn}")
+        run(f"ip link set {veth_host} up")
+        run_in_netns(f"ip link set {veth_vpn} up")
 
         run("iptables -P FORWARD DROP")
         # iptables -L FORWARD
         # iptables -t nat -L
-        run(f"iptables -t nat -A POSTROUTING -s {veth_net} -o eth0 -j MASQUERADE")
-        run("iptables -A FORWARD -i eth0 -o vethhost0 -j ACCEPT")
-        run("iptables -A FORWARD -i vethhost0 -o eth0 -j ACCEPT")
+        run(
+            f"iptables -t nat -A POSTROUTING -s {veth_net} -o {upstream_dev} -j MASQUERADE"
+        )
+        run(f"iptables -A FORWARD -i {upstream_dev} -o {veth_host} -j ACCEPT")
+        run(f"iptables -A FORWARD -i {veth_host} -o {upstream_dev} -j ACCEPT")
 
         # in the netns
-        run_in_netns(f"ip route add default via {vethhost_ip}")
-        # tap_ip = ipaddress.ip_network("192.168.0.1/30", False)
-        run_in_netns("iptables -A FORWARD -i tap0 -o vethvpn0 -j ACCEPT")
-        run_in_netns("iptables -A FORWARD -i vethvpn0 -o tap0  -j ACCEPT")
+        run_in_netns(f"ip route add default via {veth_host_ip}")
+        run_in_netns(f"iptables -A FORWARD -i {tap_dev} -o {veth_vpn} -j ACCEPT")
+        run_in_netns(f"iptables -A FORWARD -i {veth_vpn} -o {tap_dev}  -j ACCEPT")
         run_in_netns(
-            f"iptables -t nat -A POSTROUTING -s {tap_net} -o vethvpn0 -j MASQUERADE"
+            f"iptables -t nat -A POSTROUTING -s {tap_net} -o {veth_vpn} -j MASQUERADE"
         )
 
+        # Configure the guest
         self.vm.ssh.run(f"ip route add default via {tap_host_ip}")
-        self.vm.ssh.run("echo nameserver 8.8.8.8 >/etc/resolv.conf")
+        # Copy the nameserver from the host
+        nameserver = (
+            subprocess.check_output(
+                r"grep -oP 'nameserver\s+\K.+' /etc/resolv.conf", shell=True
+            )
+            .decode("ascii")
+            .strip()
+        )
+        self.vm.ssh.run(f"echo nameserver {nameserver} >/etc/resolv.conf")

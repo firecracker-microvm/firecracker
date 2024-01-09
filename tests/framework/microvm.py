@@ -768,7 +768,9 @@ class Microvm:
         """Add a network interface"""
         if iface is None:
             iface = net_tools.NetIfaceConfig.with_id(len(self.iface))
-        tap = self.netns.add_tap(iface.tap_name, ip=f"{iface.host_ip}/{iface.netmask}")
+        tap = self.netns.add_tap(
+            iface.tap_name, ip=f"{iface.host_ip}/{iface.netmask_len}"
+        )
         self.iface[iface.dev_name] = {
             "iface": iface,
             "tap": tap,
