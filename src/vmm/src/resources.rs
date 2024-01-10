@@ -608,17 +608,25 @@ mod tests {
         // these resources, it is considered an invalid json and the test will crash.
 
         // Invalid JSON string must yield a `serde_json` error.
-        match VmResources::from_json(r#"}"#, &default_instance_info, HTTP_MAX_PAYLOAD_SIZE, None) {
-            Err(ResourcesError::InvalidJson(_)) => (),
-            _ => unreachable!(),
-        }
+        let error =
+            VmResources::from_json(r#"}"#, &default_instance_info, HTTP_MAX_PAYLOAD_SIZE, None)
+                .unwrap_err();
+        assert!(
+            matches!(error, ResourcesError::InvalidJson(_)),
+            "{:?}",
+            error
+        );
 
         // Valid JSON string without the configuration for kernel or rootfs
         // result in an invalid JSON error.
-        match VmResources::from_json(r#"{}"#, &default_instance_info, HTTP_MAX_PAYLOAD_SIZE, None) {
-            Err(ResourcesError::InvalidJson(_)) => (),
-            _ => unreachable!(),
-        }
+        let error =
+            VmResources::from_json(r#"{}"#, &default_instance_info, HTTP_MAX_PAYLOAD_SIZE, None)
+                .unwrap_err();
+        assert!(
+            matches!(error, ResourcesError::InvalidJson(_)),
+            "{:?}",
+            error
+        );
 
         // Invalid kernel path.
         let mut json = format!(
@@ -639,15 +647,21 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(
+        let error = VmResources::from_json(
             json.as_str(),
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
-        ) {
-            Err(ResourcesError::BootSource(BootSourceConfigError::InvalidKernelPath(_))) => (),
-            _ => unreachable!(),
-        }
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ResourcesError::BootSource(BootSourceConfigError::InvalidKernelPath(_))
+            ),
+            "{:?}",
+            error
+        );
 
         // Invalid rootfs path.
         json = format!(
@@ -668,18 +682,23 @@ mod tests {
             kernel_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(
+        let error = VmResources::from_json(
             json.as_str(),
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
-        ) {
-            Err(ResourcesError::BlockDevice(DriveError::CreateVirtioBlockDevice(
-                VirtioBlockError::BackingFile(_, _),
-            ))) => (),
-            _ => unreachable!(),
-        }
-
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ResourcesError::BlockDevice(DriveError::CreateVirtioBlockDevice(
+                    VirtioBlockError::BackingFile(_, _),
+                ))
+            ),
+            "{:?}",
+            error
+        );
         // Valid config for x86 but invalid on aarch64 since it uses cpu_template.
         json = format!(
             r#"{{
@@ -745,15 +764,21 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(
+        let error = VmResources::from_json(
             json.as_str(),
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
-        ) {
-            Err(ResourcesError::VmConfig(VmConfigError::InvalidMemorySize)) => (),
-            _ => unreachable!(),
-        }
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ResourcesError::VmConfig(VmConfigError::InvalidMemorySize)
+            ),
+            "{:?}",
+            error
+        );
 
         // Invalid path for logger pipe.
         json = format!(
@@ -778,15 +803,21 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(
+        let error = VmResources::from_json(
             json.as_str(),
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
-        ) {
-            Err(ResourcesError::Logger(crate::logger::LoggerUpdateError(_))) => (),
-            _ => unreachable!(),
-        }
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ResourcesError::Logger(crate::logger::LoggerUpdateError(_))
+            ),
+            "{:?}",
+            error
+        );
 
         // Invalid path for metrics pipe.
         json = format!(
@@ -811,15 +842,21 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(
+        let error = VmResources::from_json(
             json.as_str(),
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
-        ) {
-            Err(ResourcesError::Metrics(MetricsConfigError::InitializationFailure { .. })) => (),
-            _ => unreachable!(),
-        }
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ResourcesError::Metrics(MetricsConfigError::InitializationFailure { .. })
+            ),
+            "{:?}",
+            error
+        );
 
         // Reuse of a host name.
         json = format!(
@@ -851,17 +888,24 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(
+        let error = VmResources::from_json(
             json.as_str(),
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
-        ) {
-            Err(ResourcesError::NetDevice(NetworkInterfaceError::CreateNetworkDevice(
-                crate::devices::virtio::net::NetError::TapOpen { .. },
-            ))) => (),
-            _ => unreachable!(),
-        }
+        )
+        .unwrap_err();
+
+        assert!(
+            matches!(
+                error,
+                ResourcesError::NetDevice(NetworkInterfaceError::CreateNetworkDevice(
+                    crate::devices::virtio::net::NetError::TapOpen { .. },
+                ))
+            ),
+            "{:?}",
+            error
+        );
 
         // Let's try now passing a valid configuration. We won't include any logger
         // or metrics configuration because these were already initialized in other
@@ -992,15 +1036,14 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap(),
         );
 
-        match VmResources::from_json(
+        let error = VmResources::from_json(
             json.as_str(),
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
-        ) {
-            Err(ResourcesError::File(_)) => (),
-            _ => unreachable!(),
-        }
+        )
+        .unwrap_err();
+        assert!(matches!(error, ResourcesError::File(_)), "{:?}", error);
     }
 
     #[test]
