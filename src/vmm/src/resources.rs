@@ -680,82 +680,6 @@ mod tests {
             _ => unreachable!(),
         }
 
-        // Invalid vCPU number.
-        json = format!(
-            r#"{{
-                    "boot-source": {{
-                        "kernel_image_path": "{}",
-                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
-                    }},
-                    "drives": [
-                        {{
-                            "drive_id": "rootfs",
-                            "path_on_host": "{}",
-                            "is_root_device": true,
-                            "is_read_only": false
-                        }}
-                    ],
-                    "machine-config": {{
-                        "vcpu_count": 0,
-                        "mem_size_mib": 1024
-                    }}
-            }}"#,
-            kernel_file.as_path().to_str().unwrap(),
-            rootfs_file.as_path().to_str().unwrap()
-        );
-
-        match VmResources::from_json(
-            json.as_str(),
-            &default_instance_info,
-            HTTP_MAX_PAYLOAD_SIZE,
-            None,
-        ) {
-            Err(ResourcesError::InvalidJson(_)) => (),
-            _ => unreachable!(),
-        }
-
-        // Valid config for x86 but invalid on aarch64 because smt is not available.
-        json = format!(
-            r#"{{
-                    "boot-source": {{
-                        "kernel_image_path": "{}",
-                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
-                    }},
-                    "drives": [
-                        {{
-                            "drive_id": "rootfs",
-                            "path_on_host": "{}",
-                            "is_root_device": true,
-                            "is_read_only": false
-                        }}
-                    ],
-                    "machine-config": {{
-                        "vcpu_count": 2,
-                        "mem_size_mib": 1024,
-                        "smt": true
-                    }}
-            }}"#,
-            kernel_file.as_path().to_str().unwrap(),
-            rootfs_file.as_path().to_str().unwrap()
-        );
-
-        #[cfg(target_arch = "x86_64")]
-        VmResources::from_json(
-            json.as_str(),
-            &default_instance_info,
-            HTTP_MAX_PAYLOAD_SIZE,
-            None,
-        )
-        .unwrap();
-        #[cfg(target_arch = "aarch64")]
-        VmResources::from_json(
-            json.as_str(),
-            &default_instance_info,
-            HTTP_MAX_PAYLOAD_SIZE,
-            None,
-        )
-        .unwrap_err();
-
         // Valid config for x86 but invalid on aarch64 since it uses cpu_template.
         json = format!(
             r#"{{
@@ -1330,7 +1254,7 @@ mod tests {
         let mut aux_vm_config = MachineConfigUpdate {
             vcpu_count: Some(32),
             mem_size_mib: Some(512),
-            smt: Some(true),
+            smt: Some(false),
             #[cfg(target_arch = "x86_64")]
             cpu_template: Some(StaticCpuTemplate::T2),
             #[cfg(target_arch = "aarch64")]
@@ -1359,7 +1283,25 @@ mod tests {
             vm_resources.update_vm_config(&aux_vm_config),
             Err(VmConfigError::InvalidVcpuCount)
         );
+
+        // Check that SMT is not supported on aarch64, and that on x86_64 enabling it requires vcpu
+        // count to be even.
+        aux_vm_config.smt = Some(true);
+        #[cfg(target_arch = "aarch64")]
+        assert_eq!(
+            vm_resources.update_vm_config(&aux_vm_config),
+            Err(VmConfigError::SmtNotSupported)
+        );
+        aux_vm_config.vcpu_count = Some(3);
+        #[cfg(target_arch = "x86_64")]
+        assert_eq!(
+            vm_resources.update_vm_config(&aux_vm_config),
+            Err(VmConfigError::InvalidVcpuCount)
+        );
         aux_vm_config.vcpu_count = Some(32);
+        #[cfg(target_arch = "x86_64")]
+        vm_resources.update_vm_config(&aux_vm_config).unwrap();
+        aux_vm_config.smt = Some(false);
 
         // Invalid mem_size_mib.
         aux_vm_config.mem_size_mib = Some(0);

@@ -180,31 +180,24 @@ mod tests {
             parse_put_machine_config(&Body::new(body)).unwrap_err();
         }
 
-        // 5. Test that setting `smt: true` is successful on x86_64 while on aarch64, it is not.
+        // 5. Test that setting `smt: true` is successful
         let body = r#"{
             "vcpu_count": 8,
             "mem_size_mib": 1024,
             "smt": true,
             "track_dirty_pages": true
         }"#;
-        #[cfg(target_arch = "x86_64")]
-        {
-            let expected_config = MachineConfigUpdate {
-                vcpu_count: Some(8),
-                mem_size_mib: Some(1024),
-                smt: Some(true),
-                cpu_template: None,
-                track_dirty_pages: Some(true),
-            };
-            assert_eq!(
-                vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()),
-                VmmAction::UpdateVmConfiguration(expected_config)
-            );
-        }
-        #[cfg(target_arch = "aarch64")]
-        {
-            parse_put_machine_config(&Body::new(body)).unwrap_err();
-        }
+        let expected_config = MachineConfigUpdate {
+            vcpu_count: Some(8),
+            mem_size_mib: Some(1024),
+            smt: Some(true),
+            cpu_template: None,
+            track_dirty_pages: Some(true),
+        };
+        assert_eq!(
+            vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()),
+            VmmAction::UpdateVmConfiguration(expected_config)
+        );
     }
 
     #[test]
