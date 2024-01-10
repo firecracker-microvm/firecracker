@@ -69,6 +69,8 @@ for d in $dirs; do tar c "/$d" | tar x -C $rootfs; done
 
 # Make mountpoints
 mkdir -pv $rootfs/{dev,proc,sys,run,tmp,var/lib/systemd}
+# So apt works
+mkdir -pv $rootfs/var/lib/dpkg/
 EOF
 
     # TBD what abt /etc/hosts?
