@@ -18,7 +18,7 @@ pub const MAX_SUPPORTED_VCPUS: u8 = 32;
 pub enum VmConfigError {
     /// The memory size (MiB) is smaller than the previously set balloon device target size.
     IncompatibleBalloonSize,
-    /// The memory size (MiB) is invalid.
+    /// The memory size (MiB) is either 0, or not a multiple of the configured page size.
     InvalidMemorySize,
     /// The number of vCPUs must be greater than 0, less than {MAX_SUPPORTED_VCPUS:} and must be 1 or an even number if SMT is enabled.
     InvalidVcpuCount,
@@ -27,6 +27,31 @@ pub enum VmConfigError {
     /// Enabling simultaneous multithreading is not supported on aarch64.
     #[cfg(target_arch = "aarch64")]
     SmtNotSupported,
+}
+
+/// Describes the possible (huge)page configurations for a microVM's memory.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HugePageConfig {
+    /// Do not use hugepages, e.g. back guest memory by 4K
+    #[default]
+    None,
+    /// Back guest memory by 2MB hugetlbfs pages
+    #[serde(rename = "2M")]
+    Hugetlbfs2M,
+}
+
+impl HugePageConfig {
+    /// Checks whether the given memory size (in MiB) is valid for this [`HugePageConfig`], e.g.
+    /// whether it is a multiple of the page size
+    fn is_valid_mem_size(&self, mem_size_mib: usize) -> bool {
+        let divisor = match self {
+            // Any integer memory size expressed in MiB will be a multiple of 4096KiB.
+            HugePageConfig::None => 1,
+            HugePageConfig::Hugetlbfs2M => 2,
+        };
+
+        mem_size_mib % divisor == 0
+    }
 }
 
 /// Struct used in PUT `/machine-config` API call.
@@ -46,6 +71,9 @@ pub struct MachineConfig {
     /// Enables or disables dirty page tracking. Enabling allows incremental snapshots.
     #[serde(default)]
     pub track_dirty_pages: bool,
+    /// Configures what page size Firecracker should use to back guest memory.
+    #[serde(default)]
+    pub huge_pages: HugePageConfig,
 }
 
 impl Default for MachineConfig {
@@ -78,6 +106,9 @@ pub struct MachineConfigUpdate {
     /// Enables or disables dirty page tracking. Enabling allows incremental snapshots.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub track_dirty_pages: Option<bool>,
+    /// Configures what page size Firecracker should use to back guest memory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub huge_pages: Option<HugePageConfig>,
 }
 
 impl MachineConfigUpdate {
@@ -97,6 +128,7 @@ impl From<MachineConfig> for MachineConfigUpdate {
             smt: Some(cfg.smt),
             cpu_template: cfg.cpu_template,
             track_dirty_pages: Some(cfg.track_dirty_pages),
+            huge_pages: Some(cfg.huge_pages),
         }
     }
 }
@@ -114,6 +146,8 @@ pub struct VmConfig {
     pub cpu_template: Option<CpuTemplateType>,
     /// Enables or disables dirty page tracking. Enabling allows incremental snapshots.
     pub track_dirty_pages: bool,
+    /// Configures what page size Firecracker should use to back guest memory.
+    pub huge_pages: HugePageConfig,
 }
 
 impl VmConfig {
@@ -148,8 +182,9 @@ impl VmConfig {
         }
 
         let mem_size_mib = update.mem_size_mib.unwrap_or(self.mem_size_mib);
+        let page_config = update.huge_pages.unwrap_or(self.huge_pages);
 
-        if mem_size_mib == 0 {
+        if mem_size_mib == 0 || !page_config.is_valid_mem_size(mem_size_mib) {
             return Err(VmConfigError::InvalidMemorySize);
         }
 
@@ -165,6 +200,7 @@ impl VmConfig {
             smt,
             cpu_template,
             track_dirty_pages: update.track_dirty_pages.unwrap_or(self.track_dirty_pages),
+            huge_pages: page_config,
         })
     }
 }
@@ -177,6 +213,7 @@ impl Default for VmConfig {
             smt: false,
             cpu_template: None,
             track_dirty_pages: false,
+            huge_pages: HugePageConfig::None,
         }
     }
 }
@@ -189,6 +226,7 @@ impl From<&VmConfig> for MachineConfig {
             smt: value.smt,
             cpu_template: value.cpu_template.as_ref().map(|template| template.into()),
             track_dirty_pages: value.track_dirty_pages,
+            huge_pages: value.huge_pages,
         }
     }
 }

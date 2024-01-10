@@ -74,6 +74,7 @@ pub(crate) fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, E
 #[cfg(test)]
 mod tests {
     use vmm::cpu_config::templates::StaticCpuTemplate;
+    use vmm::vmm_config::machine_config::HugePageConfig;
 
     use super::*;
     use crate::api_server::parsed_request::tests::{depr_action_from_req, vmm_action_from_request};
@@ -101,22 +102,33 @@ mod tests {
         }"#;
         parse_put_machine_config(&Body::new(body)).unwrap_err();
 
-        // 3. Test case for success scenarios for both architectures.
-        let body = r#"{
-            "vcpu_count": 8,
-            "mem_size_mib": 1024
-        }"#;
-        let expected_config = MachineConfigUpdate {
-            vcpu_count: Some(8),
-            mem_size_mib: Some(1024),
-            smt: Some(false),
-            cpu_template: None,
-            track_dirty_pages: Some(false),
-        };
-        assert_eq!(
-            vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()),
-            VmmAction::UpdateVmConfiguration(expected_config)
-        );
+        let huge_pages_cases = [
+            ("None", HugePageConfig::None),
+            ("2M", HugePageConfig::Hugetlbfs2M),
+        ];
+
+        for (huge_page, expected) in huge_pages_cases {
+            // 3. Test case for success scenarios for both architectures.
+            let body = format!(
+                r#"{{
+                "vcpu_count": 8,
+                "mem_size_mib": 1024,
+                "huge_pages": "{huge_page}"
+            }}"#
+            );
+            let expected_config = MachineConfigUpdate {
+                vcpu_count: Some(8),
+                mem_size_mib: Some(1024),
+                smt: Some(false),
+                cpu_template: None,
+                track_dirty_pages: Some(false),
+                huge_pages: Some(expected),
+            };
+            assert_eq!(
+                vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()),
+                VmmAction::UpdateVmConfiguration(expected_config)
+            );
+        }
 
         let body = r#"{
             "vcpu_count": 8,
@@ -129,6 +141,7 @@ mod tests {
             smt: Some(false),
             cpu_template: Some(StaticCpuTemplate::None),
             track_dirty_pages: Some(false),
+            huge_pages: Some(HugePageConfig::None),
         };
         assert_eq!(
             vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()),
@@ -147,6 +160,7 @@ mod tests {
             smt: Some(false),
             cpu_template: None,
             track_dirty_pages: Some(true),
+            huge_pages: Some(HugePageConfig::None),
         };
         assert_eq!(
             vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()),
@@ -169,6 +183,7 @@ mod tests {
                 smt: Some(false),
                 cpu_template: Some(StaticCpuTemplate::T2),
                 track_dirty_pages: Some(true),
+                huge_pages: Some(HugePageConfig::None),
             };
             assert_eq!(
                 vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()),
@@ -193,11 +208,20 @@ mod tests {
             smt: Some(true),
             cpu_template: None,
             track_dirty_pages: Some(true),
+            huge_pages: Some(HugePageConfig::None),
         };
         assert_eq!(
             vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()),
             VmmAction::UpdateVmConfiguration(expected_config)
         );
+
+        // 6. Test nonsense values for huge page size
+        let body = r#"{
+            "vcpu_count": 8,
+            "mem_size_mib": 1024,
+            "huge_pages": "7M"
+        }"#;
+        parse_put_machine_config(&Body::new(body)).unwrap_err();
     }
 
     #[test]
