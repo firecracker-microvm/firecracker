@@ -481,7 +481,7 @@ mod tests {
         BootConfig, BootSource, BootSourceConfig, DEFAULT_KERNEL_CMDLINE,
     };
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
-    use crate::vmm_config::machine_config::{MachineConfig, VmConfigError};
+    use crate::vmm_config::machine_config::{HugePageConfig, MachineConfig, VmConfigError};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::RateLimiterConfig;
@@ -1296,6 +1296,7 @@ mod tests {
             #[cfg(target_arch = "aarch64")]
             cpu_template: Some(StaticCpuTemplate::V1N1),
             track_dirty_pages: Some(false),
+            huge_pages: Some(HugePageConfig::None),
         };
 
         assert_ne!(
@@ -1363,6 +1364,18 @@ mod tests {
 
         // mem_size_mib compatible with balloon size.
         aux_vm_config.mem_size_mib = Some(256);
+        vm_resources.update_vm_config(&aux_vm_config).unwrap();
+
+        // mem_size_mib incompatible with huge pages configuration
+        aux_vm_config.mem_size_mib = Some(129);
+        aux_vm_config.huge_pages = Some(HugePageConfig::Hugetlbfs2M);
+        assert_eq!(
+            vm_resources.update_vm_config(&aux_vm_config).unwrap_err(),
+            VmConfigError::InvalidMemorySize
+        );
+
+        // mem_size_mib compatible with huge page configuration
+        aux_vm_config.mem_size_mib = Some(2048);
         vm_resources.update_vm_config(&aux_vm_config).unwrap();
     }
 

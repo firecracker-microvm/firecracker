@@ -797,7 +797,8 @@ mod tests {
     "vcpu_count": 1,
     "mem_size_mib": 128,
     "smt": false,
-    "track_dirty_pages": false
+    "track_dirty_pages": false,
+    "huge_pages": "None"
   }},
   "metrics": null,
   "mmds-config": {{

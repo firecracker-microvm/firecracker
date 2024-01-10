@@ -399,6 +399,7 @@ pub fn restore_from_snapshot(
             smt: Some(microvm_state.vm_info.smt),
             cpu_template: Some(microvm_state.vm_info.cpu_template),
             track_dirty_pages: Some(track_dirty_pages),
+            huge_pages: None, // TODO: snapshot integration
         })
         .map_err(BuildMicrovmFromSnapshotError::VmUpdateConfig)?;
 
