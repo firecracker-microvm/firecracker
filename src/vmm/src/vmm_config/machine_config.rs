@@ -1,6 +1,6 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-use std::fmt::{self, Debug};
+use std::fmt::Debug;
 
 use serde::{de, Deserialize, Serialize};
 
@@ -49,17 +49,6 @@ pub struct MachineConfig {
 impl Default for MachineConfig {
     fn default() -> Self {
         Self::from(&VmConfig::default())
-    }
-}
-
-impl fmt::Display for MachineConfig {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{{ \"vcpu_count\": {:?}, \"mem_size_mib\": {:?}, \"smt\": {:?}, \"cpu_template\": \
-             {:?}, \"track_dirty_pages\": {:?} }}",
-            self.vcpu_count, self.mem_size_mib, self.smt, self.cpu_template, self.track_dirty_pages
-        )
     }
 }
 
