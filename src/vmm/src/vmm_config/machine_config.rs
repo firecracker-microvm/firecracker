@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 use std::fmt::Debug;
 
-use serde::{de, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::cpu_config::templates::{CpuTemplateType, CustomCpuTemplate, StaticCpuTemplate};
 
@@ -20,10 +20,13 @@ pub enum VmConfigError {
     IncompatibleBalloonSize,
     /// The memory size (MiB) is invalid.
     InvalidMemorySize,
-    /// The vCPU number is invalid! The vCPU number can only be 1 or an even number when SMT is enabled.
+    /// The number of vCPUs must be greater than 0, less than {MAX_SUPPORTED_VCPUS:} and must be 1 or an even number if SMT is enabled.
     InvalidVcpuCount,
     /// Could not get the configuration of the previously installed balloon device to validate the memory size.
     InvalidVmState,
+    /// Enabling simultaneous multithreading is not supported on aarch64.
+    #[cfg(target_arch = "aarch64")]
+    SmtNotSupported,
 }
 
 /// Struct used in PUT `/machine-config` API call.
@@ -31,12 +34,11 @@ pub enum VmConfigError {
 #[serde(deny_unknown_fields)]
 pub struct MachineConfig {
     /// Number of vcpu to start.
-    #[serde(deserialize_with = "deserialize_vcpu_num")]
     pub vcpu_count: u8,
     /// The memory size in MiB.
     pub mem_size_mib: usize,
     /// Enables or disabled SMT.
-    #[serde(default, deserialize_with = "deserialize_smt")]
+    #[serde(default)]
     pub smt: bool,
     /// A CPU template that it is used to filter the CPU features exposed to the guest.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -62,21 +64,13 @@ impl Default for MachineConfig {
 #[serde(deny_unknown_fields)]
 pub struct MachineConfigUpdate {
     /// Number of vcpu to start.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_vcpu_num"
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vcpu_count: Option<u8>,
     /// The memory size in MiB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mem_size_mib: Option<usize>,
     /// Enables or disabled SMT.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_smt"
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub smt: Option<bool>,
     /// A CPU template that it is used to filter the CPU features exposed to the guest.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -146,7 +140,12 @@ impl VmConfig {
 
         let smt = update.smt.unwrap_or(self.smt);
 
-        if vcpu_count == 0 {
+        #[cfg(target_arch = "aarch64")]
+        if smt {
+            return Err(VmConfigError::SmtNotSupported);
+        }
+
+        if vcpu_count == 0 || vcpu_count > MAX_SUPPORTED_VCPUS {
             return Err(VmConfigError::InvalidVcpuCount);
         }
 
@@ -204,54 +203,4 @@ impl From<&VmConfig> for MachineConfig {
             track_dirty_pages: value.track_dirty_pages,
         }
     }
-}
-
-/// Deserialization function for the `vcpu_num` field in `MachineConfig` and `MachineConfigUpdate`.
-/// This is called only when `vcpu_num` is present in the JSON configuration.
-/// `T` can be either `u8` or `Option<u8>` which both support ordering if `vcpu_num` is
-/// present in the JSON.
-fn deserialize_vcpu_num<'de, D, T>(d: D) -> Result<T, D::Error>
-where
-    D: de::Deserializer<'de>,
-    T: Deserialize<'de> + PartialOrd + From<u8> + Debug,
-{
-    let val = T::deserialize(d)?;
-
-    if val > T::from(MAX_SUPPORTED_VCPUS) {
-        return Err(de::Error::invalid_value(
-            de::Unexpected::Other("vcpu_num"),
-            &"number of vCPUs exceeds the maximum limitation",
-        ));
-    }
-    if val < T::from(1) {
-        return Err(de::Error::invalid_value(
-            de::Unexpected::Other("vcpu_num"),
-            &"number of vCPUs should be larger than 0",
-        ));
-    }
-
-    Ok(val)
-}
-
-/// Deserialization function for the `smt` field in `MachineConfig` and `MachineConfigUpdate`.
-/// This is called only when `smt` is present in the JSON configuration.
-fn deserialize_smt<'de, D, T>(d: D) -> Result<T, D::Error>
-where
-    D: de::Deserializer<'de>,
-    T: Deserialize<'de> + PartialEq + From<bool> + Debug,
-{
-    let val = T::deserialize(d)?;
-
-    // If this function was called it means that `smt` was specified in
-    // the JSON. On aarch64 the only accepted value is `false` so throw an
-    // error if `true` was specified.
-    #[cfg(target_arch = "aarch64")]
-    if val == T::from(true) {
-        return Err(de::Error::invalid_value(
-            de::Unexpected::Other("smt"),
-            &"Enabling simultaneous multithreading is not supported on aarch64",
-        ));
-    }
-
-    Ok(val)
 }
