@@ -969,6 +969,7 @@ pub mod tests {
     use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_RNG};
     use crate::mmds::data_store::{Mmds, MmdsVersion};
     use crate::mmds::ns::MmdsNetworkStack;
+    use crate::utilities::test_utils::{arch_mem, single_region_mem, single_region_mem_at};
     use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
     use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
@@ -1040,7 +1041,7 @@ pub mod tests {
     }
 
     pub(crate) fn default_vmm() -> Vmm {
-        let guest_memory = GuestMemoryMmap::with_size(128, false).unwrap();
+        let guest_memory = arch_mem(128 << 20);
 
         let vcpus_exit_evt = EventFd::new(libc::EFD_NONBLOCK)
             .map_err(VmmError::EventFd)
@@ -1268,8 +1269,6 @@ pub mod tests {
         );
     }
 
-    use crate::utilities::test_utils::{single_region_mem, single_region_mem_at};
-
     #[test]
     fn test_load_initrd_unaligned() {
         let image = vec![1, 2, 3, 4];
@@ -1289,7 +1288,7 @@ pub mod tests {
     #[test]
     fn test_create_vcpus() {
         let vcpu_count = 2;
-        let guest_memory = GuestMemoryMmap::with_size(128, false).unwrap();
+        let guest_memory = arch_mem(128 << 20);
 
         #[allow(unused_mut)]
         let mut vm = Vm::new(vec![]).unwrap();
