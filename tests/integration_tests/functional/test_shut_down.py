@@ -6,6 +6,8 @@ import os
 import platform
 import time
 
+from packaging import version
+
 from framework import utils
 
 
@@ -58,7 +60,7 @@ def test_reboot(test_microvm_with_api):
     if platform.machine() != "x86_64":
         message = (
             "Received KVM_SYSTEM_EVENT: type: 2, event: [0]"
-            if "6.1" in platform.release()
+            if version.parse(utils.get_kernel_version()) >= version.parse("5.18")
             else "Received KVM_SYSTEM_EVENT: type: 2, event: []"
         )
         vm.check_log_message(message)
