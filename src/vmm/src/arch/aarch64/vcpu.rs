@@ -218,17 +218,15 @@ mod tests {
     use kvm_ioctls::Kvm;
 
     use super::*;
-    use crate::arch::aarch64::{arch_memory_regions, layout};
-    use crate::vstate::memory::GuestMemoryExtension;
+    use crate::arch::aarch64::layout;
+    use crate::utilities::test_utils::arch_mem;
 
     #[test]
     fn test_setup_regs() {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let vcpu = vm.create_vcpu(0).unwrap();
-        let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem =
-            GuestMemoryMmap::from_raw_regions(&regions, false).expect("Cannot initialize memory");
+        let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
 
         let res = setup_boot_regs(&vcpu, 0, 0x0, &mem);
         assert!(matches!(

@@ -172,13 +172,12 @@ impl PortIODeviceManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vstate::memory::{GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
+    use crate::utilities::test_utils::single_region_mem;
     use crate::Vm;
 
     #[test]
     fn test_register_legacy_devices() {
-        let guest_mem =
-            GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0x0), 0x1000)], false).unwrap();
+        let guest_mem = single_region_mem(0x1000);
         let mut vm = Vm::new(vec![]).unwrap();
         vm.memory_init(&guest_mem, false).unwrap();
         crate::builder::setup_interrupt_controller(&mut vm).unwrap();

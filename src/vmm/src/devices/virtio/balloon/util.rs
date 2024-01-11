@@ -263,7 +263,7 @@ mod tests {
     /// BEGIN PROPERTY BASED TESTING
     use proptest::prelude::*;
 
-    use crate::devices::virtio::test_utils::single_region_mem;
+    use crate::utilities::test_utils::single_region_mem;
 
     #[allow(clippy::let_with_type_underscore)]
     fn random_pfn_u32_max() -> impl Strategy<Value = Vec<u32>> {

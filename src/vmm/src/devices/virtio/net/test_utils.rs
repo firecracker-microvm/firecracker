@@ -364,9 +364,8 @@ pub mod test {
     use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
     use crate::logger::IncMetric;
-    use crate::vstate::memory::{
-        Address, Bytes, GuestAddress, GuestMemoryExtension, GuestMemoryMmap,
-    };
+    use crate::utilities::test_utils::single_region_mem;
+    use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
     pub struct TestHelper<'a> {
         pub event_manager: EventManager<Arc<Mutex<Net>>>,
@@ -396,9 +395,8 @@ pub mod test {
         pub fn get_default() -> TestHelper<'a> {
             let mut event_manager = EventManager::new().unwrap();
             let mut net = default_net();
-            let mem =
-                GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), MAX_BUFFER_SIZE)], false)
-                    .unwrap();
+            let mem = single_region_mem(MAX_BUFFER_SIZE);
+
             // transmute mem_ref lifetime to 'a
             let mem_ref = unsafe { mem::transmute::<&GuestMemoryMmap, &'a GuestMemoryMmap>(&mem) };
 

@@ -467,7 +467,8 @@ mod tests {
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::queue::Queue;
     use crate::devices::virtio::ActivateError;
-    use crate::vstate::memory::{GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
+    use crate::utilities::test_utils::multi_region_mem;
+    use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
     use crate::{builder, Vm};
 
     const QUEUE_SIZES: &[u16] = &[64];
@@ -581,11 +582,7 @@ mod tests {
     fn test_register_virtio_device() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem = GuestMemoryMmap::from_raw_regions(
-            &[(start_addr1, 0x1000), (start_addr2, 0x1000)],
-            false,
-        )
-        .unwrap();
+        let guest_mem = multi_region_mem(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
         let mut vm = Vm::new(vec![]).unwrap();
         vm.memory_init(&guest_mem, false).unwrap();
         let mut device_manager = MMIODeviceManager::new(
@@ -611,11 +608,7 @@ mod tests {
     fn test_register_too_many_devices() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem = GuestMemoryMmap::from_raw_regions(
-            &[(start_addr1, 0x1000), (start_addr2, 0x1000)],
-            false,
-        )
-        .unwrap();
+        let guest_mem = multi_region_mem(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
         let mut vm = Vm::new(vec![]).unwrap();
         vm.memory_init(&guest_mem, false).unwrap();
         let mut device_manager = MMIODeviceManager::new(
@@ -671,11 +664,7 @@ mod tests {
     fn test_device_info() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem = GuestMemoryMmap::from_raw_regions(
-            &[(start_addr1, 0x1000), (start_addr2, 0x1000)],
-            false,
-        )
-        .unwrap();
+        let guest_mem = multi_region_mem(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
         let mut vm = Vm::new(vec![]).unwrap();
         vm.memory_init(&guest_mem, false).unwrap();
 

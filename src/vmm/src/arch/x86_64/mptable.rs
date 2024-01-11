@@ -299,7 +299,8 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<(), MptableE
 mod tests {
 
     use super::*;
-    use crate::vstate::memory::{Bytes, GuestMemoryExtension};
+    use crate::utilities::test_utils::single_region_mem_at;
+    use crate::vstate::memory::Bytes;
 
     fn table_entry_size(type_: u8) -> usize {
         match u32::from(type_) {
@@ -315,11 +316,7 @@ mod tests {
     #[test]
     fn bounds_check() {
         let num_cpus = 4;
-        let mem = GuestMemoryMmap::from_raw_regions(
-            &[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus))],
-            false,
-        )
-        .unwrap();
+        let mem = single_region_mem_at(MPTABLE_START, compute_mp_size(num_cpus));
 
         setup_mptable(&mem, num_cpus).unwrap();
     }
@@ -327,11 +324,7 @@ mod tests {
     #[test]
     fn bounds_check_fails() {
         let num_cpus = 4;
-        let mem = GuestMemoryMmap::from_raw_regions(
-            &[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus) - 1)],
-            false,
-        )
-        .unwrap();
+        let mem = single_region_mem_at(MPTABLE_START, compute_mp_size(num_cpus) - 1);
 
         setup_mptable(&mem, num_cpus).unwrap_err();
     }
@@ -339,11 +332,7 @@ mod tests {
     #[test]
     fn mpf_intel_checksum() {
         let num_cpus = 1;
-        let mem = GuestMemoryMmap::from_raw_regions(
-            &[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus))],
-            false,
-        )
-        .unwrap();
+        let mem = single_region_mem_at(MPTABLE_START, compute_mp_size(num_cpus));
 
         setup_mptable(&mem, num_cpus).unwrap();
 
@@ -355,11 +344,7 @@ mod tests {
     #[test]
     fn mpc_table_checksum() {
         let num_cpus = 4;
-        let mem = GuestMemoryMmap::from_raw_regions(
-            &[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus))],
-            false,
-        )
-        .unwrap();
+        let mem = single_region_mem_at(MPTABLE_START, compute_mp_size(num_cpus));
 
         setup_mptable(&mem, num_cpus).unwrap();
 
@@ -381,11 +366,7 @@ mod tests {
     #[test]
     fn mpc_entry_count() {
         let num_cpus = 1;
-        let mem = GuestMemoryMmap::from_raw_regions(
-            &[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus))],
-            false,
-        )
-        .unwrap();
+        let mem = single_region_mem_at(MPTABLE_START, compute_mp_size(num_cpus));
 
         setup_mptable(&mem, num_cpus).unwrap();
 
@@ -413,14 +394,7 @@ mod tests {
 
     #[test]
     fn cpu_entry_count() {
-        let mem = GuestMemoryMmap::from_raw_regions(
-            &[(
-                GuestAddress(MPTABLE_START),
-                compute_mp_size(MAX_SUPPORTED_CPUS),
-            )],
-            false,
-        )
-        .unwrap();
+        let mem = single_region_mem_at(MPTABLE_START, compute_mp_size(MAX_SUPPORTED_CPUS));
 
         for i in 0..MAX_SUPPORTED_CPUS {
             setup_mptable(&mem, i).unwrap();
@@ -451,11 +425,7 @@ mod tests {
     #[test]
     fn cpu_entry_count_max() {
         let cpus = MAX_SUPPORTED_CPUS + 1;
-        let mem = GuestMemoryMmap::from_raw_regions(
-            &[(GuestAddress(MPTABLE_START), compute_mp_size(cpus))],
-            false,
-        )
-        .unwrap();
+        let mem = single_region_mem_at(MPTABLE_START, compute_mp_size(cpus));
 
         let result = setup_mptable(&mem, cpus).unwrap_err();
         assert_eq!(result, MptableError::TooManyCpus);
