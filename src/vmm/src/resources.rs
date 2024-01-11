@@ -10,7 +10,7 @@ use utils::net::ipv4addr::is_link_local_valid;
 
 use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::device_manager::persist::SharedDeviceType;
-use crate::logger::info;
+use crate::logger::{info, log_dev_preview_warning};
 use crate::mmds;
 use crate::mmds::data_store::{Mmds, MmdsVersion};
 use crate::mmds::ns::MmdsNetworkStack;
@@ -22,7 +22,7 @@ use crate::vmm_config::drive::*;
 use crate::vmm_config::entropy::*;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{
-    MachineConfig, MachineConfigUpdate, VmConfig, VmConfigError,
+    HugePageConfig, MachineConfig, MachineConfigUpdate, VmConfig, VmConfigError,
 };
 use crate::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
@@ -238,6 +238,10 @@ impl VmResources {
 
     /// Updates the configuration of the microVM.
     pub fn update_vm_config(&mut self, update: &MachineConfigUpdate) -> Result<(), VmConfigError> {
+        if update.huge_pages.is_some() && update.huge_pages != Some(HugePageConfig::None) {
+            log_dev_preview_warning("Huge pages support", None);
+        }
+
         let updated = self.vm_config.update(update)?;
 
         // The VM cannot have a memory size smaller than the target size
