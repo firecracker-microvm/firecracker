@@ -206,6 +206,7 @@ pub mod tests {
     use super::*;
     use crate::devices::virtio::block::virtio::device::FileEngineType;
     use crate::devices::virtio::block::virtio::request::PendingRequest;
+    use crate::vmm_config::machine_config::HugePageConfig;
     use crate::vstate::memory::{Bitmap, Bytes, GuestMemory, GuestMemoryExtension};
 
     const FILE_LEN: u32 = 1024;
@@ -256,7 +257,8 @@ pub mod tests {
     }
 
     fn create_mem() -> GuestMemoryMmap {
-        GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), MEM_LEN)], true).unwrap()
+        GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), MEM_LEN)], true, HugePageConfig::None)
+            .unwrap()
     }
 
     fn check_dirty_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: u32) {
