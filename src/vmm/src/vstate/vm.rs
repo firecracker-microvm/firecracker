@@ -467,15 +467,15 @@ impl fmt::Debug for VmState {
 
 #[cfg(test)]
 pub(crate) mod tests {
-
     use super::*;
     #[cfg(target_arch = "x86_64")]
     use crate::snapshot::Snapshot;
-    use crate::vstate::memory::{GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
+    use crate::utilities::test_utils::single_region_mem;
+    use crate::vstate::memory::GuestMemoryMmap;
 
     // Auxiliary function being used throughout the tests.
     pub(crate) fn setup_vm(mem_size: usize) -> (Vm, GuestMemoryMmap) {
-        let gm = GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), mem_size)], false).unwrap();
+        let gm = single_region_mem(mem_size);
 
         let vm = Vm::new(vec![]).expect("Cannot create new vm");
         vm.memory_init(&gm, false).unwrap();
@@ -512,7 +512,7 @@ pub(crate) mod tests {
         let vm = Vm::new(vec![]).expect("Cannot create new vm");
 
         // Create valid memory region and test that the initialization is successful.
-        let gm = GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), 0x1000)], false).unwrap();
+        let gm = single_region_mem(0x1000);
         vm.memory_init(&gm, true).unwrap();
     }
 
@@ -589,13 +589,13 @@ pub(crate) mod tests {
     fn test_set_kvm_memory_regions() {
         let vm = Vm::new(vec![]).expect("Cannot create new vm");
 
-        let gm = GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), 0x1000)], false).unwrap();
+        let gm = single_region_mem(0x1000);
         let res = vm.set_kvm_memory_regions(&gm, false);
         res.unwrap();
 
         // Trying to set a memory region with a size that is not a multiple of PAGE_SIZE
         // will result in error.
-        let gm = GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), 0x10)], false).unwrap();
+        let gm = single_region_mem(0x10);
         let res = vm.set_kvm_memory_regions(&gm, false);
         assert_eq!(
             res.unwrap_err().to_string(),

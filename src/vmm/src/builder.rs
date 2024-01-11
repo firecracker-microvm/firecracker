@@ -1229,18 +1229,6 @@ pub mod tests {
         fake_bin
     }
 
-    fn create_guest_mem_at(at: GuestAddress, size: usize) -> GuestMemoryMmap {
-        GuestMemoryMmap::from_raw_regions(&[(at, size)], false).unwrap()
-    }
-
-    pub(crate) fn create_guest_mem_with_size(size: usize) -> GuestMemoryMmap {
-        create_guest_mem_at(GuestAddress(0x0), size)
-    }
-
-    fn is_dirty_tracking_enabled(mem: &GuestMemoryMmap) -> bool {
-        mem.iter().all(|r| r.bitmap().is_some())
-    }
-
     #[test]
     // Test that loading the initrd is successful on different archs.
     fn test_load_initrd() {
@@ -1254,10 +1242,10 @@ pub mod tests {
         tempfile.write_all(&image).unwrap();
 
         #[cfg(target_arch = "x86_64")]
-        let gm = create_guest_mem_with_size(mem_size);
+        let gm = single_region_mem(mem_size);
 
         #[cfg(target_arch = "aarch64")]
-        let gm = create_guest_mem_with_size(mem_size + crate::arch::aarch64::layout::FDT_MAX_SIZE);
+        let gm = single_region_mem(mem_size + crate::arch::aarch64::layout::FDT_MAX_SIZE);
 
         let res = load_initrd(&gm, &mut tempfile);
         let initrd = res.unwrap();
@@ -1267,7 +1255,7 @@ pub mod tests {
 
     #[test]
     fn test_load_initrd_no_memory() {
-        let gm = create_guest_mem_with_size(79);
+        let gm = single_region_mem(79);
         let image = make_test_bin();
         let tempfile = TempFile::new().unwrap();
         let mut tempfile = tempfile.into_file();
@@ -1280,16 +1268,15 @@ pub mod tests {
         );
     }
 
+    use crate::utilities::test_utils::{single_region_mem, single_region_mem_at};
+
     #[test]
     fn test_load_initrd_unaligned() {
         let image = vec![1, 2, 3, 4];
         let tempfile = TempFile::new().unwrap();
         let mut tempfile = tempfile.into_file();
         tempfile.write_all(&image).unwrap();
-        let gm = create_guest_mem_at(
-            GuestAddress(crate::arch::PAGE_SIZE as u64 + 1),
-            image.len() * 2,
-        );
+        let gm = single_region_mem_at(crate::arch::PAGE_SIZE as u64 + 1, image.len() * 2);
 
         let res = load_initrd(&gm, &mut tempfile);
         assert!(
@@ -1297,23 +1284,6 @@ pub mod tests {
             "{:?}",
             res
         );
-    }
-
-    #[test]
-    fn test_create_guest_memory() {
-        let mem_size = 4096 * 2;
-
-        // Case 1: create guest memory without dirty page tracking
-        {
-            let guest_memory = GuestMemoryMmap::with_size(mem_size, false).unwrap();
-            assert!(!is_dirty_tracking_enabled(&guest_memory));
-        }
-
-        // Case 2: create guest memory with dirty page tracking
-        {
-            let guest_memory = GuestMemoryMmap::with_size(mem_size, true).unwrap();
-            assert!(is_dirty_tracking_enabled(&guest_memory));
-        }
     }
 
     #[test]

@@ -659,7 +659,8 @@ pub(crate) mod tests {
     };
     use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
-    use crate::vstate::memory::{GuestAddress, GuestMemoryExtension};
+    use crate::utilities::test_utils::single_region_mem;
+    use crate::vstate::memory::GuestAddress;
 
     impl Balloon {
         pub(crate) fn set_queue(&mut self, idx: usize, q: Queue) {
@@ -1136,9 +1137,7 @@ pub(crate) mod tests {
         // Assert that we can't update an inactive device.
         balloon.update_size(1).unwrap_err();
         // Switch the state to active.
-        balloon.device_state = DeviceState::Activated(
-            GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0x0), 0x1)], false).unwrap(),
-        );
+        balloon.device_state = DeviceState::Activated(single_region_mem(0x1));
 
         assert_eq!(balloon.num_pages(), 0);
         assert_eq!(balloon.actual_pages(), 0);

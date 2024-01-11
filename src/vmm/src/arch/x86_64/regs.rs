@@ -238,17 +238,13 @@ fn setup_page_tables(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<(),
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::cast_possible_truncation)]
+
     use kvm_ioctls::Kvm;
-    use utils::u64_to_usize;
 
     use super::*;
-    use crate::vstate::memory::{Bytes, GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
-
-    fn create_guest_mem(mem_size: Option<u64>) -> GuestMemoryMmap {
-        let page_size = 0x10000usize;
-        let mem_size = u64_to_usize(mem_size.unwrap_or(page_size as u64));
-        GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), mem_size)], false).unwrap()
-    }
+    use crate::utilities::test_utils::single_region_mem;
+    use crate::vstate::memory::{Bytes, GuestAddress, GuestMemoryMmap};
 
     fn read_u64(gm: &GuestMemoryMmap, offset: u64) -> u64 {
         let read_addr = GuestAddress(offset);
@@ -335,7 +331,7 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let vcpu = vm.create_vcpu(0).unwrap();
-        let gm = create_guest_mem(None);
+        let gm = single_region_mem(0x10000);
 
         vcpu.set_sregs(&Default::default()).unwrap();
         setup_sregs(&gm, &vcpu).unwrap();
@@ -352,7 +348,7 @@ mod tests {
     #[test]
     fn test_write_gdt_table() {
         // Not enough memory for the gdt table to be written.
-        let gm = create_guest_mem(Some(BOOT_GDT_OFFSET));
+        let gm = single_region_mem(BOOT_GDT_OFFSET as usize);
         let gdt_table: [u64; BOOT_GDT_MAX] = [
             gdt_entry(0, 0, 0),            // NULL
             gdt_entry(0xa09b, 0, 0xfffff), // CODE
@@ -362,9 +358,8 @@ mod tests {
         write_gdt_table(&gdt_table, &gm).unwrap_err();
 
         // We allocate exactly the amount needed to write four u64 to `BOOT_GDT_OFFSET`.
-        let gm = create_guest_mem(Some(
-            BOOT_GDT_OFFSET + (mem::size_of::<u64>() * BOOT_GDT_MAX) as u64,
-        ));
+        let gm =
+            single_region_mem(BOOT_GDT_OFFSET as usize + (mem::size_of::<u64>() * BOOT_GDT_MAX));
 
         let gdt_table: [u64; BOOT_GDT_MAX] = [
             gdt_entry(0, 0, 0),            // NULL
@@ -378,11 +373,11 @@ mod tests {
     #[test]
     fn test_write_idt_table() {
         // Not enough memory for the a u64 value to fit.
-        let gm = create_guest_mem(Some(BOOT_IDT_OFFSET));
+        let gm = single_region_mem(BOOT_IDT_OFFSET as usize);
         let val = 0x100;
         write_idt_value(val, &gm).unwrap_err();
 
-        let gm = create_guest_mem(Some(BOOT_IDT_OFFSET + mem::size_of::<u64>() as u64));
+        let gm = single_region_mem(BOOT_IDT_OFFSET as usize + mem::size_of::<u64>());
         // We have allocated exactly the amount neded to write an u64 to `BOOT_IDT_OFFSET`.
         write_idt_value(val, &gm).unwrap();
     }
@@ -390,7 +385,7 @@ mod tests {
     #[test]
     fn test_configure_segments_and_sregs() {
         let mut sregs: kvm_sregs = Default::default();
-        let gm = create_guest_mem(None);
+        let gm = single_region_mem(0x10000);
         configure_segments_and_sregs(&gm, &mut sregs).unwrap();
 
         validate_segments_and_sregs(&gm, &sregs);
@@ -399,16 +394,16 @@ mod tests {
     #[test]
     fn test_setup_page_tables() {
         let mut sregs: kvm_sregs = Default::default();
-        let gm = create_guest_mem(Some(PML4_START));
+        let gm = single_region_mem(PML4_START as usize);
         setup_page_tables(&gm, &mut sregs).unwrap_err();
 
-        let gm = create_guest_mem(Some(PDPTE_START));
+        let gm = single_region_mem(PDPTE_START as usize);
         setup_page_tables(&gm, &mut sregs).unwrap_err();
 
-        let gm = create_guest_mem(Some(PDE_START));
+        let gm = single_region_mem(PDE_START as usize);
         setup_page_tables(&gm, &mut sregs).unwrap_err();
 
-        let gm = create_guest_mem(None);
+        let gm = single_region_mem(0x10000);
         setup_page_tables(&gm, &mut sregs).unwrap();
 
         validate_page_tables(&gm, &sregs);

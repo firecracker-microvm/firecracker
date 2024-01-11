@@ -11,12 +11,13 @@ use utils::eventfd::EventFd;
 
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
-use crate::devices::virtio::test_utils::{single_region_mem, VirtQueue as GuestQ};
+use crate::devices::virtio::test_utils::VirtQueue as GuestQ;
 use crate::devices::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
 use crate::devices::virtio::vsock::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
 use crate::devices::virtio::vsock::{
     Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
 };
+use crate::utilities::test_utils::single_region_mem;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
 #[derive(Debug)]

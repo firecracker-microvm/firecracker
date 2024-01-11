@@ -210,7 +210,7 @@ mod tests {
     use linux_loader::loader::bootparam::boot_e820_entry;
 
     use super::*;
-    use crate::vstate::memory::GuestMemoryExtension;
+    use crate::utilities::test_utils::{arch_mem, single_region_mem};
 
     #[test]
     fn regions_lt_4gb() {
@@ -231,7 +231,7 @@ mod tests {
     #[test]
     fn test_system_configuration() {
         let no_vcpus = 4;
-        let gm = GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), 0x10000)], false).unwrap();
+        let gm = single_region_mem(0x10000);
         let config_err = configure_system(&gm, GuestAddress(0), 0, &None, 1);
         assert_eq!(
             config_err.unwrap_err(),
@@ -240,20 +240,17 @@ mod tests {
 
         // Now assigning some memory that falls before the 32bit memory hole.
         let mem_size = 128 << 20;
-        let arch_mem_regions = arch_memory_regions(mem_size);
-        let gm = GuestMemoryMmap::from_raw_regions(&arch_mem_regions, false).unwrap();
+        let gm = arch_mem(mem_size);
         configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
 
         // Now assigning some memory that is equal to the start of the 32bit memory hole.
         let mem_size = 3328 << 20;
-        let arch_mem_regions = arch_memory_regions(mem_size);
-        let gm = GuestMemoryMmap::from_raw_regions(&arch_mem_regions, false).unwrap();
+        let gm = arch_mem(mem_size);
         configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
 
         // Now assigning some memory that falls after the 32bit memory hole.
         let mem_size = 3330 << 20;
-        let arch_mem_regions = arch_memory_regions(mem_size);
-        let gm = GuestMemoryMmap::from_raw_regions(&arch_mem_regions, false).unwrap();
+        let gm = arch_mem(mem_size);
         configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
     }
 
