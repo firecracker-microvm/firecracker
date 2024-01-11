@@ -237,9 +237,12 @@ pub fn build_microvm_for_boot(
         .ok_or(MissingKernelConfig)?;
 
     let track_dirty_pages = vm_resources.track_dirty_pages();
-    let guest_memory =
-        GuestMemoryMmap::memfd_backed(vm_resources.vm_config.mem_size_mib, track_dirty_pages)
-            .map_err(StartMicrovmError::GuestMemory)?;
+    let guest_memory = GuestMemoryMmap::memfd_backed(
+        vm_resources.vm_config.mem_size_mib,
+        track_dirty_pages,
+        vm_resources.vm_config.huge_pages,
+    )
+    .map_err(StartMicrovmError::GuestMemory)?;
     let entry_addr = load_kernel(boot_config, &guest_memory)?;
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
     // Clone the command-line so that a failed boot doesn't pollute the original.
