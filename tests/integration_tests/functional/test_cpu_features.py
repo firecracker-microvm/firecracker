@@ -443,8 +443,8 @@ def check_msrs_are_equal(before_df, after_df):
     removed = join[join["_merge"] == "left_only"]
     added = join[join["_merge"] == "right_only"]
 
-    assert removed.empty, f"New MSRs added:\n{removed[['MSR_ADDR', 'VALUE_x']]}"
-    assert added.empty, f"MSRs removed:\n{added[['MSR_ADDR', 'VALUE_y']]}"
+    assert removed.empty, f"MSRs removed:\n{removed[['MSR_ADDR', 'VALUE_x']]}"
+    assert added.empty, f"MSRs added:\n{added[['MSR_ADDR', 'VALUE_y']]}"
 
     # Remove MSR that can change at runtime.
     before_df = before_df[~before_df["MSR_ADDR"].isin(MSR_EXCEPTION_LIST)]
