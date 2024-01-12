@@ -32,7 +32,7 @@ use crate::resources::VmResources;
 use crate::snapshot::Snapshot;
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{MachineConfigUpdate, VmConfigError, MAX_SUPPORTED_VCPUS};
+use crate::vmm_config::machine_config::{MachineConfigUpdate, VmConfigError};
 use crate::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
 };
@@ -329,8 +329,6 @@ pub fn validate_cpu_manufacturer_id(microvm_state: &MicrovmState) {
 /// Error type for [`snapshot_state_sanity_check`].
 #[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq, Eq)]
 pub enum SnapShotStateSanityCheckError {
-    /// Invalid vCPU count.
-    InvalidVcpuCount,
     /// No memory region defined.
     NoMemory,
 }
@@ -339,13 +337,6 @@ pub enum SnapShotStateSanityCheckError {
 pub fn snapshot_state_sanity_check(
     microvm_state: &MicrovmState,
 ) -> Result<(), SnapShotStateSanityCheckError> {
-    // Check if the snapshot contains at least 1 vCPU state entry.
-    if microvm_state.vcpu_states.is_empty()
-        || microvm_state.vcpu_states.len() > MAX_SUPPORTED_VCPUS.into()
-    {
-        return Err(SnapShotStateSanityCheckError::InvalidVcpuCount);
-    }
-
     // Check if the snapshot contains at least 1 mem region.
     // Upper bound check will be done when creating guest memory by comparing against
     // KVM max supported value kvm_context.max_memslots().
