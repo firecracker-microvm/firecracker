@@ -6,6 +6,7 @@ import pytest
 from framework import utils
 from framework.microvm import HugePagesConfig
 from framework.properties import global_props
+from integration_tests.functional.test_uffd import SOCKET_PATH, spawn_pf_handler
 
 
 def check_hugetlbfs_in_use(pid: int, allocation_name: str):
@@ -64,3 +65,50 @@ def test_hugetlbfs_boot(uvm_plain):
     assert not rc
 
     check_hugetlbfs_in_use(uvm_plain.firecracker_pid, "memfd:guest_mem")
+
+
+@pytest.mark.skipif(
+    global_props.host_linux_version == "4.14",
+    reason="MFD_HUGETLB | MFD_ALLOW_SEALING only supported on kernels >= 4.16",
+)
+def test_hugetlbfs_snapshot(
+    microvm_factory, guest_kernel_linux_5_10, rootfs_ubuntu_22, uffd_handler_paths
+):
+    """
+    Test hugetlbfs snapshot restore via uffd
+    """
+
+    ### Create Snapshot ###
+    vm = microvm_factory.build(guest_kernel_linux_5_10, rootfs_ubuntu_22)
+    vm.memory_monitor = None
+    vm.spawn()
+    vm.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB, mem_size_mib=128)
+    vm.add_net_iface()
+    vm.start()
+
+    # Wait for microvm to boot
+    rc, _, _ = vm.ssh.run("true")
+    assert not rc
+
+    check_hugetlbfs_in_use(vm.firecracker_pid, "memfd:guest_mem")
+
+    snapshot = vm.snapshot_full()
+
+    vm.kill()
+
+    ### Restore Snapshot ###
+    vm = microvm_factory.build()
+    vm.spawn()
+
+    # Spawn page fault handler process.
+    _pf_handler = spawn_pf_handler(
+        vm, uffd_handler_paths["valid_2m_handler"], snapshot.mem
+    )
+
+    vm.restore_from_snapshot(snapshot, resume=True, uffd_path=SOCKET_PATH)
+
+    # Verify if guest can run commands.
+    rc, _, _ = vm.ssh.run("true")
+    assert not rc
+
+    check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
