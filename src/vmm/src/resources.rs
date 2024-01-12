@@ -472,6 +472,7 @@ mod tests {
     use std::str::FromStr;
 
     use serde_json::{Map, Value};
+    use utils::kernel_version::KernelVersion;
     use utils::net::mac::MacAddr;
     use utils::tempfile::TempFile;
 
@@ -1378,9 +1379,11 @@ mod tests {
             VmConfigError::InvalidMemorySize
         );
 
-        // mem_size_mib compatible with huge page configuration
-        aux_vm_config.mem_size_mib = Some(2048);
-        vm_resources.update_vm_config(&aux_vm_config).unwrap();
+        if KernelVersion::get().unwrap() >= KernelVersion::new(5, 10, 0) {
+            // mem_size_mib compatible with huge page configuration
+            aux_vm_config.mem_size_mib = Some(2048);
+            vm_resources.update_vm_config(&aux_vm_config).unwrap();
+        }
     }
 
     #[test]

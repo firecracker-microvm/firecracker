@@ -3,6 +3,8 @@
 use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
+use utils::kernel_version;
+use utils::kernel_version::KernelVersion;
 
 use crate::cpu_config::templates::{CpuTemplateType, CustomCpuTemplate, StaticCpuTemplate};
 
@@ -27,6 +29,18 @@ pub enum VmConfigError {
     /// Enabling simultaneous multithreading is not supported on aarch64.
     #[cfg(target_arch = "aarch64")]
     SmtNotSupported,
+    /// Could not determine host kernel version when checking hugetlbfs compatibility
+    KernelVersion,
+    /// Firecracker's hugetlbfs support requires at least host kernel 5.10.
+    HugetlbfsNotSupported,
+}
+
+// We cannot do a `KernelVersion(kernel_version::Error)` variant because `kernel_version::Error`
+// does not implement `PartialEq, Eq` (due to containing an io error).
+impl From<kernel_version::Error> for VmConfigError {
+    fn from(_: kernel_version::Error) -> Self {
+        VmConfigError::KernelVersion
+    }
 }
 
 /// Describes the possible (huge)page configurations for a microVM's memory.
@@ -217,6 +231,10 @@ impl VmConfig {
             Some(other) => Some(CpuTemplateType::Static(other)),
         };
 
+        if page_config.is_hugetlbfs() && KernelVersion::get()? < KernelVersion::new(4, 16, 0) {
+            return Err(VmConfigError::HugetlbfsNotSupported);
+        }
+
         Ok(VmConfig {
             vcpu_count,
             mem_size_mib,
@@ -250,6 +268,29 @@ impl From<&VmConfig> for MachineConfig {
             cpu_template: value.cpu_template.as_ref().map(|template| template.into()),
             track_dirty_pages: value.track_dirty_pages,
             huge_pages: value.huge_pages,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use utils::kernel_version::KernelVersion;
+
+    use crate::vmm_config::machine_config::{
+        HugePageConfig, MachineConfigUpdate, VmConfig, VmConfigError,
+    };
+
+    #[test]
+    fn test_hugetlbfs_not_supported_4_14() {
+        if KernelVersion::get().unwrap() < KernelVersion::new(4, 16, 0) {
+            let base_config = VmConfig::default();
+            let update = MachineConfigUpdate {
+                huge_pages: Some(HugePageConfig::Hugetlbfs2M),
+                ..Default::default()
+            };
+
+            let err = base_config.update(&update).unwrap_err();
+            assert_eq!(err, VmConfigError::HugetlbfsNotSupported)
         }
     }
 }
