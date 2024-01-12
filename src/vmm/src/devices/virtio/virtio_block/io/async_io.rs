@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 use std::fs::File;
-use std::marker::PhantomData;
 use std::os::fd::RawFd;
 use std::os::unix::io::AsRawFd;
 
@@ -39,7 +38,6 @@ pub struct AsyncFileEngine<T> {
     file: File,
     ring: IoUring<WrappedUserData<T>>,
     completion_evt: EventFd,
-    phantom: PhantomData<T>,
 }
 
 #[derive(Debug)]
@@ -103,7 +101,6 @@ impl<T: Debug> AsyncFileEngine<T> {
             file,
             ring,
             completion_evt,
-            phantom: PhantomData,
         })
     }
 
