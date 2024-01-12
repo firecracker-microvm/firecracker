@@ -56,7 +56,7 @@ use crate::snapshot::Persist;
 use crate::vmm_config::boot_source::BootConfig;
 use crate::vmm_config::drive::BlockDeviceType;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{MachineConfigUpdate, VmConfig, VmConfigError};
+use crate::vmm_config::machine_config::{VmConfig, VmConfigError};
 use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryExtension, GuestMemoryMmap};
 use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuError};
 use crate::vstate::vm::Vm;
@@ -363,8 +363,6 @@ pub fn build_and_boot_microvm(
 pub enum BuildMicrovmFromSnapshotError {
     /// Failed to create microVM and vCPUs: {0}
     CreateMicrovmAndVcpus(#[from] StartMicrovmError),
-    /// Only 255 vCPU state are supported, but {0} states where given.
-    TooManyVCPUs(usize),
     /// Could not access KVM: {0}
     KvmAccess(#[from] utils::errno::Error),
     /// Error configuring the TSC, frequency not present in the given snapshot.
@@ -406,14 +404,9 @@ pub fn build_microvm_from_snapshot(
     microvm_state: MicrovmState,
     guest_memory: GuestMemoryMmap,
     uffd: Option<Uffd>,
-    track_dirty_pages: bool,
     seccomp_filters: &BpfThreadMap,
     vm_resources: &mut VmResources,
 ) -> Result<Arc<Mutex<Vmm>>, BuildMicrovmFromSnapshotError> {
-    let vcpu_count = u8::try_from(microvm_state.vcpu_states.len()).map_err(|_| {
-        BuildMicrovmFromSnapshotError::TooManyVCPUs(microvm_state.vcpu_states.len())
-    })?;
-
     // Build Vmm.
     debug!("event_start: build microvm from snapshot");
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
@@ -421,8 +414,8 @@ pub fn build_microvm_from_snapshot(
         event_manager,
         guest_memory.clone(),
         uffd,
-        track_dirty_pages,
-        vcpu_count,
+        vm_resources.vm_config.track_dirty_pages,
+        vm_resources.vm_config.vcpu_count,
         microvm_state.vm_state.kvm_cap_modifiers.clone(),
     )?;
 
@@ -465,14 +458,6 @@ pub fn build_microvm_from_snapshot(
     // Restore kvm vm state.
     #[cfg(target_arch = "x86_64")]
     vmm.vm.restore_state(&microvm_state.vm_state)?;
-
-    vm_resources.update_vm_config(&MachineConfigUpdate {
-        vcpu_count: Some(vcpu_count),
-        mem_size_mib: Some(u64_to_usize(microvm_state.vm_info.mem_size_mib)),
-        smt: Some(microvm_state.vm_info.smt),
-        cpu_template: Some(microvm_state.vm_info.cpu_template),
-        track_dirty_pages: Some(track_dirty_pages),
-    })?;
 
     // Restore the boot source config paths.
     vm_resources.set_boot_source_config(microvm_state.vm_info.boot_source);
