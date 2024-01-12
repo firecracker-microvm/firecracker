@@ -202,17 +202,17 @@ pub struct LoggerConfig {
 /// its default deserialization).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum LevelFilter {
-    /// [`log::LevelFilter:Off`]
+    /// [`log::LevelFilter::Off`]
     Off,
-    /// [`log::LevelFilter:Trace`]
+    /// [`log::LevelFilter::Trace`]
     Trace,
-    /// [`log::LevelFilter:Debug`]
+    /// [`log::LevelFilter::Debug`]
     Debug,
-    /// [`log::LevelFilter:Info`]
+    /// [`log::LevelFilter::Info`]
     Info,
-    /// [`log::LevelFilter:Warn`]
+    /// [`log::LevelFilter::Warn`]
     Warn,
-    /// [`log::LevelFilter:Error`]
+    /// [`log::LevelFilter::Error`]
     Error,
 }
 impl From<LevelFilter> for log::LevelFilter {

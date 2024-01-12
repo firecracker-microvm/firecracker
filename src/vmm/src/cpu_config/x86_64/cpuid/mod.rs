@@ -286,17 +286,10 @@ impl CpuidTrait for kvm_bindings::CpuId {
     }
 }
 
-/// Error type for [`apply_brand_string`].
+/// Error type for [`CpuidTrait::apply_brand_string`].
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 #[error("Missing brand string leaves 0x80000002, 0x80000003 and 0x80000004.")]
 pub struct MissingBrandStringLeaves;
-
-/// Error type for [`Cpuid::kvm_get_supported_cpuid`].
-#[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
-pub enum KvmGetSupportedCpuidError {
-    /// Could not access KVM: {0}
-    KvmAccess(#[from] utils::errno::Error),
-}
 
 /// Error type for conversion from `kvm_bindings::CpuId` to `Cpuid`.
 #[rustfmt::skip]
@@ -560,8 +553,8 @@ pub struct CpuidEntry {
 }
 
 /// To transmute this into leaves such that we can return mutable reference to it with leaf specific
-/// accessors, requires this to have a consistent member ordering. [`core::arch::x86::CpuidResult`]
-/// is not `repr(C)`.
+/// accessors, requires this to have a consistent member ordering.
+/// [`core::arch::x86_64::CpuidResult`] is not `repr(C)`.
 #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[repr(C)]
 pub struct CpuidRegisters {

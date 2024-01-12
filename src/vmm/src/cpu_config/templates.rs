@@ -42,7 +42,7 @@ pub enum GetCpuTemplateError {
     InvalidCpuModel,
 }
 
-/// Trait to unwrap the inner `CustomCpuTemplate` from Option<CpuTemplateType>.
+/// Trait to unwrap the inner [`CustomCpuTemplate`] from [`Option<CpuTemplateType>`].
 ///
 /// This trait is needed because static CPU template and custom CPU template have different nested
 /// structures: `CpuTemplateType::Static(StaticCpuTemplate::StaticTemplateType(CustomCpuTemplate))`

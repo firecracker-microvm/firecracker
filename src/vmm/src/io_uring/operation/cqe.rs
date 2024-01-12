@@ -17,12 +17,13 @@ pub struct Cqe<T> {
 }
 
 impl<T: Debug> Cqe<T> {
-    /// Construct a Cqe object from a raw `io_uring_cqe`.
+    /// Construct a [`Cqe`] object from a raw `io_uring_cqe`.
     ///
     /// # Safety
     /// Unsafe because we assume full ownership of the inner.user_data address.
-    /// We assume that it points to a valid address created with a Box<T>, with the correct type T,
-    /// and that ownership of that address is passed to this function.
+    /// We assume that it points to a valid address created with a `Box<T>`,
+    /// with the correct type `T`, and that ownership of that address is passed
+    /// to this function.
     pub(crate) unsafe fn new(inner: io_uring_cqe) -> Self {
         Self {
             res: inner.res,

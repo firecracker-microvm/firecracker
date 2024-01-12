@@ -10,7 +10,7 @@ use crate::cpu_config::x86_64::cpuid::{
     MissingBrandStringLeaves, BRAND_STRING_LENGTH, VENDOR_ID_AMD,
 };
 
-/// Error type for [`AmdCpuid::normalize`].
+/// Error type for [`super::AmdCpuid::normalize`].
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
 pub enum NormalizeCpuidError {
@@ -34,7 +34,7 @@ pub enum NormalizeCpuidError {
     BrandString(MissingBrandStringLeaves),
 }
 
-/// Error type for setting cache topology section of [`AmdCpuid::normalize`].
+/// Error type for setting cache topology section of [`super::AmdCpuid::normalize`].
 #[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
 pub enum PassthroughCacheTopologyError {
     /// Failed to get the host vendor id: {0}
@@ -43,7 +43,7 @@ pub enum PassthroughCacheTopologyError {
     BadVendorId,
 }
 
-/// Error type for setting leaf 0x80000008 section of [`AmdCpuid::normalize`].
+/// Error type for setting leaf 0x80000008 section of [`super::AmdCpuid::normalize`].
 #[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
 pub enum FeatureEntryError {
     /// Missing leaf 0x80000008.
@@ -54,7 +54,7 @@ pub enum FeatureEntryError {
     NumberOfPhysicalThreads(CheckedAssignError),
 }
 
-/// Error type for setting leaf 0x8000001d section of [`AmdCpuid::normalize`].
+/// Error type for setting leaf 0x8000001d section of [`super::AmdCpuid::normalize`].
 #[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
 pub enum ExtendedCacheTopologyError {
     /// Missing leaf 0x8000001d.
@@ -65,7 +65,7 @@ pub enum ExtendedCacheTopologyError {
     NumSharingCache(CheckedAssignError),
 }
 
-/// Error type for setting leaf 0x8000001e section of [`AmdCpuid::normalize`].
+/// Error type for setting leaf 0x8000001e section of [`super::AmdCpuid::normalize`].
 #[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
 pub enum ExtendedApicIdError {
     /// Missing leaf 0x8000001e.

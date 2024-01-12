@@ -98,8 +98,9 @@ use crate::logger::IncMetric;
 
 /// Trait that vsock connection backends need to implement.
 ///
-/// Used as an alias for `Read + ReadVolatile + Write + WriteVolatile + AsRawFd` (sadly, trait
-/// aliases are not supported, https://github.com/rust-lang/rfcs/pull/1733#issuecomment-243840014).
+/// Used as an alias for `ReadVolatile + Write + WriteVolatile + AsRawFd`
+/// (sadly, trait aliases are not supported,
+/// <https://github.com/rust-lang/rfcs/pull/1733#issuecomment-243840014>).
 pub trait VsockConnectionBackend: ReadVolatile + Write + WriteVolatile + AsRawFd {}
 
 /// A self-managing connection object, that handles communication between a guest-side AF_VSOCK
