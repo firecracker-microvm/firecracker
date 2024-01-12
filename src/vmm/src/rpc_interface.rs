@@ -565,10 +565,6 @@ impl<'a> PrebootApiController<'a> {
             return Err(err);
         }
 
-        if load_params.enable_diff_snapshots {
-            self.vm_resources.set_track_dirty_pages(true);
-        }
-
         // Restore VM from snapshot
         let vmm = restore_from_snapshot(
             &self.instance_info,

@@ -234,11 +234,6 @@ impl VmResources {
         self.vm_config.track_dirty_pages
     }
 
-    /// Configures the dirty page tracking functionality of the microVM.
-    pub fn set_track_dirty_pages(&mut self, dirty_page_tracking: bool) {
-        self.vm_config.track_dirty_pages = dirty_page_tracking;
-    }
-
     /// Add a custom CPU template to the VM resources
     /// to configure vCPUs.
     pub fn set_custom_cpu_template(&mut self, cpu_template: CustomCpuTemplate) {
