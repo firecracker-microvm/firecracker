@@ -254,7 +254,6 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
         microvm_state,
         mem,
         None,
-        false,
         &empty_seccomp_filters,
         vm_resources,
     )
