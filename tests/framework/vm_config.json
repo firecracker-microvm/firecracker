@@ -21,7 +21,8 @@
     "vcpu_count": 2,
     "mem_size_mib": 1024,
     "smt": false,
-    "track_dirty_pages": false
+    "track_dirty_pages": false,
+    "huge_pages": "None"
   },
   "cpu-config": null,
   "balloon": null,
