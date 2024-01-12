@@ -16,6 +16,7 @@ use vmm::utilities::mock_resources::{MockVmResources, NOISY_KERNEL_IMAGE};
 use vmm::utilities::test_utils::dirty_tracking_vmm;
 use vmm::utilities::test_utils::{create_vmm, default_vmm, default_vmm_no_boot};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
+use vmm::vmm_config::machine_config::HugePageConfig;
 use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
 use vmm::{DumpCpuConfigError, EventManager, FcExitCode};
 
@@ -236,6 +237,7 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
         Some(memory_file.as_file()),
         &microvm_state.memory_state,
         false,
+        HugePageConfig::None,
     )
     .unwrap();
 
