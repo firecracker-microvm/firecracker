@@ -58,6 +58,10 @@ name = "uffd_valid_4k_handler"
 path = "examples/uffd/valid_4k_handler.rs"
 
 [[example]]
+name = "uffd_valid_2m_handler"
+path = "examples/uffd/valid_2m_handler.rs"
+
+[[example]]
 name = "seccomp_harmless"
 path = "examples/seccomp/harmless.rs"
 
