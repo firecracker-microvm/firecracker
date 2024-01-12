@@ -1,14 +1,17 @@
 # Device
 
-The Device-API following functionality matrix indicates which devices are
+Firecracker provides the _Device_ API to let you manage the virtual hardware
+available inside each microVM.
+
+The Device API following functionality matrix indicates which devices are
 required for an API call to be usable.
 
 **O** - Optional: The device (column) **is not required** for a Firecracker
-microVM API call to succeed. If the device (column) is omitted from a uVM
+microVM API call to succeed. If the device (column) is omitted from a μVM
 definition, a call to one of the [API Endpoints](#api-endpoints) will succeed.
 
 **R** - Required: The device (column) **is required** for a Firecracker microVM
-API call to succeed. If the device (column) is omitted from a uVM definition,
+API call to succeed. If the device (column) is omitted from a μVM definition,
 a call to one of the [API Endpoints](#api-endpoints) will fail with a
 400 - BadRequest - HTTP response.
 
