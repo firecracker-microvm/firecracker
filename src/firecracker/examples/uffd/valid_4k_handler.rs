@@ -30,7 +30,7 @@ fn main() {
     let len = get_page_size().unwrap();
 
     let mut runtime = Runtime::new(stream, file);
-    runtime.run(|uffd_handler: &mut UffdHandler| {
+    runtime.run(len, |uffd_handler: &mut UffdHandler| {
         // Read an event from the userfaultfd.
         let event = uffd_handler
             .read_event()
@@ -44,7 +44,7 @@ fn main() {
             userfaultfd::Event::Remove { start, end } => uffd_handler.update_mem_state_mappings(
                 start as u64,
                 end as u64,
-                &MemPageState::Removed,
+                MemPageState::Removed,
             ),
             _ => panic!("Unexpected event on userfaultfd"),
         }
