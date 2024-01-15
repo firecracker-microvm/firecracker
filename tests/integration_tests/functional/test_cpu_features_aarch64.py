@@ -17,11 +17,6 @@ DEFAULT_G2_FEATURES = (
     "asimdhp cpuid asimdrdm lrcpc dcpop asimddp ssbs"
 )
 
-DEFAULT_G2_FEATURES_NO_SSBS = (
-    "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
-    "asimdhp cpuid asimdrdm lrcpc dcpop asimddp"
-)
-
 DEFAULT_G3_FEATURES_4_14 = (
     "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
     "asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp "
@@ -34,28 +29,10 @@ DEFAULT_G3_FEATURES_5_10 = (
     "sha512 asimdfhm dit uscat ilrcpc flagm ssbs dcpodp i8mm bf16 dgh rng"
 )
 
-DEFAULT_G3_FEATURES_NO_SSBS_4_14 = (
-    "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
-    "asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp "
-    "sha512 asimdfhm dit uscat ilrcpc flagm dcpodp i8mm bf16 dgh rng"
-)
-
 DEFAULT_G3_FEATURES_WITH_SVE_AND_PAC_4_14 = (
     "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
     "asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp "
     "sha512 asimdfhm dit uscat ilrcpc flagm ssbs"
-)
-
-DEFAULT_G3_FEATURES_NO_SSBS_4_14 = (
-    "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
-    "asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp "
-    "sha512 asimdfhm dit uscat ilrcpc flagm"
-)
-
-DEFAULT_G3_FEATURES_NO_SSBS_5_10 = (
-    "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
-    "asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp "
-    "sha512 asimdfhm dit uscat ilrcpc flagm dcpodp i8mm bf16 dgh rng"
 )
 
 DEFAULT_G3_FEATURES_WITH_SVE_AND_PAC_5_10 = (
@@ -73,16 +50,10 @@ DEFAULT_G3_FEATURES_V1N1 = (
 def _check_cpu_features_arm(test_microvm, guest_kv, template_name=None):
     expected_cpu_features = {"Flags": []}
     match (cpuid_utils.get_instance_type(), guest_kv, template_name):
-        case ("m6g.metal", _, "aarch64_remove_ssbs"):
-            expected_cpu_features["Flags"] = DEFAULT_G2_FEATURES_NO_SSBS
         case ("m6g.metal", _, "aarch64_v1n1"):
             expected_cpu_features["Flags"] = DEFAULT_G2_FEATURES
         case ("m6g.metal", _, None):
             expected_cpu_features["Flags"] = DEFAULT_G2_FEATURES
-        case ("c7g.metal", "4.14", "aarch64_remove_ssbs"):
-            expected_cpu_features["Flags"] = DEFAULT_G3_FEATURES_NO_SSBS_4_14
-        case ("c7g.metal", "5.10", "aarch64_remove_ssbs"):
-            expected_cpu_features["Flags"] = DEFAULT_G3_FEATURES_NO_SSBS_5_10
         case ("c7g.metal", "4.14", "aarch64_with_sve_and_pac"):
             expected_cpu_features["Flags"] = DEFAULT_G3_FEATURES_WITH_SVE_AND_PAC_4_14
         case ("c7g.metal", "5.10", "aarch64_with_sve_and_pac"):
