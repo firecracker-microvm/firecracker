@@ -1541,6 +1541,7 @@ checksum = "6de3dc0146d78558327419fac388850fc6cbf197e924c4659a4863db20b5af64"
 name = "vmm"
 version = "0.1.0"
 dependencies = [
+ "acpi_tables",
  "aes-gcm",
  "aws-lc-rs",
  "base64",
@@ -1578,6 +1579,7 @@ dependencies = [
  "vm-fdt",
  "vm-memory",
  "vm-superio",
+ "zerocopy",
 ]
 
 [[package]]

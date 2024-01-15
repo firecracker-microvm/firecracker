@@ -24,6 +24,7 @@ use linux_loader::loader::bootparam::boot_params;
 use utils::u64_to_usize;
 
 use crate::arch::InitrdConfig;
+use crate::device_manager::resources::ResourceAllocator;
 use crate::vstate::memory::{
     Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion,
 };
@@ -47,13 +48,8 @@ pub enum ConfigurationError {
     InitrdAddress,
 }
 
-// EBDA is located in the last 1 KiB of the first 640KiB of memory, i.e in the range:
-// [0x9FC00, 0x9FFFF]
-// We mark first [0x0, EBDA_START] region as usable RAM
-// and [EBDA_START, (EBDA_START + EBDA_SIZE)] as reserved.
-const EBDA_START: u64 = 0x9fc00;
-const EBDA_SIZE: u64 = 1 << 10;
 const FIRST_ADDR_PAST_32BITS: u64 = 1 << 32;
+
 /// Size of MMIO gap at top of 32-bit address space.
 pub const MEM_32BIT_GAP_SIZE: u64 = 768 << 20;
 /// The start of the memory area reserved for MMIO devices.
@@ -113,6 +109,7 @@ pub fn initrd_load_addr(
 /// * `num_cpus` - Number of virtual CPUs the guest will have.
 pub fn configure_system(
     guest_mem: &GuestMemoryMmap,
+    resource_allocator: &mut ResourceAllocator,
     cmdline_addr: GuestAddress,
     cmdline_size: usize,
     initrd: &Option<InitrdConfig>,
@@ -128,9 +125,13 @@ pub fn configure_system(
     let himem_start = GuestAddress(layout::HIMEM_START);
 
     // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
-    mptable::setup_mptable(guest_mem, num_cpus)?;
+    mptable::setup_mptable(guest_mem, resource_allocator, num_cpus)?;
 
-    let mut params = boot_params::default();
+    // Set the location of RSDP in Boot Parameters to help the guest kernel find it faster.
+    let mut params = boot_params {
+        acpi_rsdp_addr: layout::RSDP_ADDR,
+        ..Default::default()
+    };
 
     params.hdr.type_of_loader = KERNEL_LOADER_OTHER;
     params.hdr.boot_flag = KERNEL_BOOT_FLAG_MAGIC;
@@ -143,8 +144,16 @@ pub fn configure_system(
         params.hdr.ramdisk_size = u32::try_from(initrd_config.size).unwrap();
     }
 
-    add_e820_entry(&mut params, 0, EBDA_START, E820_RAM)?;
-    add_e820_entry(&mut params, EBDA_START, EBDA_SIZE, E820_RESERVED)?;
+    // We mark first [0x0, SYSTEM_MEM_START) region as usable RAM and the subsequent
+    // [SYSTEM_MEM_START, (SYSTEM_MEM_START + SYSTEM_MEM_SIZE)) as reserved (note
+    // SYSTEM_MEM_SIZE + SYSTEM_MEM_SIZE == HIMEM_START).
+    add_e820_entry(&mut params, 0, layout::SYSTEM_MEM_START, E820_RAM)?;
+    add_e820_entry(
+        &mut params,
+        layout::SYSTEM_MEM_START,
+        layout::SYSTEM_MEM_SIZE,
+        E820_RESERVED,
+    )?;
 
     let last_addr = guest_mem.last_addr();
     if last_addr < end_32bit_gap_start {
@@ -232,7 +241,9 @@ mod tests {
     fn test_system_configuration() {
         let no_vcpus = 4;
         let gm = single_region_mem(0x10000);
-        let config_err = configure_system(&gm, GuestAddress(0), 0, &None, 1);
+        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        let config_err =
+            configure_system(&gm, &mut resource_allocator, GuestAddress(0), 0, &None, 1);
         assert_eq!(
             config_err.unwrap_err(),
             super::ConfigurationError::MpTableSetup(mptable::MptableError::NotEnoughMemory)
@@ -241,17 +252,44 @@ mod tests {
         // Now assigning some memory that falls before the 32bit memory hole.
         let mem_size = 128 << 20;
         let gm = arch_mem(mem_size);
-        configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
+        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        configure_system(
+            &gm,
+            &mut resource_allocator,
+            GuestAddress(0),
+            0,
+            &None,
+            no_vcpus,
+        )
+        .unwrap();
 
         // Now assigning some memory that is equal to the start of the 32bit memory hole.
         let mem_size = 3328 << 20;
         let gm = arch_mem(mem_size);
-        configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
+        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        configure_system(
+            &gm,
+            &mut resource_allocator,
+            GuestAddress(0),
+            0,
+            &None,
+            no_vcpus,
+        )
+        .unwrap();
 
         // Now assigning some memory that falls after the 32bit memory hole.
         let mem_size = 3330 << 20;
         let gm = arch_mem(mem_size);
-        configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
+        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        configure_system(
+            &gm,
+            &mut resource_allocator,
+            GuestAddress(0),
+            0,
+            &None,
+            no_vcpus,
+        )
+        .unwrap();
     }
 
     #[test]
