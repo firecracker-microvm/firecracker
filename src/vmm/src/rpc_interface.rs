@@ -24,7 +24,6 @@ use crate::logger::{info, warn, LoggerConfig, *};
 use crate::mmds::data_store::{self, Mmds};
 use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
 use crate::resources::VmmConfig;
-use crate::version_map::VERSION_MAP;
 use crate::vmm_config::balloon::{
     BalloonConfigError, BalloonDeviceConfig, BalloonStats, BalloonUpdateConfig,
     BalloonUpdateStatsConfig,
@@ -576,7 +575,6 @@ impl<'a> PrebootApiController<'a> {
             self.event_manager,
             self.seccomp_filters,
             load_params,
-            VERSION_MAP.clone(),
             self.vm_resources,
         )
         .map_err(|err| {
@@ -774,12 +772,7 @@ impl RuntimeApiController {
         let vm_info = VmInfo::from(&self.vm_resources);
         let create_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
-        create_snapshot(
-            &mut locked_vmm,
-            &vm_info,
-            create_params,
-            VERSION_MAP.clone(),
-        )?;
+        create_snapshot(&mut locked_vmm, &vm_info, create_params)?;
 
         match create_params.snapshot_type {
             SnapshotType::Full => {
@@ -1234,7 +1227,6 @@ mod tests {
         _: &mut Vmm,
         _: &VmInfo,
         _: &CreateSnapshotParams,
-        _: versionize::VersionMap,
     ) -> Result<(), CreateSnapshotError> {
         Ok(())
     }
@@ -1246,7 +1238,6 @@ mod tests {
         _: &mut EventManager,
         _: &BpfThreadMap,
         _: &LoadSnapshotParams,
-        _: versionize::VersionMap,
         _: &mut MockVmRes,
     ) -> Result<Arc<Mutex<Vmm>>, RestoreFromSnapshotError> {
         Ok(Arc::new(Mutex::new(MockVmm::default())))

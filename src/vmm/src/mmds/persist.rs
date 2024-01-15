@@ -6,17 +6,15 @@
 use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
 
+use serde::{Deserialize, Serialize};
 use snapshot::Persist;
 use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
-use versionize::{VersionMap, Versionize, VersionizeResult};
-use versionize_derive::Versionize;
 
 use super::ns::MmdsNetworkStack;
 use crate::mmds::data_store::Mmds;
 
-// NOTICE: Any changes to this structure require a snapshot version bump.
 /// State of a MmdsNetworkStack.
-#[derive(Debug, Clone, Versionize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MmdsNetworkStackState {
     mac_addr: [u8; MAC_ADDR_LEN as usize],
     ipv4_addr: u32,
@@ -60,6 +58,8 @@ impl Persist<'_> for MmdsNetworkStack {
 
 #[cfg(test)]
 mod tests {
+    use snapshot::Snapshot;
+
     use super::*;
 
     #[test]
@@ -67,15 +67,12 @@ mod tests {
         let ns = MmdsNetworkStack::new_with_defaults(None, Arc::new(Mutex::new(Mmds::default())));
 
         let mut mem = vec![0; 4096];
-        let version_map = VersionMap::new();
 
-        ns.save()
-            .serialize(&mut mem.as_mut_slice(), &version_map, 1)
-            .unwrap();
+        Snapshot::serialize(&mut mem.as_mut_slice(), &ns.save()).unwrap();
 
         let restored_ns = MmdsNetworkStack::restore(
             Arc::new(Mutex::new(Mmds::default())),
-            &MmdsNetworkStackState::deserialize(&mut mem.as_slice(), &version_map, 1).unwrap(),
+            &Snapshot::deserialize(&mut mem.as_slice()).unwrap(),
         )
         .unwrap();
 

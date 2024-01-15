@@ -711,10 +711,10 @@ dependencies = [
 [[package]]
 name = "kvm-bindings"
 version = "0.7.0"
-source = "git+https://github.com/firecracker-microvm/kvm-bindings?tag=v0.7.0-1#93af344a93b83b39cdfea0d0a860b3b57d29d28b"
+source = "git+https://github.com/firecracker-microvm/kvm-bindings?tag=v0.7.0-2#60cc04e2658646516f4e763eca77fbfa1cf5ec1f"
 dependencies = [
- "versionize",
- "versionize_derive",
+ "serde",
+ "serde-big-array",
  "vmm-sys-util",
 ]
 
@@ -1131,6 +1131,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-big-array"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11fc7cc2c76d73e0f27ee52abbd64eec84d46f370c88371120433196934e4b7f"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "serde_derive"
 version = "1.0.195"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1177,13 +1186,14 @@ checksum = "4dccd0940a2dcdf68d092b8cbab7dc0ad8fa938bf95787e1b916b0e3d0e8e970"
 name = "snapshot"
 version = "0.1.0"
 dependencies = [
- "criterion",
+ "bincode",
+ "crc64",
  "displaydoc",
  "libc",
  "log-instrument",
+ "semver",
+ "serde",
  "thiserror",
- "versionize",
- "versionize_derive",
 ]
 
 [[package]]
@@ -1195,6 +1205,7 @@ dependencies = [
  "displaydoc",
  "libc",
  "log-instrument",
+ "semver",
  "snapshot",
  "thiserror",
  "utils",
@@ -1393,8 +1404,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
- "versionize",
- "versionize_derive",
  "vm-memory 0.13.1",
  "vmm-sys-util",
 ]
@@ -1413,34 +1422,6 @@ name = "version_check"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
-
-[[package]]
-name = "versionize"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62929d59c7f6730b7298fcb363760550f4db6e353fbac4076d447d0e82799d6d"
-dependencies = [
- "bincode",
- "crc64",
- "proc-macro2",
- "quote",
- "serde",
- "serde_derive",
- "syn 1.0.109",
- "versionize_derive",
- "vmm-sys-util",
-]
-
-[[package]]
-name = "versionize_derive"
-version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c4971c07ef708cd51003222e509aaed8eae14aeb2907706b01578843195e03a"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
 
 [[package]]
 name = "vhost"
@@ -1533,8 +1514,6 @@ dependencies = [
  "timerfd",
  "userfaultfd",
  "utils",
- "versionize",
- "versionize_derive",
  "vhost",
  "vm-allocator",
  "vm-fdt",
@@ -1550,6 +1529,8 @@ checksum = "1d1435039746e20da4f8d507a72ee1b916f7b4b05af7a91c093d2c6561934ede"
 dependencies = [
  "bitflags 1.3.2",
  "libc",
+ "serde",
+ "serde_derive",
 ]
 
 [[package]]

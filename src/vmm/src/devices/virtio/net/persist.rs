@@ -7,11 +7,9 @@ use std::io;
 use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 
-use log::warn;
+use serde::{Deserialize, Serialize};
 use snapshot::Persist;
-use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
-use versionize::{VersionMap, Versionize, VersionizeResult};
-use versionize_derive::Versionize;
+use utils::net::mac::MacAddr;
 
 use super::device::Net;
 use super::NET_NUM_QUEUES;
@@ -28,35 +26,14 @@ use crate::vstate::memory::GuestMemoryMmap;
 
 /// Information about the network config's that are saved
 /// at snapshot.
-#[derive(Debug, Default, Clone, Versionize)]
-// NOTICE: Any changes to this structure require a snapshot version bump.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct NetConfigSpaceState {
-    #[version(end = 2, default_fn = "def_guest_mac_old")]
-    guest_mac: [u8; MAC_ADDR_LEN as usize],
-    #[version(start = 2, de_fn = "de_guest_mac_v2")]
-    guest_mac_v2: Option<MacAddr>,
-}
-
-impl NetConfigSpaceState {
-    fn de_guest_mac_v2(&mut self, version: u16) -> VersionizeResult<()> {
-        // v1.1 and older versions do not have optional MAC address.
-        warn!("Optional MAC address will be set to older version.");
-        if version < 2 {
-            self.guest_mac_v2 = Some(self.guest_mac.into());
-        }
-        Ok(())
-    }
-
-    fn def_guest_mac_old(_: u16) -> [u8; MAC_ADDR_LEN as usize] {
-        // v1.2 and newer don't use this field anyway
-        Default::default()
-    }
+    guest_mac: Option<MacAddr>,
 }
 
 /// Information about the network device that are saved
 /// at snapshot.
-#[derive(Debug, Clone, Versionize)]
-// NOTICE: Any changes to this structure require a snapshot version bump.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetState {
     id: String,
     tap_if_name: String,
@@ -103,8 +80,7 @@ impl Persist<'_> for Net {
             tx_rate_limiter_state: self.tx_rate_limiter.save(),
             mmds_ns: self.mmds_ns.as_ref().map(|mmds| mmds.save()),
             config_space: NetConfigSpaceState {
-                guest_mac_v2: self.guest_mac,
-                guest_mac: Default::default(),
+                guest_mac: self.guest_mac,
             },
             virtio_state: VirtioDeviceState::from_device(self),
         }
@@ -120,7 +96,7 @@ impl Persist<'_> for Net {
         let mut net = Net::new(
             state.id.clone(),
             &state.tap_if_name,
-            state.config_space.guest_mac_v2,
+            state.config_space.guest_mac,
             rx_rate_limiter,
             tx_rate_limiter,
         )?;
@@ -164,6 +140,8 @@ impl Persist<'_> for Net {
 mod tests {
     use std::sync::atomic::Ordering;
 
+    use snapshot::Snapshot;
+
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::net::test_utils::{default_net, default_net_no_mmds};
@@ -172,7 +150,6 @@ mod tests {
     fn validate_save_and_restore(net: Net, mmds_ds: Option<Arc<Mutex<Mmds>>>) {
         let guest_mem = default_mem();
         let mut mem = vec![0; 4096];
-        let version_map = VersionMap::new();
 
         let id;
         let tap_if_name;
@@ -182,9 +159,7 @@ mod tests {
 
         // Create and save the net device.
         {
-            <Net as Persist>::save(&net)
-                .serialize(&mut mem.as_mut_slice(), &version_map, 1)
-                .unwrap();
+            Snapshot::serialize(&mut mem.as_mut_slice(), &net.save()).unwrap();
 
             // Save some fields that we want to check later.
             id = net.id.clone();
@@ -204,7 +179,7 @@ mod tests {
                     mem: guest_mem,
                     mmds: mmds_ds,
                 },
-                &NetState::deserialize(&mut mem.as_slice(), &version_map, 1).unwrap(),
+                &Snapshot::deserialize(&mut mem.as_slice()).unwrap(),
             ) {
                 Ok(restored_net) => {
                     // Test that virtio specific fields are the same.

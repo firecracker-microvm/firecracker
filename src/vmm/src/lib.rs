@@ -99,8 +99,6 @@ pub mod seccomp_filters;
 pub mod signal_handler;
 /// Utility functions for integration and benchmark testing
 pub mod utilities;
-/// microVM state versions.
-pub mod version_map;
 /// Wrappers over structures used to configure the VMM.
 pub mod vmm_config;
 /// Module with virtual state structs.

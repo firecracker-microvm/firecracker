@@ -15,7 +15,6 @@ use vmm::utilities::mock_resources::{MockVmResources, NOISY_KERNEL_IMAGE};
 #[cfg(target_arch = "x86_64")]
 use vmm::utilities::test_utils::dirty_tracking_vmm;
 use vmm::utilities::test_utils::{create_vmm, default_vmm, default_vmm_no_boot};
-use vmm::version_map::VERSION_MAP;
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
 use vmm::{DumpCpuConfigError, EventManager, FcExitCode};
@@ -197,13 +196,7 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
 
     {
         let mut locked_vmm = vmm.lock().unwrap();
-        persist::create_snapshot(
-            &mut locked_vmm,
-            &vm_info,
-            &snapshot_params,
-            VERSION_MAP.clone(),
-        )
-        .unwrap();
+        persist::create_snapshot(&mut locked_vmm, &vm_info, &snapshot_params).unwrap();
     }
 
     vmm.lock().unwrap().stop(FcExitCode::Ok);
@@ -212,12 +205,8 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
     let snapshot_path = snapshot_file.as_path().to_path_buf();
     let snapshot_file_metadata = std::fs::metadata(snapshot_path).unwrap();
     let snapshot_len = snapshot_file_metadata.len() as usize;
-    let (restored_microvm_state, _) = Snapshot::load::<_, MicrovmState>(
-        &mut snapshot_file.as_file(),
-        snapshot_len,
-        VERSION_MAP.clone(),
-    )
-    .unwrap();
+    let (restored_microvm_state, _) =
+        Snapshot::load::<_, MicrovmState>(&mut snapshot_file.as_file(), snapshot_len).unwrap();
 
     assert_eq!(restored_microvm_state.vm_info, vm_info);
 
@@ -247,12 +236,8 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
     let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();
     let snapshot_len = snapshot_file_metadata.len() as usize;
     snapshot_file.as_file().seek(SeekFrom::Start(0)).unwrap();
-    let (microvm_state, _) = Snapshot::load::<_, MicrovmState>(
-        &mut snapshot_file.as_file(),
-        snapshot_len,
-        VERSION_MAP.clone(),
-    )
-    .unwrap();
+    let (microvm_state, _) =
+        Snapshot::load::<_, MicrovmState>(&mut snapshot_file.as_file(), snapshot_len).unwrap();
     let mem = GuestMemoryMmap::from_state(
         Some(memory_file.as_file()),
         &microvm_state.memory_state,
@@ -351,11 +336,6 @@ fn get_microvm_state_from_snapshot() -> MicrovmState {
     let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();
     let snapshot_len = snapshot_file_metadata.len() as usize;
     snapshot_file.as_file().seek(SeekFrom::Start(0)).unwrap();
-    let (state, _) = Snapshot::load(
-        &mut snapshot_file.as_file(),
-        snapshot_len,
-        VERSION_MAP.clone(),
-    )
-    .unwrap();
+    let (state, _) = Snapshot::load(&mut snapshot_file.as_file(), snapshot_len).unwrap();
     state
 }

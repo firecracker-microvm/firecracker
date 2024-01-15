@@ -26,17 +26,6 @@ fi
 version=$1
 
 
-function check_snapshot_version {
-    local version=$1
-    local snap_version=$(echo $version |cut -f-2 -d. |tr . _)
-    if ! grep -s FC_V${snap_version}_SNAP_VERSION src/vmm/src/version_map.rs; then
-       die "I couldn't find FC_V${snap_version}_SNAP_VERSION in src/vmm/src/version_map.rs"
-    fi
-}
-
-check_snapshot_version "$version"
-
-
 # Get current version from the swagger spec.
 prev_ver=$(get_swagger_version)
 

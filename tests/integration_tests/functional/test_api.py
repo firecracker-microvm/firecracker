@@ -1193,6 +1193,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
     expected_cfg["boot-source"] = {
         "kernel_image_path": uvm_nano.get_jailed_resource(uvm_nano.kernel_file),
         "initrd_path": None,
+        "boot_args": None,
     }
 
     # no ipv4 specified during PUT /mmds/config so we expect the default

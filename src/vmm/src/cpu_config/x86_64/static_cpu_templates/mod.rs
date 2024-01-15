@@ -3,8 +3,6 @@
 
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
-use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
-use versionize_derive::Versionize;
 
 /// Module with C3 CPU template for x86_64
 pub mod c3;
@@ -19,9 +17,7 @@ pub mod t2s;
 
 /// Template types available for configuring the x86 CPU features that map
 /// to EC2 instances.
-#[derive(
-    Debug, Default, Display, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Versionize,
-)]
+#[derive(Debug, Default, Display, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StaticCpuTemplate {
     /// C3 Template.
     #[display(fmt = "C3")]

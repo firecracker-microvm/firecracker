@@ -9,9 +9,8 @@ use std::sync::{Arc, Mutex};
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use kvm_ioctls::VmFd;
 use log::{error, warn};
+use serde::{Deserialize, Serialize};
 use snapshot::Persist;
-use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
-use versionize_derive::Versionize;
 use vm_allocator::AllocPolicy;
 
 use super::mmio::*;
@@ -79,8 +78,7 @@ pub enum DevicePersistError {
 }
 
 /// Holds the state of a balloon device connected to the MMIO space.
-// NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Debug, Clone, Versionize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectedBalloonState {
     /// Device identifier.
     pub device_id: String,
@@ -93,8 +91,7 @@ pub struct ConnectedBalloonState {
 }
 
 /// Holds the state of a virtio block device connected to the MMIO space.
-// NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Debug, Clone, Versionize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectedVirtioBlockState {
     /// Device identifier.
     pub device_id: String,
@@ -107,8 +104,7 @@ pub struct ConnectedVirtioBlockState {
 }
 
 /// Holds the state of a vhost-user block device connected to the MMIO space.
-// NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Debug, Clone, Versionize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectedVhostUserBlockState {
     /// Device identifier.
     pub device_id: String,
@@ -121,8 +117,7 @@ pub struct ConnectedVhostUserBlockState {
 }
 
 /// Holds the state of a net device connected to the MMIO space.
-// NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Debug, Clone, Versionize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectedNetState {
     /// Device identifier.
     pub device_id: String,
@@ -135,8 +130,7 @@ pub struct ConnectedNetState {
 }
 
 /// Holds the state of a vsock device connected to the MMIO space.
-// NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Debug, Clone, Versionize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectedVsockState {
     /// Device identifier.
     pub device_id: String,
@@ -149,8 +143,7 @@ pub struct ConnectedVsockState {
 }
 
 /// Holds the state of an entropy device connected to the MMIO space.
-// NOTICE: Any chages to this structure require a snapshot version bump.
-#[derive(Debug, Clone, Versionize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectedEntropyState {
     /// Device identifier.
     pub device_id: String,
@@ -164,7 +157,7 @@ pub struct ConnectedEntropyState {
 
 /// Holds the state of a legacy device connected to the MMIO space.
 #[cfg(target_arch = "aarch64")]
-#[derive(Debug, Clone, Versionize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectedLegacyState {
     /// Device identifier.
     pub type_: DeviceType,
@@ -173,8 +166,7 @@ pub struct ConnectedLegacyState {
 }
 
 /// Holds the MMDS data store version.
-// NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Debug, Clone, PartialEq, Eq, Versionize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MmdsVersionState {
     V1,
     V2,
@@ -199,8 +191,7 @@ impl From<MmdsVersion> for MmdsVersionState {
 }
 
 /// Holds the device states.
-// NOTICE: Any changes to this structure require a snapshot version bump.
-#[derive(Debug, Default, Clone, Versionize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct DeviceStates {
     #[cfg(target_arch = "aarch64")]
     // State of legacy devices in MMIO space.
@@ -208,20 +199,16 @@ pub struct DeviceStates {
     /// Virtio block device states.
     pub virtio_block_devices: Vec<ConnectedVirtioBlockState>,
     /// Vhost-user block device states.
-    #[version(start = 5, de_fn = "de_vhost_user_block")]
     pub vhost_user_block_devices: Vec<ConnectedVhostUserBlockState>,
     /// Net device states.
     pub net_devices: Vec<ConnectedNetState>,
     /// Vsock device state.
     pub vsock_device: Option<ConnectedVsockState>,
     /// Balloon device state.
-    #[version(start = 2)]
     pub balloon_device: Option<ConnectedBalloonState>,
     /// Mmds version.
-    #[version(start = 3)]
     pub mmds_version: Option<MmdsVersionState>,
     /// Entropy device state.
-    #[version(start = 4)]
     pub entropy_device: Option<ConnectedEntropyState>,
 }
 
@@ -237,15 +224,6 @@ pub enum SharedDeviceType {
     Entropy(Arc<Mutex<Entropy>>),
 }
 
-impl DeviceStates {
-    fn de_vhost_user_block(&mut self, source_version: u16) -> VersionizeResult<()> {
-        if source_version < 5 {
-            self.vhost_user_block_devices = vec![];
-        }
-
-        Ok(())
-    }
-}
 pub struct MMIODevManagerConstructorArgs<'a> {
     pub mem: GuestMemoryMmap,
     pub vm: &'a VmFd,
@@ -668,12 +646,12 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
 #[cfg(test)]
 mod tests {
+    use snapshot::Snapshot;
     use utils::tempfile::TempFile;
 
     use super::*;
     use crate::builder::tests::*;
     use crate::devices::virtio::block_common::CacheType;
-    use crate::devices::virtio::net::persist::NetConfigSpaceState;
     use crate::resources::VmmConfig;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::entropy::EntropyDeviceConfig;
@@ -754,7 +732,6 @@ mod tests {
     #[test]
     fn test_device_manager_persistence() {
         let mut buf = vec![0; 16384];
-        let mut version_map = VersionMap::new();
         // These need to survive so the restored blocks find them.
         let _block_files;
         let mut tmp_sock_file = TempFile::new().unwrap();
@@ -806,56 +783,11 @@ mod tests {
                 uds_path: tmp_sock_file.as_path().to_str().unwrap().to_string(),
             };
             insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
-
-            version_map
-                .new_version()
-                .set_type_version(DeviceStates::type_id(), 2);
-            vmm.mmio_device_manager
-                .save()
-                .serialize(&mut buf.as_mut_slice(), &version_map, 2)
-                .unwrap();
-
-            version_map
-                .new_version()
-                .set_type_version(DeviceStates::type_id(), 3)
-                .set_type_version(NetConfigSpaceState::type_id(), 2);
-
-            // For snapshot versions that not support persisting the mmds version, it should be
-            // deserialized as None. The MMIODeviceManager will initialise it as the default if
-            // there's at least one network device having a MMDS NS.
-            vmm.mmio_device_manager
-                .save()
-                .serialize(&mut buf.as_mut_slice(), &version_map, 2)
-                .unwrap();
-            let device_states: DeviceStates =
-                DeviceStates::deserialize(&mut buf.as_slice(), &version_map, 2).unwrap();
-            assert!(device_states.mmds_version.is_none());
-
-            vmm.mmio_device_manager
-                .save()
-                .serialize(&mut buf.as_mut_slice(), &version_map, 3)
-                .unwrap();
-
             // Add an entropy device.
             let entropy_config = EntropyDeviceConfig::default();
             insert_entropy_device(&mut vmm, &mut cmdline, &mut event_manager, entropy_config);
 
-            version_map
-                .new_version()
-                .set_type_version(DeviceStates::type_id(), 4);
-
-            version_map
-                .new_version()
-                .set_type_version(DeviceStates::type_id(), 4)
-                .set_type_version(NetConfigSpaceState::type_id(), 2);
-
-            vmm.mmio_device_manager
-                .save()
-                .serialize(&mut buf.as_mut_slice(), &version_map, 4)
-                .unwrap();
-            let device_states: DeviceStates =
-                DeviceStates::deserialize(&mut buf.as_slice(), &version_map, 4).unwrap();
-            assert!(device_states.entropy_device.is_some());
+            Snapshot::serialize(&mut buf.as_mut_slice(), &vmm.mmio_device_manager.save()).unwrap();
 
             // We only want to keep the device map from the original MmioDeviceManager.
             vmm.mmio_device_manager.soft_clone()
@@ -864,8 +796,7 @@ mod tests {
 
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let vmm = default_vmm();
-        let device_states: DeviceStates =
-            DeviceStates::deserialize(&mut buf.as_slice(), &version_map, 4).unwrap();
+        let device_states: DeviceStates = Snapshot::deserialize(&mut buf.as_slice()).unwrap();
         let vm_resources = &mut VmResources::default();
         let restore_args = MMIODevManagerConstructorArgs {
             mem: vmm.guest_memory().clone(),
@@ -900,7 +831,8 @@ mod tests {
   ],
   "boot-source": {{
     "kernel_image_path": "",
-    "initrd_path": null
+    "initrd_path": null,
+    "boot_args": null
   }},
   "cpu-config": null,
   "logger": null,
