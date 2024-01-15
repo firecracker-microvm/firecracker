@@ -29,3 +29,38 @@ pub const KVM_TSS_ADDRESS: u64 = 0xfffb_d000;
 
 /// The 'zero page', a.k.a linux kernel bootparams.
 pub const ZERO_PAGE_START: u64 = 0x7000;
+
+/// APIC address
+pub const APIC_ADDR: u32 = 0xfee0_0000;
+
+/// IOAPIC address
+pub const IOAPIC_ADDR: u32 = 0xfec0_0000;
+
+/// EBDA is located in the last 1 KiB of the first 640KiB of memory, i.e in the range:
+/// [0x9FC00, 0x9FFFF]
+pub const EBDA_START: u64 = 0x9fc00;
+
+/// Size of EBDA region
+pub const EBDA_SIZE: u64 = 1 << 10;
+
+/// Start of memory region we will use for ACPI data. We are putting them
+/// just after the EBDA region
+pub const ACPI_MEM_START: u64 = EBDA_START + EBDA_SIZE;
+
+/// Size of memory region for ACPI data.
+///
+/// For the time being we allocate 2 pages (8192 bytes), which is enough for
+/// our current needs and future proof. The value is chosen based on the
+/// following calculations:
+///
+/// FADT size: 276 bytes
+/// XSDT size: 52 bytes (header: 36 bytes, plus pointers of FADT and MADT)
+/// MADT size: 2104 bytes (header: 44 bytes, IO-APIC: 12 bytes, LocalAPIC: 8 * #vCPUS)
+/// DSDT size: 1907 bytes (header: 36 bytes, legacy devices: 345, GED: 161, VMGenID: 87,
+///                        VirtIO devices: 71 bytes per device)
+///
+/// We are storing the ACPI data just after EBDA, in range [0xA0000, 0xA2000].
+pub const ACPI_MEM_SIZE: u64 = 8192;
+
+/// Location of RSDP pointer in x86 machines
+pub const RSDP_ADDR: u64 = 0x000e_0000;

@@ -38,10 +38,12 @@ micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 log-instrument = { path = "../log-instrument", optional = true }
 crc64 = "2.0.0"
 slab = "0.4.7"
+zerocopy = { version = "0.7.32" }
 
 seccompiler = { path = "../seccompiler" }
 utils = { path = "../utils" }
 smallvec = "1.11.2"
+acpi_tables = { path = "../acpi-tables" } 
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 vm-fdt = "0.2.0"

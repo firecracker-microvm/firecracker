@@ -28,6 +28,8 @@ use vm_memory::ReadVolatile;
 use vm_superio::Rtc;
 use vm_superio::Serial;
 
+#[cfg(target_arch = "x86_64")]
+use crate::acpi;
 use crate::arch::InitrdConfig;
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
@@ -116,6 +118,9 @@ pub enum StartMicrovmError {
     CreateEntropyDevice(crate::devices::virtio::rng::EntropyError),
     /// Failed to allocate guest resource: {0}
     AllocateResources(#[from] vm_allocator::Error),
+    /// Error configuring ACPI: {0}
+    #[cfg(target_arch = "x86_64")]
+    Acpi(#[from] crate::acpi::AcpiError),
 }
 
 /// It's convenient to automatically convert `linux_loader::cmdline::Error`s
@@ -299,7 +304,7 @@ pub fn build_microvm_for_boot(
     attach_legacy_devices_aarch64(event_manager, &mut vmm, &mut boot_cmdline).map_err(Internal)?;
 
     configure_system_for_boot(
-        &vmm,
+        &mut vmm,
         vcpus.as_mut(),
         &vm_resources.vm_config,
         &cpu_template,
@@ -697,7 +702,7 @@ fn create_vcpus(vm: &Vm, vcpu_count: u8, exit_evt: &EventFd) -> Result<Vec<Vcpu>
 /// Configures the system for booting Linux.
 #[cfg_attr(target_arch = "aarch64", allow(unused))]
 pub fn configure_system_for_boot(
-    vmm: &Vmm,
+    vmm: &mut Vmm,
     vcpus: &mut [Vcpu],
     vm_config: &VmConfig,
     cpu_template: &CustomCpuTemplate,
@@ -755,6 +760,11 @@ pub fn configure_system_for_boot(
             .map_err(VmmError::VcpuConfigure)
             .map_err(Internal)?;
     }
+
+    // Create ACPI tables and write them in guest memory
+    // For the time being we only support ACPI in x86_64
+    #[cfg(target_arch = "x86_64")]
+    acpi::create_acpi_tables(vmm.guest_memory(), vmm.resource_allocator.clone(), vcpus)?;
 
     #[cfg(target_arch = "x86_64")]
     {

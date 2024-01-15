@@ -21,6 +21,9 @@ pub struct ResourceAllocator {
     gsi_allocator: RefCell<IdAllocator>,
     // Allocator for memory in the MMIO address space
     mmio_memory: RefCell<AddressAllocator>,
+    // Memory allocator for ACPI data
+    #[cfg(target_arch = "x86_64")]
+    acpi_memory: RefCell<AddressAllocator>,
 }
 
 impl ResourceAllocator {
@@ -31,6 +34,11 @@ impl ResourceAllocator {
             mmio_memory: RefCell::new(AddressAllocator::new(
                 arch::MMIO_MEM_START,
                 arch::MMIO_MEM_SIZE,
+            )?),
+            #[cfg(target_arch = "x86_64")]
+            acpi_memory: RefCell::new(AddressAllocator::new(
+                arch::ACPI_MEM_START,
+                arch::ACPI_MEM_SIZE,
             )?),
         })
     }
@@ -73,6 +81,29 @@ impl ResourceAllocator {
     ) -> Result<u64, vm_allocator::Error> {
         Ok(self
             .mmio_memory
+            .borrow_mut()
+            .allocate(size, alignment, policy)?
+            .start())
+    }
+
+    /// Allocate a memory range for ACPI data
+    ///
+    /// If it succeeds, it returns the first address of the allocated range
+    ///
+    /// # Arguments
+    ///
+    /// * `size` - The size in bytes of the memory to allocate
+    /// * `alignment` - The alignment of the address of the first byte
+    /// * `policy` - A [`vm_allocator::AllocPolicy`] variant for determining the allocation policy
+    #[cfg(target_arch = "x86_64")]
+    pub fn allocate_acpi_memory(
+        &self,
+        size: u64,
+        alignment: u64,
+        policy: AllocPolicy,
+    ) -> Result<u64, vm_allocator::Error> {
+        Ok(self
+            .acpi_memory
             .borrow_mut()
             .allocate(size, alignment, policy)?
             .start())

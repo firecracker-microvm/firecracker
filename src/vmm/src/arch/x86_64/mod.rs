@@ -47,13 +47,8 @@ pub enum ConfigurationError {
     InitrdAddress,
 }
 
-// EBDA is located in the last 1 KiB of the first 640KiB of memory, i.e in the range:
-// [0x9FC00, 0x9FFFF]
-// We mark first [0x0, EBDA_START] region as usable RAM
-// and [EBDA_START, (EBDA_START + EBDA_SIZE)] as reserved.
-const EBDA_START: u64 = 0x9fc00;
-const EBDA_SIZE: u64 = 1 << 10;
 const FIRST_ADDR_PAST_32BITS: u64 = 1 << 32;
+
 /// Size of MMIO gap at top of 32-bit address space.
 pub const MEM_32BIT_GAP_SIZE: u64 = 768 << 20;
 /// The start of the memory area reserved for MMIO devices.
@@ -130,7 +125,11 @@ pub fn configure_system(
     // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
     mptable::setup_mptable(guest_mem, num_cpus)?;
 
-    let mut params = boot_params::default();
+    // Set the location of RSDP in Boot Parameters to help the guest kernel find it faster.
+    let mut params = boot_params {
+        acpi_rsdp_addr: layout::RSDP_ADDR,
+        ..Default::default()
+    };
 
     params.hdr.type_of_loader = KERNEL_LOADER_OTHER;
     params.hdr.boot_flag = KERNEL_BOOT_FLAG_MAGIC;
@@ -143,8 +142,22 @@ pub fn configure_system(
         params.hdr.ramdisk_size = u32::try_from(initrd_config.size).unwrap();
     }
 
-    add_e820_entry(&mut params, 0, EBDA_START, E820_RAM)?;
-    add_e820_entry(&mut params, EBDA_START, EBDA_SIZE, E820_RESERVED)?;
+    // We mark first [0x0, EBDA_START) region as usable RAM
+    // and the subsequet [EBDA_START, (EBDA_START + EBDA_SIZE)) and
+    // [ACPI_MEM_START, (ACPI_MEM_START + ACPI_MEM_SIZE)) as reserved
+    add_e820_entry(&mut params, 0, layout::EBDA_START, E820_RAM)?;
+    add_e820_entry(
+        &mut params,
+        layout::EBDA_START,
+        layout::EBDA_SIZE,
+        E820_RESERVED,
+    )?;
+    add_e820_entry(
+        &mut params,
+        layout::ACPI_MEM_START,
+        layout::ACPI_MEM_SIZE,
+        E820_RESERVED,
+    )?;
 
     let last_addr = guest_mem.last_addr();
     if last_addr < end_32bit_gap_start {
