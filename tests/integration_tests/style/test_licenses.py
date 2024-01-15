@@ -23,6 +23,10 @@ TUNTAP_LICENSE = (
 )
 ALIBABA_COPYRIGHT = "Copyright (C) 2019 Alibaba Cloud Computing. All rights reserved."
 ALIBABA_LICENSE = "SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause"
+INTEL_COPYRIGHT = "Copyright © 2019 Intel Corporation"
+INTEL_LICENSE = "SPDX-License-Identifier: Apache-2.0"
+RIVOS_COPYRIGHT = "Copyright © 2023 Rivos, Inc."
+RIVOS_LICENSE = "SPDX-License-Identifier: Apache-2.0"
 
 
 def _has_amazon_copyright(string):
@@ -75,11 +79,22 @@ def _validate_license(filename):
             ALIBABA_COPYRIGHT in copyright_info
             and _look_for_license(file, ALIBABA_LICENSE)
         )
+
+        has_intel_copyright = INTEL_COPYRIGHT in copyright_info and _look_for_license(
+            file, INTEL_LICENSE
+        )
+
+        has_rivos_copyright = RIVOS_COPYRIGHT in copyright_info and _look_for_license(
+            file, RIVOS_LICENSE
+        )
+
         return (
             has_amazon_copyright
             or has_chromium_copyright
             or has_tuntap_copyright
             or has_alibaba_copyright
+            or has_intel_copyright
+            or has_rivos_copyright
         )
     return True
 

@@ -29,7 +29,7 @@ userfaultfd = "0.7.0"
 vhost = { version = "0.10.0", features = ["vhost-user-frontend"] }
 vm-allocator = "0.1.0"
 vm-superio = "0.7.0"
-vm-memory = { version = "0.14.0", features = ["backend-mmap", "backend-bitmap"] }
+vm-memory = { version = "0.14.1", features = ["backend-mmap", "backend-bitmap"] }
 log = { version = "0.4.17", features = ["std", "serde"] }
 aes-gcm =  { version = "0.10.1", default-features = false, features = ["aes"] }
 base64 = "0.21.0"
