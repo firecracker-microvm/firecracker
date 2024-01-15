@@ -73,6 +73,10 @@ pub mod io_uring;
 /// needs to be called by the user on every event on the rate limiter's `AsRawFd` FD.
 pub mod rate_limiter;
 
+/// Module for handling ACPI tables.
+/// Currently, we only use ACPI on x86 microVMs.
+#[cfg(target_arch = "x86_64")]
+pub mod acpi;
 /// Handles setup and initialization a `Vmm` object.
 pub mod builder;
 /// Types for guest configuration.

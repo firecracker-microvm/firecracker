@@ -19,6 +19,9 @@ pub struct ResourceAllocator {
     gsi_allocator: IdAllocator,
     // Allocator for memory in the MMIO address space
     mmio_memory: AddressAllocator,
+    // Memory allocator for system data
+    #[cfg(target_arch = "x86_64")]
+    system_memory: AddressAllocator,
 }
 
 impl ResourceAllocator {
@@ -27,6 +30,8 @@ impl ResourceAllocator {
         Ok(Self {
             gsi_allocator: IdAllocator::new(arch::IRQ_BASE, arch::IRQ_MAX)?,
             mmio_memory: AddressAllocator::new(arch::MMIO_MEM_START, arch::MMIO_MEM_SIZE)?,
+            #[cfg(target_arch = "x86_64")]
+            system_memory: AddressAllocator::new(arch::SYSTEM_MEM_START, arch::SYSTEM_MEM_SIZE)?,
         })
     }
 
@@ -70,6 +75,28 @@ impl ResourceAllocator {
         policy: AllocPolicy,
     ) -> Result<u64, vm_allocator::Error> {
         Ok(self.mmio_memory.allocate(size, alignment, policy)?.start())
+    }
+
+    /// Allocate a memory range for system data
+    ///
+    /// If it succeeds, it returns the first address of the allocated range
+    ///
+    /// # Arguments
+    ///
+    /// * `size` - The size in bytes of the memory to allocate
+    /// * `alignment` - The alignment of the address of the first byte
+    /// * `policy` - A [`vm_allocator::AllocPolicy`] variant for determining the allocation policy
+    #[cfg(target_arch = "x86_64")]
+    pub fn allocate_system_memory(
+        &mut self,
+        size: u64,
+        alignment: u64,
+        policy: AllocPolicy,
+    ) -> Result<u64, vm_allocator::Error> {
+        Ok(self
+            .system_memory
+            .allocate(size, alignment, policy)?
+            .start())
     }
 }
 
