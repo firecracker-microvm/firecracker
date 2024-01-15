@@ -496,7 +496,7 @@ impl Vcpu {
                 VcpuExit::SystemEvent(event_type, event_flags) => match event_type {
                     KVM_SYSTEM_EVENT_RESET | KVM_SYSTEM_EVENT_SHUTDOWN => {
                         info!(
-                            "Received KVM_SYSTEM_EVENT: type: {}, event: {}",
+                            "Received KVM_SYSTEM_EVENT: type: {}, event: {:?}",
                             event_type, event_flags
                         );
                         Ok(VcpuEmulation::Stopped)
@@ -504,7 +504,7 @@ impl Vcpu {
                     _ => {
                         METRICS.vcpu.failures.inc();
                         error!(
-                            "Received KVM_SYSTEM_EVENT signal type: {}, flag: {}",
+                            "Received KVM_SYSTEM_EVENT signal type: {}, flag: {:?}",
                             event_type, event_flags
                         );
                         Err(VcpuError::FaultyKvmExit(format!(
@@ -752,24 +752,24 @@ pub mod tests {
             )
         );
 
-        *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::SystemEvent(2, 0)));
+        *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::SystemEvent(2, &[])));
         let res = vcpu.run_emulation();
         assert!(res.is_ok());
         assert_eq!(res.unwrap(), VcpuEmulation::Stopped);
 
-        *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::SystemEvent(1, 0)));
+        *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::SystemEvent(1, &[])));
         let res = vcpu.run_emulation();
         assert!(res.is_ok());
         assert_eq!(res.unwrap(), VcpuEmulation::Stopped);
 
-        *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::SystemEvent(3, 0)));
+        *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::SystemEvent(3, &[])));
         let res = vcpu.run_emulation();
         assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
             format!(
                 "{:?}",
-                EmulationError::FaultyKvmExit("SystemEvent(3, 0)".to_string())
+                EmulationError::FaultyKvmExit("SystemEvent(3, [])".to_string())
             )
         );
 
