@@ -62,7 +62,7 @@ cpu_template_test = {
         ],
         BkStep.LABEL: "📖 cpu templates",
         "instances": ["m6g.metal", "c7g.metal"],
-        "platforms": [("al2_armpatch", "linux_5.10")],
+        "platforms": [("al2023", "linux_6.1")],
     },
     "fingerprint": {
         BkStep.COMMAND: [
