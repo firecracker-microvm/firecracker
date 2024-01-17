@@ -33,7 +33,7 @@ regex = { version = "1.10.2", default-features = false, features = ["std", "unic
 
 # Dev-Dependencies for uffd examples
 serde = { version = "1.0.193", features = ["derive"] }
-userfaultfd = "0.7.0"
+userfaultfd = "0.8.1"
 
 [build-dependencies]
 bincode = "1.2.1"
