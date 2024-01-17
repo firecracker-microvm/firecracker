@@ -355,27 +355,26 @@ def test_cpu_config_dump_vs_actual(
         ), f"Mismatched MSR for {key:#010x}: {actual=:#066b} vs. {dump=:#066b}"
 
 
-def detect_fingerprint_change(microvm, tmp_path, cpu_template_helper, filters=None):
+def detect_fingerprint_change(
+    microvm, tmp_path, results_dir, cpu_template_helper, filters=None
+):
     """
     Compare fingerprint files with filters between one taken at the moment and
     a baseline file taken in a specific point in time.
     """
+    fname = f"fingerprint_{global_props.cpu_codename}_{global_props.host_linux_version}host.json"
+
     # Generate VM config from test_microvm_with_api
     microvm.spawn()
     microvm.basic_config()
     vm_config_path = save_vm_config(microvm, tmp_path)
 
     # Dump a fingerprint with the generated VM config.
-    fingerprint_path = tmp_path / "fingerprint.json"
+    fingerprint_path = results_dir / fname
     cpu_template_helper.fingerprint_dump(vm_config_path, fingerprint_path)
 
     # Baseline fingerprint.
-    baseline_path = (
-        TEST_RESOURCES_DIR
-        / f"fingerprint_{global_props.cpu_codename}_{global_props.host_linux_version}host.json"
-    )
-    # Use this code to generate baseline fingerprint.
-    # cpu_template_helper.fingerprint_dump(vm_config_path, baseline_path)
+    baseline_path = TEST_RESOURCES_DIR / fname
 
     # Compare with baseline
     cpu_template_helper.fingerprint_compare(
@@ -390,7 +389,9 @@ def detect_fingerprint_change(microvm, tmp_path, cpu_template_helper, filters=No
     global_props.host_linux_version not in SUPPORTED_HOST_KERNELS,
     reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
 )
-def test_guest_cpu_config_change(test_microvm_with_api, tmp_path, cpu_template_helper):
+def test_guest_cpu_config_change(
+    test_microvm_with_api, tmp_path, results_dir, cpu_template_helper
+):
     """
     Verify that the guest CPU config has not changed since the baseline
     fingerprint was gathered.
@@ -398,6 +399,7 @@ def test_guest_cpu_config_change(test_microvm_with_api, tmp_path, cpu_template_h
     detect_fingerprint_change(
         test_microvm_with_api,
         tmp_path,
+        results_dir,
         cpu_template_helper,
         ["guest_cpu_config"],
     )
