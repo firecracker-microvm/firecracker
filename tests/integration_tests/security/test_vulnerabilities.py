@@ -185,6 +185,33 @@ def spectre_meltdown_reported_vulnerablities(
     }
 
 
+def check_vulnerabilities_on_guest(status):
+    """
+    There is a REPTAR exception reported on INTEL_ICELAKE when spectre-meltdown-checker.sh
+    script is run inside the guest from below the tests:
+        test_spectre_meltdown_checker_on_guest and
+        test_spectre_meltdown_checker_on_restored_guest
+    The same script when run on host doesn't report the
+    exception which means the instances are actually not vulnerable to REPTAR.
+    The only reason why the script cannot determine if the guest
+    is vulnerable or not because Firecracker does not expose the microcode
+    version to the guest.
+
+    The check in spectre_meltdown_checker is here:
+        https://github.com/speed47/spectre-meltdown-checker/blob/0f2edb1a71733c1074550166c5e53abcfaa4d6ca/spectre-meltdown-checker.sh#L6635-L6637
+
+    Since we have a test on host and the exception in guest is not valid,
+    we add a check to ignore this exception.
+    """
+    report_guest_vulnerabilities = spectre_meltdown_reported_vulnerablities(status)
+    known_guest_vulnerabilities = set()
+    if global_props.cpu_codename == "INTEL_ICELAKE":
+        known_guest_vulnerabilities = {
+            '{"NAME": "REPTAR", "CVE": "CVE-2023-23583", "VULNERABLE": true, "INFOS": "Your microcode is too old to mitigate the vulnerability"}'
+        }
+    assert report_guest_vulnerabilities == known_guest_vulnerabilities
+
+
 @pytest.mark.skipif(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
@@ -232,13 +259,16 @@ def test_spectre_meltdown_checker_on_guest(spectre_meltdown_checker, build_micro
     Test with the spectre / meltdown checker on guest.
     """
 
-    git_ab_test_guest_command_if_pr(
+    status = git_ab_test_guest_command_if_pr(
         with_checker(build_microvm, spectre_meltdown_checker),
         REMOTE_CHECKER_COMMAND,
         comparator=set_did_not_grow_comparator(
             spectre_meltdown_reported_vulnerablities
         ),
+        ignore_return_code_in_nonpr=True,
     )
+    if status and status.returncode != 0:
+        check_vulnerabilities_on_guest(status)
 
 
 @pytest.mark.skipif(
@@ -251,7 +281,7 @@ def test_spectre_meltdown_checker_on_restored_guest(
     """
     Test with the spectre / meltdown checker on a restored guest.
     """
-    git_ab_test_guest_command_if_pr(
+    status = git_ab_test_guest_command_if_pr(
         with_checker(
             with_restore(build_microvm, microvm_factory), spectre_meltdown_checker
         ),
@@ -259,7 +289,10 @@ def test_spectre_meltdown_checker_on_restored_guest(
         comparator=set_did_not_grow_comparator(
             spectre_meltdown_reported_vulnerablities
         ),
+        ignore_return_code_in_nonpr=True,
     )
+    if status and status.returncode != 0:
+        check_vulnerabilities_on_guest(status)
 
 
 @pytest.mark.skipif(
