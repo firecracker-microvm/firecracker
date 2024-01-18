@@ -55,7 +55,7 @@ pub enum MemPageState {
 }
 
 impl UffdPfHandler {
-    pub fn from_unix_stream(stream: UnixStream, backing_buffer: *const u8, size: usize) -> Self {
+    pub fn from_unix_stream(stream: &UnixStream, backing_buffer: *const u8, size: usize) -> Self {
         let mut message_buf = vec![0u8; 1024];
         let (bytes_read, file) = stream
             .recv_with_fd(&mut message_buf[..])
@@ -213,5 +213,5 @@ pub fn create_pf_handler() -> UffdPfHandler {
 
     let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
 
-    UffdPfHandler::from_unix_stream(stream, memfile_buffer, size)
+    UffdPfHandler::from_unix_stream(&stream, memfile_buffer, size)
 }
