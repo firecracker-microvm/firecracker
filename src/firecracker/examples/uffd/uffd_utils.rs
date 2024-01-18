@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
-use std::os::unix::net::{UnixListener, UnixStream};
+use std::os::unix::net::UnixStream;
 use std::ptr;
 
 use serde::Deserialize;
@@ -162,6 +162,110 @@ impl UffdPfHandler {
     }
 }
 
+#[derive(Debug)]
+pub struct Runtime {
+    stream: UnixStream,
+    backing_file: File,
+    backing_memory: *mut u8,
+    backing_memory_size: usize,
+    uffds: HashMap<i32, UffdPfHandler>,
+}
+
+impl Runtime {
+    pub fn new(stream: UnixStream, backing_file: File) -> Self {
+        let file_meta = backing_file
+            .metadata()
+            .expect("can not get backing file metadata");
+        let backing_memory_size = file_meta.len() as usize;
+        // # Safety:
+        // File size and fd are valid
+        let ret = unsafe {
+            libc::mmap(
+                ptr::null_mut(),
+                backing_memory_size,
+                libc::PROT_READ,
+                libc::MAP_PRIVATE,
+                backing_file.as_raw_fd(),
+                0,
+            )
+        };
+        if ret == libc::MAP_FAILED {
+            panic!("mmap on backing file failed");
+        }
+
+        Self {
+            stream,
+            backing_file,
+            backing_memory: ret.cast(),
+            backing_memory_size,
+            uffds: HashMap::default(),
+        }
+    }
+
+    /// Polls the `UnixStream` and UFFD fds in a loop.
+    /// When stream is polled, new uffd is retrieved.
+    /// When uffd is polled, page fault is handled by
+    /// calling `pf_event_dispatch` with corresponding
+    /// uffd object passed in.
+    pub fn run(&mut self, pf_event_dispatch: impl Fn(&mut UffdPfHandler)) {
+        let mut pollfds = vec![];
+
+        // Poll the stream for incoming uffds
+        pollfds.push(libc::pollfd {
+            fd: self.stream.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        });
+
+        // We can skip polling on stream fd if
+        // the connection is closed.
+        let mut skip_stream: usize = 0;
+        loop {
+            let pollfd_ptr = pollfds[skip_stream..].as_mut_ptr();
+            let pollfd_size = pollfds[skip_stream..].len() as u64;
+
+            // # Safety:
+            // Pollfds vector is valid
+            let mut nready = unsafe { libc::poll(pollfd_ptr, pollfd_size, -1) };
+
+            if nready == -1 {
+                panic!("Could not poll for events!")
+            }
+
+            for i in skip_stream..pollfds.len() {
+                if nready == 0 {
+                    break;
+                }
+                if pollfds[i].revents & libc::POLLIN != 0 {
+                    nready -= 1;
+                    if pollfds[i].fd == self.stream.as_raw_fd() {
+                        // Handle new uffd from stream
+                        let handler = UffdPfHandler::from_unix_stream(
+                            &self.stream,
+                            self.backing_memory,
+                            self.backing_memory_size,
+                        );
+                        pollfds.push(libc::pollfd {
+                            fd: handler.uffd.as_raw_fd(),
+                            events: libc::POLLIN,
+                            revents: 0,
+                        });
+                        self.uffds.insert(handler.uffd.as_raw_fd(), handler);
+
+                        // If connection is closed, we can skip the socket from being polled.
+                        if pollfds[i].revents & (libc::POLLRDHUP | libc::POLLHUP) != 0 {
+                            skip_stream = 1;
+                        }
+                    } else {
+                        // Handle one of uffd page faults
+                        pf_event_dispatch(self.uffds.get_mut(&pollfds[i].fd).unwrap());
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn create_mem_regions(mappings: &Vec<GuestRegionUffdMapping>) -> Vec<MemRegion> {
     let page_size = get_page_size().unwrap();
     let mut mem_regions: Vec<MemRegion> = Vec::with_capacity(mappings.len());
@@ -183,35 +287,4 @@ fn create_mem_regions(mappings: &Vec<GuestRegionUffdMapping>) -> Vec<MemRegion> 
     }
 
     mem_regions
-}
-
-pub fn create_pf_handler() -> UffdPfHandler {
-    let uffd_sock_path = std::env::args().nth(1).expect("No socket path given");
-    let mem_file_path = std::env::args().nth(2).expect("No memory file given");
-
-    let file = File::open(mem_file_path).expect("Cannot open memfile");
-    let size = file.metadata().unwrap().len() as usize;
-
-    // mmap a memory area used to bring in the faulting regions.
-    let ret = unsafe {
-        libc::mmap(
-            ptr::null_mut(),
-            size,
-            libc::PROT_READ,
-            libc::MAP_PRIVATE,
-            file.as_raw_fd(),
-            0,
-        )
-    };
-    if ret == libc::MAP_FAILED {
-        panic!("mmap failed");
-    }
-    let memfile_buffer = ret as *const u8;
-
-    // Get Uffd from UDS. We'll use the uffd to handle PFs for Firecracker.
-    let listener = UnixListener::bind(uffd_sock_path).expect("Cannot bind to socket path");
-
-    let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
-
-    UffdPfHandler::from_unix_stream(&stream, memfile_buffer, size)
 }
