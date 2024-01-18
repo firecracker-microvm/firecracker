@@ -242,12 +242,12 @@ impl VmResources {
 
     /// Updates the configuration of the microVM.
     pub fn update_vm_config(&mut self, update: &MachineConfigUpdate) -> Result<(), VmConfigError> {
-        self.vm_config.update(update)?;
+        let updated = self.vm_config.update(update)?;
 
         // The VM cannot have a memory size smaller than the target size
         // of the balloon device, if present.
         if self.balloon.get().is_some()
-            && self.vm_config.mem_size_mib
+            && updated.mem_size_mib
                 < self
                     .balloon
                     .get_config()
@@ -256,6 +256,8 @@ impl VmResources {
         {
             return Err(VmConfigError::IncompatibleBalloonSize);
         }
+
+        self.vm_config = updated;
 
         Ok(())
     }
