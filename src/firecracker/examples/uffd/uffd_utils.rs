@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::{mem, ptr};
+use std::ptr;
 
 use serde::Deserialize;
 use userfaultfd::Uffd;
@@ -44,9 +44,6 @@ pub struct UffdPfHandler {
     mem_regions: Vec<MemRegion>,
     backing_buffer: *const u8,
     pub uffd: Uffd,
-    // Not currently used but included to demonstrate how a page fault handler can
-    // fetch Firecracker's PID in order to make it aware of any crashes/exits.
-    _firecracker_pid: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -77,15 +74,12 @@ impl UffdPfHandler {
 
         let uffd = unsafe { Uffd::from_raw_fd(file.into_raw_fd()) };
 
-        let creds: libc::ucred = get_peer_process_credentials(stream);
-
         let mem_regions = create_mem_regions(&mappings);
 
         Self {
             mem_regions,
             backing_buffer: data,
             uffd,
-            _firecracker_pid: creds.pid as u32,
         }
     }
 
@@ -168,30 +162,6 @@ impl UffdPfHandler {
             addr
         );
     }
-}
-
-fn get_peer_process_credentials(stream: UnixStream) -> libc::ucred {
-    let mut creds: libc::ucred = libc::ucred {
-        pid: 0,
-        gid: 0,
-        uid: 0,
-    };
-    let mut creds_size = mem::size_of::<libc::ucred>() as u32;
-
-    let ret = unsafe {
-        libc::getsockopt(
-            stream.as_raw_fd(),
-            libc::SOL_SOCKET,
-            libc::SO_PEERCRED,
-            &mut creds as *mut _ as *mut _,
-            &mut creds_size as *mut libc::socklen_t,
-        )
-    };
-    if ret != 0 {
-        panic!("Failed to get peer process credentials");
-    }
-
-    creds
 }
 
 fn create_mem_regions(mappings: &Vec<GuestRegionUffdMapping>) -> Vec<MemRegion> {
