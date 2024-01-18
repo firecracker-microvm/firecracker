@@ -55,7 +55,7 @@ pub enum MemPageState {
 }
 
 impl UffdPfHandler {
-    pub fn from_unix_stream(stream: UnixStream, data: *const u8, size: usize) -> Self {
+    pub fn from_unix_stream(stream: UnixStream, backing_buffer: *const u8, size: usize) -> Self {
         let mut message_buf = vec![0u8; 1024];
         let (bytes_read, file) = stream
             .recv_with_fd(&mut message_buf[..])
@@ -78,7 +78,7 @@ impl UffdPfHandler {
 
         Self {
             mem_regions,
-            backing_buffer: data,
+            backing_buffer,
             uffd,
         }
     }
@@ -120,7 +120,7 @@ impl UffdPfHandler {
         // Make sure the UFFD zeroed out some bytes.
         assert!(ret > 0);
 
-        return (addr, addr + page_size as u64);
+        (addr, addr + page_size as u64)
     }
 
     pub fn serve_pf(&mut self, addr: *mut u8, len: usize) {
@@ -151,9 +151,7 @@ impl UffdPfHandler {
                     self.update_mem_state_mappings(start, end, &MemPageState::Anonymous);
                     return;
                 }
-                None => {
-                    ();
-                }
+                None => {}
             }
         }
 
@@ -211,7 +209,7 @@ pub fn create_pf_handler() -> UffdPfHandler {
     let memfile_buffer = ret as *const u8;
 
     // Get Uffd from UDS. We'll use the uffd to handle PFs for Firecracker.
-    let listener = UnixListener::bind(&uffd_sock_path).expect("Cannot bind to socket path");
+    let listener = UnixListener::bind(uffd_sock_path).expect("Cannot bind to socket path");
 
     let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
 
