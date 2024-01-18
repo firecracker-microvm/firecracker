@@ -11,7 +11,7 @@ use std::os::unix::net::UnixStream;
 use std::ptr;
 
 use serde::Deserialize;
-use userfaultfd::Uffd;
+use userfaultfd::{Error, Event, Uffd};
 use utils::get_page_size;
 use utils::sock_ctrl_msg::ScmSocket;
 
@@ -33,19 +33,6 @@ pub struct GuestRegionUffdMapping {
     pub offset: u64,
 }
 
-#[derive(Debug)]
-struct MemRegion {
-    mapping: GuestRegionUffdMapping,
-    page_states: HashMap<u64, MemPageState>,
-}
-
-#[derive(Debug)]
-pub struct UffdPfHandler {
-    mem_regions: Vec<MemRegion>,
-    backing_buffer: *const u8,
-    pub uffd: Uffd,
-}
-
 #[derive(Debug, Clone)]
 pub enum MemPageState {
     Uninitialized,
@@ -54,7 +41,20 @@ pub enum MemPageState {
     Anonymous,
 }
 
-impl UffdPfHandler {
+#[derive(Debug)]
+struct MemRegion {
+    mapping: GuestRegionUffdMapping,
+    page_states: HashMap<u64, MemPageState>,
+}
+
+#[derive(Debug)]
+pub struct UffdHandler {
+    mem_regions: Vec<MemRegion>,
+    backing_buffer: *const u8,
+    uffd: Uffd,
+}
+
+impl UffdHandler {
     pub fn from_unix_stream(stream: &UnixStream, backing_buffer: *const u8, size: usize) -> Self {
         let mut message_buf = vec![0u8; 1024];
         let (bytes_read, file) = stream
@@ -83,6 +83,10 @@ impl UffdPfHandler {
         }
     }
 
+    pub fn read_event(&mut self) -> Result<Option<Event>, Error> {
+        self.uffd.read_event()
+    }
+
     pub fn update_mem_state_mappings(&mut self, start: u64, end: u64, state: &MemPageState) {
         for region in self.mem_regions.iter_mut() {
             for (key, value) in region.page_states.iter_mut() {
@@ -91,36 +95,6 @@ impl UffdPfHandler {
                 }
             }
         }
-    }
-
-    fn populate_from_file(&self, region: &MemRegion, dst: u64, len: usize) -> (u64, u64) {
-        let offset = dst - region.mapping.base_host_virt_addr;
-        let src = self.backing_buffer as u64 + region.mapping.offset + offset;
-
-        let ret = unsafe {
-            self.uffd
-                .copy(src as *const _, dst as *mut _, len, true)
-                .expect("Uffd copy failed")
-        };
-
-        // Make sure the UFFD copied some bytes.
-        assert!(ret > 0);
-
-        (dst, dst + len as u64)
-    }
-
-    fn zero_out(&mut self, addr: u64) -> (u64, u64) {
-        let page_size = get_page_size().unwrap();
-
-        let ret = unsafe {
-            self.uffd
-                .zeropage(addr as *mut _, page_size, true)
-                .expect("Uffd zeropage failed")
-        };
-        // Make sure the UFFD zeroed out some bytes.
-        assert!(ret > 0);
-
-        (addr, addr + page_size as u64)
     }
 
     pub fn serve_pf(&mut self, addr: *mut u8, len: usize) {
@@ -160,6 +134,36 @@ impl UffdPfHandler {
             addr
         );
     }
+
+    fn populate_from_file(&self, region: &MemRegion, dst: u64, len: usize) -> (u64, u64) {
+        let offset = dst - region.mapping.base_host_virt_addr;
+        let src = self.backing_buffer as u64 + region.mapping.offset + offset;
+
+        let ret = unsafe {
+            self.uffd
+                .copy(src as *const _, dst as *mut _, len, true)
+                .expect("Uffd copy failed")
+        };
+
+        // Make sure the UFFD copied some bytes.
+        assert!(ret > 0);
+
+        (dst, dst + len as u64)
+    }
+
+    fn zero_out(&mut self, addr: u64) -> (u64, u64) {
+        let page_size = get_page_size().unwrap();
+
+        let ret = unsafe {
+            self.uffd
+                .zeropage(addr as *mut _, page_size, true)
+                .expect("Uffd zeropage failed")
+        };
+        // Make sure the UFFD zeroed out some bytes.
+        assert!(ret > 0);
+
+        (addr, addr + page_size as u64)
+    }
 }
 
 #[derive(Debug)]
@@ -168,7 +172,7 @@ pub struct Runtime {
     backing_file: File,
     backing_memory: *mut u8,
     backing_memory_size: usize,
-    uffds: HashMap<i32, UffdPfHandler>,
+    uffds: HashMap<i32, UffdHandler>,
 }
 
 impl Runtime {
@@ -207,7 +211,7 @@ impl Runtime {
     /// When uffd is polled, page fault is handled by
     /// calling `pf_event_dispatch` with corresponding
     /// uffd object passed in.
-    pub fn run(&mut self, pf_event_dispatch: impl Fn(&mut UffdPfHandler)) {
+    pub fn run(&mut self, pf_event_dispatch: impl Fn(&mut UffdHandler)) {
         let mut pollfds = vec![];
 
         // Poll the stream for incoming uffds
@@ -240,7 +244,7 @@ impl Runtime {
                     nready -= 1;
                     if pollfds[i].fd == self.stream.as_raw_fd() {
                         // Handle new uffd from stream
-                        let handler = UffdPfHandler::from_unix_stream(
+                        let handler = UffdHandler::from_unix_stream(
                             &self.stream,
                             self.backing_memory,
                             self.backing_memory_size,

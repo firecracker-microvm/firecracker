@@ -10,7 +10,7 @@ mod uffd_utils;
 use std::fs::File;
 use std::os::unix::net::UnixListener;
 
-use uffd_utils::{MemPageState, Runtime, UffdPfHandler};
+use uffd_utils::{MemPageState, Runtime, UffdHandler};
 use utils::get_page_size;
 
 fn main() {
@@ -30,10 +30,9 @@ fn main() {
     let len = get_page_size().unwrap();
 
     let mut runtime = Runtime::new(stream, file);
-    runtime.run(|uffd_handler: &mut UffdPfHandler| {
+    runtime.run(|uffd_handler: &mut UffdHandler| {
         // Read an event from the userfaultfd.
         let event = uffd_handler
-            .uffd
             .read_event()
             .expect("Failed to read uffd_msg")
             .expect("uffd_msg not ready");

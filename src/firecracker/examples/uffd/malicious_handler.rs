@@ -9,7 +9,7 @@ mod uffd_utils;
 use std::fs::File;
 use std::os::unix::net::UnixListener;
 
-use uffd_utils::{Runtime, UffdPfHandler};
+use uffd_utils::{Runtime, UffdHandler};
 
 fn main() {
     let mut args = std::env::args();
@@ -23,10 +23,9 @@ fn main() {
     let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
 
     let mut runtime = Runtime::new(stream, file);
-    runtime.run(|uffd_handler: &mut UffdPfHandler| {
+    runtime.run(|uffd_handler: &mut UffdHandler| {
         // Read an event from the userfaultfd.
         let event = uffd_handler
-            .uffd
             .read_event()
             .expect("Failed to read uffd_msg")
             .expect("uffd_msg not ready");
