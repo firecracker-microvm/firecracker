@@ -257,6 +257,10 @@ impl VmResources {
             return Err(VmConfigError::IncompatibleBalloonSize);
         }
 
+        if self.balloon.get().is_some() && updated.huge_pages != HugePageConfig::None {
+            return Err(VmConfigError::BalloonAndHugePages);
+        }
+
         self.vm_config = updated;
 
         Ok(())
@@ -319,6 +323,10 @@ impl VmResources {
         // the guest memory.
         if config.amount_mib as usize > self.vm_config.mem_size_mib {
             return Err(BalloonConfigError::TooManyPagesRequested);
+        }
+
+        if self.vm_config.huge_pages != HugePageConfig::None {
+            return Err(BalloonConfigError::HugePages);
         }
 
         self.balloon.set(config)
@@ -1382,6 +1390,9 @@ mod tests {
         if KernelVersion::get().unwrap() >= KernelVersion::new(5, 10, 0) {
             // mem_size_mib compatible with huge page configuration
             aux_vm_config.mem_size_mib = Some(2048);
+            // Remove the balloon device config that's added by `default_vm_resources` as it would
+            // trigger the "ballooning incompatible with huge pages" check.
+            vm_resources.balloon = BalloonBuilder::new();
             vm_resources.update_vm_config(&aux_vm_config).unwrap();
         }
     }
