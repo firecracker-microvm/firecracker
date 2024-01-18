@@ -112,3 +112,30 @@ def test_hugetlbfs_snapshot(
     assert not rc
 
     check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
+
+
+@pytest.mark.skipif(
+    global_props.host_linux_version == "4.14",
+    reason="MFD_HUGETLB | MFD_ALLOW_SEALING only supported on kernels >= 4.16",
+)
+def test_negative_huge_pages_plus_balloon(uvm_plain):
+    """Tests that huge pages and memory ballooning cannot be used together"""
+    uvm_plain.memory_monitor = None
+    uvm_plain.spawn()
+
+    # Ensure setting huge pages and then adding a balloon device doesn't work
+    uvm_plain.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB)
+    with pytest.raises(
+        RuntimeError,
+        match="Firecracker's huge pages support is incompatible with memory ballooning.",
+    ):
+        uvm_plain.api.balloon.put(amount_mib=0, deflate_on_oom=False)
+
+    # Ensure adding a balloon device and then setting huge pages doesn't work
+    uvm_plain.basic_config(huge_pages=HugePagesConfig.NONE)
+    uvm_plain.api.balloon.put(amount_mib=0, deflate_on_oom=False)
+    with pytest.raises(
+        RuntimeError,
+        match="Machine config error: Firecracker's huge pages support is incompatible with memory ballooning.",
+    ):
+        uvm_plain.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB)

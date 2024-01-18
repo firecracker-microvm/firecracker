@@ -33,6 +33,8 @@ pub enum VmConfigError {
     KernelVersion,
     /// Firecracker's hugetlbfs support requires at least host kernel 5.10.
     HugetlbfsNotSupported,
+    /// Firecracker's huge pages support is incompatible with memory ballooning.
+    BalloonAndHugePages,
 }
 
 // We cannot do a `KernelVersion(kernel_version::Error)` variant because `kernel_version::Error`
