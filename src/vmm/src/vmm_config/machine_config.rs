@@ -122,11 +122,12 @@ impl VmConfig {
         self.cpu_template = Some(CpuTemplateType::Custom(cpu_template));
     }
 
-    /// Updates `VmConfig` with `MachineConfigUpdate`.
-    /// Mapping for cpu tempalte update:
+    /// Updates [`VmConfig`] with [`MachineConfigUpdate`].
+    /// Mapping for cpu template update:
     /// StaticCpuTemplate::None -> None
-    /// StaticCpuTemplate::Other -> Some(CustomCpuTemplate::Static(Other))
-    pub fn update(&mut self, update: &MachineConfigUpdate) -> Result<(), VmConfigError> {
+    /// StaticCpuTemplate::Other -> Some(CustomCpuTemplate::Static(Other)),
+    /// Returns the updated `VmConfig` object.
+    pub fn update(&self, update: &MachineConfigUpdate) -> Result<VmConfig, VmConfigError> {
         let vcpu_count = update.vcpu_count.unwrap_or(self.vcpu_count);
 
         let smt = update.smt.unwrap_or(self.smt);
@@ -146,29 +147,25 @@ impl VmConfig {
             return Err(VmConfigError::InvalidVcpuCount);
         }
 
-        self.vcpu_count = vcpu_count;
-        self.smt = smt;
-
         let mem_size_mib = update.mem_size_mib.unwrap_or(self.mem_size_mib);
 
         if mem_size_mib == 0 {
             return Err(VmConfigError::InvalidMemorySize);
         }
 
-        self.mem_size_mib = mem_size_mib;
+        let cpu_template = match update.cpu_template {
+            None => self.cpu_template.clone(),
+            Some(StaticCpuTemplate::None) => None,
+            Some(other) => Some(CpuTemplateType::Static(other)),
+        };
 
-        if let Some(cpu_template) = update.cpu_template {
-            self.cpu_template = match cpu_template {
-                StaticCpuTemplate::None => None,
-                other => Some(CpuTemplateType::Static(other)),
-            };
-        }
-
-        if let Some(track_dirty_pages) = update.track_dirty_pages {
-            self.track_dirty_pages = track_dirty_pages;
-        }
-
-        Ok(())
+        Ok(VmConfig {
+            vcpu_count,
+            mem_size_mib,
+            smt,
+            cpu_template,
+            track_dirty_pages: update.track_dirty_pages.unwrap_or(self.track_dirty_pages),
+        })
     }
 }
 
