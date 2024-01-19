@@ -19,9 +19,7 @@ enough RAM, etc.), customers can rely on the following:
    they are logged<sup>2</sup> by the Firecracker process.
 1. **API Stability:** The API socket is always available and the API conforms
    to the in-tree
-   [Open API specification](
-    src/firecracker/src/api_server/swagger/firecracker.yaml
-    ). API failures
+   [Open API specification](src/firecracker/swagger/firecracker.yaml). API failures
    are logged in the Firecracker log.
 1. **Overhead:** For a Firecracker virtual machine manager running a microVM
    with `1 CPUs and 128 MiB of RAM`, and a guest OS with the Firecracker-tuned

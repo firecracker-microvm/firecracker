@@ -161,8 +161,8 @@ done
 cp -v "resources/seccomp/$CARGO_TARGET.json" "$RELEASE_DIR/seccomp-filter-$SUFFIX.json"
 # Copy over arch independent assets
 cp -v -t "$RELEASE_DIR" LICENSE NOTICE THIRD-PARTY
-check_swagger_artifact src/api_server/swagger/firecracker.yaml "$VERSION"
-cp -v src/api_server/swagger/firecracker.yaml "$RELEASE_DIR/firecracker_spec-$VERSION.yaml"
+check_swagger_artifact src/firecracker/swagger/firecracker.yaml "$VERSION"
+cp -v src/firecracker/swagger/firecracker.yaml "$RELEASE_DIR/firecracker_spec-$VERSION.yaml"
 
 CPU_TEMPLATES=(c3 t2 t2s t2cl t2a v1n1)
 for template in "${CPU_TEMPLATES[@]}"; do

@@ -32,7 +32,7 @@ prev_ver=$(get_swagger_version)
 say "Updating from $prev_ver to $version ..."
 # Update version in files.
 files_to_change=(
-    "$FC_ROOT_DIR/src/api_server/swagger/firecracker.yaml"
+    "$FC_ROOT_DIR/src/firecracker/swagger/firecracker.yaml"
     "$FC_ROOT_DIR/src/firecracker/Cargo.toml"
     "$FC_ROOT_DIR/src/jailer/Cargo.toml"
     "$FC_ROOT_DIR/src/rebase-snap/Cargo.toml"

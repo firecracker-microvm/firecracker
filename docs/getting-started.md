@@ -277,7 +277,7 @@ optional. This configuration method will also start the microVM, as such you
 need to specify all desired pre-boot configurable resources in the JSON. The
 names of the resources can be seen in
 [`firecracker.yaml`]
-(../src/firecracker/src/api_server/swagger/firecracker.yaml) and the
+(../src/firecracker/swagger/firecracker.yaml) and the
 names of their fields are the same that are used in the API requests.
 
 An example of configuration file is provided:
