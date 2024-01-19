@@ -6,6 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::fmt::Debug;
+
 /// The vsock object implements the runtime logic of our vsock device:
 /// 1. Respond to TX queue events by wrapping virtio buffers into `VsockPacket`s, then sending
 /// those    packets to the `VsockBackend`;
@@ -25,8 +26,6 @@ use std::fmt::Debug;
 ///   - forward the event to the backend; then
 ///   - again, attempt to fetch any incoming packets queued by the backend into virtio RX
 ///     buffers.
-use std::os::unix::io::AsRawFd;
-
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use log::{error, warn};
 use utils::epoll::EventSet;
@@ -41,6 +40,12 @@ impl<B> Vsock<B>
 where
     B: Debug + VsockBackend + 'static,
 {
+    const PROCESS_ACTIVATE: u32 = 0;
+    const PROCESS_RXQ: u32 = 1;
+    const PROCESS_TXQ: u32 = 2;
+    const PROCESS_EVQ: u32 = 3;
+    const PROCESS_NOTIFY_BACKEND: u32 = 4;
+
     pub fn handle_rxq_event(&mut self, evset: EventSet) -> bool {
         if evset != EventSet::IN {
             warn!("vsock: rxq unexpected event {:?}", evset);
@@ -113,22 +118,42 @@ where
     }
 
     fn register_runtime_events(&self, ops: &mut EventOps) {
-        if let Err(err) = ops.add(Events::new(&self.queue_events[RXQ_INDEX], EventSet::IN)) {
+        if let Err(err) = ops.add(Events::with_data(
+            &self.queue_events[RXQ_INDEX],
+            Self::PROCESS_RXQ,
+            EventSet::IN,
+        )) {
             error!("Failed to register rx queue event: {}", err);
         }
-        if let Err(err) = ops.add(Events::new(&self.queue_events[TXQ_INDEX], EventSet::IN)) {
+        if let Err(err) = ops.add(Events::with_data(
+            &self.queue_events[TXQ_INDEX],
+            Self::PROCESS_TXQ,
+            EventSet::IN,
+        )) {
             error!("Failed to register tx queue event: {}", err);
         }
-        if let Err(err) = ops.add(Events::new(&self.queue_events[EVQ_INDEX], EventSet::IN)) {
+        if let Err(err) = ops.add(Events::with_data(
+            &self.queue_events[EVQ_INDEX],
+            Self::PROCESS_EVQ,
+            EventSet::IN,
+        )) {
             error!("Failed to register ev queue event: {}", err);
         }
-        if let Err(err) = ops.add(Events::new(&self.backend, self.backend.get_polled_evset())) {
+        if let Err(err) = ops.add(Events::with_data(
+            &self.backend,
+            Self::PROCESS_NOTIFY_BACKEND,
+            self.backend.get_polled_evset(),
+        )) {
             error!("Failed to register vsock backend event: {}", err);
         }
     }
 
     fn register_activate_event(&self, ops: &mut EventOps) {
-        if let Err(err) = ops.add(Events::new(&self.activate_evt, EventSet::IN)) {
+        if let Err(err) = ops.add(Events::with_data(
+            &self.activate_evt,
+            Self::PROCESS_ACTIVATE,
+            EventSet::IN,
+        )) {
             error!("Failed to register activate event: {}", err);
         }
     }
@@ -138,7 +163,11 @@ where
             error!("Failed to consume net activate event: {:?}", err);
         }
         self.register_runtime_events(ops);
-        if let Err(err) = ops.remove(Events::new(&self.activate_evt, EventSet::IN)) {
+        if let Err(err) = ops.remove(Events::with_data(
+            &self.activate_evt,
+            Self::PROCESS_ACTIVATE,
+            EventSet::IN,
+        )) {
             error!("Failed to un-register activate event: {}", err);
         }
     }
@@ -149,26 +178,17 @@ where
     B: Debug + VsockBackend + 'static,
 {
     fn process(&mut self, event: Events, ops: &mut EventOps) {
-        let source = event.fd();
+        let source = event.data();
         let evset = event.event_set();
-        let rxq = self.queue_events[RXQ_INDEX].as_raw_fd();
-        let txq = self.queue_events[TXQ_INDEX].as_raw_fd();
-        let evq = self.queue_events[EVQ_INDEX].as_raw_fd();
-        let backend = self.backend.as_raw_fd();
-        let activate_evt = self.activate_evt.as_raw_fd();
 
         if self.is_activated() {
             let mut raise_irq = false;
             match source {
-                _ if source == rxq => raise_irq = self.handle_rxq_event(evset),
-                _ if source == txq => raise_irq = self.handle_txq_event(evset),
-                _ if source == evq => raise_irq = self.handle_evq_event(evset),
-                _ if source == backend => {
-                    raise_irq = self.notify_backend(evset);
-                }
-                _ if source == activate_evt => {
-                    self.handle_activate_event(ops);
-                }
+                Self::PROCESS_ACTIVATE => self.handle_activate_event(ops),
+                Self::PROCESS_RXQ => raise_irq = self.handle_rxq_event(evset),
+                Self::PROCESS_TXQ => raise_irq = self.handle_txq_event(evset),
+                Self::PROCESS_EVQ => raise_irq = self.handle_evq_event(evset),
+                Self::PROCESS_NOTIFY_BACKEND => raise_irq = self.notify_backend(evset),
                 _ => warn!("Unexpected vsock event received: {:?}", source),
             }
             if raise_irq {

@@ -1,8 +1,6 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::os::unix::io::AsRawFd;
-
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use utils::epoll::EventSet;
 
@@ -12,25 +10,51 @@ use crate::devices::virtio::device::VirtioDevice;
 use crate::logger::{error, warn};
 
 impl Balloon {
+    const PROCESS_ACTIVATE: u32 = 0;
+    const PROCESS_VIRTQ_INFLATE: u32 = 1;
+    const PROCESS_VIRTQ_DEFLATE: u32 = 2;
+    const PROCESS_VIRTQ_STATS: u32 = 3;
+    const PROCESS_STATS_TIMER: u32 = 4;
+
     fn register_runtime_events(&self, ops: &mut EventOps) {
-        if let Err(err) = ops.add(Events::new(&self.queue_evts[INFLATE_INDEX], EventSet::IN)) {
+        if let Err(err) = ops.add(Events::with_data(
+            &self.queue_evts[INFLATE_INDEX],
+            Self::PROCESS_VIRTQ_INFLATE,
+            EventSet::IN,
+        )) {
             error!("Failed to register inflate queue event: {}", err);
         }
-        if let Err(err) = ops.add(Events::new(&self.queue_evts[DEFLATE_INDEX], EventSet::IN)) {
+        if let Err(err) = ops.add(Events::with_data(
+            &self.queue_evts[DEFLATE_INDEX],
+            Self::PROCESS_VIRTQ_DEFLATE,
+            EventSet::IN,
+        )) {
             error!("Failed to register deflate queue event: {}", err);
         }
         if self.stats_enabled() {
-            if let Err(err) = ops.add(Events::new(&self.queue_evts[STATS_INDEX], EventSet::IN)) {
+            if let Err(err) = ops.add(Events::with_data(
+                &self.queue_evts[STATS_INDEX],
+                Self::PROCESS_VIRTQ_STATS,
+                EventSet::IN,
+            )) {
                 error!("Failed to register stats queue event: {}", err);
             }
-            if let Err(err) = ops.add(Events::new(&self.stats_timer, EventSet::IN)) {
+            if let Err(err) = ops.add(Events::with_data(
+                &self.stats_timer,
+                Self::PROCESS_STATS_TIMER,
+                EventSet::IN,
+            )) {
                 error!("Failed to register stats timerfd event: {}", err);
             }
         }
     }
 
     fn register_activate_event(&self, ops: &mut EventOps) {
-        if let Err(err) = ops.add(Events::new(&self.activate_evt, EventSet::IN)) {
+        if let Err(err) = ops.add(Events::with_data(
+            &self.activate_evt,
+            Self::PROCESS_ACTIVATE,
+            EventSet::IN,
+        )) {
             error!("Failed to register activate event: {}", err);
         }
     }
@@ -40,7 +64,11 @@ impl Balloon {
             error!("Failed to consume balloon activate event: {:?}", err);
         }
         self.register_runtime_events(ops);
-        if let Err(err) = ops.remove(Events::new(&self.activate_evt, EventSet::IN)) {
+        if let Err(err) = ops.remove(Events::with_data(
+            &self.activate_evt,
+            Self::PROCESS_ACTIVATE,
+            EventSet::IN,
+        )) {
             error!("Failed to un-register activate event: {}", err);
         }
     }
@@ -48,7 +76,7 @@ impl Balloon {
 
 impl MutEventSubscriber for Balloon {
     fn process(&mut self, event: Events, ops: &mut EventOps) {
-        let source = event.fd();
+        let source = event.data();
         let event_set = event.event_set();
         let supported_events = EventSet::IN;
 
@@ -61,27 +89,20 @@ impl MutEventSubscriber for Balloon {
         }
 
         if self.is_activated() {
-            let virtq_inflate_ev_fd = self.queue_evts[INFLATE_INDEX].as_raw_fd();
-            let virtq_deflate_ev_fd = self.queue_evts[DEFLATE_INDEX].as_raw_fd();
-            let virtq_stats_ev_fd = self.queue_evts[STATS_INDEX].as_raw_fd();
-            let stats_timer_fd = self.stats_timer.as_raw_fd();
-            let activate_fd = self.activate_evt.as_raw_fd();
-
-            // Looks better than C style if/else if/else.
             match source {
-                _ if source == virtq_inflate_ev_fd => self
+                Self::PROCESS_ACTIVATE => self.process_activate_event(ops),
+                Self::PROCESS_VIRTQ_INFLATE => self
                     .process_inflate_queue_event()
                     .unwrap_or_else(report_balloon_event_fail),
-                _ if source == virtq_deflate_ev_fd => self
+                Self::PROCESS_VIRTQ_DEFLATE => self
                     .process_deflate_queue_event()
                     .unwrap_or_else(report_balloon_event_fail),
-                _ if source == virtq_stats_ev_fd => self
+                Self::PROCESS_VIRTQ_STATS => self
                     .process_stats_queue_event()
                     .unwrap_or_else(report_balloon_event_fail),
-                _ if source == stats_timer_fd => self
+                Self::PROCESS_STATS_TIMER => self
                     .process_stats_timer_event()
                     .unwrap_or_else(report_balloon_event_fail),
-                _ if activate_fd == source => self.process_activate_event(ops),
                 _ => {
                     warn!("Balloon: Spurious event received: {:?}", source);
                 }
