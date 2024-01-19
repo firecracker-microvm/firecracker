@@ -97,6 +97,8 @@ pub mod rpc_interface;
 pub mod seccomp_filters;
 /// Signal handling utilities.
 pub mod signal_handler;
+/// Serialization and deserialization facilities
+pub mod snapshot;
 /// Utility functions for integration and benchmark testing
 pub mod utilities;
 /// Wrappers over structures used to configure the VMM.
@@ -114,7 +116,6 @@ use std::time::Duration;
 use devices::virtio::vhost_user_block::device::VhostUserBlock;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use seccompiler::BpfProgram;
-use snapshot::Persist;
 use userfaultfd::Uffd;
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
@@ -137,6 +138,7 @@ use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET};
 use crate::logger::{error, info, warn, MetricsError, METRICS};
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
+use crate::snapshot::Persist;
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vstate::memory::{
     GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion,

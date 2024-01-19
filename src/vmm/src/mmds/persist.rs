@@ -7,11 +7,11 @@ use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use snapshot::Persist;
 use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 
 use super::ns::MmdsNetworkStack;
 use crate::mmds::data_store::Mmds;
+use crate::snapshot::Persist;
 
 /// State of a MmdsNetworkStack.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,9 +58,9 @@ impl Persist<'_> for MmdsNetworkStack {
 
 #[cfg(test)]
 mod tests {
-    use snapshot::Snapshot;
 
     use super::*;
+    use crate::snapshot::Snapshot;
 
     #[test]
     fn test_persistence() {

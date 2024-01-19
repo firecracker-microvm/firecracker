@@ -34,8 +34,8 @@ use semver::Version;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::crc::{CRC64Reader, CRC64Writer};
-pub use crate::persist::Persist;
+use crate::snapshot::crc::{CRC64Reader, CRC64Writer};
+pub use crate::snapshot::persist::Persist;
 
 #[cfg(target_arch = "x86_64")]
 const SNAPSHOT_MAGIC_ID: u64 = 0x0710_1984_8664_0000u64;

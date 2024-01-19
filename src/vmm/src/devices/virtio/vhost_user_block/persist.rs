@@ -4,12 +4,12 @@
 //! Defines the structures needed for saving/restoring block devices.
 
 use serde::{Deserialize, Serialize};
-use snapshot::Persist;
 
 use super::device::VhostUserBlock;
 use super::VhostUserBlockError;
 use crate::devices::virtio::block_common::CacheType;
 use crate::devices::virtio::persist::VirtioDeviceState;
+use crate::snapshot::Persist;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// vhost-user block device state.

@@ -8,7 +8,6 @@ use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use snapshot::Persist;
 use utils::net::mac::MacAddr;
 
 use super::device::Net;
@@ -22,6 +21,7 @@ use crate::mmds::ns::MmdsNetworkStack;
 use crate::mmds::persist::MmdsNetworkStackState;
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::rate_limiter::RateLimiter;
+use crate::snapshot::Persist;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// Information about the network config's that are saved
@@ -140,12 +140,11 @@ impl Persist<'_> for Net {
 mod tests {
     use std::sync::atomic::Ordering;
 
-    use snapshot::Snapshot;
-
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::net::test_utils::{default_net, default_net_no_mmds};
     use crate::devices::virtio::test_utils::default_mem;
+    use crate::snapshot::Snapshot;
 
     fn validate_save_and_restore(net: Net, mmds_ds: Option<Arc<Mutex<Mmds>>>) {
         let guest_mem = default_mem();

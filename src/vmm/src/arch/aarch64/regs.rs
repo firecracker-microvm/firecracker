@@ -478,9 +478,8 @@ reg_data_array!([u8; 256], 256);
 
 #[cfg(test)]
 mod tests {
-    use snapshot::Snapshot;
-
     use super::*;
+    use crate::snapshot::Snapshot;
 
     #[test]
     fn test_reg_size() {

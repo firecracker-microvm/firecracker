@@ -10,7 +10,6 @@ use event_manager::{MutEventSubscriber, SubscriberOps};
 use kvm_ioctls::VmFd;
 use log::{error, warn};
 use serde::{Deserialize, Serialize};
-use snapshot::Persist;
 use vm_allocator::AllocPolicy;
 
 use super::mmio::*;
@@ -45,6 +44,7 @@ use crate::devices::virtio::vsock::{
 use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG};
 use crate::mmds::data_store::MmdsVersion;
 use crate::resources::VmResources;
+use crate::snapshot::Persist;
 use crate::vmm_config::mmds::MmdsConfigError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::EventManager;
@@ -646,13 +646,13 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
 #[cfg(test)]
 mod tests {
-    use snapshot::Snapshot;
     use utils::tempfile::TempFile;
 
     use super::*;
     use crate::builder::tests::*;
     use crate::devices::virtio::block_common::CacheType;
     use crate::resources::VmmConfig;
+    use crate::snapshot::Snapshot;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::entropy::EntropyDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;

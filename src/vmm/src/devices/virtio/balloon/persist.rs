@@ -8,7 +8,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use snapshot::Persist;
 use timerfd::{SetTimeFlags, TimerState};
 
 use super::*;
@@ -17,6 +16,7 @@ use crate::devices::virtio::device::DeviceState;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::devices::virtio::TYPE_BALLOON;
+use crate::snapshot::Persist;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// Information about the balloon config's that are saved
@@ -174,12 +174,11 @@ impl Persist<'_> for Balloon {
 mod tests {
     use std::sync::atomic::Ordering;
 
-    use snapshot::Snapshot;
-
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::test_utils::default_mem;
     use crate::devices::virtio::TYPE_BALLOON;
+    use crate::snapshot::Snapshot;
 
     #[test]
     fn test_persistence() {

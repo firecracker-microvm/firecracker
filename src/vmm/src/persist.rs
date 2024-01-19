@@ -14,7 +14,6 @@ use std::sync::{Arc, Mutex};
 use seccompiler::BpfThreadMap;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use snapshot::Snapshot;
 use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use utils::sock_ctrl_msg::ScmSocket;
 use utils::u64_to_usize;
@@ -30,6 +29,7 @@ use crate::cpu_config::x86_64::cpuid::CpuidTrait;
 use crate::device_manager::persist::{DevicePersistError, DeviceStates};
 use crate::logger::{info, warn};
 use crate::resources::VmResources;
+use crate::snapshot::Snapshot;
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
@@ -142,7 +142,7 @@ pub enum CreateSnapshotError {
     /// Cannot save the microVM state: {0}
     MicrovmState(MicrovmStateError),
     /// Cannot serialize the microVM state: {0}
-    SerializeMicrovmState(snapshot::Error),
+    SerializeMicrovmState(crate::snapshot::Error),
     /// Cannot perform {0} on the snapshot backing file: {1}
     SnapshotBackingFile(&'static str, io::Error),
     /// Size mismatch when writing diff snapshot on top of base layer: base layer size is {0} but diff layer is size {1}.
@@ -437,7 +437,7 @@ pub enum SnapshotStateFromFileError {
     /// Failed to read snapshot file metadata: {0}
     Meta(std::io::Error),
     /// Failed to load snapshot state from file: {0}
-    Load(#[from] snapshot::Error),
+    Load(#[from] crate::snapshot::Error),
 }
 
 fn snapshot_state_from_file(
@@ -570,7 +570,6 @@ fn guest_memory_from_uffd(
 
 #[cfg(test)]
 mod tests {
-    use snapshot::Persist;
     use utils::tempfile::TempFile;
 
     use super::*;
@@ -581,6 +580,7 @@ mod tests {
     #[cfg(target_arch = "aarch64")]
     use crate::construct_kvm_mpidrs;
     use crate::devices::virtio::block_common::CacheType;
+    use crate::snapshot::Persist;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::tests::default_config;
