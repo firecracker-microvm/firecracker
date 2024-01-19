@@ -209,10 +209,6 @@ impl Net {
     ) -> Result<Self, NetError> {
         let tap = Tap::open_named(tap_if_name).map_err(NetError::TapOpen)?;
 
-        // Set offload flags to match the virtio features below.
-        tap.set_offload(gen::TUN_F_CSUM | gen::TUN_F_UFO | gen::TUN_F_TSO4 | gen::TUN_F_TSO6)
-            .map_err(NetError::TapSetOffload)?;
-
         let vnet_hdr_size = i32::try_from(vnet_hdr_len()).unwrap();
         tap.set_vnet_hdr_size(vnet_hdr_size)
             .map_err(NetError::TapSetVnetHdrSize)?;
@@ -658,6 +654,40 @@ impl Net {
         }
     }
 
+    /// Builds the offload features we will setup on the TAP device based on the features that the
+    /// guest supports.
+    fn build_tap_offload_features(guest_supported_features: u64) -> u32 {
+        let add_if_supported =
+            |tap_features: &mut u32, supported_features: u64, tap_flag: u32, virtio_flag: u32| {
+                if supported_features & (1 << virtio_flag) != 0 {
+                    *tap_features |= tap_flag;
+                }
+            };
+
+        let mut tap_features: u32 = 0;
+
+        add_if_supported(
+            &mut tap_features,
+            guest_supported_features,
+            gen::TUN_F_CSUM,
+            VIRTIO_NET_F_CSUM,
+        );
+        add_if_supported(
+            &mut tap_features,
+            guest_supported_features,
+            gen::TUN_F_UFO,
+            VIRTIO_NET_F_GUEST_UFO,
+        );
+        add_if_supported(
+            &mut tap_features,
+            guest_supported_features,
+            gen::TUN_F_TSO4,
+            VIRTIO_NET_F_GUEST_TSO4,
+        );
+
+        tap_features
+    }
+
     /// Updates the parameters for the rate limiters
     pub fn patch_rate_limiters(
         &mut self,
@@ -861,6 +891,11 @@ impl VirtioDevice for Net {
             }
         }
 
+        let supported_flags: u32 = Net::build_tap_offload_features(self.acked_features);
+        self.tap
+            .set_offload(supported_flags)
+            .map_err(super::super::ActivateError::TapSetOffload)?;
+
         if self.activate_evt.write(1).is_err() {
             self.metrics.activate_fails.inc();
             return Err(ActivateError::EventFd);
@@ -996,6 +1031,32 @@ pub mod tests {
         }
 
         assert_eq!(net.acked_features, features);
+    }
+
+    #[test]
+    // Test that `Net::build_tap_offload_features` creates the TAP offload features that we expect
+    // it to do, based on the available guest features
+    fn test_build_tap_offload_features_all() {
+        let supported_features =
+            1 << VIRTIO_NET_F_CSUM | 1 << VIRTIO_NET_F_GUEST_UFO | 1 << VIRTIO_NET_F_GUEST_TSO4;
+        let expected_tap_features = gen::TUN_F_CSUM | gen::TUN_F_UFO | gen::TUN_F_TSO4;
+        let supported_flags = Net::build_tap_offload_features(supported_features);
+
+        assert_eq!(supported_flags, expected_tap_features);
+    }
+
+    #[test]
+    // Same as before, however, using each supported feature one by one.
+    fn test_build_tap_offload_features_one_by_one() {
+        let features = [
+            (1 << VIRTIO_NET_F_CSUM, gen::TUN_F_CSUM),
+            (1 << VIRTIO_NET_F_GUEST_UFO, gen::TUN_F_UFO),
+            (1 << VIRTIO_NET_F_GUEST_TSO4, gen::TUN_F_TSO4),
+        ];
+        for (virtio_flag, tap_flag) in features {
+            let supported_flags = Net::build_tap_offload_features(virtio_flag);
+            assert_eq!(supported_flags, tap_flag);
+        }
     }
 
     #[test]

@@ -44,8 +44,6 @@ pub enum NetQueue {
 pub enum NetError {
     /// Open tap device failed: {0}
     TapOpen(TapError),
-    /// Setting tap interface offload flags failed: {0}
-    TapSetOffload(TapError),
     /// Setting vnet header size failed: {0}
     TapSetVnetHdrSize(TapError),
     /// EventFd error: {0}
