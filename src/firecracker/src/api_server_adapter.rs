@@ -7,7 +7,6 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use api_server::{ApiServer, HttpServer, ServerError};
 use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
 use seccompiler::BpfThreadMap;
 use utils::epoll::EventSet;
@@ -20,6 +19,8 @@ use vmm::rpc_interface::{
 };
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::{EventManager, FcExitCode, Vmm};
+
+use super::api_server::{ApiServer, HttpServer, ServerError};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum ApiServerError {

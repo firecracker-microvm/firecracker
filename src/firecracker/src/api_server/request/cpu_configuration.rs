@@ -3,10 +3,10 @@
 
 use vmm::cpu_config::templates::CustomCpuTemplate;
 use vmm::logger::{IncMetric, METRICS};
+use vmm::rpc_interface::VmmAction;
 
-use super::super::VmmAction;
-use crate::parsed_request::{Error, ParsedRequest};
-use crate::request::Body;
+use super::super::parsed_request::{Error, ParsedRequest};
+use super::Body;
 
 pub(crate) fn parse_put_cpu_config(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.cpu_cfg_count.inc();
@@ -28,7 +28,7 @@ mod tests {
     use vmm::rpc_interface::VmmAction;
 
     use super::*;
-    use crate::parsed_request::tests::vmm_action_from_request;
+    use crate::api_server::parsed_request::tests::vmm_action_from_request;
 
     #[test]
     fn test_parse_put_cpu_config_request() {

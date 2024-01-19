@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0<Paste>
 
 use vmm::logger::{IncMetric, METRICS};
+use vmm::rpc_interface::VmmAction;
 use vmm::vmm_config::machine_config::{MachineConfig, MachineConfigUpdate};
 
-use super::super::VmmAction;
-use crate::parsed_request::{method_to_error, Error, ParsedRequest};
-use crate::request::{Body, Method};
+use super::super::parsed_request::{method_to_error, Error, ParsedRequest};
+use super::{Body, Method};
 
 pub(crate) fn parse_get_machine_config() -> Result<ParsedRequest, Error> {
     METRICS.get_api_requests.machine_cfg_count.inc();
@@ -76,7 +76,7 @@ mod tests {
     use vmm::cpu_config::templates::StaticCpuTemplate;
 
     use super::*;
-    use crate::parsed_request::tests::{depr_action_from_req, vmm_action_from_request};
+    use crate::api_server::parsed_request::tests::{depr_action_from_req, vmm_action_from_request};
 
     #[test]
     fn test_parse_get_machine_config_request() {

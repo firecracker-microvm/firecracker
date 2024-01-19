@@ -3,12 +3,12 @@
 
 use serde::{Deserialize, Serialize};
 use vmm::logger::{IncMetric, METRICS};
+use vmm::rpc_interface::VmmAction;
 
-use super::super::VmmAction;
-use crate::parsed_request::{Error, ParsedRequest};
-use crate::request::Body;
+use super::super::parsed_request::{Error, ParsedRequest};
+use super::Body;
 #[cfg(target_arch = "aarch64")]
-use crate::request::StatusCode;
+use super::StatusCode;
 
 // The names of the members from this enum must precisely correspond (as a string) to the possible
 // values of "action_type" from the json request body. This is useful to get a strongly typed

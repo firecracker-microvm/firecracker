@@ -7,8 +7,9 @@
 //! and responding to the user.
 //! It is constructed on top of an HTTP Server that uses Unix Domain Sockets and `EPOLL` to
 //! handle multiple connections on the same thread.
-mod parsed_request;
-mod request;
+
+pub mod parsed_request;
+pub mod request;
 
 use std::fmt::Debug;
 use std::sync::mpsc;
@@ -17,16 +18,15 @@ pub use micro_http::{
     Body, HttpServer, Method, Request, RequestError, Response, ServerError, ServerRequest,
     ServerResponse, StatusCode, Version,
 };
+use parsed_request::{ParsedRequest, RequestAction};
 use seccompiler::BpfProgramRef;
 use serde_json::json;
 use utils::eventfd::EventFd;
 use vmm::logger::{
     debug, error, info, update_metric_with_elapsed_time, warn, ProcessTimeReporter, METRICS,
 };
-use vmm::rpc_interface::{ApiRequest, ApiResponse, VmmAction, VmmData};
+use vmm::rpc_interface::{ApiRequest, ApiResponse, VmmAction};
 use vmm::vmm_config::snapshot::SnapshotType;
-
-use crate::parsed_request::{ParsedRequest, RequestAction};
 
 /// Structure associated with the API server implementation.
 #[derive(Debug)]
@@ -214,13 +214,13 @@ mod tests {
     use utils::time::ClockType;
     use vmm::builder::StartMicrovmError;
     use vmm::logger::StoreMetric;
-    use vmm::rpc_interface::VmmActionError;
+    use vmm::rpc_interface::{VmmActionError, VmmData};
     use vmm::seccomp_filters::get_empty_filters;
     use vmm::vmm_config::instance_info::InstanceInfo;
     use vmm::vmm_config::snapshot::CreateSnapshotParams;
 
+    use super::request::cpu_configuration::parse_put_cpu_config;
     use super::*;
-    use crate::request::cpu_configuration::parse_put_cpu_config;
 
     /// Test unescaped CPU template in JSON format.
     /// Newlines injected into a field's value to

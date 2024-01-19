@@ -4,7 +4,7 @@
 use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
 
-use crate::parsed_request::{Error, ParsedRequest};
+use super::super::parsed_request::{Error, ParsedRequest};
 
 pub(crate) fn parse_get_version() -> Result<ParsedRequest, Error> {
     METRICS.get_api_requests.vmm_version_count.inc();
@@ -13,8 +13,8 @@ pub(crate) fn parse_get_version() -> Result<ParsedRequest, Error> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::super::parsed_request::RequestAction;
     use super::*;
-    use crate::RequestAction;
 
     #[test]
     fn test_parse_get_version_request() {
