@@ -1,8 +1,5 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-
-use std::os::fd::AsRawFd;
-
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use utils::epoll::EventSet;
 
@@ -11,8 +8,14 @@ use crate::devices::virtio::device::VirtioDevice;
 use crate::logger::{error, warn};
 
 impl VhostUserBlock {
+    const PROCESS_ACTIVATE: u32 = 0;
+
     fn register_activate_event(&self, ops: &mut EventOps) {
-        if let Err(err) = ops.add(Events::new(&self.activate_evt, EventSet::IN)) {
+        if let Err(err) = ops.add(Events::with_data(
+            &self.activate_evt,
+            Self::PROCESS_ACTIVATE,
+            EventSet::IN,
+        )) {
             error!("Failed to register activate event: {}", err);
         }
     }
@@ -21,7 +24,11 @@ impl VhostUserBlock {
         if let Err(err) = self.activate_evt.read() {
             error!("Failed to consume block activate event: {:?}", err);
         }
-        if let Err(err) = ops.remove(Events::new(&self.activate_evt, EventSet::IN)) {
+        if let Err(err) = ops.remove(Events::with_data(
+            &self.activate_evt,
+            Self::PROCESS_ACTIVATE,
+            EventSet::IN,
+        )) {
             error!("Failed to un-register activate event: {}", err);
         }
     }
@@ -30,7 +37,7 @@ impl VhostUserBlock {
 impl MutEventSubscriber for VhostUserBlock {
     // Handle an event for queue or rate limiter.
     fn process(&mut self, event: Events, ops: &mut EventOps) {
-        let source = event.fd();
+        let source = event.data();
         let event_set = event.event_set();
         let supported_events = EventSet::IN;
 
@@ -43,8 +50,7 @@ impl MutEventSubscriber for VhostUserBlock {
         }
 
         if self.is_activated() {
-            let activate_fd = self.activate_evt.as_raw_fd();
-            if activate_fd == source {
+            if Self::PROCESS_ACTIVATE == source {
                 self.process_activate_event(ops)
             } else {
                 warn!("BlockVhost: Spurious event received: {:?}", source)
