@@ -103,7 +103,7 @@ get_user_confirmation() {
 
 # Get version from the swagger file
 function get_swagger_version {
-    local file=${1:-"$FC_ROOT_DIR/src/api_server/swagger/firecracker.yaml"}
+    local file=${1:-"$FC_ROOT_DIR/src/firecracker/swagger/firecracker.yaml"}
     grep -oP 'version: \K.*' "$file"
 }
 

@@ -51,8 +51,8 @@ pub(crate) fn parse_patch_balloon(
 
 #[cfg(test)]
 mod tests {
-    use crate::api_server::parsed_request::tests::vmm_action_from_request;
     use super::*;
+    use crate::api_server::parsed_request::tests::vmm_action_from_request;
 
     #[test]
     fn test_parse_get_balloon_request() {

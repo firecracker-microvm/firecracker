@@ -34,7 +34,7 @@ a call to one of the [API Endpoints](#api-endpoints) will fail with a
 ## Input Schema
 
 All input schema fields can be found in the [Swagger](https://swagger.io)
-specification: [firecracker.yaml](./../src/firecracker/src/api_server/swagger/firecracker.yaml).
+specification: [firecracker.yaml](./../src/firecracker/swagger/firecracker.yaml).
 
 | Schema                     | Property              | keyboard | serial console | virtio-block | vhost-user-block |  virtio-net   | virtio-vsock | virtio-rng |
 |----------------------------|-----------------------| :------: | :------------: | :----------: | :--------------: | :-----------: | :----------: | :--------: |
@@ -108,7 +108,7 @@ virtio-net, virtio-block and virtio-rng devices.
 ## Output Schema
 
 All output schema fields can be found in the [Swagger](https://swagger.io)
-specification: [firecracker.yaml](./../src/firecracker/src/api_server/swagger/firecracker.yaml).
+specification: [firecracker.yaml](./../src/firecracker/swagger/firecracker.yaml).
 
 | Schema                 | Property          | keyboard | serial console | virtio-block | vhost-user-block | virtio-net | virtio-vsock |
 | ---------------------- | ----------------- | :------: | :------------: | :----------: | :--------------: | :--------: | :----------: |
@@ -126,7 +126,7 @@ specification: [firecracker.yaml](./../src/firecracker/src/api_server/swagger/fi
 ## Instance Actions
 
 All instance actions can be found in the [Swagger](https://swagger.io)
-specification: [firecracker.yaml](./../src/firecracker/src/api_server/swagger/firecracker.yaml).
+specification: [firecracker.yaml](./../src/firecracker/swagger/firecracker.yaml).
 
 | Action           | keyboard | serial console | virtio-block | vhost-user-block | virtio-net | virtio-vsock |
 | ---------------- | :------: | :------------: | :----------: | :--------------: | :--------: | :----------: |
