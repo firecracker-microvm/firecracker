@@ -23,8 +23,10 @@ use vm_memory::GuestMemoryError;
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::gen::virtio_net::{
-    virtio_net_hdr_v1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM, VIRTIO_NET_F_GUEST_TSO4,
-    VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC,
+    virtio_net_hdr_v1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM, VIRTIO_NET_F_GUEST_ECN,
+    VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_TSO6, VIRTIO_NET_F_GUEST_UFO,
+    VIRTIO_NET_F_HOST_ECN, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_TSO6, VIRTIO_NET_F_HOST_UFO,
+    VIRTIO_NET_F_MAC,
 };
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::iovec::IoVecBuffer;
@@ -160,7 +162,11 @@ impl Net {
             | 1 << VIRTIO_NET_F_HOST_TSO4
             | 1 << VIRTIO_NET_F_HOST_UFO
             | 1 << VIRTIO_F_VERSION_1
-            | 1 << VIRTIO_RING_F_EVENT_IDX;
+            | 1 << VIRTIO_RING_F_EVENT_IDX
+            | 1 << VIRTIO_NET_F_GUEST_TSO6
+            | 1 << VIRTIO_NET_F_HOST_TSO6
+            | 1 << VIRTIO_NET_F_GUEST_ECN
+            | 1 << VIRTIO_NET_F_HOST_ECN;
 
         let mut config_space = ConfigSpace::default();
         if let Some(mac) = guest_mac {
@@ -209,10 +215,6 @@ impl Net {
         tx_rate_limiter: RateLimiter,
     ) -> Result<Self, NetError> {
         let tap = Tap::open_named(tap_if_name).map_err(NetError::TapOpen)?;
-
-        // Set offload flags to match the virtio features below.
-        tap.set_offload(gen::TUN_F_CSUM | gen::TUN_F_UFO | gen::TUN_F_TSO4 | gen::TUN_F_TSO6)
-            .map_err(NetError::TapSetOffload)?;
 
         let vnet_hdr_size = i32::try_from(vnet_hdr_len()).unwrap();
         tap.set_vnet_hdr_size(vnet_hdr_size)
@@ -644,6 +646,44 @@ impl Net {
         }
     }
 
+    fn build_tap_supported_features(virtio_supported_features: u64) -> u32 {
+        let add_if_supported =
+            |tap_features: &mut u32, virtio_features: u64, tap_flag: u32, virtio_flag: u32| {
+                if virtio_features & (1 << virtio_flag) != 0 {
+                    *tap_features |= tap_flag;
+                }
+            };
+
+        let mut tap_features: u32 = 0;
+
+        add_if_supported(
+            &mut tap_features,
+            virtio_supported_features,
+            gen::TUN_F_CSUM,
+            VIRTIO_NET_F_CSUM,
+        );
+        add_if_supported(
+            &mut tap_features,
+            virtio_supported_features,
+            gen::TUN_F_UFO,
+            VIRTIO_NET_F_GUEST_UFO,
+        );
+        add_if_supported(
+            &mut tap_features,
+            virtio_supported_features,
+            gen::TUN_F_TSO4,
+            VIRTIO_NET_F_GUEST_TSO4,
+        );
+        add_if_supported(
+            &mut tap_features,
+            virtio_supported_features,
+            gen::TUN_F_TSO6,
+            VIRTIO_NET_F_GUEST_TSO6,
+        );
+
+        tap_features
+    }
+
     /// Updates the parameters for the rate limiters
     pub fn patch_rate_limiters(
         &mut self,
@@ -859,6 +899,11 @@ impl VirtioDevice for Net {
             }
         }
 
+        let supported_flags: u32 = Net::build_tap_supported_features(self.acked_features);
+        self.tap
+            .set_offload(supported_flags)
+            .map_err(super::super::ActivateError::TapSetOffload)?;
+
         if self.activate_evt.write(1).is_err() {
             error!("Net: Cannot write to activate_evt");
             return Err(super::super::ActivateError::BadActivate);
@@ -978,7 +1023,11 @@ pub mod tests {
             | 1 << VIRTIO_NET_F_HOST_TSO4
             | 1 << VIRTIO_NET_F_HOST_UFO
             | 1 << VIRTIO_F_VERSION_1
-            | 1 << VIRTIO_RING_F_EVENT_IDX;
+            | 1 << VIRTIO_RING_F_EVENT_IDX
+            | 1 << VIRTIO_NET_F_GUEST_TSO6
+            | 1 << VIRTIO_NET_F_HOST_TSO6
+            | 1 << VIRTIO_NET_F_GUEST_ECN
+            | 1 << VIRTIO_NET_F_HOST_ECN;
 
         assert_eq!(
             net.avail_features_by_page(0),
@@ -994,6 +1043,37 @@ pub mod tests {
         }
 
         assert_eq!(net.acked_features, features);
+    }
+
+    #[test]
+    // We can't get offload features, that were set up to a TAP device by ioctl,
+    // hence that we have to validate, that we sort out unsupported features correctly
+    fn test_build_tap_supported_features_all() {
+        let supported_features = 1 << VIRTIO_NET_F_CSUM
+            | 1 << VIRTIO_NET_F_GUEST_UFO
+            | 1 << VIRTIO_NET_F_GUEST_TSO4
+            | 1 << VIRTIO_NET_F_GUEST_TSO6;
+
+        let expected_tap_features =
+            gen::TUN_F_CSUM | gen::TUN_F_UFO | gen::TUN_F_TSO4 | gen::TUN_F_TSO6;
+
+        let supported_flags = Net::build_tap_supported_features(supported_features);
+
+        assert_eq!(supported_flags, expected_tap_features);
+    }
+
+    #[test]
+    fn test_build_tap_supported_features_one_by_one() {
+        let features = [
+            (1 << VIRTIO_NET_F_CSUM, gen::TUN_F_CSUM),
+            (1 << VIRTIO_NET_F_GUEST_UFO, gen::TUN_F_UFO),
+            (1 << VIRTIO_NET_F_GUEST_TSO4, gen::TUN_F_TSO4),
+            (1 << VIRTIO_NET_F_GUEST_TSO6, gen::TUN_F_TSO6),
+        ];
+        for (virtio_flag, tap_flag) in features {
+            let supported_flags = Net::build_tap_supported_features(virtio_flag);
+            assert_eq!(supported_flags, tap_flag);
+        }
     }
 
     #[test]
