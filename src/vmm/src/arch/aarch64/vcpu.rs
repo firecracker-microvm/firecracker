@@ -153,12 +153,30 @@ pub fn get_registers(
 /// Returns all registers ids, including core and system
 pub fn get_all_registers_ids(vcpufd: &VcpuFd) -> Result<Vec<u64>, VcpuError> {
     // Call KVM_GET_REG_LIST to get all registers available to the guest. For ArmV8 there are
-    // less than 500 registers.
+    // less than 500 registers expected, resize to the reported size when necessary.
     let mut reg_list = RegList::new(500).map_err(VcpuError::Fam)?;
-    vcpufd
-        .get_reg_list(&mut reg_list)
-        .map_err(VcpuError::GetRegList)?;
-    Ok(reg_list.as_slice().to_vec())
+
+    match vcpufd.get_reg_list(&mut reg_list) {
+        Ok(_) => Ok(reg_list.as_slice().to_vec()),
+        Err(e) => match e.errno() {
+            libc::E2BIG => {
+                // resize and retry.
+                let size: usize = reg_list
+                    .as_fam_struct_ref()
+                    .n
+                    .try_into()
+                    // Safe to unwrap as Firecracker only targets 64-bit machines.
+                    .unwrap();
+                reg_list = RegList::new(size).map_err(VcpuError::Fam)?;
+                vcpufd
+                    .get_reg_list(&mut reg_list)
+                    .map_err(VcpuError::GetRegList)?;
+
+                Ok(reg_list.as_slice().to_vec())
+            }
+            _ => Err(VcpuError::GetRegList(e)),
+        },
+    }
 }
 
 /// Set the state of the system registers.
