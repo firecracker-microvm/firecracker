@@ -192,9 +192,10 @@ mod tests {
     fn test_install() {
         // Setup the resource limits
         let mut rlimits = ResourceLimits::default();
-        let new_limit = 100;
-        rlimits.set_file_size(new_limit);
-        rlimits.set_no_file(new_limit);
+        let new_file_size_limit = 2097151;
+        let new_no_file_limit = 100;
+        rlimits.set_file_size(new_file_size_limit);
+        rlimits.set_no_file(new_no_file_limit);
 
         // Install the new limits to file size and
         // the number of file descriptors
@@ -207,8 +208,8 @@ mod tests {
             rlim_max: 0,
         };
         unsafe { libc::getrlimit(file_size_resource.into(), &mut file_size_limit) };
-        assert_eq!(file_size_limit.rlim_cur, new_limit);
-        assert_eq!(file_size_limit.rlim_max, new_limit);
+        assert_eq!(file_size_limit.rlim_cur, new_file_size_limit);
+        assert_eq!(file_size_limit.rlim_max, new_file_size_limit);
 
         // Verify the new limit for the number of file descriptors
         let file_descriptor_resource = Resource::RlimitNoFile;
@@ -217,7 +218,7 @@ mod tests {
             rlim_max: 0,
         };
         unsafe { libc::getrlimit(file_descriptor_resource.into(), &mut file_descriptor_limit) };
-        assert_eq!(file_descriptor_limit.rlim_cur, new_limit);
-        assert_eq!(file_descriptor_limit.rlim_max, new_limit);
+        assert_eq!(file_descriptor_limit.rlim_cur, new_no_file_limit);
+        assert_eq!(file_descriptor_limit.rlim_max, new_no_file_limit);
     }
 }
