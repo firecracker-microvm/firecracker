@@ -98,6 +98,9 @@ where
         writer: &mut T,
         dirty_bitmap: &DirtyBitmap,
     ) -> Result<(), MemoryError>;
+
+    /// Erases the firecracker internal bitmap of dirty pages
+    fn erase_dirty(&self);
 }
 
 /// State of a guest memory region saved to file/buffer.
@@ -274,6 +277,15 @@ impl GuestMemoryExtension for GuestMemoryMmap {
             .map_err(MemoryError::WriteMemory)
     }
 
+    /// Erases the firecracker internal bitmap of dirty pages
+    fn erase_dirty(&self) {
+        for region in self.iter() {
+            if let Some(bitmap) = region.bitmap() {
+                bitmap.reset();
+            }
+        }
+    }
+
     /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writer.
     fn dump_dirty<T: WriteVolatile + std::io::Seek>(
         &self,
@@ -283,20 +295,49 @@ impl GuestMemoryExtension for GuestMemoryMmap {
         let mut writer_offset = 0;
         let page_size = get_page_size().map_err(MemoryError::PageSize)?;
 
+        // Merging KVM dirty pages bitmap into internal firecracker bitmap. Needed to keep track of
+        // KVM dirty pages in case we need to use them again if current dump operation fails.
         self.iter()
             .enumerate()
             .try_for_each(|(slot, region)| {
-                let kvm_bitmap = dirty_bitmap.get(&slot).unwrap();
                 let firecracker_bitmap = region.bitmap();
-                let mut write_size = 0;
-                let mut dirty_batch_start: u64 = 0;
-
+                let kvm_bitmap = dirty_bitmap.get(&slot).unwrap();
                 for (i, v) in kvm_bitmap.iter().enumerate() {
+                    // FIXME: looks like this loop can be replaced with some
+                    // `(kvm_dirty_pages | fc_dirty_pages)`
                     for j in 0..64 {
                         let is_kvm_page_dirty = ((v >> j) & 1u64) != 0u64;
                         let page_offset = ((i * 64) + j) * page_size;
+
+                        if is_kvm_page_dirty {
+                            // FIXME: not sure about passing page_size as len
+                            firecracker_bitmap.mark_dirty(page_offset, page_size)
+                        }
+                    }
+                }
+
+                Ok(())
+            })
+            .map_err(MemoryError::WriteMemory);
+
+        self.iter()
+            .enumerate()
+            .try_for_each(|(slot, region)| {
+                let firecracker_bitmap = region.bitmap();
+                let kvm_bitmap = dirty_bitmap.get(&slot).unwrap();
+                let mut write_size = 0;
+                let mut dirty_batch_start: u64 = 0;
+
+                // FIXME: we can iterate over firecracker_bitmap now when the kvm bitmap is merged
+                // there
+                // FIXME: unused `v`. Can we avoid having it at all instead of marking it with
+                // underscore?
+                for (i, _v) in kvm_bitmap.iter().enumerate() {
+                    for j in 0..64 {
+                        let page_offset = ((i * 64) + j) * page_size;
                         let is_firecracker_page_dirty = firecracker_bitmap.dirty_at(page_offset);
-                        if is_kvm_page_dirty || is_firecracker_page_dirty {
+
+                        if is_firecracker_page_dirty {
                             // We are at the start of a new batch of dirty pages.
                             if write_size == 0 {
                                 // Seek forward over the unmodified pages.
@@ -326,13 +367,12 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                     )?;
                 }
                 writer_offset += region.len();
-                if let Some(bitmap) = firecracker_bitmap {
-                    bitmap.reset();
-                }
-
                 Ok(())
             })
-            .map_err(MemoryError::WriteMemory)
+            .map_err(MemoryError::WriteMemory);
+
+        self.erase_dirty();
+        Ok(())
     }
 }
 
