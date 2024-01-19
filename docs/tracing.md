@@ -123,7 +123,7 @@ at compile-time like:
 # Remove all instrumentation.
 clippy-tracing --action strip --path ./src
 # Adds instrumentation to the specific file/s.
-clippy-tracing --action fix --path ./src/api_server/src/request
+clippy-tracing --action fix --path ./src/firecracker/src/api_server/src/request
 # Build Firecracker.
 cargo build --features tracing
 ```
@@ -139,7 +139,7 @@ curl -X PUT --unix-socket "${API_SOCKET}" \
 ```
 
 The instrumentation has been stripped from all files other than those at
-`./src/api_server/src/request` so we do not need to apply a run-time
+`./src/firecracker/src/api_server/src/request` so we do not need to apply a run-time
 filter. Runtime filtering could be applied but in this case it yields no
 additional benefit.
 

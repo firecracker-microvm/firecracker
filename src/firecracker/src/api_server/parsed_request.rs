@@ -7,27 +7,26 @@ use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 use serde::ser::Serialize;
 use serde_json::Value;
 use vmm::logger::{error, info, log_enabled, Level};
-use vmm::rpc_interface::{VmmAction, VmmActionError};
+use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
 
-use super::VmmData;
-use crate::request::actions::parse_put_actions;
-use crate::request::balloon::{parse_get_balloon, parse_patch_balloon, parse_put_balloon};
-use crate::request::boot_source::parse_put_boot_source;
-use crate::request::cpu_configuration::parse_put_cpu_config;
-use crate::request::drive::{parse_patch_drive, parse_put_drive};
-use crate::request::entropy::parse_put_entropy;
-use crate::request::instance_info::parse_get_instance_info;
-use crate::request::logger::parse_put_logger;
-use crate::request::machine_configuration::{
+use super::request::actions::parse_put_actions;
+use super::request::balloon::{parse_get_balloon, parse_patch_balloon, parse_put_balloon};
+use super::request::boot_source::parse_put_boot_source;
+use super::request::cpu_configuration::parse_put_cpu_config;
+use super::request::drive::{parse_patch_drive, parse_put_drive};
+use super::request::entropy::parse_put_entropy;
+use super::request::instance_info::parse_get_instance_info;
+use super::request::logger::parse_put_logger;
+use super::request::machine_configuration::{
     parse_get_machine_config, parse_patch_machine_config, parse_put_machine_config,
 };
-use crate::request::metrics::parse_put_metrics;
-use crate::request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
-use crate::request::net::{parse_patch_net, parse_put_net};
-use crate::request::snapshot::{parse_patch_vm_state, parse_put_snapshot};
-use crate::request::version::parse_get_version;
-use crate::request::vsock::parse_put_vsock;
-use crate::ApiServer;
+use super::request::metrics::parse_put_metrics;
+use super::request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
+use super::request::net::{parse_patch_net, parse_put_net};
+use super::request::snapshot::{parse_patch_vm_state, parse_put_snapshot};
+use super::request::version::parse_get_version;
+use super::request::vsock::parse_put_vsock;
+use super::ApiServer;
 
 #[derive(Debug)]
 pub(crate) enum RequestAction {

@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use vmm::logger::{IncMetric, METRICS};
+use vmm::rpc_interface::VmmAction;
 use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
 
-use super::super::VmmAction;
-use crate::parsed_request::{checked_id, Error, ParsedRequest};
-use crate::request::{Body, StatusCode};
+use super::super::parsed_request::{checked_id, Error, ParsedRequest};
+use super::{Body, StatusCode};
 
 pub(crate) fn parse_put_net(
     body: &Body,
@@ -76,7 +76,7 @@ pub(crate) fn parse_patch_net(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parsed_request::tests::vmm_action_from_request;
+    use crate::api_server::parsed_request::tests::vmm_action_from_request;
 
     #[test]
     fn test_parse_put_net_request() {

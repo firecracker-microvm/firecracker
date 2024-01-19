@@ -14,11 +14,11 @@ achieved in two steps:
 
 1. Attach one (or more) network interfaces through an HTTP `PUT` request to
    `/network-interfaces/${MMDS_NET_IF}`. The full network configuration API
-   can be found in the [firecracker swagger file](../../src/api_server/swagger/firecracker.yaml).
+   can be found in the [firecracker swagger file](../../src/firecracker/src/api_server/swagger/firecracker.yaml).
 1. Configure MMDS through an HTTP `PUT` request to `/mmds/config` resource and
    include the IDs of the network interfaces that should allow forwarding requests
    to MMDS in the `network_interfaces` list. The complete MMDS API is described in
-   the [firecracker swagger file](../../src/api_server/swagger/firecracker.yaml).
+   the [firecracker swagger file](../../src/firecracker/src/api_server/swagger/firecracker.yaml).
 
 ### Examples
 
@@ -114,7 +114,7 @@ issued. This request must have a payload with metadata structured in
 metadata, a subsequent HTTP `PUT` request to the `/mmds` resource must be
 issued, using as a payload the new metadata. A complete description of
 metadata insertion firecracker API can be found in the
-[firecracker swagger file](../../src/api_server/swagger/firecracker.yaml).
+[firecracker swagger file](../../src/firecracker/src/api_server/swagger/firecracker.yaml).
 
 An example of an API request for inserting metadata is provided below:
 
@@ -149,7 +149,7 @@ To partially update existing metadata, an HTTP `PATCH` request to the `/mmds`
 resource has to be issued, using as a payload the metadata patch, as
 [JSON Merge Patch](https://tools.ietf.org/html/rfc7396) functionality
 describes. A complete description of updating metadata Firecracker API can be
-found in the [firecracker swagger file](../../src/api_server/swagger/firecracker.yaml).
+found in the [firecracker swagger file](../../src/firecracker/src/api_server/swagger/firecracker.yaml).
 
 An example API for how to update existing metadata is offered below:
 
@@ -190,7 +190,7 @@ To retrieve existing MMDS metadata from host operating system, an HTTP `GET`
 request to the `/mmds` resource must be issued. The HTTP response returns the
 existing metadata, as a JSON formatted text. A complete description of
 retrieving metadata Firecracker API can be found in the
-[firecracker swagger file](../../src/api_server/swagger/firecracker.yaml).
+[firecracker swagger file](../../src/firecracker/src/api_server/swagger/firecracker.yaml).
 
 Below you can see how to retrieve metadata from the host:
 

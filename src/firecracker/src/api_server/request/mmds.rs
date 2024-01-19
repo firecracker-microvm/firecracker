@@ -7,8 +7,8 @@ use vmm::mmds::data_store::MmdsVersion;
 use vmm::rpc_interface::VmmAction;
 use vmm::vmm_config::mmds::MmdsConfig;
 
-use crate::parsed_request::{Error, ParsedRequest};
-use crate::request::Body;
+use super::super::parsed_request::{Error, ParsedRequest};
+use super::Body;
 
 pub(crate) fn parse_get_mmds() -> Result<ParsedRequest, Error> {
     METRICS.get_api_requests.mmds_count.inc();
@@ -71,7 +71,7 @@ pub(crate) fn parse_patch_mmds(body: &Body) -> Result<ParsedRequest, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parsed_request::tests::depr_action_from_req;
+    use crate::api_server::parsed_request::tests::depr_action_from_req;
 
     #[test]
     fn test_parse_get_mmds_request() {

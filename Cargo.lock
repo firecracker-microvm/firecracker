@@ -101,23 +101,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "api_server"
-version = "0.1.0"
-dependencies = [
- "displaydoc",
- "libc",
- "log-instrument",
- "micro_http",
- "seccompiler",
- "serde",
- "serde_derive",
- "serde_json",
- "thiserror",
- "utils",
- "vmm",
-]
-
-[[package]]
 name = "autocfg"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -530,16 +513,17 @@ dependencies = [
 name = "firecracker"
 version = "1.7.0-dev"
 dependencies = [
- "api_server",
  "bincode",
  "cargo_toml",
  "displaydoc",
  "event-manager",
  "libc",
  "log-instrument",
+ "micro_http",
  "regex",
  "seccompiler",
  "serde",
+ "serde_derive",
  "serde_json",
  "snapshot",
  "thiserror",
