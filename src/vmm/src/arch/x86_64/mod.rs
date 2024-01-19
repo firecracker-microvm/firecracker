@@ -12,7 +12,6 @@ mod gdt;
 pub mod interrupts;
 /// Layout for the x86_64 system.
 pub mod layout;
-mod mptable;
 /// Logic for configuring x86_64 model specific registers (MSRs).
 pub mod msr;
 /// Logic for configuring x86_64 registers.
@@ -39,8 +38,6 @@ const E820_RESERVED: u32 = 2;
 pub enum ConfigurationError {
     /// Invalid e820 setup params.
     E820Configuration,
-    /// Error writing MP table to memory: {0}
-    MpTableSetup(#[from] mptable::MptableError),
     /// Error writing the zero page of guest memory.
     ZeroPageSetup,
     /// Failed to compute initrd address.
@@ -111,7 +108,6 @@ pub fn configure_system(
     cmdline_addr: GuestAddress,
     cmdline_size: usize,
     initrd: &Option<InitrdConfig>,
-    num_cpus: u8,
 ) -> Result<(), ConfigurationError> {
     const KERNEL_BOOT_FLAG_MAGIC: u16 = 0xaa55;
     const KERNEL_HDR_MAGIC: u32 = 0x5372_6448;
@@ -121,9 +117,6 @@ pub fn configure_system(
     let end_32bit_gap_start = GuestAddress(MMIO_MEM_START);
 
     let himem_start = GuestAddress(layout::HIMEM_START);
-
-    // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
-    mptable::setup_mptable(guest_mem, num_cpus)?;
 
     // Set the location of RSDP in Boot Parameters to help the guest kernel find it faster.
     let mut params = boot_params {
@@ -142,21 +135,21 @@ pub fn configure_system(
         params.hdr.ramdisk_size = u32::try_from(initrd_config.size).unwrap();
     }
 
-    // We mark first [0x0, EBDA_START) region as usable RAM
-    // and the subsequet [EBDA_START, (EBDA_START + EBDA_SIZE)) and
-    // [ACPI_MEM_START, (ACPI_MEM_START + ACPI_MEM_SIZE)) as reserved
-    add_e820_entry(&mut params, 0, layout::EBDA_START, E820_RAM)?;
-    add_e820_entry(
-        &mut params,
-        layout::EBDA_START,
-        layout::EBDA_SIZE,
-        E820_RESERVED,
-    )?;
+    // We mark first [0x0, ACPI_MEM_START) region as usable RAM
+    // The subsequent [ACPI_MEM_START, (ACPI_MEM_START + ACPI_MEM_SIZE)) as reserved
+    // and finally, what remains until HIMEM_START as usable RAM
+    add_e820_entry(&mut params, 0, layout::ACPI_MEM_START, E820_RAM)?;
     add_e820_entry(
         &mut params,
         layout::ACPI_MEM_START,
         layout::ACPI_MEM_SIZE,
         E820_RESERVED,
+    )?;
+    add_e820_entry(
+        &mut params,
+        layout::ACPI_MEM_START + layout::ACPI_MEM_SIZE,
+        layout::HIMEM_START - layout::ACPI_MEM_START - layout::ACPI_MEM_SIZE,
+        E820_RAM,
     )?;
 
     let last_addr = guest_mem.last_addr();
@@ -223,7 +216,7 @@ mod tests {
     use linux_loader::loader::bootparam::boot_e820_entry;
 
     use super::*;
-    use crate::utilities::test_utils::{arch_mem, single_region_mem};
+    use crate::utilities::test_utils::arch_mem;
 
     #[test]
     fn regions_lt_4gb() {
@@ -243,28 +236,20 @@ mod tests {
 
     #[test]
     fn test_system_configuration() {
-        let no_vcpus = 4;
-        let gm = single_region_mem(0x10000);
-        let config_err = configure_system(&gm, GuestAddress(0), 0, &None, 1);
-        assert_eq!(
-            config_err.unwrap_err(),
-            super::ConfigurationError::MpTableSetup(mptable::MptableError::NotEnoughMemory)
-        );
-
         // Now assigning some memory that falls before the 32bit memory hole.
         let mem_size = 128 << 20;
         let gm = arch_mem(mem_size);
-        configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
+        configure_system(&gm, GuestAddress(0), 0, &None).unwrap();
 
         // Now assigning some memory that is equal to the start of the 32bit memory hole.
         let mem_size = 3328 << 20;
         let gm = arch_mem(mem_size);
-        configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
+        configure_system(&gm, GuestAddress(0), 0, &None).unwrap();
 
         // Now assigning some memory that falls after the 32bit memory hole.
         let mem_size = 3330 << 20;
         let gm = arch_mem(mem_size);
-        configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
+        configure_system(&gm, GuestAddress(0), 0, &None).unwrap();
     }
 
     #[test]

@@ -790,7 +790,6 @@ pub fn configure_system_for_boot(
             crate::vstate::memory::GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
             cmdline_size,
             initrd,
-            vcpu_config.vcpu_count,
         )
         .map_err(ConfigureSystem)?;
     }
