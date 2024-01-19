@@ -547,6 +547,8 @@ class Microvm:
             node = str(self._numa_node)
             cmd = ["numactl", "-N", node, "-m", node] + cmd
 
+        cmd = ["strace", "-tt", "--syscall-times=ns", "-y", "-e", "write,mkdir", "-o", "strace.out"] + cmd
+
         # When the daemonize flag is on, we want to clone-exec into the
         # jailer rather than executing it via spawning a shell.
         if self.jailer.daemonize:
