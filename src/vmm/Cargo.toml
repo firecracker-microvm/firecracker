@@ -36,9 +36,9 @@ base64 = "0.21.0"
 bincode = "1.2.1"
 micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 log-instrument = { path = "../log-instrument", optional = true }
+crc64 = "2.0.0"
 
 seccompiler = { path = "../seccompiler" }
-snapshot = { path = "../snapshot"}
 utils = { path = "../utils" }
 smallvec = "1.11.2"
 

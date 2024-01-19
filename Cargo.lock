@@ -525,7 +525,6 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "snapshot",
  "thiserror",
  "timerfd",
  "userfaultfd 0.8.1",
@@ -1167,20 +1166,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2593d31f82ead8df961d8bd23a64c2ccf2eb5dd34b0a34bfb4dd54011c72009e"
 
 [[package]]
-name = "snapshot"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "crc64",
- "displaydoc",
- "libc",
- "log-instrument",
- "semver",
- "serde",
- "thiserror",
-]
-
-[[package]]
 name = "snapshot-editor"
 version = "1.7.0-dev"
 dependencies = [
@@ -1190,7 +1175,6 @@ dependencies = [
  "libc",
  "log-instrument",
  "semver",
- "snapshot",
  "thiserror",
  "utils",
  "vmm",
@@ -1486,6 +1470,7 @@ dependencies = [
  "base64",
  "bincode",
  "bitflags 2.4.1",
+ "crc64",
  "criterion",
  "derive_more",
  "device_tree",
@@ -1507,7 +1492,6 @@ dependencies = [
  "serde",
  "serde_json",
  "smallvec",
- "snapshot",
  "thiserror",
  "timerfd",
  "userfaultfd 0.7.0",

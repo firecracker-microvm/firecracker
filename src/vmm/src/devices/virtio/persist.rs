@@ -8,12 +8,12 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use snapshot::Persist;
 
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::mmio::MmioTransport;
 use crate::devices::virtio::queue::Queue;
+use crate::snapshot::Persist;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
 /// Errors thrown during restoring virtio state.
@@ -225,7 +225,6 @@ impl Persist<'_> for MmioTransport {
 
 #[cfg(test)]
 mod tests {
-    use snapshot::Snapshot;
     use utils::tempfile::TempFile;
 
     use super::*;
@@ -237,6 +236,7 @@ mod tests {
     use crate::devices::virtio::virtio_block::test_utils::default_block_with_path;
     use crate::devices::virtio::virtio_block::VirtioBlock;
     use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
+    use crate::snapshot::Snapshot;
 
     const DEFAULT_QUEUE_MAX_SIZE: u16 = 256;
     impl Default for QueueState {

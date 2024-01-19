@@ -97,10 +97,10 @@ impl BootConfig {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use snapshot::Snapshot;
     use utils::tempfile::TempFile;
 
     use super::*;
+    use crate::snapshot::Snapshot;
 
     #[test]
     fn test_boot_config() {

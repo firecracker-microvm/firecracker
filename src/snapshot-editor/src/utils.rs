@@ -6,8 +6,8 @@ use std::path::PathBuf;
 
 use fc_utils::u64_to_usize;
 use semver::Version;
-use snapshot::Snapshot;
 use vmm::persist::MicrovmState;
+use vmm::snapshot::Snapshot;
 
 // Some errors are only used in aarch64 code
 #[allow(unused)]
@@ -18,11 +18,11 @@ pub enum UtilsError {
     /// Can not retrieve metadata for snapshot file: {0}
     VmStateFileMeta(std::io::Error),
     /// Can not load snapshot: {0}
-    VmStateLoad(snapshot::Error),
+    VmStateLoad(vmm::snapshot::Error),
     /// Can not open output file: {0}
     OutputFileOpen(std::io::Error),
     /// Can not save snapshot: {0}
-    VmStateSave(snapshot::Error),
+    VmStateSave(vmm::snapshot::Error),
 }
 
 #[allow(unused)]

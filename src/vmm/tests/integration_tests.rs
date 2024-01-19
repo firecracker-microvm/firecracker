@@ -5,12 +5,12 @@ use std::io::{Seek, SeekFrom};
 use std::thread;
 use std::time::Duration;
 
-use snapshot::Snapshot;
 use utils::tempfile::TempFile;
 use vmm::builder::{build_and_boot_microvm, build_microvm_from_snapshot};
 use vmm::persist::{self, snapshot_state_sanity_check, MicrovmState, MicrovmStateError, VmInfo};
 use vmm::resources::VmResources;
 use vmm::seccomp_filters::get_empty_filters;
+use vmm::snapshot::Snapshot;
 use vmm::utilities::mock_resources::{MockVmResources, NOISY_KERNEL_IMAGE};
 #[cfg(target_arch = "x86_64")]
 use vmm::utilities::test_utils::dirty_tracking_vmm;

@@ -370,11 +370,11 @@ mod tests {
     use std::collections::HashMap;
     use std::io::{Read, Seek};
 
-    use snapshot::Snapshot;
     use utils::get_page_size;
     use utils::tempfile::TempFile;
 
     use super::*;
+    use crate::snapshot::Snapshot;
 
     #[test]
     fn test_from_raw_regions() {

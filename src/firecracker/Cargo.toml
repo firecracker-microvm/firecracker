@@ -25,7 +25,6 @@ thiserror = "1.0.53"
 timerfd = "1.5.0"
 
 seccompiler = { path = "../seccompiler" }
-snapshot = { path = "../snapshot" }
 utils = { path = "../utils" }
 vmm = { path = "../vmm" }
 
@@ -45,7 +44,7 @@ serde = { version = "1.0.193" }
 serde_json = "1.0.109"
 
 [features]
-tracing = ["log-instrument", "seccompiler/tracing", "snapshot/tracing", "utils/tracing", "vmm/tracing"]
+tracing = ["log-instrument", "seccompiler/tracing", "utils/tracing", "vmm/tracing"]
 
 [[example]]
 name = "uffd_malicious_handler"

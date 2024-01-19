@@ -15,7 +15,6 @@ displaydoc = "0.2.4"
 libc = "0.2.151"
 log-instrument = { path = "../log-instrument", optional = true }
 semver = "1.0.20"
-snapshot = { path = "../snapshot" }
 thiserror = "1.0.53"
 vmm = { path = "../vmm" }
 

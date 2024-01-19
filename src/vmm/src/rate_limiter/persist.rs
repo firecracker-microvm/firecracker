@@ -4,9 +4,9 @@
 //! Defines the structures needed for saving/restoring a RateLimiter.
 
 use serde::{Deserialize, Serialize};
-use snapshot::Persist;
 
 use super::*;
+use crate::snapshot::Persist;
 
 /// State for saving a TokenBucket.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,9 +92,9 @@ impl Persist<'_> for RateLimiter {
 
 #[cfg(test)]
 mod tests {
-    use snapshot::Snapshot;
 
     use super::*;
+    use crate::snapshot::Snapshot;
 
     #[test]
     fn test_token_bucket_persistence() {

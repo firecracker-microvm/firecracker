@@ -8,13 +8,13 @@ use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use snapshot::Persist;
 
 use super::*;
 use crate::devices::virtio::device::DeviceState;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::devices::virtio::vsock::TYPE_VSOCK;
+use crate::snapshot::Persist;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// The Vsock serializable state.
@@ -134,7 +134,6 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use snapshot::Snapshot;
     use utils::byte_order;
 
     use super::device::AVAIL_FEATURES;
@@ -142,6 +141,7 @@ pub(crate) mod tests {
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::vsock::defs::uapi;
     use crate::devices::virtio::vsock::test_utils::{TestBackend, TestContext};
+    use crate::snapshot::Snapshot;
 
     impl Persist<'_> for TestBackend {
         type State = VsockBackendState;

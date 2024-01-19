@@ -17,7 +17,6 @@ use api_server_adapter::ApiServerError;
 use event_manager::SubscriberOps;
 use seccomp::FilterError;
 use seccompiler::BpfThreadMap;
-use snapshot::{Error as SnapshotError, Snapshot};
 use utils::arg_parser::{ArgParser, Argument};
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
@@ -28,6 +27,7 @@ use vmm::logger::{
 use vmm::persist::SNAPSHOT_VERSION;
 use vmm::resources::VmResources;
 use vmm::signal_handler::register_signal_handlers;
+use vmm::snapshot::{Error as SnapshotError, Snapshot};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
 use vmm::{EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
