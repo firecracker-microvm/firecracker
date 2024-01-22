@@ -120,7 +120,7 @@ fn test_eventfd() {
     let user_data: u8 = 71;
     let buf = [0; 4];
     let epoll = Epoll::new().unwrap();
-    let mut ready_events = vec![EpollEvent::default(); 1];
+    let mut ready_event = EpollEvent::default();
 
     epoll
         .ctl(
@@ -136,8 +136,13 @@ fn test_eventfd() {
     };
     ring.submit().unwrap();
 
-    assert_eq!(epoll.wait(500, &mut ready_events[..]).unwrap(), 1);
-    assert_eq!(ready_events[0].event_set(), EventSet::IN);
+    assert_eq!(
+        epoll
+            .wait(500, std::slice::from_mut(&mut ready_event))
+            .unwrap(),
+        1
+    );
+    assert_eq!(ready_event.event_set(), EventSet::IN);
 }
 
 #[test]
@@ -209,20 +214,15 @@ fn test_ring_push() {
         assert_eq!(ring.num_ops(), 0);
 
         // Valid fd.
-        assert!(
-            unsafe { ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data)) }
-                .is_ok()
-        );
+        unsafe { ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data)) }.unwrap();
 
         assert_eq!(ring.pending_sqes().unwrap(), 1);
         assert_eq!(ring.num_ops(), 1);
 
         // Full Queue.
         for _ in 1..(NUM_ENTRIES) {
-            assert!(unsafe {
-                ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
-            }
-            .is_ok());
+            unsafe { ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data)) }
+                .unwrap();
         }
 
         assert_eq!(ring.pending_sqes().unwrap(), NUM_ENTRIES);
@@ -245,10 +245,8 @@ fn test_ring_push() {
         // Wait for the io_uring ops to reach the CQ
         thread::sleep(Duration::from_millis(150));
         for _ in 0..NUM_ENTRIES {
-            assert!(unsafe {
-                ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
-            }
-            .is_ok());
+            unsafe { ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data)) }
+                .unwrap();
         }
         ring.submit().unwrap();
         // Wait for the io_uring ops to reach the CQ
