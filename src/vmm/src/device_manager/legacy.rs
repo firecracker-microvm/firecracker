@@ -9,6 +9,7 @@
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
+use acpi_tables::{aml, Aml};
 use kvm_ioctls::VmFd;
 use libc::EFD_NONBLOCK;
 use utils::eventfd::EventFd;
@@ -166,6 +167,71 @@ impl PortIODeviceManager {
             })?;
 
         Ok(())
+    }
+
+    pub(crate) fn append_aml_bytes(bytes: &mut Vec<u8>) {
+        // Set up COM devices
+        let gsi = [
+            Self::COM_EVT_1_3_GSI,
+            Self::COM_EVT_2_4_GSI,
+            Self::COM_EVT_1_3_GSI,
+            Self::COM_EVT_2_4_GSI,
+        ];
+        for com in 0u8..4 {
+            // COM1
+            aml::Device::new(
+                format!("_SB_.COM{}", com + 1).as_str().into(),
+                vec![
+                    &aml::Name::new("_HID".into(), &aml::EisaName::new("PNP0501")),
+                    &aml::Name::new("_UID".into(), &com),
+                    &aml::Name::new("_DDN".into(), &format!("COM{}", com + 1)),
+                    &aml::Name::new(
+                        "_CRS".into(),
+                        &aml::ResourceTemplate::new(vec![
+                            &aml::Interrupt::new(true, true, false, false, gsi[com as usize]),
+                            &aml::Io::new(
+                                PortIODeviceManager::SERIAL_PORT_ADDRESSES[com as usize]
+                                    .try_into()
+                                    .unwrap(),
+                                PortIODeviceManager::SERIAL_PORT_ADDRESSES[com as usize]
+                                    .try_into()
+                                    .unwrap(),
+                                1,
+                                PortIODeviceManager::SERIAL_PORT_SIZE.try_into().unwrap(),
+                            ),
+                        ]),
+                    ),
+                ],
+            )
+            .append_aml_bytes(bytes);
+        }
+        // Setup i8042
+        aml::Device::new(
+            "_SB_.PS2_".into(),
+            vec![
+                &aml::Name::new("_HID".into(), &aml::EisaName::new("PNP0303")),
+                &aml::Method::new("_STA".into(), 0, false, vec![&aml::Return::new(&0x0fu8)]),
+                &aml::Name::new(
+                    "_CRS".into(),
+                    &aml::ResourceTemplate::new(vec![
+                        &aml::Io::new(
+                            PortIODeviceManager::I8042_KDB_DATA_REGISTER_ADDRESS
+                                .try_into()
+                                .unwrap(),
+                            PortIODeviceManager::I8042_KDB_DATA_REGISTER_ADDRESS
+                                .try_into()
+                                .unwrap(),
+                            1u8,
+                            1u8,
+                        ),
+                        // Fake a command port so Linux stops complaining
+                        &aml::Io::new(0x0064, 0x0064, 1u8, 1u8),
+                        &aml::Interrupt::new(true, true, false, false, Self::KBD_EVT_GSI),
+                    ]),
+                ),
+            ],
+        )
+        .append_aml_bytes(bytes);
     }
 }
 

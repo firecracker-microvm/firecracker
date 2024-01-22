@@ -9,6 +9,7 @@ use vm_allocator::AllocPolicy;
 use crate::acpi::x86_64::{
     apic_addr, rsdp_addr, setup_arch_dsdt, setup_arch_fadt, setup_interrupt_controllers,
 };
+use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::resources::ResourceAllocator;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 use crate::Vcpu;
@@ -73,8 +74,11 @@ impl<'a> AcpiTableWriter<'a> {
     }
 
     /// Build the DSDT table for the guest
-    fn build_dsdt(&mut self) -> Result<u64, AcpiError> {
+    fn build_dsdt(&mut self, mmio_device_manager: &MMIODeviceManager) -> Result<u64, AcpiError> {
         let mut dsdt_data = Vec::new();
+
+        // Virtio-devices DSDT data
+        dsdt_data.extend_from_slice(&mmio_device_manager.dsdt_data);
 
         // Architecture specific DSDT data
         setup_arch_dsdt(&mut dsdt_data);
@@ -150,6 +154,7 @@ impl<'a> AcpiTableWriter<'a> {
 pub(crate) fn create_acpi_tables(
     mem: &GuestMemoryMmap,
     resource_allocator: &mut ResourceAllocator,
+    mmio_device_manager: &MMIODeviceManager,
     vcpus: &[Vcpu],
 ) -> Result<(), AcpiError> {
     let mut writer = AcpiTableWriter {
@@ -157,7 +162,7 @@ pub(crate) fn create_acpi_tables(
         resource_allocator,
     };
 
-    let dsdt_addr = writer.build_dsdt()?;
+    let dsdt_addr = writer.build_dsdt(mmio_device_manager)?;
     let fadt_addr = writer.build_fadt(dsdt_addr)?;
     let madt_addr = writer.build_madt(vcpus.len().try_into().unwrap())?;
     let xsdt_addr = writer.build_xsdt(fadt_addr, madt_addr)?;
