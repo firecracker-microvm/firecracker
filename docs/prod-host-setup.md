@@ -387,17 +387,13 @@ sudo mount -o remount,favordynmods /sys/fs/cgroup
 ```
 
 For cgroupsv1, remounting with `favordynmods` is not supported, so it has to be
-done at boot time, through a kernel command line option[^1]. Add
+done at boot time, through a kernel command line option. Add
 `cgroup_favordynmods=true` to your kernel command line in GRUB. Refer to your
-distribution's documentation for where to make this change[^2]
+distribution's documentation for where to make this change[^1]
 
-[^2] Look for `GRUB_CMDLINE_LINUX` in file `/etc/default/grub` in RPM-based
+[^1]: Look for `GRUB_CMDLINE_LINUX` in file `/etc/default/grub` in RPM-based
 systems, and [this doc for
 Ubuntu](https://wiki.ubuntu.com/Kernel/KernelBootParameters).
-
-[^1]: this command line option is still unreleased at the moment of writing, but
-will be part of 6.7 and may be backported to 6.1:
-<https://lore.kernel.org/lkml/ZR2zsZIung0-mWii@slm.duckdns.org/>
 
 #### Mitigation 2: `kvm.nx_huge_pages=never`
 
