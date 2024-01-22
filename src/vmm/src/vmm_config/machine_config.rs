@@ -60,7 +60,7 @@ impl Default for MachineConfig {
 /// All fields are optional, but at least one needs to be specified.
 /// If a field is `Some(value)` then we assume an update is requested
 /// for that field.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct MachineConfigUpdate {
     /// Number of vcpu to start.
@@ -85,16 +85,7 @@ impl MachineConfigUpdate {
     /// Returns `true` if all fields are set to `None` which means that there is nothing
     /// to be updated.
     pub fn is_empty(&self) -> bool {
-        if self.vcpu_count.is_none()
-            && self.mem_size_mib.is_none()
-            && self.cpu_template.is_none()
-            && self.smt.is_none()
-            && self.track_dirty_pages.is_none()
-        {
-            return true;
-        }
-
-        false
+        self == &Default::default()
     }
 }
 
