@@ -315,6 +315,9 @@ merging this change [upstream][2], this seems like a conscious design decision
 of the ARM code contributors, giving precedence to performance over the ability
 to trap and control this in the hypervisor.
 
+[1]: https://elixir.free-electrons.com/linux/v4.14.203/source/virt/kvm/arm/hyp/timer-sr.c#L63
+[2]: https://lists.cs.columbia.edu/pipermail/kvmarm/2017-January/023323.html
+
 ##### Verification
 
 [spectre-meltdown-checker script](https://github.com/speed47/spectre-meltdown-checker)
@@ -328,9 +331,6 @@ downloaded and executed like:
 # Read https://meltdown.ovh before running it.
 wget -O - https://meltdown.ovh | bash
 ```
-
-[1]: https://elixir.free-electrons.com/linux/v4.14.203/source/virt/kvm/arm/hyp/timer-sr.c#L63
-[2]: https://lists.cs.columbia.edu/pipermail/kvmarm/2017-January/023323.html
 
 ### Linux 6.1 boot time regressions
 
