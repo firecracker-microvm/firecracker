@@ -259,17 +259,20 @@ echo "swap partitions present (Recommendation: no swap)" \
 
 ### Mitigating hardware vulnerabilities
 
-> **Note** Firecracker is not able to mitigate host's hardware vulnerabilities.
-Adequate mitigations need to be put in place when configuring the host.
+> [!CAUTION]
+> Firecracker is not able to mitigate host's hardware vulnerabilities.
+> Adequate mitigations need to be put in place when configuring the host.
 
-> **Note** Firecracker is designed to provide isolation boundaries between
-microVMs running in different Firecracker processes. It is strongly recommended
-that each Firecracker process corresponds to a workload of a single tenant.
+> [!CAUTION]
+> Firecracker is designed to provide isolation boundaries between microVMs
+> running in different Firecracker processes. It is strongly recommended that
+> each Firecracker process corresponds to a workload of a single tenant.
 
-> **Note** For security and stability reasons it is highly recommended to load
-updated microcode as soon as possible. Aside from keeping the system firmware
-up-to-date, when the kernel is used to load updated microcode of the CPU this
-should be done as early as possible in the boot process.
+> [!CAUTION]
+> For security and stability reasons it is highly recommended to load updated
+> microcode as soon as possible. Aside from keeping the system firmware
+> up-to-date, when the kernel is used to load updated microcode of the CPU this
+> should be done as early as possible in the boot process.
 
 #### Side channel attacks
 
