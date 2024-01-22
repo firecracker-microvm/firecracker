@@ -12,6 +12,9 @@ license = "Apache-2.0"
 name = "firecracker"
 bench = false
 
+[lib]
+bench = false
+
 [dependencies]
 displaydoc = "0.2.4"
 event-manager = "0.4.0"
