@@ -864,7 +864,7 @@ mod tests {
 
     use super::*;
     use crate::cpu_config::templates::test_utils::build_test_template;
-    use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
+    use crate::cpu_config::templates::CpuTemplateType;
     use crate::devices::virtio::balloon::{BalloonConfig, BalloonError};
     use crate::devices::virtio::block_common::CacheType;
     use crate::devices::virtio::rng::EntropyError;
@@ -1071,7 +1071,7 @@ mod tests {
             Self {
                 mem_size_mib: value.vm_config.mem_size_mib as u64,
                 smt: value.vm_config.smt,
-                cpu_template: StaticCpuTemplate::from(&value.vm_config.cpu_template),
+                cpu_template: value.vm_config.cpu_template.as_ref().and_then(Into::into),
                 boot_source: value.boot_source_config().clone(),
             }
         }

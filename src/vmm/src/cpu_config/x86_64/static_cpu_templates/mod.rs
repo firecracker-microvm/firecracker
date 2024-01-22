@@ -4,6 +4,8 @@
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
 
+use crate::cpu_config::templates::CpuTemplateType;
+
 /// Module with C3 CPU template for x86_64
 pub mod c3;
 /// Module with T2 CPU template for x86_64
@@ -17,7 +19,7 @@ pub mod t2s;
 
 /// Template types available for configuring the x86 CPU features that map
 /// to EC2 instances.
-#[derive(Debug, Default, Display, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Display, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StaticCpuTemplate {
     /// C3 Template.
     #[display(fmt = "C3")]
@@ -28,10 +30,6 @@ pub enum StaticCpuTemplate {
     /// T2S Template.
     #[display(fmt = "T2S")]
     T2S,
-    /// No CPU template is used.
-    #[default]
-    #[display(fmt = "None")]
-    None,
     /// T2CL Template.
     #[display(fmt = "T2CL")]
     T2CL,
@@ -40,10 +38,12 @@ pub enum StaticCpuTemplate {
     T2A,
 }
 
-impl StaticCpuTemplate {
-    /// Check if no template specified
-    pub fn is_none(&self) -> bool {
-        self == &StaticCpuTemplate::None
+impl From<&CpuTemplateType> for Option<StaticCpuTemplate> {
+    fn from(val: &CpuTemplateType) -> Self {
+        match val {
+            CpuTemplateType::Custom(_) => None,
+            CpuTemplateType::Static(template) => Some(*template),
+        }
     }
 }
 

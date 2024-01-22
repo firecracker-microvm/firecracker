@@ -51,7 +51,7 @@ pub struct VmInfo {
     /// smt information
     pub smt: bool,
     /// CPU template type
-    pub cpu_template: StaticCpuTemplate,
+    pub cpu_template: Option<StaticCpuTemplate>,
     /// Boot source information.
     pub boot_source: BootSourceConfig,
 }
@@ -61,7 +61,7 @@ impl From<&VmResources> for VmInfo {
         Self {
             mem_size_mib: value.vm_config.mem_size_mib as u64,
             smt: value.vm_config.smt,
-            cpu_template: StaticCpuTemplate::from(&value.vm_config.cpu_template),
+            cpu_template: value.vm_config.cpu_template.as_ref().and_then(Into::into),
             boot_source: value.boot_source_config().clone(),
         }
     }

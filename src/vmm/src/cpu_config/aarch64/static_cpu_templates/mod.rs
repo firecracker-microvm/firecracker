@@ -3,29 +3,24 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::cpu_config::templates::CpuTemplateType;
+
 /// Module with V1N1 CPU template for aarch64
 pub mod v1n1;
 
 /// Templates available for configuring the supported ARM CPU types.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StaticCpuTemplate {
-    // Needed for compatibility
-    /// Empty0
-    Empty0,
-    // Needed for compatibility
-    /// Empty1
-    Empty1,
     /// Template to mask Neoverse-V1 as Neoverse-N1
     V1N1,
-    /// No CPU template is used.
-    #[default]
-    None,
 }
 
-impl StaticCpuTemplate {
-    /// Check if no template specified
-    pub fn is_none(&self) -> bool {
-        self == &StaticCpuTemplate::None
+impl Into<Option<StaticCpuTemplate>> for &CpuTemplateType {
+    fn into(self) -> Option<StaticCpuTemplate> {
+        match self {
+            CpuTemplateType::Custom(_) => None,
+            CpuTemplateType::Static(template) => Some(*template),
+        }
     }
 }
 
@@ -33,8 +28,6 @@ impl std::fmt::Display for StaticCpuTemplate {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             StaticCpuTemplate::V1N1 => write!(f, "V1N1"),
-            StaticCpuTemplate::None => write!(f, "None"),
-            _ => write!(f, "None"),
         }
     }
 }

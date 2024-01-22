@@ -127,7 +127,7 @@ mod tests {
             vcpu_count: Some(8),
             mem_size_mib: Some(1024),
             smt: Some(false),
-            cpu_template: Some(StaticCpuTemplate::None),
+            cpu_template: Some(None),
             track_dirty_pages: Some(false),
         };
         assert_eq!(
@@ -167,7 +167,7 @@ mod tests {
                 vcpu_count: Some(8),
                 mem_size_mib: Some(1024),
                 smt: Some(false),
-                cpu_template: Some(StaticCpuTemplate::T2),
+                cpu_template: Some(Some(StaticCpuTemplate::T2)),
                 track_dirty_pages: Some(true),
             };
             assert_eq!(

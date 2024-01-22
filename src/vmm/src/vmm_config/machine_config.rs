@@ -90,11 +90,27 @@ pub struct MachineConfigUpdate {
     )]
     pub smt: Option<bool>,
     /// A CPU template that it is used to filter the CPU features exposed to the guest.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cpu_template: Option<StaticCpuTemplate>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "some_option"
+    )]
+    // Needs to be wrapped in two options: The outer indicates whether the `cpu_template`
+    // field should be updated at all (with `None` meaning "leave as is"), and the inner
+    // indicating that, if an update should happen, whether a static template should be
+    // used or not.
+    pub cpu_template: Option<Option<StaticCpuTemplate>>,
     /// Enables or disables dirty page tracking. Enabling allows incremental snapshots.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub track_dirty_pages: Option<bool>,
+}
+
+fn some_option<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 impl MachineConfigUpdate {
@@ -121,7 +137,7 @@ impl From<MachineConfig> for MachineConfigUpdate {
             vcpu_count: Some(cfg.vcpu_count),
             mem_size_mib: Some(cfg.mem_size_mib),
             smt: Some(cfg.smt),
-            cpu_template: cfg.cpu_template,
+            cpu_template: Some(cfg.cpu_template),
             track_dirty_pages: Some(cfg.track_dirty_pages),
         }
     }
@@ -179,10 +195,7 @@ impl VmConfig {
         self.mem_size_mib = mem_size_mib;
 
         if let Some(cpu_template) = update.cpu_template {
-            self.cpu_template = match cpu_template {
-                StaticCpuTemplate::None => None,
-                other => Some(CpuTemplateType::Static(other)),
-            };
+            self.cpu_template = cpu_template.map(CpuTemplateType::Static);
         }
 
         if let Some(track_dirty_pages) = update.track_dirty_pages {
@@ -211,7 +224,10 @@ impl From<&VmConfig> for MachineConfig {
             vcpu_count: value.vcpu_count,
             mem_size_mib: value.mem_size_mib,
             smt: value.smt,
-            cpu_template: value.cpu_template.as_ref().map(|template| template.into()),
+            cpu_template: value
+                .cpu_template
+                .as_ref()
+                .and_then(|template| template.into()),
             track_dirty_pages: value.track_dirty_pages,
         }
     }

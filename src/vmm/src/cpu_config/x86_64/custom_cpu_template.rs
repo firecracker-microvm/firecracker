@@ -68,9 +68,6 @@ impl GetCpuTemplate for Option<CpuTemplateType> {
                             }
                             Ok(Cow::Owned(t2a::t2a()))
                         }
-                        StaticCpuTemplate::None => {
-                            Err(InvalidStaticCpuTemplate(StaticCpuTemplate::None))
-                        }
                     }
                 }
             },
@@ -340,21 +337,6 @@ mod tests {
                 GetCpuTemplateError::CpuVendorMismatched,
             );
         }
-    }
-
-    #[test]
-    fn test_get_cpu_template_with_none_static_template() {
-        // Test `get_cpu_template()` when no static CPU template is provided.
-        // `InvalidStaticCpuTemplate` error should be returned because it is no longer valid and
-        // was replaced with `None` of `Option<CpuTemplateType>`.
-        let cpu_template = Some(CpuTemplateType::Static(StaticCpuTemplate::None));
-        assert_eq!(
-            cpu_template.get_cpu_template().unwrap_err(),
-            GetCpuTemplateError::InvalidStaticCpuTemplate(StaticCpuTemplate::None)
-        );
-
-        // Test the Display for StaticCpuTemplate
-        assert_eq!(format!("{}", StaticCpuTemplate::None), "None");
     }
 
     #[test]

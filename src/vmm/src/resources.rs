@@ -1332,9 +1332,9 @@ mod tests {
             mem_size_mib: Some(512),
             smt: Some(true),
             #[cfg(target_arch = "x86_64")]
-            cpu_template: Some(StaticCpuTemplate::T2),
+            cpu_template: Some(Some(StaticCpuTemplate::T2)),
             #[cfg(target_arch = "aarch64")]
-            cpu_template: Some(StaticCpuTemplate::V1N1),
+            cpu_template: Some(Some(StaticCpuTemplate::V1N1)),
             track_dirty_pages: Some(false),
         };
 
