@@ -34,7 +34,7 @@ vmm = { path = "../vmm" }
 [dev-dependencies]
 cargo_toml = "0.18.0"
 libc = "0.2.151"
-regex = { version = "1.10.2", default-features = false, features = ["std", "unicode-perl"] }
+regex = { version = "1.10.3", default-features = false, features = ["std", "unicode-perl"] }
 
 # Dev-Dependencies for uffd examples
 serde = { version = "1.0.193", features = ["derive"] }

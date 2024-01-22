@@ -10,7 +10,7 @@ name = "snapshot-editor"
 bench = false
 
 [dependencies]
-clap = { version = "4.4.17", features = ["derive", "string"] }
+clap = { version = "4.4.18", features = ["derive", "string"] }
 displaydoc = "0.2.4"
 libc = "0.2.151"
 log-instrument = { path = "../log-instrument", optional = true }
@@ -21,7 +21,7 @@ vmm = { path = "../vmm" }
 fc_utils = { package = "utils", path = "../utils" }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
-clap-num = "1.0.2"
+clap-num = "1.1.1"
 
 [features]
 tracing = ["log-instrument", "fc_utils/tracing", "vmm/tracing"]
