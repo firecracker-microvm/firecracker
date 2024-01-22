@@ -10,17 +10,18 @@ use std::fmt::Debug;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
+use acpi_tables::{aml, Aml};
 use kvm_ioctls::{IoEventAddress, VmFd};
 use linux_loader::cmdline as kernel_cmdline;
-use log::info;
+use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use vm_allocator::AllocPolicy;
 
 use super::resources::ResourceAllocator;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::aarch64::DeviceInfoForFDT;
-use crate::arch::DeviceType;
 use crate::arch::DeviceType::Virtio;
+use crate::arch::{self, DeviceType};
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
 use crate::devices::pseudo::BootTimer;
@@ -33,8 +34,6 @@ use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::TYPE_VSOCK;
 use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG};
 use crate::devices::BusDevice;
-#[cfg(target_arch = "x86_64")]
-use crate::vstate::memory::GuestAddress;
 
 /// Errors for MMIO device manager.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -59,7 +58,7 @@ pub enum MmioError {
     RegisterIrqFd(kvm_ioctls::Error),
 }
 
-/// This represents the size of the mmio device specified to the kernel as a cmdline option
+/// This represents the size of the mmio device specified to the kernel through ACPI.
 /// It has to be larger than 0x100 (the offset where the configuration space starts from
 /// the beginning of the memory mapped device registers) + the size of the configuration space
 /// Currently hardcoded to 4K.
@@ -76,12 +75,50 @@ pub struct MMIODeviceInfo {
     pub irqs: Vec<u32>,
 }
 
+impl Aml for MMIODeviceInfo {
+    fn append_aml_bytes(&self, v: &mut Vec<u8>) {
+        let dev_id = self.irqs[0] - arch::IRQ_BASE;
+        debug!(
+            "acpi: Building AML for VirtIO device _SB_.V{:03}. memory range: {:#010x}:{} irq: {}",
+            dev_id, self.addr, self.len, self.irqs[0]
+        );
+        aml::Device::new(
+            format!("V{:03}", dev_id).as_str().into(),
+            vec![
+                &aml::Name::new("_HID".into(), &"LNRO0005"),
+                &aml::Name::new("_UID".into(), &dev_id),
+                &aml::Name::new("_CCA".into(), &aml::ONE),
+                &aml::Name::new(
+                    "_CRS".into(),
+                    &aml::ResourceTemplate::new(vec![
+                        &aml::Memory32Fixed::new(
+                            true,
+                            self.addr.try_into().unwrap(),
+                            self.len.try_into().unwrap(),
+                        ),
+                        &aml::Interrupt::new(true, true, false, false, self.irqs[0]),
+                    ]),
+                ),
+            ],
+        )
+        .append_aml_bytes(v);
+    }
+}
+
 /// Manages the complexities of registering a MMIO device.
 #[derive(Debug)]
 pub struct MMIODeviceManager {
     pub(crate) bus: crate::devices::Bus,
     pub(crate) resource_allocator: Rc<ResourceAllocator>,
     pub(crate) id_to_dev_info: HashMap<(DeviceType, String), MMIODeviceInfo>,
+    // We create the AML byte code for every VirtIO device in the order we build
+    // it, so that we ensure the root block device is appears first in the DSDT.
+    // This is needed, so that the root device appears as `/dev/sda` in the guest
+    // filesystem.
+    // The alternative would be that we iterate the bus to get the data after all
+    // of the devices are build. However, iterating the bus won't give us the
+    // devices in the order they were added.
+    pub(crate) dsdt_data: Vec<u8>,
 }
 
 impl MMIODeviceManager {
@@ -91,6 +128,7 @@ impl MMIODeviceManager {
             bus: crate::devices::Bus::new(),
             resource_allocator,
             id_to_dev_info: HashMap::new(),
+            dsdt_data: vec![],
         })
     }
 
@@ -158,27 +196,6 @@ impl MMIODeviceManager {
         )
     }
 
-    /// Append a registered virtio-over-MMIO device to the kernel cmdline.
-    #[cfg(target_arch = "x86_64")]
-    pub fn add_virtio_device_to_cmdline(
-        cmdline: &mut kernel_cmdline::Cmdline,
-        device_info: &MMIODeviceInfo,
-    ) -> Result<(), MmioError> {
-        // as per doc, [virtio_mmio.]device=<size>@<baseaddr>:<irq> needs to be appended
-        // to kernel commandline for virtio mmio devices to get recognized
-        // the size parameter has to be transformed to KiB, so dividing hexadecimal value in
-        // bytes to 1024; further, the '{}' formatting rust construct will automatically
-        // transform it to decimal
-        cmdline
-            .add_virtio_mmio_device(
-                device_info.len,
-                GuestAddress(device_info.addr),
-                device_info.irqs[0],
-                None,
-            )
-            .map_err(MmioError::Cmdline)
-    }
-
     /// Allocate slot and register an already created virtio-over-MMIO device. Also Adds the device
     /// to the boot cmdline.
     pub fn register_mmio_virtio_for_boot(
@@ -190,8 +207,7 @@ impl MMIODeviceManager {
     ) -> Result<MMIODeviceInfo, MmioError> {
         let device_info = self.allocate_mmio_resources(1)?;
         self.register_mmio_virtio(vm, device_id, mmio_device, &device_info)?;
-        #[cfg(target_arch = "x86_64")]
-        Self::add_virtio_device_to_cmdline(_cmdline, &device_info)?;
+        device_info.append_aml_bytes(&mut self.dsdt_data);
         Ok(device_info)
     }
 
@@ -432,6 +448,12 @@ impl MMIODeviceManager {
                 }
                 Ok(())
             });
+    }
+}
+
+impl Aml for MMIODeviceManager {
+    fn append_aml_bytes(&self, v: &mut Vec<u8>) {
+        v.extend_from_slice(&self.dsdt_data);
     }
 }
 

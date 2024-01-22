@@ -764,7 +764,12 @@ pub fn configure_system_for_boot(
     // Create ACPI tables and write them in guest memory
     // For the time being we only support ACPI in x86_64
     #[cfg(target_arch = "x86_64")]
-    acpi::create_acpi_tables(vmm.guest_memory(), vmm.resource_allocator.clone(), vcpus)?;
+    acpi::create_acpi_tables(
+        vmm.guest_memory(),
+        vmm.resource_allocator.clone(),
+        &vmm.mmio_device_manager,
+        vcpus,
+    )?;
 
     #[cfg(target_arch = "x86_64")]
     {

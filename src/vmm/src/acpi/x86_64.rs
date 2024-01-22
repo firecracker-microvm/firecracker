@@ -13,6 +13,7 @@ use vm_memory::GuestAddress;
 use zerocopy::AsBytes;
 
 use crate::arch::x86_64::layout;
+use crate::device_manager::legacy::PortIODeviceManager;
 
 #[inline(always)]
 pub(crate) fn setup_interrupt_controllers(nr_vcpus: u8) -> Vec<u8> {
@@ -39,9 +40,10 @@ pub(crate) fn setup_arch_fadt(fadt: &mut Fadt) {
     );
 }
 
-#[allow(clippy::ptr_arg)]
 #[inline(always)]
-pub(crate) fn setup_arch_dsdt(_dsdt_data: &mut Vec<u8>) {}
+pub(crate) fn setup_arch_dsdt(dsdt_data: &mut Vec<u8>) {
+    PortIODeviceManager::append_aml_bytes(dsdt_data)
+}
 
 pub(crate) const fn apic_addr() -> u32 {
     layout::APIC_ADDR
