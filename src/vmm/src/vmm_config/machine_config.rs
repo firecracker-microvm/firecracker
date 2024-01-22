@@ -35,6 +35,8 @@ pub enum VmConfigError {
     HugetlbfsNotSupported,
     /// Firecracker's huge pages support is incompatible with memory ballooning.
     BalloonAndHugePages,
+    /// Firecracker's huge pages support is incompatible with initrds.
+    InitrdAndHugePages,
 }
 
 // We cannot do a `KernelVersion(kernel_version::Error)` variant because `kernel_version::Error`

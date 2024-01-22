@@ -261,6 +261,12 @@ impl VmResources {
             return Err(VmConfigError::BalloonAndHugePages);
         }
 
+        if self.boot_source.config.initrd_path.is_some()
+            && updated.huge_pages != HugePageConfig::None
+        {
+            return Err(VmConfigError::InitrdAndHugePages);
+        }
+
         self.vm_config = updated;
 
         Ok(())
@@ -337,6 +343,12 @@ impl VmResources {
         &mut self,
         boot_source_cfg: BootSourceConfig,
     ) -> Result<(), BootSourceConfigError> {
+        if boot_source_cfg.initrd_path.is_some()
+            && self.vm_config.huge_pages != HugePageConfig::None
+        {
+            return Err(BootSourceConfigError::HugePagesAndInitRd);
+        }
+
         self.set_boot_source_config(boot_source_cfg);
         self.boot_source.builder = Some(BootConfig::new(self.boot_source_config())?);
         Ok(())
