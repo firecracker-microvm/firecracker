@@ -9,8 +9,12 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
+#[cfg(target_arch = "x86_64")]
+use acpi_tables::{aml, Aml};
 use kvm_ioctls::{IoEventAddress, VmFd};
 use linux_loader::cmdline as kernel_cmdline;
+#[cfg(target_arch = "x86_64")]
+use log::debug;
 use log::info;
 use serde::{Deserialize, Serialize};
 use vm_allocator::AllocPolicy;
@@ -58,7 +62,8 @@ pub enum MmioError {
     RegisterIrqFd(kvm_ioctls::Error),
 }
 
-/// This represents the size of the mmio device specified to the kernel as a cmdline option
+/// This represents the size of the mmio device specified to the kernel through ACPI and as a
+/// command line option.
 /// It has to be larger than 0x100 (the offset where the configuration space starts from
 /// the beginning of the memory mapped device registers) + the size of the configuration space
 /// Currently hardcoded to 4K.
@@ -75,11 +80,49 @@ pub struct MMIODeviceInfo {
     pub irqs: Vec<u32>,
 }
 
+#[cfg(target_arch = "x86_64")]
+fn add_virtio_aml(dsdt_data: &mut Vec<u8>, addr: u64, len: u64, irq: u32) {
+    let dev_id = irq - crate::arch::IRQ_BASE;
+    debug!(
+        "acpi: Building AML for VirtIO device _SB_.V{:03}. memory range: {:#010x}:{} irq: {}",
+        dev_id, addr, len, irq
+    );
+    aml::Device::new(
+        format!("V{:03}", dev_id).as_str().into(),
+        vec![
+            &aml::Name::new("_HID".into(), &"LNRO0005"),
+            &aml::Name::new("_UID".into(), &dev_id),
+            &aml::Name::new("_CCA".into(), &aml::ONE),
+            &aml::Name::new(
+                "_CRS".into(),
+                &aml::ResourceTemplate::new(vec![
+                    &aml::Memory32Fixed::new(
+                        true,
+                        addr.try_into().unwrap(),
+                        len.try_into().unwrap(),
+                    ),
+                    &aml::Interrupt::new(true, true, false, false, irq),
+                ]),
+            ),
+        ],
+    )
+    .append_aml_bytes(dsdt_data);
+}
+
 /// Manages the complexities of registering a MMIO device.
 #[derive(Debug)]
 pub struct MMIODeviceManager {
     pub(crate) bus: crate::devices::Bus,
     pub(crate) id_to_dev_info: HashMap<(DeviceType, String), MMIODeviceInfo>,
+    // We create the AML byte code for every VirtIO device in the order we build
+    // it, so that we ensure the root block device is appears first in the DSDT.
+    // This is needed, so that the root device appears as `/dev/vda` in the guest
+    // filesystem.
+    // The alternative would be that we iterate the bus to get the data after all
+    // of the devices are build. However, iterating the bus won't give us the
+    // devices in the order they were added.
+    #[cfg(target_arch = "x86_64")]
+    pub(crate) dsdt_data: Vec<u8>,
 }
 
 impl MMIODeviceManager {
@@ -88,6 +131,8 @@ impl MMIODeviceManager {
         MMIODeviceManager {
             bus: crate::devices::Bus::new(),
             id_to_dev_info: HashMap::new(),
+            #[cfg(target_arch = "x86_64")]
+            dsdt_data: vec![],
         }
     }
 
@@ -166,7 +211,7 @@ impl MMIODeviceManager {
         device_info: &MMIODeviceInfo,
     ) -> Result<(), MmioError> {
         // as per doc, [virtio_mmio.]device=<size>@<baseaddr>:<irq> needs to be appended
-        // to kernel commandline for virtio mmio devices to get recognized
+        // to kernel command line for virtio mmio devices to get recongnized
         // the size parameter has to be transformed to KiB, so dividing hexadecimal value in
         // bytes to 1024; further, the '{}' formatting rust construct will automatically
         // transform it to decimal
@@ -193,7 +238,17 @@ impl MMIODeviceManager {
         let device_info = self.allocate_mmio_resources(resource_allocator, 1)?;
         self.register_mmio_virtio(vm, device_id, mmio_device, &device_info)?;
         #[cfg(target_arch = "x86_64")]
-        Self::add_virtio_device_to_cmdline(_cmdline, &device_info)?;
+        {
+            Self::add_virtio_device_to_cmdline(_cmdline, &device_info)?;
+            add_virtio_aml(
+                &mut self.dsdt_data,
+                device_info.addr,
+                device_info.len,
+                // We are sure that `irqs` has at least one element; allocate_mmio_resources makes
+                // sure of it.
+                device_info.irqs[0],
+            );
+        }
         Ok(device_info)
     }
 
