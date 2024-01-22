@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 
 use acpi_tables::{aml, Aml};
 use kvm_ioctls::{IoEventAddress, VmFd};
+#[cfg(target_arch = "aarch64")]
 use linux_loader::cmdline as kernel_cmdline;
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
@@ -203,7 +204,6 @@ impl MMIODeviceManager {
         vm: &VmFd,
         device_id: String,
         mmio_device: MmioTransport,
-        _cmdline: &mut kernel_cmdline::Cmdline,
     ) -> Result<MMIODeviceInfo, MmioError> {
         let device_info = self.allocate_mmio_resources(1)?;
         self.register_mmio_virtio(vm, device_id, mmio_device, &device_info)?;
@@ -493,12 +493,11 @@ mod tests {
             vm: &VmFd,
             guest_mem: GuestMemoryMmap,
             device: Arc<Mutex<dyn VirtioDevice>>,
-            cmdline: &mut kernel_cmdline::Cmdline,
             dev_id: &str,
         ) -> Result<u64, MmioError> {
             let mmio_device = MmioTransport::new(guest_mem, device, false);
             let device_info =
-                self.register_mmio_virtio_for_boot(vm, dev_id.to_string(), mmio_device, cmdline)?;
+                self.register_mmio_virtio_for_boot(vm, dev_id.to_string(), mmio_device)?;
             Ok(device_info.addr)
         }
 
@@ -605,7 +604,6 @@ mod tests {
         vm.memory_init(&guest_mem, false).unwrap();
         let mut device_manager = default_mmio_manager();
 
-        let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
         #[cfg(target_arch = "x86_64")]
         builder::setup_interrupt_controller(&mut vm).unwrap();
@@ -613,7 +611,7 @@ mod tests {
         builder::setup_interrupt_controller(&mut vm, 1).unwrap();
 
         device_manager
-            .register_virtio_test_device(vm.fd(), guest_mem, dummy, &mut cmdline, "dummy")
+            .register_virtio_test_device(vm.fd(), guest_mem, dummy, "dummy")
             .unwrap();
     }
 
@@ -626,7 +624,6 @@ mod tests {
         vm.memory_init(&guest_mem, false).unwrap();
         let mut device_manager = default_mmio_manager();
 
-        let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         #[cfg(target_arch = "x86_64")]
         builder::setup_interrupt_controller(&mut vm).unwrap();
         #[cfg(target_arch = "aarch64")]
@@ -638,7 +635,6 @@ mod tests {
                     vm.fd(),
                     guest_mem.clone(),
                     Arc::new(Mutex::new(DummyDevice::new())),
-                    &mut cmdline,
                     "dummy1",
                 )
                 .unwrap();
@@ -651,7 +647,6 @@ mod tests {
                         vm.fd(),
                         guest_mem,
                         Arc::new(Mutex::new(DummyDevice::new())),
-                        &mut cmdline,
                         "dummy2"
                     )
                     .unwrap_err()
@@ -684,13 +679,12 @@ mod tests {
         builder::setup_interrupt_controller(&mut vm, 1).unwrap();
 
         let mut device_manager = default_mmio_manager();
-        let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
 
         let type_id = dummy.lock().unwrap().device_type();
         let id = String::from("foo");
         let addr = device_manager
-            .register_virtio_test_device(vm.fd(), guest_mem, dummy, &mut cmdline, &id)
+            .register_virtio_test_device(vm.fd(), guest_mem, dummy, &id)
             .unwrap();
         assert!(device_manager
             .get_device(DeviceType::Virtio(type_id), &id)
@@ -712,7 +706,7 @@ mod tests {
         let dummy2 = Arc::new(Mutex::new(DummyDevice::new()));
         let id2 = String::from("foo2");
         device_manager
-            .register_virtio_test_device(vm.fd(), mem_clone, dummy2, &mut cmdline, &id2)
+            .register_virtio_test_device(vm.fd(), mem_clone, dummy2, &id2)
             .unwrap();
 
         let mut count = 0;

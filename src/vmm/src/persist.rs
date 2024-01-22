@@ -643,7 +643,7 @@ mod tests {
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
         };
-        insert_balloon_device(&mut vmm, &mut cmdline, &mut event_manager, balloon_config);
+        insert_balloon_device(&mut vmm, &mut event_manager, balloon_config);
 
         // Add a block device.
         let drive_id = String::from("root");
@@ -664,19 +664,14 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
         };
-        insert_net_device(
-            &mut vmm,
-            &mut cmdline,
-            &mut event_manager,
-            network_interface,
-        );
+        insert_net_device(&mut vmm, &mut event_manager, network_interface);
 
         // Add vsock device.
         let mut tmp_sock_file = TempFile::new().unwrap();
         tmp_sock_file.remove().unwrap();
         let vsock_config = default_config(&tmp_sock_file);
 
-        insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
+        insert_vsock_device(&mut vmm, &mut event_manager, vsock_config);
 
         vmm
     }
