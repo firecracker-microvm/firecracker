@@ -28,6 +28,8 @@ perf_test = {
         "label": "📠 Network Latency",
         "test_path": "integration_tests/performance/test_network_ab.py::test_network_latency",
         "devtool_opts": "-c 1-10 -m 0",
+        # Triggers if delta is > 0.01ms (10µs) or default relative threshold (5%)
+        "ab_opts": "--absolute-strength 0.010",
     },
     "network-throughput": {
         "label": "📠 Network TCP Throughput",
