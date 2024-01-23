@@ -31,18 +31,14 @@ def partuuid_and_disk_path(rootfs_ubuntu_22, disk_path):
     disk_path.touch()
     os.truncate(disk_path, initial_size)
     check_output(f"echo type=83 | sfdisk {str(disk_path)}", shell=True)
-    stdout = check_output(
-        f"losetup --find --partscan --show {str(disk_path)}", shell=True
+    check_output(
+        f"dd bs=1M seek=1 if={str(rootfs_ubuntu_22)} of={disk_path}", shell=True
     )
-    loop_dev = stdout.decode("ascii").strip()
-    check_output(f"dd if={str(rootfs_ubuntu_22)} of={loop_dev}p1", shell=True)
-
-    # UUID=$(sudo blkid -s UUID -o value "${loop_dev}p1")
-    stdout = check_output(f"blkid -s PARTUUID -o value {loop_dev}p1", shell=True)
-    partuuid = stdout.decode("ascii").strip()
-
-    # cleanup: release loop device
-    check_output(f"losetup -d {loop_dev}", shell=True)
+    ptuuid = check_output(
+        f"blkid -s PTUUID -o value {disk_path}", shell=True, encoding="ascii"
+    ).strip()
+    # PARTUUID for an msdos partition table is PTUUID-<PART NUMBER>
+    partuuid = ptuuid + "-01"
 
     return (partuuid, disk_path)
 
