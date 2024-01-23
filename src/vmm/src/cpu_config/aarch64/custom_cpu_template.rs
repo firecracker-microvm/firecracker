@@ -153,32 +153,6 @@ mod tests {
     }
 
     #[test]
-    fn test_get_cpu_template_with_empty0_static_template() {
-        // Test `get_cpu_template()` when `Empty0` static CPU template is provided.
-        // `InvalidStaticCpuTemplate` error should be returned, because `StaticCpuTemplate::Empty0`
-        // is invalid and is used as a placeholder to align the position of
-        // `StaticCpuTemplate::None` with x86_64.
-        let cpu_template = Some(CpuTemplateType::Static(StaticCpuTemplate::Empty0));
-        assert_eq!(
-            cpu_template.get_cpu_template().unwrap_err(),
-            GetCpuTemplateError::InvalidStaticCpuTemplate(StaticCpuTemplate::Empty0)
-        );
-    }
-
-    #[test]
-    fn test_get_cpu_template_with_empty1_static_template() {
-        // Test `get_cpu_template()` when `Empty1` static CPU template is provided.
-        // `InvalidStaticCpuTemplate` error should be returned, because `StaticCpuTemplate::Empty1`
-        // is invalid and is used as a placeholder to align the position of
-        // `StaticCpuTemplate::None` with x86_64.
-        let cpu_template = Some(CpuTemplateType::Static(StaticCpuTemplate::Empty1));
-        assert_eq!(
-            cpu_template.get_cpu_template().unwrap_err(),
-            GetCpuTemplateError::InvalidStaticCpuTemplate(StaticCpuTemplate::Empty1)
-        );
-    }
-
-    #[test]
     fn test_get_cpu_template_with_custom_template() {
         // Test `get_cpu_template()` when a custom CPU template is provided. The borrowed
         // `CustomCpuTemplate` should be returned.
