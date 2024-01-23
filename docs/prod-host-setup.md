@@ -259,17 +259,20 @@ echo "swap partitions present (Recommendation: no swap)" \
 
 ### Mitigating hardware vulnerabilities
 
-> **Note** Firecracker is not able to mitigate host's hardware vulnerabilities.
-Adequate mitigations need to be put in place when configuring the host.
+> [!CAUTION]
+> Firecracker is not able to mitigate host's hardware vulnerabilities.
+> Adequate mitigations need to be put in place when configuring the host.
 
-> **Note** Firecracker is designed to provide isolation boundaries between
-microVMs running in different Firecracker processes. It is strongly recommended
-that each Firecracker process corresponds to a workload of a single tenant.
+> [!CAUTION]
+> Firecracker is designed to provide isolation boundaries between microVMs
+> running in different Firecracker processes. It is strongly recommended that
+> each Firecracker process corresponds to a workload of a single tenant.
 
-> **Note** For security and stability reasons it is highly recommended to load
-updated microcode as soon as possible. Aside from keeping the system firmware
-up-to-date, when the kernel is used to load updated microcode of the CPU this
-should be done as early as possible in the boot process.
+> [!CAUTION]
+> For security and stability reasons it is highly recommended to load updated
+> microcode as soon as possible. Aside from keeping the system firmware
+> up-to-date, when the kernel is used to load updated microcode of the CPU this
+> should be done as early as possible in the boot process.
 
 #### Side channel attacks
 
@@ -312,6 +315,9 @@ merging this change [upstream][2], this seems like a conscious design decision
 of the ARM code contributors, giving precedence to performance over the ability
 to trap and control this in the hypervisor.
 
+[1]: https://elixir.free-electrons.com/linux/v4.14.203/source/virt/kvm/arm/hyp/timer-sr.c#L63
+[2]: https://lists.cs.columbia.edu/pipermail/kvmarm/2017-January/023323.html
+
 ##### Verification
 
 [spectre-meltdown-checker script](https://github.com/speed47/spectre-meltdown-checker)
@@ -325,9 +331,6 @@ downloaded and executed like:
 # Read https://meltdown.ovh before running it.
 wget -O - https://meltdown.ovh | bash
 ```
-
-[1]: https://elixir.free-electrons.com/linux/v4.14.203/source/virt/kvm/arm/hyp/timer-sr.c#L63
-[2]: https://lists.cs.columbia.edu/pipermail/kvmarm/2017-January/023323.html
 
 ### Linux 6.1 boot time regressions
 
@@ -384,17 +387,13 @@ sudo mount -o remount,favordynmods /sys/fs/cgroup
 ```
 
 For cgroupsv1, remounting with `favordynmods` is not supported, so it has to be
-done at boot time, through a kernel command line option[^1]. Add
+done at boot time, through a kernel command line option. Add
 `cgroup_favordynmods=true` to your kernel command line in GRUB. Refer to your
-distribution's documentation for where to make this change[^2]
+distribution's documentation for where to make this change[^1]
 
-[^2] Look for `GRUB_CMDLINE_LINUX` in file `/etc/default/grub` in RPM-based
+[^1]: Look for `GRUB_CMDLINE_LINUX` in file `/etc/default/grub` in RPM-based
 systems, and [this doc for
 Ubuntu](https://wiki.ubuntu.com/Kernel/KernelBootParameters).
-
-[^1]: this command line option is still unreleased at the moment of writing, but
-will be part of 6.7 and may be backported to 6.1:
-<https://lore.kernel.org/lkml/ZR2zsZIung0-mWii@slm.duckdns.org/>
 
 #### Mitigation 2: `kvm.nx_huge_pages=never`
 
