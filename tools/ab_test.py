@@ -211,7 +211,7 @@ def analyze_data(processed_emf_a, processed_emf_b, *, n_resamples: int = 9999):
 
 
 def ab_performance_test(
-    a_revision, b_revision, test, p_thresh, strength_thresh, noise_threshold
+    a_revision, b_revision, test, p_thresh, strength_abs_thresh, noise_threshold
 ):
     """Does an A/B-test of the specified test across the given revisions"""
     _, commit_list, _ = utils.run_cmd(
@@ -279,10 +279,7 @@ def ab_performance_test(
             relative_changes_by_metric[metric] = []
         relative_changes_by_metric[metric].append(result.statistic / baseline_mean)
 
-        if (
-            result.pvalue < p_thresh
-            and abs(result.statistic) > baseline_mean * strength_thresh
-        ):
+        if result.pvalue < p_thresh and abs(result.statistic) > strength_abs_thresh:
             failures.append((dimension_set, metric, result, unit))
 
     messages = []
@@ -351,8 +348,8 @@ if __name__ == "__main__":
         default=0.01,
     )
     parser.add_argument(
-        "--relative-strength",
-        help="The minimal delta required before a regression will be considered valid",
+        "--absolute-strength",
+        help="The minimum absolute delta required before a regression will be considered valid",
         type=float,
         default=0.0,
     )
