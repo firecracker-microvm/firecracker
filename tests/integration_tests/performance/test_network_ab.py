@@ -83,7 +83,7 @@ def test_network_latency(network_microvm, metrics, iteration):
             "iteration": str(iteration),
         }
     )
-    fcmetrics = FCMetricsMonitor(network_microvm, metrics)
+    fcmetrics = FCMetricsMonitor(network_microvm)
     fcmetrics.start()
 
     samples = []
@@ -160,7 +160,7 @@ def test_network_tcp_throughput(
             **network_microvm.dimensions,
         }
     )
-    fcmetrics = FCMetricsMonitor(network_microvm, metrics)
+    fcmetrics = FCMetricsMonitor(network_microvm)
     fcmetrics.start()
 
     test = TcpIPerf3Test(

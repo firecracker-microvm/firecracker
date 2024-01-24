@@ -176,7 +176,7 @@ def test_block_performance(
             **vm.dimensions,
         }
     )
-    fcmetrics = FCMetricsMonitor(vm, metrics)
+    fcmetrics = FCMetricsMonitor(vm)
     fcmetrics.start()
 
     vm.pin_threads(0)
@@ -227,7 +227,7 @@ def test_block_vhost_user_performance(
             **vm.dimensions,
         }
     )
-    fcmetrics = FCMetricsMonitor(vm, metrics)
+    fcmetrics = FCMetricsMonitor(vm)
     fcmetrics.start()
 
     next_cpu = vm.pin_threads(0)
