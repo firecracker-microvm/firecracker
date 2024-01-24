@@ -10,7 +10,7 @@ use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::net::UnixStream;
 use std::ptr;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use userfaultfd::{Error, Event, Uffd};
 use utils::get_page_size;
 use utils::sock_ctrl_msg::ScmSocket;
@@ -22,7 +22,7 @@ use utils::sock_ctrl_msg::ScmSocket;
 ///
 /// E.g. Guest memory contents for a region of `size` bytes can be found in the backend
 /// at `offset` bytes from the beginning, and should be copied/populated into `base_host_address`.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GuestRegionUffdMapping {
     /// Base host virtual address where the guest memory contents for this region
     /// should be copied/populated.
@@ -291,4 +291,93 @@ fn create_mem_regions(mappings: &Vec<GuestRegionUffdMapping>) -> Vec<MemRegion> 
     }
 
     mem_regions
+}
+
+#[cfg(test)]
+mod tests {
+    use std::mem::MaybeUninit;
+    use std::os::unix::net::UnixListener;
+
+    use utils::tempdir::TempDir;
+    use utils::tempfile::TempFile;
+
+    use super::*;
+
+    unsafe impl Send for Runtime {}
+
+    #[test]
+    fn test_runtime() {
+        let tmp_dir = TempDir::new().unwrap();
+        let dummy_socket_path = tmp_dir.as_path().join("dummy_socket");
+        let dummy_socket_path_clone = dummy_socket_path.clone();
+
+        let mut uninit_runtime = Box::new(MaybeUninit::<Runtime>::uninit());
+        // We will use this pointer to bypass a bunch of Rust Safety
+        // for the sake of convenience.
+        let runtime_ptr = uninit_runtime.as_ptr() as *const Runtime;
+
+        let runtime_thread = std::thread::spawn(move || {
+            let tmp_file = TempFile::new().unwrap();
+            tmp_file.as_file().set_len(0x1000).unwrap();
+            let dummy_mem_path = tmp_file.as_path();
+
+            let file = File::open(dummy_mem_path).expect("Cannot open memfile");
+            let listener =
+                UnixListener::bind(dummy_socket_path).expect("Cannot bind to socket path");
+            let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
+            // Update runtime with actual runtime
+            let runtime = uninit_runtime.write(Runtime::new(stream, file));
+            runtime.run(|_: &mut UffdHandler| {});
+        });
+
+        // wait for runtime thread to initialize itself
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        let stream =
+            UnixStream::connect(dummy_socket_path_clone).expect("Cannot connect to the socket");
+
+        let dummy_memory_region = vec![GuestRegionUffdMapping {
+            base_host_virt_addr: 0,
+            size: 0x1000,
+            offset: 0,
+        }];
+        let dummy_memory_region_json = serde_json::to_string(&dummy_memory_region).unwrap();
+
+        let dummy_file_1 = TempFile::new().unwrap();
+        let dummy_fd_1 = dummy_file_1.as_file().as_raw_fd();
+        stream
+            .send_with_fd(dummy_memory_region_json.as_bytes(), dummy_fd_1)
+            .unwrap();
+        // wait for the runtime thread to process message
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        unsafe {
+            assert_eq!((*runtime_ptr).uffds.len(), 1);
+        }
+
+        let dummy_file_2 = TempFile::new().unwrap();
+        let dummy_fd_2 = dummy_file_2.as_file().as_raw_fd();
+        stream
+            .send_with_fd(dummy_memory_region_json.as_bytes(), dummy_fd_2)
+            .unwrap();
+        // wait for the runtime thread to process message
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        unsafe {
+            assert_eq!((*runtime_ptr).uffds.len(), 2);
+        }
+
+        // there is no way to properly stop runtime, so
+        // we send a message with an incorrect memory region
+        // to cause runtime thread to panic
+        let error_memory_region = vec![GuestRegionUffdMapping {
+            base_host_virt_addr: 0,
+            size: 0,
+            offset: 0,
+        }];
+        let error_memory_region_json = serde_json::to_string(&error_memory_region).unwrap();
+        stream
+            .send_with_fd(error_memory_region_json.as_bytes(), dummy_fd_2)
+            .unwrap();
+
+        runtime_thread.join().unwrap_err();
+    }
 }
