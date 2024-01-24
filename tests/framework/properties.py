@@ -96,6 +96,11 @@ class GlobalProps:
             self.ami = "NA"
 
     @property
+    def host_linux_version_tpl(self):
+        """Host Linux version major.minor, as a tuple for easy comparison"""
+        return tuple(int(x) for x in self.host_linux_version.split("."))
+
+    @property
     def is_ec2(self):
         """Are we running on an EC2 instance?"""
         return self.environment == "ec2"
