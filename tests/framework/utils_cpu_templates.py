@@ -23,16 +23,18 @@ def get_supported_cpu_templates():
     """
     Return the list of CPU templates supported by the platform.
     """
+    # pylint:disable=too-many-return-statements
     match cpuid_utils.get_cpu_vendor():
         case cpuid_utils.CpuVendor.INTEL:
             # T2CL template is only supported on Cascade Lake and newer CPUs.
-
             if global_props.cpu_codename == cpuid_utils.CpuModel.INTEL_SKYLAKE:
                 return sorted(set(INTEL_TEMPLATES) - set(["T2CL"]))
             return INTEL_TEMPLATES
         case cpuid_utils.CpuVendor.AMD:
             return AMD_TEMPLATES
         case cpuid_utils.CpuVendor.ARM:
+            if global_props.host_linux_version_tpl < (6, 1):
+                return []
             match global_props.cpu_model:
                 case cpuid_utils.CpuModel.ARM_NEOVERSE_N1:
                     return []
@@ -59,13 +61,14 @@ def get_supported_custom_cpu_templates():
     match cpuid_utils.get_cpu_vendor():
         case cpuid_utils.CpuVendor.INTEL:
             # T2CL template is only supported on Cascade Lake and newer CPUs.
-            skylake_model = "Intel(R) Xeon(R) Platinum 8175M CPU @ 2.50GHz"
-            if global_props.cpu_model == skylake_model:
+            if global_props.cpu_codename == cpuid_utils.CpuModel.INTEL_SKYLAKE:
                 return set(INTEL_TEMPLATES) - {"T2CL"}
             return INTEL_TEMPLATES
         case cpuid_utils.CpuVendor.AMD:
             return AMD_TEMPLATES
         case cpuid_utils.CpuVendor.ARM:
+            if global_props.host_linux_version_tpl < (6, 1):
+                return []
             match global_props.cpu_model:
                 case cpuid_utils.CpuModel.ARM_NEOVERSE_N1:
                     return AARCH64_CUSTOM_CPU_TEMPLATES_G2
@@ -87,10 +90,3 @@ def static_cpu_templates_params():
     """Return Static CPU templates as pytest parameters"""
     for name in sorted(get_supported_cpu_templates()):
         yield pytest.param(name, id="static_" + name)
-
-
-def nonci_on_arm(func):
-    """Temporary decorator used to mark specific cpu template related tests as nonci on ARM platforms"""
-    if cpuid_utils.get_cpu_vendor() == cpuid_utils.CpuVendor.ARM:
-        return pytest.mark.nonci(func)
-    return func

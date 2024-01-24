@@ -20,7 +20,6 @@ from framework.ab_test import (
 )
 from framework.properties import global_props
 from framework.utils import CommandReturn
-from framework.utils_cpu_templates import nonci_on_arm
 
 CHECKER_URL = "https://meltdown.ovh"
 CHECKER_FILENAME = "spectre-meltdown-checker.sh"
@@ -299,7 +298,6 @@ def test_spectre_meltdown_checker_on_restored_guest(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
-@nonci_on_arm
 def test_spectre_meltdown_checker_on_guest_with_template(
     spectre_meltdown_checker, build_microvm_with_template
 ):
@@ -320,7 +318,6 @@ def test_spectre_meltdown_checker_on_guest_with_template(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
-@nonci_on_arm
 def test_spectre_meltdown_checker_on_guest_with_custom_template(
     spectre_meltdown_checker, build_microvm_with_custom_template
 ):
@@ -340,7 +337,6 @@ def test_spectre_meltdown_checker_on_guest_with_custom_template(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
-@nonci_on_arm
 def test_spectre_meltdown_checker_on_restored_guest_with_template(
     spectre_meltdown_checker, build_microvm_with_template, microvm_factory
 ):
@@ -363,7 +359,6 @@ def test_spectre_meltdown_checker_on_restored_guest_with_template(
     global_props.instance == "c7g.metal" and global_props.host_linux_version == "4.14",
     reason="c7g host 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
 )
-@nonci_on_arm
 def test_spectre_meltdown_checker_on_restored_guest_with_custom_template(
     spectre_meltdown_checker,
     build_microvm_with_custom_template,
@@ -506,7 +501,6 @@ def test_vulnerabilities_files_on_restored_guest(build_microvm, microvm_factory)
     check_vulnerabilities_files_ab(with_restore(build_microvm, microvm_factory))
 
 
-@nonci_on_arm
 def test_vulnerabilities_files_on_guest_with_template(build_microvm_with_template):
     """
     Test vulnerabilities files on guest with CPU template.
@@ -514,7 +508,6 @@ def test_vulnerabilities_files_on_guest_with_template(build_microvm_with_templat
     check_vulnerabilities_files_ab(build_microvm_with_template)
 
 
-@nonci_on_arm
 def test_vulnerabilities_files_on_guest_with_custom_template(
     build_microvm_with_custom_template,
 ):
@@ -524,7 +517,6 @@ def test_vulnerabilities_files_on_guest_with_custom_template(
     check_vulnerabilities_files_ab(build_microvm_with_custom_template)
 
 
-@nonci_on_arm
 def test_vulnerabilities_files_on_restored_guest_with_template(
     build_microvm_with_template, microvm_factory
 ):
@@ -536,7 +528,6 @@ def test_vulnerabilities_files_on_restored_guest_with_template(
     )
 
 
-@nonci_on_arm
 def test_vulnerabilities_files_on_restored_guest_with_custom_template(
     build_microvm_with_custom_template, microvm_factory, custom_cpu_template
 ):
