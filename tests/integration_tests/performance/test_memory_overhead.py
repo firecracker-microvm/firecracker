@@ -47,7 +47,7 @@ def test_memory_overhead(
         metrics.set_dimensions(
             {"performance_test": "test_memory_overhead", **microvm.dimensions}
         )
-        fcmetrics = FCMetricsMonitor(microvm, metrics)
+        fcmetrics = FCMetricsMonitor(microvm)
         fcmetrics.start()
 
         # check that the vm is running

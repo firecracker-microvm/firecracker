@@ -102,7 +102,7 @@ def test_vsock_throughput(
             **vm.dimensions,
         }
     )
-    fcmetrics = FCMetricsMonitor(vm, metrics)
+    fcmetrics = FCMetricsMonitor(vm)
     fcmetrics.start()
 
     vm.pin_threads(0)

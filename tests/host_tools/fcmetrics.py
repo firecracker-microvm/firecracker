@@ -16,6 +16,9 @@ from threading import Thread
 import jsonschema
 import pytest
 
+from framework.properties import global_props
+from host_tools.metrics import get_metrics_logger
+
 
 def validate_fc_metrics(metrics):
     """
@@ -434,7 +437,7 @@ class FCMetricsMonitor(Thread):
     of the metrics.
     """
 
-    def __init__(self, vm, metrics_logger, timer=60):
+    def __init__(self, vm, timer=60):
         Thread.__init__(self, daemon=True)
         self.vm = vm
         self.timer = timer
@@ -442,7 +445,14 @@ class FCMetricsMonitor(Thread):
         self.metrics_index = 0
         self.running = False
 
-        self.metrics_logger = metrics_logger
+        self.metrics_logger = get_metrics_logger()
+        self.metrics_logger.set_dimensions(
+            {
+                "instance": global_props.instance,
+                "host_kernel": "linux-" + global_props.host_linux_version,
+                "guest_kernel": vm.kernel_file.stem[2:],
+            }
+        )
 
     def _flush_metrics(self):
         """

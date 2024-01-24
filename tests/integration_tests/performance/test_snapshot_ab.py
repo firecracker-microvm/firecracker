@@ -77,7 +77,7 @@ class SnapshotRestoreTest:
 
         return vm
 
-    def sample_latency(self, microvm_factory, snapshot, metrics_logger) -> List[float]:
+    def sample_latency(self, microvm_factory, snapshot) -> List[float]:
         """Collects latency samples for the microvm configuration specified by this instance"""
         values = []
 
@@ -88,7 +88,7 @@ class SnapshotRestoreTest:
             microvm.spawn()
             microvm.restore_from_snapshot(snapshot, resume=True)
 
-            fcmetrics = FCMetricsMonitor(microvm, metrics_logger)
+            fcmetrics = FCMetricsMonitor(microvm)
             fcmetrics.start()
 
             # Check if guest still runs commands.
@@ -152,7 +152,7 @@ def test_restore_latency(
             **vm.dimensions,
         }
     )
-    fcmetrics = FCMetricsMonitor(vm, metrics)
+    fcmetrics = FCMetricsMonitor(vm)
     fcmetrics.start()
 
     snapshot = vm.snapshot_full()
@@ -162,7 +162,6 @@ def test_restore_latency(
     samples = test_setup.sample_latency(
         microvm_factory,
         snapshot,
-        metrics,
     )
 
     for sample in samples:
