@@ -368,7 +368,7 @@ if __name__ == "__main__":
             canonicalize_revision(args.b_revision),
             args.test,
             args.significance,
-            args.relative_strength,
+            args.absolute_strength,
             args.noise_threshold,
         )
     else:
