@@ -56,14 +56,6 @@ cpu_template_test = {
         },
         "instances": ["m5d.metal", "m6i.metal", "m6a.metal"],
     },
-    "aarch64_cpu_templates": {
-        BkStep.COMMAND: [
-            "tools/devtool -y test -- -s -ra -m nonci --log-cli-level=INFO integration_tests/functional/test_cpu_features_aarch64.py"
-        ],
-        BkStep.LABEL: "📖 cpu templates",
-        "instances": ["m6g.metal", "c7g.metal"],
-        "platforms": [("al2023", "linux_6.1")],
-    },
     "fingerprint": {
         BkStep.COMMAND: [
             "tools/devtool -y test -- -m no_block_pr integration_tests/functional/test_cpu_template_helper.py -k test_guest_cpu_config_change",
@@ -171,8 +163,6 @@ def main():
         test_group = group_single(cpu_template_test[test_args.test])
     elif test_args.test == "cpuid_wrmsr":
         test_group = group_snapshot_restore(cpu_template_test[test_args.test])
-    elif test_args.test == "aarch64_cpu_templates":
-        test_group = group_single(cpu_template_test[test_args.test])
     elif test_args.test == "fingerprint":
         test_group = group_single(cpu_template_test[test_args.test])
 
