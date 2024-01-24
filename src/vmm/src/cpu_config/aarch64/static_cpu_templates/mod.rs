@@ -9,12 +9,6 @@ pub mod v1n1;
 /// Templates available for configuring the supported ARM CPU types.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StaticCpuTemplate {
-    // Needed for compatibility
-    /// Empty0
-    Empty0,
-    // Needed for compatibility
-    /// Empty1
-    Empty1,
     /// Template to mask Neoverse-V1 as Neoverse-N1
     V1N1,
     /// No CPU template is used.
@@ -34,7 +28,6 @@ impl std::fmt::Display for StaticCpuTemplate {
         match self {
             StaticCpuTemplate::V1N1 => write!(f, "V1N1"),
             StaticCpuTemplate::None => write!(f, "None"),
-            _ => write!(f, "None"),
         }
     }
 }
