@@ -114,6 +114,10 @@ for test_data in tests:
             {"exit_status": -1, "limit": 1},
         ]
     }
+    if REVISION_A:
+        # Enable automatic retry and disable manual retries to suppress spurious issues.
+        test_data["retry"]["automatic"].append({"exit_status": 1, "limit": 1})
+        test_data["retry"]["manual"] = False
     group_steps.append(build_group(test_data))
 
 pipeline = {
