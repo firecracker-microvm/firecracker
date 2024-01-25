@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-import framework.utils_cpuid as cpuid_utils
 from framework.properties import global_props
+from framework.utils_cpuid import CpuModel, CpuVendor, get_cpu_vendor
 
 # All existing CPU templates available on Intel
 INTEL_TEMPLATES = ["C3", "T2", "T2CL", "T2S"]
@@ -24,23 +24,20 @@ def get_supported_cpu_templates():
     Return the list of CPU templates supported by the platform.
     """
     # pylint:disable=too-many-return-statements
-    match cpuid_utils.get_cpu_vendor():
-        case cpuid_utils.CpuVendor.INTEL:
-            # T2CL template is only supported on Cascade Lake and newer CPUs.
-            if global_props.cpu_codename == cpuid_utils.CpuModel.INTEL_SKYLAKE:
-                return sorted(set(INTEL_TEMPLATES) - set(["T2CL"]))
+    host_linux = global_props.host_linux_version_tpl
+
+    match get_cpu_vendor(), global_props.cpu_codename:
+        # T2CL template is only supported on Cascade Lake and newer CPUs.
+        case CpuVendor.INTEL, CpuModel.INTEL_SKYLAKE:
+            return sorted(set(INTEL_TEMPLATES) - set(["T2CL"]))
+        case CpuVendor.INTEL, _:
             return INTEL_TEMPLATES
-        case cpuid_utils.CpuVendor.AMD:
+        case CpuVendor.AMD, _:
             return AMD_TEMPLATES
-        case cpuid_utils.CpuVendor.ARM:
-            if global_props.host_linux_version_tpl < (6, 1):
-                return []
-            match global_props.cpu_model:
-                case cpuid_utils.CpuModel.ARM_NEOVERSE_N1:
-                    return []
-                case cpuid_utils.CpuModel.ARM_NEOVERSE_V1:
-                    return ARM_TEMPLATES
-    return []
+        case CpuVendor.ARM, CpuModel.ARM_NEOVERSE_V1 if host_linux >= (6, 1):
+            return ARM_TEMPLATES
+        case _:
+            return []
 
 
 SUPPORTED_CPU_TEMPLATES = get_supported_cpu_templates()
@@ -57,23 +54,22 @@ def get_supported_custom_cpu_templates():
     """
     Return the list of custom CPU templates supported by the platform.
     """
+    host_linux = global_props.host_linux_version_tpl
 
-    match cpuid_utils.get_cpu_vendor():
-        case cpuid_utils.CpuVendor.INTEL:
-            # T2CL template is only supported on Cascade Lake and newer CPUs.
-            if global_props.cpu_codename == cpuid_utils.CpuModel.INTEL_SKYLAKE:
-                return set(INTEL_TEMPLATES) - {"T2CL"}
+    match get_cpu_vendor(), global_props.cpu_codename:
+        # T2CL template is only supported on Cascade Lake and newer CPUs.
+        case CpuVendor.INTEL, CpuModel.INTEL_SKYLAKE:
+            return set(INTEL_TEMPLATES) - {"T2CL"}
+        case CpuVendor.INTEL, _:
             return INTEL_TEMPLATES
-        case cpuid_utils.CpuVendor.AMD:
+        case CpuVendor.AMD, _:
             return AMD_TEMPLATES
-        case cpuid_utils.CpuVendor.ARM:
-            if global_props.host_linux_version_tpl < (6, 1):
-                return []
-            match global_props.cpu_model:
-                case cpuid_utils.CpuModel.ARM_NEOVERSE_N1:
-                    return AARCH64_CUSTOM_CPU_TEMPLATES_G2
-                case cpuid_utils.CpuModel.ARM_NEOVERSE_V1:
-                    return AARCH64_CUSTOM_CPU_TEMPLATES_G3
+        case CpuVendor.ARM, CpuModel.ARM_NEOVERSE_N1 if host_linux >= (6, 1):
+            return AARCH64_CUSTOM_CPU_TEMPLATES_G2
+        case CpuVendor.ARM, CpuModel.ARM_NEOVERSE_V1 if host_linux >= (6, 1):
+            return AARCH64_CUSTOM_CPU_TEMPLATES_G3
+        case _:
+            return []
 
 
 def custom_cpu_templates_params():
