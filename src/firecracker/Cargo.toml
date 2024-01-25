@@ -62,6 +62,10 @@ name = "uffd_valid_2m_handler"
 path = "examples/uffd/valid_2m_handler.rs"
 
 [[example]]
+name = "uffd_fault_all_handler"
+path = "examples/uffd/fault_all_handler.rs"
+
+[[example]]
 name = "seccomp_harmless"
 path = "examples/seccomp/harmless.rs"
 

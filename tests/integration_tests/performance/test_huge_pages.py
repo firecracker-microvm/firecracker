@@ -1,11 +1,15 @@
 # Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Integration tests for Firecracker's huge pages support"""
+import signal
+import time
+
 import pytest
 
 from framework import utils
 from framework.microvm import HugePagesConfig
 from framework.properties import global_props
+from framework.utils_ftrace import ftrace_events
 from integration_tests.functional.test_uffd import SOCKET_PATH, spawn_pf_handler
 
 
@@ -64,7 +68,10 @@ def test_hugetlbfs_boot(uvm_plain):
     rc, _, _ = uvm_plain.ssh.run("true")
     assert not rc
 
-    check_hugetlbfs_in_use(uvm_plain.firecracker_pid, "memfd:guest_mem")
+    check_hugetlbfs_in_use(
+        uvm_plain.firecracker_pid,
+        "memfd:guest_mem",
+    )
 
 
 @pytest.mark.skipif(
@@ -112,6 +119,85 @@ def test_hugetlbfs_snapshot(
     assert not rc
 
     check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
+
+
+@pytest.mark.skipif(
+    global_props.host_linux_version == "4.14",
+    reason="MFD_HUGETLB | MFD_ALLOW_SEALING only supported on kernels >= 4.16",
+)
+@pytest.mark.parametrize("huge_pages", HugePagesConfig)
+def test_ept_violation_count(
+    microvm_factory,
+    guest_kernel_linux_5_10,
+    rootfs_ubuntu_22,
+    uffd_handler_paths,
+    metrics,
+    huge_pages,
+):
+    """
+    Tests hugetlbfs snapshot restore with a UFFD handler that pre-faults the entire guest memory
+    on the first page fault. Records metrics about the number of EPT_VIOLATIONS encountered by KVM.
+    """
+
+    ### Create Snapshot ###
+    vm = microvm_factory.build(guest_kernel_linux_5_10, rootfs_ubuntu_22)
+    vm.memory_monitor = None
+    vm.spawn()
+    vm.basic_config(huge_pages=huge_pages, mem_size_mib=256)
+    vm.add_net_iface()
+    vm.start()
+
+    metrics.set_dimensions(
+        {
+            "performance_test": "test_hugetlbfs_snapshot",
+            "huge_pages_config": str(huge_pages),
+            **vm.dimensions,
+        }
+    )
+
+    # Wait for microvm to boot. Then spawn fast_page_fault_helper to setup an environment where we can trigger
+    # a lot of fast_page_faults after restoring the snapshot.
+    rc, _, _ = vm.ssh.run(
+        "nohup /usr/local/bin/fast_page_fault_helper >/dev/null 2>&1 </dev/null &"
+    )
+    assert not rc
+
+    rc, pid, _ = vm.ssh.run("pidof fast_page_fault_helper")
+    assert not rc
+
+    # Give the helper time to initialize
+    time.sleep(5)
+
+    snapshot = vm.snapshot_full()
+
+    vm.kill()
+
+    ### Restore Snapshot ###
+    vm = microvm_factory.build()
+    vm.jailer.daemonize = False
+    vm.jailer.extra_args.update({"no-seccomp": None})
+    vm.spawn()
+
+    # Spawn page fault handler process.
+    _pf_handler = spawn_pf_handler(
+        vm, uffd_handler_paths["fault_all_handler"], snapshot.mem
+    )
+
+    with ftrace_events("kvm:*"):
+        vm.restore_from_snapshot(snapshot, resume=True, uffd_path=SOCKET_PATH)
+
+        # Verify if guest can run commands, and also wake up the fast page fault helper to trigger page faults.
+        rc, _, _ = vm.ssh.run(f"kill -s {signal.SIGUSR1} {pid}")
+        assert not rc
+
+        # Give the helper time to touch all its pages
+        time.sleep(5)
+
+        _, ept_violations, _ = utils.run_cmd(
+            "cat /sys/kernel/tracing/trace | grep 'reason EPT_VIOLATION' | wc -l"
+        )
+
+    metrics.put_metric("ept_violations", int(ept_violations), "Count")
 
 
 @pytest.mark.skipif(
