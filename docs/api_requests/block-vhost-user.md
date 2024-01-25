@@ -2,7 +2,7 @@
 
 > [!WARNING]
 > Support is currently in **developer preview**. See
-> [this section](#developer-preview-status) for more info.
+> [this section](RELEASE_POLICY.md#developer-preview-features) for more info.
 
 As an alternative to [file-backed block device](block-io-engine.md) `Sync` and
 `Async` engines, Firecracker supports a vhost-user block device.
