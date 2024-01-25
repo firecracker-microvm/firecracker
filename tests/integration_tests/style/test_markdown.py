@@ -17,9 +17,18 @@ def test_markdown_style():
     # Assert if somehow no markdown files were found.
     assert len(md_files) != 0
 
+    needs_format = False
+
     # Run commands
-    cmd = "mdl -c ../.mdlrc "
-    for fname in md_files:
-        cmd += fname + " "
-    _, output, _ = utils.run_cmd(cmd)
-    assert output == ""
+    for md_file in md_files:
+        rc, output, _ = utils.run_cmd(
+            f"bash -c 'diff -u --color {md_file} <(mdformat - < {md_file})'",
+            ignore_return_code=True,
+        )
+        if rc != 0:
+            print(output)
+            needs_format = True
+
+    assert (
+        not needs_format
+    ), "Some markdown files need formatting. Either run `mdformat .` in the repository root, or apply the above diffs manually."
