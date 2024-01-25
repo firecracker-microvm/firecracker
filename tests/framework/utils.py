@@ -1,7 +1,6 @@
 # Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Generic utility functions that are used in the framework."""
-
 import functools
 import glob
 import json

@@ -40,15 +40,15 @@ pub enum MemPageState {
     Anonymous,
 }
 
-#[derive(Debug)]
-struct MemRegion {
-    mapping: GuestRegionUffdMapping,
+#[derive(Debug, Clone)]
+pub struct MemRegion {
+    pub mapping: GuestRegionUffdMapping,
     page_states: HashMap<u64, MemPageState>,
 }
 
 #[derive(Debug)]
 pub struct UffdHandler {
-    mem_regions: Vec<MemRegion>,
+    pub mem_regions: Vec<MemRegion>,
     page_size: usize,
     backing_buffer: *const u8,
     uffd: Uffd,
@@ -317,7 +317,7 @@ mod tests {
         let mut uninit_runtime = Box::new(MaybeUninit::<Runtime>::uninit());
         // We will use this pointer to bypass a bunch of Rust Safety
         // for the sake of convenience.
-        let runtime_ptr = uninit_runtime.as_ptr() as *const Runtime;
+        let runtime_ptr = uninit_runtime.as_ptr().cast::<Runtime>();
 
         let runtime_thread = std::thread::spawn(move || {
             let tmp_file = TempFile::new().unwrap();
