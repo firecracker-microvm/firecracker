@@ -1,0 +1,4 @@
+wrap = 80
+# Defaults from https://mdformat.readthedocs.io/en/stable/users/configuration_file.html
+number = false
+end_of_line = "lf"

@@ -79,8 +79,6 @@ RUN apt-get update \
         screen tmux \
         tzdata \
         tini \
-        # for mdl
-        ruby \
         # for cpu-template-helper
         # TODO: Remove `dmidecode` after the end of kernel 4.14 support.
         # https://github.com/firecracker-microvm/firecracker/issues/3677
@@ -94,8 +92,7 @@ RUN apt-get update \
         # for debugging
         gdb strace \
     && rm -rf /var/lib/apt/lists/* \
-    && pip3 install --upgrade pip poetry \
-    && gem install mdl
+    && pip3 install --upgrade pip poetry
 
 
 COPY tools/devctr /tmp/poetry
