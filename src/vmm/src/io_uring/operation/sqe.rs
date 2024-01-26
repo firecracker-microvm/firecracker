@@ -24,7 +24,7 @@ impl Sqe {
         Self(inner)
     }
 
-    /// Return the `user_data`.
+    /// Return the key to the `user_data` stored in slab.
     pub(crate) fn user_data(&self) -> u64 {
         self.0.user_data
     }
