@@ -17,8 +17,8 @@ pub struct Cqe<T> {
 }
 
 impl<T: Debug> Cqe<T> {
-    /// Construct a Cqe object from a raw `io_uring_cqe`.
-    pub(crate) fn new(res: i32, user_data: T) -> Self {
+    /// Construct a Cqe object.
+    pub fn new(res: i32, user_data: T) -> Self {
         Self { res, user_data }
     }
 

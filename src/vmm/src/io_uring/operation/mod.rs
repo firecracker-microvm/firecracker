@@ -51,7 +51,7 @@ pub struct Operation<T> {
     pub(crate) len: Option<u32>,
     flags: u8,
     pub(crate) offset: Option<u64>,
-    user_data: T,
+    pub(crate) user_data: T,
 }
 
 // Needed for proptesting.
@@ -115,11 +115,6 @@ impl<T: Debug> Operation<T> {
 
     pub(crate) fn fd(&self) -> FixedFd {
         self.fd
-    }
-
-    /// Consumes the operation and returns the associated `user_data`.
-    pub fn user_data(self) -> T {
-        self.user_data
     }
 
     // Needed for proptesting.

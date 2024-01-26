@@ -150,9 +150,9 @@ impl<T: Debug> AsyncFileEngine<T> {
                 offset,
                 wrapped_user_data,
             ))
-            .map_err(|err_tuple| UserDataError {
-                user_data: err_tuple.1.user_data,
-                error: AsyncIoError::IoUring(err_tuple.0),
+            .map_err(|(io_uring_error, data)| UserDataError {
+                user_data: data.user_data,
+                error: AsyncIoError::IoUring(io_uring_error),
             })
     }
 
@@ -184,9 +184,9 @@ impl<T: Debug> AsyncFileEngine<T> {
                 offset,
                 wrapped_user_data,
             ))
-            .map_err(|err_tuple| UserDataError {
-                user_data: err_tuple.1.user_data,
-                error: AsyncIoError::IoUring(err_tuple.0),
+            .map_err(|(io_uring_error, data)| UserDataError {
+                user_data: data.user_data,
+                error: AsyncIoError::IoUring(io_uring_error),
             })
     }
 
@@ -195,9 +195,9 @@ impl<T: Debug> AsyncFileEngine<T> {
 
         self.ring
             .push(Operation::fsync(0, wrapped_user_data))
-            .map_err(|err_tuple| UserDataError {
-                user_data: err_tuple.1.user_data,
-                error: AsyncIoError::IoUring(err_tuple.0),
+            .map_err(|(io_uring_error, data)| UserDataError {
+                user_data: data.user_data,
+                error: AsyncIoError::IoUring(io_uring_error),
             })
     }
 

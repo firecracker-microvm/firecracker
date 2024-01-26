@@ -169,11 +169,11 @@ impl<T: Debug> IoUring<T> {
         // validate that we actually did register fds
         let fd = op.fd();
         match self.registered_fds_count {
-            0 => Err((IoUringError::NoRegisteredFds, op.user_data())),
-            len if fd >= len => Err((IoUringError::InvalidFixedFd(fd), op.user_data())),
+            0 => Err((IoUringError::NoRegisteredFds, op.user_data)),
+            len if fd >= len => Err((IoUringError::InvalidFixedFd(fd), op.user_data)),
             _ => {
                 if self.num_ops >= self.cqueue.count() {
-                    return Err((IoUringError::FullCQueue, op.user_data()));
+                    return Err((IoUringError::FullCQueue, op.user_data));
                 }
                 self.squeue
                     .push(op.into_sqe(&mut self.slab))
@@ -186,14 +186,14 @@ impl<T: Debug> IoUring<T> {
                         (
                             IoUringError::SQueue(sqe_err),
                             // We don't use slab.try_remove here for 2 reasons:
-                            // 1. user_data was insertde in slab with step `op.into_sqe` just
+                            // 1. user_data was inserted in slab with step `op.into_sqe` just
                             //    before the push op so the user_data key should be valid and if
                             //    key is valid then `slab.remove()` will not fail.
                             // 2. If we use `slab.try_remove()` we'll have to find a way to return
                             //    a default value for the generic type T which is difficult because
                             //    it expands to more crates which don't make it easy to define a
                             //    default/clone type for type T.
-                            // So beleiving that `slab.remove` won't fail we don't use
+                            // So believing that `slab.remove` won't fail we don't use
                             // the `slab.try_remove` method.
                             #[allow(clippy::cast_possible_truncation)]
                             self.slab.remove(user_data_key as usize),
