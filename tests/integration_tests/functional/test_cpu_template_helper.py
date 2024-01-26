@@ -410,8 +410,6 @@ def test_json_static_templates(
     """
     Verify that JSON static CPU templates are applied as intended.
     """
-    if custom_cpu_template["name"] == "aarch64_with_sve_and_pac":
-        pytest.skip("does not work yet")
     # Generate VM config with JSON static CPU template
     microvm = test_microvm_with_api
     microvm.spawn()
