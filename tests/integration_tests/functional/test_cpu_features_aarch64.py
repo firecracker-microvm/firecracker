@@ -108,6 +108,14 @@ def test_cpu_features_with_static_template(
     guest_kv = re.search(r"vmlinux-(\d+\.\d+)", guest_kernel.name).group(1)
     _check_cpu_features_arm(vm, guest_kv, "v1n1")
 
+    # Check that cpu features are still correct
+    # after snap/restore cycle.
+    snapshot = vm.snapshot_full()
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+    restored_vm.restore_from_snapshot(snapshot, resume=True)
+    _check_cpu_features_arm(restored_vm, guest_kv, "v1n1")
+
 
 @pytest.mark.skipif(
     PLATFORM != "aarch64",
@@ -128,3 +136,11 @@ def test_cpu_features_with_custom_template(
     vm.start()
     guest_kv = re.search(r"vmlinux-(\d+\.\d+)", guest_kernel.name).group(1)
     _check_cpu_features_arm(vm, guest_kv, custom_cpu_template["name"])
+
+    # Check that cpu features are still correct
+    # after snap/restore cycle.
+    snapshot = vm.snapshot_full()
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+    restored_vm.restore_from_snapshot(snapshot, resume=True)
+    _check_cpu_features_arm(restored_vm, guest_kv, custom_cpu_template["name"])
