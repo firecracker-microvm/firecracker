@@ -16,7 +16,7 @@ use crate::arch::aarch64::regs::{
 };
 use crate::arch::aarch64::vcpu::{
     get_all_registers, get_all_registers_ids, get_mpidr, get_mpstate, get_registers, set_mpstate,
-    set_registers, setup_boot_regs, VcpuError as ArchError,
+    set_register, setup_boot_regs, VcpuError as ArchError,
 };
 use crate::cpu_config::aarch64::custom_cpu_template::VcpuFeatures;
 use crate::cpu_config::templates::CpuConfiguration;
@@ -191,9 +191,11 @@ impl KvmVcpu {
         };
 
         self.init_vcpu_fd(&kvi)?;
-
         self.kvi = state.kvi;
-        set_registers(&self.fd, &state.regs).map_err(KvmVcpuError::RestoreState)?;
+
+        for reg in state.regs.iter() {
+            set_register(&self.fd, reg).map_err(KvmVcpuError::RestoreState)?;
+        }
         set_mpstate(&self.fd, state.mp_state).map_err(KvmVcpuError::RestoreState)?;
         Ok(())
     }
