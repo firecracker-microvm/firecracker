@@ -17,7 +17,8 @@ from common import DEFAULT_PLATFORMS, group, pipeline_to_json
 def restore_step(label, src_instance, src_kv, dst_instance, dst_os, dst_kv):
     """Generate a restore step"""
     pytest_keyword_for_instance = {
-        "m5d.metal": "-k 'not None'",
+        "c5n.metal": "-k 'not None'",
+        "m5n.metal": "-k 'not None'",
         "m6i.metal": "-k 'not None'",
         "m6a.metal": "",
     }
@@ -36,7 +37,7 @@ def restore_step(label, src_instance, src_kv, dst_instance, dst_os, dst_kv):
 
 def cross_steps():
     """Generate group steps"""
-    snap_instances = ["m5d.metal", "m6i.metal", "m6a.metal"]
+    snap_instances = ["c5n.metal", "m5n.metal", "m6i.metal", "m6a.metal"]
     groups = []
     commands = [
         "./tools/devtool -y sh ./tools/create_snapshot_artifact/main.py",
@@ -59,11 +60,12 @@ def cross_steps():
     # allow-list of what instances can be restores on what other instances (in
     # addition to itself)
     supported = {
-        "m5d.metal": ["m6i.metal"],
-        "m6i.metal": ["m5d.metal"],
+        "c5n.metal": ["m5n.metal", "m6i.metal"],
+        "m5n.metal": ["c5n.metal", "m6i.metal"],
+        "m6i.metal": ["c5n.metal", "m5n.metal"],
     }
 
-    instances_x86_64 = ["m5d.metal", "m6i.metal", "m6a.metal"]
+    instances_x86_64 = ["c5n.metal", "m5n.metal", "m6i.metal", "m6a.metal"]
     # https://github.com/firecracker-microvm/firecracker/blob/main/docs/kernel-policy.md#experimental-snapshot-compatibility-across-kernel-versions
     # We currently have nothing for aarch64
     perms_aarch64 = []

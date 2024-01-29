@@ -27,7 +27,7 @@ cpu_template_test = {
             "tools/devtool -y test -- -s -ra -m nonci -n4 --log-cli-level=INFO integration_tests/functional/test_cpu_features.py -k 'test_cpu_rdmsr' "
         ],
         BkStep.LABEL: "📖 rdmsr",
-        "instances": ["m5d.metal", "m6a.metal", "m6i.metal"],
+        "instances": ["c5n.metal", "m5n.metal", "m6a.metal", "m6i.metal"],
         "platforms": DEFAULT_PLATFORMS,
     },
     "cpuid_wrmsr": {
@@ -51,10 +51,11 @@ cpu_template_test = {
             BkStep.TIMEOUT: 30,
         },
         "cross_instances": {
-            "m5d.metal": ["m6i.metal"],
-            "m6i.metal": ["m5d.metal"],
+            "m5n.metal": ["c5n.metal", "m6i.metal"],
+            "c5n.metal": ["m5n.metal", "m6i.metal"],
+            "m6i.metal": ["m5n.metal", "c5n.metal"],
         },
-        "instances": ["m5d.metal", "m6i.metal", "m6a.metal"],
+        "instances": ["c5n.metal", "m5n.metal", "m6i.metal", "m6a.metal"],
     },
     "fingerprint": {
         BkStep.COMMAND: [

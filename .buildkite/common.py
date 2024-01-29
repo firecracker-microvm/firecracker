@@ -11,11 +11,12 @@ import subprocess
 from pathlib import Path
 
 DEFAULT_INSTANCES = [
-    "m5d.metal",
-    "m6i.metal",
-    "m6a.metal",
-    "m6g.metal",
-    "c7g.metal",
+    "c5n.metal",  # Intel Skylake
+    "m5n.metal",  # Intel Cascade Lake
+    "m6i.metal",  # Intel Icelake
+    "m6a.metal",  # AMD Milan
+    "m6g.metal",  # Graviton2
+    "m7g.metal",  # Graviton3
 ]
 
 DEFAULT_PLATFORMS = [
