@@ -109,6 +109,12 @@ arm64_sys_reg!(ID_AA64MMFR2_EL1, 3, 0, 0, 7, 2);
 // EL0 Virtual Timer Registers
 arm64_sys_reg!(KVM_REG_ARM_TIMER_CNT, 3, 3, 14, 3, 2);
 
+/// Vector lengths pseudo-register
+/// TODO: this can be removed after https://github.com/rust-vmm/kvm-bindings/pull/89
+/// is merged and new version is used in Firecracker.
+pub const KVM_REG_ARM64_SVE_VLS: u64 =
+    KVM_REG_ARM64 | KVM_REG_ARM64_SVE as u64 | KVM_REG_SIZE_U512 | 0xffff;
+
 /// Different aarch64 registers sizes
 #[derive(Debug)]
 pub enum RegSize {

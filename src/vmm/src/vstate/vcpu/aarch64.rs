@@ -12,7 +12,7 @@ use kvm_ioctls::*;
 use serde::{Deserialize, Serialize};
 
 use crate::arch::aarch64::regs::{
-    arm64_core_reg_id, offset__of, Aarch64RegisterVec, KVM_REG_ARM_TIMER_CNT,
+    arm64_core_reg_id, offset__of, Aarch64RegisterVec, KVM_REG_ARM64_SVE_VLS, KVM_REG_ARM_TIMER_CNT,
 };
 use crate::arch::aarch64::vcpu::{
     get_all_registers, get_all_registers_ids, get_mpidr, get_mpstate, get_registers, set_mpstate,
@@ -190,12 +190,29 @@ impl KvmVcpu {
             Some(kvi) => kvi,
             None => Self::default_kvi(vm_fd, self.index)?,
         };
-
-        self.init_vcpu(&kvi)?;
-        self.finalize_vcpu(&kvi)?;
         self.kvi = state.kvi;
 
-        for reg in state.regs.iter() {
+        self.init_vcpu(&kvi)?;
+
+        // If KVM_REG_ARM64_SVE_VLS is present it needs to
+        // be set before vcpu is finalized.
+        if let Some(sve_vls_reg) = state
+            .regs
+            .iter()
+            .find(|reg| reg.id == KVM_REG_ARM64_SVE_VLS)
+        {
+            set_register(&self.fd, sve_vls_reg).map_err(KvmVcpuError::RestoreState)?;
+        }
+
+        self.finalize_vcpu(&kvi)?;
+
+        // KVM_REG_ARM64_SVE_VLS needs to be skipped after vcpu is finalized.
+        // If it is present it is handled in the code above.
+        for reg in state
+            .regs
+            .iter()
+            .filter(|reg| reg.id != KVM_REG_ARM64_SVE_VLS)
+        {
             set_register(&self.fd, reg).map_err(KvmVcpuError::RestoreState)?;
         }
         set_mpstate(&self.fd, state.mp_state).map_err(KvmVcpuError::RestoreState)?;
