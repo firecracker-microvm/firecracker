@@ -1,7 +1,7 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::fmt::{self, Debug};
+use std::fmt::{self};
 
 use crate::io_uring::bindings::io_uring_sqe;
 use crate::vstate::memory::ByteValued;
@@ -24,13 +24,9 @@ impl Sqe {
         Self(inner)
     }
 
-    /// Consume the sqe and return the `user_data`.
-    ///
-    /// # Safety
-    /// Safe only if you guarantee that this is a valid pointer to some memory
-    /// where there is a value of type `T` created from a [`Box<T>`].
-    pub(crate) unsafe fn user_data<T: Debug>(self) -> T {
-        *Box::from_raw(self.0.user_data as *mut T)
+    /// Return the key to the `user_data` stored in slab.
+    pub(crate) fn user_data(&self) -> u64 {
+        self.0.user_data
     }
 }
 
@@ -40,12 +36,11 @@ mod tests {
     use super::*;
     #[test]
     fn test_user_data() {
-        let user_data = Box::new(10u8);
+        let user_data = 10_u64;
         let mut inner: io_uring_sqe = unsafe { std::mem::zeroed() };
-        inner.user_data = Box::into_raw(user_data) as u64;
+        inner.user_data = user_data;
 
         let sqe: Sqe = Sqe::new(inner);
-
-        assert_eq!(unsafe { sqe.user_data::<u8>() }, 10);
+        assert_eq!(sqe.user_data(), 10);
     }
 }

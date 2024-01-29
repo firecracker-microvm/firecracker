@@ -13,22 +13,13 @@ unsafe impl ByteValued for io_uring_cqe {}
 #[derive(Debug)]
 pub struct Cqe<T> {
     res: i32,
-    user_data: Box<T>,
+    user_data: T,
 }
 
 impl<T: Debug> Cqe<T> {
-    /// Construct a [`Cqe`] object from a raw `io_uring_cqe`.
-    ///
-    /// # Safety
-    /// Unsafe because we assume full ownership of the inner.user_data address.
-    /// We assume that it points to a valid address created with a `Box<T>`,
-    /// with the correct type `T`, and that ownership of that address is passed
-    /// to this function.
-    pub(crate) unsafe fn new(inner: io_uring_cqe) -> Self {
-        Self {
-            res: inner.res,
-            user_data: Box::from_raw(inner.user_data as *mut T),
-        }
+    /// Construct a Cqe object.
+    pub fn new(res: i32, user_data: T) -> Self {
+        Self { res, user_data }
     }
 
     /// Return the number of bytes successfully transferred by this operation.
@@ -51,13 +42,13 @@ impl<T: Debug> Cqe<T> {
     pub fn map_user_data<U: Debug, F: FnOnce(T) -> U>(self, op: F) -> Cqe<U> {
         Cqe {
             res: self.res,
-            user_data: Box::new(op(self.user_data())),
+            user_data: op(self.user_data()),
         }
     }
 
     /// Consume the object and return the user_data.
     pub fn user_data(self) -> T {
-        *self.user_data
+        self.user_data
     }
 }
 
@@ -69,15 +60,8 @@ mod tests {
     fn test_result() {
         // Check that `result()` returns an `Error` when `res` is negative.
         {
-            let user_data = Box::new(10u8);
-
-            let cqe: Cqe<u8> = unsafe {
-                Cqe::new(io_uring_cqe {
-                    user_data: Box::into_raw(user_data) as u64,
-                    res: -22,
-                    flags: 0,
-                })
-            };
+            let user_data = 10_u8;
+            let cqe: Cqe<u8> = Cqe::new(-22, user_data);
 
             assert_eq!(
                 cqe.result().unwrap_err().kind(),
@@ -87,15 +71,8 @@ mod tests {
 
         // Check that `result()` returns Ok() when `res` is positive.
         {
-            let user_data = Box::new(10u8);
-
-            let cqe: Cqe<u8> = unsafe {
-                Cqe::new(io_uring_cqe {
-                    user_data: Box::into_raw(user_data) as u64,
-                    res: 128,
-                    flags: 0,
-                })
-            };
+            let user_data = 10_u8;
+            let cqe: Cqe<u8> = Cqe::new(128, user_data);
 
             assert_eq!(cqe.result().unwrap(), 128);
         }
@@ -103,16 +80,18 @@ mod tests {
 
     #[test]
     fn test_user_data() {
-        let user_data = Box::new(10u8);
-
-        let cqe: Cqe<u8> = unsafe {
-            Cqe::new(io_uring_cqe {
-                user_data: Box::into_raw(user_data) as u64,
-                res: 0,
-                flags: 0,
-            })
-        };
+        let user_data = 10_u8;
+        let cqe: Cqe<u8> = Cqe::new(0, user_data);
 
         assert_eq!(cqe.user_data(), 10);
+    }
+
+    #[test]
+    fn test_map_user_data() {
+        let user_data = 10_u8;
+        let cqe: Cqe<u8> = Cqe::new(0, user_data);
+        let cqe = cqe.map_user_data(|x| x + 1);
+
+        assert_eq!(cqe.user_data(), 11);
     }
 }

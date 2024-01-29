@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 use std::fs::File;
-use std::marker::PhantomData;
 use std::os::fd::RawFd;
 use std::os::unix::io::AsRawFd;
 
@@ -37,9 +36,8 @@ pub enum AsyncIoError {
 #[derive(Debug)]
 pub struct AsyncFileEngine<T> {
     file: File,
-    ring: IoUring,
+    ring: IoUring<WrappedUserData<T>>,
     completion_evt: EventFd,
-    phantom: PhantomData<T>,
 }
 
 #[derive(Debug)]
@@ -73,7 +71,10 @@ impl<T: Debug> WrappedUserData<T> {
 }
 
 impl<T: Debug> AsyncFileEngine<T> {
-    fn new_ring(file: &File, completion_fd: RawFd) -> Result<IoUring, io_uring::IoUringError> {
+    fn new_ring(
+        file: &File,
+        completion_fd: RawFd,
+    ) -> Result<IoUring<WrappedUserData<T>>, io_uring::IoUringError> {
         IoUring::new(
             u32::from(IO_URING_NUM_ENTRIES),
             vec![file],
@@ -100,7 +101,6 @@ impl<T: Debug> AsyncFileEngine<T> {
             file,
             ring,
             completion_evt,
-            phantom: PhantomData,
         })
     }
 
@@ -142,21 +142,18 @@ impl<T: Debug> AsyncFileEngine<T> {
 
         let wrapped_user_data = WrappedUserData::new_with_dirty_tracking(addr, user_data);
 
-        // SAFETY: Safe because we trust that the host kernel will pass us back a completed entry
-        // with this same `user_data`, so that the value will not be leaked.
-        unsafe {
-            self.ring.push(Operation::read(
+        self.ring
+            .push(Operation::read(
                 0,
                 buf as usize,
                 count,
                 offset,
                 wrapped_user_data,
             ))
-        }
-        .map_err(|err_tuple| UserDataError {
-            user_data: err_tuple.1.user_data,
-            error: AsyncIoError::IoUring(err_tuple.0),
-        })
+            .map_err(|(io_uring_error, data)| UserDataError {
+                user_data: data.user_data,
+                error: AsyncIoError::IoUring(io_uring_error),
+            })
     }
 
     pub fn push_write(
@@ -179,34 +176,29 @@ impl<T: Debug> AsyncFileEngine<T> {
 
         let wrapped_user_data = WrappedUserData::new(user_data);
 
-        // SAFETY: Safe because we trust that the host kernel will pass us back a completed entry
-        // with this same `user_data`, so that the value will not be leaked.
-        unsafe {
-            self.ring.push(Operation::write(
+        self.ring
+            .push(Operation::write(
                 0,
                 buf as usize,
                 count,
                 offset,
                 wrapped_user_data,
             ))
-        }
-        .map_err(|err_tuple| UserDataError {
-            user_data: err_tuple.1.user_data,
-            error: AsyncIoError::IoUring(err_tuple.0),
-        })
+            .map_err(|(io_uring_error, data)| UserDataError {
+                user_data: data.user_data,
+                error: AsyncIoError::IoUring(io_uring_error),
+            })
     }
 
     pub fn push_flush(&mut self, user_data: T) -> Result<(), UserDataError<T, AsyncIoError>> {
         let wrapped_user_data = WrappedUserData::new(user_data);
 
-        // SAFETY: Safe because we trust that the host kernel will pass us back a completed entry
-        // with this same `user_data`, so that the value will not be leaked.
-        unsafe { self.ring.push(Operation::fsync(0, wrapped_user_data)) }.map_err(|err_tuple| {
-            UserDataError {
-                user_data: err_tuple.1.user_data,
-                error: AsyncIoError::IoUring(err_tuple.0),
-            }
-        })
+        self.ring
+            .push(Operation::fsync(0, wrapped_user_data))
+            .map_err(|(io_uring_error, data)| UserDataError {
+                user_data: data.user_data,
+                error: AsyncIoError::IoUring(io_uring_error),
+            })
     }
 
     pub fn kick_submission_queue(&mut self) -> Result<(), AsyncIoError> {
@@ -242,11 +234,7 @@ impl<T: Debug> AsyncFileEngine<T> {
     }
 
     fn do_pop(&mut self) -> Result<Option<Cqe<WrappedUserData<T>>>, AsyncIoError> {
-        // SAFETY: We trust that the host kernel did not touch the operation's `user_data` field.
-        // The `T` type is the same one used for `push`ing and since the kernel made this entry
-        // available in the completion queue, we now have full ownership of it.
-
-        unsafe { self.ring.pop::<WrappedUserData<T>>() }.map_err(AsyncIoError::IoUring)
+        self.ring.pop().map_err(AsyncIoError::IoUring)
     }
 
     pub fn pop(&mut self, mem: &GuestMemoryMmap) -> Result<Option<Cqe<T>>, AsyncIoError> {

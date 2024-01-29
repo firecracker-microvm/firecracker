@@ -82,10 +82,7 @@ impl SubmissionQueue {
         })
     }
 
-    /// # Safety
-    /// Unsafe because we pass a raw `user_data` pointer to the kernel.
-    /// It's up to the caller to make sure that this value is ever freed (not leaked).
-    pub(crate) unsafe fn push<T: Debug>(&mut self, sqe: Sqe) -> Result<(), (SQueueError, T)> {
+    pub(crate) fn push(&mut self, sqe: Sqe) -> Result<(), (SQueueError, u64)> {
         let ring_slice = self.ring.as_volatile_slice();
 
         // get the sqe tail

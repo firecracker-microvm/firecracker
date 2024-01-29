@@ -78,7 +78,7 @@ impl IoUringError {
 
 /// Main object representing an io_uring instance.
 #[derive(Debug)]
-pub struct IoUring {
+pub struct IoUring<T> {
     registered_fds_count: u32,
     squeue: SubmissionQueue,
     cqueue: CompletionQueue,
@@ -91,9 +91,10 @@ pub struct IoUring {
     // The total number of ops. These includes the ops on the submission queue, the in-flight ops
     // and the ops that are in the CQ, but haven't been popped yet.
     num_ops: u32,
+    slab: slab::Slab<T>,
 }
 
-impl IoUring {
+impl<T: Debug> IoUring<T> {
     /// Create a new instance.
     ///
     /// # Arguments
@@ -136,6 +137,8 @@ impl IoUring {
 
         let squeue = SubmissionQueue::new(fd, &params).map_err(IoUringError::SQueue)?;
         let cqueue = CompletionQueue::new(fd, &params).map_err(IoUringError::CQueue)?;
+        let slab =
+            slab::Slab::with_capacity(params.sq_entries as usize + params.cq_entries as usize);
 
         let mut instance = Self {
             squeue,
@@ -143,6 +146,7 @@ impl IoUring {
             fd: file,
             registered_fds_count: 0,
             num_ops: 0,
+            slab,
         };
 
         instance.check_operations()?;
@@ -161,29 +165,39 @@ impl IoUring {
     }
 
     /// Push an [`Operation`](operation/struct.Operation.html) onto the submission queue.
-    ///
-    /// # Safety
-    /// Unsafe because we pass a raw user_data pointer to the kernel.
-    /// It's up to the caller to make sure that this value is ever freed (not leaked).
-    pub unsafe fn push<T: Debug>(&mut self, op: Operation<T>) -> Result<(), (IoUringError, T)> {
+    pub fn push(&mut self, op: Operation<T>) -> Result<(), (IoUringError, T)> {
         // validate that we actually did register fds
         let fd = op.fd();
         match self.registered_fds_count {
-            0 => Err((IoUringError::NoRegisteredFds, op.user_data())),
-            len if fd >= len => Err((IoUringError::InvalidFixedFd(fd), op.user_data())),
+            0 => Err((IoUringError::NoRegisteredFds, op.user_data)),
+            len if fd >= len => Err((IoUringError::InvalidFixedFd(fd), op.user_data)),
             _ => {
                 if self.num_ops >= self.cqueue.count() {
-                    return Err((IoUringError::FullCQueue, op.user_data()));
+                    return Err((IoUringError::FullCQueue, op.user_data));
                 }
                 self.squeue
-                    .push(op.into_sqe())
+                    .push(op.into_sqe(&mut self.slab))
                     .map(|res| {
                         // This is safe since self.num_ops < IORING_MAX_CQ_ENTRIES (65536)
                         self.num_ops += 1;
                         res
                     })
-                    .map_err(|err_tuple: (SQueueError, T)| -> (IoUringError, T) {
-                        (IoUringError::SQueue(err_tuple.0), err_tuple.1)
+                    .map_err(|(sqe_err, user_data_key)| -> (IoUringError, T) {
+                        (
+                            IoUringError::SQueue(sqe_err),
+                            // We don't use slab.try_remove here for 2 reasons:
+                            // 1. user_data was inserted in slab with step `op.into_sqe` just
+                            //    before the push op so the user_data key should be valid and if
+                            //    key is valid then `slab.remove()` will not fail.
+                            // 2. If we use `slab.try_remove()` we'll have to find a way to return
+                            //    a default value for the generic type T which is difficult because
+                            //    it expands to more crates which don't make it easy to define a
+                            //    default/clone type for type T.
+                            // So believing that `slab.remove` won't fail we don't use
+                            // the `slab.try_remove` method.
+                            #[allow(clippy::cast_possible_truncation)]
+                            self.slab.remove(user_data_key as usize),
+                        )
                     })
             }
         }
@@ -191,14 +205,9 @@ impl IoUring {
 
     /// Pop a completed entry off the completion queue. Returns `Ok(None)` if there are no entries.
     /// The type `T` must be the same as the `user_data` type used for `push`-ing the operation.
-    ///
-    /// # Safety
-    /// Unsafe because we reconstruct the `user_data` from a raw pointer passed by the kernel.
-    /// It's up to the caller to make sure that `T` is the correct type of the `user_data`, that
-    /// the raw pointer is valid and that we have full ownership of that address.
-    pub unsafe fn pop<T: Debug>(&mut self) -> Result<Option<Cqe<T>>, IoUringError> {
+    pub fn pop(&mut self) -> Result<Option<Cqe<T>>, IoUringError> {
         self.cqueue
-            .pop()
+            .pop(&mut self.slab)
             .map(|maybe_cqe| {
                 maybe_cqe.map(|cqe| {
                     // This is safe since the pop-ed CQEs have been previously pushed. However
@@ -391,8 +400,8 @@ mod tests {
     use super::*;
     use crate::vstate::memory::{Bytes, MmapRegion};
 
-    fn drain_cqueue(ring: &mut IoUring) {
-        while let Some(entry) = unsafe { ring.pop::<u32>().unwrap() } {
+    fn drain_cqueue(ring: &mut IoUring<u32>) {
+        while let Some(entry) = ring.pop().unwrap() {
             entry.result().unwrap();
 
             // Assert that there were no partial writes.
@@ -581,9 +590,7 @@ mod tests {
                             ring.submit_and_wait_all().unwrap();
                             drain_cqueue(&mut ring);
                         }
-                        unsafe {
-                            ring.push(operation).unwrap();
-                        }
+                        ring.push(operation).unwrap();
                     }
 
                     // Submit any left async ops and wait.

@@ -51,7 +51,7 @@ pub struct Operation<T> {
     pub(crate) len: Option<u32>,
     flags: u8,
     pub(crate) offset: Option<u64>,
-    user_data: Box<T>,
+    pub(crate) user_data: T,
 }
 
 // Needed for proptesting.
@@ -83,7 +83,7 @@ impl<T: Debug> Operation<T> {
             len: Some(len),
             flags: 0,
             offset: Some(offset),
-            user_data: Box::new(user_data),
+            user_data,
         }
     }
 
@@ -96,7 +96,7 @@ impl<T: Debug> Operation<T> {
             len: Some(len),
             flags: 0,
             offset: Some(offset),
-            user_data: Box::new(user_data),
+            user_data,
         }
     }
 
@@ -109,17 +109,12 @@ impl<T: Debug> Operation<T> {
             len: None,
             flags: 0,
             offset: None,
-            user_data: Box::new(user_data),
+            user_data,
         }
     }
 
     pub(crate) fn fd(&self) -> FixedFd {
         self.fd
-    }
-
-    /// Consumes the operation and returns the associated `user_data`.
-    pub fn user_data(self) -> T {
-        *self.user_data
     }
 
     // Needed for proptesting.
@@ -129,13 +124,11 @@ impl<T: Debug> Operation<T> {
     }
 
     /// Transform the operation into an `Sqe`.
-    ///
-    /// # Safety
-    /// Unsafe because we turn the Boxed user_data into a raw pointer contained in the sqe.
-    /// It's up to the caller to make sure that this value is freed (not leaked).
-    pub(crate) unsafe fn into_sqe(self) -> Sqe {
+    /// Note: remember remove user_data from slab or it will leak.
+    pub(crate) fn into_sqe(self, slab: &mut slab::Slab<T>) -> Sqe {
+        // SAFETY:
         // Safe because all-zero value is valid. The sqe is made up of integers and raw pointers.
-        let mut inner: io_uring_sqe = std::mem::zeroed();
+        let mut inner: io_uring_sqe = unsafe { std::mem::zeroed() };
 
         inner.opcode = self.opcode as u8;
         inner.fd = i32::try_from(self.fd).unwrap();
@@ -153,7 +146,7 @@ impl<T: Debug> Operation<T> {
         if let Some(offset) = self.offset {
             inner.__bindgen_anon_1.off = offset;
         }
-        inner.user_data = Box::into_raw(self.user_data) as u64;
+        inner.user_data = slab.insert(self.user_data) as u64;
 
         Sqe::new(inner)
     }
