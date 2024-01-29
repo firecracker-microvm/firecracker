@@ -698,6 +698,62 @@ mod tests {
         );
     }
 
+
+    #[test]
+    fn test_cgroup_conf_v1_write_value() {
+        let mut mock_cgroups = MockCgroupFs::new().unwrap();
+        mock_cgroups.add_v1_mounts().unwrap();
+        let builder = CgroupBuilder::new(1);
+        builder.unwrap();
+
+        let mut builder = CgroupBuilder::new(1).unwrap();
+        let cg = builder.new_cgroup(
+            "cpuset.mems".to_string(),
+            "1".to_string(),
+            "101",
+            Path::new("fc_test_cgv1"),
+        );
+        let cg = cg.unwrap();
+
+        let cg_root = PathBuf::from(format!("{}/cpuset", MockCgroupFs::MOCK_SYS_CGROUPS_DIR));
+
+        // with real cgroups these files are created automatically
+        // since the mock will not do it automatically, we create it here
+        fs::create_dir_all(cg_root.join("fc_test_cgv1/101")).unwrap();
+        MockCgroupFs::create_file_with_contents(
+            cg_root.join("cpuset.mems"),
+            "0-1",
+        )
+        .unwrap();
+        MockCgroupFs::create_file_with_contents(
+            cg_root.join("fc_test_cgv1/cpuset.mems"),
+            "0-1",
+        )
+        .unwrap();
+        MockCgroupFs::create_file_with_contents(
+            cg_root.join("fc_test_cgv1/101/cpuset.mems"),
+            "0-1",
+        )
+        .unwrap();
+
+        cg.write_value().unwrap();
+
+        // check that the value was written correctly
+        assert!(cg_root.join("fc_test_cgv1/101/cpuset.mems").exists());
+        assert_eq!(
+            read_first_line(cg_root.join("fc_test_cgv1/101/cpuset.mems")).unwrap(),
+            "1\n"
+        );
+        assert_eq!(
+            read_first_line(cg_root.join("fc_test_cgv1/cpuset.mems")).unwrap(),
+            "0-1\n"
+        );
+        assert_eq!(
+            read_first_line(cg_root.join("cpuset.mems")).unwrap(),
+            "0-1\n"
+        );
+    }
+
     #[test]
     fn test_inherit_from_parent() {
         // 1. If parent file does not exist, return an error.
