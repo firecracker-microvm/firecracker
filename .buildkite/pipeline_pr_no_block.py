@@ -27,6 +27,7 @@ defaults = {
     # some non-blocking tests are performance, so make sure they get ag=1 instances
     "priority": DEFAULT_PRIORITY + 1,
     "agents": {"ag": 1},
+    "artifacts": ["./test_results/**/*"],
 }
 defaults = overlay_dict(defaults, args.step_param)
 
