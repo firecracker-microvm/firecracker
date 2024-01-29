@@ -1,8 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-use std::fmt::{self, Debug};
+use std::fmt::Debug;
 
-use serde::{de, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::cpu_config::templates::{CpuTemplateType, CustomCpuTemplate, StaticCpuTemplate};
 
@@ -20,10 +20,13 @@ pub enum VmConfigError {
     IncompatibleBalloonSize,
     /// The memory size (MiB) is invalid.
     InvalidMemorySize,
-    /// The vCPU number is invalid! The vCPU number can only be 1 or an even number when SMT is enabled.
+    /// The number of vCPUs must be greater than 0, less than {MAX_SUPPORTED_VCPUS:} and must be 1 or an even number if SMT is enabled.
     InvalidVcpuCount,
     /// Could not get the configuration of the previously installed balloon device to validate the memory size.
     InvalidVmState,
+    /// Enabling simultaneous multithreading is not supported on aarch64.
+    #[cfg(target_arch = "aarch64")]
+    SmtNotSupported,
 }
 
 /// Struct used in PUT `/machine-config` API call.
@@ -31,12 +34,11 @@ pub enum VmConfigError {
 #[serde(deny_unknown_fields)]
 pub struct MachineConfig {
     /// Number of vcpu to start.
-    #[serde(deserialize_with = "deserialize_vcpu_num")]
     pub vcpu_count: u8,
     /// The memory size in MiB.
     pub mem_size_mib: usize,
     /// Enables or disabled SMT.
-    #[serde(default, deserialize_with = "deserialize_smt")]
+    #[serde(default)]
     pub smt: bool,
     /// A CPU template that it is used to filter the CPU features exposed to the guest.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -52,42 +54,23 @@ impl Default for MachineConfig {
     }
 }
 
-impl fmt::Display for MachineConfig {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{{ \"vcpu_count\": {:?}, \"mem_size_mib\": {:?}, \"smt\": {:?}, \"cpu_template\": \
-             {:?}, \"track_dirty_pages\": {:?} }}",
-            self.vcpu_count, self.mem_size_mib, self.smt, self.cpu_template, self.track_dirty_pages
-        )
-    }
-}
-
 /// Struct used in PATCH `/machine-config` API call.
 /// Used to update `VmConfig` in `VmResources`.
 /// This struct mirrors all the fields in `MachineConfig`.
 /// All fields are optional, but at least one needs to be specified.
 /// If a field is `Some(value)` then we assume an update is requested
 /// for that field.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct MachineConfigUpdate {
     /// Number of vcpu to start.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_vcpu_num"
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vcpu_count: Option<u8>,
     /// The memory size in MiB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mem_size_mib: Option<usize>,
     /// Enables or disabled SMT.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_smt"
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub smt: Option<bool>,
     /// A CPU template that it is used to filter the CPU features exposed to the guest.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -102,16 +85,7 @@ impl MachineConfigUpdate {
     /// Returns `true` if all fields are set to `None` which means that there is nothing
     /// to be updated.
     pub fn is_empty(&self) -> bool {
-        if self.vcpu_count.is_none()
-            && self.mem_size_mib.is_none()
-            && self.cpu_template.is_none()
-            && self.smt.is_none()
-            && self.track_dirty_pages.is_none()
-        {
-            return true;
-        }
-
-        false
+        self == &Default::default()
     }
 }
 
@@ -148,16 +122,22 @@ impl VmConfig {
         self.cpu_template = Some(CpuTemplateType::Custom(cpu_template));
     }
 
-    /// Updates `VmConfig` with `MachineConfigUpdate`.
-    /// Mapping for cpu tempalte update:
+    /// Updates [`VmConfig`] with [`MachineConfigUpdate`].
+    /// Mapping for cpu template update:
     /// StaticCpuTemplate::None -> None
-    /// StaticCpuTemplate::Other -> Some(CustomCpuTemplate::Static(Other))
-    pub fn update(&mut self, update: &MachineConfigUpdate) -> Result<(), VmConfigError> {
+    /// StaticCpuTemplate::Other -> Some(CustomCpuTemplate::Static(Other)),
+    /// Returns the updated `VmConfig` object.
+    pub fn update(&self, update: &MachineConfigUpdate) -> Result<VmConfig, VmConfigError> {
         let vcpu_count = update.vcpu_count.unwrap_or(self.vcpu_count);
 
         let smt = update.smt.unwrap_or(self.smt);
 
-        if vcpu_count == 0 {
+        #[cfg(target_arch = "aarch64")]
+        if smt {
+            return Err(VmConfigError::SmtNotSupported);
+        }
+
+        if vcpu_count == 0 || vcpu_count > MAX_SUPPORTED_VCPUS {
             return Err(VmConfigError::InvalidVcpuCount);
         }
 
@@ -167,29 +147,25 @@ impl VmConfig {
             return Err(VmConfigError::InvalidVcpuCount);
         }
 
-        self.vcpu_count = vcpu_count;
-        self.smt = smt;
-
         let mem_size_mib = update.mem_size_mib.unwrap_or(self.mem_size_mib);
 
         if mem_size_mib == 0 {
             return Err(VmConfigError::InvalidMemorySize);
         }
 
-        self.mem_size_mib = mem_size_mib;
+        let cpu_template = match update.cpu_template {
+            None => self.cpu_template.clone(),
+            Some(StaticCpuTemplate::None) => None,
+            Some(other) => Some(CpuTemplateType::Static(other)),
+        };
 
-        if let Some(cpu_template) = update.cpu_template {
-            self.cpu_template = match cpu_template {
-                StaticCpuTemplate::None => None,
-                other => Some(CpuTemplateType::Static(other)),
-            };
-        }
-
-        if let Some(track_dirty_pages) = update.track_dirty_pages {
-            self.track_dirty_pages = track_dirty_pages;
-        }
-
-        Ok(())
+        Ok(VmConfig {
+            vcpu_count,
+            mem_size_mib,
+            smt,
+            cpu_template,
+            track_dirty_pages: update.track_dirty_pages.unwrap_or(self.track_dirty_pages),
+        })
     }
 }
 
@@ -215,54 +191,4 @@ impl From<&VmConfig> for MachineConfig {
             track_dirty_pages: value.track_dirty_pages,
         }
     }
-}
-
-/// Deserialization function for the `vcpu_num` field in `MachineConfig` and `MachineConfigUpdate`.
-/// This is called only when `vcpu_num` is present in the JSON configuration.
-/// `T` can be either `u8` or `Option<u8>` which both support ordering if `vcpu_num` is
-/// present in the JSON.
-fn deserialize_vcpu_num<'de, D, T>(d: D) -> Result<T, D::Error>
-where
-    D: de::Deserializer<'de>,
-    T: Deserialize<'de> + PartialOrd + From<u8> + Debug,
-{
-    let val = T::deserialize(d)?;
-
-    if val > T::from(MAX_SUPPORTED_VCPUS) {
-        return Err(de::Error::invalid_value(
-            de::Unexpected::Other("vcpu_num"),
-            &"number of vCPUs exceeds the maximum limitation",
-        ));
-    }
-    if val < T::from(1) {
-        return Err(de::Error::invalid_value(
-            de::Unexpected::Other("vcpu_num"),
-            &"number of vCPUs should be larger than 0",
-        ));
-    }
-
-    Ok(val)
-}
-
-/// Deserialization function for the `smt` field in `MachineConfig` and `MachineConfigUpdate`.
-/// This is called only when `smt` is present in the JSON configuration.
-fn deserialize_smt<'de, D, T>(d: D) -> Result<T, D::Error>
-where
-    D: de::Deserializer<'de>,
-    T: Deserialize<'de> + PartialEq + From<bool> + Debug,
-{
-    let val = T::deserialize(d)?;
-
-    // If this function was called it means that `smt` was specified in
-    // the JSON. On aarch64 the only accepted value is `false` so throw an
-    // error if `true` was specified.
-    #[cfg(target_arch = "aarch64")]
-    if val == T::from(true) {
-        return Err(de::Error::invalid_value(
-            de::Unexpected::Other("smt"),
-            &"Enabling simultaneous multithreading is not supported on aarch64",
-        ));
-    }
-
-    Ok(val)
 }

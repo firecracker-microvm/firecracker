@@ -36,6 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Now cpu-template-helper will print warnings if it encounters SVE registers
   during the conversion process. This is because cpu templates are limited
   to only modify registers less than 128 bits.
+- [#4414](https://github.com/firecracker-microvm/firecracker/pull/4360):
+  Made `PATCH` requests to the `/machine-config` endpoint transactional, meaning
+  Firecracker's configuration will be unchanged if the request returns an error.
+  This fixes a bug where a microVM with incompatible balloon and guest memory size
+  could be booted, due to the check for this condition happening after Firecracker's
+  configuration was updated.
 
 ## [v1.6.0]
 

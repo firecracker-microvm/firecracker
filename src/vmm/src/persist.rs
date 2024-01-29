@@ -32,7 +32,7 @@ use crate::resources::VmResources;
 use crate::snapshot::Snapshot;
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
+use crate::vmm_config::machine_config::{MachineConfigUpdate, VmConfigError};
 use crate::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
 };
@@ -329,8 +329,6 @@ pub fn validate_cpu_manufacturer_id(microvm_state: &MicrovmState) {
 /// Error type for [`snapshot_state_sanity_check`].
 #[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq, Eq)]
 pub enum SnapShotStateSanityCheckError {
-    /// Invalid vCPU count.
-    InvalidVcpuCount,
     /// No memory region defined.
     NoMemory,
 }
@@ -339,13 +337,6 @@ pub enum SnapShotStateSanityCheckError {
 pub fn snapshot_state_sanity_check(
     microvm_state: &MicrovmState,
 ) -> Result<(), SnapShotStateSanityCheckError> {
-    // Check if the snapshot contains at least 1 vCPU state entry.
-    if microvm_state.vcpu_states.is_empty()
-        || microvm_state.vcpu_states.len() > MAX_SUPPORTED_VCPUS.into()
-    {
-        return Err(SnapShotStateSanityCheckError::InvalidVcpuCount);
-    }
-
     // Check if the snapshot contains at least 1 mem region.
     // Upper bound check will be done when creating guest memory by comparing against
     // KVM max supported value kvm_context.max_memslots().
@@ -392,13 +383,30 @@ pub fn restore_from_snapshot(
     vm_resources: &mut VmResources,
 ) -> Result<Arc<Mutex<Vmm>>, RestoreFromSnapshotError> {
     let microvm_state = snapshot_state_from_file(&params.snapshot_path)?;
+    let track_dirty_pages = params.enable_diff_snapshots;
+
+    let vcpu_count = microvm_state
+        .vcpu_states
+        .len()
+        .try_into()
+        .map_err(|_| VmConfigError::InvalidVcpuCount)
+        .map_err(BuildMicrovmFromSnapshotError::VmUpdateConfig)?;
+
+    vm_resources
+        .update_vm_config(&MachineConfigUpdate {
+            vcpu_count: Some(vcpu_count),
+            mem_size_mib: Some(u64_to_usize(microvm_state.vm_info.mem_size_mib)),
+            smt: Some(microvm_state.vm_info.smt),
+            cpu_template: Some(microvm_state.vm_info.cpu_template),
+            track_dirty_pages: Some(track_dirty_pages),
+        })
+        .map_err(BuildMicrovmFromSnapshotError::VmUpdateConfig)?;
 
     // Some sanity checks before building the microvm.
     snapshot_state_sanity_check(&microvm_state)?;
 
     let mem_backend_path = &params.mem_backend.backend_path;
     let mem_state = &microvm_state.memory_state;
-    let track_dirty_pages = params.enable_diff_snapshots;
 
     let (guest_memory, uffd) = match params.mem_backend.backend_type {
         MemBackendType::File => (
@@ -422,7 +430,6 @@ pub fn restore_from_snapshot(
         microvm_state,
         guest_memory,
         uffd,
-        track_dirty_pages,
         seccomp_filters,
         vm_resources,
     )

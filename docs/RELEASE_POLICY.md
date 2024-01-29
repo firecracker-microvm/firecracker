@@ -120,7 +120,7 @@ The support period of deprecated API elements is tied to
 ## Developer preview features
 
 A feature is "in" developer preview if it’s marked as such in the
-[Firecracker roadmap](https://github.com/firecracker-microvm/firecracker/projects/13)
+[Firecracker roadmap](https://github.com/firecracker-microvm/firecracker/projects/42)
 and/or in the [Firecracker release notes](https://github.com/firecracker-microvm/firecracker/releases).
 
 Features in developer preview should not be used in production as they

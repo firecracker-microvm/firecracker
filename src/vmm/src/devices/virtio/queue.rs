@@ -1069,8 +1069,9 @@ mod tests {
 
     pub use super::*;
     use crate::devices::virtio::queue::QueueError::{DescIndexOutOfBounds, UsedRing};
-    use crate::devices::virtio::test_utils::{default_mem, single_region_mem, VirtQueue};
-    use crate::vstate::memory::{GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
+    use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
+    use crate::utilities::test_utils::{multi_region_mem, single_region_mem};
+    use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
     impl Queue {
         fn avail_event(&self, mem: &GuestMemoryMmap) -> u16 {
@@ -1084,11 +1085,7 @@ mod tests {
 
     #[test]
     fn test_checked_new_descriptor_chain() {
-        let m = &GuestMemoryMmap::from_raw_regions(
-            &[(GuestAddress(0), 0x10000), (GuestAddress(0x20000), 0x2000)],
-            false,
-        )
-        .unwrap();
+        let m = &multi_region_mem(&[(GuestAddress(0), 0x10000), (GuestAddress(0x20000), 0x2000)]);
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
         assert!(vq.end().0 < 0x1000);

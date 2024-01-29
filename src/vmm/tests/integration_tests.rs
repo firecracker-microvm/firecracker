@@ -254,7 +254,6 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
         microvm_state,
         mem,
         None,
-        false,
         &empty_seccomp_filters,
         vm_resources,
     )
@@ -306,26 +305,6 @@ fn test_snapshot_load_sanity_checks() {
             .vcpu_states
             .append(&mut microvm_state.vcpu_states.clone());
     }
-
-    // After this line we will have 33 vCPUs, FC max si 32.
-    microvm_state
-        .vcpu_states
-        .push(microvm_state.vcpu_states[0].clone());
-
-    // Validate sanity checks fail because there are too many vCPUs.
-    assert_eq!(
-        snapshot_state_sanity_check(&microvm_state),
-        Err(SnapShotStateSanityCheckError::InvalidVcpuCount)
-    );
-
-    // Remove all vCPUs states from microvm state.
-    microvm_state.vcpu_states.clear();
-
-    // Validate sanity checks fail because there is no vCPU in state.
-    assert_eq!(
-        snapshot_state_sanity_check(&microvm_state),
-        Err(SnapShotStateSanityCheckError::InvalidVcpuCount)
-    );
 }
 
 fn get_microvm_state_from_snapshot() -> MicrovmState {

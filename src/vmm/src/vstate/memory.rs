@@ -56,19 +56,16 @@ pub trait GuestMemoryExtension
 where
     Self: Sized,
 {
-    /// Creates a GuestMemoryMmap with `size` in MiB and guard pages backed by file.
-    fn with_file(file: &File, track_dirty_pages: bool) -> Result<Self, MemoryError>;
+    /// Creates a GuestMemoryMmap with `size` in MiB backed by a memfd.
+    fn memfd_backed(mem_size_mib: usize, track_dirty_pages: bool) -> Result<Self, MemoryError>;
 
-    /// Creates a GuestMemoryMmap with `size` in MiB and guard pages.
-    fn with_size(size: usize, track_dirty_pages: bool) -> Result<Self, MemoryError>;
-
-    /// Creates a GuestMemoryMmap from raw regions with guard pages.
+    /// Creates a GuestMemoryMmap from raw regions.
     fn from_raw_regions(
         regions: &[(GuestAddress, usize)],
         track_dirty_pages: bool,
     ) -> Result<Self, MemoryError>;
 
-    /// Creates a GuestMemoryMmap from raw regions with guard pages.
+    /// Creates a GuestMemoryMmap from raw regions.
     fn from_raw_regions_file(
         regions: Vec<(FileOffset, GuestAddress, usize)>,
         track_dirty_pages: bool,
@@ -121,16 +118,15 @@ pub struct GuestMemoryState {
 }
 
 impl GuestMemoryExtension for GuestMemoryMmap {
-    /// Creates a GuestMemoryMmap with `size` in MiB and guard pages backed by file.
-    fn with_file(file: &File, track_dirty_pages: bool) -> Result<Self, MemoryError> {
-        let metadata = file.metadata().map_err(MemoryError::FileError)?;
-        let mem_size = u64_to_usize(metadata.len());
+    /// Creates a GuestMemoryMmap with `size` in MiB backed by a memfd.
+    fn memfd_backed(mem_size_mib: usize, track_dirty_pages: bool) -> Result<Self, MemoryError> {
+        let memfd_file = create_memfd(mem_size_mib)?.into_file();
 
         let mut offset: u64 = 0;
-        let regions = crate::arch::arch_memory_regions(mem_size)
+        let regions = crate::arch::arch_memory_regions(mem_size_mib << 20)
             .iter()
             .map(|(guest_address, region_size)| {
-                let file_clone = file.try_clone().map_err(MemoryError::FileError)?;
+                let file_clone = memfd_file.try_clone().map_err(MemoryError::FileError)?;
                 let file_offset = FileOffset::new(file_clone, offset);
                 offset += *region_size as u64;
                 Ok((file_offset, *guest_address, *region_size))
@@ -138,14 +134,6 @@ impl GuestMemoryExtension for GuestMemoryMmap {
             .collect::<Result<Vec<_>, MemoryError>>()?;
 
         Self::from_raw_regions_file(regions, track_dirty_pages, true)
-    }
-
-    /// Creates a GuestMemoryMmap with `size` in MiB and guard pages backed by anonymous memory.
-    fn with_size(size: usize, track_dirty_pages: bool) -> Result<Self, MemoryError> {
-        let mem_size = size << 20;
-        let regions = crate::arch::arch_memory_regions(mem_size);
-
-        Self::from_raw_regions(&regions, track_dirty_pages)
     }
 
     /// Creates a GuestMemoryMmap from raw regions backed by anonymous memory.
@@ -175,7 +163,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
         GuestMemoryMmap::from_regions(regions).map_err(MemoryError::VmMemoryError)
     }
 
-    /// Creates a GuestMemoryMmap from raw regions with guard pages backed by file.
+    /// Creates a GuestMemoryMmap from raw regions backed by file.
     fn from_raw_regions_file(
         regions: Vec<(FileOffset, GuestAddress, usize)>,
         track_dirty_pages: bool,
@@ -337,7 +325,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
 }
 
 /// Creates a memfd file with the `size` in MiB.
-pub fn create_memfd(size: usize) -> Result<memfd::Memfd, MemoryError> {
+fn create_memfd(size: usize) -> Result<memfd::Memfd, MemoryError> {
     let mem_size = size << 20;
     // Create a memfd.
     let opts = memfd::MemfdOptions::default().allow_sealing(true);

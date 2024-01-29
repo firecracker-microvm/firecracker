@@ -427,8 +427,8 @@ mod tests {
 
     use super::*;
     use crate::arch::aarch64::gic::create_gic;
-    use crate::arch::aarch64::{arch_memory_regions, layout};
-    use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap};
+    use crate::arch::aarch64::layout;
+    use crate::utilities::test_utils::arch_mem;
 
     const LEN: u64 = 4096;
 
@@ -460,9 +460,7 @@ mod tests {
 
     #[test]
     fn test_create_fdt_with_devices() {
-        let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem =
-            GuestMemoryMmap::from_raw_regions(&regions, false).expect("Cannot initialize memory");
+        let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
 
         let dev_info: HashMap<(DeviceType, std::string::String), MMIODeviceInfo> = [
             (
@@ -500,9 +498,7 @@ mod tests {
 
     #[test]
     fn test_create_fdt() {
-        let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem =
-            GuestMemoryMmap::from_raw_regions(&regions, false).expect("Cannot initialize memory");
+        let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1, None).unwrap();
@@ -558,9 +554,7 @@ mod tests {
 
     #[test]
     fn test_create_fdt_with_initrd() {
-        let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem =
-            GuestMemoryMmap::from_raw_regions(&regions, false).expect("Cannot initialize memory");
+        let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1, None).unwrap();

@@ -56,10 +56,8 @@ use crate::snapshot::Persist;
 use crate::vmm_config::boot_source::BootConfig;
 use crate::vmm_config::drive::BlockDeviceType;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{MachineConfigUpdate, VmConfig, VmConfigError};
-use crate::vstate::memory::{
-    create_memfd, GuestAddress, GuestMemory, GuestMemoryExtension, GuestMemoryMmap,
-};
+use crate::vmm_config::machine_config::{VmConfig, VmConfigError};
+use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryExtension, GuestMemoryMmap};
 use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuError};
 use crate::vstate::vm::Vm;
 use crate::{device_manager, EventManager, Vmm, VmmError};
@@ -239,10 +237,9 @@ pub fn build_microvm_for_boot(
         .ok_or(MissingKernelConfig)?;
 
     let track_dirty_pages = vm_resources.track_dirty_pages();
-    let memfd = create_memfd(vm_resources.vm_config.mem_size_mib)
-        .map_err(StartMicrovmError::GuestMemory)?;
-    let guest_memory = GuestMemoryMmap::with_file(memfd.as_file(), track_dirty_pages)
-        .map_err(StartMicrovmError::GuestMemory)?;
+    let guest_memory =
+        GuestMemoryMmap::memfd_backed(vm_resources.vm_config.mem_size_mib, track_dirty_pages)
+            .map_err(StartMicrovmError::GuestMemory)?;
     let entry_addr = load_kernel(boot_config, &guest_memory)?;
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
     // Clone the command-line so that a failed boot doesn't pollute the original.
@@ -366,8 +363,6 @@ pub fn build_and_boot_microvm(
 pub enum BuildMicrovmFromSnapshotError {
     /// Failed to create microVM and vCPUs: {0}
     CreateMicrovmAndVcpus(#[from] StartMicrovmError),
-    /// Only 255 vCPU state are supported, but {0} states where given.
-    TooManyVCPUs(usize),
     /// Could not access KVM: {0}
     KvmAccess(#[from] utils::errno::Error),
     /// Error configuring the TSC, frequency not present in the given snapshot.
@@ -409,14 +404,9 @@ pub fn build_microvm_from_snapshot(
     microvm_state: MicrovmState,
     guest_memory: GuestMemoryMmap,
     uffd: Option<Uffd>,
-    track_dirty_pages: bool,
     seccomp_filters: &BpfThreadMap,
     vm_resources: &mut VmResources,
 ) -> Result<Arc<Mutex<Vmm>>, BuildMicrovmFromSnapshotError> {
-    let vcpu_count = u8::try_from(microvm_state.vcpu_states.len()).map_err(|_| {
-        BuildMicrovmFromSnapshotError::TooManyVCPUs(microvm_state.vcpu_states.len())
-    })?;
-
     // Build Vmm.
     debug!("event_start: build microvm from snapshot");
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
@@ -424,8 +414,8 @@ pub fn build_microvm_from_snapshot(
         event_manager,
         guest_memory.clone(),
         uffd,
-        track_dirty_pages,
-        vcpu_count,
+        vm_resources.vm_config.track_dirty_pages,
+        vm_resources.vm_config.vcpu_count,
         microvm_state.vm_state.kvm_cap_modifiers.clone(),
     )?;
 
@@ -468,14 +458,6 @@ pub fn build_microvm_from_snapshot(
     // Restore kvm vm state.
     #[cfg(target_arch = "x86_64")]
     vmm.vm.restore_state(&microvm_state.vm_state)?;
-
-    vm_resources.update_vm_config(&MachineConfigUpdate {
-        vcpu_count: Some(vcpu_count),
-        mem_size_mib: Some(u64_to_usize(microvm_state.vm_info.mem_size_mib)),
-        smt: Some(microvm_state.vm_info.smt),
-        cpu_template: Some(microvm_state.vm_info.cpu_template),
-        track_dirty_pages: Some(track_dirty_pages),
-    })?;
 
     // Restore the boot source config paths.
     vm_resources.set_boot_source_config(microvm_state.vm_info.boot_source);
@@ -972,6 +954,7 @@ pub mod tests {
     use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_RNG};
     use crate::mmds::data_store::{Mmds, MmdsVersion};
     use crate::mmds::ns::MmdsNetworkStack;
+    use crate::utilities::test_utils::{arch_mem, single_region_mem, single_region_mem_at};
     use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
     use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
@@ -1043,7 +1026,7 @@ pub mod tests {
     }
 
     pub(crate) fn default_vmm() -> Vmm {
-        let guest_memory = GuestMemoryMmap::with_size(128, false).unwrap();
+        let guest_memory = arch_mem(128 << 20);
 
         let vcpus_exit_evt = EventFd::new(libc::EFD_NONBLOCK)
             .map_err(VmmError::EventFd)
@@ -1232,18 +1215,6 @@ pub mod tests {
         fake_bin
     }
 
-    fn create_guest_mem_at(at: GuestAddress, size: usize) -> GuestMemoryMmap {
-        GuestMemoryMmap::from_raw_regions(&[(at, size)], false).unwrap()
-    }
-
-    pub(crate) fn create_guest_mem_with_size(size: usize) -> GuestMemoryMmap {
-        create_guest_mem_at(GuestAddress(0x0), size)
-    }
-
-    fn is_dirty_tracking_enabled(mem: &GuestMemoryMmap) -> bool {
-        mem.iter().all(|r| r.bitmap().is_some())
-    }
-
     #[test]
     // Test that loading the initrd is successful on different archs.
     fn test_load_initrd() {
@@ -1257,10 +1228,10 @@ pub mod tests {
         tempfile.write_all(&image).unwrap();
 
         #[cfg(target_arch = "x86_64")]
-        let gm = create_guest_mem_with_size(mem_size);
+        let gm = single_region_mem(mem_size);
 
         #[cfg(target_arch = "aarch64")]
-        let gm = create_guest_mem_with_size(mem_size + crate::arch::aarch64::layout::FDT_MAX_SIZE);
+        let gm = single_region_mem(mem_size + crate::arch::aarch64::layout::FDT_MAX_SIZE);
 
         let res = load_initrd(&gm, &mut tempfile);
         let initrd = res.unwrap();
@@ -1270,7 +1241,7 @@ pub mod tests {
 
     #[test]
     fn test_load_initrd_no_memory() {
-        let gm = create_guest_mem_with_size(79);
+        let gm = single_region_mem(79);
         let image = make_test_bin();
         let tempfile = TempFile::new().unwrap();
         let mut tempfile = tempfile.into_file();
@@ -1289,10 +1260,7 @@ pub mod tests {
         let tempfile = TempFile::new().unwrap();
         let mut tempfile = tempfile.into_file();
         tempfile.write_all(&image).unwrap();
-        let gm = create_guest_mem_at(
-            GuestAddress(crate::arch::PAGE_SIZE as u64 + 1),
-            image.len() * 2,
-        );
+        let gm = single_region_mem_at(crate::arch::PAGE_SIZE as u64 + 1, image.len() * 2);
 
         let res = load_initrd(&gm, &mut tempfile);
         assert!(
@@ -1303,26 +1271,9 @@ pub mod tests {
     }
 
     #[test]
-    fn test_create_guest_memory() {
-        let mem_size = 4096 * 2;
-
-        // Case 1: create guest memory without dirty page tracking
-        {
-            let guest_memory = GuestMemoryMmap::with_size(mem_size, false).unwrap();
-            assert!(!is_dirty_tracking_enabled(&guest_memory));
-        }
-
-        // Case 2: create guest memory with dirty page tracking
-        {
-            let guest_memory = GuestMemoryMmap::with_size(mem_size, true).unwrap();
-            assert!(is_dirty_tracking_enabled(&guest_memory));
-        }
-    }
-
-    #[test]
     fn test_create_vcpus() {
         let vcpu_count = 2;
-        let guest_memory = GuestMemoryMmap::with_size(128, false).unwrap();
+        let guest_memory = arch_mem(128 << 20);
 
         #[allow(unused_mut)]
         let mut vm = Vm::new(vec![]).unwrap();

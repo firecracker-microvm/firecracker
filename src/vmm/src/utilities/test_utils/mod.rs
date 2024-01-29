@@ -5,6 +5,7 @@
 use std::sync::{Arc, Mutex};
 
 use utils::tempdir::TempDir;
+use vm_memory::GuestAddress;
 
 use crate::builder::build_microvm_for_boot;
 use crate::resources::VmResources;
@@ -12,7 +13,31 @@ use crate::seccomp_filters::get_empty_filters;
 use crate::utilities::mock_resources::{MockBootSourceConfig, MockVmConfig, MockVmResources};
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
+use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap};
 use crate::{EventManager, Vmm};
+
+/// Creates a [`GuestMemoryMmap`] with a single region of the given size starting at guest
+/// physical address 0 and without dirty tracking.
+pub fn single_region_mem(region_size: usize) -> GuestMemoryMmap {
+    single_region_mem_at(0, region_size)
+}
+
+/// Creates a [`GuestMemoryMmap`] with a single region of the given size starting at the given
+/// guest physical address `at` and without dirty tracking.
+pub fn single_region_mem_at(at: u64, size: usize) -> GuestMemoryMmap {
+    multi_region_mem(&[(GuestAddress(at), size)])
+}
+
+/// Creates a [`GuestMemoryMmap`] with multiple regions and without dirty page tracking.
+pub fn multi_region_mem(regions: &[(GuestAddress, usize)]) -> GuestMemoryMmap {
+    GuestMemoryMmap::from_raw_regions(regions, false).expect("Cannot initialize memory")
+}
+
+/// Creates a [`GuestMemoryMmap`] of the given size with the contained regions laid out in
+/// accordance with the requirements of the architecture on which the tests are being run.
+pub fn arch_mem(mem_size_bytes: usize) -> GuestMemoryMmap {
+    multi_region_mem(&crate::arch::arch_memory_regions(mem_size_bytes))
+}
 
 pub fn create_vmm(
     _kernel_image: Option<&str>,

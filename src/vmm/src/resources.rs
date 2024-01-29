@@ -234,11 +234,6 @@ impl VmResources {
         self.vm_config.track_dirty_pages
     }
 
-    /// Configures the dirty page tracking functionality of the microVM.
-    pub fn set_track_dirty_pages(&mut self, dirty_page_tracking: bool) {
-        self.vm_config.track_dirty_pages = dirty_page_tracking;
-    }
-
     /// Add a custom CPU template to the VM resources
     /// to configure vCPUs.
     pub fn set_custom_cpu_template(&mut self, cpu_template: CustomCpuTemplate) {
@@ -247,12 +242,12 @@ impl VmResources {
 
     /// Updates the configuration of the microVM.
     pub fn update_vm_config(&mut self, update: &MachineConfigUpdate) -> Result<(), VmConfigError> {
-        self.vm_config.update(update)?;
+        let updated = self.vm_config.update(update)?;
 
         // The VM cannot have a memory size smaller than the target size
         // of the balloon device, if present.
         if self.balloon.get().is_some()
-            && self.vm_config.mem_size_mib
+            && updated.mem_size_mib
                 < self
                     .balloon
                     .get_config()
@@ -261,6 +256,8 @@ impl VmResources {
         {
             return Err(VmConfigError::IncompatibleBalloonSize);
         }
+
+        self.vm_config = updated;
 
         Ok(())
     }
@@ -608,17 +605,25 @@ mod tests {
         // these resources, it is considered an invalid json and the test will crash.
 
         // Invalid JSON string must yield a `serde_json` error.
-        match VmResources::from_json(r#"}"#, &default_instance_info, HTTP_MAX_PAYLOAD_SIZE, None) {
-            Err(ResourcesError::InvalidJson(_)) => (),
-            _ => unreachable!(),
-        }
+        let error =
+            VmResources::from_json(r#"}"#, &default_instance_info, HTTP_MAX_PAYLOAD_SIZE, None)
+                .unwrap_err();
+        assert!(
+            matches!(error, ResourcesError::InvalidJson(_)),
+            "{:?}",
+            error
+        );
 
         // Valid JSON string without the configuration for kernel or rootfs
         // result in an invalid JSON error.
-        match VmResources::from_json(r#"{}"#, &default_instance_info, HTTP_MAX_PAYLOAD_SIZE, None) {
-            Err(ResourcesError::InvalidJson(_)) => (),
-            _ => unreachable!(),
-        }
+        let error =
+            VmResources::from_json(r#"{}"#, &default_instance_info, HTTP_MAX_PAYLOAD_SIZE, None)
+                .unwrap_err();
+        assert!(
+            matches!(error, ResourcesError::InvalidJson(_)),
+            "{:?}",
+            error
+        );
 
         // Invalid kernel path.
         let mut json = format!(
@@ -639,15 +644,21 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(
+        let error = VmResources::from_json(
             json.as_str(),
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
-        ) {
-            Err(ResourcesError::BootSource(BootSourceConfigError::InvalidKernelPath(_))) => (),
-            _ => unreachable!(),
-        }
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ResourcesError::BootSource(BootSourceConfigError::InvalidKernelPath(_))
+            ),
+            "{:?}",
+            error
+        );
 
         // Invalid rootfs path.
         json = format!(
@@ -668,94 +679,23 @@ mod tests {
             kernel_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(
-            json.as_str(),
-            &default_instance_info,
-            HTTP_MAX_PAYLOAD_SIZE,
-            None,
-        ) {
-            Err(ResourcesError::BlockDevice(DriveError::CreateVirtioBlockDevice(
-                VirtioBlockError::BackingFile(_, _),
-            ))) => (),
-            _ => unreachable!(),
-        }
-
-        // Invalid vCPU number.
-        json = format!(
-            r#"{{
-                    "boot-source": {{
-                        "kernel_image_path": "{}",
-                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
-                    }},
-                    "drives": [
-                        {{
-                            "drive_id": "rootfs",
-                            "path_on_host": "{}",
-                            "is_root_device": true,
-                            "is_read_only": false
-                        }}
-                    ],
-                    "machine-config": {{
-                        "vcpu_count": 0,
-                        "mem_size_mib": 1024
-                    }}
-            }}"#,
-            kernel_file.as_path().to_str().unwrap(),
-            rootfs_file.as_path().to_str().unwrap()
-        );
-
-        match VmResources::from_json(
-            json.as_str(),
-            &default_instance_info,
-            HTTP_MAX_PAYLOAD_SIZE,
-            None,
-        ) {
-            Err(ResourcesError::InvalidJson(_)) => (),
-            _ => unreachable!(),
-        }
-
-        // Valid config for x86 but invalid on aarch64 because smt is not available.
-        json = format!(
-            r#"{{
-                    "boot-source": {{
-                        "kernel_image_path": "{}",
-                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
-                    }},
-                    "drives": [
-                        {{
-                            "drive_id": "rootfs",
-                            "path_on_host": "{}",
-                            "is_root_device": true,
-                            "is_read_only": false
-                        }}
-                    ],
-                    "machine-config": {{
-                        "vcpu_count": 2,
-                        "mem_size_mib": 1024,
-                        "smt": true
-                    }}
-            }}"#,
-            kernel_file.as_path().to_str().unwrap(),
-            rootfs_file.as_path().to_str().unwrap()
-        );
-
-        #[cfg(target_arch = "x86_64")]
-        VmResources::from_json(
-            json.as_str(),
-            &default_instance_info,
-            HTTP_MAX_PAYLOAD_SIZE,
-            None,
-        )
-        .unwrap();
-        #[cfg(target_arch = "aarch64")]
-        VmResources::from_json(
+        let error = VmResources::from_json(
             json.as_str(),
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
         )
         .unwrap_err();
-
+        assert!(
+            matches!(
+                error,
+                ResourcesError::BlockDevice(DriveError::CreateVirtioBlockDevice(
+                    VirtioBlockError::BackingFile(_, _),
+                ))
+            ),
+            "{:?}",
+            error
+        );
         // Valid config for x86 but invalid on aarch64 since it uses cpu_template.
         json = format!(
             r#"{{
@@ -821,15 +761,21 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(
+        let error = VmResources::from_json(
             json.as_str(),
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
-        ) {
-            Err(ResourcesError::VmConfig(VmConfigError::InvalidMemorySize)) => (),
-            _ => unreachable!(),
-        }
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ResourcesError::VmConfig(VmConfigError::InvalidMemorySize)
+            ),
+            "{:?}",
+            error
+        );
 
         // Invalid path for logger pipe.
         json = format!(
@@ -854,15 +800,21 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(
+        let error = VmResources::from_json(
             json.as_str(),
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
-        ) {
-            Err(ResourcesError::Logger(crate::logger::LoggerUpdateError(_))) => (),
-            _ => unreachable!(),
-        }
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ResourcesError::Logger(crate::logger::LoggerUpdateError(_))
+            ),
+            "{:?}",
+            error
+        );
 
         // Invalid path for metrics pipe.
         json = format!(
@@ -887,15 +839,21 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(
+        let error = VmResources::from_json(
             json.as_str(),
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
-        ) {
-            Err(ResourcesError::Metrics(MetricsConfigError::InitializationFailure { .. })) => (),
-            _ => unreachable!(),
-        }
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ResourcesError::Metrics(MetricsConfigError::InitializationFailure { .. })
+            ),
+            "{:?}",
+            error
+        );
 
         // Reuse of a host name.
         json = format!(
@@ -927,17 +885,24 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(
+        let error = VmResources::from_json(
             json.as_str(),
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
-        ) {
-            Err(ResourcesError::NetDevice(NetworkInterfaceError::CreateNetworkDevice(
-                crate::devices::virtio::net::NetError::TapOpen { .. },
-            ))) => (),
-            _ => unreachable!(),
-        }
+        )
+        .unwrap_err();
+
+        assert!(
+            matches!(
+                error,
+                ResourcesError::NetDevice(NetworkInterfaceError::CreateNetworkDevice(
+                    crate::devices::virtio::net::NetError::TapOpen { .. },
+                ))
+            ),
+            "{:?}",
+            error
+        );
 
         // Let's try now passing a valid configuration. We won't include any logger
         // or metrics configuration because these were already initialized in other
@@ -1068,15 +1033,14 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap(),
         );
 
-        match VmResources::from_json(
+        let error = VmResources::from_json(
             json.as_str(),
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
-        ) {
-            Err(ResourcesError::File(_)) => (),
-            _ => unreachable!(),
-        }
+        )
+        .unwrap_err();
+        assert!(matches!(error, ResourcesError::File(_)), "{:?}", error);
     }
 
     #[test]
@@ -1330,7 +1294,7 @@ mod tests {
         let mut aux_vm_config = MachineConfigUpdate {
             vcpu_count: Some(32),
             mem_size_mib: Some(512),
-            smt: Some(true),
+            smt: Some(false),
             #[cfg(target_arch = "x86_64")]
             cpu_template: Some(StaticCpuTemplate::T2),
             #[cfg(target_arch = "aarch64")]
@@ -1359,7 +1323,25 @@ mod tests {
             vm_resources.update_vm_config(&aux_vm_config),
             Err(VmConfigError::InvalidVcpuCount)
         );
+
+        // Check that SMT is not supported on aarch64, and that on x86_64 enabling it requires vcpu
+        // count to be even.
+        aux_vm_config.smt = Some(true);
+        #[cfg(target_arch = "aarch64")]
+        assert_eq!(
+            vm_resources.update_vm_config(&aux_vm_config),
+            Err(VmConfigError::SmtNotSupported)
+        );
+        aux_vm_config.vcpu_count = Some(3);
+        #[cfg(target_arch = "x86_64")]
+        assert_eq!(
+            vm_resources.update_vm_config(&aux_vm_config),
+            Err(VmConfigError::InvalidVcpuCount)
+        );
         aux_vm_config.vcpu_count = Some(32);
+        #[cfg(target_arch = "x86_64")]
+        vm_resources.update_vm_config(&aux_vm_config).unwrap();
+        aux_vm_config.smt = Some(false);
 
         // Invalid mem_size_mib.
         aux_vm_config.mem_size_mib = Some(0);
