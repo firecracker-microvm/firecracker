@@ -28,6 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Firecracker snapshots (up to Firecracker version v1.6.0) incompatible with
   the current Firecracker version.
 
+### Fixed
+
+- [#4409](https://github.com/firecracker-microvm/firecracker/pull/4409):
+  Fixed a bug in the cpu-template-helper that made it panic during conversion
+  of cpu configuration with SVE registers to the cpu template on aarch64 platform.
+  Now cpu-template-helper will print warnings if it encounters SVE registers
+  during the conversion process. This is because cpu templates are limited
+  to only modify registers less than 128 bits.
+
 ## [v1.6.0]
 
 ### Added
