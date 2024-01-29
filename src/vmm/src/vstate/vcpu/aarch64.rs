@@ -139,7 +139,8 @@ impl KvmVcpu {
             kvi.features[index] = feature.bitmap.apply(kvi.features[index]);
         }
 
-        self.init_vcpu_fd(&kvi)?;
+        self.init_vcpu(&kvi)?;
+        self.finalize_vcpu(&kvi)?;
 
         self.kvi = if !vcpu_features.is_empty() {
             Some(kvi)
@@ -190,7 +191,8 @@ impl KvmVcpu {
             None => Self::default_kvi(vm_fd, self.index)?,
         };
 
-        self.init_vcpu_fd(&kvi)?;
+        self.init_vcpu(&kvi)?;
+        self.finalize_vcpu(&kvi)?;
         self.kvi = state.kvi;
 
         for reg in state.regs.iter() {
@@ -237,10 +239,14 @@ impl KvmVcpu {
     }
 
     /// Initializes internal vcpufd.
-    /// Does additional check for SVE and calls `vcpu_finalize` if
-    /// SVE is enabled.
-    fn init_vcpu_fd(&self, kvi: &kvm_bindings::kvm_vcpu_init) -> Result<(), KvmVcpuError> {
+    fn init_vcpu(&self, kvi: &kvm_bindings::kvm_vcpu_init) -> Result<(), KvmVcpuError> {
         self.fd.vcpu_init(kvi).map_err(KvmVcpuError::Init)?;
+        Ok(())
+    }
+
+    /// Checks for SVE feature and calls `vcpu_finalize` if
+    /// it is enabled.
+    fn finalize_vcpu(&self, kvi: &kvm_bindings::kvm_vcpu_init) -> Result<(), KvmVcpuError> {
         if (kvi.features[0] & (1 << kvm_bindings::KVM_ARM_VCPU_SVE)) != 0 {
             // KVM_ARM_VCPU_SVE has value 4 so casting to i32 is safe.
             #[allow(clippy::cast_possible_wrap)]
