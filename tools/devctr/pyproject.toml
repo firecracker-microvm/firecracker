@@ -16,9 +16,6 @@ mdformat = "^0.7.17"
 mdformat-gfm = "^0.3.5"
 mdformat-footnote = "^0.1.1"
 mdformat-frontmatter = "^2.0.8"
-# numpy >1.25.0,<=1.25.2 trigger an illegal instruction on AL2 4.14 on c7g.metal instances, due to these instances
-# not advertising SVE support. See https://github.com/numpy/numpy/issues/24028
-numpy = "1.24.3"
 openapi-spec-validator = "^0.5.6"
 pandas = "^2.0.1"
 psutil = "^5.9.5"

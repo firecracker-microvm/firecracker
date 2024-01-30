@@ -4,15 +4,7 @@
 
 import pytest
 
-from framework.properties import global_props
 from framework.utils import check_entropy
-
-if (
-    global_props.cpu_model == "ARM_NEOVERSE_V1"
-    and global_props.host_linux_version == "4.14"
-):
-    # Graviton3 instances in 4.14 require a non-SVE kernel to boot
-    pytestmark = pytest.mark.skip(reason="[cm]7g requires non-SVE 5.10 kernel")
 
 
 @pytest.fixture(params=[None])
