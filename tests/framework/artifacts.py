@@ -23,14 +23,7 @@ def select_supported_kernels():
     instance type.
     """
     hlv = packaging.version.parse(global_props.host_linux_version)
-    supported_kernels = [r"vmlinux-4.14.\d+"]
-    if (
-        global_props.cpu_model == "ARM_NEOVERSE_V1"
-        and global_props.host_linux_version == "4.14"
-    ):
-        supported_kernels.append(r"vmlinux-5.10-no-sve.bin")
-    else:
-        supported_kernels.append(r"vmlinux-5.10.\d+")
+    supported_kernels = [r"vmlinux-4.14.\d+", r"vmlinux-5.10.\d+"]
 
     # Booting with MPTable is deprecated but we still want to test
     # for it. Until we drop support for it we will be building a 5.10 guest

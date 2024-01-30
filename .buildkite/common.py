@@ -23,7 +23,6 @@ DEFAULT_INSTANCES = [
 ]
 
 DEFAULT_PLATFORMS = [
-    ("al2", "linux_4.14"),
     ("al2", "linux_5.10"),
     ("al2023", "linux_6.1"),
 ]
