@@ -9,7 +9,7 @@ We are continuously validating the currently supported Firecracker releases (as
 per [Firecracker’s release policy](../docs/RELEASE_POLICY.md)) using a
 combination of:
 
-- host linux kernel versions 4.14, 5.10, and 6.1;
+- host linux kernel versions 5.10, and 6.1;
 - guest linux kernel versions 4.14, and 5.10.
 
 While other versions and other kernel configs might work, they are not
@@ -23,7 +23,6 @@ release only if compatibility changes are required.
 
 | Host kernel | Guest kernel v4.14 | Guest kernel v5.10 | Min. end of support |
 | ----------: | :----------------: | :----------------: | ------------------: |
-|       v4.14 |         Y          |         Y          |          2021-01-22 |
 |       v5.10 |         Y          |         Y          |          2024-01-31 |
 |        v6.1 |         Y          |         Y          |          2025-10-12 |
 
@@ -121,10 +120,6 @@ following configurations:
 
 ## Caveats
 
-- When using a 4.14 host and a 5.10 guest, we disable the SVE extension in the
-  guest. This is due to the introduction of the SVE extension in Graviton3,
-  which causes the default 5.10 guest (with SVE support enabled), to crash if
-  run with a 4.14 host which does not support SVE.
 - [Snapshot compatibility across kernel versions](snapshotting/snapshot-support.md#snapshot-compatibility-across-kernel-versions)
 - When booting with kernels that support both ACPI and legacy boot mechanisms
   Firecracker passes VirtIO devices to the guest twice, once through ACPI and a

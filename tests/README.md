@@ -67,7 +67,7 @@ regardless of success or failure, pass the `-s` flag, e.g.
 
 ### Dependencies
 
-- A bare-metal `Linux` host with `uname -r` >= 4.14 and KVM enabled (`/dev/kvm`
+- A bare-metal `Linux` host with `uname -r` >= 5.10 and KVM enabled (`/dev/kvm`
   device node exists)
 - Docker
 - `awscli` version 2

@@ -664,8 +664,6 @@ m6i won't work on an m6g instance.
 
 | *CPU family* | *taken on host kernel* | *restored on host kernel* | *working?* |
 | ------------ | ---------------------- | ------------------------- | ---------- |
-| **x86_64**   | 4.14                   | 5.10                      | Y          |
-| **all**      | 5.10                   | 4.14                      | N          |
 | **all**      | 5.10                   | 6.1                       | Y          |
 | **all**      | 6.1                    | 5.10                      | Y          |
 
