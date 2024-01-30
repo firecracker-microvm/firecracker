@@ -31,13 +31,7 @@ pub fn dump(vmm: Arc<Mutex<Vmm>>) -> Result<Fingerprint, FingerprintDumpError> {
             "/sys/devices/system/cpu/cpu0/regs/identification/revidr_el1",
         )?,
         bios_version: read_sysfs_file("/sys/devices/virtual/dmi/id/bios_version")?,
-        // TODO: Replace this with `read_sysfs_file("/sys/devices/virtual/dmi/id/bios_release")`
-        // after the end of kernel 4.14 support.
-        // https://github.com/firecracker-microvm/firecracker/issues/3677
-        bios_revision: run_shell_command(
-            "set -o pipefail && dmidecode -t bios | grep \"BIOS Revision\" | cut -d':' -f2 | tr \
-             -d ' \\n'",
-        )?,
+        bios_revision: read_sysfs_file("/sys/devices/virtual/dmi/id/bios_release")?,
         guest_cpu_config: crate::template::dump::dump(vmm)?,
     })
 }

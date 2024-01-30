@@ -3,7 +3,6 @@
 
 use std::ffi::{CString, NulError, OsString};
 use std::fmt::{Debug, Display};
-use std::os::unix::prelude::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::{env as p_env, fs, io};
 
@@ -261,44 +260,10 @@ fn close_fds_by_close_range() -> Result<(), JailerError> {
     .map_err(JailerError::CloseRange)
 }
 
-fn close_fds_by_reading_proc() -> Result<(), JailerError> {
-    // Calling this method means that close_range failed (we might be on kernel < 5.9).
-    // We can't use std::fs::ReadDir here as under the hood we need access to the dirfd in order to
-    // not close it twice
-    let path = "/proc/self/fd";
-    let mut dir = nix::dir::Dir::open(
-        path,
-        nix::fcntl::OFlag::O_DIRECTORY | nix::fcntl::OFlag::O_NOATIME,
-        nix::sys::stat::Mode::empty(),
-    )
-    .map_err(|e| JailerError::DirOpen(path.to_string(), e.to_string()))?;
-
-    let dirfd = dir.as_raw_fd();
-    let mut c = dir.iter();
-
-    while let Some(Ok(path)) = c.next() {
-        let file_name = path.file_name();
-        let fd_str = file_name.to_str().map_err(JailerError::UTF8Parsing)?;
-
-        // If the entry is an INT entry, we go ahead and we treat it as an FD identifier.
-        if let Ok(fd) = fd_str.parse::<i32>() {
-            if fd > 2 && fd != dirfd {
-                // SAFETY: Safe because close() cannot fail when passed a valid parameter.
-                unsafe { libc::close(fd) };
-            }
-        }
-    }
-    Ok(())
-}
-
 // Closes all FDs other than 0 (STDIN), 1 (STDOUT) and 2 (STDERR)
 fn close_inherited_fds() -> Result<(), JailerError> {
-    // The approach we take here is to firstly try to use the close_range syscall
-    // which is available on kernels > 5.9.
-    // We then fallback to using /proc/sef/fd to close open fds.
-    if close_fds_by_close_range().is_err() {
-        close_fds_by_reading_proc()?;
-    }
+    // We use the close_range syscall which is available on kernels > 5.9.
+    close_fds_by_close_range()?;
     Ok(())
 }
 
@@ -437,11 +402,6 @@ mod tests {
         if major > 5 || (major == 5 && minor >= 9) {
             run_close_fds_test(close_fds_by_close_range);
         }
-    }
-
-    #[test]
-    fn test_fds_proc() {
-        run_close_fds_test(close_fds_by_reading_proc);
     }
 
     #[test]
