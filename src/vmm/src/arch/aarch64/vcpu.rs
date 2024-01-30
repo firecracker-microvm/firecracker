@@ -179,17 +179,15 @@ pub fn get_all_registers_ids(vcpufd: &VcpuFd) -> Result<Vec<u64>, VcpuError> {
     }
 }
 
-/// Set the state of the system registers.
+/// Set the state of one system register.
 ///
 /// # Arguments
 ///
-/// * `regs` - Slice of registers to be set.
-pub fn set_registers(vcpufd: &VcpuFd, regs: &Aarch64RegisterVec) -> Result<(), VcpuError> {
-    for reg in regs.iter() {
-        vcpufd
-            .set_one_reg(reg.id, reg.as_slice())
-            .map_err(|e| VcpuError::SetOneReg(reg.id, e))?;
-    }
+/// * `reg` - Register to be set.
+pub fn set_register(vcpufd: &VcpuFd, reg: Aarch64RegisterRef) -> Result<(), VcpuError> {
+    vcpufd
+        .set_one_reg(reg.id, reg.as_slice())
+        .map_err(|e| VcpuError::SetOneReg(reg.id, e))?;
     Ok(())
 }
 
@@ -275,7 +273,9 @@ mod tests {
 
         vcpu.vcpu_init(&kvi).unwrap();
         get_all_registers(&vcpu, &mut regs).unwrap();
-        set_registers(&vcpu, &regs).unwrap();
+        for reg in regs.iter() {
+            set_register(&vcpu, reg).unwrap();
+        }
     }
 
     #[test]

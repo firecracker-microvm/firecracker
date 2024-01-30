@@ -12,11 +12,11 @@ use kvm_ioctls::*;
 use serde::{Deserialize, Serialize};
 
 use crate::arch::aarch64::regs::{
-    arm64_core_reg_id, offset__of, Aarch64RegisterVec, KVM_REG_ARM_TIMER_CNT,
+    arm64_core_reg_id, offset__of, Aarch64RegisterVec, KVM_REG_ARM64_SVE_VLS, KVM_REG_ARM_TIMER_CNT,
 };
 use crate::arch::aarch64::vcpu::{
     get_all_registers, get_all_registers_ids, get_mpidr, get_mpstate, get_registers, set_mpstate,
-    set_registers, setup_boot_regs, VcpuError as ArchError,
+    set_register, setup_boot_regs, VcpuError as ArchError,
 };
 use crate::cpu_config::aarch64::custom_cpu_template::VcpuFeatures;
 use crate::cpu_config::templates::CpuConfiguration;
@@ -139,7 +139,8 @@ impl KvmVcpu {
             kvi.features[index] = feature.bitmap.apply(kvi.features[index]);
         }
 
-        self.init_vcpu_fd(&kvi)?;
+        self.init_vcpu(&kvi)?;
+        self.finalize_vcpu(&kvi)?;
 
         self.kvi = if !vcpu_features.is_empty() {
             Some(kvi)
@@ -189,11 +190,31 @@ impl KvmVcpu {
             Some(kvi) => kvi,
             None => Self::default_kvi(vm_fd, self.index)?,
         };
-
-        self.init_vcpu_fd(&kvi)?;
-
         self.kvi = state.kvi;
-        set_registers(&self.fd, &state.regs).map_err(KvmVcpuError::RestoreState)?;
+
+        self.init_vcpu(&kvi)?;
+
+        // If KVM_REG_ARM64_SVE_VLS is present it needs to
+        // be set before vcpu is finalized.
+        if let Some(sve_vls_reg) = state
+            .regs
+            .iter()
+            .find(|reg| reg.id == KVM_REG_ARM64_SVE_VLS)
+        {
+            set_register(&self.fd, sve_vls_reg).map_err(KvmVcpuError::RestoreState)?;
+        }
+
+        self.finalize_vcpu(&kvi)?;
+
+        // KVM_REG_ARM64_SVE_VLS needs to be skipped after vcpu is finalized.
+        // If it is present it is handled in the code above.
+        for reg in state
+            .regs
+            .iter()
+            .filter(|reg| reg.id != KVM_REG_ARM64_SVE_VLS)
+        {
+            set_register(&self.fd, reg).map_err(KvmVcpuError::RestoreState)?;
+        }
         set_mpstate(&self.fd, state.mp_state).map_err(KvmVcpuError::RestoreState)?;
         Ok(())
     }
@@ -235,10 +256,14 @@ impl KvmVcpu {
     }
 
     /// Initializes internal vcpufd.
-    /// Does additional check for SVE and calls `vcpu_finalize` if
-    /// SVE is enabled.
-    fn init_vcpu_fd(&self, kvi: &kvm_bindings::kvm_vcpu_init) -> Result<(), KvmVcpuError> {
+    fn init_vcpu(&self, kvi: &kvm_bindings::kvm_vcpu_init) -> Result<(), KvmVcpuError> {
         self.fd.vcpu_init(kvi).map_err(KvmVcpuError::Init)?;
+        Ok(())
+    }
+
+    /// Checks for SVE feature and calls `vcpu_finalize` if
+    /// it is enabled.
+    fn finalize_vcpu(&self, kvi: &kvm_bindings::kvm_vcpu_init) -> Result<(), KvmVcpuError> {
         if (kvi.features[0] & (1 << kvm_bindings::KVM_ARM_VCPU_SVE)) != 0 {
             // KVM_ARM_VCPU_SVE has value 4 so casting to i32 is safe.
             #[allow(clippy::cast_possible_wrap)]

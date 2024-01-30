@@ -628,7 +628,7 @@ def test_cpu_cpuid_restore(microvm_factory, guest_kernel, msr_cpu_template):
     PLATFORM != "x86_64", reason="CPU features are masked only on x86_64."
 )
 @pytest.mark.parametrize("cpu_template", ["T2", "T2S", "C3"])
-def test_cpu_template(test_microvm_with_api, cpu_template):
+def test_cpu_template(test_microvm_with_api, cpu_template, microvm_factory):
     """
     Test masked and enabled cpu features against the expected template.
 
@@ -656,6 +656,15 @@ def test_cpu_template(test_microvm_with_api, cpu_template):
 
     check_masked_features(test_microvm, cpu_template)
     check_enabled_features(test_microvm, cpu_template)
+
+    # Check that cpu features are still correct
+    # after snap/restore cycle.
+    snapshot = test_microvm.snapshot_full()
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+    restored_vm.restore_from_snapshot(snapshot, resume=True)
+    check_masked_features(restored_vm, cpu_template)
+    check_enabled_features(restored_vm, cpu_template)
 
 
 def check_masked_features(test_microvm, cpu_template):
