@@ -9,7 +9,7 @@ license = "Apache-2.0"
 bench = false
 
 [dependencies]
-aws-lc-rs = "1.0.2"
+aws-lc-rs = { version = "1.6.1", features = ["bindgen"] }
 bitflags = "2.0.2"
 derive_more = { version = "0.99.17", default-features = false, features = ["from", "display"] }
 event-manager = "0.4.0"
