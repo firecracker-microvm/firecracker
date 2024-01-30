@@ -223,8 +223,4 @@ if [ $ARCH == "x86_64" ]; then
 fi
 build_linux $PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config
 
-if [ $ARCH == "aarch64" ]; then
-    build_linux $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10-no-sve.config vmlinux-no-sve
-fi
-
 tree -h $OUTPUT_DIR
