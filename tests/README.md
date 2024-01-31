@@ -162,37 +162,41 @@ tools/devtool test
 
 ## FAQ
 
-`Q1:` *I have a shell script that runs my tests and I don't want to rewrite it.*
-`A1:` Insofar as it makes sense, you should write it as a python test function.
-However, you can always call the script from a shim python test function. You
-can also add it as a microvm image resource in the s3 bucket (and it will be
-made available under `microvm.slot.path`) or copy it over to a guest filesystem
-as part of your test.
+`Q1:` *I have a shell script that runs my tests and I don't want to rewrite
+it.*\
+`A1:` Insofar as it makes sense, you should write it as a python test
+function. However, you can always call the script from a shim python test
+function. You can also add it as a microvm image resource in the s3 bucket (and
+it will be made available under `microvm.slot.path`) or copy it over to a guest
+filesystem as part of your test.
 
 `Q2:` *I want to add more tests that I don't want to commit to the Firecracker
-repository.* `A2:` Before a testrun or test session, just add your test
+repository.*\
+`A2:` Before a testrun or test session, just add your test
 directory under `tests/`. `pytest` will discover all tests in this tree.
 
-`Q3:` *I want to have my own test fixtures, and not commit them in the repo.*
-`A3:` Add a `conftest.py` file in your test directory, and place your fixtures
-there. `pytest` will bring them into scope for all your tests.
+`Q3:` *I want to have my own test fixtures, and not commit them in the
+repo.*\
+`A3:` Add a `conftest.py` file in your test directory, and place your
+fixtures there. `pytest` will bring them into scope for all your tests.
 
 `Q4:` *I want to use more/other microvm test images, but I don't want to add
-them to the common s3 bucket.* `A4:` Add your custom images to the `build/img`
+them to the common s3 bucket.*\
+`A4:` Add your custom images to the `build/img`
 subdirectory in the Firecracker source tree. This directory is bind-mounted in
 the container and used as a local image cache.
 
-`Q5:` *How can I get live logger output from the tests?* `A5:` Accessing
+`Q5:` *How can I get live logger output from the tests?*\
+`A5:` Accessing
 **pytest.ini** will allow you to modify logger settings.
 
-`Q6:` *Is there a way to speed up integration tests execution time?*
-
-`A6:` You can narrow down the test selection as described in the **Running**
-section, or in the **Troubleshooting Tests** section. For example:
+`Q6:` *Is there a way to speed up integration tests execution time?*\
+`A6:` You
+can narrow down the test selection as described in the **Running** section, or
+in the **Troubleshooting Tests** section. For example:
 
 1. Pass the `-k substring` option to Pytest to only run a subset of tests by
    specifying a part of their name.
-
 1. Only run the tests contained in a file or directory.
 
 ## Implementation Goals
