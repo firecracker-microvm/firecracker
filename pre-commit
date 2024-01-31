@@ -34,6 +34,9 @@ for i in $(git diff --name-only --cached --diff-filter=d); do
         black $i
         isort $i
     fi
+    if [ "$extension" = "md" ]; then
+        mdformat $i
+    fi
     # Add changes to this file (as a result of formatting) to the commit.
     git add $i
 done
