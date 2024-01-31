@@ -472,15 +472,19 @@ impl Env {
         // a new PathBuf, with something like chroot_dir.join(exec_file_name) ?!
         self.chroot_dir.push(exec_file_name);
 
-        // We do a copy instead of a hard-link for 2 reasons
-        // 1. hard-linking is not possible if the file is in another device
-        // 2. while hardlinking would save up disk space and also memory by sharing parts of the
-        //    Firecracker binary (like the executable .text section), this latter part is not
-        //    desirable in Firecracker's threat model. Copying prevents 2 Firecracker processes from
-        //    sharing memory.
-        fs::copy(&self.exec_file_path, &self.chroot_dir).map_err(|err| {
-            JailerError::Copy(self.exec_file_path.clone(), self.chroot_dir.clone(), err)
-        })?;
+        // Copying the exec file is a costly operation. Check if it exists before actually copying
+        // it, to avoid wasting unnecessary time on repeated runs in the same jail.
+        if !self.chroot_dir.is_file() {
+            // We do a copy instead of a hard-link for 2 reasons
+            // 1. hard-linking is not possible if the file is in another device
+            // 2. while hardlinking would save up disk space and also memory by sharing parts of the
+            //    Firecracker binary (like the executable .text section), this latter part is not
+            //    desirable in Firecracker's threat model. Copying prevents 2 Firecracker processes from
+            //    sharing memory.
+            fs::copy(&self.exec_file_path, &self.chroot_dir).map_err(|err| {
+                JailerError::Copy(self.exec_file_path.clone(), self.chroot_dir.clone(), err)
+            })?;
+        }
 
         // Pop exec_file_name.
         self.chroot_dir.pop();
