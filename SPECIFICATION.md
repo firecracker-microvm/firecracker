@@ -11,12 +11,12 @@ there are enough free CPU cycles, there is enough RAM, etc.), customers can rely
 on the following:
 
 1. **Stability:** The Firecracker virtual machine manager starts (up to API
-   socket availability) within `8 CPU ms`<sup>1</sup> and never
-   crashes/halts/terminates for internal reasons once started. _Note_: The
-   wall-clock time has a large standard deviation, spanning `6 ms to 60 ms`,
-   with typical durations around `12 ms`.
+   socket availability) within `8 CPU ms`[^1] and never crashes/halts/terminates
+   for internal reasons once started. _Note_: The wall-clock time has a large
+   standard deviation, spanning `6 ms to 60 ms`, with typical durations around
+   `12 ms`.
 1. **Failure Information:** When failures occur due to external circumstances,
-   they are logged<sup>2</sup> by the Firecracker process.
+   they are logged[^2] by the Firecracker process.
 1. **API Stability:** The API socket is always available and the API conforms to
    the in-tree
    [Open API specification](src/firecracker/swagger/firecracker.yaml). API
@@ -59,12 +59,12 @@ on the following:
    are full will be lost. Any such events will be signaled through the
    `lost-logs` and `lost-metrics` counters.
 
-<sup>1</sup> CPU ms are actual ms of a user space thread's on-CPU runtime;
-useful for getting consistent measurements for some performance metrics.
+[^1]: CPU ms are actual ms of a user space thread's on-CPU runtime; useful for
+    getting consistent measurements for some performance metrics.
 
-<sup>2</sup> No logs are currently produced in the span of time between the
-`jailer` process start-up and the logging system initialization in the
-`firecracker` process.
+[^2]: No logs are currently produced in the span of time between the `jailer`
+    process start-up and the logging system initialization in the `firecracker`
+    process.
 
 [1]: https://aws.amazon.com/ec2/instance-types/m5/
 [2]: https://aws.amazon.com/ec2/instance-types/m6/
