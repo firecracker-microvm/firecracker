@@ -6,7 +6,7 @@ limitations.
 
 ## Introduction
 
-Firecracker uses the serde crate \[1\] along with the bincode \[2\] format to
+Firecracker uses the serde crate [1] along with the bincode [2] format to
 serialize its state into Firecracker snapshots. Firecracker snapshots have
 versions that are independent of Firecracker versions. Each Firecracker version
 declares support for a specific snapshot data format version. When creating a
@@ -145,3 +145,6 @@ The microVM state file format is implemented in the
 All Firecracker devices implement the
 [Persist](../../src/snapshot/src/persist.rs) trait which exposes an interface
 that enables creating from and saving to the microVM state.
+
+[1]: https://serde.rs
+[2]: https://github.com/bincode-org/bincode
