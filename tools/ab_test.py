@@ -23,6 +23,7 @@ import argparse
 import json
 import statistics
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 # Hack to be able to use our test framework code
@@ -265,7 +266,8 @@ def ab_performance_test(
     # Note that with this approach, for performance changes to "cancel out", we would need essentially a perfect split
     # between scenarios that improve performance and scenarios that degrade performance, something we have not
     # ever observed to actually happen.
-    relative_changes_by_metric = {}
+    relative_changes_by_metric = defaultdict(list)
+    relative_changes_significant = defaultdict(list)
 
     failures = []
     for (dimension_set, metric), (result, unit) in results.items():
@@ -275,17 +277,27 @@ def ab_performance_test(
         values_a = processed_emf_a[dimension_set][metric][0]
         baseline_mean = statistics.mean(values_a)
 
-        if metric not in relative_changes_by_metric:
-            relative_changes_by_metric[metric] = []
         relative_changes_by_metric[metric].append(result.statistic / baseline_mean)
 
         if result.pvalue < p_thresh and abs(result.statistic) > strength_abs_thresh:
             failures.append((dimension_set, metric, result, unit))
 
+            relative_changes_significant[metric].append(
+                result.statistic / baseline_mean
+            )
+
     messages = []
     for dimension_set, metric, result, unit in failures:
         # Sanity check as described above
-        if abs(statistics.mean(relative_changes_by_metric[metric])) > noise_threshold:
+        if abs(statistics.mean(relative_changes_by_metric[metric])) <= noise_threshold:
+            continue
+
+        # No data points for this metric were deemed significant
+        if metric not in relative_changes_significant:
+            continue
+
+        # The significant data points themselves are above the noise threshold
+        if abs(statistics.mean(relative_changes_significant[metric])) > noise_threshold:
             old_mean = statistics.mean(processed_emf_a[dimension_set][metric][0])
             new_mean = statistics.mean(processed_emf_b[dimension_set][metric][0])
 
