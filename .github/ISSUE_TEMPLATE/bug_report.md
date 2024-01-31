@@ -13,8 +13,10 @@ assignees: ''
 ## To Reproduce
 
 `[Author TODO: Steps to reproduce the behaviour:]`
-`[ 1. Start Firecracker via....]` `[ 2. Configure Firecracker via....]`
-`[ 3. ....]`
+
+1. Start Firecracker via....
+1. Configure Firecracker via...
+1. ...
 
 ## Expected behaviour
 
@@ -23,9 +25,12 @@ assignees: ''
 ## Environment
 
 `[Author TODO: Please supply the following information):]`
-`[ - Firecracker version.]` `[ - Host and guest kernel versions.]`
-`[ - Rootfs used.]` `[ - Architecture.]`
-`[ - Any other relevant software versions.]`
+
+- Firecracker version:
+- Host and guest kernel versions:
+- Rootfs used:
+- Architecture:
+- Any other relevant software versions:
 
 ## Additional context
 
