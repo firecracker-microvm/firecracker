@@ -218,7 +218,7 @@ int main(int argc, char ** argv) {
 }
 ```
 
-[1]: http://man7.org/linux/man-pages/man7/random.7.html "Lala"
+[1]: http://man7.org/linux/man-pages/man7/random.7.html
 [2]: https://www.2uo.de/myths-about-urandom
 [3]: https://www.bsi.bund.de/SharedDocs/Downloads/EN/BSI/Publications/Studies/LinuxRNG/LinuxRNG_EN.pdf
 [4]: http://man7.org/linux/man-pages/man4/random.4.html
