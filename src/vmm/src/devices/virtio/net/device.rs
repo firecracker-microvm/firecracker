@@ -32,7 +32,7 @@ use crate::devices::virtio::net::{
     MAX_BUFFER_SIZE, NET_QUEUE_SIZES, NetError, NetQueue, RX_INDEX, TX_INDEX, generated,
 };
 use crate::devices::virtio::queue::{DescriptorChain, InvalidAvailIdx, Queue};
-use crate::devices::virtio::{ActivateError, TYPE_NET};
+use crate::devices::virtio::{ActivateError, ResetError, TYPE_NET};
 use crate::devices::{DeviceError, report_net_event_fail};
 use crate::dumbo::pdu::arp::ETH_IPV4_FRAME_LEN;
 use crate::dumbo::pdu::ethernet::{EthernetFrame, PAYLOAD_OFFSET};
@@ -1029,6 +1029,13 @@ impl VirtioDevice for Net {
 
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
+    }
+
+    fn reset(&mut self) -> Result<(), ResetError> {
+        self.device_state = DeviceState::Inactive;
+        self.rx_frame_buf = [0u8; MAX_BUFFER_SIZE];
+        self.acked_features = 0;
+        Ok(())
     }
 }
 
@@ -2402,19 +2409,30 @@ pub mod tests {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
-        let net = th.net.lock().unwrap();
+        let mut net = th.net.lock().unwrap();
 
-        // Test queues count (TX and RX).
-        let queues = net.queues();
-        assert_eq!(queues.len(), NET_QUEUE_SIZES.len());
-        assert_eq!(queues[RX_INDEX].size, th.rxq.size());
-        assert_eq!(queues[TX_INDEX].size, th.txq.size());
+        let validate = |net: &Net| {
+            // Test queues count (TX and RX).
+            let queues = net.queues();
+            assert_eq!(queues.len(), NET_QUEUE_SIZES.len());
+            assert_eq!(queues[RX_INDEX].size, th.rxq.size());
+            assert_eq!(queues[TX_INDEX].size, th.txq.size());
 
-        // Test corresponding queues events.
-        assert_eq!(net.queue_events().len(), NET_QUEUE_SIZES.len());
+            // Test corresponding queues events.
+            assert_eq!(net.queue_events().len(), NET_QUEUE_SIZES.len());
 
-        // Test interrupts.
-        assert!(!&net.irq_trigger.has_pending_irq(IrqType::Vring));
+            // Test interrupts.
+            assert!(!&net.irq_trigger.has_pending_irq(IrqType::Vring));
+        };
+
+        validate(&net);
+
+        // Test reset.
+        assert!(net.device_state.is_activated());
+        net.reset().unwrap();
+        assert!(!net.device_state.is_activated());
+
+        validate(&net);
     }
 
     #[test]
