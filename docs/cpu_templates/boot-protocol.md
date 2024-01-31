@@ -1,10 +1,10 @@
 # Boot protocol register settings
 
-Firecracker makes certain modifications to the guest's registers
-regardless of whether a CPU template is used to comply with the boot protocol.
-If a CPU template is used the boot protocol settings are performed _after_ the
-CPU template is applied. That means that if the CPU template configures CPUID
-bits used in the boot protocol settings, they will be overwritten.
+Firecracker makes certain modifications to the guest's registers regardless of
+whether a CPU template is used to comply with the boot protocol. If a CPU
+template is used the boot protocol settings are performed _after_ the CPU
+template is applied. That means that if the CPU template configures CPUID bits
+used in the boot protocol settings, they will be overwritten.
 
 See also: [CPUID normalization](cpuid-normalization.md)
 
@@ -28,6 +28,6 @@ and MSR_IA32_MISC_ENABLE is set to `1`.
 
 On aarch64, the following registers are set:
 
-- PSTATE to PSR_MODE_EL1h \| PSR_A_BIT \| PSR_F_BIT \| PSR_I_BIT \| PSR_D_BIT
+- PSTATE to PSR_MODE_EL1h | PSR_A_BIT | PSR_F_BIT | PSR_I_BIT | PSR_D_BIT
 - PC to kernel load address (vCPU0 only)
 - X0 to DTB/FDT address (vCPU0 only)

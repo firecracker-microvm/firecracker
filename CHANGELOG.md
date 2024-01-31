@@ -3,143 +3,143 @@
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+and this project adheres to
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## \[Unreleased\]
 
 ### Added
 
-- [#4346](https://github.com/firecracker-microvm/firecracker/pull/4346):
-  Added support to emit aggregate (minimum/maximum/sum) latency for
+- [#4346](https://github.com/firecracker-microvm/firecracker/pull/4346): Added
+  support to emit aggregate (minimum/maximum/sum) latency for
   `VcpuExit::MmioRead`, `VcpuExit::MmioWrite`, `VcpuExit::IoIn` and
-  `VcpuExit::IoOut`. The average for these VM exits is not emitted since
-  it can be deduced from the available emitted metrics.
+  `VcpuExit::IoOut`. The average for these VM exits is not emitted since it can
+  be deduced from the available emitted metrics.
 
 ### Changed
 
-- [#4230](https://github.com/firecracker-microvm/firecracker/pull/4230):
-  Changed microVM snapshot format version strategy. Firecracker snapshot format
-  now has a version that is independent of Firecracker version. The current
-  version of the snapshot format is v1.0.0. From now on, the Firecracker binary
-  will define the snapshot format version it supports and it will only be able
-  to load snapshots with format that is backwards compatible with that version.
-  Users can pass the `--snapshot-version` flag to the Firecracker binary to see
-  its supported snapshot version format. This change renders all previous
-  Firecracker snapshots (up to Firecracker version v1.6.0) incompatible with
-  the current Firecracker version.
+- [#4230](https://github.com/firecracker-microvm/firecracker/pull/4230): Changed
+  microVM snapshot format version strategy. Firecracker snapshot format now has
+  a version that is independent of Firecracker version. The current version of
+  the snapshot format is v1.0.0. From now on, the Firecracker binary will define
+  the snapshot format version it supports and it will only be able to load
+  snapshots with format that is backwards compatible with that version. Users
+  can pass the `--snapshot-version` flag to the Firecracker binary to see its
+  supported snapshot version format. This change renders all previous
+  Firecracker snapshots (up to Firecracker version v1.6.0) incompatible with the
+  current Firecracker version.
 
 ### Fixed
 
-- [#4409](https://github.com/firecracker-microvm/firecracker/pull/4409):
-  Fixed a bug in the cpu-template-helper that made it panic during conversion
-  of cpu configuration with SVE registers to the cpu template on aarch64 platform.
-  Now cpu-template-helper will print warnings if it encounters SVE registers
-  during the conversion process. This is because cpu templates are limited
-  to only modify registers less than 128 bits.
-- [#4413](https://github.com/firecracker-microvm/firecracker/pull/4413):
-  Fixed a bug in the Firecracker that prevented it to restore snapshots of
-  VMs that had SVE enabled.
-- [#4414](https://github.com/firecracker-microvm/firecracker/pull/4360):
-  Made `PATCH` requests to the `/machine-config` endpoint transactional, meaning
+- [#4409](https://github.com/firecracker-microvm/firecracker/pull/4409): Fixed a
+  bug in the cpu-template-helper that made it panic during conversion of cpu
+  configuration with SVE registers to the cpu template on aarch64 platform. Now
+  cpu-template-helper will print warnings if it encounters SVE registers during
+  the conversion process. This is because cpu templates are limited to only
+  modify registers less than 128 bits.
+- [#4413](https://github.com/firecracker-microvm/firecracker/pull/4413): Fixed a
+  bug in the Firecracker that prevented it to restore snapshots of VMs that had
+  SVE enabled.
+- [#4414](https://github.com/firecracker-microvm/firecracker/pull/4360): Made
+  `PATCH` requests to the `/machine-config` endpoint transactional, meaning
   Firecracker's configuration will be unchanged if the request returns an error.
-  This fixes a bug where a microVM with incompatible balloon and guest memory size
-  could be booted, due to the check for this condition happening after Firecracker's
-  configuration was updated.
+  This fixes a bug where a microVM with incompatible balloon and guest memory
+  size could be booted, due to the check for this condition happening after
+  Firecracker's configuration was updated.
 
-## [v1.6.0]
+## \[v1.6.0\]
 
 ### Added
 
-- [#4145](https://github.com/firecracker-microvm/firecracker/pull/4145):
-  Added support for per net device metrics. In addition to aggregate metrics `net`,
-  each individual net device will emit metrics under the label `"net_{iface_id}"`.
-  E.g. the associated metrics for the endpoint `"/network-interfaces/eth0"` will
-  be available under `"net_eth0"` in the metrics json object.
-- [#4202](https://github.com/firecracker-microvm/firecracker/pull/4202):
-  Added support for per block device metrics. In addition to aggregate metrics `block`,
-  each individual block device will emit metrics under the label `"block_{drive_id}"`.
-  E.g. the associated metrics for the endpoint `"/drives/{drive_id}"` will
-  be available under `"block_drive_id"` in the metrics json object.
-- [#4205](https://github.com/firecracker-microvm/firecracker/pull/4205):
-  Added a new `vm-state` subcommand to `info-vmstate` command in the
-  `snapshot-editor` tool to print MicrovmState of vmstate snapshot file in
-  a readable format. Also made the `vcpu-states` subcommand available on
-  x86_64.
-- [#4063](https://github.com/firecracker-microvm/firecracker/pull/4063):
-  Added source-level instrumentation based tracing. See
-  [tracing](./docs/tracing.md) for more details.
+- [#4145](https://github.com/firecracker-microvm/firecracker/pull/4145): Added
+  support for per net device metrics. In addition to aggregate metrics `net`,
+  each individual net device will emit metrics under the label
+  `"net_{iface_id}"`. E.g. the associated metrics for the endpoint
+  `"/network-interfaces/eth0"` will be available under `"net_eth0"` in the
+  metrics json object.
+- [#4202](https://github.com/firecracker-microvm/firecracker/pull/4202): Added
+  support for per block device metrics. In addition to aggregate metrics
+  `block`, each individual block device will emit metrics under the label
+  `"block_{drive_id}"`. E.g. the associated metrics for the endpoint
+  `"/drives/{drive_id}"` will be available under `"block_drive_id"` in the
+  metrics json object.
+- [#4205](https://github.com/firecracker-microvm/firecracker/pull/4205): Added a
+  new `vm-state` subcommand to `info-vmstate` command in the `snapshot-editor`
+  tool to print MicrovmState of vmstate snapshot file in a readable format. Also
+  made the `vcpu-states` subcommand available on x86_64.
+- [#4063](https://github.com/firecracker-microvm/firecracker/pull/4063): Added
+  source-level instrumentation based tracing. See [tracing](./docs/tracing.md)
+  for more details.
 - [#4138](https://github.com/firecracker-microvm/firecracker/pull/4138),
   [#4170](https://github.com/firecracker-microvm/firecracker/pull/4170),
   [#4223](https://github.com/firecracker-microvm/firecracker/pull/4223),
   [#4247](https://github.com/firecracker-microvm/firecracker/pull/4247),
-  [#4226](https://github.com/firecracker-microvm/firecracker/pull/4226):
-  Added **developer preview only** (NOT for production use) support for
-  vhost-user block devices.
-  Firecracker implements a vhost-user frontend. Users are free to choose
-  from existing open source backend solutions or their own implementation.
-  Known limitation: snapshotting is not currently supported for microVMs
-  containing vhost-user block devices.
-  See the [related doc page](./docs/api_requests/block-vhost-user.md) for details.
-  The device emits metrics under the label `"vhost_user_{device}_{drive_id}"`.
+  [#4226](https://github.com/firecracker-microvm/firecracker/pull/4226): Added
+  **developer preview only** (NOT for production use) support for vhost-user
+  block devices. Firecracker implements a vhost-user frontend. Users are free to
+  choose from existing open source backend solutions or their own
+  implementation. Known limitation: snapshotting is not currently supported for
+  microVMs containing vhost-user block devices. See the
+  [related doc page](./docs/api_requests/block-vhost-user.md) for details. The
+  device emits metrics under the label `"vhost_user_{device}_{drive_id}"`.
 
 ### Changed
 
 - [#4309](https://github.com/firecracker-microvm/firecracker/pull/4309): The
   jailer's option `--parent-cgroup` will move the process to that cgroup if no
   `cgroup` options are provided.
-- Simplified and clarified the removal policy of deprecated API elements
-  to follow semantic versioning 2.0.0. For more information, please refer to
+- Simplified and clarified the removal policy of deprecated API elements to
+  follow semantic versioning 2.0.0. For more information, please refer to
   [this GitHub discussion](https://github.com/firecracker-microvm/firecracker/discussions/4135).
 - [#4180](https://github.com/firecracker-microvm/firecracker/pull/4180):
-  Refactored error propagation to avoid logging and printing an error on
-  exits with a zero exit code. Now, on successful exit
-  "Firecracker exited successfully" is logged.
-- [#4194](https://github.com/firecracker-microvm/firecracker/pull/4194):
-  Removed support for creating Firecracker snapshots targeting older versions
-  of Firecracker. With this change, running 'firecracker --version' will not
-  print the supported snapshot versions.
-- [#4301](https://github.com/firecracker-microvm/firecracker/pull/4301):
-  Allow merging of diff snapshots into base snapshots by directly writing
-  the diff snapshot on top of the base snapshot's memory file. This can be
-  done by setting the `mem_file_path` to the path of the pre-existing full
-  snapshot.
+  Refactored error propagation to avoid logging and printing an error on exits
+  with a zero exit code. Now, on successful exit "Firecracker exited
+  successfully" is logged.
+- [#4194](https://github.com/firecracker-microvm/firecracker/pull/4194): Removed
+  support for creating Firecracker snapshots targeting older versions of
+  Firecracker. With this change, running 'firecracker --version' will not print
+  the supported snapshot versions.
+- [#4301](https://github.com/firecracker-microvm/firecracker/pull/4301): Allow
+  merging of diff snapshots into base snapshots by directly writing the diff
+  snapshot on top of the base snapshot's memory file. This can be done by
+  setting the `mem_file_path` to the path of the pre-existing full snapshot.
 
 ### Deprecated
 
 - [#4209](https://github.com/firecracker-microvm/firecracker/pull/4209):
-  `rebase-snap` tool is now deprecated. Users should use `snapshot-editor`
-  for rebasing diff snapshots.
+  `rebase-snap` tool is now deprecated. Users should use `snapshot-editor` for
+  rebasing diff snapshots.
 
 ### Fixed
 
-- [#4171](https://github.com/firecracker-microvm/firecracker/pull/4171):
-  Fixed a bug that ignored the `--show-log-origin` option, preventing it from
-  printing the source code file of the log messages.
-- [#4178](https://github.com/firecracker-microvm/firecracker/pull/4178):
-  Fixed a bug reporting a non-zero exit code on successful shutdown when
-  starting Firecracker with `--no-api`.
-- [#4261](https://github.com/firecracker-microvm/firecracker/pull/4261): Fixed
-  a bug where Firecracker would log "RunWithApiError error: MicroVMStopped
-  without an error: GenericError" when exiting after encountering an emulation
-  error. It now correctly prints "RunWithApiError error: MicroVMStopped *with* an
-  error: GenericError".
-- [#4242](https://github.com/firecracker-microvm/firecracker/pull/4242):
-  Fixed a bug introduced in #4047 that limited the `--level` option of logger
-  to Pascal-cased values (e.g. accepting "Info", but not "info"). It now
-  ignores case again.
-- [#4286](https://github.com/firecracker-microvm/firecracker/pull/4286):
-  Fixed a bug in the asynchronous virtio-block engine that rendered the device
+- [#4171](https://github.com/firecracker-microvm/firecracker/pull/4171): Fixed a
+  bug that ignored the `--show-log-origin` option, preventing it from printing
+  the source code file of the log messages.
+- [#4178](https://github.com/firecracker-microvm/firecracker/pull/4178): Fixed a
+  bug reporting a non-zero exit code on successful shutdown when starting
+  Firecracker with `--no-api`.
+- [#4261](https://github.com/firecracker-microvm/firecracker/pull/4261): Fixed a
+  bug where Firecracker would log "RunWithApiError error: MicroVMStopped without
+  an error: GenericError" when exiting after encountering an emulation error. It
+  now correctly prints "RunWithApiError error: MicroVMStopped *with* an error:
+  GenericError".
+- [#4242](https://github.com/firecracker-microvm/firecracker/pull/4242): Fixed a
+  bug introduced in #4047 that limited the `--level` option of logger to
+  Pascal-cased values (e.g. accepting "Info", but not "info"). It now ignores
+  case again.
+- [#4286](https://github.com/firecracker-microvm/firecracker/pull/4286): Fixed a
+  bug in the asynchronous virtio-block engine that rendered the device
   non-functional after a PATCH request was issued to Firecracker for updating
   the path to the host-side backing file of the device.
-- [#4301](https://github.com/firecracker-microvm/firecracker/pull/4301):
-  Fixed a bug where if Firecracker was instructed to take a snapshot of a
-  microvm which itself was restored from a snapshot, specifying `mem_file_path`
-  to be the path of the memory file from which the microvm was restored would
-  result in both the microvm and the snapshot being corrupted. It now instead
-  performs a "write-back" of all memory that was updated since the snapshot
-  was originally loaded.
+- [#4301](https://github.com/firecracker-microvm/firecracker/pull/4301): Fixed a
+  bug where if Firecracker was instructed to take a snapshot of a microvm which
+  itself was restored from a snapshot, specifying `mem_file_path` to be the path
+  of the memory file from which the microvm was restored would result in both
+  the microvm and the snapshot being corrupted. It now instead performs a
+  "write-back" of all memory that was updated since the snapshot was originally
+  loaded.
 
-## [1.5.0]
+## \[1.5.0\]
 
 ### Added
 
@@ -147,31 +147,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   official support for Linux 6.1. See
   [prod-host-setup](./docs/prod-host-setup.md) for some security and performance
   considerations.
-- [#4045](https://github.com/firecracker-microvm/firecracker/pull/4045)
-  and [#4075](https://github.com/firecracker-microvm/firecracker/pull/4075):
-  Added `snapshot-editor` tool for modifications of snapshot files.
-  It allows for rebasing of memory snapshot files, printing and
-  removing aarch64 registers from the vmstate and obtaining snapshot version.
-- [#3967](https://github.com/firecracker-microvm/firecracker/pull/3967/):
-  Added new fields to the custom CPU templates. (aarch64 only) `vcpu_features`
-  field allows modifications of vCPU features enabled during vCPU
-  initialization. `kvm_capabilities` field allows modifications of KVM
-  capability checks that Firecracker performs during boot. If any of
-  these fields are in use, minimal target snapshot version is
-  restricted to 1.5.
+- [#4045](https://github.com/firecracker-microvm/firecracker/pull/4045) and
+  [#4075](https://github.com/firecracker-microvm/firecracker/pull/4075): Added
+  `snapshot-editor` tool for modifications of snapshot files. It allows for
+  rebasing of memory snapshot files, printing and removing aarch64 registers
+  from the vmstate and obtaining snapshot version.
+- [#3967](https://github.com/firecracker-microvm/firecracker/pull/3967/): Added
+  new fields to the custom CPU templates. (aarch64 only) `vcpu_features` field
+  allows modifications of vCPU features enabled during vCPU initialization.
+  `kvm_capabilities` field allows modifications of KVM capability checks that
+  Firecracker performs during boot. If any of these fields are in use, minimal
+  target snapshot version is restricted to 1.5.
 
 ### Changed
 
-- Updated deserialization of `bitmap` for custom CPU templates to allow usage
-  of '_' as a separator.
+- Updated deserialization of `bitmap` for custom CPU templates to allow usage of
+  '\_' as a separator.
 - Changed the strip feature of `cpu-template-helper` tool to operate bitwise.
 - Better logs during validation of CPU ID in snapshot restoration path. Also
-  Firecracker now does not fail if it can't get CPU ID from the host or
-  can't find CPU ID in the snapshot.
-- Changed the serial device to only try to initialize itself if stdin is a terminal
-  or a FIFO pipe. This fixes logged warnings about the serial device failing to
-  initialize if the process is daemonized (in which case stdin is /dev/null instead
-  of a terminal).
+  Firecracker now does not fail if it can't get CPU ID from the host or can't
+  find CPU ID in the snapshot.
+- Changed the serial device to only try to initialize itself if stdin is a
+  terminal or a FIFO pipe. This fixes logged warnings about the serial device
+  failing to initialize if the process is daemonized (in which case stdin is
+  /dev/null instead of a terminal).
 - Changed to show a warning message when launching a microVM with C3 template on
   a processor prior to Intel Cascade Lake, because the guest kernel does not
   apply the mitigation against MMIO stale data vulnerability when it is running
@@ -182,20 +181,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   if no limit is set). This avoids the kernel reallocating the fdtable during
   Firecracker operations, resulting in a 30ms to 70ms reduction of snapshot
   restore times for medium to large microVMs with many devices attached.
-- Changed the dump feature of `cpu-template-helper` tool not to enumerate program
-  counter (PC) on ARM because it is determined by the given kernel image and
-  it is useless in the custom CPU template context.
+- Changed the dump feature of `cpu-template-helper` tool not to enumerate
+  program counter (PC) on ARM because it is determined by the given kernel image
+  and it is useless in the custom CPU template context.
 - The ability to create snapshots for an older version of Firecracker is now
   deprecated. As a result, the `version` body field in `PUT` on
   `/snapshot/create` request in deprecated.
 - Added support for the /dev/userfaultfd device available on linux kernels >=
   6.1. This is the default for creating UFFD handlers on these kernel versions.
   If it is unavailable, Firecracker falls back to the userfaultfd syscall.
-- Deprecated `cpu_template` field in `PUT` and `PATCH` requests on `/machine-config`
-  API, which is used to set a static CPU template. Custom CPU templates added in
-  v1.4.0 are available as an improved iteration of the static CPU templates. For
-  more information about the transition from static CPU templates to custom CPU
-  templates, please refer to [this GitHub discussion](https://github.com/firecracker-microvm/firecracker/discussions/4135).
+- Deprecated `cpu_template` field in `PUT` and `PATCH` requests on
+  `/machine-config` API, which is used to set a static CPU template. Custom CPU
+  templates added in v1.4.0 are available as an improved iteration of the static
+  CPU templates. For more information about the transition from static CPU
+  templates to custom CPU templates, please refer to
+  [this GitHub discussion](https://github.com/firecracker-microvm/firecracker/discussions/4135).
 - Changed default log level from
   [`Warn`](https://docs.rs/log/latest/log/enum.Level.html#variant.Warn) to
   [`Info`](https://docs.rs/log/latest/log/enum.Level.html#variant.Info). This
@@ -205,13 +205,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fixed a change in behavior of normalize host brand string that breaks
   Firecracker on external instances.
-- Fixed the T2A CPU template not to unset the MMX bit (CPUID.80000001h:EDX[23])
-  and the FXSR bit (CPUID.80000001h:EDX[24]).
+- Fixed the T2A CPU template not to unset the MMX bit
+  (CPUID.80000001h:EDX\[23\]) and the FXSR bit (CPUID.80000001h:EDX\[24\]).
 - Fixed the T2A CPU template to set the RstrFpErrPtrs bit
-  (CPUID.80000008h:EBX[2]).
-- Fixed a bug where Firecracker would crash during boot if a guest set up a virtio
-  queue that partially overlapped with the MMIO gap. Now Firecracker instead
-  correctly refuses to activate the corresponding virtio device.
+  (CPUID.80000008h:EBX\[2\]).
+- Fixed a bug where Firecracker would crash during boot if a guest set up a
+  virtio queue that partially overlapped with the MMIO gap. Now Firecracker
+  instead correctly refuses to activate the corresponding virtio device.
 - Fixed the T2CL CPU template to pass through security mitigation bits that are
   listed by KVM as bits able to be passed through. By making the most use of the
   available hardware security mitigations on a processor that a guest is running
@@ -220,21 +220,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   MSR to 1 in accordance with an Intel microcode update. To use the template
   securely, users should apply the latest microcode update on the host.
 - Fixed the spelling of the `nomodule` param passed in the default kernel
-  command line parameters. This is a **breaking change** for setups that
-  use the default kernel command line which also depend on being able to
-  load kernel modules at runtime. This may also break setups which use the
-  default kernel command line and which use an init binary that
-  inadvertently depends on the misspelled param ("nomodules") being
-  present at the command line, since this param will no longer be passed.
+  command line parameters. This is a **breaking change** for setups that use the
+  default kernel command line which also depend on being able to load kernel
+  modules at runtime. This may also break setups which use the default kernel
+  command line and which use an init binary that inadvertently depends on the
+  misspelled param ("nomodules") being present at the command line, since this
+  param will no longer be passed.
 
-## [1.4.0]
+## \[1.4.0\]
 
 ### Added
 
 - Added support for custom CPU templates allowing users to adjust vCPU features
   exposed to the guest via CPUID, MSRs and ARM registers.
-- Introduced V1N1 static CPU template for ARM to represent Neoverse V1 CPU
-  as Neoverse N1.
+- Introduced V1N1 static CPU template for ARM to represent Neoverse V1 CPU as
+  Neoverse N1.
 - Added support for the `virtio-rng` entropy device. The device is optional. A
   single device can be enabled per VM using the `/entropy` endpoint.
 - Added a `cpu-template-helper` tool for assisting with creating and managing
@@ -242,8 +242,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Set FDP_EXCPTN_ONLY bit (CPUID.7h.0:EBX[6]) and ZERO_FCS_FDS bit
-  (CPUID.7h.0:EBX[13]) in Intel's CPUID normalization process.
+- Set FDP_EXCPTN_ONLY bit (CPUID.7h.0:EBX\[6\]) and ZERO_FCS_FDS bit
+  (CPUID.7h.0:EBX\[13\]) in Intel's CPUID normalization process.
 
 ### Fixed
 
@@ -264,15 +264,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed passing through cache information from host in CPUID leaf 0x80000005.
 - Fixed the T2A CPU template to disable SVM (nested virtualization).
 - Fixed the T2A CPU template to set EferLmsleUnsupported bit
-  (CPUID.80000008h:EBX[20]), which indicates that EFER[LMSLE] is not supported.
+  (CPUID.80000008h:EBX\[20\]), which indicates that EFER\[LMSLE\] is not
+  supported.
 
-## [1.3.0]
+## \[1.3.0\]
 
 ### Added
 
-- Introduced T2CL (Intel) and T2A (AMD) CPU templates to provide
-  instruction set feature parity between Intel and AMD CPUs when using
-  these templates.
+- Introduced T2CL (Intel) and T2A (AMD) CPU templates to provide instruction set
+  feature parity between Intel and AMD CPUs when using these templates.
 - Added Graviton3 support (c7g instance type).
 
 ### Changed
@@ -287,7 +287,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fixed feature flags in T2 CPU template on Intel Ice Lake.
 
-## [1.2.0]
+## \[1.2.0\]
 
 ### Added
 
@@ -309,38 +309,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   contain the string `firecracker` to prevent from running non-firecracker
   binaries.
 - Upgraded Rust toolchain from 1.52.1 to 1.64.0.
-- Switched to specifying our dependencies using caret requirements instead
-  of comparison requirements.
+- Switched to specifying our dependencies using caret requirements instead of
+  comparison requirements.
 - Updated all dependencies to their respective newest versions.
 
 ### Fixed
 
-- Made the `T2` template more robust by explicitly disabling additional
-  CPUID flags that should be off but were missed initially or that were
-  not available in the spec when the template was created.
-- Now MAC address is correctly displayed when queried with GET `/vm/config`
-  if left unspecified in both pre and post snapshot states.
+- Made the `T2` template more robust by explicitly disabling additional CPUID
+  flags that should be off but were missed initially or that were not available
+  in the spec when the template was created.
+- Now MAC address is correctly displayed when queried with GET `/vm/config` if
+  left unspecified in both pre and post snapshot states.
 - Fixed a self-DoS scenario in the virtio-queue code by reporting and
-  terminating execution when the number of available descriptors reported
-  by the driver is higher than the queue size.
+  terminating execution when the number of available descriptors reported by the
+  driver is higher than the queue size.
 - Fixed the bad handling of kernel cmdline parameters when init arguments were
   provided in the `boot_args` field of the JSON body of the PUT `/boot-source`
   request.
 - Fixed a bug on ARM64 hosts where the upper 64bits of the V0-V31 FL/SIMD
-  registers were not saved correctly when taking a snapshot, potentially
-  leading to data loss. This change invalidates all ARM64 snapshots taken
-  with versions of Firecracker <= 1.1.3.
+  registers were not saved correctly when taking a snapshot, potentially leading
+  to data loss. This change invalidates all ARM64 snapshots taken with versions
+  of Firecracker \<= 1.1.3.
 - Improved stability and security when saving CPU MSRs in snapshots.
 
-## [1.1.0]
+## \[1.1.0\]
 
 ### Added
 
-- The API `PATCH` methods for `machine-config` can now be used to reset
-  the `cpu_template` to `"None"`. Until this change there was no way to
-  reset the `cpu_template` once it was set.
-- Added a `rebase-snap` tool for rebasing a diff snapshot over a base
-  snapshot.
+- The API `PATCH` methods for `machine-config` can now be used to reset the
+  `cpu_template` to `"None"`. Until this change there was no way to reset the
+  `cpu_template` once it was set.
+- Added a `rebase-snap` tool for rebasing a diff snapshot over a base snapshot.
 - Mmds version is persisted across snapshot-restore. Snapshot compatibility is
   preserved bidirectionally, to and from a Firecracker version that does not
   support persisting the Mmds version. In such cases, the default V1 option is
@@ -356,9 +355,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fields. `backend_type` is an enum that can take either `File` or `Uffd` as
   value. Interpretation of `backend_path` field depends on the value of
   `backend_type`. If `File`, then the user must provide the path to file that
-  contains the guest memory to be loaded. Otherwise, if `backend_type` is `Uffd`,
-  then `backend_path` is the path to a unix domain socket where a custom page
-  fault handler process is listening and expecting a UFFD to be sent by
+  contains the guest memory to be loaded. Otherwise, if `backend_type` is
+  `Uffd`, then `backend_path` is the path to a unix domain socket where a custom
+  page fault handler process is listening and expecting a UFFD to be sent by
   Firecracker. The UFFD is used to handle the guest memory page faults in the
   separate process.
 - Added logging for the snapshot/restore and async block device IO engine
@@ -369,17 +368,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The API `PATCH` method for `/machine-config` can be now used to change
   `track_dirty_pages` on aarch64.
 - MmdsV2 is now Generally Available.
-- MmdsV1 is now deprecated and will be removed in Firecracker v2.0.0.
-  Use MmdsV2 instead.
+- MmdsV1 is now deprecated and will be removed in Firecracker v2.0.0. Use MmdsV2
+  instead.
 - Deprecated `mem_file_path` body field in `PUT` on `/snapshot/load` request.
 
 ### Fixed
 
 - Fixed inconsistency that allowed the start of a microVM from a JSON file
   without specifying the `vcpu_count` and `mem_size_mib` parameters for
-  `machine-config` although they are mandatory when configuring via the API.
-  Now these fields are mandatory when specifying `machine-config` in the JSON
-  file and when using the `PUT` request on `/machine-config`.
+  `machine-config` although they are mandatory when configuring via the API. Now
+  these fields are mandatory when specifying `machine-config` in the JSON file
+  and when using the `PUT` request on `/machine-config`.
 - Fixed inconsistency that allowed a user to specify the `cpu_template`
   parameter and set `smt` to `True` in `machine-config` when starting from a
   JSON file on aarch64 even though they are not permitted when using `PUT` or
@@ -388,14 +387,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed inconsistent behaviour of the `PUT` method for `/machine-config` that
   would reset the `track_dirty_pages` parameter to `false` if it was not
   specified in the JSON body of the request, but left the `cpu_template`
-  parameter intact if it was not present in the request. Now a `PUT` request
-  for `/machine-config` will reset all optional parameters (`smt`,
-  `cpu_template`, `track_dirty_pages`) to their default values if they are
-  not specified in the `PUT` request.
+  parameter intact if it was not present in the request. Now a `PUT` request for
+  `/machine-config` will reset all optional parameters (`smt`, `cpu_template`,
+  `track_dirty_pages`) to their default values if they are not specified in the
+  `PUT` request.
 - Fixed incosistency in the swagger definition with the current state of the
   `/vm/config` endpoint.
 
-## [1.0.0]
+## \[1.0.0\]
 
 ### Added
 
@@ -403,10 +402,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of microvm cgroups in custom cgroup nested hierarchies. The default value is
   `<exec-file>` which is backwards compatible to the behavior before this
   change.
-- Added jailer option `--cgroup-version <1|2>` to support running the jailer
-  on systems that have cgroup-v2. Default value is `1` which means that if
-  `--cgroup-version` is not specified, the jailer will try to create cgroups
-  on cgroup-v1 hierarchies only.
+- Added jailer option `--cgroup-version <1|2>` to support running the jailer on
+  systems that have cgroup-v2. Default value is `1` which means that if
+  `--cgroup-version` is not specified, the jailer will try to create cgroups on
+  cgroup-v1 hierarchies only.
 - Added `--http-api-max-payload-size` parameter to configure the maximum payload
   size for PUT and PATCH requests.
 - Limit MMDS data store size to `--http-api-max-payload-size`.
@@ -418,26 +417,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   allowing the MMDS to be used when using `--no-api` to disable the API server.
 - Checksum file for the release assets.
 - Added support for custom headers to MMDS requests. Accepted headers are:
-  `X-metadata-token`, which accepts a string value that provides a session
-  token for MMDS requests; and `X-metadata-token-ttl-seconds`, which
-  specifies the lifetime of the session token in seconds.
+  `X-metadata-token`, which accepts a string value that provides a session token
+  for MMDS requests; and `X-metadata-token-ttl-seconds`, which specifies the
+  lifetime of the session token in seconds.
 - Support and validation for host and guest kernel 5.10.
 - A [kernel support policy](docs/kernel-policy.md).
-- Added `io_engine` to the pre-boot block device configuration.
-  Possible values: `Sync` (the default option) or `Async` (only available for
-  kernels newer than 5.10.51). The `Async` variant introduces a block device
-  engine that uses io_uring for executing requests asynchronously, which is in
-  **developer preview** (NOT for production use).
-  See `docs/api_requests/block-io-engine.md`.
+- Added `io_engine` to the pre-boot block device configuration. Possible values:
+  `Sync` (the default option) or `Async` (only available for kernels newer than
+  5.10.51). The `Async` variant introduces a block device engine that uses
+  io_uring for executing requests asynchronously, which is in **developer
+  preview** (NOT for production use). See
+  `docs/api_requests/block-io-engine.md`.
 - Added `block.io_engine_throttled_events` metric for measuring the number of
   virtio events throttled because of the IO engine.
 - New optional `version` field to PUT requests towards `/mmds/config` to
-  configure MMDS version. Accepted values are `V1` and `V2` and default is
-  `V1`. MMDS `V2` is **developer preview only** (NOT for production use) and
-  it does not currently work after snapshot load.
-- Mandatory `network_interfaces` field to PUT requests towards
-  `/mmds/config` which contains a list of network interface IDs capable of
-  forwarding packets to MMDS.
+  configure MMDS version. Accepted values are `V1` and `V2` and default is `V1`.
+  MMDS `V2` is **developer preview only** (NOT for production use) and it does
+  not currently work after snapshot load.
+- Mandatory `network_interfaces` field to PUT requests towards `/mmds/config`
+  which contains a list of network interface IDs capable of forwarding packets
+  to MMDS.
 
 ### Changed
 
@@ -446,15 +445,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed the deprecated the `--seccomp-level parameter`.
 - `GET` requests to MMDS require a session token to be provided through
   `X-metadata-token` header when using V2.
-- Allow `PUT` requests to MMDS in order to generate a session token
-  to be used for future `GET` requests when version 2 is used.
+- Allow `PUT` requests to MMDS in order to generate a session token to be used
+  for future `GET` requests when version 2 is used.
 - Remove `allow_mmds_requests` field from the request body that attaches network
-  interfaces. Specifying interfaces that allow forwarding requests to MMDS is done
-  by adding the network interface's ID to the `network_interfaces` field of PUT
-  `/mmds/config` request's body.
+  interfaces. Specifying interfaces that allow forwarding requests to MMDS is
+  done by adding the network interface's ID to the `network_interfaces` field of
+  PUT `/mmds/config` request's body.
 - Renamed `/machine-config` `ht_enabled` to `smt`.
-- `smt` field is now optional on PUT `/machine-config`, defaulting to
-  `false`.
+- `smt` field is now optional on PUT `/machine-config`, defaulting to `false`.
 - Configuring `smt: true` on aarch64 via the API is forbidden.
 
 ### Fixed
@@ -463,21 +461,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   snapshot. It now correctly returns the config of the original microVM, except
   for boot_config and the cpu_template and smt fields of the machine config,
   which are currently lost.
-- Fixed incorrect propagation of init parameters in kernel commandline.
-  Related to:
-  [#2709](https://github.com/firecracker-microvm/firecracker/issues/2709).
+- Fixed incorrect propagation of init parameters in kernel commandline. Related
+  to: [#2709](https://github.com/firecracker-microvm/firecracker/issues/2709).
 - Adapt T2 and C3 CPU templates for kernel 5.10. Firecracker was not previously
   masking some CPU features of the host or emulated by KVM, introduced in more
   recent kernels: `umip`, `vmx`, `avx512_vnni`.
 - Fix jailer's cgroup implementation to accept properties that contain multiple
   dots.
 
-## [0.25.0]
+## \[0.25.0\]
 
 ### Added
 
-- Added devtool build `--ssh-keys` flag to support fetching from private
-  git repositories.
+- Added devtool build `--ssh-keys` flag to support fetching from private git
+  repositories.
 - Added option to configure block device flush.
 - Added `--new-pid-ns` flag to the Jailer in order to spawn the Firecracker
   process in a new PID namespace.
@@ -485,9 +482,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `--describe-snapshot` flag to Firecracker to fetch the data format
   version of a snapshot state file provided as argument.
 - Added `--no-seccomp` parameter for disabling the default seccomp filters.
-- Added `--seccomp-filter` parameter for supplying user-provided, custom filters.
-- Added the `seccompiler-bin` binary that is used to compile JSON seccomp filters
-  into serialized BPF for Firecracker consumption.
+- Added `--seccomp-filter` parameter for supplying user-provided, custom
+  filters.
+- Added the `seccompiler-bin` binary that is used to compile JSON seccomp
+  filters into serialized BPF for Firecracker consumption.
 - Snapshotting support for GICv2 enabled guests.
 - Added `devtool install` to deploy built binaries in `/usr/local/bin` or a
   given path.
@@ -506,20 +504,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed off-by-one error in virtio-block descriptor address validation.
 - Changed the `PATCH` request on `/balloon/statistics` to schedule the first
   statistics update immediately after processing the request.
-- Deprecated the `--seccomp-level parameter`. It will be removed  in a future
+- Deprecated the `--seccomp-level parameter`. It will be removed in a future
   release. Using it logs a runtime warning.
 - Experimental gnu libc builds use empty default seccomp filters, allowing all
   system calls.
 
 ### Fixed
 
-- Fixed non-compliant check for the RTC device ensuring a fixed
-  4-sized data buffer.
-- Unnecessary interrupt assertion was removed from the RTC.
-  However, a dummy interrupt is still allocated for snapshot
-  compatibility reasons.
-- Fixed the SIGPIPE signal handler so Firecracker no longer exits. The signal
-  is still recorded in metrics and logs.
+- Fixed non-compliant check for the RTC device ensuring a fixed 4-sized data
+  buffer.
+- Unnecessary interrupt assertion was removed from the RTC. However, a dummy
+  interrupt is still allocated for snapshot compatibility reasons.
+- Fixed the SIGPIPE signal handler so Firecracker no longer exits. The signal is
+  still recorded in metrics and logs.
 - Fixed ballooning API definitions by renaming all fields which mentioned "MB"
   to use "MiB" instead.
 - Snapshot related host files (vm-state, memory, block backing files) are now
@@ -528,10 +525,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `prod-host-setup.md`.
 - Fixed the balloon statistics not working after a snapshot restore event.
 - The `utc_timestamp_ms` now reports the timestamp in ms from the UTC UNIX
-  Epoch, as the name suggests. It was previously using a monotonic clock with
-  an undefined starting point.
+  Epoch, as the name suggests. It was previously using a monotonic clock with an
+  undefined starting point.
 
-## [0.24.0]
+## \[0.24.0\]
 
 ### Added
 
@@ -542,14 +539,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added devtool test `-m|--cpuset-mems` flag for memory confinement when tests
   run.
 - Added the virtio traditional memory ballooning device.
-- Added a mechanism to handle vCPU/VMM errors that result in process termination.
+- Added a mechanism to handle vCPU/VMM errors that result in process
+  termination.
 - Added incremental guest memory snapshot support.
 - Added aarch64 snapshot support.
 
 ### Changed
 
-- Change the information provided in `DescribeInstance` command to provide microVM
-  state information (Not started/Running/Paused) instead of whether it's
+- Change the information provided in `DescribeInstance` command to provide
+  microVM state information (Not started/Running/Paused) instead of whether it's
   started or not.
 - Removed the jailer `--extra-args` parameter. It was a noop, having been
   replaced by the `--` separator for extra arguments.
@@ -558,15 +556,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Increased the maximum number of virtio devices from 11 to 19.
 - Added a new check that prevents creating v0.23 snapshots when more than 11
   devices are attached.
-- If the stdout buffer is full and non-blocking, the serial writes no longer block.
-  Any new bytes will be lost, until the buffer is freed. The device also logs these
-  errors and increments the `uart.error_count` metric for each lost byte.
+- If the stdout buffer is full and non-blocking, the serial writes no longer
+  block. Any new bytes will be lost, until the buffer is freed. The device also
+  logs these errors and increments the `uart.error_count` metric for each lost
+  byte.
 
 ### Fixed
 
 - Fixed inconsistency in YAML file InstanceInfo definition
 
-## [0.23.0]
+## \[0.23.0\]
 
 ### Added
 
@@ -577,22 +576,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added metrics for counting RX and TX partial writes.
 - Added metrics that measure the duration of pausing and resuming the microVM,
   from the VMM perspective.
-- Added metric for measuring the duration of the last full/diff snapshot created,
-  from the VMM perspective.
+- Added metric for measuring the duration of the last full/diff snapshot
+  created, from the VMM perspective.
 - Added metric for measuring the duration of loading a snapshot, from the VMM
   perspective.
 - Added metrics that measure the duration of pausing and resuming the microVM,
   from the API (user) perspective.
-- Added metric for measuring the duration of the last full/diff snapshot created,
-  from the API (user) perspective.
+- Added metric for measuring the duration of the last full/diff snapshot
+  created, from the API (user) perspective.
 - Added metric for measuring the duration of loading a snapshot, from the API
   (user) perspective.
 - Added `track_dirty_pages` field to `machine-config`. If enabled, Firecracker
   can create incremental guest memory snapshots by saving the dirty guest pages
   in a sparse file.
-- Added a new API call, `PATCH /vm`, for changing the microVM state (to
-  `Paused` or `Resumed`).
-- Added a new API call, `PUT /snapshot/create`, for creating a full or diff snapshot.
+- Added a new API call, `PATCH /vm`, for changing the microVM state (to `Paused`
+  or `Resumed`).
+- Added a new API call, `PUT /snapshot/create`, for creating a full or diff
+  snapshot.
 - Added a new API call, `PUT /snapshot/load`, for loading a snapshot.
 - Added new jailer command line argument `--cgroup` which allow the user to
   specify the cgroups that are going to be set by the Jailer.
@@ -609,40 +609,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Disabled boot timer device after restoring a snapshot.
 - Enabled boot timer device only when specifically requested, by using the
   `--boot-timer` dedicated cmdline parameter.
-- firecracker and jailer `--version` now gets updated on each devtool
-  build to the output of `git describe --dirty`, if the git repo is available.
+- firecracker and jailer `--version` now gets updated on each devtool build to
+  the output of `git describe --dirty`, if the git repo is available.
 - MicroVM process is only attached to the cgroups defined by using `--cgroups`
   or the ones defined indirectly by using `--node`.
-- Changed `devtool build` to build jailer binary for `musl` only targets. Building
-  jailer binary for `non-musl` targets have been removed.
+- Changed `devtool build` to build jailer binary for `musl` only targets.
+  Building jailer binary for `non-musl` targets have been removed.
 
-## [0.22.0]
+## \[0.22.0\]
 
 ### Added
 
 - Added a new API call, `PUT /metrics`, for configuring the metrics system.
 - Added `app_name` field in InstanceInfo struct for storing the application
   name.
-- New command-line parameters for `firecracker`, named `--log-path`,
-  `--level`, `--show-level` and `--show-log-origin` that can be used
-  for configuring the Logger when starting the process. When using
-  this method for configuration, only `--log-path` is mandatory.
+- New command-line parameters for `firecracker`, named `--log-path`, `--level`,
+  `--show-level` and `--show-log-origin` that can be used for configuring the
+  Logger when starting the process. When using this method for configuration,
+  only `--log-path` is mandatory.
 - Added a [guide](docs/devctr-image.md) for updating the dev container image.
-- Added a new API call, `PUT /mmds/config`, for configuring the
-  `MMDS` with a custom valid link-local IPv4 address.
+- Added a new API call, `PUT /mmds/config`, for configuring the `MMDS` with a
+  custom valid link-local IPv4 address.
 - Added experimental JSON response format support for MMDS guest applications
   requests.
 - Added metrics for the vsock device.
 - Added `devtool strip` command which removes debug symbols from the release
   binaries.
-- Added the `tx_malformed_frames` metric for the virtio net device, emitted
-  when a TX frame missing the VNET header is encountered.
+- Added the `tx_malformed_frames` metric for the virtio net device, emitted when
+  a TX frame missing the VNET header is encountered.
 
 ### Fixed
 
 - Added `--version` flag to both Firecracker and Jailer.
-- Return `405 Method Not Allowed` MMDS response for non HTTP `GET` MMDS
-  requests originating from guest.
+- Return `405 Method Not Allowed` MMDS response for non HTTP `GET` MMDS requests
+  originating from guest.
 - Fixed folder permissions in the jail (#1802).
 - Any number of whitespace characters are accepted after ":" when parsing HTTP
   headers.
@@ -657,14 +657,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Updated CVE-2019-3016 mitigation information in
   [Production Host Setup](docs/prod-host-setup.md)
-- In case of using an invalid JSON as a 'config-file' for Firecracker,
-  the process will exit with return code 152.
+- In case of using an invalid JSON as a 'config-file' for Firecracker, the
+  process will exit with return code 152.
 - Removed the `testrun.sh` wrapper.
 - Removed `metrics_fifo` field from the logger configuration.
-- Renamed `log_fifo` field from LoggerConfig to `log_path` and
-  `metrics_fifo` field from MetricsConfig to `metrics_path`.
-- `PATCH /drives/{id}` only allowed post-boot. Use `PUT` for pre-boot
-  updates to existing configurations.
+- Renamed `log_fifo` field from LoggerConfig to `log_path` and `metrics_fifo`
+  field from MetricsConfig to `metrics_path`.
+- `PATCH /drives/{id}` only allowed post-boot. Use `PUT` for pre-boot updates to
+  existing configurations.
 - `PATCH /network-interfaces/{id}` only allowed post-boot. Use `PUT` for
   pre-boot updates to existing configurations.
 - Changed returned status code from `500 Internal Server Error` to
@@ -675,10 +675,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Dictionary, is only possible in JSON mode.
 - `PATCH` request on `/mmds` before the data store is initialized returns
   `403 BadRequest`.
-- Segregated MMDS documentation in MMDS design documentation and MMDS user
-  guide documentation.
+- Segregated MMDS documentation in MMDS design documentation and MMDS user guide
+  documentation.
 
-## [0.21.0]
+## \[0.21.0\]
 
 ### Added
 
@@ -691,8 +691,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed #1469 - Broken GitHub location for Firecracker release binary.
 - The jailer allows changing the default api socket path by using the extra
   arguments passed to firecracker.
-- Fixed #1456 - Occasional KVM_EXIT_SHUTDOWN and bad syscall (14) during
-  VM shutdown.
+- Fixed #1456 - Occasional KVM_EXIT_SHUTDOWN and bad syscall (14) during VM
+  shutdown.
 - Updated the production host setup guide with steps for addressing
   CVE-2019-18960.
 - The HTTP header parsing is now case insensitive.
@@ -701,20 +701,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Removed redundant `--seccomp-level` jailer parameter since it can be
-  simply forwarded to the Firecracker executable using "end of command
-  options" convention.
+- Removed redundant `--seccomp-level` jailer parameter since it can be simply
+  forwarded to the Firecracker executable using "end of command options"
+  convention.
 - Removed `memory.dirty_pages` metric.
 - Removed `options` field from the logger configuration.
 - Decreased release binary size by ~15%.
-- Changed default API socket path to `/run/firecracker.socket`. This path
-  also applies when running with the jailer.
+- Changed default API socket path to `/run/firecracker.socket`. This path also
+  applies when running with the jailer.
 - Disabled KVM dirty page tracking by default.
-- Removed redundant RescanBlockDevice action from the /actions API.
-  The functionality is available through the PATCH /drives API.
-  See `docs/api_requests/patch-block.md`.
+- Removed redundant RescanBlockDevice action from the /actions API. The
+  functionality is available through the PATCH /drives API. See
+  `docs/api_requests/patch-block.md`.
 
-## [0.20.0]
+## \[0.20.0\]
 
 ### Added
 
@@ -722,8 +722,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Fixed CVE-2019-18960 - Fixed a logical error in bounds checking performed
-  on vsock virtio descriptors.
+- Fixed CVE-2019-18960 - Fixed a logical error in bounds checking performed on
+  vsock virtio descriptors.
 - Fixed #1283 - Can't start a VM in AARCH64 with vcpus number more than 16.
 - Fixed #1088 - The backtrace are printed on `panic`, no longer causing a
   seccomp fault.
@@ -732,30 +732,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed #1436 - Raise interrupt for TX queue used descriptors
 - Fixed #1439 - Prevent achieving 100% cpu load when the net device rx is
   throttled by the ratelimiter
-- Fixed #1437 - Invalid fields in rate limiter related API requests are
-  now failing with a proper error message.
-- Fixed #1316 - correctly determine the size of a virtio device backed
-  by a block device.
+- Fixed #1437 - Invalid fields in rate limiter related API requests are now
+  failing with a proper error message.
+- Fixed #1316 - correctly determine the size of a virtio device backed by a
+  block device.
 - Fixed #1383 - Log failed api requests.
 
 ### Changed
 
 - Decreased release binary size by 10%.
 
-## [0.19.0]
+## \[0.19.0\]
 
 ### Added
 
-- New command-line parameter for `firecracker`, named `--no-api`, which
-  will disable the API server thread. If set, the user won't be able to send
-  any API requests, neither before, nor after the vm has booted. It must be
-  paired with `--config-file` parameter. Also, when API server is disabled,
-  MMDS is no longer available now.
+- New command-line parameter for `firecracker`, named `--no-api`, which will
+  disable the API server thread. If set, the user won't be able to send any API
+  requests, neither before, nor after the vm has booted. It must be paired with
+  `--config-file` parameter. Also, when API server is disabled, MMDS is no
+  longer available now.
 - New command-line parameter for `firecracker`, named `--config-file`, which
   represents the path to a file that contains a JSON which can be used for
   configuring and starting a microVM without sending any API requests.
-- The jailer adheres to the "end of command options" convention, meaning
-  all parameters specified after `--` are forwarded verbatim to Firecracker.
+- The jailer adheres to the "end of command options" convention, meaning all
+  parameters specified after `--` are forwarded verbatim to Firecracker.
 - Added `KVM_PTP` support to the recommended guest kernel config.
 - Added entry in FAQ.md for Firecracker Guest timekeeping.
 
@@ -778,14 +778,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Upon panic, the terminal is now reset to canonical mode.
 - Explicit error upon failure of vsock device creation.
 - The failure message returned by an API call is flushed in the log FIFOs.
-- Insert virtio devices in the FDT in order of their addresses sorted from
-  low to high.
+- Insert virtio devices in the FDT in order of their addresses sorted from low
+  to high.
 - Enforce the maximum length of the network interface name to be 16 chars as
   specified in the Linux Kernel.
 - Changed the vsock property `id` to `vsock_id` so that the API client can be
   successfully generated from the swagger definition.
 
-## [0.18.0]
+## \[0.18.0\]
 
 ### Added
 
@@ -812,7 +812,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Removed experimental support for vhost-based vsock devices.
 
-## [0.17.0]
+## \[0.17.0\]
 
 ### Added
 
@@ -823,14 +823,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a signal handler for `SIGBUS` and `SIGSEGV` that immediately terminates
   the process upon intercepting the signal.
 - Added documentation for signal handling utilities.
-- Added [alpha] aarch64 support.
+- Added \[alpha\] aarch64 support.
 - Added metrics for successful read and write operations of MMDS, Net and Block
   devices.
 
 ### Changed
 
-- `vcpu_count`, `mem_size_mib` and `ht_enabled` have been changed to be mandatory
-  for `PUT` requests on `/machine-config/`.
+- `vcpu_count`, `mem_size_mib` and `ht_enabled` have been changed to be
+  mandatory for `PUT` requests on `/machine-config/`.
 - Disallow invalid seccomp levels by exiting with error.
 
 ### Fixed
@@ -838,11 +838,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Incorrect handling of bind mounts within the jailed rootfs.
 - Corrected the guide for `Alpine` guest setup.
 
-## [0.16.0]
+## \[0.16.0\]
 
 ### Added
 
-- Added [alpha] AMD support.
+- Added \[alpha\] AMD support.
 - New `devtool` command: `prepare_release`. This updates the Firecracker
   version, crate dependencies and credits in preparation for a new release.
 - New `devtool` command: `tag`. This creates a new git tag for the specified
@@ -868,26 +868,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Removed the `seccomp.bad_syscalls` metric.
 
-## [0.15.2]
+## \[0.15.2\]
 
 ### Fixed
 
 - Corrected the conditional compilation of the seccomp rule for `madvise`.
 
-## [0.15.1]
+## \[0.15.1\]
 
 ### Fixed
 
-- A `madvise` call issued by the `musl` allocator was added to the seccomp
-  allow list to prevent Firecracker from terminating abruptly when allocating
-  memory in certain conditions.
+- A `madvise` call issued by the `musl` allocator was added to the seccomp allow
+  list to prevent Firecracker from terminating abruptly when allocating memory
+  in certain conditions.
 
-## [0.15.0]
+## \[0.15.0\]
 
 ### Added
 
-- New API action: SendCtrlAltDel, used to initiate a graceful shutdown,
-  if the guest has driver support for i8042 and AT Keyboard. See
+- New API action: SendCtrlAltDel, used to initiate a graceful shutdown, if the
+  guest has driver support for i8042 and AT Keyboard. See
   [the docs](docs/api_requests/actions.md#sendctrlaltdel) for details.
 - New metric counting the number of egress packets with a spoofed MAC:
   `net.tx_spoofed_mac_count`.
@@ -896,11 +896,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Added missing `vmm_version` field to the InstanceInfo API swagger
-  definition, and marked several other mandatory fields as such.
+- Added missing `vmm_version` field to the InstanceInfo API swagger definition,
+  and marked several other mandatory fields as such.
 - New default command line for guest kernel:
-  `reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0
-  i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd`.
+  `reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd`.
 
 ### Fixed
 
@@ -908,7 +907,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Vsock devices can be attached when starting Firecracker using the jailer.
 - Vsock devices work properly when seccomp filtering is enabled.
 
-## [0.14.0]
+## \[0.14.0\]
 
 ### Added
 
@@ -921,22 +920,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Log the app version when the `Logger` is initialized.
 - Pretty print panic information.
-- Firecracker terminates with exit code 148 when a syscall which is not
-  present in the allow list is intercepted.
+- Firecracker terminates with exit code 148 when a syscall which is not present
+  in the allow list is intercepted.
 
 ### Fixed
 
 - Fixed build with the `vsock` feature.
 
-## [0.13.0]
+## \[0.13.0\]
 
 ### Added
 
 - Documentation for Logger API Requests in `docs/api_requests/logger.md`.
 - Documentation for Actions API Requests in `docs/api_requests/actions.md`.
 - Documentation for MMDS in `docs/mmds.md`.
-- Flush metrics on request via a PUT `/actions` with the `action_type`
-  field set to `FlushMetrics`.
+- Flush metrics on request via a PUT `/actions` with the `action_type` field set
+  to `FlushMetrics`.
 
 ### Changed
 
@@ -955,7 +954,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Removed `InstanceHalt` from the list of possible actions.
 
-## [0.12.0]
+## \[0.12.0\]
 
 ### Added
 
@@ -966,15 +965,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   called `memory.dirty_pages` is computed as the number of pages dirtied by the
   guest since the last time the metric was flushed.
 - Log messages on both graceful and forceful termination.
-- Availability of the list of dependencies for each commit inside the code
-  base.
+- Availability of the list of dependencies for each commit inside the code base.
 - Documentation on vsock experimental feature and host setup recommendations.
 
 ### Changed
 
 - `PUT` requests on `/mmds` always return 204 on success.
-- `PUT` operations on `/network-interfaces` API resources no longer accept
-  the previously required `state` parameter.
+- `PUT` operations on `/network-interfaces` API resources no longer accept the
+  previously required `state` parameter.
 - The jailer starts with `--seccomp-level=2` (was previously 0) by default.
 - Log messages use `anonymous-instance` as instance id if none is specified.
 
@@ -986,7 +984,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Ensure MMDS compatibility with C5's IMDS implementation.
 - Corrected the swagger specification to ensure `OpenAPI 2.0` compatibility.
 
-## [0.11.0]
+## \[0.11.0\]
 
 ### Added
 
@@ -1006,8 +1004,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - If the logging system is not yet initialized (via `PUT /logger`), log events
   are now sent to stdout/stderr.
 - Moved the `instance_info_fails` metric under `get_api_requests`
-- Improved [readme](README.md) and added links to more detailed information,
-  now featured in subject-specific docs.
+- Improved [readme](README.md) and added links to more detailed information, now
+  featured in subject-specific docs.
 
 ### Fixed
 
@@ -1016,13 +1014,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed bug in `PATCH /drives`, whereby the ID in the path was not checked
   against the ID in the body.
 
-## [0.10.1]
+## \[0.10.1\]
 
 ### Fixed
 
 - The Swagger definition was corrected.
 
-## [0.10.0]
+## \[0.10.0\]
 
 ### Added
 
@@ -1031,8 +1029,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The boot source is specified only with the `kernel_image_path` and
-  the optional parameter `boot_args`. All other fields are removed.
+- The boot source is specified only with the `kernel_image_path` and the
+  optional parameter `boot_args`. All other fields are removed.
 - The `path_on_host` property in the drive specification is now marked as
   *mandatory*.
 - PATCH drive only allows patching/changing the `path_on_host` property.
@@ -1041,22 +1039,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - API requests which add guest network interfaces have an additional parameter,
   `allow_mmds_requests` which defaults to `false`.
 - Stopping the guest (e.g. using the `reboot` command) also terminates the
-  Firecracker process. When the Firecracker process ends for any reason,
-  (other than `kill -9`), metrics are flushed at the very end.
+  Firecracker process. When the Firecracker process ends for any reason, (other
+  than `kill -9`), metrics are flushed at the very end.
 - On startup `jailer` closes all inherited file descriptors based on
   `sysconf(_SC_OPEN_MAX)` except input, output and error.
-- The microVM ID prefixes each Firecracker log line. This ID also appears
-  in the process `cmdline` so it's now possible to `ps | grep <ID>` for it.
+- The microVM ID prefixes each Firecracker log line. This ID also appears in the
+  process `cmdline` so it's now possible to `ps | grep <ID>` for it.
 
-## [0.9.0]
+## \[0.9.0\]
 
 ### Added
 
 - Seccomp filtering is configured via the `--seccomp-level` jailer parameter.
-- Firecracker logs the starting addresses of host memory areas provided as
-  guest memory slots to KVM.
-- The metric `panic_count` gets incremented to signal that a panic has
-  occurred.
+- Firecracker logs the starting addresses of host memory areas provided as guest
+  memory slots to KVM.
+- The metric `panic_count` gets incremented to signal that a panic has occurred.
 - Firecracker logs a backtrace when it crashes following a panic.
 - Added basic instrumentation support for measuring boot time.
 
@@ -1083,12 +1080,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove the `action_id` parameter for `InstanceStart`, both from the URI and
   the JSON request body.
 
-## [0.8.0]
+## \[0.8.0\]
 
 ### Added
 
-- The jailer can now be configured to enter a preexisting network namespace,
-  and to run as a daemon.
+- The jailer can now be configured to enter a preexisting network namespace, and
+  to run as a daemon.
 - Enabled PATCH operations on `/drives` resources.
 
 ### Changed
@@ -1098,16 +1095,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced the `permissions` property of `/drives` resources with a boolean.
 - Removed the `state` property of `/drives` resources.
 
-## [0.7.0]
+## \[0.7.0\]
 
 ### Added
 
-- Rate limiting functionality allows specifying an initial one time
-  burst size.
-- Firecracker can now boot from an arbitrary boot partition by specifying
-  its unique id in the driver's API call.
-- Block device rescan is triggered via a PUT `/actions` with the drive ID in
-  the action body's `payload` field and the `action_type` field set to
+- Rate limiting functionality allows specifying an initial one time burst size.
+- Firecracker can now boot from an arbitrary boot partition by specifying its
+  unique id in the driver's API call.
+- Block device rescan is triggered via a PUT `/actions` with the drive ID in the
+  action body's `payload` field and the `action_type` field set to
   `BlockDeviceRescan`.
 
 ### Changed
@@ -1115,16 +1111,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed `noapic` from the default guest kernel command line.
 - The `action_id` parameter is no longer required for synchronous PUT requests
   to `/actions`.
-- PUT requests are no longer allowed on `/drives` resources after the guest
-  has booted.
+- PUT requests are no longer allowed on `/drives` resources after the guest has
+  booted.
 
 ### Fixed
 
-- Fixed guest instance kernel loader to accelerate vCPUs launch and
-  consequently guest kernel boot.
+- Fixed guest instance kernel loader to accelerate vCPUs launch and consequently
+  guest kernel boot.
 - Fixed network emulation to improve IO performance.
 
-## [0.6.0]
+## \[0.6.0\]
 
 ### Added
 
@@ -1141,33 +1137,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Fixed a bug that was causing Firecracker to panic whenever a `PUT` request
-  was sent on an existing network interface.
+- Fixed a bug that was causing Firecracker to panic whenever a `PUT` request was
+  sent on an existing network interface.
 - The `id` parameter of the `jailer` is required to be an RFC 4122-compliant
   UUID.
-- Fixed an issue which caused the network RX rate limiter to be more
-  restrictive than intended.
+- Fixed an issue which caused the network RX rate limiter to be more restrictive
+  than intended.
 - API requests which contain unknown fields will generate an error.
 - Fixed an issue related to high CPU utilization caused by improper `KVM PIT`
   configuration.
 - It is now possible to create more than one network tun/tap interface inside a
   jailed Firecracker.
 
-## [0.5.0]
+## \[0.5.0\]
 
 ### Added
 
-- Added metrics for API requests, VCPU and device actions for the serial
-  console (`UART`), keyboard (`i8042`), block and network devices. Metrics are
-  logged every 60 seconds.
+- Added metrics for API requests, VCPU and device actions for the serial console
+  (`UART`), keyboard (`i8042`), block and network devices. Metrics are logged
+  every 60 seconds.
 - A CPU features template for C3 is available, in addition to the one for T2.
 - Seccomp filters restrict Firecracker from calling any other system calls than
   the minimum set it needs to function properly. The filters are enabled by
   setting the `USE_SECCOMP` environment variable to 1 before running
   Firecracker.
 - Firecracker can be started by a new binary called `jailer`. The jailer takes
-  as command line arguments a unique ID, the path to the Firecracker binary,
-  the NUMA node that Firecracker will be assigned to and a `uid` and `gid` for
+  as command line arguments a unique ID, the path to the Firecracker binary, the
+  NUMA node that Firecracker will be assigned to and a `uid` and `gid` for
   Firecracker to run under. It sets up a `chroot` environment and a `cgroup`,
   and calls exec to morph into Firecracker.
 
@@ -1176,8 +1172,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - In case of failure, the metrics and the panic location are logged before
   aborting.
 - Metric values are reset with every flush.
-- `CPUTemplate` is now called `CpuTemplate` in order to work seamlessly with
-  the swagger code generator for Go.
+- `CPUTemplate` is now called `CpuTemplate` in order to work seamlessly with the
+  swagger code generator for Go.
 - `firecracker-beta.yaml` is now called `firecracker.yaml`.
 
 ### Fixed
@@ -1192,7 +1188,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed a leftover file generated by the logger unit tests.
 - Removed `firecracker-v1.0.yaml`.
 
-## [0.4.0]
+## \[0.4.0\]
 
 ### Added
 
@@ -1211,8 +1207,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Moved the API definition (`swagger/firecracker-beta.yaml`) to the
-  `api_server` crate.
+- Moved the API definition (`swagger/firecracker-beta.yaml`) to the `api_server`
+  crate.
 - Removed `"console=ttyS0"` and added `"8250.nr_uarts=0"` to the default kernel
   command line to decrease the boot time.
 - Changed the CPU topology to have all logical CPUs on a single socket.
@@ -1243,7 +1239,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed `--vmm-no-api` command line option. Firecracker can only be started
   via the API.
 
-## [0.3.0]
+## \[0.3.0\]
 
 ### Added
 
@@ -1251,8 +1247,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   size) using a `GET` request on `/machine-config`.
 - The logging system can be configured through the API using a `PUT` on
   `/logger`.
-- Block devices support live resize by calling `PUT` with the same parameters
-  as when the block was created.
+- Block devices support live resize by calling `PUT` with the same parameters as
+  when the block was created.
 - Release builds have Link Time Optimization (LTO) enabled.
 - Firecracker is built with `musl`, resulting in a statically linked binary.
 - More in-tree integration tests were added as part of the continuous
@@ -1279,12 +1275,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed support for attaching vsock devices.
 - Removed support for building Firecracker with glibc.
 
-## [0.2.0]
+## \[0.2.0\]
 
 ### Added
 
-- Users can now interrogate Instance Information (currently just instance
-  state) through the API.
+- Users can now interrogate Instance Information (currently just instance state)
+  through the API.
 
 ### Changed
 
@@ -1317,7 +1313,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed `api/swagger/firecracker-mvp.yaml`.
 - Removed `api/swagger/limiters.yaml`.
 
-## [0.1.1]
+## \[0.1.1\]
 
 ### Changed
 
@@ -1332,7 +1328,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed an issue which caused compilation problems, due to a compatibility
   breaking transitive dependency in the tokio suite of crates.
 
-## [0.1.0]
+## \[0.1.0\]
 
 ### Added
 

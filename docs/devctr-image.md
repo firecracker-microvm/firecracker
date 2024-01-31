@@ -5,8 +5,9 @@
 Firecracker uses a [Docker container](https://www.docker.com/) to standardize
 the build process. This also fixes the build tools and dependencies to specific
 versions. Every once in a while, something needs to be updated. To do this, a
-new container image needs to be built locally, then published to the [AWS ECR](https://aws.amazon.com/ecr/)
-registry. The Firecracker CI suite must also be updated to use the new image.
+new container image needs to be built locally, then published to the
+[AWS ECR](https://aws.amazon.com/ecr/) registry. The Firecracker CI suite must
+also be updated to use the new image.
 
 ## Prerequisites
 
@@ -20,7 +21,7 @@ registry. The Firecracker CI suite must also be updated to use the new image.
 
 ## Steps
 
-### **[optional]** Update `poetry.lock`
+### **\[optional\]** Update `poetry.lock`
 
 This step is optional but recommended, to be on top of Python package changes.
 
@@ -36,10 +37,10 @@ This will change `poetry.lock`, which you can commit with your changes.
 1. Login to the Docker organization in a shell. Make sure that your account has
    access to the repository:
 
-    ```bash
-    aws ecr-public get-login-password --region us-east-1 \
+   ```bash
+   aws ecr-public get-login-password --region us-east-1 \
    | docker login --username AWS --password-stdin public.ecr.aws
-    ```
+   ```
 
    For non-TTY devices, although not recommended a less secure approach can be
    used:
@@ -52,15 +53,15 @@ This will change `poetry.lock`, which you can commit with your changes.
 1. Navigate to the Firecracker directory. Verify that you have the latest
    container image locally.
 
-    ```bash
-    docker images
-    REPOSITORY                         TAG     IMAGE ID        CREATED         SIZE
-    public.ecr.aws/firecracker/fcuvm   v26     8d00deb17f7a    2 weeks ago     2.41GB
-    ```
+   ```bash
+   docker images
+   REPOSITORY                         TAG     IMAGE ID        CREATED         SIZE
+   public.ecr.aws/firecracker/fcuvm   v26     8d00deb17f7a    2 weeks ago     2.41GB
+   ```
 
 1. Make your necessary changes, if any, to the
-   [Dockerfile](https://docs.docker.com/engine/reference/builder/). There's
-   one for all the architectures in the Firecracker source tree.
+   [Dockerfile](https://docs.docker.com/engine/reference/builder/). There's one
+   for all the architectures in the Firecracker source tree.
 
 1. Commit the changes, if any.
 
@@ -72,18 +73,19 @@ This will change `poetry.lock`, which you can commit with your changes.
 
 1. Verify that the new image exists.
 
-    ```bash
-    docker images
-    REPOSITORY                         TAG       IMAGE ID         CREATED       SIZE
-    public.ecr.aws/firecracker/fcuvm   latest    1f9852368efb     2 weeks ago   2.36GB
-    public.ecr.aws/firecracker/fcuvm   v26       8d00deb17f7a     2 weeks ago   2.41GB
-    ```
+   ```bash
+   docker images
+   REPOSITORY                         TAG       IMAGE ID         CREATED       SIZE
+   public.ecr.aws/firecracker/fcuvm   latest    1f9852368efb     2 weeks ago   2.36GB
+   public.ecr.aws/firecracker/fcuvm   v26       8d00deb17f7a     2 weeks ago   2.41GB
+   ```
 
 1. Tag the new image with the next available version `X` and the architecture
-   you're on. Note that this will not always be "current version in devtool + 1",
-   as sometimes that version might already be used on feature branches. Always
-   check the "Image Tags" on [the fcuvm repository](https://gallery.ecr.aws/firecracker/fcuvm)
-   to make sure you do not accidentally overwrite an existing image.
+   you're on. Note that this will not always be "current version in devtool +
+   1", as sometimes that version might already be used on feature branches.
+   Always check the "Image Tags" on
+   [the fcuvm repository](https://gallery.ecr.aws/firecracker/fcuvm) to make
+   sure you do not accidentally overwrite an existing image.
 
    As a sanity check, run:
 
@@ -98,23 +100,24 @@ This will change `poetry.lock`, which you can commit with your changes.
    found: manifest unknown: Requested image not found
    ```
 
-   This means the version you've chosen does not exist yet, and you are good to go.
+   This means the version you've chosen does not exist yet, and you are good to
+   go.
 
-    ```bash
-    docker tag 1f9852368efb public.ecr.aws/firecracker/fcuvm:v27_x86_64
+   ```bash
+   docker tag 1f9852368efb public.ecr.aws/firecracker/fcuvm:v27_x86_64
 
-    docker images
-    REPOSITORY                         TAG          IMAGE ID       CREATED
-    public.ecr.aws/firecracker/fcuvm   latest       1f9852368efb   1 week ago
-    public.ecr.aws/firecracker/fcuvm   v27_x86_64   1f9852368efb   1 week ago
-    public.ecr.aws/firecracker/fcuvm   v26          8d00deb17f7a   2 weeks ago
-    ```
+   docker images
+   REPOSITORY                         TAG          IMAGE ID       CREATED
+   public.ecr.aws/firecracker/fcuvm   latest       1f9852368efb   1 week ago
+   public.ecr.aws/firecracker/fcuvm   v27_x86_64   1f9852368efb   1 week ago
+   public.ecr.aws/firecracker/fcuvm   v26          8d00deb17f7a   2 weeks ago
+   ```
 
 1. Push the image.
 
-    ```bash
-    docker push public.ecr.aws/firecracker/fcuvm:v27_x86_64
-    ```
+   ```bash
+   docker push public.ecr.aws/firecracker/fcuvm:v27_x86_64
+   ```
 
 ### `aarch64`
 
@@ -126,24 +129,25 @@ Then continue with the above steps:
 
 1. Build a new container image with the updated Dockerfile.
 
-    ```bash
-    tools/devtool build_devctr
-    ```
+   ```bash
+   tools/devtool build_devctr
+   ```
 
 1. Verify that the new image exists.
 
-    ```bash
-    docker images
-    REPOSITORY                         TAG        IMAGE ID            CREATED
-    public.ecr.aws/firecracker/fcuvm   latest     1f9852368efb        2 minutes ago
-    public.ecr.aws/firecracker/fcuvm   v26        8d00deb17f7a        2 weeks ago
-    ```
+   ```bash
+   docker images
+   REPOSITORY                         TAG        IMAGE ID            CREATED
+   public.ecr.aws/firecracker/fcuvm   latest     1f9852368efb        2 minutes ago
+   public.ecr.aws/firecracker/fcuvm   v26        8d00deb17f7a        2 weeks ago
+   ```
 
 1. Tag the new image with the next available version `X` and the architecture
-   you're on. Note that this will not always be "current version in devtool + 1",
-   as sometimes that version might already be used on feature branches. Always
-   check the "Image Tags" on [the fcuvm repository](https://gallery.ecr.aws/firecracker/fcuvm)
-   to make sure you do not accidentally overwrite an existing image.
+   you're on. Note that this will not always be "current version in devtool +
+   1", as sometimes that version might already be used on feature branches.
+   Always check the "Image Tags" on
+   [the fcuvm repository](https://gallery.ecr.aws/firecracker/fcuvm) to make
+   sure you do not accidentally overwrite an existing image.
 
    As a sanity check, run:
 
@@ -158,43 +162,44 @@ Then continue with the above steps:
    found: manifest unknown: Requested image not found
    ```
 
-   This means the version you've chosen does not exist yet, and you are good to go.
+   This means the version you've chosen does not exist yet, and you are good to
+   go.
 
-    ```bash
-    docker tag 1f9852368efb public.ecr.aws/firecracker/fcuvm:v27_aarch64
+   ```bash
+   docker tag 1f9852368efb public.ecr.aws/firecracker/fcuvm:v27_aarch64
 
-    docker images
-    REPOSITORY                         TAG            IMAGE ID
-    public.ecr.aws/firecracker/fcuvm   latest         1f9852368efb
-    public.ecr.aws/firecracker/fcuvm   v27_aarch64    1f9852368efb
-    public.ecr.aws/firecracker/fcuvm   v26            8d00deb17f7a
-    ```
+   docker images
+   REPOSITORY                         TAG            IMAGE ID
+   public.ecr.aws/firecracker/fcuvm   latest         1f9852368efb
+   public.ecr.aws/firecracker/fcuvm   v27_aarch64    1f9852368efb
+   public.ecr.aws/firecracker/fcuvm   v26            8d00deb17f7a
+   ```
 
 1. Push the image.
 
-    ```bash
-    docker push public.ecr.aws/firecracker/fcuvm:v27_aarch64
-    ```
+   ```bash
+   docker push public.ecr.aws/firecracker/fcuvm:v27_aarch64
+   ```
 
 1. Create a manifest to point the latest container version to each specialized
    image, per architecture.
 
-    ```bash
-    docker manifest create public.ecr.aws/firecracker/fcuvm:v27 \
-        public.ecr.aws/firecracker/fcuvm:v27_x86_64 public.ecr.aws/firecracker/fcuvm:v27_aarch64
+   ```bash
+   docker manifest create public.ecr.aws/firecracker/fcuvm:v27 \
+       public.ecr.aws/firecracker/fcuvm:v27_x86_64 public.ecr.aws/firecracker/fcuvm:v27_aarch64
 
-    docker manifest push public.ecr.aws/firecracker/fcuvm:v27
-    ```
+   docker manifest push public.ecr.aws/firecracker/fcuvm:v27
+   ```
 
 1. Update the image tag in the
    [`devtool` script](https://github.com/firecracker-microvm/firecracker/blob/main/tools/devtool).
    Commit and push the change.
 
-    ```bash
-    PREV_TAG=v26
-    CURR_TAG=v27
-    sed -i "s%DEVCTR_IMAGE_TAG=\"$PREV_TAG\"%DEVCTR_IMAGE_TAG=\"$CURR_TAG\"%" tools/devtool
-    ```
+   ```bash
+   PREV_TAG=v26
+   CURR_TAG=v27
+   sed -i "s%DEVCTR_IMAGE_TAG=\"$PREV_TAG\"%DEVCTR_IMAGE_TAG=\"$CURR_TAG\"%" tools/devtool
+   ```
 
 ## Troubleshooting
 
@@ -264,36 +269,36 @@ Let's say you want to update
 
 1. Enter the container as `root`.
 
-    ```bash
-    tools/devtool shell -p
-    ```
+   ```bash
+   tools/devtool shell -p
+   ```
 
 1. Make the changes locally. Do not exit the container.
 
-    ```bash
-    cargo install cargo-audit --force
-    ```
+   ```bash
+   cargo install cargo-audit --force
+   ```
 
 1. Find your running container.
 
-    ```bash
-    docker ps
-    CONTAINER ID        IMAGE               COMMAND             CREATED
-    e9f0487fdcb9        fcuvm:v14       "bash"              53 seconds ago
-    ```
+   ```bash
+   docker ps
+   CONTAINER ID        IMAGE               COMMAND             CREATED
+   e9f0487fdcb9        fcuvm:v14       "bash"              53 seconds ago
+   ```
 
 1. Commit the modified container to a new image. Use the `container ID`.
 
-    ```bash
-    docker commit e9f0487fdcb9 fcuvm:v15_x86_64
-    ```
+   ```bash
+   docker commit e9f0487fdcb9 fcuvm:v15_x86_64
+   ```
 
-    ```bash
-    docker image ls
-    REPOSITORY      TAG                 IMAGE ID            CREATED
-    fcuvm           v15_x86_64          514581e654a6        18 seconds ago
-    fcuvm           v14                 c8581789ead3        2 months ago
-    ```
+   ```bash
+   docker image ls
+   REPOSITORY      TAG                 IMAGE ID            CREATED
+   fcuvm           v15_x86_64          514581e654a6        18 seconds ago
+   fcuvm           v14                 c8581789ead3        2 months ago
+   ```
 
 1. Repeat for `aarch64`.
 

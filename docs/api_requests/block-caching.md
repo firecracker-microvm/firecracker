@@ -1,8 +1,8 @@
 # Block device caching strategies
 
-Firecracker offers the possiblity of choosing the block device caching
-strategy. Caching strategy affects the path data written from inside the
-microVM takes to the host persistent storage.
+Firecracker offers the possiblity of choosing the block device caching strategy.
+Caching strategy affects the path data written from inside the microVM takes to
+the host persistent storage.
 
 ## How it works
 
@@ -22,10 +22,10 @@ advertise the VirtIO `flush` feature to the guest driver.
 
 When configuring the block caching strategy to `Writeback`, the device will
 advertise the VirtIO `flush` feature to the guest driver. If negotiated when
-activating the device, the guest driver will be able to send flush requests
-to the device. When the device executes a flush request, it will perform an
-`fsync` syscall on the backing block file, committing all data in the host
-page cache to disk.
+activating the device, the guest driver will be able to send flush requests to
+the device. When the device executes a flush request, it will perform an `fsync`
+syscall on the backing block file, committing all data in the host page cache to
+disk.
 
 ## Supported use cases
 
@@ -40,8 +40,8 @@ The caching strategy should be used in order to make a trade-off:
   - recommended for use cases with ephemeral storage, such as serverless
     environments
 - `Writeback`
-  - ensures that once a flush request was acknowledged by the host, the data
-    is committed to the backing storage
+  - ensures that once a flush request was acknowledged by the host, the data is
+    committed to the backing storage
   - sacrifices performance, from boot time increases to greater
     emulation-related latencies when running workloads
   - recommended for use cases with low power environments, such as embedded

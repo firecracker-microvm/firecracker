@@ -8,8 +8,8 @@ Firecracker is a new virtualization technology that enables customers to deploy
 lightweight *micro* Virtual Machines or microVMs. Firecracker microVMs combine
 the security and workload isolation properties of traditional VMs with the
 speed, agility and resource efficiency enabled by containers. They provide a
-secure, trusted environment for multi-tenant services, while maintaining
-minimal overhead.
+secure, trusted environment for multi-tenant services, while maintaining minimal
+overhead.
 
 The scope of this document is to describe the features and architecture of the
 Firecracker virtual machine manager (VMM).
@@ -18,20 +18,20 @@ Firecracker virtual machine manager (VMM).
 
 1. Firecracker can safely run workloads from different customers on the same
    machine.
-1. Customers can create microVMs with any combination of vCPU (up to 32)
-   and memory to match their application requirements.
+1. Customers can create microVMs with any combination of vCPU (up to 32) and
+   memory to match their application requirements.
 1. Firecracker microVMs can oversubscribe host CPU and memory. The degree of
    oversubscription is controlled by customers, who may factor in workload
    correlation and load in order to ensure smooth host system operation.
 1. With a microVM configured with a minimal Linux kernel, single-core CPU, and
-   128 MiB of RAM, Firecracker supports a steady mutation rate of 5 microVMs
-   per host core per second (e.g., one can create 180 microVMs per second on a
-   host with 36 physical cores).
+   128 MiB of RAM, Firecracker supports a steady mutation rate of 5 microVMs per
+   host core per second (e.g., one can create 180 microVMs per second on a host
+   with 36 physical cores).
 1. The number of Firecracker microVMs running simultaneously on a host is
    limited only by the availability of hardware resources.
 1. Each microVM exposes a host-facing API via an in-process HTTP server.
-1. Each microVM provides guest-facing access to host-configured metadata via
-   the `/mmds` API.
+1. Each microVM provides guest-facing access to host-configured metadata via the
+   `/mmds` API.
 
 ### Specifications
 
@@ -42,16 +42,14 @@ Firecracker's technical specifications are available in the
 
 The following diagram depicts an example host running Firecracker microVMs.
 
-![Firecracker Host Integration](
-images/firecracker_host_integration.png?raw=true
-"Firecracker Host Integration")
+![Firecracker Host Integration](images/firecracker_host_integration.png?raw=true "Firecracker Host Integration")
 
 Firecracker runs on Linux hosts and with Linux guest OSs (from this point on,
 referred to as guests). For a complete list of currently supported kernel
 versions, check out the [kernel support policy](kernel-policy.md).
 
-In production environments, Firecracker should be started only via the `jailer` binary.
-See [Sandboxing](#Sandboxing) for more details.
+In production environments, Firecracker should be started only via the `jailer`
+binary. See [Sandboxing](#Sandboxing) for more details.
 
 After launching the process, users interact with the Firecracker API to
 configure the microVM, before issuing the `InstanceStart` command.
@@ -70,15 +68,15 @@ with a filesystem that the guest kernel supports.
 
 ## Internal Architecture
 
-Each Firecracker process encapsulates one and only one microVM. The process
-runs the following threads: API, VMM and vCPU(s). The API thread is responsible
-for Firecracker's API server and associated control plane. It's never in the
-fast path of the virtual machine. The VMM thread exposes the machine model,
-minimal legacy device model, microVM metadata service (MMDS) and VirtIO device
-emulated Net, Block and Vsock devices, complete with I/O rate limiting. In
-addition to them, there are one or more vCPU threads (one per guest CPU core).
-They are created via KVM and run the `KVM_RUN` main loop. They execute
-synchronous I/O and memory-mapped I/O operations on devices models.
+Each Firecracker process encapsulates one and only one microVM. The process runs
+the following threads: API, VMM and vCPU(s). The API thread is responsible for
+Firecracker's API server and associated control plane. It's never in the fast
+path of the virtual machine. The VMM thread exposes the machine model, minimal
+legacy device model, microVM metadata service (MMDS) and VirtIO device emulated
+Net, Block and Vsock devices, complete with I/O rate limiting. In addition to
+them, there are one or more vCPU threads (one per guest CPU core). They are
+created via KVM and run the `KVM_RUN` main loop. They execute synchronous I/O
+and memory-mapped I/O operations on devices models.
 
 ### Threat Containment
 
@@ -92,9 +90,7 @@ is copied by the Firecracker I/O thread from the emulated network interface to
 the backing host TAP device, and I/O rate limiting is applied at this point.
 These barriers are marked in the diagram below.
 
-![Firecracker Threat Containment](
-images/firecracker_threat_containment.png?raw=true
-"Firecracker Threat Containment")
+![Firecracker Threat Containment](images/firecracker_threat_containment.png?raw=true "Firecracker Threat Containment")
 
 ## Components and Features
 
@@ -115,10 +111,10 @@ KVM supports.
 
 #### Exposing the CPU to the guest
 
-Firecracker allows control of what processor information is exposed
-to the guest by using [CPU templates](cpu_templates/cpu-templates.md).
-CPU templates can be set via the Firecracker API. Users can choose from
-existing static CPU templates and/or creating their own custom CPU templates.
+Firecracker allows control of what processor information is exposed to the guest
+by using [CPU templates](cpu_templates/cpu-templates.md). CPU templates can be
+set via the Firecracker API. Users can choose from existing static CPU templates
+and/or creating their own custom CPU templates.
 
 #### Clocksources available to guests
 
@@ -132,29 +128,29 @@ sure host hardware resources are used fairly by multiple microVMs. These are
 implemented using a token bucket algorithm based on two buckets. One is
 associated with the number of operations per second and the other one with the
 bandwidth. The customer can create and configure rate limiters via the API by
-specifying token bucket configurations for ingress and egress. Each token
-bucket is defined via the bucket size, I/O cost, refill rate, maximum burst,
-and initial value. This enables the customer to define flexible rate limiters
-that support bursts or specific bandwidth/operations limitations.
-For vhost-user devices, customers should implement rate limiting on the
-side of the vhost-user backend that they provide.
+specifying token bucket configurations for ingress and egress. Each token bucket
+is defined via the bucket size, I/O cost, refill rate, maximum burst, and
+initial value. This enables the customer to define flexible rate limiters that
+support bursts or specific bandwidth/operations limitations. For vhost-user
+devices, customers should implement rate limiting on the side of the vhost-user
+backend that they provide.
 
 ### MicroVM Metadata Service
 
-Firecracker microVMs expose access to a minimal MicroVM-Metadata Service
-(MMDS) to the guest through the API endpoint. The metadata stored by the
-service is fully configured by users.
+Firecracker microVMs expose access to a minimal MicroVM-Metadata Service (MMDS)
+to the guest through the API endpoint. The metadata stored by the service is
+fully configured by users.
 
 ### Sandboxing
 
 #### __Firecracker process__
 
-Firecracker is designed to assure secure isolation using multiple layers.
-The first layer of isolation is provided by the Linux KVM and the Firecracker
-virtualization boundary. To assure defense in depth, Firecracker should only
-run constrained at the process level. This is achieved by the following:
-seccomp filters for disallowing unwanted system calls, cgroups and namespaces
-for resource isolation, and dropping privileges by jailing the process. Seccomp
+Firecracker is designed to assure secure isolation using multiple layers. The
+first layer of isolation is provided by the Linux KVM and the Firecracker
+virtualization boundary. To assure defense in depth, Firecracker should only run
+constrained at the process level. This is achieved by the following: seccomp
+filters for disallowing unwanted system calls, cgroups and namespaces for
+resource isolation, and dropping privileges by jailing the process. Seccomp
 filters are automatically installed by Firecracker, while for the latter, we
 recommend starting Firecracker with the `jailer` binary that's part of each
 Firecracker release.
@@ -162,11 +158,11 @@ Firecracker release.
 ##### Seccomp
 
 Seccomp filters are used by default to limit the host system calls Firecracker
-can use. The default filters only allow the bare minimum set of system calls
-and parameters that Firecracker needs in order to function correctly.
+can use. The default filters only allow the bare minimum set of system calls and
+parameters that Firecracker needs in order to function correctly.
 
-The filters are loaded in the Firecracker process, on a per-thread basis,
-before executing any guest code.
+The filters are loaded in the Firecracker process, on a per-thread basis, before
+executing any guest code.
 
 For more information, check out the [seccomp documentation](seccomp.md).
 
@@ -181,8 +177,8 @@ copying a file into the chroot, or passing a file descriptor).
 
 ##### Cgroups and Quotas
 
-Each Firecracker microVM can be further encapsulated into a cgroup. By setting the
-affinity of the Firecracker microVM to a node via the cpuset subsystem, one
+Each Firecracker microVM can be further encapsulated into a cgroup. By setting
+the affinity of the Firecracker microVM to a node via the cpuset subsystem, one
 can prevent the migration of said microVM from one node to another, something
 that would impair performance and cause unnecessary contention on shared
 resources. In addition to setting the affinity, each Firecracker microVM can
@@ -194,6 +190,6 @@ guaranteeing that resources are fairly shared across Firecracker microVMs.
 Firecracker emits logs and metric counters, each on a named pipe that is passed
 via the API. Logs are flushed line by line, whereas metrics are emitted when the
 instance starts, then every 60 seconds while it's running, and on panic.
-Firecracker customers are responsible for collecting data in the Firecracker
-log files. In production builds, Firecracker does not expose the serial console
+Firecracker customers are responsible for collecting data in the Firecracker log
+files. In production builds, Firecracker does not expose the serial console
 port, since it may contain guest data that the host should not see.

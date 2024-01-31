@@ -1,26 +1,22 @@
 ---
 name: Feature request
 about: Suggest an idea for this project
-title: "[Feature Request] Title"
+title: '[Feature Request] Title'
 labels: ''
 assignees: ''
-
 ---
 
 # Feature Request
 
-`[Author TODO: Why is this feature request important? What are the use cases?
-Please describe.]`
+`[Author TODO: Why is this feature request important? What are the use cases? Please describe.]`
 
 ## Describe the desired solution
 
-`[Author TODO: A clear and concise description of how you would like
-the feature to work.]`
+`[Author TODO: A clear and concise description of how you would like the feature to work.]`
 
 ## Describe possible alternatives
 
-`[Author TODO: A clear and concise description of any alternative solutions
-or features you have considered.]`
+`[Author TODO: A clear and concise description of any alternative solutions or features you have considered.]`
 
 `[Author TODO: How do you work around not having this feature?]`
 

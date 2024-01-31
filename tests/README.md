@@ -7,7 +7,7 @@ contracts of Firecracker.
 
 To run all tests:
 
-``` sh
+```sh
 tools/devtool test
 ```
 
@@ -16,20 +16,20 @@ and run all available tests.
 
 To run tests from specific directories and/or files:
 
-``` sh
+```sh
 tools/devtool test -- <test_dir_or_file_path>...
 ```
 
 To run a single specific test from a file:
 
-``` sh
+```sh
 tools/devtool test -- <test_file_path>::<test_name>
 ```
 
 The testing system is built around [pytest](https://docs.pytest.org/en/latest/).
 Any parameters passed to `tools/devtool test --` are passed to the `pytest`
-command. `devtool` is used to automate fetching of test dependencies (useful
-for continuous integration) and to sandbox test runs (useful for development
+command. `devtool` is used to automate fetching of test dependencies (useful for
+continuous integration) and to sandbox test runs (useful for development
 environments). If you are not interested in these capabilities, use pytest
 directly, either from inside the container:
 
@@ -40,7 +40,7 @@ pytest [<pytest argument>...]
 
 Or natively on your dev box:
 
-``` sh
+```sh
 python3 -m pytest [<pytest argument>...]
 ```
 
@@ -52,8 +52,8 @@ For help on usage, see `tools/devtool help`.
 
 ### Dependencies
 
-- A bare-metal `Linux` host with `uname -r` >= 4.14 and KVM enabled
-  (`/dev/kvm` device node exists).
+- A bare-metal `Linux` host with `uname -r` >= 4.14 and KVM enabled (`/dev/kvm`
+  device node exists).
 - Docker.
 
 ## Rustacean Integration Tests
@@ -74,14 +74,15 @@ cargo test --test integration_tests
 Unlike unit tests, Rust integration tests are each run in a separate process.
 `Cargo` also packages them in a new crate. This has several known side effects:
 
-1. Only the `pub` functions can be called. This is fine, as it allows the VMM
-   to be consumed as a programmatic user would. If any function is necessary
-   but not `pub`, please consider carefully whether it conceptually *needs* to
-   be in the public interface before making it so.
+1. Only the `pub` functions can be called. This is fine, as it allows the VMM to
+   be consumed as a programmatic user would. If any function is necessary but
+   not `pub`, please consider carefully whether it conceptually *needs* to be in
+   the public interface before making it so.
+
 1. The correct functioning scenario of the `vmm` implies that it `exit`s with
    code `0`. This is necessary for proper resource cleanup. However, `cargo`
-   doesn't expect the test process to initiate its own demise, therefore it
-   will not be able to properly collect test output.
+   doesn't expect the test process to initiate its own demise, therefore it will
+   not be able to properly collect test output.
 
    Example:
 
@@ -108,15 +109,15 @@ Add a new function annotated with `#[test]` in
 
 By default, `pytest` makes all fixtures in `conftest.py` available to all test
 functions. You can also create `conftest.py` in sub-directories containing
-tests, or define fixtures directly in test files. See `pytest` documentation
-for details.
+tests, or define fixtures directly in test files. See `pytest` documentation for
+details.
 
 ## Working With Guest Files
 
-There are helper methods for writing to and reading from a guest filesystem.
-For example, to overwrite the guest init process and later extract a log:
+There are helper methods for writing to and reading from a guest filesystem. For
+example, to overwrite the guest init process and later extract a log:
 
-``` python
+```python
 def test_with_any_microvm_and_my_init(test_microvm_any):
     # [...]
     test_microvm_any.slot.fsfiles['mounted_root_fs'].copy_to(my_init, 'sbin/')
@@ -124,8 +125,8 @@ def test_with_any_microvm_and_my_init(test_microvm_any):
     test_microvm_any.slot.fsfiles['mounted_root_fs'].copy_from('logs/', 'log')
 ```
 
-`copy_to()` source paths are relative to the host root and destination paths
-are relative to the `mounted_root_fs` root. Vice versa for `copy_from()`.
+`copy_to()` source paths are relative to the host root and destination paths are
+relative to the `mounted_root_fs` root. Vice versa for `copy_from()`.
 
 Copying files to/from a guest file system while the guest is running results in
 undefined behavior.
@@ -134,7 +135,7 @@ undefined behavior.
 
 Running on an EC2 `.metal` instance with an `Amazon Linux 2` AMI:
 
-``` sh
+```sh
 # Get firecracker
 yum install -y git
 git clone https://github.com/firecracker-microvm/firecracker.git
@@ -150,8 +151,8 @@ tools/devtool test
 - **Test Session**: A `pytest` testing session. One per **testrun**. A
   **Testrun** will start a **Test Session** once the sandbox is created.
 - **Test**: A function named `test_` from this tree, that ensures a feature,
-  functional parameter, or quality metric of Firecracker. Should assert or
-  raise an exception if it fails.
+  functional parameter, or quality metric of Firecracker. Should assert or raise
+  an exception if it fails.
 - **Fixture**: A function that returns an object that makes it very easy to add
   **Tests**: E.g., a spawned Firecracker microvm. Fixtures are functions marked
   with `@pytest.fixture` from a files named either `conftest.py`, or from files
@@ -161,46 +162,32 @@ tools/devtool test
 
 ## FAQ
 
-`Q1:`
-*I have a shell script that runs my tests and I don't want to rewrite it.*
-`A1:`
-Insofar as it makes sense, you should write it as a python test function.
+`Q1:` *I have a shell script that runs my tests and I don't want to rewrite it.*
+`A1:` Insofar as it makes sense, you should write it as a python test function.
 However, you can always call the script from a shim python test function. You
 can also add it as a microvm image resource in the s3 bucket (and it will be
 made available under `microvm.slot.path`) or copy it over to a guest filesystem
 as part of your test.
 
-`Q2:`
-*I want to add more tests that I don't want to commit to the Firecracker
-repository.*
-`A2:`
-Before a testrun or test session, just add your test directory under `tests/`.
-`pytest` will discover all tests in this tree.
+`Q2:` *I want to add more tests that I don't want to commit to the Firecracker
+repository.* `A2:` Before a testrun or test session, just add your test
+directory under `tests/`. `pytest` will discover all tests in this tree.
 
-`Q3:`
-*I want to have my own test fixtures, and not commit them in the repo.*
-`A3:`
-Add a `conftest.py` file in your test directory, and place your fixtures there.
-`pytest` will bring them into scope for all your tests.
+`Q3:` *I want to have my own test fixtures, and not commit them in the repo.*
+`A3:` Add a `conftest.py` file in your test directory, and place your fixtures
+there. `pytest` will bring them into scope for all your tests.
 
-`Q4:`
-*I want to use more/other microvm test images, but I don't want to add them to
-the common s3 bucket.*
-`A4:`
-Add your custom images to the `build/img` subdirectory in the Firecracker
-source tree. This directory is bind-mounted in the container and used as a
-local image cache.
+`Q4:` *I want to use more/other microvm test images, but I don't want to add
+them to the common s3 bucket.* `A4:` Add your custom images to the `build/img`
+subdirectory in the Firecracker source tree. This directory is bind-mounted in
+the container and used as a local image cache.
 
-`Q5:`
-*How can I get live logger output from the tests?*
-`A5:`
-Accessing **pytest.ini** will allow you to modify logger settings.
+`Q5:` *How can I get live logger output from the tests?* `A5:` Accessing
+**pytest.ini** will allow you to modify logger settings.
 
-`Q6:`
-*Is there a way to speed up integration tests execution time?*
+`Q6:` *Is there a way to speed up integration tests execution time?*
 
-`A6:`
-You can narrow down the test selection as described in the **Running**
+`A6:` You can narrow down the test selection as described in the **Running**
 section, or in the **Troubleshooting Tests** section. For example:
 
 1. Pass the `-k substring` option to Pytest to only run a subset of tests by
@@ -242,7 +229,7 @@ Pytest was chosen because:
 - Create an integrated, layered `say` system across the test runner and pytest
   (probably based on an environment variable).
 - Per test function dependency installation would make tests easier to write.
-- Type hinting is used sparsely across tests/* python module. The code would be
+- Type hinting is used sparsely across tests/\* python module. The code would be
   more easily understood with consistent type hints everywhere.
 
 ### Bug fixes
@@ -394,8 +381,7 @@ snap = uvm.snapshot_full()
 uvm.help.tmux_ssh()
 ```
 
-It supports a number of options, you can check with `devtool sandbox --
---help`.
+It supports a number of options, you can check with `devtool sandbox -- --help`.
 
 ### Running outside of Docker
 

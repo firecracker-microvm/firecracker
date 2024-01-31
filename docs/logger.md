@@ -1,15 +1,14 @@
 # Firecracker logger Configuration
 
-For the logging capability, Firecracker uses a single Logger object.
-The Logger can be configured either by sending a `PUT` API Request to
-the `/logger` path or by command line. You can configure the Logger
-only once (by using one of these options) and once configured, you
-can not update it.
+For the logging capability, Firecracker uses a single Logger object. The Logger
+can be configured either by sending a `PUT` API Request to the `/logger` path or
+by command line. You can configure the Logger only once (by using one of these
+options) and once configured, you can not update it.
 
 ## Prerequisites
 
-In order to configure the Logger, first you have to create the resource
-that will be used for logging:
+In order to configure the Logger, first you have to create the resource that
+will be used for logging:
 
 ```bash
 # Create the required named pipe:
@@ -41,9 +40,9 @@ Details about the required and optional fields can be found in the
 
 ## Using command line parameters for configuration
 
-If you want to configure the Logger on startup and without using the
-API socket, you can do that by passing the parameter `--log-path` to
-the Firecracker process:
+If you want to configure the Logger on startup and without using the API socket,
+you can do that by passing the parameter `--log-path` to the Firecracker
+process:
 
 ```bash
 ./firecracker --api-sock /tmp/firecracker.socket --log-path
@@ -51,9 +50,9 @@ the Firecracker process:
 ```
 
 The other Logger fields have, in this case, the default values:
-`Level -> Warning`, `show_level -> false`, `show_log_origin -> false`.
-For configuring these too, you can also pass the following optional
-parameters: `--level <log_level>`, `--show-level`, `--show-log-origin`:
+`Level -> Warning`, `show_level -> false`, `show_log_origin -> false`. For
+configuring these too, you can also pass the following optional parameters:
+`--level <log_level>`, `--show-level`, `--show-log-origin`:
 
 ```bash
 ./firecracker --api-sock /tmp/firecracker.socket --log-path
@@ -62,11 +61,11 @@ logs.fifo --level Error --show-level --show-log-origin
 
 ## Reading from the logging destination
 
-The `logs.fifo` pipe will store the human readable logs, e.g. errors,
-warnings etc.(depending on the level).
+The `logs.fifo` pipe will store the human readable logs, e.g. errors, warnings
+etc.(depending on the level).
 
-If the path provided is a named pipe, you can use the script below to
-read from it:
+If the path provided is a named pipe, you can use the script below to read from
+it:
 
 ```shell
 logs=logs.fifo

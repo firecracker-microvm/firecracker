@@ -4,8 +4,8 @@
 
 ### Manual compilation
 
-Currently, Firecracker supports uncompressed ELF kernel images on x86_64 while on
-aarch64 it supports PE formatted images.
+Currently, Firecracker supports uncompressed ELF kernel images on x86_64 while
+on aarch64 it supports PE formatted images.
 
 Here's a quick step-by-step guide to building your own kernel that Firecracker
 can boot:
@@ -25,9 +25,9 @@ can boot:
    ```
 
 1. You will need to configure your Linux build. You can start from our
-   recommended  [guest kernel configurations](../resources/guest_configs/)
-   by copying the relevant one to `.config` (under the Linux sources dir).
-   You can make interactive config adjustments using:
+   recommended [guest kernel configurations](../resources/guest_configs/) by
+   copying the relevant one to `.config` (under the Linux sources dir). You can
+   make interactive config adjustments using:
 
    ```bash
    make menuconfig
@@ -47,8 +47,8 @@ can boot:
    fi
    ```
 
-1. Upon a successful build, you can find the kernel image under `./vmlinux`
-   (for x86) or `./arch/arm64/boot/Image` (for aarch64).
+1. Upon a successful build, you can find the kernel image under `./vmlinux` (for
+   x86) or `./arch/arm64/boot/Image` (for aarch64).
 
 For a list of currently supported kernel versions, check out the
 [kernel support policy](kernel-policy.md).
@@ -84,8 +84,8 @@ following options:
 
 ### Manual build
 
-1. Prepare a properly-sized file. We'll use 50MiB here, but this depends
-   on how much data you'll want to fit inside:
+1. Prepare a properly-sized file. We'll use 50MiB here, but this depends on how
+   much data you'll want to fit inside:
 
    ```bash
    dd if=/dev/zero of=rootfs.ext4 bs=1M count=50
@@ -97,27 +97,27 @@ following options:
    mkfs.ext4 rootfs.ext4
    ```
 
-You now have an empty EXT4 image in `rootfs.ext4`, so let's prepare to
-populate it. First, you'll need to mount this new file system, so you
-can easily access its contents:
+You now have an empty EXT4 image in `rootfs.ext4`, so let's prepare to populate
+it. First, you'll need to mount this new file system, so you can easily access
+its contents:
 
 ```bash
 mkdir /tmp/my-rootfs
 sudo mount rootfs.ext4 /tmp/my-rootfs
 ```
 
-The minimal init system would be just an ELF binary, placed at `/sbin/init`.
-The final step in the Linux boot process executes `/sbin/init` and expects it
-to never exit. More complex init systems build on top of this, providing
-service configuration files, startup / shutdown scripts for various services,
-and many other features.
+The minimal init system would be just an ELF binary, placed at `/sbin/init`. The
+final step in the Linux boot process executes `/sbin/init` and expects it to
+never exit. More complex init systems build on top of this, providing service
+configuration files, startup / shutdown scripts for various services, and many
+other features.
 
-For the sake of simplicity, let's set up an Alpine-based rootfs, with OpenRC
-as an init system. To that end, we'll use the official Docker image for
-Alpine Linux:
+For the sake of simplicity, let's set up an Alpine-based rootfs, with OpenRC as
+an init system. To that end, we'll use the official Docker image for Alpine
+Linux:
 
-1. First, let's start the Alpine container, bind-mounting the EXT4 image
-   created earlier, to `/my-rootfs`:
+1. First, let's start the Alpine container, bind-mounting the EXT4 image created
+   earlier, to `/my-rootfs`:
 
    ```bash
    docker run -it --rm -v /tmp/my-rootfs:/my-rootfs alpine

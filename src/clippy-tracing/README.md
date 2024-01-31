@@ -1,14 +1,12 @@
 # clippy-tracing
 
-A tool to add, remove and check for `log_instrument::instrument`
-in large projects where it is infeasible to manually add it to thousands
-of functions.
+A tool to add, remove and check for `log_instrument::instrument` in large
+projects where it is infeasible to manually add it to thousands of functions.
 
 ## Usage
 
 This is tested in the
-[`readme()` integration test](../clippy-tracing/tests/integration_tests.rs)
-.
+[`readme()` integration test](../clippy-tracing/tests/integration_tests.rs) .
 
 ```rust
 fn main() {

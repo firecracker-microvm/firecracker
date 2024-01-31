@@ -4,11 +4,11 @@
 
 ### Based on alpine or suse
 
-You can use the script found [here](https://github.com/marcov/firecracker-initrd)
-to generate an initrd either based on alpine or suse linux.
+You can use the script found
+[here](https://github.com/marcov/firecracker-initrd) to generate an initrd
+either based on alpine or suse linux.
 
-The script extracts the init system from each distribution and creates a
-initrd.
+The script extracts the init system from each distribution and creates a initrd.
 
 ### Custom
 

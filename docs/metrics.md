@@ -9,8 +9,8 @@ not restored from a snapshot.
 
 ## Prerequisites
 
-In order to configure the Metrics, first you have to create the resource
-that will be used for storing the metrics:
+In order to configure the Metrics, first you have to create the resource that
+will be used for storing the metrics:
 
 ```bash
 # Create the required named pipe:
@@ -51,12 +51,12 @@ The metrics are written to the `metrics_path` in JSON format.
 
 The metrics get flushed in two ways:
 
-* without user intervention every 60 seconds;
-* upon user demand, by issuing a `FlushMetrics` request. You can
-  find how to use this request in the [actions API](api_requests/actions.md).
+- without user intervention every 60 seconds;
+- upon user demand, by issuing a `FlushMetrics` request. You can find how to use
+  this request in the [actions API](api_requests/actions.md).
 
-If the path provided is a named pipe, you can use the script below to
-read from it:
+If the path provided is a named pipe, you can use the script below to read from
+it:
 
 ```shell
 metrics=metrics.fifo
@@ -80,8 +80,8 @@ cat metrics.file
 
 ## Metrics emitted by Firecracker
 
-The metrics emitted by Firecracker are in JSON format.
-Below are the keys present in each metrics json object emitted by Firecracker:
+The metrics emitted by Firecracker are in JSON format. Below are the keys
+present in each metrics json object emitted by Firecracker:
 
 ```
 "api_server"
@@ -109,33 +109,31 @@ Below are the keys present in each metrics json object emitted by Firecracker:
 
 Below table explains where Firecracker metrics are defined :
 
-| Metrics key | Device  | Additional comments |
-|-------|-------|-------|
-|   balloon                     |    [BalloonDeviceMetrics](../src/vmm/src/devices/virtio/balloon/metrics.rs)       | Respresent metrics for the Balloon device.|
-|   block                       |    [BlockDeviceMetrics](../src/vmm/src/devices/virtio/virtio_block/metrics.rs)    | Respresent aggregate metrics for Virtio Block device.|
-|   block_{block_drive_id}      |    [BlockDeviceMetrics](../src/vmm/src/devices/virtio/virtio_block/metrics.rs)    | Respresent Virtio Block device metrics for the endpoint `"/drives/{drive_id}"` e.g. `"block_rootfs":` represent metrics for the endpoint `"/drives/rootfs"`|
-|   i8042                       |    [I8042DeviceMetrics](../src/vmm/src/devices/legacy/i8042.rs)                   | Respresent Metrics specific to the i8042 device.|
-|   net                         |    [NetDeviceMetrics](../src/vmm/src/devices/virtio/net/metrics.rs)               | Respresent aggregate metrics for Virtio Net device.|
-|   net_{iface_id}              |    [NetDeviceMetrics](../src/vmm/src/devices/virtio/net/metrics.rs)               | Respresent Virtio Net device metrics for the endpoint `"/network-interfaces/{iface_id}"` e.g. `net_eth0` represent metrics for the endpoint `"/network-interfaces/eth0"`|
-|   rtc                         |    [RTCDeviceMetrics](../src/vmm/src/devices/legacy/serial.rs)                    | Respresent Metrics specific to the RTC device. `Note`: this is emitted only on `aarch64`.|
-|   uart                        |    [SerialDeviceMetrics](../src/vmm/src/devices/legacy/serial.rs)                 | Respresent Metrics specific to the serial device.|
-|   vhost_user_{dev}_{dev_id}   |    [VhostUserDeviceMetrics](../src/vmm/src/devices/virtio/vhost_user_metrics.rs)  | Respresent Vhost-user device metrics for the device `dev` and device id `dev_id`. e.g. `"vhost_user_block_rootfs":` represent metrics for vhost-user block device having the endpoint `"/drives/rootfs"`|
-|   vsock                       |    [VsockDeviceMetrics](../src/vmm/src/devices/virtio/vsock/metrics.rs)           | Respresent Metrics specific to the vsock device.|
-|   entropy                     |    [EntropyDeviceMetrics](../src/vmm/src/devices/virtio/rng/metrics.rs)           | Respresent Metrics specific to the entropy device.|
-|   "api_server"<br>"deprecated_api"<br>"get_api_requests"<br>"latencies_us"<br>"logger"<br>"mmds"<br>"patch_api_requests"<br>"put_api_requests"<br>"seccomp"<br>"signals"<br>"vcpu"<br>"vmm"      |   [metrics.rs](../src/vmm/src/logger/metrics.rs)  |   Rest of the metrics are defined in the same file metrics.rs.|
+| Metrics key                                                                                                                                                                               | Device                                                                        | Additional comments                                                                                                                                                                                      |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| balloon                                                                                                                                                                                   | [BalloonDeviceMetrics](../src/vmm/src/devices/virtio/balloon/metrics.rs)      | Respresent metrics for the Balloon device.                                                                                                                                                               |
+| block                                                                                                                                                                                     | [BlockDeviceMetrics](../src/vmm/src/devices/virtio/virtio_block/metrics.rs)   | Respresent aggregate metrics for Virtio Block device.                                                                                                                                                    |
+| block\_{block_drive_id}                                                                                                                                                                   | [BlockDeviceMetrics](../src/vmm/src/devices/virtio/virtio_block/metrics.rs)   | Respresent Virtio Block device metrics for the endpoint `"/drives/{drive_id}"` e.g. `"block_rootfs":` represent metrics for the endpoint `"/drives/rootfs"`                                              |
+| i8042                                                                                                                                                                                     | [I8042DeviceMetrics](../src/vmm/src/devices/legacy/i8042.rs)                  | Respresent Metrics specific to the i8042 device.                                                                                                                                                         |
+| net                                                                                                                                                                                       | [NetDeviceMetrics](../src/vmm/src/devices/virtio/net/metrics.rs)              | Respresent aggregate metrics for Virtio Net device.                                                                                                                                                      |
+| net\_{iface_id}                                                                                                                                                                           | [NetDeviceMetrics](../src/vmm/src/devices/virtio/net/metrics.rs)              | Respresent Virtio Net device metrics for the endpoint `"/network-interfaces/{iface_id}"` e.g. `net_eth0` represent metrics for the endpoint `"/network-interfaces/eth0"`                                 |
+| rtc                                                                                                                                                                                       | [RTCDeviceMetrics](../src/vmm/src/devices/legacy/serial.rs)                   | Respresent Metrics specific to the RTC device. `Note`: this is emitted only on `aarch64`.                                                                                                                |
+| uart                                                                                                                                                                                      | [SerialDeviceMetrics](../src/vmm/src/devices/legacy/serial.rs)                | Respresent Metrics specific to the serial device.                                                                                                                                                        |
+| vhost_user\_{dev}\_{dev_id}                                                                                                                                                               | [VhostUserDeviceMetrics](../src/vmm/src/devices/virtio/vhost_user_metrics.rs) | Respresent Vhost-user device metrics for the device `dev` and device id `dev_id`. e.g. `"vhost_user_block_rootfs":` represent metrics for vhost-user block device having the endpoint `"/drives/rootfs"` |
+| vsock                                                                                                                                                                                     | [VsockDeviceMetrics](../src/vmm/src/devices/virtio/vsock/metrics.rs)          | Respresent Metrics specific to the vsock device.                                                                                                                                                         |
+| entropy                                                                                                                                                                                   | [EntropyDeviceMetrics](../src/vmm/src/devices/virtio/rng/metrics.rs)          | Respresent Metrics specific to the entropy device.                                                                                                                                                       |
+| "api_server"<br>"deprecated_api"<br>"get_api_requests"<br>"latencies_us"<br>"logger"<br>"mmds"<br>"patch_api_requests"<br>"put_api_requests"<br>"seccomp"<br>"signals"<br>"vcpu"<br>"vmm" | [metrics.rs](../src/vmm/src/logger/metrics.rs)                                | Rest of the metrics are defined in the same file metrics.rs.                                                                                                                                             |
 
-Note:
-Firecracker emits all the above metrics regardless of the presense of
-that component i.e. even if `vsock` device is not attached to the
-Microvm, Firecracker will still emit the Vsock metrics with key as
-`vsock` and value of all metrics defined in `VsockDeviceMetrics` as
-`0`.
+Note: Firecracker emits all the above metrics regardless of the presense of that
+component i.e. even if `vsock` device is not attached to the Microvm,
+Firecracker will still emit the Vsock metrics with key as `vsock` and value of
+all metrics defined in `VsockDeviceMetrics` as `0`.
 
 ### Units for Firecracker metrics:
 
-Units for Firecracker metrics are embedded in their name.<br/>
-Below pseudo code should be to extract units from Firecracker metrics name:<br/>
-Note: An example of full_key for below logic is `"vcpu.exit_io_in_agg.min_us"`
+Units for Firecracker metrics are embedded in their name.<br/> Below pseudo code
+should be to extract units from Firecracker metrics name:<br/> Note: An example
+of full_key for below logic is `"vcpu.exit_io_in_agg.min_us"`
 
 ```
     if substring "_bytes" or "_bytes_count" is present in any subkey of full_key

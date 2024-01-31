@@ -1,10 +1,9 @@
 ---
 name: Bug report
 about: Create a report to help us improve
-title: "[Bug] Title"
+title: '[Bug] Title'
 labels: 'Quality: Bug'
 assignees: ''
-
 ---
 
 # Describe the bug
@@ -14,8 +13,7 @@ assignees: ''
 ## To Reproduce
 
 `[Author TODO: Steps to reproduce the behaviour:]`
-`[ 1. Start Firecracker via....]`
-`[ 2. Configure Firecracker via....]`
+`[ 1. Start Firecracker via....]` `[ 2. Configure Firecracker via....]`
 `[ 3. ....]`
 
 ## Expected behaviour
@@ -25,10 +23,8 @@ assignees: ''
 ## Environment
 
 `[Author TODO: Please supply the following information):]`
-`[ - Firecracker version.]`
-`[ - Host and guest kernel versions.]`
-`[ - Rootfs used.]`
-`[ - Architecture.]`
+`[ - Firecracker version.]` `[ - Host and guest kernel versions.]`
+`[ - Rootfs used.]` `[ - Architecture.]`
 `[ - Any other relevant software versions.]`
 
 ## Additional context

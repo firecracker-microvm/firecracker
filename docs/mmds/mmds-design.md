@@ -10,8 +10,8 @@ last is a part of the device model.
 
 Users can add/update the MMDS contents via the backend, which is accessible
 through the Firecracker API. Setting the initial contents involves a `PUT`
-request to the `/mmds` API resource, with a JSON body that describes the
-desired data store structure and contents. Here's a JSON example:
+request to the `/mmds` API resource, with a JSON body that describes the desired
+data store structure and contents. Here's a JSON example:
 
 ```json
 {
@@ -37,17 +37,18 @@ desired data store structure and contents. Here's a JSON example:
 }
 ```
 
-The MMDS contents can be updated either via a subsequent `PUT` (that replaces them
-entirely), or using `PATCH` requests, which feed the JSON body into the JSON Merge
-Patch functionality, based on [RFC 7396](https://tools.ietf.org/html/rfc7396). MMDS
-related API requests come from the host, which is considered a trusted environment,
-so there are no checks beside the kind of validation done by HTTP server and
-`serde-json` (the crate used to de/serialize JSON). The size limit for the stored
-metadata is configurable and defaults to 51200 bytes. When increasing this limit,
-one must take into consideration that storing and retrieving large amount of data
-may induce bottlenecks for the HTTP REST API processing, which is based on
-`micro-http` crate. MMDS contents can be retrieved using the Firecracker API, via
-a `GET` request to the `/mmds` resource.
+The MMDS contents can be updated either via a subsequent `PUT` (that replaces
+them entirely), or using `PATCH` requests, which feed the JSON body into the
+JSON Merge Patch functionality, based on
+[RFC 7396](https://tools.ietf.org/html/rfc7396). MMDS related API requests come
+from the host, which is considered a trusted environment, so there are no checks
+beside the kind of validation done by HTTP server and `serde-json` (the crate
+used to de/serialize JSON). The size limit for the stored metadata is
+configurable and defaults to 51200 bytes. When increasing this limit, one must
+take into consideration that storing and retrieving large amount of data may
+induce bottlenecks for the HTTP REST API processing, which is based on
+`micro-http` crate. MMDS contents can be retrieved using the Firecracker API,
+via a `GET` request to the `/mmds` resource.
 
 ## The data store
 
@@ -55,14 +56,13 @@ This is a global data structure, currently referenced using a global variable,
 that represents the strongly-typed version of JSON-based user input describing
 the MMDS contents. It leverages the recursive
 [Value](https://docs.serde.rs/serde_json/value/enum.Value.html) type exposed by
-`serde-json`. It can only be accessed from thread-safe contexts. MMDS data
-store supports at the moment storing and retrieving JSON values. Data store
-contents can be retrieved using the Firecracker API server from host and using
-the embedded MMDS HTTP/TCP/IPv4 network stack from guest.
-MMDS data store is upper bounded to the value of the `--mmds-size-limit`
-command line parameter.
-If left unconfigured, it will default to the value of
-`--http-api-max-payload-size`, which is 51200 bytes by default.
+`serde-json`. It can only be accessed from thread-safe contexts. MMDS data store
+supports at the moment storing and retrieving JSON values. Data store contents
+can be retrieved using the Firecracker API server from host and using the
+embedded MMDS HTTP/TCP/IPv4 network stack from guest. MMDS data store is upper
+bounded to the value of the `--mmds-size-limit` command line parameter. If left
+unconfigured, it will default to the value of `--http-api-max-payload-size`,
+which is 51200 bytes by default.
 
 ## Dumbo
 
@@ -72,9 +72,9 @@ it's worth going through a brief description of the Firecracker network device
 model. Firecracker only offers Virtio-net paravirtualized devices to guests.
 Drivers running in the guest OS use ring buffers in a shared memory area to
 communicate with the device model when sending or receiving frames. The device
-model associates each guest network device with a TAP device on the host.
-Frames sent by the guest are written to the TAP fd, and frames read from the
-TAP fd are handed over to the guest.
+model associates each guest network device with a TAP device on the host. Frames
+sent by the guest are written to the TAP fd, and frames read from the TAP fd are
+handed over to the guest.
 
 The *Dumbo* stack can be instantiated once for every network device, and is
 disabled by default. It can be enabled through the API request body used to
@@ -90,16 +90,16 @@ from the TAP fd (when available).
 
 We chose to implement our own solution, instead of leveraging existing
 libraries/implementations, because responding to guest MMDS queries in the
-context of Firecracker is amenable to a wide swath of simplifications.
-First of all, we only need to handle `GET` and `PUT` requests, which require
-a bare-bones HTTP 1.1 server, without support for most headers and more advanced
-features like chunking. Also, we get to choose what subset of HTTP is used when
-building responses. Moving lower in the stack, we are dealing with TCP connections
-over what is essentially a point-to-point link, that seldom loses packets and does
+context of Firecracker is amenable to a wide swath of simplifications. First of
+all, we only need to handle `GET` and `PUT` requests, which require a bare-bones
+HTTP 1.1 server, without support for most headers and more advanced features
+like chunking. Also, we get to choose what subset of HTTP is used when building
+responses. Moving lower in the stack, we are dealing with TCP connections over
+what is essentially a point-to-point link, that seldom loses packets and does
 not reorder them. This means we can do away with congestion control (we only use
-flow control), complex reception logic, and support for most TCP options/features.
-At this point, the layers below (Ethernet and IPv4) don't involve much more than
-sanity checks of frame/packet contents.
+flow control), complex reception logic, and support for most TCP
+options/features. At this point, the layers below (Ethernet and IPv4) don't
+involve much more than sanity checks of frame/packet contents.
 
 *Dumbo* is built using both general purpose components (which we plan to offer
 as part of one or more libraries), and Firecracker MMDS specific code. The
@@ -109,8 +109,8 @@ segments), a TCP handler which listens for connections while demultiplexing
 incoming segments, a minimalist TCP connection endpoint implementation, and a
 greatly simplified HTTP 1.1 server. The Firecracker MMDS specific code is found
 in the logic which taps into the device model, and the component that parses an
-HTTP request, builds a response based on MMDS contents, and finally sends back
-a reply.
+HTTP request, builds a response based on MMDS contents, and finally sends back a
+reply.
 
 ### MMDS Network Stack
 
@@ -118,15 +118,15 @@ Somewhat confusingly, this is the name of the component which taps the device
 model. It has a user-configured IPv4 address (see
 [Firecracker MMDS configuration API](../../src/firecracker/swagger/firecracker.yaml))
 and MAC (`06:01:23:45:67:01`) addresses. The latter is also used to respond to
-ARP requests.
-For every frame coming from the guest, the following steps take place:
+ARP requests. For every frame coming from the guest, the following steps take
+place:
 
 1. Apply a heuristic to determine whether the frame may contain an ARP request
    for the MMDS IP address, or an IPv4 packet heading towards the same address.
    There can be no false negatives. Frames that fail both checks are *rejected*
    (deferred to the device model for regular processing).
-1. *Reject* invalid Ethernet frames. *Reject* valid frames if their EtherType
-   is neither ARP, nor IPv4.
+1. *Reject* invalid Ethernet frames. *Reject* valid frames if their EtherType is
+   neither ARP, nor IPv4.
 1. (**if EtherType == ARP**) *Reject* invalid ARP frames. *Reject* the frame if
    its target protocol address field is different from the MMDS IP address.
    Otherwise, record that an ARP request has been received (the stack only
@@ -157,15 +157,15 @@ one from the MMDS network stack associated with the current network device.
 ### TCP handler
 
 Handles received packets that appear to carry TCP segments. Its operation is
-described in the `dumbo` crate documentation. Each connection is associated
-with an MMDS endpoint.
+described in the `dumbo` crate documentation. Each connection is associated with
+an MMDS endpoint.
 
 ### MMDS endpoint
 
 This component gets the byte stream from an inner TCP connection object,
 identifies the boundaries of the next HTTP request, and parses it using an
-HttpRequest object. For each valid `GET` request, the URI is used to identify
-a key from the metadata store (like in the previous example), and a response is
+HttpRequest object. For each valid `GET` request, the URI is used to identify a
+key from the metadata store (like in the previous example), and a response is
 built using the Firecracker implementation of HttpResponse logic, based on the
 associated value, and sent back to the guest over the same connection. Each
 endpoint has a fixed size receive buffer, and a variable length response buffer
@@ -180,11 +180,11 @@ handler):
 
 1. Invoke the receive functionality of the inner connection object, and append
    any new data to the receive buffer.
-1. If no response is currently pending, attempt to identify the end of the
-   first request in the receive buffer. If no such boundary can be found, and
-   the buffer is full, reset the inner connection (which also causes the
-   endpoint itself to be subsequently removed) because the guest exceeded the
-   maximum allowed request size.
+1. If no response is currently pending, attempt to identify the end of the first
+   request in the receive buffer. If no such boundary can be found, and the
+   buffer is full, reset the inner connection (which also causes the endpoint
+   itself to be subsequently removed) because the guest exceeded the maximum
+   allowed request size.
 1. If no response is pending, and we can identify a request in the receive
    buffer, parse it, free up the associated buffer space (also update the
    connection receive window), and build an HTTP response, which becomes the
@@ -195,8 +195,8 @@ handler):
 
 When the TCP handler asks an MMDS endpoint for any segments to send, the
 transmission logic of the inner connection is invoked, specifying the pending
-response (when present) as the payload source. All packets coming from MMDS
-have the TTL value set to 1 by default.
+response (when present) as the payload source. All packets coming from MMDS have
+the TTL value set to 1 by default.
 
 ### Connection
 

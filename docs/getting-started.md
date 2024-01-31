@@ -49,9 +49,9 @@ Otherwise, if access is managed via the `kvm` group:
 && echo "Access granted."
 ```
 
-If none of the above works, you will need to either install the file
-system ACL package for your distro and use the `setfacl` command as above,
-or run Firecracker as `root` (via `sudo`).
+If none of the above works, you will need to either install the file system ACL
+package for your distro and use the `setfacl` command as above, or run
+Firecracker as `root` (via `sudo`).
 
 You can check if you have access to `/dev/kvm` with:
 
@@ -61,16 +61,16 @@ You can check if you have access to `/dev/kvm` with:
 
 ## Running Firecracker
 
-In production, Firecracker is designed to be run inside
-an execution jail, set up by the [`jailer`](../src/jailer/) binary. This is how
-our [integration test suite](#running-the-integration-test-suite) does it. This
+In production, Firecracker is designed to be run inside an execution jail, set
+up by the [`jailer`](../src/jailer/) binary. This is how our
+[integration test suite](#running-the-integration-test-suite) does it. This
 guide will not use the [`jailer`](../src/jailer/).
 
 ### Getting a rootfs and Guest Kernel Image
 
-To successfully start a microVM with you will need an uncompressed Linux kernel binary,
-and an ext4 file system image (to use as rootfs). This guide uses a 5.10 kernel image
-with a Ubuntu 22.04 rootfs from our CI:
+To successfully start a microVM with you will need an uncompressed Linux kernel
+binary, and an ext4 file system image (to use as rootfs). This guide uses a 5.10
+kernel image with a Ubuntu 22.04 rootfs from our CI:
 
 ```bash
 ARCH="$(uname -m)"
@@ -93,7 +93,8 @@ chmod 400 ./ubuntu-22.04.id_rsa
 There are two options for getting a firecracker binary:
 
 - Downloading an official firecracker release from our
-  [release page](https://github.com/firecracker-microvm/firecracker/releases), or
+  [release page](https://github.com/firecracker-microvm/firecracker/releases),
+  or
 - Building firecracker from source.
 
 To download the latest firecracker release, run
@@ -109,7 +110,8 @@ curl -L ${release_url}/download/${latest}/firecracker-${latest}-${ARCH}.tgz \
 mv release-${latest}-$(uname -m)/firecracker-${latest}-${ARCH} firecracker
 ```
 
-To instead build firecracker from source, you will need to have `docker` installed:
+To instead build firecracker from source, you will need to have `docker`
+installed:
 
 ```bash
 ARCH="$(uname -m)"
@@ -257,14 +259,14 @@ ssh -i ./ubuntu-22.04.id_rsa root@172.16.0.2
 # Run `reboot` to exit.
 ```
 
-Issuing a `reboot` command inside the guest will gracefully shutdown Firecracker.
-This is due to the fact that Firecracker doesn't implement guest power management.
+Issuing a `reboot` command inside the guest will gracefully shutdown
+Firecracker. This is due to the fact that Firecracker doesn't implement guest
+power management.
 
 ### Configuring the microVM without sending API requests
 
 You can boot a guest without using the API socket by passing the parameter
-`--config-file` to the Firecracker process.
-E.g.:
+`--config-file` to the Firecracker process. E.g.:
 
 ```wrap
 ./firecracker --api-sock /tmp/firecracker.socket --config-file <path_to_the_configuration_file>
@@ -275,10 +277,9 @@ configuration for all of the microVM's resources. The JSON **must** contain the
 configuration for the guest kernel and rootfs, all of the other resources are
 optional. This configuration method will also start the microVM, as such you
 need to specify all desired pre-boot configurable resources in the JSON. The
-names of the resources can be seen in
-[`firecracker.yaml`]
-(../src/firecracker/swagger/firecracker.yaml) and the
-names of their fields are the same that are used in the API requests.
+names of the resources can be seen in \[`firecracker.yaml`\]
+(../src/firecracker/swagger/firecracker.yaml) and the names of their fields are
+the same that are used in the API requests.
 
 An example of configuration file is provided:
 [`tests/framework/vm_config.json`](../tests/framework/vm_config.json).
@@ -291,9 +292,9 @@ for post-boot operations.
 
 ### Building Firecracker
 
-SSH can be used to work with libraries from private git repos by passing
-the `--ssh-keys` flag to specify the paths to your public and private SSH keys
-on the host. Both are required for git authentication when fetching the
+SSH can be used to work with libraries from private git repos by passing the
+`--ssh-keys` flag to specify the paths to your public and private SSH keys on
+the host. Both are required for git authentication when fetching the
 repositories.
 
 ```bash
@@ -325,16 +326,13 @@ not run on an EC2 .metal instance. You can skip performance tests with:
 If you run the integration tests on an EC2 .metal instance, and encounter
 failures such as the following
 
-`
-FAILED integration_tests/style/test_markdown.py::test_markdown_style -
- requests.exceptions.ReadTimeout: HTTPConnectionPool(host='169.254.169.254',
-port=80): Read timed out. (read timeout=2)
-`
+`FAILED integration_tests/style/test_markdown.py::test_markdown_style -  requests.exceptions.ReadTimeout: HTTPConnectionPool(host='169.254.169.254', port=80): Read timed out. (read timeout=2)`
 
-try running `aws ec2 modify-instance-metadata-options --instance-id i-<your
- instance id> --http-put-response-hop-limit 2`. The integration tests framework
-uses IMDSv2 to determine information such as instance type. The additional hop
-is needed because the IMDS requests will pass through docker.
+try running
+`aws ec2 modify-instance-metadata-options --instance-id i-<your  instance id> --http-put-response-hop-limit 2`.
+The integration tests framework uses IMDSv2 to determine information such as
+instance type. The additional hop is needed because the IMDS requests will pass
+through docker.
 
 ## Errors while using `curl` to access the API
 
@@ -347,9 +345,10 @@ Points to check to confirm the API socket is running and accessible:
   access to sockets on RHEL based distributions. How user's permissions are
   configured is environmentally specific, but for the purposes of
   troubleshooting you can check if it is enabled in `/etc/selinux/config`.
-- With the Firecracker process running using `--api-sock /tmp/firecracker.socket`,
-  confirm that the socket is open:
+- With the Firecracker process running using
+  `--api-sock /tmp/firecracker.socket`, confirm that the socket is open:
   - `ss -a | grep '/tmp/firecracker.socket'`
-  - If you have socat available, try `socat - UNIX-CONNECT:/tmp/firecracker.socket`
-    This will throw an explicit error if the socket is inaccessible, or it will pause
-    and wait for input to continue.
+  - If you have socat available, try
+    `socat - UNIX-CONNECT:/tmp/firecracker.socket` This will throw an explicit
+    error if the socket is inaccessible, or it will pause and wait for input to
+    continue.

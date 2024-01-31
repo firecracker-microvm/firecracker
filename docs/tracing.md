@@ -8,20 +8,19 @@ Instrumentation based tracing as defined by
 [Sheng Liang on usenix.org](https://www.usenix.org/legacy/publications/library/proceedings/coots99/full_papers/liang/liang_html/node9.html):
 
 > There are two ways to obtain profiling information: either statistical
-> sampling or code instrumentation. Statistical sampling is less
-> disruptive to program execution, but cannot provide completely
-> accurate information. Code instrumentation, on the other hand, may be
-> more disruptive, but allows the profiler to record all the events it
-> is interested in. Specifically in CPU time profiling, statistical
-> sampling may reveal, for example, the relative percentage of time
-> spent in frequently-called methods, whereas code instrumentation can
-> report the exact number of time each method is invoked.
+> sampling or code instrumentation. Statistical sampling is less disruptive to
+> program execution, but cannot provide completely accurate information. Code
+> instrumentation, on the other hand, may be more disruptive, but allows the
+> profiler to record all the events it is interested in. Specifically in CPU
+> time profiling, statistical sampling may reveal, for example, the relative
+> percentage of time spent in frequently-called methods, whereas code
+> instrumentation can report the exact number of time each method is invoked.
 
 The focus with tracing in Firecracker is to improve debug-ability.
 
-Enabling tracing adds logs output on each functions entry and exit.
-This assists debugging problems that relate to deadlocks or high
-latencies by quickly identifying elongated function calls.
+Enabling tracing adds logs output on each functions entry and exit. This assists
+debugging problems that relate to deadlocks or high latencies by quickly
+identifying elongated function calls.
 
 ## Implementation
 
@@ -30,13 +29,12 @@ Firecracker implements instrumentation based tracing via
 [`log_instrument`](https://github.com/JonathanWoollett-Light/log-instrument),
 outputting a `Trace` level log when entering and exiting every function.
 
-It is disabled by default at compile-time. Tracing functionality has no
-impact on the release binary.
+It is disabled by default at compile-time. Tracing functionality has no impact
+on the release binary.
 
-You can use `cargo run --bin clippy-tracing --` to build and run the
-latest version in the repo or you can run
-`cargo install --path src/clippy-tracing` to install the binary then use
-`clippy-tracing` to run this binary.
+You can use `cargo run --bin clippy-tracing --` to build and run the latest
+version in the repo or you can run `cargo install --path src/clippy-tracing` to
+install the binary then use `clippy-tracing` to run this binary.
 
 You can run `clippy-tracing --help` for help.
 
@@ -52,8 +50,8 @@ clippy-tracing \
   --exclude vmm_config/logger.rs,logger/,signal_handler.rs,time.rs
 ```
 
-`--exclude` can be used to avoid adding instrumentation to specific
-files, here it is used to avoid adding instrumentation in:
+`--exclude` can be used to avoid adding instrumentation to specific files, here
+it is used to avoid adding instrumentation in:
 
 - tests.
 - bindings.
@@ -66,28 +64,26 @@ After adding instrumentation re-compile with `--features tracing`:
 cargo build --features tracing
 ```
 
-This will result in an increase in the binary size (~100kb) and a
-significant regression in performance (>10x). To mitigate the
-performance impact you can filter the tracing output as described in the
-next section.
+This will result in an increase in the binary size (~100kb) and a significant
+regression in performance (>10x). To mitigate the performance impact you can
+filter the tracing output as described in the next section.
 
 ## Filtering
 
-You can filter tracing output both at run-time and compile-time.
-This can be used to mitigate the performance impact of logging many
-traces.
+You can filter tracing output both at run-time and compile-time. This can be
+used to mitigate the performance impact of logging many traces.
 
 Run-time filtering is implemented with the `/logger` API call, this can
-significantly mitigate the impact on execution time but cannot mitigate
-the impact on memory usage. Execution time impact is mitigated by
-avoiding constructing and writing the trace log, it still needs to check
-the condition in every place it would output a log. Memory usage impact
-is not mitigated as the instrumentation remains in the binary unchanged.
+significantly mitigate the impact on execution time but cannot mitigate the
+impact on memory usage. Execution time impact is mitigated by avoiding
+constructing and writing the trace log, it still needs to check the condition in
+every place it would output a log. Memory usage impact is not mitigated as the
+instrumentation remains in the binary unchanged.
 
 Compile-time filtering is a manual process using the
 [`clippy-tracing`](https://github.com/JonathanWoollett-Light/clippy-tracing)
-tool. This can almost entirely mitigate the impact on execution time and
-the impact on memory usage.
+tool. This can almost entirely mitigate the impact on execution time and the
+impact on memory usage.
 
 ### Run-time
 
@@ -102,22 +98,20 @@ curl -X PUT --unix-socket "${API_SOCKET}" \
     "http://localhost/logger"
 ```
 
-Instrumentation logs are `Trace` level logs, at runtime the level must
-be set to `Trace` to see them. The module filter applied here ensures
-only logs from the `request` modules within the `api_server` crate will
-be output.
+Instrumentation logs are `Trace` level logs, at runtime the level must be set to
+`Trace` to see them. The module filter applied here ensures only logs from the
+`request` modules within the `api_server` crate will be output.
 
 This will mitigate most of the performance regression.
 
 ### Compile-time
 
-Specific environments can restrict run-time configuration. In these
-environments it becomes necessary to support targeted tracing without
-run-time re-configuration, for this compile-time filtering must be used.
+Specific environments can restrict run-time configuration. In these environments
+it becomes necessary to support targeted tracing without run-time
+re-configuration, for this compile-time filtering must be used.
 
 To reproduce the same filtering as run-time at compile-time, you can use
-[`clippy-tracing`](../src/clippy-tracing)
-at compile-time like:
+[`clippy-tracing`](../src/clippy-tracing) at compile-time like:
 
 ```bash
 # Remove all instrumentation.
@@ -139,14 +133,13 @@ curl -X PUT --unix-socket "${API_SOCKET}" \
 ```
 
 The instrumentation has been stripped from all files other than those at
-`./src/firecracker/src/api_server/src/request` so we do not need to apply a run-time
-filter. Runtime filtering could be applied but in this case it yields no
-additional benefit.
+`./src/firecracker/src/api_server/src/request` so we do not need to apply a
+run-time filter. Runtime filtering could be applied but in this case it yields
+no additional benefit.
 
 ## Example
 
-In this example we start Firecracker with tracing then make a simple API
-call.
+In this example we start Firecracker with tracing then make a simple API call.
 
 ### API call
 

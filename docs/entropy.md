@@ -8,8 +8,8 @@ buffer that will be filled with random bytes from the device. The source of
 random bytes that the device will use to fill the buffers is an implementation
 decision.
 
-On the guest side, the kernel uses random bytes received through the device
-as an extra source of entropy. Moreover, the guest VirtIO driver exposes the
+On the guest side, the kernel uses random bytes received through the device as
+an extra source of entropy. Moreover, the guest VirtIO driver exposes the
 `/dev/hwrng` character device. User-space applications can use this device to
 request random bytes from the device.
 
@@ -38,8 +38,8 @@ curl --unix-socket $socket_location -i \
     }"
 ```
 
-If a configuration file is used for configuring a microVM, the same setup can
-be achieved by adding a section like this:
+If a configuration file is used for configuring a microVM, the same setup can be
+achieved by adding a section like this:
 
 ```json
 "entropy": {
@@ -53,8 +53,8 @@ be achieved by adding a section like this:
 }
 ```
 
-On the host side, Firecracker relies on [`aws-lc-rs`][2] to retrieve the random bytes.
-`aws-lc-rs` uses the [`AWS-LC` cryptographic library][3].
+On the host side, Firecracker relies on [`aws-lc-rs`][2] to retrieve the random
+bytes. `aws-lc-rs` uses the [`AWS-LC` cryptographic library][3].
 
 ## Prerequisites
 

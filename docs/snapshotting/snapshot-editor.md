@@ -16,11 +16,10 @@ Firecracker snapshot consists of 2 files:
 
 #### `rebase` subcommand
 
-> This command is used to merge a `diff` snapshot memory file on
-> top of a base memory file.
+> This command is used to merge a `diff` snapshot memory file on top of a base
+> memory file.
 >
-> **Note**
-> You can also use `rebase-snap` (deprecated) tool for this.
+> **Note** You can also use `rebase-snap` (deprecated) tool for this.
 >
 > Arguments:
 >
@@ -79,8 +78,7 @@ Firecracker snapshot consists of 2 files:
 
 #### `version` subcommand
 
-> This command is used to print version of the provided
-> vmstate file.
+> This command is used to print version of the provided vmstate file.
 >
 > Arguments:
 >
@@ -120,8 +118,8 @@ Firecracker snapshot consists of 2 files:
 
 #### `vm-state` subcommand
 
-> This command is used to print the vmstate of snapshot file in
-> readable format thus, making it easier to compare vmstate of 2 snapshots.
+> This command is used to print the vmstate of snapshot file in readable format
+> thus, making it easier to compare vmstate of 2 snapshots.
 >
 > Arguments:
 >

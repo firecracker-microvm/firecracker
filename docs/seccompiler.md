@@ -3,11 +3,11 @@
 ## Overview
 
 Seccompiler-bin is a tool that compiles seccomp filters expressed as JSON files
-into serialized, binary BPF code that is directly consumed by Firecracker,
-at build or launch time.
+into serialized, binary BPF code that is directly consumed by Firecracker, at
+build or launch time.
 
-Seccompiler-bin uses a custom [JSON file structure](#json-file-format),
-detailed further below, that the filters must adhere to.
+Seccompiler-bin uses a custom [JSON file structure](#json-file-format), detailed
+further below, that the filters must adhere to.
 
 Besides the seccompiler-bin executable, seccompiler also exports a library
 interface, with helper functions for deserializing and installing the binary
@@ -60,12 +60,12 @@ A JSON file expresses the seccomp policy for the entire Firecracker process. It
 contains multiple filters, one per each thread category and is specific to just
 one target platform.
 
-This means that Firecracker has a JSON file for each supported target
-(currently determined by the arch-libc combinations). You can view them in
+This means that Firecracker has a JSON file for each supported target (currently
+determined by the arch-libc combinations). You can view them in
 `resources/seccomp`.
 
-At the top level, the file requires an object that maps thread categories
-(vmm, api and vcpu) to seccomp filters:
+At the top level, the file requires an object that maps thread categories (vmm,
+api and vcpu) to seccomp filters:
 
 ```
 {
@@ -86,8 +86,7 @@ The associated filter is a JSON object containing the `default_action`,
 
 The `default_action` represents the action we have to execute if none of the
 rules in `filter` matches, and `filter_action` is what gets executed if a rule
-in the filter matches
-(e.g: `"Allow"` in the case of implementing an allowlist).
+in the filter matches (e.g: `"Allow"` in the case of implementing an allowlist).
 
 An **action** is the JSON representation of the following enum:
 
@@ -103,13 +102,13 @@ pub enum SeccompAction {
 ```
 
 The `filter` property specifies the set of rules that would trigger a match.
-This is an array containing multiple **or-bound SyscallRule** **objects**
-(if one of them matches, the corresponding action gets triggered).
+This is an array containing multiple **or-bound SyscallRule** **objects** (if
+one of them matches, the corresponding action gets triggered).
 
-The **SyscallRule** object is used for adding a rule to a syscall.
-It has an optional `args` property that is used to specify a vector of
-and-bound conditions that the syscall arguments must satisfy in order for the
-rule to match.
+The **SyscallRule** object is used for adding a rule to a syscall. It has an
+optional `args` property that is used to specify a vector of and-bound
+conditions that the syscall arguments must satisfy in order for the rule to
+match.
 
 In the absence of the `args` property, the corresponding action will get
 triggered by any call that matches that name, irrespective of the argument
@@ -139,10 +138,10 @@ Note that, when passing the deprecated `--basic` flag to seccompiler-bin, all
 A **condition object** is made up of the following mandatory properties:
 
 - `index` (0-based index of the syscall argument we want to check)
-- `type` (`dword` or `qword`, which specifies the argument size - 4 or 8
-    bytes respectively)
+- `type` (`dword` or `qword`, which specifies the argument size - 4 or 8 bytes
+  respectively)
 - `op`, which is one of `eq, ge, gt, ge, lt, masked_eq, ne` (the operator used
-    for comparing the parameter to `val`)
+  for comparing the parameter to `val`)
 - `val` is the integer value being checked against
 
 As mentioned eariler, we don’t support any named parameters, but only numeric
