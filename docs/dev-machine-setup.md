@@ -159,7 +159,7 @@ set up a Ubuntu-based VM on GCE with nested KVM enablement can be found in GCE
    processor of the `Haswell` architecture by specifying
    `--min-cpu-platform="Intel Haswell"` when you create the instance.
    Alternatively, use `N2` instances (such as with
-   \`--machine-type="n2-standard-2").
+   `--machine-type="n2-standard-2"`).
 
    ```console
    $ FC_VM=firecracker-vm
