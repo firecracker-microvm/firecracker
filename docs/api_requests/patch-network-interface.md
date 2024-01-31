@@ -1,8 +1,7 @@
 # Updating A Network Interface
 
-After the microVM is started, the rate limiters assigned to a network
-interface can be updated via a `PATCH /network-interfaces/{id}` API
-call.
+After the microVM is started, the rate limiters assigned to a network interface
+can be updated via a `PATCH /network-interfaces/{id}` API call.
 
 E.g. for a network interface created with:
 
@@ -33,8 +32,7 @@ Accept: application/json
 }
 ```
 
-A `PATCH` request can be sent at any future time, to update the rate
-limiters:
+A `PATCH` request can be sent at any future time, to update the rate limiters:
 
 ```console
 PATCH /network-interfaces/iface_1 HTTP/1.1
@@ -60,9 +58,9 @@ Accept: application/json
 The full specification of the data structures available for this call can be
 found in our [OpenAPI spec](../../src/firecracker/swagger/firecracker.yaml).
 
-**Note**: The data provided for the update is merged with the existing data.
-In the above example, the RX rate limit is updated, but the TX rate limit
-remains unchanged.
+**Note**: The data provided for the update is merged with the existing data. In
+the above example, the RX rate limit is updated, but the TX rate limit remains
+unchanged.
 
 ## Removing Rate Limiting
 

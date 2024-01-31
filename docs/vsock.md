@@ -30,8 +30,8 @@ ls /dev/vsock
 
 and confirm that the `/dev/vsock` device is available.
 
-Reference the guest kernel configuration that Firecracker is
-using in its CI can be found [here](../resources/guest_configs/).
+Reference the guest kernel configuration that Firecracker is using in its CI can
+be found [here](../resources/guest_configs/).
 
 ## Firecracker Virtio-vsock Design
 
@@ -42,25 +42,24 @@ mediates communication between AF_UNIX sockets (on the host end) and AF_VSOCK
 sockets (on the guest end).
 
 In order to provide channel multiplexing the guest `AF_VSOCK` ports are mapped
-1:1 to `AF_UNIX` sockets on the host. The virtio-vsock device must be
-configured with a path to an `AF_UNIX` socket on the host (e.g.
-`/path/to/v.sock`). There are two scenarios to be considered, depending on
-where the connection is initiated.
+1:1 to `AF_UNIX` sockets on the host. The virtio-vsock device must be configured
+with a path to an `AF_UNIX` socket on the host (e.g. `/path/to/v.sock`). There
+are two scenarios to be considered, depending on where the connection is
+initiated.
 
 ### Host-Initiated Connections
 
-When a microvm having a vsock device attached is started, Firecracker will
-begin listening on an AF_UNIX socket (e.g. `/path/to/v.sock`). When the host
-needs to initiate a connection, it should connect to that Unix socket, then
-send a connect command, in text form, specifying the destination AF_VSOCK port:
-"CONNECT PORT\n". Where PORT is the decimal port number, and "\n" is EOL (ASCII
-0x0A). Following that, the same connection will be forwarded by Firecracker to
-the guest software listening on that port, thus establishing the requested
-channel. If the connection has been established, Firecracker will send an
-acknowledgement message to the connecting end (host-side), in the form
-"OK PORT\n", where `PORT` is the vsock port number assigned to
-the host end. If no one is listening, Firecracker will terminate the host
-connection.
+When a microvm having a vsock device attached is started, Firecracker will begin
+listening on an AF_UNIX socket (e.g. `/path/to/v.sock`). When the host needs to
+initiate a connection, it should connect to that Unix socket, then send a
+connect command, in text form, specifying the destination AF_VSOCK port:
+"CONNECT PORT\\n". Where PORT is the decimal port number, and "\\n" is EOL
+(ASCII 0x0A). Following that, the same connection will be forwarded by
+Firecracker to the guest software listening on that port, thus establishing the
+requested channel. If the connection has been established, Firecracker will send
+an acknowledgement message to the connecting end (host-side), in the form "OK
+PORT\\n", where `PORT` is the vsock port number assigned to the host end. If no
+one is listening, Firecracker will terminate the host connection.
 
 Client A initiates connection to Server A in [figure below](#vsock-connections):
 
@@ -68,12 +67,12 @@ Client A initiates connection to Server A in [figure below](#vsock-connections):
    specified in `uds_path`;
 1. Guest: create an AF_VSOCK socket and `listen()` on `<port_num>`;
 1. Host: `connect()` to AF_UNIX at `uds_path`.
-1. Host: `send()` "CONNECT `<port_num>`\n".
+1. Host: `send()` "CONNECT `<port_num>`\\n".
 1. Guest: `accept()` the new connection.
-1. Host: `read()` "OK `<assigned_hostside_port>`\n".
+1. Host: `read()` "OK `<assigned_hostside_port>`\\n".
 
-The channel is established between the sockets obtained at steps 3 (host)
-and 5 (guest).
+The channel is established between the sockets obtained at steps 3 (host) and 5
+(guest).
 
 ### Guest-Initiated Connections
 
@@ -95,17 +94,15 @@ Client B initiates connection to Server B in [figure below](#vsock-connections):
    value 2) and `PORT`;
 1. Host: `accept()` the new connection.
 
-The channel is established between the sockets obtained at steps 4 (host)
-and 3 (guest).
+The channel is established between the sockets obtained at steps 4 (host) and 3
+(guest).
 
-![Vsock Connections](
-images/vsock-connections.png?raw=true
-"Vsock Connections")
+![Vsock Connections](images/vsock-connections.png?raw=true "Vsock Connections")
 
 ## Setting up the virtio-vsock device
 
-The virtio-vsock device will require a CID, and the path to a backing
-AF_UNIX socket:
+The virtio-vsock device will require a CID, and the path to a backing AF_UNIX
+socket:
 
 ```bash
 curl --unix-socket /tmp/firecracker.socket -i \
@@ -121,7 +118,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
 Once the microvm is started, Firecracker will create and start listening on the
 AF_UNIX socket at `uds_path`. Incoming connections will get forwarded to the
 guest microvm, and translated to AF_VSOCK. The destination port is expected to
-be specified by sending the text command "CONNECT `<port_num>`\n", immediately
+be specified by sending the text command "CONNECT `<port_num>`\\n", immediately
 after the AF_UNIX connection is established. Connections initiated from within
 the guest will be forwarded to AF_UNIX sockets expected to be listening at
 `./v.sock_<port_num>`. I.e. a guest connection to port 52 will get forwarded to
@@ -135,8 +132,8 @@ shown [above](#setting-up-the-virtio-vsock-device) and
 
 ### Connecting From Host to Guest
 
-First, make sure the vsock port is bound and listened to on the guest side.
-Say, port 52:
+First, make sure the vsock port is bound and listened to on the guest side. Say,
+port 52:
 
 ```bash
 socat VSOCK-LISTEN:52,fork -
@@ -156,13 +153,13 @@ CONNECT 52
 OK 1073741824
 ```
 
-The connection should now be established (in the above example, between
-`socat` on the guest and the host side).
+The connection should now be established (in the above example, between `socat`
+on the guest and the host side).
 
 ### Connecting From Guest To Host
 
-First make sure the AF_UNIX corresponding to your desired port is listened to
-on the host side:
+First make sure the AF_UNIX corresponding to your desired port is listened to on
+the host side:
 
 ```bash
 socat - UNIX-LISTEN:./v.sock_52

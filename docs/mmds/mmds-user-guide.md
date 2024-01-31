@@ -8,17 +8,19 @@ easy at hand way.
 
 By default, MMDS is not reachable from the guest operating system. At microVM
 runtime, MMDS is tightly coupled with a network interface, which allows MMDS
-requests. When configuring the microVM, if MMDS needs to be activated, a
-network interface has to be configured to allow MMDS requests. This can be
-achieved in two steps:
+requests. When configuring the microVM, if MMDS needs to be activated, a network
+interface has to be configured to allow MMDS requests. This can be achieved in
+two steps:
 
 1. Attach one (or more) network interfaces through an HTTP `PUT` request to
-   `/network-interfaces/${MMDS_NET_IF}`. The full network configuration API
-   can be found in the [firecracker swagger file](../../src/firecracker/swagger/firecracker.yaml).
+   `/network-interfaces/${MMDS_NET_IF}`. The full network configuration API can
+   be found in the
+   [firecracker swagger file](../../src/firecracker/swagger/firecracker.yaml).
 1. Configure MMDS through an HTTP `PUT` request to `/mmds/config` resource and
-   include the IDs of the network interfaces that should allow forwarding requests
-   to MMDS in the `network_interfaces` list. The complete MMDS API is described in
-   the [firecracker swagger file](../../src/firecracker/swagger/firecracker.yaml).
+   include the IDs of the network interfaces that should allow forwarding
+   requests to MMDS in the `network_interfaces` list. The complete MMDS API is
+   described in the
+   [firecracker swagger file](../../src/firecracker/swagger/firecracker.yaml).
 
 ### Examples
 
@@ -37,8 +39,8 @@ curl --unix-socket /tmp/firecracker.socket -i                 \
     }'
 ```
 
-Configuring MMDS to receive requests through the `MMDS_NET_IF` network
-interface ID:
+Configuring MMDS to receive requests through the `MMDS_NET_IF` network interface
+ID:
 
 ```bash
 MMDS_IPV4_ADDR=169.254.170.2
@@ -53,9 +55,9 @@ curl --unix-socket /tmp/firecracker.socket -i \
 MMDS can be configured pre-boot only, using the Firecracker API server. Enabling
 MMDS without at least a network device attached will return an error.
 
-The IPv4 address used by guest applications when issuing requests to MMDS can
-be customized through the same HTTP `PUT` request to `/mmds/config` resource,
-by specifying the IPv4 address to the `ipv4_address` field. If the IP configuration
+The IPv4 address used by guest applications when issuing requests to MMDS can be
+customized through the same HTTP `PUT` request to `/mmds/config` resource, by
+specifying the IPv4 address to the `ipv4_address` field. If the IP configuration
 is not provided before booting up the guest, the MMDS IPv4 address defaults to
 `169.254.169.254`.
 
@@ -73,8 +75,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
 MMDS is tightly coupled with a network interface which is used to route MMDS
 packets. To send MMDS intended packets, guest applications must insert a new
 rule into the routing table of the guest OS. This new rule must forward MMDS
-intended packets to a network interface which allows MMDS requests. For
-example:
+intended packets to a network interface which allows MMDS requests. For example:
 
 ```bash
 MMDS_IPV4_ADDR=169.254.170.2
@@ -83,8 +84,8 @@ ip route add ${MMDS_IPV4_ADDR} dev ${MMDS_NET_IF}
 ```
 
 MMDS supports two methods to access the contents of the metadata store from the
-guest operating system: `V1` and `V2`.
-More about the particularities of the two mechanisms can be found in the
+guest operating system: `V1` and `V2`. More about the particularities of the two
+mechanisms can be found in the
 [Retrieving metadata in the guest operating system](#retrieving-metadata-in-the-guest-operating-system)
 section. The MMDS version used can be specified when configuring MMDS, through
 the `version` field of the HTTP `PUT` request to `/mmds/config` resource.
@@ -106,13 +107,13 @@ curl --unix-socket /tmp/firecracker.socket -i \
 ## Inserting and updating metadata
 
 Inserting and updating metadata is possible through the Firecracker API server.
-The metadata inserted in MMDS must be any valid JSON. A user can create or update
-the MMDS data store before the microVM is started or during its operation. To
-insert metadata into MMDS, an HTTP `PUT` request to the `/mmds` resource has to be
-issued. This request must have a payload with metadata structured in
-[JSON](https://tools.ietf.org/html/rfc7159) format. To replace existing
-metadata, a subsequent HTTP `PUT` request to the `/mmds` resource must be
-issued, using as a payload the new metadata. A complete description of
+The metadata inserted in MMDS must be any valid JSON. A user can create or
+update the MMDS data store before the microVM is started or during its
+operation. To insert metadata into MMDS, an HTTP `PUT` request to the `/mmds`
+resource has to be issued. This request must have a payload with metadata
+structured in [JSON](https://tools.ietf.org/html/rfc7159) format. To replace
+existing metadata, a subsequent HTTP `PUT` request to the `/mmds` resource must
+be issued, using as a payload the new metadata. A complete description of
 metadata insertion firecracker API can be found in the
 [firecracker swagger file](../../src/firecracker/swagger/firecracker.yaml).
 
@@ -147,9 +148,9 @@ curl --unix-socket /tmp/firecracker.socket -i \
 
 To partially update existing metadata, an HTTP `PATCH` request to the `/mmds`
 resource has to be issued, using as a payload the metadata patch, as
-[JSON Merge Patch](https://tools.ietf.org/html/rfc7396) functionality
-describes. A complete description of updating metadata Firecracker API can be
-found in the [firecracker swagger file](../../src/firecracker/swagger/firecracker.yaml).
+[JSON Merge Patch](https://tools.ietf.org/html/rfc7396) functionality describes.
+A complete description of updating metadata Firecracker API can be found in the
+[firecracker swagger file](../../src/firecracker/swagger/firecracker.yaml).
 
 An example API for how to update existing metadata is offered below:
 
@@ -213,8 +214,8 @@ Output:
 
 ### Retrieving metadata in the guest operating system
 
-Accessing the contents of the metadata store from the guest operating system
-can be done using one of the following methods:
+Accessing the contents of the metadata store from the guest operating system can
+be done using one of the following methods:
 
 - `V1`: simple request/response method (deprecated)
 - `V2`: session-oriented method
@@ -224,11 +225,11 @@ can be done using one of the following methods:
 **Version 1 is deprecated and will be removed in the next major version change.
 Version 2 should be used instead.**
 
-To retrieve existing MMDS metadata using MMDS version 1, an HTTP `GET`
-request must be issued. The requested resource can be referenced by its
-corresponding [JSON Pointer](https://tools.ietf.org/html/rfc6901), which is
-also the path of the MMDS request. The HTTP response content will contain the
-referenced metadata resource.
+To retrieve existing MMDS metadata using MMDS version 1, an HTTP `GET` request
+must be issued. The requested resource can be referenced by its corresponding
+[JSON Pointer](https://tools.ietf.org/html/rfc6901), which is also the path of
+the MMDS request. The HTTP response content will contain the referenced metadata
+resource.
 
 The only HTTP method supported by MMDS version 1 is `GET`. Requests containing
 any other HTTP method will receive **405 Method Not Allowed** error.
@@ -241,16 +242,19 @@ curl -s "http://${MMDS_IPV4_ADDR}/${RESOURCE_POINTER_OBJ}"
 
 #### Version 2
 
-Similar to [IMDSv2](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/configuring-instance-metadata-service.html),
+Similar to
+[IMDSv2](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/configuring-instance-metadata-service.html),
 MMDS version 2 (`V2`) is a session oriented method, which makes use of a session
 token in order to allow fetching metadata contents.
 
-The session must start with an HTTP `PUT` request that generates the session token.
-In order to be successful, the request must respect the following constraints:
+The session must start with an HTTP `PUT` request that generates the session
+token. In order to be successful, the request must respect the following
+constraints:
 
 - must be directed towards `/latest/api/token` path
-- must contain a `X-metadata-token-ttl-seconds` header specifying the token lifetime
-  in seconds. The value cannot be lower than 1 or greater than 21600 (6 hours).
+- must contain a `X-metadata-token-ttl-seconds` header specifying the token
+  lifetime in seconds. The value cannot be lower than 1 or greater than 21600 (6
+  hours).
 - must not contain a `X-Forwarded-For` header.
 
 ```bash
@@ -272,16 +276,17 @@ curl -s "http://${MMDS_IPV4_ADDR}/${RESOURCE_POINTER_OBJ}" \
     -H "X-metadata-token: ${TOKEN}"
 ```
 
-After the token expires, it becomes unusable and a new session token must be issued.
+After the token expires, it becomes unusable and a new session token must be
+issued.
 
 ##### Snapshotting considerations
 
 The data store is **not** persisted across snapshots, in order to avoid leaking
-vm-specific information that may need to be reseeded into the data store for
-a new clone.
+vm-specific information that may need to be reseeded into the data store for a
+new clone.
 
-The MMDS version, network stack configuration and IP address used for accessing the
-service are persisted across snapshot-restore.
+The MMDS version, network stack configuration and IP address used for accessing
+the service are persisted across snapshot-restore.
 
 If the targeted snapshot version does not support Mmds Version 2, it will not be
 persisted in the snapshot (the clone will use the default, V1). Similarly, if a
@@ -290,18 +295,18 @@ for restoring does not support persisting the version, the default will be used.
 
 ### MMDS formats
 
-The response format can be JSON or IMDS. The IMDS documentation
-can be found [here](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html).
+The response format can be JSON or IMDS. The IMDS documentation can be found
+[here](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html).
 The output format can be selected by specifying the optional `Accept` header.
 Using `Accept: application/json` will format the output to JSON, while using
 `Accept: plain/text` or not specifying this optional header at all will format
 the output to IMDS.
 
-Retrieving MMDS resources in IMDS format, other than JSON `string` and `object` types,
-is not supported.
+Retrieving MMDS resources in IMDS format, other than JSON `string` and `object`
+types, is not supported.
 
-Below is an example on how to retrieve the `latest/meta-data` resource in
-JSON format:
+Below is an example on how to retrieve the `latest/meta-data` resource in JSON
+format:
 
 ```bash
 MMDS_IPV4_ADDR=169.254.170.2
@@ -387,9 +392,9 @@ The request was malformed.
 
 *401* - `Unauthorized`
 
-Only when using MMDS `V2`. The HTTP request either lacks the session token,
-or the token specified is invalid. A token is invalid if it was not
-generated using an HTTP `PUT` request or if it has expired.
+Only when using MMDS `V2`. The HTTP request either lacks the session token, or
+the token specified is invalid. A token is invalid if it was not generated using
+an HTTP `PUT` request or if it has expired.
 
 *404* - `Not Found`
 
@@ -417,10 +422,10 @@ secret access key) by issuing a `GET` request to
 use cases will encompass the following sequence of steps:
 
 1. Some agent running on the host sends a `PUT` request with the initial
-   contents of the MMDS, using the Firecracker API. This most likely takes
-   place before the microVM starts running, but may also happen at a later
-   time. Guest MMDS requests which arrive prior to contents being available
-   receive a *NotFound* response.
+   contents of the MMDS, using the Firecracker API. This most likely takes place
+   before the microVM starts running, but may also happen at a later time. Guest
+   MMDS requests which arrive prior to contents being available receive a
+   *NotFound* response.
 1. The contents are saved to MMDS.
 1. The guest sends a `GET` request for the secret key, which is intercepted by
    MMDS.
@@ -435,6 +440,6 @@ two steps again.
 
 The guest reads the new secret key, going one more time through the last three
 steps. This can happen after a notification from the host agent, or discovered
-via periodic polling, or some other mechanism. Since access to the data store
-is thread safe, the guest can only receive either the old version, or the new
+via periodic polling, or some other mechanism. Since access to the data store is
+thread safe, the guest can only receive either the old version, or the new
 version of the key, and not some intermediate state caused by the update.

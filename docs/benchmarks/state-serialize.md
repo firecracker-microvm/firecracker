@@ -1,9 +1,9 @@
 # MicroVM state serialization benchmarks
 
 The benchmarks have been performed using a synthetic state snapshot that
-contains 100 structs and a 10k element array.
-Source code: [src/snapshot/benches/main.rs](../../src/snapshot/benches/main.rs).
-Snapshot size: 83886 bytes.
+contains 100 structs and a 10k element array. Source code:
+[src/snapshot/benches/main.rs](../../src/snapshot/benches/main.rs). Snapshot
+size: 83886 bytes.
 
 ## Host configuration
 
@@ -50,11 +50,12 @@ Snapshot size: 83886 bytes.
 
 ## Current baseline
 
-| Test                |      Mean     |
-|---------------------|---------------|
-| Serialize           |    371.38 us  |
-| Serialize + crc64   |    493.26 us  |
-| Deserialize         |    90.755 us  |
-| Deserialize + crc64 |    216.90 us  |
+| Test                | Mean      |
+| ------------------- | --------- |
+| Serialize           | 371.38 us |
+| Serialize + crc64   | 493.26 us |
+| Deserialize         | 90.755 us |
+| Deserialize + crc64 | 216.90 us |
 
-Detailed criterion benchmarks available [here](https://s3.amazonaws.com/spec.ccfc.min/perf/snapshot-0.23/report/index.html).
+Detailed criterion benchmarks available
+[here](https://s3.amazonaws.com/spec.ccfc.min/perf/snapshot-0.23/report/index.html).
