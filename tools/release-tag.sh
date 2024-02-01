@@ -17,7 +17,7 @@ function create_local_tag {
     branch="$2"
 
     say "Obtaining tag description for local tag v$version..."
-    tag_text=$($FC_TOOLS_DIR/release-notes.sh "$version")
+    tag_text=$($FC_TOOLS_DIR/release-notes.py "$version")
     say "Tag description for v$version:"
     echo "$tag_text"
     # Create tag.
