@@ -47,7 +47,7 @@ and this project adheres to
   size could be booted, due to the check for this condition happening after
   Firecracker's configuration was updated.
 
-## \[v1.6.0\]
+## \[1.6.0\]
 
 ### Added
 
