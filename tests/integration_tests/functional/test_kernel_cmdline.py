@@ -6,13 +6,13 @@
 from framework.microvm import Serial
 
 
-def test_init_params(test_microvm_with_api):
+def test_init_params(uvm_plain):
     """Correct propagation of boot args to the kernel's command line.
 
     Test that init's parameters (the ones present after "--") do not get
     altered or misplaced.
     """
-    vm = test_microvm_with_api
+    vm = uvm_plain
     vm.jailer.daemonize = False
     vm.spawn()
     vm.memory_monitor = None

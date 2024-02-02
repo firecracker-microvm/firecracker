@@ -29,28 +29,28 @@ def startup_time(metrics, record_property):
     return record_startup_time
 
 
-def test_startup_time_new_pid_ns(test_microvm_with_api, startup_time):
+def test_startup_time_new_pid_ns(uvm_plain, startup_time):
     """
     Check startup time when jailer is spawned in a new PID namespace.
     """
-    microvm = test_microvm_with_api
+    microvm = uvm_plain
     microvm.jailer.new_pid_ns = True
     startup_time(_test_startup_time(microvm))
 
 
-def test_startup_time_daemonize(test_microvm_with_api, startup_time):
+def test_startup_time_daemonize(uvm_plain, startup_time):
     """
     Check startup time when jailer detaches Firecracker from the controlling terminal.
     """
-    microvm = test_microvm_with_api
+    microvm = uvm_plain
     startup_time(_test_startup_time(microvm))
 
 
-def test_startup_time_custom_seccomp(test_microvm_with_api, startup_time):
+def test_startup_time_custom_seccomp(uvm_plain, startup_time):
     """
     Check the startup time when using custom seccomp filters.
     """
-    microvm = test_microvm_with_api
+    microvm = uvm_plain
     _custom_filter_setup(microvm)
     startup_time(_test_startup_time(microvm))
 

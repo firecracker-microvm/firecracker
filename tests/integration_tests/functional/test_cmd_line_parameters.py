@@ -68,13 +68,13 @@ def test_cli_metrics_path(uvm_plain):
     validate_fc_metrics(metrics)
 
 
-def test_cli_metrics_path_if_metrics_initialized_twice_fail(test_microvm_with_api):
+def test_cli_metrics_path_if_metrics_initialized_twice_fail(uvm_plain):
     """
     Given: a running firecracker with metrics configured with the CLI option
     When: Configure metrics via API
     Then: API returns an error
     """
-    microvm = test_microvm_with_api
+    microvm = uvm_plain
 
     # First configure the µvm metrics with --metrics-path
     metrics_path = Path(microvm.path) / "metrics.ndjson"

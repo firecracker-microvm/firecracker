@@ -53,11 +53,11 @@ def check_stats(filepath, stats, uid, gid):
     assert st.st_mode ^ stats == 0
 
 
-def test_empty_jailer_id(test_microvm_with_api):
+def test_empty_jailer_id(uvm_plain):
     """
     Test that the jailer ID cannot be empty.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
 
     # Set the jailer ID to None.
     test_microvm.jailer = JailerContext(
@@ -80,11 +80,11 @@ def test_empty_jailer_id(test_microvm_with_api):
         assert expected_err in str(err)
 
 
-def test_exec_file_not_exist(test_microvm_with_api, tmp_path):
+def test_exec_file_not_exist(uvm_plain, tmp_path):
     """
     Test the jailer option `--exec-file`
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
 
     # Error case 1: No such file exists
     pseudo_exec_file_path = tmp_path / "pseudo_firecracker_exec_file"
@@ -127,11 +127,11 @@ def test_exec_file_not_exist(test_microvm_with_api, tmp_path):
         test_microvm.spawn()
 
 
-def test_default_chroot_hierarchy(test_microvm_with_api):
+def test_default_chroot_hierarchy(uvm_plain):
     """
     Test the folder hierarchy created by default by the jailer.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
 
     test_microvm.spawn()
 
@@ -178,11 +178,11 @@ def test_default_chroot_hierarchy(test_microvm_with_api):
     )
 
 
-def test_arbitrary_usocket_location(test_microvm_with_api):
+def test_arbitrary_usocket_location(uvm_plain):
     """
     Test arbitrary location scenario for the api socket.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.jailer.extra_args = {"api-sock": "api.socket"}
 
     test_microvm.spawn()
@@ -301,11 +301,11 @@ def check_limits(pid, no_file, fsize):
     assert hard == fsize
 
 
-def test_cgroups(test_microvm_with_api, cgroups_info):
+def test_cgroups(uvm_plain, cgroups_info):
     """
     Test the cgroups are correctly set by the jailer.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.jailer.cgroup_ver = cgroups_info.version
     if test_microvm.jailer.cgroup_ver == 2:
         test_microvm.jailer.cgroups = ["cpu.weight.nice=10"]
@@ -329,11 +329,11 @@ def test_cgroups(test_microvm_with_api, cgroups_info):
         check_cgroups_v2(test_microvm)
 
 
-def test_cgroups_custom_parent(test_microvm_with_api, cgroups_info):
+def test_cgroups_custom_parent(uvm_plain, cgroups_info):
     """
     Test cgroups when a custom parent cgroup is used.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.jailer.cgroup_ver = cgroups_info.version
     test_microvm.jailer.parent_cgroup = "custom_cgroup/group2"
     if test_microvm.jailer.cgroup_ver == 2:
@@ -361,11 +361,11 @@ def test_cgroups_custom_parent(test_microvm_with_api, cgroups_info):
         check_cgroups_v2(test_microvm)
 
 
-def test_node_cgroups(test_microvm_with_api, cgroups_info):
+def test_node_cgroups(uvm_plain, cgroups_info):
     """
     Test the numa node cgroups are correctly set by the jailer.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.jailer.cgroup_ver = cgroups_info.version
 
     # Retrieve CPUs from NUMA node 0.
@@ -382,11 +382,11 @@ def test_node_cgroups(test_microvm_with_api, cgroups_info):
         check_cgroups_v2(test_microvm)
 
 
-def test_cgroups_without_numa(test_microvm_with_api, cgroups_info):
+def test_cgroups_without_numa(uvm_plain, cgroups_info):
     """
     Test the cgroups are correctly set by the jailer, without numa assignment.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.jailer.cgroup_ver = cgroups_info.version
     if test_microvm.jailer.cgroup_ver == 2:
         test_microvm.jailer.cgroups = ["cpu.weight=2"]
@@ -401,19 +401,19 @@ def test_cgroups_without_numa(test_microvm_with_api, cgroups_info):
         check_cgroups_v2(test_microvm)
 
 
-def test_v1_default_cgroups(test_microvm_with_api, cgroups_info):
+def test_v1_default_cgroups(uvm_plain, cgroups_info):
     """
     Test if the jailer is using cgroup-v1 by default.
     """
     if cgroups_info.version != 1:
         pytest.skip(reason="Requires system with cgroup-v1 enabled.")
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.jailer.cgroups = ["cpu.shares=2"]
     test_microvm.spawn()
     check_cgroups_v1(test_microvm.jailer.cgroups, test_microvm.jailer.jailer_id)
 
 
-def test_cgroups_custom_parent_move(test_microvm_with_api, cgroups_info):
+def test_cgroups_custom_parent_move(uvm_plain, cgroups_info):
     """
     Test cgroups when a custom parent cgroup is used and no cgroups are specified
 
@@ -421,7 +421,7 @@ def test_cgroups_custom_parent_move(test_microvm_with_api, cgroups_info):
     """
     if cgroups_info.version != 2:
         pytest.skip("cgroupsv2 only")
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.jailer.cgroup_ver = cgroups_info.version
     # Make it somewhat unique so it doesn't conflict with other test runs
     parent_cgroup = f"custom_cgroup/{test_microvm.id[:8]}"
@@ -432,11 +432,11 @@ def test_cgroups_custom_parent_move(test_microvm_with_api, cgroups_info):
     check_cgroups_v2(test_microvm)
 
 
-def test_args_default_resource_limits(test_microvm_with_api):
+def test_args_default_resource_limits(uvm_plain):
     """
     Test the default resource limits are correctly set by the jailer.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
     # Get firecracker's PID
     pid = test_microvm.firecracker_pid
@@ -455,11 +455,11 @@ def test_args_default_resource_limits(test_microvm_with_api):
     assert hard == -1
 
 
-def test_args_resource_limits(test_microvm_with_api):
+def test_args_resource_limits(uvm_plain):
     """
     Test the resource limits are correctly set by the jailer.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.jailer.resource_limits = RESOURCE_LIMITS
     test_microvm.spawn()
     # Get firecracker's PID
@@ -521,11 +521,11 @@ def test_negative_file_size_limit(uvm_plain):
         assert False, "Negative test failed"
 
 
-def test_negative_no_file_limit(test_microvm_with_api):
+def test_negative_no_file_limit(uvm_plain):
     """
     Test microVM is killed when exceeding `no-file` limit.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.jailer.resource_limits = ["no-file=3"]
 
     # pylint: disable=W0703
@@ -537,11 +537,11 @@ def test_negative_no_file_limit(test_microvm_with_api):
         assert False, "Negative test failed"
 
 
-def test_new_pid_ns_resource_limits(test_microvm_with_api):
+def test_new_pid_ns_resource_limits(uvm_plain):
     """
     Test that Firecracker process inherits jailer resource limits.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.jailer.resource_limits = RESOURCE_LIMITS
     test_microvm.spawn()
 
@@ -552,11 +552,11 @@ def test_new_pid_ns_resource_limits(test_microvm_with_api):
     check_limits(fc_pid, NOFILE, FSIZE)
 
 
-def test_new_pid_namespace(test_microvm_with_api):
+def test_new_pid_namespace(uvm_plain):
     """
     Test that Firecracker is spawned in a new PID namespace if requested.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
     # Check that the PID file exists.
     fc_pid = test_microvm.firecracker_pid

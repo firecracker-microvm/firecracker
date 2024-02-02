@@ -71,11 +71,11 @@ def check_log_message_format(log_str, instance_id, level, show_level, show_origi
         assert tag_level_no <= configured_level_no
 
 
-def test_log_config_failure(test_microvm_with_api):
+def test_log_config_failure(uvm_plain):
     """
     Check passing invalid FIFOs is detected and reported as an error.
     """
-    microvm = test_microvm_with_api
+    microvm = uvm_plain
     microvm.spawn(log_file=None)
     microvm.basic_config()
 
@@ -92,11 +92,11 @@ def test_log_config_failure(test_microvm_with_api):
         )
 
 
-def test_api_requests_logs(test_microvm_with_api):
+def test_api_requests_logs(uvm_plain):
     """
     Test that API requests are logged.
     """
-    microvm = test_microvm_with_api
+    microvm = uvm_plain
     microvm.spawn(log_file=None)
     microvm.basic_config()
 

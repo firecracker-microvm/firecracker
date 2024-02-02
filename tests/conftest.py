@@ -421,7 +421,3 @@ def uvm_with_initrd(
     uvm = microvm_factory.build(guest_kernel_linux_5_10)
     uvm.initrd_file = fs
     yield uvm
-
-
-# backwards compatibility
-test_microvm_with_api = uvm_plain

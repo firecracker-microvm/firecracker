@@ -7,7 +7,7 @@ import socket
 from framework.utils import run_cmd
 
 
-def test_api_socket_in_use(test_microvm_with_api):
+def test_api_socket_in_use(uvm_plain):
     """
     Test error message when api socket is already in use.
 
@@ -16,7 +16,7 @@ def test_api_socket_in_use(test_microvm_with_api):
     Check that the error message is a fixed one and that it also
     contains the name of the path.
     """
-    microvm = test_microvm_with_api
+    microvm = uvm_plain
 
     cmd = "mkdir {}/run".format(microvm.chroot())
     run_cmd(cmd)

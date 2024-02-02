@@ -193,11 +193,11 @@ def test_patch_drive_snapshot(uvm_nano, microvm_factory):
     assert guest_drive_size == str(scratch_disk2.size())
 
 
-def test_load_snapshot_failure_handling(test_microvm_with_api):
+def test_load_snapshot_failure_handling(uvm_plain):
     """
     Test error case of loading empty snapshot files.
     """
-    vm = test_microvm_with_api
+    vm = uvm_plain
     vm.spawn(log_level="Info")
 
     # Create two empty files for snapshot state and snapshot memory
@@ -264,11 +264,11 @@ def test_cmp_full_and_first_diff_mem(microvm_factory, guest_kernel, rootfs):
     assert filecmp.cmp(full_snapshot.mem, diff_snapshot.mem, shallow=False)
 
 
-def test_negative_postload_api(test_microvm_with_api, microvm_factory):
+def test_negative_postload_api(uvm_plain, microvm_factory):
     """
     Test APIs fail after loading from snapshot.
     """
-    basevm = test_microvm_with_api
+    basevm = uvm_plain
     basevm.spawn()
     basevm.basic_config(track_dirty_pages=True)
     basevm.add_net_iface()
@@ -387,7 +387,7 @@ def test_negative_snapshot_create(uvm_nano):
     vm.kill()
 
 
-def test_create_large_diff_snapshot(test_microvm_with_api):
+def test_create_large_diff_snapshot(uvm_plain):
     """
     Create large diff snapshot seccomp regression test.
 
@@ -396,7 +396,7 @@ def test_create_large_diff_snapshot(test_microvm_with_api):
     filter allows it.
     @issue: https://github.com/firecracker-microvm/firecracker/discussions/2811
     """
-    vm = test_microvm_with_api
+    vm = uvm_plain
     vm.spawn()
     vm.basic_config(mem_size_mib=16 * 1024, track_dirty_pages=True)
     vm.start()

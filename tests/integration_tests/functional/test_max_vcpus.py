@@ -5,11 +5,11 @@
 MAX_VCPUS = 32
 
 
-def test_max_vcpus(test_microvm_with_api):
+def test_max_vcpus(uvm_plain):
     """
     Test if all configured guest vcpus are online.
     """
-    microvm = test_microvm_with_api
+    microvm = uvm_plain
     microvm.spawn()
 
     # Configure a microVM with 32 vCPUs.

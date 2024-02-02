@@ -11,11 +11,11 @@ from packaging import version
 from framework import utils
 
 
-def test_reboot(test_microvm_with_api):
+def test_reboot(uvm_plain_any):
     """
     Test reboot from guest.
     """
-    vm = test_microvm_with_api
+    vm = uvm_plain_any
     vm.spawn()
 
     # We don't need to monitor the memory for this test because we are

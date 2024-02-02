@@ -363,7 +363,7 @@ def detect_fingerprint_change(
     """
     fname = f"fingerprint_{global_props.cpu_codename}_{global_props.host_linux_version}host.json"
 
-    # Generate VM config from test_microvm_with_api
+    # Generate VM config from uvm_plain
     microvm.spawn()
     microvm.basic_config()
     vm_config_path = save_vm_config(microvm, tmp_path)
@@ -388,15 +388,13 @@ def detect_fingerprint_change(
     global_props.host_linux_version not in SUPPORTED_HOST_KERNELS,
     reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
 )
-def test_guest_cpu_config_change(
-    test_microvm_with_api, tmp_path, results_dir, cpu_template_helper
-):
+def test_guest_cpu_config_change(uvm_plain, tmp_path, results_dir, cpu_template_helper):
     """
     Verify that the guest CPU config has not changed since the baseline
     fingerprint was gathered.
     """
     detect_fingerprint_change(
-        test_microvm_with_api,
+        uvm_plain,
         tmp_path,
         results_dir,
         cpu_template_helper,
@@ -405,13 +403,13 @@ def test_guest_cpu_config_change(
 
 
 def test_json_static_templates(
-    test_microvm_with_api, cpu_template_helper, tmp_path, custom_cpu_template
+    uvm_plain, cpu_template_helper, tmp_path, custom_cpu_template
 ):
     """
     Verify that JSON static CPU templates are applied as intended.
     """
     # Generate VM config with JSON static CPU template
-    microvm = test_microvm_with_api
+    microvm = uvm_plain
     microvm.spawn()
     microvm.basic_config()
     vm_config_path = save_vm_config(microvm, tmp_path, custom_cpu_template["template"])
@@ -420,15 +418,13 @@ def test_json_static_templates(
     cpu_template_helper.template_verify(vm_config_path)
 
 
-def test_consecutive_cpu_config_consistency(
-    test_microvm_with_api, cpu_template_helper, tmp_path
-):
+def test_consecutive_cpu_config_consistency(uvm_plain, cpu_template_helper, tmp_path):
     """
     Verify that two dumped guest CPU configs obtained consecutively are
     consistent. The dumped guest CPU config should not change without
     any environmental changes (firecracker, kernel, microcode updates).
     """
-    microvm = test_microvm_with_api
+    microvm = uvm_plain
     microvm.spawn()
     microvm.basic_config()
     vm_config_path = save_vm_config(microvm, tmp_path)
