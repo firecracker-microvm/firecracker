@@ -8,8 +8,11 @@ You can check if your system meets the requirements by running
 An opinionated way to run Firecracker is to launch an
 [EC2](https://aws.amazon.com/ec2/) `c5.metal` instance with Ubuntu 22.04.
 
-EC2 only supports nested virtualization on metal instances, which is why we use
-`.metal` instances exclusively.
+Firecracker requires [the KVM Linux kernel module](https://www.linux-kvm.org/)
+to perform its virtualization and emulation tasks.
+
+We exclusively use `.metal` instance types, because EC2 only supports KVM on
+`.metal` instance types.
 
 ### Architecture & OS
 
@@ -18,7 +21,7 @@ Firecracker supports **x86_64** and **aarch64** Linux, see
 
 ### KVM
 
-Firecracker requires [the KVM Linux kernel module](https://www.linux-kvm.org/).
+Firecracker requires read/write access to `/dev/kvm` exposed by the KVM module.
 
 The presence of the KVM module can be checked with:
 
@@ -61,14 +64,15 @@ You can check if you have access to `/dev/kvm` with:
 
 ## Running Firecracker
 
-In production, Firecracker is designed to be run inside an execution jail, set
-up by the [`jailer`](../src/jailer/) binary. This is how our
-[integration test suite](#running-the-integration-test-suite) does it. This
-guide will not use the [`jailer`](../src/jailer/).
+In production, Firecracker is designed to be run securely inside an execution
+jail, set up by the [`jailer`](../src/jailer/) binary. This is how our
+[integration test suite](#running-the-integration-test-suite) does it.
+
+For simplicity, this guide will not use the [`jailer`](../src/jailer/).
 
 ### Getting a rootfs and Guest Kernel Image
 
-To successfully start a microVM with you will need an uncompressed Linux kernel
+To successfully start a microVM, you will need an uncompressed Linux kernel
 binary, and an ext4 file system image (to use as rootfs). This guide uses a 5.10
 kernel image with a Ubuntu 22.04 rootfs from our CI:
 
@@ -97,7 +101,7 @@ There are two options for getting a firecracker binary:
   or
 - Building firecracker from source.
 
-To download the latest firecracker release, run
+To download the latest firecracker release, run:
 
 ```bash
 ARCH="$(uname -m)"
