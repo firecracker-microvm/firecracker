@@ -101,11 +101,11 @@ def negative_test_host_connections(vm, blob_path, blob_hash):
     validate_fc_metrics(metrics)
 
 
-def test_vsock_epipe(test_microvm_with_api, bin_vsock_path, test_fc_session_root_path):
+def test_vsock_epipe(uvm_plain, bin_vsock_path, test_fc_session_root_path):
     """
     Vsock negative test to validate SIGPIPE/EPIPE handling.
     """
-    vm = test_microvm_with_api
+    vm = uvm_plain
     vm.spawn()
     vm.basic_config()
     vm.add_net_iface()

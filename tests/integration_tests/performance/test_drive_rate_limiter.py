@@ -37,11 +37,11 @@ def check_iops_limit(ssh_connection, block_size, count, min_time, max_time):
     assert float(tokens[7]) < max_time
 
 
-def test_patch_drive_limiter(test_microvm_with_api):
+def test_patch_drive_limiter(uvm_plain):
     """
     Test replacing the drive rate-limiter after guest boot works.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
     # Set up the microVM with 2 vCPUs, 512 MiB of RAM, 1 network iface, a root
     # file system, and a scratch drive.

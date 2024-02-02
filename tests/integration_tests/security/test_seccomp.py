@@ -234,11 +234,11 @@ def test_advanced_seccomp(bin_seccomp_paths):
     os.unlink(bpf_path)
 
 
-def test_no_seccomp(test_microvm_with_api):
+def test_no_seccomp(uvm_plain):
     """
     Test that Firecracker --no-seccomp installs no filter.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.jailer.extra_args.update({"no-seccomp": None})
     test_microvm.spawn()
 
@@ -249,11 +249,11 @@ def test_no_seccomp(test_microvm_with_api):
     utils.assert_seccomp_level(test_microvm.firecracker_pid, "0")
 
 
-def test_default_seccomp_level(test_microvm_with_api):
+def test_default_seccomp_level(uvm_plain):
     """
     Test that Firecracker installs a seccomp filter by default.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
 
     test_microvm.basic_config()

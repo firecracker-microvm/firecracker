@@ -86,11 +86,11 @@ def test_serial_after_snapshot(uvm_plain, microvm_factory):
     assert "/root" in res
 
 
-def test_serial_console_login(test_microvm_with_api):
+def test_serial_console_login(uvm_plain_any):
     """
     Test serial console login.
     """
-    microvm = test_microvm_with_api
+    microvm = uvm_plain_any
     microvm.jailer.daemonize = False
     microvm.spawn()
 
@@ -134,11 +134,11 @@ def send_bytes(tty, bytes_count, timeout=60):
             break
 
 
-def test_serial_dos(test_microvm_with_api):
+def test_serial_dos(uvm_plain_any):
     """
     Test serial console behavior under DoS.
     """
-    microvm = test_microvm_with_api
+    microvm = uvm_plain_any
     microvm.jailer.daemonize = False
     microvm.spawn()
 
@@ -164,11 +164,11 @@ def test_serial_dos(test_microvm_with_api):
     )
 
 
-def test_serial_block(test_microvm_with_api):
+def test_serial_block(uvm_plain_any):
     """
     Test that writing to stdout never blocks the vCPU thread.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain_any
     test_microvm.jailer.daemonize = False
     test_microvm.spawn()
     # Set up the microVM with 1 vCPU so we make sure the vCPU thread

@@ -29,11 +29,11 @@ NOT_SUPPORTED_AFTER_START = (
 )
 
 
-def test_api_happy_start(test_microvm_with_api):
+def test_api_happy_start(uvm_plain):
     """
     Test that a regular microvm API config and boot sequence works.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
 
     # Set up the microVM with 2 vCPUs, 256 MiB of RAM and
@@ -43,14 +43,14 @@ def test_api_happy_start(test_microvm_with_api):
     test_microvm.start()
 
 
-def test_drive_io_engine(test_microvm_with_api):
+def test_drive_io_engine(uvm_plain):
     """
     Test io_engine configuration.
 
     Test that the io_engine can be configured via the API on kernels that
     support the given type and that FC returns an error otherwise.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
 
     test_microvm.basic_config(add_root_device=False)
@@ -90,13 +90,13 @@ def test_drive_io_engine(test_microvm_with_api):
     assert test_microvm.api.vm_config.get().json()["drives"][0]["io_engine"] == "Sync"
 
 
-def test_api_put_update_pre_boot(test_microvm_with_api, io_engine):
+def test_api_put_update_pre_boot(uvm_plain, io_engine):
     """
     Test that PUT updates are allowed before the microvm boots.
 
     Tests updates on drives, boot source and machine config.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
 
     # Set up the microVM with 2 vCPUs, 256 MiB of RAM  and
@@ -187,11 +187,11 @@ def test_api_put_update_pre_boot(test_microvm_with_api, io_engine):
     assert response_json["track_dirty_pages"] == track_dirty_pages
 
 
-def test_net_api_put_update_pre_boot(test_microvm_with_api):
+def test_net_api_put_update_pre_boot(uvm_plain):
     """
     Test PUT updates on network configurations before the microvm boots.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
 
     first_if_name = "first_tap"
@@ -237,13 +237,13 @@ def test_net_api_put_update_pre_boot(test_microvm_with_api):
     )
 
 
-def test_api_mmds_config(test_microvm_with_api):
+def test_api_mmds_config(uvm_plain):
     """
     Test /mmds/config PUT scenarios that unit tests can't cover.
 
     Tests updates on MMDS config before and after attaching a network device.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
 
     # Set up the microVM with 2 vCPUs, 256 MiB of RAM  and
@@ -315,11 +315,11 @@ def test_api_mmds_config(test_microvm_with_api):
 
 
 # pylint: disable=too-many-statements
-def test_api_machine_config(test_microvm_with_api):
+def test_api_machine_config(uvm_plain):
     """
     Test /machine_config PUT/PATCH scenarios that unit tests can't cover.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
 
     # Test invalid vcpu count < 0.
@@ -430,7 +430,7 @@ def test_api_machine_config(test_microvm_with_api):
     assert json["machine-config"]["smt"] is False
 
 
-def test_negative_machine_config_api(test_microvm_with_api):
+def test_negative_machine_config_api(uvm_plain):
     """
     Test the deprecated `cpu_template` field in PUT and PATCH requests on
     `/machine-config` API is handled correctly.
@@ -438,7 +438,7 @@ def test_negative_machine_config_api(test_microvm_with_api):
     When using the `cpu_template` field (even if the value is "None"), the HTTP
     response header should have "Deprecation: true".
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
 
     # Use `cpu_template` field in PUT /machine-config
@@ -461,11 +461,11 @@ def test_negative_machine_config_api(test_microvm_with_api):
     )
 
 
-def test_api_cpu_config(test_microvm_with_api, custom_cpu_template):
+def test_api_cpu_config(uvm_plain, custom_cpu_template):
     """
     Test /cpu-config PUT scenarios.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
 
     with pytest.raises(RuntimeError):
@@ -474,11 +474,11 @@ def test_api_cpu_config(test_microvm_with_api, custom_cpu_template):
     test_microvm.api.cpu_config.put(**custom_cpu_template["template"])
 
 
-def test_api_put_update_post_boot(test_microvm_with_api, io_engine):
+def test_api_put_update_post_boot(uvm_plain, io_engine):
     """
     Test that PUT updates are rejected after the microvm boots.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
 
     # Set up the microVM with 2 vCPUs, 256 MiB of RAM  and
@@ -534,11 +534,11 @@ def test_api_put_update_post_boot(test_microvm_with_api, io_engine):
         test_microvm.api.mmds_config.put(**mmds_config)
 
 
-def test_rate_limiters_api_config(test_microvm_with_api, io_engine):
+def test_rate_limiters_api_config(uvm_plain, io_engine):
     """
     Test the IO rate limiter API config.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
 
     # Test the DRIVE rate limiting API.
@@ -642,11 +642,11 @@ def test_rate_limiters_api_config(test_microvm_with_api, io_engine):
     )
 
 
-def test_api_patch_pre_boot(test_microvm_with_api, io_engine):
+def test_api_patch_pre_boot(uvm_plain, io_engine):
     """
     Test that PATCH updates are not allowed before the microvm boots.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
 
     # Sets up the microVM with 2 vCPUs, 256 MiB of RAM, 1 network interface
@@ -692,11 +692,11 @@ def test_api_patch_pre_boot(test_microvm_with_api, io_engine):
         test_microvm.api.network.patch(iface_id=iface_id)
 
 
-def test_negative_api_patch_post_boot(test_microvm_with_api, io_engine):
+def test_negative_api_patch_post_boot(uvm_plain, io_engine):
     """
     Test PATCH updates that are not allowed after the microvm boots.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
 
     # Sets up the microVM with 2 vCPUs, 256 MiB of RAM, 1 network iface and
@@ -734,11 +734,11 @@ def test_negative_api_patch_post_boot(test_microvm_with_api, io_engine):
         test_microvm.api.logger.patch(level="Error")
 
 
-def test_drive_patch(test_microvm_with_api):
+def test_drive_patch(uvm_plain):
     """
     Extensively test drive PATCH scenarios before and after boot.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
 
     # Sets up the microVM with 2 vCPUs, 256 MiB of RAM and
@@ -771,13 +771,13 @@ def test_drive_patch(test_microvm_with_api):
 @pytest.mark.skipif(
     platform.machine() != "x86_64", reason="not yet implemented on aarch64"
 )
-def test_send_ctrl_alt_del(test_microvm_with_api):
+def test_send_ctrl_alt_del(uvm_plain):
     """
     Test shutting down the microVM gracefully on x86, by sending CTRL+ALT+DEL.
     """
     # This relies on the i8042 device and AT Keyboard support being present in
     # the guest kernel.
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
 
     test_microvm.basic_config()
@@ -936,11 +936,11 @@ def _drive_patch(test_microvm):
     ]
 
 
-def test_api_version(test_microvm_with_api):
+def test_api_version(uvm_plain):
     """
     Test the permanent VM version endpoint.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
     test_microvm.basic_config()
 
@@ -1210,11 +1210,11 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
     assert response == expected_cfg
 
 
-def test_get_full_config(test_microvm_with_api):
+def test_get_full_config(uvm_plain):
     """
     Test the reported configuration of a microVM configured with all resources.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
 
     expected_cfg = {}
 
@@ -1315,7 +1315,7 @@ def test_get_full_config(test_microvm_with_api):
     assert response.json() == expected_cfg
 
 
-def test_map_private_seccomp_regression(test_microvm_with_api):
+def test_map_private_seccomp_regression(uvm_plain):
     """
     Seccomp mmap MAP_PRIVATE regression test.
 
@@ -1323,7 +1323,7 @@ def test_map_private_seccomp_regression(test_microvm_with_api):
     call mmap with MAP_PRIVATE|MAP_ANONYMOUS. This would result in vmm being
     killed by the seccomp filter before this PR.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.jailer.extra_args.update(
         {"http-api-max-payload-size": str(1024 * 1024 * 2)}
     )

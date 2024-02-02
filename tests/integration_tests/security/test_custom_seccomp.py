@@ -44,11 +44,11 @@ def _config_file_setup(test_microvm, vm_config_file):
     test_microvm.jailer.extra_args.update({"no-api": None})
 
 
-def test_allow_all(test_microvm_with_api):
+def test_allow_all(uvm_plain):
     """
     Test --seccomp-filter, allowing all syscalls.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
 
     _custom_filter_setup(
         test_microvm,
@@ -82,11 +82,11 @@ def test_allow_all(test_microvm_with_api):
     utils.assert_seccomp_level(test_microvm.firecracker_pid, "2")
 
 
-def test_working_filter(test_microvm_with_api):
+def test_working_filter(uvm_plain):
     """
     Test --seccomp-filter, rejecting some dangerous syscalls.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
 
     _custom_filter_setup(
         test_microvm,
@@ -143,11 +143,11 @@ def test_working_filter(test_microvm_with_api):
     utils.assert_seccomp_level(test_microvm.firecracker_pid, "2")
 
 
-def test_failing_filter(test_microvm_with_api):
+def test_failing_filter(uvm_plain):
     """
     Test --seccomp-filter, denying some needed syscalls.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
 
     _custom_filter_setup(
         test_microvm,
@@ -210,15 +210,15 @@ def test_failing_filter(test_microvm_with_api):
 
 
 @pytest.mark.parametrize("vm_config_file", ["framework/vm_config.json"])
-def test_invalid_bpf(test_microvm_with_api, vm_config_file):
+def test_invalid_bpf(uvm_plain, vm_config_file):
     """
     Test that FC does not start, given an invalid binary filter.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
 
     # Configure VM from JSON. Otherwise, the test will error because
     # the process will be killed before configuring the API socket.
-    _config_file_setup(test_microvm_with_api, vm_config_file)
+    _config_file_setup(uvm_plain, vm_config_file)
 
     bpf_path = os.path.join(test_microvm.path, "bpf.out")
     file = open(bpf_path, "w", encoding="utf-8")

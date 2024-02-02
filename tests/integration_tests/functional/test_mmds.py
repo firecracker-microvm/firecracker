@@ -130,11 +130,11 @@ def _validate_mmds_snapshot(
 
 
 @pytest.mark.parametrize("version", MMDS_VERSIONS)
-def test_custom_ipv4(test_microvm_with_api, version):
+def test_custom_ipv4(uvm_plain, version):
     """
     Test the API for MMDS custom ipv4 support.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
 
     data_store = {
@@ -217,11 +217,11 @@ def test_custom_ipv4(test_microvm_with_api, version):
 
 
 @pytest.mark.parametrize("version", MMDS_VERSIONS)
-def test_json_response(test_microvm_with_api, version):
+def test_json_response(uvm_plain, version):
     """
     Test the MMDS json response.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
 
     data_store = {
@@ -278,11 +278,11 @@ def test_json_response(test_microvm_with_api, version):
 
 
 @pytest.mark.parametrize("version", MMDS_VERSIONS)
-def test_mmds_response(test_microvm_with_api, version):
+def test_mmds_response(uvm_plain, version):
     """
     Test MMDS responses to various datastore requests.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
 
     data_store = {
@@ -358,11 +358,11 @@ def test_mmds_response(test_microvm_with_api, version):
 
 
 @pytest.mark.parametrize("version", MMDS_VERSIONS)
-def test_larger_than_mss_payloads(test_microvm_with_api, version):
+def test_larger_than_mss_payloads(uvm_plain, version):
     """
     Test MMDS content for payloads larger than MSS.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
 
     # Attach network device.
@@ -426,11 +426,11 @@ def test_larger_than_mss_payloads(test_microvm_with_api, version):
 
 
 @pytest.mark.parametrize("version", MMDS_VERSIONS)
-def test_mmds_dummy(test_microvm_with_api, version):
+def test_mmds_dummy(uvm_plain, version):
     """
     Test the API and guest facing features of the microVM MetaData Service.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
 
     # Attach network device.
@@ -471,11 +471,11 @@ def test_mmds_dummy(test_microvm_with_api, version):
 
 
 @pytest.mark.parametrize("version", MMDS_VERSIONS)
-def test_guest_mmds_hang(test_microvm_with_api, version):
+def test_guest_mmds_hang(uvm_plain, version):
     """
     Test the MMDS json endpoint when Content-Length larger than actual length.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
 
     # Attach network device.
@@ -524,11 +524,11 @@ def test_guest_mmds_hang(test_microvm_with_api, version):
 
 
 @pytest.mark.parametrize("version", MMDS_VERSIONS)
-def test_mmds_limit_scenario(test_microvm_with_api, version):
+def test_mmds_limit_scenario(uvm_plain, version):
     """
     Test the MMDS json endpoint when data store size reaches the limit.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     # Set a large enough limit for the API so that requests actually reach the
     # MMDS server.
     test_microvm.jailer.extra_args.update(
@@ -611,11 +611,11 @@ def test_mmds_snapshot(uvm_nano, microvm_factory, version):
     )
 
 
-def test_mmds_v2_negative(test_microvm_with_api):
+def test_mmds_v2_negative(uvm_plain):
     """
     Test invalid MMDS GET/PUT requests when using V2.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
 
     # Attach network device.
@@ -716,11 +716,11 @@ def test_mmds_v2_negative(test_microvm_with_api):
     )
 
 
-def test_deprecated_mmds_config(test_microvm_with_api):
+def test_deprecated_mmds_config(uvm_plain):
     """
     Test deprecated Mmds configs.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
     test_microvm.basic_config()
     # Attach network device.
