@@ -5,46 +5,57 @@ contracts of Firecracker.
 
 ## Running
 
-To run all tests:
+The testing system is built around [pytest](https://docs.pytest.org/en/latest/).
+Our `tools/devtool` script is a convenience wrapper which automatically
+downloads necessary test artifacts from S3, before invoking pytest inside a
+docker container. For detailed help on usage, see `tools/devtool help`.
+
+To run all available tests that would also run as part of our PR CI (e.g.
+excluding tests marked with `pytest.mark.nonci`):
 
 ```sh
-tools/devtool test
+tools/devtool -y test
 ```
 
-This will download test microvm images from the default test resource S3 bucket
-and run all available tests.
-
-To run tests from specific directories and/or files:
+To run only tests from specific directories and/or files:
 
 ```sh
-tools/devtool test -- <test_dir_or_file_path>...
+tools/devtool -y test -- integration_tests/performance/test_boottime.py
 ```
 
 To run a single specific test from a file:
 
 ```sh
-tools/devtool test -- <test_file_path>::<test_name>
+tools/devtool -y test -- integration_tests/performance/test_boottime.py::test_boottime
 ```
 
-The testing system is built around [pytest](https://docs.pytest.org/en/latest/).
-Any parameters passed to `tools/devtool test --` are passed to the `pytest`
-command. `devtool` is used to automate fetching of test dependencies (useful for
-continuous integration) and to sandbox test runs (useful for development
-environments). If you are not interested in these capabilities, use pytest
-directly, either from inside the container:
+Note that all paths should be specified relative to the `tests` directory, _not_
+the repository root.
+
+Alternatively, pytest provides the option to run all tests where the test name
+contains some substring via the `-k` option:
 
 ```sh
-tools/devtool shell -p
+tools/devtool -y test -- -k 1024 integration_tests/performance/test_boottime.py::test_boottime
+```
+
+This is particularly useful for specifying parameters of test functions. For
+example, the above command will run all boottime tests with a microVM size of
+1024MB.
+
+If you are not interested in the capabilities of `devtool`, use pytest directly,
+either from inside the container:
+
+```sh
+tools/devtool -y shell -p
 pytest [<pytest argument>...]
 ```
 
-Or natively on your dev box:
+or natively on your dev box:
 
 ```sh
 python3 -m pytest [<pytest argument>...]
 ```
-
-For help on usage, see `tools/devtool help`.
 
 ### Output
 
@@ -53,8 +64,9 @@ For help on usage, see `tools/devtool help`.
 ### Dependencies
 
 - A bare-metal `Linux` host with `uname -r` >= 4.14 and KVM enabled (`/dev/kvm`
-  device node exists).
-- Docker.
+  device node exists)
+- Docker
+- `awscli` version 2
 
 ## Rustacean Integration Tests
 
@@ -78,6 +90,7 @@ Unlike unit tests, Rust integration tests are each run in a separate process.
    be consumed as a programmatic user would. If any function is necessary but
    not `pub`, please consider carefully whether it conceptually *needs* to be in
    the public interface before making it so.
+
 1. The correct functioning scenario of the `vmm` implies that it `exit`s with
    code `0`. This is necessary for proper resource cleanup. However, `cargo`
    doesn't expect the test process to initiate its own demise, therefore it will
@@ -191,10 +204,10 @@ the container and used as a local image cache.
 
 `Q6:` *Is there a way to speed up integration tests execution time?*\
 `A6:` You
-can narrow down the test selection as described in the **Running** section, or
-in the **Troubleshooting Tests** section. For example:
+can narrow down the test selection as described in the **Running** section. For
+example:
 
-1. Pass the `-k substring` option to Pytest to only run a subset of tests by
+1. Pass the `-k substring` option to pytest to only run a subset of tests by
    specifying a part of their name.
 1. Only run the tests contained in a file or directory.
 
@@ -242,35 +255,10 @@ Contributing to this testing system requires a dive deep on `pytest`.
 
 ## Troubleshooting tests
 
-### How to select tests
-
 When troubleshooting tests, it is important to only narrow down the ones that
-are of interest. `pytest` offers several features to do that:
-
-#### single file
-
-```sh
-./tools/devtool -y test -- integration_tests/performance/test_boottime.py
-```
-
-#### single test
-
-```sh
-./tools/devtool -y test -- integration_tests/performance/test_boottime.py::test_boottime
-```
-
-#### single test + parameter(s)
-
-Use the `-k` parameter to match part of the test (including the parameters!):
-
-```sh
-./tools/devtool -y test -- -k 1024 integration_tests/performance/test_boottime.py::test_boottime
-```
-
-#### --last-failed
-
-One can use the `--last-failed` parameter to only run the tests that failed from
-the previous run. Useful when several tests fail after making large changes.
+are of interest. One can use the `--last-failed` parameter to only run the tests
+that failed from the previous run. Useful when several tests fail after making
+large changes.
 
 ### Run tests from within the container
 
@@ -278,8 +266,8 @@ To avoid having to enter/exit Docker every test run, you can run the tests
 directly within a Docker session:
 
 ```sh
-./tools/devtool -y shell --privileged
-./tools/test.sh integration_tests/functional/test_api.py
+tools/devtool -y shell --privileged
+tools/test.sh integration_tests/functional/test_api.py
 ```
 
 ### How to use the Python debugger (pdb) for debugging
@@ -288,21 +276,21 @@ Just append `--pdb`, and when a test fails it will drop you in pdb, where you
 can examine local variables and the stack, and can use the normal Python REPL.
 
 ```
-./tools/devtool -y test -- -k 1024 integration_tests/performance/test_boottime.py::test_boottime --pdb
+tools/devtool -y test -- -k 1024 integration_tests/performance/test_boottime.py::test_boottime --pdb
 ```
 
 ### How to use ipython's ipdb instead of pdb
 
 ```sh
-./tools/devtool -y shell --privileged
+tools/devtool -y shell --privileged
 export PYTEST_ADDOPTS=--pdbcls=IPython.terminal.debugger:TerminalPdb
-./tools/test.sh -k 1024 integration_tests/performance/test_boottime.py::test_boottime
+tools/test.sh -k 1024 integration_tests/performance/test_boottime.py::test_boottime
 ```
 
 There is a helper command in devtool that does just that, and is easier to type:
 
 ```sh
-./tools/devtool -y test_debug -k 1024 integration_tests/performance/test_boottime.py::test_boottime
+tools/devtool -y test_debug -k 1024 integration_tests/performance/test_boottime.py::test_boottime
 ```
 
 ### How to connect to the console interactively
@@ -331,7 +319,7 @@ Just run the test in a loop, and make it drop you into pdb when it fails.
 
 ```sh
 while true; do
-    ./tools/devtool -y test -- integration_tests/functional/test_balloon.py::test_deflate_on_oom -k False --pdb
+    tools/devtool -y test -- integration_tests/functional/test_balloon.py::test_deflate_on_oom -k False --pdb
 done
 ```
 
@@ -348,7 +336,7 @@ As a rough heuristic, use half the available CPUs. I use -n4 for my 8 CPU
 diminishing returns.
 
 ```sh
-./tools/devtool -y test -- integration_tests/functional -n$(expr $(nproc) / 2) --dist worksteal
+tools/devtool -y test -- integration_tests/functional -n$(expr $(nproc) / 2) --dist worksteal
 ```
 
 ### How to attach gdb to a running uvm
@@ -356,7 +344,7 @@ diminishing returns.
 First, make the test fail and drop you into PDB. For example:
 
 ```sh
-./tools/devtool -y test_debug integration_tests/functional/test_api.py::test_api_happy_start --pdb
+tools/devtool -y test_debug integration_tests/functional/test_api.py::test_api_happy_start --pdb
 ```
 
 Then,
@@ -370,7 +358,7 @@ You get some instructions on how to run GDB to attach to gdbserver.
 ## Sandbox
 
 ```sh
-./tools/devtool sandbox
+tools/devtool -y sandbox
 ```
 
 That should drop you in an IPython REPL, where you can interact with a microvm:
@@ -401,11 +389,9 @@ esac
 
 sudo pip3 install pytest ipython requests psutil tenacity filelock "urllib3<2.0" requests_unixsocket
 
-sudo env PYTHONPATH=tests HOME=$HOME ~/.local/bin/ipython3 -i ./tools/sandbox.py -- --binary-dir ../repro/v1.4.1
+sudo env PYTHONPATH=tests HOME=$HOME ~/.local/bin/ipython3 -i tools/sandbox.py -- --binary-dir ../repro/v1.4.1
 ```
 
-> :warning: **Notice this runs as root!**
-
-```python
-!id
-```
+> \[!WARNING\]
+>
+> **Notice this runs as root!**
