@@ -68,7 +68,7 @@ python3 -m pytest [<pytest argument>...]
 - Docker
 - `awscli` version 2
 
-## Rustacean Integration Tests
+## Rust Integration Tests
 
 The `pytest`-powered integration tests rely on Firecracker's HTTP API for
 configuring and communicating with the VMM. Alongside these, the `vmm` crate
@@ -80,11 +80,11 @@ towards code coverage.
 To run *only* the Rust integration tests:
 
 ```bash
-cargo test --test integration_tests
+cargo test --test integration_tests --all
 ```
 
 Unlike unit tests, Rust integration tests are each run in a separate process.
-`Cargo` also packages them in a new crate. This has several known side effects:
+`cargo` also packages them in a new crate. This has several known side effects:
 
 1. Only the `pub` functions can be called. This is fine, as it allows the VMM to
    be consumed as a programmatic user would. If any function is necessary but
@@ -104,7 +104,7 @@ Unlike unit tests, Rust integration tests are each run in a separate process.
    test test_setup_serial_device ... ok
    ```
 
-To learn more about Rustacean integration test, see
+To learn more about Rust integration test, see
 [the Rust book](https://doc.rust-lang.org/book/ch11-03-test-organization.html#integration-tests).
 
 ## Adding Python Tests
