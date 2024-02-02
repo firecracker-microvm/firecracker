@@ -78,7 +78,6 @@ Unlike unit tests, Rust integration tests are each run in a separate process.
    be consumed as a programmatic user would. If any function is necessary but
    not `pub`, please consider carefully whether it conceptually *needs* to be in
    the public interface before making it so.
-
 1. The correct functioning scenario of the `vmm` implies that it `exit`s with
    code `0`. This is necessary for proper resource cleanup. However, `cargo`
    doesn't expect the test process to initiate its own demise, therefore it will
@@ -223,7 +222,6 @@ Pytest was chosen because:
 ### Features
 
 - Use the Firecracker Open API spec to populate Microvm API resource URLs.
-- Do the testrun in a container for better insulation.
 - Event-based monitoring of microvm socket file creation to avoid while spins.
 - Self-tests (e.g., Tests that test the testing system).
 
