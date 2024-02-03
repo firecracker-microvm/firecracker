@@ -23,9 +23,9 @@ release only if compatibility changes are required.
 
 | Host kernel | Guest kernel v4.14 | Guest kernel v5.10 | Min. end of support |
 | ----------: | :----------------: | :----------------: | ------------------: |
-|       v4.14 |          Y         |          Y         |          2021-01-22 |
-|       v5.10 |          Y         |          Y         |          2024-01-31 |
-|        v6.1 |          Y         |          Y         |          2025-10-12 |
+|       v4.14 |         Y          |         Y          |          2021-01-22 |
+|       v5.10 |         Y          |         Y          |          2024-01-31 |
+|        v6.1 |         Y          |         Y          |          2025-10-12 |
 
 The guest kernel configs used in our validation pipelines can be found
 [here](../resources/guest_configs/) while a breakdown of the relevant guest
