@@ -2,10 +2,12 @@
 
 ## Introduction
 
-Firecracker implements a framework for instrumentation based tracing.
+Firecracker implements a framework for instrumentation based tracing with the
+aim to improve its debugability.
 
-Instrumentation based tracing as defined by
-[Sheng Liang on usenix.org](https://www.usenix.org/legacy/publications/library/proceedings/coots99/full_papers/liang/liang_html/node9.html):
+Instrumentation based tracing was defined by
+[Sheng Liang on usenix.org](https://www.usenix.org/legacy/publications/library/proceedings/coots99/full_papers/liang/liang_html/node9.html)
+as:
 
 > There are two ways to obtain profiling information: either statistical
 > sampling or code instrumentation. Statistical sampling is less disruptive to
@@ -16,8 +18,6 @@ Instrumentation based tracing as defined by
 > percentage of time spent in frequently-called methods, whereas code
 > instrumentation can report the exact number of time each method is invoked.
 
-The focus with tracing in Firecracker is to improve debug-ability.
-
 Enabling tracing adds logs output on each functions entry and exit. This assists
 debugging problems that relate to deadlocks or high latencies by quickly
 identifying elongated function calls.
@@ -26,11 +26,12 @@ identifying elongated function calls.
 
 Firecracker implements instrumentation based tracing via
 [`log`](https://github.com/rust-lang/log) and
-[`log_instrument`](https://github.com/JonathanWoollett-Light/log-instrument),
-outputting a `Trace` level log when entering and exiting every function.
+[`log_instrument`](../src/log-instrument), outputting a `Trace` level log when
+entering and exiting every function.
 
-It is disabled by default at compile-time. Tracing functionality has no impact
-on the release binary.
+Adding traces impacts Firecracker binary size and its performance, so
+instrumentation is not present by default. Instrumentation is also not present
+on the release binaries.
 
 You can use `cargo run --bin clippy-tracing --` to build and run the latest
 version in the repo or you can run `cargo install --path src/clippy-tracing` to
