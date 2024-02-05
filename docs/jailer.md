@@ -290,8 +290,3 @@ Note: default value for `<api-sock>` is `/run/firecracker.socket`.
 - If all the cgroup controllers are bunched up on a single mount point using the
   "all" option, our current program logic will complain it cannot detect
   individual controller mount points.
-
-- [#4287](https://github.com/firecracker-microvm/firecracker/issues/4287) When
-  starting a jailer with `--parent-cgroup` specified but no cgroup flags
-  specified, then the rules in the parent cgroup folder are ignored. To work
-  around, use a dummy cgroup parameter like `--cgroup=memory.max=max`.
