@@ -31,4 +31,4 @@ def test_markdown_style():
 
     assert (
         not needs_format
-    ), "Some markdown files need formatting. Either run `mdformat .` in the repository root, or apply the above diffs manually."
+    ), "Some markdown files need formatting. Either run `./tools/devtool sh mdformat .` in the repository root, or apply the above diffs manually."
