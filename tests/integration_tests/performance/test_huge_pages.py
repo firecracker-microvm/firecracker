@@ -125,6 +125,59 @@ def test_hugetlbfs_snapshot(
     global_props.host_linux_version == "4.14",
     reason="MFD_HUGETLB | MFD_ALLOW_SEALING only supported on kernels >= 4.16",
 )
+def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain, uffd_handler_paths):
+    """
+    Test hugetlbfs differential snapshot support.
+
+    Despite guest memory being backed by huge pages, differential snapshots still work at 4K granularity.
+    """
+
+    ### Create Snapshot ###
+    uvm_plain.memory_monitor = None
+    uvm_plain.spawn()
+    uvm_plain.basic_config(
+        huge_pages=HugePagesConfig.HUGETLBFS_2MB,
+        mem_size_mib=128,
+        track_dirty_pages=True,
+    )
+    uvm_plain.add_net_iface()
+    uvm_plain.start()
+
+    # Wait for microvm to boot
+    rc, _, _ = uvm_plain.ssh.run("true")
+    assert not rc
+
+    base_snapshot = uvm_plain.snapshot_diff()
+    uvm_plain.resume()
+
+    # Run command to dirty some pages
+    rc, _, _ = uvm_plain.ssh.run("sync")
+    assert not rc
+
+    snapshot_diff = uvm_plain.snapshot_diff()
+    snapshot_merged = snapshot_diff.rebase_snapshot(base_snapshot)
+
+    uvm_plain.kill()
+
+    vm = microvm_factory.build()
+    vm.spawn()
+
+    # Spawn page fault handler process.
+    _pf_handler = spawn_pf_handler(
+        vm, uffd_handler_paths["valid_2m_handler"], snapshot_merged.mem
+    )
+
+    vm.restore_from_snapshot(snapshot_merged, resume=True, uffd_path=SOCKET_PATH)
+
+    # Verify if guest can run commands.
+    rc, _, _ = vm.ssh.run("true")
+    assert not rc
+
+
+@pytest.mark.skipif(
+    global_props.host_linux_version == "4.14",
+    reason="MFD_HUGETLB | MFD_ALLOW_SEALING only supported on kernels >= 4.16",
+)
 @pytest.mark.parametrize("huge_pages", HugePagesConfig)
 def test_ept_violation_count(
     microvm_factory,
