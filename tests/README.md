@@ -338,6 +338,20 @@ cd firecracker
 tools/devtool test
 ```
 
+## CI Environment
+
+In our CI, integration tests are run on EC2 `.metal` instances. We list the
+instance types and host operating systems we test in
+[our `README`](../README.md#tested-platforms). Multiple test runs can share a
+`.metal` instance, meaning it is possible to observe noisy neighbor effects when
+running the integration test suite (and particularly, tests should not assume
+the ability to configure host-global resources). The exception to this are
+integration tests found in
+[`integration_tests/performance`](integration_tests/performance). These tests
+are always executed single-tenant, and additionally tweak various host-level
+setting to achieve consistent performance. Please see the `test` section of
+`tools/devtool help` for more information.
+
 ## Terminology
 
 - **Testrun**: A sandboxed run of all (or a selection of) integration tests.
