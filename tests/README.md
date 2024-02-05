@@ -264,17 +264,46 @@ This will then print the same analysis described in the previous sections.
 Tests can be added in any (existing or new) sub-directory of `tests/`, in files
 named `test_*.py`.
 
+### Fixtures
+
+By default, `pytest` makes all fixtures in [`conftest.py`](../tests/conftest.py)
+available to all test functions. You can also create `conftest.py` in
+sub-directories containing tests, or define fixtures directly in test files. See
+the [`pytest` documentation](https://docs.pytest.org/en/6.2.x/fixture.html) for
+details.
+
+Most integration tests use fixtures that abstract away the creation and teardown
+of Firecracker processes. The following fixtures spawn Firecracker processes
+that are pre-initialized with specific guest kernels and rootfs:
+
+- `uvm_plain_any` is parametrized by the guest kernels
+  [supported](../docs/kernel-policy.md) by Firecracker and a read-only Ubuntu
+  22.04 squashfs as rootfs,
+- `uvm_plain` yields a Firecracker process pre-initialized with a 5.10 kernel
+  and the same Ubuntu 22.04 squashfs.
+
+Generally, tests should use the former if you are testing some interaction
+between the guest and Firecracker, while the latter should be used if
+Firecracker functionality unrelated to the guest is being tested.
+
+### Markers
+
+Firecracker uses two special
+[pytest markers](https://pytest.org/en/7.4.x/example/markers.html) to determine
+which tests are run in which context:
+
+- Tests marked as `nonci` are not run in the PR CI pipelines. Instead, they run
+  in separate pipelines according to various cron schedules.
+- Tests marked as `no_block_pr` are run in the "optional" PR CI pipeline. This
+  pipeline is not required to pass for merging a PR.
+
+All tests without markers are run for every pull request, and are required to
+pass for the PR to be merged.
+
 ## Adding Rust Tests
 
 Add a new function annotated with `#[test]` in
 [`integration_tests.rs`](../src/vmm/tests/integration_tests.rs).
-
-## Adding Fixtures
-
-By default, `pytest` makes all fixtures in `conftest.py` available to all test
-functions. You can also create `conftest.py` in sub-directories containing
-tests, or define fixtures directly in test files. See `pytest` documentation for
-details.
 
 ## Working With Guest Files
 
