@@ -409,6 +409,8 @@ cmd_help() {
     echo "        will be passed through to pytest."
     echo "        -c, --cpuset-cpus cpulist    Set a dedicated cpulist to be used by the tests."
     echo "        -m, --cpuset-mems memlist    Set a dedicated memlist to be used by the tests."
+    echo "            --performance            Tweak various setting of the host running the tests (such as C- and P-states)"
+    echo "                                     to achieve consistent performance. Used for running performance tests in CI."
     echo ""
 
     cat <<EOF
