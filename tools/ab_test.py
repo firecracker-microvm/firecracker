@@ -141,7 +141,9 @@ def load_data_series(report_path: Path, revision: str = None, *, reemit: bool = 
                 else:
                     # If there are many data points for a metric, they will be split across
                     # multiple EMF log messages. We need to reassemble :(
-                    assert processed_emf[dimension_set].keys() == result.keys()
+                    assert (
+                        processed_emf[dimension_set].keys() == result.keys()
+                    ), f"Found incompatible metrics associated with dimension set {dimension_set}: {processed_emf[dimension_set].key()} in one EMF message, but {result.keys()} in another."
 
                     for metric, (values, unit) in processed_emf[dimension_set].items():
                         assert result[metric][1] == unit
