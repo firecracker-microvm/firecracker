@@ -8,30 +8,39 @@ import time
 from host_tools.cargo_build import run_seccompiler_bin
 
 
-def test_startup_time_new_pid_ns(uvm_plain, metrics):
+def test_startup_time_new_pid_ns(
+    microvm_factory, guest_kernel_linux_5_10, rootfs, metrics
+):
     """
     Check startup time when jailer is spawned in a new PID namespace.
     """
-    microvm = uvm_plain
-    microvm.jailer.new_pid_ns = True
-    _test_startup_time(microvm, metrics, "new_pid_ns")
+    for _ in range(10):
+        microvm = microvm_factory.build(guest_kernel_linux_5_10, rootfs)
+        microvm.jailer.new_pid_ns = True
+        _test_startup_time(microvm, metrics, "new_pid_ns")
 
 
-def test_startup_time_daemonize(uvm_plain, metrics):
+def test_startup_time_daemonize(
+    microvm_factory, guest_kernel_linux_5_10, rootfs, metrics
+):
     """
     Check startup time when jailer detaches Firecracker from the controlling terminal.
     """
-    microvm = uvm_plain
-    _test_startup_time(microvm, metrics, "daemonize")
+    for _ in range(10):
+        microvm = microvm_factory.build(guest_kernel_linux_5_10, rootfs)
+        _test_startup_time(microvm, metrics, "daemonize")
 
 
-def test_startup_time_custom_seccomp(uvm_plain, metrics):
+def test_startup_time_custom_seccomp(
+    microvm_factory, guest_kernel_linux_5_10, rootfs, metrics
+):
     """
     Check the startup time when using custom seccomp filters.
     """
-    microvm = uvm_plain
-    _custom_filter_setup(microvm)
-    _test_startup_time(microvm, metrics, "custom_seccomp")
+    for _ in range(10):
+        microvm = microvm_factory.build(guest_kernel_linux_5_10, rootfs)
+        _custom_filter_setup(microvm)
+        _test_startup_time(microvm, metrics, "custom_seccomp")
 
 
 def _test_startup_time(microvm, metrics, test_suffix: str):
@@ -48,9 +57,9 @@ def _test_startup_time(microvm, metrics, test_suffix: str):
     # Since metrics are flushed at InstanceStart, the first line will suffice.
     datapoints = microvm.get_all_metrics()
     test_end_time = time.time()
-    metrics = datapoints[0]
-    startup_time_us = metrics["api_server"]["process_startup_time_us"]
-    cpu_startup_time_us = metrics["api_server"]["process_startup_time_cpu_us"]
+    fc_metrics = datapoints[0]
+    startup_time_us = fc_metrics["api_server"]["process_startup_time_us"]
+    cpu_startup_time_us = fc_metrics["api_server"]["process_startup_time_cpu_us"]
 
     print(
         "Process startup time is: {} us ({} CPU us)".format(
