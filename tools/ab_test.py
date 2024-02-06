@@ -61,7 +61,7 @@ IGNORED = [
 def is_ignored(dimensions) -> bool:
     """Checks whether the given dimensions match a entry in the IGNORED dictionary above"""
     for high_variance in IGNORED:
-        matching = {key: dimensions[key] for key in high_variance}
+        matching = {key: dimensions[key] for key in high_variance if key in dimensions}
 
         if matching == high_variance:
             return True
