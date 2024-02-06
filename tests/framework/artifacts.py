@@ -31,6 +31,13 @@ def select_supported_kernels():
     else:
         supported_kernels.append(r"vmlinux-5.10.\d+")
 
+    # Booting with MPTable is deprecated but we still want to test
+    # for it. Until we drop support for it we will be building a 5.10 guest
+    # kernel without ACPI support, so that we are able to test this use-case
+    # as well.
+    # TODO: remove this once we drop support for MPTable
+    supported_kernels.append(r"vmlinux-5.10.\d+-no-acpi")
+
     # Support Linux 6.1 guest in a limited fashion
     if global_props.cpu_model == "ARM_NEOVERSE_V1" and (hlv.major, hlv.minor) >= (6, 1):
         supported_kernels.append(r"vmlinux-6.1.\d+")
