@@ -218,6 +218,9 @@ build_initramfs
 
 build_linux $PWD/guest_configs/microvm-kernel-ci-$ARCH-4.14.config
 build_linux $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config
+if [ $ARCH == "x86_64" ]; then
+    build_linux $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10-no-acpi.config
+fi
 build_linux $PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config
 
 if [ $ARCH == "aarch64" ]; then
