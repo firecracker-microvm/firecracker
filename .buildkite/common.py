@@ -11,8 +11,7 @@ import subprocess
 from pathlib import Path
 
 DEFAULT_INSTANCES = [
-    "c5n.metal",  # Intel Skylake
-    "m5n.metal",  # Intel Cascade Lake
+    "m5d.metal",  # Intel Cascade/Skylake Lake
     "m6i.metal",  # Intel Icelake
     "m6a.metal",  # AMD Milan
     "m6g.metal",  # Graviton2
