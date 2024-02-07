@@ -109,8 +109,9 @@ RUN cd /tmp/poetry && \
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOLCHAIN" \
     && rustup target add x86_64-unknown-linux-musl \
     && rustup target add aarch64-unknown-linux-musl \
+    && rustup install nightly \
     && rustup component add llvm-tools-preview \
-    && cargo install cargo-audit cargo-deny grcov cargo-sort \
+    && cargo install cargo-audit cargo-deny grcov cargo-sort cargo-udeps \
     && (if [ "$ARCH" = "x86_64" ]; then cargo install kani-verifier && cargo kani setup; else true; fi) \
     \
     && apt-get update \

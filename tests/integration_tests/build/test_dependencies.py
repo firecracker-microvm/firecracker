@@ -25,3 +25,12 @@ def test_licenses():
     )
 
     cargo("deny", f"--manifest-path {toml_file} check licenses bans")
+
+
+def test_unused_dependencies():
+    """
+    Test that there are no unused dependencies.
+    """
+    cargo("install cargo-udeps")
+
+    cargo("+nightly udeps --all")
