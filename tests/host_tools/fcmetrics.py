@@ -425,6 +425,7 @@ def flush_fc_metrics_to_cw(fc_metrics, metrics):
             walk_key(group, keys)
             if group in metrics_to_export_once:
                 skip.add(group)
+    metrics.flush()
 
 
 class FCMetricsMonitor(Thread):
