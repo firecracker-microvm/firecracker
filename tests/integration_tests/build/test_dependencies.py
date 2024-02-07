@@ -24,4 +24,17 @@ def test_licenses():
         os.path.join(os.path.dirname(os.path.realpath(__file__)), "../../../Cargo.toml")
     )
 
-    cargo("deny", f"--manifest-path {toml_file} check licenses bans")
+    _, stdout, stderr = cargo("deny", f"--manifest-path {toml_file} check licenses bans")
+    assert "licenses ok" in stdout
+
+    # "cargo deny" should deny licenses by default but for some reason copyleft is allowed
+    # by it and if we add a dependency which has copyleft licenses "cargo deny" won't report
+    # it unless it is explicitly told to do so from the deny.toml.
+    # Our current deny.toml seems to cover all the cases we need but,
+    # if there is an exception like copyleft (where we don't want and don't deny
+    # in deny.toml and is allowed by cardo deny), we don't want to be left in the dark.
+    # For such cases check "cargo deny" output, make sure that there are no warnings reported
+    # related to the license and take appropriate actions i.e. either add them to allow list
+    # or remove them if they are incompatible with our licenses.
+    license_res = [line for line in stderr.split("\n") if "license" in line]
+    assert not license_res
