@@ -50,6 +50,12 @@ IGNORED = [
         "host_kernel": "linux-5.10",
         "vcpus": "1",
     },
+    # High volatility due to AMI.
+    {
+        "performance_test": "test_restore_latency",
+        "instance": "m6i.metal",
+        "host_kernel": "linux-6.1",
+    },
 ]
 
 
