@@ -6,6 +6,7 @@ use std::fmt::{Debug, Display};
 use std::path::{Path, PathBuf};
 use std::{env as p_env, fs, io};
 
+use env::PROC_MOUNTS;
 use utils::arg_parser::{ArgParser, Argument, UtilsArgParserError as ParsingError};
 use utils::syscall::SyscallReturnCode;
 use utils::validators;
@@ -335,6 +336,7 @@ fn main_exec() -> Result<(), JailerError> {
         arguments,
         utils::time::get_time_us(utils::time::ClockType::Monotonic),
         utils::time::get_time_us(utils::time::ClockType::ProcessCpu),
+        PROC_MOUNTS,
     )
     .and_then(|env| {
         fs::create_dir_all(env.chroot_dir())
