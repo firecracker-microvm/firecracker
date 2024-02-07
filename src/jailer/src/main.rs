@@ -7,6 +7,7 @@ use std::os::unix::prelude::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::{env as p_env, fs, io};
 
+use env::PROC_MOUNTS;
 use utils::arg_parser::{ArgParser, Argument, Error as ParsingError};
 use utils::syscall::SyscallReturnCode;
 use utils::validators;
@@ -369,6 +370,7 @@ fn main_exec() -> Result<(), JailerError> {
     Env::new(
         arguments,
         utils::time::get_time_us(utils::time::ClockType::Monotonic),
+        PROC_MOUNTS,
     )
     .and_then(|env| {
         fs::create_dir_all(env.chroot_dir())
