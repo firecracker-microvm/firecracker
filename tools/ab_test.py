@@ -52,7 +52,6 @@ IGNORED = [
     },
     # High volatility due to AMI.
     {
-        "performance_test": "test_restore_latency",
         "instance": "m6i.metal",
         "host_kernel": "linux-6.1",
     },
