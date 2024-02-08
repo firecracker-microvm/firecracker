@@ -1,5 +1,8 @@
 # Getting Started with Firecracker
 
+**All resources are used for demonstration purposes and are not intended for
+production.**
+
 ## Prerequisites
 
 You can check if your system meets the requirements by running
