@@ -62,6 +62,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the diff snapshot on top of the base snapshot's memory file. This can be
   done by setting the `mem_file_path` to the path of the pre-existing full
   snapshot.
+- [#4259](https://github.com/firecracker-microvm/firecracker/pull/4259):
+  Added a double fork mechanism in the Jailer to avoid setsid failures
+  occurred while running Jailer as the process group leader.
+  This changed the behaviour of Jailer and now the Firecracker process
+  will always have a different pid than the Jailer process.
+  [#4440](https://github.com/firecracker-microvm/firecracker/pull/4440)
+  Added a "Known Limitations" section in the Jailer docs to highlight
+  the above change in behaviour.
 
 ### Deprecated
 
