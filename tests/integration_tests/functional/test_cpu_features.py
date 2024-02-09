@@ -197,6 +197,14 @@ def test_brand_string(test_microvm_with_api):
         assert False
 
 
+# From the `Intel® 64 Architecture x2APIC Specification`
+# (https://courses.cs.washington.edu/courses/cse451/24wi/documentation/x2apic.pdf):
+# > The X2APIC MSRs cannot to be loaded and stored on VMX transitions. A VMX transition fails
+# > if the VMM has specified that the transition should access any MSRs in the address range
+# > from 0000_0800H to 0000_08FFH
+X2APIC_MSRS = [hex(i) for i in range(0x0000_0800, 0x0000_08FF + 1)]
+
+
 # Some MSR values should not be checked since they can change at guest runtime
 # and between different boots.
 # Current exceptions:
@@ -239,7 +247,7 @@ MSR_EXCEPTION_LIST = [
                    # Trigger Mode equal to Edge,
                    # and a Delivery Mode equal to Fixed.
                    # bit 0-7 represent interrupt vector that varies.
-]
+] + X2APIC_MSRS
 # fmt: on
 
 
