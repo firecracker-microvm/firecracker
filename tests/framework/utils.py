@@ -715,14 +715,7 @@ def start_screen_process(screen_log, session_name, binary_path, binary_params):
     # Configure screen to flush stdout to file.
     run_cmd(FLUSH_CMD.format(session=session_name))
 
-    children_count = len(screen_ps.children())
-    if children_count != 1:
-        raise RuntimeError(
-            f"Failed to retrieve child process id for binary '{binary_path}' "
-            f"screen session process had [{children_count}]"
-        )
-
-    return screen_pid, screen_ps.children()[0].pid
+    return screen_pid
 
 
 def guest_run_fio_iteration(ssh_connection, iteration):
