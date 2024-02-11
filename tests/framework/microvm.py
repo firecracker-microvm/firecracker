@@ -191,7 +191,6 @@ class Microvm:
         self.jailer.jailed_path("/etc/localtime", subdir="etc")
 
         self._screen_pid = None
-        self._screen_firecracker_pid = None
 
         self.time_api_requests = global_props.host_linux_version != "6.1"
         # disable the HTTP API timings as they cause a lot of false positives
@@ -269,7 +268,8 @@ class Microvm:
                 assert (
                     rc == 0 and stderr == "" and stdout.find("firecracker") == -1
                 ), f"Firecracker pid {self.firecracker_pid} was not killed as expected"
-        else:
+
+        if self.screen_pid:
             # Killing screen will send SIGHUP to underlying Firecracker.
             # Needed to avoid false positives in case kill() is called again.
             self.expect_kill_by_signal = True
@@ -569,14 +569,13 @@ class Microvm:
             # Run Firecracker under screen. This is used when we want to access
             # the serial console. The file will collect the output from
             # 'screen'ed Firecracker.
-            screen_pid, binary_pid = utils.start_screen_process(
+            screen_pid = utils.start_screen_process(
                 self.screen_log,
                 self.screen_session,
                 cmd[0],
                 cmd[1:],
             )
             self._screen_pid = screen_pid
-            self._screen_firecracker_pid = binary_pid
 
         self._spawned = True
 
