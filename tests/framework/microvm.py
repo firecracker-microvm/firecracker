@@ -372,22 +372,15 @@ class Microvm:
         return self.api.describe.get().json()["state"]
 
     @property
-    def pid_in_new_ns(self):
-        """Get the pid of the Firecracker process in the new namespace.
-
-        Reads the pid from a file created by jailer with `--new-pid-ns` flag.
-        """
-        # Read the PID stored inside the file.
-        return int(self.jailer.pid_file.read_text(encoding="ascii"))
-
-    @property
     def firecracker_pid(self):
-        """Return Firecracker's PID"""
+        """Return Firecracker's PID
+
+        Reads the pid from a file created by jailer.
+        """
         if not self._spawned:
             return None
-        if self.jailer.new_pid_ns:
-            return self.pid_in_new_ns
-        return self._screen_firecracker_pid
+        # Read the PID stored inside the file.
+        return int(self.jailer.pid_file.read_text(encoding="ascii"))
 
     @property
     def dimensions(self):
