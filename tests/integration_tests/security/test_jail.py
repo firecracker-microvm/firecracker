@@ -581,3 +581,35 @@ def test_new_pid_namespace(uvm_plain):
     assert len(nstgid_list) == 2
     assert int(nstgid_list[1]) == 1
     assert int(nstgid_list[0]) == fc_pid
+
+
+@pytest.mark.parametrize(
+    "daemonize",
+    [True, False],
+)
+@pytest.mark.parametrize(
+    "new_pid_ns",
+    [True, False],
+)
+def test_firecracker_kill_by_pid(uvm_plain, daemonize, new_pid_ns):
+    """
+    Test that Firecracker is spawned in a new PID namespace if requested.
+    """
+    microvm = uvm_plain
+    microvm.jailer.daemonize = daemonize
+    microvm.jailer.new_pid_ns = new_pid_ns
+    microvm.spawn()
+    microvm.basic_config()
+    microvm.add_net_iface()
+    microvm.start()
+
+    # verify the guest is active
+    exit_code, _, _ = microvm.ssh.run("ls")
+    assert exit_code == 0
+
+    # before killing microvm make sure the Jailer config is what we set it to be.
+    assert (
+        microvm.jailer.daemonize == daemonize
+        and microvm.jailer.new_pid_ns == new_pid_ns
+    )
+    microvm.kill()
