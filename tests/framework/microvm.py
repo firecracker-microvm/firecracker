@@ -246,34 +246,31 @@ class Microvm:
             # as well as an intentional eye-sore in the test report.
             LOG.error(self.log_data)
 
-        if self.jailer.daemonize:
-            try:
-                if self.firecracker_pid:
-                    os.kill(self.firecracker_pid, signal.SIGKILL)
-            except ProcessLookupError:
-                LOG.exception("Process not found: %d", self.firecracker_pid)
-            except FileNotFoundError:
-                LOG.exception("PID file not found")
-
-            # if microvm was spawned then check if it gets killed
-            if self._spawned:
-                # it is observed that we need to wait some time before
-                #  checking if the process is killed.
-                time.sleep(1)
-                # filter ps results for the jailer's unique id
-                rc, stdout, stderr = utils.run_cmd(
-                    f"ps aux | grep {self.jailer.jailer_id}"
-                )
-                # make sure firecracker was killed
-                assert (
-                    rc == 0 and stderr == "" and stdout.find("firecracker") == -1
-                ), f"Firecracker pid {self.firecracker_pid} was not killed as expected"
+        try:
+            if self.firecracker_pid:
+                os.kill(self.firecracker_pid, signal.SIGKILL)
+        except ProcessLookupError:
+            LOG.exception("Process not found: %d", self.firecracker_pid)
+        except FileNotFoundError:
+            LOG.exception("PID file not found")
 
         if self.screen_pid:
             # Killing screen will send SIGHUP to underlying Firecracker.
             # Needed to avoid false positives in case kill() is called again.
             self.expect_kill_by_signal = True
             utils.run_cmd("kill -9 {} || true".format(self.screen_pid))
+
+        # if microvm was spawned then check if it gets killed
+        if self._spawned:
+            # it is observed that we need to wait some time before
+            #  checking if the process is killed.
+            time.sleep(1)
+            # filter ps results for the jailer's unique id
+            rc, stdout, stderr = utils.run_cmd(f"ps aux | grep {self.jailer.jailer_id}")
+            # make sure firecracker was killed
+            assert (
+                rc == 0 and stderr == "" and stdout.find("firecracker") == -1
+            ), f"Firecracker pid {self.firecracker_pid} was not killed as expected"
 
         # Mark the microVM as not spawned, so we avoid trying to kill twice.
         self._spawned = False
