@@ -8,7 +8,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
-use std::process::{exit, Command, Stdio};
+use std::process::{exit, id, Command, Stdio};
 use std::{fmt, io};
 
 use utils::arg_parser::Error::MissingValue;
@@ -739,6 +739,7 @@ impl Env {
         if self.new_pid_ns {
             self.exec_into_new_pid_ns(chroot_exec_file)
         } else {
+            self.save_exec_file_pid(id().try_into().unwrap(), chroot_exec_file.clone())?;
             Err(JailerError::Exec(self.exec_command(chroot_exec_file)))
         }
     }
