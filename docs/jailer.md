@@ -277,6 +277,14 @@ Note: default value for `<api-sock>` is `/run/firecracker.socket`.
   associated with `--daemonize` runs towards the end, instead of the very
   beginning. We are working on adding better logging capabilities.
 
+### Known limitations
+
+- When passing the --daemonize option to Firecracker without the --new-ns-pid
+  option, the Firecracker process will have a different pid than the Jailer
+  process. The suggested workaround to get Firecracker process's pid in this
+  case is using `--new-pid-ns` flag and read Firecracker's pid from the
+  `firecracker.pid` file present in the jailer's root directory.
+
 ## Caveats
 
 - If all the cgroup controllers are bunched up on a single mount point using the
