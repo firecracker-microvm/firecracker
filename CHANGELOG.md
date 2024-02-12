@@ -1007,7 +1007,7 @@ and this project adheres to
 - Apache-2.0 license
 - Docs:
   - [charter](CHARTER.md)
-  - [contribution guildelines](CONTRIBUTE.md)
+  - [contribution guidelines](CONTRIBUTING.md)
   - [design](docs/design.md)
   - [getting started guide](docs/getting-started.md)
   - [security policy](SECURITY.md)
