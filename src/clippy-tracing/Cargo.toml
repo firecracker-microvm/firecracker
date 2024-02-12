@@ -10,7 +10,7 @@ name = "clippy-tracing"
 bench = false
 
 [dependencies]
-clap = { version = "4.4.17", features = ["derive"] }
+clap = { version = "4.5.0", features = ["derive"] }
 itertools = "0.12.1"
 proc-macro2 = { version = "1.0.73", features = ["span-locations"] }
 quote = "1.0.34"
