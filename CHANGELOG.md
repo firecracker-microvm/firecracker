@@ -46,6 +46,19 @@ and this project adheres to
   This fixes a bug where a microVM with incompatible balloon and guest memory
   size could be booted, due to the check for this condition happening after
   Firecracker's configuration was updated.
+- [#4259](https://github.com/firecracker-microvm/firecracker/pull/4259): Added a
+  double fork mechanism in the Jailer to avoid setsid() failures occurred while
+  running Jailer as the process group leader. However, this changed the
+  behaviour of Jailer and now the Firecracker process will always have a
+  different PID than the Jailer process.
+  [#4436](https://github.com/firecracker-microvm/firecracker/pull/4436): Added a
+  "Known Limitations" section in the Jailer docs to highlight the above change
+  in behaviour introduced in PR#4259.
+  [#4442](https://github.com/firecracker-microvm/firecracker/pull/4442): As a
+  solution to the change in behaviour introduced in PR#4259, provided a
+  mechanism to reliably fetch Firecracker PID. With this change, Firecracker
+  process's PID will always be available in the Jailer's root directory
+  regardless of whether new_pid_ns was set.
 
 ## \[1.6.0\]
 

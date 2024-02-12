@@ -280,10 +280,13 @@ Note: default value for `<api-sock>` is `/run/firecracker.socket`.
 ### Known limitations
 
 - When passing the --daemonize option to Firecracker without the --new-ns-pid
-  option, the Firecracker process will have a different pid than the Jailer
-  process. The suggested workaround to get Firecracker process's pid in this
-  case is using `--new-pid-ns` flag and read Firecracker's pid from the
-  `firecracker.pid` file present in the jailer's root directory.
+  option, the Firecracker process will have a different PID than the Jailer
+  process and killing the Jailer will not kill the Firecracker process. As a
+  workaround to get Firecracker PID, the Jailer stores the PID of the child
+  process in the jail root directory inside `<exec_file_name>.pid` for all cases
+  regardless of whether `--new-pid-ns` was provided. The suggested way to fetch
+  Firecracker's PID when using the Jailer is to read the `firecracker.pid` file
+  present in the Jailer's root directory.
 
 ## Caveats
 
