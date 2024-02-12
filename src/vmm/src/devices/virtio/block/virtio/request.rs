@@ -10,13 +10,13 @@ use std::convert::From;
 use vm_memory::GuestMemoryError;
 
 use super::{io as block_io, VirtioBlockError, SECTOR_SHIFT, SECTOR_SIZE};
+use crate::devices::virtio::block::virtio::device::DiskProperties;
+use crate::devices::virtio::block::virtio::metrics::BlockDeviceMetrics;
 pub use crate::devices::virtio::gen::virtio_blk::{
     VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK, VIRTIO_BLK_S_UNSUPP,
     VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT,
 };
 use crate::devices::virtio::queue::DescriptorChain;
-use crate::devices::virtio::virtio_block::device::DiskProperties;
-use crate::devices::virtio::virtio_block::metrics::BlockDeviceMetrics;
 use crate::logger::{error, IncMetric};
 use crate::rate_limiter::{RateLimiter, TokenType};
 use crate::vstate::memory::{ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
@@ -665,7 +665,7 @@ mod tests {
     use proptest::prelude::*;
     use proptest::strategy::{Map, Strategy, TupleUnion};
 
-    use crate::devices::virtio::virtio_block::test_utils::RequestDescriptorChain;
+    use crate::devices::virtio::block::virtio::test_utils::RequestDescriptorChain;
     use crate::utilities::test_utils::{multi_region_mem, single_region_mem};
 
     // Implements a "strategy" for producing arbitrary values of RequestType.

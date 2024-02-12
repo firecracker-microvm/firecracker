@@ -228,13 +228,13 @@ mod tests {
     use utils::tempfile::TempFile;
 
     use super::*;
+    use crate::devices::virtio::block::virtio::device::FileEngineType;
+    use crate::devices::virtio::block::virtio::test_utils::default_block_with_path;
+    use crate::devices::virtio::block::virtio::VirtioBlock;
     use crate::devices::virtio::mmio::tests::DummyDevice;
     use crate::devices::virtio::net::test_utils::default_net;
     use crate::devices::virtio::net::Net;
     use crate::devices::virtio::test_utils::default_mem;
-    use crate::devices::virtio::virtio_block::device::FileEngineType;
-    use crate::devices::virtio::virtio_block::test_utils::default_block_with_path;
-    use crate::devices::virtio::virtio_block::VirtioBlock;
     use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
     use crate::snapshot::Snapshot;
 

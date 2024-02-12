@@ -7,10 +7,10 @@ use serde::{Deserialize, Serialize};
 
 use super::device::VhostUserBlock;
 use super::VhostUserBlockError;
-use crate::devices::virtio::block_common::CacheType;
+use crate::devices::virtio::block::persist::BlockConstructorArgs;
+use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::snapshot::Persist;
-use crate::vstate::memory::GuestMemoryMmap;
 
 /// vhost-user block device state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,15 +25,9 @@ pub struct VhostUserBlockState {
     virtio_state: VirtioDeviceState,
 }
 
-/// Auxiliary structure for creating a device when resuming from a snapshot.
-#[derive(Debug)]
-pub struct VhostUserBlockConstructorArgs {
-    pub mem: GuestMemoryMmap,
-}
-
 impl Persist<'_> for VhostUserBlock {
     type State = VhostUserBlockState;
-    type ConstructorArgs = VhostUserBlockConstructorArgs;
+    type ConstructorArgs = BlockConstructorArgs;
     type Error = VhostUserBlockError;
 
     fn save(&self) -> Self::State {

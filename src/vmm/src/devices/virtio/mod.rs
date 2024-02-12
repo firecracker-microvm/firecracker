@@ -11,7 +11,7 @@ use std::any::Any;
 use std::io::Error as IOError;
 
 pub mod balloon;
-pub mod block_common;
+pub mod block;
 pub mod device;
 pub mod gen;
 pub mod iovec;
@@ -22,9 +22,7 @@ pub mod queue;
 pub mod rng;
 pub mod test_utils;
 pub mod vhost_user;
-pub mod vhost_user_block;
 pub mod vhost_user_metrics;
-pub mod virtio_block;
 pub mod vsock;
 
 /// When the driver initializes the device, it lets the device know about the

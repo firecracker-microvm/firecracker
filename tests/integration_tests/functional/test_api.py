@@ -74,7 +74,7 @@ def test_drive_io_engine(uvm_plain):
             test_microvm.api.drive.put(io_engine="Async", **kwargs)
         # The Async engine is not supported for older kernels.
         test_microvm.check_log_message(
-            "Received Error. Status code: 400 Bad Request. Message: Drive config error: Unable to create the virtio block device: FileEngine(UnsupportedEngine(Async))"
+            "Received Error. Status code: 400 Bad Request. Message: Drive config error: Unable to create the virtio block device: VirtioBackend(FileEngine(UnsupportedEngine(Async)))"
         )
 
         # Now configure the default engine type and check that it works.
@@ -804,12 +804,11 @@ def test_send_ctrl_alt_del(uvm_plain):
 def _drive_patch(test_microvm):
     """Exercise drive patch test scenarios."""
     # Patches without mandatory fields for virtio block are not allowed.
-    expected_msg = "Invalid device type found on the MMIO bus. Please verify the request arguments."
+    expected_msg = "Unable to patch the block device: Device manager error: Running method expected different backend. Please verify the request arguments"
     with pytest.raises(RuntimeError, match=expected_msg):
         test_microvm.api.drive.patch(drive_id="scratch")
 
     # Patches with any fields for vhost-user block are not allowed.
-    expected_msg = "Invalid device type found on the MMIO bus. Please verify the request arguments."
     with pytest.raises(RuntimeError, match=expected_msg):
         test_microvm.api.drive.patch(
             drive_id="scratch_vub",
@@ -817,7 +816,6 @@ def _drive_patch(test_microvm):
         )
 
     # Patches with any fields for vhost-user block are not allowed.
-    expected_msg = "Invalid device type found on the MMIO bus. Please verify the request arguments."
     with pytest.raises(RuntimeError, match=expected_msg):
         test_microvm.api.drive.patch(
             drive_id="scratch_vub",
@@ -848,10 +846,7 @@ def _drive_patch(test_microvm):
         )
 
     # Updates to `path_on_host` with an invalid path are not allowed.
-    expected_msg = (
-        "Unable to patch the block device: Device manager error: BackingFile(Os { code: 2, "
-        f'kind: NotFound, message: "No such file or directory" }}, "{drive_path}") Please verify the request arguments.'
-    )
+    expected_msg = f"Unable to patch the block device: Device manager error: Virtio backend error: Error manipulating the backing file: No such file or directory (os error 2) {drive_path} Please verify the request arguments"
     with pytest.raises(RuntimeError, match=re.escape(expected_msg)):
         test_microvm.api.drive.patch(drive_id="scratch", path_on_host=drive_path)
 

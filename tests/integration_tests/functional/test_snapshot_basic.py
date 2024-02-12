@@ -354,7 +354,7 @@ def test_negative_snapshot_permissions(uvm_plain_rw, microvm_factory):
     microvm = microvm_factory.build()
     microvm.spawn()
 
-    expected_err = "VirtioBlock: Error manipulating the backing file: Permission denied (os error 13)"
+    expected_err = "Virtio backend error: Error manipulating the backing file: Permission denied (os error 13)"
     with pytest.raises(RuntimeError, match=re.escape(expected_err)):
         microvm.restore_from_snapshot(snapshot, resume=True)
 
