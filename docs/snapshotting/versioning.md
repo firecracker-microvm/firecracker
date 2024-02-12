@@ -141,7 +141,7 @@ corresponding to the guest exposed features.
 ## Implementation
 
 The microVM state file format is implemented in the
-[snapshot module](../../src/vmm/src/snapshot/lib.rs) in the Firecracker
+[snapshot crate](../../src/vmm/src/snapshot/mod.rs) in the Firecracker
 repository. All Firecracker devices implement the
 [Persist](../../src/vmm/src/snapshot/persist.rs) trait which exposes an
 interface that enables creating from and saving to the microVM state.
