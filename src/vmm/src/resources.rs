@@ -94,7 +94,7 @@ pub struct VmResources {
     /// The vCpu and memory configuration for this microVM.
     pub vm_config: VmConfig,
     /// The boot source spec (contains both config and builder) for this microVM.
-    boot_source: BootSource,
+    pub boot_source: BootSource,
     /// The block devices.
     pub block: BlockBuilder,
     /// The vsock device.
