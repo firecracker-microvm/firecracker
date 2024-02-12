@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generic utility functions that are used in the framework."""
 import functools
-import glob
 import json
 import logging
 import os
@@ -417,34 +416,6 @@ def search_output_from_cmd(cmd: str, find_regex: typing.Pattern) -> typing.Match
     raise RuntimeError(
         "Could not find '%s' in output for '%s'" % (find_regex.pattern, cmd)
     )
-
-
-def get_files_from(
-    find_path: str, pattern: str, exclude_names: list = None, recursive: bool = True
-):
-    """
-    Return a list of files from a given path, recursively.
-
-    :param find_path: path where to look for files
-    :param pattern: what pattern to apply to file names
-    :param exclude_names: folder names to exclude
-    :param recursive: do a recursive search for the given pattern
-    :return: list of found files
-    """
-    found = []
-    # For each directory in the given path
-    for path_dir in os.scandir(find_path):
-        # Check if it should be skipped
-        if path_dir.name in exclude_names or os.path.isfile(path_dir):
-            continue
-        # Run glob inside the folder with the given pattern
-        found.extend(
-            glob.glob(f"{find_path}/{path_dir.name}/**/{pattern}", recursive=recursive)
-        )
-    # scandir will not look at the files matching the pattern in the
-    # current directory.
-    found.extend(glob.glob(f"{find_path}/./{pattern}"))
-    return found
 
 
 def get_free_mem_ssh(ssh_connection):

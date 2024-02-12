@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for markdown style checks."""
 
-from framework import utils
+from framework import utils, utils_repo
 
 
 def test_markdown_style():
@@ -10,9 +10,7 @@ def test_markdown_style():
     Test that markdown files adhere to the style rules.
     """
     # Get all *.md files from the project
-    md_files = utils.get_files_from(
-        find_path="..", pattern="*.md", exclude_names=["build"]
-    )
+    md_files = list(utils_repo.git_repo_files(root="..", glob="*.md"))
 
     # Assert if somehow no markdown files were found.
     assert len(md_files) != 0
