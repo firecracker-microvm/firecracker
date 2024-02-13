@@ -50,7 +50,7 @@ def test_serial_after_snapshot(uvm_plain, microvm_factory):
     Serial I/O after restoring from a snapshot.
     """
     microvm = uvm_plain
-    microvm.jailer.daemonize = False
+    microvm.help.enable_console()
     microvm.spawn()
     microvm.basic_config(
         vcpu_count=2,
@@ -71,7 +71,7 @@ def test_serial_after_snapshot(uvm_plain, microvm_factory):
 
     # Load microVM clone from snapshot.
     vm = microvm_factory.build()
-    vm.jailer.daemonize = False
+    vm.help.enable_console()
     vm.spawn()
     vm.restore_from_snapshot(snapshot, resume=True)
     serial = Serial(vm)
@@ -91,7 +91,7 @@ def test_serial_console_login(uvm_plain_any):
     Test serial console login.
     """
     microvm = uvm_plain_any
-    microvm.jailer.daemonize = False
+    microvm.help.enable_console()
     microvm.spawn()
 
     # We don't need to monitor the memory for this test because we are
@@ -139,7 +139,7 @@ def test_serial_dos(uvm_plain_any):
     Test serial console behavior under DoS.
     """
     microvm = uvm_plain_any
-    microvm.jailer.daemonize = False
+    microvm.help.enable_console()
     microvm.spawn()
 
     # Set up the microVM with 1 vCPU and a serial console.
@@ -169,7 +169,7 @@ def test_serial_block(uvm_plain_any):
     Test that writing to stdout never blocks the vCPU thread.
     """
     test_microvm = uvm_plain_any
-    test_microvm.jailer.daemonize = False
+    test_microvm.help.enable_console()
     test_microvm.spawn()
     # Set up the microVM with 1 vCPU so we make sure the vCPU thread
     # responsible for the SSH connection will also run the serial.

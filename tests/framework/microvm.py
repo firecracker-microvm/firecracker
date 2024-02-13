@@ -543,9 +543,6 @@ class Microvm:
             # Checking the timings requires DEBUG level log messages
             self.time_api_requests = False
 
-        if not self.jailer.daemonize:
-            self.jailer.new_pid_ns = False
-
         cmd = [str(self.jailer_binary_path)] + self.jailer.construct_param_list()
         if self._numa_node is not None:
             node = str(self._numa_node)
