@@ -13,7 +13,7 @@ def test_init_params(uvm_plain):
     altered or misplaced.
     """
     vm = uvm_plain
-    vm.jailer.daemonize = False
+    vm.help.enable_console()
     vm.spawn()
     vm.memory_monitor = None
 

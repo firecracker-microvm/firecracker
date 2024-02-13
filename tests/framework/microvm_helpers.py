@@ -122,6 +122,7 @@ class MicrovmHelpers:
             self.vm.boot_args = ""
         self.vm.boot_args += "console=ttyS0 reboot=k panic=1"
         self.vm.jailer.daemonize = False
+        self.vm.jailer.new_pid_ns = False
 
     def how_to_console(self):
         """Print how to connect to the VM console"""
