@@ -1,15 +1,15 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use event_manager::{EventOps, Events, MutEventSubscriber};
+use event_manager::{EventOps, Events};
 use utils::epoll::EventSet;
 
 use crate::devices::virtio::device::VirtioDevice;
-use crate::devices::virtio::net::device::Net;
+use crate::devices::virtio::net::device::VirtioNet;
 use crate::devices::virtio::net::{RX_INDEX, TX_INDEX};
 use crate::logger::{error, warn, IncMetric};
 
-impl Net {
+impl VirtioNet {
     const PROCESS_ACTIVATE: u32 = 0;
     const PROCESS_VIRTQ_RX: u32 = 1;
     const PROCESS_VIRTQ_TX: u32 = 2;
@@ -78,10 +78,8 @@ impl Net {
             error!("Failed to un-register activate event: {}", err);
         }
     }
-}
 
-impl MutEventSubscriber for Net {
-    fn process(&mut self, event: Events, ops: &mut EventOps) {
+    pub(crate) fn process(&mut self, event: Events, ops: &mut EventOps) {
         let source = event.data();
         let event_set = event.event_set();
 
@@ -117,7 +115,7 @@ impl MutEventSubscriber for Net {
         }
     }
 
-    fn init(&mut self, ops: &mut EventOps) {
+    pub(crate) fn init(&mut self, ops: &mut EventOps) {
         // This function can be called during different points in the device lifetime:
         //  - shortly after device creation,
         //  - on device activation (is-activated already true at this point),

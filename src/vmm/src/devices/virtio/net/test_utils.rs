@@ -17,8 +17,8 @@ use utils::net::mac::MacAddr;
 
 #[cfg(test)]
 use crate::devices::virtio::net::device::vnet_hdr_len;
+use crate::devices::virtio::net::device::VirtioNet;
 use crate::devices::virtio::net::tap::{IfReqBuilder, Tap};
-use crate::devices::virtio::net::Net;
 use crate::devices::virtio::queue::{Queue, QueueError};
 use crate::devices::virtio::test_utils::VirtQueue;
 use crate::devices::DeviceError;
@@ -29,7 +29,7 @@ use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
 static NEXT_INDEX: AtomicUsize = AtomicUsize::new(1);
 
-pub fn default_net() -> Net {
+pub fn default_net() -> VirtioNet {
     let next_tap = NEXT_INDEX.fetch_add(1, Ordering::SeqCst);
     // Id is the firecracker-facing identifier, e.g. local to the FC process. We thus do not need to
     // make sure it is globally unique
@@ -41,7 +41,7 @@ pub fn default_net() -> Net {
 
     let guest_mac = default_guest_mac();
 
-    let mut net = Net::new(
+    let mut net = VirtioNet::new(
         tap_device_id,
         tap_if_name,
         Some(guest_mac),
@@ -58,13 +58,13 @@ pub fn default_net() -> Net {
     net
 }
 
-pub fn default_net_no_mmds() -> Net {
+pub fn default_net_no_mmds() -> VirtioNet {
     let next_tap = NEXT_INDEX.fetch_add(1, Ordering::SeqCst);
     let tap_device_id = format!("net-device{}", next_tap);
 
     let guest_mac = default_guest_mac();
 
-    let net = Net::new(
+    let net = VirtioNet::new(
         tap_device_id,
         "net-device%d",
         Some(guest_mac),
@@ -309,7 +309,7 @@ pub(crate) fn inject_tap_tx_frame(net: &Net, len: usize) -> Vec<u8> {
     frame
 }
 
-pub fn write_element_in_queue(net: &Net, idx: u16, val: u64) -> Result<(), DeviceError> {
+pub fn write_element_in_queue(net: &VirtioNet, idx: u16, val: u64) -> Result<(), DeviceError> {
     if idx as usize > net.queue_evts.len() {
         return Err(DeviceError::QueueError(QueueError::DescIndexOutOfBounds(
             idx,
@@ -319,7 +319,7 @@ pub fn write_element_in_queue(net: &Net, idx: u16, val: u64) -> Result<(), Devic
     Ok(())
 }
 
-pub fn get_element_from_queue(net: &Net, idx: u16) -> Result<u64, DeviceError> {
+pub fn get_element_from_queue(net: &VirtioNet, idx: u16) -> Result<u64, DeviceError> {
     if idx as usize > net.queue_evts.len() {
         return Err(DeviceError::QueueError(QueueError::DescIndexOutOfBounds(
             idx,
@@ -332,13 +332,13 @@ pub fn default_guest_mac() -> MacAddr {
     MacAddr::from_str("11:22:33:44:55:66").unwrap()
 }
 
-pub fn set_mac(net: &mut Net, mac: MacAddr) {
+pub fn set_mac(net: &mut VirtioNet, mac: MacAddr) {
     net.guest_mac = Some(mac);
     net.config_space.guest_mac = mac;
 }
 
 // Assigns "guest virtio driver" activated queues to the net device.
-pub fn assign_queues(net: &mut Net, rxq: Queue, txq: Queue) {
+pub fn assign_queues(net: &mut VirtioNet, rxq: Queue, txq: Queue) {
     net.queues.clear();
     net.queues.push(rxq);
     net.queues.push(txq);

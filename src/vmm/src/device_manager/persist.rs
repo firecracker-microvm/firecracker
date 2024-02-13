@@ -290,19 +290,24 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 }
                 TYPE_NET => {
                     let net = locked_device.as_any().downcast_ref::<Net>().unwrap();
-                    if let (Some(mmds_ns), None) =
-                        (net.mmds_ns.as_ref(), states.mmds_version.as_ref())
-                    {
-                        states.mmds_version =
-                            Some(mmds_ns.mmds.lock().expect("Poisoned lock").version().into());
-                    }
+                    if net.is_vhost() {
+                        warn!("skipping vhost-net device. It doesn't support snapshotting yet");
+                    } else {
+                        let Net::Virtio(virtionet) = net;
+                        if let (Some(mmds_ns), None) =
+                            (virtionet.mmds_ns.as_ref(), states.mmds_version.as_ref())
+                        {
+                            states.mmds_version =
+                                Some(mmds_ns.mmds.lock().expect("Poisoned lock").version().into());
+                        }
 
-                    states.net_devices.push(ConnectedNetState {
-                        device_id: devid.clone(),
-                        device_state: net.save(),
-                        transport_state,
-                        device_info: device_info.clone(),
-                    });
+                        states.net_devices.push(ConnectedNetState {
+                            device_id: devid.clone(),
+                            device_state: net.save(),
+                            transport_state,
+                            device_info: device_info.clone(),
+                        });
+                    }
                 }
                 TYPE_VSOCK => {
                     let vsock = locked_device
@@ -506,7 +511,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         } else if state
             .net_devices
             .iter()
-            .any(|dev| dev.device_state.mmds_ns.is_some())
+            .any(|dev| dev.device_state.mmds_ns().is_some())
         {
             // If there's at least one network device having an mmds_ns, it means
             // that we are restoring from a version that did not persist the `MmdsVersionState`.

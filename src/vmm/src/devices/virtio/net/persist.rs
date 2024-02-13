@@ -13,6 +13,7 @@ use utils::net::mac::MacAddr;
 use super::device::Net;
 use super::NET_NUM_QUEUES;
 use crate::devices::virtio::device::DeviceState;
+use crate::devices::virtio::net::device::VirtioNet;
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::devices::virtio::TYPE_NET;
@@ -31,10 +32,23 @@ pub struct NetConfigSpaceState {
     guest_mac: Option<MacAddr>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum NetState {
+    Virtio(VirtioNetState),
+}
+
+impl NetState {
+    pub fn mmds_ns(&self) -> Option<&MmdsNetworkStackState> {
+        match self {
+            Self::Virtio(b) => b.mmds_ns.as_ref(),
+        }
+    }
+}
+
 /// Information about the network device that are saved
 /// at snapshot.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NetState {
+pub struct VirtioNetState {
     id: String,
     tap_if_name: String,
     rx_rate_limiter_state: RateLimiterState,
@@ -73,7 +87,28 @@ impl Persist<'_> for Net {
     type Error = NetPersistError;
 
     fn save(&self) -> Self::State {
-        NetState {
+        match self {
+            Self::Virtio(b) => NetState::Virtio(b.save()),
+        }
+    }
+
+    fn restore(
+        constructor_args: Self::ConstructorArgs,
+        state: &Self::State,
+    ) -> Result<Self, Self::Error> {
+        match state {
+            NetState::Virtio(s) => Ok(Self::Virtio(VirtioNet::restore(constructor_args, s)?)),
+        }
+    }
+}
+
+impl Persist<'_> for VirtioNet {
+    type State = VirtioNetState;
+    type ConstructorArgs = NetConstructorArgs;
+    type Error = NetPersistError;
+
+    fn save(&self) -> Self::State {
+        VirtioNetState {
             id: self.id().clone(),
             tap_if_name: self.iface_name(),
             rx_rate_limiter_state: self.rx_rate_limiter.save(),
@@ -93,7 +128,7 @@ impl Persist<'_> for Net {
         // RateLimiter::restore() can fail at creating a timerfd.
         let rx_rate_limiter = RateLimiter::restore((), &state.rx_rate_limiter_state)?;
         let tx_rate_limiter = RateLimiter::restore((), &state.tx_rate_limiter_state)?;
-        let mut net = Net::new(
+        let mut net = VirtioNet::new(
             state.id.clone(),
             &state.tap_if_name,
             state.config_space.guest_mac,
