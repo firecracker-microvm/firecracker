@@ -31,6 +31,10 @@ and this project adheres to
   supported snapshot version format. This change renders all previous
   Firecracker snapshots (up to Firecracker version v1.6.0) incompatible with the
   current Firecracker version.
+- [#4449](https://github.com/firecracker-microvm/firecracker/pull/4449): Added
+  information about page size to the payload Firecracker sends to the UFFD
+  handler. Each memory region object now contains a `page_size_kib` field. See
+  also the [hugepages documentation](docs/hugepages.md).
 
 ### Fixed
 
