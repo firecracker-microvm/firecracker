@@ -23,7 +23,7 @@ fn main() {
     let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
 
     let mut runtime = Runtime::new(stream, file);
-    runtime.run(4096, |uffd_handler: &mut UffdHandler| {
+    runtime.run(|uffd_handler: &mut UffdHandler| {
         // Read an event from the userfaultfd.
         let event = uffd_handler
             .read_event()
