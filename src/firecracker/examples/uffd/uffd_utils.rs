@@ -12,7 +12,6 @@ use std::ptr;
 
 use serde::{Deserialize, Serialize};
 use userfaultfd::{Error, Event, Uffd};
-use utils::get_page_size;
 use utils::sock_ctrl_msg::ScmSocket;
 
 // This is the same with the one used in src/vmm.
@@ -33,7 +32,7 @@ pub struct GuestRegionUffdMapping {
     pub offset: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum MemPageState {
     Uninitialized,
     FromFile,
@@ -41,21 +40,27 @@ pub enum MemPageState {
     Anonymous,
 }
 
-#[derive(Debug)]
-struct MemRegion {
-    mapping: GuestRegionUffdMapping,
+#[derive(Debug, Clone)]
+pub struct MemRegion {
+    pub mapping: GuestRegionUffdMapping,
     page_states: HashMap<u64, MemPageState>,
 }
 
 #[derive(Debug)]
 pub struct UffdHandler {
-    mem_regions: Vec<MemRegion>,
+    pub mem_regions: Vec<MemRegion>,
+    page_size: usize,
     backing_buffer: *const u8,
     uffd: Uffd,
 }
 
 impl UffdHandler {
-    pub fn from_unix_stream(stream: &UnixStream, backing_buffer: *const u8, size: usize) -> Self {
+    pub fn from_unix_stream(
+        stream: &UnixStream,
+        page_size: usize,
+        backing_buffer: *const u8,
+        size: usize,
+    ) -> Self {
         let mut message_buf = vec![0u8; 1024];
         let (bytes_read, file) = stream
             .recv_with_fd(&mut message_buf[..])
@@ -71,13 +76,15 @@ impl UffdHandler {
 
         // Make sure memory size matches backing data size.
         assert_eq!(memsize, size);
+        assert!(page_size.is_power_of_two());
 
         let uffd = unsafe { Uffd::from_raw_fd(file.into_raw_fd()) };
 
-        let mem_regions = create_mem_regions(&mappings);
+        let mem_regions = create_mem_regions(&mappings, page_size);
 
         Self {
             mem_regions,
+            page_size,
             backing_buffer,
             uffd,
         }
@@ -87,21 +94,19 @@ impl UffdHandler {
         self.uffd.read_event()
     }
 
-    pub fn update_mem_state_mappings(&mut self, start: u64, end: u64, state: &MemPageState) {
+    pub fn update_mem_state_mappings(&mut self, start: u64, end: u64, state: MemPageState) {
         for region in self.mem_regions.iter_mut() {
             for (key, value) in region.page_states.iter_mut() {
                 if key >= &start && key < &end {
-                    *value = state.clone();
+                    *value = state;
                 }
             }
         }
     }
 
     pub fn serve_pf(&mut self, addr: *mut u8, len: usize) {
-        let page_size = get_page_size().unwrap();
-
         // Find the start of the page that the current faulting address belongs to.
-        let dst = (addr as usize & !(page_size as usize - 1)) as *mut libc::c_void;
+        let dst = (addr as usize & !(self.page_size - 1)) as *mut libc::c_void;
         let fault_page_addr = dst as u64;
 
         // Get the state of the current faulting page.
@@ -117,12 +122,12 @@ impl UffdHandler {
                 //    memory from the host (through balloon device)
                 Some(MemPageState::Uninitialized) | Some(MemPageState::FromFile) => {
                     let (start, end) = self.populate_from_file(region, fault_page_addr, len);
-                    self.update_mem_state_mappings(start, end, &MemPageState::FromFile);
+                    self.update_mem_state_mappings(start, end, MemPageState::FromFile);
                     return;
                 }
                 Some(MemPageState::Removed) | Some(MemPageState::Anonymous) => {
                     let (start, end) = self.zero_out(fault_page_addr);
-                    self.update_mem_state_mappings(start, end, &MemPageState::Anonymous);
+                    self.update_mem_state_mappings(start, end, MemPageState::Anonymous);
                     return;
                 }
                 None => {}
@@ -152,17 +157,15 @@ impl UffdHandler {
     }
 
     fn zero_out(&mut self, addr: u64) -> (u64, u64) {
-        let page_size = get_page_size().unwrap();
-
         let ret = unsafe {
             self.uffd
-                .zeropage(addr as *mut _, page_size, true)
+                .zeropage(addr as *mut _, self.page_size, true)
                 .expect("Uffd zeropage failed")
         };
         // Make sure the UFFD zeroed out some bytes.
         assert!(ret > 0);
 
-        (addr, addr + page_size as u64)
+        (addr, addr + self.page_size as u64)
     }
 }
 
@@ -211,7 +214,7 @@ impl Runtime {
     /// When uffd is polled, page fault is handled by
     /// calling `pf_event_dispatch` with corresponding
     /// uffd object passed in.
-    pub fn run(&mut self, pf_event_dispatch: impl Fn(&mut UffdHandler)) {
+    pub fn run(&mut self, page_size: usize, pf_event_dispatch: impl Fn(&mut UffdHandler)) {
         let mut pollfds = vec![];
 
         // Poll the stream for incoming uffds
@@ -246,6 +249,7 @@ impl Runtime {
                         // Handle new uffd from stream
                         let handler = UffdHandler::from_unix_stream(
                             &self.stream,
+                            page_size,
                             self.backing_memory,
                             self.backing_memory_size,
                         );
@@ -270,8 +274,7 @@ impl Runtime {
     }
 }
 
-fn create_mem_regions(mappings: &Vec<GuestRegionUffdMapping>) -> Vec<MemRegion> {
-    let page_size = get_page_size().unwrap();
+fn create_mem_regions(mappings: &Vec<GuestRegionUffdMapping>, page_size: usize) -> Vec<MemRegion> {
     let mut mem_regions: Vec<MemRegion> = Vec::with_capacity(mappings.len());
 
     for r in mappings.iter() {
@@ -314,7 +317,7 @@ mod tests {
         let mut uninit_runtime = Box::new(MaybeUninit::<Runtime>::uninit());
         // We will use this pointer to bypass a bunch of Rust Safety
         // for the sake of convenience.
-        let runtime_ptr = uninit_runtime.as_ptr() as *const Runtime;
+        let runtime_ptr = uninit_runtime.as_ptr().cast::<Runtime>();
 
         let runtime_thread = std::thread::spawn(move || {
             let tmp_file = TempFile::new().unwrap();
@@ -327,7 +330,7 @@ mod tests {
             let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
             // Update runtime with actual runtime
             let runtime = uninit_runtime.write(Runtime::new(stream, file));
-            runtime.run(|_: &mut UffdHandler| {});
+            runtime.run(4096, |_: &mut UffdHandler| {});
         });
 
         // wait for runtime thread to initialize itself

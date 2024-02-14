@@ -50,12 +50,20 @@ serde_json = "1.0.113"
 tracing = ["log-instrument", "seccompiler/tracing", "utils/tracing", "vmm/tracing"]
 
 [[example]]
-name = "uffd_malicious_handler"
-path = "examples/uffd/malicious_handler.rs"
+name = "uffd_malicious_4k_handler"
+path = "examples/uffd/malicious_4k_handler.rs"
 
 [[example]]
-name = "uffd_valid_handler"
-path = "examples/uffd/valid_handler.rs"
+name = "uffd_valid_4k_handler"
+path = "examples/uffd/valid_4k_handler.rs"
+
+[[example]]
+name = "uffd_valid_2m_handler"
+path = "examples/uffd/valid_2m_handler.rs"
+
+[[example]]
+name = "uffd_fault_all_handler"
+path = "examples/uffd/fault_all_handler.rs"
 
 [[example]]
 name = "seccomp_harmless"

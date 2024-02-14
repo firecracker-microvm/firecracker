@@ -10,7 +10,7 @@ use utils::net::ipv4addr::is_link_local_valid;
 
 use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::device_manager::persist::SharedDeviceType;
-use crate::logger::info;
+use crate::logger::{info, log_dev_preview_warning};
 use crate::mmds;
 use crate::mmds::data_store::{Mmds, MmdsVersion};
 use crate::mmds::ns::MmdsNetworkStack;
@@ -22,7 +22,7 @@ use crate::vmm_config::drive::*;
 use crate::vmm_config::entropy::*;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{
-    MachineConfig, MachineConfigUpdate, VmConfig, VmConfigError,
+    HugePageConfig, MachineConfig, MachineConfigUpdate, VmConfig, VmConfigError,
 };
 use crate::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
@@ -238,6 +238,10 @@ impl VmResources {
 
     /// Updates the configuration of the microVM.
     pub fn update_vm_config(&mut self, update: &MachineConfigUpdate) -> Result<(), VmConfigError> {
+        if update.huge_pages.is_some() && update.huge_pages != Some(HugePageConfig::None) {
+            log_dev_preview_warning("Huge pages support", None);
+        }
+
         let updated = self.vm_config.update(update)?;
 
         // The VM cannot have a memory size smaller than the target size
@@ -251,6 +255,16 @@ impl VmResources {
                     .amount_mib as usize
         {
             return Err(VmConfigError::IncompatibleBalloonSize);
+        }
+
+        if self.balloon.get().is_some() && updated.huge_pages != HugePageConfig::None {
+            return Err(VmConfigError::BalloonAndHugePages);
+        }
+
+        if self.boot_source.config.initrd_path.is_some()
+            && updated.huge_pages != HugePageConfig::None
+        {
+            return Err(VmConfigError::InitrdAndHugePages);
         }
 
         self.vm_config = updated;
@@ -317,6 +331,10 @@ impl VmResources {
             return Err(BalloonConfigError::TooManyPagesRequested);
         }
 
+        if self.vm_config.huge_pages != HugePageConfig::None {
+            return Err(BalloonConfigError::HugePages);
+        }
+
         self.balloon.set(config)
     }
 
@@ -325,6 +343,12 @@ impl VmResources {
         &mut self,
         boot_source_cfg: BootSourceConfig,
     ) -> Result<(), BootSourceConfigError> {
+        if boot_source_cfg.initrd_path.is_some()
+            && self.vm_config.huge_pages != HugePageConfig::None
+        {
+            return Err(BootSourceConfigError::HugePagesAndInitRd);
+        }
+
         self.set_boot_source_config(boot_source_cfg);
         self.boot_source.builder = Some(BootConfig::new(self.boot_source_config())?);
         Ok(())
@@ -468,6 +492,7 @@ mod tests {
     use std::str::FromStr;
 
     use serde_json::{Map, Value};
+    use utils::kernel_version::KernelVersion;
     use utils::net::mac::MacAddr;
     use utils::tempfile::TempFile;
 
@@ -481,7 +506,7 @@ mod tests {
         BootConfig, BootSource, BootSourceConfig, DEFAULT_KERNEL_CMDLINE,
     };
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
-    use crate::vmm_config::machine_config::{MachineConfig, VmConfigError};
+    use crate::vmm_config::machine_config::{HugePageConfig, MachineConfig, VmConfigError};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::RateLimiterConfig;
@@ -1296,6 +1321,7 @@ mod tests {
             #[cfg(target_arch = "aarch64")]
             cpu_template: Some(StaticCpuTemplate::V1N1),
             track_dirty_pages: Some(false),
+            huge_pages: Some(HugePageConfig::None),
         };
 
         assert_ne!(
@@ -1364,6 +1390,23 @@ mod tests {
         // mem_size_mib compatible with balloon size.
         aux_vm_config.mem_size_mib = Some(256);
         vm_resources.update_vm_config(&aux_vm_config).unwrap();
+
+        // mem_size_mib incompatible with huge pages configuration
+        aux_vm_config.mem_size_mib = Some(129);
+        aux_vm_config.huge_pages = Some(HugePageConfig::Hugetlbfs2M);
+        assert_eq!(
+            vm_resources.update_vm_config(&aux_vm_config).unwrap_err(),
+            VmConfigError::InvalidMemorySize
+        );
+
+        if KernelVersion::get().unwrap() >= KernelVersion::new(5, 10, 0) {
+            // mem_size_mib compatible with huge page configuration
+            aux_vm_config.mem_size_mib = Some(2048);
+            // Remove the balloon device config that's added by `default_vm_resources` as it would
+            // trigger the "ballooning incompatible with huge pages" check.
+            vm_resources.balloon = BalloonBuilder::new();
+            vm_resources.update_vm_config(&aux_vm_config).unwrap();
+        }
     }
 
     #[test]

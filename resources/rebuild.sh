@@ -205,6 +205,7 @@ install_dependencies
 BIN=overlay/usr/local/bin
 compile_and_install $BIN/init.c    $BIN/init
 compile_and_install $BIN/fillmem.c $BIN/fillmem
+compile_and_install $BIN/fast_page_fault_helper.c $BIN/fast_page_fault_helper
 compile_and_install $BIN/readmem.c $BIN/readmem
 if [ $ARCH == "aarch64" ]; then
     compile_and_install $BIN/devmemread.c $BIN/devmemread

@@ -110,7 +110,7 @@ def test_valid_handler(uvm_plain, snapshot, uffd_handler_paths):
 
     # Spawn page fault handler process.
     _pf_handler = spawn_pf_handler(
-        vm, uffd_handler_paths["valid_handler"], snapshot.mem
+        vm, uffd_handler_paths["valid_4k_handler"], snapshot.mem
     )
 
     vm.restore_from_snapshot(snapshot, resume=True, uffd_path=SOCKET_PATH)
@@ -144,7 +144,7 @@ def test_malicious_handler(uvm_plain, snapshot, uffd_handler_paths):
 
     # Spawn page fault handler process.
     _pf_handler = spawn_pf_handler(
-        vm, uffd_handler_paths["malicious_handler"], snapshot.mem
+        vm, uffd_handler_paths["malicious_4k_handler"], snapshot.mem
     )
 
     # We expect Firecracker to freeze while resuming from a snapshot

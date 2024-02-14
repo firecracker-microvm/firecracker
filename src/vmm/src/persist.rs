@@ -32,7 +32,7 @@ use crate::resources::VmResources;
 use crate::snapshot::Snapshot;
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{MachineConfigUpdate, VmConfigError};
+use crate::vmm_config::machine_config::{HugePageConfig, MachineConfigUpdate, VmConfigError};
 use crate::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
 };
@@ -54,6 +54,8 @@ pub struct VmInfo {
     pub cpu_template: StaticCpuTemplate,
     /// Boot source information.
     pub boot_source: BootSourceConfig,
+    /// Huge page configuration
+    pub huge_pages: HugePageConfig,
 }
 
 impl From<&VmResources> for VmInfo {
@@ -63,6 +65,7 @@ impl From<&VmResources> for VmInfo {
             smt: value.vm_config.smt,
             cpu_template: StaticCpuTemplate::from(&value.vm_config.cpu_template),
             boot_source: value.boot_source_config().clone(),
+            huge_pages: value.vm_config.huge_pages,
         }
     }
 }
@@ -399,6 +402,7 @@ pub fn restore_from_snapshot(
             smt: Some(microvm_state.vm_info.smt),
             cpu_template: Some(microvm_state.vm_info.cpu_template),
             track_dirty_pages: Some(track_dirty_pages),
+            huge_pages: Some(microvm_state.vm_info.huge_pages),
         })
         .map_err(BuildMicrovmFromSnapshotError::VmUpdateConfig)?;
 
@@ -410,8 +414,13 @@ pub fn restore_from_snapshot(
 
     let (guest_memory, uffd) = match params.mem_backend.backend_type {
         MemBackendType::File => (
-            guest_memory_from_file(mem_backend_path, mem_state, track_dirty_pages)
-                .map_err(RestoreFromSnapshotGuestMemoryError::File)?,
+            guest_memory_from_file(
+                mem_backend_path,
+                mem_state,
+                track_dirty_pages,
+                vm_resources.vm_config.huge_pages,
+            )
+            .map_err(RestoreFromSnapshotGuestMemoryError::File)?,
             None,
         ),
         MemBackendType::Uffd => guest_memory_from_uffd(
@@ -421,6 +430,7 @@ pub fn restore_from_snapshot(
             // We enable the UFFD_FEATURE_EVENT_REMOVE feature only if a balloon device
             // is present in the microVM state.
             microvm_state.device_states.balloon_device.is_some(),
+            vm_resources.vm_config.huge_pages,
         )
         .map_err(RestoreFromSnapshotGuestMemoryError::Uffd)?,
     };
@@ -474,9 +484,11 @@ fn guest_memory_from_file(
     mem_file_path: &Path,
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
+    huge_pages: HugePageConfig,
 ) -> Result<GuestMemoryMmap, GuestMemoryFromFileError> {
     let mem_file = File::open(mem_file_path)?;
-    let guest_mem = GuestMemoryMmap::from_state(Some(&mem_file), mem_state, track_dirty_pages)?;
+    let guest_mem =
+        GuestMemoryMmap::from_state(Some(&mem_file), mem_state, track_dirty_pages, huge_pages)?;
     Ok(guest_mem)
 }
 
@@ -500,8 +512,9 @@ fn guest_memory_from_uffd(
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
     enable_balloon: bool,
+    huge_pages: HugePageConfig,
 ) -> Result<(GuestMemoryMmap, Option<Uffd>), GuestMemoryFromUffdError> {
-    let guest_memory = GuestMemoryMmap::from_state(None, mem_state, track_dirty_pages)?;
+    let guest_memory = GuestMemoryMmap::from_state(None, mem_state, track_dirty_pages, huge_pages)?;
 
     let mut uffd_builder = UffdBuilder::new();
 

@@ -161,7 +161,7 @@ connect/send data.
 ### Example
 
 An example of a handler process can be found
-[here](../../src/firecracker/examples/uffd/valid_handler.rs). The process is
+[here](../../src/firecracker/examples/uffd/valid_4k_handler.rs). The process is
 designed to tackle faults on a certain address by loading into memory the entire
 region that the address belongs to, but users can choose any other behavior that
 suits their use case best.
