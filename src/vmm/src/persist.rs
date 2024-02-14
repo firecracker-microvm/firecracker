@@ -102,6 +102,8 @@ pub struct GuestRegionUffdMapping {
     pub size: usize,
     /// Offset in the backend file/buffer where the region contents are.
     pub offset: u64,
+    /// The configured page size for this memory region.
+    pub page_size_kib: usize,
 }
 
 /// Errors related to saving and restoring Microvm state.
@@ -542,6 +544,7 @@ fn guest_memory_from_uffd(
             base_host_virt_addr: host_base_addr as u64,
             size,
             offset: state_region.offset,
+            page_size_kib: huge_pages.page_size_kib(),
         });
     }
 
