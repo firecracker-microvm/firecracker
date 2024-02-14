@@ -74,9 +74,9 @@ instances. Follow these steps to create a bare metal instance.
 
 1. Firecracker requires a relatively new kernel, so you should use a recent
    Linux distribution - such as
-   `Ubuntu Server 18.04 LTS (HVM), SSD Volume Type`.
+   `Ubuntu Server 22.04 LTS (HVM), SSD Volume Type`.
 
-1. In `Step 2`, scroll to the bottom and select `i3.metal` instance type. Click
+1. In `Step 2`, scroll to the bottom and select `c5.metal` instance type. Click
    on `Next: Configure Instance Details`.
 
 1. In `Step 3`, click on `Next: Add Storage`.

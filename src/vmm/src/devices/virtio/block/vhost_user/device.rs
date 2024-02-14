@@ -16,7 +16,7 @@ use vhost::vhost_user::message::*;
 use vhost::vhost_user::Frontend;
 
 use super::{VhostUserBlockError, NUM_QUEUES, QUEUE_SIZE};
-use crate::devices::virtio::block_common::CacheType;
+use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::devices::virtio::gen::virtio_blk::{
     VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_F_VERSION_1,
@@ -383,8 +383,8 @@ mod tests {
     use vhost::{VhostUserMemoryRegionInfo, VringConfigData};
 
     use super::*;
+    use crate::devices::virtio::block::virtio::device::FileEngineType;
     use crate::devices::virtio::mmio::VIRTIO_MMIO_INT_CONFIG;
-    use crate::devices::virtio::virtio_block::device::FileEngineType;
     use crate::utilities::test_utils::create_tmp_socket;
     use crate::vstate::memory::{FileOffset, GuestAddress, GuestMemoryExtension};
 

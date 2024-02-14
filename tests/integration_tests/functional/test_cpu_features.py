@@ -107,11 +107,11 @@ def skip_test_based_on_artifacts(snapshot_artifacts_dir):
     "htt",
     [True, False],
 )
-def test_cpuid(test_microvm_with_api, num_vcpus, htt):
+def test_cpuid(uvm_plain_any, num_vcpus, htt):
     """
     Check the CPUID for a microvm with the specified config.
     """
-    vm = test_microvm_with_api
+    vm = uvm_plain_any
     vm.spawn()
     vm.basic_config(vcpu_count=num_vcpus, smt=htt)
     vm.add_net_iface()
@@ -124,11 +124,11 @@ def test_cpuid(test_microvm_with_api, num_vcpus, htt):
     cpuid_utils.get_cpu_vendor() != cpuid_utils.CpuVendor.AMD,
     reason="L3 cache info is only present in 0x80000006 for AMD",
 )
-def test_extended_cache_features(test_microvm_with_api):
+def test_extended_cache_features(uvm_plain_any):
     """
     Check extended cache features (leaf 0x80000006).
     """
-    vm = test_microvm_with_api
+    vm = uvm_plain_any
     vm.spawn()
     vm.basic_config()
     vm.add_net_iface()
@@ -139,7 +139,7 @@ def test_extended_cache_features(test_microvm_with_api):
 @pytest.mark.skipif(
     PLATFORM != "x86_64", reason="The CPU brand string is masked only on x86_64."
 )
-def test_brand_string(test_microvm_with_api):
+def test_brand_string(uvm_plain_any):
     """
     Ensure good formatting for the guest brand string.
 
@@ -152,7 +152,7 @@ def test_brand_string(test_microvm_with_api):
     * For other CPUs, the guest brand string should be:
         ""
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain_any
     test_microvm.spawn()
 
     test_microvm.basic_config(vcpu_count=1)
@@ -197,6 +197,14 @@ def test_brand_string(test_microvm_with_api):
         assert False
 
 
+# From the `Intel® 64 Architecture x2APIC Specification`
+# (https://courses.cs.washington.edu/courses/cse451/24wi/documentation/x2apic.pdf):
+# > The X2APIC MSRs cannot to be loaded and stored on VMX transitions. A VMX transition fails
+# > if the VMM has specified that the transition should access any MSRs in the address range
+# > from 0000_0800H to 0000_08FFH
+X2APIC_MSRS = [hex(i) for i in range(0x0000_0800, 0x0000_08FF + 1)]
+
+
 # Some MSR values should not be checked since they can change at guest runtime
 # and between different boots.
 # Current exceptions:
@@ -239,7 +247,7 @@ MSR_EXCEPTION_LIST = [
                    # Trigger Mode equal to Edge,
                    # and a Delivery Mode equal to Fixed.
                    # bit 0-7 represent interrupt vector that varies.
-]
+] + X2APIC_MSRS
 # fmt: on
 
 
@@ -628,7 +636,7 @@ def test_cpu_cpuid_restore(microvm_factory, guest_kernel, msr_cpu_template):
     PLATFORM != "x86_64", reason="CPU features are masked only on x86_64."
 )
 @pytest.mark.parametrize("cpu_template", ["T2", "T2S", "C3"])
-def test_cpu_template(test_microvm_with_api, cpu_template, microvm_factory):
+def test_cpu_template(uvm_plain_any, cpu_template, microvm_factory):
     """
     Test masked and enabled cpu features against the expected template.
 
@@ -636,7 +644,7 @@ def test_cpu_template(test_microvm_with_api, cpu_template, microvm_factory):
     guest and that expected enabled features are present for each of the
     supported CPU templates.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain_any
     test_microvm.spawn()
     # Set template as specified in the `cpu_template` parameter.
     test_microvm.basic_config(

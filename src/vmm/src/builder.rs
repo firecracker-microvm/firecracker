@@ -43,6 +43,7 @@ use crate::devices::legacy::serial::SerialOut;
 use crate::devices::legacy::RTCDevice;
 use crate::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
 use crate::devices::virtio::balloon::Balloon;
+use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::mmio::MmioTransport;
 use crate::devices::virtio::net::Net;
@@ -54,7 +55,6 @@ use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::vmm_config::boot_source::BootConfig;
-use crate::vmm_config::drive::BlockDeviceType;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{VmConfig, VmConfigError};
 use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryExtension, GuestMemoryMmap};
@@ -840,51 +840,38 @@ fn attach_entropy_device(
     )
 }
 
-fn attach_block_devices<'a, I: Iterator<Item = &'a BlockDeviceType> + Debug>(
+fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
     vmm: &mut Vmm,
     cmdline: &mut LoaderKernelCmdline,
     blocks: I,
     event_manager: &mut EventManager,
 ) -> Result<(), StartMicrovmError> {
-    macro_rules! attach_block {
-        ($block:ident, $is_vhost_user:ident) => {
-            let id = {
-                let locked = $block.lock().expect("Poisoned lock");
-                if locked.root_device {
-                    match locked.partuuid {
-                        Some(ref partuuid) => {
-                            cmdline.insert_str(format!("root=PARTUUID={}", partuuid))?
-                        }
-                        None => cmdline.insert_str("root=/dev/vda")?,
-                    }
-                    match locked.read_only {
-                        true => cmdline.insert_str("ro")?,
-                        false => cmdline.insert_str("rw")?,
-                    }
-                }
-                locked.id.clone()
-            };
-            // The device mutex mustn't be locked here otherwise it will deadlock.
-            attach_virtio_device(
-                event_manager,
-                vmm,
-                id,
-                $block.clone(),
-                cmdline,
-                $is_vhost_user,
-            )?;
-        };
-    }
-
     for block in blocks {
-        match block {
-            BlockDeviceType::VirtioBlock(block) => {
-                attach_block!(block, false);
+        let (id, is_vhost_user) = {
+            let locked = block.lock().expect("Poisoned lock");
+            if locked.root_device() {
+                match locked.partuuid() {
+                    Some(ref partuuid) => {
+                        cmdline.insert_str(format!("root=PARTUUID={}", partuuid))?
+                    }
+                    None => cmdline.insert_str("root=/dev/vda")?,
+                }
+                match locked.read_only() {
+                    true => cmdline.insert_str("ro")?,
+                    false => cmdline.insert_str("rw")?,
+                }
             }
-            BlockDeviceType::VhostUserBlock(block) => {
-                attach_block!(block, true);
-            }
+            (locked.id().to_string(), locked.is_vhost_user())
         };
+        // The device mutex mustn't be locked here otherwise it will deadlock.
+        attach_virtio_device(
+            event_manager,
+            vmm,
+            id,
+            block.clone(),
+            cmdline,
+            is_vhost_user,
+        )?;
     }
     Ok(())
 }
@@ -948,7 +935,7 @@ pub mod tests {
 
     use super::*;
     use crate::arch::DeviceType;
-    use crate::devices::virtio::block_common::CacheType;
+    use crate::devices::virtio::block::CacheType;
     use crate::devices::virtio::rng::device::ENTROPY_DEV_ID;
     use crate::devices::virtio::vsock::{TYPE_VSOCK, VSOCK_DEV_ID};
     use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_RNG};

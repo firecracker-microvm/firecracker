@@ -13,11 +13,11 @@ from framework import utils
 IPERF_BINARY = "iperf3"
 
 
-def test_high_ingress_traffic(test_microvm_with_api):
+def test_high_ingress_traffic(uvm_plain_any):
     """
     Run iperf rx with high UDP traffic.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain_any
     test_microvm.spawn()
     test_microvm.basic_config()
 
@@ -54,11 +54,11 @@ def test_high_ingress_traffic(test_microvm_with_api):
     assert exit_code == 0
 
 
-def test_multi_queue_unsupported(test_microvm_with_api):
+def test_multi_queue_unsupported(uvm_plain):
     """
     Creates multi-queue tap device and tries to add it to firecracker.
     """
-    microvm = test_microvm_with_api
+    microvm = uvm_plain
     microvm.spawn()
     microvm.basic_config()
 

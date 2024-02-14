@@ -56,7 +56,7 @@ IGNORED = [
 def is_ignored(dimensions) -> bool:
     """Checks whether the given dimensions match a entry in the IGNORED dictionary above"""
     for high_variance in IGNORED:
-        matching = {key: dimensions[key] for key in high_variance}
+        matching = {key: dimensions[key] for key in high_variance if key in dimensions}
 
         if matching == high_variance:
             return True
@@ -136,7 +136,9 @@ def load_data_series(report_path: Path, revision: str = None, *, reemit: bool = 
                 else:
                     # If there are many data points for a metric, they will be split across
                     # multiple EMF log messages. We need to reassemble :(
-                    assert processed_emf[dimension_set].keys() == result.keys()
+                    assert (
+                        processed_emf[dimension_set].keys() == result.keys()
+                    ), f"Found incompatible metrics associated with dimension set {dimension_set}: {processed_emf[dimension_set].key()} in one EMF message, but {result.keys()} in another."
 
                     for metric, (values, unit) in processed_emf[dimension_set].items():
                         assert result[metric][1] == unit
@@ -308,7 +310,7 @@ def ab_performance_test(
                 f"for metric \033[1m{metric}\033[0m with \033[0;31m\033[1mp={result.pvalue}\033[0m. "
                 f"This means that observing a change of this magnitude or worse, assuming that performance "
                 f"characteristics did not change across the tested commits, has a probability of {result.pvalue:.2%}. "
-                f"Tested Dimensions:\n{json.dumps(dict(dimension_set), indent=2)}"
+                f"Tested Dimensions:\n{json.dumps(dict(dimension_set), indent=2, sort_keys=True)}"
             )
             messages.append(msg)
 

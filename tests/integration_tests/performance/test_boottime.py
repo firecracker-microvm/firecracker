@@ -43,15 +43,15 @@ def fast_microvm(microvm_factory, guest_kernel_linux_4_14, rootfs_rw):
     return microvm_factory.build(kernel=guest_kernel_linux_4_14, rootfs=rootfs_rw)
 
 
-def test_no_boottime(test_microvm_with_api):
+def test_no_boottime(uvm_plain):
     """
     Check that boot timer device is not present by default.
     """
-    vm = test_microvm_with_api
+    vm = uvm_plain
     _configure_and_run_vm(vm)
     # microvm.start() ensures that the vm is in Running mode,
     # so there is no need to sleep and wait for log message.
-    timestamps = re.findall(TIMESTAMP_LOG_REGEX, test_microvm_with_api.log_data)
+    timestamps = re.findall(TIMESTAMP_LOG_REGEX, uvm_plain.log_data)
     assert not timestamps
 
 
@@ -165,9 +165,8 @@ def find_events(log_data):
     "vcpu_count,mem_size_mib",
     [(1, 128), (1, 1024), (2, 2048), (4, 4096)],
 )
-@pytest.mark.nonci
 def test_boottime(
-    microvm_factory, guest_kernel, rootfs, vcpu_count, mem_size_mib, metrics
+    microvm_factory, guest_kernel, rootfs_rw, vcpu_count, mem_size_mib, metrics
 ):
     """Test boot time with different guest configurations"""
 
@@ -182,7 +181,7 @@ def test_boottime(
     )
 
     for _ in range(10):
-        vm = microvm_factory.build(guest_kernel, rootfs)
+        vm = microvm_factory.build(guest_kernel, rootfs_rw)
         vm.jailer.extra_args.update({"boot-timer": None})
         vm.spawn()
         vm.basic_config(

@@ -12,7 +12,7 @@ bench = false
 [dependencies]
 clap = { version = "4.4.17", features = ["derive", "string"] }
 displaydoc = "0.2.4"
-libc = "0.2.151"
+libc = "0.2.153"
 log-instrument = { path = "../log-instrument", optional = true }
 semver = "1.0.20"
 thiserror = "1.0.53"

@@ -9,7 +9,7 @@ use std::fs::File;
 
 pub use self::async_io::{AsyncFileEngine, AsyncIoError};
 pub use self::sync_io::{SyncFileEngine, SyncIoError};
-use crate::devices::virtio::virtio_block::device::FileEngineType;
+use crate::devices::virtio::block::virtio::device::FileEngineType;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -204,8 +204,8 @@ pub mod tests {
     use utils::{skip_if_io_uring_supported, skip_if_io_uring_unsupported, u64_to_usize};
 
     use super::*;
-    use crate::devices::virtio::virtio_block::device::FileEngineType;
-    use crate::devices::virtio::virtio_block::request::PendingRequest;
+    use crate::devices::virtio::block::virtio::device::FileEngineType;
+    use crate::devices::virtio::block::virtio::request::PendingRequest;
     use crate::vstate::memory::{Bitmap, Bytes, GuestMemory, GuestMemoryExtension};
 
     const FILE_LEN: u32 = 1024;

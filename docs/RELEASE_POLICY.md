@@ -125,7 +125,7 @@ period of deprecated API elements is tied to
 ## Developer preview features
 
 A feature is "in" developer preview if it’s marked as such in the
-[Firecracker roadmap](https://github.com/firecracker-microvm/firecracker/projects/42)
+[Firecracker roadmap](https://github.com/orgs/firecracker-microvm/projects/42)
 and/or in the
 [Firecracker release notes](https://github.com/firecracker-microvm/firecracker/releases).
 

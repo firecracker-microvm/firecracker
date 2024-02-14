@@ -7,6 +7,12 @@ allow = [
     "Unicode-DFS-2016"
 ]
 
+# Lint level for licenses considered copyleft
+copyleft = "deny"
+
+# The lint level for crates which do not have a detectable license
+unlicensed = "deny"
+
 [[bans.deny]]
 name = "serde_derive"
 version = ">1.0.171, < 1.0.184"

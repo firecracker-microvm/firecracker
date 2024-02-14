@@ -113,7 +113,6 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 
-use devices::virtio::vhost_user_block::device::VhostUserBlock;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use seccompiler::BpfProgram;
 use userfaultfd::Uffd;
@@ -132,8 +131,8 @@ use crate::devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET};
 use crate::devices::virtio::balloon::{
     Balloon, BalloonConfig, BalloonError, BalloonStats, BALLOON_DEV_ID,
 };
+use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::net::Net;
-use crate::devices::virtio::virtio_block::VirtioBlock;
 use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET};
 use crate::logger::{error, info, warn, MetricsError, METRICS};
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
@@ -620,10 +619,10 @@ impl Vmm {
         path_on_host: String,
     ) -> Result<(), VmmError> {
         self.mmio_device_manager
-            .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut VirtioBlock| {
+            .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
                 block
                     .update_disk_image(path_on_host)
-                    .map_err(|err| format!("{:?}", err))
+                    .map_err(|err| err.to_string())
             })
             .map_err(VmmError::DeviceManager)
     }
@@ -636,9 +635,10 @@ impl Vmm {
         rl_ops: BucketUpdate,
     ) -> Result<(), VmmError> {
         self.mmio_device_manager
-            .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut VirtioBlock| {
-                block.update_rate_limiter(rl_bytes, rl_ops);
-                Ok(())
+            .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
+                block
+                    .update_rate_limiter(rl_bytes, rl_ops)
+                    .map_err(|err| err.to_string())
             })
             .map_err(VmmError::DeviceManager)
     }
@@ -646,8 +646,8 @@ impl Vmm {
     /// Updates the rate limiter parameters for block device with `drive_id` id.
     pub fn update_vhost_user_block_config(&mut self, drive_id: &str) -> Result<(), VmmError> {
         self.mmio_device_manager
-            .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut VhostUserBlock| {
-                block.config_update().map_err(|err| format!("{:?}", err))
+            .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
+                block.update_config().map_err(|err| err.to_string())
             })
             .map_err(VmmError::DeviceManager)
     }

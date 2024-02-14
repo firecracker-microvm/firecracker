@@ -14,11 +14,11 @@ MAX_DEVICES_ATTACHED = 19
 @pytest.mark.skipif(
     platform.machine() != "x86_64", reason="Firecracker supports 24 IRQs on x86_64."
 )
-def test_attach_maximum_devices(test_microvm_with_api):
+def test_attach_maximum_devices(uvm_plain_any):
     """
     Test attaching maximum number of devices to the microVM.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain_any
     test_microvm.spawn()
 
     # Set up a basic microVM.
@@ -40,11 +40,11 @@ def test_attach_maximum_devices(test_microvm_with_api):
 @pytest.mark.skipif(
     platform.machine() != "x86_64", reason="Firecracker supports 24 IRQs on x86_64."
 )
-def test_attach_too_many_devices(test_microvm_with_api):
+def test_attach_too_many_devices(uvm_plain):
     """
     Test attaching to a microVM more devices than available IRQs.
     """
-    test_microvm = test_microvm_with_api
+    test_microvm = uvm_plain
     test_microvm.spawn()
 
     # Set up a basic microVM.

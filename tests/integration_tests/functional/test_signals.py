@@ -27,11 +27,11 @@ signum_str = {
 @pytest.mark.parametrize(
     "signum", [SIGBUS, SIGSEGV, SIGXFSZ, SIGXCPU, SIGPIPE, SIGHUP, SIGILL, SIGSYS]
 )
-def test_generic_signal_handler(test_microvm_with_api, signum):
+def test_generic_signal_handler(uvm_plain, signum):
     """
     Test signal handling for all handled signals.
     """
-    microvm = test_microvm_with_api
+    microvm = uvm_plain
     microvm.spawn()
 
     # We don't need to monitor the memory for this test.
@@ -109,11 +109,11 @@ def test_sigxfsz_handler(uvm_plain_rw):
     assert metric_line["signals"]["sigxfsz"] == 1
 
 
-def test_handled_signals(test_microvm_with_api):
+def test_handled_signals(uvm_plain):
     """
     Test that handled signals don't kill the microVM.
     """
-    microvm = test_microvm_with_api
+    microvm = uvm_plain
     microvm.spawn()
 
     # We don't need to monitor the memory for this test.

@@ -277,13 +277,19 @@ Note: default value for `<api-sock>` is `/run/firecracker.socket`.
   associated with `--daemonize` runs towards the end, instead of the very
   beginning. We are working on adding better logging capabilities.
 
+### Known limitations
+
+- When passing the --daemonize option to Firecracker without the --new-ns-pid
+  option, the Firecracker process will have a different PID than the Jailer
+  process and killing the Jailer will not kill the Firecracker process. As a
+  workaround to get Firecracker PID, the Jailer stores the PID of the child
+  process in the jail root directory inside `<exec_file_name>.pid` for all cases
+  regardless of whether `--new-pid-ns` was provided. The suggested way to fetch
+  Firecracker's PID when using the Jailer is to read the `firecracker.pid` file
+  present in the Jailer's root directory.
+
 ## Caveats
 
 - If all the cgroup controllers are bunched up on a single mount point using the
   "all" option, our current program logic will complain it cannot detect
   individual controller mount points.
-
-- [#4287](https://github.com/firecracker-microvm/firecracker/issues/4287) When
-  starting a jailer with `--parent-cgroup` specified but no cgroup flags
-  specified, then the rules in the parent cgroup folder are ignored. To work
-  around, use a dummy cgroup parameter like `--cgroup=memory.max=max`.

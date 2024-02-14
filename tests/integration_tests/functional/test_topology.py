@@ -113,11 +113,11 @@ def _check_cache_topology_arm(test_microvm, no_cpus):
 )
 @pytest.mark.parametrize("num_vcpus", [1, 2, 16])
 @pytest.mark.parametrize("htt", [True, False])
-def test_cpu_topology(test_microvm_with_api, num_vcpus, htt):
+def test_cpu_topology(uvm_plain_any, num_vcpus, htt):
     """
     Check the CPU topology for a microvm with the specified config.
     """
-    vm = test_microvm_with_api
+    vm = uvm_plain_any
     vm.spawn()
     vm.basic_config(vcpu_count=num_vcpus, smt=htt)
     vm.add_net_iface()
@@ -130,13 +130,13 @@ def test_cpu_topology(test_microvm_with_api, num_vcpus, htt):
 
 @pytest.mark.parametrize("num_vcpus", [1, 2, 16])
 @pytest.mark.parametrize("htt", [True, False])
-def test_cache_topology(test_microvm_with_api, num_vcpus, htt):
+def test_cache_topology(uvm_plain_any, num_vcpus, htt):
     """
     Check the cache topology for a microvm with the specified config.
     """
     if htt and PLATFORM == "aarch64":
         pytest.skip("SMT is configurable only on x86.")
-    vm = test_microvm_with_api
+    vm = uvm_plain_any
     vm.spawn()
     vm.basic_config(vcpu_count=num_vcpus, smt=htt)
     vm.add_net_iface()

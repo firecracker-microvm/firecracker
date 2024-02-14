@@ -11,17 +11,17 @@ use utils::eventfd::EventFd;
 
 use super::device::DiskProperties;
 use super::*;
+use crate::devices::virtio::block::persist::BlockConstructorArgs;
+use crate::devices::virtio::block::virtio::device::FileEngineType;
+use crate::devices::virtio::block::virtio::metrics::BlockMetricsPerDevice;
 use crate::devices::virtio::device::{DeviceState, IrqTrigger};
 use crate::devices::virtio::gen::virtio_blk::VIRTIO_BLK_F_RO;
 use crate::devices::virtio::persist::VirtioDeviceState;
-use crate::devices::virtio::virtio_block::device::FileEngineType;
-use crate::devices::virtio::virtio_block::metrics::BlockMetricsPerDevice;
 use crate::devices::virtio::TYPE_BLOCK;
 use crate::logger::warn;
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::rate_limiter::RateLimiter;
 use crate::snapshot::Persist;
-use crate::vstate::memory::GuestMemoryMmap;
 
 /// Holds info about block's file engine type. Gets saved in snapshot.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,16 +66,9 @@ pub struct VirtioBlockState {
     file_engine_type: FileEngineTypeState,
 }
 
-/// Auxiliary structure for creating a device when resuming from a snapshot.
-#[derive(Debug)]
-pub struct VirtioBlockConstructorArgs {
-    /// Pointer to guest memory.
-    pub mem: GuestMemoryMmap,
-}
-
 impl Persist<'_> for VirtioBlock {
     type State = VirtioBlockState;
-    type ConstructorArgs = VirtioBlockConstructorArgs;
+    type ConstructorArgs = BlockConstructorArgs;
     type Error = VirtioBlockError;
 
     fn save(&self) -> Self::State {
@@ -176,9 +169,9 @@ mod tests {
     use utils::tempfile::TempFile;
 
     use super::*;
+    use crate::devices::virtio::block::virtio::device::VirtioBlockConfig;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::test_utils::default_mem;
-    use crate::devices::virtio::virtio_block::device::VirtioBlockConfig;
     use crate::snapshot::Snapshot;
 
     #[test]
@@ -255,7 +248,7 @@ mod tests {
 
             // Restore the block device.
             let restored_block = VirtioBlock::restore(
-                VirtioBlockConstructorArgs { mem: default_mem() },
+                BlockConstructorArgs { mem: default_mem() },
                 &Snapshot::deserialize(&mut mem.as_slice()).unwrap(),
             )
             .unwrap();
@@ -293,7 +286,7 @@ mod tests {
 
         // Restore the block device.
         let restored_block = VirtioBlock::restore(
-            VirtioBlockConstructorArgs { mem: guest_mem },
+            BlockConstructorArgs { mem: guest_mem },
             &Snapshot::deserialize(&mut mem.as_slice()).unwrap(),
         )
         .unwrap();

@@ -14,11 +14,11 @@ DMESG_LOG_REGEX = r"rtc-pl031\s+(\d+).rtc: setting system clock to"
 @pytest.mark.skipif(
     platform.machine() != "aarch64", reason="RTC exists only on aarch64."
 )
-def test_rtc(test_microvm_with_api):
+def test_rtc(uvm_plain_any):
     """
     Test RTC functionality on aarch64.
     """
-    vm = test_microvm_with_api
+    vm = uvm_plain_any
     vm.spawn()
     vm.memory_monitor = None
     vm.basic_config()
