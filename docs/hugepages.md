@@ -33,6 +33,11 @@ microVMs backed with huge pages can only be restored via UFFD. Lastly, note that
 even for guests backed by huge pages, differential snapshots will always track
 write accesses to guest memory at 4K granularity.
 
+When restoring snapshots via UFFD, Firecracker will send the configured page
+size (in KiB) for each memory region as part of the initial handshake, as
+described in our documentation on
+[UFFD-assisted snapshot-restore](snapshotting/handling-page-faults-on-snapshot-resume.md).
+
 ## Known Limitations
 
 Currently, hugetlbfs support is mutually exclusive with the following
