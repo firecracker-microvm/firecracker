@@ -372,7 +372,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     let serial = crate::builder::setup_serial_device(
                         constructor_args.event_manager,
                         std::io::stdin(),
-                        std::io::stdout(),
+                        Box::new(std::io::stdout()),
                     )?;
 
                     dev_manager

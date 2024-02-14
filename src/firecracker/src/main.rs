@@ -568,11 +568,13 @@ fn build_microvm_from_json(
         VmResources::from_json(&config_json, &instance_info, mmds_size_limit, metadata_json)
             .map_err(BuildFromJsonError::ParseFromJson)?;
     vm_resources.boot_timer = boot_timer_enabled;
+    set_stdout_nonblocking();
     let vmm = vmm::builder::build_and_boot_microvm(
         &instance_info,
         &vm_resources,
         event_manager,
         seccomp_filters,
+        Box::new(io::stdout()),
     )
     .map_err(BuildFromJsonError::StartMicroVM)?;
 
@@ -635,4 +637,18 @@ fn run_without_api(
         }
     }
     Ok(())
+}
+
+// Adds `O_NONBLOCK` to the stdout flags.
+pub(crate) fn set_stdout_nonblocking() {
+    // SAFETY: Call is safe since parameters are valid.
+    let flags = unsafe { libc::fcntl(libc::STDOUT_FILENO, libc::F_GETFL, 0) };
+    if flags < 0 {
+        error!("Could not get Firecracker stdout flags.");
+    }
+    // SAFETY: Call is safe since parameters are valid.
+    let rc = unsafe { libc::fcntl(libc::STDOUT_FILENO, libc::F_SETFL, flags | libc::O_NONBLOCK) };
+    if rc < 0 {
+        error!("Could not set Firecracker stdout to non-blocking.");
+    }
 }

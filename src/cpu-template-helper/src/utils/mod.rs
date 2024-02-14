@@ -87,6 +87,7 @@ pub fn build_microvm_from_config(
         &vm_resources,
         &mut event_manager,
         &seccomp_filters,
+        Box::new(std::io::stdout()),
     )?;
 
     Ok((vmm, vm_resources))

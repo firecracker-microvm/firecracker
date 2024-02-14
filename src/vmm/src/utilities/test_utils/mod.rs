@@ -71,6 +71,7 @@ pub fn create_vmm(
         &resources,
         &mut event_manager,
         &empty_seccomp_filters,
+        Box::new(std::io::stdout()),
     )
     .unwrap();
 

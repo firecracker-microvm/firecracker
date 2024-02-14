@@ -10,7 +10,6 @@ use event_manager::{EventManager, SubscriberOps};
 use libc::EFD_NONBLOCK;
 use utils::eventfd::EventFd;
 use vm_superio::Serial;
-use vmm::devices::legacy::serial::SerialOut;
 use vmm::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
 
 fn create_serial(
@@ -26,7 +25,7 @@ fn create_serial(
             SerialEventsWrapper {
                 buffer_ready_event_fd: Some(kick_stdin_evt.try_clone().unwrap()),
             },
-            SerialOut::Stdout(std::io::stdout()),
+            Box::new(std::io::stdout()),
         ),
         input: Some(Box::new(serial_in)),
     }))

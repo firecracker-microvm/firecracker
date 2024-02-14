@@ -15,7 +15,6 @@ use utils::eventfd::EventFd;
 use vm_superio::Serial;
 
 use crate::devices::bus::BusDevice;
-use crate::devices::legacy::serial::SerialOut;
 use crate::devices::legacy::{EventFdTrigger, SerialDevice, SerialEventsWrapper};
 
 /// Errors corresponding to the `PortIODeviceManager`.
@@ -109,7 +108,7 @@ impl PortIODeviceManager {
                 SerialEventsWrapper {
                     buffer_ready_event_fd: None,
                 },
-                SerialOut::Sink(std::io::sink()),
+                Box::new(std::io::sink()),
             ),
             input: None,
         })));
@@ -119,7 +118,7 @@ impl PortIODeviceManager {
                 SerialEventsWrapper {
                     buffer_ready_event_fd: None,
                 },
-                SerialOut::Sink(std::io::sink()),
+                Box::new(std::io::sink()),
             ),
             input: None,
         })));
@@ -188,7 +187,7 @@ mod tests {
                     SerialEventsWrapper {
                         buffer_ready_event_fd: None,
                     },
-                    SerialOut::Sink(std::io::sink()),
+                    Box::new(std::io::sink()),
                 ),
                 input: None,
             }))),

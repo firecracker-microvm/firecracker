@@ -33,6 +33,7 @@ fn test_build_and_boot_microvm() {
             &resources,
             &mut event_manager,
             &empty_seccomp_filters,
+            Box::new(std::io::stdout()),
         );
         assert_eq!(format!("{:?}", vmm_ret.err()), "Some(MissingKernelConfig)");
     }

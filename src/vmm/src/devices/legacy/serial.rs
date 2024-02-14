@@ -123,31 +123,14 @@ impl SerialEvents for SerialEventsWrapper {
     }
 }
 
-#[derive(Debug)]
-pub enum SerialOut {
-    Sink(std::io::Sink),
-    Stdout(std::io::Stdout),
-}
-impl std::io::Write for SerialOut {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        match self {
-            Self::Sink(sink) => sink.write(buf),
-            Self::Stdout(stdout) => stdout.write(buf),
-        }
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        match self {
-            Self::Sink(sink) => sink.flush(),
-            Self::Stdout(stdout) => stdout.flush(),
-        }
-    }
-}
+pub trait SerialOut: Write + Send + Debug {}
+impl<T: Send + Write + Debug> SerialOut for T {}
 
 /// Wrapper over the imported serial device.
 #[derive(Debug)]
 pub struct SerialWrapper<T: Trigger, EV: SerialEvents, I: Read + AsRawFd + Send> {
     /// Serial device object.
-    pub serial: Serial<T, EV, SerialOut>,
+    pub serial: Serial<T, EV, Box<dyn SerialOut>>,
     /// Input to the serial device (needs to be readable).
     pub input: Option<I>,
 }
@@ -382,7 +365,7 @@ mod tests {
                 SerialEventsWrapper {
                     buffer_ready_event_fd: None,
                 },
-                SerialOut::Sink(std::io::sink()),
+                Box::new(std::io::sink()),
             ),
             input: None::<std::io::Stdin>,
         };

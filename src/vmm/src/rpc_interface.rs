@@ -541,6 +541,7 @@ impl<'a> PrebootApiController<'a> {
             self.vm_resources,
             self.event_manager,
             self.seccomp_filters,
+            Box::new(std::io::stdout()),
         )
         .map(|vmm| {
             self.built_vmm = Some(vmm);
@@ -861,6 +862,7 @@ mod tests {
     use super::*;
     use crate::cpu_config::templates::test_utils::build_test_template;
     use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
+    use crate::devices::legacy::serial::SerialOut;
     use crate::devices::virtio::balloon::{BalloonConfig, BalloonError};
     use crate::devices::virtio::block::CacheType;
     use crate::devices::virtio::rng::EntropyError;
@@ -1214,6 +1216,7 @@ mod tests {
         _: &VmResources,
         _: &mut EventManager,
         _: &BpfThreadMap,
+        _: Box<dyn SerialOut>,
     ) -> Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
         Ok(Arc::new(Mutex::new(MockVmm::default())))
     }
