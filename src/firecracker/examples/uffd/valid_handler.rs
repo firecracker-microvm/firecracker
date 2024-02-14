@@ -11,7 +11,6 @@ use std::fs::File;
 use std::os::unix::net::UnixListener;
 
 use uffd_utils::{MemPageState, Runtime, UffdHandler};
-use utils::get_page_size;
 
 fn main() {
     let mut args = std::env::args();
@@ -24,13 +23,8 @@ fn main() {
     let listener = UnixListener::bind(uffd_sock_path).expect("Cannot bind to socket path");
     let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
 
-    // Populate a single page from backing memory file.
-    // This is just an example, probably, with the worst-case latency scenario,
-    // of how memory can be loaded in guest RAM.
-    let len = get_page_size().unwrap();
-
     let mut runtime = Runtime::new(stream, file);
-    runtime.run(len, |uffd_handler: &mut UffdHandler| {
+    runtime.run(|uffd_handler: &mut UffdHandler| {
         // Read an event from the userfaultfd.
         let event = uffd_handler
             .read_event()
@@ -40,7 +34,9 @@ fn main() {
         // We expect to receive either a Page Fault or Removed
         // event (if the balloon device is enabled).
         match event {
-            userfaultfd::Event::Pagefault { addr, .. } => uffd_handler.serve_pf(addr.cast(), len),
+            userfaultfd::Event::Pagefault { addr, .. } => {
+                uffd_handler.serve_pf(addr.cast(), uffd_handler.page_size)
+            }
             userfaultfd::Event::Remove { start, end } => uffd_handler.update_mem_state_mappings(
                 start as u64,
                 end as u64,

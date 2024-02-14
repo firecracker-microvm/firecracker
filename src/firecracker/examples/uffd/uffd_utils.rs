@@ -30,6 +30,8 @@ pub struct GuestRegionUffdMapping {
     pub size: usize,
     /// Offset in the backend file/buffer where the region contents are.
     pub offset: u64,
+    /// The configured page size for this memory region.
+    pub page_size_kib: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -49,18 +51,13 @@ pub struct MemRegion {
 #[derive(Debug)]
 pub struct UffdHandler {
     pub mem_regions: Vec<MemRegion>,
-    page_size: usize,
+    pub page_size: usize,
     backing_buffer: *const u8,
     uffd: Uffd,
 }
 
 impl UffdHandler {
-    pub fn from_unix_stream(
-        stream: &UnixStream,
-        page_size: usize,
-        backing_buffer: *const u8,
-        size: usize,
-    ) -> Self {
+    pub fn from_unix_stream(stream: &UnixStream, backing_buffer: *const u8, size: usize) -> Self {
         let mut message_buf = vec![0u8; 1024];
         let (bytes_read, file) = stream
             .recv_with_fd(&mut message_buf[..])
@@ -73,6 +70,8 @@ impl UffdHandler {
         let mappings = serde_json::from_str::<Vec<GuestRegionUffdMapping>>(&body)
             .expect("Cannot deserialize memory mappings.");
         let memsize: usize = mappings.iter().map(|r| r.size).sum();
+        // Page size is the same for all memory regions, so just grab the first one
+        let page_size = mappings.first().unwrap().page_size_kib;
 
         // Make sure memory size matches backing data size.
         assert_eq!(memsize, size);
@@ -214,7 +213,7 @@ impl Runtime {
     /// When uffd is polled, page fault is handled by
     /// calling `pf_event_dispatch` with corresponding
     /// uffd object passed in.
-    pub fn run(&mut self, page_size: usize, pf_event_dispatch: impl Fn(&mut UffdHandler)) {
+    pub fn run(&mut self, pf_event_dispatch: impl Fn(&mut UffdHandler)) {
         let mut pollfds = vec![];
 
         // Poll the stream for incoming uffds
@@ -249,7 +248,6 @@ impl Runtime {
                         // Handle new uffd from stream
                         let handler = UffdHandler::from_unix_stream(
                             &self.stream,
-                            page_size,
                             self.backing_memory,
                             self.backing_memory_size,
                         );
@@ -330,7 +328,7 @@ mod tests {
             let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
             // Update runtime with actual runtime
             let runtime = uninit_runtime.write(Runtime::new(stream, file));
-            runtime.run(4096, |_: &mut UffdHandler| {});
+            runtime.run(|_: &mut UffdHandler| {});
         });
 
         // wait for runtime thread to initialize itself
@@ -343,6 +341,7 @@ mod tests {
             base_host_virt_addr: 0,
             size: 0x1000,
             offset: 0,
+            page_size_kib: 4096,
         }];
         let dummy_memory_region_json = serde_json::to_string(&dummy_memory_region).unwrap();
 
@@ -375,6 +374,7 @@ mod tests {
             base_host_virt_addr: 0,
             size: 0,
             offset: 0,
+            page_size_kib: 4096,
         }];
         let error_memory_region_json = serde_json::to_string(&error_memory_region).unwrap();
         stream
