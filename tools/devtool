@@ -422,6 +422,9 @@ cmd_help() {
 
     mkdocs
         Use 'cargo doc' to generate rustdoc documentation
+
+    checkstyle
+        Run style checks
 EOF
 }
 
@@ -860,6 +863,10 @@ cmd_fmt() {
 
 cmd_mkdocs() {
     cmd_sh "cargo doc --workspace --no-deps --document-private-items"
+}
+
+cmd_checkstyle() {
+    cmd_test -- integration_tests/style -n 4 --dist worksteal
 }
 
 # Check if able to run firecracker.
