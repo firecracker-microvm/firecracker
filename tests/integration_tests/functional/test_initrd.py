@@ -12,7 +12,7 @@ def test_microvm_initrd_with_serial(uvm_with_initrd):
     Test that a boot using initrd successfully loads the root filesystem.
     """
     vm = uvm_with_initrd
-    vm.jailer.daemonize = False
+    vm.help.enable_console()
     vm.spawn()
     vm.memory_monitor = None
 

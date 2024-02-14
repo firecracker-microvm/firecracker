@@ -191,7 +191,6 @@ class Microvm:
         self.jailer.jailed_path("/etc/localtime", subdir="etc")
 
         self._screen_pid = None
-        self._screen_firecracker_pid = None
 
         self.time_api_requests = global_props.host_linux_version != "6.1"
         # disable the HTTP API timings as they cause a lot of false positives
@@ -247,33 +246,31 @@ class Microvm:
             # as well as an intentional eye-sore in the test report.
             LOG.error(self.log_data)
 
-        if self.jailer.daemonize:
-            try:
-                if self.firecracker_pid:
-                    os.kill(self.firecracker_pid, signal.SIGKILL)
-            except ProcessLookupError:
-                LOG.exception("Process not found: %d", self.firecracker_pid)
-            except FileNotFoundError:
-                LOG.exception("PID file not found")
+        try:
+            if self.firecracker_pid:
+                os.kill(self.firecracker_pid, signal.SIGKILL)
+        except ProcessLookupError:
+            LOG.exception("Process not found: %d", self.firecracker_pid)
+        except FileNotFoundError:
+            LOG.exception("PID file not found")
 
-            # if microvm was spawned then check if it gets killed
-            if self._spawned:
-                # it is observed that we need to wait some time before
-                #  checking if the process is killed.
-                time.sleep(1)
-                # filter ps results for the jailer's unique id
-                rc, stdout, stderr = utils.run_cmd(
-                    f"ps aux | grep {self.jailer.jailer_id}"
-                )
-                # make sure firecracker was killed
-                assert (
-                    rc == 0 and stderr == "" and stdout.find("firecracker") == -1
-                ), f"Firecracker pid {self.firecracker_pid} was not killed as expected"
-        else:
+        if self.screen_pid:
             # Killing screen will send SIGHUP to underlying Firecracker.
             # Needed to avoid false positives in case kill() is called again.
             self.expect_kill_by_signal = True
             utils.run_cmd("kill -9 {} || true".format(self.screen_pid))
+
+        # if microvm was spawned then check if it gets killed
+        if self._spawned:
+            # it is observed that we need to wait some time before
+            #  checking if the process is killed.
+            time.sleep(1)
+            # filter ps results for the jailer's unique id
+            rc, stdout, stderr = utils.run_cmd(f"ps aux | grep {self.jailer.jailer_id}")
+            # make sure firecracker was killed
+            assert (
+                rc == 0 and stderr == "" and stdout.find("firecracker") == -1
+            ), f"Firecracker pid {self.firecracker_pid} was not killed as expected"
 
         # Mark the microVM as not spawned, so we avoid trying to kill twice.
         self._spawned = False
@@ -372,22 +369,15 @@ class Microvm:
         return self.api.describe.get().json()["state"]
 
     @property
-    def pid_in_new_ns(self):
-        """Get the pid of the Firecracker process in the new namespace.
-
-        Reads the pid from a file created by jailer with `--new-pid-ns` flag.
-        """
-        # Read the PID stored inside the file.
-        return int(self.jailer.pid_file.read_text(encoding="ascii"))
-
-    @property
     def firecracker_pid(self):
-        """Return Firecracker's PID"""
+        """Return Firecracker's PID
+
+        Reads the pid from a file created by jailer.
+        """
         if not self._spawned:
             return None
-        if self.jailer.new_pid_ns:
-            return self.pid_in_new_ns
-        return self._screen_firecracker_pid
+        # Read the PID stored inside the file.
+        return int(self.jailer.pid_file.read_text(encoding="ascii"))
 
     @property
     def dimensions(self):
@@ -553,9 +543,6 @@ class Microvm:
             # Checking the timings requires DEBUG level log messages
             self.time_api_requests = False
 
-        if not self.jailer.daemonize:
-            self.jailer.new_pid_ns = False
-
         cmd = [str(self.jailer_binary_path)] + self.jailer.construct_param_list()
         if self._numa_node is not None:
             node = str(self._numa_node)
@@ -576,14 +563,13 @@ class Microvm:
             # Run Firecracker under screen. This is used when we want to access
             # the serial console. The file will collect the output from
             # 'screen'ed Firecracker.
-            screen_pid, binary_pid = utils.start_screen_process(
+            screen_pid = utils.start_screen_process(
                 self.screen_log,
                 self.screen_session,
                 cmd[0],
                 cmd[1:],
             )
             self._screen_pid = screen_pid
-            self._screen_firecracker_pid = binary_pid
 
         self._spawned = True
 

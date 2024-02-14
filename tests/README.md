@@ -59,9 +59,10 @@ python3 -m pytest [<pytest argument>...]
 
 ### Output
 
-Output, including testrun results, goes to `stdout`. Errors go to `stderr`.
-Pytest by default only captures the stdout of tests if they fail. To also
-capture the output of passing tests, pass the `-s` flag, e.g.
+Output, including testrun results, goes to `stdout`. Errors go to `stderr`. By
+default, stdout and stderr are captured while tests are running and are printed
+in the final failure report only if they fail. To print them while running
+regardless of success or failure, pass the `-s` flag, e.g.
 `tools/devtool -y test -- -s`.
 
 ### Dependencies
