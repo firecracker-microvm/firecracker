@@ -109,7 +109,7 @@ def test_hugetlbfs_snapshot(
 
     # Spawn page fault handler process.
     _pf_handler = spawn_pf_handler(
-        vm, uffd_handler_paths["valid_2m_handler"], snapshot.mem
+        vm, uffd_handler_paths["valid_handler"], snapshot.mem
     )
 
     vm.restore_from_snapshot(snapshot, resume=True, uffd_path=SOCKET_PATH)
@@ -164,7 +164,7 @@ def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain, uffd_handler_paths)
 
     # Spawn page fault handler process.
     _pf_handler = spawn_pf_handler(
-        vm, uffd_handler_paths["valid_2m_handler"], snapshot_merged.mem
+        vm, uffd_handler_paths["valid_handler"], snapshot_merged.mem
     )
 
     vm.restore_from_snapshot(snapshot_merged, resume=True, uffd_path=SOCKET_PATH)

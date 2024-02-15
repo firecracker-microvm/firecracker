@@ -93,7 +93,7 @@ pub struct MicrovmState {
 /// E.g. Guest memory contents for a region of `size` bytes can be found in the
 /// backend at `offset` bytes from the beginning, and should be copied/populated
 /// into `base_host_address`.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GuestRegionUffdMapping {
     /// Base host virtual address where the guest memory contents for this
     /// region should be copied/populated.
@@ -102,6 +102,8 @@ pub struct GuestRegionUffdMapping {
     pub size: usize,
     /// Offset in the backend file/buffer where the region contents are.
     pub offset: u64,
+    /// The configured page size for this memory region.
+    pub page_size_kib: usize,
 }
 
 /// Errors related to saving and restoring Microvm state.
@@ -514,7 +516,8 @@ fn guest_memory_from_uffd(
     enable_balloon: bool,
     huge_pages: HugePageConfig,
 ) -> Result<(GuestMemoryMmap, Option<Uffd>), GuestMemoryFromUffdError> {
-    let guest_memory = GuestMemoryMmap::from_state(None, mem_state, track_dirty_pages, huge_pages)?;
+    let (guest_memory, backend_mappings) =
+        create_guest_memory(mem_state, track_dirty_pages, huge_pages)?;
 
     let mut uffd_builder = UffdBuilder::new();
 
@@ -531,23 +534,43 @@ fn guest_memory_from_uffd(
         .create()
         .map_err(GuestMemoryFromUffdError::Create)?;
 
+    for mem_region in guest_memory.iter() {
+        uffd.register(mem_region.as_ptr().cast(), mem_region.size() as _)
+            .map_err(GuestMemoryFromUffdError::Register)?;
+    }
+
+    send_uffd_handshake(mem_uds_path, &backend_mappings, &uffd)?;
+
+    Ok((guest_memory, Some(uffd)))
+}
+
+fn create_guest_memory(
+    mem_state: &GuestMemoryState,
+    track_dirty_pages: bool,
+    huge_pages: HugePageConfig,
+) -> Result<(GuestMemoryMmap, Vec<GuestRegionUffdMapping>), GuestMemoryFromUffdError> {
+    let guest_memory = GuestMemoryMmap::from_state(None, mem_state, track_dirty_pages, huge_pages)?;
     let mut backend_mappings = Vec::with_capacity(guest_memory.num_regions());
     for (mem_region, state_region) in guest_memory.iter().zip(mem_state.regions.iter()) {
-        let host_base_addr = mem_region.as_ptr();
-        let size = mem_region.size();
-
-        uffd.register(host_base_addr.cast(), size as _)
-            .map_err(GuestMemoryFromUffdError::Register)?;
         backend_mappings.push(GuestRegionUffdMapping {
-            base_host_virt_addr: host_base_addr as u64,
-            size,
+            base_host_virt_addr: mem_region.as_ptr() as u64,
+            size: mem_region.size(),
             offset: state_region.offset,
+            page_size_kib: huge_pages.page_size_kib(),
         });
     }
 
+    Ok((guest_memory, backend_mappings))
+}
+
+fn send_uffd_handshake(
+    mem_uds_path: &Path,
+    backend_mappings: &[GuestRegionUffdMapping],
+    uffd: &impl AsRawFd,
+) -> Result<(), GuestMemoryFromUffdError> {
     // This is safe to unwrap() because we control the contents of the vector
     // (i.e GuestRegionUffdMapping entries).
-    let backend_mappings = serde_json::to_string(&backend_mappings).unwrap();
+    let backend_mappings = serde_json::to_string(backend_mappings).unwrap();
 
     let socket = UnixStream::connect(mem_uds_path)?;
     socket.send_with_fd(
@@ -585,11 +608,13 @@ fn guest_memory_from_uffd(
         uffd.as_raw_fd(),
     )?;
 
-    Ok((guest_memory, Some(uffd)))
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::net::UnixListener;
+
     use utils::tempfile::TempFile;
 
     use super::*;
@@ -604,6 +629,7 @@ mod tests {
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::tests::default_config;
+    use crate::vstate::memory::GuestMemoryRegionState;
     use crate::Vmm;
 
     fn default_vmm_with_devices() -> Vmm {
@@ -696,5 +722,66 @@ mod tests {
             restored_microvm_state.device_states,
             microvm_state.device_states
         )
+    }
+
+    #[test]
+    fn test_create_guest_memory() {
+        let mem_state = GuestMemoryState {
+            regions: vec![GuestMemoryRegionState {
+                base_address: 0,
+                size: 0x20000,
+                offset: 0x10000,
+            }],
+        };
+
+        let (_, uffd_regions) =
+            create_guest_memory(&mem_state, false, HugePageConfig::None).unwrap();
+
+        assert_eq!(uffd_regions.len(), 1);
+        assert_eq!(uffd_regions[0].size, 0x20000);
+        assert_eq!(uffd_regions[0].offset, 0x10000);
+        assert_eq!(
+            uffd_regions[0].page_size_kib,
+            HugePageConfig::None.page_size_kib()
+        );
+    }
+
+    #[test]
+    fn test_send_uffd_handshake() {
+        let uffd_regions = vec![
+            GuestRegionUffdMapping {
+                base_host_virt_addr: 0,
+                size: 0x100000,
+                offset: 0,
+                page_size_kib: HugePageConfig::None.page_size_kib(),
+            },
+            GuestRegionUffdMapping {
+                base_host_virt_addr: 0x100000,
+                size: 0x200000,
+                offset: 0,
+                page_size_kib: HugePageConfig::Hugetlbfs2M.page_size_kib(),
+            },
+        ];
+
+        let uds_path = TempFile::new().unwrap();
+        let uds_path = uds_path.as_path();
+        std::fs::remove_file(uds_path).unwrap();
+
+        let listener = UnixListener::bind(uds_path).expect("Cannot bind to socket path");
+
+        send_uffd_handshake(uds_path, &uffd_regions, &std::io::stdin()).unwrap();
+
+        let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
+
+        let mut message_buf = vec![0u8; 1024];
+        let (bytes_read, _) = stream
+            .recv_with_fd(&mut message_buf[..])
+            .expect("Cannot recv_with_fd");
+        message_buf.resize(bytes_read, 0);
+
+        let deserialized: Vec<GuestRegionUffdMapping> =
+            serde_json::from_slice(&message_buf).unwrap();
+
+        assert_eq!(uffd_regions, deserialized);
     }
 }
