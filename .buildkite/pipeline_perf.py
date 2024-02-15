@@ -120,8 +120,29 @@ for test_data in tests:
         test_data["retry"]["manual"] = False
     group_steps.append(build_group(test_data))
 
-pipeline = {
-    "env": {},
-    "steps": group_steps,
+
+pins = {
+    "linux_6.1+pinned": {"instance": "m6i.metal", "kv": "linux_6.1"},
 }
-print(pipeline_to_json(pipeline))
+
+
+def apply_pins(steps):
+    """Apply pins"""
+    new_steps = []
+    for step in steps:
+        if "group" in step:
+            step["steps"] = apply_pins(step["steps"])
+        else:
+            agents = step["agents"]
+            for new_kv, match in pins.items():
+                # if all keys match, apply pin
+                if all(agents[k] == v for k, v in match.items()):
+                    step["agents"]["kv"] = new_kv
+                    break
+        new_steps.append(step)
+    return new_steps
+
+
+group_steps = apply_pins(group_steps)
+
+print(pipeline_to_json({"steps": group_steps}))
