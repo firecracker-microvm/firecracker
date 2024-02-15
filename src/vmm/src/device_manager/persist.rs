@@ -293,20 +293,30 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     if net.is_vhost() {
                         warn!("skipping vhost-net device. It doesn't support snapshotting yet");
                     } else {
-                        let Net::Virtio(virtionet) = net;
-                        if let (Some(mmds_ns), None) =
-                            (virtionet.mmds_ns.as_ref(), states.mmds_version.as_ref())
-                        {
-                            states.mmds_version =
-                                Some(mmds_ns.mmds.lock().expect("Poisoned lock").version().into());
-                        }
+                        match net {
+                            Net::Virtio(virtionet) => {
+                                if let (Some(mmds_ns), None) =
+                                    (virtionet.mmds_ns.as_ref(), states.mmds_version.as_ref())
+                                {
+                                    states.mmds_version = Some(
+                                        mmds_ns
+                                            .mmds
+                                            .lock()
+                                            .expect("Poisoned lock")
+                                            .version()
+                                            .into(),
+                                    );
+                                }
 
-                        states.net_devices.push(ConnectedNetState {
-                            device_id: devid.clone(),
-                            device_state: net.save(),
-                            transport_state,
-                            device_info: device_info.clone(),
-                        });
+                                states.net_devices.push(ConnectedNetState {
+                                    device_id: devid.clone(),
+                                    device_state: net.save(),
+                                    transport_state,
+                                    device_info: device_info.clone(),
+                                })
+                            }
+                            Net::Vhost(_) => panic!(),
+                        }
                     }
                 }
                 TYPE_VSOCK => {

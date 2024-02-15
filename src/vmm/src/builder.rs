@@ -883,9 +883,19 @@ fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
     event_manager: &mut EventManager,
 ) -> Result<(), StartMicrovmError> {
     for net_device in net_devices {
-        let id = net_device.lock().expect("Poisoned lock").id().clone();
+        let (id, is_vhost) = {
+            let locked = net_device.lock().expect("Poisoned lock");
+            (locked.id().clone(), locked.is_vhost())
+        };
         // The device mutex mustn't be locked here otherwise it will deadlock.
-        attach_virtio_device(event_manager, vmm, id, net_device.clone(), cmdline, false)?;
+        attach_virtio_device(
+            event_manager,
+            vmm,
+            id,
+            net_device.clone(),
+            cmdline,
+            is_vhost,
+        )?;
     }
     Ok(())
 }

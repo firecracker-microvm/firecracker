@@ -10,6 +10,8 @@
 use std::any::Any;
 use std::io::Error as IOError;
 
+pub use ::vhost::Error as VhostError;
+
 pub mod balloon;
 pub mod block;
 pub mod device;
@@ -66,6 +68,9 @@ pub enum ActivateError {
     BadActivate,
     /// Vhost user: {0}
     VhostUser(vhost_user::VhostUserError),
+
+    /// Vhost errored on one of the ioctls
+    Vhost(VhostError),
 }
 
 /// Trait that helps in upcasting an object to Any

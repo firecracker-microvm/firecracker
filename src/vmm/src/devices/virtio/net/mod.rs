@@ -26,6 +26,8 @@ pub mod test_utils;
 
 mod gen;
 
+pub mod vhost;
+
 pub use tap::{Tap, TapError};
 
 pub use self::device::Net;
