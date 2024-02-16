@@ -62,7 +62,7 @@ class CpuLoadMonitor(Thread):
         It is up to the caller to check the queue.
         """
         while not self._should_stop:
-            utilization = utils.ProcessManager.get_cpu_utilization(self._process_pid)
+            utilization = utils.get_cpu_utilization(self._process_pid)
 
             try:
                 fc_thread_util = utilization["firecracker"]

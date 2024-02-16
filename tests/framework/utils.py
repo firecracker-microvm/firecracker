@@ -35,59 +35,51 @@ CMDLOG = logging.getLogger("commands")
 GET_CPU_LOAD = "top -bn1 -H -p {} -w512 | tail -n+8"
 
 
-class ProcessManager:
-    """Host process manager.
+def get_threads(pid: int) -> dict:
+    """Return dict consisting of child threads."""
+    threads_map = defaultdict(list)
+    proc = psutil.Process(pid)
+    for thread in proc.threads():
+        threads_map[psutil.Process(thread.id).name()].append(thread.id)
+    return threads_map
 
-    TODO: Extend the management to guest processes.
-    TODO: Extend with automated process/cpu_id pinning accountability.
-    """
 
-    @staticmethod
-    def get_threads(pid: int) -> dict:
-        """Return dict consisting of child threads."""
-        threads_map = defaultdict(list)
-        proc = psutil.Process(pid)
-        for thread in proc.threads():
-            threads_map[psutil.Process(thread.id).name()].append(thread.id)
-        return threads_map
+def get_cpu_affinity(pid: int) -> list:
+    """Get CPU affinity for a thread."""
+    return psutil.Process(pid).cpu_affinity()
 
-    @staticmethod
-    def get_cpu_affinity(pid: int) -> list:
-        """Get CPU affinity for a thread."""
-        return psutil.Process(pid).cpu_affinity()
 
-    @staticmethod
-    def set_cpu_affinity(pid: int, cpulist: list) -> list:
-        """Set CPU affinity for a thread."""
-        real_cpulist = list(map(CpuMap, cpulist))
-        return psutil.Process(pid).cpu_affinity(real_cpulist)
+def set_cpu_affinity(pid: int, cpulist: list) -> list:
+    """Set CPU affinity for a thread."""
+    real_cpulist = list(map(CpuMap, cpulist))
+    return psutil.Process(pid).cpu_affinity(real_cpulist)
 
-    @staticmethod
-    def get_cpu_utilization(pid: int) -> Dict[str, float]:
-        """Return current process per thread CPU utilization."""
-        _, stdout, _ = run_cmd(GET_CPU_LOAD.format(pid))
-        cpu_utilization = {}
 
-        # Take all except the last line
-        lines = stdout.strip().split(sep="\n")
-        for line in lines:
-            # sometimes the firecracker process will have gone away, in which case top does not return anything
-            if not line:
-                continue
+def get_cpu_utilization(pid: int) -> Dict[str, float]:
+    """Return current process per thread CPU utilization."""
+    _, stdout, _ = run_cmd(GET_CPU_LOAD.format(pid))
+    cpu_utilization = {}
 
-            info = line.strip().split()
-            # We need at least CPU utilization and threads names cols (which
-            # might be two cols e.g `fc_vcpu 0`).
-            info_len = len(info)
-            assert info_len > 11, line
+    # Take all except the last line
+    lines = stdout.strip().split(sep="\n")
+    for line in lines:
+        # sometimes the firecracker process will have gone away, in which case top does not return anything
+        if not line:
+            continue
 
-            cpu_percent = float(info[8])
+        info = line.strip().split()
+        # We need at least CPU utilization and threads names cols (which
+        # might be two cols e.g `fc_vcpu 0`).
+        info_len = len(info)
+        assert info_len > 11, line
 
-            # Handles `fc_vcpu 0` case as well.
-            thread_name = info[11] + (" " + info[12] if info_len > 12 else "")
-            cpu_utilization[thread_name] = cpu_percent
+        cpu_percent = float(info[8])
 
-        return cpu_utilization
+        # Handles `fc_vcpu 0` case as well.
+        thread_name = info[11] + (" " + info[12] if info_len > 12 else "")
+        cpu_utilization[thread_name] = cpu_percent
+
+    return cpu_utilization
 
 
 def track_cpu_utilization(
@@ -103,7 +95,7 @@ def track_cpu_utilization(
 
     cpu_utilization = {}
     for _ in range(iterations):
-        current_cpu_utilization = ProcessManager.get_cpu_utilization(pid)
+        current_cpu_utilization = get_cpu_utilization(pid)
         assert len(current_cpu_utilization) > 0
 
         for thread_name, value in current_cpu_utilization.items():
