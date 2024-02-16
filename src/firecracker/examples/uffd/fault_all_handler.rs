@@ -1,4 +1,4 @@
-// Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 //! Provides functionality for a userspace page fault handler
@@ -10,7 +10,7 @@ mod uffd_utils;
 use std::fs::File;
 use std::os::unix::net::UnixListener;
 
-use uffd_utils::{MemPageState, Runtime, UffdHandler};
+use uffd_utils::{Runtime, UffdHandler};
 
 fn main() {
     let mut args = std::env::args();
@@ -31,17 +31,13 @@ fn main() {
             .expect("Failed to read uffd_msg")
             .expect("uffd_msg not ready");
 
-        // We expect to receive either a Page Fault or Removed
-        // event (if the balloon device is enabled).
         match event {
-            userfaultfd::Event::Pagefault { addr, .. } => {
-                uffd_handler.serve_pf(addr.cast(), uffd_handler.page_size)
+            userfaultfd::Event::Pagefault { .. } => {
+                for region in uffd_handler.mem_regions.clone() {
+                    uffd_handler
+                        .serve_pf(region.mapping.base_host_virt_addr as _, region.mapping.size)
+                }
             }
-            userfaultfd::Event::Remove { start, end } => uffd_handler.update_mem_state_mappings(
-                start as u64,
-                end as u64,
-                MemPageState::Removed,
-            ),
             _ => panic!("Unexpected event on userfaultfd"),
         }
     });

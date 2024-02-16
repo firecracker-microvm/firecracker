@@ -91,7 +91,8 @@ Firecracker and the page fault handler.
 ![](../images/uffd_flow3.png)
 
 - Firecracker passes the userfault file descriptor and the guest memory layout
-  to the page fault handler process through the socket.
+  (e.g. dimensions of each memory region, and their [page size](../hugepages.md)
+  in KiB) to the page fault handler process through the socket.
 
 ![](../images/uffd_flow4.png)
 
@@ -106,7 +107,7 @@ Firecracker and the page fault handler.
   happens, the page fault handler issues `UFFDIO_COPY` to load the previously
   mmaped file contents into the correspondent memory region.
 
-After Firecracker sends the payload (i.e mem mappings and file descriptor), no
+After Firecracker sends the payload (i.e. mem mappings and file descriptor), no
 other communication happens on the UDS socket (or otherwise) between Firecracker
 and the page fault handler process.
 

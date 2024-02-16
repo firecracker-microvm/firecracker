@@ -14,10 +14,11 @@ def test_python_style(formatter):
     Test that python code passes `formatter`
     """
     run(
-        f"{formatter} --check --diff . ..",
+        f"{formatter} --check --diff tests tools .buildkite",
         stdout=sys.stdout,
         stderr=sys.stderr,
         shell=True,
+        cwd="..",
         check=True,
     )
 

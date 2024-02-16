@@ -13,6 +13,7 @@ use crate::seccomp_filters::get_empty_filters;
 use crate::utilities::mock_resources::{MockBootSourceConfig, MockVmConfig, MockVmResources};
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
+use crate::vmm_config::machine_config::HugePageConfig;
 use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap};
 use crate::{EventManager, Vmm};
 
@@ -30,7 +31,8 @@ pub fn single_region_mem_at(at: u64, size: usize) -> GuestMemoryMmap {
 
 /// Creates a [`GuestMemoryMmap`] with multiple regions and without dirty page tracking.
 pub fn multi_region_mem(regions: &[(GuestAddress, usize)]) -> GuestMemoryMmap {
-    GuestMemoryMmap::from_raw_regions(regions, false).expect("Cannot initialize memory")
+    GuestMemoryMmap::from_raw_regions(regions, false, HugePageConfig::None)
+        .expect("Cannot initialize memory")
 }
 
 /// Creates a [`GuestMemoryMmap`] of the given size with the contained regions laid out in

@@ -138,6 +138,13 @@ class Snapshot:
         self.vmstate.unlink()
 
 
+class HugePagesConfig(str, Enum):
+    """Enum describing the huge pages configurations supported Firecracker"""
+
+    NONE = "None"
+    HUGETLBFS_2MB = "2M"
+
+
 # pylint: disable=R0904
 class Microvm:
     """Class to represent a Firecracker microvm.
@@ -631,6 +638,7 @@ class Microvm:
         boot_args: str = None,
         use_initrd: bool = False,
         track_dirty_pages: bool = False,
+        huge_pages: HugePagesConfig = None,
         rootfs_io_engine=None,
         cpu_template: Optional[str] = None,
         enable_entropy_device=False,
@@ -658,6 +666,7 @@ class Microvm:
             mem_size_mib=mem_size_mib,
             track_dirty_pages=track_dirty_pages,
             cpu_template=cpu_template,
+            huge_pages=huge_pages,
         )
         self.vcpus_count = vcpu_count
         self.mem_size_bytes = mem_size_mib * 2**20

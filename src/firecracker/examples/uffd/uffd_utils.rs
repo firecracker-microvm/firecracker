@@ -12,7 +12,6 @@ use std::ptr;
 
 use serde::{Deserialize, Serialize};
 use userfaultfd::{Error, Event, Uffd};
-use utils::get_page_size;
 use utils::sock_ctrl_msg::ScmSocket;
 
 // This is the same with the one used in src/vmm.
@@ -31,9 +30,11 @@ pub struct GuestRegionUffdMapping {
     pub size: usize,
     /// Offset in the backend file/buffer where the region contents are.
     pub offset: u64,
+    /// The configured page size for this memory region.
+    pub page_size_kib: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum MemPageState {
     Uninitialized,
     FromFile,
@@ -41,15 +42,16 @@ pub enum MemPageState {
     Anonymous,
 }
 
-#[derive(Debug)]
-struct MemRegion {
-    mapping: GuestRegionUffdMapping,
+#[derive(Debug, Clone)]
+pub struct MemRegion {
+    pub mapping: GuestRegionUffdMapping,
     page_states: HashMap<u64, MemPageState>,
 }
 
 #[derive(Debug)]
 pub struct UffdHandler {
-    mem_regions: Vec<MemRegion>,
+    pub mem_regions: Vec<MemRegion>,
+    pub page_size: usize,
     backing_buffer: *const u8,
     uffd: Uffd,
 }
@@ -68,16 +70,20 @@ impl UffdHandler {
         let mappings = serde_json::from_str::<Vec<GuestRegionUffdMapping>>(&body)
             .expect("Cannot deserialize memory mappings.");
         let memsize: usize = mappings.iter().map(|r| r.size).sum();
+        // Page size is the same for all memory regions, so just grab the first one
+        let page_size = mappings.first().unwrap().page_size_kib;
 
         // Make sure memory size matches backing data size.
         assert_eq!(memsize, size);
+        assert!(page_size.is_power_of_two());
 
         let uffd = unsafe { Uffd::from_raw_fd(file.into_raw_fd()) };
 
-        let mem_regions = create_mem_regions(&mappings);
+        let mem_regions = create_mem_regions(&mappings, page_size);
 
         Self {
             mem_regions,
+            page_size,
             backing_buffer,
             uffd,
         }
@@ -87,21 +93,19 @@ impl UffdHandler {
         self.uffd.read_event()
     }
 
-    pub fn update_mem_state_mappings(&mut self, start: u64, end: u64, state: &MemPageState) {
+    pub fn update_mem_state_mappings(&mut self, start: u64, end: u64, state: MemPageState) {
         for region in self.mem_regions.iter_mut() {
             for (key, value) in region.page_states.iter_mut() {
                 if key >= &start && key < &end {
-                    *value = state.clone();
+                    *value = state;
                 }
             }
         }
     }
 
     pub fn serve_pf(&mut self, addr: *mut u8, len: usize) {
-        let page_size = get_page_size().unwrap();
-
         // Find the start of the page that the current faulting address belongs to.
-        let dst = (addr as usize & !(page_size as usize - 1)) as *mut libc::c_void;
+        let dst = (addr as usize & !(self.page_size - 1)) as *mut libc::c_void;
         let fault_page_addr = dst as u64;
 
         // Get the state of the current faulting page.
@@ -117,12 +121,12 @@ impl UffdHandler {
                 //    memory from the host (through balloon device)
                 Some(MemPageState::Uninitialized) | Some(MemPageState::FromFile) => {
                     let (start, end) = self.populate_from_file(region, fault_page_addr, len);
-                    self.update_mem_state_mappings(start, end, &MemPageState::FromFile);
+                    self.update_mem_state_mappings(start, end, MemPageState::FromFile);
                     return;
                 }
                 Some(MemPageState::Removed) | Some(MemPageState::Anonymous) => {
                     let (start, end) = self.zero_out(fault_page_addr);
-                    self.update_mem_state_mappings(start, end, &MemPageState::Anonymous);
+                    self.update_mem_state_mappings(start, end, MemPageState::Anonymous);
                     return;
                 }
                 None => {}
@@ -152,17 +156,15 @@ impl UffdHandler {
     }
 
     fn zero_out(&mut self, addr: u64) -> (u64, u64) {
-        let page_size = get_page_size().unwrap();
-
         let ret = unsafe {
             self.uffd
-                .zeropage(addr as *mut _, page_size, true)
+                .zeropage(addr as *mut _, self.page_size, true)
                 .expect("Uffd zeropage failed")
         };
         // Make sure the UFFD zeroed out some bytes.
         assert!(ret > 0);
 
-        (addr, addr + page_size as u64)
+        (addr, addr + self.page_size as u64)
     }
 }
 
@@ -270,8 +272,7 @@ impl Runtime {
     }
 }
 
-fn create_mem_regions(mappings: &Vec<GuestRegionUffdMapping>) -> Vec<MemRegion> {
-    let page_size = get_page_size().unwrap();
+fn create_mem_regions(mappings: &Vec<GuestRegionUffdMapping>, page_size: usize) -> Vec<MemRegion> {
     let mut mem_regions: Vec<MemRegion> = Vec::with_capacity(mappings.len());
 
     for r in mappings.iter() {
@@ -314,7 +315,7 @@ mod tests {
         let mut uninit_runtime = Box::new(MaybeUninit::<Runtime>::uninit());
         // We will use this pointer to bypass a bunch of Rust Safety
         // for the sake of convenience.
-        let runtime_ptr = uninit_runtime.as_ptr() as *const Runtime;
+        let runtime_ptr = uninit_runtime.as_ptr().cast::<Runtime>();
 
         let runtime_thread = std::thread::spawn(move || {
             let tmp_file = TempFile::new().unwrap();
@@ -340,6 +341,7 @@ mod tests {
             base_host_virt_addr: 0,
             size: 0x1000,
             offset: 0,
+            page_size_kib: 4096,
         }];
         let dummy_memory_region_json = serde_json::to_string(&dummy_memory_region).unwrap();
 
@@ -372,6 +374,7 @@ mod tests {
             base_host_virt_addr: 0,
             size: 0,
             offset: 0,
+            page_size_kib: 4096,
         }];
         let error_memory_region_json = serde_json::to_string(&error_memory_region).unwrap();
         stream

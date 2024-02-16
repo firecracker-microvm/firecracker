@@ -4,7 +4,7 @@
 
 import datetime
 
-from framework import utils
+from framework import utils_repo
 
 AMAZON_COPYRIGHT_YEARS = range(2018, datetime.datetime.now().year + 1)
 AMAZON_COPYRIGHT = (
@@ -23,8 +23,6 @@ TUNTAP_LICENSE = (
 )
 ALIBABA_COPYRIGHT = "Copyright (C) 2019 Alibaba Cloud Computing. All rights reserved."
 ALIBABA_LICENSE = "SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause"
-
-EXCLUDE = ["build", ".kernel", ".git"]
 
 
 def _has_amazon_copyright(string):
@@ -90,16 +88,10 @@ def test_for_valid_licenses():
     """
     Test that all *.py, *.rs and *.sh files contain a valid license.
     """
-    python_files = utils.get_files_from(
-        find_path="..", pattern="*.py", exclude_names=EXCLUDE
-    )
-    rust_files = utils.get_files_from(
-        find_path="..", pattern="*.rs", exclude_names=EXCLUDE
-    )
-    bash_files = utils.get_files_from(
-        find_path="..", pattern="*.sh", exclude_names=EXCLUDE
-    )
 
+    python_files = list(utils_repo.git_repo_files(root="..", glob="*.py"))
+    rust_files = list(utils_repo.git_repo_files(root="..", glob="*.rs"))
+    bash_files = list(utils_repo.git_repo_files(root="..", glob="*.sh"))
     all_files = rust_files + python_files + bash_files
     error_msg = []
     for file in all_files:

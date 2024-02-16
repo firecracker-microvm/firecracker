@@ -9,6 +9,8 @@ from pathlib import Path
 
 import yaml
 
+from framework import utils_repo
+
 
 def test_repo_no_spaces_in_paths():
     """
@@ -30,10 +32,7 @@ def test_repo_validate_yaml():
     Ensure all YAML files are valid
     """
 
-    repo_root = Path("..")
-    for path in repo_root.rglob("*.y*ml"):
-        if str(path).startswith("../build/"):
-            continue
+    for path in utils_repo.git_repo_files(root="..", glob="*.y*ml"):
         yaml.safe_load(path.open(encoding="utf-8"))
 
 

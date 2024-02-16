@@ -15,6 +15,9 @@ and this project adheres to
   `VcpuExit::MmioRead`, `VcpuExit::MmioWrite`, `VcpuExit::IoIn` and
   `VcpuExit::IoOut`. The average for these VM exits is not emitted since it can
   be deduced from the available emitted metrics.
+- [#4360](https://github.com/firecracker-microvm/firecracker/pull/4360): Added
+  dev-preview support for backing a VM's guest memory by 2M hugetlbfs pages.
+  Please see the [documentation](docs/hugepages.md) for more information.
 
 ### Changed
 
@@ -28,6 +31,10 @@ and this project adheres to
   supported snapshot version format. This change renders all previous
   Firecracker snapshots (up to Firecracker version v1.6.0) incompatible with the
   current Firecracker version.
+- [#4449](https://github.com/firecracker-microvm/firecracker/pull/4449): Added
+  information about page size to the payload Firecracker sends to the UFFD
+  handler. Each memory region object now contains a `page_size_kib` field. See
+  also the [hugepages documentation](docs/hugepages.md).
 
 ### Fixed
 
@@ -1004,7 +1011,7 @@ and this project adheres to
 - Apache-2.0 license
 - Docs:
   - [charter](CHARTER.md)
-  - [contribution guildelines](CONTRIBUTE.md)
+  - [contribution guidelines](CONTRIBUTING.md)
   - [design](docs/design.md)
   - [getting started guide](docs/getting-started.md)
   - [security policy](SECURITY.md)

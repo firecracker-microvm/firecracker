@@ -28,6 +28,8 @@ pub enum BalloonConfigError {
     CreateFailure(crate::devices::virtio::balloon::BalloonError),
     /// Error updating the balloon device configuration: {0:?}
     UpdateFailure(std::io::Error),
+    /// Firecracker's huge pages support is incompatible with memory ballooning.
+    HugePages,
 }
 
 /// This struct represents the strongly typed equivalent of the json body
