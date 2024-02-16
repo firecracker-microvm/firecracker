@@ -9,12 +9,6 @@ import time
 from framework import utils
 from framework.utils import CmdBuilder, CpuMap, get_cpu_percent
 
-DURATION = "duration"
-IPERF3_END_RESULTS_TAG = "end"
-THROUGHPUT = "throughput"
-CPU_UTILIZATION_VMM = "cpu_utilization_vmm"
-CPU_UTILIZATION_VCPUS_TOTAL = "cpu_utilization_vcpus_total"
-
 # Dictionary mapping modes (guest-to-host, host-to-guest, bidirectional) to arguments passed to the iperf3 clients spawned
 MODE_MAP = {"g2h": [""], "h2g": ["-R"], "bd": ["", "-R"]}
 
