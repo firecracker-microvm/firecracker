@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 import host_tools.drive as drive_tools
-from framework.utils import CmdBuilder, get_cpu_percent, run_cmd
+from framework.utils import CmdBuilder, run_cmd, track_cpu_utilization
 from host_tools.fcmetrics import FCMetricsMonitor
 
 # size of the block device used in the test, in MB
@@ -87,7 +87,7 @@ def run_fio(microvm, mode, block_size):
     # Start the CPU load monitor.
     with concurrent.futures.ThreadPoolExecutor() as executor:
         cpu_load_future = executor.submit(
-            get_cpu_percent,
+            track_cpu_utilization,
             microvm.firecracker_pid,
             RUNTIME_SEC,
             omit=WARMUP_SEC,
@@ -237,7 +237,7 @@ def test_block_vhost_user_performance(
 
     process_fio_logs(vm, fio_mode, logs_dir, metrics)
 
-    for cpu_util_data_point in list(cpu_load["firecracker"].values())[0]:
-        metrics.put_metric("cpu_utilization_vmm", cpu_util_data_point, "Percent")
+    for cpu_util in cpu_load["firecracker"]:
+        metrics.put_metric("cpu_utilization_vmm", cpu_util, "Percent")
 
     fcmetrics.stop()

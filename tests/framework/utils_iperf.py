@@ -7,7 +7,7 @@ import json
 import time
 
 from framework import utils
-from framework.utils import CmdBuilder, CpuMap, get_cpu_percent
+from framework.utils import CmdBuilder, CpuMap, track_cpu_utilization
 
 
 class IPerf3Test:
@@ -56,7 +56,7 @@ class IPerf3Test:
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
             cpu_load_future = executor.submit(
-                get_cpu_percent,
+                track_cpu_utilization,
                 self._microvm.firecracker_pid,
                 # Ignore the final two data points as they are impacted by test teardown
                 self._runtime - 2,
@@ -95,6 +95,7 @@ class IPerf3Test:
                     client_mode = "h2g"
         return client_mode
 
+    @staticmethod
     def client_mode_to_iperf3_flag(client_mode):
         """Converts client mode into iperf3 mode flag"""
         match client_mode:
@@ -151,10 +152,8 @@ class IPerf3Test:
 
 def emit_iperf3_metrics(metrics, iperf_result, omit):
     """Consume the iperf3 data produced by the tcp/vsock throughput performance tests"""
-    for cpu_util_data_point in list(
-        iperf_result["cpu_load_raw"]["firecracker"].values()
-    )[0]:
-        metrics.put_metric("cpu_utilization_vmm", cpu_util_data_point, "Percent")
+    for cpu_util in iperf_result["cpu_load_raw"]["firecracker"]:
+        metrics.put_metric("cpu_utilization_vmm", cpu_util, "Percent")
 
     data_points = zip(
         *[time_series["intervals"][omit:] for time_series in iperf_result["g2h"]]

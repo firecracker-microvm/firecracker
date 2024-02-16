@@ -63,10 +63,10 @@ class ProcessManager:
         return psutil.Process(pid).cpu_affinity(real_cpulist)
 
     @staticmethod
-    def get_cpu_percent(pid: int) -> Dict[str, Dict[str, float]]:
-        """Return the instant process CPU utilization percent."""
+    def get_cpu_utilization(pid: int) -> Dict[str, float]:
+        """Return current process per thread CPU utilization."""
         _, stdout, _ = run_cmd(GET_CPU_LOAD.format(pid))
-        cpu_percentages = {}
+        cpu_utilization = {}
 
         # Take all except the last line
         lines = stdout.strip().split(sep="\n")
@@ -82,15 +82,38 @@ class ProcessManager:
             assert info_len > 11, line
 
             cpu_percent = float(info[8])
-            task_id = info[0]
 
             # Handles `fc_vcpu 0` case as well.
             thread_name = info[11] + (" " + info[12] if info_len > 12 else "")
-            if thread_name not in cpu_percentages:
-                cpu_percentages[thread_name] = {}
-            cpu_percentages[thread_name][task_id] = cpu_percent
+            cpu_utilization[thread_name] = cpu_percent
 
-        return cpu_percentages
+        return cpu_utilization
+
+
+def track_cpu_utilization(
+    pid: int, iterations: int, omit: int
+) -> Dict[str, list[float]]:
+    """Tracks cpu utilization of a process for certain number of
+    iterations. Sleeps for first `omit` seconds.
+    """
+    assert iterations > 0
+
+    # Sleep first `omit` secconds
+    time.sleep(omit)
+
+    cpu_utilization = {}
+    for _ in range(iterations):
+        current_cpu_utilization = ProcessManager.get_cpu_utilization(pid)
+        assert len(current_cpu_utilization) > 0
+
+        for thread_name, value in current_cpu_utilization.items():
+            if not cpu_utilization.get(thread_name):
+                cpu_utilization[thread_name] = []
+            cpu_utilization[thread_name].append(value)
+
+        # 1 second granularity
+        time.sleep(1)
+    return cpu_utilization
 
 
 @contextmanager
@@ -415,30 +438,6 @@ def assert_seccomp_level(pid, seccomp_level):
         process = run_cmd(cmd)
         seccomp_line = "".join(process.stdout.split())
         assert seccomp_line == "Seccomp:" + seccomp_level
-
-
-def get_cpu_percent(pid: int, iterations: int, omit: int) -> dict:
-    """Get total PID CPU percentage, as in system time plus user time.
-
-    If the PID has corresponding threads, creates a dictionary with the
-    lists of instant loads for each thread.
-    """
-    assert iterations > 0
-    time.sleep(omit)
-    cpu_percentages = {}
-    for _ in range(iterations):
-        current_cpu_percentages = ProcessManager.get_cpu_percent(pid)
-        assert len(current_cpu_percentages) > 0
-
-        for thread_name, task_ids in current_cpu_percentages.items():
-            if not cpu_percentages.get(thread_name):
-                cpu_percentages[thread_name] = {}
-            for task_id in task_ids:
-                if not cpu_percentages[thread_name].get(task_id):
-                    cpu_percentages[thread_name][task_id] = []
-                cpu_percentages[thread_name][task_id].append(task_ids[task_id])
-        time.sleep(1)  # 1 second granularity.
-    return cpu_percentages
 
 
 def run_guest_cmd(ssh_connection, cmd, expected, use_json=False):
