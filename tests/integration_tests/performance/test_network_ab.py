@@ -14,10 +14,6 @@ ROUNDS = 15
 REQUEST_PER_ROUND = 30
 DELAY = 0.2
 
-#  MicroVM configuration
-GUEST_MEM_MIB = 1024
-GUEST_VCPUS = 1
-
 
 def consume_ping_output(ping_putput):
     """Consume ping output.
@@ -48,11 +44,14 @@ def consume_ping_output(ping_putput):
 @pytest.fixture
 def network_microvm(request, microvm_factory, guest_kernel, rootfs):
     """Creates a microvm with the networking setup used by the performance tests in this file.
-
     This fixture receives its vcpu count via indirect parameterization"""
+
+    guest_mem_mib = 1024
+    guest_vcpus = request.param
+
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn(log_level="Info")
-    vm.basic_config(vcpu_count=request.param, mem_size_mib=GUEST_MEM_MIB)
+    vm.basic_config(vcpu_count=guest_vcpus, mem_size_mib=guest_mem_mib)
     vm.add_net_iface()
     vm.start()
     vm.pin_threads(0)
