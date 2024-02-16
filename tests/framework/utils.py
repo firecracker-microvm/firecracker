@@ -27,11 +27,7 @@ from tenacity import (
     wait_fixed,
 )
 
-from framework.defs import (
-    DEFAULT_TEST_SESSION_ROOT_PATH,
-    LOCAL_BUILD_PATH,
-    MIN_KERNEL_VERSION_FOR_IO_URING,
-)
+from framework.defs import MIN_KERNEL_VERSION_FOR_IO_URING
 
 FLUSH_CMD = 'screen -S {session} -X colon "logfile flush 0^M"'
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
@@ -308,91 +304,6 @@ class CmdBuilder:
         return cmd
 
 
-# pylint: disable=R0903
-class DictQuery:
-    """Utility class to query python dicts key paths.
-
-    The keys from the path must be `str`s.
-    Example:
-    > d = {
-            "a": {
-                "b": {
-                    "c": 0
-                }
-            },
-            "d": 1
-      }
-    > dq = DictQuery(d)
-    > print(dq.get("a/b/c"))
-    0
-    > print(dq.get("d"))
-    1
-    """
-
-    def __init__(self, inner: dict):
-        """Initialize the dict query."""
-        self._inner = inner
-
-    def get(self, keys_path: str, default=None):
-        """Retrieve value corresponding to the key path."""
-        keys = keys_path.strip().split("/")
-        if len(keys) < 1:
-            return default
-
-        result = self._inner
-        for key in keys:
-            if not result:
-                return default
-
-            result = result.get(key)
-
-        return result
-
-    def __str__(self):
-        """Representation as a string."""
-        return str(self._inner)
-
-
-class ExceptionAggregator(Exception):
-    """Abstraction over an exception with message formatter."""
-
-    def __init__(self, add_newline=False):
-        """Initialize the exception aggregator."""
-        super().__init__()
-        self.failures = []
-
-        # If `add_newline` is True then the failures will start one row below,
-        # in the logs. This is useful for having the failures starting on an
-        # empty line, keeping the formatting nice and clean.
-        if add_newline:
-            self.failures.append("")
-
-    def add_row(self, failure: str):
-        """Add a failure entry."""
-        self.failures.append(f"{failure}")
-
-    def has_any(self) -> bool:
-        """Return whether there are failures or not."""
-        if len(self.failures) == 1:
-            return self.failures[0] != ""
-
-        return len(self.failures) > 1
-
-    def __str__(self):
-        """Return custom as string implementation."""
-        return "\n\n".join(self.failures)
-
-
-def to_local_dir_path(tmp_dir_path: str) -> str:
-    """
-    Converts path from tmp dir to path on the host.
-    """
-
-    return tmp_dir_path.replace(
-        str(DEFAULT_TEST_SESSION_ROOT_PATH), str(LOCAL_BUILD_PATH)
-    )
-
-
 def search_output_from_cmd(cmd: str, find_regex: typing.Pattern) -> typing.Match:
     """
     Run a shell command and search a given regex object in stdout.
@@ -490,12 +401,6 @@ def run_cmd(cmd, **kwargs):
     :returns: tuple of (return code, stdout, stderr)
     """
     return run_cmd_sync(cmd, **kwargs)
-
-
-def eager_map(func, iterable):
-    """Map version for Python 3.x which is eager and returns nothing."""
-    for _ in map(func, iterable):
-        continue
 
 
 def assert_seccomp_level(pid, seccomp_level):
