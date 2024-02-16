@@ -49,7 +49,7 @@ class VsockIPerf3Test(IPerf3Test):
             .with_arg("-B", os.path.join(self._microvm.path, VSOCK_UDS_PATH))
         )
 
-    def spawn_iperf3_client(self, client_idx):
+    def spawn_iperf3_client(self, client_idx, client_mode_flag):
         # Bind the UDS in the jailer's root.
         self._microvm.create_jailed_resource(
             os.path.join(
@@ -62,7 +62,7 @@ class VsockIPerf3Test(IPerf3Test):
 
         self._microvm.ssh.scp_put(self._iperf, iperf3_guest)
         self._guest_iperf = iperf3_guest
-        return super().spawn_iperf3_client(client_idx)
+        return super().spawn_iperf3_client(client_idx, client_mode_flag)
 
     def guest_command(self, port_offset):
         return super().guest_command(port_offset).with_arg("--vsock")
