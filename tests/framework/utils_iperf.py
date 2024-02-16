@@ -9,9 +9,6 @@ import time
 from framework import utils
 from framework.utils import CmdBuilder, CpuMap, get_cpu_percent
 
-# Number of seconds to wait for the iperf3 server to start
-SERVER_STARTUP_TIME_SEC = 2
-
 
 class IPerf3Test:
     """Class abstracting away the setup and execution of an iperf3-based performance test"""
@@ -54,7 +51,8 @@ class IPerf3Test:
             utils.run_cmd(f"{self._microvm.netns.cmd_prefix()} {cmd}")
             first_free_cpu += 1
 
-        time.sleep(SERVER_STARTUP_TIME_SEC)
+        # Wait for the iperf3 server to start
+        time.sleep(2)
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
             cpu_load_future = executor.submit(
