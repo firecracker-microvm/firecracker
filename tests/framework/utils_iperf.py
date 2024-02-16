@@ -152,8 +152,10 @@ class IPerf3Test:
 
 def emit_iperf3_metrics(metrics, iperf_result, omit):
     """Consume the iperf3 data produced by the tcp/vsock throughput performance tests"""
-    for cpu_util in iperf_result["cpu_load_raw"]["firecracker"]:
-        metrics.put_metric("cpu_utilization_vmm", cpu_util, "Percent")
+    cpu_util = iperf_result["cpu_load_raw"]
+    for thread_name, values in cpu_util.items():
+        for value in values:
+            metrics.put_metric(f"cpu_utilization_{thread_name}", value, "Percent")
 
     data_points = zip(
         *[time_series["intervals"][omit:] for time_series in iperf_result["g2h"]]
