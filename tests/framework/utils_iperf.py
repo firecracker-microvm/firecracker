@@ -9,12 +9,6 @@ import time
 from framework import utils
 from framework.utils import CmdBuilder, CpuMap, get_cpu_percent
 
-# Dictionary mapping modes (guest-to-host, host-to-guest, bidirectional) to arguments passed to the iperf3 clients spawned
-MODE_MAP = {"g2h": [""], "h2g": ["-R"], "bd": ["", "-R"]}
-
-# Dictionary doing the reserve of the above, for pretty-printing
-REV_MODE_MAP = {"": "g2h", "-R": "h2g"}
-
 # Number of seconds to wait for the iperf3 server to start
 SERVER_STARTUP_TIME_SEC = 2
 
@@ -63,7 +57,6 @@ class IPerf3Test:
         time.sleep(SERVER_STARTUP_TIME_SEC)
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures = []
             cpu_load_future = executor.submit(
                 get_cpu_percent,
                 self._microvm.firecracker_pid,
@@ -72,38 +65,57 @@ class IPerf3Test:
                 self._omit,
             )
 
+            clients = []
             for client_idx in range(self._num_clients):
-                futures.append(executor.submit(self.spawn_iperf3_client, client_idx))
+                client_mode = self.client_mode(client_idx)
+                client_mode_flag = self.client_mode_to_iperf3_flag(client_mode)
+                client_future = executor.submit(
+                    self.spawn_iperf3_client, client_idx, client_mode_flag
+                )
+                clients.append((client_mode, client_future))
 
             data = {"cpu_load_raw": cpu_load_future.result(), "g2h": [], "h2g": []}
 
-            for i, future in enumerate(futures):
-                key = REV_MODE_MAP[MODE_MAP[self._mode][i % len(MODE_MAP[self._mode])]]
-                data[key].append(json.loads(future.result()))
+            for mode, future in clients:
+                data[mode].append(json.loads(future.result()))
 
             return data
 
-    def host_command(self, port_offset):
-        """Builds the command used for spawning an iperf3 server on the host"""
-        return (
-            CmdBuilder(self._iperf)
-            .with_arg("-sD")
-            .with_arg("-p", self._base_port + port_offset)
-            .with_arg("-1")
-        )
+    def client_mode(self, client_idx):
+        """Converts client index into client mode"""
+        match self._mode:
+            case "g2h":
+                client_mode = "g2h"
+            case "h2g":
+                client_mode = "h2g"
+            case "bd":
+                # in bidirectional mode we alternate
+                # modes
+                if client_idx % 2 == 0:
+                    client_mode = "g2h"
+                else:
+                    client_mode = "h2g"
+        return client_mode
 
-    def spawn_iperf3_client(self, client_idx):
+    def client_mode_to_iperf3_flag(client_mode):
+        """Converts client mode into iperf3 mode flag"""
+        match client_mode:
+            case "g2h":
+                client_mode_flag = ""
+            case "h2g":
+                client_mode_flag = "-R"
+        return client_mode_flag
+
+    def spawn_iperf3_client(self, client_idx, client_mode_flag):
         """
         Spawns an iperf3 client within the guest. The `client_idx` determines what direction data should flow
         for this particular client (e.g. client-to-server or server-to-client)
         """
-        # Distribute modes evenly
-        mode = MODE_MAP[self._mode][client_idx % len(MODE_MAP[self._mode])]
 
         # Add the port where the iperf3 client is going to send/receive.
         cmd = (
             self.guest_command(client_idx)
-            .with_arg(mode)
+            .with_arg(client_mode_flag)
             .with_arg("--affinity", client_idx % self._microvm.vcpus_count)
             .build()
         )
@@ -113,6 +125,15 @@ class IPerf3Test:
         assert rc == 0, stderr
 
         return stdout
+
+    def host_command(self, port_offset):
+        """Builds the command used for spawning an iperf3 server on the host"""
+        return (
+            CmdBuilder(self._iperf)
+            .with_arg("-sD")
+            .with_arg("-p", self._base_port + port_offset)
+            .with_arg("-1")
+        )
 
     def guest_command(self, port_offset):
         """Builds the command used for spawning an iperf3 client in the guest"""
