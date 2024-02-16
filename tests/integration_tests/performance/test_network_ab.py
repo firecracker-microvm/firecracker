@@ -90,35 +90,6 @@ def test_network_latency(network_microvm, metrics):
         metrics.put_metric("ping_latency", sample, "Milliseconds")
 
 
-class TcpIPerf3Test(IPerf3Test):
-    """IPerf3 runner for the TCP throughput performance test"""
-
-    BASE_PORT = 5000
-
-    # How many clients/servers should be spawned per vcpu
-    LOAD_FACTOR = 1
-
-    # Time (in seconds) for which iperf "warms up"
-    WARMUP_SEC = 5
-
-    # Time (in seconds) for which iperf runs after warmup is done
-    RUNTIME_SEC = 20
-
-    def __init__(self, microvm, mode, host_ip, payload_length):
-        self._host_ip = host_ip
-
-        super().__init__(
-            microvm,
-            self.BASE_PORT,
-            self.RUNTIME_SEC,
-            self.WARMUP_SEC,
-            mode,
-            self.LOAD_FACTOR * microvm.vcpus_count,
-            host_ip,
-            payload_length=payload_length,
-        )
-
-
 @pytest.mark.nonci
 @pytest.mark.timeout(120)
 @pytest.mark.parametrize("network_microvm", [1, 2], indirect=True)
@@ -133,6 +104,12 @@ def test_network_tcp_throughput(
     """
     Iperf between guest and host in both directions for TCP workload.
     """
+
+    base_port = 5000
+    # Time (in seconds) for which iperf "warms up"
+    warmup_sec = 5
+    # Time (in seconds) for which iperf runs after warmup is done
+    runtime_sec = 20
 
     # We run bi-directional tests only on uVM with more than 2 vCPus
     # because we need to pin one iperf3/direction per vCPU, and since we
@@ -151,13 +128,17 @@ def test_network_tcp_throughput(
     fcmetrics = FCMetricsMonitor(network_microvm)
     fcmetrics.start()
 
-    test = TcpIPerf3Test(
-        network_microvm,
-        mode,
-        network_microvm.iface["eth0"]["iface"].host_ip,
-        payload_length,
+    test = IPerf3Test(
+        microvm=network_microvm,
+        base_port=base_port,
+        runtime=runtime_sec,
+        omit=warmup_sec,
+        mode=mode,
+        num_clients=network_microvm.vcpus_count,
+        connect_to=network_microvm.iface["eth0"]["iface"].host_ip,
+        payload_length=payload_length,
     )
     data = test.run_test(network_microvm.vcpus_count + 2)
 
-    emit_iperf3_metrics(metrics, data, TcpIPerf3Test.WARMUP_SEC)
+    emit_iperf3_metrics(metrics, data, warmup_sec)
     fcmetrics.stop()
