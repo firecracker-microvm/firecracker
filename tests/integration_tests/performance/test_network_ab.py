@@ -9,13 +9,8 @@ import pytest
 from framework.utils_iperf import IPerf3Test, emit_iperf3_metrics
 from host_tools.fcmetrics import FCMetricsMonitor
 
-# each iteration is 15 * 30 * 0.2s = 90s
-ROUNDS = 15
-REQUEST_PER_ROUND = 30
-DELAY = 0.2
 
-
-def consume_ping_output(ping_putput):
+def consume_ping_output(ping_putput, request_per_round):
     """Consume ping output.
 
     Output example:
@@ -33,7 +28,7 @@ def consume_ping_output(ping_putput):
     assert len(output) > 2
 
     # Compute percentiles.
-    seqs = output[1 : REQUEST_PER_ROUND + 1]
+    seqs = output[1 : request_per_round + 1]
     pattern_time = ".+ bytes from .+: icmp_seq=.+ ttl=.+ time=(.+) ms"
     for seq in seqs:
         time = re.findall(pattern_time, seq)
@@ -66,6 +61,10 @@ def test_network_latency(network_microvm, metrics):
     Test network latency by sending pings from the guest to the host.
     """
 
+    rounds = 15
+    request_per_round = 30
+    delay = 0.2
+
     metrics.set_dimensions(
         {
             "performance_test": "test_network_latency",
@@ -78,13 +77,13 @@ def test_network_latency(network_microvm, metrics):
     samples = []
     host_ip = network_microvm.iface["eth0"]["iface"].host_ip
 
-    for _ in range(ROUNDS):
+    for _ in range(rounds):
         rc, ping_output, stderr = network_microvm.ssh.run(
-            f"ping -c {REQUEST_PER_ROUND} -i {DELAY} {host_ip}"
+            f"ping -c {request_per_round} -i {delay} {host_ip}"
         )
         assert rc == 0, stderr
 
-        samples.extend(consume_ping_output(ping_output))
+        samples.extend(consume_ping_output(ping_output, request_per_round))
     fcmetrics.stop()
 
     for sample in samples:
