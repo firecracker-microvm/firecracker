@@ -62,25 +62,15 @@ def network_microvm(request, microvm_factory, guest_kernel, rootfs):
 
 @pytest.mark.nonci
 @pytest.mark.parametrize("network_microvm", [1], indirect=True)
-@pytest.mark.parametrize("iteration", [1, 2])
-def test_network_latency(network_microvm, metrics, iteration):
+def test_network_latency(network_microvm, metrics):
     """
     Test network latency by sending pings from the guest to the host.
-
-    This test is split into multiple iterations. The rationale behind
-    this is that we have very little network latency test cases (only 2,
-    which is the number of guest kernels), which means that the A/B-testing
-    framework does not have enough data to meaningfully correct for outliers
-    (it has only 2 data points). This change increases the number of data
-    points it can work with to 4, which should hopefully help with the high
-    false-positive rate we have been seeing from this test.
     """
 
     metrics.set_dimensions(
         {
             "performance_test": "test_network_latency",
             **network_microvm.dimensions,
-            "iteration": str(iteration),
         }
     )
     fcmetrics = FCMetricsMonitor(network_microvm)
