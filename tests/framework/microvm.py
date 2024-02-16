@@ -453,33 +453,29 @@ class Microvm:
     def pin_vmm(self, cpu_id: int) -> bool:
         """Pin the firecracker process VMM thread to a cpu list."""
         if self.firecracker_pid:
-            for thread_name, thread_pids in utils.ProcessManager.get_threads(
+            for thread_name, thread_pids in utils.get_threads(
                 self.firecracker_pid
             ).items():
                 # the firecracker thread should start with firecracker...
                 if thread_name.startswith("firecracker"):
                     for pid in thread_pids:
-                        utils.ProcessManager.set_cpu_affinity(pid, [cpu_id])
+                        utils.set_cpu_affinity(pid, [cpu_id])
                 return True
         return False
 
     def pin_vcpu(self, vcpu_id: int, cpu_id: int):
         """Pin the firecracker vcpu thread to a cpu list."""
         if self.firecracker_pid:
-            for thread in utils.ProcessManager.get_threads(self.firecracker_pid)[
-                f"fc_vcpu {vcpu_id}"
-            ]:
-                utils.ProcessManager.set_cpu_affinity(thread, [cpu_id])
+            for thread in utils.get_threads(self.firecracker_pid)[f"fc_vcpu {vcpu_id}"]:
+                utils.set_cpu_affinity(thread, [cpu_id])
             return True
         return False
 
     def pin_api(self, cpu_id: int):
         """Pin the firecracker process API server thread to a cpu list."""
         if self.firecracker_pid:
-            for thread in utils.ProcessManager.get_threads(self.firecracker_pid)[
-                "fc_api"
-            ]:
-                utils.ProcessManager.set_cpu_affinity(thread, [cpu_id])
+            for thread in utils.get_threads(self.firecracker_pid)["fc_api"]:
+                utils.set_cpu_affinity(thread, [cpu_id])
             return True
         return False
 
