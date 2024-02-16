@@ -96,11 +96,12 @@ fn init_vnet_hdr(buf: &mut [u8]) {
 }
 
 #[derive(Debug, Default, Clone, Copy)]
+#[repr(C)]
 pub struct ConfigSpace {
     pub guest_mac: MacAddr,
 }
 
-// SAFETY: `ConfigSpace` contains only PODs.
+// SAFETY: `ConfigSpace` contains only PODs in `repr(C)` or `repr(transparent)`, without padding.
 unsafe impl ByteValued for ConfigSpace {}
 
 /// VirtIO network device.
