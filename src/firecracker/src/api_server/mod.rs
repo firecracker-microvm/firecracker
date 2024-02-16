@@ -12,10 +12,7 @@ pub mod request;
 use std::fmt::Debug;
 use std::sync::mpsc;
 
-pub use micro_http::{
-    Body, HttpServer, Method, Request, RequestError, Response, ServerError, ServerRequest,
-    ServerResponse, StatusCode, Version,
-};
+pub use micro_http::{Body, HttpServer, Request, Response, ServerError, StatusCode, Version};
 use parsed_request::{ParsedRequest, RequestAction};
 use seccompiler::BpfProgramRef;
 use serde_json::json;

@@ -377,7 +377,7 @@ impl CgroupV2 {
             Err(_) => return false,
         };
 
-        for l in BufReader::new(f).lines().flatten() {
+        for l in BufReader::new(f).lines().map_while(Result::ok) {
             if l.split(' ').any(|x| x == controller) {
                 return true;
             }

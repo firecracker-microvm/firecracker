@@ -167,14 +167,14 @@ fn test_restrictions() {
         ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, 71))
             .unwrap();
         assert_eq!(ring.submit_and_wait_all().unwrap(), 1);
-        assert!(ring.pop().unwrap().unwrap().result().is_ok());
+        ring.pop().unwrap().unwrap().result().unwrap();
 
         // Other operations are not allowed.
 
         ring.push(Operation::write(0, buf.as_ptr() as usize, 4, 0, 71))
             .unwrap();
         assert_eq!(ring.submit_and_wait_all().unwrap(), 1);
-        assert!(ring.pop().unwrap().unwrap().result().is_err());
+        ring.pop().unwrap().unwrap().result().unwrap_err();
     }
 }
 
