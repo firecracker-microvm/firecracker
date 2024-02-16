@@ -24,7 +24,9 @@ def test_licenses():
         os.path.join(os.path.dirname(os.path.realpath(__file__)), "../../../Cargo.toml")
     )
 
-    _, stdout, stderr = cargo("deny", f"--manifest-path {toml_file} check licenses bans")
+    _, stdout, stderr = cargo(
+        "deny", f"--manifest-path {toml_file} check licenses bans"
+    )
     assert "licenses ok" in stdout
 
     # "cargo deny" should deny licenses by default but for some reason copyleft is allowed
