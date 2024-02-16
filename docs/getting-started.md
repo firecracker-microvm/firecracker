@@ -83,7 +83,7 @@ kernel image with a Ubuntu 22.04 rootfs from our CI:
 ARCH="$(uname -m)"
 
 # Download a linux kernel binary
-wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.7/${ARCH}/vmlinux-5.10.204
+wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.7/${ARCH}/vmlinux-5.10.209
 
 # Download a rootfs
 wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.7/${ARCH}/ubuntu-22.04.ext4
@@ -201,7 +201,7 @@ curl -X PUT --unix-socket "${API_SOCKET}" \
     }" \
     "http://localhost/logger"
 
-KERNEL="./vmlinux-5.10.204"
+KERNEL="./vmlinux-5.10.209"
 KERNEL_BOOT_ARGS="console=ttyS0 reboot=k panic=1 pci=off"
 
 ARCH=$(uname -m)
