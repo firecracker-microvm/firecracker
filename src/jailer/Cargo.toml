@@ -16,7 +16,7 @@ libc = "0.2.153"
 log-instrument = { path = "../log-instrument", optional = true }
 nix = { version = "0.27.1", default-features = false, features = ["dir"] }
 regex = { version = "1.10.2", default-features = false, features = ["std"] }
-thiserror = "1.0.53"
+thiserror = "1.0.57"
 
 utils = { path = "../utils" }
 
