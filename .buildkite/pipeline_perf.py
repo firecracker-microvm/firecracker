@@ -122,7 +122,7 @@ for test_data in tests:
 
 
 pins = {
-    "linux_6.1+pinned": {"instance": "m6i.metal", "kv": "linux_6.1"},
+    "linux_6.1-pinned": {"instance": "m6i.metal", "kv": "linux_6.1"},
 }
 
 
