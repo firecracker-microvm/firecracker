@@ -82,7 +82,11 @@ def process_log_entry(emf: dict):
     result = {
         key: (value, find_unit(emf, key))
         for key, value in emf.items()
-        if "fc_metrics" not in key and isinstance(value, list)
+        if (
+            "fc_metrics" not in key
+            and "cpu_utilization" not in key
+            and isinstance(value, list)
+        )
     }
     # Since we don't consider metrics having fc_metrics in key
     # result could be empty so, return empty dimensions as well
