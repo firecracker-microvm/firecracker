@@ -3,6 +3,20 @@ members = ["src/clippy-tracing", "src/cpu-template-helper", "src/firecracker", "
 default-members = ["src/clippy-tracing", "src/cpu-template-helper", "src/firecracker", "src/rebase-snap", "src/seccompiler", "src/snapshot-editor"]
 resolver = "2"
 
+[workspace.lints.rust]
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+ptr_as_ptr = "warn"
+undocumented_unsafe_blocks = "warn"
+cast_lossless = "warn"
+cast_possible_truncation = "warn"
+cast_possible_wrap = "warn"
+cast_sign_loss = "warn"
+exit = "warn"
+tests_outside_test_module = "warn"
+assertions_on_result_states = "warn"
+
 [profile.dev]
 panic = "abort"
 

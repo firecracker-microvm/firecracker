@@ -23,3 +23,6 @@ serde_json = "1.0.99"
 
 [features]
 tracing = ["log-instrument"]
+
+[lints]
+workspace = true

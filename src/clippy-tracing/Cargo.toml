@@ -19,3 +19,6 @@ walkdir = "2.3.3"
 
 [dev-dependencies]
 uuid = { version = "1.6.1", features = ["v4"] }
+
+[lints]
+workspace = true

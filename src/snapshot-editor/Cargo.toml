@@ -25,3 +25,6 @@ clap-num = "1.0.2"
 
 [features]
 tracing = ["log-instrument", "fc_utils/tracing", "vmm/tracing"]
+
+[lints]
+workspace = true

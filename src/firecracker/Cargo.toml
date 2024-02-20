@@ -49,6 +49,9 @@ serde_json = "1.0.113"
 [features]
 tracing = ["log-instrument", "seccompiler/tracing", "utils/tracing", "vmm/tracing"]
 
+[lints]
+workspace = true
+
 [[example]]
 name = "uffd_malicious_handler"
 path = "examples/uffd/malicious_handler.rs"
