@@ -29,7 +29,6 @@ mod gen;
 pub use tap::{Tap, TapError};
 
 pub use self::device::Net;
-pub use self::event_handler::*;
 
 /// Enum representing the Net device queue types
 #[derive(Debug)]

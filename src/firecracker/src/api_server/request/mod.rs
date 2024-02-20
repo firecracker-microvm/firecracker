@@ -16,6 +16,4 @@ pub mod net;
 pub mod snapshot;
 pub mod version;
 pub mod vsock;
-pub use micro_http::{
-    Body, HttpServer, Method, Request, RequestError, Response, StatusCode, Version,
-};
+pub use micro_http::{Body, Method, StatusCode};
