@@ -264,6 +264,9 @@ ssh -i ./ubuntu-22.04.id_rsa root@172.16.0.2
 
 # Use `root` for both the login and password.
 # Run `reboot` to exit.
+#
+# For internet access in the guest, run `ip route add default via 172.16.0.1 dev eth0`
+# For DNS resolution in the guest, run `echo "nameserver 8.8.8.8" > /etc/resolv.conf`
 ```
 
 Issuing a `reboot` command inside the guest will gracefully shutdown
