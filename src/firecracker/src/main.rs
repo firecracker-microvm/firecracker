@@ -22,7 +22,7 @@ use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
 use vmm::builder::StartMicrovmError;
 use vmm::logger::{
-    debug, error, info, LoggerConfig, ProcessTimeReporter, StoreMetric, LOGGER, METRICS,
+    debug, error, info, warn, LoggerConfig, ProcessTimeReporter, StoreMetric, LOGGER, METRICS,
 };
 use vmm::persist::SNAPSHOT_VERSION;
 use vmm::resources::VmResources;
@@ -397,6 +397,7 @@ fn main_exec() -> Result<(), MainError> {
         });
 
         let start_time_cpu_us = arguments.single_value("start-time-cpu-us").map(|s| {
+            warn!("The --start-time-cpu-us argument is deprecated");
             s.parse::<u64>()
                 .expect("'start-time-cpu-us' parameter expected to be of 'u64' type.")
         });

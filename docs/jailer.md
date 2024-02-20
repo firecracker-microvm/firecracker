@@ -144,10 +144,9 @@ After starting, the Jailer goes through the following operations:
   inside `<exec_file_name>.pid`, while the child drops privileges and `exec()`s
   into the `<exec_file_name>`, as described below.
 - Drop privileges via setting the provided `uid` and `gid`.
-- Exec into
-  `<exec_file_name> --id=<id> --start-time-us=<opaque> --start-time-cpu-us=<opaque>`
-  (and also forward any extra arguments provided to the jailer after `--`, as
-  mentioned in the **Jailer Usage** section), where:
+- Exec into `<exec_file_name> --id=<id> --start-time-us=<opaque>` (and also
+  forward any extra arguments provided to the jailer after `--`, as mentioned in
+  the **Jailer Usage** section), where:
   - `id`: (`string`) - The `id` argument provided to jailer.
   - `opaque`: (`number`) time calculated by the jailer that it spent doing its
     work.
@@ -243,8 +242,7 @@ Finally, the jailer switches the `uid` to `123`, and `gid` to `100`, and execs
 ```console
 ./firecracker \
   --id="551e7604-e35c-42b3-b825-416853441234" \
-  --start-time-us=<opaque> \
-  --start-time-cpu-us=<opaque>
+  --start-time-us=<opaque>
 ```
 
 Now firecracker creates the socket at
