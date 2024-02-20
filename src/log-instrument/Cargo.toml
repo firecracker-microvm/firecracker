@@ -32,4 +32,7 @@ log = "0.4.20"
 log-instrument-macros = { path = "../log-instrument-macros" }
 
 [dev-dependencies]
-env_logger = "0.11.1"
+env_logger = "0.11.2"
+
+[lints]
+workspace = true

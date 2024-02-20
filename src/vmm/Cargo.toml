@@ -58,3 +58,6 @@ tracing = ["log-instrument"]
 [[bench]]
 name = "cpu_templates"
 harness = false
+
+[lints]
+workspace = true

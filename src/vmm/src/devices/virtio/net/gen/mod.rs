@@ -23,4 +23,3 @@ pub mod if_tun;
 pub mod sockios;
 pub use if_tun::*;
 pub use iff::*;
-pub use sockios::*;

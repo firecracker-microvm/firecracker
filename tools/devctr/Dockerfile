@@ -4,7 +4,7 @@ FROM ubuntu:22.04
 # The Rust toolchain layer will get updated most frequently, but we could keep the system
 # dependencies layer intact for much longer.
 
-ARG RUST_TOOLCHAIN="1.73.0"
+ARG RUST_TOOLCHAIN="1.76.0"
 ARG TMP_BUILD_DIR=/tmp/build
 ARG FIRECRACKER_SRC_DIR="/firecracker"
 ARG FIRECRACKER_BUILD_DIR="$FIRECRACKER_SRC_DIR/build"
@@ -111,7 +111,7 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOL
     && rustup target add aarch64-unknown-linux-musl \
     && rustup component add llvm-tools-preview \
     && cargo install --locked cargo-audit cargo-deny grcov cargo-sort \
-    && (if [ "$ARCH" = "x86_64" ]; then cargo install --locked kani-verifier && cargo kani setup; else true; fi) \
+    && (if [ "$ARCH" = "x86_64" ]; then cargo install --locked kani-verifier --version 0.45.0 && cargo kani setup; else true; fi) \
     \
     && apt-get update \
     && apt-get -y install --no-install-recommends \

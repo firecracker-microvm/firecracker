@@ -101,7 +101,7 @@ impl BlockBuilder {
     /// Specifies whether there is a root block device already present in the list.
     fn has_root_device(&self) -> bool {
         // If there is a root device, it would be at the top of the list.
-        if let Some(block) = self.devices.get(0) {
+        if let Some(block) = self.devices.front() {
             block.lock().expect("Poisoned lock").root_device()
         } else {
             false

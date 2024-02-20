@@ -14,7 +14,6 @@ pub mod test_utils;
 use vm_memory::GuestMemoryError;
 
 pub use self::device::VirtioBlock;
-pub use self::event_handler::*;
 pub use self::request::*;
 pub use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
