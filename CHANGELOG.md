@@ -36,6 +36,14 @@ and this project adheres to
   handler. Each memory region object now contains a `page_size_kib` field. See
   also the [hugepages documentation](docs/hugepages.md).
 
+### Deprecated
+
+- Firecracker's `--start-time-cpu-us` parameter is deprecated and will be
+  removed in v2.0 or later. It is used by the jailer to pass the value that
+  should be subtracted from the CPU time, but in practice it is always 0. The
+  parameter was never meant to be used by end customers, and we recommend doing
+  any such time adjustments outside Firecracker.
+
 ### Fixed
 
 - [#4409](https://github.com/firecracker-microvm/firecracker/pull/4409): Fixed a
