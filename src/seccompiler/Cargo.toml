@@ -28,3 +28,6 @@ utils = { path = "../utils" }
 
 [features]
 tracing = ["log-instrument", "utils/tracing"]
+
+[lints]
+workspace = true

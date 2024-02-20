@@ -26,3 +26,6 @@ utils = { path = "../utils" }
 
 [features]
 tracing = ["log-instrument", "vmm/tracing"]
+
+[lints]
+workspace = true
