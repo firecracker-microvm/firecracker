@@ -296,6 +296,7 @@ def test_mmds_response(uvm_plain, version):
                     "res_key": "res_value",
                 },
                 "dummy_array": ["arr_val1", "arr_val2"],
+                "dummy_empty": "",
             },
             "Limits": {"CPU": 512, "Memory": 512},
             "Usage": {"CPU": 12.12},
@@ -328,12 +329,12 @@ def test_mmds_response(uvm_plain, version):
     expected = (
         "ami-id\n"
         "dummy_array\n"
+        "dummy_empty\n"
         "dummy_obj/\n"
         "local-hostname\n"
         "public-hostname\n"
         "reservation-id"
     )
-
     run_guest_cmd(ssh_connection, cmd, expected)
 
     cmd = pre + "latest/meta-data/ami-id/"
@@ -341,6 +342,9 @@ def test_mmds_response(uvm_plain, version):
 
     cmd = pre + "latest/meta-data/dummy_array/0"
     run_guest_cmd(ssh_connection, cmd, "arr_val1")
+
+    cmd = pre + "latest/meta-data/dummy_empty"
+    run_guest_cmd(ssh_connection, cmd, "")
 
     cmd = pre + "latest/Usage/CPU"
     run_guest_cmd(
