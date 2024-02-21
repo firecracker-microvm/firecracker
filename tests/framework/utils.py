@@ -434,7 +434,8 @@ def assert_seccomp_level(pid, seccomp_level):
 
 def run_guest_cmd(ssh_connection, cmd, expected, use_json=False):
     """Runs a shell command at the remote accessible via SSH"""
-    _, stdout, stderr = ssh_connection.run(cmd)
+    rc, stdout, stderr = ssh_connection.run(cmd)
+    assert rc == 0
     assert stderr == ""
     stdout = stdout if not use_json else json.loads(stdout)
     assert stdout == expected
