@@ -74,6 +74,10 @@ and this project adheres to
   mechanism to reliably fetch Firecracker PID. With this change, Firecracker
   process's PID will always be available in the Jailer's root directory
   regardless of whether new_pid_ns was set.
+- [#4468](https://github.com/firecracker-microvm/firecracker/pull/4468): Fixed a
+  bug where a client would hang or timeout when querying for an MMDS path whose
+  content is empty, because the 'Content-Length' header field was missing in a
+  response.
 
 ## \[1.6.0\]
 
