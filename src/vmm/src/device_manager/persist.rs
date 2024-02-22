@@ -12,7 +12,11 @@ use kvm_ioctls::VmFd;
 use log::{error, warn};
 use serde::{Deserialize, Serialize};
 use vm_allocator::AllocPolicy;
+#[cfg(target_arch = "x86_64")]
+use vm_memory::GuestAddress;
 
+#[cfg(target_arch = "x86_64")]
+use super::acpi::{ACPIDeviceManager, ACPIDeviceManagerError};
 use super::mmio::*;
 use super::resources::ResourceAllocator;
 #[cfg(target_arch = "aarch64")]
@@ -224,6 +228,70 @@ impl fmt::Debug for MMIODevManagerConstructorArgs<'_> {
             .field("vm_resources", &self.vm_resources)
             .field("instance_id", &self.instance_id)
             .finish()
+    }
+}
+
+/// Holds the state of VMGenID device
+#[cfg(target_arch = "x86_64")]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub struct VMGenIDState {
+    /// GSI used for VMGenID device
+    pub gsi: u32,
+    /// memory address of generation ID
+    pub addr: u64,
+}
+
+#[cfg(target_arch = "x86_64")]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub struct ACPIDeviceManagerState {
+    vmgenid: Option<VMGenIDState>,
+}
+
+#[cfg(target_arch = "x86_64")]
+pub struct ACPIDeviceManagerConstructorArgs<'a> {
+    pub mem: GuestMemoryMmap,
+    pub resource_allocator: Rc<ResourceAllocator>,
+    pub vm: &'a VmFd,
+}
+
+#[cfg(target_arch = "x86_64")]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum ACPIDeviceManagerRestoreError {
+    /// Could not initialize device manager: {0}
+    DeviceManagerInitialize(#[from] ACPIDeviceManagerError),
+    /// Could not register device: {0}
+    Interrupt(#[from] kvm_ioctls::Error),
+}
+
+#[cfg(target_arch = "x86_64")]
+impl<'a> Persist<'a> for ACPIDeviceManager {
+    type State = ACPIDeviceManagerState;
+    type ConstructorArgs = ACPIDeviceManagerConstructorArgs<'a>;
+    type Error = ACPIDeviceManagerRestoreError;
+
+    fn save(&self) -> Self::State {
+        ACPIDeviceManagerState {
+            vmgenid: self.vmgenid.as_ref().map(|dev| VMGenIDState {
+                gsi: dev.gsi,
+                addr: dev.guest_address.0,
+            }),
+        }
+    }
+
+    fn restore(
+        constructor_args: Self::ConstructorArgs,
+        state: &Self::State,
+    ) -> std::result::Result<Self, Self::Error> {
+        let mut dev_manager = ACPIDeviceManager::new(constructor_args.resource_allocator);
+        if let Some(vmgenid_args) = &state.vmgenid {
+            dev_manager.build_vmgenid(
+                vmgenid_args.gsi,
+                GuestAddress(vmgenid_args.addr),
+                &constructor_args.mem,
+                constructor_args.vm,
+            )?;
+        }
+        Ok(dev_manager)
     }
 }
 

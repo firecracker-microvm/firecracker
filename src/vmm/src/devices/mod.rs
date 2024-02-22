@@ -9,6 +9,7 @@
 
 use std::io;
 
+pub mod acpi;
 pub mod bus;
 pub mod legacy;
 pub mod pseudo;

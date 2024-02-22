@@ -26,6 +26,8 @@ use crate::cpu_config::templates::StaticCpuTemplate;
 use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
 #[cfg(target_arch = "x86_64")]
 use crate::cpu_config::x86_64::cpuid::CpuidTrait;
+#[cfg(target_arch = "x86_64")]
+use crate::device_manager::persist::ACPIDeviceManagerState;
 use crate::device_manager::persist::{DevicePersistError, DeviceStates};
 use crate::logger::{info, warn};
 use crate::resources::VmResources;
@@ -83,6 +85,9 @@ pub struct MicrovmState {
     pub vcpu_states: Vec<VcpuState>,
     /// Device states.
     pub device_states: DeviceStates,
+    /// ACPI devices state.
+    #[cfg(target_arch = "x86_64")]
+    pub acpi_dev_state: ACPIDeviceManagerState,
 }
 
 /// This describes the mapping between Firecracker base virtual address and
@@ -673,6 +678,11 @@ mod tests {
 
         insert_vsock_device(&mut vmm, &mut event_manager, vsock_config);
 
+        #[cfg(target_arch = "x86_64")]
+        vmm.acpi_device_manager
+            .attach_vmgenid(&vmm.guest_memory, vmm.vm.fd())
+            .unwrap();
+
         vmm
     }
 
@@ -704,6 +714,8 @@ mod tests {
             vm_state: vmm.vm.save_state(&mpidrs).unwrap(),
             #[cfg(target_arch = "x86_64")]
             vm_state: vmm.vm.save_state().unwrap(),
+            #[cfg(target_arch = "x86_64")]
+            acpi_dev_state: vmm.acpi_device_manager.save(),
         };
 
         let mut buf = vec![0; 10000];
