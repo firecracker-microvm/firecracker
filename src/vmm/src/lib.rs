@@ -117,10 +117,8 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 
-#[cfg(target_arch = "x86_64")]
 use device_manager::acpi::ACPIDeviceManager;
 use device_manager::resources::ResourceAllocator;
-#[cfg(target_arch = "x86_64")]
 use devices::acpi::vmgenid::VmGenIdError;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use seccompiler::BpfProgram;
@@ -261,7 +259,6 @@ pub enum VmmError {
     /// Error thrown by observer object on Vmm teardown: {0}
     VmmObserverTeardown(utils::errno::Error),
     /// VMGenID error: {0}
-    #[cfg(target_arch = "x86_64")]
     VMGenID(#[from] VmGenIdError),
 }
 
@@ -318,13 +315,12 @@ pub struct Vmm {
     // Used by Vcpus and devices to initiate teardown; Vmm should never write here.
     vcpus_exit_evt: EventFd,
 
-    // Allocator for guest resrouces
+    // Allocator for guest resources
     resource_allocator: ResourceAllocator,
     // Guest VM devices.
     mmio_device_manager: MMIODeviceManager,
     #[cfg(target_arch = "x86_64")]
     pio_device_manager: PortIODeviceManager,
-    #[cfg(target_arch = "x86_64")]
     acpi_device_manager: ACPIDeviceManager,
 }
 
@@ -530,7 +526,6 @@ impl Vmm {
         let device_states = self.mmio_device_manager.save();
 
         let memory_state = self.guest_memory().describe();
-        #[cfg(target_arch = "x86_64")]
         let acpi_dev_state = self.acpi_device_manager.save();
 
         Ok(MicrovmState {
@@ -539,7 +534,6 @@ impl Vmm {
             vm_state,
             vcpu_states,
             device_states,
-            #[cfg(target_arch = "x86_64")]
             acpi_dev_state,
         })
     }

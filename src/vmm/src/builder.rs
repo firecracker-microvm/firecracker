@@ -36,18 +36,14 @@ use crate::cpu_config::templates::{
     CpuConfiguration, CustomCpuTemplate, GetCpuTemplate, GetCpuTemplateError, GuestConfigError,
     KvmCapability,
 };
-#[cfg(target_arch = "x86_64")]
 use crate::device_manager::acpi::ACPIDeviceManager;
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
-use crate::device_manager::persist::MMIODevManagerConstructorArgs;
-#[cfg(target_arch = "x86_64")]
 use crate::device_manager::persist::{
-    ACPIDeviceManagerConstructorArgs, ACPIDeviceManagerRestoreError,
+    ACPIDeviceManagerConstructorArgs, ACPIDeviceManagerRestoreError, MMIODevManagerConstructorArgs,
 };
 use crate::device_manager::resources::ResourceAllocator;
-#[cfg(target_arch = "x86_64")]
 use crate::devices::acpi::vmgenid::{VmGenId, VmGenIdError};
 use crate::devices::legacy::serial::SerialOut;
 #[cfg(target_arch = "aarch64")]
@@ -79,7 +75,6 @@ pub enum StartMicrovmError {
     /// Unable to attach block device to Vmm: {0}
     AttachBlockDevice(io::Error),
     /// Unable to attach the VMGenID device: {0}
-    #[cfg(target_arch = "x86_64")]
     AttachVmgenidDevice(kvm_ioctls::Error),
     /// System configuration error: {0}
     ConfigureSystem(crate::arch::ConfigurationError),
@@ -93,7 +88,6 @@ pub enum StartMicrovmError {
     #[cfg(target_arch = "x86_64")]
     CreateLegacyDevice(device_manager::legacy::LegacyDeviceError),
     /// Error creating VMGenID device: {0}
-    #[cfg(target_arch = "x86_64")]
     CreateVMGenID(VmGenIdError),
     /// Invalid Memory Configuration: {0}
     GuestMemory(crate::vstate::memory::MemoryError),
@@ -175,7 +169,6 @@ fn create_vmm_and_vcpus(
     let mmio_device_manager = MMIODeviceManager::new();
 
     // Instantiate ACPI device manager.
-    #[cfg(target_arch = "x86_64")]
     let acpi_device_manager = ACPIDeviceManager::new();
 
     // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
@@ -233,7 +226,6 @@ fn create_vmm_and_vcpus(
         mmio_device_manager,
         #[cfg(target_arch = "x86_64")]
         pio_device_manager,
-        #[cfg(target_arch = "x86_64")]
         acpi_device_manager,
     };
 
@@ -347,7 +339,6 @@ pub fn build_microvm_for_boot(
     #[cfg(target_arch = "aarch64")]
     attach_legacy_devices_aarch64(event_manager, &mut vmm, &mut boot_cmdline).map_err(Internal)?;
 
-    #[cfg(target_arch = "x86_64")]
     attach_vmgenid_device(&mut vmm)?;
 
     configure_system_for_boot(
@@ -449,7 +440,6 @@ pub enum BuildMicrovmFromSnapshotError {
     /// Failed to apply VMM secccomp filter: {0}
     SeccompFiltersInternal(#[from] seccompiler::InstallationError),
     /// Failed to restore ACPI device manager: {0}
-    #[cfg(target_arch = "x86_64")]
     ACPIDeviManager(#[from] ACPIDeviceManagerRestoreError),
     /// VMGenID update failed: {0}
     VMGenIDUpdate(std::io::Error),
@@ -532,7 +522,6 @@ pub fn build_microvm_from_snapshot(
             .map_err(MicrovmStateError::RestoreDevices)?;
     vmm.emulate_serial_init()?;
 
-    #[cfg(target_arch = "x86_64")]
     {
         let acpi_ctor_args = ACPIDeviceManagerConstructorArgs {
             mem: &guest_memory,
@@ -859,6 +848,7 @@ pub fn configure_system_for_boot(
             vcpu_mpidr,
             vmm.mmio_device_manager.get_device_info(),
             vmm.vm.get_irqchip(),
+            &vmm.acpi_device_manager.vmgenid,
             initrd,
         )
         .map_err(ConfigureSystem)?;
@@ -908,7 +898,6 @@ pub(crate) fn attach_boot_timer_device(
     Ok(())
 }
 
-#[cfg(target_arch = "x86_64")]
 fn attach_vmgenid_device(vmm: &mut Vmm) -> Result<(), StartMicrovmError> {
     let vmgenid = VmGenId::new(&vmm.guest_memory, &mut vmm.resource_allocator)
         .map_err(StartMicrovmError::CreateVMGenID)?;
@@ -1117,7 +1106,6 @@ pub mod tests {
         let mut vm = Vm::new(vec![]).unwrap();
         vm.memory_init(&guest_memory, false).unwrap();
         let mmio_device_manager = MMIODeviceManager::new();
-        #[cfg(target_arch = "x86_64")]
         let acpi_device_manager = ACPIDeviceManager::new();
         #[cfg(target_arch = "x86_64")]
         let pio_device_manager = PortIODeviceManager::new(
@@ -1158,7 +1146,6 @@ pub mod tests {
             mmio_device_manager,
             #[cfg(target_arch = "x86_64")]
             pio_device_manager,
-            #[cfg(target_arch = "x86_64")]
             acpi_device_manager,
         }
     }
