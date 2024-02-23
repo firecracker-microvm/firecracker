@@ -9,7 +9,6 @@
 
 use std::io;
 
-#[cfg(target_arch = "x86_64")]
 pub mod acpi;
 pub mod bus;
 pub mod legacy;
