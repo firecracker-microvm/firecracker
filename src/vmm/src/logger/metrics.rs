@@ -325,10 +325,9 @@ impl ProcessTimeReporter {
 
     /// Obtain process start time in microseconds.
     pub fn report_start_time(&self) {
-        if let Some(start_time) = self.start_time_us {
-            let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time;
-            METRICS.api_server.process_startup_time_us.store(delta_us);
-        }
+        let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic)
+            - self.start_time_us.unwrap_or_default();
+        METRICS.api_server.process_startup_time_us.store(delta_us);
     }
 
     /// Obtain process CPU start time in microseconds.
