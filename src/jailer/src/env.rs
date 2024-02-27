@@ -596,6 +596,7 @@ impl Env {
     }
 
     pub fn run(mut self) -> Result<(), JailerError> {
+        let jailer_start_time_cpu = utils::time::get_time_us(utils::time::ClockType::ProcessCpu);
         let exec_file_name = self.copy_exec_to_chroot()?;
         let chroot_exec_file = PathBuf::from("/").join(exec_file_name);
 
@@ -723,7 +724,8 @@ impl Env {
         }
 
         // Compute jailer's total CPU time up to the current time.
-        self.jailer_cpu_time_us += utils::time::get_time_us(utils::time::ClockType::ProcessCpu);
+        self.jailer_cpu_time_us +=
+            utils::time::get_time_us(utils::time::ClockType::ProcessCpu) - jailer_start_time_cpu;
 
         // If specified, exec the provided binary into a new PID namespace.
         if self.new_pid_ns {
