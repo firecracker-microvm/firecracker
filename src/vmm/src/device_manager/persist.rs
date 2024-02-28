@@ -206,7 +206,6 @@ pub struct MMIODevManagerConstructorArgs<'a> {
     pub mem: GuestMemoryMmap,
     pub vm: &'a VmFd,
     pub event_manager: &'a mut EventManager,
-    pub for_each_restored_device: fn(&mut VmResources, SharedDeviceType),
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
 }
@@ -460,10 +459,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 &balloon_state.device_state,
             )?));
 
-            (constructor_args.for_each_restored_device)(
-                constructor_args.vm_resources,
-                SharedDeviceType::Balloon(device.clone()),
-            );
+            constructor_args
+                .vm_resources
+                .update_from_restored_device(SharedDeviceType::Balloon(device.clone()));
 
             restore_helper(
                 device.clone(),
@@ -482,10 +480,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 &block_state.device_state,
             )?));
 
-            (constructor_args.for_each_restored_device)(
-                constructor_args.vm_resources,
-                SharedDeviceType::VirtioBlock(device.clone()),
-            );
+            constructor_args
+                .vm_resources
+                .update_from_restored_device(SharedDeviceType::VirtioBlock(device.clone()));
 
             restore_helper(
                 device.clone(),
@@ -528,10 +525,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 &net_state.device_state,
             )?));
 
-            (constructor_args.for_each_restored_device)(
-                constructor_args.vm_resources,
-                SharedDeviceType::Network(device.clone()),
-            );
+            constructor_args
+                .vm_resources
+                .update_from_restored_device(SharedDeviceType::Network(device.clone()));
 
             restore_helper(
                 device.clone(),
@@ -557,10 +553,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 &vsock_state.device_state.frontend,
             )?));
 
-            (constructor_args.for_each_restored_device)(
-                constructor_args.vm_resources,
-                SharedDeviceType::Vsock(device.clone()),
-            );
+            constructor_args
+                .vm_resources
+                .update_from_restored_device(SharedDeviceType::Vsock(device.clone()));
 
             restore_helper(
                 device.clone(),
@@ -581,10 +576,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 &entropy_state.device_state,
             )?));
 
-            (constructor_args.for_each_restored_device)(
-                constructor_args.vm_resources,
-                SharedDeviceType::Entropy(device.clone()),
-            );
+            constructor_args
+                .vm_resources
+                .update_from_restored_device(SharedDeviceType::Entropy(device.clone()));
 
             restore_helper(
                 device.clone(),
@@ -759,7 +753,6 @@ mod tests {
             mem: vmm.guest_memory().clone(),
             vm: vmm.vm.fd(),
             event_manager: &mut event_manager,
-            for_each_restored_device: VmResources::update_from_restored_device,
             vm_resources,
             instance_id: "microvm-id",
         };
