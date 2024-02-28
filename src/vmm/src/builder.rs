@@ -470,7 +470,6 @@ pub fn build_microvm_from_snapshot(
         mem: guest_memory,
         vm: vmm.vm.fd(),
         event_manager,
-        for_each_restored_device: VmResources::update_from_restored_device,
         vm_resources,
         instance_id: &instance_info.id,
     };
