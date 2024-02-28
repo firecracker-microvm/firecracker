@@ -202,7 +202,10 @@ impl VmResources {
 
     /// Updates the resources from a restored device (used for configuring resources when
     /// restoring from a snapshot).
-    pub fn update_from_restored_device(&mut self, device: SharedDeviceType) {
+    pub fn update_from_restored_device(
+        &mut self,
+        device: SharedDeviceType,
+    ) -> Result<(), ResourcesError> {
         match device {
             SharedDeviceType::VirtioBlock(block) => {
                 self.block.add_virtio_device(block);
@@ -214,6 +217,10 @@ impl VmResources {
 
             SharedDeviceType::Balloon(balloon) => {
                 self.balloon.set_device(balloon);
+
+                if self.vm_config.huge_pages != HugePageConfig::None {
+                    return Err(ResourcesError::BalloonDevice(BalloonConfigError::HugePages));
+                }
             }
 
             SharedDeviceType::Vsock(vsock) => {
@@ -223,6 +230,8 @@ impl VmResources {
                 self.entropy.set_device(entropy);
             }
         }
+
+        Ok(())
     }
 
     /// Returns whether dirty page tracking is enabled or not.
@@ -498,6 +507,7 @@ mod tests {
 
     use super::*;
     use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
+    use crate::devices::virtio::balloon::Balloon;
     use crate::devices::virtio::block::virtio::VirtioBlockError;
     use crate::devices::virtio::block::{BlockError, CacheType};
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
@@ -1440,6 +1450,33 @@ mod tests {
         vm_resources
             .set_balloon_device(new_balloon_cfg)
             .unwrap_err();
+    }
+
+    #[test]
+    fn test_negative_restore_balloon_device_with_huge_pages() {
+        if KernelVersion::get().unwrap() >= KernelVersion::new(4, 16, 0) {
+            let mut vm_resources = default_vm_resources();
+            vm_resources.balloon = BalloonBuilder::new();
+            vm_resources
+                .update_vm_config(&MachineConfigUpdate {
+                    huge_pages: Some(HugePageConfig::Hugetlbfs2M),
+                    ..Default::default()
+                })
+                .unwrap();
+            let err = vm_resources
+                .update_from_restored_device(SharedDeviceType::Balloon(Arc::new(Mutex::new(
+                    Balloon::new(128, false, 0, true).unwrap(),
+                ))))
+                .unwrap_err();
+            assert!(
+                matches!(
+                    err,
+                    ResourcesError::BalloonDevice(BalloonConfigError::HugePages)
+                ),
+                "{:?}",
+                err
+            );
+        }
     }
 
     #[test]
