@@ -126,7 +126,7 @@ sudo ip netns exec fc0 iptables -t nat -A POSTROUTING -o veth0 \
 # do the reverse operation; rewrites the destination address of packets
 # heading towards the clone address to 192.168.241.2
 sudo ip netns exec fc0 iptables -t nat -A PREROUTING -i veth0 \
--d 192.168.0.3 -j DNAT —to 192.168.241.2
+-d 192.168.0.3 -j DNAT --to 192.168.241.2
 
 # (adds a route on the host for the clone address)
 sudo ip route add 192.168.0.3 via 10.0.0.2
