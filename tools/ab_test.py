@@ -171,7 +171,15 @@ def collect_data(firecracker_binary: Path, jailer_binary: Path, test: str):
     )
 
 
-def analyze_data(processed_emf_a, processed_emf_b, *, n_resamples: int = 9999):
+def analyze_data(
+    processed_emf_a,
+    processed_emf_b,
+    p_thresh,
+    strength_abs_thresh,
+    noise_threshold,
+    *,
+    n_resamples: int = 9999,
+):
     """
     Analyzes the A/B-test data produced by `collect_data`, by performing regression tests
     as described this script's doc-comment.
@@ -213,30 +221,6 @@ def analyze_data(processed_emf_a, processed_emf_b, *, n_resamples: int = 9999):
             metrics_logger.flush()
 
             results[dimension_set, metric] = (result, unit)
-
-    return results
-
-
-def ab_performance_test(
-    a_revision, b_revision, test, p_thresh, strength_abs_thresh, noise_threshold
-):
-    """Does an A/B-test of the specified test across the given revisions"""
-    _, commit_list, _ = utils.run_cmd(
-        f"git --no-pager log --oneline {a_revision}..{b_revision}"
-    )
-    print(
-        f"Performance A/B-test across {a_revision}..{b_revision}. This includes the following commits:"
-    )
-    print(commit_list.strip())
-
-    processed_emf_a, processed_emf_b, results = git_ab_test_with_binaries(
-        lambda firecracker_binary, jailer_binary: collect_data(
-            firecracker_binary, jailer_binary, test
-        ),
-        lambda ah, be: analyze_data(ah, be, n_resamples=int(100 / p_thresh)),
-        a_revision=a_revision,
-        b_revision=b_revision,
-    )
 
     # We sort our A/B-Testing results keyed by metric here. The resulting lists of values
     # will be approximately normal distributed, and we will use this property as a means of error correction.
@@ -322,6 +306,35 @@ def ab_performance_test(
     print("No regressions detected!")
 
 
+def ab_performance_test(
+    a_revision, b_revision, test, p_thresh, strength_abs_thresh, noise_threshold
+):
+    """Does an A/B-test of the specified test across the given revisions"""
+    _, commit_list, _ = utils.run_cmd(
+        f"git --no-pager log --oneline {a_revision}..{b_revision}"
+    )
+    print(
+        f"Performance A/B-test across {a_revision}..{b_revision}. This includes the following commits:"
+    )
+    print(commit_list.strip())
+
+    git_ab_test_with_binaries(
+        lambda firecracker_binary, jailer_binary: collect_data(
+            firecracker_binary, jailer_binary, test
+        ),
+        lambda ah, be: analyze_data(
+            ah,
+            be,
+            p_thresh,
+            strength_abs_thresh,
+            noise_threshold,
+            n_resamples=int(100 / p_thresh),
+        ),
+        a_revision=a_revision,
+        b_revision=b_revision,
+    )
+
+
 def canonicalize_revision(revision):
     """Canonicalizes the given revision to a 40 digit hex SHA"""
     return utils.run_cmd(f"git rev-parse {revision}").stdout.strip()
@@ -393,4 +406,10 @@ if __name__ == "__main__":
         data_a = load_data_series(args.report_a)
         data_b = load_data_series(args.report_b)
 
-        analyze_data(data_a, data_b)
+        analyze_data(
+            data_a,
+            data_b,
+            args.significance,
+            args.absolute_strength,
+            args.noise_threshold,
+        )
