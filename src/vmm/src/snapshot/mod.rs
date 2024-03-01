@@ -30,6 +30,7 @@ mod persist;
 use std::fmt::Debug;
 use std::io::{Read, Write};
 
+use bincode::Options;
 use semver::Version;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -39,6 +40,9 @@ pub use crate::snapshot::persist::Persist;
 
 #[cfg(target_arch = "x86_64")]
 const SNAPSHOT_MAGIC_ID: u64 = 0x0710_1984_8664_0000u64;
+
+/// Constant bounding how much memory bincode may allocate during vmstate file deserialization
+const VM_STATE_DESERIALIZE_LIMIT: u64 = 10_485_760; // 10MiB
 
 #[cfg(target_arch = "aarch64")]
 const SNAPSHOT_MAGIC_ID: u64 = 0x0710_1984_AAAA_0000u64;
@@ -108,7 +112,14 @@ impl Snapshot {
         T: Read,
         O: DeserializeOwned + Debug,
     {
-        bincode::deserialize_from(reader).map_err(|err| Error::Serde(err.to_string()))
+        // flags below are those used by default by bincode::deserialize_from, plus `with_limit`.
+        bincode::DefaultOptions::new()
+            .with_limit(VM_STATE_DESERIALIZE_LIMIT)
+            .with_fixint_encoding()
+            .allow_trailing_bytes() // need this because we deserialize header and snapshot from the same file, so after
+            // reading the header, there will be trailing bytes.
+            .deserialize_from(reader)
+            .map_err(|err| Error::Serde(err.to_string()))
     }
 
     /// Helper function to serialize an object to a writer
