@@ -187,6 +187,8 @@ pub struct BlockDeviceMetrics {
     /// Number of virtio events throttled because of the IO engine.
     /// This happens when the io_uring submission queue is full.
     pub io_engine_throttled_events: SharedIncMetric,
+    /// Number of remaining requests in the queue.
+    pub remaining_reqs_count: SharedIncMetric,
 }
 
 impl BlockDeviceMetrics {
@@ -231,6 +233,8 @@ impl BlockDeviceMetrics {
             .add(other.rate_limiter_throttled_events.fetch_diff());
         self.io_engine_throttled_events
             .add(other.io_engine_throttled_events.fetch_diff());
+        self.remaining_reqs_count
+            .add(other.remaining_reqs_count.fetch_diff());
     }
 }
 
