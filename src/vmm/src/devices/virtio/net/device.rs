@@ -490,6 +490,7 @@ impl Net {
             });
         }
 
+        let _metric = net_metrics.tap_write_agg.record_latency_metrics();
         match Self::write_tap(tap, frame_iovec) {
             Ok(_) => {
                 let len = frame_iovec.len() as u64;
