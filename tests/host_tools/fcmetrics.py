@@ -138,6 +138,7 @@ def validate_fc_metrics(metrics):
             "tx_rate_limiter_event_count",
             "tx_rate_limiter_throttled",
             "tx_spoofed_mac_count",
+            "tx_remaining_reqs_count",
         ],
         "patch_api_requests": [
             "drive_count",
