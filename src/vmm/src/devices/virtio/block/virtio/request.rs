@@ -373,10 +373,12 @@ impl Request {
         let pending = self.to_pending_request(desc_idx);
         let res = match self.r#type {
             RequestType::In => {
+                let _metric = block_metrics.read_agg.record_latency_metrics();
                 disk.file_engine
                     .read(self.offset(), mem, self.data_addr, self.data_len, pending)
             }
             RequestType::Out => {
+                let _metric = block_metrics.write_agg.record_latency_metrics();
                 disk.file_engine
                     .write(self.offset(), mem, self.data_addr, self.data_len, pending)
             }
