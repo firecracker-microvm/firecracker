@@ -85,7 +85,7 @@ use std::sync::{Arc, RwLock};
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
-use crate::logger::{IncMetric, SharedIncMetric};
+use crate::logger::{IncMetric, LatencyAggregateMetrics, SharedIncMetric};
 
 /// map of network interface id and metrics
 /// this should be protected by a lock before accessing.
@@ -107,7 +107,7 @@ impl NetMetricsPerDevice {
                 .write()
                 .unwrap()
                 .metrics
-                .insert(iface_id.clone(), Arc::new(NetDeviceMetrics::default()));
+                .insert(iface_id.clone(), Arc::new(NetDeviceMetrics::new()));
         }
         METRICS
             .read()
@@ -184,6 +184,8 @@ pub struct NetDeviceMetrics {
     pub tap_read_fails: SharedIncMetric,
     /// Number of times writing to TAP failed.
     pub tap_write_fails: SharedIncMetric,
+    /// Duration of all tap write operations.
+    pub tap_write_agg: LatencyAggregateMetrics,
     /// Number of transmitted bytes.
     pub tx_bytes_count: SharedIncMetric,
     /// Number of malformed TX frames.
@@ -207,6 +209,14 @@ pub struct NetDeviceMetrics {
 }
 
 impl NetDeviceMetrics {
+    /// Const default construction.
+    pub fn new() -> Self {
+        Self {
+            tap_write_agg: LatencyAggregateMetrics::new(),
+            ..Default::default()
+        }
+    }
+
     /// Net metrics are SharedIncMetric where the diff of current vs
     /// old is serialized i.e. serialize_u64(current-old).
     /// So to have the aggregate serialized in same way we need to
@@ -239,6 +249,9 @@ impl NetDeviceMetrics {
         self.rx_count.add(other.rx_count.fetch_diff());
         self.tap_read_fails.add(other.tap_read_fails.fetch_diff());
         self.tap_write_fails.add(other.tap_write_fails.fetch_diff());
+        self.tap_write_agg
+            .sum_us
+            .add(other.tap_write_agg.sum_us.fetch_diff());
         self.tx_bytes_count.add(other.tx_bytes_count.fetch_diff());
         self.tx_malformed_frames
             .add(other.tx_malformed_frames.fetch_diff());
