@@ -240,6 +240,9 @@ def validate_fc_metrics(metrics):
             "read_agg",
             "write_agg",
         ],
+        "net": [
+            "tap_write_agg",
+        ],
     }
 
     # validate timestamp before jsonschema validation which some more time
