@@ -17,7 +17,13 @@ and this project adheres to
   be deduced from the available emitted metrics.
 - [#4360](https://github.com/firecracker-microvm/firecracker/pull/4360): Added
   dev-preview support for backing a VM's guest memory by 2M hugetlbfs pages.
-  Please see the [documentation](docs/hugepages.md) for more information.
+  Please see the [documentation](docs/hugepages.md) for more information
+- [#4486](https://github.com/firecracker-microvm/firecracker/pull/4486): Added
+  block and net device metrics for file/tap access latencies and queue backlog
+  lengths, which can be used to analyse saturation of the Firecracker VMM thread
+  and underlying layers. Queue backlog length metrics are flushed periodically.
+  They can be used to esimtate an average queue length by request by dividing
+  its value by the number of requests served.
 
 ### Changed
 
