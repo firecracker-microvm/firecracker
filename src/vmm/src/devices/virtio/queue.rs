@@ -305,7 +305,7 @@ impl Queue {
     }
 
     /// Returns the number of yet-to-be-popped descriptor chains in the avail ring.
-    fn len<M: GuestMemory>(&self, mem: &M) -> u16 {
+    pub fn len<M: GuestMemory>(&self, mem: &M) -> u16 {
         debug_assert!(self.is_layout_valid(mem));
 
         (self.avail_idx(mem) - self.next_avail).0
