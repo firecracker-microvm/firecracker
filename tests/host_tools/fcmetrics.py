@@ -234,7 +234,12 @@ def validate_fc_metrics(metrics):
         ],
     }
 
-    latency_agg_metrics = {}
+    latency_agg_metrics = {
+        "block": [
+            "read_agg",
+            "write_agg",
+        ],
+    }
 
     # validate timestamp before jsonschema validation which some more time
     utc_time = datetime.datetime.now(datetime.timezone.utc)
