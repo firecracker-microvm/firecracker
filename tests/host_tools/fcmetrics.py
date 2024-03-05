@@ -59,6 +59,7 @@ def validate_fc_metrics(metrics):
             "write_count",
             "rate_limiter_throttled_events",
             "io_engine_throttled_events",
+            "remaining_reqs_count",
         ],
         "deprecated_api": [
             "deprecated_http_api_calls",
