@@ -439,7 +439,7 @@ def check_vulnerabilities_files_on_guest(microvm):
     vuln_dir = "/sys/devices/system/cpu/vulnerabilities"
     ecode, stdout, stderr = microvm.ssh.run(f"find {vuln_dir} -type f")
     assert ecode == 0, f"stdout:\n{stdout}\nstderr:\n{stderr}\n"
-    vuln_files = stdout.split("\n")
+    vuln_files = stdout.strip().split("\n")
 
     # Fixtures in this file (test_vulnerabilities.py) add this special field.
     template = microvm.cpu_template
