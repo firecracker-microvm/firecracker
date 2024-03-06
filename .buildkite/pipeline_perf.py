@@ -48,7 +48,7 @@ perf_test = {
     },
     "memory-overhead": {
         "label": "💾 Memory Overhead and 👢 Boottime",
-        "test_path": "'integration_tests/performance/test_memory_overhead.py integration_tests/performance/test_boottime.py::test_boottime'",
+        "test_path": "integration_tests/performance/test_memory_overhead.py integration_tests/performance/test_boottime.py::test_boottime",
         "devtool_opts": "-c 1-10 -m 0",
     },
 }
@@ -71,7 +71,7 @@ def build_group(test):
     pytest_opts = ""
     if REVISION_A:
         devtool_opts += " --ab"
-        pytest_opts = f" {ab_opts} run {REVISION_A} {REVISION_B} --test {test_path}"
+        pytest_opts = f" {ab_opts} run {REVISION_A} {REVISION_B} --test '{test_path}'"
     else:
         # Passing `-m ''` below instructs pytest to collect tests regardless of their markers (e.g. it will collect both tests marked as nonci, and tests without any markers).
         pytest_opts += f" -m '' {test_path}"
