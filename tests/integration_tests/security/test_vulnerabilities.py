@@ -122,6 +122,9 @@ def with_restore(factory, microvm_factory):
 
     def restore(firecracker=None, jailer=None):
         microvm = factory(firecracker, jailer)
+        # Ensure that we have booted before getting the snapshot.
+        rc, _, stderr = microvm.ssh.run("true")
+        assert rc == 0, stderr
         snapshot = microvm.snapshot_full()
 
         if firecracker:
