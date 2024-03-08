@@ -22,7 +22,7 @@ thiserror = "1.0.57"
 vmm = { path = "../vmm" }
 
 [dev-dependencies]
-utils = { path = "../utils" }
+vmm-sys-util = "0.12.1"
 
 [features]
 tracing = ["log-instrument", "vmm/tracing"]

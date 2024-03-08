@@ -397,8 +397,8 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
- "utils",
  "vmm",
+ "vmm-sys-util",
 ]
 
 [[package]]

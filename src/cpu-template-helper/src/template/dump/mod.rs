@@ -32,8 +32,8 @@ pub fn dump(vmm: Arc<Mutex<Vmm>>) -> Result<CustomCpuTemplate, DumpError> {
 
 #[cfg(test)]
 mod tests {
-    use utils::tempfile::TempFile;
     use vmm::utilities::mock_resources::kernel_image_path;
+    use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
     use crate::tests::generate_config;

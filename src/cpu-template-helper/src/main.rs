@@ -195,8 +195,8 @@ fn main() -> Result<(), HelperError> {
 mod tests {
     use std::io::Write;
 
-    use ::utils::tempfile::TempFile;
     use vmm::utilities::mock_resources::kernel_image_path;
+    use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
 
