@@ -4,6 +4,7 @@
 use std::ffi::OsString;
 use std::fmt::Display;
 use std::hash::Hash;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -13,6 +14,7 @@ use vmm::resources::VmResources;
 use vmm::seccomp_filters::get_empty_filters;
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::{EventManager, Vmm, HTTP_MAX_PAYLOAD_SIZE};
+use vmm_sys_util::tempfile::TempFile;
 
 #[cfg(target_arch = "aarch64")]
 pub mod aarch64;
@@ -64,6 +66,40 @@ pub enum UtilsError {
     CreateVmResources(vmm::resources::ResourcesError),
     /// Failed to build microVM: {0}
     BuildMicroVm(#[from] StartMicrovmError),
+    /// Failed to create temporary file: {0}
+    CreateTempFile(#[from] vmm_sys_util::errno::Error),
+    /// Failed to operate file: {0}
+    FileIo(#[from] std::io::Error),
+}
+
+// Utility function to prepare scratch kernel image and rootfs and build mock Firecracker config.
+fn build_mock_config() -> Result<(TempFile, TempFile, String), UtilsError> {
+    let kernel = TempFile::new()?;
+    kernel.as_file().write_all(
+        #[cfg(target_arch = "aarch64")]
+        include_bytes!("mock_kernel/aarch64.bin"),
+        #[cfg(target_arch = "x86_64")]
+        include_bytes!("mock_kernel/x86_64.bin"),
+    )?;
+    let rootfs = TempFile::new()?;
+    let config = format!(
+        r#"{{
+            "boot-source": {{
+                "kernel_image_path": "{}"
+            }},
+            "drives": [
+                {{
+                    "drive_id": "rootfs",
+                    "is_root_device": true,
+                    "path_on_host": "{}"
+                }}
+            ]
+        }}"#,
+        // Temporary file path consists of alphanumerics.
+        kernel.as_path().to_str().unwrap(),
+        rootfs.as_path().to_str().unwrap(),
+    );
+    Ok((kernel, rootfs, config))
 }
 
 pub fn build_microvm_from_config(
@@ -111,6 +147,7 @@ pub fn add_suffix(path: &Path, suffix: &str) -> PathBuf {
 pub mod tests {
     use std::fmt::Display;
 
+    use vmm::resources::VmmConfig;
     use vmm::utilities::mock_resources::kernel_image_path;
     use vmm_sys_util::tempfile::TempFile;
 
@@ -151,6 +188,27 @@ pub mod tests {
     }
 
     pub(crate) use mock_modifier;
+
+    #[test]
+    fn test_build_mock_config() {
+        let kernel_path;
+        let rootfs_path;
+        {
+            let (kernel, rootfs, config) = build_mock_config().unwrap();
+            kernel_path = kernel.as_path().to_path_buf();
+            rootfs_path = rootfs.as_path().to_path_buf();
+
+            // Ensure the kernel exists and its content is written.
+            assert!(kernel.as_file().metadata().unwrap().len() > 0);
+            // Ensure the rootfs exists and it is empty.
+            assert_eq!(rootfs.as_file().metadata().unwrap().len(), 0);
+            // Ensure the generated config is valid as `VmmConfig`.
+            serde_json::from_str::<VmmConfig>(&config).unwrap();
+        }
+        // Ensure the temporary mock resources are deleted.
+        assert!(!kernel_path.exists());
+        assert!(!rootfs_path.exists());
+    }
 
     #[test]
     fn test_build_microvm_from_valid_config() {
