@@ -83,7 +83,7 @@ use std::sync::{Arc, RwLock};
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
-use crate::logger::{IncMetric, SharedIncMetric};
+use crate::logger::{IncMetric, LatencyAggregateMetrics, SharedIncMetric};
 
 /// map of block drive id and metrics
 /// this should be protected by a lock before accessing.
@@ -105,7 +105,7 @@ impl BlockMetricsPerDevice {
                 .write()
                 .unwrap()
                 .metrics
-                .insert(drive_id.clone(), Arc::new(BlockDeviceMetrics::default()));
+                .insert(drive_id.clone(), Arc::new(BlockDeviceMetrics::new()));
         }
         METRICS
             .read()
@@ -178,14 +178,29 @@ pub struct BlockDeviceMetrics {
     pub read_count: SharedIncMetric,
     /// Number of successful write operations.
     pub write_count: SharedIncMetric,
+    /// Duration of all read operations.
+    pub read_agg: LatencyAggregateMetrics,
+    /// Duration of all write operations.
+    pub write_agg: LatencyAggregateMetrics,
     /// Number of rate limiter throttling events.
     pub rate_limiter_throttled_events: SharedIncMetric,
     /// Number of virtio events throttled because of the IO engine.
     /// This happens when the io_uring submission queue is full.
     pub io_engine_throttled_events: SharedIncMetric,
+    /// Number of remaining requests in the queue.
+    pub remaining_reqs_count: SharedIncMetric,
 }
 
 impl BlockDeviceMetrics {
+    /// Const default construction.
+    pub fn new() -> Self {
+        Self {
+            read_agg: LatencyAggregateMetrics::new(),
+            write_agg: LatencyAggregateMetrics::new(),
+            ..Default::default()
+        }
+    }
+
     /// block metrics are SharedIncMetric where the diff of current vs
     /// old is serialized i.e. serialize_u64(current-old).
     /// So to have the aggregate serialized in same way we need to
@@ -210,10 +225,16 @@ impl BlockDeviceMetrics {
         self.write_bytes.add(other.write_bytes.fetch_diff());
         self.read_count.add(other.read_count.fetch_diff());
         self.write_count.add(other.write_count.fetch_diff());
+        self.read_agg.sum_us.add(other.read_agg.sum_us.fetch_diff());
+        self.write_agg
+            .sum_us
+            .add(other.write_agg.sum_us.fetch_diff());
         self.rate_limiter_throttled_events
             .add(other.rate_limiter_throttled_events.fetch_diff());
         self.io_engine_throttled_events
             .add(other.io_engine_throttled_events.fetch_diff());
+        self.remaining_reqs_count
+            .add(other.remaining_reqs_count.fetch_diff());
     }
 }
 

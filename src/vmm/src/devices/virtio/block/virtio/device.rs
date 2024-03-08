@@ -424,6 +424,7 @@ impl VirtioBlock {
         let mut used_any = false;
 
         while let Some(head) = queue.pop_or_enable_notification(mem) {
+            self.metrics.remaining_reqs_count.add(queue.len(mem).into());
             let processing_result = match Request::parse(&head, mem, self.disk.nsectors) {
                 Ok(request) => {
                     if request.rate_limit(&mut self.rate_limiter) {
