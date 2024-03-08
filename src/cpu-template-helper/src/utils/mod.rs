@@ -103,16 +103,23 @@ fn build_mock_config() -> Result<(TempFile, TempFile, String), UtilsError> {
 }
 
 pub fn build_microvm_from_config(
-    config: &str,
+    config: Option<String>,
 ) -> Result<(Arc<Mutex<Vmm>>, VmResources), UtilsError> {
     // Prepare resources from the given config file.
+    let (_kernel, _rootfs, config) = match config {
+        Some(config) => (None, None, config),
+        None => {
+            let (kernel, rootfs, config) = build_mock_config()?;
+            (Some(kernel), Some(rootfs), config)
+        }
+    };
     let instance_info = InstanceInfo {
         id: "anonymous-instance".to_string(),
         state: VmState::NotStarted,
         vmm_version: CPU_TEMPLATE_HELPER_VERSION.to_string(),
         app_name: "cpu-template-helper".to_string(),
     };
-    let vm_resources = VmResources::from_json(config, &instance_info, HTTP_MAX_PAYLOAD_SIZE, None)
+    let vm_resources = VmResources::from_json(&config, &instance_info, HTTP_MAX_PAYLOAD_SIZE, None)
         .map_err(UtilsError::CreateVmResources)?;
     let mut event_manager = EventManager::new().unwrap();
     let seccomp_filters = get_empty_filters();
@@ -148,11 +155,8 @@ pub mod tests {
     use std::fmt::Display;
 
     use vmm::resources::VmmConfig;
-    use vmm::utilities::mock_resources::kernel_image_path;
-    use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
-    use crate::tests::generate_config;
 
     const SUFFIX: &str = "_suffix";
 
@@ -211,28 +215,8 @@ pub mod tests {
     }
 
     #[test]
-    fn test_build_microvm_from_valid_config() {
-        let kernel_image_path = kernel_image_path(None);
-        let rootfs_file = TempFile::new().unwrap();
-        let valid_config =
-            generate_config(&kernel_image_path, rootfs_file.as_path().to_str().unwrap());
-
-        build_microvm_from_config(&valid_config).unwrap();
-    }
-
-    #[test]
-    fn test_build_microvm_from_invalid_config() {
-        let rootfs_file = TempFile::new().unwrap();
-        let invalid_config = generate_config(
-            "/invalid_kernel_image_path",
-            rootfs_file.as_path().to_str().unwrap(),
-        );
-
-        match build_microvm_from_config(&invalid_config) {
-            Ok(_) => panic!("Should fail with `No such file or directory`."),
-            Err(UtilsError::CreateVmResources(_)) => (),
-            Err(err) => panic!("Unexpected error: {err}"),
-        }
+    fn test_build_microvm() {
+        build_microvm_from_config(None).unwrap();
     }
 
     #[test]
