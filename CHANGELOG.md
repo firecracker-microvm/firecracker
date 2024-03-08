@@ -45,6 +45,10 @@ and this project adheres to
   use memfd to back guest memory if a vhost-user-blk device is configured,
   otherwise use anonymous private memory. This is because serving page faults of
   shared memory used by memfd is slower and may impact workloads.
+- [#4492](https://github.com/firecracker-microvm/firecracker/pull/4492): Changed
+  `--config` parameter of `cpu-template-helper` optional. Users no longer need
+  to prepare kernel, rootfs and Firecracker configuration files to use
+  `cpu-template-helper`.
 
 ### Fixed
 

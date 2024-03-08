@@ -16,7 +16,9 @@ This command dumps guest CPU configuration in the custom CPU template JSON
 format.
 
 ```
-cpu-template-helper template dump --config <firecracker-config> --output <cpu-config>
+cpu-template-helper template dump \
+    --output <cpu-config> \
+    [--config <firecracker-config>]
 ```
 
 Users can utilize this as an entry point of a custom CPU template creation to
@@ -68,7 +70,7 @@ This command verifies that the given custom CPU template is applied correctly.
 
 ```
 cpu-template-helper template verify \
-    --config <firecracker-config>
+    [--config <firecracker-config>]
 ```
 
 Firecracker modifies the guest CPU configuration after the CPU template is
@@ -93,8 +95,8 @@ information that could affect the validity of custom CPU templates.
 
 ```
 cpu-template-helper fingerprint dump \
-    --config <firecracker-config> \
-    --output <output-path>
+    --output <output-path> \
+    [--config <firecracker-config>]
 ```
 
 Keeping the underlying hardware and software stack updated is essential for
