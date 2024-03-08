@@ -111,8 +111,8 @@ pub fn add_suffix(path: &Path, suffix: &str) -> PathBuf {
 pub mod tests {
     use std::fmt::Display;
 
-    use utils::tempfile::TempFile;
     use vmm::utilities::mock_resources::kernel_image_path;
+    use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
     use crate::tests::generate_config;
