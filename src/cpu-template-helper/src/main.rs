@@ -84,7 +84,7 @@ enum TemplateOperation {
 enum FingerprintOperation {
     /// Dump fingerprint consisting of host-related information and guest CPU config.
     Dump {
-        /// Path of fingerprint config file.
+        /// Path of firecracker config file.
         #[arg(short, long, value_name = "PATH")]
         config: PathBuf,
         /// Path of output file.
