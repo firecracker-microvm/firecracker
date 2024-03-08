@@ -1,6 +1,6 @@
 {
-  "firecracker_version": "1.7.0-dev",
-  "kernel_version": "4.14.334-252.552.amzn2.x86_64",
+  "firecracker_version": "1.8.0-dev",
+  "kernel_version": "4.14.336-256.559.amzn2.x86_64",
   "microcode_version": "0xd0003b9",
   "bios_version": "1.0",
   "bios_revision": "1.33",
@@ -41,7 +41,7 @@
           },
           {
             "register": "ebx",
-            "bitmap": "0b00000000000000100000100000000000"
+            "bitmap": "0b00000000000000010000100000000000"
           },
           {
             "register": "ecx",
@@ -49,7 +49,7 @@
           },
           {
             "register": "edx",
-            "bitmap": "0b00011111100010111111101111111111"
+            "bitmap": "0b00001111100010111111101111111111"
           }
         ]
       },
@@ -106,7 +106,7 @@
         "modifiers": [
           {
             "register": "eax",
-            "bitmap": "0b00000100000000000000000100100001"
+            "bitmap": "0b00000000000000000000000100100001"
           },
           {
             "register": "ebx",
@@ -129,7 +129,7 @@
         "modifiers": [
           {
             "register": "eax",
-            "bitmap": "0b00000100000000000000000100100010"
+            "bitmap": "0b00000000000000000000000100100010"
           },
           {
             "register": "ebx",
@@ -152,7 +152,7 @@
         "modifiers": [
           {
             "register": "eax",
-            "bitmap": "0b00000100000000000000000101000011"
+            "bitmap": "0b00000000000000000000000101000011"
           },
           {
             "register": "ebx",
@@ -175,7 +175,7 @@
         "modifiers": [
           {
             "register": "eax",
-            "bitmap": "0b00000100000000000100000101100011"
+            "bitmap": "0b00000000000000000000000101100011"
           },
           {
             "register": "ebx",
@@ -386,7 +386,7 @@
           },
           {
             "register": "ebx",
-            "bitmap": "0b00000000000000000000000000000010"
+            "bitmap": "0b00000000000000000000000000000001"
           },
           {
             "register": "ecx",
