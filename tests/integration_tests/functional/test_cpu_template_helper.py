@@ -372,37 +372,15 @@ def test_json_static_templates(cpu_template_helper, tmp_path, custom_cpu_templat
     cpu_template_helper.template_verify(custom_cpu_template_path)
 
 
-def test_consecutive_cpu_config_consistency(cpu_template_helper, tmp_path):
+def test_consecutive_fingerprint_consistency(cpu_template_helper, tmp_path):
     """
-    Verify that two dumped guest CPU configs obtained consecutively are
-    consistent. The dumped guest CPU config should not change without
-    any environmental changes (firecracker, kernel, microcode updates).
+    Verify that two fingerprints obtained consecutively are consistent.
     """
-    # Dump CPU config with the helper tool.
-    cpu_config_1 = tmp_path / "cpu_config_1.json"
-    cpu_template_helper.template_dump(cpu_config_1)
-    cpu_config_2 = tmp_path / "cpu_config_2.json"
-    cpu_template_helper.template_dump(cpu_config_2)
+    # Dump a fingerprint with the helper tool.
+    fp1 = tmp_path / "fp1.json"
+    cpu_template_helper.fingerprint_dump(fp1)
+    fp2 = tmp_path / "fp2.json"
+    cpu_template_helper.fingerprint_dump(fp2)
 
-    # Strip common entries.
-    cpu_template_helper.template_strip([cpu_config_1, cpu_config_2])
-
-    config_1 = json.loads(cpu_config_1.read_text(encoding="utf-8"))
-    config_2 = json.loads(cpu_config_2.read_text(encoding="utf-8"))
-
-    # Check the stripped result is empty.
-    if PLATFORM == "x86_64":
-        empty_cpu_config = {
-            "cpuid_modifiers": [],
-            "kvm_capabilities": [],
-            "msr_modifiers": [],
-        }
-    elif PLATFORM == "aarch64":
-        empty_cpu_config = {
-            "kvm_capabilities": [],
-            "reg_modifiers": [],
-            "vcpu_features": [],
-        }
-
-    assert config_1 == empty_cpu_config
-    assert config_2 == empty_cpu_config
+    # Compare them.
+    cpu_template_helper.fingerprint_compare(fp1, fp2, None)
