@@ -37,7 +37,7 @@ mod tests {
 
     #[test]
     fn test_dump() {
-        let (vmm, _) = build_microvm_from_config(None).unwrap();
+        let (vmm, _) = build_microvm_from_config(None, None).unwrap();
         dump(vmm).unwrap();
     }
 }
