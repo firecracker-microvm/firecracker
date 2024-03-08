@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use vmm::builder::{build_microvm_for_boot, StartMicrovmError};
-use vmm::cpu_config::templates::Numeric;
+use vmm::cpu_config::templates::{CustomCpuTemplate, Numeric};
 use vmm::resources::VmResources;
 use vmm::seccomp_filters::get_empty_filters;
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
@@ -104,6 +104,7 @@ fn build_mock_config() -> Result<(TempFile, TempFile, String), UtilsError> {
 
 pub fn build_microvm_from_config(
     config: Option<String>,
+    template: Option<CustomCpuTemplate>,
 ) -> Result<(Arc<Mutex<Vmm>>, VmResources), UtilsError> {
     // Prepare resources from the given config file.
     let (_kernel, _rootfs, config) = match config {
@@ -119,8 +120,12 @@ pub fn build_microvm_from_config(
         vmm_version: CPU_TEMPLATE_HELPER_VERSION.to_string(),
         app_name: "cpu-template-helper".to_string(),
     };
-    let vm_resources = VmResources::from_json(&config, &instance_info, HTTP_MAX_PAYLOAD_SIZE, None)
-        .map_err(UtilsError::CreateVmResources)?;
+    let mut vm_resources =
+        VmResources::from_json(&config, &instance_info, HTTP_MAX_PAYLOAD_SIZE, None)
+            .map_err(UtilsError::CreateVmResources)?;
+    if let Some(template) = template {
+        vm_resources.set_custom_cpu_template(template);
+    }
     let mut event_manager = EventManager::new().unwrap();
     let seccomp_filters = get_empty_filters();
 
@@ -216,7 +221,7 @@ pub mod tests {
 
     #[test]
     fn test_build_microvm() {
-        build_microvm_from_config(None).unwrap();
+        build_microvm_from_config(None, None).unwrap();
     }
 
     #[test]
