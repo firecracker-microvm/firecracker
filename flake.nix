@@ -30,6 +30,7 @@
           '';
 
           buildInputs = [
+            cmake
             openssl
             pkg-config
             rust-bin.stable.latest.default
