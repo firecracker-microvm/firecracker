@@ -5,7 +5,7 @@ use std::fs::{read_to_string, write};
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
-use vmm::cpu_config::templates::{CustomCpuTemplate, GetCpuTemplate, GetCpuTemplateError};
+use vmm::cpu_config::templates::{GetCpuTemplate, GetCpuTemplateError};
 
 use crate::utils::UtilsError;
 
@@ -127,7 +127,7 @@ fn run(cli: Cli) -> Result<(), HelperError> {
                 let mut templates = Vec::with_capacity(paths.len());
                 for path in &paths {
                     let template_json = read_to_string(path)?;
-                    let template: CustomCpuTemplate = serde_json::from_str(&template_json)?;
+                    let template = serde_json::from_str(&template_json)?;
                     templates.push(template);
                 }
 
@@ -169,9 +169,9 @@ fn run(cli: Cli) -> Result<(), HelperError> {
                 filters,
             } => {
                 let prev_json = read_to_string(prev)?;
-                let prev: fingerprint::Fingerprint = serde_json::from_str(&prev_json)?;
+                let prev = serde_json::from_str(&prev_json)?;
                 let curr_json = read_to_string(curr)?;
-                let curr: fingerprint::Fingerprint = serde_json::from_str(&curr_json)?;
+                let curr = serde_json::from_str(&curr_json)?;
                 fingerprint::compare::compare(prev, curr, filters)?;
             }
         },
