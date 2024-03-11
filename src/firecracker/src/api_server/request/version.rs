@@ -4,9 +4,9 @@
 use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
 
-use super::super::parsed_request::{Error, ParsedRequest};
+use super::super::parsed_request::{ParsedRequest, RequestError};
 
-pub(crate) fn parse_get_version() -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_get_version() -> Result<ParsedRequest, RequestError> {
     METRICS.get_api_requests.vmm_version_count.inc();
     Ok(ParsedRequest::new_sync(VmmAction::GetVmmVersion))
 }

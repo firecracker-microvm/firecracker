@@ -13,8 +13,8 @@ use std::num::NonZeroUsize;
 use micro_http::{Request, Response};
 
 use crate::dumbo::pdu::bytes::NetworkBytes;
-use crate::dumbo::pdu::ipv4::{Error as IPv4PacketError, IPv4Packet, PROTOCOL_TCP};
-use crate::dumbo::pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
+use crate::dumbo::pdu::ipv4::{IPv4Packet, Ipv4Error as IPv4PacketError, PROTOCOL_TCP};
+use crate::dumbo::pdu::tcp::{Flags as TcpFlags, TcpError as TcpSegmentError, TcpSegment};
 use crate::dumbo::tcp::endpoint::Endpoint;
 use crate::dumbo::tcp::{NextSegmentStatus, RstConfig};
 

@@ -11,7 +11,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{exit, id, Command, Stdio};
 use std::{fmt, io};
 
-use utils::arg_parser::Error::MissingValue;
+use utils::arg_parser::UtilsArgParserError::MissingValue;
 use utils::syscall::SyscallReturnCode;
 use utils::{arg_parser, validators};
 

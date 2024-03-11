@@ -30,7 +30,7 @@ const IPV4_MAX_UDP_PACKET_SIZE: u16 = 65507;
 
 /// Represents errors which may occur while parsing or writing a datagram.
 #[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
-pub enum Error {
+pub enum UdpError {
     /// Invalid checksum.
     Checksum,
     /// The specified byte sequence is shorter than the Ethernet header length.
@@ -66,9 +66,9 @@ impl<'a, T: NetworkBytes + Debug> UdpDatagram<'a, T> {
     pub fn from_bytes(
         bytes: T,
         verify_checksum: Option<(Ipv4Addr, Ipv4Addr)>,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, UdpError> {
         if bytes.len() < UDP_HEADER_SIZE {
-            return Err(Error::DatagramTooShort);
+            return Err(UdpError::DatagramTooShort);
         }
 
         let datagram = UdpDatagram::from_bytes_unchecked(bytes);
@@ -77,7 +77,7 @@ impl<'a, T: NetworkBytes + Debug> UdpDatagram<'a, T> {
             // requires that a computed checksum of 0 is transmitted as all ones value, we're
             // checking against 0xffff not 0
             if datagram.checksum() != 0 && datagram.compute_checksum(src_addr, dst_addr) != 0xffff {
-                return Err(Error::Checksum);
+                return Err(UdpError::Checksum);
             }
         }
 
@@ -131,13 +131,13 @@ impl<'a, T: NetworkBytesMut + Debug> UdpDatagram<'a, T> {
     /// * `buf` - A buffer containing `NetworkBytesMut` representing a datagram.
     /// * `payload` - Datagram payload.
     #[inline]
-    pub fn write_incomplete_datagram(buf: T, payload: &[u8]) -> Result<Incomplete<Self>, Error> {
+    pub fn write_incomplete_datagram(buf: T, payload: &[u8]) -> Result<Incomplete<Self>, UdpError> {
         let mut packet = UdpDatagram::from_bytes(buf, None)?;
         let len = payload.len() + UDP_HEADER_SIZE;
 
         let len = match u16::try_from(len) {
             Ok(len) if len <= IPV4_MAX_UDP_PACKET_SIZE => len,
-            _ => return Err(Error::PayloadTooBig),
+            _ => return Err(UdpError::PayloadTooBig),
         };
 
         packet.bytes.shrink_unchecked(len.into());
@@ -253,13 +253,13 @@ mod tests {
 
         assert_eq!(
             UdpDatagram::write_incomplete_datagram(raw.as_mut(), &huge_payload).unwrap_err(),
-            Error::PayloadTooBig
+            UdpError::PayloadTooBig
         );
 
         let mut short_header = [0u8; UDP_HEADER_SIZE - 1];
         assert_eq!(
             UdpDatagram::from_bytes(short_header.as_mut(), None).unwrap_err(),
-            Error::DatagramTooShort
+            UdpError::DatagramTooShort
         )
     }
 
@@ -289,7 +289,7 @@ mod tests {
         let _ =
             UdpDatagram::from_bytes_unchecked(a.as_mut()).set_checksum(checksum.wrapping_add(1));
         let p_err = UdpDatagram::from_bytes(a.as_mut(), Some((src_addr, dst_addr))).unwrap_err();
-        assert_eq!(p_err, Error::Checksum);
+        assert_eq!(p_err, UdpError::Checksum);
     }
 
     #[test]

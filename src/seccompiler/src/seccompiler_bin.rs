@@ -48,7 +48,9 @@ use bincode::Error as BincodeError;
 use common::BpfProgram;
 use compiler::{CompilationError, Compiler, JsonFile};
 use serde_json::error::Error as JSONError;
-use utils::arg_parser::{ArgParser, Argument, Arguments as ArgumentsBag, Error as ArgParserError};
+use utils::arg_parser::{
+    ArgParser, Argument, Arguments as ArgumentsBag, UtilsArgParserError as ArgParserError,
+};
 
 const SECCOMPILER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEFAULT_OUTPUT_FILENAME: &str = "seccomp_binary_filter.out";

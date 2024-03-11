@@ -5,19 +5,19 @@ use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
 use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
 
-use super::super::parsed_request::{checked_id, Error, ParsedRequest};
+use super::super::parsed_request::{checked_id, ParsedRequest, RequestError};
 use super::{Body, StatusCode};
 
 pub(crate) fn parse_put_net(
     body: &Body,
     id_from_path: Option<&str>,
-) -> Result<ParsedRequest, Error> {
+) -> Result<ParsedRequest, RequestError> {
     METRICS.put_api_requests.network_count.inc();
     let id = if let Some(id) = id_from_path {
         checked_id(id)?
     } else {
         METRICS.put_api_requests.network_fails.inc();
-        return Err(Error::EmptyID);
+        return Err(RequestError::EmptyID);
     };
 
     let netif = serde_json::from_slice::<NetworkInterfaceConfig>(body.raw()).map_err(|err| {
@@ -26,7 +26,7 @@ pub(crate) fn parse_put_net(
     })?;
     if id != netif.iface_id.as_str() {
         METRICS.put_api_requests.network_fails.inc();
-        return Err(Error::Generic(
+        return Err(RequestError::Generic(
             StatusCode::BadRequest,
             format!(
                 "The id from the path [{}] does not match the id from the body [{}]!",
@@ -43,13 +43,13 @@ pub(crate) fn parse_put_net(
 pub(crate) fn parse_patch_net(
     body: &Body,
     id_from_path: Option<&str>,
-) -> Result<ParsedRequest, Error> {
+) -> Result<ParsedRequest, RequestError> {
     METRICS.patch_api_requests.network_count.inc();
     let id = if let Some(id) = id_from_path {
         checked_id(id)?
     } else {
         METRICS.patch_api_requests.network_count.inc();
-        return Err(Error::EmptyID);
+        return Err(RequestError::EmptyID);
     };
 
     let netif =
@@ -59,7 +59,7 @@ pub(crate) fn parse_patch_net(
         })?;
     if id != netif.iface_id {
         METRICS.patch_api_requests.network_count.inc();
-        return Err(Error::Generic(
+        return Err(RequestError::Generic(
             StatusCode::BadRequest,
             format!(
                 "The id from the path [{}] does not match the id from the body [{}]!",

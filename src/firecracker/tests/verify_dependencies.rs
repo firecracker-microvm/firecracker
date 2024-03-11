@@ -62,10 +62,16 @@ fn violating_dependencies_of_cargo_toml<T: AsRef<Path> + Debug>(
 ///
 /// The iterator produces tuples of the form (violating dependency, specified version)
 fn violating_dependencies_of_depsset(depsset: DepsSet) -> impl Iterator<Item = (String, String)> {
-    depsset.into_iter().filter_map(|(name, dependency)| {
-        match dependency {
-            Dependency::Simple(version) => Some((name, version)), // dependencies specified as `libc = "0.2.117"`
-            Dependency::Detailed(dependency_detail) => dependency_detail.version.map(|version| (name, version)), // dependencies specified without version, such as `libc = {path = "../libc"}
-            _ => None
-        }}).filter(|(_, version)| !Regex::new(r"^=?\d*\.\d*\.\d*$").unwrap().is_match(version))
+    depsset
+        .into_iter()
+        .filter_map(|(name, dependency)| {
+            match dependency {
+                Dependency::Simple(version) => Some((name, version)), // dependencies specified as `libc = "0.2.117"`
+                Dependency::Detailed(dependency_detail) => {
+                    dependency_detail.version.map(|version| (name, version))
+                } // dependencies specified without version, such as `libc = {path = "../libc"}
+                _ => None,
+            }
+        })
+        .filter(|(_, version)| !Regex::new(r"^=?\d*\.\d*\.\d*$").unwrap().is_match(version))
 }

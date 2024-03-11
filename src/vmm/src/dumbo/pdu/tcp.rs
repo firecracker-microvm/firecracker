@@ -74,7 +74,7 @@ bitflags! {
 
 /// Describes the errors which may occur while handling TCP segments.
 #[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
-pub enum Error {
+pub enum TcpError {
     /// Invalid checksum.
     Checksum,
     /// A payload has been specified for the segment, but the maximum readable length is 0.
@@ -228,7 +228,7 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
     pub fn parse_mss_option_unchecked(
         &self,
         header_len: usize,
-    ) -> Result<Option<NonZeroU16>, Error> {
+    ) -> Result<Option<NonZeroU16>, TcpError> {
         let b = self.options_unchecked(header_len);
         let mut i = 0;
 
@@ -251,7 +251,7 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
                     // options present (which would be super wrong). Should we be super strict?
                     let mss = b.ntohs_unchecked(i + 2);
                     if mss < MSS_MIN {
-                        return Err(Error::MssOption);
+                        return Err(TcpError::MssOption);
                     }
                     // The unwarp() is safe because mms >= MSS_MIN at this point.
                     return Ok(Some(NonZeroU16::new(mss).unwrap()));
@@ -287,9 +287,9 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
     pub fn from_bytes(
         bytes: T,
         verify_checksum: Option<(Ipv4Addr, Ipv4Addr)>,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, TcpError> {
         if bytes.len() < usize::from(OPTIONS_OFFSET) {
-            return Err(Error::SliceTooShort);
+            return Err(TcpError::SliceTooShort);
         }
 
         let segment = Self::from_bytes_unchecked(bytes);
@@ -301,12 +301,12 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
         if header_len < OPTIONS_OFFSET
             || u16::from(header_len) > min(u16::from(MAX_HEADER_LEN), segment.len())
         {
-            return Err(Error::HeaderLen);
+            return Err(TcpError::HeaderLen);
         }
 
         if let Some((src_addr, dst_addr)) = verify_checksum {
             if segment.compute_checksum(src_addr, dst_addr) != 0 {
-                return Err(Error::Checksum);
+                return Err(TcpError::Checksum);
             }
         }
 
@@ -435,7 +435,7 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
         mss_remaining: u16,
         payload: Option<(&R, usize)>,
         compute_checksum: Option<(Ipv4Addr, Ipv4Addr)>,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, TcpError> {
         Ok(Self::write_incomplete_segment(
             buf,
             seq_number,
@@ -483,7 +483,7 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
         mss_option: Option<u16>,
         mss_remaining: u16,
         payload: Option<(&R, usize)>,
-    ) -> Result<Incomplete<Self>, Error> {
+    ) -> Result<Incomplete<Self>, TcpError> {
         let mut mss_left = mss_remaining;
 
         // We're going to need at least this many bytes.
@@ -493,7 +493,7 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
         let options_len = if mss_option.is_some() {
             mss_left = mss_left
                 .checked_sub(OPTION_LEN_MSS.into())
-                .ok_or(Error::MssRemaining)?;
+                .ok_or(TcpError::MssRemaining)?;
             OPTION_LEN_MSS
         } else {
             0
@@ -502,7 +502,7 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
         segment_len += u16::from(options_len);
 
         if buf.len() < usize::from(segment_len) {
-            return Err(Error::SliceTooShort);
+            return Err(TcpError::SliceTooShort);
         }
 
         // The unchecked call is safe because buf.len() >= segment_len.
@@ -536,7 +536,7 @@ impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
                 u16::try_from(min(usize::from(room_for_payload), left_to_read)).unwrap();
 
             if room_for_payload == 0 {
-                return Err(Error::EmptyPayload);
+                return Err(TcpError::EmptyPayload);
             }
 
             // Copy `room_for_payload` bytes into `payload_buf` using `offset=0`.
@@ -744,7 +744,7 @@ mod tests {
         }
 
         // Just a helper closure.
-        let look_for_error = |buf: &[u8], err: Error| {
+        let look_for_error = |buf: &[u8], err: TcpError| {
             assert_eq!(
                 TcpSegment::from_bytes(buf, Some((src_addr, dst_addr))).unwrap_err(),
                 err
@@ -753,11 +753,11 @@ mod tests {
 
         // Header length too short.
         p(a.as_mut()).set_header_len_rsvd_ns(OPTIONS_OFFSET.checked_sub(1).unwrap(), false);
-        look_for_error(a.as_ref(), Error::HeaderLen);
+        look_for_error(a.as_ref(), TcpError::HeaderLen);
 
         // Header length too large.
         p(a.as_mut()).set_header_len_rsvd_ns(MAX_HEADER_LEN.checked_add(4).unwrap(), false);
-        look_for_error(a.as_ref(), Error::HeaderLen);
+        look_for_error(a.as_ref(), TcpError::HeaderLen);
 
         // The previously set checksum should be valid.
         assert_eq!(
@@ -770,11 +770,11 @@ mod tests {
         // Let's make it invalid.
         let checksum = p(a.as_mut()).checksum();
         p(a.as_mut()).set_checksum(checksum.wrapping_add(1));
-        look_for_error(a.as_ref(), Error::Checksum);
+        look_for_error(a.as_ref(), TcpError::Checksum);
 
         // Now we use a very small buffer.
         let mut small_buf = [0u8; 1];
-        look_for_error(small_buf.as_ref(), Error::SliceTooShort);
+        look_for_error(small_buf.as_ref(), TcpError::SliceTooShort);
 
         assert_eq!(
             TcpSegment::write_segment(
@@ -791,7 +791,7 @@ mod tests {
                 Some((src_addr, dst_addr)),
             )
             .unwrap_err(),
-            Error::SliceTooShort
+            TcpError::SliceTooShort
         );
 
         // Make sure we get the proper error for an insufficient value of mss_remaining.
@@ -810,7 +810,7 @@ mod tests {
                 Some((src_addr, dst_addr)),
             )
             .unwrap_err(),
-            Error::MssRemaining
+            TcpError::MssRemaining
         );
     }
 }

@@ -6,7 +6,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom};
 use std::os::unix::io::AsRawFd;
 
-use utils::arg_parser::{ArgParser, Argument, Arguments, Error as ArgError};
+use utils::arg_parser::{ArgParser, Argument, Arguments, UtilsArgParserError as ArgError};
 use utils::seek_hole::SeekHole;
 use utils::u64_to_usize;
 

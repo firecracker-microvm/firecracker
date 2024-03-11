@@ -47,7 +47,7 @@ pub enum ResourcesError {
     /// Metrics error: {0}
     Metrics(#[from] MetricsConfigError),
     /// MMDS error: {0}
-    Mmds(#[from] mmds::data_store::Error),
+    Mmds(#[from] mmds::data_store::MmdsDatastoreError),
     /// MMDS config error: {0}
     MmdsConfig(#[from] MmdsConfigError),
     /// Network device error: {0}
