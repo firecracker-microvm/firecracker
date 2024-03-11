@@ -59,6 +59,7 @@ def validate_fc_metrics(metrics):
             "write_count",
             "rate_limiter_throttled_events",
             "io_engine_throttled_events",
+            "remaining_reqs_count",
         ],
         "deprecated_api": [
             "deprecated_http_api_calls",
@@ -137,6 +138,7 @@ def validate_fc_metrics(metrics):
             "tx_rate_limiter_event_count",
             "tx_rate_limiter_throttled",
             "tx_spoofed_mac_count",
+            "tx_remaining_reqs_count",
         ],
         "patch_api_requests": [
             "drive_count",
@@ -234,6 +236,16 @@ def validate_fc_metrics(metrics):
         ],
     }
 
+    latency_agg_metrics = {
+        "block": [
+            "read_agg",
+            "write_agg",
+        ],
+        "net": [
+            "tap_write_agg",
+        ],
+    }
+
     # validate timestamp before jsonschema validation which some more time
     utc_time = datetime.datetime.now(datetime.timezone.utc)
     utc_timestamp_ms = math.floor(utc_time.timestamp() * 1000)
@@ -277,7 +289,14 @@ def validate_fc_metrics(metrics):
             "properties": {},
         }
         for metrics_field in metrics_fields:
-            metrics_schema["properties"][metrics_field] = {"type": "number"}
+            if (
+                metrics_name in latency_agg_metrics
+                and metrics_field in latency_agg_metrics[metrics_name]
+            ):
+                metrics_type = "object"
+            else:
+                metrics_type = "number"
+            metrics_schema["properties"][metrics_field] = {"type": metrics_type}
         firecracker_metrics_schema["properties"][metrics_name] = metrics_schema
         firecracker_metrics_schema["required"].append(metrics_name)
 
@@ -351,9 +370,21 @@ class FcDeviceMetrics:
             ):
                 actual_num_devices += 1
                 for metrics_name, metric_value in component_metric_values.items():
-                    if metrics_name not in metrics_calculated:
-                        metrics_calculated[metrics_name] = 0
-                    metrics_calculated[metrics_name] += metric_value
+                    if isinstance(metric_value, int):
+                        if metrics_name not in metrics_calculated:
+                            metrics_calculated[metrics_name] = 0
+                        metrics_calculated[metrics_name] += metric_value
+                    elif isinstance(metric_value, dict):
+                        # this is for LatencyAggregateMetrics metrics type
+                        if metrics_name not in metrics_calculated:
+                            metrics_calculated[metrics_name] = {
+                                "min_us": 0,
+                                "max_us": 0,
+                                "sum_us": 0,
+                            }
+                        metrics_calculated[metrics_name]["sum_us"] += metric_value[
+                            "sum_us"
+                        ]
 
         assert self.num_dev == actual_num_devices
         if self.aggr_supported:
