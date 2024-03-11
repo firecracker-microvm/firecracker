@@ -11,7 +11,7 @@ use kvm_ioctls::*;
 use serde::{Deserialize, Serialize};
 
 use crate::arch::aarch64::regs::{
-    Aarch64RegisterVec, KVM_REG_ARM64_SVE_VLS, KVM_REG_ARM_TIMER_CNT, PC,
+    Aarch64RegisterVec, KVM_REG_ARM64_SVE_VLS, PC, SYS_CNTV_CVAL_EL0,
 };
 use crate::arch::aarch64::vcpu::{
     get_all_registers, get_all_registers_ids, get_mpidr, get_mpstate, get_registers, set_mpstate,
@@ -222,14 +222,13 @@ impl KvmVcpu {
     pub fn dump_cpu_config(&self) -> Result<CpuConfiguration, KvmVcpuError> {
         let mut reg_list = get_all_registers_ids(&self.fd).map_err(KvmVcpuError::DumpCpuConfig)?;
 
-        // KVM_REG_ARM_TIMER_CNT should be removed, because it depends on the elapsed time and
-        // the dumped CPU config is used to create custom CPU templates to modify CPU features
-        // exposed to guests or ot detect CPU configuration changes caused by firecracker/KVM/
-        // BIOS.
+        // SYS_CNTV_CVAL_EL0 should be removed, because it depends on the elapsed time and the
+        // dumped CPU config is used to create custom CPU templates to modify CPU features exposed
+        // to guests or ot detect CPU configuration changes caused by firecracker/KVM/BIOS.
         // The value of program counter (PC) is determined by the given kernel image. It should not
         // be overwritten by a custom CPU template and does not need to be tracked in a fingerprint
         // file.
-        reg_list.retain(|&reg_id| reg_id != KVM_REG_ARM_TIMER_CNT && reg_id != PC);
+        reg_list.retain(|&reg_id| reg_id != SYS_CNTV_CVAL_EL0 && reg_id != PC);
 
         let mut regs = Aarch64RegisterVec::default();
         get_registers(&self.fd, &reg_list, &mut regs).map_err(KvmVcpuError::DumpCpuConfig)?;
