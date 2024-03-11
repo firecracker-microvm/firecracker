@@ -111,6 +111,11 @@ arm64_sys_reg!(ID_AA64MMFR2_EL1, 3, 0, 0, 7, 2);
 // https://elixir.bootlin.com/linux/v6.8/source/arch/arm64/include/asm/sysreg.h#L468
 arm64_sys_reg!(SYS_CNTV_CVAL_EL0, 3, 3, 14, 3, 2);
 
+// Counter-timer Physical Count Register
+// https://developer.arm.com/documentation/ddi0601/2023-12/AArch64-Registers/CNTPCT-EL0--Counter-timer-Physical-Count-Register
+// https://elixir.bootlin.com/linux/v6.8/source/arch/arm64/include/asm/sysreg.h#L459
+arm64_sys_reg!(SYS_CNTPCT_EL0, 3, 3, 14, 0, 1);
+
 /// Vector lengths pseudo-register
 /// TODO: this can be removed after https://github.com/rust-vmm/kvm-bindings/pull/89
 /// is merged and new version is used in Firecracker.
