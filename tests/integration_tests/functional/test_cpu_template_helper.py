@@ -449,16 +449,6 @@ def test_consecutive_cpu_config_consistency(uvm_plain, cpu_template_helper, tmp_
             "msr_modifiers": [],
         }
     elif PLATFORM == "aarch64":
-        # 0x603000000013df01 -> CNTPCT_EL0
-        ignore_registers = ["0x603000000013df01"]
-
-        config_1["reg_modifiers"] = [
-            rm for rm in config_1["reg_modifiers"] if rm["addr"] not in ignore_registers
-        ]
-        config_2["reg_modifiers"] = [
-            rm for rm in config_2["reg_modifiers"] if rm["addr"] not in ignore_registers
-        ]
-
         empty_cpu_config = {
             "kvm_capabilities": [],
             "reg_modifiers": [],
