@@ -106,8 +106,10 @@ arm64_sys_reg!(ID_AA64ISAR0_EL1, 3, 0, 0, 6, 0);
 arm64_sys_reg!(ID_AA64ISAR1_EL1, 3, 0, 0, 6, 1);
 arm64_sys_reg!(ID_AA64MMFR2_EL1, 3, 0, 0, 7, 2);
 
-// EL0 Virtual Timer Registers
-arm64_sys_reg!(KVM_REG_ARM_TIMER_CNT, 3, 3, 14, 3, 2);
+// Counter-timer Virtual Timer CompareValue register.
+// https://developer.arm.com/documentation/ddi0595/2021-12/AArch64-Registers/CNTV-CVAL-EL0--Counter-timer-Virtual-Timer-CompareValue-register
+// https://elixir.bootlin.com/linux/v6.8/source/arch/arm64/include/asm/sysreg.h#L468
+arm64_sys_reg!(SYS_CNTV_CVAL_EL0, 3, 3, 14, 3, 2);
 
 /// Vector lengths pseudo-register
 /// TODO: this can be removed after https://github.com/rust-vmm/kvm-bindings/pull/89
