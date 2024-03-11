@@ -49,7 +49,7 @@ const SNAPSHOT_MAGIC_ID: u64 = 0x0710_1984_AAAA_0000u64;
 
 /// Error definitions for the Snapshot API.
 #[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq)]
-pub enum Error {
+pub enum SnapshotError {
     /// CRC64 validation failed: {0}
     Crc64(u64),
     /// Invalid data version: {0}
@@ -98,7 +98,7 @@ impl Snapshot {
     }
 
     /// Fetches snapshot data version.
-    pub fn get_format_version<T>(reader: &mut T) -> Result<Version, Error>
+    pub fn get_format_version<T>(reader: &mut T) -> Result<Version, SnapshotError>
     where
         T: Read + Debug,
     {
@@ -107,7 +107,7 @@ impl Snapshot {
     }
 
     /// Helper function to deserialize an object from a reader
-    pub fn deserialize<T, O>(reader: &mut T) -> Result<O, Error>
+    pub fn deserialize<T, O>(reader: &mut T) -> Result<O, SnapshotError>
     where
         T: Read,
         O: DeserializeOwned + Debug,
@@ -119,29 +119,29 @@ impl Snapshot {
             .allow_trailing_bytes() // need this because we deserialize header and snapshot from the same file, so after
             // reading the header, there will be trailing bytes.
             .deserialize_from(reader)
-            .map_err(|err| Error::Serde(err.to_string()))
+            .map_err(|err| SnapshotError::Serde(err.to_string()))
     }
 
     /// Helper function to serialize an object to a writer
-    pub fn serialize<T, O>(writer: &mut T, data: &O) -> Result<(), Error>
+    pub fn serialize<T, O>(writer: &mut T, data: &O) -> Result<(), SnapshotError>
     where
         T: Write,
         O: Serialize + Debug,
     {
-        bincode::serialize_into(writer, data).map_err(|err| Error::Serde(err.to_string()))
+        bincode::serialize_into(writer, data).map_err(|err| SnapshotError::Serde(err.to_string()))
     }
 
     /// Attempts to load an existing snapshot without performing CRC or version validation.
     ///
     /// This will check that the snapshot magic value is correct.
-    fn unchecked_load<T, O>(reader: &mut T) -> Result<(O, Version), Error>
+    fn unchecked_load<T, O>(reader: &mut T) -> Result<(O, Version), SnapshotError>
     where
         T: Read + Debug,
         O: DeserializeOwned + Debug,
     {
         let hdr: SnapshotHdr = Self::deserialize(reader)?;
         if hdr.magic != SNAPSHOT_MAGIC_ID {
-            return Err(Error::InvalidMagic(hdr.magic));
+            return Err(SnapshotError::InvalidMagic(hdr.magic));
         }
 
         let data: O = Self::deserialize(reader)?;
@@ -149,7 +149,7 @@ impl Snapshot {
     }
 
     /// Load a snapshot from a reader and validate its CRC
-    pub fn load<T, O>(reader: &mut T, snapshot_len: usize) -> Result<(O, Version), Error>
+    pub fn load<T, O>(reader: &mut T, snapshot_len: usize) -> Result<(O, Version), SnapshotError>
     where
         T: Read + Debug,
         O: DeserializeOwned + Debug,
@@ -159,13 +159,13 @@ impl Snapshot {
         // Fail-fast if the snapshot length is too small
         let raw_snapshot_len = snapshot_len
             .checked_sub(std::mem::size_of::<u64>())
-            .ok_or(Error::InvalidSnapshotSize)?;
+            .ok_or(SnapshotError::InvalidSnapshotSize)?;
 
         // Read everything apart from the CRC.
         let mut snapshot = vec![0u8; raw_snapshot_len];
         crc_reader
             .read_exact(&mut snapshot)
-            .map_err(|ref err| Error::Io(err.raw_os_error().unwrap_or(libc::EINVAL)))?;
+            .map_err(|ref err| SnapshotError::Io(err.raw_os_error().unwrap_or(libc::EINVAL)))?;
 
         // Since the reader updates the checksum as bytes ar being read from it, the order of these
         // 2 statements is important, we first get the checksum computed on the read bytes
@@ -173,7 +173,7 @@ impl Snapshot {
         let computed_checksum = crc_reader.checksum();
         let stored_checksum: u64 = Self::deserialize(&mut crc_reader)?;
         if computed_checksum != stored_checksum {
-            return Err(Error::Crc64(computed_checksum));
+            return Err(SnapshotError::Crc64(computed_checksum));
         }
 
         let mut snapshot_slice: &[u8] = snapshot.as_mut_slice();
@@ -185,21 +185,21 @@ impl Snapshot {
         &self,
         reader: &mut T,
         snapshot_len: usize,
-    ) -> Result<O, Error>
+    ) -> Result<O, SnapshotError>
     where
         T: Read + Debug,
         O: DeserializeOwned + Debug,
     {
         let (data, version) = Snapshot::load::<_, O>(reader, snapshot_len)?;
         if version.major != self.version.major || version.minor > self.version.minor {
-            Err(Error::InvalidFormatVersion(version))
+            Err(SnapshotError::InvalidFormatVersion(version))
         } else {
             Ok(data)
         }
     }
 
     /// Saves a snapshot and include a CRC64 checksum.
-    pub fn save<T, O>(&self, writer: &mut T, object: &O) -> Result<(), Error>
+    pub fn save<T, O>(&self, writer: &mut T, object: &O) -> Result<(), SnapshotError>
     where
         T: Write + Debug,
         O: Serialize + Debug,
@@ -213,7 +213,11 @@ impl Snapshot {
     }
 
     /// Save a snapshot with no CRC64 checksum included.
-    pub fn save_without_crc<T, O>(&self, mut writer: &mut T, object: &O) -> Result<(), Error>
+    pub fn save_without_crc<T, O>(
+        &self,
+        mut writer: &mut T,
+        object: &O,
+    ) -> Result<(), SnapshotError>
     where
         T: Write,
         O: Serialize + Debug,
@@ -256,7 +260,7 @@ mod tests {
                 &mut snapshot_data.as_slice(),
                 snapshot_data.len()
             ),
-            Err(Error::InvalidSnapshotSize)
+            Err(SnapshotError::InvalidSnapshotSize)
         ));
     }
 
@@ -276,7 +280,7 @@ mod tests {
         let snapshot = Snapshot::new(Version::new(42, 27, 18));
         assert!(matches!(
             snapshot.load_with_version_check::<_, u8>(&mut reader, 1024),
-            Err(Error::Io(_))
+            Err(SnapshotError::Io(_))
         ));
     }
 
@@ -299,7 +303,7 @@ mod tests {
         data[7] = 0x45;
         assert!(matches!(
             Snapshot::unchecked_load::<_, u8>(&mut data.as_slice()),
-            Err(Error::InvalidMagic(0x4544_4342_0403_0201u64))
+            Err(SnapshotError::InvalidMagic(0x4544_4342_0403_0201u64))
         ));
     }
 
@@ -317,7 +321,7 @@ mod tests {
 
         assert!(matches!(
             snapshot.load_with_version_check::<_, u8>(&mut data.as_slice(), data.len()),
-            Err(Error::Crc64(_))
+            Err(SnapshotError::Crc64(_))
         ));
     }
 
@@ -333,7 +337,7 @@ mod tests {
         let snapshot = Snapshot::new(Version::new(2, 3, 12));
         assert!(matches!(
             snapshot.load_with_version_check::<_, u8>(&mut data.as_slice(), data.len()),
-            Err(Error::InvalidFormatVersion(Version {
+            Err(SnapshotError::InvalidFormatVersion(Version {
                 major: 1,
                 minor: 3,
                 patch: 12,
@@ -343,7 +347,7 @@ mod tests {
         let snapshot = Snapshot::new(Version::new(0, 3, 12));
         assert!(matches!(
             snapshot.load_with_version_check::<_, u8>(&mut data.as_slice(), data.len()),
-            Err(Error::InvalidFormatVersion(Version {
+            Err(SnapshotError::InvalidFormatVersion(Version {
                 major: 1,
                 minor: 3,
                 patch: 12,
@@ -355,7 +359,7 @@ mod tests {
         let snapshot = Snapshot::new(Version::new(1, 2, 12));
         assert!(matches!(
             snapshot.load_with_version_check::<_, u8>(&mut data.as_slice(), data.len()),
-            Err(Error::InvalidFormatVersion(Version {
+            Err(SnapshotError::InvalidFormatVersion(Version {
                 major: 1,
                 minor: 3,
                 patch: 12,

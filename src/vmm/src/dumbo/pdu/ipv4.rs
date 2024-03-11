@@ -40,7 +40,7 @@ pub const PROTOCOL_UDP: u8 = 0x11;
 
 /// Describes the errors which may occur while handling IPv4 packets.
 #[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
-pub enum Error {
+pub enum Ipv4Error {
     /// The header checksum is invalid.
     Checksum,
     /// The header length is invalid.
@@ -79,11 +79,11 @@ impl<'a, T: NetworkBytes + Debug> IPv4Packet<'a, T> {
 
     /// Attempts to interpret `bytes` as an IPv4 packet, checking the validity of the header fields
     /// and the length of the inner byte sequence.
-    pub fn from_bytes(bytes: T, verify_checksum: bool) -> Result<Self, Error> {
+    pub fn from_bytes(bytes: T, verify_checksum: bool) -> Result<Self, Ipv4Error> {
         let bytes_len = bytes.len();
 
         if bytes_len < usize::from(OPTIONS_OFFSET) {
-            return Err(Error::SliceTooShort);
+            return Err(Ipv4Error::SliceTooShort);
         }
 
         let packet = IPv4Packet::from_bytes_unchecked(bytes);
@@ -91,28 +91,28 @@ impl<'a, T: NetworkBytes + Debug> IPv4Packet<'a, T> {
         let (version, header_len) = packet.version_and_header_len();
 
         if version != IPV4_VERSION {
-            return Err(Error::Version);
+            return Err(Ipv4Error::Version);
         }
 
         let total_len = packet.total_len() as usize;
 
         if total_len < header_len.into() {
-            return Err(Error::InvalidTotalLen);
+            return Err(Ipv4Error::InvalidTotalLen);
         }
 
         if total_len != bytes_len {
-            return Err(Error::SliceExactLen);
+            return Err(Ipv4Error::SliceExactLen);
         }
 
         if header_len < OPTIONS_OFFSET {
-            return Err(Error::HeaderLen);
+            return Err(Ipv4Error::HeaderLen);
         }
 
         // We ignore the TTL field since only routers should care about it. An end host has no
         // reason really to discard an otherwise valid packet.
 
         if verify_checksum && packet.compute_checksum_unchecked(header_len.into()) != 0 {
-            return Err(Error::Checksum);
+            return Err(Ipv4Error::Checksum);
         }
 
         Ok(packet)
@@ -263,9 +263,9 @@ impl<'a, T: NetworkBytesMut + Debug> IPv4Packet<'a, T> {
         protocol: u8,
         src_addr: Ipv4Addr,
         dst_addr: Ipv4Addr,
-    ) -> Result<Incomplete<Self>, Error> {
+    ) -> Result<Incomplete<Self>, Ipv4Error> {
         if buf.len() < usize::from(OPTIONS_OFFSET) {
-            return Err(Error::SliceTooShort);
+            return Err(Ipv4Error::SliceTooShort);
         }
         let mut packet = IPv4Packet::from_bytes_unchecked(buf);
         packet
@@ -573,17 +573,17 @@ mod tests {
         }
 
         // Just a helper closure.
-        let look_for_error = |buf: &[u8], err: Error| {
+        let look_for_error = |buf: &[u8], err: Ipv4Error| {
             assert_eq!(IPv4Packet::from_bytes(buf, true).unwrap_err(), err);
         };
 
         // Invalid version.
         p(buf.as_mut()).set_version_and_header_len(IPV4_VERSION + 1, header_len);
-        look_for_error(buf.as_ref(), Error::Version);
+        look_for_error(buf.as_ref(), Ipv4Error::Version);
 
         // Short header length.
         p(buf.as_mut()).set_version_and_header_len(IPV4_VERSION, OPTIONS_OFFSET - 1);
-        look_for_error(buf.as_ref(), Error::HeaderLen);
+        look_for_error(buf.as_ref(), Ipv4Error::HeaderLen);
 
         // Header length too large. We have to add at least 4 here, because the setter converts
         // header_len into the ihl field via division by 4, so anything less will lead to a valid
@@ -591,17 +591,17 @@ mod tests {
         // from the packet, we'll get a smaller value than OPTIONS_OFFSET, because it wraps around
         // modulo 60, since the ihl field is only four bits wide, and then gets multiplied with 4.
         p(buf.as_mut()).set_version_and_header_len(IPV4_VERSION, MAX_HEADER_LEN + 4);
-        look_for_error(buf.as_ref(), Error::HeaderLen);
+        look_for_error(buf.as_ref(), Ipv4Error::HeaderLen);
 
         // Total length smaller than header length.
         p(buf.as_mut())
             .set_version_and_header_len(IPV4_VERSION, OPTIONS_OFFSET)
             .set_total_len(u16::from(OPTIONS_OFFSET) - 1);
-        look_for_error(buf.as_ref(), Error::InvalidTotalLen);
+        look_for_error(buf.as_ref(), Ipv4Error::InvalidTotalLen);
 
         // Total len not matching slice length.
         p(buf.as_mut()).set_total_len(buf_len - 1);
-        look_for_error(buf.as_ref(), Error::SliceExactLen);
+        look_for_error(buf.as_ref(), Ipv4Error::SliceExactLen);
 
         // The original packet header should contain a valid checksum.
         assert_eq!(p(buf.as_mut()).set_total_len(buf_len).compute_checksum(), 0);
@@ -609,16 +609,16 @@ mod tests {
         // Let's make it invalid.
         let checksum = p(buf.as_mut()).header_checksum();
         p(buf.as_mut()).set_header_checksum(checksum.wrapping_add(1));
-        look_for_error(buf.as_ref(), Error::Checksum);
+        look_for_error(buf.as_ref(), Ipv4Error::Checksum);
 
         // Finally, a couple of tests for a small buffer.
         let mut small_buf = [0u8; 1];
 
-        look_for_error(small_buf.as_ref(), Error::SliceTooShort);
+        look_for_error(small_buf.as_ref(), Ipv4Error::SliceTooShort);
 
         assert_eq!(
             IPv4Packet::write_header(small_buf.as_mut(), PROTOCOL_TCP, src, dst).unwrap_err(),
-            Error::SliceTooShort
+            Ipv4Error::SliceTooShort
         );
     }
 

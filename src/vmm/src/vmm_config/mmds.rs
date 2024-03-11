@@ -49,5 +49,5 @@ pub enum MmdsConfigError {
     /// The list of network interface IDs provided contains at least one ID that does not correspond to any existing network interface.
     InvalidNetworkInterfaceId,
     /// The MMDS could not be configured to version {0}: {1}
-    MmdsVersion(MmdsVersion, data_store::Error),
+    MmdsVersion(MmdsVersion, data_store::MmdsDatastoreError),
 }

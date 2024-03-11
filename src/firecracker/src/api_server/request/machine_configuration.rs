@@ -5,15 +5,15 @@ use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
 use vmm::vmm_config::machine_config::{MachineConfig, MachineConfigUpdate};
 
-use super::super::parsed_request::{method_to_error, Error, ParsedRequest};
+use super::super::parsed_request::{method_to_error, ParsedRequest, RequestError};
 use super::{Body, Method};
 
-pub(crate) fn parse_get_machine_config() -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_get_machine_config() -> Result<ParsedRequest, RequestError> {
     METRICS.get_api_requests.machine_cfg_count.inc();
     Ok(ParsedRequest::new_sync(VmmAction::GetVmMachineConfig))
 }
 
-pub(crate) fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, RequestError> {
     METRICS.put_api_requests.machine_cfg_count.inc();
     let config = serde_json::from_slice::<MachineConfig>(body.raw()).map_err(|err| {
         METRICS.put_api_requests.machine_cfg_fails.inc();
@@ -41,7 +41,7 @@ pub(crate) fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Err
     Ok(parsed_req)
 }
 
-pub(crate) fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, RequestError> {
     METRICS.patch_api_requests.machine_cfg_count.inc();
     let config_update =
         serde_json::from_slice::<MachineConfigUpdate>(body.raw()).map_err(|err| {

@@ -5,10 +5,10 @@ use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
 use vmm::vmm_config::boot_source::BootSourceConfig;
 
-use super::super::parsed_request::{Error, ParsedRequest};
+use super::super::parsed_request::{ParsedRequest, RequestError};
 use super::Body;
 
-pub(crate) fn parse_put_boot_source(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_put_boot_source(body: &Body) -> Result<ParsedRequest, RequestError> {
     METRICS.put_api_requests.boot_source_count.inc();
     Ok(ParsedRequest::new_sync(VmmAction::ConfigureBootSource(
         serde_json::from_slice::<BootSourceConfig>(body.raw()).map_err(|err| {

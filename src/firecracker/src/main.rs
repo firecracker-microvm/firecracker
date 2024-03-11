@@ -27,7 +27,7 @@ use vmm::logger::{
 use vmm::persist::SNAPSHOT_VERSION;
 use vmm::resources::VmResources;
 use vmm::signal_handler::register_signal_handlers;
-use vmm::snapshot::{Error as SnapshotError, Snapshot};
+use vmm::snapshot::{Snapshot, SnapshotError};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
 use vmm::{EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
@@ -48,7 +48,7 @@ enum MainError {
     /// Failed to register signal handlers: {0}
     RegisterSignalHandlers(#[source] utils::errno::Error),
     /// Arguments parsing error: {0} \n\nFor more information try --help.
-    ParseArguments(#[from] utils::arg_parser::Error),
+    ParseArguments(#[from] utils::arg_parser::UtilsArgParserError),
     /// When printing Snapshot Data format: {0}
     PrintSnapshotDataFormat(#[from] SnapshotVersionError),
     /// Invalid value for logger level: {0}.Possible values: [Error, Warning, Info, Debug]

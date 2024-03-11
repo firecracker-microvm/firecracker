@@ -46,7 +46,7 @@ const IPV4_ADDR_LEN: u8 = 4;
 
 /// Represents errors which may occur while parsing or writing a frame.
 #[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
-pub enum Error {
+pub enum ArpError {
     /// Invalid hardware address length.
     HLen,
     /// Invalid hardware type.
@@ -90,33 +90,33 @@ impl<'a, T: NetworkBytes + Debug> EthIPv4ArpFrame<'a, T> {
     ///
     /// If no error occurs, it guarantees accessor methods (which make use of various `_unchecked`
     /// functions) are safe to call on the result, because all predefined offsets will be valid.
-    pub fn request_from_bytes(bytes: T) -> Result<Self, Error> {
+    pub fn request_from_bytes(bytes: T) -> Result<Self, ArpError> {
         // This kind of frame has a fixed length, so we know what to expect.
         if bytes.len() != ETH_IPV4_FRAME_LEN {
-            return Err(Error::SliceExactLen);
+            return Err(ArpError::SliceExactLen);
         }
 
         let maybe = EthIPv4ArpFrame::from_bytes_unchecked(bytes);
 
         if maybe.htype() != HTYPE_ETHERNET {
-            return Err(Error::HType);
+            return Err(ArpError::HType);
         }
 
         if maybe.ptype() != ETHERTYPE_IPV4 {
-            return Err(Error::PType);
+            return Err(ArpError::PType);
         }
 
         // We could theoretically skip the hlen and plen checks, since they are kinda implicit.
         if maybe.hlen() != MAC_ADDR_LEN {
-            return Err(Error::HLen);
+            return Err(ArpError::HLen);
         }
 
         if maybe.plen() != IPV4_ADDR_LEN {
-            return Err(Error::PLen);
+            return Err(ArpError::PLen);
         }
 
         if maybe.operation() != OPER_REQUEST {
-            return Err(Error::Operation);
+            return Err(ArpError::Operation);
         }
 
         Ok(maybe)
@@ -198,9 +198,9 @@ impl<'a, T: NetworkBytesMut + Debug> EthIPv4ArpFrame<'a, T> {
         spa: Ipv4Addr,
         tha: MacAddr,
         tpa: Ipv4Addr,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, ArpError> {
         if buf.len() != ETH_IPV4_FRAME_LEN {
-            return Err(Error::SliceExactLen);
+            return Err(ArpError::SliceExactLen);
         }
 
         // This is ok, because we've checked the length of the slice.
@@ -228,7 +228,7 @@ impl<'a, T: NetworkBytesMut + Debug> EthIPv4ArpFrame<'a, T> {
         spa: Ipv4Addr,
         tha: MacAddr,
         tpa: Ipv4Addr,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, ArpError> {
         Self::write_raw(
             buf,
             HTYPE_ETHERNET,
@@ -252,7 +252,7 @@ impl<'a, T: NetworkBytesMut + Debug> EthIPv4ArpFrame<'a, T> {
         spa: Ipv4Addr,
         tha: MacAddr,
         tpa: Ipv4Addr,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, ArpError> {
         Self::write_raw(
             buf,
             HTYPE_ETHERNET,
@@ -357,19 +357,19 @@ mod tests {
         // Slice is too short.
         assert_eq!(
             EthIPv4ArpFrame::request_from_bytes(bad_array.as_ref()).unwrap_err(),
-            Error::SliceExactLen
+            ArpError::SliceExactLen
         );
 
         // Slice is too short.
         assert_eq!(
             EthIPv4ArpFrame::write_reply(bad_array.as_mut(), sha, spa, tha, tpa).unwrap_err(),
-            Error::SliceExactLen
+            ArpError::SliceExactLen
         );
 
         // Slice is too long.
         assert_eq!(
             EthIPv4ArpFrame::write_reply(a.as_mut(), sha, spa, tha, tpa).unwrap_err(),
-            Error::SliceExactLen
+            ArpError::SliceExactLen
         );
 
         // We write a valid ARP reply to the specified slice.
@@ -394,13 +394,13 @@ mod tests {
         // Slice is too long.
         assert_eq!(
             EthIPv4ArpFrame::request_from_bytes(a.as_ref()).unwrap_err(),
-            Error::SliceExactLen
+            ArpError::SliceExactLen
         );
 
         // The length is fine now, but the operation is a reply instead of request.
         assert_eq!(
             EthIPv4ArpFrame::request_from_bytes(&a[..ETH_IPV4_FRAME_LEN]).unwrap_err(),
-            Error::Operation
+            ArpError::Operation
         );
 
         // TODO: The following test code is way more verbose than it should've been. Make it
@@ -440,7 +440,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             EthIPv4ArpFrame::request_from_bytes(&a[..ETH_IPV4_FRAME_LEN]).unwrap_err(),
-            Error::HType
+            ArpError::HType
         );
 
         // Invalid ptype.
@@ -459,7 +459,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             EthIPv4ArpFrame::request_from_bytes(&a[..ETH_IPV4_FRAME_LEN]).unwrap_err(),
-            Error::PType
+            ArpError::PType
         );
 
         // Invalid hlen.
@@ -478,7 +478,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             EthIPv4ArpFrame::request_from_bytes(&a[..ETH_IPV4_FRAME_LEN]).unwrap_err(),
-            Error::HLen
+            ArpError::HLen
         );
 
         // Invalid plen.
@@ -497,7 +497,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             EthIPv4ArpFrame::request_from_bytes(&a[..ETH_IPV4_FRAME_LEN]).unwrap_err(),
-            Error::PLen
+            ArpError::PLen
         );
     }
 

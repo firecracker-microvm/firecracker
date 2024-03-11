@@ -33,7 +33,7 @@ pub enum BlockIoError {
     /// Unsupported engine type: {0:?}
     UnsupportedEngine(FileEngineType),
     /// Could not get kernel version: {0}
-    GetKernelVersion(utils::kernel_version::Error),
+    GetKernelVersion(utils::kernel_version::KernelVersionError),
 }
 
 impl BlockIoError {

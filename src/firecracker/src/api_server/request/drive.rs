@@ -5,19 +5,19 @@ use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
 use vmm::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig};
 
-use super::super::parsed_request::{checked_id, Error, ParsedRequest};
+use super::super::parsed_request::{checked_id, ParsedRequest, RequestError};
 use super::{Body, StatusCode};
 
 pub(crate) fn parse_put_drive(
     body: &Body,
     id_from_path: Option<&str>,
-) -> Result<ParsedRequest, Error> {
+) -> Result<ParsedRequest, RequestError> {
     METRICS.put_api_requests.drive_count.inc();
     let id = if let Some(id) = id_from_path {
         checked_id(id)?
     } else {
         METRICS.put_api_requests.drive_fails.inc();
-        return Err(Error::EmptyID);
+        return Err(RequestError::EmptyID);
     };
 
     let device_cfg = serde_json::from_slice::<BlockDeviceConfig>(body.raw()).map_err(|err| {
@@ -27,7 +27,7 @@ pub(crate) fn parse_put_drive(
 
     if id != device_cfg.drive_id {
         METRICS.put_api_requests.drive_fails.inc();
-        Err(Error::Generic(
+        Err(RequestError::Generic(
             StatusCode::BadRequest,
             "The id from the path does not match the id from the body!".to_string(),
         ))
@@ -41,13 +41,13 @@ pub(crate) fn parse_put_drive(
 pub(crate) fn parse_patch_drive(
     body: &Body,
     id_from_path: Option<&str>,
-) -> Result<ParsedRequest, Error> {
+) -> Result<ParsedRequest, RequestError> {
     METRICS.patch_api_requests.drive_count.inc();
     let id = if let Some(id) = id_from_path {
         checked_id(id)?
     } else {
         METRICS.patch_api_requests.drive_fails.inc();
-        return Err(Error::EmptyID);
+        return Err(RequestError::EmptyID);
     };
 
     let block_device_update_cfg: BlockDeviceUpdateConfig =
@@ -58,7 +58,7 @@ pub(crate) fn parse_patch_drive(
 
     if id != block_device_update_cfg.drive_id {
         METRICS.patch_api_requests.drive_fails.inc();
-        return Err(Error::Generic(
+        return Err(RequestError::Generic(
             StatusCode::BadRequest,
             String::from("The id from the path does not match the id from the body!"),
         ));

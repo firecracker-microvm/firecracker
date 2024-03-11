@@ -4,10 +4,10 @@
 use vmm::rpc_interface::VmmAction;
 use vmm::vmm_config::entropy::EntropyDeviceConfig;
 
-use super::super::parsed_request::{Error, ParsedRequest};
+use super::super::parsed_request::{ParsedRequest, RequestError};
 use super::Body;
 
-pub(crate) fn parse_put_entropy(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_put_entropy(body: &Body) -> Result<ParsedRequest, RequestError> {
     let cfg = serde_json::from_slice::<EntropyDeviceConfig>(body.raw())?;
     Ok(ParsedRequest::new_sync(VmmAction::SetEntropyDevice(cfg)))
 }

@@ -9,7 +9,7 @@ use vmm::vmm_config::snapshot::{
     Vm, VmState,
 };
 
-use super::super::parsed_request::{Error, ParsedRequest};
+use super::super::parsed_request::{ParsedRequest, RequestError};
 use super::super::request::{Body, Method, StatusCode};
 
 /// Deprecation message for the `mem_file_path` field.
@@ -25,24 +25,24 @@ pub const TOO_MANY_FIELDS: &str =
 pub(crate) fn parse_put_snapshot(
     body: &Body,
     request_type_from_path: Option<&str>,
-) -> Result<ParsedRequest, Error> {
+) -> Result<ParsedRequest, RequestError> {
     match request_type_from_path {
         Some(request_type) => match request_type {
             "create" => parse_put_snapshot_create(body),
             "load" => parse_put_snapshot_load(body),
-            _ => Err(Error::InvalidPathMethod(
+            _ => Err(RequestError::InvalidPathMethod(
                 format!("/snapshot/{}", request_type),
                 Method::Put,
             )),
         },
-        None => Err(Error::Generic(
+        None => Err(RequestError::Generic(
             StatusCode::BadRequest,
             "Missing snapshot operation type.".to_string(),
         )),
     }
 }
 
-pub(crate) fn parse_patch_vm_state(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_patch_vm_state(body: &Body) -> Result<ParsedRequest, RequestError> {
     let vm = serde_json::from_slice::<Vm>(body.raw())?;
 
     match vm.state {
@@ -51,23 +51,29 @@ pub(crate) fn parse_patch_vm_state(body: &Body) -> Result<ParsedRequest, Error> 
     }
 }
 
-fn parse_put_snapshot_create(body: &Body) -> Result<ParsedRequest, Error> {
+fn parse_put_snapshot_create(body: &Body) -> Result<ParsedRequest, RequestError> {
     let snapshot_config = serde_json::from_slice::<CreateSnapshotParams>(body.raw())?;
     Ok(ParsedRequest::new_sync(VmmAction::CreateSnapshot(
         snapshot_config,
     )))
 }
 
-fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, Error> {
+fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, RequestError> {
     let snapshot_config = serde_json::from_slice::<LoadSnapshotConfig>(body.raw())?;
 
     match (&snapshot_config.mem_backend, &snapshot_config.mem_file_path) {
         // Ensure `mem_file_path` and `mem_backend` fields are not present at the same time.
         (Some(_), Some(_)) => {
-            return Err(Error::SerdeJson(serde_json::Error::custom(TOO_MANY_FIELDS)))
+            return Err(RequestError::SerdeJson(serde_json::Error::custom(
+                TOO_MANY_FIELDS,
+            )))
         }
         // Ensure that one of `mem_file_path` or `mem_backend` fields is always specified.
-        (None, None) => return Err(Error::SerdeJson(serde_json::Error::custom(MISSING_FIELD))),
+        (None, None) => {
+            return Err(RequestError::SerdeJson(serde_json::Error::custom(
+                MISSING_FIELD,
+            )))
+        }
         _ => {}
     }
 
@@ -303,7 +309,8 @@ mod tests {
                 .err()
                 .unwrap()
                 .to_string(),
-            Error::SerdeJson(serde_json::Error::custom(TOO_MANY_FIELDS.to_string())).to_string()
+            RequestError::SerdeJson(serde_json::Error::custom(TOO_MANY_FIELDS.to_string()))
+                .to_string()
         );
 
         let body = r#"{
@@ -314,7 +321,8 @@ mod tests {
                 .err()
                 .unwrap()
                 .to_string(),
-            Error::SerdeJson(serde_json::Error::custom(MISSING_FIELD.to_string())).to_string()
+            RequestError::SerdeJson(serde_json::Error::custom(MISSING_FIELD.to_string()))
+                .to_string()
         );
 
         let body = r#"{

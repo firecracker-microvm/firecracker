@@ -16,6 +16,7 @@ cast_sign_loss = "warn"
 exit = "warn"
 tests_outside_test_module = "warn"
 assertions_on_result_states = "warn"
+error_impl_error = "warn"
 
 [profile.dev]
 panic = "abort"

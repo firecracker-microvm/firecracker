@@ -147,7 +147,7 @@ pub enum CreateSnapshotError {
     /// Cannot save the microVM state: {0}
     MicrovmState(MicrovmStateError),
     /// Cannot serialize the microVM state: {0}
-    SerializeMicrovmState(crate::snapshot::Error),
+    SerializeMicrovmState(crate::snapshot::SnapshotError),
     /// Cannot perform {0} on the snapshot backing file: {1}
     SnapshotBackingFile(&'static str, io::Error),
     /// Size mismatch when writing diff snapshot on top of base layer: base layer size is {0} but diff layer is size {1}.
@@ -456,7 +456,7 @@ pub enum SnapshotStateFromFileError {
     /// Failed to read snapshot file metadata: {0}
     Meta(std::io::Error),
     /// Failed to load snapshot state from file: {0}
-    Load(#[from] crate::snapshot::Error),
+    Load(#[from] crate::snapshot::SnapshotError),
 }
 
 fn snapshot_state_from_file(

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
 
-use super::super::parsed_request::{Error, ParsedRequest};
+use super::super::parsed_request::{ParsedRequest, RequestError};
 use super::Body;
 #[cfg(target_arch = "aarch64")]
 use super::StatusCode;
@@ -28,7 +28,7 @@ struct ActionBody {
     action_type: ActionType,
 }
 
-pub(crate) fn parse_put_actions(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_put_actions(body: &Body) -> Result<ParsedRequest, RequestError> {
     METRICS.put_api_requests.actions_count.inc();
     let action_body = serde_json::from_slice::<ActionBody>(body.raw()).map_err(|err| {
         METRICS.put_api_requests.actions_fails.inc();
@@ -41,7 +41,7 @@ pub(crate) fn parse_put_actions(body: &Body) -> Result<ParsedRequest, Error> {
         ActionType::SendCtrlAltDel => {
             // SendCtrlAltDel not supported on aarch64.
             #[cfg(target_arch = "aarch64")]
-            return Err(Error::Generic(
+            return Err(RequestError::Generic(
                 StatusCode::BadRequest,
                 "SendCtrlAltDel does not supported on aarch64.".to_string(),
             ));
