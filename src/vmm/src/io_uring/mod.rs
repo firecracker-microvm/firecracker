@@ -510,7 +510,7 @@ mod tests {
         file_sync.write_all_at(&init_contents, 0).unwrap();
 
         // Create a custom test runner since we had to add some state buildup to the test.
-        // (Referring to the the above initializations).
+        // (Referring to the above initializations).
         let mut runner = TestRunner::new(Config {
             #[cfg(target_arch = "x86_64")]
             cases: 1000, // Should run for about a minute.

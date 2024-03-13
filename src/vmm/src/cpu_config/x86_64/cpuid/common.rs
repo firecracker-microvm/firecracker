@@ -16,7 +16,7 @@ pub enum GetCpuidError {
 /// # Errors
 ///
 /// - When the given `leaf` is more than `max_leaf` supported by CPUID.
-/// - When the the CPUID leaf `sub-leaf` is invalid (all its register equal 0).
+/// - When the CPUID leaf `sub-leaf` is invalid (all its register equal 0).
 pub fn get_cpuid(leaf: u32, subleaf: u32) -> Result<std::arch::x86_64::CpuidResult, GetCpuidError> {
     let max_leaf =
         // JUSTIFICATION: There is no safe alternative.
