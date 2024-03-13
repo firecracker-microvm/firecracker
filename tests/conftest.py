@@ -267,6 +267,9 @@ def microvm_factory(request, record_property, results_dir):
             dst = results_dir / uvm.id / uvm.log_file.name
             dst.parent.mkdir()
             shutil.copy(uvm.log_file, dst)
+            if uvm.metrics_file.exists():
+                dst = results_dir / uvm.id / uvm.metrics_file.name
+                shutil.copy(uvm.metrics_file, dst)
 
     uvm_factory.kill()
 
