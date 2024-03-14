@@ -369,6 +369,7 @@ fn main_exec() -> Result<(), JailerError> {
     Env::new(
         arguments,
         utils::time::get_time_us(utils::time::ClockType::Monotonic),
+        utils::time::get_time_us(utils::time::ClockType::ProcessCpu),
     )
     .and_then(|env| {
         fs::create_dir_all(env.chroot_dir())
