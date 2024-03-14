@@ -458,7 +458,7 @@ pub mod test_util {
     #[derive(Debug)]
     pub struct MockCgroupFs<'a> {
         mounts_file: File,
-        pub proc_mount_path: &'a str,
+        pub proc_mounts_path: &'a str,
     }
 
     // Helper object that simulates the layout of the cgroup file system
@@ -481,9 +481,9 @@ pub mod test_util {
         }
 
         pub fn new(
-            mock_proc_mount: &'a str,
+            mock_proc_mounts: &'a str,
         ) -> std::result::Result<MockCgroupFs<'a>, std::io::Error> {
-            let mock_proc_dir = Path::new(mock_proc_mount).parent().unwrap();
+            let mock_proc_dir = Path::new(mock_proc_mounts).parent().unwrap();
 
             // create a mock /proc/mounts file in a temporary directory
             fs::create_dir_all(mock_proc_dir)?;
@@ -492,10 +492,10 @@ pub mod test_util {
                 .write(true)
                 .create(true)
                 .truncate(true)
-                .open(mock_proc_mount)?;
+                .open(mock_proc_mounts)?;
             Ok(MockCgroupFs {
                 mounts_file: file,
-                proc_mount_path: mock_proc_mount,
+                proc_mounts_path: mock_proc_mounts,
             })
         }
 
@@ -504,7 +504,7 @@ pub mod test_util {
         pub fn add_v2_mounts(&mut self) -> std::result::Result<(), std::io::Error> {
             let mock_sys_cgroups_dir = format!(
                 "{}/{}",
-                Path::new(self.proc_mount_path)
+                Path::new(self.proc_mounts_path)
                     .parent()
                     .unwrap()
                     .parent()
@@ -540,7 +540,7 @@ pub mod test_util {
 
             let mock_sys_cgroups_dir = format!(
                 "{}/{}",
-                Path::new(self.proc_mount_path)
+                Path::new(self.proc_mounts_path)
                     .parent()
                     .unwrap()
                     .parent()
@@ -563,7 +563,7 @@ pub mod test_util {
     // Cleanup created files when object goes out of scope
     impl<'a> Drop for MockCgroupFs<'a> {
         fn drop(&mut self) {
-            let tmp_dir = Path::new(self.proc_mount_path)
+            let tmp_dir = Path::new(self.proc_mounts_path)
                 .parent()
                 .unwrap()
                 .parent()
@@ -611,7 +611,7 @@ mod tests {
         let mock_proc_mounts = get_mock_proc_mounts();
         let mut mock_cgroups = MockCgroupFs::new(mock_proc_mounts.as_str()).unwrap();
         mock_cgroups.add_v1_mounts().unwrap();
-        let builder = CgroupBuilder::new(1, mock_cgroups.proc_mount_path);
+        let builder = CgroupBuilder::new(1, mock_cgroups.proc_mounts_path);
         builder.unwrap();
     }
 
@@ -620,7 +620,7 @@ mod tests {
         let mock_proc_mounts = get_mock_proc_mounts();
         let mut mock_cgroups = MockCgroupFs::new(mock_proc_mounts.as_str()).unwrap();
         mock_cgroups.add_v2_mounts().unwrap();
-        let builder = CgroupBuilder::new(2, mock_cgroups.proc_mount_path);
+        let builder = CgroupBuilder::new(2, mock_cgroups.proc_mounts_path);
         builder.unwrap();
     }
 
@@ -629,7 +629,7 @@ mod tests {
         let mock_proc_mounts = get_mock_proc_mounts();
         let mut mock_cgroups = MockCgroupFs::new(mock_proc_mounts.as_str()).unwrap();
         mock_cgroups.add_v1_mounts().unwrap();
-        let builder = CgroupBuilder::new(2, mock_cgroups.proc_mount_path);
+        let builder = CgroupBuilder::new(2, mock_cgroups.proc_mounts_path);
         builder.unwrap_err();
     }
 
@@ -638,7 +638,7 @@ mod tests {
         let mock_proc_mounts = get_mock_proc_mounts();
         let mut mock_cgroups = MockCgroupFs::new(mock_proc_mounts.as_str()).unwrap();
         mock_cgroups.add_v2_mounts().unwrap();
-        let builder = CgroupBuilder::new(1, mock_cgroups.proc_mount_path);
+        let builder = CgroupBuilder::new(1, mock_cgroups.proc_mounts_path);
         builder.unwrap_err();
     }
 
@@ -650,7 +650,7 @@ mod tests {
         mock_cgroups.add_v2_mounts().unwrap();
 
         for v in &[1, 2] {
-            let mut builder = CgroupBuilder::new(*v, mock_cgroups.proc_mount_path).unwrap();
+            let mut builder = CgroupBuilder::new(*v, mock_cgroups.proc_mounts_path).unwrap();
 
             let cg = builder.new_cgroup(
                 "cpuset.mems".to_string(),
@@ -670,7 +670,7 @@ mod tests {
         mock_cgroups.add_v2_mounts().unwrap();
 
         for v in &[1, 2] {
-            let mut builder = CgroupBuilder::new(*v, mock_cgroups.proc_mount_path).unwrap();
+            let mut builder = CgroupBuilder::new(*v, mock_cgroups.proc_mounts_path).unwrap();
             let cg = builder.new_cgroup(
                 "invalid.cg".to_string(),
                 "1".to_string(),
@@ -686,10 +686,10 @@ mod tests {
         let mock_proc_mounts = get_mock_proc_mounts();
         let mut mock_cgroups = MockCgroupFs::new(mock_proc_mounts.as_str()).unwrap();
         mock_cgroups.add_v2_mounts().unwrap();
-        let builder = CgroupBuilder::new(2, mock_cgroups.proc_mount_path);
+        let builder = CgroupBuilder::new(2, mock_cgroups.proc_mounts_path);
         builder.unwrap();
 
-        let mut builder = CgroupBuilder::new(2, mock_cgroups.proc_mount_path).unwrap();
+        let mut builder = CgroupBuilder::new(2, mock_cgroups.proc_mounts_path).unwrap();
         let cg = builder.new_cgroup(
             "cpuset.mems".to_string(),
             "1".to_string(),
