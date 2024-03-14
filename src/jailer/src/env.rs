@@ -1402,11 +1402,10 @@ mod tests {
     #[test]
     #[cfg(target_arch = "aarch64")]
     fn test_copy_cache_info() {
-        let mock_proc_mounts = get_mock_proc_mounts();
-        let mut mock_cgroups = MockCgroupFs::new(mock_proc_mounts.as_str()).unwrap();
+        let mut mock_cgroups = MockCgroupFs::new().unwrap();
         mock_cgroups.add_v1_mounts().unwrap();
 
-        let env = create_env(mock_cgroups.proc_mounts_path);
+        let env = create_env(mock_cgroups.proc_mounts_path.as_str());
 
         // Create the required chroot dir hierarchy.
         fs::create_dir_all(env.chroot_dir()).expect("Could not create dir hierarchy.");
