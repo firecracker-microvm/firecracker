@@ -4,6 +4,7 @@
 //! Provides functionality for saving/restoring the MMIO device manager and its devices.
 
 use std::fmt::{self, Debug};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use event_manager::{MutEventSubscriber, SubscriberOps};
@@ -11,8 +12,13 @@ use kvm_ioctls::VmFd;
 use log::{error, warn};
 use serde::{Deserialize, Serialize};
 use vm_allocator::AllocPolicy;
+#[cfg(target_arch = "x86_64")]
+use vm_memory::GuestAddress;
 
+#[cfg(target_arch = "x86_64")]
+use super::acpi::{ACPIDeviceManager, ACPIDeviceManagerError};
 use super::mmio::*;
+use super::resources::ResourceAllocator;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::DeviceType;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
@@ -208,6 +214,7 @@ pub struct MMIODevManagerConstructorArgs<'a> {
     pub mem: GuestMemoryMmap,
     pub vm: &'a VmFd,
     pub event_manager: &'a mut EventManager,
+    pub resource_allocator: Rc<ResourceAllocator>,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
 }
@@ -221,6 +228,70 @@ impl fmt::Debug for MMIODevManagerConstructorArgs<'_> {
             .field("vm_resources", &self.vm_resources)
             .field("instance_id", &self.instance_id)
             .finish()
+    }
+}
+
+/// Holds the state of VMGenID device
+#[cfg(target_arch = "x86_64")]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub struct VMGenIDState {
+    /// GSI used for VMGenID device
+    pub gsi: u32,
+    /// memory address of generation ID
+    pub addr: u64,
+}
+
+#[cfg(target_arch = "x86_64")]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub struct ACPIDeviceManagerState {
+    vmgenid: Option<VMGenIDState>,
+}
+
+#[cfg(target_arch = "x86_64")]
+pub struct ACPIDeviceManagerConstructorArgs<'a> {
+    pub mem: GuestMemoryMmap,
+    pub resource_allocator: Rc<ResourceAllocator>,
+    pub vm: &'a VmFd,
+}
+
+#[cfg(target_arch = "x86_64")]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum ACPIDeviceManagerRestoreError {
+    /// Could not initialize device manager: {0}
+    DeviceManagerInitialize(#[from] ACPIDeviceManagerError),
+    /// Could not register device: {0}
+    Interrupt(#[from] kvm_ioctls::Error),
+}
+
+#[cfg(target_arch = "x86_64")]
+impl<'a> Persist<'a> for ACPIDeviceManager {
+    type State = ACPIDeviceManagerState;
+    type ConstructorArgs = ACPIDeviceManagerConstructorArgs<'a>;
+    type Error = ACPIDeviceManagerRestoreError;
+
+    fn save(&self) -> Self::State {
+        ACPIDeviceManagerState {
+            vmgenid: self.vmgenid.as_ref().map(|dev| VMGenIDState {
+                gsi: dev.gsi,
+                addr: dev.guest_address.0,
+            }),
+        }
+    }
+
+    fn restore(
+        constructor_args: Self::ConstructorArgs,
+        state: &Self::State,
+    ) -> std::result::Result<Self, Self::Error> {
+        let mut dev_manager = ACPIDeviceManager::new(constructor_args.resource_allocator);
+        if let Some(vmgenid_args) = &state.vmgenid {
+            dev_manager.build_vmgenid(
+                vmgenid_args.gsi,
+                GuestAddress(vmgenid_args.addr),
+                &constructor_args.mem,
+                constructor_args.vm,
+            )?;
+        }
+        Ok(dev_manager)
     }
 }
 
@@ -357,12 +428,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
-        let mut dev_manager = MMIODeviceManager::new(
-            crate::arch::MMIO_MEM_START,
-            crate::arch::MMIO_MEM_SIZE,
-            (crate::arch::IRQ_BASE, crate::arch::IRQ_MAX),
-        )
-        .map_err(Self::Error::DeviceManager)?;
+        let mut dev_manager = MMIODeviceManager::new(constructor_args.resource_allocator)
+            .map_err(Self::Error::DeviceManager)?;
         let mem = &constructor_args.mem;
         let vm = constructor_args.vm;
 
@@ -377,8 +444,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     )?;
 
                     dev_manager
-                        .address_allocator
-                        .allocate(
+                        .resource_allocator
+                        .allocate_mmio_memory(
                             MMIO_LEN,
                             MMIO_LEN,
                             AllocPolicy::ExactMatch(state.device_info.addr),
@@ -398,8 +465,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         &crate::devices::legacy::rtc_pl031::METRICS,
                     ));
                     dev_manager
-                        .address_allocator
-                        .allocate(
+                        .resource_allocator
+                        .allocate_mmio_memory(
                             MMIO_LEN,
                             MMIO_LEN,
                             AllocPolicy::ExactMatch(state.device_info.addr),
@@ -439,8 +506,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             // `IdAllocator` under `dev_manager`.
 
             dev_manager
-                .address_allocator
-                .allocate(
+                .resource_allocator
+                .allocate_mmio_memory(
                     MMIO_LEN,
                     MMIO_LEN,
                     AllocPolicy::ExactMatch(device_info.addr),
@@ -650,16 +717,10 @@ mod tests {
 
     impl MMIODeviceManager {
         fn soft_clone(&self) -> Self {
-            let dummy_mmio_base = 0;
-            let dummy_irq_range = (0, 0);
             // We can unwrap here as we create with values directly in scope we
             // know will results in `Ok`
-            let mut clone = MMIODeviceManager::new(
-                dummy_mmio_base,
-                crate::arch::MMIO_MEM_SIZE,
-                dummy_irq_range,
-            )
-            .unwrap();
+            let mut clone =
+                MMIODeviceManager::new(Rc::new(ResourceAllocator::new().unwrap())).unwrap();
             // We only care about the device hashmap.
             clone.id_to_dev_info = self.id_to_dev_info.clone();
             clone
@@ -688,6 +749,7 @@ mod tests {
         // These need to survive so the restored blocks find them.
         let _block_files;
         let mut tmp_sock_file = TempFile::new().unwrap();
+        let resource_allocator = Rc::new(ResourceAllocator::new().unwrap());
         tmp_sock_file.remove().unwrap();
         // Set up a vmm with one of each device, and get the serialized DeviceStates.
         let original_mmio_device_manager = {
@@ -701,7 +763,7 @@ mod tests {
                 deflate_on_oom: false,
                 stats_polling_interval_s: 1,
             };
-            insert_balloon_device(&mut vmm, &mut cmdline, &mut event_manager, balloon_cfg);
+            insert_balloon_device(&mut vmm, &mut event_manager, balloon_cfg);
             // Add a block device.
             let drive_id = String::from("root");
             let block_configs = vec![CustomBlockConfig::new(
@@ -723,7 +785,6 @@ mod tests {
             };
             insert_net_device_with_mmds(
                 &mut vmm,
-                &mut cmdline,
                 &mut event_manager,
                 network_interface,
                 MmdsVersion::V2,
@@ -735,10 +796,10 @@ mod tests {
                 guest_cid: 3,
                 uds_path: tmp_sock_file.as_path().to_str().unwrap().to_string(),
             };
-            insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
+            insert_vsock_device(&mut vmm, &mut event_manager, vsock_config);
             // Add an entropy device.
             let entropy_config = EntropyDeviceConfig::default();
-            insert_entropy_device(&mut vmm, &mut cmdline, &mut event_manager, entropy_config);
+            insert_entropy_device(&mut vmm, &mut event_manager, entropy_config);
 
             Snapshot::serialize(&mut buf.as_mut_slice(), &vmm.mmio_device_manager.save()).unwrap();
 
@@ -755,6 +816,7 @@ mod tests {
             mem: vmm.guest_memory().clone(),
             vm: vmm.vm.fd(),
             event_manager: &mut event_manager,
+            resource_allocator: resource_allocator.clone(),
             vm_resources,
             instance_id: "microvm-id",
         };

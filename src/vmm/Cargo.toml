@@ -29,7 +29,7 @@ userfaultfd = "0.7.0"
 vhost = { version = "0.10.0", features = ["vhost-user-frontend"] }
 vm-allocator = "0.1.0"
 vm-superio = "0.7.0"
-vm-memory = { version = "0.14.0", features = ["backend-mmap", "backend-bitmap"] }
+vm-memory = { version = "0.14.1", features = ["backend-mmap", "backend-bitmap"] }
 log = { version = "0.4.17", features = ["std", "serde"] }
 aes-gcm =  { version = "0.10.1", default-features = false, features = ["aes"] }
 base64 = "0.21.0"
@@ -38,10 +38,12 @@ micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 log-instrument = { path = "../log-instrument", optional = true }
 crc64 = "2.0.0"
 slab = "0.4.7"
+zerocopy = { version = "0.7.32" }
 
 seccompiler = { path = "../seccompiler" }
 utils = { path = "../utils" }
 smallvec = "1.11.2"
+acpi_tables = { path = "../acpi-tables" } 
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 vm-fdt = "0.2.0"

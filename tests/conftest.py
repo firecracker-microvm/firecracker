@@ -35,7 +35,12 @@ import pytest
 
 import host_tools.cargo_build as build_tools
 from framework import defs, utils
-from framework.artifacts import firecracker_artifacts, kernel_params, rootfs_params
+from framework.artifacts import (
+    firecracker_artifacts,
+    kernel_params,
+    kernels_unfiltered,
+    rootfs_params,
+)
 from framework.microvm import MicroVMFactory
 from framework.properties import global_props
 from framework.utils_cpu_templates import (
@@ -359,6 +364,11 @@ guest_kernel_linux_4_14 = pytest.fixture(
 )
 guest_kernel_linux_5_10 = pytest.fixture(
     guest_kernel_fxt, params=kernel_params("vmlinux-5.10*")
+)
+# Use the unfiltered selector, since we don't officially support 6.1 yet.
+guest_kernel_linux_6_1 = pytest.fixture(
+    guest_kernel_fxt,
+    params=kernel_params("vmlinux-6.1*", select=kernels_unfiltered),
 )
 
 # Fixtures for all Ubuntu rootfs, and specific versions

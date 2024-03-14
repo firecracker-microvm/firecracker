@@ -55,6 +55,12 @@ impl ApiServerAdapter {
         vmm: Arc<Mutex<Vmm>>,
         event_manager: &mut EventManager,
     ) -> Result<(), ApiServerError> {
+        // This wraps ApiServerAdapter inside an Arc<Mutex<...>> when it is not
+        // Send + Sync because the Vmm object (to which we hold a reference to) is not
+        // Send + Sync. The EventManager expects Arc<Mutex<dyn MutEventSubscriber>>
+        // kinds of things though, so here we are. This is *NOT* a problem, since we
+        // do not share the object among threads.
+        #[allow(clippy::arc_with_non_send_sync)]
         let api_adapter = Arc::new(Mutex::new(Self {
             api_event_fd,
             from_api,

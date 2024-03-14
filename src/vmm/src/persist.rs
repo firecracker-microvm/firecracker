@@ -26,6 +26,8 @@ use crate::cpu_config::templates::StaticCpuTemplate;
 use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
 #[cfg(target_arch = "x86_64")]
 use crate::cpu_config::x86_64::cpuid::CpuidTrait;
+#[cfg(target_arch = "x86_64")]
+use crate::device_manager::persist::ACPIDeviceManagerState;
 use crate::device_manager::persist::{DevicePersistError, DeviceStates};
 use crate::logger::{info, warn};
 use crate::resources::VmResources;
@@ -83,6 +85,9 @@ pub struct MicrovmState {
     pub vcpu_states: Vec<VcpuState>,
     /// Device states.
     pub device_states: DeviceStates,
+    /// ACPI devices state.
+    #[cfg(target_arch = "x86_64")]
+    pub acpi_dev_state: ACPIDeviceManagerState,
 }
 
 /// This describes the mapping between Firecracker base virtual address and
@@ -643,7 +648,7 @@ mod tests {
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
         };
-        insert_balloon_device(&mut vmm, &mut cmdline, &mut event_manager, balloon_config);
+        insert_balloon_device(&mut vmm, &mut event_manager, balloon_config);
 
         // Add a block device.
         let drive_id = String::from("root");
@@ -664,19 +669,19 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
         };
-        insert_net_device(
-            &mut vmm,
-            &mut cmdline,
-            &mut event_manager,
-            network_interface,
-        );
+        insert_net_device(&mut vmm, &mut event_manager, network_interface);
 
         // Add vsock device.
         let mut tmp_sock_file = TempFile::new().unwrap();
         tmp_sock_file.remove().unwrap();
         let vsock_config = default_config(&tmp_sock_file);
 
-        insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
+        insert_vsock_device(&mut vmm, &mut event_manager, vsock_config);
+
+        #[cfg(target_arch = "x86_64")]
+        vmm.acpi_device_manager
+            .attach_vmgenid(&vmm.guest_memory, vmm.vm.fd())
+            .unwrap();
 
         vmm
     }
@@ -709,6 +714,8 @@ mod tests {
             vm_state: vmm.vm.save_state(&mpidrs).unwrap(),
             #[cfg(target_arch = "x86_64")]
             vm_state: vmm.vm.save_state().unwrap(),
+            #[cfg(target_arch = "x86_64")]
+            acpi_dev_state: vmm.acpi_device_manager.save(),
         };
 
         let mut buf = vec![0; 10000];

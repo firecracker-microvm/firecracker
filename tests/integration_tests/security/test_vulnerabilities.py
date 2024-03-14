@@ -59,6 +59,7 @@ def configure_microvm(
     else:
         microvm = factory.build(kernel, rootfs)
 
+    microvm.help.enable_console()
     microvm.spawn()
     microvm.basic_config(vcpu_count=2, mem_size_mib=256, cpu_template=cpu_template)
     if custom_cpu_template:
@@ -122,6 +123,18 @@ def with_restore(factory, microvm_factory):
 
     def restore(firecracker=None, jailer=None):
         microvm = factory(firecracker, jailer)
+        print("")
+        print("========= base VM's console ========")
+        print(microvm.console_data)
+        print("====================================")
+        print("========= base VM's logs ========")
+        print(microvm.log_data)
+        print("====================================")
+        print("========= base VM's dmesg ========")
+        rc, stdout, stderr = microvm.ssh.run("dmesg")
+        assert rc == 0, stderr
+        print(stdout)
+        print("==================================")
         snapshot = microvm.snapshot_full()
 
         if firecracker:
@@ -130,6 +143,8 @@ def with_restore(factory, microvm_factory):
             )
         else:
             dst_vm = microvm_factory.build()
+
+        dst_vm.help.enable_console()
         dst_vm.spawn()
         # Restore the destination VM from the snapshot
         dst_vm.restore_from_snapshot(snapshot, resume=True)
@@ -435,11 +450,14 @@ def check_vulnerabilities_files_on_guest(microvm):
     See also: https://elixir.bootlin.com/linux/latest/source/Documentation/ABI/testing/sysfs-devices-system-cpu
     and search for `vulnerabilities`.
     """
+    print("========= resumed VM's logs ========")
+    print(microvm.log_data)
+    print("====================================")
     # Retrieve a list of vulnerabilities files available inside guests.
     vuln_dir = "/sys/devices/system/cpu/vulnerabilities"
     ecode, stdout, stderr = microvm.ssh.run(f"find {vuln_dir} -type f")
     assert ecode == 0, f"stdout:\n{stdout}\nstderr:\n{stderr}\n"
-    vuln_files = stdout.split("\n")
+    vuln_files = stdout.strip().split("\n")
 
     # Fixtures in this file (test_vulnerabilities.py) add this special field.
     template = microvm.cpu_template

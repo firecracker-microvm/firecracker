@@ -4,7 +4,6 @@
 
 import platform
 import random
-import re
 import string
 import subprocess
 from threading import Thread
@@ -21,6 +20,7 @@ def test_net_change_mac_address(uvm_plain_any, change_net_config_space_bin):
     """
 
     test_microvm = uvm_plain_any
+    test_microvm.help.enable_console()
     test_microvm.spawn()
     test_microvm.basic_config(boot_args="ipv6.disable=1")
 
@@ -196,36 +196,64 @@ def _change_guest_if_mac(ssh_connection, guest_if_mac, guest_if_name):
     ssh_connection.run(cmd)
 
 
+def _find_iomem_range(ssh_connection, dev_name):
+    # `/proc/iomem` includes information of the system's MMIO registered
+    # slots. It looks like this:
+    #
+    # ```
+    # ~ cat /proc/iomem
+    # 00000000-00000fff : Reserved
+    # 00001000-0007ffff : System RAM
+    # 00080000-0009ffff : Reserved
+    # 000f0000-000fffff : System ROM
+    # 00100000-0fffffff : System RAM
+    #   01000000-018031d0 : Kernel code
+    #   018031d1-01c863bf : Kernel data
+    #   01df8000-0209ffff : Kernel bss
+    # d0000000-d0000fff : LNRO0005:00
+    #   d0000000-d0000fff : LNRO0005:00
+    # d0001000-d0001fff : LNRO0005:01
+    #   d0001000-d0001fff : LNRO0005:01
+    # ```
+    #
+    # So, to find the address range of a device we just `cat`
+    # its contents and grep for the VirtIO device name, which
+    # with ACPI is "LNRO0005:XY".
+    cmd = f"cat /proc/iomem | grep -m 1 {dev_name}"
+    rc, stdout, stderr = ssh_connection.run(cmd)
+    assert rc == 0, stderr
+
+    # Take range in the form 'start-end' from line. The line looks like this:
+    # d00002000-d0002fff : LNRO0005:02
+    mem_range = stdout.split(" ")[0]
+
+    # Parse range into (start, end) integers
+    tokens = mem_range.split("-")
+    return (int(tokens[0], 16), int(tokens[1], 16))
+
+
 def _get_net_mem_addr_base(ssh_connection, if_name):
     """Get the net device memory start address."""
     if platform.machine() == "x86_64":
-        sys_virtio_mmio_cmdline = "/sys/devices/virtio-mmio-cmdline/"
-        cmd = "ls {} | grep virtio-mmio. | sed 's/virtio-mmio.//'"
+        # On x86 we define VirtIO devices through ACPI AML bytecode. VirtIO devices
+        # are identified as "LNRO0005" and appear under /sys/devices/platform
+        sys_virtio_mmio_cmdline = "/sys/devices/platform/"
+        cmd = "ls {} | grep LNRO0005"
         exit_code, stdout, _ = ssh_connection.run(cmd.format(sys_virtio_mmio_cmdline))
         assert exit_code == 0
-        virtio_devs_idx = stdout.split()
+        virtio_devs = stdout.split()
 
-        cmd = "cat /proc/cmdline"
-        exit_code, cmd_line, _ = ssh_connection.run(cmd)
-        assert exit_code == 0
-        pattern_dev = re.compile("(virtio_mmio.device=4K@0x[0-9a-f]+:[0-9]+)+")
-        pattern_addr = re.compile("virtio_mmio.device=4K@(0x[0-9a-f]+):[0-9]+")
-        devs_addr = []
-        for dev in re.findall(pattern_dev, cmd_line):
-            matched_addr = pattern_addr.search(dev)
-            # The 1st group which matches this pattern
-            # is the device start address. `0` group is
-            # full match.
-            addr = matched_addr.group(1)
-            devs_addr.append(addr)
-
-        cmd = "ls {}/virtio-mmio.{}/virtio{}/net"
-        for idx in virtio_devs_idx:
+        # For virtio-net LNRO0005 devices, we should have a path like:
+        # /sys/devices/platform/LNRO0005::XY/virtioXY/net which is a directory
+        # that includes a subdirectory `ethZ` which represents the network device
+        # that corresponds to the virtio-net device.
+        cmd = "ls {}/{}/virtio{}/net"
+        for idx, dev in enumerate(virtio_devs):
             _, guest_if_name, _ = ssh_connection.run(
-                cmd.format(sys_virtio_mmio_cmdline, idx, idx)
+                cmd.format(sys_virtio_mmio_cmdline, dev, idx)
             )
             if guest_if_name.strip() == if_name:
-                return devs_addr[int(idx)]
+                return _find_iomem_range(ssh_connection, dev)[0]
     elif platform.machine() == "aarch64":
         sys_virtio_mmio_cmdline = "/sys/devices/platform"
         cmd = "ls {} | grep .virtio_mmio".format(sys_virtio_mmio_cmdline)
