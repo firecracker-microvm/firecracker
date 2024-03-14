@@ -333,13 +333,15 @@ impl ProcessTimeReporter {
 
     /// Obtain process CPU start time in microseconds.
     pub fn report_cpu_start_time(&self) {
-        let delta_us = utils::time::get_time_us(utils::time::ClockType::ProcessCpu)
-            - self.start_time_cpu_us.unwrap_or_default()
-            + self.parent_cpu_time_us.unwrap_or_default();
-        METRICS
-            .api_server
-            .process_startup_time_cpu_us
-            .store(delta_us);
+        if let Some(cpu_start_time) = self.start_time_cpu_us {
+            let delta_us = utils::time::get_time_us(utils::time::ClockType::ProcessCpu)
+                - cpu_start_time
+                + self.parent_cpu_time_us.unwrap_or_default();
+            METRICS
+                .api_server
+                .process_startup_time_cpu_us
+                .store(delta_us);
+        }
     }
 }
 
