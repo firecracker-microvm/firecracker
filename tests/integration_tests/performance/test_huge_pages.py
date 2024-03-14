@@ -18,11 +18,13 @@ def check_hugetlbfs_in_use(pid: int, allocation_name: str):
 
     `allocation_name` should be the name of the smaps entry for which we want to verify that huge pages are used.
     For memfd-backed guest memory, this would be "memfd:guest_mem" (the `guest_mem` part originating from the name
-    we give the memfd in memory.rs), for anonymous memory this would be "/anon_hugepage"
+    we give the memfd in memory.rs), for anonymous memory this would be "/anon_hugepage".
+    Note: in our testing, we do not currently configure vhost-user-blk devices, so we only exercise
+    the "/anon_hugepage" case.
     """
 
     # Format of a sample smaps entry:
-    #   7fc2bc400000-7fc2cc400000 rw-s 00000000 00:10 25488401                   /memfd:guest_mem (deleted)
+    #   7fc2bc400000-7fc2cc400000 rw-s 00000000 00:10 25488401                   /anon_hugepage
     #   Size:             262144 kB
     #   KernelPageSize:     2048 kB
     #   MMUPageSize:        2048 kB
@@ -70,7 +72,7 @@ def test_hugetlbfs_boot(uvm_plain):
 
     check_hugetlbfs_in_use(
         uvm_plain.firecracker_pid,
-        "memfd:guest_mem",
+        "/anon_hugepage",
     )
 
 
@@ -97,7 +99,7 @@ def test_hugetlbfs_snapshot(
     rc, _, _ = vm.ssh.run("true")
     assert not rc
 
-    check_hugetlbfs_in_use(vm.firecracker_pid, "memfd:guest_mem")
+    check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
 
     snapshot = vm.snapshot_full()
 
