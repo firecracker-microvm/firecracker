@@ -77,6 +77,15 @@ and this project adheres to
   content is empty, because the 'Content-Length' header field was missing in a
   response.
 
+### Deprecated
+
+- Firecracker's `--start-time-cpu-us` and `--start-time-us` parameters are
+  deprecated and will be removed in v2.0 or later. They are used by the jailer
+  to pass the value that should be subtracted from the (CPU) time, when emitting
+  the `start_time_us` and `start_time_cpu_us` metrics. These parameters were
+  never meant to be used by end customers, and we recommend doing any such time
+  adjustments outside Firecracker.
+
 ## \[1.6.0\]
 
 ### Added
