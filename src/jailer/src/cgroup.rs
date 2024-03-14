@@ -48,7 +48,7 @@ impl<'a> CgroupBuilder<'a> {
 
         // search PROC_MOUNTS for cgroup mount points
         let f = File::open(b.proc_mounts_path)
-            .map_err(|err| JailerError::FileOpen(PathBuf::from(&b.proc_mounts_path), err))?;
+            .map_err(|err| JailerError::FileOpen(PathBuf::from(b.proc_mounts_path), err))?;
 
         // Regex courtesy of Filippo.
         // This will match on each line from /proc/mounts for both v1 and v2 mount points.
@@ -69,7 +69,7 @@ impl<'a> CgroupBuilder<'a> {
 
         for l in BufReader::new(f).lines() {
             let l =
-                l.map_err(|err| JailerError::ReadLine(PathBuf::from(&b.proc_mounts_path), err))?;
+                l.map_err(|err| JailerError::ReadLine(PathBuf::from(b.proc_mounts_path), err))?;
             if let Some(capture) = re.captures(&l) {
                 if ver == 2 && capture["ver"].len() == 1 {
                     // Found the cgroupv2 unified mountpoint; with cgroupsv2 there is only one
