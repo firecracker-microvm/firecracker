@@ -489,21 +489,23 @@ def test_positive_file_size_limit(uvm_plain):
 
 def test_negative_file_size_limit(uvm_plain):
     """
-    Test creating vm fails when memory size exceeds `fsize` limit.
-    This is caused by the fact that we back guest memory by memfd.
+    Test creating snapshot file fails when size exceeds `fsize` limit.
     """
-
-    vm_mem_size = 128
-    jail_limit = (vm_mem_size - 1) << 20
-
     test_microvm = uvm_plain
-    test_microvm.jailer.resource_limits = [f"fsize={jail_limit}"]
+    # limit to 1MB, to account for logs and metrics
+    test_microvm.jailer.resource_limits = [f"fsize={2**20}"]
     test_microvm.spawn()
-    test_microvm.basic_config(mem_size_mib=vm_mem_size)
+    test_microvm.basic_config()
+    test_microvm.start()
 
-    # Attempt to start a vm.
+    test_microvm.pause()
+
+    # Attempt to create a snapshot.
     try:
-        test_microvm.start()
+        test_microvm.api.snapshot_create.put(
+            mem_file_path="/vm.mem",
+            snapshot_path="/vm.vmstate",
+        )
     except (
         http_client.RemoteDisconnected,
         urllib3.exceptions.ProtocolError,
