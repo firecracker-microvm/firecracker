@@ -92,8 +92,18 @@ def pipeline_to_json(pipeline):
 def get_changed_files():
     """
     Get all files changed since `branch`
+    For branch other than `main`:
+        Use BUILDKITE_BRANCH for nightly tests
+        Use BUILDKITE_PULL_REQUEST_BASE_BRANCH for PR tests
     """
-    branch = os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH", "main")
+    branch = os.environ.get(
+        "BUILDKITE_PULL_REQUEST_BASE_BRANCH", os.environ.get("BUILDKITE_BRANCH", "main")
+    )
+    # This is to allow running buildkite jobs on PRs where
+    # BUILDKITE_BRANCH=refs/pull/123/head
+    if not any(substring in branch_string for substring in ["firecracker", "main"]):
+        branch = "main"
+
     stdout = subprocess.check_output(f"git diff --name-only origin/{branch}".split(" "))
 
     return [Path(line) for line in stdout.decode().splitlines()]
