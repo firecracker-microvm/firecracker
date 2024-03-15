@@ -7,6 +7,7 @@ Common helpers to create Buildkite pipelines
 
 import argparse
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -89,11 +90,18 @@ def pipeline_to_json(pipeline):
     return json.dumps(pipeline, indent=4, sort_keys=True, ensure_ascii=False)
 
 
-def get_changed_files(branch):
+def get_changed_files():
     """
     Get all files changed since `branch`
     """
-    stdout = subprocess.check_output(["git", "diff", "--name-only", branch])
+    # Files are changed only in context of a PR
+    if os.environ.get("BUILDKITE_PULL_REQUEST", "false") == "false":
+        return []
+
+    branch = os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH", "main")
+
+    stdout = subprocess.check_output(f"git diff --name-only origin/{branch}".split(" "))
+
     return [Path(line) for line in stdout.decode().splitlines()]
 
 

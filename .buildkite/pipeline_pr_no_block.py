@@ -38,6 +38,6 @@ optional_grp = group(
     **defaults,
 )
 
-changed_files = get_changed_files("main")
+changed_files = get_changed_files()
 pipeline = {"steps": [optional_grp]} if run_all_tests(changed_files) else {"steps": []}
 print(pipeline_to_json(pipeline))
