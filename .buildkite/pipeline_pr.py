@@ -108,7 +108,7 @@ for step in kani_grp["steps"]:
     step["label"] = "🔍 Kani"
 
 steps = [step_style]
-changed_files = get_changed_files("main")
+changed_files = get_changed_files()
 
 # run sanity build of devtool if Dockerfile is changed
 if any(x.name == "Dockerfile" for x in changed_files):
