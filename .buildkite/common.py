@@ -93,6 +93,10 @@ def get_changed_files():
     """
     Get all files changed since `branch`
     """
+    # Files are changed only in context of a PR
+    if os.environ.get("BUILDKITE_PULL_REQUEST", "false") == "false":
+        return []
+
     branch = os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH", "main")
     stdout = subprocess.check_output(f"git diff --name-only origin/{branch}".split(" "))
 
