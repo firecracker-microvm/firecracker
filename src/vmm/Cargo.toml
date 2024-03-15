@@ -18,7 +18,7 @@ kvm-ioctls = "0.16.0"
 lazy_static = "1.4.0"
 libc = "0.2.117"
 memfd = "0.6.3"
-linux-loader = "0.10.0"
+linux-loader = "0.11.0"
 serde = { version = "1.0.136", features = ["derive", "rc"] }
 semver = { version = "1.0.17", features = ["serde"] }
 serde_json = "1.0.78"
@@ -29,7 +29,7 @@ userfaultfd = "0.7.0"
 vhost = { version = "0.10.0", features = ["vhost-user-frontend"] }
 vm-allocator = "0.1.0"
 vm-superio = "0.7.0"
-vm-memory = { version = "0.13.1", features = ["backend-mmap", "backend-bitmap"] }
+vm-memory = { version = "0.14.0", features = ["backend-mmap", "backend-bitmap"] }
 log = { version = "0.4.17", features = ["std", "serde"] }
 aes-gcm =  { version = "0.10.1", default-features = false, features = ["aes"] }
 base64 = "0.21.0"

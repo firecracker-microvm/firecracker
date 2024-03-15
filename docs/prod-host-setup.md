@@ -274,17 +274,37 @@ echo "swap partitions present (Recommendation: no swap)" \
 
 #### Side channel attacks
 
-It is strongly recommended that users follow the
-[Linux kernel documentation on hardware vulnerabilities](https://docs.kernel.org/admin-guide/hw-vuln/index.html)
-when configuring mitigations against side channel attacks including "Spectre"
-and "Meltdown" attacks (see
-[Page Table Isolation](https://docs.kernel.org/arch/x86/pti.html) and
-[Speculation Control](https://docs.kernel.org/userspace-api/spec_ctrl.html)).
+For the purposes of this document we assume a workload that involves arbitrary
+code execution in a multi-tenant context where each Firecracker process
+corresponds to a single tenant.
 
-Additionally users should consider disabling
+Specific mitigations for side channel issues are constantly evolving as
+researchers find additional issues on a regular basis. Firecracker itself has no
+control over many lower-level software and hardware behaviors and capabilities
+and is not able to mitigate all these issues. Thus, it is strongly recommended
+that users follow the very latest
+[Linux kernel documentation on hardware vulnerabilities](https://docs.kernel.org/admin-guide/hw-vuln/index.html)
+as well as hardware/processor-specific recommendations and firmware updates (see
+[vendor-specific recommendations](#vendor-specific-recommendations) below) when
+configuring mitigations against side channel attacks including "Spectre" and
+"Meltdown" attacks.
+
+However, some generic recommendations are also provided in what follows.
+
+##### Disable SMT
+
+Simultaneous Multi-Threading (SMT) is frequently a precondition for speculation
+issues utilized in side channel attacks such as Spectre variants, MDS, and
+others, where one tenant could leak information to another tenant or the host.
+As such, our recommendation is to disable SMT in production scenarios that
+require tenant separation.
+
+##### Disable Kernel Samepage Merging
+
+Users should disable
 [Kernel Samepage Merging](https://www.kernel.org/doc/html/latest/admin-guide/mm/ksm.html)
-to mitigate [side channel issues](https://eprint.iacr.org/2013/448.pdf) relying
-on the page deduplication for revealing what memory pages are accessed by
+to mitigate [side channel issues](https://eprint.iacr.org/2013/448.pdf) that
+rely on page deduplication for revealing what memory pages are accessed by
 another process.
 
 ##### Use memory with Rowhammer mitigation support

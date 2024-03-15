@@ -17,7 +17,13 @@ and this project adheres to
   be deduced from the available emitted metrics.
 - [#4360](https://github.com/firecracker-microvm/firecracker/pull/4360): Added
   dev-preview support for backing a VM's guest memory by 2M hugetlbfs pages.
-  Please see the [documentation](docs/hugepages.md) for more information.
+  Please see the [documentation](docs/hugepages.md) for more information
+- [#4486](https://github.com/firecracker-microvm/firecracker/pull/4486): Added
+  block and net device metrics for file/tap access latencies and queue backlog
+  lengths, which can be used to analyse saturation of the Firecracker VMM thread
+  and underlying layers. Queue backlog length metrics are flushed periodically.
+  They can be used to esimtate an average queue length by request by dividing
+  its value by the number of requests served.
 
 ### Changed
 
@@ -35,6 +41,10 @@ and this project adheres to
   information about page size to the payload Firecracker sends to the UFFD
   handler. Each memory region object now contains a `page_size_kib` field. See
   also the [hugepages documentation](docs/hugepages.md).
+- [#4498](https://github.com/firecracker-microvm/firecracker/pull/4498): Only
+  use memfd to back guest memory if a vhost-user-blk device is configured,
+  otherwise use anonymous private memory. This is because serving page faults of
+  shared memory used by memfd is slower and may impact workloads.
 
 ### Fixed
 
@@ -66,6 +76,19 @@ and this project adheres to
   mechanism to reliably fetch Firecracker PID. With this change, Firecracker
   process's PID will always be available in the Jailer's root directory
   regardless of whether new_pid_ns was set.
+- [#4468](https://github.com/firecracker-microvm/firecracker/pull/4468): Fixed a
+  bug where a client would hang or timeout when querying for an MMDS path whose
+  content is empty, because the 'Content-Length' header field was missing in a
+  response.
+
+### Deprecated
+
+- Firecracker's `--start-time-cpu-us` and `--start-time-us` parameters are
+  deprecated and will be removed in v2.0 or later. They are used by the jailer
+  to pass the value that should be subtracted from the (CPU) time, when emitting
+  the `start_time_us` and `start_time_cpu_us` metrics. These parameters were
+  never meant to be used by end customers, and we recommend doing any such time
+  adjustments outside Firecracker.
 
 ## \[1.6.0\]
 

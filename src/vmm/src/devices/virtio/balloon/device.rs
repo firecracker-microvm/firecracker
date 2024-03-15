@@ -481,7 +481,7 @@ impl Balloon {
         }
     }
 
-    /// Update the the statistics polling interval.
+    /// Update the statistics polling interval.
     pub fn update_stats_polling_interval(&mut self, interval_s: u16) -> Result<(), BalloonError> {
         if self.stats_polling_interval_s == interval_s {
             return Ok(());

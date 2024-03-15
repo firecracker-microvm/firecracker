@@ -618,46 +618,26 @@ The test restores the snapshot and ensures that all the devices set-up in the
 configuration file (network devices, disk, vsock, balloon and MMDS) are
 operational post-load.
 
-The tables below reflect the snapshot compatibility observed on Intel and AMD.
-On ARM, snapshot restore between kernel versions is not possible due to
-registers incompatibility.
+In those tests the instance is fixed, except some combinations where we also
+test across the same CPU family (Intel x86, Gravitons). In general cross-CPU
+snapshots [are not supported](./versioning.md#cpu-model)
 
-### Intel
+The tables below reflect the snapshot compatibility observed on the AWS
+instances we support.
 
-<table>
-  <tr>
-    <th></th>
-    <th>Snapshot taken on host 4.14</th>
-    <th>Snapshot taken on host 5.10</th>
-  </tr>
-  <tr>
-    <th>Load snapshot on host 4.14</th>
-    <td style="background-color:mediumseagreen">successful</td>
-    <td style="background-color:darkred">unsuccessful due to unresponsive net devices</td>
-  </tr>
-  <tr>
-    <th>Load snapshot on host 5.10</th>
-    <td style="background-color:mediumseagreen">successful</td>
-    <td style="background-color:mediumseagreen">successful</td>
-  </tr>
-</table>
+**all** means all currently supported Intel/AMD/ARM metal instances (m6g, m7g,
+m5n, c5n, m6i, m7i, m6a). It does not mean cross-instance, i.e. a snapshot taken
+on m6i won't work on an m6g instance.
 
-### AMD
+| *CPU family* | *taken on host kernel* | *restored on host kernel* | *working?* |
+| ------------ | ---------------------- | ------------------------- | ---------- |
+| **x86_64**   | 4.14                   | 5.10                      | Y          |
+| **all**      | 5.10                   | 4.14                      | N          |
+| **all**      | 5.10                   | 6.1                       | Y          |
+| **all**      | 6.1                    | 5.10                      | Y          |
 
-<table>
-  <tr>
-    <th></th>
-    <th>Snapshot taken on host 4.14</th>
-    <th>Snapshot taken on host 5.10</th>
-  </tr>
-  <tr>
-    <th>Load snapshot on host 4.14</th>
-    <td style="background-color:mediumseagreen">successful</td>
-    <td style="background-color:mediumseagreen">unsuccessful due to mismatch in MSRs</td>
-  </tr>
-  <tr>
-    <th>Load snapshot on host 5.10</th>
-    <td style="background-color:mediumseagreen">successful</td>
-    <td style="background-color:mediumseagreen">successful</td>
-  </tr>
-</table>
+What doesn't work:
+
+- Graviton 4.14 \<-> 5.10 does not restore due to register incompatibility.
+- Intel 5.10 -> 4.14 does not restore because unresponsive net devices
+- AMD m6a 5.10 -> 4.14 does not restore due to mismatch in MSRs

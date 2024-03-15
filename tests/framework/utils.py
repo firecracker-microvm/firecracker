@@ -27,11 +27,7 @@ from tenacity import (
     wait_fixed,
 )
 
-from framework.defs import (
-    DEFAULT_TEST_SESSION_ROOT_PATH,
-    LOCAL_BUILD_PATH,
-    MIN_KERNEL_VERSION_FOR_IO_URING,
-)
+from framework.defs import MIN_KERNEL_VERSION_FOR_IO_URING
 
 FLUSH_CMD = 'screen -S {session} -X colon "logfile flush 0^M"'
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
@@ -39,62 +35,77 @@ CMDLOG = logging.getLogger("commands")
 GET_CPU_LOAD = "top -bn1 -H -p {} -w512 | tail -n+8"
 
 
-class ProcessManager:
-    """Host process manager.
+def get_threads(pid: int) -> dict:
+    """Return dict consisting of child threads."""
+    threads_map = defaultdict(list)
+    proc = psutil.Process(pid)
+    for thread in proc.threads():
+        threads_map[psutil.Process(thread.id).name()].append(thread.id)
+    return threads_map
 
-    TODO: Extend the management to guest processes.
-    TODO: Extend with automated process/cpu_id pinning accountability.
+
+def get_cpu_affinity(pid: int) -> list:
+    """Get CPU affinity for a thread."""
+    return psutil.Process(pid).cpu_affinity()
+
+
+def set_cpu_affinity(pid: int, cpulist: list) -> list:
+    """Set CPU affinity for a thread."""
+    real_cpulist = list(map(CpuMap, cpulist))
+    return psutil.Process(pid).cpu_affinity(real_cpulist)
+
+
+def get_cpu_utilization(pid: int) -> Dict[str, float]:
+    """Return current process per thread CPU utilization."""
+    _, stdout, _ = run_cmd(GET_CPU_LOAD.format(pid))
+    cpu_utilization = {}
+
+    # Take all except the last line
+    lines = stdout.strip().split(sep="\n")
+    for line in lines:
+        # sometimes the firecracker process will have gone away, in which case top does not return anything
+        if not line:
+            continue
+
+        info = line.strip().split()
+        # We need at least CPU utilization and threads names cols (which
+        # might be two cols e.g `fc_vcpu 0`).
+        info_len = len(info)
+        assert info_len > 11, line
+
+        cpu_percent = float(info[8])
+
+        # Handles `fc_vcpu 0` case as well.
+        thread_name = info[11] + (" " + info[12] if info_len > 12 else "")
+        cpu_utilization[thread_name] = cpu_percent
+
+    return cpu_utilization
+
+
+def track_cpu_utilization(
+    pid: int, iterations: int, omit: int
+) -> Dict[str, list[float]]:
+    """Tracks cpu utilization of a process for certain number of
+    iterations. Sleeps for first `omit` seconds.
     """
+    assert iterations > 0
 
-    @staticmethod
-    def get_threads(pid: int) -> dict:
-        """Return dict consisting of child threads."""
-        threads_map = defaultdict(list)
-        proc = psutil.Process(pid)
-        for thread in proc.threads():
-            threads_map[psutil.Process(thread.id).name()].append(thread.id)
-        return threads_map
+    # Sleep first `omit` secconds
+    time.sleep(omit)
 
-    @staticmethod
-    def get_cpu_affinity(pid: int) -> list:
-        """Get CPU affinity for a thread."""
-        return psutil.Process(pid).cpu_affinity()
+    cpu_utilization = {}
+    for _ in range(iterations):
+        current_cpu_utilization = get_cpu_utilization(pid)
+        assert len(current_cpu_utilization) > 0
 
-    @staticmethod
-    def set_cpu_affinity(pid: int, cpulist: list) -> list:
-        """Set CPU affinity for a thread."""
-        real_cpulist = list(map(CpuMap, cpulist))
-        return psutil.Process(pid).cpu_affinity(real_cpulist)
+        for thread_name, value in current_cpu_utilization.items():
+            if not cpu_utilization.get(thread_name):
+                cpu_utilization[thread_name] = []
+            cpu_utilization[thread_name].append(value)
 
-    @staticmethod
-    def get_cpu_percent(pid: int) -> Dict[str, Dict[str, float]]:
-        """Return the instant process CPU utilization percent."""
-        _, stdout, _ = run_cmd(GET_CPU_LOAD.format(pid))
-        cpu_percentages = {}
-
-        # Take all except the last line
-        lines = stdout.strip().split(sep="\n")
-        for line in lines:
-            # sometimes the firecracker process will have gone away, in which case top does not return anything
-            if not line:
-                continue
-
-            info = line.strip().split()
-            # We need at least CPU utilization and threads names cols (which
-            # might be two cols e.g `fc_vcpu 0`).
-            info_len = len(info)
-            assert info_len > 11, line
-
-            cpu_percent = float(info[8])
-            task_id = info[0]
-
-            # Handles `fc_vcpu 0` case as well.
-            thread_name = info[11] + (" " + info[12] if info_len > 12 else "")
-            if thread_name not in cpu_percentages:
-                cpu_percentages[thread_name] = {}
-            cpu_percentages[thread_name][task_id] = cpu_percent
-
-        return cpu_percentages
+        # 1 second granularity
+        time.sleep(1)
+    return cpu_utilization
 
 
 @contextmanager
@@ -308,91 +319,6 @@ class CmdBuilder:
         return cmd
 
 
-# pylint: disable=R0903
-class DictQuery:
-    """Utility class to query python dicts key paths.
-
-    The keys from the path must be `str`s.
-    Example:
-    > d = {
-            "a": {
-                "b": {
-                    "c": 0
-                }
-            },
-            "d": 1
-      }
-    > dq = DictQuery(d)
-    > print(dq.get("a/b/c"))
-    0
-    > print(dq.get("d"))
-    1
-    """
-
-    def __init__(self, inner: dict):
-        """Initialize the dict query."""
-        self._inner = inner
-
-    def get(self, keys_path: str, default=None):
-        """Retrieve value corresponding to the key path."""
-        keys = keys_path.strip().split("/")
-        if len(keys) < 1:
-            return default
-
-        result = self._inner
-        for key in keys:
-            if not result:
-                return default
-
-            result = result.get(key)
-
-        return result
-
-    def __str__(self):
-        """Representation as a string."""
-        return str(self._inner)
-
-
-class ExceptionAggregator(Exception):
-    """Abstraction over an exception with message formatter."""
-
-    def __init__(self, add_newline=False):
-        """Initialize the exception aggregator."""
-        super().__init__()
-        self.failures = []
-
-        # If `add_newline` is True then the failures will start one row below,
-        # in the logs. This is useful for having the failures starting on an
-        # empty line, keeping the formatting nice and clean.
-        if add_newline:
-            self.failures.append("")
-
-    def add_row(self, failure: str):
-        """Add a failure entry."""
-        self.failures.append(f"{failure}")
-
-    def has_any(self) -> bool:
-        """Return whether there are failures or not."""
-        if len(self.failures) == 1:
-            return self.failures[0] != ""
-
-        return len(self.failures) > 1
-
-    def __str__(self):
-        """Return custom as string implementation."""
-        return "\n\n".join(self.failures)
-
-
-def to_local_dir_path(tmp_dir_path: str) -> str:
-    """
-    Converts path from tmp dir to path on the host.
-    """
-
-    return tmp_dir_path.replace(
-        str(DEFAULT_TEST_SESSION_ROOT_PATH), str(LOCAL_BUILD_PATH)
-    )
-
-
 def search_output_from_cmd(cmd: str, find_regex: typing.Pattern) -> typing.Match:
     """
     Run a shell command and search a given regex object in stdout.
@@ -492,12 +418,6 @@ def run_cmd(cmd, **kwargs):
     return run_cmd_sync(cmd, **kwargs)
 
 
-def eager_map(func, iterable):
-    """Map version for Python 3.x which is eager and returns nothing."""
-    for _ in map(func, iterable):
-        continue
-
-
 def assert_seccomp_level(pid, seccomp_level):
     """Test that seccomp_level applies to all threads of a process."""
     # Get number of threads
@@ -512,33 +432,10 @@ def assert_seccomp_level(pid, seccomp_level):
         assert seccomp_line == "Seccomp:" + seccomp_level
 
 
-def get_cpu_percent(pid: int, iterations: int, omit: int) -> dict:
-    """Get total PID CPU percentage, as in system time plus user time.
-
-    If the PID has corresponding threads, creates a dictionary with the
-    lists of instant loads for each thread.
-    """
-    assert iterations > 0
-    time.sleep(omit)
-    cpu_percentages = {}
-    for _ in range(iterations):
-        current_cpu_percentages = ProcessManager.get_cpu_percent(pid)
-        assert len(current_cpu_percentages) > 0
-
-        for thread_name, task_ids in current_cpu_percentages.items():
-            if not cpu_percentages.get(thread_name):
-                cpu_percentages[thread_name] = {}
-            for task_id in task_ids:
-                if not cpu_percentages[thread_name].get(task_id):
-                    cpu_percentages[thread_name][task_id] = []
-                cpu_percentages[thread_name][task_id].append(task_ids[task_id])
-        time.sleep(1)  # 1 second granularity.
-    return cpu_percentages
-
-
 def run_guest_cmd(ssh_connection, cmd, expected, use_json=False):
     """Runs a shell command at the remote accessible via SSH"""
-    _, stdout, stderr = ssh_connection.run(cmd)
+    rc, stdout, stderr = ssh_connection.run(cmd)
+    assert rc == 0
     assert stderr == ""
     stdout = stdout if not use_json else json.loads(stdout)
     assert stdout == expected

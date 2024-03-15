@@ -9,17 +9,8 @@ import pytest
 from framework.utils_iperf import IPerf3Test, emit_iperf3_metrics
 from host_tools.fcmetrics import FCMetricsMonitor
 
-# each iteration is 15 * 30 * 0.2s = 90s
-ROUNDS = 15
-REQUEST_PER_ROUND = 30
-DELAY = 0.2
 
-#  MicroVM configuration
-GUEST_MEM_MIB = 1024
-GUEST_VCPUS = 1
-
-
-def consume_ping_output(ping_putput):
+def consume_ping_output(ping_putput, request_per_round):
     """Consume ping output.
 
     Output example:
@@ -37,7 +28,7 @@ def consume_ping_output(ping_putput):
     assert len(output) > 2
 
     # Compute percentiles.
-    seqs = output[1 : REQUEST_PER_ROUND + 1]
+    seqs = output[1 : request_per_round + 1]
     pattern_time = ".+ bytes from .+: icmp_seq=.+ ttl=.+ time=(.+) ms"
     for seq in seqs:
         time = re.findall(pattern_time, seq)
@@ -48,11 +39,14 @@ def consume_ping_output(ping_putput):
 @pytest.fixture
 def network_microvm(request, microvm_factory, guest_kernel, rootfs):
     """Creates a microvm with the networking setup used by the performance tests in this file.
-
     This fixture receives its vcpu count via indirect parameterization"""
+
+    guest_mem_mib = 1024
+    guest_vcpus = request.param
+
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn(log_level="Info")
-    vm.basic_config(vcpu_count=request.param, mem_size_mib=GUEST_MEM_MIB)
+    vm.basic_config(vcpu_count=guest_vcpus, mem_size_mib=guest_mem_mib)
     vm.add_net_iface()
     vm.start()
     vm.pin_threads(0)
@@ -62,25 +56,19 @@ def network_microvm(request, microvm_factory, guest_kernel, rootfs):
 
 @pytest.mark.nonci
 @pytest.mark.parametrize("network_microvm", [1], indirect=True)
-@pytest.mark.parametrize("iteration", [1, 2])
-def test_network_latency(network_microvm, metrics, iteration):
+def test_network_latency(network_microvm, metrics):
     """
     Test network latency by sending pings from the guest to the host.
-
-    This test is split into multiple iterations. The rationale behind
-    this is that we have very little network latency test cases (only 2,
-    which is the number of guest kernels), which means that the A/B-testing
-    framework does not have enough data to meaningfully correct for outliers
-    (it has only 2 data points). This change increases the number of data
-    points it can work with to 4, which should hopefully help with the high
-    false-positive rate we have been seeing from this test.
     """
+
+    rounds = 15
+    request_per_round = 30
+    delay = 0.2
 
     metrics.set_dimensions(
         {
             "performance_test": "test_network_latency",
             **network_microvm.dimensions,
-            "iteration": str(iteration),
         }
     )
     fcmetrics = FCMetricsMonitor(network_microvm)
@@ -89,46 +77,17 @@ def test_network_latency(network_microvm, metrics, iteration):
     samples = []
     host_ip = network_microvm.iface["eth0"]["iface"].host_ip
 
-    for _ in range(ROUNDS):
+    for _ in range(rounds):
         rc, ping_output, stderr = network_microvm.ssh.run(
-            f"ping -c {REQUEST_PER_ROUND} -i {DELAY} {host_ip}"
+            f"ping -c {request_per_round} -i {delay} {host_ip}"
         )
         assert rc == 0, stderr
 
-        samples.extend(consume_ping_output(ping_output))
+        samples.extend(consume_ping_output(ping_output, request_per_round))
     fcmetrics.stop()
 
     for sample in samples:
         metrics.put_metric("ping_latency", sample, "Milliseconds")
-
-
-class TcpIPerf3Test(IPerf3Test):
-    """IPerf3 runner for the TCP throughput performance test"""
-
-    BASE_PORT = 5000
-
-    # How many clients/servers should be spawned per vcpu
-    LOAD_FACTOR = 1
-
-    # Time (in seconds) for which iperf "warms up"
-    WARMUP_SEC = 5
-
-    # Time (in seconds) for which iperf runs after warmup is done
-    RUNTIME_SEC = 20
-
-    def __init__(self, microvm, mode, host_ip, payload_length):
-        self._host_ip = host_ip
-
-        super().__init__(
-            microvm,
-            self.BASE_PORT,
-            self.RUNTIME_SEC,
-            self.WARMUP_SEC,
-            mode,
-            self.LOAD_FACTOR * microvm.vcpus_count,
-            host_ip,
-            payload_length=payload_length,
-        )
 
 
 @pytest.mark.nonci
@@ -145,6 +104,12 @@ def test_network_tcp_throughput(
     """
     Iperf between guest and host in both directions for TCP workload.
     """
+
+    base_port = 5000
+    # Time (in seconds) for which iperf "warms up"
+    warmup_sec = 5
+    # Time (in seconds) for which iperf runs after warmup is done
+    runtime_sec = 20
 
     # We run bi-directional tests only on uVM with more than 2 vCPus
     # because we need to pin one iperf3/direction per vCPU, and since we
@@ -163,13 +128,17 @@ def test_network_tcp_throughput(
     fcmetrics = FCMetricsMonitor(network_microvm)
     fcmetrics.start()
 
-    test = TcpIPerf3Test(
-        network_microvm,
-        mode,
-        network_microvm.iface["eth0"]["iface"].host_ip,
-        payload_length,
+    test = IPerf3Test(
+        microvm=network_microvm,
+        base_port=base_port,
+        runtime=runtime_sec,
+        omit=warmup_sec,
+        mode=mode,
+        num_clients=network_microvm.vcpus_count,
+        connect_to=network_microvm.iface["eth0"]["iface"].host_ip,
+        payload_length=payload_length,
     )
     data = test.run_test(network_microvm.vcpus_count + 2)
 
-    emit_iperf3_metrics(metrics, data, TcpIPerf3Test.WARMUP_SEC)
+    emit_iperf3_metrics(metrics, data, warmup_sec)
     fcmetrics.stop()

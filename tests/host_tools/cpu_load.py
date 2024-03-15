@@ -62,17 +62,12 @@ class CpuLoadMonitor(Thread):
         It is up to the caller to check the queue.
         """
         while not self._should_stop:
-            cpus = utils.ProcessManager.get_cpu_percent(self._process_pid)
+            utilization = utils.get_cpu_utilization(self._process_pid)
 
             try:
-                fc_threads = cpus["firecracker"]
-
-                # There can be multiple "firecracker" threads sometimes, see #3429
-                assert len(fc_threads) > 0
-
-                for _, cpu_load in fc_threads.items():
-                    if cpu_load > self._threshold:
-                        self._cpu_load_samples.append(cpu_load)
+                fc_thread_util = utilization["firecracker"]
+                if fc_thread_util > self._threshold:
+                    self._cpu_load_samples.append(fc_thread_util)
             except KeyError:
                 pass  # no firecracker process
 

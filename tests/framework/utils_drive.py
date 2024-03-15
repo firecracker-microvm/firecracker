@@ -106,7 +106,7 @@ class VhostUserBlkBackend(ABC):
 
     def pin(self, cpu_id: int):
         """Pin the vhost-user backend to a CPU list."""
-        return utils.ProcessManager.set_cpu_affinity(self.proc.pid, [cpu_id])
+        return utils.set_cpu_affinity(self.proc.pid, [cpu_id])
 
     def kill(self):
         """Kill the backend"""

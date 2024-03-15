@@ -490,6 +490,7 @@ impl Net {
             });
         }
 
+        let _metric = net_metrics.tap_write_agg.record_latency_metrics();
         match Self::write_tap(tap, frame_iovec) {
             Ok(_) => {
                 let len = frame_iovec.len() as u64;
@@ -591,6 +592,9 @@ impl Net {
         let tx_queue = &mut self.queues[TX_INDEX];
 
         while let Some(head) = tx_queue.pop_or_enable_notification(mem) {
+            self.metrics
+                .tx_remaining_reqs_count
+                .add(tx_queue.len(mem).into());
             let head_index = head.index;
             // Parse IoVecBuffer from descriptor head
             let buffer = match IoVecBuffer::from_descriptor_chain(head) {
