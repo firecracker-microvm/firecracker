@@ -41,6 +41,10 @@ and this project adheres to
   information about page size to the payload Firecracker sends to the UFFD
   handler. Each memory region object now contains a `page_size_kib` field. See
   also the [hugepages documentation](docs/hugepages.md).
+- [#4498](https://github.com/firecracker-microvm/firecracker/pull/4498): Only
+  use memfd to back guest memory if a vhost-user-blk device is configured,
+  otherwise use anonymous private memory. This is because serving page faults of
+  shared memory used by memfd is slower and may impact workloads.
 
 ### Fixed
 

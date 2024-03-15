@@ -237,12 +237,39 @@ pub fn build_microvm_for_boot(
         .ok_or(MissingKernelConfig)?;
 
     let track_dirty_pages = vm_resources.track_dirty_pages();
-    let guest_memory = GuestMemoryMmap::memfd_backed(
-        vm_resources.vm_config.mem_size_mib,
-        track_dirty_pages,
-        vm_resources.vm_config.huge_pages,
-    )
-    .map_err(StartMicrovmError::GuestMemory)?;
+
+    let vhost_user_device_used = vm_resources
+        .block
+        .devices
+        .iter()
+        .any(|b| b.lock().expect("Poisoned lock").is_vhost_user());
+
+    // Page faults are more expensive for shared memory mapping, including  memfd.
+    // For this reason, we only back guest memory with a memfd
+    // if a vhost-user-blk device is configured in the VM, otherwise we fall back to
+    // an anonymous private memory.
+    //
+    // The vhost-user-blk branch is not currently covered by integration tests in Rust,
+    // because that would require running a backend process. If in the future we converge to
+    // a single way of backing guest memory for vhost-user and non-vhost-user cases,
+    // that would not be worth the effort.
+    let guest_memory = if vhost_user_device_used {
+        GuestMemoryMmap::memfd_backed(
+            vm_resources.vm_config.mem_size_mib,
+            track_dirty_pages,
+            vm_resources.vm_config.huge_pages,
+        )
+        .map_err(StartMicrovmError::GuestMemory)?
+    } else {
+        let regions = crate::arch::arch_memory_regions(vm_resources.vm_config.mem_size_mib << 20);
+        GuestMemoryMmap::from_raw_regions(
+            &regions,
+            track_dirty_pages,
+            vm_resources.vm_config.huge_pages,
+        )
+        .map_err(StartMicrovmError::GuestMemory)?
+    };
+
     let entry_addr = load_kernel(boot_config, &guest_memory)?;
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
     // Clone the command-line so that a failed boot doesn't pollute the original.
