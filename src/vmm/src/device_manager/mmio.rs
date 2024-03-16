@@ -118,7 +118,7 @@ impl MMIODeviceManager {
     }
 
     /// Allocates resources for a new device to be added.
-    fn allocate_mmio_resources(&mut self, irq_count: u32) -> Result<MMIODeviceInfo, MmioError> {
+    fn allocate_device_info(&mut self, irq_count: u32) -> Result<MMIODeviceInfo, MmioError> {
         let irqs = (0..irq_count)
             .map(|_| self.irq_allocator.allocate_id())
             .collect::<vm_allocator::Result<_>>()
@@ -142,7 +142,7 @@ impl MMIODeviceManager {
         device_id: String,
         mmio_device: MmioTransport,
     ) -> Result<MMIODeviceInfo, MmioError> {
-        let device_info = self.allocate_mmio_resources(1)?;
+        let device_info = self.allocate_device_info(1)?;
         self.register_mmio_virtio(vm, device_id, mmio_device, &device_info)?;
         Ok(device_info)
     }
@@ -153,7 +153,7 @@ impl MMIODeviceManager {
         identifier: (DeviceType, String),
         device: Arc<Mutex<BusDevice>>,
     ) -> Result<(), MmioError> {
-        let device_info = self.allocate_mmio_resources(1)?;
+        let device_info = self.allocate_device_info(1)?;
         self.add_bus_device_with_info(identifier, device, device_info)
     }
 
@@ -213,7 +213,7 @@ impl MMIODeviceManager {
         let device_info = if let Some(device_info) = device_info_opt {
             device_info
         } else {
-            self.allocate_mmio_resources(1)?
+            self.allocate_device_info(1)?
         };
 
         device_info.register_kvm_irqfd(
@@ -677,15 +677,15 @@ mod tests {
             (crate::arch::IRQ_BASE, crate::arch::IRQ_MAX),
         )
         .unwrap();
-        let device_info = device_manager.allocate_mmio_resources(0).unwrap();
+        let device_info = device_manager.allocate_device_info(0).unwrap();
         assert_eq!(device_info.irqs.len(), 0);
-        let device_info = device_manager.allocate_mmio_resources(1).unwrap();
+        let device_info = device_manager.allocate_device_info(1).unwrap();
         assert_eq!(device_info.irqs[0], crate::arch::IRQ_BASE);
         assert_eq!(
             format!(
                 "{}",
                 device_manager
-                    .allocate_mmio_resources(crate::arch::IRQ_MAX - crate::arch::IRQ_BASE + 1)
+                    .allocate_device_info(crate::arch::IRQ_MAX - crate::arch::IRQ_BASE + 1)
                     .unwrap_err()
             ),
             "Failed to allocate requested resource: The requested resource is not available."
@@ -697,14 +697,14 @@ mod tests {
         }
 
         let device_info = device_manager
-            .allocate_mmio_resources(crate::arch::IRQ_MAX - crate::arch::IRQ_BASE - 1)
+            .allocate_device_info(crate::arch::IRQ_MAX - crate::arch::IRQ_BASE - 1)
             .unwrap();
         assert_eq!(device_info.irqs[16], crate::arch::IRQ_BASE + 16);
         assert_eq!(
-            format!("{}", device_manager.allocate_mmio_resources(2).unwrap_err()),
+            format!("{}", device_manager.allocate_device_info(2).unwrap_err()),
             "Failed to allocate requested resource: The requested resource is not available."
                 .to_string()
         );
-        device_manager.allocate_mmio_resources(0).unwrap();
+        device_manager.allocate_device_info(0).unwrap();
     }
 }
