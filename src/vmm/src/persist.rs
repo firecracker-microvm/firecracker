@@ -26,7 +26,7 @@ use crate::cpu_config::templates::StaticCpuTemplate;
 use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
 #[cfg(target_arch = "x86_64")]
 use crate::cpu_config::x86_64::cpuid::CpuidTrait;
-use crate::device_manager::persist::{DevicePersistError, DeviceStates};
+use crate::device_manager::mmio::persist::{DevicePersistError, DeviceStates};
 use crate::logger::{info, warn};
 use crate::resources::VmResources;
 use crate::snapshot::Snapshot;

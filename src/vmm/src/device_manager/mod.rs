@@ -13,8 +13,6 @@ use self::mmio::MMIODeviceManager;
 pub mod legacy;
 /// Memory Mapped I/O Manager.
 pub mod mmio;
-/// Device managers (de)serialization support.
-pub mod persist;
 
 #[derive(Debug)]
 pub struct DeviceManager {

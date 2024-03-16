@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use utils::net::ipv4addr::is_link_local_valid;
 
 use crate::cpu_config::templates::CustomCpuTemplate;
-use crate::device_manager::persist::SharedDeviceType;
+use crate::device_manager::mmio::persist::SharedDeviceType;
 use crate::logger::{info, log_dev_preview_warning};
 use crate::mmds;
 use crate::mmds::data_store::{Mmds, MmdsVersion};

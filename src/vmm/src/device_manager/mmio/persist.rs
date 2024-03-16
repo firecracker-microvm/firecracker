@@ -12,9 +12,9 @@ use log::{error, warn};
 use serde::{Deserialize, Serialize};
 use vm_allocator::AllocPolicy;
 
-use super::mmio::*;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::DeviceType;
+use crate::device_manager::mmio::*;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::SerialDevice;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
@@ -57,7 +57,7 @@ pub enum DevicePersistError {
     /// Block: {0}
     Block(#[from] BlockError),
     /// Device manager: {0}
-    DeviceManager(#[from] super::mmio::MmioError),
+    DeviceManager(#[from] MmioError),
     /// Mmio transport
     MmioTransport,
     #[cfg(target_arch = "aarch64")]
@@ -383,9 +383,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                             MMIO_LEN,
                             AllocPolicy::ExactMatch(state.device_info.addr),
                         )
-                        .map_err(|e| {
-                            DevicePersistError::DeviceManager(super::mmio::MmioError::Allocator(e))
-                        })?;
+                        .map_err(|e| DevicePersistError::DeviceManager(MmioError::Allocator(e)))?;
 
                     state
                         .device_info
@@ -414,9 +412,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                             MMIO_LEN,
                             AllocPolicy::ExactMatch(state.device_info.addr),
                         )
-                        .map_err(|e| {
-                            DevicePersistError::DeviceManager(super::mmio::MmioError::Allocator(e))
-                        })?;
+                        .map_err(|e| DevicePersistError::DeviceManager(MmioError::Allocator(e)))?;
                     let identifier = (DeviceType::Rtc, DeviceType::Rtc.to_string());
                     dev_manager.add_bus_device_with_info(
                         identifier,
@@ -460,9 +456,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     MMIO_LEN,
                     AllocPolicy::ExactMatch(device_info.addr),
                 )
-                .map_err(|e| {
-                    DevicePersistError::DeviceManager(super::mmio::MmioError::Allocator(e))
-                })?;
+                .map_err(|e| DevicePersistError::DeviceManager(MmioError::Allocator(e)))?;
 
             dev_manager.register_mmio_virtio(vm, id.clone(), mmio_transport, device_info)?;
 

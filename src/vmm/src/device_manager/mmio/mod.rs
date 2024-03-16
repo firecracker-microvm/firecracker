@@ -29,6 +29,9 @@ use crate::devices::virtio::vsock::TYPE_VSOCK;
 use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG};
 use crate::devices::BusDevice;
 
+/// Persis logic for MMIODeviceManager.
+pub mod persist;
+
 /// Errors for MMIO device manager.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum MmioError {

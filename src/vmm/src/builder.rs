@@ -34,8 +34,8 @@ use crate::cpu_config::templates::{
 };
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager::legacy::PortIODeviceManager;
+use crate::device_manager::mmio::persist::MMIODevManagerConstructorArgs;
 use crate::device_manager::mmio::MMIODeviceManager;
-use crate::device_manager::persist::MMIODevManagerConstructorArgs;
 use crate::device_manager::DeviceManager;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
