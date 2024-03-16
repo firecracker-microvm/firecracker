@@ -146,8 +146,31 @@ impl MMIODeviceManager {
         mmio_device: MmioTransport,
     ) -> Result<MMIODeviceInfo, MmioError> {
         let device_info = self.allocate_device_info(1)?;
-        self.register_mmio_virtio(vm, device_id, mmio_device, &device_info)?;
+        self.add_device_with_info(vm, device_id, mmio_device, device_info.clone())?;
         Ok(device_info)
+    }
+
+    /// Add new virtio-over-MMIO device with specified
+    /// device info.
+    pub fn add_device_with_info(
+        &mut self,
+        vm: &VmFd,
+        device_id: String,
+        mmio_device: MmioTransport,
+        device_info: MMIODeviceInfo,
+    ) -> Result<(), MmioError> {
+        let identifier = {
+            let locked_device = mmio_device.locked_device();
+            (DeviceType::Virtio(locked_device.device_type()), device_id)
+        };
+
+        device_info.register_kvm_device(vm, &mmio_device)?;
+
+        self.add_bus_device_with_info(
+            identifier,
+            Arc::new(Mutex::new(BusDevice::MmioTransport(mmio_device))),
+            device_info,
+        )
     }
 
     /// Add new MMIO device to the MMIO bus.
@@ -173,33 +196,6 @@ impl MMIODeviceManager {
             .map_err(MmioError::BusInsert)?;
         self.id_to_dev_info.insert(identifier, device_info);
         Ok(())
-    }
-
-    /// Register a virtio-over-MMIO device to be used via MMIO transport at a specific slot.
-    pub fn register_mmio_virtio(
-        &mut self,
-        vm: &VmFd,
-        device_id: String,
-        mmio_device: MmioTransport,
-        device_info: &MMIODeviceInfo,
-    ) -> Result<(), MmioError> {
-        // Our virtio devices are currently hardcoded to use a single IRQ.
-        // Validate that requirement.
-        if device_info.irqs.len() != 1 {
-            return Err(MmioError::InvalidIrqConfig);
-        }
-        let identifier = {
-            let locked_device = mmio_device.locked_device();
-            (DeviceType::Virtio(locked_device.device_type()), device_id)
-        };
-
-        device_info.register_kvm_device(vm, &mmio_device)?;
-
-        self.add_bus_device_with_info(
-            identifier,
-            Arc::new(Mutex::new(BusDevice::MmioTransport(mmio_device))),
-            device_info.clone(),
-        )
     }
 
     /// Gets the information of the devices registered up to some point in time.

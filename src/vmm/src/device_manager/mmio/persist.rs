@@ -458,8 +458,12 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 )
                 .map_err(|e| DevicePersistError::DeviceManager(MmioError::Allocator(e)))?;
 
-            dev_manager.register_mmio_virtio(vm, id.clone(), mmio_transport, device_info)?;
-
+            dev_manager.add_device_with_info(
+                vm,
+                id.clone(),
+                mmio_transport,
+                device_info.clone(),
+            )?;
             event_manager.add_subscriber(as_subscriber);
             Ok(())
         };
