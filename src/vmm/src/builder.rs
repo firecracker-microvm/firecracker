@@ -52,7 +52,6 @@ use crate::devices::BusDevice;
 use crate::logger::{debug, error};
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
-use crate::snapshot::Persist;
 use crate::vmm_config::boot_source::BootConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{VmConfig, VmConfigError};
@@ -502,9 +501,9 @@ pub fn build_microvm_from_snapshot(
         instance_id: &instance_info.id,
     };
 
-    vmm.device_manager.mmio_devices =
-        MMIODeviceManager::restore(mmio_ctor_args, &microvm_state.device_states)
-            .map_err(MicrovmStateError::RestoreDevices)?;
+    vmm.device_manager
+        .restore(mmio_ctor_args, &microvm_state.device_states)
+        .map_err(MicrovmStateError::RestoreDevices)?;
     vmm.emulate_serial_init()?;
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.

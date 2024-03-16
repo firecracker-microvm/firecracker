@@ -135,7 +135,6 @@ use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET};
 use crate::logger::{error, info, warn, MetricsError, METRICS};
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
-use crate::snapshot::Persist;
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vstate::memory::{
     GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion,
@@ -515,7 +514,7 @@ impl Vmm {
                 self.vm.save_state(&mpidrs).map_err(SaveVmState)?
             }
         };
-        let device_states = self.device_manager.mmio_devices.save();
+        let device_states = self.device_manager.save();
 
         let memory_state = self.guest_memory().describe();
 
