@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use kvm_ioctls::{IoEventAddress, VmFd};
 use log::info;
 use serde::{Deserialize, Serialize};
+use utils::eventfd::EventFd;
 use vm_allocator::{AddressAllocator, AllocPolicy, IdAllocator};
 
 #[cfg(target_arch = "aarch64")]
@@ -83,6 +84,11 @@ impl MMIODeviceInfo {
         vm.register_irqfd(locked_device.interrupt_evt(), self.irqs[0])
             .map_err(MmioError::RegisterIrqFd)?;
         Ok(())
+    }
+
+    pub fn register_kvm_irqfd(&self, vm: &VmFd, eventfd: &EventFd) -> Result<(), MmioError> {
+        vm.register_irqfd(eventfd, self.irqs[0])
+            .map_err(MmioError::RegisterIrqFd)
     }
 }
 
@@ -210,7 +216,8 @@ impl MMIODeviceManager {
             self.allocate_mmio_resources(1)?
         };
 
-        vm.register_irqfd(
+        device_info.register_kvm_irqfd(
+            vm,
             serial
                 .lock()
                 .expect("Poisoned lock")
@@ -218,9 +225,7 @@ impl MMIODeviceManager {
                 .unwrap()
                 .serial
                 .interrupt_evt(),
-            device_info.irqs[0],
-        )
-        .map_err(MmioError::RegisterIrqFd)?;
+        )?;
 
         let identifier = (DeviceType::Serial, DeviceType::Serial.to_string());
         // Register the newly created Serial object.
