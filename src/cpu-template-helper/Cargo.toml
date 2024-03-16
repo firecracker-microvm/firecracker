@@ -18,11 +18,9 @@ log-instrument = { path = "../log-instrument", optional = true }
 serde = { version = "1.0.196", features = ["derive"] }
 serde_json = "1.0.113"
 thiserror = "1.0.57"
+vmm-sys-util = "0.12.1"
 
 vmm = { path = "../vmm" }
-
-[dev-dependencies]
-utils = { path = "../utils" }
 
 [features]
 tracing = ["log-instrument", "vmm/tracing"]

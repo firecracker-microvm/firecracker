@@ -32,21 +32,12 @@ pub fn dump(vmm: Arc<Mutex<Vmm>>) -> Result<CustomCpuTemplate, DumpError> {
 
 #[cfg(test)]
 mod tests {
-    use utils::tempfile::TempFile;
-    use vmm::utilities::mock_resources::kernel_image_path;
-
     use super::*;
-    use crate::tests::generate_config;
     use crate::utils::build_microvm_from_config;
 
     #[test]
     fn test_dump() {
-        let kernel_image_path = kernel_image_path(None);
-        let tmp_file = TempFile::new().unwrap();
-        let valid_config =
-            generate_config(&kernel_image_path, tmp_file.as_path().to_str().unwrap());
-        let (vmm, _) = build_microvm_from_config(&valid_config).unwrap();
-
+        let (vmm, _) = build_microvm_from_config(None, None).unwrap();
         dump(vmm).unwrap();
     }
 }
