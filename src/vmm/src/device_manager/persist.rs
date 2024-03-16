@@ -15,6 +15,8 @@ use vm_allocator::AllocPolicy;
 use super::mmio::*;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::DeviceType;
+#[cfg(target_arch = "aarch64")]
+use crate::devices::legacy::SerialDevice;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::balloon::{Balloon, BalloonError};
 use crate::devices::virtio::block::device::Block;
@@ -372,8 +374,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         {
             for state in &state.legacy_devices {
                 if state.type_ == DeviceType::Serial {
-                    let serial =
-                        crate::builder::setup_serial_device(constructor_args.event_manager)?;
+                    let serial = SerialDevice::new().map_err(crate::VmmError::EventFd)?;
 
                     dev_manager
                         .address_allocator
@@ -386,10 +387,20 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                             DevicePersistError::DeviceManager(super::mmio::MmioError::Allocator(e))
                         })?;
 
-                    dev_manager.register_mmio_serial(
-                        vm,
+                    state
+                        .device_info
+                        .register_kvm_irqfd(vm, serial.serial.interrupt_evt())?;
+
+                    let serial = Arc::new(Mutex::new(BusDevice::Serial(serial)));
+                    constructor_args
+                        .event_manager
+                        .add_subscriber(serial.clone());
+
+                    let identifier = (DeviceType::Serial, DeviceType::Serial.to_string());
+                    dev_manager.add_bus_device_with_info(
+                        identifier,
                         serial,
-                        Some(state.device_info.clone()),
+                        state.device_info.clone(),
                     )?;
                 }
                 if state.type_ == DeviceType::Rtc {

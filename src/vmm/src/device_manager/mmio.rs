@@ -118,7 +118,7 @@ impl MMIODeviceManager {
     }
 
     /// Allocates resources for a new device to be added.
-    fn allocate_device_info(&mut self, irq_count: u32) -> Result<MMIODeviceInfo, MmioError> {
+    pub fn allocate_device_info(&mut self, irq_count: u32) -> Result<MMIODeviceInfo, MmioError> {
         let irqs = (0..irq_count)
             .map(|_| self.irq_allocator.allocate_id())
             .collect::<vm_allocator::Result<_>>()
@@ -197,40 +197,6 @@ impl MMIODeviceManager {
             Arc::new(Mutex::new(BusDevice::MmioTransport(mmio_device))),
             device_info.clone(),
         )
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    /// Register an early console at the specified MMIO configuration if given as parameter,
-    /// otherwise allocate a new MMIO resources for it.
-    pub fn register_mmio_serial(
-        &mut self,
-        vm: &VmFd,
-        serial: Arc<Mutex<BusDevice>>,
-        device_info_opt: Option<MMIODeviceInfo>,
-    ) -> Result<MMIODeviceInfo, MmioError> {
-        // Create a new MMIODeviceInfo object on boot path or unwrap the
-        // existing object on restore path.
-        let device_info = if let Some(device_info) = device_info_opt {
-            device_info
-        } else {
-            self.allocate_device_info(1)?
-        };
-
-        device_info.register_kvm_irqfd(
-            vm,
-            serial
-                .lock()
-                .expect("Poisoned lock")
-                .serial_ref()
-                .unwrap()
-                .serial
-                .interrupt_evt(),
-        )?;
-
-        let identifier = (DeviceType::Serial, DeviceType::Serial.to_string());
-        // Register the newly created Serial object.
-        self.add_bus_device_with_info(identifier, serial, device_info.clone())?;
-        Ok(device_info)
     }
 
     /// Gets the information of the devices registered up to some point in time.

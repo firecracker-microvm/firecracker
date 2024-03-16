@@ -663,12 +663,27 @@ fn attach_legacy_devices_aarch64(
     if cmdline_contains_console {
         // Make stdout non-blocking.
         set_stdout_nonblocking();
-        let serial = setup_serial_device(event_manager)?;
+
+        let serial = SerialDevice::new().map_err(VmmError::EventFd)?;
+
         let device_info = vmm
             .device_manager
             .mmio_devices
-            .register_mmio_serial(vmm.vm.fd(), serial, None)
+            .allocate_device_info(1)
             .map_err(VmmError::RegisterMMIODevice)?;
+        device_info
+            .register_kvm_irqfd(vmm.vm.fd(), serial.serial.interrupt_evt())
+            .map_err(VmmError::RegisterMMIODevice)?;
+
+        let serial = Arc::new(Mutex::new(BusDevice::Serial(serial)));
+        event_manager.add_subscriber(serial.clone());
+
+        let identifier = (DeviceType::Serial, DeviceType::Serial.to_string());
+        vmm.device_manager
+            .mmio_devices
+            .add_bus_device_with_info(identifier, serial, device_info.clone())
+            .map_err(VmmError::RegisterMMIODevice)?;
+
         cmdline
             .insert("earlycon", &format!("uart,mmio,0x{:08x}", device_info.addr))
             .expect("All args are valid");
