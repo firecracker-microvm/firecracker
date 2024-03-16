@@ -65,7 +65,7 @@ pub enum BusDevice {
     RTCDevice(RTCDevice),
     BootTimer(BootTimer),
     MmioTransport(MmioTransport),
-    Serial(SerialDevice<std::io::Stdin>),
+    Serial(SerialDevice),
     #[cfg(test)]
     Dummy(DummyDevice),
     #[cfg(test)]
@@ -127,7 +127,7 @@ impl BusDevice {
             _ => None,
         }
     }
-    pub fn serial_ref(&self) -> Option<&SerialDevice<std::io::Stdin>> {
+    pub fn serial_ref(&self) -> Option<&SerialDevice> {
         match self {
             Self::Serial(x) => Some(x),
             _ => None,
@@ -159,7 +159,7 @@ impl BusDevice {
             _ => None,
         }
     }
-    pub fn serial_mut(&mut self) -> Option<&mut SerialDevice<std::io::Stdin>> {
+    pub fn serial_mut(&mut self) -> Option<&mut SerialDevice> {
         match self {
             Self::Serial(x) => Some(x),
             _ => None,

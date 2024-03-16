@@ -7,14 +7,15 @@
 
 //! Implements a wrapper over an UART serial device.
 use std::fmt::Debug;
-use std::io;
-use std::io::{Read, Write};
+use std::io::{self, Read, Stdin, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
+use libc::EFD_NONBLOCK;
 use log::{error, warn};
 use serde::Serialize;
 use utils::epoll::EventSet;
+use utils::eventfd::EventFd;
 use vm_superio::serial::{Error as SerialError, SerialEvents};
 use vm_superio::{Serial, Trigger};
 
@@ -220,7 +221,26 @@ impl<I: Read + AsRawFd + Send + Debug> SerialWrapper<EventFdTrigger, SerialEvent
 }
 
 /// Type for representing a serial device.
-pub type SerialDevice<I> = SerialWrapper<EventFdTrigger, SerialEventsWrapper, I>;
+pub type SerialDevice = SerialWrapper<EventFdTrigger, SerialEventsWrapper, Stdin>;
+
+impl SerialDevice {
+    pub fn new() -> Result<Self, std::io::Error> {
+        let stdin = std::io::stdin();
+        let stdout = io::stdout();
+        let interrupt_evt = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK)?);
+        let buffer_ready_event_fd = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK)?);
+        Ok(SerialDevice {
+            serial: Serial::with_events(
+                interrupt_evt,
+                SerialEventsWrapper {
+                    buffer_ready_event_fd: Some(buffer_ready_event_fd),
+                },
+                SerialOut::Stdout(stdout),
+            ),
+            input: Some(stdin),
+        })
+    }
+}
 
 impl<I: Read + AsRawFd + Send + Debug> MutEventSubscriber
     for SerialWrapper<EventFdTrigger, SerialEventsWrapper, I>

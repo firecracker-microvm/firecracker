@@ -10,7 +10,6 @@ use std::io::{self, Seek, SeekFrom};
 use std::sync::{Arc, Mutex};
 
 use event_manager::{MutEventSubscriber, SubscriberOps};
-use libc::EFD_NONBLOCK;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 #[cfg(target_arch = "x86_64")]
 use linux_loader::loader::elf::Elf as Loader;
@@ -25,7 +24,6 @@ use utils::u64_to_usize;
 use vm_memory::ReadVolatile;
 #[cfg(target_arch = "aarch64")]
 use vm_superio::Rtc;
-use vm_superio::Serial;
 
 use crate::arch::{DeviceType, InitrdConfig};
 #[cfg(target_arch = "aarch64")]
@@ -39,10 +37,9 @@ use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::persist::MMIODevManagerConstructorArgs;
 use crate::device_manager::DeviceManager;
-use crate::devices::legacy::serial::SerialOut;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
-use crate::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
+use crate::devices::legacy::SerialDevice;
 use crate::devices::pseudo::BootTimer;
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
@@ -160,8 +157,7 @@ fn create_vmm_and_vcpus(
         set_stdout_nonblocking();
 
         // Serial device setup.
-        let serial_device =
-            setup_serial_device(event_manager, std::io::stdin(), io::stdout()).map_err(Internal)?;
+        let serial_device = setup_serial_device(event_manager).map_err(Internal)?;
 
         // x86_64 uses the i8042 reset event as the Vmm exit event.
         let reset_evt = vcpus_exit_evt
@@ -643,22 +639,9 @@ pub fn setup_interrupt_controller(vm: &mut Vm, vcpu_count: u8) -> Result<(), Sta
 /// Sets up the serial device.
 pub fn setup_serial_device(
     event_manager: &mut EventManager,
-    input: std::io::Stdin,
-    out: std::io::Stdout,
 ) -> Result<Arc<Mutex<BusDevice>>, VmmError> {
-    let interrupt_evt = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(VmmError::EventFd)?);
-    let kick_stdin_read_evt =
-        EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(VmmError::EventFd)?);
-    let serial = Arc::new(Mutex::new(BusDevice::Serial(SerialWrapper {
-        serial: Serial::with_events(
-            interrupt_evt,
-            SerialEventsWrapper {
-                buffer_ready_event_fd: Some(kick_stdin_read_evt),
-            },
-            SerialOut::Stdout(out),
-        ),
-        input: Some(input),
-    })));
+    let serial = SerialDevice::new().map_err(VmmError::EventFd)?;
+    let serial = Arc::new(Mutex::new(BusDevice::Serial(serial)));
     event_manager.add_subscriber(serial.clone());
     Ok(serial)
 }
@@ -680,7 +663,7 @@ fn attach_legacy_devices_aarch64(
     if cmdline_contains_console {
         // Make stdout non-blocking.
         set_stdout_nonblocking();
-        let serial = setup_serial_device(event_manager, std::io::stdin(), std::io::stdout())?;
+        let serial = setup_serial_device(event_manager)?;
         let device_info = vmm
             .device_manager
             .mmio_devices
