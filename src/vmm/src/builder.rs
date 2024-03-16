@@ -680,14 +680,14 @@ fn attach_legacy_devices_aarch64(
         // Make stdout non-blocking.
         set_stdout_nonblocking();
         let serial = setup_serial_device(event_manager, std::io::stdin(), std::io::stdout())?;
-        vmm.device_manager
+        let device_info = vmm
+            .device_manager
             .mmio_devices
             .register_mmio_serial(vmm.vm.fd(), serial, None)
             .map_err(VmmError::RegisterMMIODevice)?;
-        vmm.device_manager
-            .mmio_devices
-            .add_mmio_serial_to_cmdline(cmdline)
-            .map_err(VmmError::RegisterMMIODevice)?;
+        cmdline
+            .insert("earlycon", &format!("uart,mmio,0x{:08x}", device_info.addr))
+            .expect("All args are valid");
     }
 
     let rtc = RTCDevice(Rtc::with_events(
@@ -820,7 +820,7 @@ fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
     vmm: &mut Vmm,
     id: String,
     device: Arc<Mutex<T>>,
-    cmdline: &mut LoaderKernelCmdline,
+    _cmdline: &mut LoaderKernelCmdline,
     is_vhost_user: bool,
 ) -> Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
@@ -829,11 +829,22 @@ fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
 
     // The device mutex mustn't be locked here otherwise it will deadlock.
     let device = MmioTransport::new(vmm.guest_memory().clone(), device, is_vhost_user);
-    vmm.device_manager
+    let _device_info = vmm
+        .device_manager
         .mmio_devices
-        .register_mmio_virtio_for_boot(vmm.vm.fd(), id, device, cmdline)
-        .map_err(RegisterMmioDevice)
-        .map(|_| ())
+        .add_device(vmm.vm.fd(), id, device)
+        .map_err(RegisterMmioDevice)?;
+
+    #[cfg(target_arch = "x86_64")]
+    _cmdline
+        .add_virtio_mmio_device(
+            _device_info.len,
+            GuestAddress(_device_info.addr),
+            _device_info.irqs[0],
+            None,
+        )
+        .expect("MMIO device len is 0x1000");
+    Ok(())
 }
 
 pub(crate) fn attach_boot_timer_device(

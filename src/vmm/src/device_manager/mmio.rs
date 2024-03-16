@@ -10,7 +10,6 @@ use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
 use kvm_ioctls::{IoEventAddress, VmFd};
-use linux_loader::cmdline as kernel_cmdline;
 use log::info;
 use serde::{Deserialize, Serialize};
 use vm_allocator::{AddressAllocator, AllocPolicy, IdAllocator};
@@ -31,8 +30,6 @@ use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::TYPE_VSOCK;
 use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG};
 use crate::devices::BusDevice;
-#[cfg(target_arch = "x86_64")]
-use crate::vstate::memory::GuestAddress;
 
 /// Errors for MMIO device manager.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -41,8 +38,6 @@ pub enum MmioError {
     Allocator(vm_allocator::Error),
     /// Failed to insert device on the bus: {0}
     BusInsert(crate::devices::BusError),
-    /// Failed to allocate requested resourc: {0}
-    Cmdline(linux_loader::cmdline::Error),
     /// Failed to find the device on the bus.
     DeviceNotFound,
     /// Invalid device type found on the MMIO bus.
@@ -151,6 +146,18 @@ impl MMIODeviceManager {
         Ok(())
     }
 
+    /// Add new virtio-over-MMIO device.
+    pub fn add_device(
+        &mut self,
+        vm: &VmFd,
+        device_id: String,
+        mmio_device: MmioTransport,
+    ) -> Result<MMIODeviceInfo, MmioError> {
+        let device_info = self.allocate_mmio_resources(1)?;
+        self.register_mmio_virtio(vm, device_id, mmio_device, &device_info)?;
+        Ok(device_info)
+    }
+
     /// Register a virtio-over-MMIO device to be used via MMIO transport at a specific slot.
     pub fn register_mmio_virtio(
         &mut self,
@@ -178,43 +185,6 @@ impl MMIODeviceManager {
         )
     }
 
-    /// Append a registered virtio-over-MMIO device to the kernel cmdline.
-    #[cfg(target_arch = "x86_64")]
-    pub fn add_virtio_device_to_cmdline(
-        cmdline: &mut kernel_cmdline::Cmdline,
-        device_info: &MMIODeviceInfo,
-    ) -> Result<(), MmioError> {
-        // as per doc, [virtio_mmio.]device=<size>@<baseaddr>:<irq> needs to be appended
-        // to kernel commandline for virtio mmio devices to get recognized
-        // the size parameter has to be transformed to KiB, so dividing hexadecimal value in
-        // bytes to 1024; further, the '{}' formatting rust construct will automatically
-        // transform it to decimal
-        cmdline
-            .add_virtio_mmio_device(
-                device_info.len,
-                GuestAddress(device_info.addr),
-                device_info.irqs[0],
-                None,
-            )
-            .map_err(MmioError::Cmdline)
-    }
-
-    /// Allocate slot and register an already created virtio-over-MMIO device. Also Adds the device
-    /// to the boot cmdline.
-    pub fn register_mmio_virtio_for_boot(
-        &mut self,
-        vm: &VmFd,
-        device_id: String,
-        mmio_device: MmioTransport,
-        _cmdline: &mut kernel_cmdline::Cmdline,
-    ) -> Result<MMIODeviceInfo, MmioError> {
-        let device_info = self.allocate_mmio_resources(1)?;
-        self.register_mmio_virtio(vm, device_id, mmio_device, &device_info)?;
-        #[cfg(target_arch = "x86_64")]
-        Self::add_virtio_device_to_cmdline(_cmdline, &device_info)?;
-        Ok(device_info)
-    }
-
     #[cfg(target_arch = "aarch64")]
     /// Register an early console at the specified MMIO configuration if given as parameter,
     /// otherwise allocate a new MMIO resources for it.
@@ -223,7 +193,7 @@ impl MMIODeviceManager {
         vm: &VmFd,
         serial: Arc<Mutex<BusDevice>>,
         device_info_opt: Option<MMIODeviceInfo>,
-    ) -> Result<(), MmioError> {
+    ) -> Result<MMIODeviceInfo, MmioError> {
         // Create a new MMIODeviceInfo object on boot path or unwrap the
         // existing object on restore path.
         let device_info = if let Some(device_info) = device_info_opt {
@@ -246,22 +216,8 @@ impl MMIODeviceManager {
 
         let identifier = (DeviceType::Serial, DeviceType::Serial.to_string());
         // Register the newly created Serial object.
-        self.register_mmio_device(identifier, device_info, serial)
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    /// Append the registered early console to the kernel cmdline.
-    pub fn add_mmio_serial_to_cmdline(
-        &self,
-        cmdline: &mut kernel_cmdline::Cmdline,
-    ) -> Result<(), MmioError> {
-        let device_info = self
-            .id_to_dev_info
-            .get(&(DeviceType::Serial, DeviceType::Serial.to_string()))
-            .ok_or(MmioError::DeviceNotFound)?;
-        cmdline
-            .insert("earlycon", &format!("uart,mmio,0x{:08x}", device_info.addr))
-            .map_err(MmioError::Cmdline)
+        self.register_mmio_device(identifier, device_info.clone(), serial)?;
+        Ok(device_info)
     }
 
     #[cfg(target_arch = "aarch64")]
