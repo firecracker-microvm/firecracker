@@ -74,6 +74,26 @@ pub struct MMIODeviceInfo {
     pub irqs: Vec<u32>,
 }
 
+impl MMIODeviceInfo {
+    pub fn register_kvm_device(
+        &self,
+        vm: &VmFd,
+        mmio_device: &MmioTransport,
+    ) -> Result<(), MmioError> {
+        let locked_device = mmio_device.locked_device();
+        for (i, queue_evt) in locked_device.queue_events().iter().enumerate() {
+            let io_addr = IoEventAddress::Mmio(
+                self.addr + u64::from(crate::devices::virtio::NOTIFY_REG_OFFSET),
+            );
+            vm.register_ioevent(queue_evt, &io_addr, u32::try_from(i).unwrap())
+                .map_err(MmioError::RegisterIoEvent)?;
+        }
+        vm.register_irqfd(locked_device.interrupt_evt(), self.irqs[0])
+            .map_err(MmioError::RegisterIrqFd)?;
+        Ok(())
+    }
+}
+
 /// Manages the complexities of registering a MMIO device.
 #[derive(Debug)]
 pub struct MMIODeviceManager {
@@ -144,20 +164,12 @@ impl MMIODeviceManager {
         if device_info.irqs.len() != 1 {
             return Err(MmioError::InvalidIrqConfig);
         }
-        let identifier;
-        {
+        let identifier = {
             let locked_device = mmio_device.locked_device();
-            identifier = (DeviceType::Virtio(locked_device.device_type()), device_id);
-            for (i, queue_evt) in locked_device.queue_events().iter().enumerate() {
-                let io_addr = IoEventAddress::Mmio(
-                    device_info.addr + u64::from(crate::devices::virtio::NOTIFY_REG_OFFSET),
-                );
-                vm.register_ioevent(queue_evt, &io_addr, u32::try_from(i).unwrap())
-                    .map_err(MmioError::RegisterIoEvent)?;
-            }
-            vm.register_irqfd(locked_device.interrupt_evt(), device_info.irqs[0])
-                .map_err(MmioError::RegisterIrqFd)?;
-        }
+            (DeviceType::Virtio(locked_device.device_type()), device_id)
+        };
+
+        device_info.register_kvm_device(vm, &mmio_device)?;
 
         self.register_mmio_device(
             identifier,
