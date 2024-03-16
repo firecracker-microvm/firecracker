@@ -157,7 +157,11 @@ fn create_vmm_and_vcpus(
         set_stdout_nonblocking();
 
         // Serial device setup.
-        let serial_device = setup_serial_device(event_manager).map_err(Internal)?;
+        let serial = SerialDevice::new()
+            .map_err(VmmError::EventFd)
+            .map_err(Internal)?;
+        let serial = Arc::new(Mutex::new(BusDevice::Serial(serial)));
+        event_manager.add_subscriber(serial.clone());
 
         // x86_64 uses the i8042 reset event as the Vmm exit event.
         let reset_evt = vcpus_exit_evt
@@ -168,7 +172,7 @@ fn create_vmm_and_vcpus(
         // create pio dev manager with legacy devices
         let pio_device_manager = {
             // TODO Remove these unwraps.
-            let mut pio_dev_mgr = PortIODeviceManager::new(serial_device, reset_evt).unwrap();
+            let mut pio_dev_mgr = PortIODeviceManager::new(serial, reset_evt).unwrap();
             pio_dev_mgr.register_devices(vm.fd()).unwrap();
             pio_dev_mgr
         };
@@ -634,16 +638,6 @@ pub fn setup_interrupt_controller(vm: &mut Vm, vcpu_count: u8) -> Result<(), Sta
     vm.setup_irqchip(vcpu_count)
         .map_err(VmmError::Vm)
         .map_err(StartMicrovmError::Internal)
-}
-
-/// Sets up the serial device.
-pub fn setup_serial_device(
-    event_manager: &mut EventManager,
-) -> Result<Arc<Mutex<BusDevice>>, VmmError> {
-    let serial = SerialDevice::new().map_err(VmmError::EventFd)?;
-    let serial = Arc::new(Mutex::new(BusDevice::Serial(serial)));
-    event_manager.add_subscriber(serial.clone());
-    Ok(serial)
 }
 
 #[cfg(target_arch = "aarch64")]
