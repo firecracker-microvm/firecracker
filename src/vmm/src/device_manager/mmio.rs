@@ -18,9 +18,6 @@ use vm_allocator::{AddressAllocator, AllocPolicy, IdAllocator};
 use crate::arch::aarch64::DeviceInfoForFDT;
 use crate::arch::DeviceType;
 use crate::arch::DeviceType::Virtio;
-#[cfg(target_arch = "aarch64")]
-use crate::devices::legacy::RTCDevice;
-use crate::devices::pseudo::BootTimer;
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::device::VirtioDevice;
@@ -132,20 +129,6 @@ impl MMIODeviceManager {
         Ok(device_info)
     }
 
-    /// Register a device at some MMIO address.
-    fn register_mmio_device(
-        &mut self,
-        identifier: (DeviceType, String),
-        device_info: MMIODeviceInfo,
-        device: Arc<Mutex<BusDevice>>,
-    ) -> Result<(), MmioError> {
-        self.bus
-            .insert(device, device_info.addr, device_info.len)
-            .map_err(MmioError::BusInsert)?;
-        self.id_to_dev_info.insert(identifier, device_info);
-        Ok(())
-    }
-
     /// Add new virtio-over-MMIO device.
     pub fn add_device(
         &mut self,
@@ -156,6 +139,31 @@ impl MMIODeviceManager {
         let device_info = self.allocate_mmio_resources(1)?;
         self.register_mmio_virtio(vm, device_id, mmio_device, &device_info)?;
         Ok(device_info)
+    }
+
+    /// Add new MMIO device to the MMIO bus.
+    pub fn add_bus_device(
+        &mut self,
+        identifier: (DeviceType, String),
+        device: Arc<Mutex<BusDevice>>,
+    ) -> Result<(), MmioError> {
+        let device_info = self.allocate_mmio_resources(1)?;
+        self.add_bus_device_with_info(identifier, device, device_info)
+    }
+
+    /// Add new MMIO device to the MMIO bus with specified
+    /// device info.
+    pub fn add_bus_device_with_info(
+        &mut self,
+        identifier: (DeviceType, String),
+        device: Arc<Mutex<BusDevice>>,
+        device_info: MMIODeviceInfo,
+    ) -> Result<(), MmioError> {
+        self.bus
+            .insert(device, device_info.addr, device_info.len)
+            .map_err(MmioError::BusInsert)?;
+        self.id_to_dev_info.insert(identifier, device_info);
+        Ok(())
     }
 
     /// Register a virtio-over-MMIO device to be used via MMIO transport at a specific slot.
@@ -178,10 +186,10 @@ impl MMIODeviceManager {
 
         device_info.register_kvm_device(vm, &mmio_device)?;
 
-        self.register_mmio_device(
+        self.add_bus_device_with_info(
             identifier,
-            device_info.clone(),
             Arc::new(Mutex::new(BusDevice::MmioTransport(mmio_device))),
+            device_info.clone(),
         )
     }
 
@@ -216,47 +224,8 @@ impl MMIODeviceManager {
 
         let identifier = (DeviceType::Serial, DeviceType::Serial.to_string());
         // Register the newly created Serial object.
-        self.register_mmio_device(identifier, device_info.clone(), serial)?;
+        self.add_bus_device_with_info(identifier, serial, device_info.clone())?;
         Ok(device_info)
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    /// Create and register a MMIO RTC device at the specified MMIO configuration if
-    /// given as parameter, otherwise allocate a new MMIO resources for it.
-    pub fn register_mmio_rtc(
-        &mut self,
-        rtc: RTCDevice,
-        device_info_opt: Option<MMIODeviceInfo>,
-    ) -> Result<(), MmioError> {
-        // Create a new MMIODeviceInfo object on boot path or unwrap the
-        // existing object on restore path.
-        let device_info = if let Some(device_info) = device_info_opt {
-            device_info
-        } else {
-            self.allocate_mmio_resources(1)?
-        };
-
-        // Create a new identifier for the RTC device.
-        let identifier = (DeviceType::Rtc, DeviceType::Rtc.to_string());
-        // Attach the newly created RTC device.
-        self.register_mmio_device(
-            identifier,
-            device_info,
-            Arc::new(Mutex::new(BusDevice::RTCDevice(rtc))),
-        )
-    }
-
-    /// Register a boot timer device.
-    pub fn register_mmio_boot_timer(&mut self, device: BootTimer) -> Result<(), MmioError> {
-        // Attach a new boot timer device.
-        let device_info = self.allocate_mmio_resources(0)?;
-
-        let identifier = (DeviceType::BootTimer, DeviceType::BootTimer.to_string());
-        self.register_mmio_device(
-            identifier,
-            device_info,
-            Arc::new(Mutex::new(BusDevice::BootTimer(device))),
-        )
     }
 
     /// Gets the information of the devices registered up to some point in time.

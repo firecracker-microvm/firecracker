@@ -27,7 +27,7 @@ use vm_memory::ReadVolatile;
 use vm_superio::Rtc;
 use vm_superio::Serial;
 
-use crate::arch::InitrdConfig;
+use crate::arch::{DeviceType, InitrdConfig};
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
 use crate::cpu_config::templates::{
@@ -43,6 +43,7 @@ use crate::devices::legacy::serial::SerialOut;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
 use crate::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
+use crate::devices::pseudo::BootTimer;
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::device::VirtioDevice;
@@ -690,12 +691,13 @@ fn attach_legacy_devices_aarch64(
             .expect("All args are valid");
     }
 
-    let rtc = RTCDevice(Rtc::with_events(
-        &crate::devices::legacy::rtc_pl031::METRICS,
-    ));
+    let identifier = (DeviceType::Rtc, DeviceType::Rtc.to_string());
+    let rtc = Arc::new(Mutex::new(BusDevice::RTCDevice(RTCDevice(
+        Rtc::with_events(&crate::devices::legacy::rtc_pl031::METRICS),
+    ))));
     vmm.device_manager
         .mmio_devices
-        .register_mmio_rtc(rtc, None)
+        .add_bus_device(identifier, rtc)
         .map_err(VmmError::RegisterMMIODevice)
 }
 
@@ -853,14 +855,13 @@ pub(crate) fn attach_boot_timer_device(
 ) -> Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
-    let boot_timer = crate::devices::pseudo::BootTimer::new(request_ts);
+    let identifier = (DeviceType::BootTimer, DeviceType::BootTimer.to_string());
+    let boot_timer = Arc::new(Mutex::new(BusDevice::BootTimer(BootTimer::new(request_ts))));
 
     vmm.device_manager
         .mmio_devices
-        .register_mmio_boot_timer(boot_timer)
-        .map_err(RegisterMmioDevice)?;
-
-    Ok(())
+        .add_bus_device(identifier, boot_timer)
+        .map_err(RegisterMmioDevice)
 }
 
 fn attach_entropy_device(

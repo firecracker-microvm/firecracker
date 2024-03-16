@@ -38,6 +38,8 @@ use crate::devices::virtio::vsock::{
     Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError, TYPE_VSOCK,
 };
 use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG};
+#[cfg(target_arch = "aarch64")]
+use crate::devices::BusDevice;
 use crate::mmds::data_store::MmdsVersion;
 use crate::resources::{ResourcesError, VmResources};
 use crate::snapshot::Persist;
@@ -407,7 +409,12 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         .map_err(|e| {
                             DevicePersistError::DeviceManager(super::mmio::MmioError::Allocator(e))
                         })?;
-                    dev_manager.register_mmio_rtc(rtc, Some(state.device_info.clone()))?;
+                    let identifier = (DeviceType::Rtc, DeviceType::Rtc.to_string());
+                    dev_manager.add_bus_device_with_info(
+                        identifier,
+                        Arc::new(Mutex::new(BusDevice::RTCDevice(rtc))),
+                        state.device_info.clone(),
+                    )?;
                 }
             }
         }
