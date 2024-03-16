@@ -684,7 +684,7 @@ mod tests {
     #[test]
     fn test_microvm_state_snapshot() {
         let vmm = default_vmm_with_devices();
-        let states = vmm.mmio_device_manager.save();
+        let states = vmm.device_manager.mmio_devices.save();
 
         // Only checking that all devices are saved, actual device state
         // is tested by that device's tests.

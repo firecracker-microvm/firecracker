@@ -113,6 +113,7 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 
+use device_manager::DeviceManager;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use seccompiler::BpfProgram;
 use userfaultfd::Uffd;
@@ -124,9 +125,6 @@ use vstate::vcpu::{self, KvmVcpuConfigureError, StartThreadedError, VcpuSendEven
 
 use crate::arch::DeviceType;
 use crate::cpu_config::templates::CpuConfiguration;
-#[cfg(target_arch = "x86_64")]
-use crate::device_manager::legacy::PortIODeviceManager;
-use crate::device_manager::mmio::MMIODeviceManager;
 use crate::devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET};
 use crate::devices::virtio::balloon::{
     Balloon, BalloonConfig, BalloonError, BalloonStats, BALLOON_DEV_ID,
@@ -307,10 +305,11 @@ pub struct Vmm {
     // Used by Vcpus and devices to initiate teardown; Vmm should never write here.
     vcpus_exit_evt: EventFd,
 
+    device_manager: DeviceManager,
     // Guest VM devices.
-    mmio_device_manager: MMIODeviceManager,
-    #[cfg(target_arch = "x86_64")]
-    pio_device_manager: PortIODeviceManager,
+    // device_manager.mmio_devices: MMIODeviceManager,
+    // #[cfg(target_arch = "x86_64")]
+    // pio_device_manager: PortIODeviceManager,
 }
 
 impl Vmm {
@@ -335,7 +334,9 @@ impl Vmm {
         device_type: DeviceType,
         device_id: &str,
     ) -> Option<&Mutex<devices::bus::BusDevice>> {
-        self.mmio_device_manager.get_device(device_type, device_id)
+        self.device_manager
+            .mmio_devices
+            .get_device(device_type, device_id)
     }
 
     /// Starts the microVM vcpus.
@@ -372,10 +373,10 @@ impl Vmm {
         self.vcpus_handles.reserve(vcpu_count);
 
         for mut vcpu in vcpus.drain(..) {
-            vcpu.set_mmio_bus(self.mmio_device_manager.bus.clone());
+            vcpu.set_mmio_bus(self.device_manager.mmio_devices.bus.clone());
             #[cfg(target_arch = "x86_64")]
             vcpu.kvm_vcpu
-                .set_pio_bus(self.pio_device_manager.io_bus.clone());
+                .set_pio_bus(self.device_manager.pio_diveces.io_bus.clone());
 
             self.vcpus_handles
                 .push(vcpu.start_threaded(vcpu_seccomp_filter.clone(), barrier.clone())?);
@@ -389,7 +390,7 @@ impl Vmm {
 
     /// Sends a resume command to the vCPUs.
     pub fn resume_vm(&mut self) -> Result<(), VmmError> {
-        self.mmio_device_manager.kick_devices();
+        self.device_manager.mmio_devices.kick_devices();
 
         // Send the events.
         self.vcpus_handles
@@ -469,7 +470,8 @@ impl Vmm {
         #[cfg(target_arch = "x86_64")]
         {
             let mut guard = self
-                .pio_device_manager
+                .device_manager
+                .pio_diveces
                 .stdio_serial
                 .lock()
                 .expect("Poisoned lock");
@@ -486,7 +488,8 @@ impl Vmm {
     /// Injects CTRL+ALT+DEL keystroke combo in the i8042 device.
     #[cfg(target_arch = "x86_64")]
     pub fn send_ctrl_alt_del(&mut self) -> Result<(), VmmError> {
-        self.pio_device_manager
+        self.device_manager
+            .pio_diveces
             .i8042
             .lock()
             .expect("i8042 lock was poisoned")
@@ -512,7 +515,7 @@ impl Vmm {
                 self.vm.save_state(&mpidrs).map_err(SaveVmState)?
             }
         };
-        let device_states = self.mmio_device_manager.save();
+        let device_states = self.device_manager.mmio_devices.save();
 
         let memory_state = self.guest_memory().describe();
 
@@ -618,7 +621,8 @@ impl Vmm {
         drive_id: &str,
         path_on_host: String,
     ) -> Result<(), VmmError> {
-        self.mmio_device_manager
+        self.device_manager
+            .mmio_devices
             .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
                 block
                     .update_disk_image(path_on_host)
@@ -634,7 +638,8 @@ impl Vmm {
         rl_bytes: BucketUpdate,
         rl_ops: BucketUpdate,
     ) -> Result<(), VmmError> {
-        self.mmio_device_manager
+        self.device_manager
+            .mmio_devices
             .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
                 block
                     .update_rate_limiter(rl_bytes, rl_ops)
@@ -645,7 +650,8 @@ impl Vmm {
 
     /// Updates the rate limiter parameters for block device with `drive_id` id.
     pub fn update_vhost_user_block_config(&mut self, drive_id: &str) -> Result<(), VmmError> {
-        self.mmio_device_manager
+        self.device_manager
+            .mmio_devices
             .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
                 block.update_config().map_err(|err| err.to_string())
             })
@@ -661,7 +667,8 @@ impl Vmm {
         tx_bytes: BucketUpdate,
         tx_ops: BucketUpdate,
     ) -> Result<(), VmmError> {
-        self.mmio_device_manager
+        self.device_manager
+            .mmio_devices
             .with_virtio_device_with_id(TYPE_NET, net_id, |net: &mut Net| {
                 net.patch_rate_limiters(rx_bytes, rx_ops, tx_bytes, tx_ops);
                 Ok(())

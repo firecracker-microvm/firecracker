@@ -740,10 +740,14 @@ mod tests {
             let entropy_config = EntropyDeviceConfig::default();
             insert_entropy_device(&mut vmm, &mut cmdline, &mut event_manager, entropy_config);
 
-            Snapshot::serialize(&mut buf.as_mut_slice(), &vmm.mmio_device_manager.save()).unwrap();
+            Snapshot::serialize(
+                &mut buf.as_mut_slice(),
+                &vmm.device_manager.mmio_devices.save(),
+            )
+            .unwrap();
 
             // We only want to keep the device map from the original MmioDeviceManager.
-            vmm.mmio_device_manager.soft_clone()
+            vmm.device_manager.mmio_devices.soft_clone()
         };
         tmp_sock_file.remove().unwrap();
 
