@@ -10,6 +10,28 @@ and this project adheres to
 
 ### Added
 
+### Changed
+
+- [#4492](https://github.com/firecracker-microvm/firecracker/pull/4492): Changed
+  `--config` parameter of `cpu-template-helper` optional. Users no longer need
+  to prepare kernel, rootfs and Firecracker configuration files to use
+  `cpu-template-helper`.
+
+### Deprecated
+
+- Firecracker's `--start-time-cpu-us` and `--start-time-us` parameters are
+  deprecated and will be removed in v2.0 or later. They are used by the jailer
+  to pass the value that should be subtracted from the (CPU) time, when emitting
+  the `start_time_us` and `start_time_cpu_us` metrics. These parameters were
+  never meant to be used by end customers, and we recommend doing any such time
+  adjustments outside Firecracker.
+
+### Fixed
+
+## \[1.7.0\]
+
+### Added
+
 - [#4346](https://github.com/firecracker-microvm/firecracker/pull/4346): Added
   support to emit aggregate (minimum/maximum/sum) latency for
   `VcpuExit::MmioRead`, `VcpuExit::MmioWrite`, `VcpuExit::IoIn` and
@@ -45,10 +67,6 @@ and this project adheres to
   use memfd to back guest memory if a vhost-user-blk device is configured,
   otherwise use anonymous private memory. This is because serving page faults of
   shared memory used by memfd is slower and may impact workloads.
-- [#4492](https://github.com/firecracker-microvm/firecracker/pull/4492): Changed
-  `--config` parameter of `cpu-template-helper` optional. Users no longer need
-  to prepare kernel, rootfs and Firecracker configuration files to use
-  `cpu-template-helper`.
 
 ### Fixed
 
@@ -84,15 +102,6 @@ and this project adheres to
   bug where a client would hang or timeout when querying for an MMDS path whose
   content is empty, because the 'Content-Length' header field was missing in a
   response.
-
-### Deprecated
-
-- Firecracker's `--start-time-cpu-us` and `--start-time-us` parameters are
-  deprecated and will be removed in v2.0 or later. They are used by the jailer
-  to pass the value that should be subtracted from the (CPU) time, when emitting
-  the `start_time_us` and `start_time_cpu_us` metrics. These parameters were
-  never meant to be used by end customers, and we recommend doing any such time
-  adjustments outside Firecracker.
 
 ## \[1.6.0\]
 
