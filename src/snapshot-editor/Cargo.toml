@@ -10,12 +10,12 @@ name = "snapshot-editor"
 bench = false
 
 [dependencies]
-clap = { version = "4.5.2", features = ["derive", "string"] }
+clap = { version = "4.5.3", features = ["derive", "string"] }
 displaydoc = "0.2.4"
 libc = "0.2.153"
 log-instrument = { path = "../log-instrument", optional = true }
 semver = "1.0.22"
-thiserror = "1.0.57"
+thiserror = "1.0.58"
 vmm = { path = "../vmm" }
 
 fc_utils = { package = "utils", path = "../utils" }
