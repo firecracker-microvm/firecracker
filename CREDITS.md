@@ -21,9 +21,11 @@ Contributors to the Firecracker repository:
 - Aaron O'Mullan <aaron.omullan@gmail.com>
 - Abhijeet Kasurde <akasurde@redhat.com>
 - acatangiu <adrian@parity.io>
+- Adam Jensen <adam@acj.sh>
 - Adam Leskis <leskis@gmail.com>
 - Adrian Catangiu <acatan@amazon.com>
 - Ahmed Abouzied <ahmedaabouzied44@gmail.com>
+- Akhil Mohan <akhilerm@gmail.com>
 - Alakesh <alakeshh@amazon.com>
 - Aleksa Sarai <cyphar@cyphar.com>
 - Alex Chan <a.chan@wellcome.ac.uk>
@@ -45,6 +47,7 @@ Contributors to the Firecracker repository:
 - Arjun Ramachandrula <avrdev77@gmail.com>
 - Arun Gupta <arun.gupta@gmail.com>
 - Arunav Sanyal <Khalian@users.noreply.github.com>
+- Ashwin Ginoria <aginoria@amazon.com>
 - Atsushi Ishibashi <atsushi.ishibashi@finatext.com>
 - Aussie Schnore <aussiev123@yahoo.com>
 - Austin Vazquez <macedonv@amazon.com>
@@ -77,7 +80,9 @@ Contributors to the Firecracker repository:
 - Damien Stanton <damien.stanton@gmail.com>
 - Dan Horobeanu <dhr@amazon.com>
 - Dan Lemmond <d.j.lemmond@gmail.com>
+- David Nguyen <nguydavi@amazon.com>
 - David Son <davbson@amazon.com>
+- David Ventura <davidventura27@gmail.com>
 - Deepesh Pathak <deepshpathak@gmail.com>
 - defunct <defunct@defunct.io>
 - Denis Andrejew <da.colonel@gmail.com>
@@ -94,6 +99,7 @@ Contributors to the Firecracker repository:
 - Gabriel Ionescu <gbi@amazon.com>
 - Garrett Squire <garrettsquire@gmail.com>
 - George Pisaltu <gpl@amazon.com>
+- George Siton <geosit@amazon.com>
 - german gomez <germangb42@gmail.com>
 - Gilad Naaman <gilad@naaman.io>
 - Greg Dunn <gregdunn@amazon.com>
@@ -131,6 +137,7 @@ Contributors to the Firecracker repository:
 - Kazuyoshi Kato <katokazu@amazon.com>
 - keyangxie <keyang.xie@gmail.com>
 - Krishna Kumar T <krishna.thokala2010@gmail.com>
+- krk <keremkat@gmail.com>
 - kumargu <kumargu@amazon.com>
 - Laura Loghin <lauralg@amazon.com>
 - lifupan <lifupan@gmail.com>
@@ -151,6 +158,7 @@ Contributors to the Firecracker repository:
 - Marco Vedovati <mvedovati@suse.com>
 - Masatoshi Higuchi <matt9ucci@gmail.com>
 - Massimiliano Torromeo <massimiliano.torromeo@gmail.com>
+- Matias Teragni <mteragni@amazon.com>
 - Matt Wilson <msw@amazon.com>
 - Matthew Schlebusch <schlebus@amazon.com>
 - Max Wittek <wimax@graplsecurity.com>
@@ -164,6 +172,7 @@ Contributors to the Firecracker repository:
 - Nathan Hoang <nathanhoang5@gmail.com>
 - Nathan Sizemore <nathanrsizemore@gmail.com>
 - Nicolas Mesa <nicolasmesa@gmail.com>
+- NikeNano <niklas.sven.hansson@gmail.com>
 - Nikita Kalyazin <kalyazin@amazon.co.uk>
 - Nikolay Edigaryev <edigaryev@gmail.com>
 - Noah Meyerhans <nmeyerha@amazon.com>
