@@ -11,3 +11,4 @@ test_results/*
 *.core
 *.profraw
 .DS_Store
+*.bin

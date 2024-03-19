@@ -75,12 +75,9 @@ pub enum UtilsError {
 // Utility function to prepare scratch kernel image and rootfs and build mock Firecracker config.
 fn build_mock_config() -> Result<(TempFile, TempFile, String), UtilsError> {
     let kernel = TempFile::new()?;
-    kernel.as_file().write_all(
-        #[cfg(target_arch = "aarch64")]
-        include_bytes!("mock_kernel/aarch64.bin"),
-        #[cfg(target_arch = "x86_64")]
-        include_bytes!("mock_kernel/x86_64.bin"),
-    )?;
+    kernel
+        .as_file()
+        .write_all(include_bytes!("mock_kernel/kernel.bin"))?;
     let rootfs = TempFile::new()?;
     let config = format!(
         r#"{{
