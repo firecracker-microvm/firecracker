@@ -1,7 +1,7 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use vmm::arch::aarch64::regs::RegSize;
+use vmm::arch::aarch64::regs::{RegSize, PC, SYS_CNTPCT_EL0, SYS_CNTV_CVAL_EL0};
 use vmm::cpu_config::aarch64::custom_cpu_template::RegisterModifier;
 use vmm::cpu_config::templates::{CpuConfiguration, CustomCpuTemplate, RegisterValueFilter};
 use vmm::logger::warn;
@@ -26,6 +26,9 @@ pub fn config_to_template(cpu_config: &CpuConfiguration) -> CustomCpuTemplate {
             }
         })
         .collect();
+
+    reg_modifiers.retain(|modifier| !REG_EXCLUSION_LIST.contains(&modifier.addr));
+
     reg_modifiers.sort_by_key(|modifier| modifier.addr);
 
     CustomCpuTemplate {
@@ -34,9 +37,20 @@ pub fn config_to_template(cpu_config: &CpuConfiguration) -> CustomCpuTemplate {
     }
 }
 
+// List of register IDs excluded from the CPU configuration dump.
+const REG_EXCLUSION_LIST: [u64; 3] = [
+    // SYS_CNTV_CVAL_EL0 and SYS_CNTPCT_EL0 are timer registers and depend on the elapsed time.
+    // This type of registers are not useful as guest CPU config dump.
+    SYS_CNTV_CVAL_EL0,
+    SYS_CNTPCT_EL0,
+    // Program counter (PC) value is determined by the given kernel image. It should not be
+    // overwritten by a custom CPU template and does not need to be tracked in a fingerprint file.
+    PC,
+];
+
 #[cfg(test)]
 mod tests {
-    use vmm::arch::aarch64::regs::{Aarch64RegisterRef, Aarch64RegisterVec};
+    use vmm::arch::aarch64::regs::{reg_size, Aarch64RegisterRef, Aarch64RegisterVec};
 
     use super::*;
 
@@ -64,10 +78,16 @@ mod tests {
             KVM_REG_SIZE_U64,
             &0x0000_ffff_0000_ffff_u64.to_le_bytes(),
         ));
+        // CPU templates only supports 32, 64 and 128 bit wide registers, so the following registers
+        // should be excluded from the result.
         v.push(Aarch64RegisterRef::new(KVM_REG_SIZE_U256, &[0x69; 32]));
         v.push(Aarch64RegisterRef::new(KVM_REG_SIZE_U512, &[0x69; 64]));
         v.push(Aarch64RegisterRef::new(KVM_REG_SIZE_U1024, &[0x69; 128]));
         v.push(Aarch64RegisterRef::new(KVM_REG_SIZE_U2048, &[0x69; 256]));
+        // The following registers should be excluded from the result.
+        for id in REG_EXCLUSION_LIST {
+            v.push(Aarch64RegisterRef::new(id, &vec![0; reg_size(id)]));
+        }
         v
     }
 
