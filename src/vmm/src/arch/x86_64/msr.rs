@@ -29,16 +29,16 @@ pub enum MsrError {
 
 /// MSR range
 #[derive(Debug)]
-struct MsrRange {
+pub struct MsrRange {
     /// Base MSR address
-    base: u32,
+    pub base: u32,
     /// Number of MSRs
-    nmsrs: u32,
+    pub nmsrs: u32,
 }
 
 impl MsrRange {
     /// Returns whether `msr` is contained in this MSR range.
-    fn contains(&self, msr: u32) -> bool {
+    pub fn contains(&self, msr: u32) -> bool {
         self.base <= msr && msr < self.base + self.nmsrs
     }
 }
@@ -127,7 +127,8 @@ bitflags! {
     }
 }
 
-// Macro for generating a MsrRange.
+/// Macro for generating a MsrRange.
+#[macro_export]
 macro_rules! MSR_RANGE {
     ($base:expr, $nmsrs:expr) => {
         MsrRange {
