@@ -10,8 +10,7 @@ use crate::arch_gen::x86::hyperv::*;
 use crate::arch_gen::x86::hyperv_tlfs::*;
 use crate::arch_gen::x86::msr_index::*;
 use crate::arch_gen::x86::perf_event::*;
-use crate::cpu_config::x86_64::cpuid::common::{get_vendor_id_from_host, GetCpuidError};
-use crate::cpu_config::x86_64::cpuid::VENDOR_ID_AMD;
+use crate::cpu_config::x86_64::cpuid::common::GetCpuidError;
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
 /// MSR related errors.
@@ -271,155 +270,105 @@ pub fn get_msrs_to_save(kvm_fd: &Kvm) -> Result<MsrList, MsrError> {
     Ok(msr_index_list)
 }
 
-// List of MSRs that should not be included in the dump of CPU configuration.
+// List of MSRs that cannot be dumped.
 //
-// KVM_GET_MSR_INDEX_LIST returns some MSR indices that KVM_GET_MSRS fails to get (e.g., PMU,
-// VMX, MCE and Hyper-V related MSRs).
-//
-// Firecracker disables PMU by default in CPUID normalization for leaf 0xa. Due to this, PMU-
-// related MSRs cannot be gotten via KVM_GET_MSRS. The dependency on CPUID leaf 0xa can be found
-// in the following link.
+// KVM_GET_MSR_INDEX_LIST returns some MSR indices that KVM_GET_MSRS fails to get depending on
+// configuration. For example, Firecracker disables PMU by default in CPUID normalization for CPUID
+// leaf 0xA. Due to this, some PMU-related MSRs cannot be retrieved via KVM_GET_MSRS. The dependency
+// on CPUID leaf 0xA can be found in the following link.
 // https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/kvm/vmx/pmu_intel.c?h=v5.10.176#n325
 //
-// We don't test if firecarcker works with nested virtualization environment. To avoid undefined
-// behavior, we exclude these VMX-related MSRs. You can see that VMX-related MSRs depend on whether
-// nested virtualization is allowed in the following link.
-// https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/kvm/vmx/vmx.c?h=v5.10.176#n1950
-//
-// In kernel 4.14, IA32_MCG_CTL MSR can be gotten only if IA32_MCG_CAP.CTL_P[8] = 1 for vcpu.
-// IA32_MCG_CAP can be set up via KVM_X86_SETUP_MCE, but firecracker does not support this. To
-// avoid KVM_GET_MSRS failure on kernel 4.14, MCE-related MSRs are removed from the list.
-// https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/kvm/x86.c?h=v4.14.311#n2553
-//
-// As firecracker does not work with Hyper-V, it is safe to ignore Hyper-V related MSRs.
-//
-// IA32_TSC MSR is for time stamp counter and can change as time goes on. KVM_GET_MSRS can get this
-// MSR safely, but should not be included in the dumped CPU configuration because it is used to
-// check diff between CPU models and detect changes of CPU configuration caused by firecracker/KVM/
-// BIOS changes.
-//
-// The list of MSRs that is potentially returned by KVM_GET_MSR_INDEX_LIST can be found in the
-// following link (`msrs_to_save_all` + `num_emulated_msrs`):
+// The list of MSR indices returned by KVM_GET_MSR_INDEX_LIST can be found in the following link
+// (`msrs_to_save_all` + `num_emulated_msrs`).
 // https://elixir.bootlin.com/linux/v5.10.176/source/arch/x86/kvm/x86.c#L1211
-static UNDUMPABLE_MSR_RANGES: &[MsrRange] = &[
-    // MSR_IA32_TSC
-    MSR_RANGE!(MSR_IA32_TSC),
-    // MSR_ARCH_PERFMON_PERFCTRn
-    MSR_RANGE!(MSR_ARCH_PERFMON_PERFCTR0, 18),
-    // MSR_ARCH_PERFMON_EVENTSELn
-    MSR_RANGE!(MSR_ARCH_PERFMON_EVENTSEL0, 18),
-    // MSR_ARCH_PERFMON_FIXED_CTRn
-    MSR_RANGE!(MSR_ARCH_PERFMON_FIXED_CTR0, 3),
-    // MSR_CORE_PERF_FIXED_CTR_CTRL
-    // MSR_CORE_PERF_GLOBAL_STATUS
-    // MSR_CORE_PERF_GLOBAL_CTRL
-    // MSR_CORE_PERF_GLOBAL_OVF_CTRL
+const UNDUMPABLE_MSR_RANGES: [MsrRange; 17] = [
+    // - MSR_ARCH_PERFMON_FIXED_CTRn (0x309..=0x30C): CPUID.0Ah:EDX[0:4] > 0
+    MSR_RANGE!(MSR_ARCH_PERFMON_FIXED_CTR0, 4),
+    // - MSR_CORE_PERF_FIXED_CTR_CTRL (0x38D): CPUID:0Ah:EAX[7:0] > 1
+    // - MSR_CORE_PERF_GLOBAL_STATUS (0x38E): CPUID:0Ah:EAX[7:0] > 0 ||
+    //   (CPUID.(EAX=07H,ECX=0):EBX[25] = 1 && CPUID.(EAX=014H,ECX=0):ECX[0] = 1)
+    // - MSR_CORE_PERF_GLOBAL_CTRL (0x39F): CPUID.0AH: EAX[7:0] > 0
+    // - MSR_CORE_PERF_GLOBAL_OVF_CTRL (0x390): CPUID.0AH: EAX[7:0] > 0 && CPUID.0AH: EAX[7:0] <= 3
     MSR_RANGE!(MSR_CORE_PERF_FIXED_CTR_CTRL, 4),
-    // MSR_IA32_PEBS_ENABLE
-    // MSR_PEBS_DATA_CFG
-    MSR_RANGE!(MSR_IA32_PEBS_ENABLE, 2),
-    // MSR_IA32_DS_AREA
-    MSR_RANGE!(MSR_IA32_DS_AREA),
-    // MSR_IA32_PERF_CAPABILITIES
-    MSR_RANGE!(MSR_IA32_PERF_CAPABILITIES),
-    // MSR_K7_EVNTSELn
-    MSR_RANGE!(MSR_K7_EVNTSEL0, 4),
-    // MSR_K7_PERFCTRn
-    MSR_RANGE!(MSR_K7_PERFCTR0, 4),
-    // MSR_F15H_PERF_CTLn
-    MSR_RANGE!(MSR_F15H_PERF_CTL0, 12),
-    // MSR_F15H_PERF_CTRn
-    MSR_RANGE!(MSR_F15H_PERF_CTR0, 12),
-    // MSR_IA32_VMX_BASIC
-    // MSR_IA32_VMX_PINBASED_CTLS
-    // MSR_IA32_VMX_PROCBASED_CTLS
-    // MSR_IA32_VMX_EXIT_CTLS
-    // MSR_IA32_VMX_ENTRY_CTLS
-    // MSR_IA32_VMX_MISC
-    // MSR_IA32_VMX_CR0_FIXED0
-    // MSR_IA32_VMX_CR0_FIXED1
-    // MSR_IA32_VMX_CR4_FIXED0
-    // MSR_IA32_VMX_CR4_FIXED1
-    // MSR_IA32_VMX_VMCS_ENUM
-    // MSR_IA32_VMX_PROCBASED_CTLS2
-    // MSR_IA32_VMX_EPT_VPID_CAP
-    // MSR_IA32_VMX_TRUE_PINBASED_CTLS
-    // MSR_IA32_VMX_TRUE_PROCBASED_CTLS
-    // MSR_IA32_VMX_TRUE_EXIT_CTLS
-    // MSR_IA32_VMX_TRUE_ENTRY_CTLS
-    // MSR_IA32_VMX_VMFUNC
+    // - MSR_ARCH_PERFMON_PERFCTRn (0xC1..=0xC8): CPUID.0AH:EAX[15:8] > 0
+    MSR_RANGE!(MSR_ARCH_PERFMON_PERFCTR0, 8),
+    // - MSR_ARCH_PERFMON_EVENTSELn (0x186..=0x18D): CPUID.0AH:EAX[15:8] > 0
+    MSR_RANGE!(MSR_ARCH_PERFMON_EVENTSEL0, 8),
+    // On kernel 4.14, IA32_MCG_CTL (0x17B) can be retrieved only if IA32_MCG_CAP.CTL_P[8] = 1 for
+    // vCPU. IA32_MCG_CAP can be set up via KVM_X86_SETUP_MCE API, but Firecracker doesn't use it.
+    // https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/kvm/x86.c?h=v4.14.311#n2553
+    MSR_RANGE!(MSR_IA32_MCG_CTL),
+    // Firecarcker is not tested with nested virtualization. Some CPU templates intentionally
+    // disable nested virtualization. If nested virtualization is disabled, VMX-related MSRs cannot
+    // be dumped. It can be seen in the following link that VMX-related MSRs depend on whether
+    // nested virtualization is allowed.
+    // https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/kvm/vmx/vmx.c?h=v5.10.176#n1950
+    // - MSR_IA32_VMX_BASIC (0x480)
+    // - MSR_IA32_VMX_PINBASED_CTLS (0x481)
+    // - MSR_IA32_VMX_PROCBASED_CTLS (0x482)
+    // - MSR_IA32_VMX_EXIT_CTLS (0x483)
+    // - MSR_IA32_VMX_ENTRY_CTLS (0x484)
+    // - MSR_IA32_VMX_MISC (0x485)
+    // - MSR_IA32_VMX_CR0_FIXED0 (0x486)
+    // - MSR_IA32_VMX_CR0_FIXED1 (0x487)
+    // - MSR_IA32_VMX_CR4_FIXED0 (0x488)
+    // - MSR_IA32_VMX_CR4_FIXED1 (0x489)
+    // - MSR_IA32_VMX_VMCS_ENUM (0x48A)
+    // - MSR_IA32_VMX_PROCBASED_CTLS2 (0x48B)
+    // - MSR_IA32_VMX_EPT_VPID_CAP (0x48C)
+    // - MSR_IA32_VMX_TRUE_PINBASED_CTLS (0x48D)
+    // - MSR_IA32_VMX_TRUE_PROCBASED_CTLS (0x48E)
+    // - MSR_IA32_VMX_TRUE_EXIT_CTLS (0x48F)
+    // - MSR_IA32_VMX_TRUE_ENTRY_CTLS (0x490)
+    // - MSR_IA32_VMX_VMFUNC (0x491)
     MSR_RANGE!(MSR_IA32_VMX_BASIC, 18),
-    // MSR_IA32_MCG_STATUS
-    // MSR_IA32_MCG_CTL
-    MSR_RANGE!(MSR_IA32_MCG_STATUS, 2),
-    // MSR_IA32_MCG_EXT_CTL
-    MSR_RANGE!(MSR_IA32_MCG_EXT_CTL),
-    // HV_X64_MSR_GUEST_OS_ID
-    // HV_X64_MSR_HYPERCALL
-    // HV_X64_MSR_VP_INDEX
-    // HV_X64_MSR_RESET
+    // Firecracker doesn't work with Hyper-V. KVM_GET_MSRS fails on kernel 4.14 because it doesn't
+    // have the following patch.
+    // https://github.com/torvalds/linux/commit/44883f01fe6ae436a8604c47d8435276fef369b0
+    // - HV_X64_MSR_GUEST_OS_ID (0x40000000)
+    // - HV_X64_MSR_HYPERCALL (0x40000001)
+    // - HV_X64_MSR_VP_INDEX (0x40000002)
+    // - HV_X64_MSR_RESET (0x40000003)
+    // - HV_X64_MSR_VP_RUNTIME (0x40000010)
+    // - HV_X64_MSR_TIME_REF_COUNT (0x40000020)
+    // - HV_X64_MSR_REFERENCE_TSC (0x40000021)
+    // - HV_X64_MSR_TSC_FREQUENCY (0x40000022)
+    // - HV_X64_MSR_APIC_FREQUENCY (0x40000023)
+    // - HV_X64_MSR_VP_ASSIST_PAGE (0x40000073)
+    // - HV_X64_MSR_SCONTROL (0x40000080)
+    // - HV_X64_MSR_STIMER0_CONFIG (0x400000b0)
+    // - HV_X64_MSR_SYNDBG_CONTROL (0x400000f1)
+    // - HV_X64_MSR_SYNDBG_STATUS (0x400000f2)
+    // - HV_X64_MSR_SYNDBG_SEND_BUFFER (0x400000f3)
+    // - HV_X64_MSR_SYNDBG_RECV_BUFFER (0x400000f4)
+    // - HV_X64_MSR_SYNDBG_PENDING_BUFFER (0x400000f5)
+    // - HV_X64_MSR_SYNDBG_OPTIONS (0x400000ff)
+    // - HV_X64_MSR_CRASH_Pn (0x40000100..=0x40000104)
+    // - HV_X64_MSR_CRASH_CTL (0x40000105)
+    // - HV_X64_MSR_REENLIGHTENMENT_CONTROL (0x40000106)
+    // - HV_X64_MSR_TSC_EMULATION_CONTROL (0x40000107)
+    // - HV_X64_MSR_TSC_EMULATION_STATUS (0x40000108)
+    // - HV_X64_MSR_TSC_INVARIANT_CONTROL (0x40000118)
     MSR_RANGE!(HV_X64_MSR_GUEST_OS_ID, 4),
-    // HV_X64_MSR_VP_RUNTIME
     MSR_RANGE!(HV_X64_MSR_VP_RUNTIME),
-    // HV_X64_MSR_VP_ASSIST_PAGE
-    MSR_RANGE!(HV_X64_MSR_VP_ASSIST_PAGE),
-    // HV_X64_MSR_SCONTROL
-    MSR_RANGE!(HV_X64_MSR_SCONTROL),
-    // HV_X64_MSR_STIMER0_CONFIG
-    MSR_RANGE!(HV_X64_MSR_STIMER0_CONFIG),
-    // HV_X64_MSR_CRASH_Pn
-    // HV_X64_MSR_CRASH_CTL
-    MSR_RANGE!(HV_X64_MSR_CRASH_P0, 6),
-    // HV_X64_MSR_REENLIGHTENMENT_CONTROL
-    // HV_X64_MSR_TSC_EMULATION_CONTROL
-    // HV_X64_MSR_TSC_EMULATION_STATUS
-    MSR_RANGE!(HV_X64_MSR_REENLIGHTENMENT_CONTROL, 3),
-    // HV_X64_MSR_TIME_REF_COUNT
-    // HV_X64_MSR_REFERENCE_TSC
-    // HV_X64_MSR_TSC_FREQUENCY
-    // HV_X64_MSR_APIC_FREQUENCY
     MSR_RANGE!(HV_X64_MSR_TIME_REF_COUNT, 4),
-    // HV_X64_MSR_SYNDBG_CONTROL
-    // HV_X64_MSR_SYNDBG_STATUS
-    // HV_X64_MSR_SYNDBG_SEND_BUFFER
-    // HV_X64_MSR_SYNDBG_RECV_BUFFER
-    // HV_X64_MSR_SYNDBG_PENDING_BUFFER
+    MSR_RANGE!(HV_X64_MSR_SCONTROL),
+    MSR_RANGE!(HV_X64_MSR_VP_ASSIST_PAGE),
+    MSR_RANGE!(HV_X64_MSR_STIMER0_CONFIG),
     MSR_RANGE!(HV_X64_MSR_SYNDBG_CONTROL, 5),
-    // HV_X64_MSR_SYNDBG_OPTIONS
     MSR_RANGE!(HV_X64_MSR_SYNDBG_OPTIONS),
-    // HV_X64_MSR_TSC_INVARIANT_CONTROL
+    MSR_RANGE!(HV_X64_MSR_CRASH_P0, 6),
+    MSR_RANGE!(HV_X64_MSR_REENLIGHTENMENT_CONTROL, 3),
     MSR_RANGE!(HV_X64_MSR_TSC_INVARIANT_CONTROL),
 ];
 
-/// Specifies whether a particular MSR should be dumped.
+/// Checks whether a particular MSR can be dumped.
 ///
 /// # Arguments
 ///
 /// * `index` - The index of the MSR that is checked whether it's needed for serialization.
-pub fn msr_should_dump(index: u32) -> bool {
+pub fn msr_is_dumpable(index: u32) -> bool {
     !UNDUMPABLE_MSR_RANGES
-        .iter()
-        .any(|range| range.contains(index))
-}
-
-/// List of MSRs that should not be included in the dump of CPU configuration on AMD.
-static UNDUMPABLE_MSR_RANGES_AMD: &[MsrRange] = &[
-    // MSR_IA32_ARCH_CAPABILITIES has been emulated by KVM since kernel 5.7.
-    // https://github.com/torvalds/linux/commit/93c380e7b528882396ca463971012222bad7d82e
-    // https://lore.kernel.org/all/20200302235709.27467-1-sean.j.christopherson@intel.com/
-    // As this MSR is not available on AMD originally, Firecracker disables it explicitly by
-    // setting 0 to CPUID.(EAX=07H,ECX=0):EDX[bit 29]. Thus, this MSR should be removed from the
-    // dump on AMD.
-    MSR_RANGE!(MSR_IA32_ARCH_CAPABILITIES),
-];
-
-/// Specifies whether a particular MSR should be dumped on AMD
-///
-/// # Arguments
-///
-/// * `index` - The index of the MSR that is checked whether it's needed for serialization.
-pub fn msr_should_dump_amd(index: u32) -> bool {
-    !UNDUMPABLE_MSR_RANGES_AMD
         .iter()
         .any(|range| range.contains(index))
 }
@@ -439,11 +388,7 @@ pub fn get_msrs_to_dump(kvm_fd: &Kvm) -> Result<MsrList, MsrError> {
         .get_msr_index_list()
         .map_err(MsrError::GetMsrIndexList)?;
 
-    msr_index_list.retain(|msr_index| msr_should_dump(*msr_index));
-    if &get_vendor_id_from_host()? == VENDOR_ID_AMD {
-        msr_index_list.retain(|msr_index| msr_should_dump_amd(*msr_index));
-    }
-
+    msr_index_list.retain(|msr_index| msr_is_dumpable(*msr_index));
     Ok(msr_index_list)
 }
 
@@ -526,16 +471,7 @@ mod tests {
     fn test_msr_list_to_dump() {
         for range in UNDUMPABLE_MSR_RANGES.iter() {
             for msr in range.base..(range.base + range.nmsrs) {
-                assert!(!msr_should_dump(msr));
-            }
-        }
-    }
-
-    #[test]
-    fn test_msr_list_to_dump_amd() {
-        for range in UNDUMPABLE_MSR_RANGES_AMD.iter() {
-            for msr in range.base..(range.base + range.nmsrs) {
-                assert!(!msr_should_dump_amd(msr));
+                assert!(!msr_is_dumpable(msr));
             }
         }
     }
