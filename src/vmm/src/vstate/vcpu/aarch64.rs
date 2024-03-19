@@ -10,9 +10,7 @@ use std::fmt::{Debug, Write};
 use kvm_ioctls::*;
 use serde::{Deserialize, Serialize};
 
-use crate::arch::aarch64::regs::{
-    Aarch64RegisterVec, KVM_REG_ARM64_SVE_VLS, PC, SYS_CNTPCT_EL0, SYS_CNTV_CVAL_EL0,
-};
+use crate::arch::aarch64::regs::{Aarch64RegisterVec, KVM_REG_ARM64_SVE_VLS};
 use crate::arch::aarch64::vcpu::{
     get_all_registers, get_all_registers_ids, get_mpidr, get_mpstate, get_registers, set_mpstate,
     set_register, setup_boot_regs, VcpuError as ArchError,
@@ -220,17 +218,7 @@ impl KvmVcpu {
 
     /// Dumps CPU configuration.
     pub fn dump_cpu_config(&self) -> Result<CpuConfiguration, KvmVcpuError> {
-        let mut reg_list = get_all_registers_ids(&self.fd).map_err(KvmVcpuError::DumpCpuConfig)?;
-
-        // SYS_CNTV_CVAL_EL0 and SYS_CNTPCT_EL0 are timer registers and depend on the elapsed time.
-        // This type of registers are not useful as guest CPU config dump.
-        //
-        // The value of program counter (PC) is determined by the given kernel image. It should not
-        // be overwritten by a custom CPU template and does not need to be tracked in a fingerprint
-        // file.
-        reg_list.retain(|&reg_id| {
-            reg_id != SYS_CNTV_CVAL_EL0 && reg_id != SYS_CNTPCT_EL0 && reg_id != PC
-        });
+        let reg_list = get_all_registers_ids(&self.fd).map_err(KvmVcpuError::DumpCpuConfig)?;
 
         let mut regs = Aarch64RegisterVec::default();
         get_registers(&self.fd, &reg_list, &mut regs).map_err(KvmVcpuError::DumpCpuConfig)?;
