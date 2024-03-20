@@ -41,6 +41,7 @@ def cross_steps():
     instances_aarch64 = ["m6g.metal", "m7g.metal"]
     groups = []
     commands = [
+        "./tools/devtool -y build --release",
         "./tools/devtool -y sh ./tools/create_snapshot_artifact/main.py",
         "mkdir -pv snapshots/{instance}_{kv}",
         "sudo chown -Rc $USER: snapshot_artifacts",
