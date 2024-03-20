@@ -1,9 +1,9 @@
 {
   "firecracker_version": "1.8.0-dev",
-  "kernel_version": "5.10.209-198.858.amzn2.x86_64",
+  "kernel_version": "5.10.210-201.852.amzn2.x86_64",
   "microcode_version": "0xd0003b9",
   "bios_version": "1.0",
-  "bios_revision": "1.33",
+  "bios_revision": "1.36",
   "guest_cpu_config": {
     "kvm_capabilities": [],
     "cpuid_modifiers": [
@@ -1213,6 +1213,10 @@
       {
         "addr": "0x9e",
         "bitmap": "0b0000000000000000000000000000000000000000000000110000000000000000"
+      },
+      {
+        "addr": "0xce",
+        "bitmap": "0b0000000000000000000000000000000010000000000000000000000000000000"
       },
       {
         "addr": "0x10a",
