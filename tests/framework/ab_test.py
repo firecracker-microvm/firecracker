@@ -23,20 +23,17 @@ does not block PRs). If not, it fails, preventing PRs from introducing new vulne
 """
 import contextlib
 import os
-import shutil
 import statistics
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import Callable, List, Optional, TypeVar
 
 import scipy
 
 from framework import utils
-from framework.defs import FC_WORKSPACE_DIR
 from framework.microvm import Microvm
 from framework.utils import CommandReturn
 from framework.with_filelock import with_filelock
-from host_tools.cargo_build import get_firecracker_binaries
+from host_tools.cargo_build import get_binary, get_firecracker_binaries
 
 # Locally, this will always compare against main, even if we try to merge into, say, a feature branch.
 # We might want to do a more sophisticated way to determine a "parent" branch here.
@@ -85,25 +82,19 @@ def git_ab_test(
              (alternatively, your comparator can perform any required assertions and not return anything).
     """
 
-    # We can't just checkout random branches in the current working directory. Locally, this might not work because of
-    # uncommitted changes. In the CI this will not work because multiple tests will run in parallel, and thus switching
-    # branches will cause random failures in other tests.
-    with temporary_checkout(a_revision) as a_tmp:
-        result_a = test_runner(a_tmp, True)
+    dir_a = git_clone(Path("build") / a_revision, a_revision)
+    result_a = test_runner(dir_a, True)
 
-        if b_revision:
-            with temporary_checkout(b_revision) as b_tmp:
-                result_b = test_runner(b_tmp, False)
-                # Have to call comparator here to make sure both temporary directories exist (as the comparator
-                # might rely on some files that were created during test running, see the benchmark test)
-                comparison = comparator(result_a, result_b)
-        else:
-            # By default, pytest execution happens inside the `tests` subdirectory. Pass the repository root, as
-            # documented.
-            result_b = test_runner(Path.cwd().parent, False)
-            comparison = comparator(result_a, result_b)
+    if b_revision:
+        dir_b = git_clone(Path("build") / b_revision, b_revision)
+    else:
+        # By default, pytest execution happens inside the `tests` subdirectory. Pass the repository root, as
+        # documented.
+        dir_b = Path.cwd().parent
+    result_b = test_runner(dir_b, False)
 
-        return result_a, result_b, comparison
+    comparison = comparator(result_a, result_b)
+    return result_a, result_b, comparison
 
 
 def is_pr() -> bool:
@@ -162,45 +153,6 @@ def set_did_not_grow_comparator(
     )
 
 
-def git_ab_test_with_binaries(
-    test_runner: Callable[[Path, Path], T],
-    comparator: Callable[[T, T], U] = default_comparator,
-    *,
-    a_revision: str = DEFAULT_A_REVISION,
-    b_revision: Optional[str] = None,
-) -> (T, T, U):
-    """Similar to `git_ab_test`, with the only difference being that this function compiles firecracker at the specified
-    revisions and only passes the firecracker binaries to the test_runner. Maintains a cache of previously compiled
-    revisions, to prevent excessive recompilation across different tests of the same revision
-    """
-
-    @with_filelock
-    def grab_binaries(checkout: Path):
-        with chdir(checkout):
-            revision = utils.run_cmd("git rev-parse HEAD").stdout.strip()
-
-        revision_store = FC_WORKSPACE_DIR / "build" / revision
-        if not revision_store.exists():
-            with chdir(checkout):
-                firecracker, jailer = get_firecracker_binaries(workspace_dir=checkout)
-
-            revision_store.mkdir(parents=True, exist_ok=True)
-            shutil.copy(firecracker, revision_store / "firecracker")
-            shutil.copy(jailer, revision_store / "jailer")
-
-        return (
-            revision_store / "firecracker",
-            revision_store / "jailer",
-        )
-
-    return git_ab_test(
-        lambda checkout, _is_a: test_runner(*grab_binaries(checkout)),
-        comparator,
-        a_revision=a_revision,
-        b_revision=b_revision,
-    )
-
-
 def git_ab_test_guest_command(
     microvm_factory: Callable[[Path, Path], Microvm],
     command: str,
@@ -212,11 +164,16 @@ def git_ab_test_guest_command(
     """The same as git_ab_test_command, but via SSH. The closure argument should setup a microvm using the passed
     paths to firecracker and jailer binaries."""
 
-    def test_runner(firecracker, jailer):
+    def test_runner(workspace_dir, _is_a: bool):
+        utils.run_cmd("./tools/release.sh --profile release", cwd=workspace_dir)
+        bin_dir = get_binary(
+            "firecracker", workspace_dir=workspace_dir
+        ).parent.resolve()
+        firecracker, jailer = bin_dir / "firecracker", bin_dir / "jailer"
         microvm = microvm_factory(firecracker, jailer)
         return microvm.ssh.run(command)
 
-    (_, old_out, old_err), (_, new_out, new_err), the_same = git_ab_test_with_binaries(
+    (_, old_out, old_err), (_, new_out, new_err), the_same = git_ab_test(
         test_runner, comparator, a_revision=a_revision, b_revision=b_revision
     )
 
@@ -270,35 +227,25 @@ def check_regression(
     )
 
 
-@contextlib.contextmanager
-def temporary_checkout(revision: str):
-    """
-    Context manager that checks out firecracker in a temporary directory and `chdir`s into it
+@with_filelock
+def git_clone(clone_path, commitish):
+    """Clone the repository at `commit`.
 
-    Will change back to whatever was the current directory when the context manager was entered, even if exceptions
-    happen along the way.
+    :return: the working copy directory.
     """
-    with TemporaryDirectory() as tmp_dir:
-        basename = Path(tmp_dir).name
+    if not clone_path.exists():
         ret, _, _ = utils.run_cmd(
-            f"git cat-file -t {revision}", ignore_return_code=True
+            f"git cat-file -t {commitish}", ignore_return_code=True
         )
         if ret != 0:
-            # git didn't recognize this object, so maybe it is a branch; qualify it
-            revision = f"origin/{revision}"
+            # git didn't recognize this object; qualify it if it is a branch
+            commitish = f"origin/{commitish}"
         # make a temp branch for that commit so we can directly check it out
-        utils.run_cmd(f"git branch {basename} {revision}")
-        # `git clone` can take a path instead of an URL, which causes it to create a copy of the
-        # repository at the given path. However, that path needs to point to the root of a repository,
-        # it cannot be some arbitrary subdirectory. Therefore:
+        utils.run_cmd(f"git branch {clone_path} {commitish}")
         _, git_root, _ = utils.run_cmd("git rev-parse --show-toplevel")
         # split off the '\n' at the end of the stdout
-        utils.run_cmd(f"git clone -b {basename} {git_root.strip()} {tmp_dir}")
-        yield Path(tmp_dir)
-
-        # If we compiled firecracker inside the checkout, python's recursive shutil.rmdir will
-        # run incredibly long. Thus, remove manually.
-        utils.run_cmd(f"rm -rf {tmp_dir}")
+        utils.run_cmd(f"git clone -b {clone_path} {git_root.strip()} {clone_path}")
+    return clone_path
 
 
 # Once we upgrade to python 3.11, this will be in contextlib:
