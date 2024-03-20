@@ -21,7 +21,9 @@ valued properties collected.
 """
 import argparse
 import json
+import os
 import statistics
+import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -153,16 +155,20 @@ def load_data_series(report_path: Path, revision: str = None, *, reemit: bool = 
     return processed_emf
 
 
-def collect_data(binary_dir: Path, test: str):
+def collect_data(binary_dir: Path, tests: list[str]):
     """Executes the specified test using the provided firecracker binaries"""
     revision = binary_dir.name
 
-    print("Collecting samples")
-    _, stdout, _ = utils.run_cmd(
-        f"AWS_EMF_ENVIRONMENT=local AWS_EMF_NAMESPACE=local ./tools/test.sh --binary-dir={binary_dir} {test} -m ''"
+    print(f"Collecting samples with {binary_dir}")
+    subprocess.run(
+        ["./tools/test.sh", f"--binary-dir={binary_dir}", *tests, "-m", ""],
+        env=os.environ
+        | {
+            "AWS_EMF_ENVIRONMENT": "local",
+            "AWS_EMF_NAMESPACE": "local",
+        },
+        check=True,
     )
-    print(stdout.strip())
-
     return load_data_series(
         Path("test_results/test-report.json"), revision, reemit=True
     )
@@ -304,7 +310,7 @@ def analyze_data(
 
 
 def ab_performance_test(
-    a_revision, b_revision, test, p_thresh, strength_abs_thresh, noise_threshold
+    a_revision, b_revision, tests, p_thresh, strength_abs_thresh, noise_threshold
 ):
     """Does an A/B-test of the specified test across the given revisions"""
     _, commit_list, _ = utils.run_cmd(
@@ -318,7 +324,7 @@ def ab_performance_test(
     def test_runner(workspace, _is_ab: bool):
         utils.run_cmd("./tools/release.sh --profile release", cwd=workspace)
         bin_dir = ".." / get_binary("firecracker", workspace_dir=workspace).parent
-        return collect_data(bin_dir, test)
+        return collect_data(bin_dir, tests)
 
     return git_ab_test(
         test_runner,
@@ -357,7 +363,7 @@ if __name__ == "__main__":
         "b_revision",
         help="The revision whose performance we want to compare against the results from a_revision",
     )
-    run_parser.add_argument("--test", help="The test to run", required=True)
+    run_parser.add_argument("--test", help="The test to run", nargs="+", required=True)
     analyze_parser = subparsers.add_parser(
         "analyze",
         help="Analyze the results of two manually ran tests based on their test-report.json files",
