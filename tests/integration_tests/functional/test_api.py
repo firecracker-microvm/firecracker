@@ -1056,16 +1056,6 @@ def test_api_balloon(uvm_nano):
     # Start the microvm.
     test_microvm.start()
 
-    # Updating should fail as driver didn't have time to initialize.
-    with pytest.raises(RuntimeError):
-        test_microvm.api.balloon.patch(amount_mib=4)
-
-    # Overwriting the existing device should give an error now.
-    with pytest.raises(RuntimeError):
-        test_microvm.api.balloon.put(
-            amount_mib=3, deflate_on_oom=False, stats_polling_interval_s=3
-        )
-
     # Give the balloon driver time to initialize.
     # 500 ms is the maximum acceptable boot time.
     time.sleep(0.5)

@@ -127,7 +127,7 @@ fi
 
 say "Building version=$VERSION, profile=$PROFILE, target=$CARGO_TARGET, Rust toolchain=${RUST_TOOLCHAIN}..."
 # shellcheck disable=SC2086
-cargo build --target "$CARGO_TARGET" $CARGO_OPTS --workspace
+cargo build --target "$CARGO_TARGET" $CARGO_OPTS --workspace --bins --examples
 
 say "Binaries placed under $CARGO_TARGET_DIR"
 

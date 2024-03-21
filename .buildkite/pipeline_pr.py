@@ -22,7 +22,7 @@ DEFAULT_PRIORITY = 1
 args = COMMON_PARSER.parse_args()
 
 step_style = {
-    "command": "./tools/devtool -y test -- -n 8 --dist worksteal ../tests/integration_tests/style/",
+    "command": "./tools/devtool -y checkstyle",
     "label": "🪶 Style",
     "priority": DEFAULT_PRIORITY,
 }
