@@ -476,7 +476,7 @@ pub enum SnapshotStateFromFileError {
     /// Failed to open snapshot file: {0}
     Open(std::io::Error),
     /// Failed to read snapshot file metadata: {0}
-    Meta(std::io::Error),
+    Meta(crate::snapshot::Error),
     /// Failed to load snapshot state from file: {0}
     Load(#[from] crate::snapshot::Error),
 }
@@ -487,8 +487,9 @@ fn snapshot_state_from_file(
     let snapshot = Snapshot::new(SNAPSHOT_VERSION);
     let mut snapshot_reader =
         File::open(snapshot_path).map_err(SnapshotStateFromFileError::Open)?;
-    let metadata = std::fs::metadata(snapshot_path).map_err(SnapshotStateFromFileError::Meta)?;
-    let snapshot_len = u64_to_usize(metadata.len());
+    let raw_snapshot_len: u64 =
+        Snapshot::deserialize(&mut snapshot_reader).map_err(SnapshotStateFromFileError::Meta)?;
+    let snapshot_len = u64_to_usize(raw_snapshot_len);
     let state: MicrovmState = snapshot
         .load_with_version_check(&mut snapshot_reader, snapshot_len)
         .map_err(SnapshotStateFromFileError::Load)?;
