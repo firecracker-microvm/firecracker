@@ -47,6 +47,7 @@ The configuration items that may be relevant for Firecracker are:
 - guest RNG - `CONFIG_RANDOM_TRUST_CPU`
   - use CPU RNG instructions (if present) to initialize RNG. Available for >=
     5.10
+- ACPI support - `CONFIG_ACPI` and `CONFIG_PCI`
 
 There are also guest config options which are dependant on the platform on which
 Firecracker is run:
@@ -81,11 +82,42 @@ the minimal configuration for a guest kernel for a successful microVM boot is:
     - `CONFIG_VIRTIO_BLK=y`
   - x86_64
     - `CONFIG_VIRTIO_BLK=y`
-    - `CONFIG_VIRTIO_MMIO_CMDLINE_DEVICES=y`
+    - `CONFIG_ACPI=y`
+    - `CONFIG_PCI=y`
     - `CONFIG_KVM_GUEST=y`.
 
 *Optional*: To enable boot logs set `CONFIG_SERIAL_8250_CONSOLE=y` and
 `CONFIG_PRINTK=y` in the guest kernel config.
+
+##### Booting with ACPI (x86_64 only):
+
+Firecracker supports booting kernels with ACPI support. The relevant
+configurations for the guest kernel are:
+
+- `CONFIG_ACPI=y`
+- `CONFIG_PCI=y`
+
+Please note that Firecracker does not support PCI devices. The `CONFIG_PCI`
+option is needed for ACPI initialization inside the guest.
+
+ACPI supersedes the legacy way of booting a microVM, i.e. via MPTable and
+command line parameters for VirtIO devices.
+
+We suggest that users disable MPTable and passing VirtIO devices via kernel
+command line parameters. These boot mechanisms are now deprecated. Users can
+disable these features by disabling the corresponding guest kernel configuration
+parameters:
+
+- `CONFIG_X86_MPPARSE=n`
+- `CONFIG_VIRTIO_MMIO_CMDLINE_DEVICES=n`
+
+During the deprecation period Firecracker will continue to support the legacy
+way of booting a microVM. Firecracker will be able to boot kernels with the
+following configurations:
+
+- Only ACPI
+- Only legacy mechanisms
+- Both ACPI and legacy mechanisms
 
 ## Caveats
 
@@ -94,3 +126,9 @@ the minimal configuration for a guest kernel for a successful microVM boot is:
   which causes the default 5.10 guest (with SVE support enabled), to crash if
   run with a 4.14 host which does not support SVE.
 - [Snapshot compatibility across kernel versions](snapshotting/snapshot-support.md#snapshot-compatibility-across-kernel-versions)
+- When booting with kernels that support both ACPI and legacy boot mechanisms
+  Firecracker passes VirtIO devices to the guest twice, once through ACPI and a
+  second time via kernel command line parameters. In these cases, the guest
+  tries to initialize devices twice. The second time, initialization fails and
+  the guest will emit warning messages in `dmesg`, however the devices will work
+  correctly.
