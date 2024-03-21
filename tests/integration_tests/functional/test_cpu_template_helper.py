@@ -320,10 +320,15 @@ def test_cpu_config_dump_vs_actual(
         ), f"Mismatched MSR for {key:#010x}: {actual=:#066b} vs. {dump=:#066b}"
 
 
-def detect_fingerprint_change(results_dir, cpu_template_helper, filters=None):
+@pytest.mark.no_block_pr
+@pytest.mark.skipif(
+    global_props.host_linux_version not in SUPPORTED_HOST_KERNELS,
+    reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
+)
+def test_guest_cpu_config_change(results_dir, cpu_template_helper):
     """
-    Compare fingerprint files with filters between one taken at the moment and
-    a baseline file taken in a specific point in time.
+    Verify that the guest CPU config has not changed since the baseline
+    fingerprint was gathered.
     """
     fname = f"fingerprint_{global_props.cpu_codename}_{global_props.host_linux_version}host.json"
 
@@ -338,23 +343,6 @@ def detect_fingerprint_change(results_dir, cpu_template_helper, filters=None):
     cpu_template_helper.fingerprint_compare(
         baseline_path,
         fingerprint_path,
-        filters,
-    )
-
-
-@pytest.mark.no_block_pr
-@pytest.mark.skipif(
-    global_props.host_linux_version not in SUPPORTED_HOST_KERNELS,
-    reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
-)
-def test_guest_cpu_config_change(results_dir, cpu_template_helper):
-    """
-    Verify that the guest CPU config has not changed since the baseline
-    fingerprint was gathered.
-    """
-    detect_fingerprint_change(
-        results_dir,
-        cpu_template_helper,
         ["guest_cpu_config"],
     )
 
