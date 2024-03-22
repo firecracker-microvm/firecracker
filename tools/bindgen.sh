@@ -39,7 +39,7 @@ function fc-bindgen {
 )]
 
 EOF
-    bindgen --disable-header-comment --constified-enum '*' --with-derive-default --with-derive-partialeq $@
+    bindgen --no-doc-comments --disable-header-comment --constified-enum '*' --with-derive-default --with-derive-partialeq $@
 }
 
 KERNEL_HEADERS_HOME="/usr"
@@ -89,6 +89,12 @@ fc-bindgen \
     --allowlist-var "VIRTIO_RNG_.*" \
     --allowlist-var "VIRTIO_F_.*" \
     "$KERNEL_HEADERS_HOME/include/linux/virtio_rng.h" >src/vmm/src/devices/virtio/gen/virtio_rng.rs
+
+info "BINDGEN prctl.h"
+fc-bindgen \
+    --allowlist-var "PR_.*" \
+    "$KERNEL_HEADERS_HOME/include/linux/prctl.h" >src/firecracker/src/gen/prctl.rs
+sed -i '/PR_SET_SPECULATION_CTRL/s/u32/i32/g' src/firecracker/src/gen/prctl.rs
 
 # https://www.kernel.org/doc/Documentation/kbuild/headers_install.txt
 # The Linux repo is huge. Just copy what we need.
