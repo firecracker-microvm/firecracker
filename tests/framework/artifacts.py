@@ -14,6 +14,7 @@ import pytest
 from framework.defs import ARTIFACT_DIR
 from framework.properties import global_props
 from framework.utils import get_firecracker_version_from_toml, run_cmd
+from framework.with_filelock import with_filelock
 from host_tools.cargo_build import get_binary
 
 
@@ -131,6 +132,7 @@ class FirecrackerArtifact:
         return ".".join(str(x) for x in self.snapshot_version_tuple)
 
 
+@with_filelock
 def current_release(version):
     """Massage this working copy Firecracker binary to look like a normal
     release, so it can run the same tests.
@@ -139,8 +141,9 @@ def current_release(version):
     for binary in ["firecracker", "jailer"]:
         bin_path1 = get_binary(binary)
         bin_path2 = bin_path1.with_name(f"{binary}-v{version}")
-        bin_path2.unlink(missing_ok=True)
-        bin_path2.hardlink_to(bin_path1)
+        if not bin_path2.exists():
+            bin_path2.unlink(missing_ok=True)
+            bin_path2.hardlink_to(bin_path1)
         binaries.append(bin_path2)
     return binaries
 
