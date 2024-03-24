@@ -255,8 +255,13 @@ fn snapshot_memory_to_file(
                 .map_err(Memory)
         }
         SnapshotType::Full => {
-            let _ = vmm.get_dirty_bitmap().map_err(DirtyBitmap)?;
-            vmm.guest_memory().dump(&mut file).map_err(Memory)
+            let dump_res = vmm.guest_memory().dump(&mut file).map_err(Memory);
+            if dump_res.is_ok() {
+                vmm.reset_dirty_bitmap();
+                vmm.guest_memory().reset_dirty();
+            }
+
+            dump_res
         }
     }?;
     file.flush()
