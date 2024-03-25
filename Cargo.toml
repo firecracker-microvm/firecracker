@@ -1,6 +1,6 @@
 [workspace]
-members = ["src/clippy-tracing", "src/cpu-template-helper", "src/firecracker", "src/jailer", "src/log-instrument", "src/log-instrument-macros", "src/rebase-snap", "src/seccompiler", "src/snapshot-editor"]
-default-members = ["src/clippy-tracing", "src/cpu-template-helper", "src/firecracker", "src/rebase-snap", "src/seccompiler", "src/snapshot-editor"]
+members = ["src/acpi-tables", "src/clippy-tracing", "src/cpu-template-helper", "src/firecracker", "src/jailer", "src/log-instrument", "src/log-instrument-macros", "src/rebase-snap", "src/seccompiler", "src/snapshot-editor"]
+default-members = ["src/clippy-tracing", "src/cpu-template-helper", "src/firecracker", "src/rebase-snap", "src/seccompiler", "src/snapshot-editor", "src/acpi-tables"]
 resolver = "2"
 
 [workspace.lints.rust]

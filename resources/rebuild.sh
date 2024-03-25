@@ -151,11 +151,18 @@ function get_linux_tarball {
     echo "Downloading the latest patch version for v$KERNEL_VERSION..."
     local major_version="${KERNEL_VERSION%%.*}"
     local url_base="https://cdn.kernel.org/pub/linux/kernel"
-    local LATEST_VERSION=$(
-        curl -fsSL $url_base/v$major_version.x/ \
-        | grep -o "linux-$KERNEL_VERSION\.[0-9]*\.tar.xz" \
-        | sort -rV \
-        | head -n 1 || true)
+    # 5.10 kernels starting from 5.10.211 don't build with our
+    # configuration. For now, pin it to the last working version.
+    # TODO: once this is fixed upstream we can remove this pin.
+    if [[ $KERNEL_VERSION == "5.10" ]]; then
+        local LATEST_VERSION="linux-5.10.210.tar.xz"
+    else 
+        local LATEST_VERSION=$(
+            curl -fsSL $url_base/v$major_version.x/ \
+            | grep -o "linux-$KERNEL_VERSION\.[0-9]*\.tar.xz" \
+            | sort -rV \
+            | head -n 1 || true)
+    fi
     # Fetch tarball and sha256 checksum.
     curl -fsSLO "$url_base/v$major_version.x/sha256sums.asc"
     curl -fsSLO "$url_base/v$major_version.x/$LATEST_VERSION"
@@ -218,6 +225,9 @@ build_initramfs
 
 build_linux $PWD/guest_configs/microvm-kernel-ci-$ARCH-4.14.config
 build_linux $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config
+if [ $ARCH == "x86_64" ]; then
+    build_linux $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10-no-acpi.config
+fi
 build_linux $PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config
 
 if [ $ARCH == "aarch64" ]; then

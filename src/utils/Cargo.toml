@@ -15,7 +15,7 @@ serde = { version = "1.0.165", features = ["derive"] }
 thiserror = "1.0.32"
 displaydoc = "0.2.4"
 vmm-sys-util = "0.12.1"
-vm-memory = { version = "0.14.0", features = ["backend-mmap", "backend-bitmap"] }
+vm-memory = { version = "0.14.1", features = ["backend-mmap", "backend-bitmap"] }
 log-instrument = { path = "../log-instrument", optional = true }
 
 [dev-dependencies]

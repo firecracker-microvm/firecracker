@@ -10,6 +10,14 @@ and this project adheres to
 
 ### Added
 
+- [#4428](https://github.com/firecracker-microvm/firecracker/pull/4428): Added
+  ACPI support to Firecracker for x86_64 microVMs. Currently, we pass ACPI
+  tables with information about the available vCPUs, interrupt controllers,
+  VirtIO and legacy x86 devices to the guest. This allows booting kernels
+  without MPTable support. Please see our
+  [kernel policy documentation](docs/kernel-policy.md) for more information
+  regarding relevant kernel configurations.
+
 ### Changed
 
 - [#4492](https://github.com/firecracker-microvm/firecracker/pull/4492): Changed
@@ -25,6 +33,11 @@ and this project adheres to
   the `start_time_us` and `start_time_cpu_us` metrics. These parameters were
   never meant to be used by end customers, and we recommend doing any such time
   adjustments outside Firecracker.
+- Booting with microVM kernels that rely on MPTable on x86_64 is deprecated and
+  support will be removed in v2.0 or later. We suggest to users of Firecracker
+  to use guest kernels with ACPI support. For x86_64 microVMs, ACPI will be the
+  only way Firecracker passes hardware information to the guest once MPTable
+  support is removed.
 
 ### Fixed
 

@@ -16,3 +16,6 @@ a future major Firecracker release, in accordance with our
   `rebase-snap` tool
 - \[[#4500](https://github.com/firecracker-microvm/firecracker/pull/4500)\] The
   `--start-time-cpu-us` and `--start-time-us` CLI arguments
+- \[[#4428](https://github.com/firecracker-microvm/firecracker/pull/4428)\]
+  Booting microVMs using MPTable and command line parameters for VirtIO devices.
+  The functionality is substituted with ACPI.
