@@ -122,9 +122,14 @@ for test_data in tests:
     group_steps.append(build_group(test_data))
 
 
-pins = {
-    "linux_6.1-pinned": {"instance": "m6i.metal", "kv": "linux_6.1"},
-}
+# Stores the info about pinning tests to agents with particular kernel versions.
+# For example, the following:
+# pins = {
+#    "linux_6.1-pinned": {"instance": "m6i.metal", "kv": "linux_6.1"},
+# }
+# will pin steps running on instances "m6i.metal" with kernel version tagged "linux_6.1"
+# to a new kernel version tagged "linux_6.1-pinned"
+pins = {}
 
 
 def apply_pins(steps):
