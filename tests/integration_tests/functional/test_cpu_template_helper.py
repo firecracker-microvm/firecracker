@@ -183,6 +183,9 @@ MSR_EXCEPTION_LIST = [
     0x48,
     # MSR_IA32_SMBASE is not accessible outside of System Management Mode.
     0x9E,
+    # MSR_IA32_TSX_CTRL is R/W MSR to disable Intel TSX feature as a mitigation
+    # against TAA vulnerability.
+    0x122,
     # MSR_IA32_SYSENTER_CS, MSR_IA32_SYSENTER_ESP and MSR_IA32_SYSENTER_EIP are
     # R/W MSRs that will be set up by OS to call fast system calls with
     # SYSENTER.
