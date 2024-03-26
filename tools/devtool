@@ -309,7 +309,7 @@ run_devctr() {
         --rm \
         --volume /dev:/dev \
         --volume "$FC_ROOT_DIR:$CTR_FC_ROOT_DIR:z" \
-        --tmpfs /srv:exec,dev,size=32G \
+        --tmpfs /srv:exec,dev,size=1G \
         -v /boot:/boot \
         --env PYTHONDONTWRITEBYTECODE=1 \
         "$DEVCTR_IMAGE" "${ctr_args[@]}"
