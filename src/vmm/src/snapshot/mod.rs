@@ -80,6 +80,22 @@ impl SnapshotHdr {
             version,
         }
     }
+
+    fn load<R: Read>(reader: &mut R) -> Result<Self, SnapshotError> {
+        let hdr: SnapshotHdr = bincode::DefaultOptions::new()
+            .with_limit(VM_STATE_DESERIALIZE_LIMIT)
+            .with_fixint_encoding()
+            .allow_trailing_bytes() // need this because we deserialize header and snapshot from the same file, so after
+            // reading the header, there will be trailing bytes.
+            .deserialize_from(reader)
+            .map_err(|err| SnapshotError::Serde(err.to_string()))?;
+        
+        Ok(hdr)
+    }
+
+    fn store<W: Write>(&self, writer: &mut W) -> Result<(), SnapshotError> {
+        bincode::serialize_into(writer, self).map_err(|err| SnapshotError::Serde(err.to_string()))
+    }
 }
 
 /// Firecracker snapshot type
@@ -89,6 +105,98 @@ impl SnapshotHdr {
 pub struct Snapshot {
     // The snapshot version we can handle
     version: Version,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SnapshotNew<Data> {
+    // The snapshot version we can handle
+    version: Version,
+    data: Data,
+}
+
+impl<Data: for<'a> Deserialize<'a>> SnapshotNew<Data> {
+    /// Helper function to deserialize an object from a reader
+    pub fn deserialize<T, O>(reader: &mut T) -> Result<O, SnapshotError>
+    where
+        T: Read,
+        O: DeserializeOwned + Debug,
+    {
+        // flags below are those used by default by bincode::deserialize_from, plus `with_limit`.
+        bincode::DefaultOptions::new()
+            .with_limit(VM_STATE_DESERIALIZE_LIMIT)
+            .with_fixint_encoding()
+            .allow_trailing_bytes() // need this because we deserialize header and snapshot from the same file, so after
+            // reading the header, there will be trailing bytes.
+            .deserialize_from(reader)
+            .map_err(|err| SnapshotError::Serde(err.to_string()))
+    }
+
+    pub fn load_unchecked<R: Read>(reader: &mut R) -> Result<Self, SnapshotError> where Data: DeserializeOwned + Debug {
+        let hdr: SnapshotHdr = Self::deserialize(reader)?;
+        if hdr.magic != SNAPSHOT_MAGIC_ID {
+            return Err(SnapshotError::InvalidMagic(hdr.magic));
+        }
+
+        let data: Data = Self::deserialize(reader)?;
+        Ok(Self {
+            version: hdr.version,
+            data
+        })
+    }
+
+    pub fn load<R: Read>(reader: &mut R, snapshot_len: usize) -> Result<Self, SnapshotError> where Data: DeserializeOwned + Debug {
+        let mut crc_reader = CRC64Reader::new(reader);
+
+        // Fail-fast if the snapshot length is too small
+        let raw_snapshot_len = snapshot_len
+            .checked_sub(std::mem::size_of::<u64>())
+            .ok_or(SnapshotError::InvalidSnapshotSize)?;
+
+        // Read everything apart from the CRC.
+        let mut snapshot = vec![0u8; raw_snapshot_len];
+        crc_reader
+            .read_exact(&mut snapshot)
+            .map_err(|ref err| SnapshotError::Io(err.raw_os_error().unwrap_or(libc::EINVAL)))?;
+
+        // Since the reader updates the checksum as bytes ar being read from it, the order of these
+        // 2 statements is important, we first get the checksum computed on the read bytes
+        // then read the stored checksum.
+        let computed_checksum = crc_reader.checksum();
+        let stored_checksum: u64 = Self::deserialize(&mut crc_reader)?;
+        if computed_checksum != stored_checksum {
+            return Err(SnapshotError::Crc64(computed_checksum));
+        }
+
+        let mut snapshot_slice: &[u8] = snapshot.as_mut_slice();
+        SnapshotNew::load_unchecked::<_>(&mut snapshot_slice)
+    }
+}
+
+impl<Data: Serialize> SnapshotNew<Data> {
+    /// Helper function to serialize an object to a writer
+    pub fn serialize<T, O>(writer: &mut T, data: &O) -> Result<(), SnapshotError>
+    where
+        T: Write,
+        O: Serialize + Debug,
+    {
+        bincode::serialize_into(writer, data).map_err(|err| SnapshotError::Serde(err.to_string()))
+    }
+
+    pub fn save<W: Write>(&self, writer: &mut W) -> Result<usize, SnapshotError> {
+        // Write magic value and snapshot version
+        Self::serialize(&mut writer, &SnapshotHdr::new(self.version.clone()))?;
+        // Write data
+        Self::serialize(&mut writer, self.data)
+    }
+
+    pub fn save_with_crc<W: Write>(&self, writer: &mut W) -> Result<usize, SnapshotError> {
+        let mut crc_writer = CRC64Writer::new(writer);
+        self.save(&mut crc_writer)?;
+
+        // Now write CRC value
+        let checksum = crc_writer.checksum();
+        Self::serialize(&mut crc_writer, &checksum)
+    }
 }
 
 impl Snapshot {
