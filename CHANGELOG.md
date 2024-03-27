@@ -41,6 +41,15 @@ and this project adheres to
 
 ### Fixed
 
+- [4526](https://github.com/firecracker-microvm/firecracker/pull/4526): Added a
+  check in the network TX path that the size of the network frames the guest
+  passes to us is not bigger than the maximum frame the device expects to
+  handle. On the TX path, we copy frames destined to MMDS from guest memory to
+  Firecracker memory. Without the check, a mis-behaving virtio-net driver could
+  cause an increase in the memory footprint of the Firecracker process. Now, if
+  we receive such a frame, we ignore it and increase `Net::tx_malformed_frames`
+  metric.
+
 ## \[1.7.0\]
 
 ### Added
