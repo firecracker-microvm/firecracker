@@ -164,6 +164,7 @@ def git_ab_test_guest_command(
     """The same as git_ab_test_command, but via SSH. The closure argument should setup a microvm using the passed
     paths to firecracker and jailer binaries."""
 
+    @with_filelock
     def test_runner(workspace_dir, _is_a: bool):
         utils.run_cmd("./tools/release.sh --profile release", cwd=workspace_dir)
         bin_dir = get_binary(
