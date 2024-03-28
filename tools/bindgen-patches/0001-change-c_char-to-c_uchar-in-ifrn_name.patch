@@ -1,0 +1,26 @@
+From 8faa5d38ebe9b6bd27fda01dd8f54d3d91583166 Mon Sep 17 00:00:00 2001
+From: Takahiro Itazuri <itazur@amazon.com>
+Date: Fri, 22 Mar 2024 21:13:26 +0000
+Subject: [PATCH] change c_char to c_uchar in ifrn_name
+
+Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
+---
+ src/vmm/src/devices/virtio/net/gen/iff.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/vmm/src/devices/virtio/net/gen/iff.rs b/src/vmm/src/devices/virtio/net/gen/iff.rs
+index 04e38396..54111c6b 100644
+--- a/src/vmm/src/devices/virtio/net/gen/iff.rs
++++ b/src/vmm/src/devices/virtio/net/gen/iff.rs
+@@ -836,7 +836,7 @@ pub struct ifreq {
+ #[repr(C)]
+ #[derive(Copy, Clone)]
+ pub union ifreq__bindgen_ty_1 {
+-    pub ifrn_name: [::std::os::raw::c_char; 16usize],
++    pub ifrn_name: [::std::os::raw::c_uchar; 16usize],
+ }
+ #[test]
+ fn bindgen_test_layout_ifreq__bindgen_ty_1() {
+-- 
+2.40.1
+

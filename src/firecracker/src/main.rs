@@ -3,6 +3,7 @@
 
 mod api_server;
 mod api_server_adapter;
+mod gen;
 mod metrics;
 mod seccomp;
 
@@ -489,22 +490,15 @@ fn resize_fdtable() -> Result<(), ResizeFdTableError> {
 /// Enable SSBD mitigation through `prctl`.
 #[cfg(target_arch = "aarch64")]
 pub fn enable_ssbd_mitigation() {
-    // Parameters for `prctl`
-    // TODO: generate bindings for these from the kernel sources.
-    // https://elixir.bootlin.com/linux/v4.17/source/include/uapi/linux/prctl.h#L212
-    const PR_SET_SPECULATION_CTRL: i32 = 53;
-    const PR_SPEC_STORE_BYPASS: u64 = 0;
-    const PR_SPEC_FORCE_DISABLE: u64 = 1u64 << 3;
-
     // SAFETY: Parameters are valid since they are copied verbatim
     // from the kernel's UAPI.
     // PR_SET_SPECULATION_CTRL only uses those 2 parameters, so it's ok
     // to leave the latter 2 as zero.
     let ret = unsafe {
         libc::prctl(
-            PR_SET_SPECULATION_CTRL,
-            PR_SPEC_STORE_BYPASS,
-            PR_SPEC_FORCE_DISABLE,
+            gen::prctl::PR_SET_SPECULATION_CTRL,
+            gen::prctl::PR_SPEC_STORE_BYPASS,
+            gen::prctl::PR_SPEC_FORCE_DISABLE,
             0,
             0,
         )
