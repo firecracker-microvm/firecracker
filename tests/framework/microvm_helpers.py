@@ -70,7 +70,7 @@ class MicrovmHelpers:
         The filesystem should be unmounted for this to work
         """
         os.truncate(disk, size)
-        subprocess.check_output(["resize2fs", disk])
+        subprocess.check_output(["resize2fs", "-f", str(disk)])
 
     def gdbserver(self, port=2000):
         """Attach gdbserver to the FC process
