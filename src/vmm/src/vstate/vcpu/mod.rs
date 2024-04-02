@@ -16,7 +16,7 @@ use std::{fmt, io, thread};
 use kvm_bindings::{KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN};
 use kvm_ioctls::VcpuExit;
 use libc::{c_int, c_void, siginfo_t};
-use log::{error, info};
+use log::{error, info, warn};
 use seccompiler::{BpfProgram, BpfProgramRef};
 use utils::errno;
 use utils::eventfd::EventFd;
@@ -341,6 +341,13 @@ impl Vcpu {
         match self.event_receiver.recv() {
             // Paused ---- Resume ----> Running
             Ok(VcpuEvent::Resume) => {
+                if self.kvm_vcpu.fd.get_kvm_run().immediate_exit == 1u8 {
+                    warn!(
+                        "Received a VcpuEvent::Resume message with immediate_exit enabled. \
+                         immediate_exit was disabled before proceeding"
+                    );
+                    self.kvm_vcpu.fd.set_kvm_immediate_exit(0);
+                }
                 // Nothing special to do.
                 self.response_sender
                     .send(VcpuResponse::Resumed)
@@ -445,7 +452,12 @@ impl Vcpu {
     /// Runs the vCPU in KVM context and handles the kvm exit reason.
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.
-    pub fn run_emulation(&self) -> Result<VcpuEmulation, VcpuError> {
+    pub fn run_emulation(&mut self) -> Result<VcpuEmulation, VcpuError> {
+        if self.kvm_vcpu.fd.get_kvm_run().immediate_exit == 1u8 {
+            warn!("Requested a vCPU run with immediate_exit enabled. The operation was skipped");
+            self.kvm_vcpu.fd.set_kvm_immediate_exit(0);
+            return Ok(VcpuEmulation::Interrupted);
+        }
         match self.emulate() {
             Ok(run) => match run {
                 VcpuExit::MmioRead(addr, data) => {
@@ -1057,6 +1069,32 @@ pub mod tests {
                 .expect("did not receive event response from vcpu"),
             response
         );
+    }
+
+    #[test]
+    fn test_immediate_exit_shortcircuits_execution() {
+        let (_vm, mut vcpu, _) = setup_vcpu(0x1000);
+
+        vcpu.kvm_vcpu.fd.set_kvm_immediate_exit(1);
+        // Set a dummy value to be returned by the emulate call
+        *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::Shutdown));
+        let result = vcpu.run_emulation().expect("Failed to run emulation");
+        assert_eq!(
+            result,
+            VcpuEmulation::Interrupted,
+            "The Immediate Exit short-circuit should have prevented the execution of emulate"
+        );
+
+        let event_sender = vcpu.event_sender.take().expect("vCPU already started");
+        let _ = event_sender.send(VcpuEvent::Resume);
+        vcpu.kvm_vcpu.fd.set_kvm_immediate_exit(1);
+        // paused is expected to coerce immediate_exit to 0 when receiving a VcpuEvent::Resume
+        let _ = vcpu.paused();
+        assert_eq!(
+            0,
+            vcpu.kvm_vcpu.fd.get_kvm_run().immediate_exit,
+            "Immediate Exit should have been disabled by sending Resume to a paused VM"
+        )
     }
 
     #[test]
