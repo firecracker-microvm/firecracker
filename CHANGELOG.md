@@ -26,9 +26,13 @@ and this project adheres to
   `cpu-template-helper`.
 - [#4537](https://github.com/firecracker-microvm/firecracker/pull/4537) Changed
   T2CL template to pass through bit 27 and 28 of `MSR_IA32_ARCH_CAPABILITIES`
-  (`RFDS_NO` and `RFDS_CLEAR`).
+  (`RFDS_NO` and `RFDS_CLEAR`) since KVM consider they are able to be passed
+  through and T2CL isn't designed for secure snapshot migration between
+  different processors.
 - [#4537](https://github.com/firecracker-microvm/firecracker/pull/4537) Changed
-  T2S template to set bit 27 of `MSR_IA32_ARCH_CAPABILITIES` (`RFDS_NO`) to 1.
+  T2S template to set bit 27 of `MSR_IA32_ARCH_CAPABILITIES` (`RFDS_NO`) to 1
+  since it assumes that the fleet only consists of processors that are not
+  affected by RFDS.
 
 ### Deprecated
 
