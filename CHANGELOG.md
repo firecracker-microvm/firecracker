@@ -25,8 +25,8 @@ and this project adheres to
   to prepare kernel, rootfs and Firecracker configuration files to use
   `cpu-template-helper`.
 - [#4537](https://github.com/firecracker-microvm/firecracker/pull/4537) Changed
-  T2CL template to pass through bit 27 of `MSR_IA32_ARCH_CAPABILITIES`
-  (`RFDS_NO`).
+  T2CL template to pass through bit 27 and 28 of `MSR_IA32_ARCH_CAPABILITIES`
+  (`RFDS_NO` and `RFDS_CLEAR`).
 - [#4537](https://github.com/firecracker-microvm/firecracker/pull/4537) Changed
   T2S template to set bit 27 of `MSR_IA32_ARCH_CAPABILITIES` (`RFDS_NO`) to 1.
 
