@@ -277,12 +277,13 @@ pub fn t2cl() -> CustomCpuTemplate {
             // - Bit 19: RRSBA
             // - Bit 24: PBRSB_NO
             // - Bit 26: GDS_NO
+            // - Bit 27: RFDS_NO
             //
             // Note that this MSR is specific to Intel processors.
             RegisterModifier {
                 addr: 0x10a,
                 bitmap: RegisterValueFilter {
-                    filter: 0b1111_1111_1111_1111_1111_1111_1111_1111_1111_1010_1111_0101_0001_1110_0000_0000,
+                    filter: 0b1111_1111_1111_1111_1111_1111_1111_1111_1111_0010_1111_0101_0001_1110_0000_0000,
                     value: 0b0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
                 },
             },
