@@ -146,6 +146,10 @@ The snapshot functionality is still in developer preview due to the following:
 - If a [CPU template](../cpu_templates/cpu-templates.md) is not used on x86_64,
   overwrites of `MSR_IA32_TSX_CTRL` MSR value will not be preserved after
   restoring from a snapshot.
+- Resuming from a snapshot that was taken during early stages of the guest
+  kernel boot might lead to crashes upon snapshot resume. We suggest that users
+  take snapshot after the guest microVM kernel has booted. Please see
+  [VMGenID device limitation](#vmgenid-device-limitation).
 
 ## Firecracker Snapshotting characteristics
 
@@ -571,15 +575,32 @@ we also consider microVM A insecure if it resumes execution.
 
 ### Reusing snapshotted states securely
 
-We are currently working to add a functionality that will notify guest operating
-systems of the snapshot event in order to enable secure reuse of snapshotted
-microVM states, guest operating systems, language runtimes, and cryptographic
-libraries. In some cases, user applications will need to handle the snapshot
-create/restore events in such a way that the uniqueness and randomness
-properties are preserved and guaranteed before resuming the workload.
+[Virtual Machine Generation Identifier](https://learn.microsoft.com/en-us/windows/win32/hyperv_v2/virtual-machine-generation-identifier)
+(VMGenID) is a virtual device that allows VM guests to detect when they have
+resumed from a snapshot. It works by exposing a cryptographically random
+16-bytes identifier to the guest. The VMM ensures that the value of the
+indentifier changes every time the VM a time shift happens in the lifecycle of
+the VM, e.g. when it resumes from a snapshot.
 
-We've started a discussion on how the Linux operating system might securely
-handle being snapshotted [here](https://lkml.org/lkml/2020/10/16/629).
+Linux supports VMGenID since version 5.18. When Linux detects a change in the
+identifier, it uses its value to reseed its internal PRNG. Moreover,
+[since version 6.8](https://lkml.org/lkml/2023/5/31/414) Linux VMGenID driver
+also emits to userspace a uevent. User space processes can monitor this uevent
+for detecting snapshot resume events.
+
+Firecracker supports VMGenID device on x86 platforms. Firecracker will always
+enable the device. During snapshot resume, Firecracker will update the 16-byte
+generation ID and inject a notification in the guest before resuming its vCPUs.
+
+As a result, guests that run Linux versions >= 5.18 will re-seed their in-kernel
+PRNG upon snapshot resume. User space applications can rely on the guest kernel
+for randomness. State other than the guest kernel entropy pool, such as unique
+identifiers, cached random numbers, cryptographic tokens, etc **will** still be
+replicated across multiple microVMs resumed from the same snapshot. Users need
+to implement mechanisms for ensuring de-duplication of such state, where needed.
+On guests that run Linux versions >= 6.8, users can make use of the uevent that
+VMGenID driver emits upon resuming from a snapshot, to be notified about
+snapshot resume events.
 
 ## Vsock device limitation
 
@@ -604,6 +625,16 @@ section 5.10.6.6 Device Events.
 
 Firecracker handles sending the `reset` event to the vsock driver, thus the
 customers are no longer responsible for closing active connections.
+
+## VMGenID device limitation
+
+During snashot resume, Firecracker updates the 16-byte generation ID of the
+VMGenID device and injects an interrupt in the guest before resuming vCPUs. If
+the snapshot was taken at the very early stages of the guest kernel boot process
+proper interrupt handling might not be in place yet. As a result, the kernel
+might not be able to handle the injected notification and crash. We suggest to
+users that they take snapshots only after the guest kernel has completed
+booting, to avoid this issue.
 
 ## Snapshot compatibility across kernel versions
 
