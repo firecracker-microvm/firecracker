@@ -17,6 +17,16 @@ and this project adheres to
   without MPTable support. Please see our
   [kernel policy documentation](docs/kernel-policy.md) for more information
   regarding relevant kernel configurations.
+- [#4487](https://github.com/firecracker-microvm/firecracker/pull/4487): Added
+  support for the Virtual Machine Generation Identifier (VMGenID) device on
+  x86_64 platforms. VMGenID is a virtual device that allows VMMs to notify
+  guests when they are resumed from a snapshot. Linux includes VMGenID support
+  since version 5.18. It uses notifications from the device to reseed its
+  internal CSPRNG. Please refer to
+  [snapshot support](docs/snapshotting/snapshot-support.md) and
+  [random for clones](docs/snapshotting/random-for-clones.md) documention for
+  more info on VMGenID. VMGenID state is part of the snapshot format of
+  Firecracker. As a result, Firecracker snapshot version is now 2.0.0.
 
 ### Changed
 

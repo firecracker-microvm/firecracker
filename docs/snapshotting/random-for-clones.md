@@ -22,17 +22,19 @@ which wraps the [`AWS-LC` cryptographic library][9].
 
 Traditionally, `/dev/random` has been considered a source of “true” randomness,
 with the downside that reads block when the pool of entropy gets depleted. On
-the other hand, `/dev/urandom` doesn’t block, but provides lower quality
-results. It turns out the distinction in output quality is actually very hard to
-make. According to [this article][2], for kernel versions prior to 4.8, both
-devices draw their output from the same pool, with the exception that
-`/dev/random` will block when the system estimates the entropy count has
-decreased below a certain threshold. The `/dev/urandom` output is considered
-secure for virtually all purposes, with the caveat that using it before the
-system gathers sufficient entropy for initialization may indeed produce low
-quality random numbers. The `getrandom` syscall helps with this situation; it
-uses the `/dev/urandom` source by default, but will block until it gets properly
-initialized (the behavior can be altered via configuration flags).
+the other hand, `/dev/urandom` doesn’t block, which lead people believe that it
+provides lower quality results.
+
+It turns out the distinction in output quality is actually very hard to make.
+According to [this article][2], for kernel versions prior to 4.8, both devices
+draw their output from the same pool, with the exception that `/dev/random` will
+block when the system estimates the entropy count has decreased below a certain
+threshold. The `/dev/urandom` output is considered secure for virtually all
+purposes, with the caveat that using it before the system gathers sufficient
+entropy for initialization may indeed produce low quality random numbers. The
+`getrandom` syscall helps with this situation; it uses the `/dev/urandom` source
+by default, but will block until it gets properly initialized (the behavior can
+be altered via configuration flags).
 
 Newer kernels (4.8+) have switched to an implementation where `/dev/random`
 output comes from a pool called the blocking pool, the output of `/dev/urandom`
@@ -40,6 +42,8 @@ is given by a CSPRNG (cryptographically secure pseudorandom number generator),
 and there’s also an input pool which gathers entropy from various sources
 available on the system, and is used to feed into or seed the other two
 components. A very detailed description is available [here][3].
+
+### Linux kernels from 4.8 until 5.17 (included)
 
 The details of this newer implementation are used to make the recommendations
 present in the document. There are in-kernel interfaces used to obtain random
@@ -99,6 +103,42 @@ not increase the current entropy estimation. There is also an `ioctl` interface
 which, given the appropriate privileges, can be used to add data to the input
 entropy pool while also increasing the count, or completely empty all pools.
 
+### Linux kernels from 5.18 onwards
+
+Since version 5.18, Linux has support for the
+[Virtual Machine Generation Identifier](https://learn.microsoft.com/en-us/windows/win32/hyperv_v2/virtual-machine-generation-identifier).
+The purpose of VMGenID is to notify the guest about time shift events, such as
+resuming from a snapshot. The device exposes a 16-byte cryptographically random
+identifier in guest memory. Firecracker implements VMGenID. When resuming a
+microVM from a snapshot Firecracker writes a new identifier and injects a
+notification to the guest. Linux,
+[uses this value](https://elixir.bootlin.com/linux/v5.18.19/source/drivers/virt/vmgenid.c#L77)
+[as new randomness for its CSPRNG](https://elixir.bootlin.com/linux/v5.18.19/source/drivers/char/random.c#L908).
+Quoting the random.c implementation of the kernel:
+
+```
+/*
+ * Handle a new unique VM ID, which is unique, not secret, so we
+ * don't credit it, but we do immediately force a reseed after so
+ * that it's used by the crng posthaste.
+ */
+```
+
+As a result, values returned by `getrandom()` and `/dev/(u)random` are distinct
+in all VMs started from the same snapshot, **after** the kernel handles the
+VMGenID notification. This leaves a race window between resuming vCPUs and Linux
+CSPRNG getting successfully re-seeded. In Linux 6.8, we
+[extended VMGenID](https://lore.kernel.org/lkml/20230531095119.11202-2-bchalios@amazon.es/)
+to emit a uevent to user space when it handles the notification. User space can
+poll this uevent to know when it is safe to use `getrandom()`, et al. avoiding
+the race condition.
+
+Please note that, Firecracker will always enable VMGenID. In kernels earlier
+than 5.18, where there is no VMGenID driver, the device will not have any effect
+in the guest.
+
+### User space considerations
+
 Init systems (such as `systemd` used by AL2 and other distros) might save a
 random seed file after boot. For `systemd`, the path is
 `/var/lib/systemd/random-seed`. Just to be on the safe side, any such file
@@ -121,8 +161,8 @@ alter the read result via bind mounting another file on top of
   and should be sufficient for most cases.
 - Use `virtio-rng`. When present, the guest kernel uses the device as an
   additional source of entropy.
-- To be as safe as possible, the direct approach is to do the following (before
-  customer code is resumed in the clone):
+- On kernels before 5.18, to be as safe as possible, the direct approach is to
+  do the following (before customer code is resumed in the clone):
   1. Open one of the special devices files (either `/dev/random` or
      `/dev/urandom`). Take note that `RNDCLEARPOOL` no longer
      [has any effect][7] on the entropy pool.
@@ -133,6 +173,13 @@ alter the read result via bind mounting another file on top of
   1. Issue a `RNDRESEEDCRNG` ioctl call ([4.14][5], [5.10][6], (requires
      `CAP_SYS_ADMIN`)) that specifically causes the `CSPRNG` to be reseeded from
      the input pool.
+- On kernels starting from 5.18 onwards, the CSPRNG will be automatically
+  reseeded when the guest kernel handles the VMGenID notification. To completely
+  avoid the race condition, users should follow the same steps as with kernels
+  \< 5.18.
+- On kernels starting from 6.8, users can poll for the VMGenID uevent that the
+  driver sends when the CSPRNG is reseeded after handling the VMGenID
+  notification.
 
 **Annex 1 contains the source code of a C program which implements the previous
 three steps.** As soon as the guest kernel version switches to 4.19 (or higher),
