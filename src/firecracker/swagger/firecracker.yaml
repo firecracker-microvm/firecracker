@@ -591,32 +591,6 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
-  /snapshot-nomemory/create:
-    put:
-      summary: Creates a full snapshot without memory. Post-boot only.
-      description:
-        Creates a snapshot of the microVM state, without memory. The microVM should be
-        in the `Paused` state.
-      operationId: createSnapshotNoMemory
-      parameters:
-        - name: body
-          in: body
-          description: The configuration used for creating a snaphot.
-          required: true
-          schema:
-            $ref: "#/definitions/SnapshotCreateNoMemoryParams"
-      responses:
-        204:
-          description: Snapshot created
-        400:
-          description: Snapshot cannot be created due to bad input
-          schema:
-            $ref: "#/definitions/Error"
-        default:
-          description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
-
   /snapshot/load:
     put:
       summary: Loads a snapshot. Pre-boot only.
@@ -1228,15 +1202,6 @@ definitions:
         description:
           Type of snapshot to create. It is optional and by default, a full
           snapshot is created.
-
-  SnapshotCreateNoMemoryParams:
-    type: object
-    required:
-      - snapshot_path
-    properties:
-      snapshot_path:
-        type: string
-        description: Path to the file that will contain the microVM state.
 
   SnapshotLoadParams:
     type: object

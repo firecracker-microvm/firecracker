@@ -8,15 +8,15 @@ use seccompiler::BpfThreadMap;
 use serde_json::Value;
 #[cfg(test)]
 use tests::{
-    build_and_boot_microvm, create_snapshot, create_snapshot_nomemory, restore_from_snapshot,
-    MockVmRes as VmResources, MockVmm as Vmm,
+    build_and_boot_microvm, create_snapshot, restore_from_snapshot, MockVmRes as VmResources,
+    MockVmm as Vmm,
 };
 
 use super::VmmError;
 #[cfg(not(test))]
 use super::{
-    builder::build_and_boot_microvm, persist::create_snapshot, persist::create_snapshot_nomemory,
-    persist::restore_from_snapshot, resources::VmResources, Vmm,
+    builder::build_and_boot_microvm, persist::create_snapshot, persist::restore_from_snapshot,
+    resources::VmResources, Vmm,
 };
 use crate::builder::StartMicrovmError;
 use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
@@ -38,9 +38,7 @@ use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
 };
-use crate::vmm_config::snapshot::{
-    CreateSnapshotNoMemoryParams, CreateSnapshotParams, LoadSnapshotParams, SnapshotType,
-};
+use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use crate::vmm_config::{self, RateLimiterUpdate};
 use crate::EventManager;
@@ -61,9 +59,6 @@ pub enum VmmAction {
     /// Create a snapshot using as input the `CreateSnapshotParams`. This action can only be called
     /// after the microVM has booted and only when the microVM is in `Paused` state.
     CreateSnapshot(CreateSnapshotParams),
-    /// Create a snapshot without memory using as input the `CreateSnapshotNoMemoryParams`. This action can only be called
-    /// after the microVM has booted and only when the microVM is in `Paused` state.
-    CreateSnapshotNoMemory(CreateSnapshotNoMemoryParams),
     /// Get the balloon device configuration.
     GetBalloonConfig,
     /// Get the ballon device latest statistics.
@@ -444,7 +439,6 @@ impl<'a> PrebootApiController<'a> {
             SetEntropyDevice(config) => self.set_entropy_device(config),
             // Operations not allowed pre-boot.
             CreateSnapshot(_)
-            | CreateSnapshotNoMemory(_)
             | FlushMetrics
             | Pause
             | Resume
@@ -633,9 +627,6 @@ impl RuntimeApiController {
         match request {
             // Supported operations allowed post-boot.
             CreateSnapshot(snapshot_create_cfg) => self.create_snapshot(&snapshot_create_cfg),
-            CreateSnapshotNoMemory(snapshot_create_cfg) => {
-                self.create_snapshot_nomemory(&snapshot_create_cfg)
-            }
             FlushMetrics => self.flush_metrics(),
             GetBalloonConfig => self
                 .vmm
@@ -801,30 +792,6 @@ impl RuntimeApiController {
                 );
             }
         }
-        Ok(VmmData::Empty)
-    }
-
-    fn create_snapshot_nomemory(
-        &mut self,
-        create_params: &CreateSnapshotNoMemoryParams,
-    ) -> Result<VmmData, VmmActionError> {
-        log_dev_preview_warning("Virtual machine snapshots without memory", None);
-
-        let mut locked_vmm = self.vmm.lock().unwrap();
-        let vm_info = VmInfo::from(&self.vm_resources);
-        let create_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
-
-        create_snapshot_nomemory(&mut locked_vmm, &vm_info, create_params)?;
-
-        let elapsed_time_us = update_metric_with_elapsed_time(
-            &METRICS.latencies_us.vmm_full_create_snapshot,
-            create_start_us,
-        );
-        info!(
-            "'create full snapshot without memory' VMM action took {} us.",
-            elapsed_time_us
-        );
-
         Ok(VmmData::Empty)
     }
 
@@ -1257,16 +1224,6 @@ mod tests {
         _: &mut Vmm,
         _: &VmInfo,
         _: &CreateSnapshotParams,
-    ) -> Result<(), CreateSnapshotError> {
-        Ok(())
-    }
-
-    // Need to redefine this since the non-test one uses real Vmm
-    // instead of our mocks.
-    pub fn create_snapshot_nomemory(
-        _: &mut Vmm,
-        _: &VmInfo,
-        _: &CreateSnapshotNoMemoryParams,
     ) -> Result<(), CreateSnapshotError> {
         Ok(())
     }

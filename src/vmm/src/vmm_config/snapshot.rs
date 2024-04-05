@@ -47,14 +47,6 @@ pub struct CreateSnapshotParams {
     pub mem_file_path: PathBuf,
 }
 
-/// Stores the configuration that will be used for creating a snapshot without memory.
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct CreateSnapshotNoMemoryParams {
-    /// Path to the file that will contain the microVM state.
-    pub snapshot_path: PathBuf,
-}
-
 /// Stores the configuration that will be used for loading a snapshot.
 #[derive(Debug, PartialEq, Eq)]
 pub struct LoadSnapshotParams {

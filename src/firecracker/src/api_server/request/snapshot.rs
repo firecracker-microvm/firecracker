@@ -5,8 +5,8 @@ use serde::de::Error as DeserializeError;
 use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
 use vmm::vmm_config::snapshot::{
-    CreateSnapshotNoMemoryParams, CreateSnapshotParams, LoadSnapshotConfig, LoadSnapshotParams,
-    MemBackendConfig, MemBackendType, Vm, VmState,
+    CreateSnapshotParams, LoadSnapshotConfig, LoadSnapshotParams, MemBackendConfig, MemBackendType,
+    Vm, VmState,
 };
 
 use super::super::parsed_request::{Error, ParsedRequest};
@@ -32,27 +32,6 @@ pub(crate) fn parse_put_snapshot(
             "load" => parse_put_snapshot_load(body),
             _ => Err(Error::InvalidPathMethod(
                 format!("/snapshot/{}", request_type),
-                Method::Put,
-            )),
-        },
-        None => Err(Error::Generic(
-            StatusCode::BadRequest,
-            "Missing snapshot operation type.".to_string(),
-        )),
-    }
-}
-
-pub(crate) fn parse_put_snapshot_nomemory(
-    body: &Body,
-    request_type_from_path: Option<&str>,
-) -> Result<ParsedRequest, Error> {
-    match request_type_from_path {
-        Some(request_type) => match request_type {
-            "create" => Ok(ParsedRequest::new_sync(VmmAction::CreateSnapshotNoMemory(
-                serde_json::from_slice::<CreateSnapshotNoMemoryParams>(body.raw())?,
-            ))),
-            _ => Err(Error::InvalidPathMethod(
-                format!("/snapshot-nomemory/{}", request_type),
                 Method::Put,
             )),
         },

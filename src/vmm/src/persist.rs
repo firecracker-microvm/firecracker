@@ -34,8 +34,7 @@ use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{HugePageConfig, MachineConfigUpdate, VmConfigError};
 use crate::vmm_config::snapshot::{
-    CreateSnapshotNoMemoryParams, CreateSnapshotParams, LoadSnapshotParams, MemBackendType,
-    SnapshotType,
+    CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
 };
 use crate::vstate::memory::{
     GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryState, MemoryError,
@@ -149,8 +148,6 @@ pub enum CreateSnapshotError {
     MicrovmState(MicrovmStateError),
     /// Cannot serialize the microVM state: {0}
     SerializeMicrovmState(crate::snapshot::Error),
-    /// Failed to sync Microvm memory.
-    MemoryMsync(MemoryError),
     /// Cannot perform {0} on the snapshot backing file: {1}
     SnapshotBackingFile(&'static str, io::Error),
     /// Size mismatch when writing diff snapshot on top of base layer: base layer size is {0} but diff layer is size {1}.
@@ -173,25 +170,6 @@ pub fn create_snapshot(
     snapshot_state_to_file(&microvm_state, &params.snapshot_path)?;
 
     snapshot_memory_to_file(vmm, &params.mem_file_path, params.snapshot_type)?;
-
-    Ok(())
-}
-
-/// Creates a Microvm snapshot without memory.
-pub fn create_snapshot_nomemory(
-    vmm: &mut Vmm,
-    vm_info: &VmInfo,
-    params: &CreateSnapshotNoMemoryParams,
-) -> std::result::Result<(), CreateSnapshotError> {
-    let microvm_state = vmm
-        .save_state(vm_info)
-        .map_err(CreateSnapshotError::MicrovmState)?;
-
-    snapshot_state_to_file(&microvm_state, &params.snapshot_path)?;
-
-    vmm.guest_memory()
-        .msync()
-        .map_err(CreateSnapshotError::MemoryMsync)?;
 
     Ok(())
 }
@@ -511,10 +489,7 @@ fn guest_memory_from_file(
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
 ) -> Result<GuestMemoryMmap, GuestMemoryFromFileError> {
-    let mem_file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(mem_file_path)?;
+    let mem_file = File::open(mem_file_path)?;
     let guest_mem =
         GuestMemoryMmap::from_state(Some(&mem_file), mem_state, track_dirty_pages, huge_pages)?;
     Ok(guest_mem)

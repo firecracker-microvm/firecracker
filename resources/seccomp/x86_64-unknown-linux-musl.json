@@ -36,10 +36,6 @@
                 "syscall": "fsync"
             },
             {
-                "syscall": "msync",
-                "comment": "Used for live migration to sync dirty pages"
-            },
-            {
                 "syscall": "close"
             },
             {
