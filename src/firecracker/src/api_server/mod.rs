@@ -158,6 +158,14 @@ impl ApiServer {
                     &METRICS.latencies_us.diff_create_snapshot,
                     "create diff snapshot",
                 )),
+                SnapshotType::Msync => Some((
+                    &METRICS.latencies_us.diff_create_snapshot,
+                    "memory synchronization snapshot",
+                )),
+                SnapshotType::MsyncAndState => Some((
+                    &METRICS.latencies_us.diff_create_snapshot,
+                    "memory synchronization and state snapshot",
+                )),
             },
             VmmAction::LoadSnapshot(_) => {
                 Some((&METRICS.latencies_us.load_snapshot, "load snapshot"))

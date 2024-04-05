@@ -616,6 +616,10 @@ pub struct PerformanceMetrics {
     pub vmm_full_create_snapshot: SharedStoreMetric,
     /// Measures the snapshot diff create time, at the VMM level, in microseconds.
     pub vmm_diff_create_snapshot: SharedStoreMetric,
+    /// Measures the snapshot memory synchronization time, at the VMM level, in microseconds.
+    pub vmm_msync_create_snapshot: SharedStoreMetric,
+    /// Measures the snapshot memory synchronization and state time, at the VMM level, in microseconds.
+    pub vmm_msync_and_state_create_snapshot: SharedStoreMetric,
     /// Measures the snapshot load time, at the VMM level, in microseconds.
     pub vmm_load_snapshot: SharedStoreMetric,
     /// Measures the microVM pausing duration, at the VMM level, in microseconds.
@@ -634,6 +638,8 @@ impl PerformanceMetrics {
             resume_vm: SharedStoreMetric::new(),
             vmm_full_create_snapshot: SharedStoreMetric::new(),
             vmm_diff_create_snapshot: SharedStoreMetric::new(),
+            vmm_msync_create_snapshot: SharedStoreMetric::new(),
+            vmm_msync_and_state_create_snapshot: SharedStoreMetric::new(),
             vmm_load_snapshot: SharedStoreMetric::new(),
             vmm_pause_vm: SharedStoreMetric::new(),
             vmm_resume_vm: SharedStoreMetric::new(),

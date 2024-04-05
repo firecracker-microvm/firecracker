@@ -5,8 +5,8 @@ use serde::de::Error as DeserializeError;
 use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
 use vmm::vmm_config::snapshot::{
-    CreateSnapshotNoMemoryParams, CreateSnapshotParams, LoadSnapshotConfig, LoadSnapshotParams,
-    MemBackendConfig, MemBackendType, Vm, VmState,
+    CreateSnapshotParams, LoadSnapshotConfig, LoadSnapshotParams, MemBackendConfig, MemBackendType,
+    Vm, VmState,
 };
 
 use super::super::parsed_request::{Error, ParsedRequest};
@@ -32,27 +32,6 @@ pub(crate) fn parse_put_snapshot(
             "load" => parse_put_snapshot_load(body),
             _ => Err(Error::InvalidPathMethod(
                 format!("/snapshot/{}", request_type),
-                Method::Put,
-            )),
-        },
-        None => Err(Error::Generic(
-            StatusCode::BadRequest,
-            "Missing snapshot operation type.".to_string(),
-        )),
-    }
-}
-
-pub(crate) fn parse_put_snapshot_nomemory(
-    body: &Body,
-    request_type_from_path: Option<&str>,
-) -> Result<ParsedRequest, Error> {
-    match request_type_from_path {
-        Some(request_type) => match request_type {
-            "create" => Ok(ParsedRequest::new_sync(VmmAction::CreateSnapshotNoMemory(
-                serde_json::from_slice::<CreateSnapshotNoMemoryParams>(body.raw())?,
-            ))),
-            _ => Err(Error::InvalidPathMethod(
-                format!("/snapshot-nomemory/{}", request_type),
                 Method::Put,
             )),
         },
@@ -120,6 +99,7 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, Error> {
         mem_backend,
         enable_diff_snapshots: snapshot_config.enable_diff_snapshots,
         resume_vm: snapshot_config.resume_vm,
+        shared: snapshot_config.shared,
     };
 
     // Construct the `ParsedRequest` object.
@@ -196,6 +176,7 @@ mod tests {
             },
             enable_diff_snapshots: false,
             resume_vm: false,
+            shared: false,
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(parsed_request
@@ -223,6 +204,7 @@ mod tests {
             },
             enable_diff_snapshots: true,
             resume_vm: false,
+            shared: false,
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(parsed_request
@@ -250,6 +232,7 @@ mod tests {
             },
             enable_diff_snapshots: false,
             resume_vm: true,
+            shared: false,
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(parsed_request
@@ -274,6 +257,7 @@ mod tests {
             },
             enable_diff_snapshots: false,
             resume_vm: true,
+            shared: false,
         };
         let parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert_eq!(

@@ -18,6 +18,10 @@ pub enum SnapshotType {
     /// Full snapshot.
     #[default]
     Full,
+    /// Memory synchronization snapshot.
+    Msync,
+    /// Memory synchronization and state snapshot.
+    MsyncAndState,
 }
 
 /// Specifies the method through which guest memory will get populated when
@@ -47,14 +51,6 @@ pub struct CreateSnapshotParams {
     pub mem_file_path: PathBuf,
 }
 
-/// Stores the configuration that will be used for creating a snapshot without memory.
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct CreateSnapshotNoMemoryParams {
-    /// Path to the file that will contain the microVM state.
-    pub snapshot_path: PathBuf,
-}
-
 /// Stores the configuration that will be used for loading a snapshot.
 #[derive(Debug, PartialEq, Eq)]
 pub struct LoadSnapshotParams {
@@ -68,6 +64,10 @@ pub struct LoadSnapshotParams {
     /// When set to true, the vm is also resumed if the snapshot load
     /// is successful.
     pub resume_vm: bool,
+    /// When set to true and the guest memory backend is a file,
+    /// changes to the memory are asynchronously written back to the
+    /// backend as the VM is running.
+    pub shared: bool,
 }
 
 /// Stores the configuration for loading a snapshot that is provided by the user.
@@ -90,6 +90,9 @@ pub struct LoadSnapshotConfig {
     /// Whether or not to resume the vm post snapshot load.
     #[serde(default)]
     pub resume_vm: bool,
+    /// Whether or not to asynchronously write back memory changes to the backing file.
+    #[serde(default)]
+    pub shared: bool,
 }
 
 /// Stores the configuration used for managing snapshot memory.
