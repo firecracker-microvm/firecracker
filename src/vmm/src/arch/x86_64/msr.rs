@@ -236,6 +236,7 @@ static SERIALIZABLE_MSR_RANGES: &[MsrRange] = &[
     MSR_RANGE!(MSR_K7_HWCR),
     MSR_RANGE!(MSR_KVM_POLL_CONTROL),
     MSR_RANGE!(MSR_KVM_ASYNC_PF_INT),
+    MSR_RANGE!(MSR_IA32_TSX_CTRL),
 ];
 
 /// Specifies whether a particular MSR should be included in vcpu serialization.

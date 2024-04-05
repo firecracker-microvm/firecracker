@@ -24,6 +24,15 @@ and this project adheres to
   `--config` parameter of `cpu-template-helper` optional. Users no longer need
   to prepare kernel, rootfs and Firecracker configuration files to use
   `cpu-template-helper`.
+- [#4537](https://github.com/firecracker-microvm/firecracker/pull/4537) Changed
+  T2CL template to pass through bit 27 and 28 of `MSR_IA32_ARCH_CAPABILITIES`
+  (`RFDS_NO` and `RFDS_CLEAR`) since KVM consider they are able to be passed
+  through and T2CL isn't designed for secure snapshot migration between
+  different processors.
+- [#4537](https://github.com/firecracker-microvm/firecracker/pull/4537) Changed
+  T2S template to set bit 27 of `MSR_IA32_ARCH_CAPABILITIES` (`RFDS_NO`) to 1
+  since it assumes that the fleet only consists of processors that are not
+  affected by RFDS.
 
 ### Deprecated
 
@@ -40,6 +49,15 @@ and this project adheres to
   support is removed.
 
 ### Fixed
+
+- [4526](https://github.com/firecracker-microvm/firecracker/pull/4526): Added a
+  check in the network TX path that the size of the network frames the guest
+  passes to us is not bigger than the maximum frame the device expects to
+  handle. On the TX path, we copy frames destined to MMDS from guest memory to
+  Firecracker memory. Without the check, a mis-behaving virtio-net driver could
+  cause an increase in the memory footprint of the Firecracker process. Now, if
+  we receive such a frame, we ignore it and increase `Net::tx_malformed_frames`
+  metric.
 
 ## \[1.7.0\]
 
