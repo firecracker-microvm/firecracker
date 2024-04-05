@@ -99,6 +99,7 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, Error> {
         mem_backend,
         enable_diff_snapshots: snapshot_config.enable_diff_snapshots,
         resume_vm: snapshot_config.resume_vm,
+        shared: snapshot_config.shared,
     };
 
     // Construct the `ParsedRequest` object.
@@ -175,6 +176,7 @@ mod tests {
             },
             enable_diff_snapshots: false,
             resume_vm: false,
+            shared: false,
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(parsed_request
@@ -202,6 +204,7 @@ mod tests {
             },
             enable_diff_snapshots: true,
             resume_vm: false,
+            shared: false,
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(parsed_request
@@ -229,6 +232,7 @@ mod tests {
             },
             enable_diff_snapshots: false,
             resume_vm: true,
+            shared: false,
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(parsed_request
@@ -253,6 +257,7 @@ mod tests {
             },
             enable_diff_snapshots: false,
             resume_vm: true,
+            shared: false,
         };
         let parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert_eq!(

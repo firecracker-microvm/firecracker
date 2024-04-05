@@ -791,6 +791,26 @@ impl RuntimeApiController {
                     elapsed_time_us
                 );
             }
+            SnapshotType::Msync => {
+                let elapsed_time_us = update_metric_with_elapsed_time(
+                    &METRICS.latencies_us.vmm_msync_create_snapshot,
+                    create_start_us,
+                );
+                info!(
+                    "'create memory synchronization snapshot' VMM action took {} us.",
+                    elapsed_time_us
+                );
+            }
+            SnapshotType::MsyncAndState => {
+                let elapsed_time_us = update_metric_with_elapsed_time(
+                    &METRICS.latencies_us.vmm_msync_and_state_create_snapshot,
+                    create_start_us,
+                );
+                info!(
+                    "'create memory synchronization and state snapshot' VMM action took {} us.",
+                    elapsed_time_us
+                );
+            }
         }
         Ok(VmmData::Empty)
     }
@@ -1733,6 +1753,7 @@ mod tests {
             },
             enable_diff_snapshots: false,
             resume_vm: false,
+            shared: false,
         });
         // Request should succeed.
         preboot.handle_preboot_request(req).unwrap();
@@ -1749,6 +1770,7 @@ mod tests {
             },
             enable_diff_snapshots: false,
             resume_vm: true,
+            shared: false,
         });
         // Request should succeed.
         preboot.handle_preboot_request(req).unwrap();
@@ -2130,6 +2152,7 @@ mod tests {
                 },
                 enable_diff_snapshots: false,
                 resume_vm: false,
+                shared: false,
             }),
             VmmActionError::OperationNotSupportedPostBoot,
         );
@@ -2156,6 +2179,7 @@ mod tests {
             },
             enable_diff_snapshots: false,
             resume_vm: false,
+            shared: false,
         });
         let err = preboot.handle_preboot_request(req);
         assert_eq!(

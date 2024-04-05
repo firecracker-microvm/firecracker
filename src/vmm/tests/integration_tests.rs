@@ -238,6 +238,7 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
         &microvm_state.memory_state,
         false,
         HugePageConfig::None,
+        false,
     )
     .unwrap();
 
