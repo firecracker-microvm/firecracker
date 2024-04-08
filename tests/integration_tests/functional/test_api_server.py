@@ -4,8 +4,6 @@
 
 import socket
 
-from framework.utils import check_output
-
 
 def test_api_socket_in_use(uvm_plain):
     """
@@ -18,8 +16,7 @@ def test_api_socket_in_use(uvm_plain):
     """
     microvm = uvm_plain
 
-    cmd = "mkdir {}/run".format(microvm.chroot())
-    check_output(cmd)
+    microvm.chroot.joinpath("run").mkdir()
 
     sock = socket.socket(socket.AF_UNIX)
     sock.bind(microvm.jailer.api_socket_path())

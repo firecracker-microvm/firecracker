@@ -10,7 +10,6 @@ import termios
 import time
 
 from framework import utils
-from framework.microvm import Serial
 from framework.state_machine import TestState
 
 PLATFORM = platform.machine()
@@ -57,7 +56,7 @@ def test_serial_after_snapshot(uvm_plain, microvm_factory):
         mem_size_mib=256,
         boot_args="console=ttyS0 reboot=k panic=1 pci=off",
     )
-    serial = Serial(microvm)
+    serial = microvm.jailer.serial()
     serial.open()
     microvm.start()
 
@@ -74,7 +73,7 @@ def test_serial_after_snapshot(uvm_plain, microvm_factory):
     vm.help.enable_console()
     vm.spawn()
     vm.restore_from_snapshot(snapshot, resume=True)
-    serial = Serial(vm)
+    serial = vm.jailer.serial()
     serial.open()
     # We need to send a newline to signal the serial to flush
     # the login content.
@@ -105,7 +104,7 @@ def test_serial_console_login(uvm_plain_any):
 
     microvm.start()
 
-    serial = Serial(microvm)
+    serial = microvm.jailer.serial()
     serial.open()
     current_state = WaitTerminal("ubuntu-fc-uvm:")
 
@@ -185,7 +184,7 @@ def test_serial_block(uvm_plain_any):
     init_count = fc_metrics["uart"]["missed_write_count"]
 
     # Stop `screen` process which captures stdout so we stop consuming stdout.
-    os.kill(test_microvm.screen_pid, signal.SIGSTOP)
+    os.kill(test_microvm.jailer.screen_pid, signal.SIGSTOP)
 
     # Generate a random text file.
     test_microvm.ssh.check_output(

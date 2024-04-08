@@ -4,6 +4,7 @@
 
 import os
 import shutil
+import signal
 import stat
 from pathlib import Path
 
@@ -42,6 +43,7 @@ class JailerContext:
     def __init__(
         self,
         jailer_id,
+        jailer_binary_path,
         exec_file,
         uid=1234,
         gid=1234,
@@ -63,6 +65,7 @@ class JailerContext:
         """
         self.jailer_id = jailer_id
         assert jailer_id is not None
+        self.jailer_bin_path = jailer_binary_path
         self.exec_file = exec_file
         self.uid = uid
         self.gid = gid
@@ -89,7 +92,7 @@ class JailerContext:
         might want to add integration tests that validate the enforcement of
         mandatory arguments.
         """
-        jailer_param_list = []
+        jailer_param_list = [str(self.jailer_bin_path)]
 
         # Pretty please, try to keep the same order as in the code base.
         if self.jailer_id is not None:
@@ -141,7 +144,7 @@ class JailerContext:
 
     def chroot_path(self):
         """Return the MicroVM chroot path."""
-        return os.path.join(self.chroot_base_with_id(), "root")
+        return self.chroot_base_with_id() / "root"
 
     def jailed_path(self, file_path, create=False, subdir="."):
         """Create a hard link or block special device owned by uid:gid.
@@ -176,6 +179,8 @@ class JailerContext:
     def setup(self):
         """Set up this jailer context."""
         os.makedirs(self.chroot_base, exist_ok=True)
+        # Copy the /etc/localtime file in the jailer root
+        self.jailed_path("/etc/localtime", subdir="etc")
 
     def cleanup(self):
         """Clean up this jailer context."""
@@ -243,6 +248,23 @@ class JailerContext:
         return True
 
     @property
-    def pid_file(self):
-        """Return the PID file of the jailed process"""
-        return Path(self.chroot_path()) / (self.exec_file.name + ".pid")
+    def pid(self):
+        """Return the PID of the jailed process"""
+        # Read the PID stored inside the file.
+        pid_file = Path(self.chroot_path()) / (self.exec_file.name + ".pid")
+        if not pid_file.exists():
+            return None
+        return int(pid_file.read_text(encoding="ascii"))
+
+    def spawn(self, pre_cmd):
+        """Spawn Firecracker and daemonize via the Jailer"""
+        cmd = pre_cmd or []
+        cmd += self.construct_param_list()
+        if not self.daemonize:
+            raise RuntimeError("Use a different jailer")
+        return utils.check_output(cmd, shell=False)
+
+    def kill(self):
+        """Kill the Firecracker process"""
+        if self.pid is not None:
+            os.kill(self.pid, signal.SIGKILL)

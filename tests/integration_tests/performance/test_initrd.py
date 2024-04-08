@@ -3,7 +3,7 @@
 """Tests for initrd."""
 import pytest
 
-from framework.microvm import HugePagesConfig, Serial
+from framework.microvm import HugePagesConfig
 
 INITRD_FILESYSTEM = "rootfs"
 
@@ -39,7 +39,7 @@ def test_microvm_initrd_with_serial(uvm_with_initrd, huge_pages):
     )
 
     vm.start()
-    serial = Serial(vm)
+    serial = vm.jailer.serial()
     serial.open()
     serial.rx(token="# ")
     serial.tx("mount |grep rootfs")

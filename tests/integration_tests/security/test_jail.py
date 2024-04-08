@@ -5,17 +5,20 @@
 import http.client as http_client
 import os
 import resource
+import signal
 import stat
 import subprocess
 import time
 from pathlib import Path
 
+import psutil
 import pytest
 import requests
 import urllib3
 
 from framework.defs import FC_BINARY_NAME
 from framework.jailer import JailerContext
+from framework.jailer_screen import JailerScreen
 
 # These are the permissions that all files/dirs inside the jailer have.
 REG_PERMS = (
@@ -62,6 +65,7 @@ def test_empty_jailer_id(uvm_plain):
     test_microvm.jailer = JailerContext(
         jailer_id="",
         exec_file=test_microvm.fc_binary_path,
+        jailer_binary_path=test_microvm.jailer.jailer_bin_path,
     )
 
     # If the exception is not thrown, it means that Firecracker was
@@ -580,32 +584,47 @@ def test_new_pid_namespace(uvm_plain):
     assert int(nstgid_list[0]) == fc_pid
 
 
-@pytest.mark.parametrize(
-    "daemonize",
-    [True, False],
-)
-@pytest.mark.parametrize(
-    "new_pid_ns",
-    [True, False],
-)
+@pytest.mark.parametrize("daemonize", [True, False])
+@pytest.mark.parametrize("new_pid_ns", [True, False])
 def test_firecracker_kill_by_pid(uvm_plain, daemonize, new_pid_ns):
     """
     Test that Firecracker is spawned in a new PID namespace if requested.
     """
     microvm = uvm_plain
-    microvm.jailer.daemonize = daemonize
-    microvm.jailer.new_pid_ns = new_pid_ns
+    jailer_cls = JailerContext
+    if not daemonize:
+        jailer_cls = JailerScreen
+    microvm.jailer = jailer_cls(
+        microvm.id,
+        microvm.jailer.jailer_bin_path,
+        microvm.jailer.exec_file,
+        netns=microvm.netns,
+        new_pid_ns=new_pid_ns,
+        daemonize=daemonize,
+    )
     microvm.spawn()
     microvm.basic_config()
     microvm.add_net_iface()
     microvm.start()
+
+    firecracker_ps = psutil.Process(microvm.firecracker_pid)
 
     # before killing microvm make sure the Jailer config is what we set it to be.
     assert (
         microvm.jailer.daemonize == daemonize
         and microvm.jailer.new_pid_ns == new_pid_ns
     )
-    microvm.kill()
+    if not daemonize and new_pid_ns:
+        # this combination makes little sense: the screen process dissappears so
+        # we have to avoid calling jailer.kill() and instead kill the FC process
+        # directly
+        firecracker_ps.send_signal(signal.SIGKILL)
+        microvm.mark_killed()
+    else:
+        microvm.kill()
+
+    firecracker_ps.wait(5)
+    assert not firecracker_ps.is_running()
 
 
 def test_cgroupsv2_written_only_once(uvm_plain, cgroups_info):

@@ -341,14 +341,12 @@ def microvm_factory(request, record_property, results_dir, netns_factory):
             uvm_data.mkdir()
             uvm_data.joinpath("host-dmesg.log").write_text(dmesg.stdout)
 
-            uvm_root = Path(uvm.chroot())
-            for item in os.listdir(uvm_root):
-                src = uvm_root / item
-                if not os.path.isfile(src):
+            for src in uvm.chroot.iterdir():
+                if not src.is_file():
                     continue
-                dst = uvm_data / item
+                dst = uvm_data / src.name
                 shutil.copy(src, dst)
-                console_data = uvm.console_data
+                console_data = getattr(uvm.jailer, "console_data", None)
                 if console_data:
                     uvm_data.joinpath("guest-console.log").write_text(console_data)
 

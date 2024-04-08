@@ -82,7 +82,7 @@ def test_vhost_user_block_read_write(microvm_factory, guest_kernel, rootfs):
     vm.basic_config(add_root_device=False)
 
     # Create a rw rootfs file that is unique to the microVM
-    rootfs_rw = Path(vm.chroot()) / "rootfs"
+    rootfs_rw = vm.chroot / "rootfs"
     shutil.copy(rootfs, rootfs_rw)
 
     vm.add_vhost_user_drive("rootfs", rootfs_rw, is_root_device=True)
@@ -153,7 +153,7 @@ def test_device_ordering(microvm_factory, guest_kernel, rootfs):
     vm.add_drive("scratch2", fs2.path)
 
     # Create a rw rootfs file that is unique to the microVM
-    rootfs_rw = Path(vm.chroot()) / "rootfs"
+    rootfs_rw = vm.chroot / "rootfs"
     shutil.copy(rootfs, rootfs_rw)
 
     # Adding forth block device.
@@ -213,7 +213,7 @@ def test_partuuid_boot(
     vm.basic_config(add_root_device=False)
 
     # Create a rootfs with partuuid unique to this microVM
-    partuuid, disk_path = partuuid_and_disk_path(rootfs, Path(vm.chroot()) / "disk.img")
+    partuuid, disk_path = partuuid_and_disk_path(rootfs, vm.chroot / "disk.img")
 
     vm.add_vhost_user_drive(
         "1", disk_path, is_root_device=True, partuuid=partuuid, is_read_only=True

@@ -463,7 +463,7 @@ def test_diff_snapshot_overlay(guest_kernel, rootfs, microvm_factory):
 
     # First copy the base snapshot somewhere else, so we can make sure
     # it will actually get updated
-    first_snapshot_backup = Path(basevm.chroot()) / "mem.old"
+    first_snapshot_backup = basevm.chroot / "mem.old"
     shutil.copyfile(full_snapshot.mem, first_snapshot_backup)
 
     # One Microvm object will always write its snapshot files to the same location
@@ -498,7 +498,7 @@ def test_snapshot_overwrite_self(guest_kernel, rootfs, microvm_factory):
 
     # When restoring a snapshot, vm.restore_from_snapshot first copies
     # the memory file (inside of the jailer) to /mem.src
-    currently_loaded = Path(vm.chroot()) / "mem.src"
+    currently_loaded = vm.chroot / "mem.src"
 
     assert currently_loaded.exists()
 

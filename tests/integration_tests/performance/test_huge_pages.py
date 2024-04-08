@@ -7,6 +7,7 @@ import time
 import pytest
 
 from framework import utils
+from framework.jailer_screen import JailerScreen
 from framework.microvm import HugePagesConfig
 from framework.properties import global_props
 from framework.utils_ftrace import ftrace_events
@@ -195,7 +196,9 @@ def test_ept_violation_count(
 
     ### Restore Snapshot ###
     vm = microvm_factory.build()
-    vm.jailer.daemonize = False
+    vm.jailer = JailerScreen(
+        vm.id, vm.jailer.jailer_bin_path, vm.jailer.exec_file, netns=vm.netns
+    )
     vm.jailer.extra_args.update({"no-seccomp": None})
     vm.spawn()
 

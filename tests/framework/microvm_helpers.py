@@ -9,6 +9,8 @@ import platform
 import subprocess
 from pathlib import Path
 
+from framework.jailer_screen import JailerScreen
+
 
 def docker_apt_install(packages: str | list[str]):
     """Install a package in the Docker devctr"""
@@ -127,13 +129,17 @@ class MicrovmHelpers:
             raise RuntimeError(".spawn already called, too late to enable the console")
         if self.vm.boot_args is None:
             self.vm.boot_args = ""
-        self.vm.boot_args += "console=ttyS0 reboot=k panic=1"
-        self.vm.jailer.daemonize = False
-        self.vm.jailer.new_pid_ns = False
+        self.vm.boot_args += "console=ttyS0 loglevel=4 reboot=k panic=1"
+        self.vm.jailer = JailerScreen(
+            self.vm.id,
+            self.vm.jailer.jailer_bin_path,
+            self.vm.jailer.exec_file,
+            netns=self.vm.netns,
+        )
 
     def how_to_console(self):
         """Print how to connect to the VM console"""
-        return f"screen -dR {self.vm.screen_session}"
+        return f"screen -dR {self.vm.jailer.screen_session}"
 
     def tmux_console(self):
         """Open a tmux window with the console"""

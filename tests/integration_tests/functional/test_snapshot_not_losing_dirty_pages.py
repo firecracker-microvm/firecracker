@@ -42,11 +42,9 @@ def test_diff_snapshot_works_after_error(
     uvm.add_net_iface()
     uvm.start()
 
-    chroot = Path(uvm.chroot())
-
     # Create a large file dynamically based on available space
-    fill = chroot / "fill"
-    disk_usage = psutil.disk_usage(chroot)
+    fill = uvm.chroot / "fill"
+    disk_usage = psutil.disk_usage(uvm.chroot)
     target_size = round(disk_usage.free * 0.9)  # Attempt to fill 90% of free space
 
     subprocess.check_call(f"fallocate -l {target_size} {fill}", shell=True)

@@ -15,10 +15,7 @@ import json
 import logging
 import os
 import re
-import select
 import shutil
-import signal
-import time
 import uuid
 from collections import namedtuple
 from dataclasses import dataclass
@@ -183,12 +180,11 @@ class Microvm:
         self,
         microvm_id: str,
         fc_binary_path: Path,
-        jailer_binary_path: Path,
+        jailer,
         netns: net_tools.NetNs,
         monitor_memory: bool = True,
-        jailer_kwargs: Optional[dict] = None,
-        numa_node=None,
         custom_cpu_template: Path = None,
+        numa_node: int = None,
     ):
         """Set up microVM attributes, paths, and data structures."""
         # pylint: disable=too-many-statements
@@ -204,24 +200,9 @@ class Microvm:
 
         self.fc_binary_path = Path(fc_binary_path)
         assert fc_binary_path.exists()
-        self.jailer_binary_path = Path(jailer_binary_path)
-        assert jailer_binary_path.exists()
 
-        jailer_kwargs = jailer_kwargs or {}
         self.netns = netns
-        # Create the jailer context associated with this microvm.
-        self.jailer = JailerContext(
-            jailer_id=self._microvm_id,
-            exec_file=self.fc_binary_path,
-            netns=netns,
-            new_pid_ns=True,
-            **jailer_kwargs,
-        )
-
-        # Copy the /etc/localtime file in the jailer root
-        self.jailer.jailed_path("/etc/localtime", subdir="etc")
-
-        self._screen_pid = None
+        self.jailer = jailer
 
         self.time_api_requests = global_props.host_linux_version != "6.1"
         # disable the HTTP API timings as they cause a lot of false positives
@@ -304,11 +285,7 @@ class Microvm:
         ), self.log_data
 
         try:
-            if self.firecracker_pid:
-                os.kill(self.firecracker_pid, signal.SIGKILL)
-
-            if self.screen_pid:
-                os.kill(self.screen_pid, signal.SIGKILL)
+            self.jailer.kill()
         except:
             LOG.error(
                 "Failed to kill Firecracker Process. Did it already die (or did the UFFD handler process die and take it down)?"
@@ -424,16 +401,6 @@ class Microvm:
         return self.log_file.read_text()
 
     @property
-    def console_data(self):
-        """Return the output of microVM's console"""
-        if self.screen_log is None:
-            return None
-        file = Path(self.screen_log)
-        if not file.exists():
-            return None
-        return file.read_text(encoding="utf-8")
-
-    @property
     def state(self):
         """Get the InstanceInfo property and return the state field."""
         return self.api.describe.get().json()["state"]
@@ -442,12 +409,11 @@ class Microvm:
     def firecracker_pid(self):
         """Return Firecracker's PID
 
-        Reads the pid from a file created by jailer.
+        Reads the pid from the jailer.
         """
         if not self._spawned:
             return None
-        # Read the PID stored inside the file.
-        return int(self.jailer.pid_file.read_text(encoding="ascii"))
+        return self.jailer.pid
 
     @property
     def dimensions(self):
@@ -500,29 +466,10 @@ class Microvm:
         """Get the relative jailed path to a resource."""
         return self.jailer.jailed_path(path, create=False)
 
+    @property
     def chroot(self):
         """Get the chroot of this microVM."""
         return self.jailer.chroot_path()
-
-    @property
-    def screen_session(self):
-        """The screen session name
-
-        The id of this microVM, which should be unique.
-        """
-        return self.id
-
-    @property
-    def screen_log(self):
-        """Get the screen log file."""
-        return f"/tmp/screen-{self.screen_session}.log"
-
-    @property
-    def screen_pid(self) -> Optional[int]:
-        """Get the screen PID."""
-        if self._screen_pid:
-            return int(self._screen_pid)
-        return None
 
     def pin_vmm(self, cpu_id: int) -> bool:
         """Pin the firecracker process VMM thread to a cpu list."""
@@ -591,10 +538,9 @@ class Microvm:
         metrics_path="fc.ndjson",
         emit_metrics: bool = False,
     ):
-        """Start a microVM as a daemon or in a screen session."""
+        """Start a microVM"""
         # pylint: disable=subprocess-run-check
         # pylint: disable=too-many-branches
-        self.jailer.setup()
         self.api = Api(self.jailer.api_socket_path())
 
         if log_file is not None:
@@ -630,34 +576,7 @@ class Microvm:
             # Checking the timings requires DEBUG level log messages
             self.time_api_requests = False
 
-        cmd = [
-            *self._pre_cmd,
-            str(self.jailer_binary_path),
-            *self.jailer.construct_param_list(),
-        ]
-
-        # When the daemonize flag is on, we want to clone-exec into the
-        # jailer rather than executing it via spawning a shell.
-        if self.jailer.daemonize:
-            utils.check_output(cmd, shell=False)
-        else:
-            # Run Firecracker under screen. This is used when we want to access
-            # the serial console. The file will collect the output from
-            # 'screen'ed Firecracker.
-            screen_pid = utils.start_screen_process(
-                self.screen_log,
-                self.screen_session,
-                cmd[0],
-                cmd[1:],
-            )
-            self._screen_pid = screen_pid
-
-        # If `--new-pid-ns` is used, the Firecracker process will detach from
-        # the screen and the screen process will exit. We do not want to
-        # attempt to kill it in that case to avoid a race condition.
-        if self.jailer.new_pid_ns:
-            self._screen_pid = None
-
+        self.jailer.spawn(pre_cmd=self._pre_cmd)
         self._spawned = True
 
         if emit_metrics:
@@ -708,11 +627,6 @@ class Microvm:
         raise AssertionError(
             f"`{messages}` were not found in this log: {self.log_data}"
         )
-
-    def serial_input(self, input_string):
-        """Send a string to the Firecracker serial console via screen."""
-        input_cmd = f'screen -S {self.screen_session} -p 0 -X stuff "{input_string}"'
-        return utils.check_output(input_cmd)
 
     def basic_config(
         self,
@@ -850,7 +764,7 @@ class Microvm:
             prev.kill()
 
         backend = VhostUserBlkBackend.with_backend(
-            backend_type, path_on_host, self.chroot(), drive_id, is_read_only
+            backend_type, path_on_host, self.chroot, drive_id, is_read_only
         )
 
         socket = backend.spawn(self.jailer.uid, self.jailer.gid)
@@ -945,7 +859,7 @@ class Microvm:
             snapshot_path=str(vmstate_path),
             snapshot_type=snapshot_type.value,
         )
-        root = Path(self.chroot())
+        root = Path(self.chroot)
         return Snapshot(
             vmstate=root / vmstate_path,
             mem=root / mem_path,
@@ -974,7 +888,7 @@ class Microvm:
         uffd_path: Path = None,
     ):
         """Restore a snapshot"""
-        jailed_snapshot = snapshot.copy_to_chroot(Path(self.chroot()))
+        jailed_snapshot = snapshot.copy_to_chroot(self.chroot)
         jailed_mem = Path("/") / jailed_snapshot.mem.name
         jailed_vmstate = Path("/") / jailed_snapshot.vmstate.name
 
@@ -1084,13 +998,28 @@ class MicroVMFactory:
         """Build a microvm"""
         kwargs = self.kwargs | kwargs
         microvm_id = kwargs.pop("microvm_id", str(uuid.uuid4()))
+        netns = kwargs.pop("netns", self.netns_factory(microvm_id))
+        fc_binary_path = Path(kwargs.pop("fc_binary_path", self.fc_binary_path))
+        jailer_binary_path = Path(
+            kwargs.pop("jailer_binary_path", self.jailer_binary_path)
+        )
+        assert jailer_binary_path.exists()
+        jailer_kwargs = kwargs.pop("jailer_kwargs", {})
+        # Create the jailer context associated with this microvm.
+        jailer = JailerContext(
+            jailer_id=microvm_id,
+            jailer_binary_path=jailer_binary_path,
+            exec_file=fc_binary_path,
+            netns=netns,
+            new_pid_ns=True,
+            **jailer_kwargs,
+        )
+        jailer.setup()
         vm = Microvm(
             microvm_id=microvm_id,
-            fc_binary_path=kwargs.pop("fc_binary_path", self.fc_binary_path),
-            jailer_binary_path=kwargs.pop(
-                "jailer_binary_path", self.jailer_binary_path
-            ),
-            netns=kwargs.pop("netns", self.netns_factory(microvm_id)),
+            fc_binary_path=fc_binary_path,
+            jailer=jailer,
+            netns=netns,
             **kwargs,
         )
         vm.netns.setup()
@@ -1126,66 +1055,3 @@ class MicroVMFactory:
             vm.netns.cleanup()
 
         self.vms.clear()
-
-
-class Serial:
-    """Class for serial console communication with a Microvm."""
-
-    RX_TIMEOUT_S = 60
-
-    def __init__(self, vm):
-        """Initialize a new Serial object."""
-        self._poller = None
-        self._vm = vm
-
-    def open(self):
-        """Open a serial connection."""
-        # Open the screen log file.
-        if self._poller is not None:
-            # serial already opened
-            return
-
-        attempt = 0
-        while not Path(self._vm.screen_log).exists() and attempt < 5:
-            time.sleep(0.2)
-            attempt += 1
-
-        screen_log_fd = os.open(self._vm.screen_log, os.O_RDONLY)
-        self._poller = select.poll()
-        self._poller.register(screen_log_fd, select.POLLIN | select.POLLHUP)
-
-    def tx(self, input_string, end="\n"):
-        # pylint: disable=invalid-name
-        # No need to have a snake_case naming style for a single word.
-        r"""Send a string terminated by an end token (defaulting to "\n")."""
-        self._vm.serial_input(input_string + end)
-
-    def rx_char(self):
-        """Read a single character."""
-        result = self._poller.poll(0.1)
-
-        for fd, flag in result:
-            if flag & select.POLLHUP:
-                assert False, "Oh! The console vanished before test completed."
-
-            if flag & select.POLLIN:
-                output_char = str(os.read(fd, 1), encoding="utf-8", errors="ignore")
-                return output_char
-
-        return ""
-
-    def rx(self, token="\n"):
-        # pylint: disable=invalid-name
-        # No need to have a snake_case naming style for a single word.
-        r"""Read a string delimited by an end token (defaults to "\n")."""
-        rx_str = ""
-        start = time.time()
-        while True:
-            rx_str += self.rx_char()
-            if rx_str.endswith(token):
-                break
-            if (time.time() - start) >= self.RX_TIMEOUT_S:
-                self._vm.kill()
-                assert False
-
-        return rx_str
