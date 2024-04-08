@@ -206,7 +206,7 @@ pub enum SharedDeviceType {
 }
 
 pub struct MMIODevManagerConstructorArgs<'a> {
-    pub mem: GuestMemoryMmap,
+    pub mem: &'a GuestMemoryMmap,
     pub vm: &'a VmFd,
     pub event_manager: &'a mut EventManager,
     pub resource_allocator: &'a mut ResourceAllocator,
@@ -360,7 +360,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
         let mut dev_manager = MMIODeviceManager::new();
-        let mem = &constructor_args.mem;
+        let mem = constructor_args.mem;
         let vm = constructor_args.vm;
 
         #[cfg(target_arch = "aarch64")]
@@ -748,7 +748,7 @@ mod tests {
         let device_states: DeviceStates = Snapshot::deserialize(&mut buf.as_slice()).unwrap();
         let vm_resources = &mut VmResources::default();
         let restore_args = MMIODevManagerConstructorArgs {
-            mem: vmm.guest_memory().clone(),
+            mem: vmm.guest_memory(),
             vm: vmm.vm.fd(),
             event_manager: &mut event_manager,
             resource_allocator: &mut resource_allocator,
