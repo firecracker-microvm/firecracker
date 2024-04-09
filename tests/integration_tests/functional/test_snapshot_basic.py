@@ -269,13 +269,13 @@ def test_cmp_full_and_first_diff_mem(microvm_factory, guest_kernel, rootfs):
     exit_code, _, _ = vm.ssh.run("sync")
     assert exit_code == 0
 
-    logger.info("Create full snapshot.")
-    # Create full snapshot.
-    full_snapshot = vm.snapshot_full(mem_path="mem_full")
-
     logger.info("Create diff snapshot.")
     # Create diff snapshot.
     diff_snapshot = vm.snapshot_diff()
+
+    logger.info("Create full snapshot.")
+    # Create full snapshot.
+    full_snapshot = vm.snapshot_full(mem_path="mem_full")
 
     assert full_snapshot.mem != diff_snapshot.mem
     assert filecmp.cmp(full_snapshot.mem, diff_snapshot.mem, shallow=False)

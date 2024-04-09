@@ -602,6 +602,19 @@ impl Vmm {
     }
 
     /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
+    pub fn reset_dirty_bitmap(&self) {
+        self.guest_memory
+            .iter()
+            .enumerate()
+            .for_each(|(slot, region)| {
+                let _ = self
+                    .vm
+                    .fd()
+                    .get_dirty_log(u32::try_from(slot).unwrap(), u64_to_usize(region.len()));
+            });
+    }
+
+    /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
     pub fn get_dirty_bitmap(&self) -> Result<DirtyBitmap, VmmError> {
         let mut bitmap: DirtyBitmap = HashMap::new();
         self.guest_memory
