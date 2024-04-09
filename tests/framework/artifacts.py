@@ -120,11 +120,11 @@ class FirecrackerArtifact:
     def snapshot_version_tuple(self):
         """Return the artifact's snapshot version as a tuple: `X.Y.0`."""
 
-        # Starting from Firecracker v1.6.0, snapshots have their own version that is
+        # Starting from Firecracker v1.7.0, snapshots have their own version that is
         # independent of Firecracker versions. For these Firecracker versions, use
         # the --snapshot-version Firecracker flag, to figure out which snapshot version
         # it supports.
-        # TODO: remove this check once all version prior to 1.6.0 go out of support.
+        # TODO: remove this check once all version up to (and including) 1.6.0 go out of support.
         if packaging.version.parse(self.version) < packaging.version.parse("1.7.0"):
             return self.version_tuple[:2] + (0,)
 
