@@ -57,8 +57,6 @@ RUN apt-get update \
         jq \
         less \
         libbfd-dev \
-        # for pandas
-        libbz2-dev \
         libdw-dev \
         # for aarch64, but can install in x86_64
         libfdt-dev \
