@@ -426,6 +426,7 @@ def test_stats_update(uvm_plain_any):
 
     # Inflate the balloon more to trigger a change in the stats.
     test_microvm.api.balloon.patch(amount_mib=30)
+    time.sleep(1)
 
     # Change the polling interval.
     test_microvm.api.balloon_stats.patch(stats_polling_interval_s=60)
