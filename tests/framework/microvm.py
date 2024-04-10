@@ -993,6 +993,11 @@ class Serial:
             # serial already opened
             return
 
+        attempt = 0
+        while not Path(self._vm.screen_log).exists() and attempt < 5:
+            time.sleep(0.2)
+            attempt += 1
+
         screen_log_fd = os.open(self._vm.screen_log, os.O_RDONLY)
         self._poller = select.poll()
         self._poller.register(screen_log_fd, select.POLLIN | select.POLLHUP)
