@@ -107,7 +107,8 @@ def test_for_valid_licenses():
     python_files = list(utils_repo.git_repo_files(root="..", glob="*.py"))
     rust_files = list(utils_repo.git_repo_files(root="..", glob="*.rs"))
     bash_files = list(utils_repo.git_repo_files(root="..", glob="*.sh"))
-    all_files = rust_files + python_files + bash_files
+    c_files = list(utils_repo.git_repo_files(root="..", glob="*.c"))
+    all_files = rust_files + python_files + bash_files + c_files
     error_msg = []
     for file in all_files:
         if _validate_license(file) is False:
