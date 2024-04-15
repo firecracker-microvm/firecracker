@@ -117,17 +117,24 @@ def record_props(request, record_property):
 def pytest_runtest_logreport(report):
     """Send general test metrics to CloudWatch"""
     if report.when == "call":
-        dimensions = {
-            "test": report.nodeid,
-            "instance": global_props.instance,
-            "cpu_model": global_props.cpu_model,
-            "host_kernel": "linux-" + global_props.host_linux_version,
-        }
+        METRICS.set_dimensions(
+            {
+                "test": report.nodeid,
+                "instance": global_props.instance,
+                "cpu_model": global_props.cpu_model,
+                "host_kernel": "linux-" + global_props.host_linux_version,
+            },
+            # per host kernel
+            {"host_kernel": "linux-" + global_props.host_linux_version},
+            # per CPU
+            {"cpu_model": global_props.cpu_model},
+            # and global
+            {},
+        )
         METRICS.set_property("result", report.outcome)
         METRICS.set_property("location", report.location)
         for prop_name, prop_val in report.user_properties:
             METRICS.set_property(prop_name, prop_val)
-        METRICS.set_dimensions(dimensions)
         METRICS.put_metric(
             "duration",
             report.duration,
