@@ -255,7 +255,7 @@ def test_ept_violation_count(
             # On ARM, KVM does not differentiate why it got a guest page fault.
             # However, even in this slightly more general metric, we see a significant
             # difference between 4K and 2M pages.
-            trace_entry = "guest_page_fault"
+            trace_entry = "kvm_guest_fault"
             metric = "guest_page_faults"
 
         _, metric_value, _ = utils.run_cmd(
