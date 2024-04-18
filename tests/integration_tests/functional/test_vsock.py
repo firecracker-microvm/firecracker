@@ -74,10 +74,9 @@ def negative_test_host_connections(vm, blob_path, blob_hash):
         wrk.close_uds()
         wrk.join()
 
-    # Validate that Firecracker is still up and running.
-    ecode, _, _ = vm.ssh.run("sync")
+    # Validate that guest is still up and running.
     # Should fail if Firecracker exited from SIGPIPE handler.
-    assert ecode == 0
+    vm.wait_for_up()
 
     metrics = vm.flush_metrics()
     validate_fc_metrics(metrics)

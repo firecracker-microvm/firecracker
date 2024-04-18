@@ -14,7 +14,7 @@ def test_dirty_pages_after_full_snapshot(uvm_plain):
     uvm.basic_config(mem_size_mib=vm_mem_size, track_dirty_pages=True)
     uvm.add_net_iface()
     uvm.start()
-    uvm.ssh.run("true")
+    uvm.wait_for_up()
 
     snap_full = uvm.snapshot_full(vmstate_path="vmstate_full", mem_path="mem_full")
     snap_diff = uvm.snapshot_diff(vmstate_path="vmstate_diff", mem_path="mem_diff")

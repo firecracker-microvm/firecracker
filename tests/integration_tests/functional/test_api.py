@@ -81,11 +81,7 @@ def test_drive_io_engine(uvm_plain):
         test_microvm.api.drive.put(**kwargs)
 
     test_microvm.start()
-
-    # Execute a simple command to check that the guest booted successfully.
-    rc, _, stderr = test_microvm.ssh.run("true")
-    assert rc == 0
-    assert stderr == ""
+    test_microvm.wait_for_up()
 
     assert test_microvm.api.vm_config.get().json()["drives"][0]["io_engine"] == "Sync"
 

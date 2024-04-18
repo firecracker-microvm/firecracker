@@ -242,13 +242,12 @@ def test_reinflate_balloon(uvm_plain_any):
 
     # Start the microvm.
     test_microvm.start()
+    test_microvm.wait_for_up()
     firecracker_pid = test_microvm.firecracker_pid
 
     # First inflate the balloon to free up the uncertain amount of memory
     # used by the kernel at boot and establish a baseline, then give back
     # the memory.
-    # wait until boot completes:
-    test_microvm.ssh.run("true")
     test_microvm.api.balloon.patch(amount_mib=200)
     # This call will internally wait for rss to become stable.
     _ = get_stable_rss_mem_by_pid(firecracker_pid)
@@ -483,8 +482,7 @@ def test_balloon_snapshot(microvm_factory, guest_kernel, rootfs):
     microvm.restore_from_snapshot(snapshot)
     microvm.resume()
 
-    # Attempt to connect to resumed microvm.
-    microvm.ssh.run("true")
+    microvm.wait_for_up()
 
     # Get the firecracker from snapshot pid, and open an ssh connection.
     firecracker_pid = microvm.firecracker_pid
