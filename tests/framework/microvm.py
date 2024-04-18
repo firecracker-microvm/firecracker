@@ -926,6 +926,39 @@ class Microvm:
         """Return a cached SSH connection on the 1st interface"""
         return self.ssh_iface(0)
 
+    @property
+    def thread_backtraces(self):
+        """Return backtraces of all threads"""
+        backtraces = []
+        for thread_name, thread_pids in utils.get_threads(self.firecracker_pid).items():
+            for pid in thread_pids:
+                backtraces.append(
+                    f"{thread_name} ({pid=}):\n"
+                    f"{utils.run_cmd(f'cat /proc/{pid}/stack').stdout}"
+                )
+        return "\n".join(backtraces)
+
+    def wait_for_up(self, timeout=10):
+        """Wait for guest running inside the microVM to come up and respond.
+
+        :param timeout: seconds to wait.
+        """
+        try:
+            rc, stdout, stderr = self.ssh.run("true", timeout)
+        except subprocess.TimeoutExpired:
+            print(
+                f"Remote command did not respond within {timeout}s\n\n"
+                f"Firecracker logs:\n{self.log_data}\n"
+                f"Thread backtraces:\n{self.thread_backtraces}"
+            )
+            raise
+        assert rc == 0, (
+            f"Remote command exited with non-0 status code\n\n"
+            f"{rc=}\n{stdout=}\n{stderr=}\n\n"
+            f"Firecracker logs:\n{self.log_data}\n"
+            f"Thread backtraces:\n{self.thread_backtraces}"
+        )
+
 
 class MicroVMFactory:
     """MicroVM factory"""

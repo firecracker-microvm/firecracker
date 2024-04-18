@@ -66,9 +66,7 @@ def test_hugetlbfs_boot(uvm_plain):
     uvm_plain.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB, mem_size_mib=128)
     uvm_plain.add_net_iface()
     uvm_plain.start()
-
-    rc, _, _ = uvm_plain.ssh.run("true")
-    assert not rc
+    uvm_plain.wait_for_up()
 
     check_hugetlbfs_in_use(
         uvm_plain.firecracker_pid,
@@ -94,10 +92,7 @@ def test_hugetlbfs_snapshot(
     vm.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB, mem_size_mib=128)
     vm.add_net_iface()
     vm.start()
-
-    # Wait for microvm to boot
-    rc, _, _ = vm.ssh.run("true")
-    assert not rc
+    vm.wait_for_up()
 
     check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
 
@@ -115,10 +110,7 @@ def test_hugetlbfs_snapshot(
     )
 
     vm.restore_from_snapshot(snapshot, resume=True, uffd_path=SOCKET_PATH)
-
-    # Verify if guest can run commands.
-    rc, _, _ = vm.ssh.run("true")
-    assert not rc
+    vm.wait_for_up()
 
     check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
 
@@ -146,8 +138,7 @@ def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain, uffd_handler_paths)
     uvm_plain.start()
 
     # Wait for microvm to boot
-    rc, _, _ = uvm_plain.ssh.run("true")
-    assert not rc
+    uvm_plain.wait_for_up()
 
     base_snapshot = uvm_plain.snapshot_diff()
     uvm_plain.resume()
@@ -171,9 +162,8 @@ def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain, uffd_handler_paths)
 
     vm.restore_from_snapshot(snapshot_merged, resume=True, uffd_path=SOCKET_PATH)
 
-    # Verify if guest can run commands.
-    rc, _, _ = vm.ssh.run("true")
-    assert not rc
+    # Verify if the restored microvm works.
+    vm.wait_for_up()
 
 
 @pytest.mark.skipif(
