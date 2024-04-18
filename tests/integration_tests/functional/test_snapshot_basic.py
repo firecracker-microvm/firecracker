@@ -44,9 +44,9 @@ def check_vmgenid_update_count(vm, resume_count):
 def _get_guest_drive_size(ssh_connection, guest_dev_name="/dev/vdb"):
     # `lsblk` command outputs 2 lines to STDOUT:
     # "SIZE" and the size of the device, in bytes.
-    blksize_cmd = "lsblk -b {} --output SIZE".format(guest_dev_name)
-    _, stdout, stderr = ssh_connection.run(blksize_cmd)
-    assert stderr == ""
+    blksize_cmd = "LSBLK_DEBUG=all lsblk -b {} --output SIZE".format(guest_dev_name)
+    rc, stdout, stderr = ssh_connection.run(blksize_cmd)
+    assert rc == 0, stderr
     lines = stdout.split("\n")
     return lines[1].strip()
 
