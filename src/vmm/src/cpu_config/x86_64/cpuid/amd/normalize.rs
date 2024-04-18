@@ -24,6 +24,8 @@ pub enum NormalizeCpuidError {
     MissingLeaf0x80000000,
     /// Missing leaf 0x80000001.
     MissingLeaf0x80000001,
+    /// Missing leaf 0x40000001.
+    MissingLeaf0x40000001,
     /// Failed to set feature entry leaf: {0}
     FeatureEntry(#[from] FeatureEntryError),
     /// Failed to set extended cache topology leaf: {0}
@@ -110,6 +112,7 @@ impl super::AmdCpuid {
         self.update_extended_cache_topology_entry(cpu_count, cpus_per_core)?;
         self.update_extended_apic_id_entry(cpu_index, cpus_per_core)?;
         self.update_brand_string_entry()?;
+        self.disable_kvm_feature_async_pf()?;
 
         Ok(())
     }
@@ -405,6 +408,17 @@ impl super::AmdCpuid {
     fn update_brand_string_entry(&mut self) -> Result<(), NormalizeCpuidError> {
         self.apply_brand_string(Self::DEFAULT_BRAND_STRING)
             .map_err(NormalizeCpuidError::BrandString)?;
+        Ok(())
+    }
+
+    fn disable_kvm_feature_async_pf(&mut self) -> Result<(), NormalizeCpuidError> {
+        let leaf_40000001 = self
+            .get_mut(&CpuidKey::leaf(0x40000001))
+            .ok_or(NormalizeCpuidError::MissingLeaf0x40000001)?;
+
+        // Disable KVM_FEATURE_ASYNC_PF_INT_BIT
+        leaf_40000001.result.eax.write_bit(Self::KVM_FEATURE_ASYNC_PF_INT_BIT, false);
+        set_bit(&mut leaf_40000001.result.eax, 14, false);
         Ok(())
     }
 }
