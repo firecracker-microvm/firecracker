@@ -180,7 +180,7 @@ CPU features to a heterogeneous fleet consisting of multiple CPU models.
 ### MSRs excluded from guest CPU configuration dump
 
 | Register name                           | Index                   |
-| --------------------------------------- | ----------------------- |
+|-----------------------------------------|-------------------------|
 | MSR_IA32_TSC                            | 0x00000010              |
 | MSR_ARCH_PERFMON_PERFCTRn               | 0x000000c1 - 0x000000d2 |
 | MSR_ARCH_PERFMON_EVENTSELn              | 0x00000186 - 0x00000197 |
@@ -230,6 +230,7 @@ CPU features to a heterogeneous fleet consisting of multiple CPU models.
 | HV_X64_MSR_SYNDBG_RECV_BUFFER           | 0x400000f4              |
 | HV_X64_MSR_SYNDBG_PENDING_BUFFER        | 0x400000f5              |
 | HV_X64_MSR_SYNDBG_OPTIONS               | 0x400000ff              |
+| HV_X64_MSR_TSC_INVARIANT_CONTROL        | 0x40000118              |
 
 ### ARM registers excluded from guest CPU configuration dump
 
