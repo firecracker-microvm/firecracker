@@ -1,4 +1,4 @@
-FROM public.ecr.aws/lts/ubuntu:22.04
+FROM public.ecr.aws/lts/ubuntu:24.04
 
 # TODO: use a multi-stage build to reduce the download size when updating this container.
 # The Rust toolchain layer will get updated most frequently, but we could keep the system
@@ -7,6 +7,7 @@ FROM public.ecr.aws/lts/ubuntu:22.04
 ARG RUST_TOOLCHAIN="1.79.0"
 ARG TMP_BUILD_DIR=/tmp/build
 ARG DEBIAN_FRONTEND=noninteractive
+ARG PIP_BREAK_SYSTEM_PACKAGES=1
 ARG ARCH
 
 ENV CARGO_HOME=/usr/local/rust
@@ -37,7 +38,7 @@ RUN apt-get update \
     && pip3 uninstall -y meson \
     && apt-get purge -y \
         curl gpg gpg-agent \
-        python3-pip build-essential ninja-build libglib2.0-dev libpixman-1-dev flex bison \
+        build-essential ninja-build libglib2.0-dev libpixman-1-dev flex bison \
     && apt-get autoremove -y \
     && cd && rm -r /tmp/qemu_build
 
@@ -84,13 +85,18 @@ RUN apt-get update \
         # for debugging
         gdb strace \
     && rm -rf /var/lib/apt/lists/* \
-    && pip3 install --upgrade pip poetry
+    && pip3 install --upgrade poetry
 
-
+ARG VENV="/opt/venv"
 COPY tools/devctr /tmp/poetry
-RUN cd /tmp/poetry && \
-    HOME=. POETRY_VIRTUALENVS_CREATE=false poetry install --only main --no-interaction \
-    && rm -rf ~/.cache ~/.local /tmp/poetry
+RUN cd /tmp/poetry \
+    && virtualenv $VENV \
+    && . $VENV/bin/activate \
+    && poetry install --only main --no-directory --no-interaction \
+    && rm -rf ~/.local/share/virtualenv/ ~/.cache /tmp/poetry \
+    && cd -
+ENV VIRTUAL_ENV=$VENV
+ENV PATH=$VENV/bin:$PATH
 
 # Running the three as a single dockerfile command to avoid inflation of the image:
 # - Install the Rust toolchain. Kani only work on x86, so only try to install it there
