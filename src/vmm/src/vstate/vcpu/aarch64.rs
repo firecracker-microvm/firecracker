@@ -129,15 +129,12 @@ impl KvmVcpu {
         vm_fd: &VmFd,
         vcpu_features: &[VcpuFeatures],
     ) -> Result<(), KvmVcpuError> {
-        let mut kvi = Self::default_kvi(vm_fd, self.index)?;
+        let mut kvi = Self::default_kvi(vm_fd)?;
 
         for feature in vcpu_features.iter() {
             let index = feature.index as usize;
             kvi.features[index] = feature.bitmap.apply(kvi.features[index]);
         }
-
-        self.init_vcpu(&kvi)?;
-        self.finalize_vcpu(&kvi)?;
 
         self.kvi = if !vcpu_features.is_empty() {
             Some(kvi)
@@ -145,14 +142,19 @@ impl KvmVcpu {
             None
         };
 
+        // Non-boot cpus are powered off initially.
+        if 0 < self.index {
+            kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_POWER_OFF;
+        }
+
+        self.init_vcpu(&kvi)?;
+        self.finalize_vcpu(&kvi)?;
+
         Ok(())
     }
 
     /// Creates default kvi struct based on vcpu index.
-    pub fn default_kvi(
-        vm_fd: &VmFd,
-        index: u8,
-    ) -> Result<kvm_bindings::kvm_vcpu_init, KvmVcpuError> {
+    pub fn default_kvi(vm_fd: &VmFd) -> Result<kvm_bindings::kvm_vcpu_init, KvmVcpuError> {
         let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
         // This reads back the kernel's preferred target type.
         vm_fd
@@ -160,11 +162,6 @@ impl KvmVcpu {
             .map_err(KvmVcpuError::GetPreferredTarget)?;
         // We already checked that the capability is supported.
         kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_PSCI_0_2;
-
-        // Non-boot cpus are powered off initially.
-        if index > 0 {
-            kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_POWER_OFF;
-        }
 
         Ok(kvi)
     }
@@ -185,7 +182,7 @@ impl KvmVcpu {
     pub fn restore_state(&mut self, vm_fd: &VmFd, state: &VcpuState) -> Result<(), KvmVcpuError> {
         let kvi = match state.kvi {
             Some(kvi) => kvi,
-            None => Self::default_kvi(vm_fd, self.index)?,
+            None => Self::default_kvi(vm_fd)?,
         };
         self.kvi = state.kvi;
 
