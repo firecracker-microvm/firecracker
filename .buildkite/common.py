@@ -22,7 +22,8 @@ DEFAULT_INSTANCES = [
 
 DEFAULT_PLATFORMS = [
     ("al2", "linux_4.14"),
-    ("al2", "linux_5.10"),
+    # TODO: Unpin 5.10 kernel AMI once io_uring issues is solved.
+    ("al2", "linux_5.10-pinned"),
     ("al2023", "linux_6.1"),
 ]
 
