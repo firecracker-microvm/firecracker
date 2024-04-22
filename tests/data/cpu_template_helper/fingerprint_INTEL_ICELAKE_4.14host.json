@@ -1,6 +1,6 @@
 {
   "firecracker_version": "1.8.0-dev",
-  "kernel_version": "4.14.336-257.562.amzn2.x86_64",
+  "kernel_version": "4.14.336-257.568.amzn2.x86_64",
   "microcode_version": "0xd0003b9",
   "bios_version": "1.0",
   "bios_revision": "1.36",
