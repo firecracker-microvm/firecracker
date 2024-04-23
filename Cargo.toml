@@ -1,5 +1,9 @@
 [workspace]
-members = ["src/acpi-tables", "src/clippy-tracing", "src/cpu-template-helper", "src/firecracker", "src/jailer", "src/log-instrument", "src/log-instrument-macros", "src/rebase-snap", "src/seccompiler", "src/snapshot-editor"]
+members = ["src/*"]
+# We exclude the jailer below so that it does not get build by default. This is because "cargo build" compiles
+# for the gnu target, and the jailer needs a statically compiled binary to work correctly.
+# See https://github.com/firecracker-microvm/firecracker/commit/3bf285c8f8a815149923c562dd7edaffcaf10c4e
+# and https://github.com/firecracker-microvm/firecracker/issues/2102
 default-members = ["src/clippy-tracing", "src/cpu-template-helper", "src/firecracker", "src/rebase-snap", "src/seccompiler", "src/snapshot-editor", "src/acpi-tables"]
 resolver = "2"
 
