@@ -369,7 +369,7 @@ def run_cmd_sync(cmd, ignore_return_code=False, no_shell=False, cwd=None, timeou
 
     :param cmd: command to execute
     :param ignore_return_code: whether a non-zero return code should be ignored
-    :param noshell: don't run the command in a sub-shell
+    :param no_shell: don't run the command in a sub-shell
     :param cwd: sets the current directory before the child is executed
     :return: return code, stdout, stderr
     """

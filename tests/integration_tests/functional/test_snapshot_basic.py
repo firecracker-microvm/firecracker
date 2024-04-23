@@ -44,9 +44,9 @@ def check_vmgenid_update_count(vm, resume_count):
 def _get_guest_drive_size(ssh_connection, guest_dev_name="/dev/vdb"):
     # `lsblk` command outputs 2 lines to STDOUT:
     # "SIZE" and the size of the device, in bytes.
-    blksize_cmd = "lsblk -b {} --output SIZE".format(guest_dev_name)
-    _, stdout, stderr = ssh_connection.run(blksize_cmd)
-    assert stderr == ""
+    blksize_cmd = "LSBLK_DEBUG=all lsblk -b {} --output SIZE".format(guest_dev_name)
+    rc, stdout, stderr = ssh_connection.run(blksize_cmd)
+    assert rc == 0, stderr
     lines = stdout.split("\n")
     return lines[1].strip()
 
@@ -112,9 +112,7 @@ def test_5_snapshots(
     vm.add_net_iface()
     vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=VSOCK_UDS_PATH)
     vm.start()
-    # Verify if guest can run commands.
-    exit_code, _, _ = vm.ssh.run("sync")
-    assert exit_code == 0
+    vm.wait_for_up()
 
     vm_blob_path = "/tmp/vsock/test.blob"
     # Generate a random data file for vsock.
@@ -183,9 +181,7 @@ def test_patch_drive_snapshot(uvm_nano, microvm_factory):
     scratch_disk1 = drive_tools.FilesystemFile(scratch_path1, size=128)
     basevm.add_drive("scratch", scratch_disk1.path)
     basevm.start()
-    # Verify if guest can run commands.
-    exit_code, _, _ = basevm.ssh.run("sync")
-    assert exit_code == 0
+    basevm.wait_for_up()
 
     # Update drive to have another backing file, double in size.
     new_file_size_mb = 2 * int(scratch_disk1.size() / (1024 * 1024))
@@ -264,10 +260,7 @@ def test_cmp_full_and_first_diff_mem(microvm_factory, guest_kernel, rootfs):
     )
     vm.add_net_iface()
     vm.start()
-
-    # Verify if guest can run commands.
-    exit_code, _, _ = vm.ssh.run("sync")
-    assert exit_code == 0
+    vm.wait_for_up()
 
     logger.info("Create diff snapshot.")
     # Create diff snapshot.
@@ -290,9 +283,7 @@ def test_negative_postload_api(uvm_plain, microvm_factory):
     basevm.basic_config(track_dirty_pages=True)
     basevm.add_net_iface()
     basevm.start()
-    # Verify if guest can run commands.
-    exit_code, _, _ = basevm.ssh.run("sync")
-    assert exit_code == 0
+    basevm.wait_for_up()
 
     # Create base snapshot.
     snapshot = basevm.snapshot_diff()
@@ -438,10 +429,7 @@ def test_diff_snapshot_overlay(guest_kernel, rootfs, microvm_factory):
     basevm.basic_config(track_dirty_pages=True)
     basevm.add_net_iface()
     basevm.start()
-
-    # Wait for microvm to be booted
-    rc, _, stderr = basevm.ssh.run("true")
-    assert rc == 0, stderr
+    basevm.wait_for_up()
 
     # The first snapshot taken will always contain all memory (even if its specified as "diff").
     # We use a diff snapshot here, as taking a full snapshot does not clear the dirty page tracking,
@@ -469,9 +457,8 @@ def test_diff_snapshot_overlay(guest_kernel, rootfs, microvm_factory):
     new_vm.spawn()
     new_vm.restore_from_snapshot(merged_snapshot, resume=True)
 
-    # Run some command to check that the restored VM works
-    rc, _, stderr = new_vm.ssh.run("true")
-    assert rc == 0, stderr
+    # Check that the restored VM works
+    new_vm.wait_for_up()
 
 
 def test_snapshot_overwrite_self(guest_kernel, rootfs, microvm_factory):
@@ -487,10 +474,7 @@ def test_snapshot_overwrite_self(guest_kernel, rootfs, microvm_factory):
     base_vm.basic_config()
     base_vm.add_net_iface()
     base_vm.start()
-
-    # Wait for microvm to be booted
-    rc, _, stderr = base_vm.ssh.run("true")
-    assert rc == 0, stderr
+    base_vm.wait_for_up()
 
     snapshot = base_vm.snapshot_full()
     base_vm.kill()
@@ -510,8 +494,7 @@ def test_snapshot_overwrite_self(guest_kernel, rootfs, microvm_factory):
 
     # Check the overwriting the snapshot file from which this microvm was originally
     # restored, with a new snapshot of this vm, does not break the VM
-    rc, _, stderr = vm.ssh.run("true")
-    assert rc == 0, stderr
+    vm.wait_for_up()
 
 
 @pytest.mark.parametrize("snapshot_type", [SnapshotType.DIFF, SnapshotType.FULL])
@@ -527,10 +510,7 @@ def test_vmgenid(guest_kernel_linux_6_1, rootfs, microvm_factory, snapshot_type)
     base_vm.basic_config(track_dirty_pages=True)
     base_vm.add_net_iface()
     base_vm.start()
-
-    # Wait for microVM to be booted
-    rc, _, stderr = base_vm.ssh.run("true")
-    assert rc == 0, stderr
+    base_vm.wait_for_up()
 
     snapshot = base_vm.make_snapshot(snapshot_type)
     base_snapshot = snapshot
@@ -540,10 +520,7 @@ def test_vmgenid(guest_kernel_linux_6_1, rootfs, microvm_factory, snapshot_type)
         vm = microvm_factory.build()
         vm.spawn()
         vm.restore_from_snapshot(snapshot, resume=True)
-
-        # Make sure the microVM is up
-        rc, _, stderr = vm.ssh.run("true")
-        assert rc == 0, stderr
+        vm.wait_for_up()
 
         # We should have as DMESG_VMGENID_RESUME messages as
         # snapshots we have resumed

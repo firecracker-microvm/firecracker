@@ -93,10 +93,7 @@ class SnapshotRestoreTest:
 
             fcmetrics = FCMetricsMonitor(microvm)
             fcmetrics.start()
-
-            # Check if guest still runs commands.
-            exit_code, _, _ = microvm.ssh.run("true")
-            assert exit_code == 0
+            microvm.wait_for_up()
 
             value = 0
             # Parse all metric data points in search of load_snapshot time.
@@ -144,10 +141,7 @@ def test_restore_latency(
     """
     vm = test_setup.configure_vm(microvm_factory, guest_kernel_linux_4_14, rootfs)
     vm.start()
-
-    # Make sure the guest has booted before taking snapshot.
-    exit_code, _, _ = vm.ssh.run("true")
-    assert exit_code == 0
+    vm.wait_for_up()
 
     metrics.set_dimensions(
         {
