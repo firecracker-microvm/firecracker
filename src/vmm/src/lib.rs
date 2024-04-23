@@ -73,6 +73,10 @@ pub mod io_uring;
 /// needs to be called by the user on every event on the rate limiter's `AsRawFd` FD.
 pub mod rate_limiter;
 
+/// Module for handling ACPI tables.
+/// Currently, we only use ACPI on x86 microVMs.
+#[cfg(target_arch = "x86_64")]
+pub mod acpi;
 /// Handles setup and initialization a `Vmm` object.
 pub mod builder;
 /// Types for guest configuration.
@@ -113,6 +117,11 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 
+#[cfg(target_arch = "x86_64")]
+use device_manager::acpi::ACPIDeviceManager;
+use device_manager::resources::ResourceAllocator;
+#[cfg(target_arch = "x86_64")]
+use devices::acpi::vmgenid::VmGenIdError;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use seccompiler::BpfProgram;
 use userfaultfd::Uffd;
@@ -252,6 +261,9 @@ pub enum VmmError {
     VmmObserverInit(utils::errno::Error),
     /// Error thrown by observer object on Vmm teardown: {0}
     VmmObserverTeardown(utils::errno::Error),
+    /// VMGenID error: {0}
+    #[cfg(target_arch = "x86_64")]
+    VMGenID(#[from] VmGenIdError),
 }
 
 /// Shorthand type for KVM dirty page bitmap.
@@ -307,10 +319,14 @@ pub struct Vmm {
     // Used by Vcpus and devices to initiate teardown; Vmm should never write here.
     vcpus_exit_evt: EventFd,
 
+    // Allocator for guest resrouces
+    resource_allocator: ResourceAllocator,
     // Guest VM devices.
     mmio_device_manager: MMIODeviceManager,
     #[cfg(target_arch = "x86_64")]
     pio_device_manager: PortIODeviceManager,
+    #[cfg(target_arch = "x86_64")]
+    acpi_device_manager: ACPIDeviceManager,
 }
 
 impl Vmm {
@@ -515,6 +531,8 @@ impl Vmm {
         let device_states = self.mmio_device_manager.save();
 
         let memory_state = self.guest_memory().describe();
+        #[cfg(target_arch = "x86_64")]
+        let acpi_dev_state = self.acpi_device_manager.save();
 
         Ok(MicrovmState {
             vm_info: vm_info.clone(),
@@ -522,6 +540,8 @@ impl Vmm {
             vm_state,
             vcpu_states,
             device_states,
+            #[cfg(target_arch = "x86_64")]
+            acpi_dev_state,
         })
     }
 
@@ -579,6 +599,19 @@ impl Vmm {
             .collect::<Result<Vec<CpuConfiguration>, DumpCpuConfigError>>()?;
 
         Ok(cpu_configs)
+    }
+
+    /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
+    pub fn reset_dirty_bitmap(&self) {
+        self.guest_memory
+            .iter()
+            .enumerate()
+            .for_each(|(slot, region)| {
+                let _ = self
+                    .vm
+                    .fd()
+                    .get_dirty_log(u32::try_from(slot).unwrap(), u64_to_usize(region.len()));
+            });
     }
 
     /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.

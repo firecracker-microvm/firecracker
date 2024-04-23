@@ -5,9 +5,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+/// ACPI device manager.
+#[cfg(target_arch = "x86_64")]
+pub mod acpi;
 /// Legacy Device Manager.
 pub mod legacy;
 /// Memory Mapped I/O Manager.
 pub mod mmio;
 /// Device managers (de)serialization support.
 pub mod persist;
+/// Resource manager for devices.
+pub mod resources;

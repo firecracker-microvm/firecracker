@@ -122,6 +122,8 @@ def with_restore(factory, microvm_factory):
 
     def restore(firecracker=None, jailer=None):
         microvm = factory(firecracker, jailer)
+        microvm.wait_for_up()
+
         snapshot = microvm.snapshot_full()
 
         if firecracker:
@@ -387,11 +389,12 @@ def get_vuln_files_exception_dict(template):
     # https://github.com/torvalds/linux/commit/da3db168fb671f15e393b227f5c312c698ecb6ea
     # Thus, since the FLUSH_L1D bit is masked off prior to kernel v6.4, guests with
     # IA32_ARCH_CAPABILITIES.FB_CLEAR (bit 17) = 0 (like guests on Intel Skylake and guests with
-    # T2S template) fall onto the second hand of the condition and fail the test. The expected value
-    # "Vulnerable: Clear CPU buffers attempted, no microcode" means that the kernel is using the
-    # best effort mode which invokes the mitigation instructions (VERW in this case) without a
-    # guarantee that they clear the CPU buffers. If the host has the microcode update applied
-    # correctly, the mitigation works and it is safe to ignore the "Vulnerable" message.
+    # T2S template) fall onto the second hand of the condition and fail the test. The value is
+    # "Vulnerable: Clear CPU buffers attempted, no microcode" on guests on Intel Skylake and guests
+    # with T2S template but "Mitigation: Clear CPU buffers; SMT Host state unknown" on kernel v6.4
+    # or later. In any case, the kernel attempts to clear CPU buffers using VERW instruction and it
+    # is safe to ingore the "Vulnerable" message if the host has the microcode update applied
+    # correctly. Here we expect the common string "Clear CPU buffers" to cover both cases.
     #
     # Guest on Intel Skylake with C3 template
     # ---------------------------------------
@@ -409,9 +412,7 @@ def get_vuln_files_exception_dict(template):
     if global_props.cpu_codename == "INTEL_SKYLAKE" and template == "C3":
         exception_dict["mmio_stale_data"] = "Unknown: No mitigations"
     elif global_props.cpu_codename == "INTEL_SKYLAKE" or template == "T2S":
-        exception_dict[
-            "mmio_stale_data"
-        ] = "Vulnerable: Clear CPU buffers attempted, no microcode"
+        exception_dict["mmio_stale_data"] = "Clear CPU buffers"
 
     return exception_dict
 
@@ -437,7 +438,7 @@ def check_vulnerabilities_files_on_guest(microvm):
     """
     # Retrieve a list of vulnerabilities files available inside guests.
     vuln_dir = "/sys/devices/system/cpu/vulnerabilities"
-    ecode, stdout, stderr = microvm.ssh.run(f"find {vuln_dir} -type f")
+    ecode, stdout, stderr = microvm.ssh.run(f"find -D all {vuln_dir} -type f")
     assert ecode == 0, f"stdout:\n{stdout}\nstderr:\n{stderr}\n"
     vuln_files = stdout.split("\n")
 

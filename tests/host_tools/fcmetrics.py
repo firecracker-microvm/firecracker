@@ -20,13 +20,113 @@ from framework.properties import global_props
 from host_tools.metrics import get_metrics_logger
 
 
+def create_metrics_schema_objects(metrics):
+    """
+    Helper functions to create jsonschema objects for
+    Firecracker metrics.
+    """
+    metrics_schema = {
+        "type": "object",
+        "required": [],
+        "properties": {},
+        "additionalProperties": False,
+    }
+
+    if isinstance(metrics, dict):
+        special_metrics = "utc_timestamp_ms"
+        if special_metrics in metrics.keys():
+            metrics.pop(special_metrics)
+            metrics_schema["properties"][special_metrics] = {"type": "number"}
+            metrics_schema["required"].append(special_metrics)
+
+        for sub_metrics_name, sub_metrics_fields in metrics.items():
+            obj = create_metrics_schema_objects(sub_metrics_fields)
+            metrics_schema["properties"][sub_metrics_name] = obj
+            metrics_schema["required"].append(sub_metrics_name)
+        return metrics_schema
+
+    if isinstance(metrics, list):
+        for metrics_field in metrics:
+            if isinstance(metrics_field, str):
+                metrics_schema["properties"][metrics_field] = {"type": "number"}
+                metrics_schema["required"].append(metrics_field)
+            elif isinstance(metrics_field, dict):
+                for sub_metrics_name, sub_metrics_fields in metrics_field.items():
+                    obj = create_metrics_schema_objects(sub_metrics_fields)
+                    metrics_schema["properties"][sub_metrics_name] = obj
+                    metrics_schema["required"].append(sub_metrics_name)
+
+        return metrics_schema
+
+    raise Exception("Invalid schema")
+
+
 def validate_fc_metrics(metrics):
     """
     This functions makes sure that all components
     of firecracker_metrics struct are present.
     """
 
+    latency_agg_metrics_fields = [
+        "min_us",
+        "max_us",
+        "sum_us",
+    ]
+    block_metrics = [
+        "activate_fails",
+        "cfg_fails",
+        "no_avail_buffer",
+        "event_fails",
+        "execute_fails",
+        "invalid_reqs_count",
+        "flush_count",
+        "queue_event_count",
+        "rate_limiter_event_count",
+        "update_count",
+        "update_fails",
+        "read_bytes",
+        "write_bytes",
+        "read_count",
+        "write_count",
+        "rate_limiter_throttled_events",
+        "io_engine_throttled_events",
+        "remaining_reqs_count",
+        {"read_agg": latency_agg_metrics_fields},
+        {"write_agg": latency_agg_metrics_fields},
+    ]
+    net_metrics = [
+        "activate_fails",
+        "cfg_fails",
+        "mac_address_updates",
+        "no_rx_avail_buffer",
+        "no_tx_avail_buffer",
+        "event_fails",
+        "rx_queue_event_count",
+        "rx_event_rate_limiter_count",
+        "rx_partial_writes",
+        "rx_rate_limiter_throttled",
+        "rx_tap_event_count",
+        "rx_bytes_count",
+        "rx_packets_count",
+        "rx_fails",
+        "rx_count",
+        "tap_read_fails",
+        "tap_write_fails",
+        "tx_bytes_count",
+        "tx_malformed_frames",
+        "tx_fails",
+        "tx_count",
+        "tx_packets_count",
+        "tx_partial_reads",
+        "tx_queue_event_count",
+        "tx_rate_limiter_event_count",
+        "tx_rate_limiter_throttled",
+        "tx_spoofed_mac_count",
+        "tx_remaining_reqs_count",
+        {"tap_write_agg": latency_agg_metrics_fields},
+    ]
     firecracker_metrics = {
+        "utc_timestamp_ms": "",
         "api_server": [
             "process_startup_time_us",
             "process_startup_time_cpu_us",
@@ -41,26 +141,7 @@ def validate_fc_metrics(metrics):
             "deflate_count",
             "event_fails",
         ],
-        "block": [
-            "activate_fails",
-            "cfg_fails",
-            "no_avail_buffer",
-            "event_fails",
-            "execute_fails",
-            "invalid_reqs_count",
-            "flush_count",
-            "queue_event_count",
-            "rate_limiter_event_count",
-            "update_count",
-            "update_fails",
-            "read_bytes",
-            "write_bytes",
-            "read_count",
-            "write_count",
-            "rate_limiter_throttled_events",
-            "io_engine_throttled_events",
-            "remaining_reqs_count",
-        ],
+        "block": block_metrics,
         "deprecated_api": [
             "deprecated_http_api_calls",
             "deprecated_cmd_line_api_calls",
@@ -110,36 +191,7 @@ def validate_fc_metrics(metrics):
             "connections_created",
             "connections_destroyed",
         ],
-        "net": [
-            "activate_fails",
-            "cfg_fails",
-            "mac_address_updates",
-            "no_rx_avail_buffer",
-            "no_tx_avail_buffer",
-            "event_fails",
-            "rx_queue_event_count",
-            "rx_event_rate_limiter_count",
-            "rx_partial_writes",
-            "rx_rate_limiter_throttled",
-            "rx_tap_event_count",
-            "rx_bytes_count",
-            "rx_packets_count",
-            "rx_fails",
-            "rx_count",
-            "tap_read_fails",
-            "tap_write_fails",
-            "tx_bytes_count",
-            "tx_malformed_frames",
-            "tx_fails",
-            "tx_count",
-            "tx_packets_count",
-            "tx_partial_reads",
-            "tx_queue_event_count",
-            "tx_rate_limiter_event_count",
-            "tx_rate_limiter_throttled",
-            "tx_spoofed_mac_count",
-            "tx_remaining_reqs_count",
-        ],
+        "net": net_metrics,
         "patch_api_requests": [
             "drive_count",
             "drive_fails",
@@ -181,6 +233,10 @@ def validate_fc_metrics(metrics):
             "exit_mmio_read",
             "exit_mmio_write",
             "failures",
+            {"exit_io_in_agg": latency_agg_metrics_fields},
+            {"exit_io_out_agg": latency_agg_metrics_fields},
+            {"exit_mmio_read_agg": latency_agg_metrics_fields},
+            {"exit_mmio_write_agg": latency_agg_metrics_fields},
         ],
         "vmm": [
             "device_events",
@@ -236,16 +292,6 @@ def validate_fc_metrics(metrics):
         ],
     }
 
-    latency_agg_metrics = {
-        "block": [
-            "read_agg",
-            "write_agg",
-        ],
-        "net": [
-            "tap_write_agg",
-        ],
-    }
-
     # validate timestamp before jsonschema validation which some more time
     utc_time = datetime.datetime.now(datetime.timezone.utc)
     utc_timestamp_ms = math.floor(utc_time.timestamp() * 1000)
@@ -275,30 +321,12 @@ def validate_fc_metrics(metrics):
                 "config_change_time_us",
             ]
             vhost_user_devices.append(metrics_name)
+        if metrics_name.startswith("block_"):
+            firecracker_metrics[metrics_name] = block_metrics
+        if metrics_name.startswith("net_"):
+            firecracker_metrics[metrics_name] = net_metrics
 
-    firecracker_metrics_schema = {
-        "type": "object",
-        "properties": {},
-        "required": [],
-    }
-
-    for metrics_name, metrics_fields in firecracker_metrics.items():
-        metrics_schema = {
-            "type": "object",
-            "required": metrics_fields,
-            "properties": {},
-        }
-        for metrics_field in metrics_fields:
-            if (
-                metrics_name in latency_agg_metrics
-                and metrics_field in latency_agg_metrics[metrics_name]
-            ):
-                metrics_type = "object"
-            else:
-                metrics_type = "number"
-            metrics_schema["properties"][metrics_field] = {"type": metrics_type}
-        firecracker_metrics_schema["properties"][metrics_name] = metrics_schema
-        firecracker_metrics_schema["required"].append(metrics_name)
+    firecracker_metrics_schema = create_metrics_schema_objects(firecracker_metrics)
 
     jsonschema.validate(instance=metrics, schema=firecracker_metrics_schema)
 

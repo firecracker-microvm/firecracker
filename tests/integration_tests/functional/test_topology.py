@@ -8,6 +8,7 @@ import subprocess
 import pytest
 
 import framework.utils_cpuid as utils
+from framework.properties import global_props
 
 TOPOLOGY_STR = {1: "0", 2: "0,1", 16: "0-15"}
 PLATFORM = platform.machine()
@@ -128,6 +129,12 @@ def test_cpu_topology(uvm_plain_any, num_vcpus, htt):
     )
 
 
+# TODO remove this check once the solution for keeping
+# an old cache representation is found.
+@pytest.mark.skipif(
+    global_props.host_linux_version == "6.5" and PLATFORM == "aarch64",
+    reason="6.5 kernel changes cache representation for aarch64.",
+)
 @pytest.mark.parametrize("num_vcpus", [1, 2, 16])
 @pytest.mark.parametrize("htt", [True, False])
 def test_cache_topology(uvm_plain_any, num_vcpus, htt):
