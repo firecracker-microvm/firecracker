@@ -71,7 +71,8 @@ def cross_steps():
 
     # https://github.com/firecracker-microvm/firecracker/blob/main/docs/kernel-policy.md#experimental-snapshot-compatibility-across-kernel-versions
     aarch64_platforms = [
-        ("al2", "linux_5.10"),
+        # TODO: unpin kernel 5.10 AMI once we fix io_uring test failures.
+        ("al2", "linux_5.10-pinned"),
         ("al2023", "linux_6.1"),
     ]
     perms_aarch64 = itertools.product(
