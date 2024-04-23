@@ -12,9 +12,9 @@ bench = false
 [dependencies]
 clap = { version = "4.5.4", features = ["derive"] }
 itertools = "0.12.1"
-proc-macro2 = { version = "1.0.79", features = ["span-locations"] }
-quote = "1.0.34"
-syn = { version = "2.0.58", features = ["full", "extra-traits", "visit", "visit-mut", "printing"] } 
+proc-macro2 = { version = "1.0.80", features = ["span-locations"] }
+quote = "1.0.36"
+syn = { version = "2.0.59", features = ["full", "extra-traits", "visit", "visit-mut", "printing"] } 
 walkdir = "2.5.0"
 
 [dev-dependencies]

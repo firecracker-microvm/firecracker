@@ -57,11 +57,7 @@
 #
 #
 # TODO:
-#   - Cache test binaries, preserving them across `./devtool test` invocations.
-#     At the moment, Firecracker is rebuilt everytime a test is run.
 #   - List tests by parsing the `pytest --collect-only` output.
-#   - Implement test filtering with `./devtool test --filter <filter>`
-#   - Find an easier way to run individual tests on existing binaries.
 #   - Add a `./devtool run` command to set up and run Firecracker.
 #   - Add a `./devtool diag` command to help with troubleshooting, by checking
 #     the most common failure conditions.
