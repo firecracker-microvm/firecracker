@@ -15,7 +15,7 @@ displaydoc = "0.2.4"
 libc = "0.2.153"
 log-instrument = { path = "../log-instrument", optional = true }
 semver = "1.0.22"
-thiserror = "1.0.58"
+thiserror = "1.0.59"
 vmm = { path = "../vmm" }
 
 fc_utils = { package = "utils", path = "../utils" }

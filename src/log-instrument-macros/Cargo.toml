@@ -11,9 +11,9 @@ proc-macro = true
 bench = false
 
 [dependencies]
-proc-macro2 = "1.0.80"
+proc-macro2 = "1.0.81"
 quote = "1.0.36"
-syn = { version = "2.0.59", features = ["full", "extra-traits"] }
+syn = { version = "2.0.60", features = ["full", "extra-traits"] }
 
 [lints]
 workspace = true
