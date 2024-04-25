@@ -51,6 +51,45 @@ def _get_guest_drive_size(ssh_connection, guest_dev_name="/dev/vdb"):
     return lines[1].strip()
 
 
+def test_resume_after_restoration(uvm_nano, microvm_factory):
+    """Tests snapshot is resumable after restoration.
+
+    Check that a restored microVM is resumable by calling PATCH /vm with Resumed
+    after PUT /snapshot/load with `resume_vm=False`.
+    """
+    vm = uvm_nano
+    vm.add_net_iface()
+    vm.start()
+    vm.wait_for_up()
+
+    snapshot = vm.snapshot_full()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+    restored_vm.restore_from_snapshot(snapshot)
+    restored_vm.resume()
+    restored_vm.wait_for_up()
+
+
+def test_resume_at_restoration(uvm_nano, microvm_factory):
+    """Tests snapshot is resumable at restoration.
+
+    Check that a restored microVM is resumable by calling PUT /snapshot/load
+    with `resume_vm=True`.
+    """
+    vm = uvm_nano
+    vm.add_net_iface()
+    vm.start()
+    vm.wait_for_up()
+
+    snapshot = vm.snapshot_full()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+    restored_vm.restore_from_snapshot(snapshot, resume=True)
+    restored_vm.wait_for_up()
+
+
 def test_snapshot_current_version(uvm_nano):
     """Tests taking a snapshot at the version specified in Cargo.toml
 
