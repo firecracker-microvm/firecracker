@@ -135,6 +135,7 @@ def with_restore(factory, microvm_factory):
         dst_vm.spawn()
         # Restore the destination VM from the snapshot
         dst_vm.restore_from_snapshot(snapshot, resume=True)
+        dst_vm.wait_for_up()
         dst_vm.cpu_template = microvm.cpu_template
 
         return dst_vm

@@ -238,6 +238,7 @@ def test_patch_drive_snapshot(uvm_nano, microvm_factory):
     vm = microvm_factory.build()
     vm.spawn()
     vm.restore_from_snapshot(snapshot, resume=True)
+    vm.wait_for_up()
 
     # Attempt to connect to resumed microvm and verify the new microVM has the
     # right scratch drive.
