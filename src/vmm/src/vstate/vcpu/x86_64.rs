@@ -141,11 +141,18 @@ pub struct KvmVcpu {
     pub index: u8,
     /// KVM vcpu fd.
     pub fd: VcpuFd,
+    /// Vcpu peripherals, such as buses
+    pub(super) peripherals: Peripherals,
+    msrs_to_save: HashSet<u32>,
+}
+
+/// Vcpu peripherals
+#[derive(Default, Debug)]
+pub(super) struct Peripherals {
     /// Pio bus.
     pub pio_bus: Option<crate::devices::Bus>,
     /// Mmio bus.
     pub mmio_bus: Option<crate::devices::Bus>,
-    msrs_to_save: HashSet<u32>,
 }
 
 impl KvmVcpu {
@@ -164,8 +171,7 @@ impl KvmVcpu {
         Ok(KvmVcpu {
             index,
             fd: kvm_vcpu,
-            pio_bus: None,
-            mmio_bus: None,
+            peripherals: Default::default(),
             msrs_to_save: vm.msrs_to_save().as_slice().iter().copied().collect(),
         })
     }
@@ -251,7 +257,7 @@ impl KvmVcpu {
 
     /// Sets a Port Mapped IO bus for this vcpu.
     pub fn set_pio_bus(&mut self, pio_bus: crate::devices::Bus) {
-        self.pio_bus = Some(pio_bus);
+        self.peripherals.pio_bus = Some(pio_bus);
     }
 
     /// Get the current TSC frequency for this vCPU.
@@ -505,7 +511,9 @@ impl KvmVcpu {
             .map_err(KvmVcpuError::VcpuSetVcpuEvents)?;
         Ok(())
     }
+}
 
+impl Peripherals {
     /// Runs the vCPU in KVM context and handles the kvm exit reason.
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.

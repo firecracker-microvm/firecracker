@@ -54,10 +54,17 @@ pub struct KvmVcpu {
     pub index: u8,
     /// KVM vcpu fd.
     pub fd: VcpuFd,
-    /// Mmio bus.
-    pub mmio_bus: Option<crate::devices::Bus>,
+    /// Vcpu peripherals, such as buses
+    pub(super) peripherals: Peripherals,
     mpidr: u64,
     kvi: Option<kvm_bindings::kvm_vcpu_init>,
+}
+
+/// Vcpu peripherals
+#[derive(Default, Debug)]
+pub(super) struct Peripherals {
+    /// mmio bus.
+    pub mmio_bus: Option<crate::devices::Bus>,
 }
 
 impl KvmVcpu {
@@ -76,7 +83,7 @@ impl KvmVcpu {
         Ok(KvmVcpu {
             index,
             fd: kvm_vcpu,
-            mmio_bus: None,
+            peripherals: Default::default(),
             mpidr: 0,
             kvi: None,
         })
@@ -222,18 +229,6 @@ impl KvmVcpu {
 
         Ok(CpuConfiguration { regs })
     }
-
-    /// Runs the vCPU in KVM context and handles the kvm exit reason.
-    ///
-    /// Returns error or enum specifying whether emulation was handled or interrupted.
-    pub fn run_arch_emulation(&self, exit: VcpuExit) -> Result<VcpuEmulation, VcpuError> {
-        METRICS.vcpu.failures.inc();
-        // TODO: Are we sure we want to finish running a vcpu upon
-        // receiving a vm exit that is not necessarily an error?
-        error!("Unexpected exit reason on vcpu run: {:?}", exit);
-        Err(VcpuError::UnhandledKvmExit(format!("{:?}", exit)))
-    }
-
     /// Initializes internal vcpufd.
     fn init_vcpu(&self, kvi: &kvm_bindings::kvm_vcpu_init) -> Result<(), KvmVcpuError> {
         self.fd.vcpu_init(kvi).map_err(KvmVcpuError::Init)?;
@@ -250,6 +245,19 @@ impl KvmVcpu {
             self.fd.vcpu_finalize(&feature).unwrap();
         }
         Ok(())
+    }
+}
+
+impl Peripherals {
+    /// Runs the vCPU in KVM context and handles the kvm exit reason.
+    ///
+    /// Returns error or enum specifying whether emulation was handled or interrupted.
+    pub fn run_arch_emulation(&self, exit: VcpuExit) -> Result<VcpuEmulation, VcpuError> {
+        METRICS.vcpu.failures.inc();
+        // TODO: Are we sure we want to finish running a vcpu upon
+        // receiving a vm exit that is not necessarily an error?
+        error!("Unexpected exit reason on vcpu run: {:?}", exit);
+        Err(VcpuError::UnhandledKvmExit(format!("{:?}", exit)))
     }
 }
 
