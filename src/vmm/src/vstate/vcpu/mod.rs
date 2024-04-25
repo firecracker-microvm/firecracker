@@ -74,7 +74,7 @@ pub struct VcpuConfig {
 }
 
 // Using this for easier explicit type-casting to help IDEs interpret the code.
-type VcpuCell = Cell<Option<*const Vcpu>>;
+type VcpuCell = Cell<Option<*mut Vcpu>>;
 
 /// Error type for [`Vcpu::start_threaded`].
 #[derive(Debug, derive_more::From, thiserror::Error)]
@@ -112,7 +112,7 @@ impl Vcpu {
             if cell.get().is_some() {
                 return Err(VcpuError::VcpuTlsInit);
             }
-            cell.set(Some(self as *const Vcpu));
+            cell.set(Some(self as *mut Vcpu));
             Ok(())
         })
     }
@@ -128,7 +128,7 @@ impl Vcpu {
         // _before_ running this, then there is nothing we can do.
         Self::TLS_VCPU_PTR.with(|cell: &VcpuCell| {
             if let Some(vcpu_ptr) = cell.get() {
-                if vcpu_ptr == self as *const Vcpu {
+                if vcpu_ptr == self as *mut Vcpu {
                     Self::TLS_VCPU_PTR.with(|cell: &VcpuCell| cell.take());
                     return Ok(());
                 }
@@ -149,13 +149,13 @@ impl Vcpu {
     /// dereferencing from pointer an already borrowed `Vcpu`.
     unsafe fn run_on_thread_local<F>(func: F) -> Result<(), VcpuError>
     where
-        F: FnOnce(&Vcpu),
+        F: FnOnce(&mut Vcpu),
     {
         Self::TLS_VCPU_PTR.with(|cell: &VcpuCell| {
             if let Some(vcpu_ptr) = cell.get() {
                 // Dereferencing here is safe since `TLS_VCPU_PTR` is populated/non-empty,
                 // and it is being cleared on `Vcpu::drop` so there is no dangling pointer.
-                let vcpu_ref: &Vcpu = &*vcpu_ptr;
+                let vcpu_ref = &mut *vcpu_ptr;
                 func(vcpu_ref);
                 Ok(())
             } else {
@@ -1003,7 +1003,7 @@ pub mod tests {
         Vcpu::register_kick_signal_handler();
         let (vm, mut vcpu, _) = setup_vcpu(0x1000);
 
-        let kvm_run =
+        let mut kvm_run =
             kvm_ioctls::KvmRunWrapper::mmap_from_fd(&vcpu.kvm_vcpu.fd, vm.fd().run_size())
                 .expect("cannot mmap kvm-run");
         let success = Arc::new(std::sync::atomic::AtomicBool::new(false));
