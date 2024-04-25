@@ -230,6 +230,7 @@ def test_ept_violation_count(
 
     with ftrace_events("kvm:*"):
         vm.restore_from_snapshot(snapshot, resume=True, uffd_path=SOCKET_PATH)
+        vm.wait_for_up()
 
         # Verify if guest can run commands, and also wake up the fast page fault helper to trigger page faults.
         rc, _, _ = vm.ssh.run(f"kill -s {signal.SIGUSR1} {pid}")
