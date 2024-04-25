@@ -550,7 +550,7 @@ impl Peripherals {
 }
 
 /// Structure holding VCPU kvm state.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct VcpuState {
     /// CpuId.
     pub cpuid: CpuId,
@@ -866,11 +866,10 @@ mod tests {
         // Test `is_tsc_scaling_required` as if it were on the same
         // CPU model as the one in the snapshot state.
         let (_vm, vcpu, _) = setup_vcpu(0x1000);
-        let orig_state = vcpu.save_state().unwrap();
 
         {
             // The frequency difference is within tolerance.
-            let mut state = orig_state.clone();
+            let mut state = vcpu.save_state().unwrap();
             state.tsc_khz = Some(
                 state.tsc_khz.unwrap()
                     + state.tsc_khz.unwrap() * TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR / 2,
@@ -882,7 +881,7 @@ mod tests {
 
         {
             // The frequency difference is over the tolerance.
-            let mut state = orig_state;
+            let mut state = vcpu.save_state().unwrap();
             state.tsc_khz = Some(
                 state.tsc_khz.unwrap()
                     + state.tsc_khz.unwrap() * TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR * 2,
