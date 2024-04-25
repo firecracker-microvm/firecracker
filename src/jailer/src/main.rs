@@ -44,11 +44,11 @@ pub enum JailerError {
     CgroupInvalidParentPath(),
     #[error("Failed to write to cgroups file: {0}")]
     CgroupWrite(io::Error),
-    #[error("Failed to change owner for {0:?}: {1}")]
+    #[error("Failed to change owner for {0}: {1}")]
     ChangeFileOwner(PathBuf, io::Error),
     #[error("Failed to chdir into chroot directory: {0}")]
     ChdirNewRoot(io::Error),
-    #[error("Failed to change permissions on {0:?}: {1}")]
+    #[error("Failed to change permissions on {0}: {1}")]
     Chmod(PathBuf, io::Error),
     #[error("Failed cloning into a new child process: {0}")]
     Clone(io::Error),
@@ -112,7 +112,7 @@ pub enum JailerError {
     ReadLine(PathBuf, io::Error),
     #[error("{}", format!("Failed to read file {:?} into a string: {}", .0, .1).replace('\"', ""))]
     ReadToString(PathBuf, io::Error),
-    #[error("Regex failed: {0:?}")]
+    #[error("Regex failed: {0}")]
     RegEx(regex::Error),
     #[error("Invalid resource argument: {0}")]
     ResLimitArgument(String),
