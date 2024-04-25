@@ -1167,8 +1167,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
     snapshot = uvm_nano.snapshot_full()
     uvm2 = microvm_factory.build()
     uvm2.spawn()
-    uvm2.restore_from_snapshot(snapshot)
-    uvm2.resume()
+    uvm2.restore_from_snapshot(snapshot, resume=True)
 
     expected_cfg = setup_cfg.copy()
 

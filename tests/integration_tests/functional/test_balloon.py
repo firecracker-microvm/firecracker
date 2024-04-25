@@ -479,8 +479,7 @@ def test_balloon_snapshot(microvm_factory, guest_kernel, rootfs):
     snapshot = vm.snapshot_full()
     microvm = microvm_factory.build()
     microvm.spawn()
-    microvm.restore_from_snapshot(snapshot)
-    microvm.resume()
+    microvm.restore_from_snapshot(snapshot, resume=True)
 
     microvm.wait_for_up()
 
