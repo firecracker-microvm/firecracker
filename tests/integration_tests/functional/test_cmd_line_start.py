@@ -331,7 +331,7 @@ def test_start_with_metadata_limit(uvm_plain):
     test_microvm.spawn()
 
     test_microvm.check_log_message(
-        "Populating MMDS from file failed: DataStoreLimitExceeded"
+        "Populating MMDS from file failed: The MMDS patch request doesn't fit."
     )
 
 
@@ -349,7 +349,7 @@ def test_start_with_metadata_default_limit(uvm_plain):
     test_microvm.spawn()
 
     test_microvm.check_log_message(
-        "Populating MMDS from file failed: DataStoreLimitExceeded"
+        "Populating MMDS from file failed: The MMDS patch request doesn't fit."
     )
 
 
