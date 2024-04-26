@@ -856,7 +856,7 @@ pub mod tests {
         #[cfg(target_arch = "aarch64")]
         let vcpu = {
             let mut vcpu = Vcpu::new(1, &vm, exit_evt).unwrap();
-            vcpu.kvm_vcpu.init(vm.fd(), &[]).unwrap();
+            vcpu.kvm_vcpu.init(&[]).unwrap();
             vm.setup_irqchip(1).unwrap();
             vcpu
         };

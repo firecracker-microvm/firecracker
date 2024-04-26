@@ -496,25 +496,18 @@ pub fn build_microvm_from_snapshot(
     }
 
     // Restore vcpus kvm state.
-    #[cfg(target_arch = "aarch64")]
-    {
-        for (vcpu, state) in vcpus.iter_mut().zip(microvm_state.vcpu_states.iter()) {
-            vcpu.kvm_vcpu
-                .restore_state(vmm.vm.fd(), state)
-                .map_err(VcpuError::VcpuResponse)
-                .map_err(BuildMicrovmFromSnapshotError::RestoreVcpus)?;
-        }
-        let mpidrs = construct_kvm_mpidrs(&microvm_state.vcpu_states);
-        // Restore kvm vm state.
-        vmm.vm.restore_state(&mpidrs, &microvm_state.vm_state)?;
-    }
-
-    #[cfg(target_arch = "x86_64")]
     for (vcpu, state) in vcpus.iter_mut().zip(microvm_state.vcpu_states.iter()) {
         vcpu.kvm_vcpu
             .restore_state(state)
             .map_err(VcpuError::VcpuResponse)
             .map_err(BuildMicrovmFromSnapshotError::RestoreVcpus)?;
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    {
+        let mpidrs = construct_kvm_mpidrs(&microvm_state.vcpu_states);
+        // Restore kvm vm state.
+        vmm.vm.restore_state(&mpidrs, &microvm_state.vm_state)?;
     }
 
     // Restore kvm vm state.
@@ -792,7 +785,7 @@ pub fn configure_system_for_boot(
 
         for vcpu in vcpus.iter_mut() {
             vcpu.kvm_vcpu
-                .init(vmm.vm.fd(), &cpu_template.vcpu_features)
+                .init(&cpu_template.vcpu_features)
                 .map_err(VmmError::VcpuInit)
                 .map_err(Internal)?;
         }
