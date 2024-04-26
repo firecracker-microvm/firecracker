@@ -7,6 +7,9 @@
 
 use std::fmt::{Debug, Write};
 
+use kvm_bindings::{
+    kvm_mp_state, kvm_vcpu_init, KVM_ARM_VCPU_POWER_OFF, KVM_ARM_VCPU_PSCI_0_2, KVM_ARM_VCPU_SVE,
+};
 use kvm_ioctls::*;
 use serde::{Deserialize, Serialize};
 
@@ -57,7 +60,7 @@ pub struct KvmVcpu {
     /// Vcpu peripherals, such as buses
     pub(super) peripherals: Peripherals,
     mpidr: u64,
-    kvi: Option<kvm_bindings::kvm_vcpu_init>,
+    kvi: Option<kvm_vcpu_init>,
 }
 
 /// Vcpu peripherals
@@ -151,7 +154,7 @@ impl KvmVcpu {
 
         // Non-boot cpus are powered off initially.
         if 0 < self.index {
-            kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_POWER_OFF;
+            kvi.features[0] |= 1 << KVM_ARM_VCPU_POWER_OFF;
         }
 
         self.init_vcpu(&kvi)?;
@@ -161,14 +164,14 @@ impl KvmVcpu {
     }
 
     /// Creates default kvi struct based on vcpu index.
-    pub fn default_kvi(vm_fd: &VmFd) -> Result<kvm_bindings::kvm_vcpu_init, KvmVcpuError> {
-        let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
+    pub fn default_kvi(vm_fd: &VmFd) -> Result<kvm_vcpu_init, KvmVcpuError> {
+        let mut kvi = kvm_vcpu_init::default();
         // This reads back the kernel's preferred target type.
         vm_fd
             .get_preferred_target(&mut kvi)
             .map_err(KvmVcpuError::GetPreferredTarget)?;
         // We already checked that the capability is supported.
-        kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_PSCI_0_2;
+        kvi.features[0] |= 1 << KVM_ARM_VCPU_PSCI_0_2;
 
         Ok(kvi)
     }
@@ -230,18 +233,18 @@ impl KvmVcpu {
         Ok(CpuConfiguration { regs })
     }
     /// Initializes internal vcpufd.
-    fn init_vcpu(&self, kvi: &kvm_bindings::kvm_vcpu_init) -> Result<(), KvmVcpuError> {
+    fn init_vcpu(&self, kvi: &kvm_vcpu_init) -> Result<(), KvmVcpuError> {
         self.fd.vcpu_init(kvi).map_err(KvmVcpuError::Init)?;
         Ok(())
     }
 
     /// Checks for SVE feature and calls `vcpu_finalize` if
     /// it is enabled.
-    fn finalize_vcpu(&self, kvi: &kvm_bindings::kvm_vcpu_init) -> Result<(), KvmVcpuError> {
-        if (kvi.features[0] & (1 << kvm_bindings::KVM_ARM_VCPU_SVE)) != 0 {
+    fn finalize_vcpu(&self, kvi: &kvm_vcpu_init) -> Result<(), KvmVcpuError> {
+        if (kvi.features[0] & (1 << KVM_ARM_VCPU_SVE)) != 0 {
             // KVM_ARM_VCPU_SVE has value 4 so casting to i32 is safe.
             #[allow(clippy::cast_possible_wrap)]
-            let feature = kvm_bindings::KVM_ARM_VCPU_SVE as i32;
+            let feature = KVM_ARM_VCPU_SVE as i32;
             self.fd.vcpu_finalize(&feature).unwrap();
         }
         Ok(())
@@ -265,7 +268,7 @@ impl Peripherals {
 #[derive(Default, Clone, Serialize, Deserialize)]
 pub struct VcpuState {
     /// Multiprocessing state.
-    pub mp_state: kvm_bindings::kvm_mp_state,
+    pub mp_state: kvm_mp_state,
     /// Vcpu registers.
     pub regs: Aarch64RegisterVec,
     /// We will be using the mpidr for passing it to the VmState.
@@ -275,7 +278,7 @@ pub struct VcpuState {
     /// kvi states for vcpu initialization.
     /// If None then use `default_kvi` to obtain
     /// kvi.
-    pub kvi: Option<kvm_bindings::kvm_vcpu_init>,
+    pub kvi: Option<kvm_vcpu_init>,
 }
 
 impl Debug for VcpuState {
@@ -305,7 +308,7 @@ mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::io::AsRawFd;
 
-    use kvm_bindings::KVM_REG_SIZE_U64;
+    use kvm_bindings::{KVM_ARM_VCPU_PSCI_0_2, KVM_REG_SIZE_U64};
 
     use super::*;
     use crate::arch::aarch64::regs::Aarch64RegisterRef;
@@ -381,7 +384,7 @@ mod tests {
         let vcpu_features = vec![VcpuFeatures {
             index: 0,
             bitmap: RegisterValueFilter {
-                filter: 1 << kvm_bindings::KVM_ARM_VCPU_PSCI_0_2,
+                filter: 1 << KVM_ARM_VCPU_PSCI_0_2,
                 value: 0,
             },
         }];
@@ -390,7 +393,7 @@ mod tests {
         // Because vcpu_features vector is not empty,
         // kvi field should be non empty as well.
         let vcpu_kvi = vcpu.kvi.unwrap();
-        assert!((vcpu_kvi.features[0] & (1 << kvm_bindings::KVM_ARM_VCPU_PSCI_0_2)) == 0)
+        assert!((vcpu_kvi.features[0] & (1 << KVM_ARM_VCPU_PSCI_0_2)) == 0)
     }
 
     #[test]
