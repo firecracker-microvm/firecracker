@@ -39,16 +39,8 @@ pub enum KvmVcpuError {
     ConvertCpuidType(#[from] cpuid::CpuidTryFromKvmCpuid),
     /// Failed FamStructWrapper operation: {0}
     Fam(#[from] utils::fam::Error),
-    /// Error configuring the floating point related registers: {0}
-    FpuConfiguration(crate::arch::x86_64::regs::RegsError),
     /// Failed to get dumpable MSR index list: {0}
     GetMsrsToDump(#[from] crate::arch::x86_64::msr::MsrError),
-    /// Cannot set the local interruption due to bad configuration: {0}
-    LocalIntConfiguration(crate::arch::x86_64::interrupts::InterruptError),
-    /// Error configuring the general purpose registers: {0}
-    RegsConfiguration(crate::arch::x86_64::regs::RegsError),
-    /// Error configuring the special registers: {0}
-    SregsConfiguration(crate::arch::x86_64::regs::RegsError),
     /// Cannot open the VCPU file descriptor: {0}
     VcpuFd(kvm_ioctls::Error),
     /// Failed to get KVM vcpu debug regs: {0}
@@ -97,10 +89,6 @@ pub enum KvmVcpuError {
     VcpuSetXcrs(kvm_ioctls::Error),
     /// Failed to set KVM vcpu xsave: {0}
     VcpuSetXsave(kvm_ioctls::Error),
-    /// Failed to set KVM TSC frequency: {0}
-    VcpuSetTsc(kvm_ioctls::Error),
-    /// Failed to apply CPU template
-    VcpuTemplateError,
 }
 
 /// Error type for [`KvmVcpu::get_tsc_khz`] and [`KvmVcpu::is_tsc_scaling_required`].
