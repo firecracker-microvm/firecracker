@@ -142,6 +142,8 @@ pub struct Net {
     /// Only if MMDS transport has been associated with it.
     pub mmds_ns: Option<MmdsNetworkStack>,
     pub(crate) metrics: Arc<NetDeviceMetrics>,
+
+    io_vec_buffer: IoVecBuffer,
 }
 
 impl Net {
@@ -197,6 +199,8 @@ impl Net {
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(NetError::EventFd)?,
             mmds_ns: None,
             metrics: NetMetricsPerDevice::alloc(id),
+            // SAFETY: Only constructed in the VMM thread so no concurrent buffers
+            io_vec_buffer: Default::default(),
         })
     }
 
@@ -597,19 +601,17 @@ impl Net {
                 .add(tx_queue.len(mem).into());
             let head_index = head.index;
             // Parse IoVecBuffer from descriptor head
-            let buffer = match IoVecBuffer::from_descriptor_chain(head) {
-                Ok(buffer) => buffer,
-                Err(_) => {
-                    self.metrics.tx_fails.inc();
-                    tx_queue
-                        .add_used(mem, head_index, 0)
-                        .map_err(DeviceError::QueueError)?;
-                    continue;
-                }
-            };
+            // SAFETY: This descriptor chain is only loaded into this buffer
+            if unsafe { self.io_vec_buffer.load_descriptor_chain(head).is_err() } {
+                self.metrics.tx_fails.inc();
+                tx_queue
+                    .add_used(mem, head_index, 0)
+                    .map_err(DeviceError::QueueError)?;
+                continue;
+            }
 
             // We only handle frames that are up to MAX_BUFFER_SIZE
-            if buffer.len() > MAX_BUFFER_SIZE {
+            if self.io_vec_buffer.len() > MAX_BUFFER_SIZE {
                 error!("net: received too big frame from driver");
                 self.metrics.tx_malformed_frames.inc();
                 tx_queue
@@ -618,7 +620,7 @@ impl Net {
                 continue;
             }
 
-            if !Self::rate_limiter_consume_op(&mut self.tx_rate_limiter, buffer.len() as u64) {
+            if !Self::rate_limiter_consume_op(&mut self.tx_rate_limiter, self.io_vec_buffer.len() as u64) {
                 tx_queue.undo_pop();
                 self.metrics.tx_rate_limiter_throttled.inc();
                 break;
@@ -628,7 +630,7 @@ impl Net {
                 self.mmds_ns.as_mut(),
                 &mut self.tx_rate_limiter,
                 &mut self.tx_frame_headers,
-                &buffer,
+                &self.io_vec_buffer,
                 &mut self.tap,
                 self.guest_mac,
                 &self.metrics,

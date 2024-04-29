@@ -35,7 +35,7 @@ type IoVecVec = SmallVec<[iovec; 4]>;
 /// It describes a buffer passed to us by the guest that is scattered across multiple
 /// memory regions. Additionally, this wrapper provides methods that allow reading arbitrary ranges
 /// of data from that buffer.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct IoVecBuffer {
     // container of the memory regions included in this IO vector
     vecs: IoVecVec,
@@ -43,11 +43,19 @@ pub struct IoVecBuffer {
     len: usize,
 }
 
+// SAFETY: `IoVecBuffer` doesn't allow for interior mutability and no shared ownership is possible
+// as it doesn't implement clone
+unsafe impl Send for IoVecBuffer {}
+
 impl IoVecBuffer {
-    /// Create an `IoVecBuffer` from a `DescriptorChain`
-    pub fn from_descriptor_chain(head: DescriptorChain) -> Result<Self, IoVecError> {
-        let mut vecs = IoVecVec::new();
-        let mut len = 0usize;
+    /// Loads a `DescriptorChain` into the buffer
+    ///
+    /// # Safety
+    ///
+    /// The descriptor chain cannot be referencing the same memory location as another chain
+    pub unsafe fn load_descriptor_chain(&mut self, head: DescriptorChain) -> Result<(), IoVecError> {
+        self.len = 0;
+        self.vecs.clear();
 
         let mut next_descriptor = Some(head);
         while let Some(desc) = next_descriptor {
@@ -64,16 +72,30 @@ impl IoVecBuffer {
                 .ptr_guard_mut()
                 .as_ptr()
                 .cast::<c_void>();
-            vecs.push(iovec {
+            self.vecs.push(iovec {
                 iov_base,
                 iov_len: desc.len as size_t,
             });
-            len += desc.len as usize;
+            self.len += desc.len as usize;
 
             next_descriptor = desc.next_descriptor();
         }
 
-        Ok(Self { vecs, len })
+        Ok(())
+    }
+
+    /// Create an `IoVecBuffer` from a `DescriptorChain`
+    ///
+    /// # Safety
+    ///
+    /// The descriptor chain cannot be referencing the same memory location as another chain
+    pub unsafe fn from_descriptor_chain(head: DescriptorChain) -> Result<Self, IoVecError> {
+        // SAFETY: New buffer is created from the DescriptorChain which doesnt implement clone
+        let mut new_buffer: Self = Default::default();
+
+        new_buffer.load_descriptor_chain(head)?;
+
+        Ok(new_buffer)
     }
 
     /// Get the total length of the memory regions covered by this `IoVecBuffer`
