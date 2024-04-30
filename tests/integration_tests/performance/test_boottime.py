@@ -106,17 +106,24 @@ def test_initrd_boottime(uvm_with_initrd, record_property, metrics):
 
 def _get_microvm_boottime(vm):
     """Auxiliary function for asserting the expected boot time."""
-    boot_time_us = 0
+    boot_time_us = None
     timestamps = []
-    for _ in range(10):
+
+    iterations = 50
+    sleep_time_s = 0.1
+    for _ in range(iterations):
         timestamps = re.findall(TIMESTAMP_LOG_REGEX, vm.log_data)
         if timestamps:
             break
-        time.sleep(0.1)
+        time.sleep(sleep_time_s)
     if timestamps:
         boot_time_us = int(timestamps[0])
 
-    assert boot_time_us > 0
+    assert boot_time_us, (
+        f"MicroVM did not boot within {sleep_time_s * iterations}s\n"
+        f"Firecracker logs:\n{vm.log_data}\n"
+        f"Thread backtraces:\n{vm.thread_backtraces}"
+    )
     return boot_time_us
 
 

@@ -1132,10 +1132,15 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_num_pages() {
+    fn test_cannot_update_inactive_device() {
         let mut balloon = Balloon::new(0, true, 0, false).unwrap();
         // Assert that we can't update an inactive device.
         balloon.update_size(1).unwrap_err();
+    }
+
+    #[test]
+    fn test_num_pages() {
+        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
         // Switch the state to active.
         balloon.device_state = DeviceState::Activated(single_region_mem(0x1));
 

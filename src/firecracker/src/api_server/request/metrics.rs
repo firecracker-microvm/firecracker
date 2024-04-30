@@ -5,10 +5,10 @@ use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
 use vmm::vmm_config::metrics::MetricsConfig;
 
-use super::super::parsed_request::{Error, ParsedRequest};
+use super::super::parsed_request::{ParsedRequest, RequestError};
 use super::Body;
 
-pub(crate) fn parse_put_metrics(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_put_metrics(body: &Body) -> Result<ParsedRequest, RequestError> {
     METRICS.put_api_requests.metrics_count.inc();
     Ok(ParsedRequest::new_sync(VmmAction::ConfigureMetrics(
         serde_json::from_slice::<MetricsConfig>(body.raw()).map_err(|err| {

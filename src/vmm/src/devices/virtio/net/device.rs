@@ -607,6 +607,17 @@ impl Net {
                     continue;
                 }
             };
+
+            // We only handle frames that are up to MAX_BUFFER_SIZE
+            if buffer.len() > MAX_BUFFER_SIZE {
+                error!("net: received too big frame from driver");
+                self.metrics.tx_malformed_frames.inc();
+                tx_queue
+                    .add_used(mem, head_index, 0)
+                    .map_err(DeviceError::QueueError)?;
+                continue;
+            }
+
             if !Self::rate_limiter_consume_op(&mut self.tx_rate_limiter, buffer.len() as u64) {
                 tx_queue.undo_pop();
                 self.metrics.tx_rate_limiter_throttled.inc();
@@ -1309,6 +1320,32 @@ pub mod tests {
 
         // Send an invalid frame (too small, VNET header missing).
         th.add_desc_chain(NetQueue::Tx, 0, &[(0, 1, 0)]);
+        check_metric_after_block!(
+            th.net().metrics.tx_malformed_frames,
+            1,
+            th.event_manager.run_with_timeout(100)
+        );
+
+        // Check that the used queue advanced.
+        assert_eq!(th.txq.used.idx.get(), 1);
+        assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
+        th.txq.check_used_elem(0, 0, 0);
+        // Check that the frame was skipped.
+        assert!(!tap_traffic_simulator.pop_rx_packet(&mut []));
+    }
+
+    #[test]
+    fn test_tx_big_frame() {
+        let mut th = TestHelper::get_default();
+        th.activate_net();
+        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
+
+        // Send an invalid frame (too big, maximum buffer is MAX_BUFFER_SIZE).
+        th.add_desc_chain(
+            NetQueue::Tx,
+            0,
+            &[(0, (MAX_BUFFER_SIZE + 1).try_into().unwrap(), 0)],
+        );
         check_metric_after_block!(
             th.net().metrics.tx_malformed_frames,
             1,

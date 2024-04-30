@@ -74,6 +74,28 @@ be coming from the fact that the custom logic is implemented in the same process
 that handles Virtio queues, which reduces the number of required context
 switches.
 
+## Disadvantages
+
+In order for the backend to be able to process virtio requests, guest memory
+needs to be shared by the frontend to the backend. This means, a shared memory
+mapping is required to back guest memory. When a vhost-user device is
+configured, Firecracker uses `memfd_create` instead of creating an anonymous
+private mapping to achieve that. It was observed that page faults to a shared
+memory mapping take significantly longer (up to 24% in our testing), because
+Linux memory subsystem has to use atomic memory operations to update page
+status, which is an expensive operation under specific conditions. We advise
+users to profile performance on their workloads when considering to use
+vhost-user devices.
+
+## Other considerations
+
+Compared to virtio block device where Firecracker interacts with a drive file on
+the host, vhost-user block device is handled by the backend directly. Some
+workloads may benefit from caching and readahead that the host pagecache offers
+for the backing file. This benefit is not available in vhost-user block case.
+Users may need to implement internal caching within the backend if they find it
+appropriate.
+
 ## Backends
 
 There are a number of open source implementations of a vhost-user backend

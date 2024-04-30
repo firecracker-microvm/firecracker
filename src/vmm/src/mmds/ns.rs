@@ -15,15 +15,15 @@ use utils::net::mac::MacAddr;
 use utils::time::timestamp_cycles;
 
 use crate::dumbo::pdu::arp::{
-    test_speculative_tpa, Error as ArpFrameError, EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN,
+    test_speculative_tpa, ArpError as ArpFrameError, EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN,
 };
 use crate::dumbo::pdu::ethernet::{
-    Error as EthernetFrameError, EthernetFrame, ETHERTYPE_ARP, ETHERTYPE_IPV4,
+    EthernetError as EthernetFrameError, EthernetFrame, ETHERTYPE_ARP, ETHERTYPE_IPV4,
 };
 use crate::dumbo::pdu::ipv4::{
-    test_speculative_dst_addr, Error as IPv4PacketError, IPv4Packet, PROTOCOL_TCP,
+    test_speculative_dst_addr, IPv4Packet, Ipv4Error as IPv4PacketError, PROTOCOL_TCP,
 };
-use crate::dumbo::pdu::tcp::Error as TcpSegmentError;
+use crate::dumbo::pdu::tcp::TcpError as TcpSegmentError;
 use crate::dumbo::pdu::Incomplete;
 use crate::dumbo::tcp::handler::{RecvEvent, TcpIPv4Handler, WriteEvent, WriteNextError};
 use crate::dumbo::tcp::NextSegmentStatus;

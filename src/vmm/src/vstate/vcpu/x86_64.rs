@@ -57,8 +57,8 @@ pub enum KvmVcpuError {
     VcpuGetLapic(kvm_ioctls::Error),
     /// Failed to get KVM vcpu mp state: {0}
     VcpuGetMpState(kvm_ioctls::Error),
-    /// Unexpected number of MSRS reported by the kernel
-    VcpuGetMsrsIncomplete,
+    /// Failed to get KVM vcpu msr: 0x{0:x}
+    VcpuGetMsr(u32),
     /// Failed to get KVM vcpu msrs: {0}
     VcpuGetMsrs(kvm_ioctls::Error),
     /// Failed to get KVM vcpu regs: {0}
@@ -321,7 +321,7 @@ impl KvmVcpu {
                 .get_msrs(&mut msrs)
                 .map_err(KvmVcpuError::VcpuGetMsrs)?;
             if nmsrs != expected_nmsrs {
-                return Err(KvmVcpuError::VcpuGetMsrsIncomplete);
+                return Err(KvmVcpuError::VcpuGetMsr(msr_index_chunk[nmsrs]));
             }
 
             msr_chunks.push(msrs);
@@ -928,18 +928,17 @@ mod tests {
 
     #[test]
     fn test_get_msrs_with_invalid_msr_index() {
-        // Test `get_msrs()` with unsupported MSR indices. This should return
-        // `VcpuGetMsrsIncomplete` error that happens when `KVM_GET_MSRS` fails to populdate
-        // MSR value in the middle and exits. Currently, MSR indices 2..=4 are not listed as
-        // supported MSRs.
+        // Test `get_msrs()` with unsupported MSR indices. This should return `VcpuGetMsr` error
+        // that happens when `KVM_GET_MSRS` fails to populate MSR values in the middle and exits.
+        // Currently, MSR indices 2..=4 are not listed as supported MSRs.
         let (_, vcpu, _) = setup_vcpu(0x1000);
         let msr_index_list: Vec<u32> = vec![2, 3, 4];
         match vcpu.get_msrs(&msr_index_list) {
-            Err(KvmVcpuError::VcpuGetMsrsIncomplete) => (),
+            Err(KvmVcpuError::VcpuGetMsr(_)) => (),
             Err(err) => panic!("Unexpected error: {err}"),
-            Ok(_) => panic!(
-                "KvmVcpu::get_msrs() for unsupported MSRs should fail with VcpuGetMsrsIncomplete."
-            ),
+            Ok(_) => {
+                panic!("KvmVcpu::get_msrs() for unsupported MSRs should fail with VcpuGetMsr.")
+            }
         }
     }
 }

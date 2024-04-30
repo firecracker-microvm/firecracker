@@ -10,6 +10,69 @@ and this project adheres to
 
 ### Added
 
+- [#4428](https://github.com/firecracker-microvm/firecracker/pull/4428): Added
+  ACPI support to Firecracker for x86_64 microVMs. Currently, we pass ACPI
+  tables with information about the available vCPUs, interrupt controllers,
+  VirtIO and legacy x86 devices to the guest. This allows booting kernels
+  without MPTable support. Please see our
+  [kernel policy documentation](docs/kernel-policy.md) for more information
+  regarding relevant kernel configurations.
+- [#4487](https://github.com/firecracker-microvm/firecracker/pull/4487): Added
+  support for the Virtual Machine Generation Identifier (VMGenID) device on
+  x86_64 platforms. VMGenID is a virtual device that allows VMMs to notify
+  guests when they are resumed from a snapshot. Linux includes VMGenID support
+  since version 5.18. It uses notifications from the device to reseed its
+  internal CSPRNG. Please refer to
+  [snapshot support](docs/snapshotting/snapshot-support.md) and
+  [random for clones](docs/snapshotting/random-for-clones.md) documention for
+  more info on VMGenID. VMGenID state is part of the snapshot format of
+  Firecracker. As a result, Firecracker snapshot version is now 2.0.0.
+
+### Changed
+
+- [#4492](https://github.com/firecracker-microvm/firecracker/pull/4492): Changed
+  `--config` parameter of `cpu-template-helper` optional. Users no longer need
+  to prepare kernel, rootfs and Firecracker configuration files to use
+  `cpu-template-helper`.
+- [#4537](https://github.com/firecracker-microvm/firecracker/pull/4537) Changed
+  T2CL template to pass through bit 27 and 28 of `MSR_IA32_ARCH_CAPABILITIES`
+  (`RFDS_NO` and `RFDS_CLEAR`) since KVM consider they are able to be passed
+  through and T2CL isn't designed for secure snapshot migration between
+  different processors.
+- [#4537](https://github.com/firecracker-microvm/firecracker/pull/4537) Changed
+  T2S template to set bit 27 of `MSR_IA32_ARCH_CAPABILITIES` (`RFDS_NO`) to 1
+  since it assumes that the fleet only consists of processors that are not
+  affected by RFDS.
+
+### Deprecated
+
+- Firecracker's `--start-time-cpu-us` and `--start-time-us` parameters are
+  deprecated and will be removed in v2.0 or later. They are used by the jailer
+  to pass the value that should be subtracted from the (CPU) time, when emitting
+  the `start_time_us` and `start_time_cpu_us` metrics. These parameters were
+  never meant to be used by end customers, and we recommend doing any such time
+  adjustments outside Firecracker.
+- Booting with microVM kernels that rely on MPTable on x86_64 is deprecated and
+  support will be removed in v2.0 or later. We suggest to users of Firecracker
+  to use guest kernels with ACPI support. For x86_64 microVMs, ACPI will be the
+  only way Firecracker passes hardware information to the guest once MPTable
+  support is removed.
+
+### Fixed
+
+- [4526](https://github.com/firecracker-microvm/firecracker/pull/4526): Added a
+  check in the network TX path that the size of the network frames the guest
+  passes to us is not bigger than the maximum frame the device expects to
+  handle. On the TX path, we copy frames destined to MMDS from guest memory to
+  Firecracker memory. Without the check, a mis-behaving virtio-net driver could
+  cause an increase in the memory footprint of the Firecracker process. Now, if
+  we receive such a frame, we ignore it and increase `Net::tx_malformed_frames`
+  metric.
+
+## \[1.7.0\]
+
+### Added
+
 - [#4346](https://github.com/firecracker-microvm/firecracker/pull/4346): Added
   support to emit aggregate (minimum/maximum/sum) latency for
   `VcpuExit::MmioRead`, `VcpuExit::MmioWrite`, `VcpuExit::IoIn` and
@@ -41,14 +104,10 @@ and this project adheres to
   information about page size to the payload Firecracker sends to the UFFD
   handler. Each memory region object now contains a `page_size_kib` field. See
   also the [hugepages documentation](docs/hugepages.md).
-
-### Deprecated
-
-- Firecracker's `--start-time-cpu-us` parameter is deprecated and will be
-  removed in v2.0 or later. It is used by the jailer to pass the value that
-  should be subtracted from the CPU time, but in practice it is always 0. The
-  parameter was never meant to be used by end customers, and we recommend doing
-  any such time adjustments outside Firecracker.
+- [#4498](https://github.com/firecracker-microvm/firecracker/pull/4498): Only
+  use memfd to back guest memory if a vhost-user-blk device is configured,
+  otherwise use anonymous private memory. This is because serving page faults of
+  shared memory used by memfd is slower and may impact workloads.
 
 ### Fixed
 

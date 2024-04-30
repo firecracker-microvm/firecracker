@@ -58,7 +58,7 @@ pub(crate) struct ParsedRequest {
 }
 
 impl TryFrom<&Request> for ParsedRequest {
-    type Error = Error;
+    type Error = RequestError;
     fn try_from(request: &Request) -> Result<Self, Self::Error> {
         let request_uri = request.uri().get_abs_path().to_string();
         let description = describe(
@@ -109,9 +109,10 @@ impl TryFrom<&Request> for ParsedRequest {
             }
             (Method::Patch, "vm", Some(body)) => parse_patch_vm_state(body),
             (Method::Patch, _, None) => method_to_error(Method::Patch),
-            (method, unknown_uri, _) => {
-                Err(Error::InvalidPathMethod(unknown_uri.to_string(), method))
-            }
+            (method, unknown_uri, _) => Err(RequestError::InvalidPathMethod(
+                unknown_uri.to_string(),
+                method,
+            )),
         }
     }
 }
@@ -246,17 +247,17 @@ fn describe_with_body(method: Method, path: &str, payload_value: &Body) -> Strin
 }
 
 /// Generates a `GenericError` for each request method.
-pub(crate) fn method_to_error(method: Method) -> Result<ParsedRequest, Error> {
+pub(crate) fn method_to_error(method: Method) -> Result<ParsedRequest, RequestError> {
     match method {
-        Method::Get => Err(Error::Generic(
+        Method::Get => Err(RequestError::Generic(
             StatusCode::BadRequest,
             "GET request cannot have a body.".to_string(),
         )),
-        Method::Put => Err(Error::Generic(
+        Method::Put => Err(RequestError::Generic(
             StatusCode::BadRequest,
             "Empty PUT request.".to_string(),
         )),
-        Method::Patch => Err(Error::Generic(
+        Method::Patch => Err(RequestError::Generic(
             StatusCode::BadRequest,
             "Empty PATCH request.".to_string(),
         )),
@@ -264,7 +265,7 @@ pub(crate) fn method_to_error(method: Method) -> Result<ParsedRequest, Error> {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum Error {
+pub(crate) enum RequestError {
     // The resource ID is empty.
     #[error("The ID cannot be empty.")]
     EmptyID,
@@ -283,30 +284,30 @@ pub(crate) enum Error {
 }
 
 // It's convenient to turn errors into HTTP responses directly.
-impl From<Error> for Response {
-    fn from(err: Error) -> Self {
+impl From<RequestError> for Response {
+    fn from(err: RequestError) -> Self {
         let msg = ApiServer::json_fault_message(format!("{}", err));
         match err {
-            Error::Generic(status, _) => ApiServer::json_response(status, msg),
-            Error::EmptyID
-            | Error::InvalidID
-            | Error::InvalidPathMethod(_, _)
-            | Error::SerdeJson(_) => ApiServer::json_response(StatusCode::BadRequest, msg),
+            RequestError::Generic(status, _) => ApiServer::json_response(status, msg),
+            RequestError::EmptyID
+            | RequestError::InvalidID
+            | RequestError::InvalidPathMethod(_, _)
+            | RequestError::SerdeJson(_) => ApiServer::json_response(StatusCode::BadRequest, msg),
         }
     }
 }
 
 // This function is supposed to do id validation for requests.
-pub(crate) fn checked_id(id: &str) -> Result<&str, Error> {
+pub(crate) fn checked_id(id: &str) -> Result<&str, RequestError> {
     // todo: are there any checks we want to do on id's?
     // not allow them to be empty strings maybe?
     // check: ensure string is not empty
     if id.is_empty() {
-        return Err(Error::EmptyID);
+        return Err(RequestError::EmptyID);
     }
     // check: ensure string is alphanumeric
     if !id.chars().all(|c| c == '_' || c.is_alphanumeric()) {
-        return Err(Error::InvalidID);
+        return Err(RequestError::InvalidID);
     }
     Ok(id)
 }
@@ -435,7 +436,7 @@ pub mod tests {
         let parsed_request = ParsedRequest::try_from(&req);
         assert!(matches!(
             &parsed_request,
-            Err(Error::Generic(StatusCode::BadRequest, s)) if s == "GET request cannot have a body.",
+            Err(RequestError::Generic(StatusCode::BadRequest, s)) if s == "GET request cannot have a body.",
         ));
     }
 
@@ -451,7 +452,7 @@ pub mod tests {
         let parsed_request = ParsedRequest::try_from(&req);
         assert!(matches!(
             &parsed_request,
-            Err(Error::Generic(StatusCode::BadRequest, s)) if s == "Empty PUT request.",
+            Err(RequestError::Generic(StatusCode::BadRequest, s)) if s == "Empty PUT request.",
         ));
     }
 
@@ -467,7 +468,7 @@ pub mod tests {
         let parsed_request = ParsedRequest::try_from(&req);
         assert!(matches!(
             &parsed_request,
-            Err(Error::Generic(StatusCode::BadRequest, s)) if s == "Empty PATCH request.",
+            Err(RequestError::Generic(StatusCode::BadRequest, s)) if s == "Empty PATCH request.",
         ));
     }
 
@@ -476,7 +477,7 @@ pub mod tests {
         // Generic error.
         let mut buf = Cursor::new(vec![0]);
         let response: Response =
-            Error::Generic(StatusCode::BadRequest, "message".to_string()).into();
+            RequestError::Generic(StatusCode::BadRequest, "message".to_string()).into();
         response.write_all(&mut buf).unwrap();
         let body = ApiServer::json_fault_message("message");
         let expected_response = http_response(&body, 400);
@@ -484,7 +485,7 @@ pub mod tests {
 
         // Empty ID error.
         let mut buf = Cursor::new(vec![0]);
-        let response: Response = Error::EmptyID.into();
+        let response: Response = RequestError::EmptyID.into();
         response.write_all(&mut buf).unwrap();
         let body = ApiServer::json_fault_message("The ID cannot be empty.");
         let expected_response = http_response(&body, 400);
@@ -492,7 +493,7 @@ pub mod tests {
 
         // Invalid ID error.
         let mut buf = Cursor::new(vec![0]);
-        let response: Response = Error::InvalidID.into();
+        let response: Response = RequestError::InvalidID.into();
         response.write_all(&mut buf).unwrap();
         let body = ApiServer::json_fault_message(
             "API Resource IDs can only contain alphanumeric characters and underscores.",
@@ -502,7 +503,8 @@ pub mod tests {
 
         // Invalid path or method error.
         let mut buf = Cursor::new(vec![0]);
-        let response: Response = Error::InvalidPathMethod("path".to_string(), Method::Get).into();
+        let response: Response =
+            RequestError::InvalidPathMethod("path".to_string(), Method::Get).into();
         response.write_all(&mut buf).unwrap();
         let body = ApiServer::json_fault_message(format!(
             "Invalid request method and/or path: {} {}.",
@@ -515,7 +517,7 @@ pub mod tests {
         // Serde error.
         let mut buf = Cursor::new(vec![0]);
         let serde_error = serde_json::Value::from_str("").unwrap_err();
-        let response: Response = Error::SerdeJson(serde_error).into();
+        let response: Response = RequestError::SerdeJson(serde_error).into();
         response.write_all(&mut buf).unwrap();
         let body = ApiServer::json_fault_message(
             "An error occurred when deserializing the json body of a request: EOF while parsing a \

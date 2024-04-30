@@ -81,11 +81,7 @@ def test_drive_io_engine(uvm_plain):
         test_microvm.api.drive.put(**kwargs)
 
     test_microvm.start()
-
-    # Execute a simple command to check that the guest booted successfully.
-    rc, _, stderr = test_microvm.ssh.run("true")
-    assert rc == 0
-    assert stderr == ""
+    test_microvm.wait_for_up()
 
     assert test_microvm.api.vm_config.get().json()["drives"][0]["io_engine"] == "Sync"
 
@@ -392,7 +388,7 @@ def test_api_machine_config(uvm_plain):
     test_microvm.api.machine_config.patch(mem_size_mib=bad_size)
 
     fail_msg = re.escape(
-        "Invalid Memory Configuration: Cannot resize memfd file: Custom { kind: InvalidInput, error: TryFromIntError(()) }"
+        "Invalid Memory Configuration: Cannot create mmap region: Out of memory (os error 12)"
     )
     with pytest.raises(RuntimeError, match=fail_msg):
         test_microvm.start()
@@ -1056,16 +1052,6 @@ def test_api_balloon(uvm_nano):
     # Start the microvm.
     test_microvm.start()
 
-    # Updating should fail as driver didn't have time to initialize.
-    with pytest.raises(RuntimeError):
-        test_microvm.api.balloon.patch(amount_mib=4)
-
-    # Overwriting the existing device should give an error now.
-    with pytest.raises(RuntimeError):
-        test_microvm.api.balloon.put(
-            amount_mib=3, deflate_on_oom=False, stats_polling_interval_s=3
-        )
-
     # Give the balloon driver time to initialize.
     # 500 ms is the maximum acceptable boot time.
     time.sleep(0.5)
@@ -1181,8 +1167,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
     snapshot = uvm_nano.snapshot_full()
     uvm2 = microvm_factory.build()
     uvm2.spawn()
-    uvm2.restore_from_snapshot(snapshot)
-    uvm2.resume()
+    uvm2.restore_from_snapshot(snapshot, resume=True)
 
     expected_cfg = setup_cfg.copy()
 

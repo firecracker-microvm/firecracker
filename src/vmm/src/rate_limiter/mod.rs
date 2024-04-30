@@ -13,7 +13,7 @@ pub mod persist;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 /// Describes the errors that may occur while handling rate limiter events.
-pub enum Error {
+pub enum RateLimiterError {
     /// The event handler was called spuriously: {0}
     SpuriousRateLimiterEvent(&'static str),
 }
@@ -470,9 +470,9 @@ impl RateLimiter {
     /// # Errors
     ///
     /// If the rate limiter is disabled or is not blocked, an error is returned.
-    pub fn event_handler(&mut self) -> Result<(), Error> {
+    pub fn event_handler(&mut self) -> Result<(), RateLimiterError> {
         match self.timer_fd.read() {
-            0 => Err(Error::SpuriousRateLimiterEvent(
+            0 => Err(RateLimiterError::SpuriousRateLimiterEvent(
                 "Rate limiter event handler called without a present timer",
             )),
             _ => {

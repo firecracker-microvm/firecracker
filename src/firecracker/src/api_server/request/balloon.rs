@@ -7,14 +7,16 @@ use vmm::vmm_config::balloon::{
     BalloonDeviceConfig, BalloonUpdateConfig, BalloonUpdateStatsConfig,
 };
 
-use super::super::parsed_request::{Error, ParsedRequest};
+use super::super::parsed_request::{ParsedRequest, RequestError};
 use super::Body;
 
-pub(crate) fn parse_get_balloon(path_second_token: Option<&str>) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_get_balloon(
+    path_second_token: Option<&str>,
+) -> Result<ParsedRequest, RequestError> {
     match path_second_token {
         Some(stats_path) => match stats_path {
             "statistics" => Ok(ParsedRequest::new_sync(VmmAction::GetBalloonStats)),
-            _ => Err(Error::Generic(
+            _ => Err(RequestError::Generic(
                 StatusCode::BadRequest,
                 format!("Unrecognized GET request path `{}`.", stats_path),
             )),
@@ -23,7 +25,7 @@ pub(crate) fn parse_get_balloon(path_second_token: Option<&str>) -> Result<Parse
     }
 }
 
-pub(crate) fn parse_put_balloon(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_put_balloon(body: &Body) -> Result<ParsedRequest, RequestError> {
     Ok(ParsedRequest::new_sync(VmmAction::SetBalloonDevice(
         serde_json::from_slice::<BalloonDeviceConfig>(body.raw())?,
     )))
@@ -32,13 +34,13 @@ pub(crate) fn parse_put_balloon(body: &Body) -> Result<ParsedRequest, Error> {
 pub(crate) fn parse_patch_balloon(
     body: &Body,
     path_second_token: Option<&str>,
-) -> Result<ParsedRequest, Error> {
+) -> Result<ParsedRequest, RequestError> {
     match path_second_token {
         Some(config_path) => match config_path {
             "statistics" => Ok(ParsedRequest::new_sync(VmmAction::UpdateBalloonStatistics(
                 serde_json::from_slice::<BalloonUpdateStatsConfig>(body.raw())?,
             ))),
-            _ => Err(Error::Generic(
+            _ => Err(RequestError::Generic(
                 StatusCode::BadRequest,
                 format!("Unrecognized PATCH request path `{}`.", config_path),
             )),

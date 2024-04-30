@@ -65,7 +65,7 @@ macro_rules! arm64_core_reg_id {
         // id = KVM_REG_ARM64 | KVM_REG_SIZE_U64/KVM_REG_SIZE_U32/KVM_REG_SIZE_U128 |
         // KVM_REG_ARM_CORE | offset
         KVM_REG_ARM64 as u64
-            | u64::from(KVM_REG_ARM_CORE)
+            | KVM_REG_ARM_CORE as u64
             | $size
             | (($offset / std::mem::size_of::<u32>()) as u64)
     };
@@ -106,14 +106,39 @@ arm64_sys_reg!(ID_AA64ISAR0_EL1, 3, 0, 0, 6, 0);
 arm64_sys_reg!(ID_AA64ISAR1_EL1, 3, 0, 0, 6, 1);
 arm64_sys_reg!(ID_AA64MMFR2_EL1, 3, 0, 0, 7, 2);
 
-// EL0 Virtual Timer Registers
-arm64_sys_reg!(KVM_REG_ARM_TIMER_CNT, 3, 3, 14, 3, 2);
+// Counter-timer Virtual Timer CompareValue register.
+// https://developer.arm.com/documentation/ddi0595/2021-12/AArch64-Registers/CNTV-CVAL-EL0--Counter-timer-Virtual-Timer-CompareValue-register
+// https://elixir.bootlin.com/linux/v6.8/source/arch/arm64/include/asm/sysreg.h#L468
+arm64_sys_reg!(SYS_CNTV_CVAL_EL0, 3, 3, 14, 3, 2);
+
+// Counter-timer Physical Count Register
+// https://developer.arm.com/documentation/ddi0601/2023-12/AArch64-Registers/CNTPCT-EL0--Counter-timer-Physical-Count-Register
+// https://elixir.bootlin.com/linux/v6.8/source/arch/arm64/include/asm/sysreg.h#L459
+arm64_sys_reg!(SYS_CNTPCT_EL0, 3, 3, 14, 0, 1);
 
 /// Vector lengths pseudo-register
 /// TODO: this can be removed after https://github.com/rust-vmm/kvm-bindings/pull/89
 /// is merged and new version is used in Firecracker.
 pub const KVM_REG_ARM64_SVE_VLS: u64 =
     KVM_REG_ARM64 | KVM_REG_ARM64_SVE as u64 | KVM_REG_SIZE_U512 | 0xffff;
+
+/// Program Counter
+/// The offset value (0x100 = 32 * 8) is calcuated as follows:
+/// - `kvm_regs` includes `regs` field of type `user_pt_regs` at the beginning (i.e., at offset 0).
+/// - `pc` follows `regs[31]` and `sp` within `user_pt_regs` and they are 8 bytes each (i.e. the
+///   offset is (31 + 1) * 8 = 256).
+///
+/// https://github.com/torvalds/linux/blob/master/Documentation/virt/kvm/api.rst#L2578
+/// > 0x6030 0000 0010 0040 PC          64  regs.pc
+pub const PC: u64 = arm64_core_reg_id!(KVM_REG_SIZE_U64, 0x100);
+
+// TODO: Once `core::mem::offset_of!()` macro becomes stable (maybe since 1.77.0?), use the
+// following instead: https://github.com/firecracker-microvm/firecracker/issues/4504
+// pub const PC: u64 = {
+//     let kreg_off = offset_of!(kvm_regs, regs);
+//     let pc_off = offset_of!(user_pt_regs, pc);
+//     arm64_core_reg_id!(KVM_REG_SIZE_U64, kreg_off + pc_off)
+// };
 
 /// Different aarch64 registers sizes
 #[derive(Debug)]

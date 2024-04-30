@@ -11,9 +11,6 @@ FC_BINARY_NAME = "firecracker"
 # The Firecracker sources workspace dir
 FC_WORKSPACE_DIR = Path(__file__).parent.parent.parent.resolve()
 
-# Cargo build directory for seccompiler
-SECCOMPILER_TARGET_DIR = FC_WORKSPACE_DIR / "build/seccompiler"
-
 # Folder containing JSON seccomp filters
 SECCOMP_JSON_DIR = FC_WORKSPACE_DIR / "resources/seccomp"
 

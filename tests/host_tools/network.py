@@ -38,7 +38,8 @@ class SSHConnection:
         self.user = user
 
         self.options = [
-            "-q",
+            "-o",
+            "LogLevel=ERROR",
             "-o",
             "ConnectTimeout=1",
             "-o",

@@ -4,25 +4,22 @@ version = "1.8.0-dev"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2021"
 license = "Apache-2.0"
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [[bin]]
 name = "cpu-template-helper"
 bench = false
 
 [dependencies]
-clap = { version = "4.5.2", features = ["derive", "string"] }
+clap = { version = "4.5.4", features = ["derive", "string"] }
 displaydoc = "0.2.4"
 libc = "0.2.153"
 log-instrument = { path = "../log-instrument", optional = true }
-serde = { version = "1.0.196", features = ["derive"] }
-serde_json = "1.0.113"
-thiserror = "1.0.57"
+serde = { version = "1.0.198", features = ["derive"] }
+serde_json = "1.0.116"
+thiserror = "1.0.59"
 
 vmm = { path = "../vmm" }
-
-[dev-dependencies]
-utils = { path = "../utils" }
+vmm-sys-util = "0.12.1"
 
 [features]
 tracing = ["log-instrument", "vmm/tracing"]

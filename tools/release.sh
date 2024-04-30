@@ -45,10 +45,13 @@ function check_bin_artifact {
 
 function strip-and-split-debuginfo {
     local bin=$1
+    if [ $bin -ot $bin.debug ]; then
+        return
+    fi
     echo "STRIP $bin"
     objcopy --only-keep-debug $bin $bin.debug
     chmod a-x $bin.debug
-    objcopy --strip-debug --add-gnu-debuglink=$bin.debug $bin
+    objcopy --preserve-dates --strip-debug --add-gnu-debuglink=$bin.debug $bin
 }
 
 function get-firecracker-version {
@@ -127,7 +130,14 @@ fi
 
 say "Building version=$VERSION, profile=$PROFILE, target=$CARGO_TARGET, Rust toolchain=${RUST_TOOLCHAIN}..."
 # shellcheck disable=SC2086
-cargo build --target "$CARGO_TARGET" $CARGO_OPTS --workspace
+cargo build --target "$CARGO_TARGET" $CARGO_OPTS --workspace --bins --examples
+
+# Only strip in release mode
+if [ "$PROFILE" = "release" ]; then
+    for file in "${ARTIFACTS[@]}"; do
+        strip-and-split-debuginfo "$CARGO_TARGET_DIR/$file"
+    done
+fi
 
 say "Binaries placed under $CARGO_TARGET_DIR"
 
@@ -156,7 +166,7 @@ mkdir "$RELEASE_DIR"
 for file in "${ARTIFACTS[@]}"; do
     check_bin_artifact "$CARGO_TARGET_DIR/$file" "$VERSION"
     cp -v "$CARGO_TARGET_DIR/$file" "$RELEASE_DIR/$file-$SUFFIX"
-    strip-and-split-debuginfo "$RELEASE_DIR/$file-$SUFFIX"
+    cp -v "$CARGO_TARGET_DIR/$file.debug" "$RELEASE_DIR/$file-$SUFFIX.debug"
 done
 cp -v "resources/seccomp/$CARGO_TARGET.json" "$RELEASE_DIR/seccomp-filter-$SUFFIX.json"
 # Copy over arch independent assets

@@ -5,17 +5,17 @@ use vmm::cpu_config::templates::CustomCpuTemplate;
 use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
 
-use super::super::parsed_request::{Error, ParsedRequest};
+use super::super::parsed_request::{ParsedRequest, RequestError};
 use super::Body;
 
-pub(crate) fn parse_put_cpu_config(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_put_cpu_config(body: &Body) -> Result<ParsedRequest, RequestError> {
     METRICS.put_api_requests.cpu_cfg_count.inc();
 
     // Convert the API request into a a deserialized/binary format
     Ok(ParsedRequest::new_sync(VmmAction::PutCpuConfiguration(
         CustomCpuTemplate::try_from(body.raw()).map_err(|err| {
             METRICS.put_api_requests.cpu_cfg_fails.inc();
-            Error::SerdeJson(err)
+            RequestError::SerdeJson(err)
         })?,
     )))
 }
@@ -83,7 +83,7 @@ mod tests {
             expected_err_count
         );
         assert!(
-            matches!(invalid_put_result, Err(Error::SerdeJson(_))),
+            matches!(invalid_put_result, Err(RequestError::SerdeJson(_))),
             "{:?}",
             invalid_put_result
         );

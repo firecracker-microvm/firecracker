@@ -11,20 +11,12 @@
 ARG0=${BASH_SOURCE[-1]}
 MY_NAME="Firecracker $(basename "$ARG0")"
 
-# Send a decorated message to stdout, followed by a new line
+# Send a decorated message to stderr, followed by a new line
 #
 say() {
     [ -t 1 ] && [ -n "$TERM" ] \
-        && echo "$(tput setaf 2)[$MY_NAME $(date -Iseconds)]$(tput sgr0) $*" \
-        || echo "[$MY_NAME] $*"
-}
-
-# Send a decorated message to stdout, without a trailing new line
-#
-say_noln() {
-    [ -t 1 ] && [ -n "$TERM" ] \
-        && echo -n "$(tput setaf 2)[$MY_NAME]$(tput sgr0) $*" \
-        || echo "[$MY_NAME] $*"
+        && echo "$(tput setaf 2)[$MY_NAME $(date -Iseconds)]$(tput sgr0) $*" 1>&2 \
+        || echo "[$MY_NAME] $*" 1>&2
 }
 
 # Send a text message to stderr
@@ -35,11 +27,11 @@ say_err() {
         || echo -e "[$MY_NAME] $*" 1>&2
 }
 
-# Send a warning-highlighted text to stdout
+# Send a warning-highlighted text to stderr
 say_warn() {
     [ -t 1 ] && [ -n "$TERM" ] \
-        && echo "$(tput setaf 3)[$MY_NAME] $*$(tput sgr0)" \
-        || echo "[$MY_NAME] $*"
+        && echo "$(tput setaf 3)[$MY_NAME] $*$(tput sgr0)" 1>&2 \
+        || echo "[$MY_NAME] $*" 1>&2
 }
 
 # Exit with an error message and (optional) code
@@ -92,8 +84,7 @@ get_user_confirmation() {
     #
     msg=$([ -n "${1:-}" ] && echo -n "$1" || echo -n "Continue? (y/n) ")
     yes=$([ -n "${2:-}" ] && echo -n "$2" || echo -n "y")
-    say_noln "$msg"
-    read c && [ "$c" = "$yes" ] && return 0
+    read -p "$msg" c && [ "$c" = "$yes" ] && return 0
     return 1
 }
 

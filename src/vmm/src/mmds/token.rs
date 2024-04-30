@@ -47,7 +47,7 @@ const DESERIALIZATION_BYTES_LIMIT: usize = std::mem::size_of::<Token>();
 
 #[rustfmt::skip]
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum Error {
+pub enum MmdsTokenError {
     /// Failed to extract entropy from /dev/urandom entropy pool: {0}.
     EntropyPool(#[from] io::Error),
     /// Failed to extract expiry value from token.
@@ -85,7 +85,7 @@ impl fmt::Debug for TokenAuthority {
 
 impl TokenAuthority {
     /// Create a new token authority entity.
-    pub fn new() -> Result<TokenAuthority, Error> {
+    pub fn new() -> Result<TokenAuthority, MmdsTokenError> {
         let mut file = File::open(Path::new(RANDOMNESS_POOL))?;
 
         Ok(TokenAuthority {
@@ -103,7 +103,7 @@ impl TokenAuthority {
     }
 
     /// Generate encoded token string using the token time to live provided.
-    pub fn generate_token_secret(&mut self, ttl_seconds: u32) -> Result<String, Error> {
+    pub fn generate_token_secret(&mut self, ttl_seconds: u32) -> Result<String, MmdsTokenError> {
         // Check number of tokens encrypted under the current key. We need to
         // make sure no more than 2^32 tokens are encrypted with the same key.
         // If this number is reached, we need to reinitialize the cipher entity.
@@ -119,10 +119,10 @@ impl TokenAuthority {
     }
 
     /// Create a new Token structure to encrypt.
-    fn create_token(&mut self, ttl_seconds: u32) -> Result<Token, Error> {
+    fn create_token(&mut self, ttl_seconds: u32) -> Result<Token, MmdsTokenError> {
         // Validate token time to live against bounds.
         if !TokenAuthority::check_ttl(ttl_seconds) {
-            return Err(Error::InvalidTtlValue(ttl_seconds));
+            return Err(MmdsTokenError::InvalidTtlValue(ttl_seconds));
         }
 
         // Generate 12-byte random nonce.
@@ -142,7 +142,7 @@ impl TokenAuthority {
         &self,
         expiry: u64,
         iv: &[u8],
-    ) -> Result<([u8; PAYLOAD_LEN], [u8; TAG_LEN]), Error> {
+    ) -> Result<([u8; PAYLOAD_LEN], [u8; TAG_LEN]), MmdsTokenError> {
         // Create Nonce object from initialization vector.
         let nonce = Nonce::from_slice(iv);
         // Convert expiry u64 value into bytes.
@@ -151,13 +151,13 @@ impl TokenAuthority {
         let tag = self
             .cipher
             .encrypt_in_place_detached(nonce, self.aad.as_bytes(), &mut expiry_as_bytes)
-            .map_err(|_| Error::TokenEncryption)?;
+            .map_err(|_| MmdsTokenError::TokenEncryption)?;
 
         // Tag must be of size `TAG_LEN`.
         let tag_as_bytes: [u8; TAG_LEN] = tag
             .as_slice()
             .try_into()
-            .map_err(|_| Error::TokenEncryption)?;
+            .map_err(|_| MmdsTokenError::TokenEncryption)?;
 
         Ok((expiry_as_bytes, tag_as_bytes))
     }
@@ -193,7 +193,7 @@ impl TokenAuthority {
         payload: &mut [u8; PAYLOAD_LEN],
         tag: &[u8],
         iv: &[u8],
-    ) -> Result<u64, Error> {
+    ) -> Result<u64, MmdsTokenError> {
         // Create Nonce object from initialization vector.
         let nonce = Nonce::from_slice(iv);
         // Decrypt expiry as vector of bytes from ciphertext.
@@ -204,17 +204,17 @@ impl TokenAuthority {
                 payload,
                 aes_gcm::Tag::from_slice(tag),
             )
-            .map_err(|_| Error::ExpiryExtraction)?;
+            .map_err(|_| MmdsTokenError::ExpiryExtraction)?;
         let expiry_as_bytes = payload[..]
             .try_into()
-            .map_err(|_| Error::ExpiryExtraction)?;
+            .map_err(|_| MmdsTokenError::ExpiryExtraction)?;
 
         // Return expiry value in seconds.
         Ok(u64::from_le_bytes(expiry_as_bytes))
     }
 
     /// Create a new AES-GCM cipher entity.
-    fn create_cipher(entropy_pool: &mut File) -> Result<Aes256Gcm, Error> {
+    fn create_cipher(entropy_pool: &mut File) -> Result<Aes256Gcm, MmdsTokenError> {
         // Randomly generate a 256-bit key to be used for encryption/decryption purposes.
         let mut key = [0u8; KEY_LEN];
         entropy_pool.read_exact(&mut key)?;
@@ -225,7 +225,7 @@ impl TokenAuthority {
 
     /// Make sure to reinitialize the cipher under a new key before reaching
     /// a count of 2^32 encrypted tokens under the same cipher entity.
-    fn check_encryption_count(&mut self) -> Result<(), Error> {
+    fn check_encryption_count(&mut self) -> Result<(), MmdsTokenError> {
         // Make sure no more than 2^32 - 1 tokens are encrypted under
         // the same encryption key.
         if self.num_encrypted_tokens == u32::MAX {
@@ -286,7 +286,7 @@ impl Token {
     }
 
     /// Encode token structure into a string using base64 encoding.
-    fn base64_encode(&self) -> Result<String, Error> {
+    fn base64_encode(&self) -> Result<String, MmdsTokenError> {
         let token_bytes: Vec<u8> = bincode::serialize(self)?;
 
         // Encode token structure bytes into base64.
@@ -294,17 +294,17 @@ impl Token {
     }
 
     /// Decode token structure from base64 string.
-    fn base64_decode(encoded_token: &str) -> Result<Self, Error> {
+    fn base64_decode(encoded_token: &str) -> Result<Self, MmdsTokenError> {
         let token_bytes = base64::engine::general_purpose::STANDARD
             .decode(encoded_token)
-            .map_err(|_| Error::ExpiryExtraction)?;
+            .map_err(|_| MmdsTokenError::ExpiryExtraction)?;
 
         let token: Token = DefaultOptions::new()
             .with_fixint_encoding()
             .allow_trailing_bytes()
             .with_limit(DESERIALIZATION_BYTES_LIMIT as u64)
             .deserialize(&token_bytes)
-            .map_err(|_| Error::ExpiryExtraction)?;
+            .map_err(|_| MmdsTokenError::ExpiryExtraction)?;
         Ok(token)
     }
 }
@@ -400,7 +400,7 @@ mod tests {
                 .decrypt_expiry(&mut payload, &tag, iv.as_mut())
                 .unwrap_err()
                 .to_string(),
-            Error::ExpiryExtraction.to_string()
+            MmdsTokenError::ExpiryExtraction.to_string()
         );
 
         // Test ciphertext with corrupted payload.
@@ -410,7 +410,7 @@ mod tests {
                 .decrypt_expiry(&mut payload, &tag, iv.as_mut())
                 .unwrap_err()
                 .to_string(),
-            Error::ExpiryExtraction.to_string()
+            MmdsTokenError::ExpiryExtraction.to_string()
         );
 
         // Test ciphertext with corrupted tag.
@@ -423,7 +423,7 @@ mod tests {
                 .decrypt_expiry(&mut payload, &tag, iv.as_mut())
                 .unwrap_err()
                 .to_string(),
-            Error::ExpiryExtraction.to_string()
+            MmdsTokenError::ExpiryExtraction.to_string()
         );
     }
 
@@ -522,7 +522,7 @@ mod tests {
     #[test]
     fn test_error_display() {
         assert_eq!(
-            Error::EntropyPool(io::Error::from_raw_os_error(0)).to_string(),
+            MmdsTokenError::EntropyPool(io::Error::from_raw_os_error(0)).to_string(),
             format!(
                 "Failed to extract entropy from /dev/urandom entropy pool: {}.",
                 io::Error::from_raw_os_error(0)
@@ -530,17 +530,17 @@ mod tests {
         );
 
         assert_eq!(
-            Error::ExpiryExtraction.to_string(),
+            MmdsTokenError::ExpiryExtraction.to_string(),
             "Failed to extract expiry value from token."
         );
 
         assert_eq!(
-            Error::InvalidState.to_string(),
+            MmdsTokenError::InvalidState.to_string(),
             "Invalid token authority state."
         );
 
         assert_eq!(
-            Error::InvalidTtlValue(0).to_string(),
+            MmdsTokenError::InvalidTtlValue(0).to_string(),
             format!(
                 "Invalid time to live value provided for token: 0. Please provide a value between \
                  {} and {}.",
@@ -549,12 +549,13 @@ mod tests {
         );
 
         assert_eq!(
-            Error::Serialization(BincodeError::new(bincode::ErrorKind::SizeLimit)).to_string(),
+            MmdsTokenError::Serialization(BincodeError::new(bincode::ErrorKind::SizeLimit))
+                .to_string(),
             "Bincode serialization failed: the size limit has been reached."
         );
 
         assert_eq!(
-            Error::TokenEncryption.to_string(),
+            MmdsTokenError::TokenEncryption.to_string(),
             "Failed to encrypt token."
         );
     }

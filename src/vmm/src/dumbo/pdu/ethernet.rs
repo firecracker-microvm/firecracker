@@ -28,7 +28,7 @@ pub const ETHERTYPE_IPV4: u16 = 0x0800;
 
 /// Describes the errors which may occur when handling Ethernet frames.
 #[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
-pub enum Error {
+pub enum EthernetError {
     /// The specified byte sequence is shorter than the Ethernet header length.
     SliceTooShort,
 }
@@ -56,9 +56,9 @@ impl<'a, T: NetworkBytes + Debug> EthernetFrame<'a, T> {
 
     /// Checks whether the specified byte sequence can be interpreted as an Ethernet frame.
     #[inline]
-    pub fn from_bytes(bytes: T) -> Result<Self, Error> {
+    pub fn from_bytes(bytes: T) -> Result<Self, EthernetError> {
         if bytes.len() < PAYLOAD_OFFSET {
-            return Err(Error::SliceTooShort);
+            return Err(EthernetError::SliceTooShort);
         }
 
         Ok(EthernetFrame::from_bytes_unchecked(bytes))
@@ -108,9 +108,9 @@ impl<'a, T: NetworkBytesMut + Debug> EthernetFrame<'a, T> {
         dst_mac: MacAddr,
         src_mac: MacAddr,
         ethertype: u16,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, EthernetError> {
         if buf.len() < PAYLOAD_OFFSET {
-            return Err(Error::SliceTooShort);
+            return Err(EthernetError::SliceTooShort);
         }
 
         let mut frame = EthernetFrame::from_bytes_unchecked(buf);
@@ -131,7 +131,7 @@ impl<'a, T: NetworkBytesMut + Debug> EthernetFrame<'a, T> {
         dst_mac: MacAddr,
         src_mac: MacAddr,
         ethertype: u16,
-    ) -> Result<Incomplete<Self>, Error> {
+    ) -> Result<Incomplete<Self>, EthernetError> {
         Ok(Incomplete::new(Self::new_with_header(
             buf, dst_mac, src_mac, ethertype,
         )?))
@@ -200,12 +200,12 @@ mod tests {
 
         assert_eq!(
             EthernetFrame::from_bytes(bad_array.as_ref()).unwrap_err(),
-            Error::SliceTooShort
+            EthernetError::SliceTooShort
         );
         assert_eq!(
             EthernetFrame::new_with_header(bad_array.as_mut(), dst_mac, src_mac, ethertype)
                 .unwrap_err(),
-            Error::SliceTooShort
+            EthernetError::SliceTooShort
         );
 
         {

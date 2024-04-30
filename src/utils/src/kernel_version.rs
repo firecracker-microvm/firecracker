@@ -7,7 +7,7 @@ use std::result::Result;
 use libc::{uname, utsname};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum Error {
+pub enum KernelVersionError {
     /// Error calling uname: {0}
     Uname(#[from] IoError),
     /// Invalid utf-8: {0}
@@ -34,7 +34,7 @@ impl KernelVersion {
         }
     }
 
-    pub fn get() -> Result<Self, Error> {
+    pub fn get() -> Result<Self, KernelVersionError> {
         let mut name: utsname = utsname {
             sysname: [0; 65],
             nodename: [0; 65],
@@ -47,7 +47,7 @@ impl KernelVersion {
         let res = unsafe { uname((&mut name) as *mut utsname) };
 
         if res < 0 {
-            return Err(Error::Uname(IoError::last_os_error()));
+            return Err(KernelVersionError::Uname(IoError::last_os_error()));
         }
 
         Self::parse(String::from_utf8(
@@ -59,12 +59,12 @@ impl KernelVersion {
         )?)
     }
 
-    fn parse(release: String) -> Result<Self, Error> {
+    fn parse(release: String) -> Result<Self, KernelVersionError> {
         let mut tokens = release.split('.');
 
-        let major = tokens.next().ok_or(Error::InvalidFormat)?;
-        let minor = tokens.next().ok_or(Error::InvalidFormat)?;
-        let mut patch = tokens.next().ok_or(Error::InvalidFormat)?;
+        let major = tokens.next().ok_or(KernelVersionError::InvalidFormat)?;
+        let minor = tokens.next().ok_or(KernelVersionError::InvalidFormat)?;
+        let mut patch = tokens.next().ok_or(KernelVersionError::InvalidFormat)?;
 
         // Parse the `patch`, since it may contain other tokens as well.
         if let Some(index) = patch.find(|c: char| !c.is_ascii_digit()) {

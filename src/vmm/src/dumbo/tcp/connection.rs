@@ -13,7 +13,7 @@ use bitflags::bitflags;
 use utils::rand::xor_pseudo_rng_u32;
 
 use crate::dumbo::pdu::bytes::NetworkBytes;
-use crate::dumbo::pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
+use crate::dumbo::pdu::tcp::{Flags as TcpFlags, TcpError as TcpSegmentError, TcpSegment};
 use crate::dumbo::pdu::Incomplete;
 use crate::dumbo::tcp::{
     seq_after, seq_at_or_after, NextSegmentStatus, RstConfig, MAX_WINDOW_SIZE, MSS_DEFAULT,

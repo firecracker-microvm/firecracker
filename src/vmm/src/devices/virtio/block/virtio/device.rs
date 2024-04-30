@@ -53,7 +53,7 @@ pub enum FileEngineType {
 
 impl FileEngineType {
     /// Whether the Async engine is supported on the current host kernel.
-    pub fn is_supported(&self) -> Result<bool, utils::kernel_version::Error> {
+    pub fn is_supported(&self) -> Result<bool, utils::kernel_version::KernelVersionError> {
         match self {
             Self::Async if KernelVersion::get()? < min_kernel_version_for_io_uring() => Ok(false),
             _ => Ok(true),

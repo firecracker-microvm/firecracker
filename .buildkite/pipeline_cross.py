@@ -41,6 +41,7 @@ def cross_steps():
     instances_aarch64 = ["m6g.metal", "m7g.metal"]
     groups = []
     commands = [
+        "./tools/devtool -y build --release",
         "./tools/devtool -y sh ./tools/create_snapshot_artifact/main.py",
         "mkdir -pv snapshots/{instance}_{kv}",
         "sudo chown -Rc $USER: snapshot_artifacts",
@@ -70,7 +71,8 @@ def cross_steps():
 
     # https://github.com/firecracker-microvm/firecracker/blob/main/docs/kernel-policy.md#experimental-snapshot-compatibility-across-kernel-versions
     aarch64_platforms = [
-        ("al2", "linux_5.10"),
+        # TODO: unpin kernel 5.10 AMI once we fix io_uring test failures.
+        ("al2", "linux_5.10-pinned"),
         ("al2023", "linux_6.1"),
     ]
     perms_aarch64 = itertools.product(

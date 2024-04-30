@@ -22,8 +22,9 @@ pub mod x86_64;
 
 #[cfg(target_arch = "x86_64")]
 pub use crate::arch::x86_64::{
-    arch_memory_regions, configure_system, get_kernel_start, initrd_load_addr,
-    layout::CMDLINE_MAX_SIZE, layout::IRQ_BASE, layout::IRQ_MAX, ConfigurationError, MMIO_MEM_SIZE,
+    arch_memory_regions, configure_system, get_kernel_start, initrd_load_addr, layout::APIC_ADDR,
+    layout::CMDLINE_MAX_SIZE, layout::IOAPIC_ADDR, layout::IRQ_BASE, layout::IRQ_MAX,
+    layout::SYSTEM_MEM_SIZE, layout::SYSTEM_MEM_START, ConfigurationError, MMIO_MEM_SIZE,
     MMIO_MEM_START,
 };
 

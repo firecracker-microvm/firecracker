@@ -7,13 +7,10 @@
 
 use std::fmt::{Debug, Write};
 
-use kvm_bindings::*;
 use kvm_ioctls::*;
 use serde::{Deserialize, Serialize};
 
-use crate::arch::aarch64::regs::{
-    arm64_core_reg_id, offset__of, Aarch64RegisterVec, KVM_REG_ARM64_SVE_VLS, KVM_REG_ARM_TIMER_CNT,
-};
+use crate::arch::aarch64::regs::{Aarch64RegisterVec, KVM_REG_ARM64_SVE_VLS};
 use crate::arch::aarch64::vcpu::{
     get_all_registers, get_all_registers_ids, get_mpidr, get_mpstate, get_registers, set_mpstate,
     set_register, setup_boot_regs, VcpuError as ArchError,
@@ -132,15 +129,12 @@ impl KvmVcpu {
         vm_fd: &VmFd,
         vcpu_features: &[VcpuFeatures],
     ) -> Result<(), KvmVcpuError> {
-        let mut kvi = Self::default_kvi(vm_fd, self.index)?;
+        let mut kvi = Self::default_kvi(vm_fd)?;
 
         for feature in vcpu_features.iter() {
             let index = feature.index as usize;
             kvi.features[index] = feature.bitmap.apply(kvi.features[index]);
         }
-
-        self.init_vcpu(&kvi)?;
-        self.finalize_vcpu(&kvi)?;
 
         self.kvi = if !vcpu_features.is_empty() {
             Some(kvi)
@@ -148,14 +142,19 @@ impl KvmVcpu {
             None
         };
 
+        // Non-boot cpus are powered off initially.
+        if 0 < self.index {
+            kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_POWER_OFF;
+        }
+
+        self.init_vcpu(&kvi)?;
+        self.finalize_vcpu(&kvi)?;
+
         Ok(())
     }
 
     /// Creates default kvi struct based on vcpu index.
-    pub fn default_kvi(
-        vm_fd: &VmFd,
-        index: u8,
-    ) -> Result<kvm_bindings::kvm_vcpu_init, KvmVcpuError> {
+    pub fn default_kvi(vm_fd: &VmFd) -> Result<kvm_bindings::kvm_vcpu_init, KvmVcpuError> {
         let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
         // This reads back the kernel's preferred target type.
         vm_fd
@@ -163,11 +162,6 @@ impl KvmVcpu {
             .map_err(KvmVcpuError::GetPreferredTarget)?;
         // We already checked that the capability is supported.
         kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_PSCI_0_2;
-
-        // Non-boot cpus are powered off initially.
-        if index > 0 {
-            kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_POWER_OFF;
-        }
 
         Ok(kvi)
     }
@@ -188,7 +182,7 @@ impl KvmVcpu {
     pub fn restore_state(&mut self, vm_fd: &VmFd, state: &VcpuState) -> Result<(), KvmVcpuError> {
         let kvi = match state.kvi {
             Some(kvi) => kvi,
-            None => Self::default_kvi(vm_fd, self.index)?,
+            None => Self::default_kvi(vm_fd)?,
         };
         self.kvi = state.kvi;
 
@@ -221,22 +215,7 @@ impl KvmVcpu {
 
     /// Dumps CPU configuration.
     pub fn dump_cpu_config(&self) -> Result<CpuConfiguration, KvmVcpuError> {
-        let mut reg_list = get_all_registers_ids(&self.fd).map_err(KvmVcpuError::DumpCpuConfig)?;
-
-        let kvm_reg_pc = {
-            let kreg_off = offset__of!(kvm_regs, regs);
-            let pc_off = offset__of!(user_pt_regs, pc) + kreg_off;
-            arm64_core_reg_id!(KVM_REG_SIZE_U64, pc_off)
-        };
-
-        // KVM_REG_ARM_TIMER_CNT should be removed, because it depends on the elapsed time and
-        // the dumped CPU config is used to create custom CPU templates to modify CPU features
-        // exposed to guests or ot detect CPU configuration changes caused by firecracker/KVM/
-        // BIOS.
-        // The value of program counter (PC) is determined by the given kernel image. It should not
-        // be overwritten by a custom CPU template and does not need to be tracked in a fingerprint
-        // file.
-        reg_list.retain(|&reg_id| reg_id != KVM_REG_ARM_TIMER_CNT && reg_id != kvm_reg_pc);
+        let reg_list = get_all_registers_ids(&self.fd).map_err(KvmVcpuError::DumpCpuConfig)?;
 
         let mut regs = Aarch64RegisterVec::default();
         get_registers(&self.fd, &reg_list, &mut regs).map_err(KvmVcpuError::DumpCpuConfig)?;

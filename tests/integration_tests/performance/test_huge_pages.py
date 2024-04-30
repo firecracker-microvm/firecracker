@@ -18,11 +18,13 @@ def check_hugetlbfs_in_use(pid: int, allocation_name: str):
 
     `allocation_name` should be the name of the smaps entry for which we want to verify that huge pages are used.
     For memfd-backed guest memory, this would be "memfd:guest_mem" (the `guest_mem` part originating from the name
-    we give the memfd in memory.rs), for anonymous memory this would be "/anon_hugepage"
+    we give the memfd in memory.rs), for anonymous memory this would be "/anon_hugepage".
+    Note: in our testing, we do not currently configure vhost-user-blk devices, so we only exercise
+    the "/anon_hugepage" case.
     """
 
     # Format of a sample smaps entry:
-    #   7fc2bc400000-7fc2cc400000 rw-s 00000000 00:10 25488401                   /memfd:guest_mem (deleted)
+    #   7fc2bc400000-7fc2cc400000 rw-s 00000000 00:10 25488401                   /anon_hugepage
     #   Size:             262144 kB
     #   KernelPageSize:     2048 kB
     #   MMUPageSize:        2048 kB
@@ -64,13 +66,11 @@ def test_hugetlbfs_boot(uvm_plain):
     uvm_plain.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB, mem_size_mib=128)
     uvm_plain.add_net_iface()
     uvm_plain.start()
-
-    rc, _, _ = uvm_plain.ssh.run("true")
-    assert not rc
+    uvm_plain.wait_for_up()
 
     check_hugetlbfs_in_use(
         uvm_plain.firecracker_pid,
-        "memfd:guest_mem",
+        "/anon_hugepage",
     )
 
 
@@ -92,12 +92,9 @@ def test_hugetlbfs_snapshot(
     vm.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB, mem_size_mib=128)
     vm.add_net_iface()
     vm.start()
+    vm.wait_for_up()
 
-    # Wait for microvm to boot
-    rc, _, _ = vm.ssh.run("true")
-    assert not rc
-
-    check_hugetlbfs_in_use(vm.firecracker_pid, "memfd:guest_mem")
+    check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
 
     snapshot = vm.snapshot_full()
 
@@ -113,10 +110,7 @@ def test_hugetlbfs_snapshot(
     )
 
     vm.restore_from_snapshot(snapshot, resume=True, uffd_path=SOCKET_PATH)
-
-    # Verify if guest can run commands.
-    rc, _, _ = vm.ssh.run("true")
-    assert not rc
+    vm.wait_for_up()
 
     check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
 
@@ -144,8 +138,7 @@ def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain, uffd_handler_paths)
     uvm_plain.start()
 
     # Wait for microvm to boot
-    rc, _, _ = uvm_plain.ssh.run("true")
-    assert not rc
+    uvm_plain.wait_for_up()
 
     base_snapshot = uvm_plain.snapshot_diff()
     uvm_plain.resume()
@@ -169,9 +162,8 @@ def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain, uffd_handler_paths)
 
     vm.restore_from_snapshot(snapshot_merged, resume=True, uffd_path=SOCKET_PATH)
 
-    # Verify if guest can run commands.
-    rc, _, _ = vm.ssh.run("true")
-    assert not rc
+    # Verify if the restored microvm works.
+    vm.wait_for_up()
 
 
 @pytest.mark.skipif(
@@ -238,6 +230,7 @@ def test_ept_violation_count(
 
     with ftrace_events("kvm:*"):
         vm.restore_from_snapshot(snapshot, resume=True, uffd_path=SOCKET_PATH)
+        vm.wait_for_up()
 
         # Verify if guest can run commands, and also wake up the fast page fault helper to trigger page faults.
         rc, _, _ = vm.ssh.run(f"kill -s {signal.SIGUSR1} {pid}")
@@ -253,7 +246,7 @@ def test_ept_violation_count(
             # On ARM, KVM does not differentiate why it got a guest page fault.
             # However, even in this slightly more general metric, we see a significant
             # difference between 4K and 2M pages.
-            trace_entry = "guest_page_fault"
+            trace_entry = "kvm_guest_fault"
             metric = "guest_page_faults"
 
         _, metric_value, _ = utils.run_cmd(

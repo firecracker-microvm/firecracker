@@ -395,7 +395,7 @@ pub mod test {
         pub fn get_default() -> TestHelper<'a> {
             let mut event_manager = EventManager::new().unwrap();
             let mut net = default_net();
-            let mem = single_region_mem(MAX_BUFFER_SIZE);
+            let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
 
             // transmute mem_ref lifetime to 'a
             let mem_ref = unsafe { mem::transmute::<&GuestMemoryMmap, &'a GuestMemoryMmap>(&mem) };

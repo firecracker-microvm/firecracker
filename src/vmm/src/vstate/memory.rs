@@ -104,6 +104,9 @@ where
         writer: &mut T,
         dirty_bitmap: &DirtyBitmap,
     ) -> Result<(), MemoryError>;
+
+    /// Resets all the memory region bitmaps
+    fn reset_dirty(&self);
 }
 
 /// State of a guest memory region saved to file/buffer.
@@ -348,6 +351,15 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                 Ok(())
             })
             .map_err(MemoryError::WriteMemory)
+    }
+
+    /// Resets all the memory region bitmaps
+    fn reset_dirty(&self) {
+        self.iter().for_each(|region| {
+            if let Some(bitmap) = region.bitmap() {
+                bitmap.reset();
+            }
+        })
     }
 }
 

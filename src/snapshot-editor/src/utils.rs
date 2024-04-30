@@ -18,11 +18,11 @@ pub enum UtilsError {
     /// Can not retrieve metadata for snapshot file: {0}
     VmStateFileMeta(std::io::Error),
     /// Can not load snapshot: {0}
-    VmStateLoad(vmm::snapshot::Error),
+    VmStateLoad(vmm::snapshot::SnapshotError),
     /// Can not open output file: {0}
     OutputFileOpen(std::io::Error),
     /// Can not save snapshot: {0}
-    VmStateSave(vmm::snapshot::Error),
+    VmStateSave(vmm::snapshot::SnapshotError),
 }
 
 #[allow(unused)]

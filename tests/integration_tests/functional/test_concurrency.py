@@ -42,10 +42,8 @@ def test_run_concurrency_with_mmds(microvm_factory, guest_kernel, rootfs):
         populate_data_store(microvm, data_store)
         microvm.basic_config(vcpu_count=1, mem_size_mib=128)
         microvm.start()
+        microvm.wait_for_up()
 
-        # We check that the vm is running by testing that the ssh does
-        # not time out.
-        microvm.ssh.run("true")
         microvms.append(microvm)
 
     # With all guests launched and running send a batch of
@@ -85,10 +83,7 @@ def test_run_concurrency(microvm_factory, guest_kernel, rootfs):
         microvm.basic_config(vcpu_count=1, mem_size_mib=128)
         microvm.add_net_iface()
         microvm.start()
-
-        # We check that the vm is running by testing that the ssh does
-        # not time out.
-        microvm.ssh.run("true")
+        microvm.wait_for_up()
 
     with ThreadPoolExecutor(max_workers=NO_OF_MICROVMS) as tpe:
         for _ in range(NO_OF_MICROVMS):

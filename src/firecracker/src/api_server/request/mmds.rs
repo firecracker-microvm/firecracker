@@ -7,15 +7,15 @@ use vmm::mmds::data_store::MmdsVersion;
 use vmm::rpc_interface::VmmAction;
 use vmm::vmm_config::mmds::MmdsConfig;
 
-use super::super::parsed_request::{Error, ParsedRequest};
+use super::super::parsed_request::{ParsedRequest, RequestError};
 use super::Body;
 
-pub(crate) fn parse_get_mmds() -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_get_mmds() -> Result<ParsedRequest, RequestError> {
     METRICS.get_api_requests.mmds_count.inc();
     Ok(ParsedRequest::new_sync(VmmAction::GetMMDS))
 }
 
-fn parse_put_mmds_config(body: &Body) -> Result<ParsedRequest, Error> {
+fn parse_put_mmds_config(body: &Body) -> Result<ParsedRequest, RequestError> {
     let config: MmdsConfig = serde_json::from_slice(body.raw()).map_err(|err| {
         METRICS.put_api_requests.mmds_fails.inc();
         err
@@ -38,7 +38,7 @@ fn parse_put_mmds_config(body: &Body) -> Result<ParsedRequest, Error> {
 pub(crate) fn parse_put_mmds(
     body: &Body,
     path_second_token: Option<&str>,
-) -> Result<ParsedRequest, Error> {
+) -> Result<ParsedRequest, RequestError> {
     METRICS.put_api_requests.mmds_count.inc();
     match path_second_token {
         None => Ok(ParsedRequest::new_sync(VmmAction::PutMMDS(
@@ -50,7 +50,7 @@ pub(crate) fn parse_put_mmds(
         Some("config") => parse_put_mmds_config(body),
         Some(unrecognized) => {
             METRICS.put_api_requests.mmds_fails.inc();
-            Err(Error::Generic(
+            Err(RequestError::Generic(
                 StatusCode::BadRequest,
                 format!("Unrecognized PUT request path `{}`.", unrecognized),
             ))
@@ -58,7 +58,7 @@ pub(crate) fn parse_put_mmds(
     }
 }
 
-pub(crate) fn parse_patch_mmds(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_patch_mmds(body: &Body) -> Result<ParsedRequest, RequestError> {
     METRICS.patch_api_requests.mmds_count.inc();
     Ok(ParsedRequest::new_sync(VmmAction::PatchMMDS(
         serde_json::from_slice(body.raw()).map_err(|err| {

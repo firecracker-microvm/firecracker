@@ -5,10 +5,10 @@ use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
 use vmm::vmm_config::vsock::VsockDeviceConfig;
 
-use super::super::parsed_request::{Error, ParsedRequest};
+use super::super::parsed_request::{ParsedRequest, RequestError};
 use super::Body;
 
-pub(crate) fn parse_put_vsock(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_put_vsock(body: &Body) -> Result<ParsedRequest, RequestError> {
     METRICS.put_api_requests.vsock_count.inc();
     let vsock_cfg = serde_json::from_slice::<VsockDeviceConfig>(body.raw()).map_err(|err| {
         METRICS.put_api_requests.vsock_fails.inc();

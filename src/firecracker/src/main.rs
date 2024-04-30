@@ -22,12 +22,12 @@ use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
 use vmm::builder::StartMicrovmError;
 use vmm::logger::{
-    debug, error, info, warn, LoggerConfig, ProcessTimeReporter, StoreMetric, LOGGER, METRICS,
+    debug, error, info, LoggerConfig, ProcessTimeReporter, StoreMetric, LOGGER, METRICS,
 };
 use vmm::persist::SNAPSHOT_VERSION;
 use vmm::resources::VmResources;
 use vmm::signal_handler::register_signal_handlers;
-use vmm::snapshot::{Error as SnapshotError, Snapshot};
+use vmm::snapshot::{Snapshot, SnapshotError};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
 use vmm::{EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
@@ -48,7 +48,7 @@ enum MainError {
     /// Failed to register signal handlers: {0}
     RegisterSignalHandlers(#[source] utils::errno::Error),
     /// Arguments parsing error: {0} \n\nFor more information try --help.
-    ParseArguments(#[from] utils::arg_parser::Error),
+    ParseArguments(#[from] utils::arg_parser::UtilsArgParserError),
     /// When printing Snapshot Data format: {0}
     PrintSnapshotDataFormat(#[from] SnapshotVersionError),
     /// Invalid value for logger level: {0}.Possible values: [Error, Warning, Info, Debug]
@@ -397,7 +397,6 @@ fn main_exec() -> Result<(), MainError> {
         });
 
         let start_time_cpu_us = arguments.single_value("start-time-cpu-us").map(|s| {
-            warn!("The --start-time-cpu-us argument is deprecated");
             s.parse::<u64>()
                 .expect("'start-time-cpu-us' parameter expected to be of 'u64' type.")
         });

@@ -4,10 +4,10 @@
 use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
 
-use super::super::parsed_request::{Error, ParsedRequest};
+use super::super::parsed_request::{ParsedRequest, RequestError};
 use super::Body;
 
-pub(crate) fn parse_put_logger(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_put_logger(body: &Body) -> Result<ParsedRequest, RequestError> {
     METRICS.put_api_requests.logger_count.inc();
     let res = serde_json::from_slice::<vmm::logger::LoggerConfig>(body.raw());
     let config = res.map_err(|err| {

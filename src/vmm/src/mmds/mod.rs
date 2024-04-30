@@ -19,14 +19,14 @@ use micro_http::{
 use serde_json::{Map, Value};
 use token_headers::TokenHeaders;
 
-use crate::mmds::data_store::{Error as MmdsError, Mmds, MmdsVersion, OutputFormat};
+use crate::mmds::data_store::{Mmds, MmdsDatastoreError as MmdsError, MmdsVersion, OutputFormat};
 use crate::mmds::token::PATH_TO_TOKEN;
 use crate::mmds::token_headers::REJECTED_HEADER;
 
 #[rustfmt::skip]
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 /// MMDS token errors
-pub enum Error {
+pub enum VmmMmdsError {
     /// MMDS token not valid.
     InvalidToken,
     /// Invalid URI.
@@ -105,7 +105,7 @@ pub fn convert_to_response(mmds: Arc<Mutex<Mmds>>, request: Request) -> Response
         return build_response(
             request.http_version(),
             StatusCode::BadRequest,
-            Body::new(Error::InvalidURI.to_string()),
+            Body::new(VmmMmdsError::InvalidURI.to_string()),
         );
     }
 
@@ -125,7 +125,7 @@ fn respond_to_request_mmdsv1(mmds: &Mmds, request: Request) -> Response {
             let mut response = build_response(
                 request.http_version(),
                 StatusCode::MethodNotAllowed,
-                Body::new(Error::MethodNotAllowed.to_string()),
+                Body::new(VmmMmdsError::MethodNotAllowed.to_string()),
             );
             response.allow_method(Method::Get);
             response
@@ -154,7 +154,7 @@ fn respond_to_request_mmdsv2(mmds: &mut Mmds, request: Request) -> Response {
             let mut response = build_response(
                 request.http_version(),
                 StatusCode::MethodNotAllowed,
-                Body::new(Error::MethodNotAllowed.to_string()),
+                Body::new(VmmMmdsError::MethodNotAllowed.to_string()),
             );
             response.allow_method(Method::Get);
             response.allow_method(Method::Put);
@@ -172,7 +172,7 @@ fn respond_to_get_request_checked(
     let token = match token_headers.x_metadata_token() {
         Some(token) => token,
         None => {
-            let error_msg = Error::NoTokenProvided.to_string();
+            let error_msg = VmmMmdsError::NoTokenProvided.to_string();
             return build_response(
                 request.http_version(),
                 StatusCode::Unauthorized,
@@ -187,7 +187,7 @@ fn respond_to_get_request_checked(
         Ok(false) => build_response(
             request.http_version(),
             StatusCode::Unauthorized,
-            Body::new(Error::InvalidToken.to_string()),
+            Body::new(VmmMmdsError::InvalidToken.to_string()),
         ),
         Err(_) => unreachable!(),
     }
@@ -208,7 +208,7 @@ fn respond_to_get_request_unchecked(mmds: &Mmds, request: Request) -> Response {
         ),
         Err(err) => match err {
             MmdsError::NotFound => {
-                let error_msg = Error::ResourceNotFound(String::from(uri)).to_string();
+                let error_msg = VmmMmdsError::ResourceNotFound(String::from(uri)).to_string();
                 build_response(
                     request.http_version(),
                     StatusCode::NotFound,
@@ -258,7 +258,7 @@ fn respond_to_put_request(
 
     // Only accept PUT requests towards TOKEN_PATH.
     if json_path != PATH_TO_TOKEN {
-        let error_msg = Error::ResourceNotFound(String::from(uri)).to_string();
+        let error_msg = VmmMmdsError::ResourceNotFound(String::from(uri)).to_string();
         return build_response(
             request.http_version(),
             StatusCode::NotFound,
@@ -273,7 +273,7 @@ fn respond_to_put_request(
             return build_response(
                 request.http_version(),
                 StatusCode::BadRequest,
-                Body::new(Error::NoTtlProvided.to_string()),
+                Body::new(VmmMmdsError::NoTtlProvided.to_string()),
             );
         }
     };
@@ -382,7 +382,7 @@ mod tests {
         let request = Request::try_from(request_bytes, None).unwrap();
         let mut expected_response = Response::new(Version::Http10, StatusCode::NotFound);
         expected_response.set_body(Body::new(
-            Error::ResourceNotFound(String::from("/invalid")).to_string(),
+            VmmMmdsError::ResourceNotFound(String::from("/invalid")).to_string(),
         ));
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response, expected_response);
@@ -403,7 +403,7 @@ mod tests {
             let request = Request::try_from(request_bytes.as_bytes(), None).unwrap();
             let mut expected_response =
                 Response::new(Version::Http10, StatusCode::MethodNotAllowed);
-            expected_response.set_body(Body::new(Error::MethodNotAllowed.to_string()));
+            expected_response.set_body(Body::new(VmmMmdsError::MethodNotAllowed.to_string()));
             expected_response.allow_method(Method::Get);
             let actual_response = convert_to_response(mmds.clone(), request);
             assert_eq!(actual_response, expected_response);
@@ -413,7 +413,7 @@ mod tests {
         let request_bytes = b"GET http:// HTTP/1.0\r\n\r\n";
         let request = Request::try_from(request_bytes, None).unwrap();
         let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
-        expected_response.set_body(Body::new(Error::InvalidURI.to_string()));
+        expected_response.set_body(Body::new(VmmMmdsError::InvalidURI.to_string()));
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response, expected_response);
 
@@ -458,7 +458,7 @@ mod tests {
         let request_bytes = b"PATCH http://169.254.169.255/ HTTP/1.0\r\n\r\n";
         let request = Request::try_from(request_bytes, None).unwrap();
         let mut expected_response = Response::new(Version::Http10, StatusCode::MethodNotAllowed);
-        expected_response.set_body(Body::new(Error::MethodNotAllowed.to_string()));
+        expected_response.set_body(Body::new(VmmMmdsError::MethodNotAllowed.to_string()));
         expected_response.allow_method(Method::Get);
         expected_response.allow_method(Method::Put);
         let actual_response = convert_to_response(mmds.clone(), request);
@@ -496,7 +496,7 @@ mod tests {
         let request = Request::try_from(request_bytes, None).unwrap();
         let mut expected_response = Response::new(Version::Http10, StatusCode::NotFound);
         expected_response.set_body(Body::new(
-            Error::ResourceNotFound(String::from("/token")).to_string(),
+            VmmMmdsError::ResourceNotFound(String::from("/token")).to_string(),
         ));
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response, expected_response);
@@ -525,7 +525,7 @@ mod tests {
         let request_bytes = b"PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\r\n";
         let request = Request::try_from(request_bytes, None).unwrap();
         let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
-        expected_response.set_body(Body::new(Error::NoTtlProvided.to_string()));
+        expected_response.set_body(Body::new(VmmMmdsError::NoTtlProvided.to_string()));
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response, expected_response);
 
@@ -572,7 +572,7 @@ mod tests {
         let request = Request::try_from(request_bytes.as_bytes(), None).unwrap();
         let mut expected_response = Response::new(Version::Http10, StatusCode::NotFound);
         expected_response.set_body(Body::new(
-            Error::ResourceNotFound(String::from("/invalid")).to_string(),
+            VmmMmdsError::ResourceNotFound(String::from("/invalid")).to_string(),
         ));
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response, expected_response);
@@ -581,7 +581,7 @@ mod tests {
         let request_bytes = b"GET http://169.254.169.254/ HTTP/1.0\r\n\r\n";
         let request = Request::try_from(request_bytes, None).unwrap();
         let mut expected_response = Response::new(Version::Http10, StatusCode::Unauthorized);
-        expected_response.set_body(Body::new(Error::NoTokenProvided.to_string()));
+        expected_response.set_body(Body::new(VmmMmdsError::NoTokenProvided.to_string()));
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response, expected_response);
 
@@ -590,7 +590,7 @@ mod tests {
                                     X-metadata-token: foo\r\n\r\n";
         let request = Request::try_from(request_bytes, None).unwrap();
         let mut expected_response = Response::new(Version::Http10, StatusCode::Unauthorized);
-        expected_response.set_body(Body::new(Error::InvalidToken.to_string()));
+        expected_response.set_body(Body::new(VmmMmdsError::InvalidToken.to_string()));
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response, expected_response);
 
@@ -614,7 +614,7 @@ mod tests {
             );
             let request = Request::try_from(request_bytes.as_bytes(), None).unwrap();
             let mut expected_response = Response::new(Version::Http10, StatusCode::Unauthorized);
-            expected_response.set_body(Body::new(Error::InvalidToken.to_string()));
+            expected_response.set_body(Body::new(VmmMmdsError::InvalidToken.to_string()));
             let actual_response = convert_to_response(mmds.clone(), request);
             assert_eq!(actual_response, expected_response);
 
@@ -679,28 +679,31 @@ mod tests {
 
     #[test]
     fn test_error_display() {
-        assert_eq!(Error::InvalidToken.to_string(), "MMDS token not valid.");
+        assert_eq!(
+            VmmMmdsError::InvalidToken.to_string(),
+            "MMDS token not valid."
+        );
 
-        assert_eq!(Error::InvalidURI.to_string(), "Invalid URI.");
+        assert_eq!(VmmMmdsError::InvalidURI.to_string(), "Invalid URI.");
 
         assert_eq!(
-            Error::MethodNotAllowed.to_string(),
+            VmmMmdsError::MethodNotAllowed.to_string(),
             "Not allowed HTTP method."
         );
 
         assert_eq!(
-            Error::NoTokenProvided.to_string(),
+            VmmMmdsError::NoTokenProvided.to_string(),
             "No MMDS token provided. Use `X-metadata-token` header to specify the session token."
         );
 
         assert_eq!(
-            Error::NoTtlProvided.to_string(),
+            VmmMmdsError::NoTtlProvided.to_string(),
             "Token time to live value not found. Use `X-metadata-token-ttl-seconds` header to \
              specify the token's lifetime."
         );
 
         assert_eq!(
-            Error::ResourceNotFound(String::from("invalid/")).to_string(),
+            VmmMmdsError::ResourceNotFound(String::from("invalid/")).to_string(),
             "Resource not found: invalid/."
         )
     }

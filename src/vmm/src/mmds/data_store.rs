@@ -7,7 +7,7 @@ use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
 use serde_json::{to_vec, Value};
 
-use crate::mmds::token::{Error as TokenError, TokenAuthority};
+use crate::mmds::token::{MmdsTokenError as TokenError, TokenAuthority};
 
 /// The Mmds is the Microvm Metadata Service represented as an untyped json.
 #[derive(Debug)]
@@ -49,7 +49,7 @@ pub enum OutputFormat {
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 /// MMDS data store errors
-pub enum Error {
+pub enum MmdsDatastoreError {
     /// The MMDS patch request doesn't fit.
     DataStoreLimitExceeded,
     /// The MMDS resource does not exist.
@@ -83,16 +83,16 @@ impl Mmds {
     /// This method is needed to check if data store is initialized.
     /// When a PATCH request is made on an uninitialized Mmds structure this method
     /// should return a NotFound error.
-    fn check_data_store_initialized(&self) -> Result<(), Error> {
+    fn check_data_store_initialized(&self) -> Result<(), MmdsDatastoreError> {
         if self.is_initialized {
             Ok(())
         } else {
-            Err(Error::NotInitialized)
+            Err(MmdsDatastoreError::NotInitialized)
         }
     }
 
     /// Set the MMDS version.
-    pub fn set_version(&mut self, version: MmdsVersion) -> Result<(), Error> {
+    pub fn set_version(&mut self, version: MmdsVersion) -> Result<(), MmdsDatastoreError> {
         match version {
             MmdsVersion::V1 => {
                 self.token_authority = None;
@@ -146,11 +146,11 @@ impl Mmds {
     }
 
     /// put `data` in MMDS data store
-    pub fn put_data(&mut self, data: Value) -> Result<(), Error> {
+    pub fn put_data(&mut self, data: Value) -> Result<(), MmdsDatastoreError> {
         // It is safe to unwrap because any map keys are all strings and
         // we are using default serializer which does not return error.
         if to_vec(&data).unwrap().len() > self.data_store_limit {
-            Err(Error::DataStoreLimitExceeded)
+            Err(MmdsDatastoreError::DataStoreLimitExceeded)
         } else {
             self.data_store = data;
             self.is_initialized = true;
@@ -160,7 +160,7 @@ impl Mmds {
     }
 
     /// patch update MMDS data store with `patch_data`
-    pub fn patch_data(&mut self, patch_data: Value) -> Result<(), Error> {
+    pub fn patch_data(&mut self, patch_data: Value) -> Result<(), MmdsDatastoreError> {
         self.check_data_store_initialized()?;
         let mut data_store_clone = self.data_store.clone();
 
@@ -168,7 +168,7 @@ impl Mmds {
         // It is safe to unwrap because our data store keys are all strings and
         // we are using default serializer which does not return error.
         if to_vec(&data_store_clone).unwrap().len() > self.data_store_limit {
-            return Err(Error::DataStoreLimitExceeded);
+            return Err(MmdsDatastoreError::DataStoreLimitExceeded);
         }
         self.data_store = data_store_clone;
         Ok(())
@@ -219,7 +219,7 @@ impl Mmds {
     /// ```
     ///
     /// If the `serde_json::Value` is not supported, an `UnsupportedValueType` error is returned.
-    fn format_imds(json: &Value) -> Result<String, Error> {
+    fn format_imds(json: &Value) -> Result<String, MmdsDatastoreError> {
         // If the `dict` is Value::Null, Error::NotFound is thrown.
         // If the `dict` is not a dictionary, a Vec with the value corresponding to
         // the key is returned.
@@ -244,7 +244,7 @@ impl Mmds {
                 // Support only `Value::String`.
                 match json.as_str() {
                     Some(str_val) => Ok(str_val.to_string()),
-                    None => Err(Error::UnsupportedValueType),
+                    None => Err(MmdsDatastoreError::UnsupportedValueType),
                 }
             }
         }
@@ -252,7 +252,11 @@ impl Mmds {
 
     /// Returns the subtree located at path. When the path corresponds to a leaf, it returns the
     /// value. Returns Error::NotFound when the path is invalid.
-    pub fn get_value(&self, path: String, format: OutputFormat) -> Result<String, Error> {
+    pub fn get_value(
+        &self,
+        path: String,
+        format: OutputFormat,
+    ) -> Result<String, MmdsDatastoreError> {
         // The pointer function splits the input by "/". With a trailing "/", pointer does not
         // know how to get the object.
         let value = if path.ends_with('/') {
@@ -267,7 +271,7 @@ impl Mmds {
                 OutputFormat::Imds => Mmds::format_imds(json),
             }
         } else {
-            Err(Error::NotFound)
+            Err(MmdsDatastoreError::NotFound)
         }
     }
 }
@@ -358,13 +362,13 @@ mod tests {
             mmds.get_value("/invalid_path".to_string(), OutputFormat::Json)
                 .unwrap_err()
                 .to_string(),
-            Error::NotFound.to_string()
+            MmdsDatastoreError::NotFound.to_string()
         );
         assert_eq!(
             mmds.get_value("/invalid_path".to_string(), OutputFormat::Imds)
                 .unwrap_err()
                 .to_string(),
-            Error::NotFound.to_string()
+            MmdsDatastoreError::NotFound.to_string()
         );
 
         // Retrieve an object.
@@ -397,7 +401,7 @@ mod tests {
                 .err()
                 .unwrap()
                 .to_string(),
-            Error::UnsupportedValueType.to_string()
+            MmdsDatastoreError::UnsupportedValueType.to_string()
         );
 
         // Test path ends with /; Value is a dictionary.
@@ -418,7 +422,7 @@ mod tests {
                 .err()
                 .unwrap()
                 .to_string(),
-            Error::UnsupportedValueType.to_string()
+            MmdsDatastoreError::UnsupportedValueType.to_string()
         );
 
         // Test path does NOT end with /; Value is a dictionary.
@@ -432,7 +436,7 @@ mod tests {
                 .err()
                 .unwrap()
                 .to_string(),
-            Error::UnsupportedValueType.to_string()
+            MmdsDatastoreError::UnsupportedValueType.to_string()
         );
 
         // Retrieve the first element of an array.
@@ -458,7 +462,7 @@ mod tests {
                 .err()
                 .unwrap()
                 .to_string(),
-            Error::UnsupportedValueType.to_string()
+            MmdsDatastoreError::UnsupportedValueType.to_string()
         );
 
         // Retrieve a float.
@@ -472,7 +476,7 @@ mod tests {
                 .err()
                 .unwrap()
                 .to_string(),
-            Error::UnsupportedValueType.to_string()
+            MmdsDatastoreError::UnsupportedValueType.to_string()
         );
 
         // Retrieve a negative integer.
@@ -486,7 +490,7 @@ mod tests {
                 .err()
                 .unwrap()
                 .to_string(),
-            Error::UnsupportedValueType.to_string()
+            MmdsDatastoreError::UnsupportedValueType.to_string()
         );
     }
 
@@ -544,7 +548,7 @@ mod tests {
         let data_store: Value = serde_json::from_str(data).unwrap();
         assert_eq!(
             mmds.patch_data(data_store).unwrap_err().to_string(),
-            Error::DataStoreLimitExceeded.to_string()
+            MmdsDatastoreError::DataStoreLimitExceeded.to_string()
         );
         assert!(!mmds.get_data_str().contains("smth"));
 
@@ -571,7 +575,7 @@ mod tests {
 
         assert_eq!(
             mmds.put_data(data_store).unwrap_err().to_string(),
-            Error::DataStoreLimitExceeded.to_string()
+            MmdsDatastoreError::DataStoreLimitExceeded.to_string()
         );
 
         assert_eq!(mmds.get_data_str().len(), 2);

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::{env as p_env, fs, io};
 
 use env::PROC_MOUNTS;
-use utils::arg_parser::{ArgParser, Argument, Error as ParsingError};
+use utils::arg_parser::{ArgParser, Argument, UtilsArgParserError as ParsingError};
 use utils::syscall::SyscallReturnCode;
 use utils::validators;
 
@@ -88,7 +88,7 @@ pub enum JailerError {
     #[error("Invalid gid: {0}")]
     Gid(String),
     #[error("Invalid instance ID: {0}")]
-    InvalidInstanceId(validators::Error),
+    InvalidInstanceId(validators::ValidatorError),
     #[error("{}", format!("File {:?} doesn't have a parent", .0).replace('\"', ""))]
     MissingParent(PathBuf),
     #[error("Failed to create the jail root directory before pivoting root: {0}")]
@@ -370,6 +370,7 @@ fn main_exec() -> Result<(), JailerError> {
     Env::new(
         arguments,
         utils::time::get_time_us(utils::time::ClockType::Monotonic),
+        utils::time::get_time_us(utils::time::ClockType::ProcessCpu),
         PROC_MOUNTS,
     )
     .and_then(|env| {

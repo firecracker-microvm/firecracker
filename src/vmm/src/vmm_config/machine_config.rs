@@ -41,8 +41,8 @@ pub enum VmConfigError {
 
 // We cannot do a `KernelVersion(kernel_version::Error)` variant because `kernel_version::Error`
 // does not implement `PartialEq, Eq` (due to containing an io error).
-impl From<kernel_version::Error> for VmConfigError {
-    fn from(_: kernel_version::Error) -> Self {
+impl From<kernel_version::KernelVersionError> for VmConfigError {
+    fn from(_: kernel_version::KernelVersionError) -> Self {
         VmConfigError::KernelVersion
     }
 }

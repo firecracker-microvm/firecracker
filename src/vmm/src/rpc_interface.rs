@@ -156,12 +156,12 @@ pub enum VmmActionError {
     Metrics(#[from] MetricsConfigError),
     #[from(ignore)]
     /// MMDS error: {0}
-    Mmds(#[from] data_store::Error),
+    Mmds(#[from] data_store::MmdsDatastoreError),
     /// MMMDS config error: {0}
     MmdsConfig(#[from] MmdsConfigError),
     #[from(ignore)]
     /// MMDS limit exceeded error: {0}
-    MmdsLimitExceeded(data_store::Error),
+    MmdsLimitExceeded(data_store::MmdsDatastoreError),
     /// Network config error: {0}
     NetworkConfig(#[from] NetworkInterfaceError),
     /// The requested operation is not supported: {0}
@@ -214,8 +214,10 @@ trait MmdsRequestHandler {
             .patch_data(value)
             .map(|()| VmmData::Empty)
             .map_err(|err| match err {
-                data_store::Error::DataStoreLimitExceeded => {
-                    VmmActionError::MmdsLimitExceeded(data_store::Error::DataStoreLimitExceeded)
+                data_store::MmdsDatastoreError::DataStoreLimitExceeded => {
+                    VmmActionError::MmdsLimitExceeded(
+                        data_store::MmdsDatastoreError::DataStoreLimitExceeded,
+                    )
                 }
                 _ => VmmActionError::Mmds(err),
             })
@@ -226,8 +228,10 @@ trait MmdsRequestHandler {
             .put_data(value)
             .map(|()| VmmData::Empty)
             .map_err(|err| match err {
-                data_store::Error::DataStoreLimitExceeded => {
-                    VmmActionError::MmdsLimitExceeded(data_store::Error::DataStoreLimitExceeded)
+                data_store::MmdsDatastoreError::DataStoreLimitExceeded => {
+                    VmmActionError::MmdsLimitExceeded(
+                        data_store::MmdsDatastoreError::DataStoreLimitExceeded,
+                    )
                 }
                 _ => VmmActionError::Mmds(err),
             })
@@ -290,7 +294,7 @@ pub type ApiResponse = Box<std::result::Result<VmmData, VmmActionError>>;
 #[derive(Debug, thiserror::Error, displaydoc::Display, derive_more::From)]
 pub enum BuildMicrovmFromRequestsError {
     /// Populating MMDS from file failed: {0:?}.
-    Mmds(data_store::Error),
+    Mmds(data_store::MmdsDatastoreError),
     /// Loading snapshot failed.
     Restore,
     /// Resuming MicroVM after loading snapshot failed.
@@ -1591,7 +1595,7 @@ mod tests {
         // MMDS data store is not yet initialized.
         check_preboot_request_err(
             VmmAction::PatchMMDS(Value::String("string".to_string())),
-            VmmActionError::Mmds(data_store::Error::NotInitialized),
+            VmmActionError::Mmds(data_store::MmdsDatastoreError::NotInitialized),
         );
 
         check_preboot_request_with_mmds(
@@ -1657,7 +1661,7 @@ mod tests {
         // MMDS data store is not yet initialized.
         check_runtime_request_err(
             VmmAction::PatchMMDS(Value::String("string".to_string())),
-            VmmActionError::Mmds(data_store::Error::NotInitialized),
+            VmmActionError::Mmds(data_store::MmdsDatastoreError::NotInitialized),
         );
 
         check_runtime_request_with_mmds(
