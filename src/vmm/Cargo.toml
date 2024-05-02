@@ -19,10 +19,10 @@ crc64 = "2.0.0"
 derive_more = { version = "0.99.17", default-features = false, features = ["from", "display"] }
 displaydoc = "0.2.4"
 event-manager = "0.4.0"
-kvm-bindings = { version = "0.7.0", features = ["fam-wrappers"] }
-kvm-ioctls = "0.16.0"
+kvm-bindings = { version = "0.8.0", features = ["fam-wrappers", "serde"] }
+kvm-ioctls = "0.17.0"
 lazy_static = "1.4.0"
-libc = "0.2.117"
+libc = "0.2.154"
 linux-loader = "0.11.0"
 log = { version = "0.4.17", features = ["std", "serde"] }
 log-instrument = { path = "../log-instrument", optional = true }
@@ -31,7 +31,7 @@ micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 
 seccompiler = { path = "../seccompiler" }
 semver = { version = "1.0.17", features = ["serde"] }
-serde = { version = "1.0.198", features = ["derive", "rc"] }
+serde = { version = "1.0.199", features = ["derive", "rc"] }
 serde_json = "1.0.116"
 slab = "0.4.7"
 smallvec = "1.11.2"
@@ -42,7 +42,7 @@ utils = { path = "../utils" }
 vhost = { version = "0.11.0", features = ["vhost-user-frontend"] }
 vm-allocator = "0.1.0"
 vm-memory = { version = "0.14.1", features = ["backend-mmap", "backend-bitmap"] }
-vm-superio = "0.7.0"
+vm-superio = "0.8.0"
 zerocopy = { version = "0.7.32" }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]

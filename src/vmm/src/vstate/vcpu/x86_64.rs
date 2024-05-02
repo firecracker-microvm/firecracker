@@ -39,16 +39,8 @@ pub enum KvmVcpuError {
     ConvertCpuidType(#[from] cpuid::CpuidTryFromKvmCpuid),
     /// Failed FamStructWrapper operation: {0}
     Fam(#[from] utils::fam::Error),
-    /// Error configuring the floating point related registers: {0}
-    FpuConfiguration(crate::arch::x86_64::regs::RegsError),
     /// Failed to get dumpable MSR index list: {0}
     GetMsrsToDump(#[from] crate::arch::x86_64::msr::MsrError),
-    /// Cannot set the local interruption due to bad configuration: {0}
-    LocalIntConfiguration(crate::arch::x86_64::interrupts::InterruptError),
-    /// Error configuring the general purpose registers: {0}
-    RegsConfiguration(crate::arch::x86_64::regs::RegsError),
-    /// Error configuring the special registers: {0}
-    SregsConfiguration(crate::arch::x86_64::regs::RegsError),
     /// Cannot open the VCPU file descriptor: {0}
     VcpuFd(kvm_ioctls::Error),
     /// Failed to get KVM vcpu debug regs: {0}
@@ -97,10 +89,6 @@ pub enum KvmVcpuError {
     VcpuSetXcrs(kvm_ioctls::Error),
     /// Failed to set KVM vcpu xsave: {0}
     VcpuSetXsave(kvm_ioctls::Error),
-    /// Failed to set KVM TSC frequency: {0}
-    VcpuSetTsc(kvm_ioctls::Error),
-    /// Failed to apply CPU template
-    VcpuTemplateError,
 }
 
 /// Error type for [`KvmVcpu::get_tsc_khz`] and [`KvmVcpu::is_tsc_scaling_required`].
@@ -141,11 +129,18 @@ pub struct KvmVcpu {
     pub index: u8,
     /// KVM vcpu fd.
     pub fd: VcpuFd,
+    /// Vcpu peripherals, such as buses
+    pub(super) peripherals: Peripherals,
+    msrs_to_save: HashSet<u32>,
+}
+
+/// Vcpu peripherals
+#[derive(Default, Debug)]
+pub(super) struct Peripherals {
     /// Pio bus.
     pub pio_bus: Option<crate::devices::Bus>,
     /// Mmio bus.
     pub mmio_bus: Option<crate::devices::Bus>,
-    msrs_to_save: HashSet<u32>,
 }
 
 impl KvmVcpu {
@@ -164,8 +159,7 @@ impl KvmVcpu {
         Ok(KvmVcpu {
             index,
             fd: kvm_vcpu,
-            pio_bus: None,
-            mmio_bus: None,
+            peripherals: Default::default(),
             msrs_to_save: vm.msrs_to_save().as_slice().iter().copied().collect(),
         })
     }
@@ -251,7 +245,7 @@ impl KvmVcpu {
 
     /// Sets a Port Mapped IO bus for this vcpu.
     pub fn set_pio_bus(&mut self, pio_bus: crate::devices::Bus) {
-        self.pio_bus = Some(pio_bus);
+        self.peripherals.pio_bus = Some(pio_bus);
     }
 
     /// Get the current TSC frequency for this vCPU.
@@ -505,7 +499,9 @@ impl KvmVcpu {
             .map_err(KvmVcpuError::VcpuSetVcpuEvents)?;
         Ok(())
     }
+}
 
+impl Peripherals {
     /// Runs the vCPU in KVM context and handles the kvm exit reason.
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.
@@ -542,7 +538,7 @@ impl KvmVcpu {
 }
 
 /// Structure holding VCPU kvm state.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct VcpuState {
     /// CpuId.
     pub cpuid: CpuId,
@@ -858,11 +854,10 @@ mod tests {
         // Test `is_tsc_scaling_required` as if it were on the same
         // CPU model as the one in the snapshot state.
         let (_vm, vcpu, _) = setup_vcpu(0x1000);
-        let orig_state = vcpu.save_state().unwrap();
 
         {
             // The frequency difference is within tolerance.
-            let mut state = orig_state.clone();
+            let mut state = vcpu.save_state().unwrap();
             state.tsc_khz = Some(
                 state.tsc_khz.unwrap()
                     + state.tsc_khz.unwrap() * TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR / 2,
@@ -874,7 +869,7 @@ mod tests {
 
         {
             // The frequency difference is over the tolerance.
-            let mut state = orig_state;
+            let mut state = vcpu.save_state().unwrap();
             state.tsc_khz = Some(
                 state.tsc_khz.unwrap()
                     + state.tsc_khz.unwrap() * TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR * 2,

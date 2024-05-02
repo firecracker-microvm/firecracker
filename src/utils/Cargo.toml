@@ -11,12 +11,12 @@ bench = false
 [dependencies]
 derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
 displaydoc = "0.2.4"
-libc = "0.2.147"
+libc = "0.2.154"
 log-instrument = { path = "../log-instrument", optional = true }
-serde = { version = "1.0.198", features = ["derive"] }
+serde = { version = "1.0.199", features = ["derive"] }
 thiserror = "1.0.59"
 vm-memory = { version = "0.14.1", features = ["backend-mmap", "backend-bitmap"] }
-vmm-sys-util = "0.12.1"
+vmm-sys-util = { version = "0.12.1", features = ["with-serde"] }
 
 [dev-dependencies]
 serde_json = "1.0.116"
