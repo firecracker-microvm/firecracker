@@ -260,6 +260,25 @@ tools/ab_test.py analyze <first test-report.json> <second test-report.json>
 
 This will then print the same analysis described in the previous sections.
 
+#### Troubleshooting
+
+If during `tools/ab_test.py analyze` you get an error like
+
+```bash
+$ tools/ab_test.py analyze <first test-report.json> <second test-report.json>
+Traceback (most recent call last):
+  File "/firecracker/tools/ab_test.py", line 412, in <module>
+    data_a = load_data_series(args.report_a)
+  File "/firecracker/tools/ab_test.py", line 122, in load_data_series
+    for line in test["teardown"]["stdout"].splitlines():
+KeyError: 'stdout'
+```
+
+double check that the `AWS_EMF_ENVIRONMENT` and `AWS_EMF_NAMESPACE` environment
+variables are set to `local`. Particularly, when collecting data from buildkite
+pipelines generated from `.buildkite/pipeline_perf.py`, ensure you pass
+`--step-param env/AWS_EMF_NAMESPACE=local --step-param env/AWS_EMF_SERVICE_NAME=local`!
+
 ## Adding Python Tests
 
 Tests can be added in any (existing or new) sub-directory of `tests/`, in files
