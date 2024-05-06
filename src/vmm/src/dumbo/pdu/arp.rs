@@ -402,9 +402,6 @@ mod tests {
             EthIPv4ArpFrame::request_from_bytes(&a[..ETH_IPV4_FRAME_LEN]).unwrap_err(),
             ArpError::Operation
         );
-
-        // TODO: The following test code is way more verbose than it should've been. Make it
-        // prettier at some point.
         
         // Various requests
         let requests = [
