@@ -258,18 +258,20 @@ def microvm_factory(request, record_property, results_dir):
     uvm_factory = MicroVMFactory(fc_binary_path, jailer_binary_path)
     yield uvm_factory
 
-    # if the test failed, save fc.log in test_results for troubleshooting
+    # if the test failed, save important files from the root of the uVM into `test_results` for troubleshooting
     report = request.node.stash[PHASE_REPORT_KEY]
     if "call" in report and report["call"].failed:
         for uvm in uvm_factory.vms:
-            if not uvm.log_file.exists():
-                continue
-            dst = results_dir / uvm.id / uvm.log_file.name
-            dst.parent.mkdir()
-            shutil.copy(uvm.log_file, dst)
-            if uvm.metrics_file.exists():
-                dst = results_dir / uvm.id / uvm.metrics_file.name
-                shutil.copy(uvm.metrics_file, dst)
+            uvm_data = results_dir / uvm.id
+            uvm_data.mkdir()
+
+            uvm_root = uvm.path / "root"
+            for item in os.listdir(uvm_root):
+                src = uvm_root / item
+                if not os.path.isfile(src):
+                    continue
+                dst = uvm_data / item
+                shutil.copy(src, dst)
 
     uvm_factory.kill()
 
