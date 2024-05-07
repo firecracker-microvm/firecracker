@@ -29,8 +29,8 @@ use crate::vstate::vm::Vm;
 // The value of 250 parts per million is based on
 // the QEMU approach, more details here:
 // https://bugzilla.redhat.com/show_bug.cgi?id=1839095
-const TSC_KHZ_TOL_NUMERATOR: u32 = 250;
-const TSC_KHZ_TOL_DENOMINATOR: u32 = 1_000_000;
+const TSC_KHZ_TOL_NUMERATOR: i64 = 250;
+const TSC_KHZ_TOL_DENOMINATOR: i64 = 1_000_000;
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
@@ -433,7 +433,8 @@ impl KvmVcpu {
         // per million beacuse it is common for TSC frequency
         // to differ due to calibration at boot time.
         let diff = (i64::from(self.get_tsc_khz()?) - i64::from(state_tsc_freq)).abs();
-        Ok(diff > i64::from(state_tsc_freq * TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR))
+        // Cannot overflow since u32::MAX * 250 < i64::MAX
+        Ok(diff > i64::from(state_tsc_freq) * TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR)
     }
 
     /// Scale the TSC frequency of this vCPU to the one provided as a parameter.
@@ -860,7 +861,9 @@ mod tests {
             let mut state = vcpu.save_state().unwrap();
             state.tsc_khz = Some(
                 state.tsc_khz.unwrap()
-                    + state.tsc_khz.unwrap() * TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR / 2,
+                    + state.tsc_khz.unwrap() * u32::try_from(TSC_KHZ_TOL_NUMERATOR).unwrap()
+                        / u32::try_from(TSC_KHZ_TOL_DENOMINATOR).unwrap()
+                        / 2,
             );
             assert!(!vcpu
                 .is_tsc_scaling_required(state.tsc_khz.unwrap())
@@ -872,11 +875,19 @@ mod tests {
             let mut state = vcpu.save_state().unwrap();
             state.tsc_khz = Some(
                 state.tsc_khz.unwrap()
-                    + state.tsc_khz.unwrap() * TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR * 2,
+                    + state.tsc_khz.unwrap() * u32::try_from(TSC_KHZ_TOL_NUMERATOR).unwrap()
+                        / u32::try_from(TSC_KHZ_TOL_DENOMINATOR).unwrap()
+                        * 2,
             );
             assert!(vcpu
                 .is_tsc_scaling_required(state.tsc_khz.unwrap())
                 .unwrap());
+        }
+
+        {
+            // Try a large frequency (30GHz) in the state and check it doesn't
+            // overflow
+            assert!(vcpu.is_tsc_scaling_required(30_000_000).unwrap());
         }
     }
 
@@ -886,7 +897,9 @@ mod tests {
         let mut state = vcpu.save_state().unwrap();
         state.tsc_khz = Some(
             state.tsc_khz.unwrap()
-                + state.tsc_khz.unwrap() * TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR * 2,
+                + state.tsc_khz.unwrap() * u32::try_from(TSC_KHZ_TOL_NUMERATOR).unwrap()
+                    / u32::try_from(TSC_KHZ_TOL_DENOMINATOR).unwrap()
+                    * 2,
         );
 
         if vm.fd().check_extension(Cap::TscControl) {
