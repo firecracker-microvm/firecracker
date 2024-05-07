@@ -302,13 +302,7 @@ pub enum DumpCpuConfigError {
 }
 
 
-#[derive(Debug)]
-pub struct X86_64_Devices {
-    pio_device_manager: PortIODeviceManager,
-    acpi_device_manager: ACPIDeviceManager
-}
-
-
+/// Contains the state and associated methods required for the Firecracker VMM.
 #[derive(Debug)]
 pub struct Vmm {
     events_observer: Option<std::io::Stdin>,
@@ -330,9 +324,12 @@ pub struct Vmm {
     resource_allocator: ResourceAllocator,
     // Guest VM devices.
     mmio_device_manager: MMIODeviceManager,
-    // Devices specifically for the x86_64 platform
-    devices_for_x86_64: Option<X86_64_Devices>,
+    #[cfg(target_arch = "x86_64")]
+    pio_device_manager: PortIODeviceManager,
+    #[cfg(target_arch = "x86_64")]
+    acpi_device_manager: ACPIDeviceManager,
 }
+
 
 impl Vmm {
     /// Gets Vmm version.
@@ -396,7 +393,7 @@ impl Vmm {
             vcpu.set_mmio_bus(self.mmio_device_manager.bus.clone());
             #[cfg(target_arch = "x86_64")]
             vcpu.kvm_vcpu
-                .set_pio_bus(self.devices_for_x86_64.unwrap().pio_device_manager.io_bus.clone());
+                .set_pio_bus(self.pio_device_manager.io_bus.clone());
 
             self.vcpus_handles
                 .push(vcpu.start_threaded(vcpu_seccomp_filter.clone(), barrier.clone())?);
@@ -495,7 +492,7 @@ impl Vmm {
         //     // serialization. For now we set that bit manually
 
         let mut guard = self
-                .devices_for_x86_64.unwrap().pio_device_manager
+                .pio_device_manager
                 .stdio_serial
                 .lock()
                 .expect("Poisoned lock");
@@ -556,7 +553,7 @@ impl Vmm {
     /// Injects CTRL+ALT+DEL keystroke combo in the i8042 device.
     #[cfg(target_arch = "x86_64")]
     pub fn send_ctrl_alt_del(&mut self) -> Result<(), VmmError> {
-        self.devices_for_x86_64.unwrap().pio_device_manager
+        self.pio_device_manager
             .i8042
             .lock()
             .expect("i8042 lock was poisoned")
@@ -586,7 +583,7 @@ impl Vmm {
 
         let memory_state = self.guest_memory().describe();
         #[cfg(target_arch = "x86_64")]
-        let acpi_dev_state = self.devices_for_x86_64.unwrap().acpi_device_manager.save();
+        let acpi_dev_state = self.acpi_device_manager.save();
 
         Ok(MicrovmState {
             vm_info: vm_info.clone(),

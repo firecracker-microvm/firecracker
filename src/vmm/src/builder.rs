@@ -72,7 +72,7 @@ use crate::vmm_config::machine_config::{VmConfig, VmConfigError};
 use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryExtension, GuestMemoryMmap};
 use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuError};
 use crate::vstate::vm::Vm;
-use crate::{device_manager, EventManager, Vmm, VmmError, X86_64_Devices};
+use crate::{device_manager, EventManager, Vmm, VmmError};
 
 
 /// Errors associated with starting the instance.
@@ -148,6 +148,7 @@ impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
 
 
 // this module is for code specific to the aarch64 architecture
+#[cfg(target_arch = "aarch64")]
 mod Aarch64 {
     use super::*;
     use utils::eventfd::EventFd;
@@ -192,6 +193,7 @@ mod Aarch64 {
             vcpus
         };
     
+        #[cfg(target_arch = "aarch64")]
         let vmm = Vmm {
             events_observer: Some(std::io::stdin()),
             instance_info: instance_info.clone(),
@@ -203,7 +205,6 @@ mod Aarch64 {
             vcpus_exit_evt,
             resource_allocator,
             mmio_device_manager,
-            devices_for_x86_64 : None,
         };
     
         Ok((vmm, vcpus))
@@ -281,11 +282,6 @@ mod X86_64 {
     
             (vcpus, pio_device_manager)
         };
-    
-        let x86_dev = X86_64_Devices {
-            pio_device_manager,
-            acpi_device_manager
-        };
 
         let vmm = Vmm {
             events_observer: Some(std::io::stdin()),
@@ -298,7 +294,8 @@ mod X86_64 {
             vcpus_exit_evt,
             resource_allocator,
             mmio_device_manager,
-            devices_for_x86_64: Some(x86_dev),
+            pio_device_manager,
+            acpi_device_manager,
         };
     
         Ok((vmm, vcpus))
@@ -640,13 +637,13 @@ pub fn build_microvm_from_snapshot(
             vm: vmm.vm.fd(),
         };
 
-        vmm.devices_for_x86_64.unwrap().acpi_device_manager =
+        vmm.acpi_device_manager =
             ACPIDeviceManager::restore(acpi_ctor_args, &microvm_state.acpi_dev_state)?;
 
         // Inject the notification to VMGenID that we have resumed from a snapshot.
         // This needs to happen before we resume vCPUs, so that we minimize the time between vCPUs
         // resuming and notification being handled by the driver.
-        vmm.devices_for_x86_64.unwrap().acpi_device_manager
+        vmm.acpi_device_manager
             .notify_vmgenid()
             .map_err(BuildMicrovmFromSnapshotError::VMGenIDUpdate)?;
     }
@@ -945,7 +942,7 @@ pub fn configure_system_for_boot(
             &vmm.guest_memory,
             &mut vmm.resource_allocator,
             &vmm.mmio_device_manager,
-            &vmm.devices_for_x86_64.unwrap().acpi_device_manager,
+            &vmm.acpi_device_manager,
             vcpus,
         )?;
     }
@@ -1016,7 +1013,7 @@ fn attach_vmgenid_device(vmm: &mut Vmm) -> Result<(), StartMicrovmError> {
     let vmgenid = VmGenId::new(&vmm.guest_memory, &mut vmm.resource_allocator)
         .map_err(StartMicrovmError::CreateVMGenID)?;
 
-    vmm.devices_for_x86_64.unwrap().acpi_device_manager
+    vmm.acpi_device_manager
         .attach_vmgenid(vmgenid, vmm.vm.fd())
         .map_err(StartMicrovmError::AttachVmgenidDevice)?;
 
@@ -1131,6 +1128,12 @@ pub(crate) fn set_stdout_nonblocking() {
     }
 }
 
+// This wrapper is here since this function is called in other files
+#[cfg(target_arch = "x86_64")]
+pub fn setup_interrupt_controller(vm: &mut Vm) -> Result<(), StartMicrovmError> {
+    return X86_64::setup_interrupt_controller(vm);
+}
+
 #[cfg(test)]
 pub mod tests {
     use std::io::Write;
@@ -1239,18 +1242,15 @@ pub mod tests {
         .unwrap();
 
         #[cfg(target_arch = "x86_64")]
-        setup_interrupt_controller(&mut vm).unwrap();
+        X86_64::setup_interrupt_controller(&mut vm).unwrap();
 
         #[cfg(target_arch = "aarch64")]
         {
             let exit_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
             let _vcpu = Vcpu::new(1, &vm, exit_evt).unwrap();
-            setup_interrupt_controller(&mut vm, 1).unwrap();
+            Aarch64::setup_interrupt_controller(&mut vm, 1).unwrap();
         }
-        let x86_dev = X86_64_Devices {
-            pio_device_manager,
-            acpi_device_manager
-        };
+
 
         
         Vmm {
@@ -1264,7 +1264,8 @@ pub mod tests {
             vcpus_exit_evt,
             resource_allocator: ResourceAllocator::new().unwrap(),
             mmio_device_manager,
-            devices_for_x86_64: Some(x86_dev),
+            pio_device_manager,
+            acpi_device_manager
         }
     }
 
@@ -1385,7 +1386,7 @@ pub mod tests {
     #[cfg(target_arch = "x86_64")]
     pub(crate) fn insert_vmgenid_device(vmm: &mut Vmm) {
         attach_vmgenid_device(vmm).unwrap();
-        assert!(vmm.devices_for_x86_64.unwrap().acpi_device_manager.vmgenid.is_some());
+        assert!(vmm.acpi_device_manager.vmgenid.is_some());
     }
 
     pub(crate) fn insert_balloon_device(
@@ -1478,7 +1479,7 @@ pub mod tests {
         let evfd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
 
         #[cfg(target_arch = "x86_64")]
-        setup_interrupt_controller(&mut vm).unwrap();
+        X86_64::setup_interrupt_controller(&mut vm).unwrap();
 
         let vcpu_vec = create_vcpus(&vm, vcpu_count, &evfd).unwrap();
         assert_eq!(vcpu_vec.len(), vcpu_count as usize);
