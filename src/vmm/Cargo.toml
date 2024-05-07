@@ -11,8 +11,8 @@ bench = false
 [dependencies]
 acpi_tables = { path = "../acpi-tables" } 
 aes-gcm =  { version = "0.10.1", default-features = false, features = ["aes"] }
-aws-lc-rs = { version = "1.7.0", features = ["bindgen"] }
-base64 = "0.22.0"
+aws-lc-rs = { version = "1.7.1", features = ["bindgen"] }
+base64 = "0.22.1"
 bincode = "1.2.1"
 bitflags = "2.5.0"
 crc64 = "2.0.0"
@@ -31,7 +31,7 @@ micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 
 seccompiler = { path = "../seccompiler" }
 semver = { version = "1.0.17", features = ["serde"] }
-serde = { version = "1.0.199", features = ["derive", "rc"] }
+serde = { version = "1.0.200", features = ["derive", "rc"] }
 serde_json = "1.0.116"
 slab = "0.4.7"
 smallvec = "1.11.2"
@@ -43,7 +43,7 @@ vhost = { version = "0.11.0", features = ["vhost-user-frontend"] }
 vm-allocator = "0.1.0"
 vm-memory = { version = "0.14.1", features = ["backend-mmap", "backend-bitmap"] }
 vm-superio = "0.8.0"
-zerocopy = { version = "0.7.32" }
+zerocopy = { version = "0.7.33" }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 vm-fdt = "0.3.0"
