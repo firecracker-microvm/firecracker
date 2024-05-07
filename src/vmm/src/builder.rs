@@ -3,6 +3,7 @@
 
 //! Enables pre-boot setup, instantiation and booting of a Firecracker VMM.
 
+
 #[cfg(target_arch = "x86_64")]
 use std::convert::TryFrom;
 use std::fmt::Debug;
@@ -71,7 +72,8 @@ use crate::vmm_config::machine_config::{VmConfig, VmConfigError};
 use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryExtension, GuestMemoryMmap};
 use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuError};
 use crate::vstate::vm::Vm;
-use crate::{device_manager, EventManager, Vmm, VmmError};
+use crate::{device_manager, EventManager, Vmm, VmmError, X86_64_Devices};
+
 
 /// Errors associated with starting the instance.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -144,6 +146,172 @@ impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
     }
 }
 
+
+// this module is for code specific to the aarch64 architecture
+mod Aarch64 {
+    use super::*;
+    use utils::eventfd::EventFd;
+    use crate::vstate::vm::Vm;    
+    pub fn setup_vmm_and_vcpus(
+        instance_info: &InstanceInfo,
+        event_manager: &mut EventManager,
+        guest_memory: GuestMemoryMmap,
+        uffd: Option<Uffd>,
+        track_dirty_pages: bool,
+        vcpu_count: u8,
+        kvm_capabilities: Vec<KvmCapability>,
+    ) -> Result<(Vmm, Vec<Vcpu>), StartMicrovmError> {
+        use self::StartMicrovmError::*;
+
+        // Set up Kvm Vm and register memory regions.
+        // Build custom CPU config if a custom template is provided.
+        let mut vm = Vm::new(kvm_capabilities)
+            .map_err(VmmError::Vm)
+            .map_err(StartMicrovmError::Internal)?;
+        vm.memory_init(&guest_memory, track_dirty_pages)
+            .map_err(VmmError::Vm)
+            .map_err(StartMicrovmError::Internal)?;
+
+        let vcpus_exit_evt = EventFd::new(libc::EFD_NONBLOCK)
+            .map_err(VmmError::EventFd)
+            .map_err(Internal)?;
+
+        let resource_allocator = ResourceAllocator::new()?;
+
+        // Instantiate the MMIO device manager.
+        let mmio_device_manager = MMIODeviceManager::new();
+
+        // On aarch64, the vCPUs need to be created (i.e call KVM_CREATE_VCPU) before setting up the
+        // IRQ chip because the `KVM_CREATE_VCPU` ioctl will return error if the IRQCHIP
+        // was already initialized.
+        // Search for `kvm_arch_vcpu_create` in arch/arm/kvm/arm.c.
+        let vcpus = {
+            let vcpus = create_vcpus(&vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
+            #[cfg(target_arch = "aarch64")]
+            setup_interrupt_controller(&mut vm, vcpu_count)?;
+            vcpus
+        };
+    
+        let vmm = Vmm {
+            events_observer: Some(std::io::stdin()),
+            instance_info: instance_info.clone(),
+            shutdown_exit_code: None,
+            vm,
+            guest_memory,
+            uffd,
+            vcpus_handles: Vec::new(),
+            vcpus_exit_evt,
+            resource_allocator,
+            mmio_device_manager,
+            devices_for_x86_64 : None,
+        };
+    
+        Ok((vmm, vcpus))
+    }
+    /// Sets up the irqchip for a aarch64 microVM.
+    #[cfg(target_arch = "aarch64")] // This  is needed since setup_irqchip() itself is conditionally compiled
+    pub fn setup_interrupt_controller(vm: &mut Vm, vcpu_count: u8) -> Result<(), StartMicrovmError> {
+        vm.setup_irqchip(vcpu_count)
+            .map_err(VmmError::Vm)
+            .map_err(StartMicrovmError::Internal)
+    }
+}
+
+// this module is for functionality specific to the x86_64 platform
+mod X86_64 {
+    use super::*;
+    pub fn setup_vmm_and_vcpus(
+        instance_info: &InstanceInfo,
+        event_manager: &mut EventManager,
+        guest_memory: GuestMemoryMmap,
+        uffd: Option<Uffd>,
+        track_dirty_pages: bool,
+        vcpu_count: u8,
+        kvm_capabilities: Vec<KvmCapability>,
+    ) -> Result<(Vmm, Vec<Vcpu>), StartMicrovmError> {
+        use self::StartMicrovmError::*;
+
+        // Set up Kvm Vm and register memory regions.
+        // Build custom CPU config if a custom template is provided.
+        let mut vm = Vm::new(kvm_capabilities)
+            .map_err(VmmError::Vm)
+            .map_err(StartMicrovmError::Internal)?;
+        vm.memory_init(&guest_memory, track_dirty_pages)
+            .map_err(VmmError::Vm)
+            .map_err(StartMicrovmError::Internal)?;
+
+        let vcpus_exit_evt = EventFd::new(libc::EFD_NONBLOCK)
+            .map_err(VmmError::EventFd)
+            .map_err(Internal)?;
+
+        let resource_allocator = ResourceAllocator::new()?;
+
+        // Instantiate the MMIO device manager.
+        let mmio_device_manager = MMIODeviceManager::new();
+        
+        // Instantiate ACPI device manager.
+        let acpi_device_manager = ACPIDeviceManager::new();
+    
+        // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
+        // while on aarch64 we need to do it the other way around.
+        let (vcpus, pio_device_manager) = {
+            setup_interrupt_controller(&mut vm)?;
+            let vcpus = create_vcpus(&vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
+    
+            // Make stdout non blocking.
+            set_stdout_nonblocking();
+    
+            // Serial device setup.
+            let serial_device =
+                setup_serial_device(event_manager, std::io::stdin(), io::stdout()).map_err(Internal)?;
+    
+            // x86_64 uses the i8042 reset event as the Vmm exit event.
+            let reset_evt = vcpus_exit_evt
+                .try_clone()
+                .map_err(VmmError::EventFd)
+                .map_err(Internal)?;
+    
+            // create pio dev manager with legacy devices
+            let pio_device_manager = {
+                // TODO Remove these unwraps.
+                let mut pio_dev_mgr = PortIODeviceManager::new(serial_device, reset_evt).unwrap();
+                pio_dev_mgr.register_devices(vm.fd()).unwrap();
+                pio_dev_mgr
+            };
+    
+            (vcpus, pio_device_manager)
+        };
+    
+        let x86_dev = X86_64_Devices {
+            pio_device_manager,
+            acpi_device_manager
+        };
+
+        let vmm = Vmm {
+            events_observer: Some(std::io::stdin()),
+            instance_info: instance_info.clone(),
+            shutdown_exit_code: None,
+            vm,
+            guest_memory,
+            uffd,
+            vcpus_handles: Vec::new(),
+            vcpus_exit_evt,
+            resource_allocator,
+            mmio_device_manager,
+            devices_for_x86_64: Some(x86_dev),
+        };
+    
+        Ok((vmm, vcpus))
+    }
+    
+    /// Sets up the irqchip for a x86_64 microVM.
+    pub fn setup_interrupt_controller(vm: &mut Vm) -> Result<(), StartMicrovmError> {
+        vm.setup_irqchip()
+            .map_err(VmmError::Vm)
+            .map_err(StartMicrovmError::Internal)   
+    }
+}
+
 #[cfg_attr(target_arch = "aarch64", allow(unused))]
 fn create_vmm_and_vcpus(
     instance_info: &InstanceInfo,
@@ -154,90 +322,13 @@ fn create_vmm_and_vcpus(
     vcpu_count: u8,
     kvm_capabilities: Vec<KvmCapability>,
 ) -> Result<(Vmm, Vec<Vcpu>), StartMicrovmError> {
-    use self::StartMicrovmError::*;
-
-    // Set up Kvm Vm and register memory regions.
-    // Build custom CPU config if a custom template is provided.
-    let mut vm = Vm::new(kvm_capabilities)
-        .map_err(VmmError::Vm)
-        .map_err(StartMicrovmError::Internal)?;
-    vm.memory_init(&guest_memory, track_dirty_pages)
-        .map_err(VmmError::Vm)
-        .map_err(StartMicrovmError::Internal)?;
-
-    let vcpus_exit_evt = EventFd::new(libc::EFD_NONBLOCK)
-        .map_err(VmmError::EventFd)
-        .map_err(Internal)?;
-
-    let resource_allocator = ResourceAllocator::new()?;
-
-    // Instantiate the MMIO device manager.
-    let mmio_device_manager = MMIODeviceManager::new();
-
-    // Instantiate ACPI device manager.
-    #[cfg(target_arch = "x86_64")]
-    let acpi_device_manager = ACPIDeviceManager::new();
-
-    // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
-    // while on aarch64 we need to do it the other way around.
-    #[cfg(target_arch = "x86_64")]
-    let (vcpus, pio_device_manager) = {
-        setup_interrupt_controller(&mut vm)?;
-        let vcpus = create_vcpus(&vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
-
-        // Make stdout non blocking.
-        set_stdout_nonblocking();
-
-        // Serial device setup.
-        let serial_device =
-            setup_serial_device(event_manager, std::io::stdin(), io::stdout()).map_err(Internal)?;
-
-        // x86_64 uses the i8042 reset event as the Vmm exit event.
-        let reset_evt = vcpus_exit_evt
-            .try_clone()
-            .map_err(VmmError::EventFd)
-            .map_err(Internal)?;
-
-        // create pio dev manager with legacy devices
-        let pio_device_manager = {
-            // TODO Remove these unwraps.
-            let mut pio_dev_mgr = PortIODeviceManager::new(serial_device, reset_evt).unwrap();
-            pio_dev_mgr.register_devices(vm.fd()).unwrap();
-            pio_dev_mgr
-        };
-
-        (vcpus, pio_device_manager)
-    };
-
-    // On aarch64, the vCPUs need to be created (i.e call KVM_CREATE_VCPU) before setting up the
-    // IRQ chip because the `KVM_CREATE_VCPU` ioctl will return error if the IRQCHIP
-    // was already initialized.
-    // Search for `kvm_arch_vcpu_create` in arch/arm/kvm/arm.c.
     #[cfg(target_arch = "aarch64")]
-    let vcpus = {
-        let vcpus = create_vcpus(&vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
-        setup_interrupt_controller(&mut vm, vcpu_count)?;
-        vcpus
-    };
+    return Aarch64::setup_vmm_and_vcpus(instance_info, event_manager, guest_memory, uffd, 
+        track_dirty_pages, vcpu_count, kvm_capabilities);
 
-    let vmm = Vmm {
-        events_observer: Some(std::io::stdin()),
-        instance_info: instance_info.clone(),
-        shutdown_exit_code: None,
-        vm,
-        guest_memory,
-        uffd,
-        vcpus_handles: Vec::new(),
-        vcpus_exit_evt,
-        resource_allocator,
-        mmio_device_manager,
-        #[cfg(target_arch = "x86_64")]
-        pio_device_manager,
-        #[cfg(target_arch = "x86_64")]
-        acpi_device_manager,
-    };
-
-    Ok((vmm, vcpus))
+    #[cfg(target_arch = "x86_64")]
+    return X86_64::setup_vmm_and_vcpus(instance_info, event_manager, guest_memory, uffd, 
+        track_dirty_pages, vcpu_count, kvm_capabilities);
 }
 
 /// Builds and starts a microVM based on the current Firecracker VmResources configuration.
@@ -459,6 +550,8 @@ pub enum BuildMicrovmFromSnapshotError {
 ///
 /// An `Arc` reference of the built `Vmm` is also plugged in the `EventManager`, while another
 /// is returned.
+
+//SEVEN ARGUMENTS
 #[allow(clippy::too_many_arguments)]
 pub fn build_microvm_from_snapshot(
     instance_info: &InstanceInfo,
@@ -547,13 +640,13 @@ pub fn build_microvm_from_snapshot(
             vm: vmm.vm.fd(),
         };
 
-        vmm.acpi_device_manager =
+        vmm.devices_for_x86_64.unwrap().acpi_device_manager =
             ACPIDeviceManager::restore(acpi_ctor_args, &microvm_state.acpi_dev_state)?;
 
         // Inject the notification to VMGenID that we have resumed from a snapshot.
         // This needs to happen before we resume vCPUs, so that we minimize the time between vCPUs
         // resuming and notification being handled by the driver.
-        vmm.acpi_device_manager
+        vmm.devices_for_x86_64.unwrap().acpi_device_manager
             .notify_vmgenid()
             .map_err(BuildMicrovmFromSnapshotError::VMGenIDUpdate)?;
     }
@@ -675,21 +768,21 @@ where
     })
 }
 
-/// Sets up the irqchip for a x86_64 microVM.
-#[cfg(target_arch = "x86_64")]
-pub fn setup_interrupt_controller(vm: &mut Vm) -> Result<(), StartMicrovmError> {
-    vm.setup_irqchip()
-        .map_err(VmmError::Vm)
-        .map_err(StartMicrovmError::Internal)
-}
+// /// Sets up the irqchip for a x86_64 microVM.
+// #[cfg(target_arch = "x86_64")]
+// pub fn setup_interrupt_controller(vm: &mut Vm) -> Result<(), StartMicrovmError> {
+//     vm.setup_irqchip()
+//         .map_err(VmmError::Vm)
+//         .map_err(StartMicrovmError::Internal)
+// }
 
-/// Sets up the irqchip for a aarch64 microVM.
-#[cfg(target_arch = "aarch64")]
-pub fn setup_interrupt_controller(vm: &mut Vm, vcpu_count: u8) -> Result<(), StartMicrovmError> {
-    vm.setup_irqchip(vcpu_count)
-        .map_err(VmmError::Vm)
-        .map_err(StartMicrovmError::Internal)
-}
+// /// Sets up the irqchip for a aarch64 microVM.
+// #[cfg(target_arch = "aarch64")]
+// pub fn setup_interrupt_controller(vm: &mut Vm, vcpu_count: u8) -> Result<(), StartMicrovmError> {
+//     vm.setup_irqchip(vcpu_count)
+//         .map_err(VmmError::Vm)
+//         .map_err(StartMicrovmError::Internal)
+// }
 
 /// Sets up the serial device.
 pub fn setup_serial_device(
@@ -759,6 +852,8 @@ fn create_vcpus(vm: &Vm, vcpu_count: u8, exit_evt: &EventFd) -> Result<Vec<Vcpu>
 }
 
 /// Configures the system for booting Linux.
+
+
 #[cfg_attr(target_arch = "aarch64", allow(unused))]
 pub fn configure_system_for_boot(
     vmm: &mut Vmm,
@@ -850,7 +945,7 @@ pub fn configure_system_for_boot(
             &vmm.guest_memory,
             &mut vmm.resource_allocator,
             &vmm.mmio_device_manager,
-            &vmm.acpi_device_manager,
+            &vmm.devices_for_x86_64.unwrap().acpi_device_manager,
             vcpus,
         )?;
     }
@@ -921,7 +1016,7 @@ fn attach_vmgenid_device(vmm: &mut Vmm) -> Result<(), StartMicrovmError> {
     let vmgenid = VmGenId::new(&vmm.guest_memory, &mut vmm.resource_allocator)
         .map_err(StartMicrovmError::CreateVMGenID)?;
 
-    vmm.acpi_device_manager
+    vmm.devices_for_x86_64.unwrap().acpi_device_manager
         .attach_vmgenid(vmgenid, vmm.vm.fd())
         .map_err(StartMicrovmError::AttachVmgenidDevice)?;
 
@@ -1152,7 +1247,12 @@ pub mod tests {
             let _vcpu = Vcpu::new(1, &vm, exit_evt).unwrap();
             setup_interrupt_controller(&mut vm, 1).unwrap();
         }
+        let x86_dev = X86_64_Devices {
+            pio_device_manager,
+            acpi_device_manager
+        };
 
+        
         Vmm {
             events_observer: Some(std::io::stdin()),
             instance_info: InstanceInfo::default(),
@@ -1164,10 +1264,7 @@ pub mod tests {
             vcpus_exit_evt,
             resource_allocator: ResourceAllocator::new().unwrap(),
             mmio_device_manager,
-            #[cfg(target_arch = "x86_64")]
-            pio_device_manager,
-            #[cfg(target_arch = "x86_64")]
-            acpi_device_manager,
+            devices_for_x86_64: Some(x86_dev),
         }
     }
 
@@ -1288,7 +1385,7 @@ pub mod tests {
     #[cfg(target_arch = "x86_64")]
     pub(crate) fn insert_vmgenid_device(vmm: &mut Vmm) {
         attach_vmgenid_device(vmm).unwrap();
-        assert!(vmm.acpi_device_manager.vmgenid.is_some());
+        assert!(vmm.devices_for_x86_64.unwrap().acpi_device_manager.vmgenid.is_some());
     }
 
     pub(crate) fn insert_balloon_device(

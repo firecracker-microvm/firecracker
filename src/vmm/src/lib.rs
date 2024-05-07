@@ -301,7 +301,14 @@ pub enum DumpCpuConfigError {
     NotAllowed(String),
 }
 
-/// Contains the state and associated methods required for the Firecracker VMM.
+
+#[derive(Debug)]
+pub struct X86_64_Devices {
+    pio_device_manager: PortIODeviceManager,
+    acpi_device_manager: ACPIDeviceManager
+}
+
+
 #[derive(Debug)]
 pub struct Vmm {
     events_observer: Option<std::io::Stdin>,
@@ -323,10 +330,8 @@ pub struct Vmm {
     resource_allocator: ResourceAllocator,
     // Guest VM devices.
     mmio_device_manager: MMIODeviceManager,
-    #[cfg(target_arch = "x86_64")]
-    pio_device_manager: PortIODeviceManager,
-    #[cfg(target_arch = "x86_64")]
-    acpi_device_manager: ACPIDeviceManager,
+    // Devices specifically for the x86_64 platform
+    devices_for_x86_64: Option<X86_64_Devices>,
 }
 
 impl Vmm {
@@ -391,7 +396,7 @@ impl Vmm {
             vcpu.set_mmio_bus(self.mmio_device_manager.bus.clone());
             #[cfg(target_arch = "x86_64")]
             vcpu.kvm_vcpu
-                .set_pio_bus(self.pio_device_manager.io_bus.clone());
+                .set_pio_bus(self.devices_for_x86_64.unwrap().pio_device_manager.io_bus.clone());
 
             self.vcpus_handles
                 .push(vcpu.start_threaded(vcpu_seccomp_filter.clone(), barrier.clone())?);
@@ -454,18 +459,16 @@ impl Vmm {
         &self.guest_memory
     }
 
-    /// Sets RDA bit in serial console
-    pub fn emulate_serial_init(&self) -> Result<(), EmulateSerialInitError> {
-        // When restoring from a previously saved state, there is no serial
-        // driver initialization, therefore the RDA (Received Data Available)
-        // interrupt is not enabled. Because of that, the driver won't get
-        // notified of any bytes that we send to the guest. The clean solution
-        // would be to save the whole serial device state when we do the vm
-        // serialization. For now we set that bit manually
-
-        #[cfg(target_arch = "aarch64")]
-        {
-            let serial_bus_device = self.get_bus_device(DeviceType::Serial, "Serial");
+     /// Sets RDA bit in serial console
+    #[cfg(target_arch = "aarch64")]
+    fn emulate_serial_init(&self) -> Result<(), EmulateSerialInitError> {
+        //     // When restoring from a previously saved state, there is no serial
+        //     // driver initialization, therefore the RDA (Received Data Available)
+        //     // interrupt is not enabled. Because of that, the driver won't get
+        //     // notified of any bytes that we send to the guest. The clean solution
+        //     // would be to save the whole serial device state when we do the vm
+        //     // serialization. For now we set that bit manually
+        let serial_bus_device = self.get_bus_device(DeviceType::Serial, "Serial");
             if serial_bus_device.is_none() {
                 return Ok(());
             }
@@ -480,12 +483,19 @@ impl Vmm {
                 .write(IER_RDA_OFFSET, IER_RDA_BIT)
                 .map_err(|_| EmulateSerialInitError(std::io::Error::last_os_error()))?;
             Ok(())
-        }
+    }
+     /// Sets RDA bit in serial console
+    #[cfg(target_arch = "x86_64")]
+    fn emulate_serial_init(&self) -> Result<(), EmulateSerialInitError> {
+        //     // When restoring from a previously saved state, there is no serial
+        //     // driver initialization, therefore the RDA (Received Data Available)
+        //     // interrupt is not enabled. Because of that, the driver won't get
+        //     // notified of any bytes that we send to the guest. The clean solution
+        //     // would be to save the whole serial device state when we do the vm
+        //     // serialization. For now we set that bit manually
 
-        #[cfg(target_arch = "x86_64")]
-        {
-            let mut guard = self
-                .pio_device_manager
+        let mut guard = self
+                .devices_for_x86_64.unwrap().pio_device_manager
                 .stdio_serial
                 .lock()
                 .expect("Poisoned lock");
@@ -496,13 +506,57 @@ impl Vmm {
                 .write(IER_RDA_OFFSET, IER_RDA_BIT)
                 .map_err(|_| EmulateSerialInitError(std::io::Error::last_os_error()))?;
             Ok(())
-        }
     }
+
+    /// Sets RDA bit in serial console
+    // pub fn emulate_serial_init(&self) -> Result<(), EmulateSerialInitError> {
+    //     // When restoring from a previously saved state, there is no serial
+    //     // driver initialization, therefore the RDA (Received Data Available)
+    //     // interrupt is not enabled. Because of that, the driver won't get
+    //     // notified of any bytes that we send to the guest. The clean solution
+    //     // would be to save the whole serial device state when we do the vm
+    //     // serialization. For now we set that bit manually
+
+    //     #[cfg(target_arch = "aarch64")]
+    //     {
+    //         let serial_bus_device = self.get_bus_device(DeviceType::Serial, "Serial");
+    //         if serial_bus_device.is_none() {
+    //             return Ok(());
+    //         }
+    //         let mut serial_device_locked =
+    //             serial_bus_device.unwrap().lock().expect("Poisoned lock");
+    //         let serial = serial_device_locked
+    //             .serial_mut()
+    //             .expect("Unexpected BusDeviceType");
+
+    //         serial
+    //             .serial
+    //             .write(IER_RDA_OFFSET, IER_RDA_BIT)
+    //             .map_err(|_| EmulateSerialInitError(std::io::Error::last_os_error()))?;
+    //         Ok(())
+    //     }
+
+    //     #[cfg(target_arch = "x86_64")]
+    //     {
+    //         let mut guard = self
+    //             .devices_for_x86_64.unwrap().pio_device_manager
+    //             .stdio_serial
+    //             .lock()
+    //             .expect("Poisoned lock");
+    //         let serial = guard.serial_mut().unwrap();
+
+    //         serial
+    //             .serial
+    //             .write(IER_RDA_OFFSET, IER_RDA_BIT)
+    //             .map_err(|_| EmulateSerialInitError(std::io::Error::last_os_error()))?;
+    //         Ok(())
+    //     }
+    // }
 
     /// Injects CTRL+ALT+DEL keystroke combo in the i8042 device.
     #[cfg(target_arch = "x86_64")]
     pub fn send_ctrl_alt_del(&mut self) -> Result<(), VmmError> {
-        self.pio_device_manager
+        self.devices_for_x86_64.unwrap().pio_device_manager
             .i8042
             .lock()
             .expect("i8042 lock was poisoned")
@@ -532,7 +586,7 @@ impl Vmm {
 
         let memory_state = self.guest_memory().describe();
         #[cfg(target_arch = "x86_64")]
-        let acpi_dev_state = self.acpi_device_manager.save();
+        let acpi_dev_state = self.devices_for_x86_64.unwrap().acpi_device_manager.save();
 
         Ok(MicrovmState {
             vm_info: vm_info.clone(),

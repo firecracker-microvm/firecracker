@@ -728,7 +728,7 @@ mod tests {
             #[cfg(target_arch = "x86_64")]
             vm_state: vmm.vm.save_state().unwrap(),
             #[cfg(target_arch = "x86_64")]
-            acpi_dev_state: vmm.acpi_device_manager.save(),
+            acpi_dev_state: vmm.devices_for_x86_64.unwrap().acpi_device_manager.save(),
         };
 
         let mut buf = vec![0; 10000];
