@@ -168,8 +168,7 @@ pub enum FcExitCode {
     Ok = 0,
     /// Generic error exit code.
     GenericError = 1,
-    /// Generic exit code for an error considered not possible to occur if the program logic is
-    /// sound.
+    /// Generic exit code error; not possible to occur if the program logic is sound.
     UnexpectedError = 2,
     /// Firecracker was shut down after intercepting a restricted system call.
     BadSyscall = 148,
@@ -291,7 +290,7 @@ pub enum StartVcpusError {
 /// Error type for [`Vmm::dump_cpu_config()`]
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum DumpCpuConfigError {
-    /// Failed to send event to vcpu thread: {0:?}
+    /// Failed to send event to vcpu thread: {0}
     SendEvent(#[from] VcpuSendEventError),
     /// Got unexpected response from vcpu thread.
     UnexpectedResponse,

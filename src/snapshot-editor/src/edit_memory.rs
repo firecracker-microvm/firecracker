@@ -24,7 +24,7 @@ pub enum EditMemoryError {
     MetadataDiff(std::io::Error),
     /// Failed to seek in memory file: {0}
     SeekMemory(std::io::Error),
-    /// Failed to send the file: {0:?}
+    /// Failed to send the file: {0}
     SendFile(std::io::Error),
 }
 

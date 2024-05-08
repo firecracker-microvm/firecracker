@@ -55,7 +55,7 @@ enum MainError {
     InvalidLogLevel(vmm::logger::LevelFilterFromStrError),
     /// Could not initialize logger: {0}
     LoggerInitialization(vmm::logger::LoggerUpdateError),
-    /// Could not initialize metrics: {0:?}
+    /// Could not initialize metrics: {0}
     MetricsInitialization(MetricsConfigError),
     /// Seccomp error: {0}
     SeccompFilter(FilterError),
