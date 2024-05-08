@@ -110,9 +110,11 @@ class MicrovmHelpers:
         ip = self.vm.iface["eth0"]["iface"].guest_ip
         return f"{self.vm.netns.cmd_prefix()} ssh -o StrictHostKeyChecking=no -i {self.vm.ssh_key} root@{ip}"
 
-    def tmux_ssh(self):
+    def tmux_ssh(self, cmd=""):
         """Open a tmux window with an SSH session to the VM"""
-        return self.tmux_neww(self.how_to_ssh())
+        if len(cmd) > 0:
+            cmd = f" {cmd}"
+        return self.tmux_neww(self.how_to_ssh() + cmd)
 
     def enable_console(self):
         """Helper method to attach a console, before the machine boots"""
