@@ -81,13 +81,23 @@ pub struct Endpoint {
 // is the only option).
 
 impl Endpoint {
+    /// Creates a new Endpoint from a [`crate::tcp::connection::Connection`]
+    /// ## Arguments:
+    /// - `segment`: The incoming `SYN`.
+    /// - `eviction_threshold`: CPU cycles that must elapse before this Endpoint is evictable
+    /// - `connection_rto_period`: How long the connection waits before a retransmission timeout
+    ///   fires for the first segment which has not been acknowledged yet. This uses an opaque time
+    ///   unit.
+    /// - `connection_rto_count_max`: How many consecutive timeout-based retransmission may occur
+    ///   before the connection resets itself.
+    /// ## Panics:
+    /// - `assert!(RCV_BUF_MAX_SIZE <= MAX_WINDOW_SIZE as usize);`
     pub fn new<T: NetworkBytes + Debug>(
         segment: &TcpSegment<T>,
         eviction_threshold: NonZeroU64,
         connection_rto_period: NonZeroU64,
         connection_rto_count_max: NonZeroU16,
     ) -> Result<Self, PassiveOpenError> {
-        // TODO: mention this in doc comment for function
         // This simplifies things, and is a very reasonable assumption.
         #[allow(clippy::assertions_on_constants)]
         {
