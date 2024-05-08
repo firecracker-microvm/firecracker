@@ -54,7 +54,9 @@ class MicrovmHelpers:
 
     # keep track of assigned subnets
     shared_subnet_ctr = 0
-    _supernet = ipaddress.IPv4Network("10.0.0.0/16")
+    # Try not to collide with anything by using the last /16 of the 10.x.x.x
+    # private block
+    _supernet = ipaddress.IPv4Network("10.255.0.0/16")
     _subnets_gen = _supernet.subnets(new_prefix=30)
 
     def __init__(self, vm):
