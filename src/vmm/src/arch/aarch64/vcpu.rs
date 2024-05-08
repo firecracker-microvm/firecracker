@@ -27,7 +27,7 @@ pub enum VcpuError {
     GetMp(kvm_ioctls::Error),
     /// Failed to set multiprocessor state: {0}
     SetMp(kvm_ioctls::Error),
-    /// Failed FamStructWrapper operation: {0:?}
+    /// Failed FamStructWrapper operation: {0}
     Fam(utils::fam::Error),
     /// {0}
     GetMidrEl1(String),

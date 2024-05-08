@@ -16,7 +16,7 @@ use crate::VmmError;
 /// Errors associated with the operations allowed on a drive.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum DriveError {
-    /// Unable to create the virtio block device: {0:?}
+    /// Unable to create the virtio block device: {0}
     CreateBlockDevice(BlockError),
     /// Cannot create RateLimiter: {0}
     CreateRateLimiter(io::Error),

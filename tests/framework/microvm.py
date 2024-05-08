@@ -204,9 +204,11 @@ class Microvm:
         if int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", 1)) > 1:
             self.time_api_requests = False
 
+        self.monitors = []
         self.memory_monitor = None
         if monitor_memory:
             self.memory_monitor = MemoryMonitor(self)
+            self.monitors.append(self.memory_monitor)
 
         self.api = None
         self.log_file = None
@@ -236,6 +238,10 @@ class Microvm:
     def kill(self):
         """All clean up associated with this microVM should go here."""
         # pylint: disable=subprocess-run-check
+
+        # Stop any registered monitors
+        for monitor in self.monitors:
+            monitor.stop()
 
         # We start with vhost-user backends,
         # because if we stop Firecracker first, the backend will want
@@ -286,9 +292,6 @@ class Microvm:
             self._validate_api_response_times()
 
         if self.memory_monitor:
-            if self.memory_monitor.is_alive():
-                self.memory_monitor.signal_stop()
-                self.memory_monitor.join(timeout=1)
             self.memory_monitor.check_samples()
 
     def _validate_api_response_times(self):
