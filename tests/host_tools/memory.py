@@ -46,6 +46,12 @@ class MemoryMonitor(Thread):
         """Signal that the thread should stop."""
         self._should_stop = True
 
+    def stop(self):
+        """Stop the thread"""
+        if self.is_alive():
+            self.signal_stop()
+            self.join(timeout=1)
+
     def run(self):
         """Thread for monitoring the RSS memory usage of a Firecracker process.
 
