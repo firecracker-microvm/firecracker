@@ -138,9 +138,6 @@ class MicrovmHelpers:
 
     def enable_ip_forwarding(self, iface="eth0"):
         """Enables IP forwarding in the guest"""
-        if DOCKER.in_docker:
-            docker_apt_install("iptables")
-
         i = MicrovmHelpers.shared_subnet_ctr
         MicrovmHelpers.shared_subnet_ctr += 1
         netns = self.vm.netns.id
