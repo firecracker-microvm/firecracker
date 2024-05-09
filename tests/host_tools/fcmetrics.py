@@ -500,6 +500,7 @@ class FCMetricsMonitor(Thread):
     def __init__(self, vm, timer=60):
         Thread.__init__(self, daemon=True)
         self.vm = vm
+        vm.monitors.append(self)
         self.timer = timer
 
         self.metrics_index = 0
@@ -538,13 +539,14 @@ class FCMetricsMonitor(Thread):
         in sleep when stop is called and once it wakes out of sleep
         the "vm" might not be avaiable to provide the metrics.
         """
-        self.running = False
-        # wait for the running thread to finish
-        # this should also avoid any race condition leading to
-        # uploading the same metrics twice
-        self.join()
-        self.vm.api.actions.put(action_type="FlushMetrics")
-        self._flush_metrics()
+        if self.is_alive():
+            self.running = False
+            # wait for the running thread to finish
+            # this should also avoid any race condition leading to
+            # uploading the same metrics twice
+            self.join()
+            self.vm.api.actions.put(action_type="FlushMetrics")
+            self._flush_metrics()
 
     def run(self):
         self.running = True

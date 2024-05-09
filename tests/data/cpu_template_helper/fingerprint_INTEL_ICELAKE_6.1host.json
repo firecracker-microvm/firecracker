@@ -1,6 +1,6 @@
 {
   "firecracker_version": "1.8.0-dev",
-  "kernel_version": "6.1.79-99.164.amzn2023.x86_64",
+  "kernel_version": "6.1.84-99.169.amzn2023.x86_64",
   "microcode_version": "0xd0003b9",
   "bios_version": "1.0",
   "bios_revision": "1.36",
@@ -267,7 +267,7 @@
         "modifiers": [
           {
             "register": "eax",
-            "bitmap": "0b00000000000000000000000000000001"
+            "bitmap": "0b00000000000000000000000000000010"
           },
           {
             "register": "ebx",
@@ -303,6 +303,29 @@
           {
             "register": "edx",
             "bitmap": "0b00000000000000000000000000000000"
+          }
+        ]
+      },
+      {
+        "leaf": "0x7",
+        "subleaf": "0x2",
+        "flags": 1,
+        "modifiers": [
+          {
+            "register": "eax",
+            "bitmap": "0b00000000000000000000000000000000"
+          },
+          {
+            "register": "ebx",
+            "bitmap": "0b00000000000000000000000000000000"
+          },
+          {
+            "register": "ecx",
+            "bitmap": "0b00000000000000000000000000000000"
+          },
+          {
+            "register": "edx",
+            "bitmap": "0b00000000000000000000000000000001"
           }
         ]
       },

@@ -204,9 +204,11 @@ class Microvm:
         if int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", 1)) > 1:
             self.time_api_requests = False
 
+        self.monitors = []
         self.memory_monitor = None
         if monitor_memory:
             self.memory_monitor = MemoryMonitor(self)
+            self.monitors.append(self.memory_monitor)
 
         self.api = None
         self.log_file = None
@@ -236,6 +238,10 @@ class Microvm:
     def kill(self):
         """All clean up associated with this microVM should go here."""
         # pylint: disable=subprocess-run-check
+
+        # Stop any registered monitors
+        for monitor in self.monitors:
+            monitor.stop()
 
         # We start with vhost-user backends,
         # because if we stop Firecracker first, the backend will want
@@ -286,9 +292,6 @@ class Microvm:
             self._validate_api_response_times()
 
         if self.memory_monitor:
-            if self.memory_monitor.is_alive():
-                self.memory_monitor.signal_stop()
-                self.memory_monitor.join(timeout=1)
             self.memory_monitor.check_samples()
 
     def _validate_api_response_times(self):
@@ -926,6 +929,39 @@ class Microvm:
         """Return a cached SSH connection on the 1st interface"""
         return self.ssh_iface(0)
 
+    @property
+    def thread_backtraces(self):
+        """Return backtraces of all threads"""
+        backtraces = []
+        for thread_name, thread_pids in utils.get_threads(self.firecracker_pid).items():
+            for pid in thread_pids:
+                backtraces.append(
+                    f"{thread_name} ({pid=}):\n"
+                    f"{utils.run_cmd(f'cat /proc/{pid}/stack').stdout}"
+                )
+        return "\n".join(backtraces)
+
+    def wait_for_up(self, timeout=10):
+        """Wait for guest running inside the microVM to come up and respond.
+
+        :param timeout: seconds to wait.
+        """
+        try:
+            rc, stdout, stderr = self.ssh.run("true", timeout)
+        except subprocess.TimeoutExpired:
+            print(
+                f"Remote command did not respond within {timeout}s\n\n"
+                f"Firecracker logs:\n{self.log_data}\n"
+                f"Thread backtraces:\n{self.thread_backtraces}"
+            )
+            raise
+        assert rc == 0, (
+            f"Remote command exited with non-0 status code\n\n"
+            f"{rc=}\n{stdout=}\n{stderr=}\n\n"
+            f"Firecracker logs:\n{self.log_data}\n"
+            f"Thread backtraces:\n{self.thread_backtraces}"
+        )
+
 
 class MicroVMFactory:
     """MicroVM factory"""
@@ -992,6 +1028,11 @@ class Serial:
         if self._poller is not None:
             # serial already opened
             return
+
+        attempt = 0
+        while not Path(self._vm.screen_log).exists() and attempt < 5:
+            time.sleep(0.2)
+            attempt += 1
 
         screen_log_fd = os.open(self._vm.screen_log, os.O_RDONLY)
         self._poller = select.poll()

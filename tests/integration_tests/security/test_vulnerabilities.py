@@ -122,9 +122,8 @@ def with_restore(factory, microvm_factory):
 
     def restore(firecracker=None, jailer=None):
         microvm = factory(firecracker, jailer)
-        # Ensure that we have booted before getting the snapshot.
-        rc, _, stderr = microvm.ssh.run("true")
-        assert rc == 0, stderr
+        microvm.wait_for_up()
+
         snapshot = microvm.snapshot_full()
 
         if firecracker:
@@ -136,6 +135,7 @@ def with_restore(factory, microvm_factory):
         dst_vm.spawn()
         # Restore the destination VM from the snapshot
         dst_vm.restore_from_snapshot(snapshot, resume=True)
+        dst_vm.wait_for_up()
         dst_vm.cpu_template = microvm.cpu_template
 
         return dst_vm
@@ -439,7 +439,7 @@ def check_vulnerabilities_files_on_guest(microvm):
     """
     # Retrieve a list of vulnerabilities files available inside guests.
     vuln_dir = "/sys/devices/system/cpu/vulnerabilities"
-    ecode, stdout, stderr = microvm.ssh.run(f"find {vuln_dir} -type f")
+    ecode, stdout, stderr = microvm.ssh.run(f"find -D all {vuln_dir} -type f")
     assert ecode == 0, f"stdout:\n{stdout}\nstderr:\n{stderr}\n"
     vuln_files = stdout.split("\n")
 

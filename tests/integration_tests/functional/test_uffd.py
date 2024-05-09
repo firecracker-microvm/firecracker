@@ -28,10 +28,7 @@ def snapshot_fxt(microvm_factory, guest_kernel_linux_5_10, rootfs_ubuntu_22):
     )
 
     basevm.start()
-
-    # Verify if guest can run commands.
-    exit_code, _, _ = basevm.ssh.run("sync")
-    assert exit_code == 0
+    basevm.wait_for_up()
 
     # Create base snapshot.
     snapshot = basevm.snapshot_full()
@@ -121,10 +118,8 @@ def test_valid_handler(uvm_plain, snapshot, uffd_handler_paths):
     # Deflate balloon.
     vm.api.balloon.patch(amount_mib=0)
 
-    # Verify if guest can run commands.
-    exit_code, _, _ = vm.ssh.run("sync")
-
-    assert exit_code == 0
+    # Verify if the restored guest works.
+    vm.wait_for_up()
 
 
 def test_malicious_handler(uvm_plain, snapshot, uffd_handler_paths):

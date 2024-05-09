@@ -43,6 +43,13 @@ and this project adheres to
   T2S template to set bit 27 of `MSR_IA32_ARCH_CAPABILITIES` (`RFDS_NO`) to 1
   since it assumes that the fleet only consists of processors that are not
   affected by RFDS.
+- [#4388](https://github.com/firecracker-microvm/firecracker/pull/4388): Avoid
+  setting `kvm_immediate_exit` to 1 if are already handling an exit, or if the
+  vCPU is stopped. This avoids a spurious KVM exit upon restoring snapshots.
+- [#4567](https://github.com/firecracker-microvm/firecracker/pull/4567): Do not
+  initialize vCPUs in powered-off state upon snapshot restore. No functional
+  change, as vCPU initialization is only relevant for the booted case (where the
+  guest expects CPUs to be powered off).
 
 ### Deprecated
 
@@ -60,7 +67,7 @@ and this project adheres to
 
 ### Fixed
 
-- [4526](https://github.com/firecracker-microvm/firecracker/pull/4526): Added a
+- [#4526](https://github.com/firecracker-microvm/firecracker/pull/4526): Added a
   check in the network TX path that the size of the network frames the guest
   passes to us is not bigger than the maximum frame the device expects to
   handle. On the TX path, we copy frames destined to MMDS from guest memory to
@@ -68,6 +75,15 @@ and this project adheres to
   cause an increase in the memory footprint of the Firecracker process. Now, if
   we receive such a frame, we ignore it and increase `Net::tx_malformed_frames`
   metric.
+- [#4536](https://github.com/firecracker-microvm/firecracker/pull/4536): Make
+  the first differential snapshot taken after a full snapshot contain only the
+  set of memory pages changed since the full snapshot. Previously, these
+  differential snapshots would contain all memory pages. This will result in
+  potentially much smaller differential snapshots after a full snapshot.
+- [#4578](https://github.com/firecracker-microvm/firecracker/pull/4578): Fix
+  UFFD support not being forward-compatible with new ioctl options introduced in
+  Linux 6.6. See also
+  https://github.com/bytecodealliance/userfaultfd-rs/issues/61.
 
 ## \[1.7.0\]
 

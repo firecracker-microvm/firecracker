@@ -657,8 +657,8 @@ The tables below reflect the snapshot compatibility observed on the AWS
 instances we support.
 
 **all** means all currently supported Intel/AMD/ARM metal instances (m6g, m7g,
-m5n, c5n, m6i, m7i, m6a). It does not mean cross-instance, i.e. a snapshot taken
-on m6i won't work on an m6g instance.
+m5n, c5n, m6i, m6a). It does not mean cross-instance, i.e. a snapshot taken on
+m6i won't work on an m6g instance.
 
 | *CPU family* | *taken on host kernel* | *restored on host kernel* | *working?* |
 | ------------ | ---------------------- | ------------------------- | ---------- |

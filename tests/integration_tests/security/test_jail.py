@@ -604,10 +604,7 @@ def test_firecracker_kill_by_pid(uvm_plain, daemonize, new_pid_ns):
     microvm.basic_config()
     microvm.add_net_iface()
     microvm.start()
-
-    # verify the guest is active
-    exit_code, _, _ = microvm.ssh.run("ls")
-    assert exit_code == 0
+    microvm.wait_for_up()
 
     # before killing microvm make sure the Jailer config is what we set it to be.
     assert (

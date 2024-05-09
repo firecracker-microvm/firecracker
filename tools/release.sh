@@ -132,9 +132,12 @@ say "Building version=$VERSION, profile=$PROFILE, target=$CARGO_TARGET, Rust too
 # shellcheck disable=SC2086
 cargo build --target "$CARGO_TARGET" $CARGO_OPTS --workspace --bins --examples
 
-for file in "${ARTIFACTS[@]}"; do
-    strip-and-split-debuginfo "$CARGO_TARGET_DIR/$file"
-done
+# Only strip in release mode
+if [ "$PROFILE" = "release" ]; then
+    for file in "${ARTIFACTS[@]}"; do
+        strip-and-split-debuginfo "$CARGO_TARGET_DIR/$file"
+    done
+fi
 
 say "Binaries placed under $CARGO_TARGET_DIR"
 

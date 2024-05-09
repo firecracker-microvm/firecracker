@@ -223,10 +223,7 @@ impl Endpoint {
                         // We have to remove the bytes up to end from receive_buf, by shifting the
                         // others to the beginning of the buffer, and updating receive_buf_left.
                         // Also, advance the rwnd edge of the inner connection.
-                        // TODO: Maximum efficiency.
-                        for j in 0..b.len() - end {
-                            b[j] = b[j + end];
-                        }
+                        b.copy_within(end.., 0);
                         self.receive_buf_left -= end;
                         // Safe to unwrap because we assert that the response buffer is small
                         // enough.

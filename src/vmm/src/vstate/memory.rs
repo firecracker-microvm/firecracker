@@ -32,23 +32,23 @@ pub type GuestMmapRegion = vm_memory::MmapRegion<Option<AtomicBitmap>>;
 /// Errors associated with dumping guest memory to file.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum MemoryError {
-    /// Cannot access file: {0:?}
+    /// Cannot access file: {0}
     FileError(std::io::Error),
-    /// Cannot create memory: {0:?}
+    /// Cannot create memory: {0}
     CreateMemory(VmMemoryError),
-    /// Cannot create memory region: {0:?}
+    /// Cannot create memory region: {0}
     CreateRegion(MmapRegionError),
-    /// Cannot fetch system's page size: {0:?}
+    /// Cannot fetch system's page size: {0}
     PageSize(errno::Error),
-    /// Cannot dump memory: {0:?}
+    /// Cannot dump memory: {0}
     WriteMemory(GuestMemoryError),
     /// Cannot create mmap region: {0}
     MmapRegionError(MmapRegionError),
     /// Cannot create guest memory: {0}
     VmMemoryError(VmMemoryError),
-    /// Cannot create memfd: {0:?}
+    /// Cannot create memfd: {0}
     Memfd(memfd::Error),
-    /// Cannot resize memfd file: {0:?}
+    /// Cannot resize memfd file: {0}
     MemfdSetLen(std::io::Error),
     /// Cannot restore hugetlbfs backed snapshot by mapping the memory file. Please use uffd.
     HugetlbfsSnapshot,
