@@ -5,6 +5,7 @@
 import subprocess
 from pathlib import Path
 
+import psutil
 import pytest
 
 
@@ -44,10 +45,12 @@ def test_diff_snapshot_works_after_error(
 
     chroot = Path(uvm.chroot())
 
-    # Create a large file, so we run out of space (ENOSPC) during the snapshot
-    # Assumes a Docker /srv tmpfs of 1G, derived by trial and error
+    # Create a large file dynamically based on available space
     fill = chroot / "fill"
-    subprocess.check_call(f"fallocate -l 330M {fill}", shell=True)
+    disk_usage = psutil.disk_usage(chroot)
+    target_size = round(disk_usage.free * 0.9)  # Attempt to fill 90% of free space
+
+    subprocess.check_call(f"fallocate -l {target_size} {fill}", shell=True)
 
     try:
         uvm.snapshot_diff()
