@@ -420,15 +420,24 @@ class Microvm:
             return None
         return tuple(int(x) for x in splits[1].split("."))
 
+    def get_metrics(self):
+        """Return iterator to metric data points written by FC"""
+        with self.metrics_file.open() as fd:
+            for line in fd:
+                if not line.endswith("}\n"):
+                    LOG.warning("Line is not a proper JSON object. Partial write?")
+                    continue
+                yield json.loads(line)
+
+    def get_all_metrics(self):
+        """Return all metric data points written by FC."""
+        return list(self.get_metrics())
+
     def flush_metrics(self):
         """Flush the microvm metrics and get the latest datapoint"""
         self.api.actions.put(action_type="FlushMetrics")
         # get the latest metrics
         return self.get_all_metrics()[-1]
-
-    def get_all_metrics(self):
-        """Return all metric data points written by FC."""
-        return [json.loads(line) for line in self.metrics_file.read_text().splitlines()]
 
     def create_jailed_resource(self, path):
         """Create a hard link to some resource inside this microvm."""
