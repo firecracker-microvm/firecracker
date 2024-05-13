@@ -884,6 +884,8 @@ cmd_test_debug() {
 #
 cmd_fmt() {
     cmd_sh "cargo fmt --all -- --config $(tr '\n' ',' <tests/fmt.toml)"
+    cmd_sh "cd tests; black . ../tools ../.buildkite"
+    cmd_sh "mdformat $(git ls-files '*.md' | tr '\n' ' ')"
 }
 
 cmd_mkdocs() {
