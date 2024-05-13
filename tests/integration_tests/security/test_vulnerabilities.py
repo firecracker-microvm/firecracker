@@ -353,13 +353,10 @@ def test_spectre_meltdown_checker_on_restored_guest_with_custom_template(
     spectre_meltdown_checker,
     build_microvm_with_custom_template,
     microvm_factory,
-    custom_cpu_template,
 ):
     """
     Test with the spectre / meltdown checker on a restored guest with a custom CPU template.
     """
-    if custom_cpu_template["name"] == "aarch64_with_sve_and_pac":
-        pytest.skip("does not work yet")
     git_ab_test_guest_command_if_pr(
         with_checker(
             with_restore(build_microvm_with_custom_template, microvm_factory),
@@ -518,13 +515,11 @@ def test_vulnerabilities_files_on_restored_guest_with_template(
 
 
 def test_vulnerabilities_files_on_restored_guest_with_custom_template(
-    build_microvm_with_custom_template, microvm_factory, custom_cpu_template
+    build_microvm_with_custom_template, microvm_factory
 ):
     """
     Test vulnerabilities files on a restored guest with a custom CPU template.
     """
-    if custom_cpu_template["name"] == "aarch64_with_sve_and_pac":
-        pytest.skip("does not work yet")
     check_vulnerabilities_files_ab(
         with_restore(build_microvm_with_custom_template, microvm_factory)
     )
