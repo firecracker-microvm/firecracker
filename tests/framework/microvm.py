@@ -214,6 +214,7 @@ class Microvm:
         self.log_file = None
         self.metrics_file = None
         self._spawned = False
+        self._killed = False
 
         # device dictionaries
         self.iface = {}
@@ -238,6 +239,9 @@ class Microvm:
     def kill(self):
         """All clean up associated with this microVM should go here."""
         # pylint: disable=subprocess-run-check
+        # if it was already killed, return
+        if self._killed:
+            return
 
         # Stop any registered monitors
         for monitor in self.monitors:
@@ -287,6 +291,7 @@ class Microvm:
 
         # Mark the microVM as not spawned, so we avoid trying to kill twice.
         self._spawned = False
+        self._killed = True
 
         if self.time_api_requests:
             self._validate_api_response_times()
@@ -1014,8 +1019,9 @@ class MicroVMFactory:
         for vm in self.vms:
             vm.kill()
             vm.jailer.cleanup()
-            if len(vm.jailer.jailer_id) > 0:
-                shutil.rmtree(vm.jailer.chroot_base_with_id())
+            chroot_base_with_id = vm.jailer.chroot_base_with_id()
+            if len(vm.jailer.jailer_id) > 0 and chroot_base_with_id.exists():
+                shutil.rmtree(chroot_base_with_id)
             vm.netns.cleanup()
 
         self.vms.clear()

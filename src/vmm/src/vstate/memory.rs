@@ -107,6 +107,9 @@ where
 
     /// Resets all the memory region bitmaps
     fn reset_dirty(&self);
+
+    /// Store the dirty bitmap in internal store
+    fn store_dirty_bitmap(&self, dirty_bitmap: &DirtyBitmap, page_size: usize);
 }
 
 /// State of a guest memory region saved to file/buffer.
@@ -301,56 +304,57 @@ impl GuestMemoryExtension for GuestMemoryMmap {
         let mut writer_offset = 0;
         let page_size = get_page_size().map_err(MemoryError::PageSize)?;
 
-        self.iter()
-            .enumerate()
-            .try_for_each(|(slot, region)| {
-                let kvm_bitmap = dirty_bitmap.get(&slot).unwrap();
-                let firecracker_bitmap = region.bitmap();
-                let mut write_size = 0;
-                let mut dirty_batch_start: u64 = 0;
+        let write_result = self.iter().enumerate().try_for_each(|(slot, region)| {
+            let kvm_bitmap = dirty_bitmap.get(&slot).unwrap();
+            let firecracker_bitmap = region.bitmap();
+            let mut write_size = 0;
+            let mut dirty_batch_start: u64 = 0;
 
-                for (i, v) in kvm_bitmap.iter().enumerate() {
-                    for j in 0..64 {
-                        let is_kvm_page_dirty = ((v >> j) & 1u64) != 0u64;
-                        let page_offset = ((i * 64) + j) * page_size;
-                        let is_firecracker_page_dirty = firecracker_bitmap.dirty_at(page_offset);
-                        if is_kvm_page_dirty || is_firecracker_page_dirty {
-                            // We are at the start of a new batch of dirty pages.
-                            if write_size == 0 {
-                                // Seek forward over the unmodified pages.
-                                writer
-                                    .seek(SeekFrom::Start(writer_offset + page_offset as u64))
-                                    .unwrap();
-                                dirty_batch_start = page_offset as u64;
-                            }
-                            write_size += page_size;
-                        } else if write_size > 0 {
-                            // We are at the end of a batch of dirty pages.
-                            writer.write_all_volatile(
-                                &region.get_slice(
-                                    MemoryRegionAddress(dirty_batch_start),
-                                    write_size,
-                                )?,
-                            )?;
+            for (i, v) in kvm_bitmap.iter().enumerate() {
+                for j in 0..64 {
+                    let is_kvm_page_dirty = ((v >> j) & 1u64) != 0u64;
+                    let page_offset = ((i * 64) + j) * page_size;
+                    let is_firecracker_page_dirty = firecracker_bitmap.dirty_at(page_offset);
 
-                            write_size = 0;
+                    if is_kvm_page_dirty || is_firecracker_page_dirty {
+                        // We are at the start of a new batch of dirty pages.
+                        if write_size == 0 {
+                            // Seek forward over the unmodified pages.
+                            writer
+                                .seek(SeekFrom::Start(writer_offset + page_offset as u64))
+                                .unwrap();
+                            dirty_batch_start = page_offset as u64;
                         }
+                        write_size += page_size;
+                    } else if write_size > 0 {
+                        // We are at the end of a batch of dirty pages.
+                        writer.write_all_volatile(
+                            &region
+                                .get_slice(MemoryRegionAddress(dirty_batch_start), write_size)?,
+                        )?;
+
+                        write_size = 0;
                     }
                 }
+            }
 
-                if write_size > 0 {
-                    writer.write_all_volatile(
-                        &region.get_slice(MemoryRegionAddress(dirty_batch_start), write_size)?,
-                    )?;
-                }
-                writer_offset += region.len();
-                if let Some(bitmap) = firecracker_bitmap {
-                    bitmap.reset();
-                }
+            if write_size > 0 {
+                writer.write_all_volatile(
+                    &region.get_slice(MemoryRegionAddress(dirty_batch_start), write_size)?,
+                )?;
+            }
+            writer_offset += region.len();
 
-                Ok(())
-            })
-            .map_err(MemoryError::WriteMemory)
+            Ok(())
+        });
+
+        if write_result.is_err() {
+            self.store_dirty_bitmap(dirty_bitmap, page_size);
+        } else {
+            self.reset_dirty();
+        }
+
+        write_result.map_err(MemoryError::WriteMemory)
     }
 
     /// Resets all the memory region bitmaps
@@ -360,6 +364,26 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                 bitmap.reset();
             }
         })
+    }
+
+    /// Stores the dirty bitmap inside into the internal bitmap
+    fn store_dirty_bitmap(&self, dirty_bitmap: &DirtyBitmap, page_size: usize) {
+        self.iter().enumerate().for_each(|(slot, region)| {
+            let kvm_bitmap = dirty_bitmap.get(&slot).unwrap();
+            let firecracker_bitmap = region.bitmap();
+
+            for (i, v) in kvm_bitmap.iter().enumerate() {
+                for j in 0..64 {
+                    let is_kvm_page_dirty = ((v >> j) & 1u64) != 0u64;
+
+                    if is_kvm_page_dirty {
+                        let page_offset = ((i * 64) + j) * page_size;
+
+                        firecracker_bitmap.mark_dirty(page_offset, 1)
+                    }
+                }
+            }
+        });
     }
 }
 
@@ -810,6 +834,42 @@ mod tests {
         reader.seek(SeekFrom::Start(0)).unwrap();
         reader.read_to_end(&mut diff_file_content).unwrap();
         assert_eq!(expected_first_region, diff_file_content);
+    }
+
+    #[test]
+    fn test_store_dirty_bitmap() {
+        let page_size = get_page_size().unwrap();
+
+        // Two regions of three pages each, with a one page gap between them.
+        let region_1_address = GuestAddress(0);
+        let region_2_address = GuestAddress(page_size as u64 * 4);
+        let region_size = page_size * 3;
+        let mem_regions = [
+            (region_1_address, region_size),
+            (region_2_address, region_size),
+        ];
+        let guest_memory =
+            GuestMemoryMmap::from_raw_regions(&mem_regions, true, HugePageConfig::None).unwrap();
+
+        // Check that Firecracker bitmap is clean.
+        guest_memory.iter().for_each(|r| {
+            assert!(!r.bitmap().dirty_at(0));
+            assert!(!r.bitmap().dirty_at(page_size));
+            assert!(!r.bitmap().dirty_at(page_size * 2));
+        });
+
+        let mut dirty_bitmap: DirtyBitmap = HashMap::new();
+        dirty_bitmap.insert(0, vec![0b101]);
+        dirty_bitmap.insert(1, vec![0b101]);
+
+        guest_memory.store_dirty_bitmap(&dirty_bitmap, page_size);
+
+        // Assert that the bitmap now reports as being dirty maching the dirty bitmap
+        guest_memory.iter().for_each(|r| {
+            assert!(r.bitmap().dirty_at(0));
+            assert!(!r.bitmap().dirty_at(page_size));
+            assert!(r.bitmap().dirty_at(page_size * 2));
+        });
     }
 
     #[test]
