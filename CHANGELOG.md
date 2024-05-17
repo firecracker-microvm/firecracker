@@ -84,6 +84,12 @@ and this project adheres to
   UFFD support not being forward-compatible with new ioctl options introduced in
   Linux 6.6. See also
   https://github.com/bytecodealliance/userfaultfd-rs/issues/61.
+- [#4618](https://github.com/firecracker-microvm/firecracker/pull/4618): On
+  x86_64, when taking a snapshot, if a vCPU has MSR_IA32_TSC_DEADLINE set to 0,
+  Firecracker will replace it with the MSR_IA32_TSC value from the same vCPU.
+  This is to guarantee that the vCPU will continue receiving TSC interrupts
+  after restoring from the snapshot even if an interrupt is lost when taking a
+  snapshot.
 
 ## \[1.7.0\]
 
