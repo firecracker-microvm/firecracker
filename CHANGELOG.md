@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1]
+- [#4618](https://github.com/firecracker-microvm/firecracker/pull/4618): On
+  x86_64, when taking a snapshot, if a vCPU has MSR_IA32_TSC_DEADLINE set to 0,
+  Firecracker will replace it with the MSR_IA32_TSC value from the same vCPU.
+  This is to guarantee that the vCPU will continue receiving TSC interrupts
+  after restoring from the snapshot even if an interrupt is lost when taking a
+  snapshot.
+
 ## [1.6.0]
 
 ### Added
