@@ -16,8 +16,8 @@ displaydoc = "0.2.4"
 fc_utils = { package = "utils", path = "../utils" }
 libc = "0.2.154"
 log-instrument = { path = "../log-instrument", optional = true }
-semver = "1.0.22"
-thiserror = "1.0.59"
+semver = "1.0.23"
+thiserror = "1.0.60"
 vmm = { path = "../vmm" }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]

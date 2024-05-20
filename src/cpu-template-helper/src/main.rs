@@ -190,14 +190,14 @@ fn run(cli: Cli) -> Result<(), HelperError> {
     Ok(())
 }
 
-fn main() -> Result<(), HelperError> {
+fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
     let result = run(cli);
     if let Err(e) = result {
         eprintln!("{}", e);
-        Err(e)
+        std::process::ExitCode::FAILURE
     } else {
-        Ok(())
+        std::process::ExitCode::SUCCESS
     }
 }
 
