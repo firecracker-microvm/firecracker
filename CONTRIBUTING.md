@@ -32,10 +32,10 @@ you want to merge your changes to Firecracker:
    against the main branch of the Firecracker repository.
 1. Add two reviewers to your pull request (a maintainer will do that for you if
    you're new). Work with your reviewers to address any comments and obtain a
-   minimum of 2 approvals, at least one of which must be provided by
-   [a maintainer](MAINTAINERS.md). To update your pull request amend existing
-   commits whenever applicable and then push the new changes to your pull
-   request branch.
+   minimum of 2 approvals from [maintainers](MAINTAINERS.md). To update your
+   pull request, amend existing commits whenever applicable. Then force-push the
+   new changes to your pull request branch. Address all review comments you
+   receive.
 1. Once the pull request is approved, one of the maintainers will merge it.
 
 ## Request for Comments
