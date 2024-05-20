@@ -119,6 +119,33 @@ Your contribution needs to meet the following standards:
   }
   ```
 
+- Avoid using `Option::unwrap`/`Result::unwrap`. Prefer propagating errors
+  instead of aborting execution, or using `Option::expect`/`Result::except` if
+  no alternative exists. Leave a comment explaining why the code will not panic
+  in practice. Often, `unwrap`s are used because a previous check ensures they
+  are safe, e.g.
+
+  ```rs
+  let my_value: u32 = ...;
+  if my_value <= u16::MAX {
+      Ok(my_value.try_into::<u16>().unwrap())
+  } else {
+      Err(Error::Overflow)
+  }
+  ```
+
+  These can often be rewritten using `.map`/`.map_err` or `match`/`if let`
+  constructs such as
+
+  ```rs
+  my_value.try_into::<u16>()
+      .map_err(|_| Error::Overflow)
+  ```
+
+  See also
+  [this PR](https://github.com/firecracker-microvm/firecracker/pull/3557) for a
+  lot of examples.
+
 - Document your pull requests. Include the reasoning behind each change, and the
   testing done.
 
