@@ -204,7 +204,7 @@ dependencies = [
  "bitflags 2.5.0",
  "cexpr",
  "clang-sys",
- "itertools 0.10.5",
+ "itertools 0.12.1",
  "lazy_static",
  "lazycell",
  "log",
@@ -411,7 +411,7 @@ checksum = "0b6a852b24ab71dffc585bcb46eaf7959d175cb865a7152e35b348d1b2960422"
 
 [[package]]
 name = "cpu-template-helper"
-version = "1.8.0-dev"
+version = "1.9.0-dev"
 dependencies = [
  "clap",
  "displaydoc",
@@ -589,7 +589,7 @@ dependencies = [
 
 [[package]]
 name = "firecracker"
-version = "1.8.0-dev"
+version = "1.9.0-dev"
 dependencies = [
  "bincode",
  "cargo_toml",
@@ -743,6 +743,15 @@ dependencies = [
 
 [[package]]
 name = "itertools"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
@@ -758,7 +767,7 @@ checksum = "49f1f14873335454500d59611f1cf4a4b0f786f9ac11f4312a78e4cf2566695b"
 
 [[package]]
 name = "jailer"
-version = "1.8.0-dev"
+version = "1.9.0-dev"
 dependencies = [
  "libc",
  "log-instrument",
@@ -1088,7 +1097,7 @@ dependencies = [
 
 [[package]]
 name = "rebase-snap"
-version = "1.8.0-dev"
+version = "1.9.0-dev"
 dependencies = [
  "displaydoc",
  "libc",
@@ -1162,7 +1171,7 @@ dependencies = [
 
 [[package]]
 name = "seccompiler"
-version = "1.8.0-dev"
+version = "1.9.0-dev"
 dependencies = [
  "bincode",
  "displaydoc",
@@ -1246,7 +1255,7 @@ checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
 
 [[package]]
 name = "snapshot-editor"
-version = "1.8.0-dev"
+version = "1.9.0-dev"
 dependencies = [
  "clap",
  "clap-num",
