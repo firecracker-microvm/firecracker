@@ -50,7 +50,7 @@ if not changed_files or any(
         "🔍 Kani",
         "./tools/devtool -y test -- ../tests/integration_tests/test_kani.py -n auto",
         # Kani step default
-        # Kani runs fastest on m6i.metal
+        # Kani runs fastest on m6a.metal
         instances=["m6a.metal"],
         platforms=[("al2", "linux_5.10")],
         timeout_in_minutes=300,
