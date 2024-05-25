@@ -70,12 +70,12 @@ def group(label, command, instances, platforms, **kwargs):
     if isinstance(command, str):
         commands = [command]
     for instance in instances:
-        for os, kv in platforms:
+        for os_, kv in platforms:
             # fill any templated variables
-            args = {"instance": instance, "os": os, "kv": kv}
+            args = {"instance": instance, "os": os_, "kv": kv}
             step = {
                 "command": [cmd.format(**args) for cmd in commands],
-                "label": f"{label1} {instance} {os} {kv}",
+                "label": f"{label1} {instance} {os_} {kv}",
                 "agents": args,
             }
             step_kwargs = dict_fmt(kwargs, args)
