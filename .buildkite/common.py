@@ -8,6 +8,8 @@ Common helpers to create Buildkite pipelines
 import argparse
 import json
 import os
+import random
+import string
 import subprocess
 from pathlib import Path
 
@@ -179,6 +181,11 @@ def revision_a():
     return os.environ.get("REVISION_A")
 
 
+def random_str(k: int):
+    """Generate a random string of hex characters."""
+    return "".join(random.choices(string.hexdigits, k=k))
+
+
 def shared_build():
     """Helper function to make it simple to share a compilation artifacts for a
     whole Buildkite build
@@ -196,7 +203,7 @@ def shared_build():
     revision_b = os.environ.get("REVISION_B")
     if revision_b is not None:
         build_cmds.append(f"ln -svfT . build/{revision_b}")
-    binary_dir = "build_$(uname -m).tar.gz"
+    binary_dir = f"build_$(uname -m)_{random_str(k=8)}.tar.gz"
     build_cmds += [
         "du -sh build/*",
         f"tar czf {binary_dir} build",
