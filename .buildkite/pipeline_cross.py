@@ -11,7 +11,7 @@
 
 import itertools
 
-from common import DEFAULT_PLATFORMS, group, pipeline_to_json
+from common import DEFAULT_PLATFORMS, BKPipeline
 
 
 def restore_step(label, src_instance, src_kv, dst_instance, dst_os, dst_kv):
@@ -35,29 +35,25 @@ def restore_step(label, src_instance, src_kv, dst_instance, dst_os, dst_kv):
     }
 
 
-def cross_steps():
-    """Generate group steps"""
+if __name__ == "__main__":
+    pipeline = BKPipeline()
     instances_x86_64 = ["c5n.metal", "m5n.metal", "m6i.metal", "m6a.metal"]
     instances_aarch64 = ["m7g.metal"]
-    groups = []
     commands = [
-        "./tools/devtool -y build --release",
         "./tools/devtool -y sh ./tools/create_snapshot_artifact/main.py",
         "mkdir -pv snapshots/{instance}_{kv}",
         "sudo chown -Rc $USER: snapshot_artifacts",
         "mv -v snapshot_artifacts/* snapshots/{instance}_{kv}",
     ]
-    groups.append(
-        group(
-            "📸 create snapshots",
-            commands,
-            timeout=30,
-            artifact_paths="snapshots/**/*",
-            instances=instances_x86_64,
-            platforms=DEFAULT_PLATFORMS,
-        )
+    pipeline.build_group(
+        "📸 create snapshots",
+        commands,
+        timeout=30,
+        artifact_paths="snapshots/**/*",
+        instances=instances_x86_64,
+        platforms=DEFAULT_PLATFORMS,
     )
-    groups.append("wait")
+    pipeline.add_step("wait")
 
     # allow-list of what instances can be restores on what other instances (in
     # addition to itself)
@@ -103,10 +99,7 @@ def cross_steps():
             dst_kv,
         )
         steps.append(step)
-    groups.append({"group": "🎬 restore across instances and kernels", "steps": steps})
-    return groups
-
-
-if __name__ == "__main__":
-    pipeline = {"steps": cross_steps()}
-    print(pipeline_to_json(pipeline))
+    pipeline.add_step(
+        {"group": "🎬 restore across instances and kernels", "steps": steps}
+    )
+    print(pipeline.to_json())
