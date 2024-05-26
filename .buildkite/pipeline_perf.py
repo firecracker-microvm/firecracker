@@ -86,7 +86,8 @@ if REVISION_A:
     retry["manual"] = False
 
 pipeline = BKPipeline(
-    priority=1,
+    # Boost priority from 1 to 2 so these jobs are preferred by ag-1 agents
+    priority=2,
     # use ag=1 instances to make sure no two performance tests are scheduled on the same instance
     agents={"ag": 1},
     retry=retry,
