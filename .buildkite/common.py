@@ -172,6 +172,39 @@ COMMON_PARSER.add_argument(
 )
 
 
+def revision_a():
+    """Determine if there is a base revision"""
+    if os.environ.get("BUILDKITE_PULL_REQUEST", "false") != "false":
+        return os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH", "main")
+    return os.environ.get("REVISION_A")
+
+
+def shared_build():
+    """Helper function to make it simple to share a compilation artifacts for a
+    whole Buildkite build
+    """
+    build_cmds = ["./tools/devtool -y build --release"]
+
+    # If we are running in a PR context, then also build the base branch in the
+    # expected location, for the A/B tests machinery.
+    rev_a = revision_a()
+    if rev_a is not None:
+        build_cmds += [
+            f"git clone -b {rev_a} . build/{rev_a}",
+            f"cd build/{rev_a} && ./tools/devtool -y build --release && cd -",
+        ]
+    revision_b = os.environ.get("REVISION_B")
+    if revision_b is not None:
+        build_cmds.append(f"ln -svfT . build/{revision_b}")
+    binary_dir = "build_$(uname -m).tar.gz"
+    build_cmds += [
+        "du -sh build/*",
+        f"tar czf {binary_dir} build",
+        f"buildkite-agent artifact upload {binary_dir}",
+    ]
+    return build_cmds, binary_dir
+
+
 class BKPipeline:
     """
     Buildkite Pipeline class abstraction
@@ -195,10 +228,11 @@ class BKPipeline:
         self.per_arch = self.per_instance.copy()
         self.per_arch["instances"] = ["m6i.metal", "m7g.metal"]
         self.per_arch["platforms"] = [("al2", "linux_5.10")]
-        self.binary_dir = None
-        if args.binary_dir is not None:
-            self.binary_dir = args.binary_dir
-            self.shared_build = f"{self.binary_dir}/$(uname -m)/*"
+        self.binary_dir = args.binary_dir
+        # Build sharing
+        build_cmds, self.shared_build = shared_build()
+        step_build = group("🏗️ Build", build_cmds, **self.per_arch)
+        self.steps += [step_build, "wait"]
 
     def add_step(self, step, decorate=True):
         """
@@ -216,12 +250,17 @@ class BKPipeline:
 
     def _adapt_group(self, group):
         """"""
-        prepend = []
+        prepend = [
+            f'buildkite-agent artifact download "{self.shared_build}" .',
+            f"tar xzf {self.shared_build}",
+        ]
         if self.binary_dir is not None:
-            prepend = [
-                f'buildkite-agent artifact download "{self.shared_build}" .',
-                f"chmod -v a+x {self.binary_dir}/**/*",
-            ]
+            prepend.extend(
+                [
+                    f'buildkite-agent artifact download "{self.binary_dir}/$(uname -m)/*" .',
+                    f"chmod -v a+x {self.binary_dir}/**/*",
+                ]
+            )
 
         for step in group["steps"]:
             step["command"] = prepend + step["command"]
@@ -254,7 +293,7 @@ class BKPipeline:
     def devtool_test(self, devtool_opts=None, pytest_opts=None):
         """Generate a `devtool test` command"""
         cmds = []
-        parts = ["./tools/devtool -y test"]
+        parts = ["./tools/devtool -y test", "--no-build"]
         if devtool_opts:
             parts.append(devtool_opts)
         parts.append("--")

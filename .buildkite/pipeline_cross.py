@@ -13,28 +13,6 @@ import itertools
 
 from common import DEFAULT_PLATFORMS, BKPipeline
 
-
-def restore_step(label, src_instance, src_kv, dst_instance, dst_os, dst_kv):
-    """Generate a restore step"""
-    pytest_keyword_for_instance = {
-        "c5n.metal": "-k 'not None'",
-        "m5n.metal": "-k 'not None'",
-        "m6i.metal": "-k 'not None'",
-        "m6a.metal": "",
-    }
-    k_val = pytest_keyword_for_instance.get(dst_instance, "")
-    return {
-        "command": [
-            f"buildkite-agent artifact download snapshots/{src_instance}_{src_kv}/* .",
-            f"mv -v snapshots/{src_instance}_{src_kv} snapshot_artifacts",
-            f"./tools/devtool -y test -- -m nonci {k_val} integration_tests/functional/test_snapshot_restore_cross_kernel.py",
-        ],
-        "label": label,
-        "timeout": 30,
-        "agents": {"instance": dst_instance, "kv": dst_kv, "os": dst_os},
-    }
-
-
 if __name__ == "__main__":
     pipeline = BKPipeline()
     instances_x86_64 = ["c5n.metal", "m5n.metal", "m6i.metal", "m6a.metal"]
@@ -90,14 +68,25 @@ if __name__ == "__main__":
         ):
             continue
 
-        step = restore_step(
-            f"🎬 {src_instance} {src_kv} ➡️ {dst_instance} {dst_kv}",
-            src_instance,
-            src_kv,
-            dst_instance,
-            dst_os,
-            dst_kv,
-        )
+        pytest_keyword_for_instance = {
+            "c5n.metal": "-k 'not None'",
+            "m5n.metal": "-k 'not None'",
+            "m6i.metal": "-k 'not None'",
+            "m6a.metal": "",
+        }
+        k_val = pytest_keyword_for_instance.get(dst_instance, "")
+        step = {
+            "command": [
+                f"buildkite-agent artifact download snapshots/{src_instance}_{src_kv}/* .",
+                f"mv -v snapshots/{src_instance}_{src_kv} snapshot_artifacts",
+                *pipeline.devtool_test(
+                    pytest_opts=f"-m nonci {k_val} integration_tests/functional/test_snapshot_restore_cross_kernel.py",
+                ),
+            ],
+            "label": f"🎬 {src_instance} {src_kv} ➡️ {dst_instance} {dst_kv}",
+            "timeout": 30,
+            "agents": {"instance": dst_instance, "kv": dst_kv, "os": dst_os},
+        }
         steps.append(step)
     pipeline.add_step(
         {"group": "🎬 restore across instances and kernels", "steps": steps}
