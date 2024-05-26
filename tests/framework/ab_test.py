@@ -37,7 +37,7 @@ from host_tools.cargo_build import get_binary, get_firecracker_binaries
 
 # Locally, this will always compare against main, even if we try to merge into, say, a feature branch.
 # We might want to do a more sophisticated way to determine a "parent" branch here.
-DEFAULT_A_REVISION = os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH", "main")
+DEFAULT_A_REVISION = os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH") or "main"
 
 
 T = TypeVar("T")
