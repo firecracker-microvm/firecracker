@@ -82,11 +82,11 @@ def git_ab_test(
              (alternatively, your comparator can perform any required assertions and not return anything).
     """
 
-    dir_a = git_clone(Path("build") / a_revision, a_revision)
+    dir_a = git_clone(Path("../build") / a_revision, a_revision)
     result_a = test_runner(dir_a, True)
 
     if b_revision:
-        dir_b = git_clone(Path("build") / b_revision, b_revision)
+        dir_b = git_clone(Path("../build") / b_revision, b_revision)
     else:
         # By default, pytest execution happens inside the `tests` subdirectory. Pass the repository root, as
         # documented.
@@ -237,10 +237,13 @@ def git_clone(clone_path, commitish):
             # git didn't recognize this object; qualify it if it is a branch
             commitish = f"origin/{commitish}"
         # make a temp branch for that commit so we can directly check it out
-        utils.check_output(f"git branch {clone_path} {commitish}")
-        _, git_root, _ = utils.check_output("git rev-parse --show-toplevel")
+        branch_name = f"tmp-{commitish}"
+        utils.check_output(f"git branch {branch_name} {commitish}")
+        _, git_root, _ = utils.run_cmd("git rev-parse --show-toplevel")
         # split off the '\n' at the end of the stdout
-        utils.check_output(f"git clone -b {clone_path} {git_root.strip()} {clone_path}")
+        utils.check_output(
+            f"git clone -b {branch_name} {git_root.strip()} {clone_path}"
+        )
     return clone_path
 
 
