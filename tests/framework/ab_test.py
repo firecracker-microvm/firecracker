@@ -165,11 +165,14 @@ def git_ab_test_guest_command(
     paths to firecracker and jailer binaries."""
 
     @with_filelock
-    def test_runner(workspace_dir, _is_a: bool):
+    def build_firecracker(workspace_dir):
         utils.check_output("./tools/release.sh --profile release", cwd=workspace_dir)
-        bin_dir = get_binary(
-            "firecracker", workspace_dir=workspace_dir
-        ).parent.resolve()
+
+    def test_runner(workspace_dir, _is_a: bool):
+        firecracker = get_binary("firecracker", workspace_dir=workspace_dir)
+        if not firecracker.exists():
+            build_firecracker(workspace_dir)
+        bin_dir = firecracker.parent.resolve()
         firecracker, jailer = bin_dir / "firecracker", bin_dir / "jailer"
         microvm = microvm_factory(firecracker, jailer)
         return microvm.ssh.run(command)
