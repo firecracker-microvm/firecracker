@@ -95,19 +95,14 @@ impl VhostUserMetricsPerDevice {
     /// lock is always initialized so it is safe the unwrap
     /// the lock without a check.
     pub fn alloc(drive_id: String) -> Arc<VhostUserDeviceMetrics> {
-        if METRICS.read().unwrap().metrics.get(&drive_id).is_none() {
-            METRICS.write().unwrap().metrics.insert(
-                drive_id.clone(),
-                Arc::new(VhostUserDeviceMetrics::default()),
-            );
-        }
-        METRICS
-            .read()
-            .unwrap()
-            .metrics
-            .get(&drive_id)
-            .unwrap()
-            .clone()
+        Arc::clone(
+            METRICS
+                .write()
+                .unwrap()
+                .metrics
+                .entry(drive_id)
+                .or_insert_with(|| Arc::new(VhostUserDeviceMetrics::default())),
+        )
     }
 }
 

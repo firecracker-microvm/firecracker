@@ -1,6 +1,6 @@
 [package]
 name = "jailer"
-version = "1.8.0-dev"
+version = "1.9.0-dev"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2021"
 description = "Process for starting Firecracker in production scenarios; applies a cgroup/namespace isolation barrier and then drops privileges."
@@ -12,11 +12,11 @@ name = "jailer"
 bench = false
 
 [dependencies]
-libc = "0.2.154"
+libc = "0.2.155"
 log-instrument = { path = "../log-instrument", optional = true }
 nix = { version = "0.28.0", default-features = false, features = ["dir"] }
 regex = { version = "1.10.4", default-features = false, features = ["std"] }
-thiserror = "1.0.60"
+thiserror = "1.0.61"
 
 utils = { path = "../utils" }
 
