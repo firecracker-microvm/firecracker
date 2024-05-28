@@ -37,4 +37,14 @@ cp -ruvf build/img /srv
 cd tests
 export PYTEST_ADDOPTS="${PYTEST_ADDOPTS:-} --pdbcls=IPython.terminal.debugger:TerminalPdb"
 pytest "$@"
-exit $?
+ret=$?
+
+# if the tests failed and we are running in CI, print some disk usage stats
+# to help troubleshooting
+if [ $ret != 0 ] && [ "$BUILDKITE" == "true" ]; then
+    df -ih
+    df -h
+    du -h / 2>/dev/null |sort -h |tail -32
+fi
+
+exit $ret
