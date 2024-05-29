@@ -124,7 +124,10 @@ impl VsockPacket {
     /// - [`VsockError::DescChainTooShortForPacket`] if the contained vsock header describes a vsock
     ///   packet whose length exceeds the descriptor chain's actual total buffer length.
     pub fn from_tx_virtq_head(chain: DescriptorChain) -> Result<Self, VsockError> {
-        let buffer = IoVecBuffer::from_descriptor_chain(chain)?;
+        // SAFETY: This descriptor chain is only loaded once
+        // virtio requests are handled sequentially so no two IoVecBuffers
+        // are live at the same time, meaning this has exclusive ownership over the memory
+        let buffer = unsafe { IoVecBuffer::from_descriptor_chain(chain)? };
 
         let mut hdr = VsockPacketHeader::default();
         match buffer.read_exact_volatile_at(hdr.as_mut_slice(), 0) {
