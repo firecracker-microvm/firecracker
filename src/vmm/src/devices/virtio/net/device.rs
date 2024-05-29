@@ -142,6 +142,8 @@ pub struct Net {
     /// Only if MMDS transport has been associated with it.
     pub mmds_ns: Option<MmdsNetworkStack>,
     pub(crate) metrics: Arc<NetDeviceMetrics>,
+
+    tx_buffer: IoVecBuffer,
 }
 
 impl Net {
@@ -199,6 +201,7 @@ impl Net {
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(NetError::EventFd)?,
             mmds_ns: None,
             metrics: NetMetricsPerDevice::alloc(id),
+            tx_buffer: Default::default(),
         })
     }
 
@@ -597,19 +600,19 @@ impl Net {
                 .add(tx_queue.len(mem).into());
             let head_index = head.index;
             // Parse IoVecBuffer from descriptor head
-            let buffer = match IoVecBuffer::from_descriptor_chain(head) {
-                Ok(buffer) => buffer,
-                Err(_) => {
-                    self.metrics.tx_fails.inc();
-                    tx_queue
-                        .add_used(mem, head_index, 0)
-                        .map_err(DeviceError::QueueError)?;
-                    continue;
-                }
+            // SAFETY: This descriptor chain is only loaded once
+            // virtio requests are handled sequentially so no two IoVecBuffers
+            // are live at the same time, meaning this has exclusive ownership over the memory
+            if unsafe { self.tx_buffer.load_descriptor_chain(head).is_err() } {
+                self.metrics.tx_fails.inc();
+                tx_queue
+                    .add_used(mem, head_index, 0)
+                    .map_err(DeviceError::QueueError)?;
+                continue;
             };
 
             // We only handle frames that are up to MAX_BUFFER_SIZE
-            if buffer.len() as usize > MAX_BUFFER_SIZE {
+            if self.tx_buffer.len() as usize > MAX_BUFFER_SIZE {
                 error!("net: received too big frame from driver");
                 self.metrics.tx_malformed_frames.inc();
                 tx_queue
@@ -618,7 +621,10 @@ impl Net {
                 continue;
             }
 
-            if !Self::rate_limiter_consume_op(&mut self.tx_rate_limiter, u64::from(buffer.len())) {
+            if !Self::rate_limiter_consume_op(
+                &mut self.tx_rate_limiter,
+                u64::from(self.tx_buffer.len()),
+            ) {
                 tx_queue.undo_pop();
                 self.metrics.tx_rate_limiter_throttled.inc();
                 break;
@@ -628,7 +634,7 @@ impl Net {
                 self.mmds_ns.as_mut(),
                 &mut self.tx_rate_limiter,
                 &mut self.tx_frame_headers,
-                &buffer,
+                &self.tx_buffer,
                 &mut self.tap,
                 self.guest_mac,
                 &self.metrics,
@@ -649,6 +655,8 @@ impl Net {
             self.metrics.no_tx_avail_buffer.inc();
         }
 
+        // Cleanup tx_buffer to ensure no two buffers point at the same memory
+        self.tx_buffer.clear();
         self.try_signal_queue(NetQueue::Tx)?;
 
         // An incoming frame for the MMDS may trigger the transmission of a new message.
