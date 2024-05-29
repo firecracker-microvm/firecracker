@@ -36,8 +36,14 @@ cp -ruvf build/img /srv
 
 cd tests
 export PYTEST_ADDOPTS="${PYTEST_ADDOPTS:-} --pdbcls=IPython.terminal.debugger:TerminalPdb"
-pytest "$@"
-ret=$?
+
+{
+    # disable errexit momentarily so we can capture the exit status
+    set +e
+    pytest "$@"
+    ret=$?
+    set -e
+}
 
 # if the tests failed and we are running in CI, print some disk usage stats
 # to help troubleshooting
