@@ -5,6 +5,7 @@
 
 import json
 import logging
+import platform
 from pathlib import Path
 
 import pytest
@@ -16,7 +17,7 @@ from framework.utils import (
     guest_run_fio_iteration,
     populate_data_store,
 )
-from framework.utils_cpuid import CpuVendor, get_cpu_vendor
+from framework.utils_cpu_templates import get_supported_cpu_templates
 from framework.utils_vsock import check_vsock_device
 from integration_tests.functional.test_balloon import (
     get_stable_rss_mem_by_pid,
@@ -74,9 +75,10 @@ def get_snapshot_dirs():
     """Get all the snapshot directories"""
     snapshot_root_name = "snapshot_artifacts"
     snapshot_root_dir = Path(FC_WORKSPACE_DIR) / snapshot_root_name
-    cpu_templates = ["C3", "T2", "T2S", "None"]
-    if get_cpu_vendor() != CpuVendor.INTEL:
+    cpu_templates = []
+    if platform.machine() == "x86_64":
         cpu_templates = ["None"]
+    cpu_templates += get_supported_cpu_templates()
     for cpu_template in cpu_templates:
         for snapshot_dir in snapshot_root_dir.glob(f"*_{cpu_template}_guest_snapshot"):
             assert snapshot_dir.is_dir()

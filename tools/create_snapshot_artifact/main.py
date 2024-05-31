@@ -5,6 +5,7 @@
 
 import json
 import os
+import platform
 import re
 import shutil
 import sys
@@ -21,9 +22,8 @@ from framework.utils import (
     generate_mmds_get_request,
     generate_mmds_session_token,
 )
-from framework.utils_cpuid import CpuVendor, get_cpu_vendor
+from framework.utils_cpu_templates import get_supported_cpu_templates
 from host_tools.cargo_build import get_firecracker_binaries
-
 
 # pylint: enable=wrong-import-position
 
@@ -78,8 +78,8 @@ def main():
             |
             -> vm.mem
             -> vm.vmstate
-            -> ubuntu-18.04.id_rsa
-            -> ubuntu-18.04.ext4
+            -> ubuntu-22.04.id_rsa
+            -> ubuntu-22.04.ext4
         -> <guest_kernel_supported_1>_<cpu_template>_guest_snapshot
             |
             ...
@@ -90,9 +90,10 @@ def main():
     shutil.rmtree(SNAPSHOT_ARTIFACTS_ROOT_DIR, ignore_errors=True)
     vm_factory = MicroVMFactory(*get_firecracker_binaries())
 
-    cpu_templates = ["None"]
-    if get_cpu_vendor() == CpuVendor.INTEL:
-        cpu_templates.extend(["C3", "T2", "T2S"])
+    cpu_templates = []
+    if platform.machine() == "x86_64":
+        cpu_templates = ["None"]
+    cpu_templates += get_supported_cpu_templates()
 
     for cpu_template in cpu_templates:
         for kernel in kernels(glob="vmlinux-*"):
