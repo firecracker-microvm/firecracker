@@ -68,9 +68,11 @@ fn msrs_to_modifier(msrs: &HashMap<u32, u64>) -> Vec<RegisterModifier> {
 // Fireracker diables some features (e.g., PMU) and doesn't support some features (e.g., Hyper-V),
 // MSRs related to such features are not useful as CPU configuration dump. Excluding such MSRs
 // reduces maintenance cost when KVM makes change their default values.
-const MSR_EXCLUSION_LIST: [MsrRange; 9] = [
+const MSR_EXCLUSION_LIST: [MsrRange; 10] = [
     // - MSR_IA32_TSC (0x10): vary depending on the elapsed time.
     MSR_RANGE!(MSR_IA32_TSC),
+    // - MSR_IA32_TSC_DEADLINE (0x6e0): varies depending on the elapsed time.
+    MSR_RANGE!(MSR_IA32_TSC_DEADLINE),
     // Firecracker doesn't support MCE.
     // - MSR_IA32_MCG_STATUS (0x17a)
     // - MSR_IA32_MCG_EXT_CTL (0x4d0)

@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::arch::x86_64::interrupts;
 use crate::arch::x86_64::msr::{create_boot_msr_entries, MsrError};
 use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
+use crate::arch_gen::x86::msr_index::{MSR_IA32_TSC, MSR_IA32_TSC_DEADLINE};
 use crate::cpu_config::x86_64::{cpuid, CpuConfiguration};
 use crate::logger::{IncMetric, METRICS};
 use crate::vstate::memory::{Address, GuestAddress, GuestMemoryMmap};
@@ -282,6 +283,39 @@ impl KvmVcpu {
         Ok(cpuid)
     }
 
+    /// If the IA32_TSC_DEADLINE MSR value is zero, update it
+    /// with the IA32_TSC value to guarantee that
+    /// the vCPU will continue receiving interrupts after restoring from a snapshot.
+    ///
+    /// Rationale: we observed that sometimes when taking a snapshot,
+    /// the IA32_TSC_DEADLINE MSR is cleared, but the interrupt is not
+    /// delivered to the guest, leading to a situation where one
+    /// of the vCPUs never receives TSC interrupts after restoring,
+    /// until the MSR is updated externally, eg by setting the system time.
+    fn fix_zero_tsc_deadline_msr(msr_chunks: &mut [Msrs]) {
+        // We do not expect more than 1 TSC MSR entry, but if there are multiple, pick the maximum.
+        let max_tsc_value = msr_chunks
+            .iter()
+            .flat_map(|msrs| msrs.as_slice())
+            .filter(|msr| msr.index == MSR_IA32_TSC)
+            .map(|msr| msr.data)
+            .max();
+
+        if let Some(tsc_value) = max_tsc_value {
+            msr_chunks
+                .iter_mut()
+                .flat_map(|msrs| msrs.as_mut_slice())
+                .filter(|msr| msr.index == MSR_IA32_TSC_DEADLINE && msr.data == 0)
+                .for_each(|msr| {
+                    warn!(
+                        "MSR_IA32_TSC_DEADLINE is 0, replacing with {:x}.",
+                        tsc_value
+                    );
+                    msr.data = tsc_value;
+                });
+        }
+    }
+
     /// Get MSR chunks for the given MSR index list.
     ///
     /// KVM only supports getting `KVM_MAX_MSR_ENTRIES` at a time, so we divide
@@ -320,6 +354,8 @@ impl KvmVcpu {
 
             msr_chunks.push(msrs);
         }
+
+        Self::fix_zero_tsc_deadline_msr(&mut msr_chunks);
 
         Ok(msr_chunks)
     }
@@ -594,6 +630,7 @@ mod tests {
 
     use std::os::unix::io::AsRawFd;
 
+    use kvm_bindings::kvm_msr_entry;
     use kvm_ioctls::Cap;
 
     use super::*;
@@ -948,5 +985,78 @@ mod tests {
                 panic!("KvmVcpu::get_msrs() for unsupported MSRs should fail with VcpuGetMsr.")
             }
         }
+    }
+
+    fn msrs_from_entries(msr_entries: &[(u32, u64)]) -> Msrs {
+        Msrs::from_entries(
+            &msr_entries
+                .iter()
+                .map(|&(index, data)| kvm_msr_entry {
+                    index,
+                    data,
+                    ..Default::default()
+                })
+                .collect::<Vec<_>>(),
+        )
+        .unwrap()
+    }
+
+    fn assert_msrs(msr_chunks: &[Msrs], expected_msr_entries: &[(u32, u64)]) {
+        let flattened_msrs = msr_chunks.iter().flat_map(|msrs| msrs.as_slice());
+        for (a, b) in flattened_msrs.zip(expected_msr_entries.iter()) {
+            assert_eq!(a.index, b.0);
+            assert_eq!(a.data, b.1);
+        }
+    }
+
+    #[test]
+    fn test_fix_zero_tsc_deadline_msr_zero_same_chunk() {
+        // Place both TSC and TSC_DEADLINE MSRs in the same chunk.
+        let mut msr_chunks = [msrs_from_entries(&[
+            (MSR_IA32_TSC_DEADLINE, 0),
+            (MSR_IA32_TSC, 42),
+        ])];
+
+        KvmVcpu::fix_zero_tsc_deadline_msr(&mut msr_chunks);
+
+        // We expect for the MSR_IA32_TSC_DEADLINE to get updated with the MSR_IA32_TSC value.
+        assert_msrs(
+            &msr_chunks,
+            &[(MSR_IA32_TSC_DEADLINE, 42), (MSR_IA32_TSC, 42)],
+        );
+    }
+
+    #[test]
+    fn test_fix_zero_tsc_deadline_msr_zero_separate_chunks() {
+        // Place both TSC and TSC_DEADLINE MSRs in separate chunks.
+        let mut msr_chunks = [
+            msrs_from_entries(&[(MSR_IA32_TSC_DEADLINE, 0)]),
+            msrs_from_entries(&[(MSR_IA32_TSC, 42)]),
+        ];
+
+        KvmVcpu::fix_zero_tsc_deadline_msr(&mut msr_chunks);
+
+        // We expect for the MSR_IA32_TSC_DEADLINE to get updated with the MSR_IA32_TSC value.
+        assert_msrs(
+            &msr_chunks,
+            &[(MSR_IA32_TSC_DEADLINE, 42), (MSR_IA32_TSC, 42)],
+        );
+    }
+
+    #[test]
+    fn test_fix_zero_tsc_deadline_msr_non_zero() {
+        let mut msr_chunks = [msrs_from_entries(&[
+            (MSR_IA32_TSC_DEADLINE, 1),
+            (MSR_IA32_TSC, 2),
+        ])];
+
+        KvmVcpu::fix_zero_tsc_deadline_msr(&mut msr_chunks);
+
+        // We expect that MSR_IA32_TSC_DEADLINE should remain unchanged, because it is non-zero
+        // already.
+        assert_msrs(
+            &msr_chunks,
+            &[(MSR_IA32_TSC_DEADLINE, 1), (MSR_IA32_TSC, 2)],
+        );
     }
 }

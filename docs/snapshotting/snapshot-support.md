@@ -171,6 +171,11 @@ The snapshot functionality is still in developer preview due to the following:
   the data store is not persisted across snapshots.
 - Configuration information for metrics and logs are not saved to the snapshot.
   These need to be reconfigured on the restored microVM.
+- On x86_64, if a vCPU has MSR_IA32_TSC_DEADLINE set to 0 when a snapshot is
+  taken, Firecracker replaces it with the MSR_IA32_TSC value from the same vCPU.
+  This is to guarantee that the vCPU will continue receiving TSC interrupts
+  after restoring from the snapshot even if an interrupt is lost when taking a
+  snapshot.
 
 ## Snapshot versioning
 
