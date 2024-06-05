@@ -7,7 +7,7 @@ use crate::fingerprint::{Fingerprint, FingerprintField};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum FingerprintCompareError {
-    /// Difference detected between source and target:\n{0}
+    /// Difference detected between source and target: {0}
     DiffDetected(String),
     /// Failed to serialize/deserialize JSON: {0}
     Serde(#[from] serde_json::Error),
@@ -85,7 +85,10 @@ pub fn compare(
     if results.is_empty() {
         Ok(())
     } else {
-        Err(FingerprintCompareError::DiffDetected(results.join("\n")))
+        Err(FingerprintCompareError::DiffDetected(format!(
+            "\n{}",
+            results.join("\n")
+        )))
     }
 }
 
@@ -132,7 +135,7 @@ mod tests {
             Err(FingerprintCompareError::DiffDetected(err)) => {
                 assert_eq!(
                     err,
-                    "{\
+                    "\n{\
                     \n  \"name\": \"kernel_version\",\
                     \n  \"prev\": \"sample_kernel_version\",\
                     \n  \"curr\": \"different_kernel_version\"\

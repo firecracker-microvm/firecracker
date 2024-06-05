@@ -106,7 +106,7 @@ impl MuxerKillQ {
     pub fn pop(&mut self) -> Option<ConnMapKey> {
         if let Some(item) = self.q.front() {
             if Instant::now() > item.kill_time {
-                return Some(self.q.pop_front().unwrap().key);
+                return self.q.pop_front().map(|entry| entry.key);
             }
         }
         None

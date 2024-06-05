@@ -74,7 +74,9 @@ def test_drive_io_engine(uvm_plain):
             test_microvm.api.drive.put(io_engine="Async", **kwargs)
         # The Async engine is not supported for older kernels.
         test_microvm.check_log_message(
-            "Received Error. Status code: 400 Bad Request. Message: Drive config error: Unable to create the virtio block device: VirtioBackend(FileEngine(UnsupportedEngine(Async)))"
+            "Received Error. Status code: 400 Bad Request. Message: Drive config error: "
+            "Unable to create the virtio block device: Virtio backend error: "
+            "Error coming from the IO engine: Unsupported engine type: Async"
         )
 
         # Now configure the default engine type and check that it works.

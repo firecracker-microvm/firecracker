@@ -103,7 +103,7 @@ pub enum FilterError {
     FilterTooLarge,
     /// The seccomp rule contains an invalid argument number.
     InvalidArgumentNumber,
-    /// {0:?}
+    /// {0}
     Arch(TargetArchError),
     /// Syscall {0} has conflicting rules.
     ConflictingRules(i64),
@@ -1743,7 +1743,7 @@ mod tests {
                 "{}",
                 FilterError::Arch(TargetArchError::InvalidString("lala".to_string()))
             ),
-            format!("{:?}", TargetArchError::InvalidString("lala".to_string()))
+            format!("{0}", TargetArchError::InvalidString("lala".to_string()))
         );
     }
 

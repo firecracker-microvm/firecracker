@@ -54,7 +54,9 @@ class MicrovmHelpers:
 
     # keep track of assigned subnets
     shared_subnet_ctr = 0
-    _supernet = ipaddress.IPv4Network("10.0.0.0/16")
+    # Try not to collide with anything by using the last /16 of the 10.x.x.x
+    # private block
+    _supernet = ipaddress.IPv4Network("10.255.0.0/16")
     _subnets_gen = _supernet.subnets(new_prefix=30)
 
     def __init__(self, vm):
@@ -110,9 +112,11 @@ class MicrovmHelpers:
         ip = self.vm.iface["eth0"]["iface"].guest_ip
         return f"{self.vm.netns.cmd_prefix()} ssh -o StrictHostKeyChecking=no -i {self.vm.ssh_key} root@{ip}"
 
-    def tmux_ssh(self):
+    def tmux_ssh(self, cmd=""):
         """Open a tmux window with an SSH session to the VM"""
-        return self.tmux_neww(self.how_to_ssh())
+        if len(cmd) > 0:
+            cmd = f" {cmd}"
+        return self.tmux_neww(self.how_to_ssh() + cmd)
 
     def enable_console(self):
         """Helper method to attach a console, before the machine boots"""
@@ -138,9 +142,6 @@ class MicrovmHelpers:
 
     def enable_ip_forwarding(self, iface="eth0"):
         """Enables IP forwarding in the guest"""
-        if DOCKER.in_docker:
-            docker_apt_install("iptables")
-
         i = MicrovmHelpers.shared_subnet_ctr
         MicrovmHelpers.shared_subnet_ctr += 1
         netns = self.vm.netns.id

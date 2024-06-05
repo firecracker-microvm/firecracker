@@ -403,102 +403,69 @@ mod tests {
             ArpError::Operation
         );
 
-        // TODO: The following test code is way more verbose than it should've been. Make it
-        // prettier at some point.
+        // Various requests
+        let requests = [
+            (
+                HTYPE_ETHERNET,
+                ETHERTYPE_IPV4,
+                MAC_ADDR_LEN,
+                IPV4_ADDR_LEN,
+                None,
+            ), // Valid request
+            (
+                HTYPE_ETHERNET + 1,
+                ETHERTYPE_IPV4,
+                MAC_ADDR_LEN,
+                IPV4_ADDR_LEN,
+                Some(ArpError::HType),
+            ), // Invalid htype
+            (
+                HTYPE_ETHERNET,
+                ETHERTYPE_IPV4 + 1,
+                MAC_ADDR_LEN,
+                IPV4_ADDR_LEN,
+                Some(ArpError::PType),
+            ), // Invalid ptype
+            (
+                HTYPE_ETHERNET,
+                ETHERTYPE_IPV4,
+                MAC_ADDR_LEN + 1,
+                IPV4_ADDR_LEN,
+                Some(ArpError::HLen),
+            ), // Invalid hlen
+            (
+                HTYPE_ETHERNET,
+                ETHERTYPE_IPV4,
+                MAC_ADDR_LEN,
+                IPV4_ADDR_LEN + 1,
+                Some(ArpError::PLen),
+            ), // Invalid plen
+        ];
 
-        // Let's write a valid request.
-        EthIPv4ArpFrame::write_raw(
-            &mut a[..ETH_IPV4_FRAME_LEN],
-            HTYPE_ETHERNET,
-            ETHERTYPE_IPV4,
-            MAC_ADDR_LEN,
-            IPV4_ADDR_LEN,
-            OPER_REQUEST,
-            sha,
-            spa,
-            tha,
-            tpa,
-        )
-        .unwrap();
-        EthIPv4ArpFrame::request_from_bytes(&a[..ETH_IPV4_FRAME_LEN]).unwrap();
-
-        // Now we start writing invalid requests. We've already tried with an invalid operation.
-
-        // Invalid htype.
-        EthIPv4ArpFrame::write_raw(
-            &mut a[..ETH_IPV4_FRAME_LEN],
-            HTYPE_ETHERNET + 1,
-            ETHERTYPE_IPV4,
-            MAC_ADDR_LEN,
-            IPV4_ADDR_LEN,
-            OPER_REQUEST,
-            sha,
-            spa,
-            tha,
-            tpa,
-        )
-        .unwrap();
-        assert_eq!(
-            EthIPv4ArpFrame::request_from_bytes(&a[..ETH_IPV4_FRAME_LEN]).unwrap_err(),
-            ArpError::HType
-        );
-
-        // Invalid ptype.
-        EthIPv4ArpFrame::write_raw(
-            &mut a[..ETH_IPV4_FRAME_LEN],
-            HTYPE_ETHERNET,
-            ETHERTYPE_IPV4 + 1,
-            MAC_ADDR_LEN,
-            IPV4_ADDR_LEN,
-            OPER_REQUEST,
-            sha,
-            spa,
-            tha,
-            tpa,
-        )
-        .unwrap();
-        assert_eq!(
-            EthIPv4ArpFrame::request_from_bytes(&a[..ETH_IPV4_FRAME_LEN]).unwrap_err(),
-            ArpError::PType
-        );
-
-        // Invalid hlen.
-        EthIPv4ArpFrame::write_raw(
-            &mut a[..ETH_IPV4_FRAME_LEN],
-            HTYPE_ETHERNET,
-            ETHERTYPE_IPV4,
-            MAC_ADDR_LEN + 1,
-            IPV4_ADDR_LEN,
-            OPER_REQUEST,
-            sha,
-            spa,
-            tha,
-            tpa,
-        )
-        .unwrap();
-        assert_eq!(
-            EthIPv4ArpFrame::request_from_bytes(&a[..ETH_IPV4_FRAME_LEN]).unwrap_err(),
-            ArpError::HLen
-        );
-
-        // Invalid plen.
-        EthIPv4ArpFrame::write_raw(
-            &mut a[..ETH_IPV4_FRAME_LEN],
-            HTYPE_ETHERNET,
-            ETHERTYPE_IPV4,
-            MAC_ADDR_LEN,
-            IPV4_ADDR_LEN + 1,
-            OPER_REQUEST,
-            sha,
-            spa,
-            tha,
-            tpa,
-        )
-        .unwrap();
-        assert_eq!(
-            EthIPv4ArpFrame::request_from_bytes(&a[..ETH_IPV4_FRAME_LEN]).unwrap_err(),
-            ArpError::PLen
-        );
+        for (htype, ptype, hlen, plen, err) in requests.iter() {
+            EthIPv4ArpFrame::write_raw(
+                &mut a[..ETH_IPV4_FRAME_LEN],
+                *htype,
+                *ptype,
+                *hlen,
+                *plen,
+                OPER_REQUEST,
+                sha,
+                spa,
+                tha,
+                tpa,
+            )
+            .unwrap();
+            match err {
+                None => {
+                    EthIPv4ArpFrame::request_from_bytes(&a[..ETH_IPV4_FRAME_LEN]).unwrap();
+                }
+                Some(arp_error) => assert_eq!(
+                    EthIPv4ArpFrame::request_from_bytes(&a[..ETH_IPV4_FRAME_LEN]).unwrap_err(),
+                    *arp_error
+                ),
+            }
+        }
     }
 
     #[test]

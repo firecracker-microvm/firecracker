@@ -204,14 +204,17 @@ class Microvm:
         if int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", 1)) > 1:
             self.time_api_requests = False
 
+        self.monitors = []
         self.memory_monitor = None
         if monitor_memory:
             self.memory_monitor = MemoryMonitor(self)
+            self.monitors.append(self.memory_monitor)
 
         self.api = None
         self.log_file = None
         self.metrics_file = None
         self._spawned = False
+        self._killed = False
 
         # device dictionaries
         self.iface = {}
@@ -236,6 +239,13 @@ class Microvm:
     def kill(self):
         """All clean up associated with this microVM should go here."""
         # pylint: disable=subprocess-run-check
+        # if it was already killed, return
+        if self._killed:
+            return
+
+        # Stop any registered monitors
+        for monitor in self.monitors:
+            monitor.stop()
 
         # We start with vhost-user backends,
         # because if we stop Firecracker first, the backend will want
@@ -281,14 +291,12 @@ class Microvm:
 
         # Mark the microVM as not spawned, so we avoid trying to kill twice.
         self._spawned = False
+        self._killed = True
 
         if self.time_api_requests:
             self._validate_api_response_times()
 
         if self.memory_monitor:
-            if self.memory_monitor.is_alive():
-                self.memory_monitor.signal_stop()
-                self.memory_monitor.join(timeout=1)
             self.memory_monitor.check_samples()
 
     def _validate_api_response_times(self):
@@ -417,15 +425,24 @@ class Microvm:
             return None
         return tuple(int(x) for x in splits[1].split("."))
 
+    def get_metrics(self):
+        """Return iterator to metric data points written by FC"""
+        with self.metrics_file.open() as fd:
+            for line in fd:
+                if not line.endswith("}\n"):
+                    LOG.warning("Line is not a proper JSON object. Partial write?")
+                    continue
+                yield json.loads(line)
+
+    def get_all_metrics(self):
+        """Return all metric data points written by FC."""
+        return list(self.get_metrics())
+
     def flush_metrics(self):
         """Flush the microvm metrics and get the latest datapoint"""
         self.api.actions.put(action_type="FlushMetrics")
         # get the latest metrics
         return self.get_all_metrics()[-1]
-
-    def get_all_metrics(self):
-        """Return all metric data points written by FC."""
-        return [json.loads(line) for line in self.metrics_file.read_text().splitlines()]
 
     def create_jailed_resource(self, path):
         """Create a hard link to some resource inside this microvm."""
@@ -1002,8 +1019,9 @@ class MicroVMFactory:
         for vm in self.vms:
             vm.kill()
             vm.jailer.cleanup()
-            if len(vm.jailer.jailer_id) > 0:
-                shutil.rmtree(vm.jailer.chroot_base_with_id())
+            chroot_base_with_id = vm.jailer.chroot_base_with_id()
+            if len(vm.jailer.jailer_id) > 0 and chroot_base_with_id.exists():
+                shutil.rmtree(chroot_base_with_id)
             vm.netns.cleanup()
 
         self.vms.clear()

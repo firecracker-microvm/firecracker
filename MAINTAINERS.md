@@ -11,5 +11,4 @@ Firecracker is maintained by a dedicated team within Amazon:
 - Nikita Kalyazin <kalyazin@amazon.com>
 - Pablo Barbachano <pablob@amazon.com>
 - Patrick Roy <roypat@amazon.com>
-- Sudan Landge <sudanl@amazon.com>
 - Takahiro Itazuri <itazur@amazon.com>

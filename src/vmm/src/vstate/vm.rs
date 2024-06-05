@@ -235,10 +235,10 @@ impl Vm {
         }
         guest_mem
             .iter()
-            .enumerate()
-            .try_for_each(|(index, region)| {
+            .zip(0u32..)
+            .try_for_each(|(region, slot)| {
                 let memory_region = kvm_userspace_memory_region {
-                    slot: u32::try_from(index).unwrap(),
+                    slot,
                     guest_phys_addr: region.start_addr().raw_value(),
                     memory_size: region.len(),
                     // It's safe to unwrap because the guest address is valid.

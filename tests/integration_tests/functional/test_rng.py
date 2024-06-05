@@ -16,15 +16,18 @@ if (
 
 
 @pytest.fixture(params=[None])
-def uvm_with_rng(uvm_nano, request):
+def uvm_with_rng(uvm_plain, request):
     """Fixture of a microvm with virtio-rng configured"""
     rate_limiter = request.param
-    uvm_nano.add_net_iface()
-    uvm_nano.api.entropy.put(rate_limiter=rate_limiter)
-    uvm_nano.start()
+    uvm = uvm_plain
+    uvm.spawn(log_level="INFO")
+    uvm.basic_config(vcpu_count=2, mem_size_mib=256)
+    uvm.add_net_iface()
+    uvm.api.entropy.put(rate_limiter=rate_limiter)
+    uvm.start()
     # Just stuff it in the microvm so we can look at it later
-    uvm_nano.rng_rate_limiter = rate_limiter
-    return uvm_nano
+    uvm.rng_rate_limiter = rate_limiter
+    return uvm
 
 
 def test_rng_not_present(uvm_nano):
