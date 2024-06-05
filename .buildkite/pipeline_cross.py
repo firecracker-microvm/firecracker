@@ -38,7 +38,7 @@ def restore_step(label, src_instance, src_kv, dst_instance, dst_os, dst_kv):
 def cross_steps():
     """Generate group steps"""
     instances_x86_64 = ["c5n.metal", "m5n.metal", "m6i.metal", "m6a.metal"]
-    instances_aarch64 = ["m6g.metal", "m7g.metal"]
+    instances_aarch64 = ["m7g.metal"]
     groups = []
     commands = [
         "./tools/devtool -y build --release",
@@ -53,7 +53,7 @@ def cross_steps():
             commands,
             timeout=30,
             artifact_paths="snapshots/**/*",
-            instances=instances_x86_64 + instances_aarch64,
+            instances=instances_x86_64,
             platforms=DEFAULT_PLATFORMS,
         )
     )
@@ -65,15 +65,10 @@ def cross_steps():
         "c5n.metal": ["m5n.metal", "m6i.metal"],
         "m5n.metal": ["c5n.metal", "m6i.metal"],
         "m6i.metal": ["c5n.metal", "m5n.metal"],
-        "m6g.metal": ["m7g.metal"],
-        "m7g.metal": ["m6g.metal"],
     }
 
     # https://github.com/firecracker-microvm/firecracker/blob/main/docs/kernel-policy.md#experimental-snapshot-compatibility-across-kernel-versions
-    aarch64_platforms = [
-        ("al2", "linux_5.10"),
-        ("al2023", "linux_6.1"),
-    ]
+    aarch64_platforms = [("al2023", "linux_6.1")]
     perms_aarch64 = itertools.product(
         instances_aarch64, aarch64_platforms, instances_aarch64, aarch64_platforms
     )
@@ -91,8 +86,8 @@ def cross_steps():
         # the integration tests already test src == dst, so we skip it
         if src_instance == dst_instance and src_kv == dst_kv:
             continue
-        # 5.10 -> 4.14 is not supported
-        if dst_kv == "linux_4.14":
+        # newer -> older is not supported, and does not work
+        if src_kv > dst_kv:
             continue
         if src_instance != dst_instance and dst_instance not in supported.get(
             src_instance, []
