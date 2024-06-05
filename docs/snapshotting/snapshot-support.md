@@ -648,11 +648,8 @@ supported host kernel versions by generating snapshot artifacts through
 [this tool](../../tools/create_snapshot_artifact) and checking devices'
 functionality using
 [this test](../../tests/integration_tests/functional/test_snapshot_restore_cross_kernel.py).
-The microVM snapshotted is built from
-[this configuration file](../../tools/create_snapshot_artifact/complex_vm_config.json).
-The test restores the snapshot and ensures that all the devices set-up in the
-configuration file (network devices, disk, vsock, balloon and MMDS) are
-operational post-load.
+The test restores the snapshot and ensures that all the devices set-up (network
+devices, disk, vsock, balloon and MMDS) are operational post-load.
 
 In those tests the instance is fixed, except some combinations where we also
 test across the same CPU family (Intel x86, Gravitons). In general cross-CPU
