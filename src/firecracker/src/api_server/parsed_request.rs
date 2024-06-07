@@ -15,6 +15,8 @@ use super::request::boot_source::parse_put_boot_source;
 use super::request::cpu_configuration::parse_put_cpu_config;
 use super::request::drive::{parse_patch_drive, parse_put_drive};
 use super::request::entropy::parse_put_entropy;
+#[cfg(target_arch = "x86_64")]
+use super::request::hotplug::parse_put_hotplug;
 use super::request::instance_info::parse_get_instance_info;
 use super::request::logger::parse_put_logger;
 use super::request::machine_configuration::{
@@ -89,6 +91,8 @@ impl TryFrom<&Request> for ParsedRequest {
             (Method::Put, "boot-source", Some(body)) => parse_put_boot_source(body),
             (Method::Put, "cpu-config", Some(body)) => parse_put_cpu_config(body),
             (Method::Put, "drives", Some(body)) => parse_put_drive(body, path_tokens.next()),
+            #[cfg(target_arch = "x86_64")]
+            (Method::Put, "hotplug", Some(body)) => parse_put_hotplug(body),
             (Method::Put, "logger", Some(body)) => parse_put_logger(body),
             (Method::Put, "machine-config", Some(body)) => parse_put_machine_config(body),
             (Method::Put, "metrics", Some(body)) => parse_put_metrics(body),
@@ -740,6 +744,22 @@ pub mod tests {
                     \"size\": 0, \"one_time_burst\": 0, \"refill_time\": 0 } } }";
         sender
             .write_all(http_request("PUT", "/drives/string", Some(body)).as_bytes())
+            .unwrap();
+        connection.try_read().unwrap();
+        let req = connection.pop_parsed_request().unwrap();
+        ParsedRequest::try_from(&req).unwrap();
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_try_from_put_hotplug_vcpu() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        let body = r#"{
+            "Vcpu": { "add": 1 }
+        }"#;
+        sender
+            .write_all(http_request("PUT", "/hotplug", Some(body)).as_bytes())
             .unwrap();
         connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();

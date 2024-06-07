@@ -20,6 +20,8 @@ use super::{
 };
 use crate::builder::StartMicrovmError;
 use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
+#[cfg(target_arch = "x86_64")]
+use crate::logger::METRICS;
 use crate::logger::{info, warn, LoggerConfig, *};
 use crate::mmds::data_store::{self, Mmds};
 use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
@@ -31,6 +33,8 @@ use crate::vmm_config::balloon::{
 use crate::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use crate::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig, DriveError};
 use crate::vmm_config::entropy::{EntropyDeviceConfig, EntropyDeviceError};
+#[cfg(target_arch = "x86_64")]
+use crate::vmm_config::hotplug::{HotplugRequestConfig, HotplugRequestError};
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{MachineConfig, MachineConfigUpdate, VmConfigError};
 use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError};
@@ -75,6 +79,9 @@ pub enum VmmAction {
     GetVmmVersion,
     /// Flush the metrics. This action can only be called after the logger has been configured.
     FlushMetrics,
+    /// Hotplug resources into the VM.
+    #[cfg(target_arch = "x86_64")]
+    HotplugRequest(HotplugRequestConfig),
     /// Add a new block device or update one that already exists using the `BlockDeviceConfig` as
     /// input. This action can only be called before the microVM has booted.
     InsertBlockDevice(BlockDeviceConfig),
@@ -144,6 +151,9 @@ pub enum VmmActionError {
     DriveConfig(#[from] DriveError),
     /// Entropy device error: {0}
     EntropyDevice(#[from] EntropyDeviceError),
+    /// Hotplug error: {0}
+    #[cfg(target_arch = "x86_64")]
+    HotplugRequest(#[from] HotplugRequestError),
     /// Internal VMM error: {0}
     InternalVmm(#[from] VmmError),
     /// Load snapshot error: {0}
@@ -453,6 +463,8 @@ impl<'a> PrebootApiController<'a> {
             | UpdateNetworkInterface(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
+            #[cfg(target_arch = "x86_64")]
+            HotplugRequest(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
         }
     }
 
@@ -657,6 +669,8 @@ impl RuntimeApiController {
             GetVmmVersion => Ok(VmmData::VmmVersion(
                 self.vmm.lock().expect("Poisoned lock").version(),
             )),
+            #[cfg(target_arch = "x86_64")]
+            HotplugRequest(config) => Ok(VmmData::Empty),
             PatchMMDS(value) => self.patch_mmds(value),
             Pause => self.pause(),
             PutMMDS(value) => self.put_mmds(value),

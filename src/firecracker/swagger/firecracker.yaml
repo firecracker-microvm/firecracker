@@ -282,6 +282,30 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /hotplug:
+    put:
+      summary: Hotplugs resources to the microVM. Only available for x86_64 hosts. Post-boot only.
+      description:
+        Adds new resources to the VM.
+      parameters:
+        - name: body
+          in: body
+          description: The resource type and amount to be hotplugged.
+          required: true
+          schema: 
+            $ref: "#/definitions/Hotplug"
+      responses:
+        204:
+          description: Resources hotplugged successfully.
+        400: 
+          description: Resources cannot be hotplugged due to bad input or a VMM-related error.
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error.
+          schema:
+            $ref: "#/definitions/Error"
+
   /logger:
     put:
       summary: Initializes the logger by specifying a named pipe or a file for the logs output.
@@ -942,6 +966,21 @@ definitions:
           $ref: "#/definitions/NetworkInterface"
       vsock:
         $ref: "#/definitions/Vsock"
+
+  Hotplug:
+    type: object
+    description:
+      Defines the configuration for hot plugging.
+    properties:
+      Vcpu:
+        type: object
+        description: Hotplug requests relating to vCPU cores.
+        properties:
+          add:
+            description: Number of vCPUs cores to be added to the VM
+            type: integer
+            minimum: 1
+
 
   InstanceActionInfo:
     type: object

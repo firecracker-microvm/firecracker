@@ -7,6 +7,8 @@ pub mod boot_source;
 pub mod cpu_configuration;
 pub mod drive;
 pub mod entropy;
+#[cfg(target_arch = "x86_64")]
+pub mod hotplug;
 pub mod instance_info;
 pub mod logger;
 pub mod machine_configuration;
