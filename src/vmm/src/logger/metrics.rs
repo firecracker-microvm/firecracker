@@ -410,6 +410,10 @@ pub struct PutRequestsMetrics {
     pub drive_count: SharedIncMetric,
     /// Number of failures in attaching a block device.
     pub drive_fails: SharedIncMetric,
+    /// Number of PUTs for hotplugging
+    pub hotplug: SharedIncMetric,
+    /// Number of failures for hotplugging.
+    pub hotplug_fails: SharedIncMetric,
     /// Number of PUTs for initializing the logging system.
     pub logger_count: SharedIncMetric,
     /// Number of failures in initializing the logging system.
@@ -449,6 +453,8 @@ impl PutRequestsMetrics {
             boot_source_fails: SharedIncMetric::new(),
             drive_count: SharedIncMetric::new(),
             drive_fails: SharedIncMetric::new(),
+            hotplug: SharedIncMetric::new(),
+            hotplug_fails: SharedIncMetric::new(),
             logger_count: SharedIncMetric::new(),
             logger_fails: SharedIncMetric::new(),
             machine_cfg_count: SharedIncMetric::new(),
@@ -824,6 +830,28 @@ impl VmmMetrics {
     }
 }
 
+/// Metrics specific to hotplugging
+#[derive(Debug, Default, Serialize)]
+pub struct HotplugMetrics {
+    pub hotplug_request_count: SharedIncMetric,
+    pub hotplug_request_fails: SharedIncMetric,
+    pub vcpu_hotplug_request_fails: SharedIncMetric,
+    pub vcpus_added: SharedIncMetric,
+}
+
+impl HotplugMetrics {
+    /// Const default construction.
+
+    pub const fn new() -> Self {
+        Self {
+            hotplug_request_count: SharedIncMetric::new(),
+            hotplug_request_fails: SharedIncMetric::new(),
+            vcpu_hotplug_request_fails: SharedIncMetric::new(),
+            vcpus_added: SharedIncMetric::new(),
+        }
+    }
+}
+
 // The sole purpose of this struct is to produce an UTC timestamp when an instance is serialized.
 #[derive(Debug, Default)]
 struct SerializeToUtcTimestampMs;
@@ -887,6 +915,8 @@ pub struct FirecrackerMetrics {
     pub deprecated_api: DeprecatedApiMetrics,
     /// Metrics related to API GET requests.
     pub get_api_requests: GetRequestsMetrics,
+    /// Metrics related to hot-plugging.
+    pub hotplug: HotplugMetrics,
     #[serde(flatten)]
     /// Metrics related to the legacy device.
     pub legacy_dev_ser: LegacyDevMetricsSerializeProxy,
@@ -931,6 +961,7 @@ impl FirecrackerMetrics {
             block_ser: BlockMetricsSerializeProxy {},
             deprecated_api: DeprecatedApiMetrics::new(),
             get_api_requests: GetRequestsMetrics::new(),
+            hotplug: HotplugMetrics::new(),
             legacy_dev_ser: LegacyDevMetricsSerializeProxy {},
             latencies_us: PerformanceMetrics::new(),
             logger: LoggerSystemMetrics::new(),

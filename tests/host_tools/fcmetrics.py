@@ -152,6 +152,12 @@ def validate_fc_metrics(metrics):
             "mmds_count",
             "vmm_version_count",
         ],
+        "hotplug": [
+            "hotplug_request_count",
+            "hotplug_request_fails",
+            "vcpu_hotplug_request_fails",
+            "vcpus_added",
+        ],
         "i8042": [
             "error_count",
             "missed_read_count",
@@ -209,6 +215,8 @@ def validate_fc_metrics(metrics):
             "boot_source_fails",
             "drive_count",
             "drive_fails",
+            "hotplug",
+            "hotplug_fails",
             "logger_count",
             "logger_fails",
             "machine_cfg_count",
