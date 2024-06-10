@@ -10,7 +10,7 @@ name = "snapshot-editor"
 bench = false
 
 [dependencies]
-clap = { version = "4.5.4", features = ["derive", "string"] }
+clap = { version = "4.5.7", features = ["derive", "string"] }
 displaydoc = "0.2.4"
 
 fc_utils = { package = "utils", path = "../utils" }
