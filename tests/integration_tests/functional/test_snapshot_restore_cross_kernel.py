@@ -5,6 +5,7 @@
 
 import json
 import logging
+import platform
 from pathlib import Path
 
 import pytest
@@ -16,12 +17,14 @@ from framework.utils import (
     guest_run_fio_iteration,
     populate_data_store,
 )
-from framework.utils_cpuid import CpuVendor, get_cpu_vendor
+from framework.utils_cpu_templates import get_supported_cpu_templates
 from framework.utils_vsock import check_vsock_device
 from integration_tests.functional.test_balloon import (
     get_stable_rss_mem_by_pid,
     make_guest_dirty_memory,
 )
+
+pytestmark = pytest.mark.nonci
 
 
 def _test_balloon(microvm):
@@ -65,17 +68,27 @@ def _test_mmds(vm, mmds_net_iface):
 
     cmd = generate_mmds_get_request(mmds_ipv4_address, token=token)
     _, stdout, _ = vm.ssh.run(cmd)
-    assert json.load(stdout) == data_store
+    assert json.loads(stdout) == data_store
+
+
+def get_snapshot_dirs():
+    """Get all the snapshot directories"""
+    snapshot_root_name = "snapshot_artifacts"
+    snapshot_root_dir = Path(FC_WORKSPACE_DIR) / snapshot_root_name
+    cpu_templates = []
+    if platform.machine() == "x86_64":
+        cpu_templates = ["None"]
+    cpu_templates += get_supported_cpu_templates()
+    for cpu_template in cpu_templates:
+        for snapshot_dir in snapshot_root_dir.glob(f"*_{cpu_template}_guest_snapshot"):
+            assert snapshot_dir.is_dir()
+            yield pytest.param(snapshot_dir, id=snapshot_dir.name)
 
 
 @pytest.mark.timeout(600)
-@pytest.mark.nonci
-@pytest.mark.parametrize(
-    "cpu_template",
-    ["C3", "T2", "T2S", "None"] if get_cpu_vendor() == CpuVendor.INTEL else ["None"],
-)
+@pytest.mark.parametrize("snapshot_dir", get_snapshot_dirs())
 def test_snap_restore_from_artifacts(
-    microvm_factory, bin_vsock_path, test_fc_session_root_path, cpu_template
+    microvm_factory, bin_vsock_path, test_fc_session_root_path, snapshot_dir
 ):
     """
     Restore from snapshots obtained with all supported guest kernel versions.
@@ -87,43 +100,37 @@ def test_snap_restore_from_artifacts(
     """
     logger = logging.getLogger("cross_kernel_snapshot_restore")
 
-    snapshot_root_name = "snapshot_artifacts"
-    snapshot_root_dir = Path(FC_WORKSPACE_DIR) / snapshot_root_name
-
     # Iterate through all subdirectories based on CPU template
     # in the snapshot root dir.
-    snap_subdirs = snapshot_root_dir.glob(f".*_{cpu_template}_guest_snapshot")
-    for snapshot_dir in snap_subdirs:
-        assert snapshot_dir.is_dir()
-        logger.info("Working with snapshot artifacts in %s.", snapshot_dir)
+    logger.info("Working with snapshot artifacts in %s.", snapshot_dir)
 
-        vm = microvm_factory.build()
-        vm.spawn()
-        logger.info("Loading microVM from snapshot...")
-        vm.restore_from_path(snapshot_dir)
-        vm.resume()
+    vm = microvm_factory.build()
+    vm.spawn()
+    logger.info("Loading microVM from snapshot...")
+    vm.restore_from_path(snapshot_dir)
+    vm.resume()
 
-        # Ensure microVM is running.
-        assert vm.state == "Running"
+    # Ensure microVM is running.
+    assert vm.state == "Running"
 
-        # Test that net devices have connectivity after restore.
-        for idx, iface in enumerate(vm.iface.values()["iface"]):
-            logger.info("Testing net device %s...", iface.dev_name)
-            exit_code, _, _ = vm.ssh_iface(idx).run("sync")
-            assert exit_code == 0
+    # Test that net devices have connectivity after restore.
+    for idx, iface in enumerate(vm.iface.values()):
+        logger.info("Testing net device %s...", iface["iface"].dev_name)
+        exit_code, _, _ = vm.ssh_iface(idx).run("true")
+        assert exit_code == 0
 
-        logger.info("Testing data store behavior...")
-        _test_mmds(vm, vm.iface["eth3"]["iface"])
+    logger.info("Testing data store behavior...")
+    _test_mmds(vm, vm.iface["eth3"]["iface"])
 
-        logger.info("Testing balloon device...")
-        _test_balloon(vm)
+    logger.info("Testing balloon device...")
+    _test_balloon(vm)
 
-        logger.info("Testing vsock device...")
-        check_vsock_device(vm, bin_vsock_path, test_fc_session_root_path, vm.ssh)
+    logger.info("Testing vsock device...")
+    check_vsock_device(vm, bin_vsock_path, test_fc_session_root_path, vm.ssh)
 
-        # Run fio on the guest.
-        # TODO: check the result of FIO or use fsck to check that the root device is
-        # not corrupted. No obvious errors will be returned here.
-        guest_run_fio_iteration(vm.ssh, 0)
+    # Run fio on the guest.
+    # TODO: check the result of FIO or use fsck to check that the root device is
+    # not corrupted. No obvious errors will be returned here.
+    guest_run_fio_iteration(vm.ssh, 0)
 
-        vm.kill()
+    vm.kill()
