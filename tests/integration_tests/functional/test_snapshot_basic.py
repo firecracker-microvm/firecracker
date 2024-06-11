@@ -171,7 +171,7 @@ def test_5_snapshots(
         logger.info("Load snapshot #%s, mem %s", i, snapshot.mem)
         microvm = microvm_factory.build()
         microvm.spawn()
-        microvm.restore_from_snapshot(snapshot, resume=True)
+        copied_snapshot = microvm.restore_from_snapshot(snapshot, resume=True)
 
         # FIXME: This and the sleep below reduce the rate of vsock/ssh connection
         # related spurious test failures, although we do not know why this is the case.
@@ -201,6 +201,7 @@ def test_5_snapshots(
             )
 
         microvm.kill()
+        copied_snapshot.delete()
         # Update the base for next iteration.
         base_snapshot = snapshot
 
