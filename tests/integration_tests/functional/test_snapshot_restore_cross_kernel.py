@@ -105,6 +105,7 @@ def test_snap_restore_from_artifacts(
     logger.info("Working with snapshot artifacts in %s.", snapshot_dir)
 
     vm = microvm_factory.build()
+    vm.time_api_requests = False
     vm.spawn()
     logger.info("Loading microVM from snapshot...")
     vm.restore_from_path(snapshot_dir)
