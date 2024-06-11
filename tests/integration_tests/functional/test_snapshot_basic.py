@@ -165,6 +165,7 @@ def test_5_snapshots(
     start_guest_echo_server(vm)
     snapshot = vm.make_snapshot(snapshot_type)
     base_snapshot = snapshot
+    vm.kill()
 
     for i in range(seq_len):
         logger.info("Load snapshot #%s, mem %s", i, snapshot.mem)
@@ -199,6 +200,7 @@ def test_5_snapshots(
                 base_snapshot, use_snapshot_editor=use_snapshot_editor
             )
 
+        microvm.kill()
         # Update the base for next iteration.
         base_snapshot = snapshot
 
