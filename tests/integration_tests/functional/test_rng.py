@@ -149,14 +149,29 @@ def _check_entropy_rate_limited(ssh, random_bytes, expected_kbps):
     """
     Ask for `random_bytes` from `/dev/hwrng` in the guest and check
     that achieved throughput does not exceed the expected throughput by
-    more than 10%.
+    more than 2%.
 
-    NOTE: 10% is an arbitrarily selected limit which should be safe enough,
-    so that we don't run into many intermittent CI failures.
+    NOTE: 2% is accounting for the initial credits available in the buckets
+    which can be consumed immediately. In the `dd` command we read `size * 100`
+    bytes, where `size` is the size of the bucket. As a result, the first
+    `size` bytes will be read "immediately" and the remaining `99 * size` bytes
+    will be read at a rate of `size / refill_time`. So, the total test runtime
+    will be `99 * refill_time`. That helps us calculate the expected throughput
+    allowed from our rate limiter like this:
+
+    size * 100 / (99 * refill_time) =
+    (100 / 99) * (size / refill_time) =
+    (100 / 99) * expected_throughput_rate =
+    1.01 * expected_throughput_rate
+
+    (kudos to @roypat for this analysis)
+
+    So, we should expect a 1% margin from the expected throughput. We use 2%
+    for accounting for rounding/measurements errors.
     """
     measured_kbps = _get_throughput(ssh, random_bytes)
     assert (
-        _get_percentage_difference(measured_kbps, expected_kbps) <= 10
+        _get_percentage_difference(measured_kbps, expected_kbps) <= 2
     ), "Expected {} KB/s, measured {} KB/s".format(expected_kbps, measured_kbps)
 
 
