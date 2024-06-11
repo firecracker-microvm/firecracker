@@ -84,7 +84,7 @@ def _get_percentage_difference(measured, base):
     if measured == base:
         return 0
     try:
-        return (abs(measured - base) / base) * 100.0
+        return ((measured - base) / base) * 100.0
     except ZeroDivisionError:
         # It means base and only base is 0.
         return 100.0
@@ -148,7 +148,8 @@ def _get_throughput(ssh, random_bytes):
 def _check_entropy_rate_limited(ssh, random_bytes, expected_kbps):
     """
     Ask for `random_bytes` from `/dev/hwrng` in the guest and check
-    that achieved throughput is within a 10% of the expected throughput.
+    that achieved throughput does not exceed the expected throughput by
+    more than 10%.
 
     NOTE: 10% is an arbitrarily selected limit which should be safe enough,
     so that we don't run into many intermittent CI failures.
