@@ -445,7 +445,7 @@ impl Net {
         net_metrics: &NetDeviceMetrics,
     ) -> Result<bool, NetError> {
         // Read the frame headers from the IoVecBuffer
-        let max_header_len = headers.len();
+        let max_header_len = u32::try_from(headers.len()).unwrap();
         let header_len = frame_iovec
             .read_volatile_at(&mut &mut *headers, 0, max_header_len)
             .map_err(|err| {
@@ -454,7 +454,7 @@ impl Net {
                 NetError::VnetHeaderMissing
             })?;
 
-        let headers = frame_bytes_from_buf(&headers[..header_len]).map_err(|e| {
+        let headers = frame_bytes_from_buf(&headers[..header_len as usize]).map_err(|e| {
             error!("VNET headers missing in TX frame");
             net_metrics.tx_malformed_frames.inc();
             e
@@ -466,7 +466,7 @@ impl Net {
                 // Ok to unwrap here, because we are passing a buffer that has the exact size
                 // of the `IoVecBuffer` minus the VNET headers.
                 frame_iovec
-                    .read_exact_volatile_at(&mut frame, vnet_hdr_len())
+                    .read_exact_volatile_at(&mut frame, vnet_hdr_len().try_into().unwrap())
                     .unwrap();
                 let _ = ns.detour_frame(&frame);
                 METRICS.mmds.rx_accepted.inc();

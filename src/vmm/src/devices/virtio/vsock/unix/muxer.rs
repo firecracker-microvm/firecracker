@@ -871,13 +871,13 @@ mod tests {
             peer_port: u32,
             mut data: &[u8],
         ) -> &mut VsockPacket {
-            assert!(data.len() <= self.tx_pkt.buf_size());
+            assert!(data.len() <= self.tx_pkt.buf_size() as usize);
             self.init_tx_pkt(local_port, peer_port, uapi::VSOCK_OP_RW)
-                .set_len(u32::try_from(data.len()).unwrap());
+                .set_len(data.len().try_into().unwrap());
 
             let data_len = data.len(); // store in tmp var to make borrow checker happy.
             self.rx_pkt
-                .read_at_offset_from(&mut data, 0, data_len)
+                .read_at_offset_from(&mut data, 0, data_len.try_into().unwrap())
                 .unwrap();
             &mut self.tx_pkt
         }
