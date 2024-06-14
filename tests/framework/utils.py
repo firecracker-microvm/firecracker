@@ -374,14 +374,17 @@ def _format_output_message(proc, stdout, stderr):
     return output_message
 
 
-def run_cmd_sync(cmd, ignore_return_code=False, no_shell=False, cwd=None, timeout=None):
+def run_cmd(
+    cmd, ignore_return_code=False, no_shell=False, cwd=None, timeout=None
+) -> CommandReturn:
     """
     Execute a given command.
 
     :param cmd: command to execute
-    :param ignore_return_code: whether a non-zero return code should be ignored
+    :param ignore_return_code: whether a non-zero return code should result in a `ChildProcessError` or not.
     :param no_shell: don't run the command in a sub-shell
     :param cwd: sets the current directory before the child is executed
+    :param timeout: Time before command execution should be aborted with a `TimeoutExpired` exception
     :return: return code, stdout, stderr
     """
     if isinstance(cmd, list) or no_shell:
@@ -420,16 +423,6 @@ def run_cmd_sync(cmd, ignore_return_code=False, no_shell=False, cwd=None, timeou
     CMDLOG.debug(output_message)
 
     return CommandReturn(proc.returncode, stdout.decode(), stderr.decode())
-
-
-def run_cmd(cmd, **kwargs):
-    """
-    Run a command using the sync function that logs the output.
-
-    :param cmd: command to run
-    :returns: tuple of (return code, stdout, stderr)
-    """
-    return run_cmd_sync(cmd, **kwargs)
 
 
 def assert_seccomp_level(pid, seccomp_level):
