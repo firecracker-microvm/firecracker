@@ -94,10 +94,9 @@ def test_device_ordering(uvm_plain_any, io_engine):
     test_microvm.start()
 
     # Determine the size of the microVM rootfs in bytes.
-    rc, stdout, stderr = utils.run_cmd(
+    _, stdout, _ = utils.run_cmd(
         "du --apparent-size --block-size=1 {}".format(test_microvm.rootfs_file),
     )
-    assert rc == 0, f"Failed to get microVM rootfs size: {stderr}"
 
     assert len(stdout.split()) == 2
     rootfs_size = stdout.split("\t")[0]
