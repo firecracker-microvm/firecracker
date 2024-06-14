@@ -106,7 +106,7 @@ def git_ab_test_host_command_if_pr(
     command: str,
     *,
     comparator: Callable[[CommandReturn, CommandReturn], bool] = default_comparator,
-    ignore_return_code_in_nonpr=False,
+    check_in_nonpr=True,
 ):
     """Runs the given bash command as an A/B-Test if we're in a pull request context (asserting that its stdout and
     stderr did not change across the PR). Otherwise runs the command, asserting it returns a zero exit code
@@ -115,9 +115,9 @@ def git_ab_test_host_command_if_pr(
         git_ab_test_host_command(command, comparator=comparator)
         return None
 
-    return utils.check_output(
+    return utils.run_cmd(
         command,
-        ignore_return_code=ignore_return_code_in_nonpr,
+        check=check_in_nonpr,
         cwd=Path.cwd().parent,
     )
 
@@ -131,9 +131,7 @@ def git_ab_test_host_command(
 ):
     """Performs an A/B-Test of the specified command, asserting that both the A and B invokations return the same stdout/stderr"""
     (_, old_out, old_err), (_, new_out, new_err), the_same = git_ab_test(
-        lambda path, _is_a: utils.check_output(
-            command, ignore_return_code=True, cwd=path
-        ),
+        lambda path, _is_a: utils.run_cmd(command, cwd=path),
         comparator,
         a_revision=a_revision,
         b_revision=b_revision,
@@ -190,7 +188,7 @@ def git_ab_test_guest_command_if_pr(
     command: str,
     *,
     comparator=default_comparator,
-    ignore_return_code_in_nonpr=False,
+    check_in_nonpr=True,
 ):
     """The same as git_ab_test_command_if_pr, but via SSH"""
     if is_pr():
@@ -198,10 +196,7 @@ def git_ab_test_guest_command_if_pr(
         return None
 
     microvm = microvm_factory(*get_firecracker_binaries())
-    ecode, stdout, stderr = microvm.ssh.run(command)
-    if not ignore_return_code_in_nonpr:
-        assert ecode == 0, f"stdout:\n{stdout}\nstderr:\n{stderr}\n"
-    return CommandReturn(ecode, stdout, stderr)
+    return microvm.ssh.run(command, check=check_in_nonpr)
 
 
 def check_regression(
@@ -237,9 +232,7 @@ def git_clone(clone_path, commitish):
     :return: the working copy directory.
     """
     if not clone_path.exists():
-        ret, _, _ = utils.check_output(
-            f"git cat-file -t {commitish}", ignore_return_code=True
-        )
+        ret, _, _ = utils.run_cmd(f"git cat-file -t {commitish}")
         if ret != 0:
             # git didn't recognize this object; qualify it if it is a branch
             commitish = f"origin/{commitish}"

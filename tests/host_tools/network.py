@@ -113,9 +113,8 @@ class SSHConnection:
         """Private function that handles the ssh client invocation."""
         if self.netns is not None:
             cmd = ["ip", "netns", "exec", self.netns] + cmd
-        return utils.check_output(
-            cmd, ignore_return_code=not check, timeout=timeout
-        )
+
+        return utils.run_cmd(cmd, check=check, timeout=timeout)
 
 
 def mac_from_ip(ip_address):

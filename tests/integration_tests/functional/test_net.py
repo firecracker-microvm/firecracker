@@ -38,13 +38,12 @@ def test_high_ingress_traffic(uvm_plain_any):
 
     # Start iperf3 client on the host. Send 1Gbps UDP traffic.
     # If the net device breaks, iperf will freeze. We have to use a timeout.
-    utils.check_output(
+    utils.run_cmd(
         "timeout 30 {} {} -c {} -u -V -b 1000000000 -t 30".format(
             test_microvm.netns.cmd_prefix(),
             IPERF_BINARY,
             guest_ip,
         ),
-        ignore_return_code=True,
     )
 
     # Check if the high ingress traffic broke the net interface.

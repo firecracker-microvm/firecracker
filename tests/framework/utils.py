@@ -374,14 +374,12 @@ def _format_output_message(proc, stdout, stderr):
     return output_message
 
 
-def check_output(
-    cmd, ignore_return_code=False, no_shell=False, cwd=None, timeout=None
-) -> CommandReturn:
+def run_cmd(cmd, check=False, no_shell=False, cwd=None, timeout=None) -> CommandReturn:
     """
     Execute a given command.
 
     :param cmd: command to execute
-    :param ignore_return_code: whether a non-zero return code should result in a `ChildProcessError` or not.
+    :param check: whether a non-zero return code should result in a `ChildProcessError` or not.
     :param no_shell: don't run the command in a sub-shell
     :param cwd: sets the current directory before the child is executed
     :param timeout: Time before command execution should be aborted with a `TimeoutExpired` exception
@@ -415,7 +413,7 @@ def check_output(
     output_message = _format_output_message(proc, stdout, stderr)
 
     # If a non-zero return code was thrown, raise an exception
-    if not ignore_return_code and proc.returncode != 0:
+    if check and proc.returncode != 0:
         CMDLOG.warning("Command failed: %s\n", output_message)
 
         raise ChildProcessError(output_message)
@@ -423,6 +421,11 @@ def check_output(
     CMDLOG.debug(output_message)
 
     return CommandReturn(proc.returncode, stdout.decode(), stderr.decode())
+
+
+def check_output(cmd, no_shell=False, cwd=None, timeout=None) -> CommandReturn:
+    """Identical to `run_cmd`, but always sets `check_output` to `True`."""
+    return run_cmd(cmd, True, no_shell, cwd, timeout)
 
 
 def assert_seccomp_level(pid, seccomp_level):

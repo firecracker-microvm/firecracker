@@ -404,7 +404,7 @@ def _start_iperf_server_on_host(netns_cmd_prefix):
 
     # Don't check the result of this command because it can fail if no iperf
     # is running.
-    utils.check_output(iperf_cmd, ignore_return_code=True)
+    utils.run_cmd(iperf_cmd)
 
     iperf_cmd = "{} {} -sD -f KBytes\n".format(netns_cmd_prefix, IPERF_BINARY)
 

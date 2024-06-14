@@ -14,8 +14,7 @@ def test_gitlint():
     os.environ["LC_ALL"] = "C.UTF-8"
     os.environ["LANG"] = "C.UTF-8"
 
-    rc, _, stderr = utils.check_output(
+    rc, _, stderr = utils.run_cmd(
         "gitlint --commits origin/main..HEAD -C ../.gitlint --extra-path framework/gitlint_rules.py",
-        ignore_return_code=True,
     )
     assert rc == 0, "Commit message violates gitlint rules: {}".format(stderr)
