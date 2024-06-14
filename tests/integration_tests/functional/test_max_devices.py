@@ -33,8 +33,7 @@ def test_attach_maximum_devices(uvm_plain_any):
     # Test that network devices attached are operational.
     for i in range(MAX_DEVICES_ATTACHED - 1):
         # Verify if guest can run commands.
-        exit_code, _, _ = test_microvm.ssh_iface(i).run("sync")
-        assert exit_code == 0
+        test_microvm.ssh_iface(i).check_output("sync")
 
 
 @pytest.mark.skipif(

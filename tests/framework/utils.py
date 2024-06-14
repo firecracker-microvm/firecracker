@@ -444,8 +444,7 @@ def assert_seccomp_level(pid, seccomp_level):
 
 def run_guest_cmd(ssh_connection, cmd, expected, use_json=False):
     """Runs a shell command at the remote accessible via SSH"""
-    rc, stdout, stderr = ssh_connection.run(cmd)
-    assert rc == 0
+    _, stdout, stderr = ssh_connection.check_output(cmd)
     assert stderr == ""
     stdout = stdout if not use_json else json.loads(stdout)
     assert stdout == expected
@@ -611,16 +610,12 @@ def check_filesystem(ssh_connection, disk_fmt, disk):
     """Check for filesystem corruption inside a microVM."""
     if disk_fmt == "squashfs":
         return
-    cmd = "fsck.{} -n {}".format(disk_fmt, disk)
-    exit_code, _, stderr = ssh_connection.run(cmd)
-    assert exit_code == 0, stderr
+    ssh_connection.check_output(f"fsck.{disk_fmt} -n {disk}")
 
 
 def check_entropy(ssh_connection):
     """Check that we can get random numbers from /dev/hwrng"""
-    cmd = "dd if=/dev/hwrng of=/dev/null bs=4096 count=1"
-    exit_code, _, stderr = ssh_connection.run(cmd)
-    assert exit_code == 0, stderr
+    ssh_connection.check_output("dd if=/dev/hwrng of=/dev/null bs=4096 count=1")
 
 
 @retry(wait=wait_fixed(0.5), stop=stop_after_attempt(5), reraise=True)

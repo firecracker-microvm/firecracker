@@ -287,8 +287,7 @@ def test_patch_drive(uvm_plain_any, io_engine):
     # of the device, in bytes.
     blksize_cmd = "LSBLK_DEBUG=all lsblk -b /dev/vdb --output SIZE"
     size_bytes_str = "536870912"  # = 512 MiB
-    rc, stdout, stderr = test_microvm.ssh.run(blksize_cmd)
-    assert rc == 0, stderr
+    _, stdout, _ = test_microvm.ssh.check_output(blksize_cmd)
     lines = stdout.split("\n")
     # skip "SIZE"
     assert lines[1].strip() == size_bytes_str
