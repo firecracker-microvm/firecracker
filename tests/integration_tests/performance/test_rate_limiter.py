@@ -395,9 +395,7 @@ def _start_iperf_server_on_guest(test_microvm, hostname):
 def _run_iperf_on_guest(test_microvm, iperf_cmd, hostname):
     """Run a client related iperf command through an SSH connection."""
     test_microvm.guest_ip = hostname
-    code, stdout, stderr = test_microvm.ssh.run(iperf_cmd)
-    assert code == 0, f"stdout: {stdout}\nstderr: {stderr}"
-    return stdout
+    return test_microvm.ssh.check_output(iperf_cmd).stdout
 
 
 def _start_iperf_server_on_host(netns_cmd_prefix):

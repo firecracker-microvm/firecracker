@@ -50,8 +50,7 @@ def test_high_ingress_traffic(uvm_plain_any):
     # Check if the high ingress traffic broke the net interface.
     # If the net interface still works we should be able to execute
     # ssh commands.
-    exit_code, _, _ = test_microvm.ssh.run("echo success\n")
-    assert exit_code == 0
+    test_microvm.ssh.check_output("echo success\n")
 
 
 def test_multi_queue_unsupported(uvm_plain):

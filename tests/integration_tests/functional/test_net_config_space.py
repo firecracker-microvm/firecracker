@@ -75,8 +75,7 @@ def test_net_change_mac_address(uvm_plain_any, change_net_config_space_bin):
     cmd = f"chmod u+x {rmt_path} && {rmt_path} {net_addr_base} {mac_hex}"
 
     # This should be executed successfully.
-    exit_code, stdout, stderr = ssh_conn.run(cmd)
-    assert exit_code == 0, stderr
+    _, stdout, _ = ssh_conn.check_output(cmd)
     assert stdout == mac
 
     # Discard any parasite data exchange which might've been
@@ -155,9 +154,8 @@ def _send_data_g2h(ssh_connection, host_ip, host_port, iterations, data, retries
     )
 
     # Wait server to initialize.
-    exit_code, _, stderr = ssh_connection.run(cmd)
+    _, _, stderr = ssh_connection.check_output(cmd)
     # If this assert fails, a connection refused happened.
-    assert exit_code == 0, stderr
     assert stderr == ""
 
 
@@ -239,8 +237,7 @@ def _get_net_mem_addr_base_x86_acpi(ssh_connection, if_name):
     # are identified as "LNRO0005" and appear under /sys/devices/platform
     sys_virtio_mmio_cmdline = "/sys/devices/platform/"
     cmd = "ls {}"
-    exit_code, stdout, stderr = ssh_connection.run(cmd.format(sys_virtio_mmio_cmdline))
-    assert exit_code == 0, stderr
+    _, stdout, _ = ssh_connection.check_output(cmd.format(sys_virtio_mmio_cmdline))
     virtio_devs = list(filter(lambda x: "LNRO0005" in x, stdout.strip().split()))
 
     # For virtio-net LNRO0005 devices, we should have a path like:
@@ -267,8 +264,7 @@ def _get_net_mem_addr_base_x86_cmdline(ssh_connection, if_name):
     virtio_devs_idx = stdout.strip().split()
 
     cmd = "cat /proc/cmdline"
-    exit_code, cmd_line, stderr = ssh_connection.run(cmd)
-    assert exit_code == 0, stderr
+    _, cmd_line, _ = ssh_connection.check_output(cmd)
     pattern_dev = re.compile("(virtio_mmio.device=4K@0x[0-9a-f]+:[0-9]+)+")
     pattern_addr = re.compile("virtio_mmio.device=4K@(0x[0-9a-f]+):[0-9]+")
     devs_addr = []

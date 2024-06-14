@@ -37,8 +37,7 @@ def check_vmgenid_update_count(vm, resume_count):
     Kernel will emit the DMESG_VMGENID_RESUME every time we resume
     from a snapshot
     """
-    rc, stdout, stderr = vm.ssh.run("dmesg")
-    assert rc == 0, stderr
+    _, stdout, _ = vm.ssh.check_output("dmesg")
     assert resume_count == stdout.count(DMESG_VMGENID_RESUME)
 
 
@@ -481,8 +480,7 @@ def test_diff_snapshot_overlay(guest_kernel, rootfs, microvm_factory):
     basevm.resume()
 
     # Run some command to dirty some pages
-    rc, _, stderr = basevm.ssh.run("true")
-    assert rc == 0, stderr
+    basevm.ssh.check_output("true")
 
     # First copy the base snapshot somewhere else, so we can make sure
     # it will actually get updated

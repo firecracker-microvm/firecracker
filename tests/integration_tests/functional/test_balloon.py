@@ -571,5 +571,4 @@ def test_memory_scrub(microvm_factory, guest_kernel, rootfs):
     # Wait for the deflate to complete.
     _ = get_stable_rss_mem_by_pid(firecracker_pid)
 
-    exit_code, _, _ = microvm.ssh.run("/usr/local/bin/readmem {} {}".format(60, 1))
-    assert exit_code == 0
+    microvm.ssh.check_output("/usr/local/bin/readmem {} {}".format(60, 1))

@@ -77,7 +77,7 @@ class SSHConnection:
         self._scp(self.remote_path(remote_path), local_path, opts)
 
     @retry(
-        retry=retry_if_exception_type(ConnectionError),
+        retry=retry_if_exception_type(ChildProcessError),
         wait=wait_fixed(0.15),
         stop=stop_after_attempt(20),
         reraise=True,
@@ -90,9 +90,7 @@ class SSHConnection:
         We'll keep trying to execute a remote command that can't fail
         (`/bin/true`), until we get a successful (0) exit code.
         """
-        ecode, _, _ = self.run("true")
-        if ecode != 0:
-            raise ConnectionError
+        self.check_output("true")
 
     def run(self, cmd_string, timeout=None, *, check=False):
         """Execute the command passed as a string in the ssh context."""

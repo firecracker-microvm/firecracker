@@ -119,11 +119,7 @@ class IPerf3Test:
             .build()
         )
 
-        rc, stdout, stderr = self._microvm.ssh.run(cmd)
-
-        assert rc == 0, stderr
-
-        return stdout
+        return self._microvm.ssh.check_output(cmd).stdout
 
     def host_command(self, port_offset):
         """Builds the command used for spawning an iperf3 server on the host"""
