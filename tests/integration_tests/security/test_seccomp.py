@@ -115,7 +115,7 @@ def test_seccomp_ls(bin_seccomp_paths):
     bpf_path = _run_seccompiler_bin(json_filter)
 
     # Run the mini jailer.
-    outcome = utils.run_cmd(
+    outcome = utils.check_output(
         [demo_jailer, ls_command_path, bpf_path], no_shell=True, ignore_return_code=True
     )
 
@@ -180,7 +180,7 @@ def test_advanced_seccomp(bin_seccomp_paths):
     bpf_path = _run_seccompiler_bin(json_filter)
 
     # Run the mini jailer for harmless binary.
-    outcome = utils.run_cmd(
+    outcome = utils.check_output(
         [demo_jailer, demo_harmless, bpf_path], no_shell=True, ignore_return_code=True
     )
 
@@ -188,7 +188,7 @@ def test_advanced_seccomp(bin_seccomp_paths):
     assert outcome.returncode == 0
 
     # Run the mini jailer for malicious binary.
-    outcome = utils.run_cmd(
+    outcome = utils.check_output(
         [demo_jailer, demo_malicious, bpf_path], no_shell=True, ignore_return_code=True
     )
 
@@ -201,7 +201,7 @@ def test_advanced_seccomp(bin_seccomp_paths):
     bpf_path = _run_seccompiler_bin(json_filter, basic=True)
 
     # Run the mini jailer for malicious binary.
-    outcome = utils.run_cmd(
+    outcome = utils.check_output(
         [demo_jailer, demo_malicious, bpf_path], no_shell=True, ignore_return_code=True
     )
 
@@ -224,7 +224,7 @@ def test_advanced_seccomp(bin_seccomp_paths):
     # Run seccompiler-bin.
     bpf_path = _run_seccompiler_bin(json_filter)
 
-    outcome = utils.run_cmd(
+    outcome = utils.check_output(
         [demo_jailer, demo_harmless, bpf_path], no_shell=True, ignore_return_code=True
     )
 
@@ -288,7 +288,7 @@ def test_seccomp_rust_panic(bin_seccomp_paths):
 
     # Run the panic binary with all filters.
     for thread in filter_threads:
-        code, _, _ = utils.run_cmd(
+        code, _, _ = utils.check_output(
             [demo_panic, bpf_path, thread], no_shell=True, ignore_return_code=True
         )
         # The demo panic binary should have terminated with SIGABRT

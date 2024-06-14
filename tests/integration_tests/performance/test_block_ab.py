@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 import host_tools.drive as drive_tools
-from framework.utils import CmdBuilder, run_cmd, track_cpu_utilization
+from framework.utils import CmdBuilder, check_output, track_cpu_utilization
 from host_tools.fcmetrics import FCMetricsMonitor
 
 # size of the block device used in the test, in MB
@@ -41,8 +41,8 @@ def prepare_microvm_for_test(microvm):
     assert stderr == ""
 
     # Then, flush all host cached data to hardware, also drop host FS caches.
-    run_cmd("sync")
-    run_cmd("echo 3 > /proc/sys/vm/drop_caches")
+    check_output("sync")
+    check_output("echo 3 > /proc/sys/vm/drop_caches")
 
 
 def run_fio(microvm, mode, block_size):

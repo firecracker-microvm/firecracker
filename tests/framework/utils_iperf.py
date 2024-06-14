@@ -48,7 +48,7 @@ class IPerf3Test:
                 .with_arg("--affinity", assigned_cpu)
                 .build()
             )
-            utils.run_cmd(f"{self._microvm.netns.cmd_prefix()} {cmd}")
+            utils.check_output(f"{self._microvm.netns.cmd_prefix()} {cmd}")
             first_free_cpu += 1
 
         # Wait for the iperf3 server to start

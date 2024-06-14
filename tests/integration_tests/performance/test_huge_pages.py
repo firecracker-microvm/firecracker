@@ -49,7 +49,7 @@ def check_hugetlbfs_in_use(pid: int, allocation_name: str):
     #   THPeligible:           0
     #   ProtectionKey:         0
     cmd = f"cat /proc/{pid}/smaps | grep {allocation_name} -A 23 | grep KernelPageSize"
-    _, stdout, _ = utils.run_cmd(cmd)
+    _, stdout, _ = utils.check_output(cmd)
 
     kernel_page_size_kib = int(stdout.split()[1])
     assert kernel_page_size_kib > 4
@@ -249,7 +249,7 @@ def test_ept_violation_count(
             trace_entry = "kvm_guest_fault"
             metric = "guest_page_faults"
 
-        _, metric_value, _ = utils.run_cmd(
+        _, metric_value, _ = utils.check_output(
             f"cat /sys/kernel/tracing/trace | grep '{trace_entry}' | wc -l"
         )
 

@@ -13,7 +13,9 @@ def test_rust_order():
     """
 
     # Runs `cargo-sort` with the current working directory (`cwd`) as the repository root.
-    _, _, _ = utils.run_cmd(cmd="cargo-sort --workspace --check --grouped", cwd="..")
+    _, _, _ = utils.check_output(
+        cmd="cargo-sort --workspace --check --grouped", cwd=".."
+    )
 
 
 def test_rust_style():
@@ -24,7 +26,7 @@ def test_rust_style():
     #  ../src/io_uring/src/bindings.rs
     config = open("fmt.toml", encoding="utf-8").read().replace("\n", ",")
     # Check that the output is empty.
-    _, stdout, _ = utils.run_cmd(f"cargo fmt --all -- --check --config {config}")
+    _, stdout, _ = utils.check_output(f"cargo fmt --all -- --check --config {config}")
 
     # rustfmt prepends `"Diff in"` to the reported output.
     assert "Diff in" not in stdout

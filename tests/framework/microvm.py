@@ -294,7 +294,7 @@ class Microvm:
             # Killing screen will send SIGHUP to underlying Firecracker.
             # Needed to avoid false positives in case kill() is called again.
             self.expect_kill_by_signal = True
-            utils.run_cmd("kill -9 {} || true".format(self.screen_pid))
+            utils.check_output("kill -9 {} || true".format(self.screen_pid))
 
         # if microvm was spawned then check if it gets killed
         if self._spawned:
@@ -302,7 +302,9 @@ class Microvm:
             #  checking if the process is killed.
             time.sleep(1)
             # filter ps results for the jailer's unique id
-            rc, stdout, stderr = utils.run_cmd(f"ps aux | grep {self.jailer.jailer_id}")
+            rc, stdout, stderr = utils.check_output(
+                f"ps aux | grep {self.jailer.jailer_id}"
+            )
             # make sure firecracker was killed
             assert (
                 rc == 0 and stderr == "" and stdout.find("firecracker") == -1
@@ -374,7 +376,7 @@ class Microvm:
     @property
     def firecracker_version(self):
         """Return the version of the Firecracker executable."""
-        _, stdout, _ = utils.run_cmd(f"{self.fc_binary_path} --version")
+        _, stdout, _ = utils.check_output(f"{self.fc_binary_path} --version")
         return re.match(r"^Firecracker v(.+)", stdout.partition("\n")[0]).group(1)
 
     @property
@@ -666,7 +668,7 @@ class Microvm:
     def serial_input(self, input_string):
         """Send a string to the Firecracker serial console via screen."""
         input_cmd = f'screen -S {self.screen_session} -p 0 -X stuff "{input_string}"'
-        return utils.run_cmd(input_cmd)
+        return utils.check_output(input_cmd)
 
     def basic_config(
         self,
@@ -964,7 +966,7 @@ class Microvm:
             for pid in thread_pids:
                 backtraces.append(
                     f"{thread_name} ({pid=}):\n"
-                    f"{utils.run_cmd(f'cat /proc/{pid}/stack').stdout}"
+                    f"{utils.check_output(f'cat /proc/{pid}/stack').stdout}"
                 )
         return "\n".join(backtraces)
 
