@@ -473,8 +473,7 @@ def get_firecracker_version_from_toml():
     the code has not been released.
     """
     cmd = "cd ../src/firecracker && cargo pkgid | cut -d# -f2 | cut -d: -f2"
-    rc, stdout, stderr = run_cmd(cmd)
-    assert rc == 0, stderr
+    _, stdout, _ = run_cmd(cmd)
     return packaging.version.parse(stdout)
 
 
