@@ -313,7 +313,7 @@ def ab_performance_test(
     a_revision, b_revision, tests, p_thresh, strength_abs_thresh, noise_threshold
 ):
     """Does an A/B-test of the specified test across the given revisions"""
-    _, commit_list, _ = utils.run_cmd(
+    _, commit_list, _ = utils.check_output(
         f"git --no-pager log --oneline {a_revision}..{b_revision}"
     )
     print(
@@ -322,7 +322,7 @@ def ab_performance_test(
     print(commit_list.strip())
 
     def test_runner(workspace, _is_ab: bool):
-        utils.run_cmd("./tools/release.sh --profile release", cwd=workspace)
+        utils.check_output("./tools/release.sh --profile release", cwd=workspace)
         bin_dir = ".." / get_binary("firecracker", workspace_dir=workspace).parent
         return collect_data(bin_dir, tests)
 
@@ -343,7 +343,7 @@ def ab_performance_test(
 
 def canonicalize_revision(revision):
     """Canonicalizes the given revision to a 40 digit hex SHA"""
-    return utils.run_cmd(f"git rev-parse {revision}").stdout.strip()
+    return utils.check_output(f"git rev-parse {revision}").stdout.strip()
 
 
 if __name__ == "__main__":

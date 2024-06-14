@@ -57,7 +57,7 @@ def set_cpu_affinity(pid: int, cpulist: list) -> list:
 
 def get_cpu_utilization(pid: int) -> Dict[str, float]:
     """Return current process per thread CPU utilization."""
-    _, stdout, _ = run_cmd(GET_CPU_LOAD.format(pid))
+    _, stdout, _ = check_output(GET_CPU_LOAD.format(pid))
     cpu_utilization = {}
 
     # Take all except the last line
@@ -330,7 +330,7 @@ def search_output_from_cmd(cmd: str, find_regex: typing.Pattern) -> typing.Match
     :return: result of re.search()
     """
     # Run the given command in a shell
-    _, stdout, _ = run_cmd(cmd)
+    _, stdout, _ = check_output(cmd)
 
     # Search for the object
     content = re.search(find_regex, stdout)
@@ -374,7 +374,7 @@ def _format_output_message(proc, stdout, stderr):
     return output_message
 
 
-def run_cmd(
+def check_output(
     cmd, ignore_return_code=False, no_shell=False, cwd=None, timeout=None
 ) -> CommandReturn:
     """
@@ -429,12 +429,12 @@ def assert_seccomp_level(pid, seccomp_level):
     """Test that seccomp_level applies to all threads of a process."""
     # Get number of threads
     cmd = "ps -T --no-headers -p {} | awk '{{print $2}}'".format(pid)
-    process = run_cmd(cmd)
+    process = check_output(cmd)
     threads_out_lines = process.stdout.splitlines()
     for tid in threads_out_lines:
         # Verify each thread's Seccomp status
         cmd = "cat /proc/{}/status | grep Seccomp:".format(tid)
-        process = run_cmd(cmd)
+        process = check_output(cmd)
         seccomp_line = "".join(process.stdout.split())
         assert seccomp_line == "Seccomp:" + seccomp_level
 
@@ -456,7 +456,7 @@ def wait_process_termination(p_pid):
     is still alive after retrying several times.
     """
     try:
-        _, stdout, _ = run_cmd("ps --pid {} -o comm=".format(p_pid))
+        _, stdout, _ = check_output("ps --pid {} -o comm=".format(p_pid))
     except ChildProcessError:
         return
     raise Exception("{} process is still alive: ".format(stdout.strip()))
@@ -470,7 +470,7 @@ def get_firecracker_version_from_toml():
     the code has not been released.
     """
     cmd = "cd ../src/firecracker && cargo pkgid | cut -d# -f2 | cut -d: -f2"
-    _, stdout, _ = run_cmd(cmd)
+    _, stdout, _ = check_output(cmd)
     return packaging.version.parse(stdout)
 
 
@@ -560,7 +560,7 @@ def start_screen_process(screen_log, session_name, binary_path, binary_params):
         params=" ".join(binary_params),
     )
 
-    run_cmd(start_cmd)
+    check_output(start_cmd)
 
     # Build a regex object to match (number).session_name
     regex_object = re.compile(r"([0-9]+)\.{}".format(session_name))
@@ -585,7 +585,7 @@ def start_screen_process(screen_log, session_name, binary_path, binary_params):
     wait_process_running(screen_ps)
 
     # Configure screen to flush stdout to file.
-    run_cmd(FLUSH_CMD.format(session=session_name))
+    check_output(FLUSH_CMD.format(session=session_name))
 
     return screen_pid
 

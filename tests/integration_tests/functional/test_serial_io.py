@@ -117,7 +117,7 @@ def test_serial_console_login(uvm_plain_any):
 def get_total_mem_size(pid):
     """Get total memory usage for a process."""
     cmd = f"pmap {pid} | tail -n 1 | sed 's/^ //' | tr -s ' ' | cut -d' ' -f2"
-    _, stdout, stderr = utils.run_cmd(cmd)
+    _, stdout, stderr = utils.check_output(cmd)
     assert stderr == ""
 
     return stdout

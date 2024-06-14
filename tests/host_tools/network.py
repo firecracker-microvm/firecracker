@@ -113,7 +113,9 @@ class SSHConnection:
         """Private function that handles the ssh client invocation."""
         if self.netns is not None:
             cmd = ["ip", "netns", "exec", self.netns] + cmd
-        return utils.run_cmd(cmd, ignore_return_code=not check, timeout=timeout)
+        return utils.check_output(
+            cmd, ignore_return_code=not check, timeout=timeout
+        )
 
 
 def mac_from_ip(ip_address):
@@ -160,10 +162,10 @@ class Tap:
         # Avoid a conflict if two tests want to create the same tap device tap0
         # in the host before moving it into its own netns
         temp_name = "tap" + random_str(k=8)
-        utils.run_cmd(f"ip tuntap add mode tap name {temp_name}")
-        utils.run_cmd(f"ip link set {temp_name} name {name} netns {netns}")
+        utils.check_output(f"ip tuntap add mode tap name {temp_name}")
+        utils.check_output(f"ip link set {temp_name} name {name} netns {netns}")
         if ip:
-            utils.run_cmd(f"ip netns exec {netns} ifconfig {name} {ip} up")
+            utils.check_output(f"ip netns exec {netns} ifconfig {name} {ip} up")
         self._name = name
         self._netns = netns
 
@@ -179,7 +181,7 @@ class Tap:
 
     def set_tx_queue_len(self, tx_queue_len):
         """Set the length of the tap's TX queue."""
-        utils.run_cmd(
+        utils.check_output(
             "ip netns exec {} ip link set {} txqueuelen {}".format(
                 self.netns, self.name, tx_queue_len
             )
@@ -243,12 +245,12 @@ class NetNs:
     def setup(self):
         """Set up this network namespace."""
         if not self.path.exists():
-            utils.run_cmd(f"ip netns add {self.id}")
+            utils.check_output(f"ip netns add {self.id}")
 
     def cleanup(self):
         """Clean up this network namespace."""
         if self.path.exists():
-            utils.run_cmd(f"ip netns del {self.id}")
+            utils.check_output(f"ip netns del {self.id}")
 
     def add_tap(self, name, ip):
         """Add a TAP device to the namespace

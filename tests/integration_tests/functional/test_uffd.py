@@ -8,7 +8,7 @@ import re
 import pytest
 import requests
 
-from framework.utils import Timeout, UffdHandler, run_cmd
+from framework.utils import Timeout, UffdHandler, check_output
 
 SOCKET_PATH = "/firecracker-uffd.sock"
 
@@ -82,7 +82,7 @@ def test_unbinded_socket(uvm_plain, snapshot):
 
     jailed_vmstate = vm.create_jailed_resource(snapshot.vmstate)
     socket_path = os.path.join(vm.path, "firecracker-uffd.sock")
-    run_cmd("touch {}".format(socket_path))
+    check_output("touch {}".format(socket_path))
     jailed_sock_path = vm.create_jailed_resource(socket_path)
 
     expected_msg = re.escape(
