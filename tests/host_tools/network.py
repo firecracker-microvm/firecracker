@@ -60,8 +60,7 @@ class SSHConnection:
 
     def _scp(self, path1, path2, options):
         """Copy files to/from the VM using scp."""
-        ecode, _, stderr = self._exec(["scp", *options, path1, path2])
-        assert ecode == 0, stderr
+        self._exec(["scp", *options, path1, path2], check=True)
 
     def scp_put(self, local_path, remote_path, recursive=False):
         """Copy files to the VM using scp."""
@@ -95,7 +94,7 @@ class SSHConnection:
         if ecode != 0:
             raise ConnectionError
 
-    def run(self, cmd_string, timeout=None):
+    def run(self, cmd_string, timeout=None, *, check=False):
         """Execute the command passed as a string in the ssh context."""
         return self._exec(
             [
@@ -105,13 +104,18 @@ class SSHConnection:
                 cmd_string,
             ],
             timeout,
+            check=check,
         )
 
-    def _exec(self, cmd, timeout=None):
+    def check_output(self, cmd_string, timeout=None):
+        """Same as `run`, but raises an exception on non-zero return code of remote command"""
+        return self.run(cmd_string, timeout, check=True)
+
+    def _exec(self, cmd, timeout=None, check=False):
         """Private function that handles the ssh client invocation."""
         if self.netns is not None:
             cmd = ["ip", "netns", "exec", self.netns] + cmd
-        return utils.run_cmd(cmd, ignore_return_code=True, timeout=timeout)
+        return utils.run_cmd(cmd, ignore_return_code=not check, timeout=timeout)
 
 
 def mac_from_ip(ip_address):
