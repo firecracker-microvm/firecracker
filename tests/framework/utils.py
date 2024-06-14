@@ -363,6 +363,17 @@ def get_free_mem_ssh(ssh_connection):
     raise Exception("Available memory not found in `/proc/meminfo")
 
 
+def _format_output_message(proc, stdout, stderr):
+    output_message = f"\n[{proc.pid}] Command:\n{proc.args}"
+    # Append stdout/stderr to the output message
+    if stdout != "":
+        output_message += f"\n[{proc.pid}] stdout:\n{stdout.decode()}"
+    if stderr != "":
+        output_message += f"\n[{proc.pid}] stderr:\n{stderr.decode()}"
+    output_message += f"\nReturned error code: {proc.returncode}"
+    return output_message
+
+
 def run_cmd_sync(cmd, ignore_return_code=False, no_shell=False, cwd=None, timeout=None):
     """
     Execute a given command.
@@ -383,25 +394,26 @@ def run_cmd_sync(cmd, ignore_return_code=False, no_shell=False, cwd=None, timeou
             cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd
         )
 
-    # Capture stdout/stderr
-    stdout, stderr = proc.communicate(timeout=timeout)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        stdout, stderr = proc.communicate()
 
-    output_message = f"\n[{proc.pid}] Command:\n{cmd}"
-    # Append stdout/stderr to the output message
-    if stdout != "":
-        output_message += f"\n[{proc.pid}] stdout:\n{stdout.decode()}"
-    if stderr != "":
-        output_message += f"\n[{proc.pid}] stderr:\n{stderr.decode()}"
+        # Log the message with one call so that multiple statuses
+        # don't get mixed up
+        CMDLOG.warning(
+            "Timeout executing command: %s\n",
+            _format_output_message(proc, stdout, stderr),
+        )
+
+        raise
 
     # If a non-zero return code was thrown, raise an exception
     if not ignore_return_code and proc.returncode != 0:
-        output_message += f"\nReturned error code: {proc.returncode}"
+        raise ChildProcessError(_format_output_message(proc, stdout, stderr))
 
-        raise ChildProcessError(output_message)
-
-    # Log the message with one call so that multiple statuses
-    # don't get mixed up
-    CMDLOG.debug(output_message)
+    CMDLOG.debug(_format_output_message(proc, stdout, stderr))
 
     return CommandReturn(proc.returncode, stdout.decode(), stderr.decode())
 
