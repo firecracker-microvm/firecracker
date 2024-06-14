@@ -409,11 +409,15 @@ def run_cmd_sync(cmd, ignore_return_code=False, no_shell=False, cwd=None, timeou
 
         raise
 
+    output_message = _format_output_message(proc, stdout, stderr)
+
     # If a non-zero return code was thrown, raise an exception
     if not ignore_return_code and proc.returncode != 0:
-        raise ChildProcessError(_format_output_message(proc, stdout, stderr))
+        CMDLOG.warning("Command failed: %s\n", output_message)
 
-    CMDLOG.debug(_format_output_message(proc, stdout, stderr))
+        raise ChildProcessError(output_message)
+
+    CMDLOG.debug(output_message)
 
     return CommandReturn(proc.returncode, stdout.decode(), stderr.decode())
 
