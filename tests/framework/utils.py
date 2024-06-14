@@ -397,8 +397,6 @@ def run_cmd_sync(cmd, ignore_return_code=False, no_shell=False, cwd=None, timeou
     if not ignore_return_code and proc.returncode != 0:
         output_message += f"\nReturned error code: {proc.returncode}"
 
-        if stderr != "":
-            output_message += f"\nstderr:\n{stderr.decode()}"
         raise ChildProcessError(output_message)
 
     # Log the message with one call so that multiple statuses
