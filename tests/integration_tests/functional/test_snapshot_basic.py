@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import shutil
+import time
 from pathlib import Path
 
 import pytest
@@ -164,18 +165,17 @@ def test_5_snapshots(
     start_guest_echo_server(vm)
     snapshot = vm.make_snapshot(snapshot_type)
     base_snapshot = snapshot
+    vm.kill()
 
     for i in range(seq_len):
         logger.info("Load snapshot #%s, mem %s", i, snapshot.mem)
         microvm = microvm_factory.build()
         microvm.spawn()
-        microvm.restore_from_snapshot(snapshot, resume=True)
+        copied_snapshot = microvm.restore_from_snapshot(snapshot, resume=True)
 
-        # TODO: SIGCONT here and SIGSTOP later before creating snapshot
-        # is a temporary fix to avoid vsock timeout in
-        # _vsock_connect_to_guest(). This will be removed once we
-        # find the right solution for the timeout.
-        vm.ssh.run("pkill -SIGCONT socat")
+        # FIXME: This and the sleep below reduce the rate of vsock/ssh connection
+        # related spurious test failures, although we do not know why this is the case.
+        time.sleep(2)
         # Test vsock guest-initiated connections.
         path = os.path.join(
             microvm.path, make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
@@ -187,8 +187,8 @@ def test_5_snapshots(
 
         # Check that the root device is not corrupted.
         check_filesystem(microvm.ssh, "squashfs", "/dev/vda")
-        vm.ssh.run("pkill -SIGSTOP socat")
 
+        time.sleep(2)
         logger.info("Create snapshot %s #%d.", snapshot_type, i + 1)
         snapshot = microvm.make_snapshot(snapshot_type)
 
@@ -200,6 +200,8 @@ def test_5_snapshots(
                 base_snapshot, use_snapshot_editor=use_snapshot_editor
             )
 
+        microvm.kill()
+        copied_snapshot.delete()
         # Update the base for next iteration.
         base_snapshot = snapshot
 
@@ -559,7 +561,7 @@ def test_vmgenid(guest_kernel_linux_6_1, rootfs, microvm_factory, snapshot_type)
     for i in range(5):
         vm = microvm_factory.build()
         vm.spawn()
-        vm.restore_from_snapshot(snapshot, resume=True)
+        copied_snapshot = vm.restore_from_snapshot(snapshot, resume=True)
         vm.wait_for_up()
 
         # We should have as DMESG_VMGENID_RESUME messages as
@@ -568,6 +570,7 @@ def test_vmgenid(guest_kernel_linux_6_1, rootfs, microvm_factory, snapshot_type)
 
         snapshot = vm.make_snapshot(snapshot_type)
         vm.kill()
+        copied_snapshot.delete()
 
         # If we are testing incremental snapshots we ust merge the base with
         # current layer.

@@ -272,7 +272,7 @@ def microvm_factory(request, record_property, results_dir):
             uvm_data = results_dir / uvm.id
             uvm_data.mkdir()
 
-            uvm_root = uvm.path / "root"
+            uvm_root = Path(uvm.chroot())
             for item in os.listdir(uvm_root):
                 src = uvm_root / item
                 if not os.path.isfile(src):
