@@ -93,6 +93,25 @@ class Snapshot:
         new_args = self.__dict__ | {"mem": base.mem}
         return Snapshot(**new_args)
 
+    def copy_to_chroot(self, chroot) -> "Snapshot":
+        """
+        Move all the snapshot files into the microvm jail.
+        Use different names so a snapshot doesn't overwrite our original snapshot.
+        """
+        mem_src = chroot / self.mem.with_suffix(".src").name
+        hardlink_or_copy(self.mem, mem_src)
+        vmstate_src = chroot / self.vmstate.with_suffix(".src").name
+        hardlink_or_copy(self.vmstate, vmstate_src)
+
+        return Snapshot(
+            vmstate=vmstate_src,
+            mem=mem_src,
+            net_ifaces=self.net_ifaces,
+            disks=self.disks,
+            ssh_key=self.ssh_key,
+            snapshot_type=self.snapshot_type,
+        )
+
     @classmethod
     # TBD when Python 3.11: -> Self
     def load_from(cls, src: Path) -> "Snapshot":
@@ -884,15 +903,9 @@ class Microvm:
         uffd_path: Path = None,
     ):
         """Restore a snapshot"""
-        # Move all the snapshot files into the microvm jail.
-        # Use different names so a snapshot doesn't overwrite our original snapshot.
-        chroot = Path(self.chroot())
-        mem_src = chroot / snapshot.mem.with_suffix(".src").name
-        hardlink_or_copy(snapshot.mem, mem_src)
-        vmstate_src = chroot / snapshot.vmstate.with_suffix(".src").name
-        hardlink_or_copy(snapshot.vmstate, vmstate_src)
-        jailed_mem = Path("/") / mem_src.name
-        jailed_vmstate = Path("/") / vmstate_src.name
+        jailed_snapshot = snapshot.copy_to_chroot(Path(self.chroot()))
+        jailed_mem = Path("/") / jailed_snapshot.mem.name
+        jailed_vmstate = Path("/") / jailed_snapshot.vmstate.name
 
         snapshot_disks = [v for k, v in snapshot.disks.items()]
         assert len(snapshot_disks) > 0, "Snapshot requires at least one disk."
@@ -916,7 +929,7 @@ class Microvm:
             enable_diff_snapshots=snapshot.is_diff,
             resume_vm=resume,
         )
-        return True
+        return jailed_snapshot
 
     def enable_entropy_device(self):
         """Enable entropy device for microVM"""
