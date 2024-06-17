@@ -374,7 +374,7 @@ def _format_output_message(proc, stdout, stderr):
     return output_message
 
 
-def run_cmd(cmd, check=False, no_shell=False, cwd=None, timeout=None) -> CommandReturn:
+def run_cmd(cmd, check=False, shell=True, cwd=None, timeout=None) -> CommandReturn:
     """
     Execute a given command.
 
@@ -385,7 +385,7 @@ def run_cmd(cmd, check=False, no_shell=False, cwd=None, timeout=None) -> Command
     :param timeout: Time before command execution should be aborted with a `TimeoutExpired` exception
     :return: return code, stdout, stderr
     """
-    if isinstance(cmd, list) or no_shell:
+    if isinstance(cmd, list) or not shell:
         # Create the async process
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd
@@ -423,9 +423,9 @@ def run_cmd(cmd, check=False, no_shell=False, cwd=None, timeout=None) -> Command
     return CommandReturn(proc.returncode, stdout.decode(), stderr.decode())
 
 
-def check_output(cmd, no_shell=False, cwd=None, timeout=None) -> CommandReturn:
+def check_output(cmd, shell=True, cwd=None, timeout=None) -> CommandReturn:
     """Identical to `run_cmd`, but always sets `check_output` to `True`."""
-    return run_cmd(cmd, True, no_shell, cwd, timeout)
+    return run_cmd(cmd, True, shell, cwd, timeout)
 
 
 def assert_seccomp_level(pid, seccomp_level):
