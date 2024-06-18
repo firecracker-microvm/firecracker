@@ -276,7 +276,7 @@ pub(crate) enum RequestError {
     #[error("API Resource IDs can only contain alphanumeric characters and underscores.")]
     InvalidID,
     // The HTTP method & request path combination is not valid.
-    #[error("Invalid request method and/or path: {} {0}.", std::str::from_utf8(.1.raw()).expect("Cannot convert from UTF-8"))]
+    #[error("Invalid request method and/or path: {} {0}.", .1.to_str())]
     InvalidPathMethod(String, Method),
     // An error occurred when deserializing the json body of a request.
     #[error("An error occurred when deserializing the json body of a request: {0}.")]
@@ -508,7 +508,7 @@ pub mod tests {
         response.write_all(&mut buf).unwrap();
         let body = ApiServer::json_fault_message(format!(
             "Invalid request method and/or path: {} {}.",
-            std::str::from_utf8(Method::Get.raw()).unwrap(),
+            Method::Get.to_str(),
             "path"
         ));
         let expected_response = http_response(&body, 400);
