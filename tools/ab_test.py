@@ -322,7 +322,6 @@ def ab_performance_test(
     print(commit_list.strip())
 
     def test_runner(workspace, _is_ab: bool):
-        utils.check_output("./tools/release.sh --profile release", cwd=workspace)
         bin_dir = ".." / get_binary("firecracker", workspace_dir=workspace).parent
         return collect_data(bin_dir, tests)
 
