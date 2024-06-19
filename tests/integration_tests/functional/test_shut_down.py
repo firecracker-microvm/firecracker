@@ -34,7 +34,7 @@ def test_reboot(uvm_plain_any):
 
     # Get number of threads in Firecracker
     cmd = "ps -o nlwp {} | tail -1 | awk '{{print $1}}'".format(firecracker_pid)
-    _, stdout, _ = utils.run_cmd(cmd)
+    _, stdout, _ = utils.check_output(cmd)
     nr_of_threads = stdout.rstrip()
     assert int(nr_of_threads) == 6
 

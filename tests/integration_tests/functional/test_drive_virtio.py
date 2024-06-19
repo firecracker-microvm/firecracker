@@ -48,7 +48,7 @@ def test_rescan_file(uvm_plain_any, io_engine):
     # Check if reading from the entire disk results in a file of the same size
     # or errors out, after a truncate on the host.
     truncated_size = block_size // 2
-    utils.run_cmd(f"truncate --size {truncated_size}M {fs.path}")
+    utils.check_output(f"truncate --size {truncated_size}M {fs.path}")
     block_copy_name = "/tmp/dev_vdb_copy"
     _, _, stderr = test_microvm.ssh.run(
         f"dd if=/dev/vdb of={block_copy_name} bs=1M count={block_size}"
@@ -94,10 +94,9 @@ def test_device_ordering(uvm_plain_any, io_engine):
     test_microvm.start()
 
     # Determine the size of the microVM rootfs in bytes.
-    rc, stdout, stderr = utils.run_cmd(
+    _, stdout, _ = utils.check_output(
         "du --apparent-size --block-size=1 {}".format(test_microvm.rootfs_file),
     )
-    assert rc == 0, f"Failed to get microVM rootfs size: {stderr}"
 
     assert len(stdout.split()) == 2
     rootfs_size = stdout.split("\t")[0]
@@ -136,7 +135,7 @@ def test_rescan_dev(uvm_plain_any, io_engine):
     )
 
     losetup = ["losetup", "--find", "--show", fs2.path]
-    rc, stdout, _ = utils.run_cmd(losetup)
+    rc, stdout, _ = utils.check_output(losetup)
     assert rc == 0
     loopback_device = stdout.rstrip()
 
@@ -149,7 +148,7 @@ def test_rescan_dev(uvm_plain_any, io_engine):
         _check_block_size(test_microvm.ssh, "/dev/vdb", fs2.size())
     finally:
         if loopback_device:
-            utils.run_cmd(["losetup", "--detach", loopback_device])
+            utils.check_output(["losetup", "--detach", loopback_device])
 
 
 def test_non_partuuid_boot(uvm_plain_any, io_engine):
@@ -287,8 +286,7 @@ def test_patch_drive(uvm_plain_any, io_engine):
     # of the device, in bytes.
     blksize_cmd = "LSBLK_DEBUG=all lsblk -b /dev/vdb --output SIZE"
     size_bytes_str = "536870912"  # = 512 MiB
-    rc, stdout, stderr = test_microvm.ssh.run(blksize_cmd)
-    assert rc == 0, stderr
+    _, stdout, _ = test_microvm.ssh.check_output(blksize_cmd)
     lines = stdout.split("\n")
     # skip "SIZE"
     assert lines[1].strip() == size_bytes_str

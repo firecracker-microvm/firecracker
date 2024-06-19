@@ -60,8 +60,7 @@ class SSHConnection:
 
     def _scp(self, path1, path2, options):
         """Copy files to/from the VM using scp."""
-        ecode, _, stderr = self._exec(["scp", *options, path1, path2])
-        assert ecode == 0, stderr
+        self._exec(["scp", *options, path1, path2], check=True)
 
     def scp_put(self, local_path, remote_path, recursive=False):
         """Copy files to the VM using scp."""
@@ -78,7 +77,7 @@ class SSHConnection:
         self._scp(self.remote_path(remote_path), local_path, opts)
 
     @retry(
-        retry=retry_if_exception_type(ConnectionError),
+        retry=retry_if_exception_type(ChildProcessError),
         wait=wait_fixed(0.15),
         stop=stop_after_attempt(20),
         reraise=True,
@@ -91,11 +90,9 @@ class SSHConnection:
         We'll keep trying to execute a remote command that can't fail
         (`/bin/true`), until we get a successful (0) exit code.
         """
-        ecode, _, _ = self.run("true")
-        if ecode != 0:
-            raise ConnectionError
+        self.check_output("true")
 
-    def run(self, cmd_string, timeout=None):
+    def run(self, cmd_string, timeout=None, *, check=False):
         """Execute the command passed as a string in the ssh context."""
         return self._exec(
             [
@@ -105,13 +102,19 @@ class SSHConnection:
                 cmd_string,
             ],
             timeout,
+            check=check,
         )
 
-    def _exec(self, cmd, timeout=None):
+    def check_output(self, cmd_string, timeout=None):
+        """Same as `run`, but raises an exception on non-zero return code of remote command"""
+        return self.run(cmd_string, timeout, check=True)
+
+    def _exec(self, cmd, timeout=None, check=False):
         """Private function that handles the ssh client invocation."""
         if self.netns is not None:
             cmd = ["ip", "netns", "exec", self.netns] + cmd
-        return utils.run_cmd(cmd, ignore_return_code=True, timeout=timeout)
+
+        return utils.run_cmd(cmd, check=check, timeout=timeout)
 
 
 def mac_from_ip(ip_address):
@@ -158,10 +161,10 @@ class Tap:
         # Avoid a conflict if two tests want to create the same tap device tap0
         # in the host before moving it into its own netns
         temp_name = "tap" + random_str(k=8)
-        utils.run_cmd(f"ip tuntap add mode tap name {temp_name}")
-        utils.run_cmd(f"ip link set {temp_name} name {name} netns {netns}")
+        utils.check_output(f"ip tuntap add mode tap name {temp_name}")
+        utils.check_output(f"ip link set {temp_name} name {name} netns {netns}")
         if ip:
-            utils.run_cmd(f"ip netns exec {netns} ifconfig {name} {ip} up")
+            utils.check_output(f"ip netns exec {netns} ifconfig {name} {ip} up")
         self._name = name
         self._netns = netns
 
@@ -177,7 +180,7 @@ class Tap:
 
     def set_tx_queue_len(self, tx_queue_len):
         """Set the length of the tap's TX queue."""
-        utils.run_cmd(
+        utils.check_output(
             "ip netns exec {} ip link set {} txqueuelen {}".format(
                 self.netns, self.name, tx_queue_len
             )
@@ -241,12 +244,12 @@ class NetNs:
     def setup(self):
         """Set up this network namespace."""
         if not self.path.exists():
-            utils.run_cmd(f"ip netns add {self.id}")
+            utils.check_output(f"ip netns add {self.id}")
 
     def cleanup(self):
         """Clean up this network namespace."""
         if self.path.exists():
-            utils.run_cmd(f"ip netns del {self.id}")
+            utils.check_output(f"ip netns del {self.id}")
 
     def add_tap(self, name, ip):
         """Add a TAP device to the namespace

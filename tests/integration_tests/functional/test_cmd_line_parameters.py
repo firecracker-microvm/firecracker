@@ -8,7 +8,7 @@ from pathlib import Path
 import packaging.version
 import pytest
 
-from framework.utils import run_cmd
+from framework.utils import check_output
 from host_tools.fcmetrics import validate_fc_metrics
 
 
@@ -49,8 +49,7 @@ def test_describe_snapshot_all_versions(
     fc_binary = microvm_factory.fc_binary_path
     # Verify the output of `--describe-snapshot` command line parameter
     cmd = [fc_binary] + ["--describe-snapshot", snapshot.vmstate]
-    code, stdout, stderr = run_cmd(cmd)
-    assert code == 0, stderr
+    _, stdout, stderr = check_output(cmd)
     assert stderr == ""
     assert target_version in stdout
 

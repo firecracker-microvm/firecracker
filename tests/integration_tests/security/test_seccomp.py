@@ -115,9 +115,7 @@ def test_seccomp_ls(bin_seccomp_paths):
     bpf_path = _run_seccompiler_bin(json_filter)
 
     # Run the mini jailer.
-    outcome = utils.run_cmd(
-        [demo_jailer, ls_command_path, bpf_path], no_shell=True, ignore_return_code=True
-    )
+    outcome = utils.run_cmd([demo_jailer, ls_command_path, bpf_path], shell=False)
 
     os.unlink(bpf_path)
 
@@ -180,17 +178,13 @@ def test_advanced_seccomp(bin_seccomp_paths):
     bpf_path = _run_seccompiler_bin(json_filter)
 
     # Run the mini jailer for harmless binary.
-    outcome = utils.run_cmd(
-        [demo_jailer, demo_harmless, bpf_path], no_shell=True, ignore_return_code=True
-    )
+    outcome = utils.run_cmd([demo_jailer, demo_harmless, bpf_path], shell=False)
 
     # The demo harmless binary should have terminated gracefully.
     assert outcome.returncode == 0
 
     # Run the mini jailer for malicious binary.
-    outcome = utils.run_cmd(
-        [demo_jailer, demo_malicious, bpf_path], no_shell=True, ignore_return_code=True
-    )
+    outcome = utils.run_cmd([demo_jailer, demo_malicious, bpf_path], shell=False)
 
     # The demo malicious binary should have received `SIGSYS`.
     assert outcome.returncode == -31
@@ -201,9 +195,7 @@ def test_advanced_seccomp(bin_seccomp_paths):
     bpf_path = _run_seccompiler_bin(json_filter, basic=True)
 
     # Run the mini jailer for malicious binary.
-    outcome = utils.run_cmd(
-        [demo_jailer, demo_malicious, bpf_path], no_shell=True, ignore_return_code=True
-    )
+    outcome = utils.run_cmd([demo_jailer, demo_malicious, bpf_path], shell=False)
 
     # The malicious binary also terminates gracefully, since the --basic option
     # disables all argument checks.
@@ -224,9 +216,7 @@ def test_advanced_seccomp(bin_seccomp_paths):
     # Run seccompiler-bin.
     bpf_path = _run_seccompiler_bin(json_filter)
 
-    outcome = utils.run_cmd(
-        [demo_jailer, demo_harmless, bpf_path], no_shell=True, ignore_return_code=True
-    )
+    outcome = utils.run_cmd([demo_jailer, demo_harmless, bpf_path], shell=False)
 
     # The demo binary should have received `SIGSYS`.
     assert outcome.returncode == -31
@@ -288,9 +278,7 @@ def test_seccomp_rust_panic(bin_seccomp_paths):
 
     # Run the panic binary with all filters.
     for thread in filter_threads:
-        code, _, _ = utils.run_cmd(
-            [demo_panic, bpf_path, thread], no_shell=True, ignore_return_code=True
-        )
+        code, _, _ = utils.run_cmd([demo_panic, bpf_path, thread], shell=False)
         # The demo panic binary should have terminated with SIGABRT
         # and not with a seccomp violation.
         # On a seccomp violation, the program exits with code -31 for

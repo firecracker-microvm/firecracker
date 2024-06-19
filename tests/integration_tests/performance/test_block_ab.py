@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 import host_tools.drive as drive_tools
-from framework.utils import CmdBuilder, run_cmd, track_cpu_utilization
+from framework.utils import CmdBuilder, check_output, track_cpu_utilization
 from host_tools.fcmetrics import FCMetricsMonitor
 
 # size of the block device used in the test, in MB
@@ -29,21 +29,20 @@ GUEST_MEM_MIB = 1024
 def prepare_microvm_for_test(microvm):
     """Prepares the microvm for running a fio-based performance test by tweaking
     various performance related parameters."""
-    rc, _, stderr = microvm.ssh.run("echo 'none' > /sys/block/vdb/queue/scheduler")
-    assert rc == 0, stderr
+    _, _, stderr = microvm.ssh.check_output(
+        "echo 'none' > /sys/block/vdb/queue/scheduler"
+    )
     assert stderr == ""
 
     # First, flush all guest cached data to host, then drop guest FS caches.
-    rc, _, stderr = microvm.ssh.run("sync")
-    assert rc == 0, stderr
+    _, _, stderr = microvm.ssh.check_output("sync")
     assert stderr == ""
-    rc, _, stderr = microvm.ssh.run("echo 3 > /proc/sys/vm/drop_caches")
-    assert rc == 0, stderr
+    _, _, stderr = microvm.ssh.check_output("echo 3 > /proc/sys/vm/drop_caches")
     assert stderr == ""
 
     # Then, flush all host cached data to hardware, also drop host FS caches.
-    run_cmd("sync")
-    run_cmd("echo 3 > /proc/sys/vm/drop_caches")
+    check_output("sync")
+    check_output("echo 3 > /proc/sys/vm/drop_caches")
 
 
 def run_fio(microvm, mode, block_size):
@@ -99,8 +98,7 @@ def run_fio(microvm, mode, block_size):
         assert stderr == ""
 
         microvm.ssh.scp_get("/tmp/*.log", logs_path)
-        rc, _, stderr = microvm.ssh.run("rm /tmp/*.log")
-        assert rc == 0, stderr
+        microvm.ssh.check_output("rm /tmp/*.log")
 
         return logs_path, cpu_load_future.result()
 

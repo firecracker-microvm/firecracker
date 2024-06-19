@@ -312,8 +312,7 @@ def test_config_change(microvm_factory, guest_kernel, rootfs):
     _check_block_size(vm.ssh, "/dev/vdb", orig_size * 1024 * 1024)
 
     # Check that we can create a filesystem and mount it
-    ret, out, err = vm.ssh.run(mkfs_mount_cmd)
-    assert ret == 0, f"{ret}, {out}, {err}"
+    vm.ssh.check_output(mkfs_mount_cmd)
 
     for new_size in new_sizes:
         # Instruct the backend to resize the device.
@@ -328,5 +327,4 @@ def test_config_change(microvm_factory, guest_kernel, rootfs):
         _check_block_size(vm.ssh, "/dev/vdb", new_size * 1024 * 1024)
 
         # Check that we can create a filesystem and mount it
-        ret, out, err = vm.ssh.run(mkfs_mount_cmd)
-        assert ret == 0, f"{new_size=}, {ret=}, {out=}, {err=}"
+        vm.ssh.check_output(mkfs_mount_cmd)

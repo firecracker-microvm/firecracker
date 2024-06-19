@@ -44,8 +44,7 @@ def test_rng_not_present(uvm_nano):
     # the device should exist in the guest filesystem but we should
     # not be able to get random numbers out of it.
     cmd = "test -e /dev/hwrng"
-    ecode, _, _ = vm.ssh.run(cmd)
-    assert ecode == 0
+    vm.ssh.check_output(cmd)
 
     cmd = "dd if=/dev/hwrng of=/dev/null bs=10 count=1"
     ecode, _, _ = vm.ssh.run(cmd)
@@ -138,8 +137,7 @@ def _get_throughput(ssh, random_bytes):
     # Issue a `dd` command to request 100 times `random_bytes` from the device.
     # 100 here is used to get enough confidence on the achieved throughput.
     cmd = "dd if=/dev/hwrng of=/dev/null bs={} count=100".format(random_bytes)
-    exit_code, _, stderr = ssh.run(cmd)
-    assert exit_code == 0, stderr
+    _, _, stderr = ssh.check_output(cmd)
 
     # dd gives its output on stderr
     return _process_dd_output(stderr)

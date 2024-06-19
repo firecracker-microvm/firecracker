@@ -15,7 +15,7 @@ import pytest
 import host_tools.drive as drive_tools
 from framework.microvm import SnapshotType
 from framework.properties import global_props
-from framework.utils import check_filesystem, run_cmd, wait_process_termination
+from framework.utils import check_filesystem, check_output, wait_process_termination
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
     VSOCK_UDS_PATH,
@@ -37,8 +37,7 @@ def check_vmgenid_update_count(vm, resume_count):
     Kernel will emit the DMESG_VMGENID_RESUME every time we resume
     from a snapshot
     """
-    rc, stdout, stderr = vm.ssh.run("dmesg")
-    assert rc == 0, stderr
+    _, stdout, _ = vm.ssh.check_output("dmesg")
     assert resume_count == stdout.count(DMESG_VMGENID_RESUME)
 
 
@@ -109,13 +108,13 @@ def test_snapshot_current_version(uvm_nano):
     fc_binary = uvm_nano.fc_binary_path
     # Get supported snapshot version from Firecracker binary
     snapshot_version = (
-        run_cmd(f"{fc_binary} --snapshot-version").stdout.strip().splitlines()[0]
+        check_output(f"{fc_binary} --snapshot-version").stdout.strip().splitlines()[0]
     )
 
     # Verify the output of `--describe-snapshot` command line parameter
     cmd = [str(fc_binary)] + ["--describe-snapshot", str(snapshot.vmstate)]
 
-    _, stdout, _ = run_cmd(cmd)
+    _, stdout, _ = check_output(cmd)
     assert snapshot_version in stdout
 
 
@@ -481,8 +480,7 @@ def test_diff_snapshot_overlay(guest_kernel, rootfs, microvm_factory):
     basevm.resume()
 
     # Run some command to dirty some pages
-    rc, _, stderr = basevm.ssh.run("true")
-    assert rc == 0, stderr
+    basevm.ssh.check_output("true")
 
     # First copy the base snapshot somewhere else, so we can make sure
     # it will actually get updated

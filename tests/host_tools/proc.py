@@ -9,14 +9,14 @@ from framework import utils
 def proc_type():
     """Obtain the model processor on a Linux system."""
     cmd = "cat /proc/cpuinfo"
-    result = utils.run_cmd(cmd)
+    result = utils.check_output(cmd)
     lines = result.stdout.strip().splitlines()
     for line in lines:
         if "model name" in line:
             return re.sub(".*model name.*:", "", line, 1)
 
     cmd = "uname -m"
-    result = utils.run_cmd(cmd).stdout.strip()
+    result = utils.check_output(cmd).stdout.strip()
     if "aarch64" in result:
         return "ARM"
     return ""
