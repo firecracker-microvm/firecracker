@@ -67,12 +67,12 @@ def get_cpu_template_dir(cpu_template):
     PLATFORM != "aarch64",
     reason="This is aarch64 specific test.",
 )
-def test_default_cpu_features(microvm_factory, guest_kernel, rootfs_ubuntu_22):
+def test_default_cpu_features(microvm_factory, guest_kernel, rootfs_ubuntu_24):
     """
     Check the CPU features for a microvm with the specified config.
     """
 
-    vm = microvm_factory.build(guest_kernel, rootfs_ubuntu_22, monitor_memory=False)
+    vm = microvm_factory.build(guest_kernel, rootfs_ubuntu_24, monitor_memory=False)
     vm.spawn()
     vm.basic_config()
     vm.add_net_iface()
@@ -86,13 +86,13 @@ def test_default_cpu_features(microvm_factory, guest_kernel, rootfs_ubuntu_22):
     reason="This is aarch64 specific test.",
 )
 def test_cpu_features_with_static_template(
-    microvm_factory, guest_kernel, rootfs_ubuntu_22, cpu_template
+    microvm_factory, guest_kernel, rootfs_ubuntu_24, cpu_template
 ):
     """
     Check the CPU features for a microvm with the specified config.
     """
 
-    vm = microvm_factory.build(guest_kernel, rootfs_ubuntu_22, monitor_memory=False)
+    vm = microvm_factory.build(guest_kernel, rootfs_ubuntu_24, monitor_memory=False)
     vm.spawn()
     vm.basic_config(cpu_template=cpu_template)
     vm.add_net_iface()
@@ -114,13 +114,13 @@ def test_cpu_features_with_static_template(
     reason="This is aarch64 specific test.",
 )
 def test_cpu_features_with_custom_template(
-    microvm_factory, guest_kernel, rootfs_ubuntu_22, custom_cpu_template
+    microvm_factory, guest_kernel, rootfs_ubuntu_24, custom_cpu_template
 ):
     """
     Check the CPU features for a microvm with the specified config.
     """
 
-    vm = microvm_factory.build(guest_kernel, rootfs_ubuntu_22, monitor_memory=False)
+    vm = microvm_factory.build(guest_kernel, rootfs_ubuntu_24, monitor_memory=False)
     vm.spawn()
     vm.basic_config()
     vm.api.cpu_config.put(**custom_cpu_template["template"])
