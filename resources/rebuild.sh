@@ -48,7 +48,7 @@ function build_rootfs {
 
     cp -rvf overlay/* $rootfs
 
-    # curl -O https://cloud-images.ubuntu.com/minimal/releases/jammy/release/ubuntu-22.04-minimal-cloudimg-amd64-root.tar.xz
+    # curl -O https://cloud-images.ubuntu.com/minimal/releases/noble/release/ubuntu-24.04-minimal-cloudimg-amd64-root.tar.xz
     #
     # TBD use systemd-nspawn instead of Docker
     #   sudo tar xaf ubuntu-22.04-minimal-cloudimg-amd64-root.tar.xz -C $rootfs
@@ -199,7 +199,7 @@ function prepare_and_build_rootfs {
         compile_and_install $BIN/devmemread.c $BIN/devmemread
     fi
 
-    build_rootfs ubuntu-22.04 jammy
+    build_rootfs ubuntu-24.04 noble
     build_initramfs
 }
 

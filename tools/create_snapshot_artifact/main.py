@@ -78,8 +78,8 @@ def main():
             |
             -> vm.mem
             -> vm.vmstate
-            -> ubuntu-22.04.id_rsa
-            -> ubuntu-22.04.ext4
+            -> ubuntu-XX.YY.id_rsa
+            -> ubuntu-XX.YY.ext4
         -> <guest_kernel_supported_1>_<cpu_template>_guest_snapshot
             |
             ...
