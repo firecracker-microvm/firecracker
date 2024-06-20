@@ -303,9 +303,9 @@ that are pre-initialized with specific guest kernels and rootfs:
 
 - `uvm_plain_any` is parametrized by the guest kernels
   [supported](../docs/kernel-policy.md) by Firecracker and a read-only Ubuntu
-  22.04 squashfs as rootfs,
+  24.04 squashfs as rootfs,
 - `uvm_plain` yields a Firecracker process pre-initialized with a 5.10 kernel
-  and the same Ubuntu 22.04 squashfs.
+  and the same Ubuntu 24.04 squashfs.
 
 Generally, tests should use the former if you are testing some interaction
 between the guest and Firecracker, while the latter should be used if
