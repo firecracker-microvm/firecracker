@@ -23,17 +23,15 @@ class VhostUserBlkBackendType(Enum):
     CROSVM = "Crosvm"
 
 
-def partuuid_and_disk_path(rootfs_ubuntu_22, disk_path):
+def partuuid_and_disk_path(rootfs, disk_path):
     """
     We create a new file with specified path, get its partuuid and use it as a rootfs.
     """
-    initial_size = rootfs_ubuntu_22.stat().st_size + 50 * MB
+    initial_size = rootfs.stat().st_size + 50 * MB
     disk_path.touch()
     os.truncate(disk_path, initial_size)
     check_output(f"echo type=83 | sfdisk --no-tell-kernel {str(disk_path)}", shell=True)
-    check_output(
-        f"dd bs=1M seek=1 if={str(rootfs_ubuntu_22)} of={disk_path}", shell=True
-    )
+    check_output(f"dd bs=1M seek=1 if={str(rootfs)} of={disk_path}", shell=True)
     ptuuid = check_output(
         f"blkid -s PTUUID -o value {disk_path}", shell=True, encoding="ascii"
     ).strip()
