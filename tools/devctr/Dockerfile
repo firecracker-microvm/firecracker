@@ -100,10 +100,10 @@ RUN cd /tmp/poetry && \
 # - Build and install crosvm (used as vhost-user-blk backend)
 # - Clean up cargo compilation directories
 # - Always install both x86_64 and aarch64 musl targets, as our rust-toolchain.toml would force on-the-fly installation of both anyway
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOLCHAIN" \
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
     && rustup target add x86_64-unknown-linux-musl \
     && rustup target add aarch64-unknown-linux-musl \
-    && rustup component add llvm-tools-preview \
+    && rustup component add llvm-tools-preview clippy rustfmt \
     && cargo install --locked cargo-audit cargo-deny grcov cargo-sort cargo-afl \
     && (if [ "$ARCH" = "x86_64" ]; then cargo install --locked kani-verifier && cargo kani setup; else true; fi) \
     \
