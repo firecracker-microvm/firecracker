@@ -53,7 +53,6 @@ def get_binary(name, *, workspace_dir=FC_WORKSPACE_DIR, example=None):
     bin_path = target_dir / name
     if example:
         bin_path = target_dir / "examples" / example
-    assert bin_path.exists()
     return bin_path
 
 

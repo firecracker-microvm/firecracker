@@ -8,6 +8,8 @@ Common helpers to create Buildkite pipelines
 import argparse
 import json
 import os
+import random
+import string
 import subprocess
 from pathlib import Path
 
@@ -70,12 +72,12 @@ def group(label, command, instances, platforms, **kwargs):
     if isinstance(command, str):
         commands = [command]
     for instance in instances:
-        for os, kv in platforms:
+        for os_, kv in platforms:
             # fill any templated variables
-            args = {"instance": instance, "os": os, "kv": kv}
+            args = {"instance": instance, "os": os_, "kv": kv}
             step = {
                 "command": [cmd.format(**args) for cmd in commands],
-                "label": f"{label1} {instance} {os} {kv}",
+                "label": f"{label1} {instance} {os_} {kv}",
                 "agents": args,
             }
             step_kwargs = dict_fmt(kwargs, args)
@@ -83,11 +85,6 @@ def group(label, command, instances, platforms, **kwargs):
             steps.append(step)
 
     return {"group": label, "steps": steps}
-
-
-def pipeline_to_json(pipeline):
-    """Serialize a pipeline dictionary to JSON"""
-    return json.dumps(pipeline, indent=4, sort_keys=True, ensure_ascii=False)
 
 
 def get_changed_files():
@@ -117,23 +114,6 @@ def run_all_tests(changed_files):
         x.suffix != ".md" and not (x.parts[0] == ".github" and x.suffix == ".yml")
         for x in changed_files
     )
-
-
-def devtool_test(devtool_opts=None, pytest_opts=None, binary_dir=None):
-    """Generate a `devtool test` command"""
-    cmds = []
-    parts = ["./tools/devtool -y test"]
-    if devtool_opts:
-        parts.append(devtool_opts)
-    parts.append("--")
-    if binary_dir is not None:
-        cmds.append(f'buildkite-agent artifact download "{binary_dir}/$(uname -m)/*" .')
-        cmds.append(f"chmod -v a+x {binary_dir}/**/*")
-        parts.append(f"--binary-dir=../{binary_dir}/$(uname -m)")
-    if pytest_opts:
-        parts.append(pytest_opts)
-    cmds.append(" ".join(parts))
-    return cmds
 
 
 class DictAction(argparse.Action):
@@ -192,3 +172,141 @@ COMMON_PARSER.add_argument(
     default=None,
     type=str,
 )
+
+
+def revision_a():
+    """Determine if there is a base revision"""
+    if os.environ.get("BUILDKITE_PULL_REQUEST", "false") != "false":
+        return os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH", "main")
+    return os.environ.get("REVISION_A")
+
+
+def random_str(k: int):
+    """Generate a random string of hex characters."""
+    return "".join(random.choices(string.hexdigits, k=k))
+
+
+def shared_build():
+    """Helper function to make it simple to share a compilation artifacts for a
+    whole Buildkite build
+    """
+    build_cmds = ["./tools/devtool -y build --release"]
+
+    # If we are running in a PR context, then also build the base branch in the
+    # expected location, for the A/B tests machinery.
+    rev_a = revision_a()
+    if rev_a is not None:
+        build_cmds += [
+            f"git clone -b {rev_a} . build/{rev_a}",
+            f"cd build/{rev_a} && ./tools/devtool -y build --release && cd -",
+        ]
+    revision_b = os.environ.get("REVISION_B")
+    if revision_b is not None:
+        build_cmds.append(f"ln -svfT . build/{revision_b}")
+    binary_dir = f"build_$(uname -m)_{random_str(k=8)}.tar.gz"
+    build_cmds += [
+        "du -sh build/*",
+        f"tar czf {binary_dir} build",
+        f"buildkite-agent artifact upload {binary_dir}",
+    ]
+    return build_cmds, binary_dir
+
+
+class BKPipeline:
+    """
+    Buildkite Pipeline class abstraction
+
+    Helper class to easily construct pipelines.
+    """
+
+    parser = COMMON_PARSER
+
+    def __init__(self, initial_steps=None, **kwargs):
+        self.steps = initial_steps or []
+        self.args = args = self.parser.parse_args()
+        # Calculate step defaults with parameters and kwargs
+        per_instance = {
+            "instances": args.instances,
+            "platforms": args.platforms,
+            "artifact_paths": ["./test_results/**/*"],
+            **kwargs,
+        }
+        self.per_instance = overlay_dict(per_instance, args.step_param)
+        self.per_arch = self.per_instance.copy()
+        self.per_arch["instances"] = ["m6i.metal", "m7g.metal"]
+        self.per_arch["platforms"] = [("al2", "linux_5.10")]
+        self.binary_dir = args.binary_dir
+        # Build sharing
+        build_cmds, self.shared_build = shared_build()
+        step_build = group("🏗️ Build", build_cmds, **self.per_arch)
+        self.steps += [step_build, "wait"]
+
+    def add_step(self, step, decorate=True):
+        """
+        Add a step to the pipeline.
+
+        https://buildkite.com/docs/pipelines/step-reference
+
+        :param step: a Buildkite step
+        :param decorate: inject needed commands for sharing builds
+        """
+        if decorate and isinstance(step, dict):
+            step = self._adapt_group(step)
+        self.steps.append(step)
+        return step
+
+    def _adapt_group(self, group):
+        """"""
+        prepend = [
+            f'buildkite-agent artifact download "{self.shared_build}" .',
+            f"tar xzf {self.shared_build}",
+        ]
+        if self.binary_dir is not None:
+            prepend.extend(
+                [
+                    f'buildkite-agent artifact download "{self.binary_dir}/$(uname -m)/*" .',
+                    f"chmod -v a+x {self.binary_dir}/**/*",
+                ]
+            )
+
+        for step in group["steps"]:
+            step["command"] = prepend + step["command"]
+        return group
+
+    def build_group(self, *args, **kwargs):
+        """
+        Build a group, parametrizing over the selected instances/platforms.
+
+        https://buildkite.com/docs/pipelines/group-step
+        """
+        combined = overlay_dict(self.per_instance, kwargs)
+        return self.add_step(group(*args, **combined))
+
+    def build_group_per_arch(self, *args, **kwargs):
+        """
+        Build a group, parametrizing over the architectures only.
+        """
+        combined = overlay_dict(self.per_arch, kwargs)
+        return self.add_step(group(*args, **combined))
+
+    def to_dict(self):
+        """Render the pipeline as a dictionary."""
+        return {"steps": self.steps}
+
+    def to_json(self):
+        """Serialize the pipeline to JSON"""
+        return json.dumps(self.to_dict(), indent=4, sort_keys=True, ensure_ascii=False)
+
+    def devtool_test(self, devtool_opts=None, pytest_opts=None):
+        """Generate a `devtool test` command"""
+        cmds = []
+        parts = ["./tools/devtool -y test", "--no-build"]
+        if devtool_opts:
+            parts.append(devtool_opts)
+        parts.append("--")
+        if self.binary_dir is not None:
+            parts.append(f"--binary-dir=../{self.binary_dir}/$(uname -m)")
+        if pytest_opts:
+            parts.append(pytest_opts)
+        cmds.append(" ".join(parts))
+        return cmds
