@@ -17,11 +17,11 @@ bincode = "1.2.1"
 bitflags = "2.5.0"
 crc64 = "2.0.0"
 derive_more = { version = "0.99.18", default-features = false, features = ["from", "display"] }
-displaydoc = "0.2.4"
+displaydoc = "0.2.5"
 event-manager = "0.4.0"
 kvm-bindings = { version = "0.8.0", features = ["fam-wrappers", "serde"] }
 kvm-ioctls = "0.17.0"
-lazy_static = "1.4.0"
+lazy_static = "1.5.0"
 libc = "0.2.155"
 linux-loader = "0.11.0"
 log = { version = "0.4.17", features = ["std", "serde"] }
@@ -52,7 +52,7 @@ vm-fdt = "0.3.0"
 criterion = { version = "0.5.0", default-features = false }
 device_tree = "1.1.0"
 itertools = "0.13.0"
-proptest = { version = "1.0.0", default-features = false, features = ["std"] }
+proptest = { version = "1.5.0", default-features = false, features = ["std"] }
 
 [features]
 tracing = ["log-instrument"]
