@@ -72,21 +72,14 @@ BKPipeline.parser.add_argument(
     action="append",
 )
 
-retry = {
-    "automatic": [
-        # Agent was lost, retry one time
-        # this can happen if we terminate the instance or the agent gets
-        # disconnected for whatever reason
-        {"exit_status": -1, "limit": 1},
-    ]
-}
+retry = {}
 if REVISION_A:
     # Enable automatic retry and disable manual retries to suppress spurious issues.
     retry["automatic"].append({"exit_status": 1, "limit": 1})
     retry["manual"] = False
 
 pipeline = BKPipeline(
-    # Boost priority from 1 to 2 so these jobs are preferred by ag-1 agents
+    # Boost priority from 1 to 2 so these jobs are preferred by ag=1 agents
     priority=2,
     # use ag=1 instances to make sure no two performance tests are scheduled on the same instance
     agents={"ag": 1},
