@@ -224,11 +224,18 @@ class BKPipeline:
     def __init__(self, initial_steps=None, **kwargs):
         self.steps = initial_steps or []
         self.args = args = self.parser.parse_args()
+        # Retry one time if agent was lost. This can happen if we terminate the
+        # instance or the agent gets disconnected for whatever reason
+        retry = {
+            "automatic": [{"exit_status": -1, "limit": 1}],
+        }
+        retry = overlay_dict(retry, kwargs.pop("retry", {}))
         # Calculate step defaults with parameters and kwargs
         per_instance = {
             "instances": args.instances,
             "platforms": args.platforms,
             "artifact_paths": ["./test_results/**/*"],
+            "retry": retry,
             **kwargs,
         }
         self.per_instance = overlay_dict(per_instance, args.step_param)

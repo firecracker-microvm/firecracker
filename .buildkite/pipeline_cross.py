@@ -15,6 +15,9 @@ from common import DEFAULT_PLATFORMS, BKPipeline
 
 if __name__ == "__main__":
     pipeline = BKPipeline()
+    per_instance = pipeline.per_instance.copy()
+    per_instance.pop("instances")
+    per_instance.pop("platforms")
     instances_x86_64 = ["c5n.metal", "m5n.metal", "m6i.metal", "m6a.metal"]
     instances_aarch64 = ["m7g.metal"]
     commands = [
@@ -86,6 +89,7 @@ if __name__ == "__main__":
             "label": f"🎬 {src_instance} {src_kv} ➡️ {dst_instance} {dst_kv}",
             "timeout": 30,
             "agents": {"instance": dst_instance, "kv": dst_kv, "os": dst_os},
+            **per_instance,
         }
         steps.append(step)
     pipeline.add_step(
