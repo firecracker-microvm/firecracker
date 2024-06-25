@@ -11,11 +11,11 @@ bench = false
 
 [dependencies]
 clap = { version = "4.5.7", features = ["derive", "string"] }
-displaydoc = "0.2.4"
+displaydoc = "0.2.5"
 libc = "0.2.155"
 log-instrument = { path = "../log-instrument", optional = true }
 serde = { version = "1.0.203", features = ["derive"] }
-serde_json = "1.0.117"
+serde_json = "1.0.118"
 thiserror = "1.0.61"
 
 vmm = { path = "../vmm" }
