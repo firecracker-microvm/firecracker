@@ -247,7 +247,14 @@ impl super::Cpuid {
         // operation using a TSC deadline value.
         //
         // tsc_deadline: 24,
-        set_bit(&mut leaf_1.result.ecx, ECX_TSC_DEADLINE_BITINDEX, true);
+        let host_leaf_1 = cpuid(0x1);
+        // Pass-through the value of the host
+        let host_tsc_deadline = ((1 << ECX_TSC_DEADLINE_BITINDEX) & host_leaf_1.ecx) != 0;
+        set_bit(
+            &mut leaf_1.result.ecx,
+            ECX_TSC_DEADLINE_BITINDEX,
+            host_tsc_deadline,
+        );
 
         // Hypervisor bit
         set_bit(&mut leaf_1.result.ecx, ECX_HYPERVISOR_BITINDEX, true);
