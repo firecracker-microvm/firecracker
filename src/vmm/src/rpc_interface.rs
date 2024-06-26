@@ -670,7 +670,7 @@ impl RuntimeApiController {
                 self.vmm.lock().expect("Poisoned lock").version(),
             )),
             #[cfg(target_arch = "x86_64")]
-            HotplugRequest(config) => Ok(VmmData::Empty),
+            HotplugRequest(request_type) => self.handle_hotplug_request(request_type),
             PatchMMDS(value) => self.patch_mmds(value),
             Pause => self.pause(),
             PutMMDS(value) => self.put_mmds(value),
@@ -867,6 +867,31 @@ impl RuntimeApiController {
             .map_err(NetworkInterfaceError::DeviceUpdate)
             .map_err(VmmActionError::NetworkConfig)
     }
+
+    #[cfg(target_arch = "x86_64")]
+    fn handle_hotplug_request(
+        &mut self,
+        cfg: HotplugRequestConfig,
+    ) -> Result<VmmData, VmmActionError> {
+        match cfg {
+            HotplugRequestConfig::Vcpu(cfg) => {
+                let result = self.vmm.lock().expect("Poisoned lock").hotplug_vcpus(cfg);
+                result
+                    .map_err(|err| VmmActionError::HotplugRequest(HotplugRequestError::Vcpu(err)))
+                    .and_then(|machine_cfg_update| self.update_vm_config(machine_cfg_update))
+            }
+        }
+    }
+
+    // Currently, this method is only used for vCPU hotplugging, which is not implemented for
+    // aarch64, hence we must allow `dead_code`
+    #[allow(dead_code)]
+    fn update_vm_config(&mut self, cfg: MachineConfigUpdate) -> Result<VmmData, VmmActionError> {
+        self.vm_resources
+            .update_vm_config(&cfg)
+            .map(|()| VmmData::Empty)
+            .map_err(VmmActionError::MachineConfig)
+    }
 }
 
 #[cfg(test)]
@@ -875,8 +900,14 @@ mod tests {
     use std::path::PathBuf;
 
     use seccompiler::BpfThreadMap;
+    #[cfg(target_arch = "x86_64")]
+    use vmm_config::hotplug::HotplugVcpuError;
 
     use super::*;
+    // Currently, default_vmm only used for testing hotplugging, which is only implemented for
+    // x86_64, so `unused_imports` must be allowed for aarch64 systems
+    #[cfg(target_arch = "x86_64")]
+    use crate::builder::tests::default_vmm;
     use crate::cpu_config::templates::test_utils::build_test_template;
     use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
     use crate::devices::virtio::balloon::{BalloonConfig, BalloonError};
@@ -885,6 +916,8 @@ mod tests {
     use crate::devices::virtio::vsock::VsockError;
     use crate::mmds::data_store::MmdsVersion;
     use crate::vmm_config::balloon::BalloonBuilder;
+    #[cfg(target_arch = "x86_64")]
+    use crate::vmm_config::hotplug::HotplugVcpuConfig;
     use crate::vmm_config::machine_config::VmConfig;
     use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
     use crate::vmm_config::vsock::VsockBuilder;
@@ -893,27 +926,55 @@ mod tests {
     impl PartialEq for VmmActionError {
         fn eq(&self, other: &VmmActionError) -> bool {
             use VmmActionError::*;
-            matches!(
-                (self, other),
-                (BalloonConfig(_), BalloonConfig(_))
-                    | (BootSource(_), BootSource(_))
-                    | (CreateSnapshot(_), CreateSnapshot(_))
-                    | (DriveConfig(_), DriveConfig(_))
-                    | (InternalVmm(_), InternalVmm(_))
-                    | (LoadSnapshot(_), LoadSnapshot(_))
-                    | (MachineConfig(_), MachineConfig(_))
-                    | (Metrics(_), Metrics(_))
-                    | (Mmds(_), Mmds(_))
-                    | (MmdsLimitExceeded(_), MmdsLimitExceeded(_))
-                    | (MmdsConfig(_), MmdsConfig(_))
-                    | (NetworkConfig(_), NetworkConfig(_))
-                    | (NotSupported(_), NotSupported(_))
-                    | (OperationNotSupportedPostBoot, OperationNotSupportedPostBoot)
-                    | (OperationNotSupportedPreBoot, OperationNotSupportedPreBoot)
-                    | (StartMicrovm(_), StartMicrovm(_))
-                    | (VsockConfig(_), VsockConfig(_))
-                    | (EntropyDevice(_), EntropyDevice(_))
-            )
+            #[cfg(target_arch = "x86_64")]
+            {
+                matches!(
+                    (self, other),
+                    (BalloonConfig(_), BalloonConfig(_))
+                        | (BootSource(_), BootSource(_))
+                        | (CreateSnapshot(_), CreateSnapshot(_))
+                        | (DriveConfig(_), DriveConfig(_))
+                        | (HotplugRequest(_), HotplugRequest(_))
+                        | (InternalVmm(_), InternalVmm(_))
+                        | (LoadSnapshot(_), LoadSnapshot(_))
+                        | (MachineConfig(_), MachineConfig(_))
+                        | (Metrics(_), Metrics(_))
+                        | (Mmds(_), Mmds(_))
+                        | (MmdsLimitExceeded(_), MmdsLimitExceeded(_))
+                        | (MmdsConfig(_), MmdsConfig(_))
+                        | (NetworkConfig(_), NetworkConfig(_))
+                        | (NotSupported(_), NotSupported(_))
+                        | (OperationNotSupportedPostBoot, OperationNotSupportedPostBoot)
+                        | (OperationNotSupportedPreBoot, OperationNotSupportedPreBoot)
+                        | (StartMicrovm(_), StartMicrovm(_))
+                        | (VsockConfig(_), VsockConfig(_))
+                        | (EntropyDevice(_), EntropyDevice(_))
+                )
+            }
+            #[cfg(target_arch = "aarch64")]
+            {
+                matches!(
+                    (self, other),
+                    (BalloonConfig(_), BalloonConfig(_))
+                        | (BootSource(_), BootSource(_))
+                        | (CreateSnapshot(_), CreateSnapshot(_))
+                        | (DriveConfig(_), DriveConfig(_))
+                        | (InternalVmm(_), InternalVmm(_))
+                        | (LoadSnapshot(_), LoadSnapshot(_))
+                        | (MachineConfig(_), MachineConfig(_))
+                        | (Metrics(_), Metrics(_))
+                        | (Mmds(_), Mmds(_))
+                        | (MmdsLimitExceeded(_), MmdsLimitExceeded(_))
+                        | (MmdsConfig(_), MmdsConfig(_))
+                        | (NetworkConfig(_), NetworkConfig(_))
+                        | (NotSupported(_), NotSupported(_))
+                        | (OperationNotSupportedPostBoot, OperationNotSupportedPostBoot)
+                        | (OperationNotSupportedPreBoot, OperationNotSupportedPreBoot)
+                        | (StartMicrovm(_), StartMicrovm(_))
+                        | (VsockConfig(_), VsockConfig(_))
+                        | (EntropyDevice(_), EntropyDevice(_))
+                )
+            }
         }
     }
 
@@ -1106,6 +1167,8 @@ mod tests {
         pub update_block_device_path_called: bool,
         pub update_block_device_vhost_user_config_called: bool,
         pub update_net_rate_limiters_called: bool,
+        #[cfg(target_arch = "x86_64")]
+        pub hotplug_vcpus_called: bool,
         // when `true`, all self methods are forced to fail
         pub force_errors: bool,
     }
@@ -1216,6 +1279,24 @@ mod tests {
             Ok(())
         }
 
+        #[cfg(target_arch = "x86_64")]
+        pub fn hotplug_vcpus(
+            &mut self,
+            _: HotplugVcpuConfig,
+        ) -> Result<MachineConfigUpdate, HotplugVcpuError> {
+            if self.force_errors {
+                return Err(HotplugVcpuError::VcpuCountTooHigh);
+            }
+            self.hotplug_vcpus_called = true;
+            Ok(MachineConfigUpdate {
+                vcpu_count: Some(1),
+                mem_size_mib: None,
+                smt: None,
+                cpu_template: None,
+                track_dirty_pages: None,
+                huge_pages: None,
+            })
+        }
         pub fn instance_info(&self) -> InstanceInfo {
             InstanceInfo::default()
         }
@@ -1830,6 +1911,12 @@ mod tests {
             VmmAction::SendCtrlAltDel,
             VmmActionError::OperationNotSupportedPreBoot,
         );
+
+        #[cfg(target_arch = "x86_64")]
+        check_preboot_request_err(
+            VmmAction::HotplugRequest(HotplugRequestConfig::Vcpu(HotplugVcpuConfig { add: 4 })),
+            VmmActionError::OperationNotSupportedPreBoot,
+        );
     }
 
     fn check_runtime_request<F>(request: VmmAction, check_success: F)
@@ -2057,6 +2144,44 @@ mod tests {
                 VmmError::DeviceManager(crate::device_manager::mmio::MmioError::InvalidDeviceType),
             )),
         );
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_runtime_hotplug_vcpu() {
+        // Case 1. Valid input
+        let mut vmm = default_vmm();
+        let config = HotplugVcpuConfig { add: 4 };
+        let result = vmm.hotplug_vcpus(config);
+        assert_eq!(vmm.vcpus_handles.len(), 4);
+        result.unwrap();
+
+        // Case 2. Vcpu count too low
+        let mut vmm = default_vmm();
+        vmm.hotplug_vcpus(HotplugVcpuConfig { add: 1 }).unwrap();
+        assert_eq!(vmm.vcpus_handles.len(), 1);
+        let config = HotplugVcpuConfig { add: 0 };
+        let result = vmm.hotplug_vcpus(config);
+        result.unwrap_err();
+        assert_eq!(vmm.vcpus_handles.len(), 1);
+
+        // Case 3. Vcpu count too high
+        let mut vmm = default_vmm();
+        vmm.hotplug_vcpus(HotplugVcpuConfig { add: 1 }).unwrap();
+        assert_eq!(vmm.vcpus_handles.len(), 1);
+        let config = HotplugVcpuConfig { add: 33 };
+        let result = vmm.hotplug_vcpus(config);
+        result.unwrap_err();
+        assert_eq!(vmm.vcpus_handles.len(), 1);
+
+        // Case 4. Attempted overflow of vcpus
+        let mut vmm = default_vmm();
+        vmm.hotplug_vcpus(HotplugVcpuConfig { add: 2 }).unwrap();
+        assert_eq!(vmm.vcpus_handles.len(), 2);
+        let config = HotplugVcpuConfig { add: 255 };
+        let result = vmm.hotplug_vcpus(config);
+        result.unwrap_err();
+        assert_eq!(vmm.vcpus_handles.len(), 2);
     }
 
     #[test]

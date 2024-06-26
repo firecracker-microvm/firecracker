@@ -610,12 +610,12 @@ impl Vmm {
         config: HotplugVcpuConfig,
     ) -> Result<MachineConfigUpdate, HotplugVcpuError> {
         use crate::logger::IncMetric;
-        if config.vcpu_count < 1 {
+        if config.add < 1 {
             return Err(HotplugVcpuError::VcpuCountTooLow);
         } else if self
             .vcpus_handles
             .len()
-            .checked_add(config.vcpu_count.into())
+            .checked_add(config.add.into())
             .ok_or(HotplugVcpuError::VcpuCountTooHigh)?
             > MAX_SUPPORTED_VCPUS.into()
         {
@@ -623,11 +623,11 @@ impl Vmm {
         }
 
         // Create and start new vcpus
-        let mut vcpus = Vec::with_capacity(config.vcpu_count.into());
+        let mut vcpus = Vec::with_capacity(config.add.into());
 
         #[allow(clippy::cast_possible_truncation)]
         let start_idx = self.vcpus_handles.len().try_into().unwrap();
-        for cpu_idx in start_idx..(start_idx + config.vcpu_count) {
+        for cpu_idx in start_idx..(start_idx + config.add) {
             let exit_evt = self
                 .vcpus_exit_evt
                 .try_clone()
@@ -647,7 +647,7 @@ impl Vmm {
         .map_err(HotplugVcpuError::VcpuStart)?;
 
         #[allow(clippy::cast_lossless)]
-        METRICS.hotplug.vcpus_added.add(config.vcpu_count.into());
+        METRICS.hotplug.vcpus_added.add(config.add.into());
 
         // Update VM config to reflect new CPUs added
         #[allow(clippy::cast_possible_truncation)]
