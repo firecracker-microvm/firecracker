@@ -124,11 +124,17 @@ use device_manager::resources::ResourceAllocator;
 use devices::acpi::vmgenid::VmGenIdError;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use seccompiler::BpfProgram;
+#[cfg(target_arch = "x86_64")]
+use seccompiler::BpfThreadMap;
 use userfaultfd::Uffd;
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::u64_to_usize;
+#[cfg(target_arch = "x86_64")]
+use vmm_config::hotplug::{HotplugVcpuConfig, HotplugVcpuError};
+#[cfg(target_arch = "x86_64")]
+use vmm_config::machine_config::{MachineConfigUpdate, MAX_SUPPORTED_VCPUS};
 use vstate::vcpu::{self, KvmVcpuConfigureError, StartThreadedError, VcpuSendEventError};
 
 use crate::arch::DeviceType;
@@ -317,6 +323,9 @@ pub struct Vmm {
     vcpus_handles: Vec<VcpuHandle>,
     // Used by Vcpus and devices to initiate teardown; Vmm should never write here.
     vcpus_exit_evt: EventFd,
+    // seccomp_filters are only needed in VMM for hotplugging vCPUS.
+    #[cfg(target_arch = "x86_64")]
+    seccomp_filters: BpfThreadMap,
 
     // Allocator for guest resrouces
     resource_allocator: ResourceAllocator,
@@ -598,6 +607,66 @@ impl Vmm {
             .collect::<Result<Vec<CpuConfiguration>, DumpCpuConfigError>>()?;
 
         Ok(cpu_configs)
+    }
+
+    /// Adds new vCPUs to VMM.
+    #[cfg(target_arch = "x86_64")]
+    pub fn hotplug_vcpus(
+        &mut self,
+        config: HotplugVcpuConfig,
+    ) -> Result<MachineConfigUpdate, HotplugVcpuError> {
+        use crate::logger::IncMetric;
+        if config.vcpu_count < 1 {
+            return Err(HotplugVcpuError::VcpuCountTooLow);
+        } else if self
+            .vcpus_handles
+            .len()
+            .checked_add(config.vcpu_count.into())
+            .ok_or(HotplugVcpuError::VcpuCountTooHigh)?
+            > MAX_SUPPORTED_VCPUS.into()
+        {
+            return Err(HotplugVcpuError::VcpuCountTooHigh);
+        }
+
+        // Create and start new vcpus
+        let mut vcpus = Vec::with_capacity(config.vcpu_count.into());
+
+        #[allow(clippy::cast_possible_truncation)]
+        let start_idx = self.vcpus_handles.len().try_into().unwrap();
+        for cpu_idx in start_idx..(start_idx + config.vcpu_count) {
+            let exit_evt = self
+                .vcpus_exit_evt
+                .try_clone()
+                .map_err(HotplugVcpuError::EventFd)?;
+            let vcpu =
+                Vcpu::new(cpu_idx, &self.vm, exit_evt).map_err(HotplugVcpuError::VcpuCreate)?;
+            vcpus.push(vcpu);
+        }
+
+        self.start_vcpus(
+            vcpus,
+            self.seccomp_filters
+                .get("vcpu")
+                .ok_or_else(|| HotplugVcpuError::MissingSeccompFilters("vcpu".to_string()))?
+                .clone(),
+        )
+        .map_err(HotplugVcpuError::VcpuStart)?;
+
+        #[allow(clippy::cast_lossless)]
+        METRICS.hotplug.vcpus_added.add(config.vcpu_count.into());
+
+        // Update VM config to reflect new CPUs added
+        #[allow(clippy::cast_possible_truncation)]
+        let new_machine_config = MachineConfigUpdate {
+            vcpu_count: Some(self.vcpus_handles.len() as u8),
+            mem_size_mib: None,
+            smt: None,
+            cpu_template: None,
+            track_dirty_pages: None,
+            huge_pages: None,
+        };
+
+        Ok(new_machine_config)
     }
 
     /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
