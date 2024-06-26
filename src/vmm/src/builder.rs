@@ -139,6 +139,7 @@ impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
 }
 
 #[cfg_attr(target_arch = "aarch64", allow(unused))]
+#[allow(clippy::too_many_arguments)]
 fn create_vmm_and_vcpus(
     instance_info: &InstanceInfo,
     event_manager: &mut EventManager,
@@ -146,6 +147,7 @@ fn create_vmm_and_vcpus(
     uffd: Option<Uffd>,
     track_dirty_pages: bool,
     vcpu_count: u8,
+    #[cfg(target_arch = "x86_64")] seccomp_filters: BpfThreadMap,
     kvm_capabilities: Vec<KvmCapability>,
 ) -> Result<(Vmm, Vec<Vcpu>), StartMicrovmError> {
     use self::StartMicrovmError::*;
@@ -222,6 +224,8 @@ fn create_vmm_and_vcpus(
         uffd,
         vcpus_handles: Vec::new(),
         vcpus_exit_evt,
+        #[cfg(target_arch = "x86_64")]
+        seccomp_filters,
         resource_allocator,
         mmio_device_manager,
         #[cfg(target_arch = "x86_64")]
@@ -301,6 +305,8 @@ pub fn build_microvm_for_boot(
         None,
         track_dirty_pages,
         vm_resources.vm_config.vcpu_count,
+        #[cfg(target_arch = "x86_64")]
+        seccomp_filters.clone(),
         cpu_template.kvm_capabilities.clone(),
     )?;
 
@@ -468,6 +474,8 @@ pub fn build_microvm_from_snapshot(
         uffd,
         vm_resources.vm_config.track_dirty_pages,
         vm_resources.vm_config.vcpu_count,
+        #[cfg(target_arch = "x86_64")]
+        seccomp_filters.clone(),
         microvm_state.vm_state.kvm_cap_modifiers.clone(),
     )?;
 
@@ -1142,6 +1150,8 @@ pub mod tests {
             uffd: None,
             vcpus_handles: Vec::new(),
             vcpus_exit_evt,
+            #[cfg(target_arch = "x86_64")]
+            seccomp_filters: crate::seccomp_filters::get_empty_filters(),
             resource_allocator: ResourceAllocator::new().unwrap(),
             mmio_device_manager,
             #[cfg(target_arch = "x86_64")]
