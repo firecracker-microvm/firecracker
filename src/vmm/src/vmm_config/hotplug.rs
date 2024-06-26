@@ -36,6 +36,8 @@ pub enum HotplugVcpuError {
     VcpuCreate(VcpuError),
     /// Failed to start vCPUs
     VcpuStart(StartVcpusError),
+    /// No seccomp filter for thread category: {0}
+    MissingSeccompFilters(String),
 }
 
 /// Config for hotplugging vCPUS
