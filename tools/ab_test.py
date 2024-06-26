@@ -128,7 +128,8 @@ def load_data_series(report_path: Path, revision: str = None, *, reemit: bool = 
                 if reemit:
                     assert revision is not None
 
-                    emf["git_commit_id"] = revision
+                    # These will show up in Cloudwatch, so canonicalize to long commit SHAs
+                    emf["git_commit_id"] = canonicalize_revision(revision)
                     emit_raw_emf(emf)
 
                 dimensions, result = process_log_entry(emf)
@@ -399,9 +400,8 @@ if __name__ == "__main__":
 
     if args.command == "run":
         ab_performance_test(
-            # These will show up in Cloudwatch, so canonicalize to long commit SHAs
-            canonicalize_revision(args.a_revision),
-            canonicalize_revision(args.b_revision),
+            args.a_revision,
+            args.b_revision,
             args.test,
             args.significance,
             args.absolute_strength,
