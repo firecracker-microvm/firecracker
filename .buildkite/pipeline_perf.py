@@ -75,7 +75,10 @@ BKPipeline.parser.add_argument(
 retry = {}
 if REVISION_A:
     # Enable automatic retry and disable manual retries to suppress spurious issues.
-    retry["automatic"].append({"exit_status": 1, "limit": 1})
+    retry["automatic"] = [
+        {"exit_status": -1, "limit": 1},
+        {"exit_status": 1, "limit": 1},
+    ]
     retry["manual"] = False
 
 pipeline = BKPipeline(
