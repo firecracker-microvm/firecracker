@@ -182,7 +182,7 @@ impl Runtime {
         let file_meta = backing_file
             .metadata()
             .expect("can not get backing file metadata");
-        let backing_memory_size = file_meta.len() as usize;
+        let backing_memory_size = usize::try_from(file_meta.len());
         // # Safety:
         // File size and fd are valid
         let ret = unsafe {
