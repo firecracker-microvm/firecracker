@@ -1,0 +1,276 @@
+// Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+use acpi_tables::madt::LocalAPIC;
+use acpi_tables::{aml, Aml};
+use log::{debug, error};
+use utils::eventfd::EventFd;
+use vm_memory::GuestAddress;
+use vm_superio::Trigger;
+
+use crate::device_manager::mmio::MMIODeviceInfo;
+use crate::device_manager::resources::ResourceAllocator;
+use crate::devices::legacy::EventFdTrigger;
+use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
+use crate::vstate::memory::{Bytes, GuestMemoryMmap};
+
+#[derive(Debug)]
+pub struct CpuContainer {
+    /// Interrupt line for notifying device about changes
+    pub interrupt_evt: EventFdTrigger,
+    // GSI for the device
+    pub gsi: u32,
+
+    guest_address: GuestAddress,
+}
+
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum CpuContainerError {
+    /// Error with VMGenID interrupt: {0}
+    Interrupt(#[from] std::io::Error),
+    /// Failed to allocate requested resource: {0}
+    Allocator(#[from] vm_allocator::Error),
+}
+
+const CPU_CONTAINER_ACPI_SIZE: usize = 0xC;
+
+const CPU_ENABLE_FLAG: usize = 0;
+const CPU_INSERTING_FLAG: usize = 1;
+
+const CPU_SELECTION_OFFSET: u64 = 4;
+const CPU_STATUS_OFFSET: u64 = 0;
+
+impl CpuContainer {
+    pub fn new() -> Result<Self, CpuContainerError> {
+        // TODO: Decide on construction (MMIODeviceManager vs ACPIDeviceManager)
+    }
+
+    pub fn notify_guest(&mut self) -> Result<(), std::io::Error> {
+        self.interrupt_evt
+            .trigger()
+            .inspect_err(|err| error!("hotplug: could not send guest notification: {err}"))?;
+        debug!("hotplug: notifying guest about new vcpus available");
+        Ok(())
+    }
+}
+
+impl Aml for CpuContainer {
+    fn append_aml_bytes(&self, v: &mut Vec<u8>) {
+        // CPU hotplug controller
+        aml::Device::new(
+            "_SB_.PRES".into(),
+            vec![
+                &aml::Name::new("_HID".into(), &aml::EisaName::new("PNP0A06")),
+                &aml::Name::new("_UID".into(), &"CPU Hotplug Controller"),
+                // Mutex to protect concurrent access as we write to choose CPU and then read back
+                // status
+                &aml::Mutex::new("CPLK".into(), 0),
+                &aml::Name::new(
+                    "_CRS".into(),
+                    &aml::ResourceTemplate::new(vec![&aml::AddressSpace::new_memory(
+                        aml::AddressSpaceCachable::NotCacheable,
+                        true,
+                        self.guest_address.0,
+                        self.guest_address.0 + CPU_CONTAINER_ACPI_SIZE as u64 - 1,
+                    )]),
+                ),
+                // OpRegion and Fields map MMIO range into individual field values
+                &aml::OpRegion::new(
+                    "PRST".into(),
+                    aml::OpRegionSpace::SystemMemory,
+                    self.guest_address.0 as usize,
+                    CPU_CONTAINER_ACPI_SIZE,
+                ),
+                &aml::Field::new(
+                    "PRST".into(),
+                    aml::FieldAccessType::Byte,
+                    aml::FieldUpdateRule::WriteAsZeroes,
+                    vec![
+                        aml::FieldEntry::Reserved(32),
+                        aml::FieldEntry::Named(*b"CPEN", 1),
+                        aml::FieldEntry::Named(*b"CINS", 1),
+                        aml::FieldEntry::Reserved(6),
+                        aml::FieldEntry::Named(*b"CCMD", 8),
+                    ],
+                ),
+                &aml::Field::new(
+                    "PRST".into(),
+                    aml::FieldAccessType::DWord,
+                    aml::FieldUpdateRule::Preserve,
+                    vec![
+                        aml::FieldEntry::Named(*b"CSEL", 32),
+                        aml::FieldEntry::Reserved(32),
+                        aml::FieldEntry::Named(*b"CDAT", 32),
+                    ],
+                ),
+            ],
+        )
+        .append_aml_bytes(v);
+
+        // CPU devices
+        let hid = aml::Name::new("_HID".into(), &"ACPI0010");
+        let uid = aml::Name::new("_CID".into(), &aml::EisaName::new("PNP0A05"));
+        // Bundle methods together under a common object
+        let methods = CpuMethods {
+            max_vcpus: MAX_SUPPORTED_VCPUS,
+        };
+        let mut cpu_data_inner: Vec<&dyn Aml> = vec![&hid, &uid, &methods];
+
+        let mut cpu_devices = Vec::new();
+        for cpu_id in 0..MAX_SUPPORTED_VCPUS {
+            let cpu_device = CpuSocket { cpu_id };
+
+            cpu_devices.push(cpu_device);
+        }
+
+        for cpu_device in cpu_devices.iter() {
+            cpu_data_inner.push(cpu_device);
+        }
+
+        aml::Device::new("_SB_.CPUS".into(), cpu_data_inner).append_aml_bytes(v)
+    }
+}
+
+struct CpuSocket {
+    cpu_id: u8,
+}
+
+impl CpuSocket {
+    fn generate_mat(&self) -> Vec<u8> {
+        let cpu_apic = LocalAPIC::new(self.cpu_id);
+        let mut mat_data: Vec<u8> = vec![0; std::mem::size_of_val(&cpu_apic)];
+        // SAFETY: mat_data is large enough to hold lapic
+        unsafe { *(mat_data.as_mut_ptr() as *mut LocalAPIC) = cpu_apic };
+        mat_data
+    }
+}
+
+impl Aml for CpuSocket {
+    fn append_aml_bytes(&self, v: &mut Vec<u8>) {
+        let mat_data = self.generate_mat();
+        aml::Device::new(
+            format!("C{:03X}", self.cpu_id).as_str().into(),
+            vec![
+                &aml::Name::new("_HID".into(), &"ACPI0007"),
+                &aml::Name::new("_UID".into(), &self.cpu_id),
+                // Currently, AArch64 cannot support following fields.
+                // _STA return value:
+                // Bit [0] – Set if the device is present.
+                // Bit [1] – Set if the device is enabled and decoding its resources.
+                // Bit [2] – Set if the device should be shown in the UI.
+                // Bit [3] – Set if the device is functioning properly (cleared if device failed
+                // its diagnostics). Bit [4] – Set if the battery is present.
+                // Bits [31:5] – Reserved (must be cleared).
+                #[cfg(target_arch = "x86_64")]
+                &aml::Method::new(
+                    "_STA".into(),
+                    0,
+                    false,
+                    // Call into CSTA method which will interrogate device
+                    vec![&aml::Return::new(&aml::MethodCall::new(
+                        "CSTA".into(),
+                        vec![&self.cpu_id],
+                    ))],
+                ),
+                #[cfg(target_arch = "x86_64")]
+                &aml::Name::new("_MAT".into(), &aml::Buffer::new(mat_data)),
+            ],
+        )
+        .append_aml_bytes(v)
+    }
+}
+
+struct CpuNotify {
+    cpu_id: u8,
+}
+
+impl Aml for CpuNotify {
+    fn append_aml_bytes(&self, v: &mut Vec<u8>) {
+        let object = aml::Path::new(&format!("C{:03X}", self.cpu_id));
+        aml::If::new(
+            &aml::Equal::new(&aml::Arg(0), &self.cpu_id),
+            vec![&aml::Notify::new(&object, &aml::Arg(1))],
+        )
+        .append_aml_bytes(v)
+    }
+}
+
+struct CpuMethods {
+    max_vcpus: u8,
+}
+
+impl Aml for CpuMethods {
+    fn append_aml_bytes(&self, v: &mut Vec<u8>) {
+        // CPU status method
+        aml::Method::new(
+            "CSTA".into(),
+            1,
+            true,
+            vec![
+                // Take lock defined above
+                &aml::Acquire::new("\\_SB_.PRES.CPLK".into(), 0xffff),
+                // Write CPU number (in first argument) to I/O port via field
+                &aml::Store::new(&aml::Path::new("\\_SB_.PRES.CSEL"), &aml::Arg(0)),
+                &aml::Store::new(&aml::Local(0), &aml::ZERO),
+                // Check if CPEN bit is set, if so make the local variable 0xf (see _STA for
+                // details of meaning)
+                &aml::If::new(
+                    &aml::Equal::new(&aml::Path::new("\\_SB_.PRES.CPEN"), &aml::ONE),
+                    vec![&aml::Store::new(&aml::Local(0), &0xfu8)],
+                ),
+                // Release lock
+                &aml::Release::new("\\_SB_.PRES.CPLK".into()),
+                // Return 0 or 0xf
+                &aml::Return::new(&aml::Local(0)),
+            ],
+        )
+        .append_aml_bytes(v);
+
+        let mut cpu_notifies = Vec::new();
+        for cpu_id in 0..self.max_vcpus {
+            cpu_notifies.push(CpuNotify { cpu_id });
+        }
+
+        let mut cpu_notifies_refs: Vec<&dyn Aml> = Vec::new();
+        for cpu_id in 0..self.max_vcpus {
+            cpu_notifies_refs.push(&cpu_notifies[usize::from(cpu_id)]);
+        }
+
+        aml::Method::new("CTFY".into(), 2, true, cpu_notifies_refs).append_aml_bytes(v);
+
+        aml::Method::new(
+            "CSCN".into(),
+            0,
+            true,
+            vec![
+                // Take lock defined above
+                &aml::Acquire::new("\\_SB_.PRES.CPLK".into(), 0xffff),
+                &aml::Store::new(&aml::Local(0), &aml::ZERO),
+                &aml::While::new(
+                    &aml::LessThan::new(&aml::Local(0), &self.max_vcpus),
+                    vec![
+                        // Write CPU number (in first argument) to I/O port via field
+                        &aml::Store::new(&aml::Path::new("\\_SB_.PRES.CSEL"), &aml::Local(0)),
+                        // Check if CINS bit is set
+                        &aml::If::new(
+                            &aml::Equal::new(&aml::Path::new("\\_SB_.PRES.CINS"), &aml::ONE),
+                            // Notify device if it is
+                            vec![
+                                &aml::MethodCall::new(
+                                    "CTFY".into(),
+                                    vec![&aml::Local(0), &aml::ONE],
+                                ),
+                                // Reset CINS bit
+                                &aml::Store::new(&aml::Path::new("\\_SB_.PRES.CINS"), &aml::ONE),
+                            ],
+                        ),
+                        &aml::Add::new(&aml::Local(0), &aml::Local(0), &aml::ONE),
+                    ],
+                ),
+                // Release lock
+                &aml::Release::new("\\_SB_.PRES.CPLK".into()),
+            ],
+        )
+        .append_aml_bytes(v);
+    }
+}
