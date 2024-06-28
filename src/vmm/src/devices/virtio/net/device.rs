@@ -16,14 +16,15 @@ use libc::EAGAIN;
 use log::{error, warn};
 use utils::eventfd::EventFd;
 use utils::net::mac::MacAddr;
-use utils::u64_to_usize;
-use vm_memory::GuestMemoryError;
+use utils::{u32_to_usize, u64_to_usize};
+use vm_memory::{GuestMemory, GuestMemoryError};
 
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::gen::virtio_net::{
     virtio_net_hdr_v1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM, VIRTIO_NET_F_GUEST_TSO4,
     VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC,
+    VIRTIO_NET_F_MRG_RXBUF,
 };
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::iovec::IoVecBuffer;
@@ -57,6 +58,8 @@ enum FrontendError {
     GuestMemory(GuestMemoryError),
     /// Read only descriptor.
     ReadOnlyDescriptor,
+    /// Descriptor length is smaller than virtio_net_hdr_v1.
+    SmallerThanVnetHdr,
 }
 
 pub(crate) const fn vnet_hdr_len() -> usize {
@@ -160,6 +163,7 @@ impl Net {
             | 1 << VIRTIO_NET_F_HOST_TSO4
             | 1 << VIRTIO_NET_F_HOST_UFO
             | 1 << VIRTIO_F_VERSION_1
+            | 1 << VIRTIO_NET_F_MRG_RXBUF
             | 1 << VIRTIO_RING_F_EVENT_IDX;
 
         let mut config_space = ConfigSpace::default();
@@ -341,11 +345,17 @@ impl Net {
         net_metrics: &NetDeviceMetrics,
     ) -> Result<(), FrontendError> {
         let mut chunk = data;
+        let header_addr = head.addr;
         let mut next_descriptor = Some(head);
 
+        let mut i: u16 = 1;
         while let Some(descriptor) = &next_descriptor {
             if !descriptor.is_write_only() {
                 return Err(FrontendError::ReadOnlyDescriptor);
+            }
+
+            if i == 1 && u32_to_usize(descriptor.len) < vnet_hdr_len() {
+                return Err(FrontendError::SmallerThanVnetHdr);
             }
 
             let len = std::cmp::min(chunk.len(), descriptor.len as usize);
@@ -365,12 +375,27 @@ impl Net {
 
             // If chunk is empty we are done here.
             if chunk.is_empty() {
+                // # Safety:
+                // - header_addr is a valid memory location in guest memory
+                // - length of the first descriptor is bigger than virtio_net_hdr_v1
+                #[allow(clippy::transmute_ptr_to_ref)]
+                let header: &mut virtio_net_hdr_v1 = unsafe {
+                    std::mem::transmute(
+                        mem.get_slice(header_addr, std::mem::size_of::<virtio_net_hdr_v1>())
+                            .unwrap()
+                            .ptr_guard()
+                            .as_ptr(),
+                    )
+                };
+                header.num_buffers = i;
+
                 let len = data.len() as u64;
                 net_metrics.rx_bytes_count.add(len);
                 net_metrics.rx_packets_count.inc();
                 return Ok(());
             }
 
+            i += 1;
             next_descriptor = descriptor.next_descriptor();
         }
 
