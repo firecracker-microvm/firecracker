@@ -273,14 +273,10 @@ class Microvm:
             backend.kill()
         self.disks_vhost_user.clear()
 
-        if (
-            self.expect_kill_by_signal is False
-            and "Shutting down VM after intercepting signal" in self.log_data
-        ):
-            # Too late to assert at this point, pytest will still report the
-            # test as passed. BUT we can dump full logs for debugging,
-            # as well as an intentional eye-sore in the test report.
-            LOG.error(self.log_data)
+        assert (
+            self.expect_kill_by_signal
+            or "Shutting down VM after intercepting signal" not in self.log_data
+        ), self.log_data
 
         try:
             if self.firecracker_pid:
