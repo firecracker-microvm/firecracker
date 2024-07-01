@@ -297,12 +297,12 @@ class Microvm:
             #  checking if the process is killed.
             time.sleep(1)
             # filter ps results for the jailer's unique id
-            rc, stdout, stderr = utils.check_output(
+            _, stdout, stderr = utils.check_output(
                 f"ps aux | grep {self.jailer.jailer_id}"
             )
             # make sure firecracker was killed
             assert (
-                rc == 0 and stderr == "" and stdout.find("firecracker") == -1
+                stderr == "" and "firecracker" not in stdout
             ), f"Firecracker pid {self.firecracker_pid} was not killed as expected"
 
         # Mark the microVM as not spawned, so we avoid trying to kill twice.
