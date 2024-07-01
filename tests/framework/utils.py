@@ -458,11 +458,8 @@ def wait_process_termination(p_pid):
     got indeed killed or raises an exception if the process
     is still alive after retrying several times.
     """
-    try:
-        _, stdout, _ = check_output("ps --pid {} -o comm=".format(p_pid))
-    except ChildProcessError:
-        return
-    raise Exception("{} process is still alive: ".format(stdout.strip()))
+    if psutil.pid_exists(p_pid):
+        raise Exception(f"[{p_pid}] process is still alive")
 
 
 def get_firecracker_version_from_toml():
