@@ -1386,3 +1386,7 @@ def test_negative_snapshot_load_api(microvm_factory):
         )
 
     assert exc_info.value.args[2].headers["deprecation"]
+
+    # The snapshot/memory files above don't exist, but the request is otherwise syntactically valid.
+    # In this case, Firecracker exits.
+    vm.mark_killed()

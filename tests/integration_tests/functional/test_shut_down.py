@@ -2,9 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests scenarios for shutting down Firecracker/VM."""
 
-import os
 import platform
-import time
 
 from packaging import version
 
@@ -45,13 +43,7 @@ def test_reboot(uvm_plain_any):
     # the instance.
     vm.ssh.run("reboot")
 
-    while True:
-        # Pytest's timeout will kill the test even if the loop doesn't exit.
-        try:
-            os.kill(firecracker_pid, 0)
-            time.sleep(0.01)
-        except OSError:
-            break
+    vm.mark_killed()
 
     # Consume existing metrics
     datapoints = vm.get_all_metrics()
