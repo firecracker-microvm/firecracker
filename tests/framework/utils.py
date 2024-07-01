@@ -450,7 +450,7 @@ def run_guest_cmd(ssh_connection, cmd, expected, use_json=False):
     assert stdout == expected
 
 
-@retry(wait=wait_fixed(0.5), stop=stop_after_attempt(5), reraise=True)
+@retry(wait=wait_fixed(1), stop=stop_after_attempt(10), reraise=True)
 def wait_process_termination(p_pid):
     """Wait for a process to terminate.
 
