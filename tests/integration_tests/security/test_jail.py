@@ -533,7 +533,7 @@ def test_negative_no_file_limit(uvm_plain):
     # pylint: disable=W0703
     try:
         test_microvm.spawn()
-    except RuntimeError as error:
+    except ChildProcessError as error:
         assert "No file descriptors available (os error 24)" in str(error)
     else:
         assert False, "Negative test failed"
