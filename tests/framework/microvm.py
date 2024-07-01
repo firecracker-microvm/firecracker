@@ -285,10 +285,9 @@ class Microvm:
         try:
             if self.firecracker_pid:
                 os.kill(self.firecracker_pid, signal.SIGKILL)
-        except ProcessLookupError:
-            LOG.exception("Process not found: %d", self.firecracker_pid)
-        except FileNotFoundError:
-            LOG.exception("PID file not found")
+        except:
+            LOG.error(self.log_data)
+            raise
 
         if self.screen_pid:
             # Killing screen will send SIGHUP to underlying Firecracker.
