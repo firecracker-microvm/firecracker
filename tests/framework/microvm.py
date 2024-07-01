@@ -293,7 +293,7 @@ class Microvm:
             # Killing screen will send SIGHUP to underlying Firecracker.
             # Needed to avoid false positives in case kill() is called again.
             self.expect_kill_by_signal = True
-            utils.check_output("kill -9 {} || true".format(self.screen_pid))
+            utils.run_cmd(f"kill -9 {self.screen_pid}")
 
         # if microvm was spawned then check if it gets killed
         if self._spawned:
