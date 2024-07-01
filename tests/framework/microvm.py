@@ -255,6 +255,17 @@ class Microvm:
     def __repr__(self):
         return f"<Microvm id={self.id}>"
 
+    def mark_killed(self):
+        """
+        Marks this `Microvm` as killed, meaning test tear down should not try to kill it
+
+        raises an exception if the Firecracker process managing this VM is not actually dead
+        """
+        if self.firecracker_pid is not None:
+            utils.wait_process_termination(self.firecracker_pid)
+
+        self._killed = True
+
     def kill(self):
         """All clean up associated with this microVM should go here."""
         # pylint: disable=subprocess-run-check
