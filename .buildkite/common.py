@@ -202,7 +202,7 @@ def shared_build():
         ]
     revision_b = os.environ.get("REVISION_B")
     if revision_b is not None:
-        build_cmds.append(f"ln -svfT . build/{revision_b}")
+        build_cmds.append(f"ln -svfT .. build/{revision_b}")
     binary_dir = f"build_$(uname -m)_{random_str(k=8)}.tar.gz"
     build_cmds += [
         "du -sh build/*",
