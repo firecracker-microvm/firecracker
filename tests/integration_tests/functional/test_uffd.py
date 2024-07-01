@@ -72,6 +72,8 @@ def test_bad_socket_path(uvm_plain, snapshot):
             snapshot_path=jailed_vmstate,
         )
 
+    vm.mark_killed()
+
 
 def test_unbinded_socket(uvm_plain, snapshot):
     """
@@ -95,6 +97,8 @@ def test_unbinded_socket(uvm_plain, snapshot):
             mem_backend={"backend_type": "Uffd", "backend_path": jailed_sock_path},
             snapshot_path=jailed_vmstate,
         )
+
+    vm.mark_killed()
 
 
 def test_valid_handler(uvm_plain, snapshot, uffd_handler_paths):
