@@ -594,14 +594,7 @@ class Microvm:
         # When the daemonize flag is on, we want to clone-exec into the
         # jailer rather than executing it via spawning a shell.
         if self.jailer.daemonize:
-            res = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            stdout, stderr = res.communicate()
-            if res.returncode != 0:
-                raise RuntimeError(res.returncode, stdout, stderr)
+            utils.check_output(cmd, shell=False)
         else:
             # Run Firecracker under screen. This is used when we want to access
             # the serial console. The file will collect the output from
