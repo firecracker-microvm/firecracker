@@ -52,6 +52,7 @@ pub struct Bus {
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
 
+use super::acpi::cpu_container::CpuContainer;
 #[cfg(target_arch = "aarch64")]
 use super::legacy::RTCDevice;
 use super::legacy::{I8042Device, SerialDevice};
@@ -66,6 +67,7 @@ pub enum BusDevice {
     BootTimer(BootTimer),
     MmioTransport(MmioTransport),
     Serial(SerialDevice<std::io::Stdin>),
+    CpuContainer(CpuContainer),
     #[cfg(test)]
     Dummy(DummyDevice),
     #[cfg(test)]
@@ -174,6 +176,7 @@ impl BusDevice {
             Self::BootTimer(x) => x.bus_read(offset, data),
             Self::MmioTransport(x) => x.bus_read(offset, data),
             Self::Serial(x) => x.bus_read(offset, data),
+            Self::CpuContainer(x) => x.bus_read(offset, data), // Implement
             #[cfg(test)]
             Self::Dummy(x) => x.bus_read(offset, data),
             #[cfg(test)]
@@ -189,6 +192,7 @@ impl BusDevice {
             Self::BootTimer(x) => x.bus_write(offset, data),
             Self::MmioTransport(x) => x.bus_write(offset, data),
             Self::Serial(x) => x.bus_write(offset, data),
+            Self::CpuContainer(x) => x.bus_write(offset, data), // Implement
             #[cfg(test)]
             Self::Dummy(x) => x.bus_write(offset, data),
             #[cfg(test)]

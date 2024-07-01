@@ -654,7 +654,6 @@ impl Vmm {
 
         #[allow(clippy::cast_lossless)]
         METRICS.hotplug.vcpus_added.add(config.add.into());
-
         // Update VM config to reflect new CPUs added
         #[allow(clippy::cast_possible_truncation)]
         let new_machine_config = MachineConfigUpdate {
@@ -665,6 +664,9 @@ impl Vmm {
             track_dirty_pages: None,
             huge_pages: None,
         };
+
+        self.acpi_device_manager
+            .notify_cpu_container(&self.guest_memory);
 
         Ok(new_machine_config)
     }

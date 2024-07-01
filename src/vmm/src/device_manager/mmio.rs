@@ -24,6 +24,7 @@ use super::resources::ResourceAllocator;
 use crate::arch::aarch64::DeviceInfoForFDT;
 use crate::arch::DeviceType;
 use crate::arch::DeviceType::Virtio;
+use crate::devices::acpi::cpu_container::CpuContainer;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
 use crate::devices::pseudo::BootTimer;
@@ -343,6 +344,25 @@ impl MMIODeviceManager {
             identifier,
             device_info,
             Arc::new(Mutex::new(BusDevice::BootTimer(device))),
+        )
+    }
+
+    pub fn register_mmio_cpu_container(
+        &mut self,
+        resource_allocator: &mut ResourceAllocator,
+        device: CpuContainer,
+    ) -> Result<(), MmioError> {
+        let device_info = self.allocate_mmio_resources(resource_allocator, 1)?;
+
+        let identifier = (
+            DeviceType::CpuContainer,
+            DeviceType::CpuContainer.to_string(),
+        );
+
+        self.register_mmio_device(
+            identifier,
+            device_info,
+            Arc::new(Mutex::new(BusDevice::CpuContainer(device))),
         )
     }
 

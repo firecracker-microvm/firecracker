@@ -5,10 +5,9 @@ use acpi_tables::madt::LocalAPIC;
 use acpi_tables::{aml, Aml};
 use log::{debug, error};
 use utils::eventfd::EventFd;
-use vm_memory::GuestAddress;
+use vm_memory::{GuestAddress, GuestMemoryError};
 use vm_superio::Trigger;
 
-use crate::device_manager::mmio::MMIODeviceInfo;
 use crate::device_manager::resources::ResourceAllocator;
 use crate::devices::legacy::EventFdTrigger;
 use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
@@ -21,18 +20,20 @@ pub struct CpuContainer {
     // GSI for the device
     pub gsi: u32,
 
-    guest_address: GuestAddress,
+    pub guest_address: GuestAddress,
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum CpuContainerError {
     /// Error with VMGenID interrupt: {0}
     Interrupt(#[from] std::io::Error),
+    /// Error accessing Cpu Container memory: {0}
+    GuestMemory(#[from] GuestMemoryError),
     /// Failed to allocate requested resource: {0}
     Allocator(#[from] vm_allocator::Error),
 }
 
-const CPU_CONTAINER_ACPI_SIZE: usize = 0xC;
+pub const CPU_CONTAINER_ACPI_SIZE: usize = 0xC;
 
 const CPU_ENABLE_FLAG: usize = 0;
 const CPU_INSERTING_FLAG: usize = 1;
@@ -41,11 +42,34 @@ const CPU_SELECTION_OFFSET: u64 = 4;
 const CPU_STATUS_OFFSET: u64 = 0;
 
 impl CpuContainer {
-    pub fn new() -> Result<Self, CpuContainerError> {
-        // TODO: Decide on construction (MMIODeviceManager vs ACPIDeviceManager)
+    pub fn from_parts(guest_address: GuestAddress, gsi: u32) -> Result<Self, CpuContainerError> {
+        debug!(
+            "hotplug: building Cpu Container device. Address: {:#010x}. IRQ: {}",
+            guest_address.0, gsi
+        );
+        let interrupt_evt = EventFdTrigger::new(EventFd::new(libc::EFD_NONBLOCK)?);
+
+        Ok(Self {
+            interrupt_evt,
+            guest_address,
+            gsi,
+        })
     }
 
-    pub fn notify_guest(&mut self) -> Result<(), std::io::Error> {
+    /// Create a new CPU Container device
+    /// Allocate memory and a GSI for sending notifications and build the device
+    pub fn new(resource_allocator: &mut ResourceAllocator) -> Result<Self, CpuContainerError> {
+        let gsi = resource_allocator.allocate_gsi(1)?;
+        let addr = resource_allocator.allocate_system_memory(
+            4096,
+            8,
+            vm_allocator::AllocPolicy::LastMatch,
+        )?;
+
+        Self::from_parts(GuestAddress(addr), gsi[0])
+    }
+
+    pub fn notify_guest(&mut self, mem: &GuestMemoryMmap) -> Result<(), std::io::Error> {
         self.interrupt_evt
             .trigger()
             .inspect_err(|err| error!("hotplug: could not send guest notification: {err}"))?;
@@ -75,6 +99,7 @@ impl Aml for CpuContainer {
                     )]),
                 ),
                 // OpRegion and Fields map MMIO range into individual field values
+                #[allow(clippy::cast_possible_truncation)]
                 &aml::OpRegion::new(
                     "PRST".into(),
                     aml::OpRegionSpace::SystemMemory,

@@ -47,6 +47,7 @@ use crate::device_manager::persist::{
     ACPIDeviceManagerConstructorArgs, ACPIDeviceManagerRestoreError,
 };
 use crate::device_manager::resources::ResourceAllocator;
+use crate::devices::acpi::cpu_container::{CpuContainer, CpuContainerError};
 #[cfg(target_arch = "x86_64")]
 use crate::devices::acpi::vmgenid::{VmGenId, VmGenIdError};
 use crate::devices::legacy::serial::SerialOut;
@@ -81,6 +82,8 @@ pub enum StartMicrovmError {
     /// Unable to attach the VMGenID device: {0}
     #[cfg(target_arch = "x86_64")]
     AttachVmgenidDevice(kvm_ioctls::Error),
+    /// Unable to attach the CpuContainer device: {0}
+    AttachCpuContainerDevice(kvm_ioctls::Error),
     /// System configuration error: {0}
     ConfigureSystem(crate::arch::ConfigurationError),
     /// Failed to create guest config: {0}
@@ -95,6 +98,8 @@ pub enum StartMicrovmError {
     /// Error creating VMGenID device: {0}
     #[cfg(target_arch = "x86_64")]
     CreateVMGenID(VmGenIdError),
+    /// Error creating CpuContainer device: {0}
+    CreateCpuContainer(CpuContainerError),
     /// Invalid Memory Configuration: {0}
     GuestMemory(crate::vstate::memory::MemoryError),
     /// Cannot load initrd due to an invalid memory configuration.
@@ -171,7 +176,7 @@ fn create_vmm_and_vcpus(
         .map_err(VmmError::EventFd)
         .map_err(Internal)?;
 
-    let resource_allocator = ResourceAllocator::new()?;
+    let mut resource_allocator = ResourceAllocator::new()?;
 
     // Instantiate the MMIO device manager.
     let mmio_device_manager = MMIODeviceManager::new();
@@ -317,6 +322,8 @@ pub fn build_microvm_for_boot(
         seccomp_filters.clone(),
         cpu_template.kvm_capabilities.clone(),
     )?;
+
+    attach_cpu_container_device(&mut vmm)?;
 
     // The boot timer device needs to be the first device attached in order
     // to maintain the same MMIO address referenced in the documentation
@@ -1023,6 +1030,19 @@ fn attach_balloon_device(
     attach_virtio_device(event_manager, vmm, id, balloon.clone(), cmdline, false)
 }
 
+fn attach_cpu_container_device(vmm: &mut Vmm) -> Result<(), StartMicrovmError> {
+    let container = CpuContainer::new(&mut vmm.resource_allocator)
+        .map_err(StartMicrovmError::CreateCpuContainer)?;
+
+    // Conflict between MMIO and ACPI DevMgrs, both want ownership
+    vmm.mmio_device_manager
+        .register_mmio_cpu_container(&mut vmm.resource_allocator, container);
+
+    vmm.acpi_device_manager
+        .attach_cpu_container(container, vmm.vm.fd())
+        .map_err(StartMicrovmError::AttachCpuContainerDevice)
+}
+
 // Adds `O_NONBLOCK` to the stdout flags.
 pub(crate) fn set_stdout_nonblocking() {
     // SAFETY: Call is safe since parameters are valid.
@@ -1124,6 +1144,8 @@ pub mod tests {
             .unwrap();
 
         let mut vm = Vm::new(vec![]).unwrap();
+        let mut resource_allocator = ResourceAllocator::new().unwrap();
+
         vm.memory_init(&guest_memory, false).unwrap();
         let mmio_device_manager = MMIODeviceManager::new();
         #[cfg(target_arch = "x86_64")]
