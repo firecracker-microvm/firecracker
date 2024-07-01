@@ -511,7 +511,7 @@ impl Net {
     }
 
     // We currently prioritize packets from the MMDS over regular network packets.
-    fn read_from_mmds_or_tap(&mut self) -> Result<usize, NetError> {
+    fn read_from_mmds_or_tap(&mut self) -> Result<(), NetError> {
         if let Some(ns) = self.mmds_ns.as_mut() {
             if let Some(len) =
                 ns.write_next_frame(frame_bytes_from_buf_mut(&mut self.rx_frame_buf)?)
@@ -520,19 +520,19 @@ impl Net {
                 METRICS.mmds.tx_frames.inc();
                 METRICS.mmds.tx_bytes.add(len as u64);
                 init_vnet_hdr(&mut self.rx_frame_buf);
-                return Ok(vnet_hdr_len() + len);
+                self.rx_bytes_read = vnet_hdr_len() + len;
             }
+        } else {
+            self.rx_bytes_read = self.read_tap().map_err(NetError::IO)?;
         }
-
-        self.read_tap().map_err(NetError::IO)
+        Ok(())
     }
 
     fn process_rx(&mut self) -> Result<(), DeviceError> {
         // Read as many frames as possible.
         loop {
             match self.read_from_mmds_or_tap() {
-                Ok(count) => {
-                    self.rx_bytes_read = count;
+                Ok(_) => {
                     self.metrics.rx_count.inc();
                     if !self.rate_limited_rx_single_frame() {
                         self.rx_deferred_frame = true;
