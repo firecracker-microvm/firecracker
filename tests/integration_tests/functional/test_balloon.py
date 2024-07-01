@@ -9,7 +9,7 @@ from subprocess import TimeoutExpired
 import pytest
 from tenacity import retry, stop_after_attempt, wait_fixed
 
-from framework.utils import get_free_mem_ssh, run_cmd
+from framework.utils import check_output, get_free_mem_ssh
 
 STATS_POLLING_INTERVAL_S = 1
 
@@ -26,7 +26,7 @@ def get_stable_rss_mem_by_pid(pid, percentage_delta=1):
     # All values are reported as KiB
 
     def get_rss_from_pmap():
-        _, output, _ = run_cmd("pmap -X {}".format(pid))
+        _, output, _ = check_output("pmap -X {}".format(pid))
         return int(output.split("\n")[-2].split()[1], 10)
 
     first_rss = get_rss_from_pmap()
@@ -571,5 +571,4 @@ def test_memory_scrub(microvm_factory, guest_kernel, rootfs):
     # Wait for the deflate to complete.
     _ = get_stable_rss_mem_by_pid(firecracker_pid)
 
-    exit_code, _, _ = microvm.ssh.run("/usr/local/bin/readmem {} {}".format(60, 1))
-    assert exit_code == 0
+    microvm.ssh.check_output("/usr/local/bin/readmem {} {}".format(60, 1))

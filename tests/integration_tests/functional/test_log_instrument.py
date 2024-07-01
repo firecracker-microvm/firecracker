@@ -78,7 +78,7 @@ def test_instrumentation_example_output(example, expected_output):
     example_binary = get_binary("log-instrument", example=example)
 
     # Logging output goes to stderr
-    _, stdout, stderr = utils.run_cmd(str(example_binary))
+    _, stdout, stderr = utils.check_output(str(example_binary))
 
     assert not stdout
 

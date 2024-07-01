@@ -117,8 +117,7 @@ def test_serial_console_login(uvm_plain_any):
 def get_total_mem_size(pid):
     """Get total memory usage for a process."""
     cmd = f"pmap {pid} | tail -n 1 | sed 's/^ //' | tr -s ' ' | cut -d' ' -f2"
-    rc, stdout, stderr = utils.run_cmd(cmd)
-    assert rc == 0
+    _, stdout, stderr = utils.check_output(cmd)
     assert stderr == ""
 
     return stdout
@@ -190,17 +189,15 @@ def test_serial_block(uvm_plain_any):
     subprocess.check_call("kill -s STOP {}".format(screen_pid), shell=True)
 
     # Generate a random text file.
-    exit_code, _, _ = test_microvm.ssh.run(
+    test_microvm.ssh.check_output(
         "base64 /dev/urandom | head -c 100000 > /tmp/file.txt"
     )
 
     # Dump output to terminal
-    exit_code, _, _ = test_microvm.ssh.run("cat /tmp/file.txt > /dev/ttyS0")
-    assert exit_code == 0
+    test_microvm.ssh.check_output("cat /tmp/file.txt > /dev/ttyS0")
 
     # Check that the vCPU isn't blocked.
-    exit_code, _, _ = test_microvm.ssh.run("cd /")
-    assert exit_code == 0
+    test_microvm.ssh.check_output("cd /")
 
     # Check the metrics to see if the serial missed bytes.
     fc_metrics = test_microvm.flush_metrics()

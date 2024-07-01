@@ -29,7 +29,7 @@ def test_kani(results_dir):
     # -j enables kani harnesses to be verified in parallel (required to keep CI time low)
     # --output-format terse is required by -j
     # --enable-unstable is needed for each of the above
-    _, stdout, _ = utils.run_cmd(
+    _, stdout, _ = utils.check_output(
         "cargo kani --enable-unstable -Z stubbing -Z function-contracts --restrict-vtable -j --output-format terse"
     )
 

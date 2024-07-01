@@ -97,7 +97,7 @@ def test_sigxfsz_handler(uvm_plain_rw):
 
     while True:
         try:
-            utils.run_cmd("ps -p {}".format(firecracker_pid))
+            utils.check_output("ps -p {}".format(firecracker_pid))
             sleep(1)
         except ChildProcessError:
             break

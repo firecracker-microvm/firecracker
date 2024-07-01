@@ -7,11 +7,10 @@
 
 #[cfg(not(test))]
 use std::io::Read;
-use std::io::Write;
+use std::mem;
 use std::net::Ipv4Addr;
 use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
-use std::{cmp, mem};
 
 use libc::EAGAIN;
 use log::{error, warn};
@@ -96,11 +95,12 @@ fn init_vnet_hdr(buf: &mut [u8]) {
 }
 
 #[derive(Debug, Default, Clone, Copy)]
+#[repr(C)]
 pub struct ConfigSpace {
     pub guest_mac: MacAddr,
 }
 
-// SAFETY: `ConfigSpace` contains only PODs.
+// SAFETY: `ConfigSpace` contains only PODs in `repr(C)` or `repr(transparent)`, without padding.
 unsafe impl ByteValued for ConfigSpace {}
 
 /// VirtIO network device.
@@ -831,20 +831,13 @@ impl VirtioDevice for Net {
         self.irq_trigger.irq_status.clone()
     }
 
-    fn read_config(&self, offset: u64, mut data: &mut [u8]) {
-        let config_space_bytes = self.config_space.as_slice();
-        let config_len = config_space_bytes.len() as u64;
-        if offset >= config_len {
+    fn read_config(&self, offset: u64, data: &mut [u8]) {
+        if let Some(config_space_bytes) = self.config_space.as_slice().get(u64_to_usize(offset)..) {
+            let len = config_space_bytes.len().min(data.len());
+            data[..len].copy_from_slice(&config_space_bytes[..len]);
+        } else {
             error!("Failed to read config space");
             self.metrics.cfg_fails.inc();
-            return;
-        }
-        if let Some(end) = offset.checked_add(data.len() as u64) {
-            // This write can't fail, offset and end are checked against config_len.
-            data.write_all(
-                &config_space_bytes[u64_to_usize(offset)..u64_to_usize(cmp::min(end, config_len))],
-            )
-            .unwrap();
         }
     }
 

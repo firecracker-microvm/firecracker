@@ -7,7 +7,7 @@ import re
 import subprocess
 from enum import Enum, auto
 
-from framework.utils import run_cmd
+from framework.utils import check_output
 from framework.utils_imdsv2 import imdsv2_get
 
 
@@ -58,9 +58,9 @@ def get_cpu_vendor():
 def get_cpu_model_name():
     """Return the CPU model name."""
     if platform.machine() == "aarch64":
-        _, stdout, _ = run_cmd("cat /proc/cpuinfo | grep 'CPU part' | uniq")
+        _, stdout, _ = check_output("cat /proc/cpuinfo | grep 'CPU part' | uniq")
     else:
-        _, stdout, _ = run_cmd("cat /proc/cpuinfo | grep 'model name' | uniq")
+        _, stdout, _ = check_output("cat /proc/cpuinfo | grep 'model name' | uniq")
     info = stdout.strip().split(sep=":")
     assert len(info) == 2
     raw_cpu_model = info[1].strip()

@@ -173,7 +173,7 @@ class CrosvmVhostUserBlkBackend(VhostUserBlkBackend):
         assert self.proc, "backend is not spawned"
         assert self.ctr_socket_path.exists()
 
-        utils.run_cmd(
+        utils.check_output(
             f"crosvm disk resize 0 {new_size * 1024 * 1024} {self.ctr_socket_path}"
         )
 

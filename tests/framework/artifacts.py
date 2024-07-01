@@ -13,7 +13,7 @@ import pytest
 
 from framework.defs import ARTIFACT_DIR
 from framework.properties import global_props
-from framework.utils import get_firecracker_version_from_toml, run_cmd
+from framework.utils import check_output, get_firecracker_version_from_toml
 from framework.with_filelock import with_filelock
 from host_tools.cargo_build import get_binary
 
@@ -129,7 +129,7 @@ class FirecrackerArtifact:
             return self.version_tuple[:2] + (0,)
 
         return (
-            run_cmd([self.path, "--snapshot-version"])
+            check_output([self.path, "--snapshot-version"])
             .stdout.strip()
             .split("\n")[0]
             .split(".")

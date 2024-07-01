@@ -128,7 +128,8 @@ def load_data_series(report_path: Path, revision: str = None, *, reemit: bool = 
                 if reemit:
                     assert revision is not None
 
-                    emf["git_commit_id"] = revision
+                    # These will show up in Cloudwatch, so canonicalize to long commit SHAs
+                    emf["git_commit_id"] = canonicalize_revision(revision)
                     emit_raw_emf(emf)
 
                 dimensions, result = process_log_entry(emf)
@@ -157,7 +158,8 @@ def load_data_series(report_path: Path, revision: str = None, *, reemit: bool = 
 
 def collect_data(binary_dir: Path, tests: list[str]):
     """Executes the specified test using the provided firecracker binaries"""
-    revision = binary_dir.name
+    # Example binary_dir: ../build/main/build/cargo_target/x86_64-unknown-linux-musl/release
+    revision = binary_dir.parents[3].name
 
     print(f"Collecting samples with {binary_dir}")
     subprocess.run(
@@ -313,7 +315,7 @@ def ab_performance_test(
     a_revision, b_revision, tests, p_thresh, strength_abs_thresh, noise_threshold
 ):
     """Does an A/B-test of the specified test across the given revisions"""
-    _, commit_list, _ = utils.run_cmd(
+    _, commit_list, _ = utils.check_output(
         f"git --no-pager log --oneline {a_revision}..{b_revision}"
     )
     print(
@@ -322,8 +324,7 @@ def ab_performance_test(
     print(commit_list.strip())
 
     def test_runner(workspace, _is_ab: bool):
-        utils.run_cmd("./tools/release.sh --profile release", cwd=workspace)
-        bin_dir = ".." / get_binary("firecracker", workspace_dir=workspace).parent
+        bin_dir = get_binary("firecracker", workspace_dir=workspace).parent
         return collect_data(bin_dir, tests)
 
     return git_ab_test(
@@ -343,7 +344,7 @@ def ab_performance_test(
 
 def canonicalize_revision(revision):
     """Canonicalizes the given revision to a 40 digit hex SHA"""
-    return utils.run_cmd(f"git rev-parse {revision}").stdout.strip()
+    return utils.check_output(f"git rev-parse {revision}").stdout.strip()
 
 
 if __name__ == "__main__":
@@ -400,9 +401,8 @@ if __name__ == "__main__":
 
     if args.command == "run":
         ab_performance_test(
-            # These will show up in Cloudwatch, so canonicalize to long commit SHAs
-            canonicalize_revision(args.a_revision),
-            canonicalize_revision(args.b_revision),
+            args.a_revision,
+            args.b_revision,
             args.test,
             args.significance,
             args.absolute_strength,

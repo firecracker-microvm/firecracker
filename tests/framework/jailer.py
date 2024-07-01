@@ -214,7 +214,7 @@ class JailerContext:
                 # We do not need to know if it succeeded or not; afterall,
                 # we are trying to clean up resources created by the jailer
                 # itself not the testing system.
-                utils.run_cmd(cmd, ignore_return_code=True)
+                utils.run_cmd(cmd)
 
     def _kill_cgroup_tasks(self, controller):
         """Simulate wait on pid.
@@ -234,7 +234,7 @@ class JailerContext:
             return True
 
         cmd = "cat {}".format(tasks_file)
-        result = utils.run_cmd(cmd)
+        result = utils.check_output(cmd)
 
         tasks_split = result.stdout.splitlines()
         for task in tasks_split:

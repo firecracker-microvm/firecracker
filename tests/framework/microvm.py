@@ -93,6 +93,25 @@ class Snapshot:
         new_args = self.__dict__ | {"mem": base.mem}
         return Snapshot(**new_args)
 
+    def copy_to_chroot(self, chroot) -> "Snapshot":
+        """
+        Move all the snapshot files into the microvm jail.
+        Use different names so a snapshot doesn't overwrite our original snapshot.
+        """
+        mem_src = chroot / self.mem.with_suffix(".src").name
+        hardlink_or_copy(self.mem, mem_src)
+        vmstate_src = chroot / self.vmstate.with_suffix(".src").name
+        hardlink_or_copy(self.vmstate, vmstate_src)
+
+        return Snapshot(
+            vmstate=vmstate_src,
+            mem=mem_src,
+            net_ifaces=self.net_ifaces,
+            disks=self.disks,
+            ssh_key=self.ssh_key,
+            snapshot_type=self.snapshot_type,
+        )
+
     @classmethod
     # TBD when Python 3.11: -> Self
     def load_from(cls, src: Path) -> "Snapshot":
@@ -275,7 +294,7 @@ class Microvm:
             # Killing screen will send SIGHUP to underlying Firecracker.
             # Needed to avoid false positives in case kill() is called again.
             self.expect_kill_by_signal = True
-            utils.run_cmd("kill -9 {} || true".format(self.screen_pid))
+            utils.check_output("kill -9 {} || true".format(self.screen_pid))
 
         # if microvm was spawned then check if it gets killed
         if self._spawned:
@@ -283,7 +302,9 @@ class Microvm:
             #  checking if the process is killed.
             time.sleep(1)
             # filter ps results for the jailer's unique id
-            rc, stdout, stderr = utils.run_cmd(f"ps aux | grep {self.jailer.jailer_id}")
+            rc, stdout, stderr = utils.check_output(
+                f"ps aux | grep {self.jailer.jailer_id}"
+            )
             # make sure firecracker was killed
             assert (
                 rc == 0 and stderr == "" and stdout.find("firecracker") == -1
@@ -355,7 +376,7 @@ class Microvm:
     @property
     def firecracker_version(self):
         """Return the version of the Firecracker executable."""
-        _, stdout, _ = utils.run_cmd(f"{self.fc_binary_path} --version")
+        _, stdout, _ = utils.check_output(f"{self.fc_binary_path} --version")
         return re.match(r"^Firecracker v(.+)", stdout.partition("\n")[0]).group(1)
 
     @property
@@ -647,7 +668,7 @@ class Microvm:
     def serial_input(self, input_string):
         """Send a string to the Firecracker serial console via screen."""
         input_cmd = f'screen -S {self.screen_session} -p 0 -X stuff "{input_string}"'
-        return utils.run_cmd(input_cmd)
+        return utils.check_output(input_cmd)
 
     def basic_config(
         self,
@@ -884,15 +905,9 @@ class Microvm:
         uffd_path: Path = None,
     ):
         """Restore a snapshot"""
-        # Move all the snapshot files into the microvm jail.
-        # Use different names so a snapshot doesn't overwrite our original snapshot.
-        chroot = Path(self.chroot())
-        mem_src = chroot / snapshot.mem.with_suffix(".src").name
-        hardlink_or_copy(snapshot.mem, mem_src)
-        vmstate_src = chroot / snapshot.vmstate.with_suffix(".src").name
-        hardlink_or_copy(snapshot.vmstate, vmstate_src)
-        jailed_mem = Path("/") / mem_src.name
-        jailed_vmstate = Path("/") / vmstate_src.name
+        jailed_snapshot = snapshot.copy_to_chroot(Path(self.chroot()))
+        jailed_mem = Path("/") / jailed_snapshot.mem.name
+        jailed_vmstate = Path("/") / jailed_snapshot.vmstate.name
 
         snapshot_disks = [v for k, v in snapshot.disks.items()]
         assert len(snapshot_disks) > 0, "Snapshot requires at least one disk."
@@ -916,7 +931,7 @@ class Microvm:
             enable_diff_snapshots=snapshot.is_diff,
             resume_vm=resume,
         )
-        return True
+        return jailed_snapshot
 
     def enable_entropy_device(self):
         """Enable entropy device for microVM"""
@@ -951,7 +966,7 @@ class Microvm:
             for pid in thread_pids:
                 backtraces.append(
                     f"{thread_name} ({pid=}):\n"
-                    f"{utils.run_cmd(f'cat /proc/{pid}/stack').stdout}"
+                    f"{utils.check_output(f'cat /proc/{pid}/stack').stdout}"
                 )
         return "\n".join(backtraces)
 

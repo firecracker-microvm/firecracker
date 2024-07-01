@@ -261,7 +261,7 @@ def test_config_start_with_limit(uvm_plain, vm_config_file):
     response += '{ "error": "Request payload with size 260 is larger than '
     response += "the limit of 250 allowed by server.\n"
     response += 'All previous unanswered requests will be dropped." }'
-    _, stdout, _stderr = utils.run_cmd(cmd)
+    _, stdout, _stderr = utils.check_output(cmd)
     assert stdout.encode("utf-8") == response.encode("utf-8")
 
 
@@ -295,7 +295,7 @@ def test_config_with_default_limit(uvm_plain, vm_config_file):
     response_err += '{ "error": "Request payload with size 51201 is larger '
     response_err += "than the limit of 51200 allowed by server.\n"
     response_err += 'All previous unanswered requests will be dropped." }'
-    _, stdout, _stderr = utils.run_cmd(cmd_err)
+    _, stdout, _stderr = utils.check_output(cmd_err)
     assert stdout.encode("utf-8") == response_err.encode("utf-8")
 
 

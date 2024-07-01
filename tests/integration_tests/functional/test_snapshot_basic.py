@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import shutil
+import time
 from pathlib import Path
 
 import pytest
@@ -14,7 +15,7 @@ import pytest
 import host_tools.drive as drive_tools
 from framework.microvm import SnapshotType
 from framework.properties import global_props
-from framework.utils import check_filesystem, run_cmd, wait_process_termination
+from framework.utils import check_filesystem, check_output, wait_process_termination
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
     VSOCK_UDS_PATH,
@@ -36,8 +37,7 @@ def check_vmgenid_update_count(vm, resume_count):
     Kernel will emit the DMESG_VMGENID_RESUME every time we resume
     from a snapshot
     """
-    rc, stdout, stderr = vm.ssh.run("dmesg")
-    assert rc == 0, stderr
+    _, stdout, _ = vm.ssh.check_output("dmesg")
     assert resume_count == stdout.count(DMESG_VMGENID_RESUME)
 
 
@@ -108,13 +108,13 @@ def test_snapshot_current_version(uvm_nano):
     fc_binary = uvm_nano.fc_binary_path
     # Get supported snapshot version from Firecracker binary
     snapshot_version = (
-        run_cmd(f"{fc_binary} --snapshot-version").stdout.strip().splitlines()[0]
+        check_output(f"{fc_binary} --snapshot-version").stdout.strip().splitlines()[0]
     )
 
     # Verify the output of `--describe-snapshot` command line parameter
     cmd = [str(fc_binary)] + ["--describe-snapshot", str(snapshot.vmstate)]
 
-    _, stdout, _ = run_cmd(cmd)
+    _, stdout, _ = check_output(cmd)
     assert snapshot_version in stdout
 
 
@@ -164,18 +164,17 @@ def test_5_snapshots(
     start_guest_echo_server(vm)
     snapshot = vm.make_snapshot(snapshot_type)
     base_snapshot = snapshot
+    vm.kill()
 
     for i in range(seq_len):
         logger.info("Load snapshot #%s, mem %s", i, snapshot.mem)
         microvm = microvm_factory.build()
         microvm.spawn()
-        microvm.restore_from_snapshot(snapshot, resume=True)
+        copied_snapshot = microvm.restore_from_snapshot(snapshot, resume=True)
 
-        # TODO: SIGCONT here and SIGSTOP later before creating snapshot
-        # is a temporary fix to avoid vsock timeout in
-        # _vsock_connect_to_guest(). This will be removed once we
-        # find the right solution for the timeout.
-        vm.ssh.run("pkill -SIGCONT socat")
+        # FIXME: This and the sleep below reduce the rate of vsock/ssh connection
+        # related spurious test failures, although we do not know why this is the case.
+        time.sleep(2)
         # Test vsock guest-initiated connections.
         path = os.path.join(
             microvm.path, make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
@@ -187,8 +186,8 @@ def test_5_snapshots(
 
         # Check that the root device is not corrupted.
         check_filesystem(microvm.ssh, "squashfs", "/dev/vda")
-        vm.ssh.run("pkill -SIGSTOP socat")
 
+        time.sleep(2)
         logger.info("Create snapshot %s #%d.", snapshot_type, i + 1)
         snapshot = microvm.make_snapshot(snapshot_type)
 
@@ -200,6 +199,8 @@ def test_5_snapshots(
                 base_snapshot, use_snapshot_editor=use_snapshot_editor
             )
 
+        microvm.kill()
+        copied_snapshot.delete()
         # Update the base for next iteration.
         base_snapshot = snapshot
 
@@ -479,8 +480,7 @@ def test_diff_snapshot_overlay(guest_kernel, rootfs, microvm_factory):
     basevm.resume()
 
     # Run some command to dirty some pages
-    rc, _, stderr = basevm.ssh.run("true")
-    assert rc == 0, stderr
+    basevm.ssh.check_output("true")
 
     # First copy the base snapshot somewhere else, so we can make sure
     # it will actually get updated
@@ -559,7 +559,7 @@ def test_vmgenid(guest_kernel_linux_6_1, rootfs, microvm_factory, snapshot_type)
     for i in range(5):
         vm = microvm_factory.build()
         vm.spawn()
-        vm.restore_from_snapshot(snapshot, resume=True)
+        copied_snapshot = vm.restore_from_snapshot(snapshot, resume=True)
         vm.wait_for_up()
 
         # We should have as DMESG_VMGENID_RESUME messages as
@@ -568,6 +568,7 @@ def test_vmgenid(guest_kernel_linux_6_1, rootfs, microvm_factory, snapshot_type)
 
         snapshot = vm.make_snapshot(snapshot_type)
         vm.kill()
+        copied_snapshot.delete()
 
         # If we are testing incremental snapshots we ust merge the base with
         # current layer.

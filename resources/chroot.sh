@@ -11,7 +11,7 @@ PS4='+\t '
 
 cp -ruv $rootfs/* /
 
-packages="udev systemd-sysv openssh-server iproute2 curl socat python3-minimal iperf3 iputils-ping fio kmod tmux hwloc-nox vim-tiny trace-cmd linuxptp"
+packages="udev systemd-sysv openssh-server iproute2 curl socat python3-minimal iperf3 iputils-ping fio kmod tmux hwloc-nox vim-tiny trace-cmd linuxptp strace"
 
 # msr-tools is only supported on x86-64.
 arch=$(uname -m)

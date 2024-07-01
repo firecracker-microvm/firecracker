@@ -32,6 +32,6 @@ def test_rtc(uvm_plain_any):
     _, stdout, _ = vm.ssh.run("stat /dev/rtc0")
     assert "character special file" in stdout
 
-    _, host_stdout, _ = utils.run_cmd("date +%s")
+    _, host_stdout, _ = utils.check_output("date +%s")
     _, guest_stdout, _ = vm.ssh.run("date +%s")
     assert abs(int(guest_stdout) - int(host_stdout)) < 5

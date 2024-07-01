@@ -89,7 +89,7 @@ class SnapshotRestoreTest:
                 monitor_memory=False,
             )
             microvm.spawn()
-            microvm.restore_from_snapshot(snapshot, resume=True)
+            snapshot_copy = microvm.restore_from_snapshot(snapshot, resume=True)
 
             fcmetrics = FCMetricsMonitor(microvm)
             fcmetrics.start()
@@ -108,6 +108,7 @@ class SnapshotRestoreTest:
             values.append(value)
             fcmetrics.stop()
             microvm.kill()
+            snapshot_copy.delete()
 
         snapshot.delete()
         return values

@@ -40,3 +40,13 @@ for i in $(git diff --name-only --cached --diff-filter=d); do
     # Add changes to this file (as a result of formatting) to the commit.
     git add $i
 done
+
+# Check if git-secrets is present.
+if command -v git-secrets >/dev/null 2>&1; then
+    # Ensure the AWS patterns are registered.
+    git-secrets --register-aws
+    # Scan for and report secrets.
+    git-secrets --scan
+else
+    echo "WARNING: git-secrets is not on PATH. Automated secrets scanning could not be performed."
+fi

@@ -232,7 +232,7 @@ def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
         comparator=set_did_not_grow_comparator(
             spectre_meltdown_reported_vulnerablities
         ),
-        ignore_return_code_in_nonpr=True,
+        check_in_nonpr=False,
     )
 
     # Outside the PR context, checks the return code with some exceptions.
@@ -269,7 +269,7 @@ def test_spectre_meltdown_checker_on_guest(spectre_meltdown_checker, build_micro
         comparator=set_did_not_grow_comparator(
             spectre_meltdown_reported_vulnerablities
         ),
-        ignore_return_code_in_nonpr=True,
+        check_in_nonpr=False,
     )
     if status and status.returncode != 0:
         check_vulnerabilities_on_guest(status)
@@ -290,7 +290,7 @@ def test_spectre_meltdown_checker_on_restored_guest(
         comparator=set_did_not_grow_comparator(
             spectre_meltdown_reported_vulnerablities
         ),
-        ignore_return_code_in_nonpr=True,
+        check_in_nonpr=False,
     )
     if status and status.returncode != 0:
         check_vulnerabilities_on_guest(status)
@@ -436,8 +436,7 @@ def check_vulnerabilities_files_on_guest(microvm):
     """
     # Retrieve a list of vulnerabilities files available inside guests.
     vuln_dir = "/sys/devices/system/cpu/vulnerabilities"
-    ecode, stdout, stderr = microvm.ssh.run(f"find -D all {vuln_dir} -type f")
-    assert ecode == 0, f"stdout:\n{stdout}\nstderr:\n{stderr}\n"
+    _, stdout, _ = microvm.ssh.check_output(f"find -D all {vuln_dir} -type f")
     vuln_files = stdout.split("\n")
 
     # Fixtures in this file (test_vulnerabilities.py) add this special field.

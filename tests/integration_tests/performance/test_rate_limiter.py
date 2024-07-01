@@ -395,9 +395,7 @@ def _start_iperf_server_on_guest(test_microvm, hostname):
 def _run_iperf_on_guest(test_microvm, iperf_cmd, hostname):
     """Run a client related iperf command through an SSH connection."""
     test_microvm.guest_ip = hostname
-    code, stdout, stderr = test_microvm.ssh.run(iperf_cmd)
-    assert code == 0, f"stdout: {stdout}\nstderr: {stderr}"
-    return stdout
+    return test_microvm.ssh.check_output(iperf_cmd).stdout
 
 
 def _start_iperf_server_on_host(netns_cmd_prefix):
@@ -406,11 +404,11 @@ def _start_iperf_server_on_host(netns_cmd_prefix):
 
     # Don't check the result of this command because it can fail if no iperf
     # is running.
-    utils.run_cmd(iperf_cmd, ignore_return_code=True)
+    utils.run_cmd(iperf_cmd)
 
     iperf_cmd = "{} {} -sD -f KBytes\n".format(netns_cmd_prefix, IPERF_BINARY)
 
-    utils.run_cmd(iperf_cmd)
+    utils.check_output(iperf_cmd)
 
     # Wait for the iperf daemon to start.
     time.sleep(1)
@@ -418,7 +416,7 @@ def _start_iperf_server_on_host(netns_cmd_prefix):
 
 def _run_iperf_on_host(iperf_cmd):
     """Execute a client related iperf command locally."""
-    code, stdout, stderr = utils.run_cmd(iperf_cmd)
+    code, stdout, stderr = utils.check_output(iperf_cmd)
     assert code == 0, f"stdout: {stdout}\nstderr: {stderr}"
 
     return stdout
