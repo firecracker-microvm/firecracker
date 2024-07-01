@@ -321,7 +321,7 @@ impl Net {
         }
 
         // Attempt frame delivery.
-        let success = self.write_frame_to_guest();
+        let success = self.do_write_frame_to_guest().is_ok();
 
         // Undo the tokens consumption if guest delivery failed.
         if !success {
@@ -415,46 +415,25 @@ impl Net {
         })?;
         let head_index = head_descriptor.index;
 
-        let result = Self::write_to_descriptor_chain(
+        match Self::write_to_descriptor_chain(
             mem,
             &self.rx_frame_buf[..self.rx_bytes_read],
             head_descriptor,
             &self.metrics,
-        );
-        // Mark the descriptor chain as used. If an error occurred, skip the descriptor chain.
-        let used_len = if result.is_err() {
-            self.metrics.rx_fails.inc();
-            0
-        } else {
-            // Safe to unwrap because a frame must be smaller than 2^16 bytes.
-            u32::try_from(self.rx_bytes_read).unwrap()
-        };
-        queue.add_used(mem, head_index, used_len).map_err(|err| {
-            error!("Failed to add available descriptor {}: {}", head_index, err);
-            FrontendError::AddUsed
-        })?;
-
-        result
-    }
-
-    // Copies a single frame from `self.rx_frame_buf` into the guest. In case of an error retries
-    // the operation if possible. Returns true if the operation was successfull.
-    fn write_frame_to_guest(&mut self) -> bool {
-        let max_iterations = self.queues[RX_INDEX].actual_size();
-        for _ in 0..max_iterations {
-            match self.do_write_frame_to_guest() {
-                Ok(()) => return true,
-                Err(FrontendError::EmptyQueue) | Err(FrontendError::AddUsed) => {
-                    return false;
-                }
-                Err(_) => {
-                    // retry
-                    continue;
-                }
+        ) {
+            Ok(_) => {
+                let len = u32::try_from(self.rx_bytes_read).unwrap();
+                queue.add_used(mem, head_index, len).map_err(|err| {
+                    error!("Failed to add available descriptor {}: {}", head_index, err);
+                    FrontendError::AddUsed
+                })?;
+                Ok(())
+            }
+            Err(e) => {
+                self.metrics.rx_fails.inc();
+                Err(e)
             }
         }
-
-        false
     }
 
     // Tries to detour the frame to MMDS and if MMDS doesn't accept it, sends it on the host TAP.
