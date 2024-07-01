@@ -26,3 +26,5 @@ def test_api_socket_in_use(uvm_plain):
     microvm.spawn()
     msg = "Failed to open the API socket at: /run/firecracker.socket. Check that it is not already used."
     microvm.check_log_message(msg)
+
+    microvm.mark_killed()
