@@ -17,7 +17,7 @@ use log::{error, warn};
 use utils::eventfd::EventFd;
 use utils::net::mac::MacAddr;
 use utils::{u32_to_usize, u64_to_usize};
-use vm_memory::{GuestMemory, GuestMemoryError};
+use vm_memory::{GuestAddress, GuestMemory, GuestMemoryError};
 
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
@@ -129,7 +129,10 @@ pub struct Net {
     pub(crate) rx_deferred_frame: bool,
 
     rx_bytes_read: usize,
+    rx_bytes_send: usize,
     rx_frame_buf: [u8; MAX_BUFFER_SIZE],
+    rx_header_addr: Option<GuestAddress>,
+    rx_descriptors_used: u16,
 
     tx_frame_headers: [u8; frame_hdr_len()],
 
@@ -192,7 +195,10 @@ impl Net {
             tx_rate_limiter,
             rx_deferred_frame: false,
             rx_bytes_read: 0,
+            rx_bytes_send: 0,
             rx_frame_buf: [0u8; MAX_BUFFER_SIZE],
+            rx_header_addr: None,
+            rx_descriptors_used: 0,
             tx_frame_headers: [0u8; frame_hdr_len()],
             irq_trigger: IrqTrigger::new().map_err(NetError::EventFd)?,
             config_space,
@@ -336,31 +342,26 @@ impl Net {
     ///
     /// # Errors
     ///
-    /// Returns an error if the descriptor chain is too short or
-    /// an inappropriate (read only) descriptor is found in the chain
-    fn write_to_descriptor_chain(
+    /// Returns an error if an inappropriate (read only) descriptor is found in the chain
+    fn write_to_descriptor_chain<'a>(
         mem: &GuestMemoryMmap,
-        data: &[u8],
+        data: &'a [u8],
         head: DescriptorChain,
         net_metrics: &NetDeviceMetrics,
-    ) -> Result<(), FrontendError> {
+    ) -> Result<(&'a [u8], u16), FrontendError> {
         let mut chunk = data;
-        let header_addr = head.addr;
         let mut next_descriptor = Some(head);
 
-        let mut i: u16 = 1;
+        let mut num_descriptors_used: u16 = 0;
         while let Some(descriptor) = &next_descriptor {
             if !descriptor.is_write_only() {
                 return Err(FrontendError::ReadOnlyDescriptor);
             }
 
-            if i == 1 && u32_to_usize(descriptor.len) < vnet_hdr_len() {
-                return Err(FrontendError::SmallerThanVnetHdr);
-            }
-
             let len = std::cmp::min(chunk.len(), descriptor.len as usize);
             match mem.write_slice(&chunk[..len], descriptor.addr) {
                 Ok(()) => {
+                    num_descriptors_used += 1;
                     net_metrics.rx_count.inc();
                     chunk = &chunk[len..];
                 }
@@ -375,65 +376,88 @@ impl Net {
 
             // If chunk is empty we are done here.
             if chunk.is_empty() {
-                // # Safety:
-                // - header_addr is a valid memory location in guest memory
-                // - length of the first descriptor is bigger than virtio_net_hdr_v1
-                #[allow(clippy::transmute_ptr_to_ref)]
-                let header: &mut virtio_net_hdr_v1 = unsafe {
-                    std::mem::transmute(
-                        mem.get_slice(header_addr, std::mem::size_of::<virtio_net_hdr_v1>())
-                            .unwrap()
-                            .ptr_guard()
-                            .as_ptr(),
-                    )
-                };
-                header.num_buffers = i;
-
                 let len = data.len() as u64;
                 net_metrics.rx_bytes_count.add(len);
                 net_metrics.rx_packets_count.inc();
-                return Ok(());
+                return Ok((chunk, num_descriptors_used));
             }
 
-            i += 1;
             next_descriptor = descriptor.next_descriptor();
         }
 
-        warn!("Receiving buffer is too small to hold frame of current size");
-        Err(FrontendError::DescriptorChainTooSmall)
+        Ok((chunk, num_descriptors_used))
     }
 
-    // Copies a single frame from `self.rx_frame_buf` into the guest.
+    // Copies `self.rx_frame_buf` into the guest.
     fn do_write_frame_to_guest(&mut self) -> Result<(), FrontendError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
         let queue = &mut self.queues[RX_INDEX];
-        let head_descriptor = queue.pop_or_enable_notification(mem).ok_or_else(|| {
-            self.metrics.no_rx_avail_buffer.inc();
-            FrontendError::EmptyQueue
-        })?;
-        let head_index = head_descriptor.index;
 
-        match Self::write_to_descriptor_chain(
-            mem,
-            &self.rx_frame_buf[..self.rx_bytes_read],
-            head_descriptor,
-            &self.metrics,
-        ) {
-            Ok(_) => {
-                let len = u32::try_from(self.rx_bytes_read).unwrap();
-                queue.add_used(mem, head_index, len).map_err(|err| {
-                    error!("Failed to add available descriptor {}: {}", head_index, err);
-                    FrontendError::AddUsed
-                })?;
-                Ok(())
+        let mut bytes = &self.rx_frame_buf[self.rx_bytes_send..self.rx_bytes_read];
+        loop {
+            let head_descriptor = queue.pop_or_enable_notification(mem).ok_or_else(|| {
+                self.metrics.no_rx_avail_buffer.inc();
+                FrontendError::EmptyQueue
+            })?;
+            let head_index = head_descriptor.index;
+
+            if self.rx_header_addr.is_none() {
+                if u32_to_usize(head_descriptor.len) < vnet_hdr_len() {
+                    return Err(FrontendError::SmallerThanVnetHdr);
+                }
+                self.rx_header_addr = Some(head_descriptor.addr);
             }
-            Err(e) => {
-                self.metrics.rx_fails.inc();
-                Err(e)
+
+            match Self::write_to_descriptor_chain(mem, bytes, head_descriptor, &self.metrics) {
+                Ok((remainin_chunk, num_descriptors_used)) => {
+                    self.rx_bytes_send += self.rx_bytes_read - remainin_chunk.len();
+                    self.rx_descriptors_used += num_descriptors_used;
+                    let bytes_written =
+                        u32::try_from(self.rx_bytes_read - remainin_chunk.len()).unwrap();
+                    queue
+                        .add_used(mem, head_index, bytes_written)
+                        .map_err(|err| {
+                            error!("Failed to add available descriptor {}: {}", head_index, err);
+                            FrontendError::AddUsed
+                        })?;
+                    if remainin_chunk.is_empty() {
+                        // self.rx_header_addr is Some(_) if we in the
+                        // middle of processing a packet.
+                        let header_addr = self.rx_header_addr.unwrap();
+                        // # Safety:
+                        // - header_addr is a valid memory location in guest memory
+                        // - length of the first descriptor is bigger than virtio_net_hdr_v1
+                        #[allow(clippy::transmute_ptr_to_ref)]
+                        let header: &mut virtio_net_hdr_v1 = unsafe {
+                            std::mem::transmute(
+                                mem.get_slice(
+                                    header_addr,
+                                    std::mem::size_of::<virtio_net_hdr_v1>(),
+                                )
+                                .unwrap()
+                                .ptr_guard()
+                                .as_ptr(),
+                            )
+                        };
+                        header.num_buffers = self.rx_descriptors_used;
+
+                        self.rx_bytes_send = 0;
+                        self.rx_header_addr = None;
+                        self.rx_descriptors_used = 0;
+                        break;
+                    } else {
+                        bytes = remainin_chunk;
+                    }
+                }
+                Err(e) => {
+                    self.metrics.rx_fails.inc();
+                    return Err(e);
+                }
             }
         }
+        Ok(())
     }
 
     // Tries to detour the frame to MMDS and if MMDS doesn't accept it, sends it on the host TAP.
