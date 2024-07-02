@@ -450,7 +450,7 @@ def run_guest_cmd(ssh_connection, cmd, expected, use_json=False):
     assert stdout == expected
 
 
-@retry(wait=wait_fixed(0.5), stop=stop_after_attempt(5), reraise=True)
+@retry(wait=wait_fixed(1), stop=stop_after_attempt(10), reraise=True)
 def wait_process_termination(p_pid):
     """Wait for a process to terminate.
 
@@ -458,11 +458,8 @@ def wait_process_termination(p_pid):
     got indeed killed or raises an exception if the process
     is still alive after retrying several times.
     """
-    try:
-        _, stdout, _ = check_output("ps --pid {} -o comm=".format(p_pid))
-    except ChildProcessError:
-        return
-    raise Exception("{} process is still alive: ".format(stdout.strip()))
+    if psutil.pid_exists(p_pid):
+        raise Exception(f"[{p_pid}] process is still alive")
 
 
 def get_firecracker_version_from_toml():

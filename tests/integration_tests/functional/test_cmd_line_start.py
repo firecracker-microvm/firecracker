@@ -172,6 +172,8 @@ def test_config_start_no_api_exit(uvm_plain, vm_config_file):
     test_microvm.check_log_message("Firecracker exiting successfully")
     assert test_microvm.get_exit_code() == 0
 
+    test_microvm.mark_killed()
+
 
 @pytest.mark.parametrize(
     "vm_config_file",
@@ -189,6 +191,8 @@ def test_config_bad_machine_config(uvm_plain, vm_config_file):
     test_microvm.jailer.extra_args.update({"no-api": None})
     test_microvm.spawn()
     test_microvm.check_log_message("Configuration for VMM from one single json failed")
+
+    test_microvm.mark_killed()
 
 
 @pytest.mark.parametrize(
@@ -228,6 +232,8 @@ def test_config_machine_config_params(uvm_plain, test_config):
                 "Could not Start MicroVM from one single json",
             ]
         )
+
+        test_microvm.mark_killed()
     else:
         test_microvm.check_log_message(
             "Successfully started microvm that was configured from one single json"
@@ -334,6 +340,8 @@ def test_start_with_metadata_limit(uvm_plain):
         "Populating MMDS from file failed: The MMDS patch request doesn't fit."
     )
 
+    test_microvm.mark_killed()
+
 
 def test_start_with_metadata_default_limit(uvm_plain):
     """
@@ -351,6 +359,8 @@ def test_start_with_metadata_default_limit(uvm_plain):
     test_microvm.check_log_message(
         "Populating MMDS from file failed: The MMDS patch request doesn't fit."
     )
+
+    test_microvm.mark_killed()
 
 
 def test_start_with_missing_metadata(uvm_plain):
@@ -373,6 +383,8 @@ def test_start_with_missing_metadata(uvm_plain):
         )
         test_microvm.check_log_message("No such file or directory")
 
+        test_microvm.mark_killed()
+
 
 def test_start_with_invalid_metadata(uvm_plain):
     """
@@ -391,6 +403,8 @@ def test_start_with_invalid_metadata(uvm_plain):
     finally:
         test_microvm.check_log_message("MMDS error: metadata provided not valid json")
         test_microvm.check_log_message("EOF while parsing an object")
+
+        test_microvm.mark_killed()
 
 
 @pytest.mark.parametrize(

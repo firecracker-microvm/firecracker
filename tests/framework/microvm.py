@@ -255,6 +255,17 @@ class Microvm:
     def __repr__(self):
         return f"<Microvm id={self.id}>"
 
+    def mark_killed(self):
+        """
+        Marks this `Microvm` as killed, meaning test tear down should not try to kill it
+
+        raises an exception if the Firecracker process managing this VM is not actually dead
+        """
+        if self.firecracker_pid is not None:
+            utils.wait_process_termination(self.firecracker_pid)
+
+        self._killed = True
+
     def kill(self):
         """All clean up associated with this microVM should go here."""
         # pylint: disable=subprocess-run-check
@@ -273,28 +284,23 @@ class Microvm:
             backend.kill()
         self.disks_vhost_user.clear()
 
-        if (
-            self.expect_kill_by_signal is False
-            and "Shutting down VM after intercepting signal" in self.log_data
-        ):
-            # Too late to assert at this point, pytest will still report the
-            # test as passed. BUT we can dump full logs for debugging,
-            # as well as an intentional eye-sore in the test report.
-            LOG.error(self.log_data)
+        assert (
+            self.expect_kill_by_signal
+            or "Shutting down VM after intercepting signal" not in self.log_data
+        ), self.log_data
 
         try:
             if self.firecracker_pid:
                 os.kill(self.firecracker_pid, signal.SIGKILL)
-        except ProcessLookupError:
-            LOG.exception("Process not found: %d", self.firecracker_pid)
-        except FileNotFoundError:
-            LOG.exception("PID file not found")
+        except:
+            LOG.error(self.log_data)
+            raise
 
         if self.screen_pid:
             # Killing screen will send SIGHUP to underlying Firecracker.
             # Needed to avoid false positives in case kill() is called again.
             self.expect_kill_by_signal = True
-            utils.check_output("kill -9 {} || true".format(self.screen_pid))
+            utils.run_cmd(f"kill -9 {self.screen_pid}")
 
         # if microvm was spawned then check if it gets killed
         if self._spawned:
@@ -302,12 +308,12 @@ class Microvm:
             #  checking if the process is killed.
             time.sleep(1)
             # filter ps results for the jailer's unique id
-            rc, stdout, stderr = utils.check_output(
+            _, stdout, stderr = utils.check_output(
                 f"ps aux | grep {self.jailer.jailer_id}"
             )
             # make sure firecracker was killed
             assert (
-                rc == 0 and stderr == "" and stdout.find("firecracker") == -1
+                stderr == "" and "firecracker" not in stdout
             ), f"Firecracker pid {self.firecracker_pid} was not killed as expected"
 
         # Mark the microVM as not spawned, so we avoid trying to kill twice.
@@ -599,14 +605,7 @@ class Microvm:
         # When the daemonize flag is on, we want to clone-exec into the
         # jailer rather than executing it via spawning a shell.
         if self.jailer.daemonize:
-            res = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            stdout, stderr = res.communicate()
-            if res.returncode != 0:
-                raise RuntimeError(res.returncode, stdout, stderr)
+            utils.check_output(cmd, shell=False)
         else:
             # Run Firecracker under screen. This is used when we want to access
             # the serial console. The file will collect the output from

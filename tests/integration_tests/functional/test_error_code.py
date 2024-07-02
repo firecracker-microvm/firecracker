@@ -38,3 +38,5 @@ def test_enosys_error_code(uvm_plain):
         "Received ENOSYS error because KVM failed to emulate an instruction."
     )
     vm.check_log_message("Vmm is stopping.")
+
+    vm.mark_killed()

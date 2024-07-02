@@ -15,7 +15,7 @@ import pytest
 import host_tools.drive as drive_tools
 from framework.microvm import SnapshotType
 from framework.properties import global_props
-from framework.utils import check_filesystem, check_output, wait_process_termination
+from framework.utils import check_filesystem, check_output
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
     VSOCK_UDS_PATH,
@@ -277,8 +277,7 @@ def test_load_snapshot_failure_handling(uvm_plain):
     with pytest.raises(RuntimeError, match=expected_msg):
         vm.api.snapshot_load.put(mem_file_path=jailed_mem, snapshot_path=jailed_vmstate)
 
-    # Check if FC process is closed
-    wait_process_termination(vm.firecracker_pid)
+    vm.mark_killed()
 
 
 def test_cmp_full_and_first_diff_mem(microvm_factory, guest_kernel, rootfs):
@@ -380,6 +379,8 @@ def test_negative_snapshot_permissions(uvm_plain_rw, microvm_factory):
     with pytest.raises(RuntimeError, match=expected_err):
         microvm.restore_from_snapshot(snapshot, resume=True)
 
+    microvm.mark_killed()
+
     # Remove permissions for state file.
     os.chmod(snapshot.vmstate, 0o000)
 
@@ -392,6 +393,8 @@ def test_negative_snapshot_permissions(uvm_plain_rw, microvm_factory):
     )
     with pytest.raises(RuntimeError, match=expected_err):
         microvm.restore_from_snapshot(snapshot, resume=True)
+
+    microvm.mark_killed()
 
     # Restore permissions for state file.
     os.chmod(snapshot.vmstate, 0o744)
@@ -406,6 +409,8 @@ def test_negative_snapshot_permissions(uvm_plain_rw, microvm_factory):
     expected_err = "Virtio backend error: Error manipulating the backing file: Permission denied (os error 13)"
     with pytest.raises(RuntimeError, match=re.escape(expected_err)):
         microvm.restore_from_snapshot(snapshot, resume=True)
+
+    microvm.mark_killed()
 
 
 def test_negative_snapshot_create(uvm_nano):
