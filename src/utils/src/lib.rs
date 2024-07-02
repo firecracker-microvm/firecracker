@@ -32,6 +32,15 @@ pub fn get_page_size() -> Result<usize, errno::Error> {
     }
 }
 
+/// Safely converts a u32 value to a usize value.
+/// This bypasses the Clippy lint check because we only support 64-bit platforms.
+#[cfg(target_pointer_width = "64")]
+#[inline]
+#[allow(clippy::cast_possible_truncation)]
+pub const fn u32_to_usize(num: u32) -> usize {
+    num as usize
+}
+
 /// Safely converts a u64 value to a usize value.
 /// This bypasses the Clippy lint check because we only support 64-bit platforms.
 #[cfg(target_pointer_width = "64")]
