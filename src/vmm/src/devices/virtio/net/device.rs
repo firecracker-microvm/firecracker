@@ -327,7 +327,13 @@ impl Net {
         }
 
         // Attempt frame delivery.
+        // let t = std::time::Instant::now();
         let success = self.do_write_frame_to_guest().is_ok();
+        // warn!(
+        //     "do_write_frame_to_guest took: {}ns success: {}",
+        //     t.elapsed().as_nanos(),
+        //     success
+        // );
 
         // Undo the tokens consumption if guest delivery failed.
         if !success {
@@ -354,11 +360,14 @@ impl Net {
 
         let mut num_descriptors_used: u16 = 0;
         while let Some(descriptor) = &next_descriptor {
+            // warn!("descriptor {num_descriptors_used} len: {}", descriptor.len);
+            // warn!("current chunk len: {}", chunk.len());
             if !descriptor.is_write_only() {
                 return Err(FrontendError::ReadOnlyDescriptor);
             }
 
             let len = std::cmp::min(chunk.len(), descriptor.len as usize);
+            // warn!("writing chunk with len: {}", len);
             match mem.write_slice(&chunk[..len], descriptor.addr) {
                 Ok(()) => {
                     num_descriptors_used += 1;
@@ -373,6 +382,7 @@ impl Net {
                     return Err(FrontendError::GuestMemory(err));
                 }
             }
+            // warn!("remaining chunk len: {}", chunk.len());
 
             // If chunk is empty we are done here.
             if chunk.is_empty() {
@@ -395,8 +405,13 @@ impl Net {
 
         let queue = &mut self.queues[RX_INDEX];
 
+        // let mut i = 0;
         let mut bytes = &self.rx_frame_buf[self.rx_bytes_send..self.rx_bytes_read];
+        warn!("queue size: {}", queue.len(mem));
+        warn!("do_write_frame_to_guest bytes len: {}", bytes.len());
         loop {
+            // i += 1;
+            // warn!("do_write_frame_to_guest iteration: {i}");
             let head_descriptor = queue.pop_or_enable_notification(mem).ok_or_else(|| {
                 self.metrics.no_rx_avail_buffer.inc();
                 FrontendError::EmptyQueue
@@ -410,8 +425,15 @@ impl Net {
                 self.rx_header_addr = Some(head_descriptor.addr);
             }
 
+            // warn!("do_write_frame_to_guest: head index: {}", head_index);
+
             match Self::write_to_descriptor_chain(mem, bytes, head_descriptor, &self.metrics) {
                 Ok((remainin_chunk, num_descriptors_used)) => {
+                    // warn!(
+                    //     "remainin_chunk len: {}, num_descriptors_used: {}",
+                    //     remainin_chunk.len(),
+                    //     num_descriptors_used
+                    // );
                     self.rx_bytes_send += self.rx_bytes_read - remainin_chunk.len();
                     self.rx_descriptors_used += num_descriptors_used;
                     let bytes_written =
@@ -442,6 +464,10 @@ impl Net {
                             )
                         };
                         header.num_buffers = self.rx_descriptors_used;
+                        // warn!(
+                        //     "Updating header with num_buffers: {}",
+                        //     self.rx_descriptors_used
+                        // );
 
                         self.rx_bytes_send = 0;
                         self.rx_header_addr = None;
@@ -553,7 +579,10 @@ impl Net {
     }
 
     fn process_rx(&mut self) -> Result<(), DeviceError> {
+        // warn!("process_rx");
         // Read as many frames as possible.
+
+        let t = std::time::Instant::now();
         loop {
             match self.read_from_mmds_or_tap() {
                 Ok(_) => {
@@ -581,6 +610,7 @@ impl Net {
                 }
             }
         }
+        warn!("process_rx took: {}ns", t.elapsed().as_nanos());
 
         // At this point we processed as many Rx frames as possible.
         // We have to wake the guest if at least one descriptor chain has been used.
@@ -589,6 +619,7 @@ impl Net {
 
     // Process the deferred frame first, then continue reading from tap.
     fn handle_deferred_frame(&mut self) -> Result<(), DeviceError> {
+        warn!("handle_deferred_frame");
         if self.rate_limited_rx_single_frame() {
             self.rx_deferred_frame = false;
             // process_rx() was interrupted possibly before consuming all
