@@ -770,10 +770,9 @@ pub fn configure_system_for_boot(
         use crate::cpu_config::x86_64::cpuid;
         let cpuid = cpuid::Cpuid::try_from(vmm.vm.supported_cpuid().clone())
             .map_err(GuestConfigError::CpuidFromKvmCpuid)?;
-        let msr_index_list = cpu_template.get_msr_index_list();
         let msrs = vcpus[0]
             .kvm_vcpu
-            .get_msrs(&msr_index_list)
+            .get_msrs(cpu_template.msr_index_iter())
             .map_err(GuestConfigError::VcpuIoctl)?;
         CpuConfiguration { cpuid, msrs }
     };

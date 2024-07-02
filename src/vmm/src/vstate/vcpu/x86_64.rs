@@ -324,7 +324,7 @@ impl KvmVcpu {
     ///
     /// # Arguments
     ///
-    /// * `msr_index_list`: List of MSR indices.
+    /// * `msr_index_iter`: Iterator over MSR indices.
     ///
     /// # Errors
     ///
@@ -332,32 +332,67 @@ impl KvmVcpu {
     /// * When [`kvm_ioctls::VcpuFd::get_msrs`] returns errors.
     /// * When the return value of [`kvm_ioctls::VcpuFd::get_msrs`] (the number of entries that
     ///   could be gotten) is less than expected.
-    fn get_msr_chunks(&self, msr_index_list: &[u32]) -> Result<Vec<Msrs>, KvmVcpuError> {
-        let mut msr_chunks: Vec<Msrs> = Vec::new();
+    fn get_msr_chunks(
+        &self,
+        mut msr_index_iter: impl ExactSizeIterator<Item = u32>,
+    ) -> Result<Vec<Msrs>, KvmVcpuError> {
+        let num_chunks = msr_index_iter.len().div_ceil(KVM_MAX_MSR_ENTRIES);
 
-        for msr_index_chunk in msr_index_list.chunks(KVM_MAX_MSR_ENTRIES) {
-            let mut msrs = Msrs::new(msr_index_chunk.len())?;
-            let msr_entries = msrs.as_mut_slice();
-            assert_eq!(msr_index_chunk.len(), msr_entries.len());
-            for (pos, index) in msr_index_chunk.iter().enumerate() {
-                msr_entries[pos].index = *index;
-            }
+        let mut msr_chunks: Vec<Msrs> = Vec::with_capacity(num_chunks);
 
-            let expected_nmsrs = msrs.as_slice().len();
-            let nmsrs = self
-                .fd
-                .get_msrs(&mut msrs)
-                .map_err(KvmVcpuError::VcpuGetMsrs)?;
-            if nmsrs != expected_nmsrs {
-                return Err(KvmVcpuError::VcpuGetMsr(msr_index_chunk[nmsrs]));
-            }
-
-            msr_chunks.push(msrs);
+        for _ in 0..num_chunks {
+            let chunk_len = msr_index_iter.len().min(KVM_MAX_MSR_ENTRIES);
+            let chunk = self.get_msr_chunk(&mut msr_index_iter, chunk_len)?;
+            msr_chunks.push(chunk);
         }
 
         Self::fix_zero_tsc_deadline_msr(&mut msr_chunks);
 
         Ok(msr_chunks)
+    }
+
+    /// Get single MSR chunk for the given MSR index iterator with
+    /// specified length. Iterator should have enough elements
+    /// to fill the chunk with indices, otherwise KVM will
+    /// return an error when processing half filled chunk.
+    ///
+    /// # Arguments
+    ///
+    /// * `msr_index_iter`: Iterator over MSR indices.
+    /// * `chunk_size`: Lenght of a chunk.
+    ///
+    /// # Errors
+    ///
+    /// * When [`kvm_bindings::Msrs::new`] returns errors.
+    /// * When [`kvm_ioctls::VcpuFd::get_msrs`] returns errors.
+    /// * When the return value of [`kvm_ioctls::VcpuFd::get_msrs`] (the number of entries that
+    ///   could be gotten) is less than expected.
+    pub fn get_msr_chunk(
+        &self,
+        msr_index_iter: impl Iterator<Item = u32>,
+        chunk_size: usize,
+    ) -> Result<Msrs, KvmVcpuError> {
+        let chunk_iter = msr_index_iter.take(chunk_size);
+
+        let mut msrs = Msrs::new(chunk_size)?;
+        let msr_entries = msrs.as_mut_slice();
+        for (pos, msr_index) in chunk_iter.enumerate() {
+            msr_entries[pos].index = msr_index;
+        }
+
+        let nmsrs = self
+            .fd
+            .get_msrs(&mut msrs)
+            .map_err(KvmVcpuError::VcpuGetMsrs)?;
+        // GET_MSRS returns a number of successfully set msrs.
+        // If number of set msrs is not equal to the length of
+        // `msrs`, then the value retuned by GET_MSRS can act
+        // as an index to the problematic msr.
+        if nmsrs != chunk_size {
+            Err(KvmVcpuError::VcpuGetMsr(msrs.as_slice()[nmsrs].index))
+        } else {
+            Ok(msrs)
+        }
     }
 
     /// Get MSRs for the given MSR index list.
@@ -369,9 +404,12 @@ impl KvmVcpu {
     /// # Errors
     ///
     /// * When `KvmVcpu::get_msr_chunks()` returns errors.
-    pub fn get_msrs(&self, msr_index_list: &[u32]) -> Result<HashMap<u32, u64>, KvmVcpuError> {
+    pub fn get_msrs(
+        &self,
+        msr_index_iter: impl ExactSizeIterator<Item = u32>,
+    ) -> Result<HashMap<u32, u64>, KvmVcpuError> {
         let mut msrs: HashMap<u32, u64> = HashMap::new();
-        self.get_msr_chunks(msr_index_list)?
+        self.get_msr_chunks(msr_index_iter)?
             .iter()
             .for_each(|msr_chunk| {
                 msr_chunk.as_slice().iter().for_each(|msr| {
@@ -422,8 +460,7 @@ impl KvmVcpu {
             None
         });
         let cpuid = self.get_cpuid()?;
-        let saved_msrs =
-            self.get_msr_chunks(&self.msrs_to_save.iter().copied().collect::<Vec<_>>())?;
+        let saved_msrs = self.get_msr_chunks(self.msrs_to_save.iter().copied())?;
         let vcpu_events = self
             .fd
             .get_vcpu_events()
@@ -452,7 +489,7 @@ impl KvmVcpu {
         let cpuid = cpuid::Cpuid::try_from(self.get_cpuid()?)?;
         let kvm = kvm_ioctls::Kvm::new().unwrap();
         let msr_index_list = crate::arch::x86_64::msr::get_msrs_to_dump(&kvm)?;
-        let msrs = self.get_msrs(msr_index_list.as_slice())?;
+        let msrs = self.get_msrs(msr_index_list.as_slice().iter().copied())?;
         Ok(CpuConfiguration { cpuid, msrs })
     }
 
@@ -687,7 +724,7 @@ mod tests {
         let cpuid = Cpuid::try_from(vm.supported_cpuid().clone())
             .map_err(GuestConfigError::CpuidFromKvmCpuid)?;
         let msrs = vcpu
-            .get_msrs(&template.get_msr_index_list())
+            .get_msrs(template.msr_index_iter())
             .map_err(GuestConfigError::VcpuIoctl)?;
         let base_cpu_config = CpuConfiguration { cpuid, msrs };
         let cpu_config = CpuConfiguration::apply_template(base_cpu_config, template)?;
@@ -956,8 +993,7 @@ mod tests {
         // Test `get_msrs()` with the MSR indices that should be serialized into snapshots.
         // The MSR indices should be valid and this test should succeed.
         let (_, vcpu, _) = setup_vcpu(0x1000);
-        vcpu.get_msrs(&vcpu.msrs_to_save.iter().copied().collect::<Vec<_>>())
-            .unwrap();
+        vcpu.get_msrs(vcpu.msrs_to_save.iter().copied()).unwrap();
     }
 
     #[test]
@@ -968,7 +1004,8 @@ mod tests {
 
         let kvm = kvm_ioctls::Kvm::new().unwrap();
         let msrs_to_dump = crate::arch::x86_64::msr::get_msrs_to_dump(&kvm).unwrap();
-        vcpu.get_msrs(msrs_to_dump.as_slice()).unwrap();
+        vcpu.get_msrs(msrs_to_dump.as_slice().iter().copied())
+            .unwrap();
     }
 
     #[test]
@@ -978,7 +1015,7 @@ mod tests {
         // Currently, MSR indices 2..=4 are not listed as supported MSRs.
         let (_, vcpu, _) = setup_vcpu(0x1000);
         let msr_index_list: Vec<u32> = vec![2, 3, 4];
-        match vcpu.get_msrs(&msr_index_list) {
+        match vcpu.get_msrs(msr_index_list.iter().copied()) {
             Err(KvmVcpuError::VcpuGetMsr(_)) => (),
             Err(err) => panic!("Unexpected error: {err}"),
             Ok(_) => {
