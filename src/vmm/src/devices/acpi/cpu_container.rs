@@ -4,6 +4,7 @@
 use acpi_tables::madt::LocalAPIC;
 use acpi_tables::{aml, Aml};
 use log::{debug, error};
+use serde::{Deserialize, Serialize};
 use utils::eventfd::EventFd;
 use vm_memory::{GuestAddress, GuestMemoryError};
 use vm_superio::Trigger;
@@ -11,7 +12,8 @@ use vm_superio::Trigger;
 use crate::device_manager::resources::ResourceAllocator;
 use crate::devices::legacy::EventFdTrigger;
 use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
-use crate::vstate::memory::{Bytes, GuestMemoryMmap};
+use crate::vstate::memory::GuestMemoryMmap;
+use crate::Persist;
 
 #[derive(Debug)]
 pub struct CpuContainer {
@@ -35,11 +37,11 @@ pub enum CpuContainerError {
 
 pub const CPU_CONTAINER_ACPI_SIZE: usize = 0xC;
 
-const CPU_ENABLE_FLAG: usize = 0;
-const CPU_INSERTING_FLAG: usize = 1;
-
-const CPU_SELECTION_OFFSET: u64 = 4;
-const CPU_STATUS_OFFSET: u64 = 0;
+// const CPU_ENABLE_FLAG: usize = 0;
+// const CPU_INSERTING_FLAG: usize = 1;
+//
+// const CPU_SELECTION_OFFSET: u64 = 4;
+// const CPU_STATUS_OFFSET: u64 = 0;
 
 impl CpuContainer {
     pub fn from_parts(guest_address: GuestAddress, gsi: u32) -> Result<Self, CpuContainerError> {
@@ -69,15 +71,49 @@ impl CpuContainer {
         Self::from_parts(GuestAddress(addr), gsi[0])
     }
 
-    pub fn notify_guest(&mut self, mem: &GuestMemoryMmap) -> Result<(), std::io::Error> {
+    pub fn notify_guest(&mut self, _mem: &GuestMemoryMmap) -> Result<(), std::io::Error> {
         self.interrupt_evt
             .trigger()
             .inspect_err(|err| error!("hotplug: could not send guest notification: {err}"))?;
         debug!("hotplug: notifying guest about new vcpus available");
         Ok(())
     }
+
+    pub fn bus_read(&mut self, _offset: u64, _data: &[u8]) {}
+
+    pub fn bus_write(&mut self, _offset: u64, _data: &[u8]) {}
 }
 
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub struct CpuContainerState {
+    /// GSI used for CpuContainer device
+    pub gsi: u32,
+    /// memory address of CpuContainer device
+    pub guest_address: u64,
+}
+
+#[derive(Debug)]
+pub struct CpuContainerConstructorArgs {}
+
+impl<'a> Persist<'a> for CpuContainer {
+    type State = CpuContainerState;
+    type ConstructorArgs = CpuContainerConstructorArgs;
+    type Error = CpuContainerError;
+
+    fn save(&self) -> Self::State {
+        CpuContainerState {
+            gsi: self.gsi,
+            guest_address: self.guest_address.0,
+        }
+    }
+
+    fn restore(
+        _constructor_args: Self::ConstructorArgs,
+        state: &Self::State,
+    ) -> std::result::Result<Self, Self::Error> {
+        Self::from_parts(GuestAddress(state.guest_address), state.gsi)
+    }
+}
 impl Aml for CpuContainer {
     fn append_aml_bytes(&self, v: &mut Vec<u8>) {
         // CPU hotplug controller

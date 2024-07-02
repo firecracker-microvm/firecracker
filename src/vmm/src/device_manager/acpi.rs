@@ -1,9 +1,10 @@
 // Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::{Arc, Mutex};
+
 use acpi_tables::{aml, Aml};
 use kvm_ioctls::VmFd;
-use utils::eventfd::EventFd;
 
 use crate::devices::acpi::cpu_container::CpuContainer;
 use crate::devices::acpi::vmgenid::VmGenId;
@@ -13,7 +14,7 @@ use crate::vstate::memory::GuestMemoryMmap;
 pub struct ACPIDeviceManager {
     /// VMGenID device
     pub vmgenid: Option<VmGenId>,
-    pub cpu_container: Option<CpuContainer>,
+    pub cpu_container: Option<Arc<Mutex<CpuContainer>>>,
 }
 
 impl ACPIDeviceManager {
@@ -40,17 +41,20 @@ impl ACPIDeviceManager {
 
     pub fn attach_cpu_container(
         &mut self,
-        cpu_container: CpuContainer,
+        cpu_container: Arc<Mutex<CpuContainer>>,
         vm_fd: &VmFd,
     ) -> Result<(), kvm_ioctls::Error> {
-        vm_fd.register_irqfd(&cpu_container.interrupt_evt, cpu_container.gsi)?;
+        {
+            let locked_container = cpu_container.lock().expect("Poisoned lock");
+            vm_fd.register_irqfd(&locked_container.interrupt_evt, locked_container.gsi)?;
+        }
         self.cpu_container = Some(cpu_container);
         Ok(())
     }
 
     pub fn notify_cpu_container(&mut self, mem: &GuestMemoryMmap) -> Result<(), std::io::Error> {
         if let Some(container) = &mut self.cpu_container {
-            container.notify_guest(mem)?;
+            container.lock().expect("Poisoned lock").notify_guest(mem)?;
         }
         Ok(())
     }
@@ -108,6 +112,7 @@ impl Aml for ACPIDeviceManager {
         // AML for GED
 
         self.cpu_container.as_ref().inspect(|cpu_container| {
+            let cont = cpu_container.lock().expect("Poisoned lock");
             aml::Device::new(
                 "_SB_.GED_".into(),
                 vec![
@@ -115,11 +120,7 @@ impl Aml for ACPIDeviceManager {
                     &aml::Name::new(
                         "_CRS".into(),
                         &aml::ResourceTemplate::new(vec![&aml::Interrupt::new(
-                            true,
-                            true,
-                            false,
-                            false,
-                            cpu_container.gsi,
+                            true, true, false, false, cont.gsi,
                         )]),
                     ),
                     &aml::Method::new(
@@ -128,7 +129,7 @@ impl Aml for ACPIDeviceManager {
                         true,
                         vec![&aml::If::new(
                             #[allow(clippy::cast_possible_truncation)]
-                            &aml::Equal::new(&aml::Arg(0), &(cpu_container.gsi as u8)),
+                            &aml::Equal::new(&aml::Arg(0), &(cont.gsi as u8)),
                             vec![&aml::MethodCall::new(
                                 aml::Path::new("\\_SB_.CPUS.CSCN"),
                                 vec![],
@@ -149,11 +150,4 @@ impl Aml for ACPIDeviceManager {
         //     .as_ref()
         //     .inspect(|container| container.append_aml_bytes(v));
     }
-}
-
-#[derive(Debug)]
-struct CpuContainerInfo<'a> {
-    gsi: u8,
-    interrupt_evt: &'a EventFd,
-    aml_bytes: Vec<u8>,
 }

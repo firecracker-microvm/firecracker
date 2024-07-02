@@ -176,7 +176,7 @@ fn create_vmm_and_vcpus(
         .map_err(VmmError::EventFd)
         .map_err(Internal)?;
 
-    let mut resource_allocator = ResourceAllocator::new()?;
+    let resource_allocator = ResourceAllocator::new()?;
 
     // Instantiate the MMIO device manager.
     let mmio_device_manager = MMIODeviceManager::new();
@@ -704,11 +704,11 @@ pub fn setup_serial_device(
     event_manager: &mut EventManager,
     input: std::io::Stdin,
     out: std::io::Stdout,
-) -> Result<Arc<Mutex<BusDevice>>, VmmError> {
+) -> Result<BusDevice, VmmError> {
     let interrupt_evt = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(VmmError::EventFd)?);
     let kick_stdin_read_evt =
         EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(VmmError::EventFd)?);
-    let serial = Arc::new(Mutex::new(BusDevice::Serial(SerialWrapper {
+    let serial = BusDevice::Serial(Arc::new(Mutex::new(SerialWrapper {
         serial: Serial::with_events(
             interrupt_evt,
             SerialEventsWrapper {
@@ -718,7 +718,8 @@ pub fn setup_serial_device(
         ),
         input: Some(input),
     })));
-    event_manager.add_subscriber(serial.clone());
+    event_manager.add_subscriber(Arc::new(Mutex::new(serial.clone()))); // TODO: Check this actually
+                                                                        // works?
     Ok(serial)
 }
 
@@ -1031,12 +1032,15 @@ fn attach_balloon_device(
 }
 
 fn attach_cpu_container_device(vmm: &mut Vmm) -> Result<(), StartMicrovmError> {
-    let container = CpuContainer::new(&mut vmm.resource_allocator)
-        .map_err(StartMicrovmError::CreateCpuContainer)?;
+    let container = Arc::new(Mutex::new(
+        CpuContainer::new(&mut vmm.resource_allocator)
+            .map_err(StartMicrovmError::CreateCpuContainer)?,
+    ));
 
     // Conflict between MMIO and ACPI DevMgrs, both want ownership
-    vmm.mmio_device_manager
-        .register_mmio_cpu_container(&mut vmm.resource_allocator, container);
+    let _ = vmm
+        .mmio_device_manager
+        .register_mmio_cpu_container(&mut vmm.resource_allocator, container.clone());
 
     vmm.acpi_device_manager
         .attach_cpu_container(container, vmm.vm.fd())
@@ -1144,7 +1148,6 @@ pub mod tests {
             .unwrap();
 
         let mut vm = Vm::new(vec![]).unwrap();
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
 
         vm.memory_init(&guest_memory, false).unwrap();
         let mmio_device_manager = MMIODeviceManager::new();
@@ -1152,7 +1155,7 @@ pub mod tests {
         let acpi_device_manager = ACPIDeviceManager::new();
         #[cfg(target_arch = "x86_64")]
         let pio_device_manager = PortIODeviceManager::new(
-            Arc::new(Mutex::new(BusDevice::Serial(SerialWrapper {
+            BusDevice::Serial(Arc::new(Mutex::new(SerialWrapper {
                 serial: Serial::with_events(
                     EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).unwrap()),
                     SerialEventsWrapper {
