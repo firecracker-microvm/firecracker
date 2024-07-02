@@ -498,8 +498,7 @@ impl Net {
                 net_metrics.tx_packets_count.inc();
                 net_metrics.tx_count.inc();
             }
-            Err(err) => {
-                error!("Failed to write to tap: {:?}", err);
+            Err(_) => {
                 net_metrics.tap_write_fails.inc();
             }
         };
