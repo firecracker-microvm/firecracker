@@ -257,6 +257,12 @@ class BKPipeline:
         step_build = group("🏗️ Build", build_cmds, **self.per_arch)
         self.steps += [step_build, "wait"]
 
+        # If we run initial_steps before the "wait" step above, then a failure of the initial steps
+        # would result in the build not progressing past the "wait" step (as buildkite only proceeds past a wait step
+        # if everything before it passed). Thus put the initial steps after the "wait" step, but set `"depends_on": null`
+        # to start running them immediately (e.g. without waiting for the "wait" step to unblock).
+        #
+        # See also https://buildkite.com/docs/pipelines/dependencies#explicit-dependencies-in-uploaded-steps
         if initial_steps:
             for step in initial_steps:
                 step["depends_on"] = None
