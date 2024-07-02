@@ -1,21 +1,29 @@
 // Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::{Arc, Mutex};
+
 use acpi_tables::{aml, Aml};
 use kvm_ioctls::VmFd;
 
+use crate::devices::acpi::cpu_container::CpuContainer;
 use crate::devices::acpi::vmgenid::VmGenId;
+use crate::vstate::memory::GuestMemoryMmap;
 
 #[derive(Debug)]
 pub struct ACPIDeviceManager {
     /// VMGenID device
     pub vmgenid: Option<VmGenId>,
+    pub cpu_container: Option<Arc<Mutex<CpuContainer>>>,
 }
 
 impl ACPIDeviceManager {
     /// Create a new ACPIDeviceManager object
     pub fn new() -> Self {
-        Self { vmgenid: None }
+        Self {
+            vmgenid: None,
+            cpu_container: None,
+        }
     }
 
     /// Attach a new VMGenID device to the microVM
@@ -31,6 +39,26 @@ impl ACPIDeviceManager {
         Ok(())
     }
 
+    pub fn attach_cpu_container(
+        &mut self,
+        cpu_container: Arc<Mutex<CpuContainer>>,
+        vm_fd: &VmFd,
+    ) -> Result<(), kvm_ioctls::Error> {
+        {
+            let locked_container = cpu_container.lock().expect("Poisoned lock");
+            vm_fd.register_irqfd(&locked_container.interrupt_evt, locked_container.gsi)?;
+        }
+        self.cpu_container = Some(cpu_container);
+        Ok(())
+    }
+
+    pub fn notify_cpu_container(&mut self, mem: &GuestMemoryMmap) -> Result<(), std::io::Error> {
+        if let Some(container) = &mut self.cpu_container {
+            container.lock().expect("Poisoned lock").notify_guest(mem)?;
+        }
+        Ok(())
+    }
+
     /// If it exists, notify guest VMGenID device that we have resumed from a snapshot.
     pub fn notify_vmgenid(&mut self) -> Result<(), std::io::Error> {
         if let Some(vmgenid) = &mut self.vmgenid {
@@ -43,8 +71,48 @@ impl ACPIDeviceManager {
 impl Aml for ACPIDeviceManager {
     fn append_aml_bytes(&self, v: &mut Vec<u8>) {
         // If we have a VMGenID device, create the AML for the device and GED interrupt handler
-        self.vmgenid.as_ref().inspect(|vmgenid| {
-            // AML for GED
+
+        // let mut interrupts: Vec<&dyn Aml> = Vec::new();
+        // let mut event_handlers: Vec<&dyn Aml> = Vec::new();
+
+        // self.vmgenid.as_ref().inspect(|vmgenid| {
+        //     interrupts.push(&aml::Interrupt::new(true, true, false, false, vmgenid.gsi));
+        //     event_handlers.push(&aml::If::new(
+        //         // We know that the maximum IRQ number fits in a u8. We have up to
+        //         // 32 IRQs in x86 and up to 128 in
+        //         // ARM (look into
+        //         // `vmm::crate::arch::layout::IRQ_MAX`)
+        //         #[allow(clippy::cast_possible_truncation)]
+        //         &aml::Equal::new(&aml::Arg(0), &(vmgenid.gsi as u8)),
+        //         vec![&aml::Notify::new(
+        //             &aml::Path::new("\\_SB_.VGEN"),
+        //             &0x80usize,
+        //         )],
+        //     ))
+        // });
+        //
+        // self.cpu_container.as_ref().inspect(|cpu_container| {
+        //     interrupts.push(&aml::Interrupt::new(
+        //         true,
+        //         true,
+        //         false,
+        //         false,
+        //         cpu_container.gsi,
+        //     ));
+        //     event_handlers.push(&aml::If::new(
+        //         #[allow(clippy::cast_possible_truncation)]
+        //         &aml::Equal::new(&aml::Arg(0), &(cpu_container.gsi as u8)),
+        //         vec![&aml::Notify::new(
+        //             &aml::Path::new("\\_SB_.CPUS.CSCN"),
+        //             &0x1usize,
+        //         )],
+        //     ))
+        // });
+        //
+        // AML for GED
+
+        self.cpu_container.as_ref().inspect(|cpu_container| {
+            let cont = cpu_container.lock().expect("Poisoned lock");
             aml::Device::new(
                 "_SB_.GED_".into(),
                 vec![
@@ -52,11 +120,7 @@ impl Aml for ACPIDeviceManager {
                     &aml::Name::new(
                         "_CRS".into(),
                         &aml::ResourceTemplate::new(vec![&aml::Interrupt::new(
-                            true,
-                            true,
-                            false,
-                            false,
-                            vmgenid.gsi,
+                            true, true, false, false, cont.gsi,
                         )]),
                     ),
                     &aml::Method::new(
@@ -64,22 +128,26 @@ impl Aml for ACPIDeviceManager {
                         1,
                         true,
                         vec![&aml::If::new(
-                            // We know that the maximum IRQ number fits in a u8. We have up to 32
-                            // IRQs in x86 and up to 128 in ARM (look into
-                            // `vmm::crate::arch::layout::IRQ_MAX`)
                             #[allow(clippy::cast_possible_truncation)]
-                            &aml::Equal::new(&aml::Arg(0), &(vmgenid.gsi as u8)),
-                            vec![&aml::Notify::new(
-                                &aml::Path::new("\\_SB_.VGEN"),
-                                &0x80usize,
+                            &aml::Equal::new(&aml::Arg(0), &(cont.gsi as u8)),
+                            vec![&aml::MethodCall::new(
+                                aml::Path::new("\\_SB_.CPUS.CSCN"),
+                                vec![],
                             )],
                         )],
                     ),
                 ],
             )
             .append_aml_bytes(v);
-            // AML for VMGenID itself.
-            vmgenid.append_aml_bytes(v);
         });
+
+        // AML for VMGenID itself.
+        // self.vmgenid
+        //     .as_ref()
+        //     .inspect(|vmgenid| vmgenid.append_aml_bytes(v));
+        // // AML for CpuManager itself
+        // self.cpu_container
+        //     .as_ref()
+        //     .inspect(|container| container.append_aml_bytes(v));
     }
 }
