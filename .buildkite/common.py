@@ -222,7 +222,7 @@ class BKPipeline:
     parser = COMMON_PARSER
 
     def __init__(self, initial_steps=None, **kwargs):
-        self.steps = initial_steps or []
+        self.steps = []
         self.args = args = self.parser.parse_args()
         # Retry one time if agent was lost. This can happen if we terminate the
         # instance or the agent gets disconnected for whatever reason
@@ -247,6 +247,12 @@ class BKPipeline:
         build_cmds, self.shared_build = shared_build()
         step_build = group("🏗️ Build", build_cmds, **self.per_arch)
         self.steps += [step_build, "wait"]
+
+        if initial_steps:
+            for step in initial_steps:
+                step["depends_on"] = None
+
+            self.steps += initial_steps
 
     def add_step(self, step, decorate=True):
         """
