@@ -363,6 +363,7 @@ pub(crate) mod tests {
     use utils::u64_to_usize;
 
     use super::*;
+    use crate::devices::virtio::device::IrqTrigger;
     use crate::devices::virtio::ActivateError;
     use crate::utilities::test_utils::single_region_mem;
     use crate::vstate::memory::GuestMemoryMmap;
@@ -371,8 +372,7 @@ pub(crate) mod tests {
     pub(crate) struct DummyDevice {
         acked_features: u64,
         avail_features: u64,
-        interrupt_evt: EventFd,
-        interrupt_status: Arc<AtomicU32>,
+        interrupt_trigger: IrqTrigger,
         queue_evts: Vec<EventFd>,
         queues: Vec<Queue>,
         device_activated: bool,
@@ -384,8 +384,7 @@ pub(crate) mod tests {
             DummyDevice {
                 acked_features: 0,
                 avail_features: 0,
-                interrupt_evt: EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-                interrupt_status: Arc::new(AtomicU32::new(0)),
+                interrupt_trigger: IrqTrigger::new().unwrap(),
                 queue_evts: vec![
                     EventFd::new(libc::EFD_NONBLOCK).unwrap(),
                     EventFd::new(libc::EFD_NONBLOCK).unwrap(),
@@ -430,12 +429,8 @@ pub(crate) mod tests {
             &self.queue_evts
         }
 
-        fn interrupt_evt(&self) -> &EventFd {
-            &self.interrupt_evt
-        }
-
-        fn interrupt_status(&self) -> Arc<AtomicU32> {
-            self.interrupt_status.clone()
+        fn interrupt_trigger(&self) -> &IrqTrigger {
+            &self.interrupt_trigger
         }
 
         fn read_config(&self, offset: u64, data: &mut [u8]) {

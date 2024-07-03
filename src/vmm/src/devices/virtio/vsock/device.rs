@@ -6,6 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::fmt::Debug;
+
 /// This is the `VirtioDevice` implementation for our vsock device. It handles the virtio-level
 /// device logic: feature negociation, device configuration, and device activation.
 ///
@@ -20,9 +21,6 @@ use std::fmt::Debug;
 /// - a TX queue FD;
 /// - an event queue FD; and
 /// - a backend FD.
-use std::sync::atomic::AtomicU32;
-use std::sync::Arc;
-
 use log::{error, warn};
 use utils::byte_order;
 use utils::eventfd::EventFd;
@@ -290,12 +288,8 @@ where
         &self.queue_events
     }
 
-    fn interrupt_evt(&self) -> &EventFd {
-        &self.irq_trigger.irq_evt
-    }
-
-    fn interrupt_status(&self) -> Arc<AtomicU32> {
-        self.irq_trigger.irq_status.clone()
+    fn interrupt_trigger(&self) -> &IrqTrigger {
+        &self.irq_trigger
     }
 
     fn read_config(&self, offset: u64, data: &mut [u8]) {
