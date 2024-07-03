@@ -9,7 +9,6 @@
 use std::io::Read;
 use std::mem;
 use std::net::Ipv4Addr;
-use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 
 use libc::EAGAIN;
@@ -823,14 +822,9 @@ impl VirtioDevice for Net {
         &self.queue_evts
     }
 
-    fn interrupt_evt(&self) -> &EventFd {
-        &self.irq_trigger.irq_evt
+    fn interrupt_trigger(&self) -> &IrqTrigger {
+        &self.irq_trigger
     }
-
-    fn interrupt_status(&self) -> Arc<AtomicU32> {
-        self.irq_trigger.irq_status.clone()
-    }
-
     fn read_config(&self, offset: u64, data: &mut [u8]) {
         if let Some(config_space_bytes) = self.config_space.as_slice().get(u64_to_usize(offset)..) {
             let len = config_space_bytes.len().min(data.len());

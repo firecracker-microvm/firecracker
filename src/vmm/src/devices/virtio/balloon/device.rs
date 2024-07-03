@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt;
-use std::sync::atomic::AtomicU32;
-use std::sync::Arc;
 use std::time::Duration;
 
 use log::error;
@@ -584,12 +582,8 @@ impl VirtioDevice for Balloon {
         &self.queue_evts
     }
 
-    fn interrupt_evt(&self) -> &EventFd {
-        &self.irq_trigger.irq_evt
-    }
-
-    fn interrupt_status(&self) -> Arc<AtomicU32> {
-        self.irq_trigger.irq_status.clone()
+    fn interrupt_trigger(&self) -> &IrqTrigger {
+        &self.irq_trigger
     }
 
     fn read_config(&self, offset: u64, data: &mut [u8]) {
