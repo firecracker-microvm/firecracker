@@ -377,6 +377,7 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::devices::virtio::device::IrqTrigger;
+    use crate::devices::virtio::device_status::DEVICE_NEEDS_RESET;
     use crate::devices::virtio::ActivateError;
     use crate::utilities::test_utils::single_region_mem;
     use crate::vstate::memory::GuestMemoryMmap;
@@ -390,6 +391,7 @@ pub(crate) mod tests {
         queues: Vec<Queue>,
         device_activated: bool,
         config_bytes: [u8; 0xeff],
+        activate_should_error: bool,
     }
 
     impl DummyDevice {
@@ -405,6 +407,7 @@ pub(crate) mod tests {
                 queues: vec![Queue::new(16), Queue::new(32)],
                 device_activated: false,
                 config_bytes: [0; 0xeff],
+                activate_should_error: false,
             }
         }
 
@@ -458,7 +461,11 @@ pub(crate) mod tests {
 
         fn activate(&mut self, _: GuestMemoryMmap) -> Result<(), ActivateError> {
             self.device_activated = true;
-            Ok(())
+            if self.activate_should_error {
+                Err(ActivateError::BadActivate)
+            } else {
+                Ok(())
+            }
         }
 
         fn is_activated(&self) -> bool {
@@ -829,6 +836,63 @@ pub(crate) mod tests {
         d.bus_write(0x44, &buf[..]);
         d.bus_read(0x44, &mut buf[..]);
         assert_eq!(read_le_u32(&buf[..]), 1);
+    }
+
+    #[test]
+    fn test_bus_device_activate_failure() {
+        let m = single_region_mem(0x1000);
+        let device = DummyDevice {
+            activate_should_error: true,
+            ..DummyDevice::new()
+        };
+        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(device)), false);
+
+        set_device_status(&mut d, device_status::ACKNOWLEDGE);
+        set_device_status(&mut d, device_status::ACKNOWLEDGE | device_status::DRIVER);
+        set_device_status(
+            &mut d,
+            device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FEATURES_OK,
+        );
+
+        let mut buf = [0; 4];
+        let queue_len = d.locked_device().queues().len();
+        for q in 0..queue_len {
+            d.queue_select = q.try_into().unwrap();
+            write_le_u32(&mut buf[..], 16);
+            d.bus_write(0x38, &buf[..]);
+            write_le_u32(&mut buf[..], 1);
+            d.bus_write(0x44, &buf[..]);
+        }
+        assert!(d.are_queues_valid());
+        assert_eq!(
+            d.locked_device().interrupt_status().load(Ordering::SeqCst),
+            0
+        );
+
+        set_device_status(
+            &mut d,
+            device_status::ACKNOWLEDGE
+                | device_status::DRIVER
+                | device_status::FEATURES_OK
+                | device_status::DRIVER_OK,
+        );
+
+        // Failure in activate results in `DEVICE_NEEDS_RESET` status being set
+        assert_ne!(d.device_status & DEVICE_NEEDS_RESET, 0);
+        // We injected an interrupt of type "configuration change"
+        assert_eq!(
+            d.locked_device().interrupt_status().load(Ordering::SeqCst),
+            VIRTIO_MMIO_INT_CONFIG
+        );
+        // We actually wrote to the eventfd
+        assert_eq!(
+            d.locked_device()
+                .interrupt_trigger()
+                .irq_evt
+                .read()
+                .unwrap(),
+            1
+        );
     }
 
     fn activate_device(d: &mut MmioTransport) {
