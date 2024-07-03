@@ -40,6 +40,7 @@ mod device_status {
     pub const FAILED: u32 = 128;
     pub const FEATURES_OK: u32 = 8;
     pub const DRIVER_OK: u32 = 4;
+    pub const DEVICE_NEEDS_RESET: u32 = 64;
 }
 
 /// Types taken from linux/virtio_ids.h.
