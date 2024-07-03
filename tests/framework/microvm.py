@@ -490,9 +490,11 @@ class Microvm:
         return f"/tmp/screen-{self.screen_session}.log"
 
     @property
-    def screen_pid(self):
+    def screen_pid(self) -> Optional[int]:
         """Get the screen PID."""
-        return self._screen_pid
+        if self._screen_pid:
+            return int(self._screen_pid)
+        return None
 
     def pin_vmm(self, cpu_id: int) -> bool:
         """Pin the firecracker process VMM thread to a cpu list."""
