@@ -244,9 +244,6 @@ class Microvm:
 
         self._numa_node = numa_node
 
-        # Flag checked in destructor to see abnormal signal-induced crashes.
-        self.expect_kill_by_signal = False
-
         # MMDS content from file
         self.metadata_file = None
 
@@ -285,8 +282,7 @@ class Microvm:
         self.disks_vhost_user.clear()
 
         assert (
-            self.expect_kill_by_signal
-            or "Shutting down VM after intercepting signal" not in self.log_data
+            "Shutting down VM after intercepting signal" not in self.log_data
         ), self.log_data
 
         try:
@@ -294,9 +290,6 @@ class Microvm:
                 os.kill(self.firecracker_pid, signal.SIGKILL)
 
             if self.screen_pid:
-                # Killing screen will send SIGHUP to underlying Firecracker.
-                # Needed to avoid false positives in case kill() is called again.
-                self.expect_kill_by_signal = True
                 os.kill(self.screen_pid, signal.SIGKILL)
         except:
             LOG.error(self.log_data)
