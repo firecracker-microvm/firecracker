@@ -5,22 +5,23 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+//! This is the `VirtioDevice` implementation for our vsock device. It handles the virtio-level
+//! device logic: feature negociation, device configuration, and device activation.
+//!
+//! We aim to conform to the VirtIO v1.1 spec:
+//! https://docs.oasis-open.org/virtio/virtio/v1.1/virtio-v1.1.html
+//!
+//! The vsock device has two input parameters: a CID to identify the device, and a
+//! `VsockBackend` to use for offloading vsock traffic.
+//!
+//! Upon its activation, the vsock device registers handlers for the following events/FDs:
+//! - an RX queue FD;
+//! - a TX queue FD;
+//! - an event queue FD; and
+//! - a backend FD.
+
 use std::fmt::Debug;
 
-/// This is the `VirtioDevice` implementation for our vsock device. It handles the virtio-level
-/// device logic: feature negociation, device configuration, and device activation.
-///
-/// We aim to conform to the VirtIO v1.1 spec:
-/// https://docs.oasis-open.org/virtio/virtio/v1.1/virtio-v1.1.html
-///
-/// The vsock device has two input parameters: a CID to identify the device, and a
-/// `VsockBackend` to use for offloading vsock traffic.
-///
-/// Upon its activation, the vsock device registers handlers for the following events/FDs:
-/// - an RX queue FD;
-/// - a TX queue FD;
-/// - an event queue FD; and
-/// - a backend FD.
 use log::{error, warn};
 use utils::byte_order;
 use utils::eventfd::EventFd;
