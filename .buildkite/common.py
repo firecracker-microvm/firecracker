@@ -174,35 +174,44 @@ COMMON_PARSER.add_argument(
 )
 
 
-def revision_a():
-    """Determine if there is a base revision"""
-    if os.environ.get("BUILDKITE_PULL_REQUEST", "false") != "false":
-        return os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH", "main")
-    return os.environ.get("REVISION_A")
-
-
 def random_str(k: int):
     """Generate a random string of hex characters."""
     return "".join(random.choices(string.hexdigits, k=k))
+
+
+def ab_revision_build(revision):
+    """Generate steps for building an A/B-test revision"""
+    # Copied from framework/ab_test. Double dollar signs needed for Buildkite (otherwise it will try to interpolate itself)
+    return [
+        f"commitish={revision}",
+        f"if ! git cat-file -t $$commitish; then commitish=origin/{revision}; fi",
+        "branch_name=tmp-$$commitish",
+        "git branch $$branch_name $$commitish",
+        f"git clone -b $$branch_name . build/{revision}",
+        f"cd build/{revision} && ./tools/devtool -y build --release && cd -",
+    ]
 
 
 def shared_build():
     """Helper function to make it simple to share a compilation artifacts for a
     whole Buildkite build
     """
-    build_cmds = ["./tools/devtool -y build --release"]
 
-    # If we are running in a PR context, then also build the base branch in the
-    # expected location, for the A/B tests machinery.
-    rev_a = revision_a()
+    # We need to support 3 scenarios here:
+    # 1. We are running in the nightly pipeline - only compile the HEAD of main.
+    # 2. We are running in a PR pipeline - compile HEAD of main as revision A and HEAD of PR branch as revision B.
+    # 3. We are running in an A/B-test pipeline - compile what is passed via REVISION_{A,B} environment variables.
+    rev_a = os.environ.get("REVISION_A")
     if rev_a is not None:
-        build_cmds += [
-            f"git clone -b {rev_a} . build/{rev_a}",
-            f"cd build/{rev_a} && ./tools/devtool -y build --release && cd -",
-        ]
-    revision_b = os.environ.get("REVISION_B")
-    if revision_b is not None:
-        build_cmds.append(f"ln -svfT .. build/{revision_b}")
+        rev_b = os.environ.get("REVISION_B")
+        assert rev_b is not None, "REVISION_B environment variable not set"
+        build_cmds = ab_revision_build(rev_a) + ab_revision_build(rev_b)
+    elif os.environ.get("BUILDKITE_PULL_REQUEST", "false") != "false":
+        build_cmds = ab_revision_build(
+            os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH", "main")
+        ) + ["./tools/devtool -y build --release"]
+    else:
+        build_cmds = ["./tools/devtool -y build --release"]
     binary_dir = f"build_$(uname -m)_{random_str(k=8)}.tar.gz"
     build_cmds += [
         "du -sh build/*",
