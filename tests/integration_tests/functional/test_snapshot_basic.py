@@ -560,7 +560,6 @@ def test_vmgenid(guest_kernel_linux_6_1, rootfs, microvm_factory, snapshot_type)
         vm = microvm_factory.build()
         vm.spawn()
         copied_snapshot = vm.restore_from_snapshot(snapshot, resume=True)
-        vm.wait_for_up()
 
         # We should have as DMESG_VMGENID_RESUME messages as
         # snapshots we have resumed
