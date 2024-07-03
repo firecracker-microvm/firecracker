@@ -297,9 +297,13 @@ class Microvm:
 
         # if microvm was spawned then check if it gets killed
         if self._spawned:
-            # it is observed that we need to wait some time before
-            #  checking if the process is killed.
-            time.sleep(1)
+            # Wait until the Firecracker process is actually dead
+            utils.wait_process_termination(self.firecracker_pid)
+
+            # The following logic guards us against the case where `firecracker_pid` for some
+            # reason is the wrong PID, e.g. this is a regression test for
+            # https://github.com/firecracker-microvm/firecracker/pull/4442/commits/d63eb7a65ffaaae0409d15ed55d99ecbd29bc572
+
             # filter ps results for the jailer's unique id
             _, stdout, stderr = utils.check_output(
                 f"ps aux | grep {self.jailer.jailer_id}"
@@ -307,7 +311,7 @@ class Microvm:
             # make sure firecracker was killed
             assert (
                 stderr == "" and "firecracker" not in stdout
-            ), f"Firecracker pid {self.firecracker_pid} was not killed as expected"
+            ), f"Firecracker reported its pid {self.firecracker_pid}, which was killed, but there still exist processes using the supposedly dead Firecracker's jailer_id: {stdout}"
 
         # Mark the microVM as not spawned, so we avoid trying to kill twice.
         self._spawned = False
