@@ -862,6 +862,7 @@ impl VirtioDevice for Net {
         }
 
         if self.activate_evt.write(1).is_err() {
+            self.metrics.activate_fails.inc();
             return Err(ActivateError::EventFd);
         }
         self.device_state = DeviceState::Activated(mem);
