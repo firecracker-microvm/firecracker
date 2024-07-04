@@ -4,7 +4,6 @@
 // Portions Copyright 2019 Intel Corporation. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
 use log::error;
@@ -311,13 +310,8 @@ impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlock
         &self.queue_evts
     }
 
-    fn interrupt_evt(&self) -> &EventFd {
-        &self.irq_trigger.irq_evt
-    }
-
-    /// Returns the current device interrupt status.
-    fn interrupt_status(&self) -> Arc<AtomicU32> {
-        self.irq_trigger.irq_status.clone()
+    fn interrupt_trigger(&self) -> &IrqTrigger {
+        &self.irq_trigger
     }
 
     fn read_config(&self, offset: u64, data: &mut [u8]) {
@@ -342,13 +336,13 @@ impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlock
         // with guest driver as well.
         self.vu_handle
             .set_features(self.acked_features)
-            .map_err(ActivateError::VhostUser)?;
-        self.vu_handle
-            .setup_backend(
-                &mem,
-                &[(0, &self.queues[0], &self.queue_evts[0])],
-                &self.irq_trigger,
-            )
+            .and_then(|()| {
+                self.vu_handle.setup_backend(
+                    &mem,
+                    &[(0, &self.queues[0], &self.queue_evts[0])],
+                    &self.irq_trigger,
+                )
+            })
             .map_err(|err| {
                 self.metrics.activate_fails.inc();
                 ActivateError::VhostUser(err)

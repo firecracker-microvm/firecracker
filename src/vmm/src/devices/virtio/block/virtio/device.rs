@@ -11,7 +11,6 @@ use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::os::linux::fs::MetadataExt;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
 use block_io::FileEngine;
@@ -609,13 +608,8 @@ impl VirtioDevice for VirtioBlock {
         &self.queue_evts
     }
 
-    fn interrupt_evt(&self) -> &EventFd {
-        &self.irq_trigger.irq_evt
-    }
-
-    /// Returns the current device interrupt status.
-    fn interrupt_status(&self) -> Arc<AtomicU32> {
-        self.irq_trigger.irq_status.clone()
+    fn interrupt_trigger(&self) -> &IrqTrigger {
+        &self.irq_trigger
     }
 
     fn read_config(&self, offset: u64, mut data: &mut [u8]) {
@@ -658,8 +652,8 @@ impl VirtioDevice for VirtioBlock {
         }
 
         if self.activate_evt.write(1).is_err() {
-            error!("Block: Cannot write to activate_evt");
-            return Err(ActivateError::BadActivate);
+            self.metrics.activate_fails.inc();
+            return Err(ActivateError::EventFd);
         }
         self.device_state = DeviceState::Activated(mem);
         Ok(())
