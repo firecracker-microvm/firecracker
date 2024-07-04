@@ -284,10 +284,9 @@ impl VirtioDevice for Entropy {
     }
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
-        self.activate_event.write(1).map_err(|err| {
-            error!("entropy: Cannot write to activate_evt: {err}");
+        self.activate_event.write(1).map_err(|_| {
             METRICS.activate_fails.inc();
-            super::super::ActivateError::BadActivate
+            ActivateError::EventFd
         })?;
         self.device_state = DeviceState::Activated(mem);
         Ok(())

@@ -652,8 +652,7 @@ impl VirtioDevice for VirtioBlock {
         }
 
         if self.activate_evt.write(1).is_err() {
-            error!("Block: Cannot write to activate_evt");
-            return Err(ActivateError::BadActivate);
+            return Err(ActivateError::EventFd);
         }
         self.device_state = DeviceState::Activated(mem);
         Ok(())

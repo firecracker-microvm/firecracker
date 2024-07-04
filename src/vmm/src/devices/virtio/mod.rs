@@ -8,7 +8,6 @@
 //! Implements virtio devices, queues, and transport mechanisms.
 
 use std::any::Any;
-use std::io::Error as IOError;
 
 pub mod balloon;
 pub mod block;
@@ -61,10 +60,10 @@ pub const NOTIFY_REG_OFFSET: u32 = 0x50;
 /// Errors triggered when activating a VirtioDevice.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum ActivateError {
-    /// Epoll error.
-    EpollCtl(IOError),
-    /// General error at activation.
-    BadActivate,
+    /// Wrong number of queue for virtio device: expected {expected}, got {got}
+    QueueMismatch { expected: usize, got: usize },
+    /// Failed to write to activate eventfd
+    EventFd,
     /// Vhost user: {0}
     VhostUser(vhost_user::VhostUserError),
 }

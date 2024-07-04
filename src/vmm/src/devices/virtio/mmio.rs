@@ -14,7 +14,7 @@ use utils::byte_order;
 use crate::devices::virtio::device::{IrqType, VirtioDevice};
 use crate::devices::virtio::device_status;
 use crate::devices::virtio::queue::Queue;
-use crate::logger::warn;
+use crate::logger::{error, warn};
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
 // TODO crosvm uses 0 here, but IIRC virtio specified some other vendor id that should be used
@@ -186,18 +186,21 @@ impl MmioTransport {
             DRIVER_OK if self.device_status == (ACKNOWLEDGE | DRIVER | FEATURES_OK) => {
                 self.device_status = status;
                 let device_activated = self.locked_device().is_activated();
-                if !device_activated
-                    && self.are_queues_valid()
-                    && self.locked_device().activate(self.mem.clone()).is_err()
-                {
-                    self.device_status |= DEVICE_NEEDS_RESET;
+                if !device_activated && self.are_queues_valid() {
+                    // temporary variable needed for borrow checker
+                    let activate_result = self.locked_device().activate(self.mem.clone());
+                    if let Err(err) = activate_result {
+                        self.device_status |= DEVICE_NEEDS_RESET;
 
-                    // Section 2.1.2 of the specification states that we need to send a device
-                    // configuration change interrupt
-                    let _ = self
-                        .locked_device()
-                        .interrupt_trigger()
-                        .trigger_irq(IrqType::Config);
+                        // Section 2.1.2 of the specification states that we need to send a device
+                        // configuration change interrupt
+                        let _ = self
+                            .locked_device()
+                            .interrupt_trigger()
+                            .trigger_irq(IrqType::Config);
+
+                        error!("Failed to activate virtio device: {}", err)
+                    }
                 }
             }
             _ if (status & FAILED) != 0 => {
@@ -462,7 +465,7 @@ pub(crate) mod tests {
         fn activate(&mut self, _: GuestMemoryMmap) -> Result<(), ActivateError> {
             self.device_activated = true;
             if self.activate_should_error {
-                Err(ActivateError::BadActivate)
+                Err(ActivateError::EventFd)
             } else {
                 Ok(())
             }
