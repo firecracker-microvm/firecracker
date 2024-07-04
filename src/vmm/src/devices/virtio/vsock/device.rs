@@ -325,18 +325,15 @@ where
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
         if self.queues.len() != defs::VSOCK_NUM_QUEUES {
             METRICS.activate_fails.inc();
-            error!(
-                "Cannot perform activate. Expected {} queue(s), got {}",
-                defs::VSOCK_NUM_QUEUES,
-                self.queues.len()
-            );
-            return Err(ActivateError::BadActivate);
+            return Err(ActivateError::QueueMismatch {
+                expected: defs::VSOCK_NUM_QUEUES,
+                got: self.queues.len(),
+            });
         }
 
         if self.activate_evt.write(1).is_err() {
             METRICS.activate_fails.inc();
-            error!("Cannot write to activate_evt",);
-            return Err(ActivateError::BadActivate);
+            return Err(ActivateError::EventFd);
         }
 
         self.device_state = DeviceState::Activated(mem);

@@ -862,8 +862,7 @@ impl VirtioDevice for Net {
         }
 
         if self.activate_evt.write(1).is_err() {
-            error!("Net: Cannot write to activate_evt");
-            return Err(super::super::ActivateError::BadActivate);
+            return Err(ActivateError::EventFd);
         }
         self.device_state = DeviceState::Activated(mem);
         Ok(())

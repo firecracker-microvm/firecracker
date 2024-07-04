@@ -613,10 +613,9 @@ impl VirtioDevice for Balloon {
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
         self.device_state = DeviceState::Activated(mem);
         if self.activate_evt.write(1).is_err() {
-            error!("Balloon: Cannot write to activate_evt");
             METRICS.activate_fails.inc();
             self.device_state = DeviceState::Inactive;
-            return Err(ActivateError::BadActivate);
+            return Err(ActivateError::EventFd);
         }
 
         if self.stats_enabled() {
