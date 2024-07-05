@@ -15,6 +15,7 @@ use kvm_bindings::{
 use kvm_ioctls::{VcpuExit, VcpuFd};
 use log::{error, warn};
 use serde::{Deserialize, Serialize};
+use utils::fam;
 
 use crate::arch::x86_64::interrupts;
 use crate::arch::x86_64::msr::{create_boot_msr_entries, MsrError};
@@ -32,6 +33,16 @@ use crate::vstate::vm::Vm;
 // https://bugzilla.redhat.com/show_bug.cgi?id=1839095
 const TSC_KHZ_TOL_NUMERATOR: i64 = 250;
 const TSC_KHZ_TOL_DENOMINATOR: i64 = 1_000_000;
+
+/// A set of MSRs that should be restored separately after all other MSRs have already been restored
+const DEFERRED_MSRS: [u32; 1] = [
+    // MSR_IA32_TSC_DEADLINE must be restored after MSR_IA32_TSC, otherwise we risk "losing" timer
+    // interrupts across the snapshot restore boundary (due to KVM querying MSR_IA32_TSC upon
+    // writes to the TSC_DEADLINE MSR to determine whether it needs to prime a timer - if
+    // MSR_IA32_TSC is not initialized correctly, it can wrongly assume no timer needs to be
+    // primed, or the timer can be initialized with a wrong expiry).
+    MSR_IA32_TSC_DEADLINE,
+];
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
@@ -316,6 +327,39 @@ impl KvmVcpu {
         }
     }
 
+    /// Looks for MSRs from the [`DEFERRED_MSRS`] array and removes them from `msr_chunks`.
+    /// Returns a new [`Msrs`] object containing all the removed MSRs.
+    ///
+    /// We use this to capture some causal dependencies between MSRs where the relative order
+    /// of restoration matters (e.g. MSR_IA32_TSC must be restored before MSR_IA32_TSC_DEADLINE).
+    fn extract_deferred_msrs(msr_chunks: &mut [Msrs]) -> Result<Msrs, fam::Error> {
+        // Use 0 here as FamStructWrapper doesn't really give an equivalent of `Vec::with_capacity`,
+        // and if we specify something N != 0 here, then it will create a FamStructWrapper with N
+        // elements pre-allocated and zero'd out. Unless we then actually "fill" all those N values,
+        // KVM will later yell at us about invalid MSRs.
+        let mut deferred_msrs = Msrs::new(0)?;
+
+        for msrs in msr_chunks {
+            msrs.retain(|msr| {
+                if DEFERRED_MSRS.contains(&msr.index) {
+                    deferred_msrs
+                        .push(*msr)
+                        .inspect_err(|err| {
+                            error!(
+                                "Failed to move MSR {} into later chunk: {:?}",
+                                msr.index, err
+                            )
+                        })
+                        .is_err()
+                } else {
+                    true
+                }
+            });
+        }
+
+        Ok(deferred_msrs)
+    }
+
     /// Get MSR chunks for the given MSR index list.
     ///
     /// KVM only supports getting `KVM_MAX_MSR_ENTRIES` at a time, so we divide
@@ -356,6 +400,9 @@ impl KvmVcpu {
         }
 
         Self::fix_zero_tsc_deadline_msr(&mut msr_chunks);
+
+        let deferred = Self::extract_deferred_msrs(&mut msr_chunks)?;
+        msr_chunks.push(deferred);
 
         Ok(msr_chunks)
     }
@@ -1007,6 +1054,25 @@ mod tests {
             assert_eq!(a.index, b.0);
             assert_eq!(a.data, b.1);
         }
+    }
+
+    #[test]
+    fn test_defer_msrs() {
+        let to_defer = DEFERRED_MSRS[0];
+
+        let mut msr_chunks = [msrs_from_entries(&[(to_defer, 0), (MSR_IA32_TSC, 1)])];
+
+        let deferred = KvmVcpu::extract_deferred_msrs(&mut msr_chunks).unwrap();
+
+        assert_eq!(deferred.as_slice().len(), 1, "did not correctly defer MSR");
+        assert_eq!(
+            msr_chunks[0].as_slice().len(),
+            1,
+            "deferred MSR not removed from chunk"
+        );
+
+        assert_eq!(deferred.as_slice()[0].index, to_defer);
+        assert_eq!(msr_chunks[0].as_slice()[0].index, MSR_IA32_TSC);
     }
 
     #[test]
