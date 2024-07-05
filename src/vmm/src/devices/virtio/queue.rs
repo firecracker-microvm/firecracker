@@ -333,7 +333,10 @@ impl Queue {
             // We are choosing to interrupt execution since this could be a potential malicious
             // driver scenario. This way we also eliminate the risk of repeatedly
             // logging and potentially clogging the microVM through the log system.
-            panic!("The number of available virtio descriptors is greater than queue size!");
+            panic!(
+                "The number of available virtio descriptors {len} is greater than queue size: {}!",
+                self.actual_size()
+            );
         }
 
         if len == 0 {
@@ -514,7 +517,11 @@ impl Queue {
                 // driver scenario. This way we also eliminate the risk of
                 // repeatedly logging and potentially clogging the microVM through
                 // the log system.
-                panic!("The number of available virtio descriptors is greater than queue size!");
+                panic!(
+                    "The number of available virtio descriptors {len} is greater than queue size: \
+                     {}!",
+                    self.actual_size()
+                );
             }
             return false;
         }
@@ -1292,7 +1299,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "The number of available virtio descriptors is greater than queue size!"
+        expected = "The number of available virtio descriptors 5 is greater than queue size: 4!"
     )]
     fn test_invalid_avail_idx_no_notification() {
         // This test ensures constructing a descriptor chain succeeds
@@ -1337,7 +1344,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "The number of available virtio descriptors is greater than queue size!"
+        expected = "The number of available virtio descriptors 6 is greater than queue size: 4!"
     )]
     fn test_invalid_avail_idx_with_notification() {
         // This test ensures constructing a descriptor chain succeeds
