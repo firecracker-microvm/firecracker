@@ -119,7 +119,10 @@ for test in tests:
 # }
 # will pin steps running on instances "m6i.metal" with kernel version tagged "linux_6.1"
 # to a new kernel version tagged "linux_6.1-pinned"
-pins = {}
+pins = {
+    "linux_5.10-pinned": {"instance": "m6i.metal", "kv": "linux_5.10"},
+    "linux_6.1-pinned": {"instance": "m6i.metal", "kv": "linux_6.1"},
+}
 
 
 def apply_pins(steps):
