@@ -10,7 +10,7 @@ pub mod static_cpu_templates;
 /// Module with test utils for custom CPU templates
 pub mod test_utils;
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use self::custom_cpu_template::CpuidRegister;
 use super::templates::CustomCpuTemplate;
@@ -37,7 +37,7 @@ pub struct CpuConfiguration {
     /// Register values as a key pair for model specific registers
     /// Key: MSR address
     /// Value: MSR value
-    pub msrs: HashMap<u32, u64>,
+    pub msrs: BTreeMap<u32, u64>,
 }
 
 impl CpuConfiguration {
@@ -187,14 +187,14 @@ mod tests {
     fn supported_cpu_config() -> CpuConfiguration {
         CpuConfiguration {
             cpuid: build_supported_cpuid(),
-            msrs: HashMap::from([(0x8000, 0b1000), (0x9999, 0b1010)]),
+            msrs: BTreeMap::from([(0x8000, 0b1000), (0x9999, 0b1010)]),
         }
     }
 
     fn unsupported_cpu_config() -> CpuConfiguration {
         CpuConfiguration {
             cpuid: build_supported_cpuid(),
-            msrs: HashMap::from([(0x8000, 0b1000), (0x8001, 0b1010)]),
+            msrs: BTreeMap::from([(0x8000, 0b1000), (0x8001, 0b1010)]),
         }
     }
 
