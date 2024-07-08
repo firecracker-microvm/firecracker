@@ -5,7 +5,7 @@
 import fcntl
 import os
 import platform
-import subprocess
+import signal
 import termios
 import time
 
@@ -184,9 +184,8 @@ def test_serial_block(uvm_plain_any):
     fc_metrics = test_microvm.flush_metrics()
     init_count = fc_metrics["uart"]["missed_write_count"]
 
-    screen_pid = test_microvm.screen_pid
     # Stop `screen` process which captures stdout so we stop consuming stdout.
-    subprocess.check_call("kill -s STOP {}".format(screen_pid), shell=True)
+    os.kill(test_microvm.screen_pid, signal.SIGSTOP)
 
     # Generate a random text file.
     test_microvm.ssh.check_output(

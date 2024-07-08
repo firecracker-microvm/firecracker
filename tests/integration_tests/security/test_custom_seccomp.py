@@ -7,7 +7,6 @@ import platform
 import tempfile
 import time
 
-import psutil
 import pytest
 import requests
 
@@ -188,7 +187,6 @@ def test_failing_filter(uvm_plain):
     # Give time for the process to get killed
     time.sleep(1)
 
-    test_microvm.expect_kill_by_signal = True
     # Check the logger output
     ioctl_num = 16 if platform.machine() == "x86_64" else 29
     test_microvm.check_log_message(
@@ -207,8 +205,7 @@ def test_failing_filter(uvm_plain):
 
     assert num_faults == 1
 
-    # assert that the process was killed
-    assert not psutil.pid_exists(test_microvm.firecracker_pid)
+    test_microvm.mark_killed()
 
 
 @pytest.mark.parametrize("vm_config_file", ["framework/vm_config.json"])
@@ -235,5 +232,4 @@ def test_invalid_bpf(uvm_plain, vm_config_file):
     # give time for the process to get killed
     time.sleep(1)
 
-    # assert that the process was killed
-    assert not psutil.pid_exists(test_microvm.firecracker_pid)
+    test_microvm.mark_killed()
