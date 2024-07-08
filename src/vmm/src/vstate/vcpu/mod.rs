@@ -694,6 +694,8 @@ pub enum VcpuEmulation {
 pub mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
+    #[cfg(target_arch = "x86_64")]
+    use std::collections::BTreeMap;
     use std::sync::{Arc, Barrier, Mutex};
 
     use linux_loader::loader::KernelLoader;
@@ -919,7 +921,7 @@ pub mod tests {
                         smt: false,
                         cpu_config: CpuConfiguration {
                             cpuid: Cpuid::try_from(_vm.supported_cpuid().clone()).unwrap(),
-                            msrs: std::collections::HashMap::new(),
+                            msrs: BTreeMap::new(),
                         },
                     },
                 )

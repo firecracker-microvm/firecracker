@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::BTreeMap;
 use std::fmt::Debug;
 
 use kvm_bindings::{
@@ -143,7 +143,9 @@ pub struct KvmVcpu {
     pub fd: VcpuFd,
     /// Vcpu peripherals, such as buses
     pub(super) peripherals: Peripherals,
-    msrs_to_save: HashSet<u32>,
+    /// The list of MSRs to include in a VM snapshot, in the same order as KVM returned them
+    /// from KVM_GET_MSR_INDEX_LIST
+    msrs_to_save: Vec<u32>,
 }
 
 /// Vcpu peripherals
@@ -172,7 +174,7 @@ impl KvmVcpu {
             index,
             fd: kvm_vcpu,
             peripherals: Default::default(),
-            msrs_to_save: vm.msrs_to_save().as_slice().iter().copied().collect(),
+            msrs_to_save: vm.msrs_to_save().as_slice().to_vec(),
         })
     }
 
@@ -455,8 +457,8 @@ impl KvmVcpu {
     pub fn get_msrs(
         &self,
         msr_index_iter: impl ExactSizeIterator<Item = u32>,
-    ) -> Result<HashMap<u32, u64>, KvmVcpuError> {
-        let mut msrs: HashMap<u32, u64> = HashMap::new();
+    ) -> Result<BTreeMap<u32, u64>, KvmVcpuError> {
+        let mut msrs = BTreeMap::new();
         self.get_msr_chunks(msr_index_iter)?
             .iter()
             .for_each(|msr_chunk| {
@@ -716,7 +718,7 @@ mod tests {
     use std::os::unix::io::AsRawFd;
 
     use kvm_bindings::kvm_msr_entry;
-    use kvm_ioctls::Cap;
+    use kvm_ioctls::{Cap, Kvm};
 
     use super::*;
     use crate::arch::x86_64::cpu_model::CpuModel;
@@ -901,7 +903,7 @@ mod tests {
             smt: false,
             cpu_config: CpuConfiguration {
                 cpuid: Cpuid::try_from(vm.supported_cpuid().clone()).unwrap(),
-                msrs: HashMap::new(),
+                msrs: BTreeMap::new(),
             },
         };
         vcpu.configure(&vm_mem, GuestAddress(0), &vcpu_config)
@@ -963,7 +965,7 @@ mod tests {
             smt: false,
             cpu_config: CpuConfiguration {
                 cpuid: Cpuid::try_from(vm.supported_cpuid().clone()).unwrap(),
-                msrs: HashMap::new(),
+                msrs: BTreeMap::new(),
             },
         };
         vcpu.configure(&vm_mem, GuestAddress(0), &vcpu_config)
@@ -1162,5 +1164,35 @@ mod tests {
             &msr_chunks,
             &[(MSR_IA32_TSC_DEADLINE, 1), (MSR_IA32_TSC, 2)],
         );
+    }
+
+    #[test]
+    fn test_get_msr_chunks_preserved_order() {
+        // Regression test for #4666
+
+        let kvm = Kvm::new().unwrap();
+        let vm = Vm::new(Vec::new()).unwrap();
+        let vcpu = KvmVcpu::new(0, &vm).unwrap();
+
+        // The list of supported MSR indices, in the order they were returned by KVM
+        let msrs_to_save = crate::arch::x86_64::msr::get_msrs_to_save(&kvm).unwrap();
+        // The MSRs after processing. The order should be identical to the one returned by KVM, with
+        // the exception of deferred MSRs, which should be moved to the end (but show up in the same
+        // order as they are listed in [`DEFERRED_MSRS`].
+        let msr_chunks = vcpu
+            .get_msr_chunks(vcpu.msrs_to_save.iter().copied())
+            .unwrap();
+
+        msr_chunks
+            .iter()
+            .flat_map(|chunk| chunk.as_slice().iter())
+            .zip(
+                msrs_to_save
+                    .as_slice()
+                    .iter()
+                    .filter(|&idx| !DEFERRED_MSRS.contains(idx))
+                    .chain(DEFERRED_MSRS.iter()),
+            )
+            .for_each(|(left, &right)| assert_eq!(left.index, right));
     }
 }
