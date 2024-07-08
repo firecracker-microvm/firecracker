@@ -168,18 +168,15 @@ def test_non_partuuid_boot(uvm_plain_any, io_engine):
 
     test_microvm.start()
 
-    # Prepare the input for doing the assertion
-    assert_dict = {}
-    # Keep an array of strings specifying the location where some string
-    # from the output is located.
-    # 1-0 means line 1, column 0.
-    keys_array = ["1-0", "1-6", "2-0"]
     # Keep a dictionary where the keys are the location and the values
     # represent the input to assert against.
-    assert_dict[keys_array[0]] = "ro"
-    assert_dict[keys_array[1]] = "/dev/vda"
-    assert_dict[keys_array[2]] = "ro"
-    _check_drives(test_microvm, assert_dict, keys_array)
+    # 1, 0 means line 1, column 0.
+    assert_dict = {
+        (1, 0): "ro",
+        (1, 6): "/dev/vda",
+        (2, 0): "ro",
+    }
+    _check_drives(test_microvm, assert_dict, assert_dict.keys())
 
 
 def test_partuuid_boot(uvm_plain_any, partuuid_and_disk_path_tmpfs, io_engine):
@@ -207,13 +204,13 @@ def test_partuuid_boot(uvm_plain_any, partuuid_and_disk_path_tmpfs, io_engine):
     )
     test_microvm.start()
 
-    assert_dict = {}
-    keys_array = ["1-0", "1-6", "2-0", "2-6"]
-    assert_dict[keys_array[0]] = "rw"
-    assert_dict[keys_array[1]] = "/dev/vda"
-    assert_dict[keys_array[2]] = "rw"
-    assert_dict[keys_array[3]] = "/dev/vda1"
-    _check_drives(test_microvm, assert_dict, keys_array)
+    assert_dict = {
+        (1, 0): "rw",
+        (1, 6): "/dev/vda",
+        (2, 0): "rw",
+        (2, 6): "/dev/vda1",
+    }
+    _check_drives(test_microvm, assert_dict, assert_dict.keys())
 
 
 def test_partuuid_update(uvm_plain_any, io_engine):
@@ -247,11 +244,11 @@ def test_partuuid_update(uvm_plain_any, io_engine):
     test_microvm.start()
 
     # Assert that the final booting method is from /dev/vda.
-    assert_dict = {}
-    keys_array = ["1-0", "1-6"]
-    assert_dict[keys_array[0]] = "rw"
-    assert_dict[keys_array[1]] = "/dev/vda"
-    _check_drives(test_microvm, assert_dict, keys_array)
+    assert_dict = {
+        (1, 0): "rw",
+        (1, 6): "/dev/vda",
+    }
+    _check_drives(test_microvm, assert_dict, assert_dict.keys())
 
 
 def test_patch_drive(uvm_plain_any, io_engine):
@@ -370,11 +367,9 @@ def _check_file_size(ssh_connection, dev_path, size):
 
 def _process_blockdev_output(blockdev_out, assert_dict, keys_array):
     blockdev_out_lines = blockdev_out.splitlines()
-    for key in keys_array:
-        line = int(key.split("-")[0])
-        col = int(key.split("-")[1])
+    for line, col in keys_array:
         blockdev_out_line_cols = blockdev_out_lines[line].split()
-        assert blockdev_out_line_cols[col] == assert_dict[key]
+        assert blockdev_out_line_cols[col] == assert_dict[line, col]
 
 
 def _check_drives(test_microvm, assert_dict, keys_array):
