@@ -210,3 +210,4 @@ def test_boottime(
             boottime_us - build_time.microseconds,
             unit="Microseconds",
         )
+        vm.kill()
