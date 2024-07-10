@@ -10,6 +10,16 @@ and this project adheres to
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Fixed
+
+## \[1.8.0\]
+
+### Added
+
 - [#4428](https://github.com/firecracker-microvm/firecracker/pull/4428): Added
   ACPI support to Firecracker for x86_64 microVMs. Currently, we pass ACPI
   tables with information about the available vCPUs, interrupt controllers,
