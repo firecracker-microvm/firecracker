@@ -236,6 +236,8 @@ fn create_vmm_and_vcpus(
         vcpus_handles: Vec::new(),
         vcpus_exit_evt,
         #[cfg(target_arch = "x86_64")]
+        vcpu_config: None,
+        #[cfg(target_arch = "x86_64")]
         seccomp_filters,
         resource_allocator,
         mmio_device_manager,
@@ -858,6 +860,9 @@ pub fn configure_system_for_boot(
         cpu_config,
     };
 
+    #[cfg(target_arch = "x86_64")]
+    vmm.attach_vcpu_config(vcpu_config.clone());
+
     // Configure vCPUs with normalizing and setting the generated CPU configuration.
     for vcpu in vcpus.iter_mut() {
         vcpu.kvm_vcpu
@@ -1258,6 +1263,8 @@ pub mod tests {
             uffd: None,
             vcpus_handles: Vec::new(),
             vcpus_exit_evt,
+            #[cfg(target_arch = "x86_64")]
+            vcpu_config: None,
             #[cfg(target_arch = "x86_64")]
             seccomp_filters: crate::seccomp_filters::get_empty_filters(),
             resource_allocator,
