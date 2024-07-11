@@ -808,7 +808,7 @@ pub mod tests {
         );
 
         let mut bus = crate::devices::Bus::new();
-        let dummy = Arc::new(Mutex::new(BusDevice::Dummy(DummyDevice)));
+        let dummy = BusDevice::Dummy(Arc::new(Mutex::new(DummyDevice)));
         bus.insert(dummy, 0x10, 0x10).unwrap();
         vcpu.set_mmio_bus(bus);
         let addr = 0x10;
