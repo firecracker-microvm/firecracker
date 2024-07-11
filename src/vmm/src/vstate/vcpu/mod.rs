@@ -63,7 +63,7 @@ pub enum VcpuError {
 }
 
 /// Encapsulates configuration parameters for the guest vCPUS.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VcpuConfig {
     /// Number of guest VCPUs.
     pub vcpu_count: u8,

@@ -9,8 +9,8 @@ use std::collections::BTreeMap;
 use std::fmt::Debug;
 
 use kvm_bindings::{
-    kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
-    kvm_xsave, CpuId, Msrs, KVM_MAX_CPUID_ENTRIES, KVM_MAX_MSR_ENTRIES,
+    kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_msr_entry, kvm_regs, kvm_sregs,
+    kvm_vcpu_events, kvm_xcrs, kvm_xsave, CpuId, Msrs, KVM_MAX_CPUID_ENTRIES, KVM_MAX_MSR_ENTRIES,
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
 use log::{error, warn};
@@ -178,22 +178,17 @@ impl KvmVcpu {
         })
     }
 
-    /// Configures a x86_64 specific vcpu for booting Linux and should be called once per vcpu.
-    ///
+    /// General configuration - common for both boot and hotplugged CPUs.
+    /// Normalizes and sets the CPUID in KVM and creates KVM MSRs
     /// # Arguments
-    ///
-    /// * `guest_mem` - The guest memory used by this microvm.
-    /// * `kernel_start_addr` - Offset from `guest_mem` at which the kernel starts.
-    /// * `vcpu_config` - The vCPU configuration.
-    /// * `cpuid` - The capabilities exposed by this vCPU.
-    pub fn configure(
+    /// * vcpu_config - The configuration for the vCPUs.
+    /// * msrs - The MSRs currently present.
+    fn configure_common(
         &mut self,
-        guest_mem: &GuestMemoryMmap,
-        kernel_start_addr: GuestAddress,
         vcpu_config: &VcpuConfig,
-    ) -> Result<(), KvmVcpuConfigureError> {
+        msrs: std::collections::BTreeMap<u32, u64>,
+    ) -> Result<(Vec<kvm_msr_entry>, CpuId), KvmVcpuConfigureError> {
         let mut cpuid = vcpu_config.cpu_config.cpuid.clone();
-
         // Apply machine specific changes to CPUID.
         cpuid.normalize(
             // The index of the current logical CPU in the range [0..cpu_count].
@@ -212,6 +207,35 @@ impl KvmVcpu {
             .set_cpuid2(&kvm_cpuid)
             .map_err(KvmVcpuConfigureError::SetCpuid)?;
 
+        // // Clone MSR entries that are modified by CPU template from `VcpuConfig`.
+
+        let kvm_msrs = msrs
+            .clone()
+            .into_iter()
+            .map(|entry| kvm_bindings::kvm_msr_entry {
+                index: entry.0,
+                data: entry.1,
+                ..Default::default()
+            })
+            .collect::<Vec<_>>();
+
+        Ok((kvm_msrs, kvm_cpuid))
+    }
+
+    /// Configures a x86_64 specific vcpu for booting Linux and should be called once per vcpu.
+    ///
+    /// # Arguments
+    ///
+    /// * `guest_mem` - The guest memory used by this microvm.
+    /// * `kernel_start_addr` - Offset from `guest_mem` at which the kernel starts.
+    /// * `vcpu_config` - The vCPU configuration.
+    /// * `cpuid` - The capabilities exposed by this vCPU.
+    pub fn configure(
+        &mut self,
+        guest_mem: &GuestMemoryMmap,
+        kernel_start_addr: GuestAddress,
+        vcpu_config: &VcpuConfig,
+    ) -> Result<(), KvmVcpuConfigureError> {
         // Clone MSR entries that are modified by CPU template from `VcpuConfig`.
         let mut msrs = vcpu_config.cpu_config.msrs.clone();
         self.msrs_to_save.extend(msrs.keys());
@@ -220,6 +244,8 @@ impl KvmVcpu {
         create_boot_msr_entries().into_iter().for_each(|entry| {
             msrs.insert(entry.index, entry.data);
         });
+
+        let (kvm_msrs, kvm_cpuid) = self.configure_common(vcpu_config, msrs)?;
 
         // TODO - Add/amend MSRs for vCPUs based on cpu_config
         // By this point the Guest CPUID is established. Some CPU features require MSRs
@@ -239,19 +265,29 @@ impl KvmVcpu {
         // save is `architectural MSRs` + `MSRs inferred through CPUID` + `other
         // MSRs defined by the template`
 
-        let kvm_msrs = msrs
-            .into_iter()
-            .map(|entry| kvm_bindings::kvm_msr_entry {
-                index: entry.0,
-                data: entry.1,
-                ..Default::default()
-            })
-            .collect::<Vec<_>>();
-
         crate::arch::x86_64::msr::set_msrs(&self.fd, &kvm_msrs)?;
         crate::arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.raw_value())?;
         crate::arch::x86_64::regs::setup_fpu(&self.fd)?;
         crate::arch::x86_64::regs::setup_sregs(guest_mem, &self.fd)?;
+        crate::arch::x86_64::interrupts::set_lint(&self.fd)?;
+
+        Ok(())
+    }
+
+    /// Configures an x86_64 cpu that has been hotplugged post-boot. Called once per hotplugged
+    /// vcpu.
+    ///
+    /// # Arguments
+    ///
+    /// * `vcpu_config` - The config to be applied to the vCPU, defined at boot time.
+    pub fn hotplug_configure(
+        &mut self,
+        vcpu_config: &VcpuConfig,
+    ) -> Result<(), KvmVcpuConfigureError> {
+        let msrs = vcpu_config.cpu_config.msrs.clone();
+        let (kvm_msrs, _) = self.configure_common(vcpu_config, msrs)?;
+
+        crate::arch::x86_64::msr::set_msrs(&self.fd, &kvm_msrs)?;
         crate::arch::x86_64::interrupts::set_lint(&self.fd)?;
 
         Ok(())

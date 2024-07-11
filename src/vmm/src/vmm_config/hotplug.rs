@@ -5,8 +5,8 @@ use std::io;
 
 use serde::{Deserialize, Serialize};
 
-use crate::vstate::vcpu::VcpuError;
-use crate::StartVcpusError;
+use crate::vstate::vcpu::{KvmVcpuConfigureError, VcpuError};
+use crate::{StartVcpusError, VmmError};
 /// Unifying enum for all types of hotplug request configs.
 /// Currently only Vcpus may be hotplugged.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,10 +34,14 @@ pub enum HotplugVcpuError {
     EventFd(#[from] io::Error),
     /// Error creating the vcpu: {0}
     VcpuCreate(VcpuError),
+    /// Error configuring KVM vcpu: {0}
+    VcpuConfigure(#[from] KvmVcpuConfigureError),
     /// Failed to start vCPUs
     VcpuStart(StartVcpusError),
     /// No seccomp filter for thread category: {0}
     MissingSeccompFilters(String),
+    /// Error resuming VM: {0}
+    VmResume(#[from] VmmError),
     /// Cannot hotplug vCPUs after restoring from snapshot
     RestoredFromSnapshot,
 }
