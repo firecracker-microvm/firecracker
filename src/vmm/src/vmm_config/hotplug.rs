@@ -38,6 +38,8 @@ pub enum HotplugVcpuError {
     VcpuStart(StartVcpusError),
     /// No seccomp filter for thread category: {0}
     MissingSeccompFilters(String),
+    /// Cannot hotplug vCPUs after restoring from snapshot
+    RestoredFromSnapshot,
 }
 
 /// Config for hotplugging vCPUS
