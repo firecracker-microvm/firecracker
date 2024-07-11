@@ -9,7 +9,7 @@
 
 use std::cmp::{Ord, Ordering, PartialEq, PartialOrd};
 use std::collections::btree_map::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 /// Errors triggered during bus operations.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -47,29 +47,31 @@ impl PartialOrd for BusRange {
 /// only restriction is that no two devices can overlap in this address space.
 #[derive(Debug, Clone, Default)]
 pub struct Bus {
-    devices: BTreeMap<BusRange, Arc<Mutex<BusDevice>>>,
+    devices: BTreeMap<BusRange, BusDevice>,
 }
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
 
+#[cfg(target_arch = "x86_64")]
+use super::acpi::cpu_container::CpuContainer;
 #[cfg(target_arch = "aarch64")]
 use super::legacy::RTCDevice;
 use super::legacy::{I8042Device, SerialDevice};
 use super::pseudo::BootTimer;
 use super::virtio::mmio::MmioTransport;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BusDevice {
-    I8042Device(I8042Device),
+    I8042Device(Arc<Mutex<I8042Device>>),
     #[cfg(target_arch = "aarch64")]
-    RTCDevice(RTCDevice),
-    BootTimer(BootTimer),
-    MmioTransport(MmioTransport),
-    Serial(SerialDevice<std::io::Stdin>),
+    RTCDevice(Arc<Mutex<RTCDevice>>),
+    BootTimer(Arc<Mutex<BootTimer>>),
+    MmioTransport(Arc<Mutex<MmioTransport>>),
+    Serial(Arc<Mutex<SerialDevice<std::io::Stdin>>>),
     #[cfg(test)]
-    Dummy(DummyDevice),
+    Dummy(Arc<Mutex<DummyDevice>>),
     #[cfg(test)]
-    Constant(ConstantDevice),
+    Constant(Arc<Mutex<ConstantDevice>>),
 }
 
 #[cfg(test)]
@@ -102,97 +104,53 @@ impl ConstantDevice {
 }
 
 impl BusDevice {
-    pub fn i8042_device_ref(&self) -> Option<&I8042Device> {
-        match self {
-            Self::I8042Device(x) => Some(x),
-            _ => None,
-        }
-    }
     #[cfg(target_arch = "aarch64")]
-    pub fn rtc_device_ref(&self) -> Option<&RTCDevice> {
+    pub fn rtc_device_ref(&self) -> Option<MutexGuard<RTCDevice>> {
         match self {
-            Self::RTCDevice(x) => Some(x),
+            Self::RTCDevice(x) => Some(x.lock().expect("Poisoned lock")),
             _ => None,
         }
     }
-    pub fn boot_timer_ref(&self) -> Option<&BootTimer> {
+    pub fn mmio_transport_ref(&self) -> Option<MutexGuard<MmioTransport>> {
         match self {
-            Self::BootTimer(x) => Some(x),
+            Self::MmioTransport(x) => Some(x.lock().expect("Poisoned lock")),
             _ => None,
         }
     }
-    pub fn mmio_transport_ref(&self) -> Option<&MmioTransport> {
+    pub fn serial_ref(&self) -> Option<MutexGuard<SerialDevice<std::io::Stdin>>> {
         match self {
-            Self::MmioTransport(x) => Some(x),
-            _ => None,
-        }
-    }
-    pub fn serial_ref(&self) -> Option<&SerialDevice<std::io::Stdin>> {
-        match self {
-            Self::Serial(x) => Some(x),
+            Self::Serial(x) => Some(x.lock().expect("Poisoned lock")),
             _ => None,
         }
     }
 
-    pub fn i8042_device_mut(&mut self) -> Option<&mut I8042Device> {
+    pub fn read(&self, offset: u64, data: &mut [u8]) {
         match self {
-            Self::I8042Device(x) => Some(x),
-            _ => None,
-        }
-    }
-    #[cfg(target_arch = "aarch64")]
-    pub fn rtc_device_mut(&mut self) -> Option<&mut RTCDevice> {
-        match self {
-            Self::RTCDevice(x) => Some(x),
-            _ => None,
-        }
-    }
-    pub fn boot_timer_mut(&mut self) -> Option<&mut BootTimer> {
-        match self {
-            Self::BootTimer(x) => Some(x),
-            _ => None,
-        }
-    }
-    pub fn mmio_transport_mut(&mut self) -> Option<&mut MmioTransport> {
-        match self {
-            Self::MmioTransport(x) => Some(x),
-            _ => None,
-        }
-    }
-    pub fn serial_mut(&mut self) -> Option<&mut SerialDevice<std::io::Stdin>> {
-        match self {
-            Self::Serial(x) => Some(x),
-            _ => None,
-        }
-    }
-
-    pub fn read(&mut self, offset: u64, data: &mut [u8]) {
-        match self {
-            Self::I8042Device(x) => x.bus_read(offset, data),
+            Self::I8042Device(x) => x.lock().expect("Poisoned lock").bus_read(offset, data),
             #[cfg(target_arch = "aarch64")]
-            Self::RTCDevice(x) => x.bus_read(offset, data),
-            Self::BootTimer(x) => x.bus_read(offset, data),
-            Self::MmioTransport(x) => x.bus_read(offset, data),
-            Self::Serial(x) => x.bus_read(offset, data),
+            Self::RTCDevice(x) => x.lock().expect("Poisoned lock").bus_read(offset, data),
+            Self::BootTimer(x) => x.lock().expect("Poisoned lock").bus_read(offset, data),
+            Self::MmioTransport(x) => x.lock().expect("Poisoned lock").bus_read(offset, data),
+            Self::Serial(x) => x.lock().expect("Poisoned lock").bus_read(offset, data),
             #[cfg(test)]
-            Self::Dummy(x) => x.bus_read(offset, data),
+            Self::Dummy(x) => x.lock().expect("Poisoned lock").bus_read(offset, data),
             #[cfg(test)]
-            Self::Constant(x) => x.bus_read(offset, data),
+            Self::Constant(x) => x.lock().expect("Poisoned lock").bus_read(offset, data),
         }
     }
 
-    pub fn write(&mut self, offset: u64, data: &[u8]) {
+    pub fn write(&self, offset: u64, data: &[u8]) {
         match self {
-            Self::I8042Device(x) => x.bus_write(offset, data),
+            Self::I8042Device(x) => x.lock().expect("Poisoned lock").bus_write(offset, data),
             #[cfg(target_arch = "aarch64")]
-            Self::RTCDevice(x) => x.bus_write(offset, data),
-            Self::BootTimer(x) => x.bus_write(offset, data),
-            Self::MmioTransport(x) => x.bus_write(offset, data),
-            Self::Serial(x) => x.bus_write(offset, data),
+            Self::RTCDevice(x) => x.lock().expect("Poisoned lock").bus_write(offset, data),
+            Self::BootTimer(x) => x.lock().expect("Poisoned lock").bus_write(offset, data),
+            Self::MmioTransport(x) => x.lock().expect("Poisoned lock").bus_write(offset, data),
+            Self::Serial(x) => x.lock().expect("Poisoned lock").bus_write(offset, data),
             #[cfg(test)]
-            Self::Dummy(x) => x.bus_write(offset, data),
+            Self::Dummy(x) => x.lock().expect("Poisoned lock").bus_write(offset, data),
             #[cfg(test)]
-            Self::Constant(x) => x.bus_write(offset, data),
+            Self::Constant(x) => x.lock().expect("Poisoned lock").bus_write(offset, data),
         }
     }
 }
@@ -220,8 +178,7 @@ impl Bus {
         }
     }
 
-    fn first_before(&self, addr: u64) -> Option<(BusRange, &Mutex<BusDevice>)> {
-        // for when we switch to rustc 1.17: self.devices.range(..addr).iter().rev().next()
+    fn first_before(&self, addr: u64) -> Option<(BusRange, &BusDevice)> {
         for (range, dev) in self.devices.iter().rev() {
             if range.0 <= addr {
                 return Some((*range, dev));
@@ -231,7 +188,7 @@ impl Bus {
     }
 
     /// Returns the device found at some address.
-    pub fn get_device(&self, addr: u64) -> Option<(u64, &Mutex<BusDevice>)> {
+    pub fn get_device(&self, addr: u64) -> Option<(u64, &BusDevice)> {
         if let Some((BusRange(start, len), dev)) = self.first_before(addr) {
             let offset = addr - start;
             if offset < len {
@@ -242,12 +199,7 @@ impl Bus {
     }
 
     /// Puts the given device at the given address space.
-    pub fn insert(
-        &mut self,
-        device: Arc<Mutex<BusDevice>>,
-        base: u64,
-        len: u64,
-    ) -> Result<(), BusError> {
+    pub fn insert(&mut self, device: BusDevice, base: u64, len: u64) -> Result<(), BusError> {
         if len == 0 {
             return Err(BusError::Overlap);
         }
@@ -281,10 +233,7 @@ impl Bus {
     /// Returns true on success, otherwise `data` is untouched.
     pub fn read(&self, addr: u64, data: &mut [u8]) -> bool {
         if let Some((offset, dev)) = self.get_device(addr) {
-            // OK to unwrap as lock() failing is a serious error condition and should panic.
-            dev.lock()
-                .expect("Failed to acquire device lock")
-                .read(offset, data);
+            dev.read(offset, data);
             true
         } else {
             false
@@ -296,10 +245,7 @@ impl Bus {
     /// Returns true on success, otherwise `data` is untouched.
     pub fn write(&self, addr: u64, data: &[u8]) -> bool {
         if let Some((offset, dev)) = self.get_device(addr) {
-            // OK to unwrap as lock() failing is a serious error condition and should panic.
-            dev.lock()
-                .expect("Failed to acquire device lock")
-                .write(offset, data);
+            dev.write(offset, data);
             true
         } else {
             false
@@ -314,7 +260,7 @@ mod tests {
     #[test]
     fn bus_insert() {
         let mut bus = Bus::new();
-        let dummy = Arc::new(Mutex::new(BusDevice::Dummy(DummyDevice)));
+        let dummy = BusDevice::Dummy(Arc::new(Mutex::new(DummyDevice)));
         // Insert len should not be 0.
         bus.insert(dummy.clone(), 0x10, 0).unwrap_err();
         bus.insert(dummy.clone(), 0x10, 0x10).unwrap();
@@ -341,7 +287,7 @@ mod tests {
     #[test]
     fn bus_read_write() {
         let mut bus = Bus::new();
-        let dummy = Arc::new(Mutex::new(BusDevice::Dummy(DummyDevice)));
+        let dummy = BusDevice::Dummy(Arc::new(Mutex::new(DummyDevice)));
         bus.insert(dummy, 0x10, 0x10).unwrap();
         assert!(bus.read(0x10, &mut [0, 0, 0, 0]));
         assert!(bus.write(0x10, &[0, 0, 0, 0]));
@@ -358,7 +304,7 @@ mod tests {
     #[test]
     fn bus_read_write_values() {
         let mut bus = Bus::new();
-        let dummy = Arc::new(Mutex::new(BusDevice::Constant(ConstantDevice)));
+        let dummy = BusDevice::Constant(Arc::new(Mutex::new(ConstantDevice)));
         bus.insert(dummy, 0x10, 0x10).unwrap();
 
         let mut values = [0, 1, 2, 3];
@@ -381,7 +327,7 @@ mod tests {
         let mut bus = Bus::new();
         let mut data = [1, 2, 3, 4];
         bus.insert(
-            Arc::new(Mutex::new(BusDevice::Dummy(DummyDevice))),
+            BusDevice::Dummy(Arc::new(Mutex::new(DummyDevice))),
             0x10,
             0x10,
         )

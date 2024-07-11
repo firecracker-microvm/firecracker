@@ -301,9 +301,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 }
             }
 
-            let locked_bus_dev = bus_dev.lock().expect("Poisoned lock");
-
-            let mmio_transport = locked_bus_dev
+            let mmio_transport = bus_dev
                 .mmio_transport_ref()
                 .expect("Unexpected device type");
 
