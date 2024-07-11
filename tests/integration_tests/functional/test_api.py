@@ -1146,6 +1146,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
 
     # Start the microvm.
     uvm_nano.start()
+    uvm_nano.wait_for_up()
 
     # Add a tx rate limiter to the net device.
     tx_rl = {

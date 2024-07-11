@@ -5,6 +5,7 @@
 
 use acpi_tables::madt::LocalAPIC;
 use acpi_tables::{aml, Aml};
+use kvm_ioctls::VmFd;
 use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use utils::eventfd::EventFd;
@@ -15,6 +16,7 @@ use zerocopy::AsBytes;
 use crate::device_manager::mmio::MMIO_LEN;
 use crate::device_manager::resources::ResourceAllocator;
 use crate::devices::legacy::EventFdTrigger;
+use crate::snapshot::Persist;
 use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
 
 #[derive(Debug)]
@@ -150,6 +152,33 @@ impl CpuContainer {
     }
 }
 
+impl<'a> Persist<'a> for CpuContainer {
+    type State = CpuContainerState;
+    type ConstructorArgs = CpuContainerConstructorArgs<'a>;
+    type Error = CpuContainerError;
+
+    fn save(&self) -> Self::State {
+        Self::State {
+            mmio_address: self.mmio_address.0,
+            gsi: self.gsi,
+            cpu_devices: self.cpu_devices.clone(),
+            selected_cpu: self.selected_cpu,
+        }
+    }
+
+    fn restore(
+        _constructor_args: Self::ConstructorArgs,
+        state: &Self::State,
+    ) -> std::result::Result<Self, Self::Error> {
+        Self::from_parts(
+            GuestAddress(state.mmio_address),
+            state.gsi,
+            state.selected_cpu,
+            state.cpu_devices.clone(),
+        )
+    }
+}
+
 impl Aml for CpuContainer {
     fn append_aml_bytes(&self, v: &mut Vec<u8>) {
         // CPU hotplug controller
@@ -218,6 +247,19 @@ impl Aml for CpuContainer {
 
         aml::Device::new("_SB_.CPUS".into(), cpu_data_inner).append_aml_bytes(v)
     }
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct CpuContainerState {
+    pub mmio_address: u64,
+    pub gsi: u32,
+    pub cpu_devices: Vec<CpuDevice>,
+    pub selected_cpu: u8,
+}
+
+#[derive(Debug, Clone)]
+pub struct CpuContainerConstructorArgs<'a> {
+    pub vm: &'a VmFd,
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]

@@ -29,6 +29,8 @@ use vm_superio::Serial;
 
 #[cfg(target_arch = "x86_64")]
 use crate::acpi;
+#[cfg(target_arch = "x86_64")]
+use crate::arch::DeviceType;
 use crate::arch::InitrdConfig;
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
@@ -58,6 +60,8 @@ use crate::devices::virtio::mmio::MmioTransport;
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
+#[cfg(target_arch = "x86_64")]
+use crate::devices::BusDevice;
 use crate::logger::{debug, error};
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
@@ -451,6 +455,8 @@ pub enum BuildMicrovmFromSnapshotError {
     StartVcpus(#[from] crate::StartVcpusError),
     /// Failed to restore vCPUs: {0}
     RestoreVcpus(#[from] VcpuError),
+    /// Failed to restore CPUID: {0}
+    RestoreCpuId(#[from] GuestConfigError),
     /// Failed to apply VMM secccomp filter as none found.
     MissingVmmSeccompFilters,
     /// Failed to apply VMM secccomp filter: {0}
@@ -522,6 +528,31 @@ pub fn build_microvm_from_snapshot(
     #[cfg(target_arch = "x86_64")]
     vmm.vm.restore_state(&microvm_state.vm_state)?;
 
+    #[cfg(target_arch = "x86_64")]
+    {
+        // FIXME: Custom templates are not stored when snapshots are taken, as they were previously
+        // only needed at boottime. With hotplugging, the template could be necessary at any time,
+        // so snapshot must be modified in order to save custom templates
+
+        // let cpuid = Cpuid::try_from(vmm.vm.supported_cpuid().clone())
+        //     .map_err(GuestConfigError::CpuidFromKvmCpuid)?;
+
+        // let_cpu_template = &microvm_state.vm_info.cpu_template;
+        //
+        // let msrs = vcpus[0]
+        //     .kvm_vcpu
+        //     .get_msrs(&[])
+        //     .map_err(GuestConfigError::VcpuIoctl)?;
+        //
+        // let cpu_config = CpuConfiguration { cpuid, msrs };
+        //
+        // let vcpu_config = VcpuConfig {
+        //     vcpu_count: vcpus.len().try_into().unwrap(),
+        //     smt: microvm_state.vm_info.smt,
+        //     cpu_config,
+        // };
+    }
+
     // Restore the boot source config paths.
     vm_resources.set_boot_source_config(microvm_state.vm_info.boot_source);
 
@@ -549,6 +580,22 @@ pub fn build_microvm_from_snapshot(
 
         vmm.acpi_device_manager =
             ACPIDeviceManager::restore(acpi_ctor_args, &microvm_state.acpi_dev_state)?;
+
+        #[cfg(target_arch = "x86_64")]
+        if let Some(BusDevice::CpuContainer(container)) = vmm.get_bus_device(
+            DeviceType::CpuContainer,
+            &DeviceType::CpuContainer.to_string(),
+        ) {
+            vmm.acpi_device_manager
+                .attach_cpu_container(container.clone(), vmm.vm.fd())
+                .map_err(|err| {
+                    BuildMicrovmFromSnapshotError::ACPIDeviManager(
+                        ACPIDeviceManagerRestoreError::CpuContainer(
+                            CpuContainerError::RegisterIrqFd(err),
+                        ),
+                    )
+                })?;
+        }
 
         // Inject the notification to VMGenID that we have resumed from a snapshot.
         // This needs to happen before we resume vCPUs, so that we minimize the time between vCPUs
