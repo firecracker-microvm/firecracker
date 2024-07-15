@@ -462,7 +462,7 @@ impl Queue {
         // This fence ensures all descriptor writes are visible before the index update is.
         fence(Ordering::Release);
 
-        self.set_next_used(self.next_used.0, mem);
+        self.set_used_ring_idx(self.next_used.0, mem);
         Ok(())
     }
 
@@ -525,7 +525,7 @@ impl Queue {
 
     /// Helper method that writes to the `avail_event` field of the used ring.
     #[inline(always)]
-    fn set_avail_event<M: GuestMemory>(&mut self, avail_event: u16, mem: &M) {
+    fn set_used_ring_avail_event<M: GuestMemory>(&mut self, avail_event: u16, mem: &M) {
         debug_assert!(self.is_layout_valid(mem));
 
         // Used ring has layout:
@@ -548,7 +548,7 @@ impl Queue {
 
     /// Helper method that writes to the `idx` field of the used ring.
     #[inline(always)]
-    fn set_next_used<M: GuestMemory>(&mut self, next_used: u16, mem: &M) {
+    fn set_used_ring_idx<M: GuestMemory>(&mut self, next_used: u16, mem: &M) {
         debug_assert!(self.is_layout_valid(mem));
 
         // Used ring has layout:
@@ -596,9 +596,9 @@ impl Queue {
         }
 
         // Set the next expected avail_idx as avail_event.
-        self.set_avail_event(self.next_avail.0, mem);
+        self.set_used_ring_avail_event(self.next_avail.0, mem);
 
-        // Make sure all subsequent reads are performed after `set_avail_event`.
+        // Make sure all subsequent reads are performed after `set_used_ring_avail_event`.
         fence(Ordering::SeqCst);
 
         // If the actual avail_idx is different than next_avail one or more descriptors can still
@@ -903,14 +903,14 @@ mod verification {
     mod stubs {
         use super::*;
 
-        // Calls to set_avail_event tend to cause memory to grow unboundedly during verification.
-        // The function writes to the `avail_event` of the virtio queue, which is not read
-        // from by the device. It is only intended to be used by guest. Therefore, it does not
-        // affect any device functionality (e.g. its only call site, try_enable_notification,
-        // will behave independently of what value was written here). Thus we can stub it out
-        // with a no-op. Note that we have a separate harness for set_avail_event, to ensure
-        // the function itself is sound.
-        fn set_avail_event<M: GuestMemory>(_self: &mut Queue, _val: u16, _mem: &M) {
+        // Calls to set_used_ring_avail_event tend to cause memory to grow unboundedly during
+        // verification. The function writes to the `avail_event` of the virtio queue, which
+        // is not read from by the device. It is only intended to be used by guest.
+        // Therefore, it does not affect any device functionality (e.g. its only call site,
+        // try_enable_notification, will behave independently of what value was written
+        // here). Thus we can stub it out with a no-op. Note that we have a separate harness
+        // for set_used_ring_avail_event, to ensure the function itself is sound.
+        fn set_used_ring_avail_event<M: GuestMemory>(_self: &mut Queue, _val: u16, _mem: &M) {
             // do nothing
         }
     }
@@ -1043,10 +1043,10 @@ mod verification {
 
     #[kani::proof]
     #[kani::unwind(0)]
-    fn verify_set_avail_event() {
+    fn verify_set_used_ring_avail_event() {
         let ProofContext(mut queue, mem) = ProofContext::bounded_queue();
 
-        queue.set_avail_event(kani::any(), &mem);
+        queue.set_used_ring_avail_event(kani::any(), &mem);
     }
 
     #[kani::proof]
@@ -1092,7 +1092,7 @@ mod verification {
 
     #[kani::proof]
     #[kani::unwind(0)]
-    #[kani::stub(Queue::set_avail_event, stubs::set_avail_event)]
+    #[kani::stub(Queue::set_used_ring_avail_event, stubs::set_used_ring_avail_event)]
     fn verify_try_enable_notification() {
         let ProofContext(mut queue, mem) = ProofContext::bounded_queue();
 
@@ -1483,17 +1483,17 @@ mod tests {
     }
 
     #[test]
-    fn test_set_avail_event() {
+    fn test_set_used_ring_avail_event() {
         let m = &default_mem();
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
         let mut q = vq.create_queue();
         assert_eq!(vq.used.event.get(), 0);
 
-        q.set_avail_event(10, m);
+        q.set_used_ring_avail_event(10, m);
         assert_eq!(vq.used.event.get(), 10);
 
-        q.set_avail_event(u16::MAX, m);
+        q.set_used_ring_avail_event(u16::MAX, m);
         assert_eq!(vq.used.event.get(), u16::MAX);
     }
 
