@@ -9,6 +9,8 @@ use std::cmp::min;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
+use utils::usize_to_u64;
+
 use crate::logger::error;
 use crate::vstate::memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap,
@@ -31,12 +33,15 @@ pub(super) const FIRECRACKER_MAX_QUEUE_SIZE: u16 = 256;
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum QueueError {
     /// Descriptor index out of bounds: {0}.
-    DescIndexOutOfBounds(u16),
+    DescIndexOutOfBounds(u32),
     /// Failed to write value into the virtio queue used ring: {0}
     UsedRing(#[from] vm_memory::GuestMemoryError),
 }
 
 /// A virtio descriptor constraints with C representative.
+/// Taken from Virtio spec:
+/// https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html#x1-430008
+/// 2.6.5 The Virtqueue Descriptor Table
 #[repr(C)]
 #[derive(Default, Clone, Copy)]
 struct Descriptor {
@@ -48,6 +53,20 @@ struct Descriptor {
 
 // SAFETY: `Descriptor` is a POD and contains no padding.
 unsafe impl ByteValued for Descriptor {}
+
+/// A virtio used element in the used ring.
+/// Taken from Virtio spec:
+/// https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html#x1-430008
+/// 2.6.8 The Virtqueue Used Ring
+#[repr(C)]
+#[derive(Default, Clone, Copy)]
+struct UsedElement {
+    id: u32,
+    len: u32,
+}
+
+// SAFETY: `UsedElement` is a POD and contains no padding.
+unsafe impl ByteValued for UsedElement {}
 
 /// A virtio descriptor chain.
 #[derive(Debug)]
@@ -430,22 +449,12 @@ impl Queue {
     ) -> Result<(), QueueError> {
         debug_assert!(self.is_layout_valid(mem));
 
-        if desc_index >= self.actual_size() {
-            error!(
-                "attempted to add out of bounds descriptor to used ring: {}",
-                desc_index
-            );
-            return Err(QueueError::DescIndexOutOfBounds(desc_index));
-        }
-
-        let used_ring = self.used_ring;
-        let next_used = u64::from(self.next_used.0 % self.actual_size());
-        let used_elem = used_ring.unchecked_add(4 + next_used * 8);
-
-        mem.write_obj(u32::from(desc_index), used_elem)?;
-
-        let len_addr = used_elem.unchecked_add(4);
-        mem.write_obj(len, len_addr)?;
+        let next_used = self.next_used.0 % self.actual_size();
+        let used_element = UsedElement {
+            id: u32::from(desc_index),
+            len,
+        };
+        self.write_used_ring(mem, next_used, used_element)?;
 
         self.num_added += Wrapping(1);
         self.next_used += Wrapping(1);
@@ -453,8 +462,38 @@ impl Queue {
         // This fence ensures all descriptor writes are visible before the index update is.
         fence(Ordering::Release);
 
-        let next_used_addr = used_ring.unchecked_add(2);
-        mem.write_obj(self.next_used.0, next_used_addr)
+        self.set_next_used(self.next_used.0, mem);
+        Ok(())
+    }
+
+    fn write_used_ring<M: GuestMemory>(
+        &self,
+        mem: &M,
+        index: u16,
+        used_element: UsedElement,
+    ) -> Result<(), QueueError> {
+        if used_element.id >= u32::from(self.actual_size()) {
+            error!(
+                "attempted to add out of bounds descriptor to used ring: {}",
+                used_element.id
+            );
+            return Err(QueueError::DescIndexOutOfBounds(used_element.id));
+        }
+
+        // Used ring has layout:
+        // struct UsedRing {
+        //     flags: u16,
+        //     idx: u16,
+        //     ring: [UsedElement; <queue size>],
+        //     avail_event: u16,
+        // }
+        // We calculate offset into `ring` field.
+        let used_ring_offset = std::mem::size_of::<u16>()
+            + std::mem::size_of::<u16>()
+            + std::mem::size_of::<UsedElement>() * usize::from(index);
+        let used_element_address = self.used_ring.unchecked_add(usize_to_u64(used_ring_offset));
+
+        mem.write_obj(used_element, used_element_address)
             .map_err(QueueError::UsedRing)
     }
 
@@ -484,15 +523,45 @@ impl Queue {
         Wrapping(mem.read_obj::<u16>(used_event_addr).unwrap())
     }
 
-    /// Helper method that writes `val` to the `avail_event` field of the used ring.
-    fn set_avail_event<M: GuestMemory>(&mut self, val: u16, mem: &M) {
+    /// Helper method that writes to the `avail_event` field of the used ring.
+    #[inline(always)]
+    fn set_avail_event<M: GuestMemory>(&mut self, avail_event: u16, mem: &M) {
         debug_assert!(self.is_layout_valid(mem));
 
+        // Used ring has layout:
+        // struct UsedRing {
+        //     flags: u16,
+        //     idx: u16,
+        //     ring: [UsedElement; <queue size>],
+        //     avail_event: u16,
+        // }
+        // We calculate offset into `avail_event` field.
+        let avail_event_offset = std::mem::size_of::<u16>()
+            + std::mem::size_of::<u16>()
+            + std::mem::size_of::<UsedElement>() * usize::from(self.actual_size());
         let avail_event_addr = self
             .used_ring
-            .unchecked_add(u64::from(4 + 8 * self.actual_size()));
+            .unchecked_add(usize_to_u64(avail_event_offset));
 
-        mem.write_obj(val, avail_event_addr).unwrap();
+        mem.write_obj(avail_event, avail_event_addr).unwrap();
+    }
+
+    /// Helper method that writes to the `idx` field of the used ring.
+    #[inline(always)]
+    fn set_next_used<M: GuestMemory>(&mut self, next_used: u16, mem: &M) {
+        debug_assert!(self.is_layout_valid(mem));
+
+        // Used ring has layout:
+        // struct UsedRing {
+        //     flags: u16,
+        //     idx: u16,
+        //     ring: [UsedElement; <queue size>],
+        //     avail_event: u16,
+        // }
+        // We calculate offset into `idx` field.
+        let idx_offset = std::mem::size_of::<u16>();
+        let next_used_addr = self.used_ring.unchecked_add(usize_to_u64(idx_offset));
+        mem.write_obj(next_used, next_used_addr).unwrap();
     }
 
     /// Try to enable notification events from the guest driver. Returns true if notifications were
