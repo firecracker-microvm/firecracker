@@ -1028,8 +1028,16 @@ fn attach_cpu_container_device(vmm: &mut Vmm, vcpu_count: u8) -> Result<(), Star
         vcpu_count,
     )?));
     vmm.acpi_device_manager
-        .attach_cpu_container(cpu_container, vmm.vm.fd())
+        .attach_cpu_container(cpu_container.clone(), vmm.vm.fd())
         .map_err(StartMicrovmError::AttachCpuContainerDevice)?;
+    vmm.mmio_device_manager
+        .register_mmio_cpu_container_for_boot(
+            vmm.vm.fd(),
+            &mut vmm.resource_allocator,
+            cpu_container,
+        )
+        .map_err(StartMicrovmError::RegisterMmioDevice)?;
+
     Ok(())
 }
 
@@ -1143,6 +1151,9 @@ pub mod tests {
         #[cfg(target_arch = "aarch64")]
         let resource_allocator = ResourceAllocator::new().unwrap();
 
+        #[cfg(target_arch = "x86_64")]
+        let mut mmio_device_manager = MMIODeviceManager::new();
+        #[cfg(target_arch = "aarch64")]
         let mmio_device_manager = MMIODeviceManager::new();
 
         #[cfg(target_arch = "x86_64")]
@@ -1167,15 +1178,20 @@ pub mod tests {
         .unwrap();
 
         #[cfg(target_arch = "x86_64")]
-        setup_interrupt_controller(&mut vm).unwrap();
-
-        #[cfg(target_arch = "x86_64")]
         {
+            setup_interrupt_controller(&mut vm).unwrap();
             let cpu_container = Arc::new(Mutex::new(
                 CpuContainer::new(&mut resource_allocator, 1).unwrap(),
             ));
             acpi_device_manager
-                .attach_cpu_container(cpu_container, vm.fd())
+                .attach_cpu_container(cpu_container.clone(), vm.fd())
+                .unwrap();
+            mmio_device_manager
+                .register_mmio_cpu_container_for_boot(
+                    vm.fd(),
+                    &mut resource_allocator,
+                    cpu_container,
+                )
                 .unwrap();
         }
 
@@ -1559,8 +1575,8 @@ pub mod tests {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             assert!(cmdline_contains(
                 &cmdline,
-                "virtio_mmio.device=4K@0xd0001000:6 virtio_mmio.device=4K@0xd0002000:7 \
-                 virtio_mmio.device=4K@0xd0003000:8"
+                "virtio_mmio.device=4K@0xd0001000:7 virtio_mmio.device=4K@0xd0002000:8 \
+                 virtio_mmio.device=4K@0xd0003000:9"
             ));
         }
 
@@ -1655,7 +1671,7 @@ pub mod tests {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         assert!(cmdline_contains(
             &cmdline,
-            "virtio_mmio.device=4K@0xd0001000:6"
+            "virtio_mmio.device=4K@0xd0001000:7"
         ));
     }
 
@@ -1672,7 +1688,7 @@ pub mod tests {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         assert!(cmdline_contains(
             &cmdline,
-            "virtio_mmio.device=4K@0xd0001000:6"
+            "virtio_mmio.device=4K@0xd0001000:7"
         ));
     }
 
@@ -1691,7 +1707,7 @@ pub mod tests {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         assert!(cmdline_contains(
             &cmdline,
-            "virtio_mmio.device=4K@0xd0001000:6"
+            "virtio_mmio.device=4K@0xd0001000:7"
         ));
     }
 }

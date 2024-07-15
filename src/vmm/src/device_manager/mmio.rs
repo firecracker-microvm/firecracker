@@ -24,6 +24,8 @@ use super::resources::ResourceAllocator;
 use crate::arch::aarch64::DeviceInfoForFDT;
 use crate::arch::DeviceType;
 use crate::arch::DeviceType::Virtio;
+#[cfg(target_arch = "x86_64")]
+use crate::devices::acpi::cpu_container::CpuContainer;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::{RTCDevice, SerialDevice};
 use crate::devices::pseudo::BootTimer;
@@ -341,6 +343,52 @@ impl MMIODeviceManager {
             device_info,
             BusDevice::BootTimer(Arc::new(Mutex::new(device))),
         )
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    pub fn register_mmio_cpu_container(
+        &mut self,
+        vm: &VmFd,
+        device: Arc<Mutex<CpuContainer>>,
+        device_info: &MMIODeviceInfo,
+    ) -> Result<(), MmioError> {
+        let identifier = (
+            DeviceType::CpuContainer,
+            DeviceType::CpuContainer.to_string(),
+        );
+        {
+            let container = device.lock().expect("Poisoned lock");
+            vm.register_irqfd(&container.mmio_interrupt_evt, device_info.irqs[0])
+                .map_err(MmioError::RegisterIrqFd)?;
+        }
+
+        self.register_mmio_device(
+            identifier,
+            device_info.clone(),
+            BusDevice::CpuContainer(device),
+        )?;
+        Ok(())
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    pub fn register_mmio_cpu_container_for_boot(
+        &mut self,
+        vm: &VmFd,
+        resource_allocator: &mut ResourceAllocator,
+        device: Arc<Mutex<CpuContainer>>,
+    ) -> Result<(), MmioError> {
+        let device_info = {
+            let locked_container = device.lock().expect("Poisoned lock");
+            let irqs = resource_allocator.allocate_gsi(1)?;
+            MMIODeviceInfo {
+                addr: locked_container.mmio_address.0,
+                len: MMIO_LEN,
+                irqs,
+            }
+        };
+
+        self.register_mmio_cpu_container(vm, device, &device_info)?;
+        Ok(())
     }
 
     /// Gets the information of the devices registered up to some point in time.
@@ -829,6 +877,26 @@ mod tests {
         );
         device_manager
             .allocate_mmio_resources(&mut resource_allocator, 0)
+            .unwrap();
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_register_cpu_container() {
+        let mut device_manager = MMIODeviceManager::new();
+        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        let mut vm = Vm::new(vec![]).unwrap();
+        builder::setup_interrupt_controller(&mut vm).unwrap();
+        let cpu_container = Arc::new(Mutex::new(
+            CpuContainer::new(&mut resource_allocator, 1).unwrap(),
+        ));
+
+        device_manager
+            .register_mmio_cpu_container_for_boot(vm.fd(), &mut resource_allocator, cpu_container)
+            .unwrap();
+
+        device_manager
+            .get_device(DeviceType::CpuContainer, "CpuContainer")
             .unwrap();
     }
 }
