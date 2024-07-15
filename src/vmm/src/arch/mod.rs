@@ -41,6 +41,9 @@ pub enum DeviceType {
     Rtc,
     /// Device Type: BootTimer.
     BootTimer,
+    /// Device Type: CpuContainer
+    #[cfg(target_arch = "x86_64")]
+    CpuContainer,
 }
 
 /// Type for passing information about the initrd in the guest memory.

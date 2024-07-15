@@ -620,14 +620,20 @@ impl Vmm {
 
         #[allow(clippy::cast_possible_truncation)]
         let start_idx = self.vcpus_handles.len().try_into().unwrap();
-        for cpu_idx in start_idx..(start_idx + config.add) {
-            let exit_evt = self
-                .vcpus_exit_evt
-                .try_clone()
-                .map_err(HotplugVcpuError::EventFd)?;
-            let vcpu =
-                Vcpu::new(cpu_idx, &self.vm, exit_evt).map_err(HotplugVcpuError::VcpuCreate)?;
-            vcpus.push(vcpu);
+        if let Some(devices::BusDevice::CpuContainer(cont)) =
+            self.get_bus_device(DeviceType::CpuContainer, "CpuContainer")
+        {
+            let mut locked_container = cont.lock().expect("Poisoned lock");
+            for cpu_idx in start_idx..(start_idx + config.add) {
+                let exit_evt = self
+                    .vcpus_exit_evt
+                    .try_clone()
+                    .map_err(HotplugVcpuError::EventFd)?;
+                let vcpu =
+                    Vcpu::new(cpu_idx, &self.vm, exit_evt).map_err(HotplugVcpuError::VcpuCreate)?;
+                locked_container.cpu_devices[cpu_idx as usize].inserting = true;
+                vcpus.push(vcpu);
+            }
         }
 
         self.start_vcpus(
@@ -652,6 +658,8 @@ impl Vmm {
             track_dirty_pages: None,
             huge_pages: None,
         };
+
+        self.acpi_device_manager.notify_cpu_container()?;
 
         Ok(new_machine_config)
     }
