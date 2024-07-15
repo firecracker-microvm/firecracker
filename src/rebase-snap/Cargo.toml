@@ -13,7 +13,7 @@ bench = false
 displaydoc = "0.2.5"
 libc = "0.2.155"
 log-instrument = { path = "../log-instrument", optional = true }
-thiserror = "1.0.61"
+thiserror = "1.0.62"
 
 utils = { path = "../utils" }
 
