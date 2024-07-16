@@ -67,7 +67,7 @@ macro_rules! arm64_core_reg_id {
         KVM_REG_ARM64 as u64
             | KVM_REG_ARM_CORE as u64
             | $size
-            | (($offset / std::mem::size_of::<u32>()) as u64)
+            | ($offset / std::mem::size_of::<u32>()) as u64
     };
 }
 pub(crate) use arm64_core_reg_id;

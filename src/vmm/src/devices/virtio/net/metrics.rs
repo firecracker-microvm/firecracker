@@ -361,7 +361,7 @@ pub mod tests {
         drop(METRICS.write().unwrap());
 
         NetMetricsPerDevice::alloc(String::from(devn));
-        assert!(METRICS.read().unwrap().metrics.get(devn).is_some());
+        METRICS.read().unwrap().metrics.get(devn).unwrap();
 
         METRICS
             .read()

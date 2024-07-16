@@ -9,7 +9,7 @@ use vm_superio::rtc_pl031::RtcEvents;
 use crate::logger::{warn, IncMetric, SharedIncMetric};
 
 /// Metrics specific to the RTC device.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Default)]
 pub struct RTCDeviceMetrics {
     /// Errors triggered while using the RTC device.
     pub error_count: SharedIncMetric,

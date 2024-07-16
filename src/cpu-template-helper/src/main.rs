@@ -299,7 +299,7 @@ mod tests {
 
     #[test]
     fn test_template_strip_command() {
-        let files = vec![generate_sample_template(), generate_sample_template()];
+        let files = [generate_sample_template(), generate_sample_template()];
 
         let mut args = vec!["cpu-template-helper", "template", "strip", "-p"];
         let paths = files
