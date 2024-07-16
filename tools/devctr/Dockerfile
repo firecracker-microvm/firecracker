@@ -1,4 +1,4 @@
-FROM ubuntu:22.04
+FROM public.ecr.aws/lts/ubuntu:22.04
 
 # TODO: use a multi-stage build to reduce the download size when updating this container.
 # The Rust toolchain layer will get updated most frequently, but we could keep the system
