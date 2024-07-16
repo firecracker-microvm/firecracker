@@ -10,14 +10,14 @@ name = "snapshot-editor"
 bench = false
 
 [dependencies]
-clap = { version = "4.5.8", features = ["derive", "string"] }
+clap = { version = "4.5.9", features = ["derive", "string"] }
 displaydoc = "0.2.5"
 
 fc_utils = { package = "utils", path = "../utils" }
 libc = "0.2.155"
 log-instrument = { path = "../log-instrument", optional = true }
 semver = "1.0.23"
-thiserror = "1.0.61"
+thiserror = "1.0.62"
 vmm = { path = "../vmm" }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]

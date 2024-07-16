@@ -23,7 +23,7 @@ for i in $(git diff --name-only --cached --diff-filter=d); do
     extension="${filename##*.}"
     if [ "$extension" = "rs" ]; then
         # Read rustfmt config, replace '\n' with ','
-        rustfmt_config="$(sed -z "s/\n/,/g;s/,$/\n/" ./tests/fmt.toml)"
+        rustfmt_config="$(paste -sd, ./tests/fmt.toml)"
         # We first do a check run, this will fail when it finds a non-matching license.
         rustfmt $i --check --config $rustfmt_config
         # Run `cargo fmt` for this file
