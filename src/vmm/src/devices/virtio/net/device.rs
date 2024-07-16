@@ -22,7 +22,8 @@ use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDev
 use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::gen::virtio_net::{
     virtio_net_hdr_v1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM, VIRTIO_NET_F_GUEST_TSO4,
-    VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC,
+    VIRTIO_NET_F_GUEST_TSO6, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4,
+    VIRTIO_NET_F_HOST_TSO6, VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC,
 };
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::iovec::IoVecBuffer;
@@ -155,8 +156,10 @@ impl Net {
         let mut avail_features = 1 << VIRTIO_NET_F_GUEST_CSUM
             | 1 << VIRTIO_NET_F_CSUM
             | 1 << VIRTIO_NET_F_GUEST_TSO4
+            | 1 << VIRTIO_NET_F_GUEST_TSO6
             | 1 << VIRTIO_NET_F_GUEST_UFO
             | 1 << VIRTIO_NET_F_HOST_TSO4
+            | 1 << VIRTIO_NET_F_HOST_TSO6
             | 1 << VIRTIO_NET_F_HOST_UFO
             | 1 << VIRTIO_F_VERSION_1
             | 1 << VIRTIO_RING_F_EVENT_IDX;
@@ -684,6 +687,12 @@ impl Net {
             gen::TUN_F_TSO4,
             VIRTIO_NET_F_GUEST_TSO4,
         );
+        add_if_supported(
+            &mut tap_features,
+            guest_supported_features,
+            gen::TUN_F_TSO6,
+            VIRTIO_NET_F_GUEST_TSO6,
+        );
 
         tap_features
     }
@@ -1010,9 +1019,11 @@ pub mod tests {
         let features = 1 << VIRTIO_NET_F_GUEST_CSUM
             | 1 << VIRTIO_NET_F_CSUM
             | 1 << VIRTIO_NET_F_GUEST_TSO4
+            | 1 << VIRTIO_NET_F_GUEST_TSO6
             | 1 << VIRTIO_NET_F_MAC
             | 1 << VIRTIO_NET_F_GUEST_UFO
             | 1 << VIRTIO_NET_F_HOST_TSO4
+            | 1 << VIRTIO_NET_F_HOST_TSO6
             | 1 << VIRTIO_NET_F_HOST_UFO
             | 1 << VIRTIO_F_VERSION_1
             | 1 << VIRTIO_RING_F_EVENT_IDX;
@@ -1037,9 +1048,12 @@ pub mod tests {
     // Test that `Net::build_tap_offload_features` creates the TAP offload features that we expect
     // it to do, based on the available guest features
     fn test_build_tap_offload_features_all() {
-        let supported_features =
-            1 << VIRTIO_NET_F_CSUM | 1 << VIRTIO_NET_F_GUEST_UFO | 1 << VIRTIO_NET_F_GUEST_TSO4;
-        let expected_tap_features = gen::TUN_F_CSUM | gen::TUN_F_UFO | gen::TUN_F_TSO4;
+        let supported_features = 1 << VIRTIO_NET_F_CSUM
+            | 1 << VIRTIO_NET_F_GUEST_UFO
+            | 1 << VIRTIO_NET_F_GUEST_TSO4
+            | 1 << VIRTIO_NET_F_GUEST_TSO6;
+        let expected_tap_features =
+            gen::TUN_F_CSUM | gen::TUN_F_UFO | gen::TUN_F_TSO4 | gen::TUN_F_TSO6;
         let supported_flags = Net::build_tap_offload_features(supported_features);
 
         assert_eq!(supported_flags, expected_tap_features);
