@@ -28,7 +28,7 @@ const NANOSEC_IN_ONE_MILLISEC: u64 = 1_000_000;
 // Euclid's two-thousand-year-old algorithm for finding the greatest common divisor.
 #[cfg_attr(kani, kani::requires(x > 0 && y > 0))]
 #[cfg_attr(kani, kani::ensures(
-    result != 0
+    |&result| result != 0
         && x % result == 0
         && y % result == 0
 ))]
