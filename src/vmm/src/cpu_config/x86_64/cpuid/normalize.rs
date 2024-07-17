@@ -4,6 +4,7 @@
 use crate::cpu_config::x86_64::cpuid::{
     cpuid, CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags,
 };
+use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
 
 /// Error type for [`super::Cpuid::normalize`].
 #[allow(clippy::module_name_repetitions)]
@@ -182,15 +183,15 @@ impl super::Cpuid {
             .checked_shl(u32::from(cpu_bits))
             .ok_or(NormalizeCpuidError::CpuBits(cpu_bits))?;
         self.update_vendor_id()?;
-        self.update_feature_info_entry(cpu_index, cpu_count)?;
-        self.update_extended_topology_entry(cpu_index, cpu_count, cpu_bits, cpus_per_core)?;
+        self.update_feature_info_entry(cpu_index)?;
+        self.update_extended_topology_entry(cpu_index, cpu_bits, cpus_per_core)?;
         self.update_extended_cache_features()?;
 
         // Apply manufacturer specific modifications.
         match self {
             // Apply Intel specific modifications.
             Self::Intel(intel_cpuid) => {
-                intel_cpuid.normalize(cpu_index, cpu_count, cpus_per_core)?;
+                intel_cpuid.normalize(cpus_per_core)?;
             }
             // Apply AMD specific modifications.
             Self::Amd(amd_cpuid) => amd_cpuid.normalize(cpu_index, cpu_count, cpus_per_core)?,
@@ -216,11 +217,7 @@ impl super::Cpuid {
     }
 
     // Update feature information entry
-    fn update_feature_info_entry(
-        &mut self,
-        cpu_index: u8,
-        cpu_count: u8,
-    ) -> Result<(), FeatureInformationError> {
+    fn update_feature_info_entry(&mut self, cpu_index: u8) -> Result<(), FeatureInformationError> {
         // Flush a cache line size.
         const EBX_CLFLUSH_CACHELINE: u32 = 8;
 
@@ -268,7 +265,7 @@ impl super::Cpuid {
             .map_err(FeatureInformationError::Clflush)?;
 
         let max_cpus_per_package = u32::from(
-            get_max_cpus_per_package(cpu_count)
+            get_max_cpus_per_package(MAX_SUPPORTED_VCPUS)
                 .map_err(FeatureInformationError::GetMaxCpusPerPackage)?,
         );
 
@@ -294,7 +291,7 @@ impl super::Cpuid {
         // A value of 1 for HTT indicates the value in CPUID.1.EBX[23:16]
         // (the Maximum number of addressable IDs for logical processors in this package)
         // is valid for the package
-        set_bit(&mut leaf_1.result.edx, 28, cpu_count > 1);
+        set_bit(&mut leaf_1.result.edx, 28, true);
 
         Ok(())
     }
@@ -303,7 +300,6 @@ impl super::Cpuid {
     fn update_extended_topology_entry(
         &mut self,
         cpu_index: u8,
-        cpu_count: u8,
         cpu_bits: u8,
         cpus_per_core: u8,
     ) -> Result<(), ExtendedTopologyError> {
@@ -408,8 +404,12 @@ impl super::Cpuid {
                         set_range(&mut subleaf.result.eax, 0..5, LEAFBH_INDEX1_APICID)
                             .map_err(ExtendedTopologyError::ApicId)?;
 
-                        set_range(&mut subleaf.result.ebx, 0..16, u32::from(cpu_count))
-                            .map_err(ExtendedTopologyError::LogicalProcessors)?;
+                        set_range(
+                            &mut subleaf.result.ebx,
+                            0..16,
+                            u32::from(MAX_SUPPORTED_VCPUS),
+                        )
+                        .map_err(ExtendedTopologyError::LogicalProcessors)?;
 
                         // We expect here as this is an extremely rare case that is unlikely to ever
                         // occur. It would require manual editing of the CPUID structure to push
@@ -577,12 +577,7 @@ mod tests {
                 },
             },
         )])));
-        let result = intel_cpuid.update_extended_topology_entry(
-            cpu_index,
-            cpu_count,
-            cpu_bits,
-            cpus_per_core,
-        );
+        let result = intel_cpuid.update_extended_topology_entry(cpu_index, cpu_bits, cpus_per_core);
         result.unwrap();
         assert!(intel_cpuid.inner().contains_key(&CpuidKey {
             leaf: 0xb,
@@ -605,8 +600,7 @@ mod tests {
                 },
             },
         )])));
-        let result =
-            amd_cpuid.update_extended_topology_entry(cpu_index, cpu_count, cpu_bits, cpus_per_core);
+        let result = amd_cpuid.update_extended_topology_entry(cpu_index, cpu_bits, cpus_per_core);
         result.unwrap();
         assert!(amd_cpuid.inner().contains_key(&CpuidKey {
             leaf: 0xb,

@@ -8,6 +8,7 @@ use crate::cpu_config::x86_64::cpuid::{
     host_brand_string, CpuidKey, CpuidRegisters, CpuidTrait, MissingBrandStringLeaves,
     BRAND_STRING_LENGTH,
 };
+use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
 
 /// Error type for [`super::IntelCpuid::normalize`].
 #[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
@@ -62,14 +63,10 @@ impl super::IntelCpuid {
     #[inline]
     pub fn normalize(
         &mut self,
-        // The index of the current logical CPU in the range [0..cpu_count].
-        _cpu_index: u8,
-        // The total number of logical CPUs.
-        cpu_count: u8,
         // The number of logical CPUs per core.
         cpus_per_core: u8,
     ) -> Result<(), NormalizeCpuidError> {
-        self.update_deterministic_cache_entry(cpu_count, cpus_per_core)?;
+        self.update_deterministic_cache_entry(cpus_per_core)?;
         self.update_power_management_entry()?;
         self.update_extended_feature_flags_entry()?;
         self.update_performance_monitoring_entry()?;
@@ -82,7 +79,6 @@ impl super::IntelCpuid {
     #[allow(clippy::unwrap_in_result)]
     fn update_deterministic_cache_entry(
         &mut self,
-        cpu_count: u8,
         cpus_per_core: u8,
     ) -> Result<(), DeterministicCacheError> {
         for i in 0.. {
@@ -125,7 +121,7 @@ impl super::IntelCpuid {
                     // The L3 cache is shared among all the logical threads
                     3 => {
                         let sub = u32::from(
-                            cpu_count
+                            MAX_SUPPORTED_VCPUS
                                 .checked_sub(1)
                                 .ok_or(DeterministicCacheError::MaxCpusPerCoreUnderflow)?,
                         );
@@ -137,7 +133,7 @@ impl super::IntelCpuid {
 
                 // We know `cpus_per_core !=0` therefore this is always safe.
                 #[allow(clippy::unwrap_used)]
-                let cores = cpu_count.checked_div(cpus_per_core).unwrap();
+                let cores = MAX_SUPPORTED_VCPUS.checked_div(cpus_per_core).unwrap();
 
                 // Maximum number of addressable IDs for processor cores in the physical package.
                 // - Add one to the return value to get the result.

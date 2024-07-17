@@ -19,7 +19,7 @@ import pytest
 
 import framework.utils_cpuid as cpuid_utils
 from framework import utils
-from framework.defs import SUPPORTED_HOST_KERNELS
+from framework.defs import MAX_SUPPORTED_VCPUS, SUPPORTED_HOST_KERNELS
 from framework.properties import global_props
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
 
@@ -38,12 +38,12 @@ def clean_and_mkdir(dir_path):
     os.makedirs(dir_path)
 
 
-def _check_cpuid_x86(test_microvm, expected_cpu_count, expected_htt):
+def _check_cpuid_x86(test_microvm):
     expected_cpu_features = {
-        "maximum IDs for CPUs in pkg": f"{expected_cpu_count:#x} ({expected_cpu_count})",
+        "maximum IDs for CPUs in pkg": f"{MAX_SUPPORTED_VCPUS:#x} ({MAX_SUPPORTED_VCPUS})",
         "CLFLUSH line size": "0x8 (8)",
         "hypervisor guest status": "true",
-        "hyper-threading / multi-core supported": expected_htt,
+        "hyper-threading / multi-core supported": "true",
     }
 
     cpuid_utils.check_guest_cpuid_output(
@@ -116,7 +116,7 @@ def test_cpuid(uvm_plain_any, num_vcpus, htt):
     vm.basic_config(vcpu_count=num_vcpus, smt=htt)
     vm.add_net_iface()
     vm.start()
-    _check_cpuid_x86(vm, num_vcpus, "true" if num_vcpus > 1 else "false")
+    _check_cpuid_x86(vm)
 
 
 @pytest.mark.skipif(PLATFORM != "x86_64", reason="CPUID is only supported on x86_64.")
