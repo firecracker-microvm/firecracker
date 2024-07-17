@@ -587,7 +587,7 @@ mod tests {
         // let mut output = fs::OpenOptions::new()
         // .write(true)
         // .create(true)
-        // .open(path.join(format!("src/aarch64/{}", dtb_path)))
+        // .open(path.join(format!("src/arch/aarch64/{}", dtb_path)))
         // .unwrap();
         // output.write_all(&current_dtb_bytes).unwrap();
         // }
@@ -649,7 +649,7 @@ mod tests {
         // let mut output = fs::OpenOptions::new()
         // .write(true)
         // .create(true)
-        // .open(path.join(format!("src/aarch64/{}", dtb_path)))
+        // .open(path.join(format!("src/arch/aarch64/{}", dtb_path)))
         // .unwrap();
         // output.write_all(&current_dtb_bytes).unwrap();
         // }
