@@ -264,7 +264,11 @@ impl Net {
         &self.tx_rate_limiter
     }
 
-    fn signal_used_queue(&mut self, queue_type: NetQueue) -> Result<(), DeviceError> {
+    /// Trigger queue notification for the guest if we used enough descriptors
+    /// for the notification to be enabled.
+    /// https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html#x1-320005
+    /// 2.6.7.1 Driver Requirements: Used Buffer Notification Suppression
+    fn try_signal_queue(&mut self, queue_type: NetQueue) -> Result<(), DeviceError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
@@ -552,9 +556,7 @@ impl Net {
             }
         }
 
-        // At this point we processed as many Rx frames as possible.
-        // We have to wake the guest if at least one descriptor chain has been used.
-        self.signal_used_queue(NetQueue::Rx)
+        self.try_signal_queue(NetQueue::Rx)
     }
 
     // Process the deferred frame first, then continue reading from tap.
@@ -566,7 +568,7 @@ impl Net {
             return self.process_rx();
         }
 
-        self.signal_used_queue(NetQueue::Rx)
+        self.try_signal_queue(NetQueue::Rx)
     }
 
     fn resume_rx(&mut self) -> Result<(), DeviceError> {
@@ -647,7 +649,7 @@ impl Net {
             self.metrics.no_tx_avail_buffer.inc();
         }
 
-        self.signal_used_queue(NetQueue::Tx)?;
+        self.try_signal_queue(NetQueue::Tx)?;
 
         // An incoming frame for the MMDS may trigger the transmission of a new message.
         if process_rx_for_mmds {
