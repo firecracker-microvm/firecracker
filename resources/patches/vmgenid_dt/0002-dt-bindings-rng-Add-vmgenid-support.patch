@@ -1,0 +1,135 @@
+From 477bd33715e9d669bc3d5968cd69108241ae099c Mon Sep 17 00:00:00 2001
+From: Sudan Landge <sudanl@amazon.com>
+Date: Wed, 17 Apr 2024 12:40:45 +0200
+Subject: [PATCH 2/3] dt-bindings: rng: Add vmgenid support
+
+Virtual Machine Generation ID driver was introduced in commit
+af6b54e2b5ba ("virt: vmgenid: notify RNG of VM fork and supply
+generation ID"), as an ACPI only device.
+
+VMGenID specification http://go.microsoft.com/fwlink/?LinkId=260709
+defines a mechanism for the BIOS/hypervisors to communicate to the
+virtual machine that it is executed with a different configuration (e.g.
+snapshot execution or creation from a template).  The guest operating
+system can use the notification for various purposes such as
+re-initializing its random number generator etc.
+
+As per the specs, hypervisor should provide a globally unique
+identified, or GUID via ACPI.
+
+This patch tries to mimic the mechanism to provide the same
+functionality which is for a hypervisor/BIOS to notify the virtual
+machine when it is executed with a different configuration.
+
+As part of this support the devicetree bindings requires the hypervisors
+or BIOS to provide a memory address which holds the GUID and an IRQ
+which is used to notify when there is a change in the GUID.  The memory
+exposed in the DT should follow the rules defined in the vmgenid spec
+mentioned above.
+
+Reason for this change: Chosing ACPI or devicetree is an intrinsic part
+of an hypervisor design.  Without going into details of why a hypervisor
+would chose DT over ACPI, we would like to highlight that the
+hypervisors that have chose devicetree and now want to make use of the
+vmgenid functionality cannot do so today because vmgenid is an ACPI only
+device.  This forces these hypervisors to change their design which
+could have undesirable impacts on their use-cases, test-scenarios etc.
+
+The point of vmgenid is to provide a mechanism to discover a GUID when
+the execution state of a virtual machine changes and the simplest way to
+do it is pass a memory location and an interrupt via devicetree.  It
+would complicate things unnecessarily if instead of using devicetree, we
+try to implement a new protocol or modify other protocols to somehow
+provide the same functionility.
+
+We believe that adding a devicetree binding for vmgenid is a simpler,
+better alternative to provide the same functionality and will allow such
+hypervisors as mentioned above to continue using devicetree.
+
+More references to the vmgenid specs are found below.
+
+Signed-off-by: Sudan Landge <sudanl@amazon.com>
+Reviewed-by: Rob Herring <robh@kernel.org>
+Reviewed-by: Alexander Graf <graf@amazon.com>
+Link: https://www.qemu.org/docs/master/specs/vmgenid.html
+Link: https://learn.microsoft.com/en-us/windows/win32/hyperv_v2/virtual-machine-generation-identifier
+Signed-off-by: Jason A. Donenfeld <Jason@zx2c4.com>
+---
+ .../bindings/rng/microsoft,vmgenid.yaml       | 49 +++++++++++++++++++
+ MAINTAINERS                                   |  3 +-
+ 2 files changed, 51 insertions(+), 1 deletion(-)
+ create mode 100644 Documentation/devicetree/bindings/rng/microsoft,vmgenid.yaml
+
+diff --git a/Documentation/devicetree/bindings/rng/microsoft,vmgenid.yaml b/Documentation/devicetree/bindings/rng/microsoft,vmgenid.yaml
+new file mode 100644
+index 0000000000000..8f20dee93e7ea
+--- /dev/null
++++ b/Documentation/devicetree/bindings/rng/microsoft,vmgenid.yaml
+@@ -0,0 +1,49 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/rng/microsoft,vmgenid.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Virtual Machine Generation ID
++
++maintainers:
++  - Jason A. Donenfeld <Jason@zx2c4.com>
++
++description:
++  Firmwares or hypervisors can use this devicetree to describe an
++  interrupt and a shared resource to inject a Virtual Machine Generation ID.
++  Virtual Machine Generation ID is a globally unique identifier (GUID) and
++  the devicetree binding follows VMGenID specification defined in
++  http://go.microsoft.com/fwlink/?LinkId=260709.
++
++properties:
++  compatible:
++    const: microsoft,vmgenid
++
++  reg:
++    description:
++      Specifies a 16-byte VMGenID in endianness-agnostic hexadecimal format.
++    maxItems: 1
++
++  interrupts:
++    description:
++      Interrupt used to notify that a new VMGenID is available.
++    maxItems: 1
++
++required:
++  - compatible
++  - reg
++  - interrupts
++
++additionalProperties: false
++
++examples:
++  - |
++    #include <dt-bindings/interrupt-controller/arm-gic.h>
++    rng@80000000 {
++      compatible = "microsoft,vmgenid";
++      reg = <0x80000000 0x1000>;
++      interrupts = <GIC_SPI 35 IRQ_TYPE_EDGE_RISING>;
++    };
++
++...
+diff --git a/MAINTAINERS b/MAINTAINERS
+index 886d3f69ee644..792d1a8b6f422 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -17290,8 +17290,9 @@ F:	arch/mips/generic/board-ranchu.c
+ RANDOM NUMBER DRIVER
+ M:	"Theodore Ts'o" <tytso@mit.edu>
+ M:	Jason A. Donenfeld <Jason@zx2c4.com>
+-T:	git https://git.kernel.org/pub/scm/linux/kernel/git/crng/random.git
+ S:	Maintained
++T:	git https://git.kernel.org/pub/scm/linux/kernel/git/crng/random.git
++F:	Documentation/devicetree/bindings/rng/microsoft,vmgenid.yaml
+ F:	drivers/char/random.c
+ F:	drivers/virt/vmgenid.c
+ 
+-- 
+2.34.1
+
