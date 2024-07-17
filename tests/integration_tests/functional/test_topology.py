@@ -8,6 +8,7 @@ import subprocess
 import pytest
 
 import framework.utils_cpuid as utils
+from framework.defs import MAX_SUPPORTED_VCPUS
 from framework.properties import global_props
 
 TOPOLOGY_STR = {1: "0", 2: "0,1", 16: "0-15"}
@@ -31,15 +32,13 @@ def _check_cpu_topology(
     )
 
 
-def _check_cache_topology_x86(
-    test_microvm, num_vcpus_on_lvl_1_cache, num_vcpus_on_lvl_3_cache
-):
+def _check_cache_topology_x86(test_microvm, num_vcpus_on_lvl_1_cache):
     vm = test_microvm
     expected_lvl_1_str = "{} ({})".format(
         hex(num_vcpus_on_lvl_1_cache), num_vcpus_on_lvl_1_cache
     )
     expected_lvl_3_str = "{} ({})".format(
-        hex(num_vcpus_on_lvl_3_cache), num_vcpus_on_lvl_3_cache
+        hex(MAX_SUPPORTED_VCPUS - 1), MAX_SUPPORTED_VCPUS - 1
     )
 
     cpu_vendor = utils.get_cpu_vendor()
@@ -181,7 +180,7 @@ def test_cache_topology(uvm_plain_any, num_vcpus, htt):
     vm.add_net_iface()
     vm.start()
     if PLATFORM == "x86_64":
-        _check_cache_topology_x86(vm, 1 if htt and num_vcpus > 1 else 0, num_vcpus - 1)
+        _check_cache_topology_x86(vm, 1 if htt and num_vcpus > 1 else 0)
     elif PLATFORM == "aarch64":
         _check_cache_topology_arm(vm, num_vcpus, global_props.host_linux_version_tpl)
     else:

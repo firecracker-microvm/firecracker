@@ -9,6 +9,7 @@ use crate::cpu_config::x86_64::cpuid::{
     cpuid, cpuid_count, CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags,
     MissingBrandStringLeaves, BRAND_STRING_LENGTH, VENDOR_ID_AMD,
 };
+use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
 
 /// Error type for [`super::AmdCpuid::normalize`].
 #[allow(clippy::module_name_repetitions)]
@@ -107,7 +108,7 @@ impl super::AmdCpuid {
         self.update_largest_extended_fn_entry()?;
         self.update_extended_feature_fn_entry()?;
         self.update_amd_feature_entry(cpu_count)?;
-        self.update_extended_cache_topology_entry(cpu_count, cpus_per_core)?;
+        self.update_extended_cache_topology_entry(cpus_per_core)?;
         self.update_extended_apic_id_entry(cpu_index, cpus_per_core)?;
         self.update_brand_string_entry()?;
 
@@ -268,7 +269,6 @@ impl super::AmdCpuid {
     #[allow(clippy::unwrap_in_result, clippy::unwrap_used)]
     fn update_extended_cache_topology_entry(
         &mut self,
-        cpu_count: u8,
         cpus_per_core: u8,
     ) -> Result<(), ExtendedCacheTopologyError> {
         for i in 0.. {
@@ -312,7 +312,7 @@ impl super::AmdCpuid {
                     // L3 Cache
                     // The L3 cache is shared among all the logical threads
                     3 => {
-                        let sub = cpu_count
+                        let sub = MAX_SUPPORTED_VCPUS
                             .checked_sub(1)
                             .ok_or(ExtendedCacheTopologyError::NumSharingCacheOverflow)?;
                         set_range(&mut subleaf.result.eax, 14..26, u32::from(sub))

@@ -39,3 +39,5 @@ if not IMG_DIR.exists():
     IMG_DIR = LOCAL_BUILD_PATH / "img"
 
 ARTIFACT_DIR = IMG_DIR / platform.machine()
+
+MAX_SUPPORTED_VCPUS = 32
