@@ -59,10 +59,10 @@ unsafe impl ByteValued for Descriptor {}
 /// https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html#x1-430008
 /// 2.6.8 The Virtqueue Used Ring
 #[repr(C)]
-#[derive(Default, Clone, Copy)]
-struct UsedElement {
-    id: u32,
-    len: u32,
+#[derive(Default, Debug, Clone, Copy)]
+pub struct UsedElement {
+    pub id: u32,
+    pub len: u32,
 }
 
 // SAFETY: `UsedElement` is a POD and contains no padding.
@@ -387,7 +387,7 @@ impl Queue {
     /// # Important
     /// This is an internal method that ASSUMES THAT THERE ARE AVAILABLE DESCRIPTORS. Otherwise it
     /// will retrieve a descriptor that contains garbage data (obsolete/empty).
-    fn do_pop_unchecked<'b, M: GuestMemory>(
+    pub fn do_pop_unchecked<'b, M: GuestMemory>(
         &mut self,
         mem: &'b M,
     ) -> Option<DescriptorChain<'b, M>> {
@@ -466,7 +466,33 @@ impl Queue {
         Ok(())
     }
 
-    fn write_used_ring<M: GuestMemory>(
+    /// Read used element from a used ring at specified index.
+    #[inline(always)]
+    pub fn read_used_ring<M: GuestMemory>(
+        &self,
+        mem: &M,
+        index: u16,
+    ) -> Result<UsedElement, QueueError> {
+        // Used ring has layout:
+        // struct UsedRing {
+        //     flags: u16,
+        //     idx: u16,
+        //     ring: [UsedElement; <queue size>],
+        //     avail_event: u16,
+        // }
+        // We calculate offset into `ring` field.
+        let used_ring_offset = std::mem::size_of::<u16>()
+            + std::mem::size_of::<u16>()
+            + std::mem::size_of::<UsedElement>() * usize::from(index);
+        let used_element_address = self.used_ring.unchecked_add(usize_to_u64(used_ring_offset));
+
+        mem.read_obj(used_element_address)
+            .map_err(QueueError::UsedRing)
+    }
+
+    /// Read used element to the used ring at specified index.
+    #[inline(always)]
+    pub fn write_used_ring<M: GuestMemory>(
         &self,
         mem: &M,
         index: u16,
@@ -525,7 +551,7 @@ impl Queue {
 
     /// Helper method that writes to the `avail_event` field of the used ring.
     #[inline(always)]
-    fn set_used_ring_avail_event<M: GuestMemory>(&mut self, avail_event: u16, mem: &M) {
+    pub fn set_used_ring_avail_event<M: GuestMemory>(&mut self, avail_event: u16, mem: &M) {
         debug_assert!(self.is_layout_valid(mem));
 
         // Used ring has layout:
@@ -548,7 +574,7 @@ impl Queue {
 
     /// Helper method that writes to the `idx` field of the used ring.
     #[inline(always)]
-    fn set_used_ring_idx<M: GuestMemory>(&mut self, next_used: u16, mem: &M) {
+    pub fn set_used_ring_idx<M: GuestMemory>(&mut self, next_used: u16, mem: &M) {
         debug_assert!(self.is_layout_valid(mem));
 
         // Used ring has layout:
