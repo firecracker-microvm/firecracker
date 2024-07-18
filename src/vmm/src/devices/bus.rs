@@ -52,8 +52,6 @@ pub struct Bus {
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
 
-#[cfg(target_arch = "x86_64")]
-use super::acpi::cpu_container::CpuContainer;
 #[cfg(target_arch = "aarch64")]
 use super::legacy::RTCDevice;
 use super::legacy::{I8042Device, SerialDevice};
