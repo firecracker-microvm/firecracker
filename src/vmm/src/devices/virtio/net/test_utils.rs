@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 
 use utils::net::mac::MacAddr;
 
+use crate::devices::virtio::gen::virtio_net::virtio_net_hdr_v1;
 #[cfg(test)]
 use crate::devices::virtio::net::device::vnet_hdr_len;
 use crate::devices::virtio::net::tap::{IfReqBuilder, Tap};
@@ -77,6 +78,21 @@ pub fn default_net_no_mmds() -> Net {
     net
 }
 
+pub fn mock_frame(len: usize) -> Vec<u8> {
+    assert!(std::mem::size_of::<virtio_net_hdr_v1>() <= len);
+    let mut mock_frame = utils::rand::rand_alphanumerics(len).as_bytes().to_vec();
+    // SAFETY:
+    // Frame is bigger than the header.
+    unsafe {
+        let hdr = &mut *mock_frame.as_mut_ptr().cast::<virtio_net_hdr_v1>();
+        let zeroed = std::mem::zeroed::<virtio_net_hdr_v1>();
+        *hdr = zeroed;
+        // We need to test num_buffers to 1 as the spec says.
+        hdr.num_buffers = 1;
+    }
+    mock_frame
+}
+
 #[derive(Debug)]
 pub enum ReadTapMock {
     Failure,
@@ -119,9 +135,7 @@ impl Mocks {
 impl Default for Mocks {
     fn default() -> Mocks {
         Mocks {
-            read_tap: ReadTapMock::MockFrame(
-                utils::rand::rand_alphanumerics(1234).as_bytes().to_vec(),
-            ),
+            read_tap: ReadTapMock::MockFrame(mock_frame(1234)),
             write_tap: WriteTapMock::Success,
         }
     }
@@ -300,11 +314,8 @@ pub fn enable(tap: &Tap) {
 pub(crate) fn inject_tap_tx_frame(net: &Net, len: usize) -> Vec<u8> {
     assert!(len >= vnet_hdr_len());
     let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&net.tap));
-    let mut frame = utils::rand::rand_alphanumerics(len - vnet_hdr_len())
-        .as_bytes()
-        .to_vec();
-    tap_traffic_simulator.push_tx_packet(&frame);
-    frame.splice(0..0, vec![b'\0'; vnet_hdr_len()]);
+    let frame = mock_frame(len);
+    tap_traffic_simulator.push_tx_packet(&frame[vnet_hdr_len()..]);
 
     frame
 }
