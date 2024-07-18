@@ -31,7 +31,7 @@ pub enum HotplugVcpuError {
     /// The number of vCPUs added must be less than 32.
     VcpuCountTooHigh,
     /// Event fd error: {0}
-    EventFd(io::Error),
+    EventFd(#[from] io::Error),
     /// Error creating the vcpu: {0}
     VcpuCreate(VcpuError),
     /// Failed to start vCPUs

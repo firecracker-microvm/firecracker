@@ -44,6 +44,8 @@ use crate::device_manager::persist::{
     ACPIDeviceManagerConstructorArgs, ACPIDeviceManagerRestoreError, MMIODevManagerConstructorArgs,
 };
 use crate::device_manager::resources::ResourceAllocator;
+#[cfg(target_arch = "x86_64")]
+use crate::devices::acpi::cpu_container::{CpuContainer, CpuContainerError};
 use crate::devices::acpi::vmgenid::{VmGenId, VmGenIdError};
 use crate::devices::legacy::serial::SerialOut;
 #[cfg(target_arch = "aarch64")]
@@ -56,8 +58,6 @@ use crate::devices::virtio::mmio::MmioTransport;
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
-#[cfg(target_arch = "x86_64")]
-use crate::devices::BusDevice;
 use crate::logger::{debug, error};
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
@@ -77,6 +77,9 @@ pub enum StartMicrovmError {
     AttachBlockDevice(io::Error),
     /// Unable to attach the VMGenID device: {0}
     AttachVmgenidDevice(kvm_ioctls::Error),
+    /// Unable to attach the CpuContainer device: {0}
+    #[cfg(target_arch = "x86_64")]
+    AttachCpuContainerDevice(kvm_ioctls::Error),
     /// System configuration error: {0}
     ConfigureSystem(crate::arch::ConfigurationError),
     /// Failed to create guest config: {0}
@@ -90,6 +93,9 @@ pub enum StartMicrovmError {
     CreateLegacyDevice(device_manager::legacy::LegacyDeviceError),
     /// Error creating VMGenID device: {0}
     CreateVMGenID(VmGenIdError),
+    /// Error creating CpuContainer device: {0}
+    #[cfg(target_arch = "x86_64")]
+    CreateCpuContainer(#[from] CpuContainerError),
     /// Invalid Memory Configuration: {0}
     GuestMemory(crate::vstate::memory::MemoryError),
     /// Cannot load initrd due to an invalid memory configuration.
@@ -317,6 +323,9 @@ pub fn build_microvm_for_boot(
     if vm_resources.boot_timer {
         attach_boot_timer_device(&mut vmm, request_ts)?;
     }
+
+    #[cfg(target_arch = "x86_64")]
+    attach_cpu_container_device(&mut vmm, vm_resources.vm_config.vcpu_count)?;
 
     if let Some(balloon) = vm_resources.balloon.get() {
         attach_balloon_device(&mut vmm, &mut boot_cmdline, balloon, event_manager)?;
@@ -1012,6 +1021,18 @@ fn attach_balloon_device(
     attach_virtio_device(event_manager, vmm, id, balloon.clone(), cmdline, false)
 }
 
+#[cfg(target_arch = "x86_64")]
+fn attach_cpu_container_device(vmm: &mut Vmm, vcpu_count: u8) -> Result<(), StartMicrovmError> {
+    let cpu_container = Arc::new(Mutex::new(CpuContainer::new(
+        &mut vmm.resource_allocator,
+        vcpu_count,
+    )?));
+    vmm.acpi_device_manager
+        .attach_cpu_container(cpu_container, vmm.vm.fd())
+        .map_err(StartMicrovmError::AttachCpuContainerDevice)?;
+    Ok(())
+}
+
 // Adds `O_NONBLOCK` to the stdout flags.
 pub(crate) fn set_stdout_nonblocking() {
     // SAFETY: Call is safe since parameters are valid.
@@ -1036,6 +1057,8 @@ pub mod tests {
     use super::*;
     use crate::arch::DeviceType;
     use crate::device_manager::resources::ResourceAllocator;
+    #[cfg(target_arch = "x86_64")]
+    use crate::devices::acpi::cpu_container::CpuContainer;
     use crate::devices::virtio::block::CacheType;
     use crate::devices::virtio::rng::device::ENTROPY_DEV_ID;
     use crate::devices::virtio::vsock::{TYPE_VSOCK, VSOCK_DEV_ID};
@@ -1114,8 +1137,19 @@ pub mod tests {
 
         let mut vm = Vm::new(vec![]).unwrap();
         vm.memory_init(&guest_memory, false).unwrap();
+
+        #[cfg(target_arch = "x86_64")]
+        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        #[cfg(target_arch = "aarch64")]
+        let resource_allocator = ResourceAllocator::new().unwrap();
+
         let mmio_device_manager = MMIODeviceManager::new();
+
+        #[cfg(target_arch = "x86_64")]
+        let mut acpi_device_manager = ACPIDeviceManager::new();
+        #[cfg(target_arch = "aarch64")]
         let acpi_device_manager = ACPIDeviceManager::new();
+
         #[cfg(target_arch = "x86_64")]
         let pio_device_manager = PortIODeviceManager::new(
             Arc::new(Mutex::new(SerialWrapper {
@@ -1135,6 +1169,16 @@ pub mod tests {
         #[cfg(target_arch = "x86_64")]
         setup_interrupt_controller(&mut vm).unwrap();
 
+        #[cfg(target_arch = "x86_64")]
+        {
+            let cpu_container = Arc::new(Mutex::new(
+                CpuContainer::new(&mut resource_allocator, 1).unwrap(),
+            ));
+            acpi_device_manager
+                .attach_cpu_container(cpu_container, vm.fd())
+                .unwrap();
+        }
+
         #[cfg(target_arch = "aarch64")]
         {
             let exit_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
@@ -1153,7 +1197,7 @@ pub mod tests {
             vcpus_exit_evt,
             #[cfg(target_arch = "x86_64")]
             seccomp_filters: crate::seccomp_filters::get_empty_filters(),
-            resource_allocator: ResourceAllocator::new().unwrap(),
+            resource_allocator,
             mmio_device_manager,
             #[cfg(target_arch = "x86_64")]
             pio_device_manager,
@@ -1515,8 +1559,8 @@ pub mod tests {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             assert!(cmdline_contains(
                 &cmdline,
-                "virtio_mmio.device=4K@0xd0000000:5 virtio_mmio.device=4K@0xd0001000:6 \
-                 virtio_mmio.device=4K@0xd0002000:7"
+                "virtio_mmio.device=4K@0xd0001000:6 virtio_mmio.device=4K@0xd0002000:7 \
+                 virtio_mmio.device=4K@0xd0003000:8"
             ));
         }
 
@@ -1611,7 +1655,7 @@ pub mod tests {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         assert!(cmdline_contains(
             &cmdline,
-            "virtio_mmio.device=4K@0xd0000000:5"
+            "virtio_mmio.device=4K@0xd0001000:6"
         ));
     }
 
@@ -1628,7 +1672,7 @@ pub mod tests {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         assert!(cmdline_contains(
             &cmdline,
-            "virtio_mmio.device=4K@0xd0000000:5"
+            "virtio_mmio.device=4K@0xd0001000:6"
         ));
     }
 
@@ -1647,7 +1691,7 @@ pub mod tests {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         assert!(cmdline_contains(
             &cmdline,
-            "virtio_mmio.device=4K@0xd0000000:5"
+            "virtio_mmio.device=4K@0xd0001000:6"
         ));
     }
 }

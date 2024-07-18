@@ -186,6 +186,7 @@ pub mod tests {
     use crate::acpi::{AcpiError, AcpiTableWriter};
     use crate::arch::x86_64::layout::{SYSTEM_MEM_SIZE, SYSTEM_MEM_START};
     use crate::builder::tests::default_vmm;
+    use crate::device_manager::mmio::MMIO_LEN;
     use crate::utilities::test_utils::arch_mem;
 
     struct MockSdt(Vec<u8>);
@@ -263,7 +264,7 @@ pub mod tests {
     fn test_write_acpi_table_small_memory() {
         let mut vmm = default_vmm();
         vmm.guest_memory = arch_mem(
-            (SYSTEM_MEM_START + SYSTEM_MEM_SIZE - 4096)
+            (SYSTEM_MEM_START + SYSTEM_MEM_SIZE - 2 * MMIO_LEN)
                 .try_into()
                 .unwrap(),
         );
@@ -272,15 +273,18 @@ pub mod tests {
             resource_allocator: &mut vmm.resource_allocator,
         };
 
-        let mut sdt = MockSdt(vec![0; usize::try_from(SYSTEM_MEM_SIZE).unwrap()]);
+        let mut sdt = MockSdt(vec![
+            0;
+            usize::try_from(SYSTEM_MEM_SIZE - MMIO_LEN).unwrap()
+        ]);
         let err = writer.write_acpi_table(&mut sdt).unwrap_err();
         assert!(
             matches!(
-                err,
+                &err,
                 AcpiError::AcpiTables(acpi_tables::AcpiError::GuestMemory(
                     vm_memory::GuestMemoryError::PartialBuffer {
-                        expected: 263168,  // SYSTEM_MEM_SIZE
-                        completed: 259072  // SYSTEM_MEM_SIZE - 4096
+                        expected: 259072,  // SYSTEM_MEM_SIZE - MMIO_LEN
+                        completed: 254976  // SYSTEM_MEM_SIZE - MMIO_LEN * 2
                     },
                 ))
             ),
