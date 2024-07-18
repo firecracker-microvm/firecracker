@@ -93,6 +93,16 @@ pub fn mock_frame(len: usize) -> Vec<u8> {
     mock_frame
 }
 
+pub fn mock_frame_set_num_buffers(frame: &mut [u8], num_buffers: u16) {
+    assert!(std::mem::size_of::<virtio_net_hdr_v1>() <= frame.len());
+    // SAFETY:
+    // Frame is bigger than the header.
+    unsafe {
+        let hdr = &mut *frame.as_mut_ptr().cast::<virtio_net_hdr_v1>();
+        hdr.num_buffers = num_buffers;
+    }
+}
+
 #[derive(Debug)]
 pub enum ReadTapMock {
     Failure,

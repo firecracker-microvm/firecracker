@@ -1056,8 +1056,8 @@ pub mod tests {
     };
     use crate::devices::virtio::net::test_utils::test::TestHelper;
     use crate::devices::virtio::net::test_utils::{
-        default_net, if_index, inject_tap_tx_frame, set_mac, NetEvent, NetQueue, ReadTapMock,
-        TapTrafficSimulator, WriteTapMock,
+        default_net, if_index, inject_tap_tx_frame, mock_frame_set_num_buffers, set_mac, NetEvent,
+        NetQueue, ReadTapMock, TapTrafficSimulator, WriteTapMock,
     };
     use crate::devices::virtio::net::NET_QUEUE_SIZES;
     use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
@@ -1265,9 +1265,7 @@ pub mod tests {
         assert_eq!(th.rxq.used.idx.get(), 0);
     }
 
-    #[test]
-    fn test_rx_read_only_descriptor() {
-        let mut th = TestHelper::get_default();
+    fn rx_read_only_descriptor(mut th: TestHelper) {
         th.activate_net();
 
         th.add_desc_chain(
@@ -1286,6 +1284,20 @@ pub mod tests {
     }
 
     #[test]
+    fn test_rx_read_only_descriptor() {
+        let th = TestHelper::get_default();
+        rx_read_only_descriptor(th);
+    }
+
+    #[test]
+    fn test_rx_mrg_buf_read_only_descriptor() {
+        let mut th = TestHelper::get_default();
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_read_only_descriptor(th);
+    }
+
+    #[test]
     fn test_rx_short_writable_descriptor() {
         let mut th = TestHelper::get_default();
         th.activate_net();
@@ -1298,8 +1310,64 @@ pub mod tests {
     }
 
     #[test]
-    fn test_rx_partial_write() {
+    fn test_rx_mrg_buf_short_writable_descriptor() {
         let mut th = TestHelper::get_default();
+        th.activate_net();
+        th.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
+
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+
+        th.add_desc_chain(NetQueue::Rx, 0, &[(0, 100, VIRTQ_DESC_F_WRITE)]);
+
+        _ = inject_tap_tx_frame(&th.net(), 1000);
+        // For now only 1 descriptor chain is used,
+        // but the packet is not fully written yet.
+        check_metric_after_block!(
+            th.net().metrics.rx_packets_count,
+            0,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+        th.rxq.check_used_elem(0, 0, 100);
+
+        // The write was converted to partial write
+        assert!(th.net().rx_partial_write.is_some());
+    }
+
+    #[test]
+    fn test_rx_mrg_buf_multiple_short_writable_descriptors() {
+        let mut th = TestHelper::get_default();
+        th.activate_net();
+        th.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
+
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+
+        th.add_desc_chain(NetQueue::Rx, 0, &[(0, 500, VIRTQ_DESC_F_WRITE)]);
+        th.add_desc_chain(NetQueue::Rx, 500, &[(1, 500, VIRTQ_DESC_F_WRITE)]);
+
+        // There will be 2 heads used.
+        let mut frame = inject_tap_tx_frame(&th.net(), 1000);
+        mock_frame_set_num_buffers(&mut frame, 2);
+
+        check_metric_after_block!(
+            th.net().metrics.rx_packets_count,
+            1,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+
+        assert_eq!(th.rxq.used.idx.get(), 2);
+        assert!(th.net().irq_trigger.has_pending_irq(IrqType::Vring));
+        assert!(!th.net().rx_deferred_frame);
+
+        th.rxq.check_used_elem(0, 0, 500);
+        th.rxq.check_used_elem(1, 1, 500);
+
+        th.rxq.dtable[0].check_data(&frame[..500]);
+        th.rxq.dtable[1].check_data(&frame[500..]);
+    }
+
+    fn rx_invalid_desc_chain(mut th: TestHelper) {
         th.activate_net();
 
         // The descriptor chain is created so that the last descriptor doesn't fit in the
@@ -1321,8 +1389,82 @@ pub mod tests {
     }
 
     #[test]
-    fn test_rx_retry() {
+    fn test_rx_invalid_desc_chain() {
+        let th = TestHelper::get_default();
+        rx_invalid_desc_chain(th);
+    }
+
+    #[test]
+    fn test_rx_mrg_buf_invalid_desc_chain() {
         let mut th = TestHelper::get_default();
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_invalid_desc_chain(th);
+    }
+
+    #[test]
+    fn test_rx_mrg_buf_partial_write() {
+        let mut th = TestHelper::get_default();
+        th.activate_net();
+        th.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
+
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+
+        // Add descriptor that is not big enough to store the
+        // whole packet.
+        th.add_desc_chain(NetQueue::Rx, 0, &[(0, 250, VIRTQ_DESC_F_WRITE)]);
+
+        // There will be 3 heads used.
+        let mut frame = inject_tap_tx_frame(&th.net(), 1000);
+        mock_frame_set_num_buffers(&mut frame, 3);
+
+        // For now only 1 descriptor chain is used,
+        // but the packet is not fully written yet.
+        check_metric_after_block!(
+            th.net().metrics.rx_partial_writes,
+            1,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+        th.rxq.check_used_elem(0, 0, 250);
+
+        // The write was converted to partial write
+        assert!(th.net().rx_partial_write.is_some());
+
+        // Continue writing.
+        th.add_desc_chain(NetQueue::Rx, 250, &[(1, 250, VIRTQ_DESC_F_WRITE)]);
+        // Only 500 bytes of 1000 should be written now.
+        check_metric_after_block!(
+            th.net().metrics.rx_partial_writes,
+            1,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+        th.rxq.check_used_elem(1, 1, 250);
+
+        // The write is still a partial write
+        assert!(th.net().rx_partial_write.is_some());
+
+        // Finish writing.
+        th.add_desc_chain(NetQueue::Rx, 500, &[(2, 500, VIRTQ_DESC_F_WRITE)]);
+        check_metric_after_block!(
+            th.net().metrics.rx_packets_count,
+            1,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+        assert!(th.net().rx_partial_write.is_none());
+        assert_eq!(th.rxq.used.idx.get(), 3);
+        assert!(th.net().irq_trigger.has_pending_irq(IrqType::Vring));
+
+        th.rxq.check_used_elem(0, 0, 250);
+        th.rxq.check_used_elem(1, 1, 250);
+        th.rxq.check_used_elem(2, 2, 500);
+
+        th.rxq.dtable[0].check_data(&frame[..250]);
+        th.rxq.dtable[1].check_data(&frame[250..500]);
+        th.rxq.dtable[2].check_data(&frame[500..]);
+    }
+
+    fn rx_retry(mut th: TestHelper) {
         th.activate_net();
         th.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
 
@@ -1336,9 +1478,15 @@ pub mod tests {
                 (2, 1000, VIRTQ_DESC_F_WRITE),
             ],
         );
-        // Add invalid descriptor chain - too short.
+
+        // Without VIRTIO_NET_F_MRG_RXBUF this descriptor is invalid as it is too short.
+        // With VIRTIO_NET_F_MRG_RXBUF this descriptor is valid, write will be converted into
+        // partial write.
         th.add_desc_chain(NetQueue::Rx, 1200, &[(3, 100, VIRTQ_DESC_F_WRITE)]);
         // Add invalid descriptor chain - invalid memory offset.
+        // Without VIRTIO_NET_F_MRG_RXBUF this descriptor is invalid.
+        // With VIRTIO_NET_F_MRG_RXBUF the partial write stated with previous descriptor should halt
+        // here.
         th.add_desc_chain(
             NetQueue::Rx,
             th.mem.last_addr().raw_value(),
@@ -1372,8 +1520,20 @@ pub mod tests {
     }
 
     #[test]
-    fn test_rx_complex_desc_chain() {
+    fn test_rx_retry() {
+        let th = TestHelper::get_default();
+        rx_retry(th);
+    }
+
+    #[test]
+    fn test_rx_mrg_buf_retry() {
         let mut th = TestHelper::get_default();
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_retry(th);
+    }
+
+    fn rx_complex_desc_chain(mut th: TestHelper) {
         th.activate_net();
         th.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
 
@@ -1411,8 +1571,20 @@ pub mod tests {
     }
 
     #[test]
-    fn test_rx_multiple_frames() {
+    fn test_rx_complex_desc_chain() {
+        let th = TestHelper::get_default();
+        rx_complex_desc_chain(th);
+    }
+
+    #[test]
+    fn test_rx_mrg_buf_complex_desc_chain() {
         let mut th = TestHelper::get_default();
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_complex_desc_chain(th);
+    }
+
+    fn rx_multiple_frames(mut th: TestHelper) {
         th.activate_net();
         th.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
 
@@ -1452,6 +1624,20 @@ pub mod tests {
             .check_used_elem(1, 2, frame_2.len().try_into().unwrap());
         th.rxq.dtable[2].check_data(&frame_2);
         th.rxq.dtable[3].check_data(&[0; 500]);
+    }
+
+    #[test]
+    fn test_rx_multiple_frames() {
+        let th = TestHelper::get_default();
+        rx_multiple_frames(th);
+    }
+
+    #[test]
+    fn test_rx_mrg_buf_multiple_frames() {
+        let mut th = TestHelper::get_default();
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_multiple_frames(th);
     }
 
     #[test]
