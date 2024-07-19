@@ -144,12 +144,9 @@ pub struct CustomCpuTemplate {
 }
 
 impl CustomCpuTemplate {
-    /// Get a list of MSR indices that are modified by the CPU template.
-    pub fn get_msr_index_list(&self) -> Vec<u32> {
-        self.msr_modifiers
-            .iter()
-            .map(|modifier| modifier.addr)
-            .collect()
+    /// Get an iterator of MSR indices that are modified by the CPU template.
+    pub fn msr_index_iter(&self) -> impl ExactSizeIterator<Item = u32> + '_ {
+        self.msr_modifiers.iter().map(|modifier| modifier.addr)
     }
 
     /// Validate the correctness of the template.

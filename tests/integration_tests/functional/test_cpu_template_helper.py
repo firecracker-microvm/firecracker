@@ -33,23 +33,23 @@ class CpuTemplateHelper:
     def template_dump(self, output_path):
         """Dump guest CPU config in the JSON custom CPU template format"""
         cmd = f"{self.binary} template dump --output {output_path}"
-        utils.run_cmd(cmd)
+        utils.check_output(cmd)
 
     def template_strip(self, paths, suffix=""):
         """Strip entries shared between multiple CPU template files"""
         paths = " ".join([str(path) for path in paths])
         cmd = f"{self.binary} template strip --paths {paths} --suffix '{suffix}'"
-        utils.run_cmd(cmd)
+        utils.check_output(cmd)
 
     def template_verify(self, template_path):
         """Verify the specified CPU template"""
         cmd = f"{self.binary} template verify --template {template_path}"
-        utils.run_cmd(cmd)
+        utils.check_output(cmd)
 
     def fingerprint_dump(self, output_path):
         """Dump a fingerprint"""
         cmd = f"{self.binary} fingerprint dump --output {output_path}"
-        utils.run_cmd(cmd)
+        utils.check_output(cmd)
 
     def fingerprint_compare(
         self,
@@ -64,7 +64,7 @@ class CpuTemplateHelper:
         )
         if filters:
             cmd += f" --filters {' '.join(filters)}"
-        utils.run_cmd(cmd)
+        utils.check_output(cmd)
 
 
 @pytest.fixture(scope="session", name="cpu_template_helper")
@@ -183,6 +183,9 @@ MSR_EXCEPTION_LIST = [
     0x48,
     # MSR_IA32_SMBASE is not accessible outside of System Management Mode.
     0x9E,
+    # MSR_IA32_TSX_CTRL is R/W MSR to disable Intel TSX feature as a mitigation
+    # against TAA vulnerability.
+    0x122,
     # MSR_IA32_SYSENTER_CS, MSR_IA32_SYSENTER_ESP and MSR_IA32_SYSENTER_EIP are
     # R/W MSRs that will be set up by OS to call fast system calls with
     # SYSENTER.

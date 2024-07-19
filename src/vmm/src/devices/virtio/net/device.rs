@@ -7,11 +7,9 @@
 
 #[cfg(not(test))]
 use std::io::Read;
-use std::io::Write;
+use std::mem;
 use std::net::Ipv4Addr;
-use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
-use std::{cmp, mem};
 
 use libc::EAGAIN;
 use log::{error, warn};
@@ -24,7 +22,8 @@ use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDev
 use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::gen::virtio_net::{
     virtio_net_hdr_v1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM, VIRTIO_NET_F_GUEST_TSO4,
-    VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC,
+    VIRTIO_NET_F_GUEST_TSO6, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4,
+    VIRTIO_NET_F_HOST_TSO6, VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC,
 };
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::iovec::IoVecBuffer;
@@ -96,11 +95,12 @@ fn init_vnet_hdr(buf: &mut [u8]) {
 }
 
 #[derive(Debug, Default, Clone, Copy)]
+#[repr(C)]
 pub struct ConfigSpace {
     pub guest_mac: MacAddr,
 }
 
-// SAFETY: `ConfigSpace` contains only PODs.
+// SAFETY: `ConfigSpace` contains only PODs in `repr(C)` or `repr(transparent)`, without padding.
 unsafe impl ByteValued for ConfigSpace {}
 
 /// VirtIO network device.
@@ -156,8 +156,10 @@ impl Net {
         let mut avail_features = 1 << VIRTIO_NET_F_GUEST_CSUM
             | 1 << VIRTIO_NET_F_CSUM
             | 1 << VIRTIO_NET_F_GUEST_TSO4
+            | 1 << VIRTIO_NET_F_GUEST_TSO6
             | 1 << VIRTIO_NET_F_GUEST_UFO
             | 1 << VIRTIO_NET_F_HOST_TSO4
+            | 1 << VIRTIO_NET_F_HOST_TSO6
             | 1 << VIRTIO_NET_F_HOST_UFO
             | 1 << VIRTIO_F_VERSION_1
             | 1 << VIRTIO_RING_F_EVENT_IDX;
@@ -209,10 +211,6 @@ impl Net {
         tx_rate_limiter: RateLimiter,
     ) -> Result<Self, NetError> {
         let tap = Tap::open_named(tap_if_name).map_err(NetError::TapOpen)?;
-
-        // Set offload flags to match the virtio features below.
-        tap.set_offload(gen::TUN_F_CSUM | gen::TUN_F_UFO | gen::TUN_F_TSO4 | gen::TUN_F_TSO6)
-            .map_err(NetError::TapSetOffload)?;
 
         let vnet_hdr_size = i32::try_from(vnet_hdr_len()).unwrap();
         tap.set_vnet_hdr_size(vnet_hdr_size)
@@ -266,7 +264,11 @@ impl Net {
         &self.tx_rate_limiter
     }
 
-    fn signal_used_queue(&mut self, queue_type: NetQueue) -> Result<(), DeviceError> {
+    /// Trigger queue notification for the guest if we used enough descriptors
+    /// for the notification to be enabled.
+    /// https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html#x1-320005
+    /// 2.6.7.1 Driver Requirements: Used Buffer Notification Suppression
+    fn try_signal_queue(&mut self, queue_type: NetQueue) -> Result<(), DeviceError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
@@ -462,7 +464,7 @@ impl Net {
 
         if let Some(ns) = mmds_ns {
             if ns.is_mmds_frame(headers) {
-                let mut frame = vec![0u8; frame_iovec.len() - vnet_hdr_len()];
+                let mut frame = vec![0u8; frame_iovec.len() as usize - vnet_hdr_len()];
                 // Ok to unwrap here, because we are passing a buffer that has the exact size
                 // of the `IoVecBuffer` minus the VNET headers.
                 frame_iovec
@@ -472,7 +474,7 @@ impl Net {
                 METRICS.mmds.rx_accepted.inc();
 
                 // MMDS frames are not accounted by the rate limiter.
-                Self::rate_limiter_replenish_op(rate_limiter, frame_iovec.len() as u64);
+                Self::rate_limiter_replenish_op(rate_limiter, u64::from(frame_iovec.len()));
 
                 // MMDS consumed the frame.
                 return Ok(true);
@@ -493,7 +495,7 @@ impl Net {
         let _metric = net_metrics.tap_write_agg.record_latency_metrics();
         match Self::write_tap(tap, frame_iovec) {
             Ok(_) => {
-                let len = frame_iovec.len() as u64;
+                let len = u64::from(frame_iovec.len());
                 net_metrics.tx_bytes_count.add(len);
                 net_metrics.tx_packets_count.inc();
                 net_metrics.tx_count.inc();
@@ -554,9 +556,7 @@ impl Net {
             }
         }
 
-        // At this point we processed as many Rx frames as possible.
-        // We have to wake the guest if at least one descriptor chain has been used.
-        self.signal_used_queue(NetQueue::Rx)
+        self.try_signal_queue(NetQueue::Rx)
     }
 
     // Process the deferred frame first, then continue reading from tap.
@@ -568,7 +568,7 @@ impl Net {
             return self.process_rx();
         }
 
-        self.signal_used_queue(NetQueue::Rx)
+        self.try_signal_queue(NetQueue::Rx)
     }
 
     fn resume_rx(&mut self) -> Result<(), DeviceError> {
@@ -607,7 +607,18 @@ impl Net {
                     continue;
                 }
             };
-            if !Self::rate_limiter_consume_op(&mut self.tx_rate_limiter, buffer.len() as u64) {
+
+            // We only handle frames that are up to MAX_BUFFER_SIZE
+            if buffer.len() as usize > MAX_BUFFER_SIZE {
+                error!("net: received too big frame from driver");
+                self.metrics.tx_malformed_frames.inc();
+                tx_queue
+                    .add_used(mem, head_index, 0)
+                    .map_err(DeviceError::QueueError)?;
+                continue;
+            }
+
+            if !Self::rate_limiter_consume_op(&mut self.tx_rate_limiter, u64::from(buffer.len())) {
                 tx_queue.undo_pop();
                 self.metrics.tx_rate_limiter_throttled.inc();
                 break;
@@ -638,7 +649,7 @@ impl Net {
             self.metrics.no_tx_avail_buffer.inc();
         }
 
-        self.signal_used_queue(NetQueue::Tx)?;
+        self.try_signal_queue(NetQueue::Tx)?;
 
         // An incoming frame for the MMDS may trigger the transmission of a new message.
         if process_rx_for_mmds {
@@ -646,6 +657,46 @@ impl Net {
         } else {
             Ok(())
         }
+    }
+
+    /// Builds the offload features we will setup on the TAP device based on the features that the
+    /// guest supports.
+    fn build_tap_offload_features(guest_supported_features: u64) -> u32 {
+        let add_if_supported =
+            |tap_features: &mut u32, supported_features: u64, tap_flag: u32, virtio_flag: u32| {
+                if supported_features & (1 << virtio_flag) != 0 {
+                    *tap_features |= tap_flag;
+                }
+            };
+
+        let mut tap_features: u32 = 0;
+
+        add_if_supported(
+            &mut tap_features,
+            guest_supported_features,
+            gen::TUN_F_CSUM,
+            VIRTIO_NET_F_CSUM,
+        );
+        add_if_supported(
+            &mut tap_features,
+            guest_supported_features,
+            gen::TUN_F_UFO,
+            VIRTIO_NET_F_GUEST_UFO,
+        );
+        add_if_supported(
+            &mut tap_features,
+            guest_supported_features,
+            gen::TUN_F_TSO4,
+            VIRTIO_NET_F_GUEST_TSO4,
+        );
+        add_if_supported(
+            &mut tap_features,
+            guest_supported_features,
+            gen::TUN_F_TSO6,
+            VIRTIO_NET_F_GUEST_TSO6,
+        );
+
+        tap_features
     }
 
     /// Updates the parameters for the rate limiters
@@ -812,28 +863,16 @@ impl VirtioDevice for Net {
         &self.queue_evts
     }
 
-    fn interrupt_evt(&self) -> &EventFd {
-        &self.irq_trigger.irq_evt
+    fn interrupt_trigger(&self) -> &IrqTrigger {
+        &self.irq_trigger
     }
-
-    fn interrupt_status(&self) -> Arc<AtomicU32> {
-        self.irq_trigger.irq_status.clone()
-    }
-
-    fn read_config(&self, offset: u64, mut data: &mut [u8]) {
-        let config_space_bytes = self.config_space.as_slice();
-        let config_len = config_space_bytes.len() as u64;
-        if offset >= config_len {
+    fn read_config(&self, offset: u64, data: &mut [u8]) {
+        if let Some(config_space_bytes) = self.config_space.as_slice().get(u64_to_usize(offset)..) {
+            let len = config_space_bytes.len().min(data.len());
+            data[..len].copy_from_slice(&config_space_bytes[..len]);
+        } else {
             error!("Failed to read config space");
             self.metrics.cfg_fails.inc();
-            return;
-        }
-        if let Some(end) = offset.checked_add(data.len() as u64) {
-            // This write can't fail, offset and end are checked against config_len.
-            data.write_all(
-                &config_space_bytes[u64_to_usize(offset)..u64_to_usize(cmp::min(end, config_len))],
-            )
-            .unwrap();
         }
     }
 
@@ -863,9 +902,14 @@ impl VirtioDevice for Net {
             }
         }
 
+        let supported_flags: u32 = Net::build_tap_offload_features(self.acked_features);
+        self.tap
+            .set_offload(supported_flags)
+            .map_err(super::super::ActivateError::TapSetOffload)?;
+
         if self.activate_evt.write(1).is_err() {
-            error!("Net: Cannot write to activate_evt");
-            return Err(super::super::ActivateError::BadActivate);
+            self.metrics.activate_fails.inc();
+            return Err(ActivateError::EventFd);
         }
         self.device_state = DeviceState::Activated(mem);
         Ok(())
@@ -977,9 +1021,11 @@ pub mod tests {
         let features = 1 << VIRTIO_NET_F_GUEST_CSUM
             | 1 << VIRTIO_NET_F_CSUM
             | 1 << VIRTIO_NET_F_GUEST_TSO4
+            | 1 << VIRTIO_NET_F_GUEST_TSO6
             | 1 << VIRTIO_NET_F_MAC
             | 1 << VIRTIO_NET_F_GUEST_UFO
             | 1 << VIRTIO_NET_F_HOST_TSO4
+            | 1 << VIRTIO_NET_F_HOST_TSO6
             | 1 << VIRTIO_NET_F_HOST_UFO
             | 1 << VIRTIO_F_VERSION_1
             | 1 << VIRTIO_RING_F_EVENT_IDX;
@@ -998,6 +1044,35 @@ pub mod tests {
         }
 
         assert_eq!(net.acked_features, features);
+    }
+
+    #[test]
+    // Test that `Net::build_tap_offload_features` creates the TAP offload features that we expect
+    // it to do, based on the available guest features
+    fn test_build_tap_offload_features_all() {
+        let supported_features = 1 << VIRTIO_NET_F_CSUM
+            | 1 << VIRTIO_NET_F_GUEST_UFO
+            | 1 << VIRTIO_NET_F_GUEST_TSO4
+            | 1 << VIRTIO_NET_F_GUEST_TSO6;
+        let expected_tap_features =
+            gen::TUN_F_CSUM | gen::TUN_F_UFO | gen::TUN_F_TSO4 | gen::TUN_F_TSO6;
+        let supported_flags = Net::build_tap_offload_features(supported_features);
+
+        assert_eq!(supported_flags, expected_tap_features);
+    }
+
+    #[test]
+    // Same as before, however, using each supported feature one by one.
+    fn test_build_tap_offload_features_one_by_one() {
+        let features = [
+            (1 << VIRTIO_NET_F_CSUM, gen::TUN_F_CSUM),
+            (1 << VIRTIO_NET_F_GUEST_UFO, gen::TUN_F_UFO),
+            (1 << VIRTIO_NET_F_GUEST_TSO4, gen::TUN_F_TSO4),
+        ];
+        for (virtio_flag, tap_flag) in features {
+            let supported_flags = Net::build_tap_offload_features(virtio_flag);
+            assert_eq!(supported_flags, tap_flag);
+        }
     }
 
     #[test]
@@ -1309,6 +1384,32 @@ pub mod tests {
 
         // Send an invalid frame (too small, VNET header missing).
         th.add_desc_chain(NetQueue::Tx, 0, &[(0, 1, 0)]);
+        check_metric_after_block!(
+            th.net().metrics.tx_malformed_frames,
+            1,
+            th.event_manager.run_with_timeout(100)
+        );
+
+        // Check that the used queue advanced.
+        assert_eq!(th.txq.used.idx.get(), 1);
+        assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
+        th.txq.check_used_elem(0, 0, 0);
+        // Check that the frame was skipped.
+        assert!(!tap_traffic_simulator.pop_rx_packet(&mut []));
+    }
+
+    #[test]
+    fn test_tx_big_frame() {
+        let mut th = TestHelper::get_default();
+        th.activate_net();
+        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
+
+        // Send an invalid frame (too big, maximum buffer is MAX_BUFFER_SIZE).
+        th.add_desc_chain(
+            NetQueue::Tx,
+            0,
+            &[(0, (MAX_BUFFER_SIZE + 1).try_into().unwrap(), 0)],
+        );
         check_metric_after_block!(
             th.net().metrics.tx_malformed_frames,
             1,

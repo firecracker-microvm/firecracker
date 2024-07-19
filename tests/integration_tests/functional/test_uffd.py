@@ -8,7 +8,7 @@ import re
 import pytest
 import requests
 
-from framework.utils import Timeout, UffdHandler, run_cmd
+from framework.utils import Timeout, UffdHandler, check_output
 
 SOCKET_PATH = "/firecracker-uffd.sock"
 
@@ -28,10 +28,7 @@ def snapshot_fxt(microvm_factory, guest_kernel_linux_5_10, rootfs_ubuntu_22):
     )
 
     basevm.start()
-
-    # Verify if guest can run commands.
-    exit_code, _, _ = basevm.ssh.run("sync")
-    assert exit_code == 0
+    basevm.wait_for_up()
 
     # Create base snapshot.
     snapshot = basevm.snapshot_full()
@@ -75,6 +72,8 @@ def test_bad_socket_path(uvm_plain, snapshot):
             snapshot_path=jailed_vmstate,
         )
 
+    vm.mark_killed()
+
 
 def test_unbinded_socket(uvm_plain, snapshot):
     """
@@ -85,7 +84,7 @@ def test_unbinded_socket(uvm_plain, snapshot):
 
     jailed_vmstate = vm.create_jailed_resource(snapshot.vmstate)
     socket_path = os.path.join(vm.path, "firecracker-uffd.sock")
-    run_cmd("touch {}".format(socket_path))
+    check_output("touch {}".format(socket_path))
     jailed_sock_path = vm.create_jailed_resource(socket_path)
 
     expected_msg = re.escape(
@@ -98,6 +97,8 @@ def test_unbinded_socket(uvm_plain, snapshot):
             mem_backend={"backend_type": "Uffd", "backend_path": jailed_sock_path},
             snapshot_path=jailed_vmstate,
         )
+
+    vm.mark_killed()
 
 
 def test_valid_handler(uvm_plain, snapshot, uffd_handler_paths):
@@ -121,10 +122,8 @@ def test_valid_handler(uvm_plain, snapshot, uffd_handler_paths):
     # Deflate balloon.
     vm.api.balloon.patch(amount_mib=0)
 
-    # Verify if guest can run commands.
-    exit_code, _, _ = vm.ssh.run("sync")
-
-    assert exit_code == 0
+    # Verify if the restored guest works.
+    vm.wait_for_up()
 
 
 def test_malicious_handler(uvm_plain, snapshot, uffd_handler_paths):

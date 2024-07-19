@@ -78,10 +78,9 @@ def test_network_latency(network_microvm, metrics):
     host_ip = network_microvm.iface["eth0"]["iface"].host_ip
 
     for _ in range(rounds):
-        rc, ping_output, stderr = network_microvm.ssh.run(
+        _, ping_output, _ = network_microvm.ssh.check_output(
             f"ping -c {request_per_round} -i {delay} {host_ip}"
         )
-        assert rc == 0, stderr
 
         samples.extend(consume_ping_output(ping_output, request_per_round))
     fcmetrics.stop()

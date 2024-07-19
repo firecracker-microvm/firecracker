@@ -4,27 +4,22 @@
 
 import pytest
 
-from framework.properties import global_props
 from framework.utils import check_entropy
-
-if (
-    global_props.cpu_model == "ARM_NEOVERSE_V1"
-    and global_props.host_linux_version == "4.14"
-):
-    # Graviton3 instances in 4.14 require a non-SVE kernel to boot
-    pytestmark = pytest.mark.skip(reason="[cm]7g requires non-SVE 5.10 kernel")
 
 
 @pytest.fixture(params=[None])
-def uvm_with_rng(uvm_nano, request):
+def uvm_with_rng(uvm_plain, request):
     """Fixture of a microvm with virtio-rng configured"""
     rate_limiter = request.param
-    uvm_nano.add_net_iface()
-    uvm_nano.api.entropy.put(rate_limiter=rate_limiter)
-    uvm_nano.start()
+    uvm = uvm_plain
+    uvm.spawn(log_level="INFO")
+    uvm.basic_config(vcpu_count=2, mem_size_mib=256)
+    uvm.add_net_iface()
+    uvm.api.entropy.put(rate_limiter=rate_limiter)
+    uvm.start()
     # Just stuff it in the microvm so we can look at it later
-    uvm_nano.rng_rate_limiter = rate_limiter
-    return uvm_nano
+    uvm.rng_rate_limiter = rate_limiter
+    return uvm
 
 
 def test_rng_not_present(uvm_nano):
@@ -41,8 +36,7 @@ def test_rng_not_present(uvm_nano):
     # the device should exist in the guest filesystem but we should
     # not be able to get random numbers out of it.
     cmd = "test -e /dev/hwrng"
-    ecode, _, _ = vm.ssh.run(cmd)
-    assert ecode == 0
+    vm.ssh.check_output(cmd)
 
     cmd = "dd if=/dev/hwrng of=/dev/null bs=10 count=1"
     ecode, _, _ = vm.ssh.run(cmd)
@@ -72,6 +66,7 @@ def test_rng_snapshot(uvm_with_rng, microvm_factory):
     new_vm = microvm_factory.build()
     new_vm.spawn()
     new_vm.restore_from_snapshot(snapshot, resume=True)
+    new_vm.wait_for_up()
     check_entropy(new_vm.ssh)
 
 
@@ -80,7 +75,7 @@ def _get_percentage_difference(measured, base):
     if measured == base:
         return 0
     try:
-        return (abs(measured - base) / base) * 100.0
+        return ((measured - base) / base) * 100.0
     except ZeroDivisionError:
         # It means base and only base is 0.
         return 100.0
@@ -134,8 +129,7 @@ def _get_throughput(ssh, random_bytes):
     # Issue a `dd` command to request 100 times `random_bytes` from the device.
     # 100 here is used to get enough confidence on the achieved throughput.
     cmd = "dd if=/dev/hwrng of=/dev/null bs={} count=100".format(random_bytes)
-    exit_code, _, stderr = ssh.run(cmd)
-    assert exit_code == 0, stderr
+    _, _, stderr = ssh.check_output(cmd)
 
     # dd gives its output on stderr
     return _process_dd_output(stderr)
@@ -144,14 +138,30 @@ def _get_throughput(ssh, random_bytes):
 def _check_entropy_rate_limited(ssh, random_bytes, expected_kbps):
     """
     Ask for `random_bytes` from `/dev/hwrng` in the guest and check
-    that achieved throughput is within a 10% of the expected throughput.
+    that achieved throughput does not exceed the expected throughput by
+    more than 2%.
 
-    NOTE: 10% is an arbitrarily selected limit which should be safe enough,
-    so that we don't run into many intermittent CI failures.
+    NOTE: 2% is accounting for the initial credits available in the buckets
+    which can be consumed immediately. In the `dd` command we read `size * 100`
+    bytes, where `size` is the size of the bucket. As a result, the first
+    `size` bytes will be read "immediately" and the remaining `99 * size` bytes
+    will be read at a rate of `size / refill_time`. So, the total test runtime
+    will be `99 * refill_time`. That helps us calculate the expected throughput
+    allowed from our rate limiter like this:
+
+    size * 100 / (99 * refill_time) =
+    (100 / 99) * (size / refill_time) =
+    (100 / 99) * expected_throughput_rate =
+    1.01 * expected_throughput_rate
+
+    (kudos to @roypat for this analysis)
+
+    So, we should expect a 1% margin from the expected throughput. We use 2%
+    for accounting for rounding/measurements errors.
     """
     measured_kbps = _get_throughput(ssh, random_bytes)
     assert (
-        _get_percentage_difference(measured_kbps, expected_kbps) <= 10
+        _get_percentage_difference(measured_kbps, expected_kbps) <= 2
     ), "Expected {} KB/s, measured {} KB/s".format(expected_kbps, measured_kbps)
 
 

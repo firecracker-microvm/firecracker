@@ -93,6 +93,25 @@ class Snapshot:
         new_args = self.__dict__ | {"mem": base.mem}
         return Snapshot(**new_args)
 
+    def copy_to_chroot(self, chroot) -> "Snapshot":
+        """
+        Move all the snapshot files into the microvm jail.
+        Use different names so a snapshot doesn't overwrite our original snapshot.
+        """
+        mem_src = chroot / self.mem.with_suffix(".src").name
+        hardlink_or_copy(self.mem, mem_src)
+        vmstate_src = chroot / self.vmstate.with_suffix(".src").name
+        hardlink_or_copy(self.vmstate, vmstate_src)
+
+        return Snapshot(
+            vmstate=vmstate_src,
+            mem=mem_src,
+            net_ifaces=self.net_ifaces,
+            disks=self.disks,
+            ssh_key=self.ssh_key,
+            snapshot_type=self.snapshot_type,
+        )
+
     @classmethod
     # TBD when Python 3.11: -> Self
     def load_from(cls, src: Path) -> "Snapshot":
@@ -204,14 +223,17 @@ class Microvm:
         if int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", 1)) > 1:
             self.time_api_requests = False
 
+        self.monitors = []
         self.memory_monitor = None
         if monitor_memory:
             self.memory_monitor = MemoryMonitor(self)
+            self.monitors.append(self.memory_monitor)
 
         self.api = None
         self.log_file = None
         self.metrics_file = None
         self._spawned = False
+        self._killed = False
 
         # device dictionaries
         self.iface = {}
@@ -222,9 +244,6 @@ class Microvm:
 
         self._numa_node = numa_node
 
-        # Flag checked in destructor to see abnormal signal-induced crashes.
-        self.expect_kill_by_signal = False
-
         # MMDS content from file
         self.metadata_file = None
 
@@ -233,9 +252,27 @@ class Microvm:
     def __repr__(self):
         return f"<Microvm id={self.id}>"
 
+    def mark_killed(self):
+        """
+        Marks this `Microvm` as killed, meaning test tear down should not try to kill it
+
+        raises an exception if the Firecracker process managing this VM is not actually dead
+        """
+        if self.firecracker_pid is not None:
+            utils.wait_process_termination(self.firecracker_pid)
+
+        self._killed = True
+
     def kill(self):
         """All clean up associated with this microVM should go here."""
         # pylint: disable=subprocess-run-check
+        # if it was already killed, return
+        if self._killed:
+            return
+
+        # Stop any registered monitors
+        for monitor in self.monitors:
+            monitor.stop()
 
         # We start with vhost-user backends,
         # because if we stop Firecracker first, the backend will want
@@ -244,51 +281,46 @@ class Microvm:
             backend.kill()
         self.disks_vhost_user.clear()
 
-        if (
-            self.expect_kill_by_signal is False
-            and "Shutting down VM after intercepting signal" in self.log_data
-        ):
-            # Too late to assert at this point, pytest will still report the
-            # test as passed. BUT we can dump full logs for debugging,
-            # as well as an intentional eye-sore in the test report.
-            LOG.error(self.log_data)
+        assert (
+            "Shutting down VM after intercepting signal" not in self.log_data
+        ), self.log_data
 
         try:
             if self.firecracker_pid:
                 os.kill(self.firecracker_pid, signal.SIGKILL)
-        except ProcessLookupError:
-            LOG.exception("Process not found: %d", self.firecracker_pid)
-        except FileNotFoundError:
-            LOG.exception("PID file not found")
 
-        if self.screen_pid:
-            # Killing screen will send SIGHUP to underlying Firecracker.
-            # Needed to avoid false positives in case kill() is called again.
-            self.expect_kill_by_signal = True
-            utils.run_cmd("kill -9 {} || true".format(self.screen_pid))
+            if self.screen_pid:
+                os.kill(self.screen_pid, signal.SIGKILL)
+        except:
+            LOG.error(self.log_data)
+            raise
 
         # if microvm was spawned then check if it gets killed
         if self._spawned:
-            # it is observed that we need to wait some time before
-            #  checking if the process is killed.
-            time.sleep(1)
+            # Wait until the Firecracker process is actually dead
+            utils.wait_process_termination(self.firecracker_pid)
+
+            # The following logic guards us against the case where `firecracker_pid` for some
+            # reason is the wrong PID, e.g. this is a regression test for
+            # https://github.com/firecracker-microvm/firecracker/pull/4442/commits/d63eb7a65ffaaae0409d15ed55d99ecbd29bc572
+
             # filter ps results for the jailer's unique id
-            rc, stdout, stderr = utils.run_cmd(f"ps aux | grep {self.jailer.jailer_id}")
+            _, stdout, stderr = utils.check_output(
+                f"ps aux | grep {self.jailer.jailer_id}"
+            )
             # make sure firecracker was killed
             assert (
-                rc == 0 and stderr == "" and stdout.find("firecracker") == -1
-            ), f"Firecracker pid {self.firecracker_pid} was not killed as expected"
+                stderr == "" and "firecracker" not in stdout
+            ), f"Firecracker reported its pid {self.firecracker_pid}, which was killed, but there still exist processes using the supposedly dead Firecracker's jailer_id: {stdout}"
 
         # Mark the microVM as not spawned, so we avoid trying to kill twice.
         self._spawned = False
+        self._killed = True
 
         if self.time_api_requests:
             self._validate_api_response_times()
 
         if self.memory_monitor:
-            if self.memory_monitor.is_alive():
-                self.memory_monitor.signal_stop()
-                self.memory_monitor.join(timeout=1)
             self.memory_monitor.check_samples()
 
     def _validate_api_response_times(self):
@@ -347,7 +379,7 @@ class Microvm:
     @property
     def firecracker_version(self):
         """Return the version of the Firecracker executable."""
-        _, stdout, _ = utils.run_cmd(f"{self.fc_binary_path} --version")
+        _, stdout, _ = utils.check_output(f"{self.fc_binary_path} --version")
         return re.match(r"^Firecracker v(.+)", stdout.partition("\n")[0]).group(1)
 
     @property
@@ -417,15 +449,24 @@ class Microvm:
             return None
         return tuple(int(x) for x in splits[1].split("."))
 
+    def get_metrics(self):
+        """Return iterator to metric data points written by FC"""
+        with self.metrics_file.open() as fd:
+            for line in fd:
+                if not line.endswith("}\n"):
+                    LOG.warning("Line is not a proper JSON object. Partial write?")
+                    continue
+                yield json.loads(line)
+
+    def get_all_metrics(self):
+        """Return all metric data points written by FC."""
+        return list(self.get_metrics())
+
     def flush_metrics(self):
         """Flush the microvm metrics and get the latest datapoint"""
         self.api.actions.put(action_type="FlushMetrics")
         # get the latest metrics
         return self.get_all_metrics()[-1]
-
-    def get_all_metrics(self):
-        """Return all metric data points written by FC."""
-        return [json.loads(line) for line in self.metrics_file.read_text().splitlines()]
 
     def create_jailed_resource(self, path):
         """Create a hard link to some resource inside this microvm."""
@@ -453,9 +494,11 @@ class Microvm:
         return f"/tmp/screen-{self.screen_session}.log"
 
     @property
-    def screen_pid(self):
+    def screen_pid(self) -> Optional[int]:
         """Get the screen PID."""
-        return self._screen_pid
+        if self._screen_pid:
+            return int(self._screen_pid)
+        return None
 
     def pin_vmm(self, cpu_id: int) -> bool:
         """Pin the firecracker process VMM thread to a cpu list."""
@@ -561,14 +604,7 @@ class Microvm:
         # When the daemonize flag is on, we want to clone-exec into the
         # jailer rather than executing it via spawning a shell.
         if self.jailer.daemonize:
-            res = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            stdout, stderr = res.communicate()
-            if res.returncode != 0:
-                raise RuntimeError(res.returncode, stdout, stderr)
+            utils.check_output(cmd, shell=False)
         else:
             # Run Firecracker under screen. This is used when we want to access
             # the serial console. The file will collect the output from
@@ -630,7 +666,7 @@ class Microvm:
     def serial_input(self, input_string):
         """Send a string to the Firecracker serial console via screen."""
         input_cmd = f'screen -S {self.screen_session} -p 0 -X stuff "{input_string}"'
-        return utils.run_cmd(input_cmd)
+        return utils.check_output(input_cmd)
 
     def basic_config(
         self,
@@ -867,15 +903,9 @@ class Microvm:
         uffd_path: Path = None,
     ):
         """Restore a snapshot"""
-        # Move all the snapshot files into the microvm jail.
-        # Use different names so a snapshot doesn't overwrite our original snapshot.
-        chroot = Path(self.chroot())
-        mem_src = chroot / snapshot.mem.with_suffix(".src").name
-        hardlink_or_copy(snapshot.mem, mem_src)
-        vmstate_src = chroot / snapshot.vmstate.with_suffix(".src").name
-        hardlink_or_copy(snapshot.vmstate, vmstate_src)
-        jailed_mem = Path("/") / mem_src.name
-        jailed_vmstate = Path("/") / vmstate_src.name
+        jailed_snapshot = snapshot.copy_to_chroot(Path(self.chroot()))
+        jailed_mem = Path("/") / jailed_snapshot.mem.name
+        jailed_vmstate = Path("/") / jailed_snapshot.vmstate.name
 
         snapshot_disks = [v for k, v in snapshot.disks.items()]
         assert len(snapshot_disks) > 0, "Snapshot requires at least one disk."
@@ -899,7 +929,7 @@ class Microvm:
             enable_diff_snapshots=snapshot.is_diff,
             resume_vm=resume,
         )
-        return True
+        return jailed_snapshot
 
     def enable_entropy_device(self):
         """Enable entropy device for microVM"""
@@ -925,6 +955,39 @@ class Microvm:
     def ssh(self):
         """Return a cached SSH connection on the 1st interface"""
         return self.ssh_iface(0)
+
+    @property
+    def thread_backtraces(self):
+        """Return backtraces of all threads"""
+        backtraces = []
+        for thread_name, thread_pids in utils.get_threads(self.firecracker_pid).items():
+            for pid in thread_pids:
+                backtraces.append(
+                    f"{thread_name} ({pid=}):\n"
+                    f"{utils.check_output(f'cat /proc/{pid}/stack').stdout}"
+                )
+        return "\n".join(backtraces)
+
+    def wait_for_up(self, timeout=10):
+        """Wait for guest running inside the microVM to come up and respond.
+
+        :param timeout: seconds to wait.
+        """
+        try:
+            rc, stdout, stderr = self.ssh.run("true", timeout)
+        except subprocess.TimeoutExpired:
+            print(
+                f"Remote command did not respond within {timeout}s\n\n"
+                f"Firecracker logs:\n{self.log_data}\n"
+                f"Thread backtraces:\n{self.thread_backtraces}"
+            )
+            raise
+        assert rc == 0, (
+            f"Remote command exited with non-0 status code\n\n"
+            f"{rc=}\n{stdout=}\n{stderr=}\n\n"
+            f"Firecracker logs:\n{self.log_data}\n"
+            f"Thread backtraces:\n{self.thread_backtraces}"
+        )
 
 
 class MicroVMFactory:
@@ -969,8 +1032,9 @@ class MicroVMFactory:
         for vm in self.vms:
             vm.kill()
             vm.jailer.cleanup()
-            if len(vm.jailer.jailer_id) > 0:
-                shutil.rmtree(vm.jailer.chroot_base_with_id())
+            chroot_base_with_id = vm.jailer.chroot_base_with_id()
+            if len(vm.jailer.jailer_id) > 0 and chroot_base_with_id.exists():
+                shutil.rmtree(chroot_base_with_id)
             vm.netns.cleanup()
 
         self.vms.clear()
@@ -992,6 +1056,11 @@ class Serial:
         if self._poller is not None:
             # serial already opened
             return
+
+        attempt = 0
+        while not Path(self._vm.screen_log).exists() and attempt < 5:
+            time.sleep(0.2)
+            attempt += 1
 
         screen_log_fd = os.open(self._vm.screen_log, os.O_RDONLY)
         self._poller = select.poll()

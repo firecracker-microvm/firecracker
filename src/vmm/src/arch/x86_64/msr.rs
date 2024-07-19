@@ -236,6 +236,7 @@ static SERIALIZABLE_MSR_RANGES: &[MsrRange] = &[
     MSR_RANGE!(MSR_K7_HWCR),
     MSR_RANGE!(MSR_KVM_POLL_CONTROL),
     MSR_RANGE!(MSR_KVM_ASYNC_PF_INT),
+    MSR_RANGE!(MSR_IA32_TSX_CTRL),
 ];
 
 /// Specifies whether a particular MSR should be included in vcpu serialization.
@@ -299,7 +300,7 @@ const UNDUMPABLE_MSR_RANGES: [MsrRange; 17] = [
     // vCPU. IA32_MCG_CAP can be set up via KVM_X86_SETUP_MCE API, but Firecracker doesn't use it.
     // https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/kvm/x86.c?h=v4.14.311#n2553
     MSR_RANGE!(MSR_IA32_MCG_CTL),
-    // Firecarcker is not tested with nested virtualization. Some CPU templates intentionally
+    // Firecracker is not tested with nested virtualization. Some CPU templates intentionally
     // disable nested virtualization. If nested virtualization is disabled, VMX-related MSRs cannot
     // be dumped. It can be seen in the following link that VMX-related MSRs depend on whether
     // nested virtualization is allowed.

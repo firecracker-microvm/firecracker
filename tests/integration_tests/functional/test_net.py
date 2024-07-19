@@ -44,14 +44,12 @@ def test_high_ingress_traffic(uvm_plain_any):
             IPERF_BINARY,
             guest_ip,
         ),
-        ignore_return_code=True,
     )
 
     # Check if the high ingress traffic broke the net interface.
     # If the net interface still works we should be able to execute
     # ssh commands.
-    exit_code, _, _ = test_microvm.ssh.run("echo success\n")
-    assert exit_code == 0
+    test_microvm.ssh.check_output("echo success\n")
 
 
 def test_multi_queue_unsupported(uvm_plain):
@@ -64,8 +62,8 @@ def test_multi_queue_unsupported(uvm_plain):
 
     tapname = microvm.id[:8] + "tap1"
 
-    utils.run_cmd(f"ip tuntap add name {tapname} mode tap multi_queue")
-    utils.run_cmd(f"ip link set {tapname} netns {microvm.netns.id}")
+    utils.check_output(f"ip tuntap add name {tapname} mode tap multi_queue")
+    utils.check_output(f"ip link set {tapname} netns {microvm.netns.id}")
 
     expected_msg = re.escape(
         "Could not create the network device: Open tap device failed:"

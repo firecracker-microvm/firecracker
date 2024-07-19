@@ -49,16 +49,12 @@ def check_hugetlbfs_in_use(pid: int, allocation_name: str):
     #   THPeligible:           0
     #   ProtectionKey:         0
     cmd = f"cat /proc/{pid}/smaps | grep {allocation_name} -A 23 | grep KernelPageSize"
-    _, stdout, _ = utils.run_cmd(cmd)
+    _, stdout, _ = utils.check_output(cmd)
 
     kernel_page_size_kib = int(stdout.split()[1])
     assert kernel_page_size_kib > 4
 
 
-@pytest.mark.skipif(
-    global_props.host_linux_version == "4.14",
-    reason="MFD_HUGETLB | MFD_ALLOW_SEALING only supported on kernels >= 4.16",
-)
 def test_hugetlbfs_boot(uvm_plain):
     """Tests booting a microvm with guest memory backed by 2MB hugetlbfs pages"""
 
@@ -66,9 +62,7 @@ def test_hugetlbfs_boot(uvm_plain):
     uvm_plain.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB, mem_size_mib=128)
     uvm_plain.add_net_iface()
     uvm_plain.start()
-
-    rc, _, _ = uvm_plain.ssh.run("true")
-    assert not rc
+    uvm_plain.wait_for_up()
 
     check_hugetlbfs_in_use(
         uvm_plain.firecracker_pid,
@@ -76,10 +70,6 @@ def test_hugetlbfs_boot(uvm_plain):
     )
 
 
-@pytest.mark.skipif(
-    global_props.host_linux_version == "4.14",
-    reason="MFD_HUGETLB | MFD_ALLOW_SEALING only supported on kernels >= 4.16",
-)
 def test_hugetlbfs_snapshot(
     microvm_factory, guest_kernel_linux_5_10, rootfs_ubuntu_22, uffd_handler_paths
 ):
@@ -94,10 +84,7 @@ def test_hugetlbfs_snapshot(
     vm.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB, mem_size_mib=128)
     vm.add_net_iface()
     vm.start()
-
-    # Wait for microvm to boot
-    rc, _, _ = vm.ssh.run("true")
-    assert not rc
+    vm.wait_for_up()
 
     check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
 
@@ -115,18 +102,11 @@ def test_hugetlbfs_snapshot(
     )
 
     vm.restore_from_snapshot(snapshot, resume=True, uffd_path=SOCKET_PATH)
-
-    # Verify if guest can run commands.
-    rc, _, _ = vm.ssh.run("true")
-    assert not rc
+    vm.wait_for_up()
 
     check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
 
 
-@pytest.mark.skipif(
-    global_props.host_linux_version == "4.14",
-    reason="MFD_HUGETLB | MFD_ALLOW_SEALING only supported on kernels >= 4.16",
-)
 def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain, uffd_handler_paths):
     """
     Test hugetlbfs differential snapshot support.
@@ -146,8 +126,7 @@ def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain, uffd_handler_paths)
     uvm_plain.start()
 
     # Wait for microvm to boot
-    rc, _, _ = uvm_plain.ssh.run("true")
-    assert not rc
+    uvm_plain.wait_for_up()
 
     base_snapshot = uvm_plain.snapshot_diff()
     uvm_plain.resume()
@@ -171,15 +150,10 @@ def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain, uffd_handler_paths)
 
     vm.restore_from_snapshot(snapshot_merged, resume=True, uffd_path=SOCKET_PATH)
 
-    # Verify if guest can run commands.
-    rc, _, _ = vm.ssh.run("true")
-    assert not rc
+    # Verify if the restored microvm works.
+    vm.wait_for_up()
 
 
-@pytest.mark.skipif(
-    global_props.host_linux_version == "4.14",
-    reason="MFD_HUGETLB | MFD_ALLOW_SEALING only supported on kernels >= 4.16",
-)
 @pytest.mark.parametrize("huge_pages", HugePagesConfig)
 def test_ept_violation_count(
     microvm_factory,
@@ -240,6 +214,7 @@ def test_ept_violation_count(
 
     with ftrace_events("kvm:*"):
         vm.restore_from_snapshot(snapshot, resume=True, uffd_path=SOCKET_PATH)
+        vm.wait_for_up()
 
         # Verify if guest can run commands, and also wake up the fast page fault helper to trigger page faults.
         rc, _, _ = vm.ssh.run(f"kill -s {signal.SIGUSR1} {pid}")
@@ -255,20 +230,16 @@ def test_ept_violation_count(
             # On ARM, KVM does not differentiate why it got a guest page fault.
             # However, even in this slightly more general metric, we see a significant
             # difference between 4K and 2M pages.
-            trace_entry = "guest_page_fault"
+            trace_entry = "kvm_guest_fault"
             metric = "guest_page_faults"
 
-        _, metric_value, _ = utils.run_cmd(
+        _, metric_value, _ = utils.check_output(
             f"cat /sys/kernel/tracing/trace | grep '{trace_entry}' | wc -l"
         )
 
     metrics.put_metric(metric, int(metric_value), "Count")
 
 
-@pytest.mark.skipif(
-    global_props.host_linux_version == "4.14",
-    reason="MFD_HUGETLB | MFD_ALLOW_SEALING only supported on kernels >= 4.16",
-)
 def test_negative_huge_pages_plus_balloon(uvm_plain):
     """Tests that huge pages and memory ballooning cannot be used together"""
     uvm_plain.memory_monitor = None
@@ -292,10 +263,6 @@ def test_negative_huge_pages_plus_balloon(uvm_plain):
         uvm_plain.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB)
 
 
-@pytest.mark.skipif(
-    global_props.host_linux_version == "4.14",
-    reason="MFD_HUGETLB | MFD_ALLOW_SEALING only supported on kernels >= 4.16",
-)
 def test_negative_huge_pages_plus_initrd(uvm_with_initrd):
     """Tests that huge pages and initrd cannot be used together"""
     uvm_with_initrd.jailer.daemonize = False

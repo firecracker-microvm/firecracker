@@ -85,10 +85,9 @@ The current implementation relies on the
 
 ### Host kernel
 
-The minimum kernel version required by Firecracker snapshots is 4.14. Snapshots
-can be saved and restored on the same kernel version without any issues. There
-might be issues when restoring snapshots created on different host kernel
-version even when using the same Firecracker version.
+Snapshots can be saved and restored on the same kernel version without any
+issues. There might be issues when restoring snapshots created on different host
+kernel version even when using the same Firecracker version.
 
 SnapshotCreate and SnapshotLoad operations across different host kernels is
 considered unstable in Firecracker as the saved KVM state might have different

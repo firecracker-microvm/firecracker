@@ -312,7 +312,7 @@ pub(crate) fn inject_tap_tx_frame(net: &Net, len: usize) -> Vec<u8> {
 pub fn write_element_in_queue(net: &Net, idx: u16, val: u64) -> Result<(), DeviceError> {
     if idx as usize > net.queue_evts.len() {
         return Err(DeviceError::QueueError(QueueError::DescIndexOutOfBounds(
-            idx,
+            u32::from(idx),
         )));
     }
     net.queue_evts[idx as usize].write(val).unwrap();
@@ -322,7 +322,7 @@ pub fn write_element_in_queue(net: &Net, idx: u16, val: u64) -> Result<(), Devic
 pub fn get_element_from_queue(net: &Net, idx: u16) -> Result<u64, DeviceError> {
     if idx as usize > net.queue_evts.len() {
         return Err(DeviceError::QueueError(QueueError::DescIndexOutOfBounds(
-            idx,
+            u32::from(idx),
         )));
     }
     Ok(u64::try_from(net.queue_evts[idx as usize].as_raw_fd()).unwrap())
@@ -395,7 +395,7 @@ pub mod test {
         pub fn get_default() -> TestHelper<'a> {
             let mut event_manager = EventManager::new().unwrap();
             let mut net = default_net();
-            let mem = single_region_mem(MAX_BUFFER_SIZE);
+            let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
 
             // transmute mem_ref lifetime to 'a
             let mem_ref = unsafe { mem::transmute::<&GuestMemoryMmap, &'a GuestMemoryMmap>(&mem) };

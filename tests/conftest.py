@@ -35,7 +35,7 @@ import pytest
 
 import host_tools.cargo_build as build_tools
 from framework import defs, utils
-from framework.artifacts import kernel_params, rootfs_params
+from framework.artifacts import kernel_params, kernels_unfiltered, rootfs_params
 from framework.microvm import MicroVMFactory
 from framework.properties import global_props
 from framework.utils_cpu_templates import (
@@ -117,17 +117,24 @@ def record_props(request, record_property):
 def pytest_runtest_logreport(report):
     """Send general test metrics to CloudWatch"""
     if report.when == "call":
-        dimensions = {
-            "test": report.nodeid,
-            "instance": global_props.instance,
-            "cpu_model": global_props.cpu_model,
-            "host_kernel": "linux-" + global_props.host_linux_version,
-        }
+        METRICS.set_dimensions(
+            {
+                "test": report.nodeid,
+                "instance": global_props.instance,
+                "cpu_model": global_props.cpu_model,
+                "host_kernel": "linux-" + global_props.host_linux_version,
+            },
+            # per host kernel
+            {"host_kernel": "linux-" + global_props.host_linux_version},
+            # per CPU
+            {"cpu_model": global_props.cpu_model},
+            # and global
+            {},
+        )
         METRICS.set_property("result", report.outcome)
         METRICS.set_property("location", report.location)
         for prop_name, prop_val in report.user_properties:
             METRICS.set_property(prop_name, prop_val)
-        METRICS.set_dimensions(dimensions)
         METRICS.put_metric(
             "duration",
             report.duration,
@@ -258,18 +265,20 @@ def microvm_factory(request, record_property, results_dir):
     uvm_factory = MicroVMFactory(fc_binary_path, jailer_binary_path)
     yield uvm_factory
 
-    # if the test failed, save fc.log in test_results for troubleshooting
+    # if the test failed, save important files from the root of the uVM into `test_results` for troubleshooting
     report = request.node.stash[PHASE_REPORT_KEY]
     if "call" in report and report["call"].failed:
         for uvm in uvm_factory.vms:
-            if not uvm.log_file.exists():
-                continue
-            dst = results_dir / uvm.id / uvm.log_file.name
-            dst.parent.mkdir()
-            shutil.copy(uvm.log_file, dst)
-            if uvm.metrics_file.exists():
-                dst = results_dir / uvm.id / uvm.metrics_file.name
-                shutil.copy(uvm.metrics_file, dst)
+            uvm_data = results_dir / uvm.id
+            uvm_data.mkdir()
+
+            uvm_root = Path(uvm.chroot())
+            for item in os.listdir(uvm_root):
+                src = uvm_root / item
+                if not os.path.isfile(src):
+                    continue
+                dst = uvm_data / item
+                shutil.copy(src, dst)
 
     uvm_factory.kill()
 
@@ -351,6 +360,12 @@ guest_kernel_linux_4_14 = pytest.fixture(
 )
 guest_kernel_linux_5_10 = pytest.fixture(
     guest_kernel_fxt, params=kernel_params("vmlinux-5.10*")
+)
+# Use the unfiltered selector, since we don't officially support 6.1 yet.
+# TODO: switch to default selector once we add full 6.1 support.
+guest_kernel_linux_6_1 = pytest.fixture(
+    guest_kernel_fxt,
+    params=kernel_params("vmlinux-6.1*", select=kernels_unfiltered),
 )
 
 # Fixtures for all Ubuntu rootfs, and specific versions

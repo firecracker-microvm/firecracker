@@ -26,7 +26,7 @@ def cargo(
     env = env or {}
     env_string = " ".join(f'{key}="{str(value)}"' for key, value in env.items())
     cmd = f"{env_string} cargo {subcommand} {cargo_args} -- {subcommand_args}"
-    return utils.run_cmd(cmd, cwd=cwd)
+    return utils.check_output(cmd, cwd=cwd)
 
 
 def get_rustflags():
@@ -53,7 +53,6 @@ def get_binary(name, *, workspace_dir=FC_WORKSPACE_DIR, example=None):
     bin_path = target_dir / name
     if example:
         bin_path = target_dir / "examples" / example
-    assert bin_path.exists()
     return bin_path
 
 
@@ -90,8 +89,7 @@ def run_seccompiler_bin(bpf_path, json_path=defs.SECCOMP_JSON_DIR, basic=False):
         seccompiler_args += " --basic"
 
     seccompiler = get_binary("seccompiler-bin")
-    rc, _, _ = utils.run_cmd(f"{seccompiler} {seccompiler_args}")
-    assert rc == 0
+    utils.check_output(f"{seccompiler} {seccompiler_args}")
 
 
 def run_snap_editor_rebase(base_snap, diff_snap):
@@ -103,10 +101,9 @@ def run_snap_editor_rebase(base_snap, diff_snap):
     """
 
     snap_ed = get_binary("snapshot-editor")
-    rc, _, _ = utils.run_cmd(
+    utils.check_output(
         f"{snap_ed} edit-memory rebase --memory-path {base_snap} --diff-path {diff_snap}"
     )
-    assert rc == 0
 
 
 def run_rebase_snap_bin(base_snap, diff_snap):
@@ -117,10 +114,7 @@ def run_rebase_snap_bin(base_snap, diff_snap):
     :param diff_snap: path to diff snapshot mem file
     """
     rebase_snap = get_binary("rebase-snap")
-    rc, _, _ = utils.run_cmd(
-        f"{rebase_snap} --base-file {base_snap} --diff-file {diff_snap}"
-    )
-    assert rc == 0
+    utils.check_output(f"{rebase_snap} --base-file {base_snap} --diff-file {diff_snap}")
 
 
 @with_filelock
@@ -129,4 +123,4 @@ def gcc_compile(src_file, output_file, extra_flags="-static -O3"):
     output_file = Path(output_file)
     if not output_file.exists():
         compile_cmd = f"gcc {src_file} -o {output_file} {extra_flags}"
-        utils.run_cmd(compile_cmd)
+        utils.check_output(compile_cmd)

@@ -100,20 +100,14 @@ impl BlockMetricsPerDevice {
     /// lock is always initialized so it is safe the unwrap
     /// the lock without a check.
     pub fn alloc(drive_id: String) -> Arc<BlockDeviceMetrics> {
-        if METRICS.read().unwrap().metrics.get(&drive_id).is_none() {
+        Arc::clone(
             METRICS
                 .write()
                 .unwrap()
                 .metrics
-                .insert(drive_id.clone(), Arc::new(BlockDeviceMetrics::new()));
-        }
-        METRICS
-            .read()
-            .unwrap()
-            .metrics
-            .get(&drive_id)
-            .unwrap()
-            .clone()
+                .entry(drive_id)
+                .or_insert_with(|| Arc::new(BlockDeviceMetrics::default())),
+        )
     }
 }
 

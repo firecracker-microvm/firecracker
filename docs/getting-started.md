@@ -82,14 +82,16 @@ kernel image with a Ubuntu 22.04 rootfs from our CI:
 ```bash
 ARCH="$(uname -m)"
 
+latest=$(wget "http://spec.ccfc.min.s3.amazonaws.com/?prefix=firecracker-ci/v1.9/x86_64/vmlinux-5.10&list-type=2" -O - 2>/dev/null | grep "(?<=<Key>)(firecracker-ci/v1.9/x86_64/vmlinux-5\.10\.[0-9]{3})(?=</Key>)" -o -P)
+
 # Download a linux kernel binary
-wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.8/${ARCH}/vmlinux-5.10.209
+wget https://s3.amazonaws.com/spec.ccfc.min/${latest}
 
 # Download a rootfs
-wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.8/${ARCH}/ubuntu-22.04.ext4
+wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.9/${ARCH}/ubuntu-22.04.ext4
 
 # Download the ssh key for the rootfs
-wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.8/${ARCH}/ubuntu-22.04.id_rsa
+wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.9/${ARCH}/ubuntu-22.04.id_rsa
 
 # Set user read permission on the ssh key
 chmod 400 ./ubuntu-22.04.id_rsa
@@ -192,7 +194,7 @@ LOGFILE="./firecracker.log"
 touch $LOGFILE
 
 # Set log file
-curl -X PUT --unix-socket "${API_SOCKET}" \
+sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     --data "{
         \"log_path\": \"${LOGFILE}\",
         \"level\": \"Debug\",
@@ -201,7 +203,7 @@ curl -X PUT --unix-socket "${API_SOCKET}" \
     }" \
     "http://localhost/logger"
 
-KERNEL="./vmlinux-5.10.209"
+KERNEL="./vmlinux-5.10.210"
 KERNEL_BOOT_ARGS="console=ttyS0 reboot=k panic=1 pci=off"
 
 ARCH=$(uname -m)
@@ -211,7 +213,7 @@ if [ ${ARCH} = "aarch64" ]; then
 fi
 
 # Set boot source
-curl -X PUT --unix-socket "${API_SOCKET}" \
+sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     --data "{
         \"kernel_image_path\": \"${KERNEL}\",
         \"boot_args\": \"${KERNEL_BOOT_ARGS}\"
@@ -221,7 +223,7 @@ curl -X PUT --unix-socket "${API_SOCKET}" \
 ROOTFS="./ubuntu-22.04.ext4"
 
 # Set rootfs
-curl -X PUT --unix-socket "${API_SOCKET}" \
+sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     --data "{
         \"drive_id\": \"rootfs\",
         \"path_on_host\": \"${ROOTFS}\",
@@ -236,7 +238,7 @@ curl -X PUT --unix-socket "${API_SOCKET}" \
 FC_MAC="06:00:AC:10:00:02"
 
 # Set network interface
-curl -X PUT --unix-socket "${API_SOCKET}" \
+sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     --data "{
         \"iface_id\": \"net1\",
         \"guest_mac\": \"$FC_MAC\",
@@ -249,7 +251,7 @@ curl -X PUT --unix-socket "${API_SOCKET}" \
 sleep 0.015s
 
 # Start microVM
-curl -X PUT --unix-socket "${API_SOCKET}" \
+sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     --data "{
         \"action_type\": \"InstanceStart\"
     }" \
@@ -282,7 +284,7 @@ You can boot a guest without using the API socket by passing the parameter
 `--config-file` to the Firecracker process. E.g.:
 
 ```wrap
-./firecracker --api-sock /tmp/firecracker.socket --config-file <path_to_the_configuration_file>
+sudo ./firecracker --api-sock /tmp/firecracker.socket --config-file <path_to_the_configuration_file>
 ```
 
 `path_to_the_configuration_file` is the path to a JSON file with the

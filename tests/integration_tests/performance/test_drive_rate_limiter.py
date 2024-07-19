@@ -19,8 +19,7 @@ def check_iops_limit(ssh_connection, block_size, count, min_time, max_time):
     )
     print("Running cmd {}".format(dd))
     # Check write iops (writing with oflag=direct is more reliable).
-    exit_code, _, stderr = ssh_connection.run(dd)
-    assert exit_code == 0
+    _, _, stderr = ssh_connection.check_output(dd)
 
     # "dd" writes to stderr by design. We drop first lines
     lines = stderr.split("\n")

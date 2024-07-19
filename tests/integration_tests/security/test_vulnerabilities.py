@@ -29,14 +29,6 @@ REMOTE_CHECKER_COMMAND = f"sh {REMOTE_CHECKER_PATH} --no-intel-db --batch json"
 VULN_DIR = "/sys/devices/system/cpu/vulnerabilities"
 
 
-skip_if_g3_on_linux_4_14 = pytest.mark.skipif(
-    global_props.cpu_model == "ARM_NEOVERSE_V1"
-    and global_props.host_linux_version == "4.14",
-    # Graviton3 instances in 4.14 require a non-SVE kernel to boot
-    reason="[cm]7g 4.14 requires modifications to the 5.10 guest kernel to boot successfully.",
-)
-
-
 def configure_microvm(
     factory,
     kernel,
@@ -122,6 +114,8 @@ def with_restore(factory, microvm_factory):
 
     def restore(firecracker=None, jailer=None):
         microvm = factory(firecracker, jailer)
+        microvm.wait_for_up()
+
         snapshot = microvm.snapshot_full()
 
         if firecracker:
@@ -133,6 +127,7 @@ def with_restore(factory, microvm_factory):
         dst_vm.spawn()
         # Restore the destination VM from the snapshot
         dst_vm.restore_from_snapshot(snapshot, resume=True)
+        dst_vm.wait_for_up()
         dst_vm.cpu_template = microvm.cpu_template
 
         return dst_vm
@@ -219,7 +214,6 @@ def check_vulnerabilities_on_guest(status):
     assert report_guest_vulnerabilities == known_guest_vulnerabilities
 
 
-@skip_if_g3_on_linux_4_14
 def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
     """
     Test with the spectre / meltdown checker on host.
@@ -229,32 +223,16 @@ def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
         comparator=set_did_not_grow_comparator(
             spectre_meltdown_reported_vulnerablities
         ),
-        ignore_return_code_in_nonpr=True,
+        check_in_nonpr=False,
     )
 
     # Outside the PR context, checks the return code with some exceptions.
     if output and output.returncode != 0:
         report = spectre_meltdown_reported_vulnerablities(output)
         expected = {}
-        # The upstream kernel backported the following Inception mitigation patch only to kernel
-        # 5.10 or later.
-        # https://github.com/torvalds/linux/commit/fb3bd914b3ec28f5fb697ac55c4846ac2d542855
-        # Given this situation, the following downstream patch is provided on Amazon Linux 2, and
-        # it reports the status on retbleed sysfs file instead of spec_rstack_overflow sysfs file.
-        # https://github.com/amazonlinux/linux/commit/0422428fc4c9c42fb29629264ff1b4d5fd47541e
-        # We're testing it in `test_vulnerabilities_on_host`, so we can safely add the exception
-        # here.
-        if (
-            global_props.instance == "m6a.metal"
-            and global_props.host_linux_version == "4.14"
-        ):
-            expected = {
-                '{"NAME": "INCEPTION", "CVE": "CVE-2023-20569", "VULNERABLE": true, "INFOS": "Your kernel is too old and doesn\'t have the SRSO mitigation logic"}'
-            }
         assert report == expected, f"Unexpected vulnerabilities: {report} vs {expected}"
 
 
-@skip_if_g3_on_linux_4_14
 def test_spectre_meltdown_checker_on_guest(spectre_meltdown_checker, build_microvm):
     """
     Test with the spectre / meltdown checker on guest.
@@ -266,13 +244,12 @@ def test_spectre_meltdown_checker_on_guest(spectre_meltdown_checker, build_micro
         comparator=set_did_not_grow_comparator(
             spectre_meltdown_reported_vulnerablities
         ),
-        ignore_return_code_in_nonpr=True,
+        check_in_nonpr=False,
     )
     if status and status.returncode != 0:
         check_vulnerabilities_on_guest(status)
 
 
-@skip_if_g3_on_linux_4_14
 def test_spectre_meltdown_checker_on_restored_guest(
     spectre_meltdown_checker, build_microvm, microvm_factory
 ):
@@ -287,13 +264,12 @@ def test_spectre_meltdown_checker_on_restored_guest(
         comparator=set_did_not_grow_comparator(
             spectre_meltdown_reported_vulnerablities
         ),
-        ignore_return_code_in_nonpr=True,
+        check_in_nonpr=False,
     )
     if status and status.returncode != 0:
         check_vulnerabilities_on_guest(status)
 
 
-@skip_if_g3_on_linux_4_14
 def test_spectre_meltdown_checker_on_guest_with_template(
     spectre_meltdown_checker, build_microvm_with_template
 ):
@@ -310,7 +286,6 @@ def test_spectre_meltdown_checker_on_guest_with_template(
     )
 
 
-@skip_if_g3_on_linux_4_14
 def test_spectre_meltdown_checker_on_guest_with_custom_template(
     spectre_meltdown_checker, build_microvm_with_custom_template
 ):
@@ -326,7 +301,6 @@ def test_spectre_meltdown_checker_on_guest_with_custom_template(
     )
 
 
-@skip_if_g3_on_linux_4_14
 def test_spectre_meltdown_checker_on_restored_guest_with_template(
     spectre_meltdown_checker, build_microvm_with_template, microvm_factory
 ):
@@ -345,18 +319,14 @@ def test_spectre_meltdown_checker_on_restored_guest_with_template(
     )
 
 
-@skip_if_g3_on_linux_4_14
 def test_spectre_meltdown_checker_on_restored_guest_with_custom_template(
     spectre_meltdown_checker,
     build_microvm_with_custom_template,
     microvm_factory,
-    custom_cpu_template,
 ):
     """
     Test with the spectre / meltdown checker on a restored guest with a custom CPU template.
     """
-    if custom_cpu_template["name"] == "aarch64_with_sve_and_pac":
-        pytest.skip("does not work yet")
     git_ab_test_guest_command_if_pr(
         with_checker(
             with_restore(build_microvm_with_custom_template, microvm_factory),
@@ -387,11 +357,12 @@ def get_vuln_files_exception_dict(template):
     # https://github.com/torvalds/linux/commit/da3db168fb671f15e393b227f5c312c698ecb6ea
     # Thus, since the FLUSH_L1D bit is masked off prior to kernel v6.4, guests with
     # IA32_ARCH_CAPABILITIES.FB_CLEAR (bit 17) = 0 (like guests on Intel Skylake and guests with
-    # T2S template) fall onto the second hand of the condition and fail the test. The expected value
-    # "Vulnerable: Clear CPU buffers attempted, no microcode" means that the kernel is using the
-    # best effort mode which invokes the mitigation instructions (VERW in this case) without a
-    # guarantee that they clear the CPU buffers. If the host has the microcode update applied
-    # correctly, the mitigation works and it is safe to ignore the "Vulnerable" message.
+    # T2S template) fall onto the second hand of the condition and fail the test. The value is
+    # "Vulnerable: Clear CPU buffers attempted, no microcode" on guests on Intel Skylake and guests
+    # with T2S template but "Mitigation: Clear CPU buffers; SMT Host state unknown" on kernel v6.4
+    # or later. In any case, the kernel attempts to clear CPU buffers using VERW instruction and it
+    # is safe to ingore the "Vulnerable" message if the host has the microcode update applied
+    # correctly. Here we expect the common string "Clear CPU buffers" to cover both cases.
     #
     # Guest on Intel Skylake with C3 template
     # ---------------------------------------
@@ -409,9 +380,7 @@ def get_vuln_files_exception_dict(template):
     if global_props.cpu_codename == "INTEL_SKYLAKE" and template == "C3":
         exception_dict["mmio_stale_data"] = "Unknown: No mitigations"
     elif global_props.cpu_codename == "INTEL_SKYLAKE" or template == "T2S":
-        exception_dict[
-            "mmio_stale_data"
-        ] = "Vulnerable: Clear CPU buffers attempted, no microcode"
+        exception_dict["mmio_stale_data"] = "Clear CPU buffers"
 
     return exception_dict
 
@@ -437,8 +406,7 @@ def check_vulnerabilities_files_on_guest(microvm):
     """
     # Retrieve a list of vulnerabilities files available inside guests.
     vuln_dir = "/sys/devices/system/cpu/vulnerabilities"
-    ecode, stdout, stderr = microvm.ssh.run(f"find {vuln_dir} -type f")
-    assert ecode == 0, f"stdout:\n{stdout}\nstderr:\n{stderr}\n"
+    _, stdout, _ = microvm.ssh.check_output(f"find -D all {vuln_dir} -type f")
     vuln_files = stdout.split("\n")
 
     # Fixtures in this file (test_vulnerabilities.py) add this special field.
@@ -516,13 +484,11 @@ def test_vulnerabilities_files_on_restored_guest_with_template(
 
 
 def test_vulnerabilities_files_on_restored_guest_with_custom_template(
-    build_microvm_with_custom_template, microvm_factory, custom_cpu_template
+    build_microvm_with_custom_template, microvm_factory
 ):
     """
     Test vulnerabilities files on a restored guest with a custom CPU template.
     """
-    if custom_cpu_template["name"] == "aarch64_with_sve_and_pac":
-        pytest.skip("does not work yet")
     check_vulnerabilities_files_ab(
         with_restore(build_microvm_with_custom_template, microvm_factory)
     )

@@ -55,8 +55,7 @@ def _check_cpu_features_arm(test_microvm, guest_kv, template_name=None):
         case CpuModel.ARM_NEOVERSE_V1, _, None:
             expected_cpu_features = DEFAULT_G3_FEATURES_5_10
 
-    ret, stdout, stderr = test_microvm.ssh.run(r"lscpu |grep -oP '^Flags:\s+\K.+'")
-    assert ret == 0, stderr
+    _, stdout, _ = test_microvm.ssh.check_output(r"lscpu |grep -oP '^Flags:\s+\K.+'")
     flags = set(stdout.strip().split(" "))
     assert flags == expected_cpu_features
 
@@ -114,6 +113,7 @@ def test_cpu_features_with_static_template(
     restored_vm = microvm_factory.build()
     restored_vm.spawn()
     restored_vm.restore_from_snapshot(snapshot, resume=True)
+    restored_vm.wait_for_up()
     _check_cpu_features_arm(restored_vm, guest_kv, "v1n1")
 
 
@@ -143,4 +143,5 @@ def test_cpu_features_with_custom_template(
     restored_vm = microvm_factory.build()
     restored_vm.spawn()
     restored_vm.restore_from_snapshot(snapshot, resume=True)
+    restored_vm.wait_for_up()
     _check_cpu_features_arm(restored_vm, guest_kv, custom_cpu_template["name"])

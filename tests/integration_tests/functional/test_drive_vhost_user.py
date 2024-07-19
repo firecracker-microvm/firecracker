@@ -56,12 +56,7 @@ def test_vhost_user_block(microvm_factory, guest_kernel, rootfs_ubuntu_22):
         "vhost_user_block", 1, aggr_supported=False
     )
     vm.start()
-
-    # Attempt to connect to the VM.
-    # Verify if guest can run commands.
-    exit_code, _, _ = vm.ssh.run("ls")
-
-    assert exit_code == 0
+    vm.wait_for_up()
 
     # Now check that vhost-user-block with rw is last.
     # 1-0 means line 1, column 0.
@@ -96,11 +91,7 @@ def test_vhost_user_block_read_write(microvm_factory, guest_kernel, rootfs_ubunt
     vm.add_vhost_user_drive("rootfs", rootfs_rw, is_root_device=True)
     vm.add_net_iface()
     vm.start()
-
-    # Attempt to connect to the VM.
-    # Verify if guest can run commands.
-    exit_code, _, _ = vm.ssh.run("ls")
-    assert exit_code == 0
+    vm.wait_for_up()
 
     # Now check that vhost-user-block with rw is last.
     # 1-0 means line 1, column 0.
@@ -129,11 +120,7 @@ def test_vhost_user_block_disconnect(microvm_factory, guest_kernel, rootfs_ubunt
     )
     vm.add_net_iface()
     vm.start()
-
-    # Attempt to connect to the VM.
-    # Verify if guest can run commands.
-    exit_code, _, _ = vm.ssh.run("ls")
-    assert exit_code == 0
+    vm.wait_for_up()
 
     # Killing the backend
     vm.disks_vhost_user["rootfs"].kill()
@@ -244,11 +231,7 @@ def test_partuuid_boot(
     )
     vm.add_net_iface()
     vm.start()
-
-    # Attempt to connect to the VM.
-    # Verify if guest can run commands.
-    exit_code, _, _ = vm.ssh.run("ls")
-    assert exit_code == 0
+    vm.wait_for_up()
 
     # Now check that vhost-user-block with rw is last.
     # 1-0 means line 1, column 0.
@@ -292,11 +275,7 @@ def test_partuuid_update(microvm_factory, guest_kernel, rootfs_ubuntu_22):
         "vhost_user_block", 1, aggr_supported=False
     )
     vm.start()
-
-    # Attempt to connect to the VM.
-    # Verify if guest can run commands.
-    exit_code, _, _ = vm.ssh.run("ls")
-    assert exit_code == 0
+    vm.wait_for_up()
 
     # Now check that vhost-user-block with rw is last.
     # 1-0 means line 1, column 0.
@@ -333,8 +312,7 @@ def test_config_change(microvm_factory, guest_kernel, rootfs):
     _check_block_size(vm.ssh, "/dev/vdb", orig_size * 1024 * 1024)
 
     # Check that we can create a filesystem and mount it
-    ret, out, err = vm.ssh.run(mkfs_mount_cmd)
-    assert ret == 0, f"{ret}, {out}, {err}"
+    vm.ssh.check_output(mkfs_mount_cmd)
 
     for new_size in new_sizes:
         # Instruct the backend to resize the device.
@@ -349,5 +327,4 @@ def test_config_change(microvm_factory, guest_kernel, rootfs):
         _check_block_size(vm.ssh, "/dev/vdb", new_size * 1024 * 1024)
 
         # Check that we can create a filesystem and mount it
-        ret, out, err = vm.ssh.run(mkfs_mount_cmd)
-        assert ret == 0, f"{new_size=}, {ret=}, {out=}, {err=}"
+        vm.ssh.check_output(mkfs_mount_cmd)

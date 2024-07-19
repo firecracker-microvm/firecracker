@@ -109,20 +109,20 @@ impl NetBuilder {
         &mut self,
         netif_config: NetworkInterfaceConfig,
     ) -> Result<Arc<Mutex<Net>>, NetworkInterfaceError> {
-        let mac_conflict = |net: &Arc<Mutex<Net>>| {
-            let net = net.lock().expect("Poisoned lock");
-            // Check if another net dev has same MAC.
-            netif_config.guest_mac.is_some()
-                && netif_config.guest_mac.as_ref() == net.guest_mac()
-                && &netif_config.iface_id != net.id()
-        };
-        // Validate there is no Mac conflict.
-        // No need to validate host_dev_name conflict. In such a case,
-        // an error will be thrown during device creation anyway.
-        if self.net_devices.iter().any(mac_conflict) {
-            return Err(NetworkInterfaceError::GuestMacAddressInUse(
-                netif_config.guest_mac.unwrap().to_string(),
-            ));
+        if let Some(ref mac_address) = netif_config.guest_mac {
+            let mac_conflict = |net: &Arc<Mutex<Net>>| {
+                let net = net.lock().expect("Poisoned lock");
+                // Check if another net dev has same MAC.
+                Some(mac_address) == net.guest_mac() && &netif_config.iface_id != net.id()
+            };
+            // Validate there is no Mac conflict.
+            // No need to validate host_dev_name conflict. In such a case,
+            // an error will be thrown during device creation anyway.
+            if self.net_devices.iter().any(mac_conflict) {
+                return Err(NetworkInterfaceError::GuestMacAddressInUse(
+                    mac_address.to_string(),
+                ));
+            }
         }
 
         // If this is an update, just remove the old one.
