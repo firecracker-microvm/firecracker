@@ -40,7 +40,7 @@ def test_remove_regs(uvm_nano, microvm_factory):
         "--vmstate-path",
         str(snapshot.vmstate),
     ]
-    _, stdout, _ = utils.run_cmd(cmd)
+    _, stdout, _ = utils.check_output(cmd)
     assert MIDR_EL1 in stdout
 
     # Remove MIDR_EL1 register from the snapshot
@@ -54,7 +54,7 @@ def test_remove_regs(uvm_nano, microvm_factory):
         str(snapshot.vmstate),
         str(MIDR_EL1),
     ]
-    utils.run_cmd(cmd)
+    utils.check_output(cmd)
 
     # Test that MIDR_EL1 is not in the snapshot
     cmd = [
@@ -64,15 +64,11 @@ def test_remove_regs(uvm_nano, microvm_factory):
         "--vmstate-path",
         str(snapshot.vmstate),
     ]
-    _, stdout, _ = utils.run_cmd(cmd)
+    _, stdout, _ = utils.check_output(cmd)
     assert MIDR_EL1 not in stdout
 
     # test that we can restore from a snapshot
     new_vm = microvm_factory.build()
     new_vm.spawn()
     new_vm.restore_from_snapshot(snapshot, resume=True)
-
-    # Attempt to connect to resumed microvm.
-    # Verify if guest can run commands.
-    exit_code, _, _ = new_vm.ssh.run("ls")
-    assert exit_code == 0
+    new_vm.wait_for_up()

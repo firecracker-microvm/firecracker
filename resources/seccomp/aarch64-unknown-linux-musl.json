@@ -75,6 +75,10 @@
                 "comment": "Used for drive patching & rescanning, for reading the local timezone from /etc/localtime"
             },
             {
+                "syscall": "faccessat",
+                "comment": "Used by aws-lc-sys"
+            },
+            {
                 "syscall": "ftruncate",
                 "comment": "Used for snapshotting"
             },
@@ -1031,6 +1035,18 @@
                         "op": "eq",
                         "val": 3221794480,
                         "comment": "KVM_GET_REG_LIST"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1074025680,
+                        "comment": "TUNSETOFFLOAD"
                     }
                 ]
             },

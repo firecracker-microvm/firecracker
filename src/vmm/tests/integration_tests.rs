@@ -280,7 +280,6 @@ fn test_create_and_load_snapshot() {
 #[test]
 fn test_snapshot_load_sanity_checks() {
     use vmm::persist::SnapShotStateSanityCheckError;
-    use vmm::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
 
     let mut microvm_state = get_microvm_state_from_snapshot();
 
@@ -294,13 +293,6 @@ fn test_snapshot_load_sanity_checks() {
         snapshot_state_sanity_check(&microvm_state),
         Err(SnapShotStateSanityCheckError::NoMemory)
     );
-
-    // Create MAX_SUPPORTED_VCPUS vCPUs starting from 1 vCPU.
-    for _ in 0..MAX_SUPPORTED_VCPUS.ilog2() {
-        microvm_state
-            .vcpu_states
-            .append(&mut microvm_state.vcpu_states.clone());
-    }
 }
 
 fn get_microvm_state_from_snapshot() -> MicrovmState {

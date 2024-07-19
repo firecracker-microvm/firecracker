@@ -110,7 +110,7 @@ mod defs {
 #[rustfmt::skip]
 pub enum VsockError {
     /** The total length of the descriptor chain ({0}) is too short to hold a packet of length {1} + header */
-    DescChainTooShortForPacket(usize, u32),
+    DescChainTooShortForPacket(u32, u32),
     /// Empty queue
     EmptyQueue,
     /// EventFd error: {0}
@@ -122,6 +122,8 @@ pub enum VsockError {
     /** The total length of the descriptor chain ({0}) is less than the number of bytes required\
     to hold a vsock packet header.*/
     DescChainTooShortForHeader(usize),
+    /// The descriptor chain length was greater than the max ([u32::MAX])
+    DescChainOverflow,
     /// The vsock header `len` field holds an invalid value: {0}
     InvalidPktLen(u32),
     /// A data fetch was attempted when no data was available.
@@ -144,6 +146,7 @@ impl From<IoVecError> for VsockError {
             IoVecError::WriteOnlyDescriptor => VsockError::UnreadableDescriptor,
             IoVecError::ReadOnlyDescriptor => VsockError::UnwritableDescriptor,
             IoVecError::GuestMemory(err) => VsockError::GuestMemoryMmap(err),
+            IoVecError::OverflowedDescriptor => VsockError::DescChainOverflow,
         }
     }
 }

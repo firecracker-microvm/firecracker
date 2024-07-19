@@ -12,10 +12,14 @@ use log::{error, warn};
 use serde::{Deserialize, Serialize};
 use vm_allocator::AllocPolicy;
 
+#[cfg(target_arch = "x86_64")]
+use super::acpi::ACPIDeviceManager;
 use super::mmio::*;
 use super::resources::ResourceAllocator;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::DeviceType;
+#[cfg(target_arch = "x86_64")]
+use crate::devices::acpi::vmgenid::{VMGenIDState, VMGenIdConstructorArgs, VmGenId, VmGenIdError};
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::balloon::{Balloon, BalloonError};
 use crate::devices::virtio::block::device::Block;
@@ -206,7 +210,7 @@ pub enum SharedDeviceType {
 }
 
 pub struct MMIODevManagerConstructorArgs<'a> {
-    pub mem: GuestMemoryMmap,
+    pub mem: &'a GuestMemoryMmap,
     pub vm: &'a VmFd,
     pub event_manager: &'a mut EventManager,
     pub resource_allocator: &'a mut ResourceAllocator,
@@ -223,6 +227,59 @@ impl fmt::Debug for MMIODevManagerConstructorArgs<'_> {
             .field("vm_resources", &self.vm_resources)
             .field("instance_id", &self.instance_id)
             .finish()
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub struct ACPIDeviceManagerState {
+    vmgenid: Option<VMGenIDState>,
+}
+
+#[cfg(target_arch = "x86_64")]
+pub struct ACPIDeviceManagerConstructorArgs<'a> {
+    pub mem: &'a GuestMemoryMmap,
+    pub resource_allocator: &'a mut ResourceAllocator,
+    pub vm: &'a VmFd,
+}
+
+#[cfg(target_arch = "x86_64")]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum ACPIDeviceManagerRestoreError {
+    /// Could not register device: {0}
+    Interrupt(#[from] kvm_ioctls::Error),
+    /// Could not create VMGenID device: {0}
+    VMGenID(#[from] VmGenIdError),
+}
+
+#[cfg(target_arch = "x86_64")]
+impl<'a> Persist<'a> for ACPIDeviceManager {
+    type State = ACPIDeviceManagerState;
+    type ConstructorArgs = ACPIDeviceManagerConstructorArgs<'a>;
+    type Error = ACPIDeviceManagerRestoreError;
+
+    fn save(&self) -> Self::State {
+        ACPIDeviceManagerState {
+            vmgenid: self.vmgenid.as_ref().map(|dev| dev.save()),
+        }
+    }
+
+    fn restore(
+        constructor_args: Self::ConstructorArgs,
+        state: &Self::State,
+    ) -> std::result::Result<Self, Self::Error> {
+        let mut dev_manager = ACPIDeviceManager::new();
+        if let Some(vmgenid_args) = &state.vmgenid {
+            let vmgenid = VmGenId::restore(
+                VMGenIdConstructorArgs {
+                    mem: constructor_args.mem,
+                    resource_allocator: constructor_args.resource_allocator,
+                },
+                vmgenid_args,
+            )?;
+            dev_manager.attach_vmgenid(vmgenid, constructor_args.vm)?;
+        }
+        Ok(dev_manager)
     }
 }
 
@@ -360,7 +417,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
         let mut dev_manager = MMIODeviceManager::new();
-        let mem = &constructor_args.mem;
+        let mem = constructor_args.mem;
         let vm = constructor_args.vm;
 
         #[cfg(target_arch = "aarch64")]
@@ -748,7 +805,7 @@ mod tests {
         let device_states: DeviceStates = Snapshot::deserialize(&mut buf.as_slice()).unwrap();
         let vm_resources = &mut VmResources::default();
         let restore_args = MMIODevManagerConstructorArgs {
-            mem: vmm.guest_memory().clone(),
+            mem: vmm.guest_memory(),
             vm: vmm.vm.fd(),
             event_manager: &mut event_manager,
             resource_allocator: &mut resource_allocator,

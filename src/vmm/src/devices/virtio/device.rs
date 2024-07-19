@@ -119,11 +119,12 @@ pub trait VirtioDevice: AsAny + Send {
     /// Returns the device queues event fds.
     fn queue_events(&self) -> &[EventFd];
 
-    /// Returns the device interrupt eventfd.
-    fn interrupt_evt(&self) -> &EventFd;
-
     /// Returns the current device interrupt status.
-    fn interrupt_status(&self) -> Arc<AtomicU32>;
+    fn interrupt_status(&self) -> Arc<AtomicU32> {
+        Arc::clone(&self.interrupt_trigger().irq_status)
+    }
+
+    fn interrupt_trigger(&self) -> &IrqTrigger;
 
     /// The set of feature bits shifted by `page * 32`.
     fn avail_features_by_page(&self, page: u32) -> u32 {
@@ -266,11 +267,7 @@ pub(crate) mod tests {
             todo!()
         }
 
-        fn interrupt_evt(&self) -> &EventFd {
-            todo!()
-        }
-
-        fn interrupt_status(&self) -> Arc<AtomicU32> {
+        fn interrupt_trigger(&self) -> &IrqTrigger {
             todo!()
         }
 

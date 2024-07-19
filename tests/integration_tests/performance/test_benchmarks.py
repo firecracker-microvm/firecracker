@@ -50,7 +50,7 @@ def run_criterion(firecracker_checkout: Path, is_a: bool) -> Path:
                     executables.append(executable)
 
         for executable in executables:
-            utils.run_cmd(
+            utils.check_output(
                 f"CARGO_TARGET_DIR=build/cargo_target taskset -c 1 {executable} --bench --save-baseline {baseline_name}"
             )
 

@@ -24,9 +24,9 @@ pub enum BalloonConfigError {
     TooManyPagesRequested,
     /// Statistics for the balloon device are not enabled
     StatsNotFound,
-    /// Error creating the balloon device: {0:?}
+    /// Error creating the balloon device: {0}
     CreateFailure(crate::devices::virtio::balloon::BalloonError),
-    /// Error updating the balloon device configuration: {0:?}
+    /// Error updating the balloon device configuration: {0}
     UpdateFailure(std::io::Error),
     /// Firecracker's huge pages support is incompatible with memory ballooning.
     HugePages,

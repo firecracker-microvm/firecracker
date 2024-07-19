@@ -53,7 +53,7 @@ pub fn get_vendor_id_from_host() -> Result<[u8; 12], GetCpuidError> {
 }
 
 /// Returns MSRs to be saved based on CPUID features that are enabled.
-pub(crate) fn msrs_to_save_by_cpuid(cpuid: &kvm_bindings::CpuId) -> std::collections::HashSet<u32> {
+pub(crate) fn msrs_to_save_by_cpuid(cpuid: &kvm_bindings::CpuId) -> Vec<u32> {
     /// Memory Protection Extensions
     const MPX_BITINDEX: u32 = 14;
 
@@ -81,7 +81,7 @@ pub(crate) fn msrs_to_save_by_cpuid(cpuid: &kvm_bindings::CpuId) -> std::collect
         }};
     }
 
-    let mut msrs = std::collections::HashSet::new();
+    let mut msrs = Vec::new();
 
     // Macro used for easy definition of CPUID-MSR dependencies.
     macro_rules! cpuid_msr_dep {

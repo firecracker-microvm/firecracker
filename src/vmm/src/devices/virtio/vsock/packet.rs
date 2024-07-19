@@ -139,7 +139,7 @@ impl VsockPacket {
             return Err(VsockError::InvalidPktLen(hdr.len));
         }
 
-        if (hdr.len as usize) > buffer.len() - VSOCK_PKT_HDR_SIZE as usize {
+        if hdr.len > buffer.len() - VSOCK_PKT_HDR_SIZE {
             return Err(VsockError::DescChainTooShortForPacket(
                 buffer.len(),
                 hdr.len,
@@ -160,8 +160,8 @@ impl VsockPacket {
     pub fn from_rx_virtq_head(chain: DescriptorChain) -> Result<Self, VsockError> {
         let buffer = IoVecBufferMut::from_descriptor_chain(chain)?;
 
-        if buffer.len() < VSOCK_PKT_HDR_SIZE as usize {
-            return Err(VsockError::DescChainTooShortForHeader(buffer.len()));
+        if buffer.len() < VSOCK_PKT_HDR_SIZE {
+            return Err(VsockError::DescChainTooShortForHeader(buffer.len() as usize));
         }
 
         Ok(Self {
@@ -212,7 +212,7 @@ impl VsockPacket {
             VsockPacketBuffer::Tx(ref iovec_buf) => iovec_buf.len(),
             VsockPacketBuffer::Rx(ref iovec_buf) => iovec_buf.len(),
         };
-        chain_length - VSOCK_PKT_HDR_SIZE as usize
+        (chain_length - VSOCK_PKT_HDR_SIZE) as usize
     }
 
     pub fn read_at_offset_from<T: ReadVolatile + Debug>(
@@ -225,8 +225,7 @@ impl VsockPacket {
             VsockPacketBuffer::Tx(_) => Err(VsockError::UnwritableDescriptor),
             VsockPacketBuffer::Rx(ref mut buffer) => {
                 if count
-                    > buffer
-                        .len()
+                    > (buffer.len() as usize)
                         .saturating_sub(VSOCK_PKT_HDR_SIZE as usize)
                         .saturating_sub(offset)
                 {
@@ -249,8 +248,7 @@ impl VsockPacket {
         match self.buffer {
             VsockPacketBuffer::Tx(ref buffer) => {
                 if count
-                    > buffer
-                        .len()
+                    > (buffer.len() as usize)
                         .saturating_sub(VSOCK_PKT_HDR_SIZE as usize)
                         .saturating_sub(offset)
                 {
@@ -427,9 +425,10 @@ mod tests {
                     .unwrap(),
             )
             .unwrap();
+
             assert_eq!(
-                pkt.buf_size(),
-                handler_ctx.guest_txvq.dtable[1].len.get() as usize
+                TryInto::<u32>::try_into(pkt.buf_size()).unwrap(),
+                handler_ctx.guest_txvq.dtable[1].len.get()
             );
         }
 

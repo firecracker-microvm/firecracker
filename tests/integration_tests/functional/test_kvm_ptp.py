@@ -18,9 +18,7 @@ def test_kvm_ptp(uvm_plain_any):
     vm.add_net_iface()
     vm.start()
 
-    ret, _, stderr = vm.ssh.run("[ -c /dev/ptp0 ]")
-    assert ret == 0, stderr
+    vm.ssh.check_output("[ -c /dev/ptp0 ]")
 
     # phc_ctl[14515.127]: clock time is 1697545854.728335694 or Tue Oct 17 12:30:54 2023
-    ret, _, stderr = vm.ssh.run("phc_ctl /dev/ptp0 -- get")
-    assert ret == 0, stderr
+    vm.ssh.check_output("phc_ctl /dev/ptp0 -- get")

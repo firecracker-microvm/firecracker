@@ -18,19 +18,19 @@ const DEPRECATION_MSG: &str = "This tool is deprecated and will be removed in th
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 enum FileError {
-    /// Invalid base file: {0:?}
+    /// Invalid base file: {0}
     InvalidBaseFile(std::io::Error),
-    /// Invalid diff file: {0:?}
+    /// Invalid diff file: {0}
     InvalidDiffFile(std::io::Error),
-    /// Failed to seek data: {0:?}
+    /// Failed to seek data: {0}
     SeekData(std::io::Error),
-    /// Failed to seek hole: {0:?}
+    /// Failed to seek hole: {0}
     SeekHole(std::io::Error),
-    /// Failed to seek: {0:?}
+    /// Failed to seek: {0}
     Seek(std::io::Error),
-    /// Failed to send the file: {0:?}
+    /// Failed to send the file: {0}
     SendFile(std::io::Error),
-    /// Failed to get metadata: {0:?}
+    /// Failed to get metadata: {0}
     Metadata(std::io::Error),
 }
 

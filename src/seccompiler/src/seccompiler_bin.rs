@@ -112,16 +112,14 @@ fn build_arg_parser() -> ArgParser<'static> {
 }
 
 fn get_argument_values(arguments: &ArgumentsBag) -> Result<Arguments, SeccompError> {
-    let arch_string = arguments.single_value("target-arch");
-    if arch_string.is_none() {
+    let Some(arch_string) = arguments.single_value("target-arch") else {
         return Err(SeccompError::MissingTargetArch);
-    }
-    let target_arch: TargetArch = arch_string.unwrap().as_str().try_into()?;
+    };
+    let target_arch: TargetArch = arch_string.as_str().try_into()?;
 
-    let input_file = arguments.single_value("input-file");
-    if input_file.is_none() {
+    let Some(input_file) = arguments.single_value("input-file") else {
         return Err(SeccompError::MissingInputFile);
-    }
+    };
 
     let is_basic = arguments.flag_present("basic");
     if is_basic {
@@ -133,7 +131,7 @@ fn get_argument_values(arguments: &ArgumentsBag) -> Result<Arguments, SeccompErr
 
     Ok(Arguments {
         target_arch,
-        input_file: input_file.unwrap().to_owned(),
+        input_file: input_file.to_owned(),
         // Safe to unwrap because it has a default value
         output_file: arguments.single_value("output-file").unwrap().to_owned(),
         is_basic,

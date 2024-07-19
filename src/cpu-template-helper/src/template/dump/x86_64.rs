@@ -1,7 +1,7 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use vmm::arch::x86_64::msr::MsrRange;
 use vmm::arch_gen::x86::msr_index::*;
@@ -44,7 +44,7 @@ fn cpuid_to_modifiers(cpuid: &Cpuid) -> Vec<CpuidLeafModifier> {
         .collect()
 }
 
-fn msrs_to_modifier(msrs: &HashMap<u32, u64>) -> Vec<RegisterModifier> {
+fn msrs_to_modifier(msrs: &BTreeMap<u32, u64>) -> Vec<RegisterModifier> {
     let mut msrs: Vec<RegisterModifier> = msrs
         .iter()
         .map(|(index, value)| msr_modifier!(*index, *value))
@@ -68,9 +68,11 @@ fn msrs_to_modifier(msrs: &HashMap<u32, u64>) -> Vec<RegisterModifier> {
 // Fireracker diables some features (e.g., PMU) and doesn't support some features (e.g., Hyper-V),
 // MSRs related to such features are not useful as CPU configuration dump. Excluding such MSRs
 // reduces maintenance cost when KVM makes change their default values.
-const MSR_EXCLUSION_LIST: [MsrRange; 9] = [
+const MSR_EXCLUSION_LIST: [MsrRange; 10] = [
     // - MSR_IA32_TSC (0x10): vary depending on the elapsed time.
     MSR_RANGE!(MSR_IA32_TSC),
+    // - MSR_IA32_TSC_DEADLINE (0x6e0): varies depending on the elapsed time.
+    MSR_RANGE!(MSR_IA32_TSC_DEADLINE),
     // Firecracker doesn't support MCE.
     // - MSR_IA32_MCG_STATUS (0x17a)
     // - MSR_IA32_MCG_EXT_CTL (0x4d0)
@@ -187,8 +189,8 @@ mod tests {
         ]
     }
 
-    fn build_sample_msrs() -> HashMap<u32, u64> {
-        let mut map = HashMap::from([
+    fn build_sample_msrs() -> BTreeMap<u32, u64> {
+        let mut map = BTreeMap::from([
             // should be sorted in the result.
             (0x1, 0xffff_ffff_ffff_ffff),
             (0x5, 0xffff_ffff_0000_0000),

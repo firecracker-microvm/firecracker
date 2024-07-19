@@ -94,8 +94,6 @@ pub struct Metrics<T: Serialize, M: Write + Send> {
 
 impl<T: Serialize + Debug, M: Write + Send + Debug> Metrics<T, M> {
     /// Creates a new instance of the current metrics.
-    // TODO: We need a better name than app_metrics (something that says that these are the actual
-    // values that we are writing to the metrics_buf).
     pub const fn new(app_metrics: T) -> Metrics<T, M> {
         Metrics {
             metrics_buf: OnceLock::new(),

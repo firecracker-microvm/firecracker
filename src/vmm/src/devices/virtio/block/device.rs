@@ -1,9 +1,6 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::atomic::AtomicU32;
-use std::sync::Arc;
-
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use utils::eventfd::EventFd;
 
@@ -11,7 +8,7 @@ use super::persist::{BlockConstructorArgs, BlockState};
 use super::vhost_user::device::{VhostUserBlock, VhostUserBlockConfig};
 use super::virtio::device::{VirtioBlock, VirtioBlockConfig};
 use super::BlockError;
-use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::device::{IrqTrigger, VirtioDevice};
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
 use crate::rate_limiter::BucketUpdate;
@@ -176,17 +173,10 @@ impl VirtioDevice for Block {
         }
     }
 
-    fn interrupt_evt(&self) -> &EventFd {
+    fn interrupt_trigger(&self) -> &IrqTrigger {
         match self {
-            Self::Virtio(b) => &b.irq_trigger.irq_evt,
-            Self::VhostUser(b) => &b.irq_trigger.irq_evt,
-        }
-    }
-
-    fn interrupt_status(&self) -> Arc<AtomicU32> {
-        match self {
-            Self::Virtio(b) => b.irq_trigger.irq_status.clone(),
-            Self::VhostUser(b) => b.irq_trigger.irq_status.clone(),
+            Self::Virtio(b) => &b.irq_trigger,
+            Self::VhostUser(b) => &b.irq_trigger,
         }
     }
 

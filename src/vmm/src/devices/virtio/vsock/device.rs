@@ -5,23 +5,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+//! This is the `VirtioDevice` implementation for our vsock device. It handles the virtio-level
+//! device logic: feature negociation, device configuration, and device activation.
+//!
+//! We aim to conform to the VirtIO v1.1 spec:
+//! https://docs.oasis-open.org/virtio/virtio/v1.1/virtio-v1.1.html
+//!
+//! The vsock device has two input parameters: a CID to identify the device, and a
+//! `VsockBackend` to use for offloading vsock traffic.
+//!
+//! Upon its activation, the vsock device registers handlers for the following events/FDs:
+//! - an RX queue FD;
+//! - a TX queue FD;
+//! - an event queue FD; and
+//! - a backend FD.
+
 use std::fmt::Debug;
-/// This is the `VirtioDevice` implementation for our vsock device. It handles the virtio-level
-/// device logic: feature negociation, device configuration, and device activation.
-///
-/// We aim to conform to the VirtIO v1.1 spec:
-/// https://docs.oasis-open.org/virtio/virtio/v1.1/virtio-v1.1.html
-///
-/// The vsock device has two input parameters: a CID to identify the device, and a
-/// `VsockBackend` to use for offloading vsock traffic.
-///
-/// Upon its activation, the vsock device registers handlers for the following events/FDs:
-/// - an RX queue FD;
-/// - a TX queue FD;
-/// - an event queue FD; and
-/// - a backend FD.
-use std::sync::atomic::AtomicU32;
-use std::sync::Arc;
 
 use log::{error, warn};
 use utils::byte_order;
@@ -290,12 +289,8 @@ where
         &self.queue_events
     }
 
-    fn interrupt_evt(&self) -> &EventFd {
-        &self.irq_trigger.irq_evt
-    }
-
-    fn interrupt_status(&self) -> Arc<AtomicU32> {
-        self.irq_trigger.irq_status.clone()
+    fn interrupt_trigger(&self) -> &IrqTrigger {
+        &self.irq_trigger
     }
 
     fn read_config(&self, offset: u64, data: &mut [u8]) {
@@ -330,18 +325,15 @@ where
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
         if self.queues.len() != defs::VSOCK_NUM_QUEUES {
             METRICS.activate_fails.inc();
-            error!(
-                "Cannot perform activate. Expected {} queue(s), got {}",
-                defs::VSOCK_NUM_QUEUES,
-                self.queues.len()
-            );
-            return Err(ActivateError::BadActivate);
+            return Err(ActivateError::QueueMismatch {
+                expected: defs::VSOCK_NUM_QUEUES,
+                got: self.queues.len(),
+            });
         }
 
         if self.activate_evt.write(1).is_err() {
             METRICS.activate_fails.inc();
-            error!("Cannot write to activate_evt",);
-            return Err(ActivateError::BadActivate);
+            return Err(ActivateError::EventFd);
         }
 
         self.device_state = DeviceState::Activated(mem);

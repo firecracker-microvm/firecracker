@@ -22,6 +22,7 @@ pub const MAC_ADDR_LEN: u8 = 6;
 
 /// Represents a MAC address
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(transparent)]
 /// Representation of a MAC address.
 pub struct MacAddr {
     bytes: [u8; MAC_ADDR_LEN as usize],

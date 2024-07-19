@@ -7,10 +7,10 @@ license = "Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-displaydoc = "0.2.4"
-thiserror = "1.0.32"
+displaydoc = "0.2.5"
+thiserror = "1.0.62"
 vm-memory = { version = "0.14.1", features = ["backend-mmap", "backend-bitmap"] }
-zerocopy = { version = "0.7.32", features = ["derive"] }
+zerocopy = { version = "0.7.35", features = ["derive"] }
 
 [lib]
 bench = false

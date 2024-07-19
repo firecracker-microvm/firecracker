@@ -49,9 +49,7 @@ def test_memory_overhead(
         )
         fcmetrics = FCMetricsMonitor(microvm)
         fcmetrics.start()
-
-        # check that the vm is running
-        microvm.ssh.run("true")
+        microvm.wait_for_up()
 
         guest_mem_bytes = mem_size_mib * 2**20
         guest_mem_splits = {

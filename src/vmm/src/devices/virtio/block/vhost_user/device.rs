@@ -4,9 +4,6 @@
 // Portions Copyright 2019 Intel Corporation. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::cmp;
-use std::io::Write;
-use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
 use log::error;
@@ -313,28 +310,17 @@ impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlock
         &self.queue_evts
     }
 
-    fn interrupt_evt(&self) -> &EventFd {
-        &self.irq_trigger.irq_evt
+    fn interrupt_trigger(&self) -> &IrqTrigger {
+        &self.irq_trigger
     }
 
-    /// Returns the current device interrupt status.
-    fn interrupt_status(&self) -> Arc<AtomicU32> {
-        self.irq_trigger.irq_status.clone()
-    }
-
-    fn read_config(&self, offset: u64, mut data: &mut [u8]) {
-        let config_len = self.config_space.len() as u64;
-        if offset >= config_len {
+    fn read_config(&self, offset: u64, data: &mut [u8]) {
+        if let Some(config_space_bytes) = self.config_space.as_slice().get(u64_to_usize(offset)..) {
+            let len = config_space_bytes.len().min(data.len());
+            data[..len].copy_from_slice(&config_space_bytes[..len]);
+        } else {
             error!("Failed to read config space");
             self.metrics.cfg_fails.inc();
-            return;
-        }
-        if let Some(end) = offset.checked_add(data.len() as u64) {
-            // This write can't fail, offset and end are checked against config_len.
-            data.write_all(
-                &self.config_space[u64_to_usize(offset)..u64_to_usize(cmp::min(end, config_len))],
-            )
-            .unwrap();
         }
     }
 
@@ -350,13 +336,13 @@ impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlock
         // with guest driver as well.
         self.vu_handle
             .set_features(self.acked_features)
-            .map_err(ActivateError::VhostUser)?;
-        self.vu_handle
-            .setup_backend(
-                &mem,
-                &[(0, &self.queues[0], &self.queue_evts[0])],
-                &self.irq_trigger,
-            )
+            .and_then(|()| {
+                self.vu_handle.setup_backend(
+                    &mem,
+                    &[(0, &self.queues[0], &self.queue_evts[0])],
+                    &self.irq_trigger,
+                )
+            })
             .map_err(|err| {
                 self.metrics.activate_fails.inc();
                 ActivateError::VhostUser(err)

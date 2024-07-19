@@ -84,7 +84,7 @@ def test_coverage(monkeypatch):
             --ignore *t2a* \
             "
 
-    utils.run_cmd(cmd)
+    utils.check_output(cmd)
 
     # Only upload if token is present and we're in EC2
     if "CODECOV_TOKEN" in os.environ and global_props.is_ec2:
@@ -92,7 +92,7 @@ def test_coverage(monkeypatch):
         branch = os.environ.get("BUILDKITE_BRANCH")
 
         if not branch:
-            branch = utils.run_cmd("git rev-parse --abbrev-ref HEAD").stdout
+            branch = utils.check_output("git rev-parse --abbrev-ref HEAD").stdout
 
         codecov_cmd = f"codecov -f {lcov_file} -F {global_props.host_linux_version}-{global_props.instance}"
 
@@ -101,7 +101,7 @@ def test_coverage(monkeypatch):
         else:
             codecov_cmd += f" -B {branch}"
 
-        utils.run_cmd(codecov_cmd)
+        utils.check_output(codecov_cmd)
     else:
         warnings.warn(
             "Not uploading coverage report due to missing CODECOV_TOKEN environment variable"

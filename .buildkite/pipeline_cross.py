@@ -11,53 +11,30 @@
 
 import itertools
 
-from common import DEFAULT_PLATFORMS, group, pipeline_to_json
+from common import DEFAULT_PLATFORMS, BKPipeline
 
-
-def restore_step(label, src_instance, src_kv, dst_instance, dst_os, dst_kv):
-    """Generate a restore step"""
-    pytest_keyword_for_instance = {
-        "c5n.metal": "-k 'not None'",
-        "m5n.metal": "-k 'not None'",
-        "m6i.metal": "-k 'not None'",
-        "m6a.metal": "",
-    }
-    k_val = pytest_keyword_for_instance.get(dst_instance, "")
-    return {
-        "command": [
-            f"buildkite-agent artifact download snapshots/{src_instance}_{src_kv}/* .",
-            f"mv -v snapshots/{src_instance}_{src_kv} snapshot_artifacts",
-            f"./tools/devtool -y test -- -m nonci {k_val} integration_tests/functional/test_snapshot_restore_cross_kernel.py",
-        ],
-        "label": label,
-        "timeout": 30,
-        "agents": {"instance": dst_instance, "kv": dst_kv, "os": dst_os},
-    }
-
-
-def cross_steps():
-    """Generate group steps"""
+if __name__ == "__main__":
+    pipeline = BKPipeline()
+    per_instance = pipeline.per_instance.copy()
+    per_instance.pop("instances")
+    per_instance.pop("platforms")
     instances_x86_64 = ["c5n.metal", "m5n.metal", "m6i.metal", "m6a.metal"]
-    instances_aarch64 = ["m6g.metal", "m7g.metal"]
-    groups = []
+    instances_aarch64 = ["m7g.metal"]
     commands = [
-        "./tools/devtool -y build --release",
         "./tools/devtool -y sh ./tools/create_snapshot_artifact/main.py",
         "mkdir -pv snapshots/{instance}_{kv}",
         "sudo chown -Rc $USER: snapshot_artifacts",
         "mv -v snapshot_artifacts/* snapshots/{instance}_{kv}",
     ]
-    groups.append(
-        group(
-            "📸 create snapshots",
-            commands,
-            timeout=30,
-            artifact_paths="snapshots/**/*",
-            instances=instances_x86_64 + instances_aarch64,
-            platforms=DEFAULT_PLATFORMS,
-        )
+    pipeline.build_group(
+        "📸 create snapshots",
+        commands,
+        timeout=30,
+        artifact_paths="snapshots/**/*",
+        instances=instances_x86_64,
+        platforms=DEFAULT_PLATFORMS,
     )
-    groups.append("wait")
+    pipeline.add_step("wait")
 
     # allow-list of what instances can be restores on what other instances (in
     # addition to itself)
@@ -65,15 +42,10 @@ def cross_steps():
         "c5n.metal": ["m5n.metal", "m6i.metal"],
         "m5n.metal": ["c5n.metal", "m6i.metal"],
         "m6i.metal": ["c5n.metal", "m5n.metal"],
-        "m6g.metal": ["m7g.metal"],
-        "m7g.metal": ["m6g.metal"],
     }
 
     # https://github.com/firecracker-microvm/firecracker/blob/main/docs/kernel-policy.md#experimental-snapshot-compatibility-across-kernel-versions
-    aarch64_platforms = [
-        ("al2", "linux_5.10"),
-        ("al2023", "linux_6.1"),
-    ]
+    aarch64_platforms = [("al2023", "linux_6.1")]
     perms_aarch64 = itertools.product(
         instances_aarch64, aarch64_platforms, instances_aarch64, aarch64_platforms
     )
@@ -91,27 +63,36 @@ def cross_steps():
         # the integration tests already test src == dst, so we skip it
         if src_instance == dst_instance and src_kv == dst_kv:
             continue
-        # 5.10 -> 4.14 is not supported
-        if dst_kv == "linux_4.14":
+        # newer -> older is not supported, and does not work
+        if src_kv > dst_kv:
             continue
         if src_instance != dst_instance and dst_instance not in supported.get(
             src_instance, []
         ):
             continue
 
-        step = restore_step(
-            f"🎬 {src_instance} {src_kv} ➡️ {dst_instance} {dst_kv}",
-            src_instance,
-            src_kv,
-            dst_instance,
-            dst_os,
-            dst_kv,
-        )
+        pytest_keyword_for_instance = {
+            "c5n.metal": "-k 'not None'",
+            "m5n.metal": "-k 'not None'",
+            "m6i.metal": "-k 'not None'",
+            "m6a.metal": "",
+        }
+        k_val = pytest_keyword_for_instance.get(dst_instance, "")
+        step = {
+            "command": [
+                f"buildkite-agent artifact download snapshots/{src_instance}_{src_kv}/* .",
+                f"mv -v snapshots/{src_instance}_{src_kv} snapshot_artifacts",
+                *pipeline.devtool_test(
+                    pytest_opts=f"-m nonci {k_val} integration_tests/functional/test_snapshot_restore_cross_kernel.py",
+                ),
+            ],
+            "label": f"🎬 {src_instance} {src_kv} ➡️ {dst_instance} {dst_kv}",
+            "timeout": 30,
+            "agents": {"instance": dst_instance, "kv": dst_kv, "os": dst_os},
+            **per_instance,
+        }
         steps.append(step)
-    groups.append({"group": "🎬 restore across instances and kernels", "steps": steps})
-    return groups
-
-
-if __name__ == "__main__":
-    pipeline = {"steps": cross_steps()}
-    print(pipeline_to_json(pipeline))
+    pipeline.add_step(
+        {"group": "🎬 restore across instances and kernels", "steps": steps}
+    )
+    print(pipeline.to_json())

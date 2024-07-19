@@ -93,8 +93,8 @@ def _validate_mmds_snapshot(
         kwargs["jailer_binary_path"] = jailer_binary_path
     microvm = microvm_factory.build(**kwargs)
     microvm.spawn()
-    microvm.restore_from_snapshot(snapshot)
-    microvm.resume()
+    microvm.restore_from_snapshot(snapshot, resume=True)
+    microvm.wait_for_up()
 
     ssh_connection = microvm.ssh
 

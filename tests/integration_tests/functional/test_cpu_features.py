@@ -671,6 +671,7 @@ def test_cpu_template(uvm_plain_any, cpu_template, microvm_factory):
     restored_vm = microvm_factory.build()
     restored_vm.spawn()
     restored_vm.restore_from_snapshot(snapshot, resume=True)
+    restored_vm.wait_for_up()
     check_masked_features(restored_vm, cpu_template)
     check_enabled_features(restored_vm, cpu_template)
 

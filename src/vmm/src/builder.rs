@@ -37,10 +37,18 @@ use crate::cpu_config::templates::{
     KvmCapability,
 };
 #[cfg(target_arch = "x86_64")]
+use crate::device_manager::acpi::ACPIDeviceManager;
+#[cfg(target_arch = "x86_64")]
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::persist::MMIODevManagerConstructorArgs;
+#[cfg(target_arch = "x86_64")]
+use crate::device_manager::persist::{
+    ACPIDeviceManagerConstructorArgs, ACPIDeviceManagerRestoreError,
+};
 use crate::device_manager::resources::ResourceAllocator;
+#[cfg(target_arch = "x86_64")]
+use crate::devices::acpi::vmgenid::{VmGenId, VmGenIdError};
 use crate::devices::legacy::serial::SerialOut;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
@@ -70,6 +78,9 @@ use crate::{device_manager, EventManager, Vmm, VmmError};
 pub enum StartMicrovmError {
     /// Unable to attach block device to Vmm: {0}
     AttachBlockDevice(io::Error),
+    /// Unable to attach the VMGenID device: {0}
+    #[cfg(target_arch = "x86_64")]
+    AttachVmgenidDevice(kvm_ioctls::Error),
     /// System configuration error: {0}
     ConfigureSystem(crate::arch::ConfigurationError),
     /// Failed to create guest config: {0}
@@ -81,6 +92,9 @@ pub enum StartMicrovmError {
     /// Error creating legacy device: {0}
     #[cfg(target_arch = "x86_64")]
     CreateLegacyDevice(device_manager::legacy::LegacyDeviceError),
+    /// Error creating VMGenID device: {0}
+    #[cfg(target_arch = "x86_64")]
+    CreateVMGenID(VmGenIdError),
     /// Invalid Memory Configuration: {0}
     GuestMemory(crate::vstate::memory::MemoryError),
     /// Cannot load initrd due to an invalid memory configuration.
@@ -160,6 +174,10 @@ fn create_vmm_and_vcpus(
     // Instantiate the MMIO device manager.
     let mmio_device_manager = MMIODeviceManager::new();
 
+    // Instantiate ACPI device manager.
+    #[cfg(target_arch = "x86_64")]
+    let acpi_device_manager = ACPIDeviceManager::new();
+
     // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
     // while on aarch64 we need to do it the other way around.
     #[cfg(target_arch = "x86_64")]
@@ -215,6 +233,8 @@ fn create_vmm_and_vcpus(
         mmio_device_manager,
         #[cfg(target_arch = "x86_64")]
         pio_device_manager,
+        #[cfg(target_arch = "x86_64")]
+        acpi_device_manager,
     };
 
     Ok((vmm, vcpus))
@@ -327,6 +347,9 @@ pub fn build_microvm_for_boot(
     #[cfg(target_arch = "aarch64")]
     attach_legacy_devices_aarch64(event_manager, &mut vmm, &mut boot_cmdline).map_err(Internal)?;
 
+    #[cfg(target_arch = "x86_64")]
+    attach_vmgenid_device(&mut vmm)?;
+
     configure_system_for_boot(
         &mut vmm,
         vcpus.as_mut(),
@@ -425,6 +448,11 @@ pub enum BuildMicrovmFromSnapshotError {
     MissingVmmSeccompFilters,
     /// Failed to apply VMM secccomp filter: {0}
     SeccompFiltersInternal(#[from] seccompiler::InstallationError),
+    /// Failed to restore ACPI device manager: {0}
+    #[cfg(target_arch = "x86_64")]
+    ACPIDeviManager(#[from] ACPIDeviceManagerRestoreError),
+    /// VMGenID update failed: {0}
+    VMGenIDUpdate(std::io::Error),
 }
 
 /// Builds and starts a microVM based on the provided MicrovmState.
@@ -468,25 +496,18 @@ pub fn build_microvm_from_snapshot(
     }
 
     // Restore vcpus kvm state.
-    #[cfg(target_arch = "aarch64")]
-    {
-        for (vcpu, state) in vcpus.iter_mut().zip(microvm_state.vcpu_states.iter()) {
-            vcpu.kvm_vcpu
-                .restore_state(vmm.vm.fd(), state)
-                .map_err(VcpuError::VcpuResponse)
-                .map_err(BuildMicrovmFromSnapshotError::RestoreVcpus)?;
-        }
-        let mpidrs = construct_kvm_mpidrs(&microvm_state.vcpu_states);
-        // Restore kvm vm state.
-        vmm.vm.restore_state(&mpidrs, &microvm_state.vm_state)?;
-    }
-
-    #[cfg(target_arch = "x86_64")]
     for (vcpu, state) in vcpus.iter_mut().zip(microvm_state.vcpu_states.iter()) {
         vcpu.kvm_vcpu
             .restore_state(state)
             .map_err(VcpuError::VcpuResponse)
             .map_err(BuildMicrovmFromSnapshotError::RestoreVcpus)?;
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    {
+        let mpidrs = construct_kvm_mpidrs(&microvm_state.vcpu_states);
+        // Restore kvm vm state.
+        vmm.vm.restore_state(&mpidrs, &microvm_state.vm_state)?;
     }
 
     // Restore kvm vm state.
@@ -498,7 +519,7 @@ pub fn build_microvm_from_snapshot(
 
     // Restore devices states.
     let mmio_ctor_args = MMIODevManagerConstructorArgs {
-        mem: guest_memory,
+        mem: &guest_memory,
         vm: vmm.vm.fd(),
         event_manager,
         resource_allocator: &mut vmm.resource_allocator,
@@ -510,6 +531,25 @@ pub fn build_microvm_from_snapshot(
         MMIODeviceManager::restore(mmio_ctor_args, &microvm_state.device_states)
             .map_err(MicrovmStateError::RestoreDevices)?;
     vmm.emulate_serial_init()?;
+
+    #[cfg(target_arch = "x86_64")]
+    {
+        let acpi_ctor_args = ACPIDeviceManagerConstructorArgs {
+            mem: &guest_memory,
+            resource_allocator: &mut vmm.resource_allocator,
+            vm: vmm.vm.fd(),
+        };
+
+        vmm.acpi_device_manager =
+            ACPIDeviceManager::restore(acpi_ctor_args, &microvm_state.acpi_dev_state)?;
+
+        // Inject the notification to VMGenID that we have resumed from a snapshot.
+        // This needs to happen before we resume vCPUs, so that we minimize the time between vCPUs
+        // resuming and notification being handled by the driver.
+        vmm.acpi_device_manager
+            .notify_vmgenid()
+            .map_err(BuildMicrovmFromSnapshotError::VMGenIDUpdate)?;
+    }
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
     vmm.start_vcpus(
@@ -730,10 +770,9 @@ pub fn configure_system_for_boot(
         use crate::cpu_config::x86_64::cpuid;
         let cpuid = cpuid::Cpuid::try_from(vmm.vm.supported_cpuid().clone())
             .map_err(GuestConfigError::CpuidFromKvmCpuid)?;
-        let msr_index_list = cpu_template.get_msr_index_list();
         let msrs = vcpus[0]
             .kvm_vcpu
-            .get_msrs(&msr_index_list)
+            .get_msrs(cpu_template.msr_index_iter())
             .map_err(GuestConfigError::VcpuIoctl)?;
         CpuConfiguration { cpuid, msrs }
     };
@@ -745,7 +784,7 @@ pub fn configure_system_for_boot(
 
         for vcpu in vcpus.iter_mut() {
             vcpu.kvm_vcpu
-                .init(vmm.vm.fd(), &cpu_template.vcpu_features)
+                .init(&cpu_template.vcpu_features)
                 .map_err(VmmError::VcpuInit)
                 .map_err(Internal)?;
         }
@@ -803,6 +842,7 @@ pub fn configure_system_for_boot(
             &vmm.guest_memory,
             &mut vmm.resource_allocator,
             &vmm.mmio_device_manager,
+            &vmm.acpi_device_manager,
             vcpus,
         )?;
     }
@@ -864,6 +904,18 @@ pub(crate) fn attach_boot_timer_device(
     vmm.mmio_device_manager
         .register_mmio_boot_timer(&mut vmm.resource_allocator, boot_timer)
         .map_err(RegisterMmioDevice)?;
+
+    Ok(())
+}
+
+#[cfg(target_arch = "x86_64")]
+fn attach_vmgenid_device(vmm: &mut Vmm) -> Result<(), StartMicrovmError> {
+    let vmgenid = VmGenId::new(&vmm.guest_memory, &mut vmm.resource_allocator)
+        .map_err(StartMicrovmError::CreateVMGenID)?;
+
+    vmm.acpi_device_manager
+        .attach_vmgenid(vmgenid, vmm.vm.fd())
+        .map_err(StartMicrovmError::AttachVmgenidDevice)?;
 
     Ok(())
 }
@@ -1066,6 +1118,8 @@ pub mod tests {
         vm.memory_init(&guest_memory, false).unwrap();
         let mmio_device_manager = MMIODeviceManager::new();
         #[cfg(target_arch = "x86_64")]
+        let acpi_device_manager = ACPIDeviceManager::new();
+        #[cfg(target_arch = "x86_64")]
         let pio_device_manager = PortIODeviceManager::new(
             Arc::new(Mutex::new(BusDevice::Serial(SerialWrapper {
                 serial: Serial::with_events(
@@ -1104,6 +1158,8 @@ pub mod tests {
             mmio_device_manager,
             #[cfg(target_arch = "x86_64")]
             pio_device_manager,
+            #[cfg(target_arch = "x86_64")]
+            acpi_device_manager,
         }
     }
 
@@ -1219,6 +1275,12 @@ pub mod tests {
             .mmio_device_manager
             .get_device(DeviceType::Virtio(TYPE_RNG), ENTROPY_DEV_ID)
             .is_some());
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    pub(crate) fn insert_vmgenid_device(vmm: &mut Vmm) {
+        attach_vmgenid_device(vmm).unwrap();
+        assert!(vmm.acpi_device_manager.vmgenid.is_some());
     }
 
     pub(crate) fn insert_balloon_device(

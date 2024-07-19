@@ -16,8 +16,6 @@ pub enum FingerprintDumpError {
     ReadSysfsFile(String, std::io::Error),
     /// Failed to get kernel version: {0}
     GetKernelVersion(std::io::Error),
-    /// `{0}` failed: {1}
-    ShellCommand(String, String),
 }
 
 pub fn dump(vmm: Arc<Mutex<Vmm>>) -> Result<Fingerprint, FingerprintDumpError> {
@@ -31,13 +29,7 @@ pub fn dump(vmm: Arc<Mutex<Vmm>>) -> Result<Fingerprint, FingerprintDumpError> {
             "/sys/devices/system/cpu/cpu0/regs/identification/revidr_el1",
         )?,
         bios_version: read_sysfs_file("/sys/devices/virtual/dmi/id/bios_version")?,
-        // TODO: Replace this with `read_sysfs_file("/sys/devices/virtual/dmi/id/bios_release")`
-        // after the end of kernel 4.14 support.
-        // https://github.com/firecracker-microvm/firecracker/issues/3677
-        bios_revision: run_shell_command(
-            "set -o pipefail && dmidecode -t bios | grep \"BIOS Revision\" | cut -d':' -f2 | tr \
-             -d ' \\n'",
-        )?,
+        bios_revision: read_sysfs_file("/sys/devices/virtual/dmi/id/bios_release")?,
         guest_cpu_config: crate::template::dump::dump(vmm)?,
     })
 }
@@ -67,26 +59,6 @@ fn read_sysfs_file(path: &str) -> Result<String, FingerprintDumpError> {
     Ok(s.trim_end_matches('\n').to_string())
 }
 
-fn run_shell_command(cmd: &str) -> Result<String, FingerprintDumpError> {
-    let output = std::process::Command::new("bash")
-        .args(["-c", cmd])
-        .output()
-        .map_err(|err| FingerprintDumpError::ShellCommand(cmd.to_string(), err.to_string()))?;
-
-    if !output.status.success() {
-        return Err(FingerprintDumpError::ShellCommand(
-            cmd.to_string(),
-            format!(
-                "code: {:?}\nstdout: {}\nstderr: {}",
-                output.status.code(),
-                std::str::from_utf8(&output.stdout).unwrap(),
-                std::str::from_utf8(&output.stderr).unwrap(),
-            ),
-        ));
-    }
-    Ok(std::str::from_utf8(&output.stdout).unwrap().to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -109,20 +81,6 @@ mod tests {
         let invalid_sysfs_path = "/sys/invalid/path";
         if read_sysfs_file(invalid_sysfs_path).is_ok() {
             panic!("Should fail with `No such file or directory`");
-        }
-    }
-
-    #[test]
-    fn test_run_valid_shell_command() {
-        let valid_cmd = "ls";
-        run_shell_command(valid_cmd).unwrap();
-    }
-
-    #[test]
-    fn test_run_invalid_shell_command() {
-        let invalid_cmd = "unknown_command";
-        if run_shell_command(invalid_cmd).is_ok() {
-            panic!("Should fail with `unknown_command: not found`");
         }
     }
 }

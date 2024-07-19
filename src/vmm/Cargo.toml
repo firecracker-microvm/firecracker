@@ -9,50 +9,50 @@ license = "Apache-2.0"
 bench = false
 
 [dependencies]
-aws-lc-rs = { version = "1.6.1", features = ["bindgen"] }
-bitflags = "2.0.2"
-derive_more = { version = "0.99.17", default-features = false, features = ["from", "display"] }
-event-manager = "0.4.0"
-kvm-bindings = { version = "0.7.0", features = ["fam-wrappers"] }
-kvm-ioctls = "0.16.0"
-lazy_static = "1.4.0"
-libc = "0.2.117"
-memfd = "0.6.3"
-linux-loader = "0.11.0"
-serde = { version = "1.0.136", features = ["derive", "rc"] }
-semver = { version = "1.0.17", features = ["serde"] }
-serde_json = "1.0.78"
-timerfd = "1.5.0"
-thiserror = "1.0.32"
-displaydoc = "0.2.4"
-userfaultfd = "0.7.0"
-vhost = { version = "0.10.0", features = ["vhost-user-frontend"] }
-vm-allocator = "0.1.0"
-vm-superio = "0.7.0"
-vm-memory = { version = "0.14.1", features = ["backend-mmap", "backend-bitmap"] }
-log = { version = "0.4.17", features = ["std", "serde"] }
+acpi_tables = { path = "../acpi-tables" } 
 aes-gcm =  { version = "0.10.1", default-features = false, features = ["aes"] }
-base64 = "0.21.0"
+aws-lc-rs = { version = "1.8.0", features = ["bindgen"] }
+base64 = "0.22.1"
 bincode = "1.2.1"
-micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
-log-instrument = { path = "../log-instrument", optional = true }
+bitflags = "2.6.0"
 crc64 = "2.0.0"
-slab = "0.4.7"
-zerocopy = { version = "0.7.32" }
+derive_more = { version = "0.99.18", default-features = false, features = ["from", "display"] }
+displaydoc = "0.2.5"
+event-manager = "0.4.0"
+kvm-bindings = { version = "0.8.0", features = ["fam-wrappers", "serde"] }
+kvm-ioctls = "0.17.0"
+lazy_static = "1.5.0"
+libc = "0.2.155"
+linux-loader = "0.11.0"
+log = { version = "0.4.22", features = ["std", "serde"] }
+log-instrument = { path = "../log-instrument", optional = true }
+memfd = "0.6.3"
+micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 
 seccompiler = { path = "../seccompiler" }
-utils = { path = "../utils" }
+semver = { version = "1.0.23", features = ["serde"] }
+serde = { version = "1.0.204", features = ["derive", "rc"] }
+serde_json = "1.0.120"
+slab = "0.4.7"
 smallvec = "1.11.2"
-acpi_tables = { path = "../acpi-tables" } 
+thiserror = "1.0.62"
+timerfd = "1.5.0"
+userfaultfd = "0.8.1"
+utils = { path = "../utils" }
+vhost = { version = "0.11.0", features = ["vhost-user-frontend"] }
+vm-allocator = "0.1.0"
+vm-memory = { version = "0.14.1", features = ["backend-mmap", "backend-bitmap"] }
+vm-superio = "0.8.0"
+zerocopy = { version = "0.7.35" }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
-vm-fdt = "0.2.0"
+vm-fdt = "0.3.0"
 
 [dev-dependencies]
 criterion = { version = "0.5.0", default-features = false }
 device_tree = "1.1.0"
-proptest = { version = "1.0.0", default-features = false, features = ["std"] }
-itertools = "0.12.0"
+itertools = "0.13.0"
+proptest = { version = "1.5.0", default-features = false, features = ["std"] }
 
 [features]
 tracing = ["log-instrument"]

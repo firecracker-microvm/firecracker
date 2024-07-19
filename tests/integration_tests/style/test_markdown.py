@@ -23,7 +23,6 @@ def test_markdown_style():
     for md_file in md_files:
         rc, output, _ = utils.run_cmd(
             f"bash -c 'diff -u --color {md_file} <(mdformat - < {md_file})'",
-            ignore_return_code=True,
         )
         if rc != 0:
             print(output)

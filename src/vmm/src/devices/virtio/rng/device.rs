@@ -112,7 +112,7 @@ impl Entropy {
             return Ok(0);
         }
 
-        let mut rand_bytes = vec![0; iovec.len()];
+        let mut rand_bytes = vec![0; iovec.len() as usize];
         rand::fill(&mut rand_bytes).map_err(|err| {
             METRICS.host_rng_fails.inc();
             err
@@ -120,7 +120,7 @@ impl Entropy {
 
         // It is ok to unwrap here. We are writing `iovec.len()` bytes at offset 0.
         iovec.write_all_volatile_at(&rand_bytes, 0).unwrap();
-        Ok(iovec.len().try_into().unwrap())
+        Ok(iovec.len())
     }
 
     fn process_entropy_queue(&mut self) {
@@ -142,7 +142,7 @@ impl Entropy {
                     // Check for available rate limiting budget.
                     // If not enough budget is available, leave the request descriptor in the queue
                     // to handle once we do have budget.
-                    if !Self::rate_limit_request(&mut self.rate_limiter, iovec.len() as u64) {
+                    if !Self::rate_limit_request(&mut self.rate_limiter, u64::from(iovec.len())) {
                         debug!("entropy: throttling entropy queue");
                         METRICS.entropy_rate_limiter_throttled.inc();
                         self.queues[RNG_QUEUE].undo_pop();
@@ -259,12 +259,8 @@ impl VirtioDevice for Entropy {
         &self.queue_events
     }
 
-    fn interrupt_evt(&self) -> &EventFd {
-        &self.irq_trigger.irq_evt
-    }
-
-    fn interrupt_status(&self) -> Arc<AtomicU32> {
-        self.irq_trigger.irq_status.clone()
+    fn interrupt_trigger(&self) -> &IrqTrigger {
+        &self.irq_trigger
     }
 
     fn avail_features(&self) -> u64 {
@@ -288,10 +284,9 @@ impl VirtioDevice for Entropy {
     }
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
-        self.activate_event.write(1).map_err(|err| {
-            error!("entropy: Cannot write to activate_evt: {err}");
+        self.activate_event.write(1).map_err(|_| {
             METRICS.activate_fails.inc();
-            super::super::ActivateError::BadActivate
+            ActivateError::EventFd
         })?;
         self.device_state = DeviceState::Activated(mem);
         Ok(())

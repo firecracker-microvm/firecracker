@@ -57,11 +57,7 @@
 #
 #
 # TODO:
-#   - Cache test binaries, preserving them across `./devtool test` invocations.
-#     At the moment, Firecracker is rebuilt everytime a test is run.
 #   - List tests by parsing the `pytest --collect-only` output.
-#   - Implement test filtering with `./devtool test --filter <filter>`
-#   - Find an easier way to run individual tests on existing binaries.
 #   - Add a `./devtool run` command to set up and run Firecracker.
 #   - Add a `./devtool diag` command to help with troubleshooting, by checking
 #     the most common failure conditions.
@@ -417,8 +413,11 @@ cmd_help() {
     test_debug [-- [<pytest args>]]
         Run tests in a debugging environment
 
-    test_sandbox
-        Run Firecracker in an IPython REPL
+    sandbox
+        Run Firecracker in an IPython REPL (in devctr)
+
+    sandbox_native
+        Run Firecracker in an IPython REPL (AL2023/Ubuntu)
 
     mkdocs
         Use 'cargo doc' to generate rustdoc documentation
@@ -526,7 +525,7 @@ ensure_ci_artifacts() {
 
     # Fetch all the artifacts so they are local
     say "Fetching CI artifacts from S3"
-    S3_URL=s3://spec.ccfc.min/firecracker-ci/v1.8/$(uname -m)
+    S3_URL=s3://spec.ccfc.min/firecracker-ci/v1.9/$(uname -m)
     ARTIFACTS=$MICROVM_IMAGES_DIR/$(uname -m)
     if [ ! -d "$ARTIFACTS" ]; then
         mkdir -pv $ARTIFACTS
@@ -606,7 +605,7 @@ apply_performance_tweaks() {
     # https://www.kernel.org/doc/html/v4.12/admin-guide/pm/intel_pstate.html
     echo 100 |sudo tee /sys/devices/system/cpu/intel_pstate/min_perf_pct &> /dev/null
     echo 100 |sudo tee /sys/devices/system/cpu/intel_pstate/max_perf_pct &> /dev/null
-  elif [[ -f /sys/devices/system/cpu/cpufreq/boost ]] && [ ! $(uname -r | grep 4.14) ]; then
+  elif [[ -f /sys/devices/system/cpu/cpufreq/boost ]]; then
     echo 0 |sudo tee /sys/devices/system/cpu/cpufreq/boost &> /dev/null
   fi
 
@@ -855,6 +854,26 @@ cmd_sandbox() {
     cmd_sh "tmux new env PYTEST_ADDOPTS=--pdbcls=IPython.terminal.debugger:TerminalPdb PYTHONPATH=tests IPYTHONDIR=\$PWD/.ipython ipython -i ./tools/sandbox.py $@"
 }
 
+cmd_sandbox_native() {
+    cmd_build --release
+
+    source /etc/os-release
+    case $ID-$VERSION_ID in
+        ubuntu-22.04)
+            sudo apt install python3-pip python3.11-dev gcc tmux
+            ;;
+        al2023)
+            sudo yum -y install python3.11-pip python3.11-devel gcc tmux
+            ;;
+    esac
+    python3.11 -m venv sandbox
+    source sandbox/bin/activate
+    pip3.11 install ipython requests requests_unixsocket "urllib3<2" psutil tenacity filelock
+    pip3.11 install packaging pytest
+    ensure_ci_artifacts
+    tmux neww sudo --preserve-env=HOME,PATH,TMUX env PYTHONPATH=tests IPYTHONDIR=\$PWD/.ipython ipython -i ./tools/sandbox.py $@
+}
+
 cmd_test_debug() {
     cmd_sh "tmux new ./tools/test.sh --pdb $@"
 }
@@ -865,6 +884,10 @@ cmd_test_debug() {
 #
 cmd_fmt() {
     cmd_sh "cargo fmt --all -- --config $(tr '\n' ',' <tests/fmt.toml)"
+    cmd_sh "cargo sort"
+    cmd_sh "cd tests; black . ../tools ../.buildkite"
+    cmd_sh "cd tests; isort . ../tools ../.buildkite"
+    cmd_sh "mdformat $(git ls-files '*.md' | tr '\n' ' ')"
 }
 
 cmd_mkdocs() {

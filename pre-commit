@@ -23,7 +23,7 @@ for i in $(git diff --name-only --cached --diff-filter=d); do
     extension="${filename##*.}"
     if [ "$extension" = "rs" ]; then
         # Read rustfmt config, replace '\n' with ','
-        rustfmt_config="$(sed -z "s/\n/,/g;s/,$/\n/" ./tests/fmt.toml)"
+        rustfmt_config="$(paste -sd, ./tests/fmt.toml)"
         # We first do a check run, this will fail when it finds a non-matching license.
         rustfmt $i --check --config $rustfmt_config
         # Run `cargo fmt` for this file
@@ -40,3 +40,13 @@ for i in $(git diff --name-only --cached --diff-filter=d); do
     # Add changes to this file (as a result of formatting) to the commit.
     git add $i
 done
+
+# Check if git-secrets is present.
+if command -v git-secrets >/dev/null 2>&1; then
+    # Ensure the AWS patterns are registered.
+    git-secrets --register-aws
+    # Scan for and report secrets.
+    git-secrets --scan
+else
+    echo "WARNING: git-secrets is not on PATH. Automated secrets scanning could not be performed."
+fi

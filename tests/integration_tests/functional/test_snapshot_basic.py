@@ -7,13 +7,15 @@ import logging
 import os
 import re
 import shutil
+import time
 from pathlib import Path
 
 import pytest
 
 import host_tools.drive as drive_tools
 from framework.microvm import SnapshotType
-from framework.utils import check_filesystem, run_cmd, wait_process_termination
+from framework.properties import global_props
+from framework.utils import check_filesystem, check_output
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
     VSOCK_UDS_PATH,
@@ -25,15 +27,67 @@ from framework.utils_vsock import (
     start_guest_echo_server,
 )
 
+# Kernel emits this message when it resumes from a snapshot with VMGenID device
+# present
+DMESG_VMGENID_RESUME = "random: crng reseeded due to virtual machine fork"
+
+
+def check_vmgenid_update_count(vm, resume_count):
+    """
+    Kernel will emit the DMESG_VMGENID_RESUME every time we resume
+    from a snapshot
+    """
+    _, stdout, _ = vm.ssh.check_output("dmesg")
+    assert resume_count == stdout.count(DMESG_VMGENID_RESUME)
+
 
 def _get_guest_drive_size(ssh_connection, guest_dev_name="/dev/vdb"):
     # `lsblk` command outputs 2 lines to STDOUT:
     # "SIZE" and the size of the device, in bytes.
-    blksize_cmd = "lsblk -b {} --output SIZE".format(guest_dev_name)
-    _, stdout, stderr = ssh_connection.run(blksize_cmd)
-    assert stderr == ""
+    blksize_cmd = "LSBLK_DEBUG=all lsblk -b {} --output SIZE".format(guest_dev_name)
+    rc, stdout, stderr = ssh_connection.run(blksize_cmd)
+    assert rc == 0, stderr
     lines = stdout.split("\n")
     return lines[1].strip()
+
+
+def test_resume_after_restoration(uvm_nano, microvm_factory):
+    """Tests snapshot is resumable after restoration.
+
+    Check that a restored microVM is resumable by calling PATCH /vm with Resumed
+    after PUT /snapshot/load with `resume_vm=False`.
+    """
+    vm = uvm_nano
+    vm.add_net_iface()
+    vm.start()
+    vm.wait_for_up()
+
+    snapshot = vm.snapshot_full()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+    restored_vm.restore_from_snapshot(snapshot)
+    restored_vm.resume()
+    restored_vm.wait_for_up()
+
+
+def test_resume_at_restoration(uvm_nano, microvm_factory):
+    """Tests snapshot is resumable at restoration.
+
+    Check that a restored microVM is resumable by calling PUT /snapshot/load
+    with `resume_vm=True`.
+    """
+    vm = uvm_nano
+    vm.add_net_iface()
+    vm.start()
+    vm.wait_for_up()
+
+    snapshot = vm.snapshot_full()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+    restored_vm.restore_from_snapshot(snapshot, resume=True)
+    restored_vm.wait_for_up()
 
 
 def test_snapshot_current_version(uvm_nano):
@@ -54,13 +108,13 @@ def test_snapshot_current_version(uvm_nano):
     fc_binary = uvm_nano.fc_binary_path
     # Get supported snapshot version from Firecracker binary
     snapshot_version = (
-        run_cmd(f"{fc_binary} --snapshot-version").stdout.strip().splitlines()[0]
+        check_output(f"{fc_binary} --snapshot-version").stdout.strip().splitlines()[0]
     )
 
     # Verify the output of `--describe-snapshot` command line parameter
     cmd = [str(fc_binary)] + ["--describe-snapshot", str(snapshot.vmstate)]
 
-    _, stdout, _ = run_cmd(cmd)
+    _, stdout, _ = check_output(cmd)
     assert snapshot_version in stdout
 
 
@@ -97,9 +151,7 @@ def test_5_snapshots(
     vm.add_net_iface()
     vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=VSOCK_UDS_PATH)
     vm.start()
-    # Verify if guest can run commands.
-    exit_code, _, _ = vm.ssh.run("sync")
-    assert exit_code == 0
+    vm.wait_for_up()
 
     vm_blob_path = "/tmp/vsock/test.blob"
     # Generate a random data file for vsock.
@@ -112,17 +164,17 @@ def test_5_snapshots(
     start_guest_echo_server(vm)
     snapshot = vm.make_snapshot(snapshot_type)
     base_snapshot = snapshot
+    vm.kill()
 
     for i in range(seq_len):
         logger.info("Load snapshot #%s, mem %s", i, snapshot.mem)
         microvm = microvm_factory.build()
         microvm.spawn()
-        microvm.restore_from_snapshot(snapshot, resume=True)
-        # TODO: SIGCONT here and SIGSTOP later before creating snapshot
-        # is a temporary fix to avoid vsock timeout in
-        # _vsock_connect_to_guest(). This will be removed once we
-        # find the right solution for the timeout.
-        vm.ssh.run("pkill -SIGCONT socat")
+        copied_snapshot = microvm.restore_from_snapshot(snapshot, resume=True)
+
+        # FIXME: This and the sleep below reduce the rate of vsock/ssh connection
+        # related spurious test failures, although we do not know why this is the case.
+        time.sleep(2)
         # Test vsock guest-initiated connections.
         path = os.path.join(
             microvm.path, make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
@@ -134,8 +186,8 @@ def test_5_snapshots(
 
         # Check that the root device is not corrupted.
         check_filesystem(microvm.ssh, "squashfs", "/dev/vda")
-        vm.ssh.run("pkill -SIGSTOP socat")
 
+        time.sleep(2)
         logger.info("Create snapshot %s #%d.", snapshot_type, i + 1)
         snapshot = microvm.make_snapshot(snapshot_type)
 
@@ -147,6 +199,8 @@ def test_5_snapshots(
                 base_snapshot, use_snapshot_editor=use_snapshot_editor
             )
 
+        microvm.kill()
+        copied_snapshot.delete()
         # Update the base for next iteration.
         base_snapshot = snapshot
 
@@ -167,9 +221,7 @@ def test_patch_drive_snapshot(uvm_nano, microvm_factory):
     scratch_disk1 = drive_tools.FilesystemFile(scratch_path1, size=128)
     basevm.add_drive("scratch", scratch_disk1.path)
     basevm.start()
-    # Verify if guest can run commands.
-    exit_code, _, _ = basevm.ssh.run("sync")
-    assert exit_code == 0
+    basevm.wait_for_up()
 
     # Update drive to have another backing file, double in size.
     new_file_size_mb = 2 * int(scratch_disk1.size() / (1024 * 1024))
@@ -187,6 +239,8 @@ def test_patch_drive_snapshot(uvm_nano, microvm_factory):
     vm = microvm_factory.build()
     vm.spawn()
     vm.restore_from_snapshot(snapshot, resume=True)
+    vm.wait_for_up()
+
     # Attempt to connect to resumed microvm and verify the new microVM has the
     # right scratch drive.
     guest_drive_size = _get_guest_drive_size(vm.ssh)
@@ -223,8 +277,7 @@ def test_load_snapshot_failure_handling(uvm_plain):
     with pytest.raises(RuntimeError, match=expected_msg):
         vm.api.snapshot_load.put(mem_file_path=jailed_mem, snapshot_path=jailed_vmstate)
 
-    # Check if FC process is closed
-    wait_process_termination(vm.firecracker_pid)
+    vm.mark_killed()
 
 
 def test_cmp_full_and_first_diff_mem(microvm_factory, guest_kernel, rootfs):
@@ -247,18 +300,15 @@ def test_cmp_full_and_first_diff_mem(microvm_factory, guest_kernel, rootfs):
     )
     vm.add_net_iface()
     vm.start()
-
-    # Verify if guest can run commands.
-    exit_code, _, _ = vm.ssh.run("sync")
-    assert exit_code == 0
-
-    logger.info("Create full snapshot.")
-    # Create full snapshot.
-    full_snapshot = vm.snapshot_full(mem_path="mem_full")
+    vm.wait_for_up()
 
     logger.info("Create diff snapshot.")
     # Create diff snapshot.
     diff_snapshot = vm.snapshot_diff()
+
+    logger.info("Create full snapshot.")
+    # Create full snapshot.
+    full_snapshot = vm.snapshot_full(mem_path="mem_full")
 
     assert full_snapshot.mem != diff_snapshot.mem
     assert filecmp.cmp(full_snapshot.mem, diff_snapshot.mem, shallow=False)
@@ -273,9 +323,7 @@ def test_negative_postload_api(uvm_plain, microvm_factory):
     basevm.basic_config(track_dirty_pages=True)
     basevm.add_net_iface()
     basevm.start()
-    # Verify if guest can run commands.
-    exit_code, _, _ = basevm.ssh.run("sync")
-    assert exit_code == 0
+    basevm.wait_for_up()
 
     # Create base snapshot.
     snapshot = basevm.snapshot_diff()
@@ -331,6 +379,8 @@ def test_negative_snapshot_permissions(uvm_plain_rw, microvm_factory):
     with pytest.raises(RuntimeError, match=expected_err):
         microvm.restore_from_snapshot(snapshot, resume=True)
 
+    microvm.mark_killed()
+
     # Remove permissions for state file.
     os.chmod(snapshot.vmstate, 0o000)
 
@@ -343,6 +393,8 @@ def test_negative_snapshot_permissions(uvm_plain_rw, microvm_factory):
     )
     with pytest.raises(RuntimeError, match=expected_err):
         microvm.restore_from_snapshot(snapshot, resume=True)
+
+    microvm.mark_killed()
 
     # Restore permissions for state file.
     os.chmod(snapshot.vmstate, 0o744)
@@ -357,6 +409,8 @@ def test_negative_snapshot_permissions(uvm_plain_rw, microvm_factory):
     expected_err = "Virtio backend error: Error manipulating the backing file: Permission denied (os error 13)"
     with pytest.raises(RuntimeError, match=re.escape(expected_err)):
         microvm.restore_from_snapshot(snapshot, resume=True)
+
+    microvm.mark_killed()
 
 
 def test_negative_snapshot_create(uvm_nano):
@@ -421,10 +475,7 @@ def test_diff_snapshot_overlay(guest_kernel, rootfs, microvm_factory):
     basevm.basic_config(track_dirty_pages=True)
     basevm.add_net_iface()
     basevm.start()
-
-    # Wait for microvm to be booted
-    rc, _, stderr = basevm.ssh.run("true")
-    assert rc == 0, stderr
+    basevm.wait_for_up()
 
     # The first snapshot taken will always contain all memory (even if its specified as "diff").
     # We use a diff snapshot here, as taking a full snapshot does not clear the dirty page tracking,
@@ -434,8 +485,7 @@ def test_diff_snapshot_overlay(guest_kernel, rootfs, microvm_factory):
     basevm.resume()
 
     # Run some command to dirty some pages
-    rc, _, stderr = basevm.ssh.run("true")
-    assert rc == 0, stderr
+    basevm.ssh.check_output("true")
 
     # First copy the base snapshot somewhere else, so we can make sure
     # it will actually get updated
@@ -452,9 +502,8 @@ def test_diff_snapshot_overlay(guest_kernel, rootfs, microvm_factory):
     new_vm.spawn()
     new_vm.restore_from_snapshot(merged_snapshot, resume=True)
 
-    # Run some command to check that the restored VM works
-    rc, _, stderr = new_vm.ssh.run("true")
-    assert rc == 0, stderr
+    # Check that the restored VM works
+    new_vm.wait_for_up()
 
 
 def test_snapshot_overwrite_self(guest_kernel, rootfs, microvm_factory):
@@ -470,10 +519,7 @@ def test_snapshot_overwrite_self(guest_kernel, rootfs, microvm_factory):
     base_vm.basic_config()
     base_vm.add_net_iface()
     base_vm.start()
-
-    # Wait for microvm to be booted
-    rc, _, stderr = base_vm.ssh.run("true")
-    assert rc == 0, stderr
+    base_vm.wait_for_up()
 
     snapshot = base_vm.snapshot_full()
     base_vm.kill()
@@ -493,5 +539,45 @@ def test_snapshot_overwrite_self(guest_kernel, rootfs, microvm_factory):
 
     # Check the overwriting the snapshot file from which this microvm was originally
     # restored, with a new snapshot of this vm, does not break the VM
-    rc, _, stderr = vm.ssh.run("true")
-    assert rc == 0, stderr
+    vm.wait_for_up()
+
+
+@pytest.mark.parametrize("snapshot_type", [SnapshotType.DIFF, SnapshotType.FULL])
+def test_vmgenid(guest_kernel_linux_6_1, rootfs, microvm_factory, snapshot_type):
+    """
+    Test VMGenID device upon snapshot resume
+    """
+    if global_props.cpu_architecture != "x86_64":
+        pytest.skip("At the moment we only support VMGenID on x86_64")
+
+    base_vm = microvm_factory.build(guest_kernel_linux_6_1, rootfs)
+    base_vm.spawn()
+    base_vm.basic_config(track_dirty_pages=True)
+    base_vm.add_net_iface()
+    base_vm.start()
+    base_vm.wait_for_up()
+
+    snapshot = base_vm.make_snapshot(snapshot_type)
+    base_snapshot = snapshot
+    base_vm.kill()
+
+    for i in range(5):
+        vm = microvm_factory.build()
+        vm.spawn()
+        copied_snapshot = vm.restore_from_snapshot(snapshot, resume=True)
+
+        # We should have as DMESG_VMGENID_RESUME messages as
+        # snapshots we have resumed
+        check_vmgenid_update_count(vm, i + 1)
+
+        snapshot = vm.make_snapshot(snapshot_type)
+        vm.kill()
+        copied_snapshot.delete()
+
+        # If we are testing incremental snapshots we ust merge the base with
+        # current layer.
+        if snapshot.is_diff:
+            snapshot = snapshot.rebase_snapshot(base_snapshot)
+
+        # Update the base for next iteration
+        base_snapshot = snapshot

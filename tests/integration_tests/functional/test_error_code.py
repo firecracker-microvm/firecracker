@@ -6,8 +6,6 @@ import platform
 
 import pytest
 
-from framework.utils import wait_process_termination
-
 
 @pytest.mark.skipif(
     platform.machine() != "aarch64",
@@ -32,7 +30,7 @@ def test_enosys_error_code(uvm_plain):
     vm.start()
 
     # Check if FC process is closed
-    wait_process_termination(vm.firecracker_pid)
+    vm.mark_killed()
 
     vm.check_log_message(
         "Received ENOSYS error because KVM failed to emulate an instruction."
