@@ -31,7 +31,7 @@ use crate::device_manager::persist::ACPIDeviceManagerState;
 use crate::device_manager::persist::{DevicePersistError, DeviceStates};
 use crate::logger::{info, warn};
 use crate::resources::VmResources;
-use crate::snapshot::Snapshot;
+use crate::snapshot::{Snapshot, SnapshotHdr};
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{HugePageConfig, MachineConfigUpdate, VmConfigError};
@@ -191,9 +191,10 @@ fn snapshot_state_to_file(
         .open(snapshot_path)
         .map_err(|err| SnapshotBackingFile("open", err))?;
 
-    let snapshot = Snapshot::new(SNAPSHOT_VERSION);
+    let snapshot_hdr = SnapshotHdr::new(SNAPSHOT_VERSION);
+    let snapshot = Snapshot::new(snapshot_hdr, microvm_state);
     snapshot
-        .save(&mut snapshot_file, microvm_state)
+        .save(&mut snapshot_file)
         .map_err(SerializeMicrovmState)?;
     snapshot_file
         .flush()
@@ -475,15 +476,14 @@ pub enum SnapshotStateFromFileError {
 fn snapshot_state_from_file(
     snapshot_path: &Path,
 ) -> Result<MicrovmState, SnapshotStateFromFileError> {
-    let snapshot = Snapshot::new(SNAPSHOT_VERSION);
     let mut snapshot_reader =
         File::open(snapshot_path).map_err(SnapshotStateFromFileError::Open)?;
     let metadata = std::fs::metadata(snapshot_path).map_err(SnapshotStateFromFileError::Meta)?;
     let snapshot_len = u64_to_usize(metadata.len());
-    let state: MicrovmState = snapshot
-        .load_with_version_check(&mut snapshot_reader, snapshot_len)
+    let state: Snapshot<MicrovmState> = Snapshot::load(&mut snapshot_reader, snapshot_len)
         .map_err(SnapshotStateFromFileError::Load)?;
-    Ok(state)
+
+    Ok(state.data)
 }
 
 /// Error type for [`guest_memory_from_file`].
@@ -732,10 +732,14 @@ mod tests {
         };
 
         let mut buf = vec![0; 10000];
-        Snapshot::serialize(&mut buf.as_mut_slice(), &microvm_state).unwrap();
 
-        let restored_microvm_state: MicrovmState =
-            Snapshot::deserialize(&mut buf.as_slice()).unwrap();
+        let snapshot_hdr = SnapshotHdr::new(Version::new(1, 0, 42));
+        let snapshot = Snapshot::new(snapshot_hdr, microvm_state);
+        snapshot.save(&mut buf.as_mut_slice()).unwrap();
+
+        let restored_snapshot: Snapshot<MicrovmState> =
+            Snapshot::load(&mut buf.as_slice(), buf.len()).unwrap();
+        let restored_microvm_state = restored_snapshot.data;
 
         assert_eq!(restored_microvm_state.vm_info, microvm_state.vm_info);
         assert_eq!(
