@@ -132,10 +132,7 @@ impl<Data: for<'a> Deserialize<'a>> Snapshot<Data> {
         }
 
         let data: Data = Self::deserialize(reader)?;
-        Ok(Self {
-            header: hdr,
-            data,
-        })
+        Ok(Self { header: hdr, data })
     }
 
     pub fn load<R: Read>(reader: &mut R, snapshot_len: usize) -> Result<Self, SnapshotError>
@@ -224,7 +221,9 @@ mod tests {
         snapshot.store(&mut snapshot_data).unwrap();
 
         assert_eq!(
-            SnapshotHdr::load(&mut snapshot_data.as_slice()).unwrap().version,
+            SnapshotHdr::load(&mut snapshot_data.as_slice())
+                .unwrap()
+                .version,
             Version::new(1, 0, 42)
         );
     }
