@@ -57,6 +57,9 @@ enum TemplateOperation {
         /// Path of firecracker config file.
         #[arg(short, long, value_name = "PATH")]
         config: Option<PathBuf>,
+        /// Path of CPU template to apply.
+        #[arg(short, long, value_name = "PATH")]
+        template: Option<PathBuf>,
         /// Path of output file.
         #[arg(short, long, value_name = "PATH", default_value = "cpu_config.json")]
         output: PathBuf,
@@ -88,6 +91,9 @@ enum FingerprintOperation {
         /// Path of firecracker config file.
         #[arg(short, long, value_name = "PATH")]
         config: Option<PathBuf>,
+        /// Path of CPU template to apply.
+        #[arg(short, long, value_name = "PATH")]
+        template: Option<PathBuf>,
         /// Path of output file.
         #[arg(short, long, value_name = "PATH", default_value = "fingerprint.json")]
         output: PathBuf,
@@ -115,9 +121,17 @@ enum FingerprintOperation {
 fn run(cli: Cli) -> Result<(), HelperError> {
     match cli.command {
         Command::Template(op) => match op {
-            TemplateOperation::Dump { config, output } => {
+            TemplateOperation::Dump {
+                config,
+                template,
+                output,
+            } => {
                 let config = config.map(read_to_string).transpose()?;
-                let (vmm, _) = utils::build_microvm_from_config(config, None)?;
+                let template = template
+                    .as_ref()
+                    .map(utils::load_cpu_template)
+                    .transpose()?;
+                let (vmm, _) = utils::build_microvm_from_config(config, template)?;
 
                 let cpu_config = template::dump::dump(vmm)?;
 
@@ -157,9 +171,17 @@ fn run(cli: Cli) -> Result<(), HelperError> {
             }
         },
         Command::Fingerprint(op) => match op {
-            FingerprintOperation::Dump { config, output } => {
+            FingerprintOperation::Dump {
+                config,
+                template,
+                output,
+            } => {
                 let config = config.map(read_to_string).transpose()?;
-                let (vmm, _) = utils::build_microvm_from_config(config, None)?;
+                let template = template
+                    .as_ref()
+                    .map(utils::load_cpu_template)
+                    .transpose()?;
+                let (vmm, _) = utils::build_microvm_from_config(config, template)?;
 
                 let fingerprint = fingerprint::dump::dump(vmm)?;
 
