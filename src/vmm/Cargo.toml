@@ -11,7 +11,7 @@ bench = false
 [dependencies]
 acpi_tables = { path = "../acpi-tables" } 
 aes-gcm =  { version = "0.10.1", default-features = false, features = ["aes"] }
-aws-lc-rs = { version = "1.8.0", features = ["bindgen"] }
+aws-lc-rs = { version = "1.8.1", features = ["bindgen"] }
 base64 = "0.22.1"
 bincode = "1.2.1"
 bitflags = "2.6.0"
@@ -35,7 +35,7 @@ serde = { version = "1.0.204", features = ["derive", "rc"] }
 serde_json = "1.0.120"
 slab = "0.4.7"
 smallvec = "1.11.2"
-thiserror = "1.0.62"
+thiserror = "1.0.63"
 timerfd = "1.5.0"
 userfaultfd = "0.8.1"
 utils = { path = "../utils" }

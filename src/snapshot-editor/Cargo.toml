@@ -17,7 +17,7 @@ fc_utils = { package = "utils", path = "../utils" }
 libc = "0.2.155"
 log-instrument = { path = "../log-instrument", optional = true }
 semver = "1.0.23"
-thiserror = "1.0.62"
+thiserror = "1.0.63"
 vmm = { path = "../vmm" }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
