@@ -11,7 +11,7 @@
 # allowlisted using a toolchain that requires it, causing the A/B-test to
 # always fail.
 [toolchain]
-channel = "1.76.0"
+channel = "1.79.0"
 targets = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"]
 profile = "minimal"
 

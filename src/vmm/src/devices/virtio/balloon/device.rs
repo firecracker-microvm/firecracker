@@ -632,8 +632,6 @@ impl VirtioDevice for Balloon {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::u32;
-
     use super::super::BALLOON_CONFIG_SPACE_SIZE;
     use super::*;
     use crate::check_metric_after_block;
