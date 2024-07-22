@@ -125,6 +125,12 @@ specification:
 |                        | track_dirty_pages |    O     |       O        |      O       |        O         |     O      |      O       |
 |                        | vcpu_count        |    O     |       O        |      O       |        O         |     O      |      O       |
 
+## Known device limitations
+
+If more than 64 devices are configured for a VM in total on aarch64, only first
+64 of them are functional
+([related issue](https://github.com/firecracker-microvm/firecracker/issues/4207)).
+
 ## Instance Actions
 
 All instance actions can be found in the [Swagger](https://swagger.io)
