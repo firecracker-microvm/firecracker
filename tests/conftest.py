@@ -116,36 +116,52 @@ def record_props(request, record_property):
 
 def pytest_runtest_logreport(report):
     """Send general test metrics to CloudWatch"""
-    if report.when == "call":
-        METRICS.set_dimensions(
-            {
-                "test": report.nodeid,
-                "instance": global_props.instance,
-                "cpu_model": global_props.cpu_model,
-                "host_kernel": "linux-" + global_props.host_linux_version,
-            },
-            # per host kernel
-            {"host_kernel": "linux-" + global_props.host_linux_version},
-            # per CPU
-            {"cpu_model": global_props.cpu_model},
-            # and global
-            {},
-        )
-        METRICS.set_property("result", report.outcome)
-        METRICS.set_property("location", report.location)
-        for prop_name, prop_val in report.user_properties:
-            METRICS.set_property(prop_name, prop_val)
-        METRICS.put_metric(
-            "duration",
-            report.duration,
-            unit="Seconds",
-        )
-        METRICS.put_metric(
-            "failed",
-            1 if report.outcome == "failed" else 0,
-            unit="Count",
-        )
-        METRICS.flush()
+
+    # The pytest's test protocol has three phases for each test item: setup,
+    # call and teardown. At the end of each phase, pytest_runtest_logreport()
+    # is called.
+    # https://github.com/pytest-dev/pytest/blob/d489247505a953885a156e61d4473497cbc167ea/src/_pytest/hookspec.py#L643
+    # https://github.com/pytest-dev/pytest/blob/d489247505a953885a156e61d4473497cbc167ea/src/_pytest/hookspec.py#L800
+    METRICS.set_dimensions(
+        # fine-grained
+        {
+            "test": report.nodeid,
+            "instance": global_props.instance,
+            "cpu_model": global_props.cpu_model,
+            "host_kernel": "linux-" + global_props.host_linux_version,
+            "phase": report.when,
+        },
+        # per test
+        {
+            "test": report.nodeid,
+            "instance": global_props.instance,
+            "cpu_model": global_props.cpu_model,
+            "host_kernel": "linux-" + global_props.host_linux_version,
+        },
+        # per phase
+        {"phase": report.when},
+        # per host kernel
+        {"host_kernel": "linux-" + global_props.host_linux_version},
+        # per CPU
+        {"cpu_model": global_props.cpu_model},
+        # and global
+        {},
+    )
+    METRICS.set_property("result", report.outcome)
+    METRICS.set_property("location", report.location)
+    for prop_name, prop_val in report.user_properties:
+        METRICS.set_property(prop_name, prop_val)
+    METRICS.put_metric(
+        "duration",
+        report.duration,
+        unit="Seconds",
+    )
+    METRICS.put_metric(
+        "failed",
+        1 if report.outcome == "failed" else 0,
+        unit="Count",
+    )
+    METRICS.flush()
 
 
 @pytest.fixture()

@@ -554,7 +554,7 @@ impl SeccompRule {
         offset: &mut u8,
     ) {
         // Tries to detect whether prepending the current condition will produce an unjumpable
-        // offset (since BPF jumps are a maximum of 255 instructions, which is std::u8::MAX).
+        // offset (since BPF jumps are a maximum of 255 instructions, which is u8::MAX).
         if offset.checked_add(CONDITION_MAX_LEN + 1).is_none() {
             // If that is the case, three additional helper jumps are prepended and the offset
             // is reset to 1.
@@ -1010,7 +1010,7 @@ mod tests {
         let rules = vec![allow_syscall_if(
             libc::SYS_ioctl,
             vec![SeccompRule::new(
-                vec![Cond::new(2, SeccompCmpArgLen::Qword, Eq, std::u64::MAX).unwrap()],
+                vec![Cond::new(2, SeccompCmpArgLen::Qword, Eq, u64::MAX).unwrap()],
                 SeccompAction::Allow,
             )],
         )];
@@ -1018,7 +1018,7 @@ mod tests {
         validate_seccomp_filter(
             rules.clone(),
             || unsafe {
-                libc::ioctl(0, 0, std::u64::MAX);
+                libc::ioctl(0, 0, u64::MAX);
             },
             false,
         );
@@ -1064,7 +1064,7 @@ mod tests {
         let rules = vec![allow_syscall_if(
             libc::SYS_ioctl,
             vec![SeccompRule::new(
-                vec![Cond::new(2, SeccompCmpArgLen::Qword, Ge, u64::from(std::u32::MAX)).unwrap()],
+                vec![Cond::new(2, SeccompCmpArgLen::Qword, Ge, u64::from(u32::MAX)).unwrap()],
                 SeccompAction::Allow,
             )],
         )];
@@ -1072,8 +1072,8 @@ mod tests {
         validate_seccomp_filter(
             rules.clone(),
             || unsafe {
-                libc::ioctl(0, 0, u64::from(std::u32::MAX));
-                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 1);
+                libc::ioctl(0, 0, u64::from(u32::MAX));
+                libc::ioctl(0, 0, u64::from(u32::MAX) + 1);
             },
             false,
         );
@@ -1118,13 +1118,7 @@ mod tests {
         let rules = vec![allow_syscall_if(
             libc::SYS_ioctl,
             vec![SeccompRule::new(
-                vec![Cond::new(
-                    2,
-                    SeccompCmpArgLen::Qword,
-                    Gt,
-                    u64::from(std::u32::MAX) + 10,
-                )
-                .unwrap()],
+                vec![Cond::new(2, SeccompCmpArgLen::Qword, Gt, u64::from(u32::MAX) + 10).unwrap()],
                 SeccompAction::Allow,
             )],
         )];
@@ -1132,7 +1126,7 @@ mod tests {
         validate_seccomp_filter(
             rules.clone(),
             || unsafe {
-                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 11);
+                libc::ioctl(0, 0, u64::from(u32::MAX) + 11);
             },
             false,
         );
@@ -1140,7 +1134,7 @@ mod tests {
         validate_seccomp_filter(
             rules,
             || unsafe {
-                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 10);
+                libc::ioctl(0, 0, u64::from(u32::MAX) + 10);
             },
             true,
         );
@@ -1178,13 +1172,7 @@ mod tests {
         let rules = vec![allow_syscall_if(
             libc::SYS_ioctl,
             vec![SeccompRule::new(
-                vec![Cond::new(
-                    2,
-                    SeccompCmpArgLen::Qword,
-                    Le,
-                    u64::from(std::u32::MAX) + 10,
-                )
-                .unwrap()],
+                vec![Cond::new(2, SeccompCmpArgLen::Qword, Le, u64::from(u32::MAX) + 10).unwrap()],
                 SeccompAction::Allow,
             )],
         )];
@@ -1192,8 +1180,8 @@ mod tests {
         validate_seccomp_filter(
             rules.clone(),
             || unsafe {
-                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 10);
-                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 9);
+                libc::ioctl(0, 0, u64::from(u32::MAX) + 10);
+                libc::ioctl(0, 0, u64::from(u32::MAX) + 9);
             },
             false,
         );
@@ -1201,7 +1189,7 @@ mod tests {
         validate_seccomp_filter(
             rules,
             || unsafe {
-                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 11);
+                libc::ioctl(0, 0, u64::from(u32::MAX) + 11);
             },
             true,
         );
@@ -1238,13 +1226,7 @@ mod tests {
         let rules = vec![allow_syscall_if(
             libc::SYS_ioctl,
             vec![SeccompRule::new(
-                vec![Cond::new(
-                    2,
-                    SeccompCmpArgLen::Qword,
-                    Lt,
-                    u64::from(std::u32::MAX) + 10,
-                )
-                .unwrap()],
+                vec![Cond::new(2, SeccompCmpArgLen::Qword, Lt, u64::from(u32::MAX) + 10).unwrap()],
                 SeccompAction::Allow,
             )],
         )];
@@ -1252,7 +1234,7 @@ mod tests {
         validate_seccomp_filter(
             rules.clone(),
             || unsafe {
-                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 9);
+                libc::ioctl(0, 0, u64::from(u32::MAX) + 9);
             },
             false,
         );
@@ -1260,7 +1242,7 @@ mod tests {
         validate_seccomp_filter(
             rules,
             || unsafe {
-                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 10);
+                libc::ioctl(0, 0, u64::from(u32::MAX) + 10);
             },
             true,
         );
@@ -1307,8 +1289,8 @@ mod tests {
                 vec![Cond::new(
                     2,
                     SeccompCmpArgLen::Qword,
-                    MaskedEq(u64::from(std::u32::MAX)),
-                    std::u64::MAX,
+                    MaskedEq(u64::from(u32::MAX)),
+                    u64::MAX,
                 )
                 .unwrap()],
                 SeccompAction::Allow,
@@ -1318,8 +1300,8 @@ mod tests {
         validate_seccomp_filter(
             rules.clone(),
             || unsafe {
-                libc::ioctl(0, 0, u64::from(std::u32::MAX));
-                libc::ioctl(0, 0, std::u64::MAX);
+                libc::ioctl(0, 0, u64::from(u32::MAX));
+                libc::ioctl(0, 0, u64::MAX);
             },
             false,
         );
@@ -1364,7 +1346,7 @@ mod tests {
         let rules = vec![allow_syscall_if(
             libc::SYS_ioctl,
             vec![SeccompRule::new(
-                vec![Cond::new(2, SeccompCmpArgLen::Qword, Ne, std::u64::MAX).unwrap()],
+                vec![Cond::new(2, SeccompCmpArgLen::Qword, Ne, u64::MAX).unwrap()],
                 SeccompAction::Allow,
             )],
         )];
@@ -1380,7 +1362,7 @@ mod tests {
         validate_seccomp_filter(
             rules,
             || unsafe {
-                libc::ioctl(0, 0, std::u64::MAX);
+                libc::ioctl(0, 0, u64::MAX);
             },
             true,
         );
