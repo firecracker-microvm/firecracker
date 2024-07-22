@@ -269,7 +269,7 @@ mod tests {
     fn random_pfn_u32_max() -> impl Strategy<Value = Vec<u32>> {
         // Create a randomly sized vec (max MAX_PAGE_COMPACT_BUFFER elements) filled with random u32
         // elements.
-        prop::collection::vec(0..std::u32::MAX, 0..MAX_PAGE_COMPACT_BUFFER)
+        prop::collection::vec(0..u32::MAX, 0..MAX_PAGE_COMPACT_BUFFER)
     }
 
     #[allow(clippy::let_with_type_underscore)]
