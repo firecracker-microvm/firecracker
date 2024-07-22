@@ -1,4 +1,5 @@
 [licenses]
+version = 2
 allow = [
     "MIT",
     "Apache-2.0",
@@ -7,12 +8,6 @@ allow = [
     "Unicode-DFS-2016",
     "OpenSSL"
 ]
-
-# Lint level for licenses considered copyleft
-copyleft = "deny"
-
-# The lint level for crates which do not have a detectable license
-unlicensed = "deny"
 
 [[bans.deny]]
 name = "serde_derive"

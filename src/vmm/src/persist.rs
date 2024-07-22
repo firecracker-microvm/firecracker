@@ -222,6 +222,7 @@ fn snapshot_memory_to_file(
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)
+        .truncate(false)
         .open(mem_file_path)
         .map_err(|err| MemoryBackingFile("open", err))?;
 

@@ -400,7 +400,7 @@ mod tests {
         }
 
         for i in 0..10 {
-            entropy_dev.ack_features_by_page(i, std::u32::MAX);
+            entropy_dev.ack_features_by_page(i, u32::MAX);
         }
 
         assert_eq!(entropy_dev.acked_features, features);
