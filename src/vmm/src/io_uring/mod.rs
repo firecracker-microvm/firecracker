@@ -389,8 +389,6 @@ mod tests {
     use proptest::prelude::*;
     use proptest::strategy::Strategy;
     use proptest::test_runner::{Config, TestRunner};
-    use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
-    use utils::skip_if_io_uring_unsupported;
     use utils::syscall::SyscallReturnCode;
     use utils::tempfile::TempFile;
     use vm_memory::VolatileMemory;
@@ -475,7 +473,6 @@ mod tests {
 
     #[test]
     fn proptest_read_write_correctness() {
-        skip_if_io_uring_unsupported!();
         // Performs a sequence of random read and write operations on two files, with sync and
         // async IO, respectively.
         // Verifies that the files are identical afterwards and that the read operations returned
