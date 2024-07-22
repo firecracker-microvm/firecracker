@@ -24,9 +24,9 @@ descriptor object (UFFD).
 
 ### Creating a UFFD object
 
-#### Kernels 4.14 and 5.10
+#### Kernel 5.10
 
-For (host) kernels 4.14 and 5.10 UFFD objects are created by calling into
+For host kernel 5.10 UFFD objects are created by calling into
 [`userfaultfd` syscall](https://man7.org/linux/man-pages/man2/userfaultfd.2.html).
 
 #### Kernel 6.1

@@ -51,6 +51,14 @@ sudo iptables-save > iptables.rules.old
 Before starting the guest, configure the network interface using Firecracker's
 API:
 
+**Note:** If you use the rootfs from the
+[getting started guide](getting-started.md), you need to use a specific `MAC`
+address like `06:00:AC:10:00:02`. In this `MAC` address, the last 4 bytes
+(`AC:10:00:02`) will represent the IP address of the guest. In the default case,
+it is `172.16.0.2`. Otherwise, you can skip the `guest_mac` field for network
+configuration. This way, the guest will generate a random MAC address on
+startup.
+
 ```bash
 curl --unix-socket /tmp/firecracker.socket -i \
   -X PUT 'http://localhost/network-interfaces/eth0' \
@@ -58,7 +66,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
   -H 'Content-Type: application/json' \
   -d '{
       "iface_id": "eth0",
-      "guest_mac": "AA:FC:00:00:00:01",
+      "guest_mac": "06:00:AC:10:00:02",
       "host_dev_name": "tap0"
     }'
 ```
@@ -70,14 +78,14 @@ configuration file like this:
 "network-interfaces": [
   {
     "iface_id": "eth0",
-    "guest_mac": "AA:FC:00:00:00:01",
+    "guest_mac": "06:00:AC:10:00:02",
     "host_dev_name": "tap0"
   }
 ],
 ```
 
 Alternatively, if you are using firectl, add
---tap-device=tap0/AA:FC:00:00:00:01\` to your command line.
+--tap-device=tap0/06:00:AC:10:00:02\` to your command line.
 
 ## In The Guest
 

@@ -14,6 +14,14 @@ and this project adheres to
 
 ### Deprecated
 
+### Removed
+
+- [#4689](https://github.com/firecracker-microvm/firecracker/pull/4689): Drop
+  support for host kernel 4.14. Linux 4.14 reached end-of-life in
+  [January 2024](https://lore.kernel.org/lkml/2024011046-ecology-tiptoeing-ce50@gregkh/).
+  The minimum supported kernel now is 5.10. Guest kernel 4.14 is still
+  supported.
+
 ### Fixed
 
 ## \[1.8.0\]
@@ -140,10 +148,12 @@ and this project adheres to
   supported snapshot version format. This change renders all previous
   Firecracker snapshots (up to Firecracker version v1.6.0) incompatible with the
   current Firecracker version.
+
 - [#4449](https://github.com/firecracker-microvm/firecracker/pull/4449): Added
   information about page size to the payload Firecracker sends to the UFFD
   handler. Each memory region object now contains a `page_size_kib` field. See
   also the [hugepages documentation](docs/hugepages.md).
+
 - [#4498](https://github.com/firecracker-microvm/firecracker/pull/4498): Only
   use memfd to back guest memory if a vhost-user-blk device is configured,
   otherwise use anonymous private memory. This is because serving page faults of

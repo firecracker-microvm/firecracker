@@ -9,6 +9,8 @@ use std::cmp::min;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
+use utils::usize_to_u64;
+
 use crate::logger::error;
 use crate::vstate::memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap,
@@ -31,12 +33,15 @@ pub(super) const FIRECRACKER_MAX_QUEUE_SIZE: u16 = 256;
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum QueueError {
     /// Descriptor index out of bounds: {0}.
-    DescIndexOutOfBounds(u16),
+    DescIndexOutOfBounds(u32),
     /// Failed to write value into the virtio queue used ring: {0}
     UsedRing(#[from] vm_memory::GuestMemoryError),
 }
 
 /// A virtio descriptor constraints with C representative.
+/// Taken from Virtio spec:
+/// https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html#x1-430008
+/// 2.6.5 The Virtqueue Descriptor Table
 #[repr(C)]
 #[derive(Default, Clone, Copy)]
 struct Descriptor {
@@ -48,6 +53,20 @@ struct Descriptor {
 
 // SAFETY: `Descriptor` is a POD and contains no padding.
 unsafe impl ByteValued for Descriptor {}
+
+/// A virtio used element in the used ring.
+/// Taken from Virtio spec:
+/// https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html#x1-430008
+/// 2.6.8 The Virtqueue Used Ring
+#[repr(C)]
+#[derive(Default, Clone, Copy)]
+struct UsedElement {
+    id: u32,
+    len: u32,
+}
+
+// SAFETY: `UsedElement` is a POD and contains no padding.
+unsafe impl ByteValued for UsedElement {}
 
 /// A virtio descriptor chain.
 #[derive(Debug)]
@@ -333,7 +352,10 @@ impl Queue {
             // We are choosing to interrupt execution since this could be a potential malicious
             // driver scenario. This way we also eliminate the risk of repeatedly
             // logging and potentially clogging the microVM through the log system.
-            panic!("The number of available virtio descriptors is greater than queue size!");
+            panic!(
+                "The number of available virtio descriptors {len} is greater than queue size: {}!",
+                self.actual_size()
+            );
         }
 
         if len == 0 {
@@ -427,22 +449,12 @@ impl Queue {
     ) -> Result<(), QueueError> {
         debug_assert!(self.is_layout_valid(mem));
 
-        if desc_index >= self.actual_size() {
-            error!(
-                "attempted to add out of bounds descriptor to used ring: {}",
-                desc_index
-            );
-            return Err(QueueError::DescIndexOutOfBounds(desc_index));
-        }
-
-        let used_ring = self.used_ring;
-        let next_used = u64::from(self.next_used.0 % self.actual_size());
-        let used_elem = used_ring.unchecked_add(4 + next_used * 8);
-
-        mem.write_obj(u32::from(desc_index), used_elem)?;
-
-        let len_addr = used_elem.unchecked_add(4);
-        mem.write_obj(len, len_addr)?;
+        let next_used = self.next_used.0 % self.actual_size();
+        let used_element = UsedElement {
+            id: u32::from(desc_index),
+            len,
+        };
+        self.write_used_ring(mem, next_used, used_element)?;
 
         self.num_added += Wrapping(1);
         self.next_used += Wrapping(1);
@@ -450,8 +462,38 @@ impl Queue {
         // This fence ensures all descriptor writes are visible before the index update is.
         fence(Ordering::Release);
 
-        let next_used_addr = used_ring.unchecked_add(2);
-        mem.write_obj(self.next_used.0, next_used_addr)
+        self.set_used_ring_idx(self.next_used.0, mem);
+        Ok(())
+    }
+
+    fn write_used_ring<M: GuestMemory>(
+        &self,
+        mem: &M,
+        index: u16,
+        used_element: UsedElement,
+    ) -> Result<(), QueueError> {
+        if used_element.id >= u32::from(self.actual_size()) {
+            error!(
+                "attempted to add out of bounds descriptor to used ring: {}",
+                used_element.id
+            );
+            return Err(QueueError::DescIndexOutOfBounds(used_element.id));
+        }
+
+        // Used ring has layout:
+        // struct UsedRing {
+        //     flags: u16,
+        //     idx: u16,
+        //     ring: [UsedElement; <queue size>],
+        //     avail_event: u16,
+        // }
+        // We calculate offset into `ring` field.
+        let used_ring_offset = std::mem::size_of::<u16>()
+            + std::mem::size_of::<u16>()
+            + std::mem::size_of::<UsedElement>() * usize::from(index);
+        let used_element_address = self.used_ring.unchecked_add(usize_to_u64(used_ring_offset));
+
+        mem.write_obj(used_element, used_element_address)
             .map_err(QueueError::UsedRing)
     }
 
@@ -481,15 +523,45 @@ impl Queue {
         Wrapping(mem.read_obj::<u16>(used_event_addr).unwrap())
     }
 
-    /// Helper method that writes `val` to the `avail_event` field of the used ring.
-    fn set_avail_event<M: GuestMemory>(&mut self, val: u16, mem: &M) {
+    /// Helper method that writes to the `avail_event` field of the used ring.
+    #[inline(always)]
+    fn set_used_ring_avail_event<M: GuestMemory>(&mut self, avail_event: u16, mem: &M) {
         debug_assert!(self.is_layout_valid(mem));
 
+        // Used ring has layout:
+        // struct UsedRing {
+        //     flags: u16,
+        //     idx: u16,
+        //     ring: [UsedElement; <queue size>],
+        //     avail_event: u16,
+        // }
+        // We calculate offset into `avail_event` field.
+        let avail_event_offset = std::mem::size_of::<u16>()
+            + std::mem::size_of::<u16>()
+            + std::mem::size_of::<UsedElement>() * usize::from(self.actual_size());
         let avail_event_addr = self
             .used_ring
-            .unchecked_add(u64::from(4 + 8 * self.actual_size()));
+            .unchecked_add(usize_to_u64(avail_event_offset));
 
-        mem.write_obj(val, avail_event_addr).unwrap();
+        mem.write_obj(avail_event, avail_event_addr).unwrap();
+    }
+
+    /// Helper method that writes to the `idx` field of the used ring.
+    #[inline(always)]
+    fn set_used_ring_idx<M: GuestMemory>(&mut self, next_used: u16, mem: &M) {
+        debug_assert!(self.is_layout_valid(mem));
+
+        // Used ring has layout:
+        // struct UsedRing {
+        //     flags: u16,
+        //     idx: u16,
+        //     ring: [UsedElement; <queue size>],
+        //     avail_event: u16,
+        // }
+        // We calculate offset into `idx` field.
+        let idx_offset = std::mem::size_of::<u16>();
+        let next_used_addr = self.used_ring.unchecked_add(usize_to_u64(idx_offset));
+        mem.write_obj(next_used, next_used_addr).unwrap();
     }
 
     /// Try to enable notification events from the guest driver. Returns true if notifications were
@@ -514,15 +586,19 @@ impl Queue {
                 // driver scenario. This way we also eliminate the risk of
                 // repeatedly logging and potentially clogging the microVM through
                 // the log system.
-                panic!("The number of available virtio descriptors is greater than queue size!");
+                panic!(
+                    "The number of available virtio descriptors {len} is greater than queue size: \
+                     {}!",
+                    self.actual_size()
+                );
             }
             return false;
         }
 
         // Set the next expected avail_idx as avail_event.
-        self.set_avail_event(self.next_avail.0, mem);
+        self.set_used_ring_avail_event(self.next_avail.0, mem);
 
-        // Make sure all subsequent reads are performed after `set_avail_event`.
+        // Make sure all subsequent reads are performed after `set_used_ring_avail_event`.
         fence(Ordering::SeqCst);
 
         // If the actual avail_idx is different than next_avail one or more descriptors can still
@@ -827,14 +903,14 @@ mod verification {
     mod stubs {
         use super::*;
 
-        // Calls to set_avail_event tend to cause memory to grow unboundedly during verification.
-        // The function writes to the `avail_event` of the virtio queue, which is not read
-        // from by the device. It is only intended to be used by guest. Therefore, it does not
-        // affect any device functionality (e.g. its only call site, try_enable_notification,
-        // will behave independently of what value was written here). Thus we can stub it out
-        // with a no-op. Note that we have a separate harness for set_avail_event, to ensure
-        // the function itself is sound.
-        fn set_avail_event<M: GuestMemory>(_self: &mut Queue, _val: u16, _mem: &M) {
+        // Calls to set_used_ring_avail_event tend to cause memory to grow unboundedly during
+        // verification. The function writes to the `avail_event` of the virtio queue, which
+        // is not read from by the device. It is only intended to be used by guest.
+        // Therefore, it does not affect any device functionality (e.g. its only call site,
+        // try_enable_notification, will behave independently of what value was written
+        // here). Thus we can stub it out with a no-op. Note that we have a separate harness
+        // for set_used_ring_avail_event, to ensure the function itself is sound.
+        fn set_used_ring_avail_event<M: GuestMemory>(_self: &mut Queue, _val: u16, _mem: &M) {
             // do nothing
         }
     }
@@ -967,10 +1043,10 @@ mod verification {
 
     #[kani::proof]
     #[kani::unwind(0)]
-    fn verify_set_avail_event() {
+    fn verify_set_used_ring_avail_event() {
         let ProofContext(mut queue, mem) = ProofContext::bounded_queue();
 
-        queue.set_avail_event(kani::any(), &mem);
+        queue.set_used_ring_avail_event(kani::any(), &mem);
     }
 
     #[kani::proof]
@@ -1016,7 +1092,7 @@ mod verification {
 
     #[kani::proof]
     #[kani::unwind(0)]
-    #[kani::stub(Queue::set_avail_event, stubs::set_avail_event)]
+    #[kani::stub(Queue::set_used_ring_avail_event, stubs::set_used_ring_avail_event)]
     fn verify_try_enable_notification() {
         let ProofContext(mut queue, mem) = ProofContext::bounded_queue();
 
@@ -1292,7 +1368,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "The number of available virtio descriptors is greater than queue size!"
+        expected = "The number of available virtio descriptors 5 is greater than queue size: 4!"
     )]
     fn test_invalid_avail_idx_no_notification() {
         // This test ensures constructing a descriptor chain succeeds
@@ -1337,7 +1413,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "The number of available virtio descriptors is greater than queue size!"
+        expected = "The number of available virtio descriptors 6 is greater than queue size: 4!"
     )]
     fn test_invalid_avail_idx_with_notification() {
         // This test ensures constructing a descriptor chain succeeds
@@ -1407,17 +1483,17 @@ mod tests {
     }
 
     #[test]
-    fn test_set_avail_event() {
+    fn test_set_used_ring_avail_event() {
         let m = &default_mem();
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
         let mut q = vq.create_queue();
         assert_eq!(vq.used.event.get(), 0);
 
-        q.set_avail_event(10, m);
+        q.set_used_ring_avail_event(10, m);
         assert_eq!(vq.used.event.get(), 10);
 
-        q.set_avail_event(u16::MAX, m);
+        q.set_used_ring_avail_event(u16::MAX, m);
         assert_eq!(vq.used.event.get(), u16::MAX);
     }
 

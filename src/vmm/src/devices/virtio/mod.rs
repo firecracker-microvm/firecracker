@@ -9,6 +9,8 @@
 
 use std::any::Any;
 
+use crate::devices::virtio::net::TapError;
+
 pub mod balloon;
 pub mod block;
 pub mod device;
@@ -66,6 +68,8 @@ pub enum ActivateError {
     EventFd,
     /// Vhost user: {0}
     VhostUser(vhost_user::VhostUserError),
+    /// Setting tap interface offload flags failed: {0}
+    TapSetOffload(TapError),
 }
 
 /// Trait that helps in upcasting an object to Any

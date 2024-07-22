@@ -605,7 +605,7 @@ apply_performance_tweaks() {
     # https://www.kernel.org/doc/html/v4.12/admin-guide/pm/intel_pstate.html
     echo 100 |sudo tee /sys/devices/system/cpu/intel_pstate/min_perf_pct &> /dev/null
     echo 100 |sudo tee /sys/devices/system/cpu/intel_pstate/max_perf_pct &> /dev/null
-  elif [[ -f /sys/devices/system/cpu/cpufreq/boost ]] && [ ! $(uname -r | grep 4.14) ]; then
+  elif [[ -f /sys/devices/system/cpu/cpufreq/boost ]]; then
     echo 0 |sudo tee /sys/devices/system/cpu/cpufreq/boost &> /dev/null
   fi
 
