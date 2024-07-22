@@ -85,28 +85,6 @@ impl std::fmt::Display for KernelVersion {
     }
 }
 
-pub fn min_kernel_version_for_io_uring() -> KernelVersion {
-    KernelVersion::new(5, 10, 51)
-}
-
-#[macro_export]
-macro_rules! skip_if_io_uring_unsupported {
-    () => {
-        if KernelVersion::get().unwrap() < min_kernel_version_for_io_uring() {
-            return;
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! skip_if_io_uring_supported {
-    () => {
-        if KernelVersion::get().unwrap() >= min_kernel_version_for_io_uring() {
-            return;
-        }
-    };
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
