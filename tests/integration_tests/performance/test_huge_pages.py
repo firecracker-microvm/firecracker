@@ -55,10 +55,6 @@ def check_hugetlbfs_in_use(pid: int, allocation_name: str):
     assert kernel_page_size_kib > 4
 
 
-@pytest.mark.skipif(
-    global_props.host_linux_version == "4.14",
-    reason="MFD_HUGETLB | MFD_ALLOW_SEALING only supported on kernels >= 4.16",
-)
 def test_hugetlbfs_boot(uvm_plain):
     """Tests booting a microvm with guest memory backed by 2MB hugetlbfs pages"""
 
@@ -74,10 +70,6 @@ def test_hugetlbfs_boot(uvm_plain):
     )
 
 
-@pytest.mark.skipif(
-    global_props.host_linux_version == "4.14",
-    reason="MFD_HUGETLB | MFD_ALLOW_SEALING only supported on kernels >= 4.16",
-)
 def test_hugetlbfs_snapshot(
     microvm_factory, guest_kernel_linux_5_10, rootfs_ubuntu_22, uffd_handler_paths
 ):
@@ -115,10 +107,6 @@ def test_hugetlbfs_snapshot(
     check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
 
 
-@pytest.mark.skipif(
-    global_props.host_linux_version == "4.14",
-    reason="MFD_HUGETLB | MFD_ALLOW_SEALING only supported on kernels >= 4.16",
-)
 def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain, uffd_handler_paths):
     """
     Test hugetlbfs differential snapshot support.
@@ -166,10 +154,6 @@ def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain, uffd_handler_paths)
     vm.wait_for_up()
 
 
-@pytest.mark.skipif(
-    global_props.host_linux_version == "4.14",
-    reason="MFD_HUGETLB | MFD_ALLOW_SEALING only supported on kernels >= 4.16",
-)
 @pytest.mark.parametrize("huge_pages", HugePagesConfig)
 def test_ept_violation_count(
     microvm_factory,
@@ -256,10 +240,6 @@ def test_ept_violation_count(
     metrics.put_metric(metric, int(metric_value), "Count")
 
 
-@pytest.mark.skipif(
-    global_props.host_linux_version == "4.14",
-    reason="MFD_HUGETLB | MFD_ALLOW_SEALING only supported on kernels >= 4.16",
-)
 def test_negative_huge_pages_plus_balloon(uvm_plain):
     """Tests that huge pages and memory ballooning cannot be used together"""
     uvm_plain.memory_monitor = None
@@ -283,10 +263,6 @@ def test_negative_huge_pages_plus_balloon(uvm_plain):
         uvm_plain.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB)
 
 
-@pytest.mark.skipif(
-    global_props.host_linux_version == "4.14",
-    reason="MFD_HUGETLB | MFD_ALLOW_SEALING only supported on kernels >= 4.16",
-)
 def test_negative_huge_pages_plus_initrd(uvm_with_initrd):
     """Tests that huge pages and initrd cannot be used together"""
     uvm_with_initrd.jailer.daemonize = False
