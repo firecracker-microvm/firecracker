@@ -20,6 +20,7 @@ use std::fmt::Debug;
 pub use self::fdt::DeviceInfoForFDT;
 use self::gic::GICDevice;
 use crate::arch::DeviceType;
+use crate::devices::acpi::vmgenid::VmGenId;
 use crate::vstate::memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 /// Errors thrown while configuring aarch64 system.
@@ -60,6 +61,7 @@ pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::Build
     vcpu_mpidr: Vec<u64>,
     device_info: &HashMap<(DeviceType, String), T, S>,
     gic_device: &GICDevice,
+    vmgenid: &Option<VmGenId>,
     initrd: &Option<super::InitrdConfig>,
 ) -> Result<(), ConfigurationError> {
     fdt::create_fdt(
@@ -68,6 +70,7 @@ pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::Build
         cmdline_cstring,
         device_info,
         gic_device,
+        vmgenid,
         initrd,
     )?;
     Ok(())
@@ -75,7 +78,7 @@ pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::Build
 
 /// Returns the memory address where the kernel could be loaded.
 pub fn get_kernel_start() -> u64 {
-    layout::DRAM_MEM_START
+    layout::SYSTEM_MEM_START + layout::SYSTEM_MEM_SIZE
 }
 
 /// Returns the memory address where the initrd could be loaded.
