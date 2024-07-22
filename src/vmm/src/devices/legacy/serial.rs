@@ -28,7 +28,7 @@ pub const IER_RDA_BIT: u8 = 0b0000_0001;
 pub const IER_RDA_OFFSET: u8 = 1;
 
 /// Metrics specific to the UART device.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Default)]
 pub struct SerialDeviceMetrics {
     /// Errors triggered while using the UART device.
     pub error_count: SharedIncMetric,

@@ -745,7 +745,7 @@ impl Vmm {
                 .unwrap()
                 .latest_stats()
                 .ok_or(BalloonError::StatisticsDisabled)
-                .map(|stats| stats.clone())?;
+                .cloned()?;
 
             Ok(latest_stats)
         } else {

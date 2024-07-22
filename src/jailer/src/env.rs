@@ -80,29 +80,25 @@ fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<(), JailerError> {
 // manner to the fork syscall. The libc wrapper prevents use of a NULL stack pointer, so we will
 // call the syscall directly.
 fn clone(child_stack: *mut libc::c_void, flags: libc::c_int) -> Result<libc::c_int, JailerError> {
-    // Clone parameters order is different between x86_64 and aarch64.
-    #[cfg(target_arch = "x86_64")]
-    return SyscallReturnCode(
+    SyscallReturnCode(
         // SAFETY: This is safe because we are using a library function with valid parameters.
         libc::c_int::try_from(unsafe {
+            // Note: the order of arguments in the raw syscall differs between platforms.
+            // On x86-64, for example, the parameters passed are `flags`, `stack`, `parent_tid`,
+            // `child_tid`, and `tls`. But on On x86-32, and several other common architectures
+            // (including score, ARM, ARM 64) the order of the last two arguments is reversed,
+            // and instead we must pass `flags`, `stack`, `parent_tid`, `tls`, and `child_tid`.
+            // This difference in architecture currently doesn't matter because the last 2
+            // arguments are all 0 but if this were to change we should add an attribute such as
+            // #[cfg(target_arch = "x86_64")] or #[cfg(target_arch = "aarch64")] for each different
+            // call.
             libc::syscall(libc::SYS_clone, flags, child_stack, 0, 0, 0)
         })
         // Unwrap is needed because PIDs are 32-bit.
         .unwrap(),
     )
     .into_result()
-    .map_err(JailerError::Clone);
-    #[cfg(target_arch = "aarch64")]
-    return SyscallReturnCode(
-        // SAFETY: This is safe because we are using a library function with valid parameters.
-        libc::c_int::try_from(unsafe {
-            libc::syscall(libc::SYS_clone, flags, child_stack, 0, 0, 0)
-        })
-        // Unwrap is needed because PIDs are 32-bit.
-        .unwrap(),
-    )
-    .into_result()
-    .map_err(JailerError::Clone);
+    .map_err(JailerError::Clone)
 }
 
 #[derive(Debug, thiserror::Error)]

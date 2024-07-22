@@ -359,6 +359,7 @@ mod tests {
         let target = std::fs::OpenOptions::new()
             .create(true)
             .write(true)
+            .truncate(true)
             .open(&path)
             .unwrap();
 

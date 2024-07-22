@@ -262,15 +262,15 @@ pub type Usize = usize;
 
 impl Aml for Usize {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) {
-        if *self <= u8::max_value().into() {
+        if *self <= u8::MAX.into() {
             TryInto::<u8>::try_into(*self)
                 .unwrap()
                 .append_aml_bytes(bytes)
-        } else if *self <= u16::max_value().into() {
+        } else if *self <= u16::MAX.into() {
             TryInto::<u16>::try_into(*self)
                 .unwrap()
                 .append_aml_bytes(bytes)
-        } else if *self <= u32::max_value() as usize {
+        } else if *self <= u32::MAX as usize {
             TryInto::<u32>::try_into(*self)
                 .unwrap()
                 .append_aml_bytes(bytes)

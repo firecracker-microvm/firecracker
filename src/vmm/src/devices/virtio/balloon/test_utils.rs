@@ -3,8 +3,6 @@
 
 #![doc(hidden)]
 
-use std::u32;
-
 use crate::devices::virtio::test_utils::VirtQueue;
 #[cfg(test)]
 use crate::devices::virtio::{balloon::Balloon, balloon::BALLOON_NUM_QUEUES};

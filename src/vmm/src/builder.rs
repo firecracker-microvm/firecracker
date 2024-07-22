@@ -626,12 +626,12 @@ fn load_initrd_from_config(
 /// * `image` - The initrd image.
 ///
 /// Returns the result of initrd loading
-fn load_initrd<F: Debug>(
+fn load_initrd<F>(
     vm_memory: &GuestMemoryMmap,
     image: &mut F,
 ) -> Result<InitrdConfig, StartMicrovmError>
 where
-    F: ReadVolatile + Seek,
+    F: ReadVolatile + Seek + Debug,
 {
     use self::StartMicrovmError::{InitrdLoad, InitrdRead};
 

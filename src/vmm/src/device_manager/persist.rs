@@ -713,7 +713,7 @@ mod tests {
             // know will results in `Ok`
             let mut clone = MMIODeviceManager::new();
             // We only care about the device hashmap.
-            clone.id_to_dev_info = self.id_to_dev_info.clone();
+            clone.id_to_dev_info.clone_from(&self.id_to_dev_info);
             clone
         }
     }

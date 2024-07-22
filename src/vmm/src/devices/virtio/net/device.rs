@@ -1040,7 +1040,7 @@ pub mod tests {
         }
 
         for i in 0..10 {
-            net.ack_features_by_page(i, std::u32::MAX);
+            net.ack_features_by_page(i, u32::MAX);
         }
 
         assert_eq!(net.acked_features, features);

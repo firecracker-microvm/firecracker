@@ -28,10 +28,10 @@ pipeline = BKPipeline(
 changed_files = get_changed_files()
 
 # run sanity build of devtool if Dockerfile is changed
-if any(x.name == "Dockerfile" for x in changed_files):
+if any(x.parent.name == "devctr" for x in changed_files):
     pipeline.build_group_per_arch(
         "🐋 Dev Container Sanity Build",
-        "./tools/devtool -y build_devctr",
+        "./tools/devtool -y build_devctr && DEVCTR_IMAGE_TAG=latest ./tools/devtool test -- integration_tests/functional/test_api.py",
     )
 
 if any(

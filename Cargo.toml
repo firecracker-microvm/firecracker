@@ -13,7 +13,6 @@ missing_debug_implementations = "warn"
 [workspace.lints.clippy]
 ptr_as_ptr = "warn"
 undocumented_unsafe_blocks = "warn"
-cast_lossless = "warn"
 cast_possible_truncation = "warn"
 cast_possible_wrap = "warn"
 cast_sign_loss = "warn"

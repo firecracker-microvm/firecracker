@@ -684,8 +684,8 @@ mod tests {
     use std::fs::metadata;
     use std::io::Read;
     use std::os::unix::ffi::OsStrExt;
+    use std::thread;
     use std::time::Duration;
-    use std::{thread, u32};
 
     use utils::skip_if_io_uring_unsupported;
     use utils::tempfile::TempFile;
