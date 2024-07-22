@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::mem::offset_of;
 use std::path::PathBuf;
 
 use kvm_bindings::*;
@@ -78,10 +79,10 @@ pub fn setup_boot_regs(
     boot_ip: u64,
     mem: &GuestMemoryMmap,
 ) -> Result<(), VcpuError> {
-    let kreg_off = offset__of!(kvm_regs, regs);
+    let kreg_off = offset_of!(kvm_regs, regs);
 
     // Get the register index of the PSTATE (Processor State) register.
-    let pstate = offset__of!(user_pt_regs, pstate) + kreg_off;
+    let pstate = offset_of!(user_pt_regs, pstate) + kreg_off;
     let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, pstate);
     vcpufd
         .set_one_reg(id, &PSTATE_FAULT_BITS_64.to_le_bytes())
@@ -90,7 +91,7 @@ pub fn setup_boot_regs(
     // Other vCPUs are powered off initially awaiting PSCI wakeup.
     if cpu_id == 0 {
         // Setting the PC (Processor Counter) to the current program address (kernel address).
-        let pc = offset__of!(user_pt_regs, pc) + kreg_off;
+        let pc = offset_of!(user_pt_regs, pc) + kreg_off;
         let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, pc);
         vcpufd
             .set_one_reg(id, &boot_ip.to_le_bytes())
@@ -100,7 +101,7 @@ pub fn setup_boot_regs(
         // "The device tree blob (dtb) must be placed on an 8-byte boundary and must
         // not exceed 2 megabytes in size." -> https://www.kernel.org/doc/Documentation/arm64/booting.txt.
         // We are choosing to place it the end of DRAM. See `get_fdt_addr`.
-        let regs0 = offset__of!(user_pt_regs, regs) + kreg_off;
+        let regs0 = offset_of!(user_pt_regs, regs) + kreg_off;
         let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, regs0);
         vcpufd
             .set_one_reg(id, &get_fdt_addr(mem).to_le_bytes())
