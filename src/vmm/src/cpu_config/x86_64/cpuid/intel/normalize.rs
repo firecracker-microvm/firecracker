@@ -335,6 +335,8 @@ mod tests {
         clippy::as_conversions
     )]
 
+    use std::ffi::CStr;
+
     use super::*;
     #[test]
     fn default_brand_string_test() {
@@ -365,11 +367,9 @@ mod tests {
             result,
             Err(DefaultBrandStringError::Overflow),
             "{:?}",
-            result.as_ref().map(|s| unsafe {
-                std::ffi::CStr::from_ptr((s as *const u8).cast())
-                    .to_str()
-                    .unwrap()
-            }),
+            result
+                .as_ref()
+                .map(|s| CStr::from_bytes_until_nul(s).unwrap()),
         );
     }
 

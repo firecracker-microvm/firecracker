@@ -43,8 +43,6 @@ and there’s also an input pool which gathers entropy from various sources
 available on the system, and is used to feed into or seed the other two
 components. A very detailed description is available [here][3].
 
-### Linux kernels from 4.8 until 5.17 (included)
-
 The details of this newer implementation are used to make the recommendations
 present in the document. There are in-kernel interfaces used to obtain random
 numbers as well, but they are similar to using `/dev/urandom` (or `getrandom`
@@ -103,15 +101,17 @@ not increase the current entropy estimation. There is also an `ioctl` interface
 which, given the appropriate privileges, can be used to add data to the input
 entropy pool while also increasing the count, or completely empty all pools.
 
-### Linux kernels from 5.18 onwards
+### Linux kernels with VMGenID support
 
-Since version 5.18, Linux has support for the
-[Virtual Machine Generation Identifier](https://learn.microsoft.com/en-us/windows/win32/hyperv_v2/virtual-machine-generation-identifier).
-The purpose of VMGenID is to notify the guest about time shift events, such as
-resuming from a snapshot. The device exposes a 16-byte cryptographically random
-identifier in guest memory. Firecracker implements VMGenID. When resuming a
-microVM from a snapshot Firecracker writes a new identifier and injects a
-notification to the guest. Linux,
+Linux has support for the
+[Virtual Machine Generation Identifier](https://learn.microsoft.com/en-us/windows/win32/hyperv_v2/virtual-machine-generation-identifier)
+since 5.18 for ACPI systems. Since 6.10, Linux added support also for systems
+that use DeviceTree instead of ACPI. The purpose of VMGenID is to notify the
+guest about time shift events, such as resuming from a snapshot. The device
+exposes a 16-byte cryptographically random identifier in guest memory.
+Firecracker implements VMGenID. When resuming a microVM from a snapshot
+Firecracker writes a new identifier and injects a notification to the guest.
+Linux,
 [uses this value](https://elixir.bootlin.com/linux/v5.18.19/source/drivers/virt/vmgenid.c#L77)
 [as new randomness for its CSPRNG](https://elixir.bootlin.com/linux/v5.18.19/source/drivers/char/random.c#L908).
 Quoting the random.c implementation of the kernel:
@@ -133,9 +133,15 @@ to emit a uevent to user space when it handles the notification. User space can
 poll this uevent to know when it is safe to use `getrandom()`, et al. avoiding
 the race condition.
 
-Please note that, Firecracker will always enable VMGenID. In kernels earlier
-than 5.18, where there is no VMGenID driver, the device will not have any effect
-in the guest.
+Firecracker supports VMGenID on ARM systems using the DeviceTree binding that
+was added for the device in Linux 6.10. However, the latest Linux kernel that
+Firecracker supports is 6.1. As a result, in order to use VMGenID on ARM
+systems, users need to use a 6.1 kernel with the DeviceTree binding support
+backported from 6.10. We provide a set of patches that apply cleanly on mainline
+Linux 6.1 [here](../../resources/patches/vmgenid_dt).
+
+Please note that, Firecracker will always enable VMGenID. In kernels where there
+is no VMGenID driver, the device will not have any effect in the guest.
 
 ### User space considerations
 

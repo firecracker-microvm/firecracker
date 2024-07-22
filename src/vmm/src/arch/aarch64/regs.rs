@@ -5,6 +5,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::mem::offset_of;
+
 use kvm_bindings::*;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -19,28 +21,9 @@ const PSR_D_BIT: u64 = 0x0000_0200;
 /// Taken from arch/arm64/kvm/inject_fault.c.
 pub const PSTATE_FAULT_BITS_64: u64 = PSR_MODE_EL1h | PSR_A_BIT | PSR_F_BIT | PSR_I_BIT | PSR_D_BIT;
 
-// Following are macros that help with getting the ID of a aarch64 core register.
-// The core register are represented by the user_pt_regs structure. Look for it in
-// arch/arm64/include/uapi/asm/ptrace.h.
-
-/// Gets offset of a member (`field`) within a struct (`container`).
-/// Same as bindgen offset tests.
-macro_rules! offset__of {
-    ($container:ty, $field:ident) => {
-        // SAFETY: The implementation closely matches that of the memoffset crate,
-        // which have been under extensive review.
-        unsafe {
-            let uninit = std::mem::MaybeUninit::<$container>::uninit();
-            let ptr = uninit.as_ptr();
-            std::ptr::addr_of!((*ptr).$field) as usize - ptr as usize
-        }
-    };
-}
-pub(crate) use offset__of;
-
 /// Gets a core id.
 macro_rules! arm64_core_reg_id {
-    ($size: tt, $offset: tt) => {
+    ($size: ident, $offset: expr) => {
         // The core registers of an arm64 machine are represented
         // in kernel by the `kvm_regs` structure. This structure is a
         // mix of 32, 64 and 128 bit fields:
@@ -67,7 +50,7 @@ macro_rules! arm64_core_reg_id {
         KVM_REG_ARM64 as u64
             | KVM_REG_ARM_CORE as u64
             | $size
-            | (($offset / std::mem::size_of::<u32>()) as u64)
+            | ($offset / std::mem::size_of::<u32>()) as u64
     };
 }
 pub(crate) use arm64_core_reg_id;
@@ -130,15 +113,11 @@ pub const KVM_REG_ARM64_SVE_VLS: u64 =
 ///
 /// https://github.com/torvalds/linux/blob/master/Documentation/virt/kvm/api.rst#L2578
 /// > 0x6030 0000 0010 0040 PC          64  regs.pc
-pub const PC: u64 = arm64_core_reg_id!(KVM_REG_SIZE_U64, 0x100);
-
-// TODO: Once `core::mem::offset_of!()` macro becomes stable (maybe since 1.77.0?), use the
-// following instead: https://github.com/firecracker-microvm/firecracker/issues/4504
-// pub const PC: u64 = {
-//     let kreg_off = offset_of!(kvm_regs, regs);
-//     let pc_off = offset_of!(user_pt_regs, pc);
-//     arm64_core_reg_id!(KVM_REG_SIZE_U64, kreg_off + pc_off)
-// };
+pub const PC: u64 = {
+    let kreg_off = offset_of!(kvm_regs, regs);
+    let pc_off = offset_of!(user_pt_regs, pc);
+    arm64_core_reg_id!(KVM_REG_SIZE_U64, kreg_off + pc_off)
+};
 
 /// Different aarch64 registers sizes
 #[derive(Debug)]
