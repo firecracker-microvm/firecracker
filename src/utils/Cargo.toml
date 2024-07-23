@@ -14,7 +14,7 @@ displaydoc = "0.2.5"
 libc = "0.2.155"
 log-instrument = { path = "../log-instrument", optional = true }
 serde = { version = "1.0.204", features = ["derive"] }
-thiserror = "1.0.62"
+thiserror = "1.0.63"
 vm-memory = { version = "0.14.1", features = ["backend-mmap", "backend-bitmap"] }
 vmm-sys-util = { version = "0.12.1", features = ["with-serde"] }
 

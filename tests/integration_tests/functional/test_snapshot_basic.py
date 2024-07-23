@@ -14,7 +14,6 @@ import pytest
 
 import host_tools.drive as drive_tools
 from framework.microvm import SnapshotType
-from framework.properties import global_props
 from framework.utils import check_filesystem, check_output
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
@@ -547,9 +546,6 @@ def test_vmgenid(guest_kernel_linux_6_1, rootfs, microvm_factory, snapshot_type)
     """
     Test VMGenID device upon snapshot resume
     """
-    if global_props.cpu_architecture != "x86_64":
-        pytest.skip("At the moment we only support VMGenID on x86_64")
-
     base_vm = microvm_factory.build(guest_kernel_linux_6_1, rootfs)
     base_vm.spawn()
     base_vm.basic_config(track_dirty_pages=True)
