@@ -13,7 +13,6 @@ pub use vmm_sys_util::{
 
 pub mod arg_parser;
 pub mod byte_order;
-pub mod kernel_version;
 pub mod net;
 pub mod signal;
 pub mod sm;

@@ -3,7 +3,6 @@
 use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
-use utils::kernel_version;
 
 use crate::cpu_config::templates::{CpuTemplateType, CustomCpuTemplate, StaticCpuTemplate};
 
@@ -34,14 +33,6 @@ pub enum VmConfigError {
     BalloonAndHugePages,
     /// Firecracker's huge pages support is incompatible with initrds.
     InitrdAndHugePages,
-}
-
-// We cannot do a `KernelVersion(kernel_version::Error)` variant because `kernel_version::Error`
-// does not implement `PartialEq, Eq` (due to containing an io error).
-impl From<kernel_version::KernelVersionError> for VmConfigError {
-    fn from(_: kernel_version::KernelVersionError) -> Self {
-        VmConfigError::KernelVersion
-    }
 }
 
 /// Describes the possible (huge)page configurations for a microVM's memory.
