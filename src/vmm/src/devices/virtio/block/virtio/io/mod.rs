@@ -30,8 +30,6 @@ pub enum BlockIoError {
     Sync(SyncIoError),
     /// Async error: {0}
     Async(AsyncIoError),
-    /// Could not get kernel version: {0}
-    GetKernelVersion(utils::kernel_version::KernelVersionError),
 }
 
 impl BlockIoError {
