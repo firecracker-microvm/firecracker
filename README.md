@@ -27,8 +27,8 @@ functionality to reduce the memory footprint and attack surface area of each
 microVM. This improves security, decreases the startup time, and increases
 hardware utilization. Firecracker has also been integrated in container
 runtimes, for example
-[Kata Containers](https://github.com/kata-containers/documentation/wiki/Initial-release-of-Kata-Containers-with-Firecracker-support)
-and [Weaveworks Ignite](https://github.com/weaveworks/ignite).
+[Kata Containers](https://github.com/kata-containers/kata-containers) and
+[Flintlock](https://github.com/liquidmetal-dev/flintlock).
 
 Firecracker was developed at Amazon Web Services to accelerate the speed and
 efficiency of services like [AWS Lambda](https://aws.amazon.com/lambda/) and
