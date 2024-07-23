@@ -14,6 +14,10 @@ DEFAULTS_PERF = {
     "agents": {"ag": 1},
 }
 
+changed_files = get_changed_files()
+DOC_ONLY_CHANGE = False
+if changed_files and all(f.suffix == ".md" for f in changed_files):
+    DOC_ONLY_CHANGE = True
 pipeline = BKPipeline(
     priority=DEFAULT_PRIORITY,
     timeout_in_minutes=45,
@@ -23,9 +27,8 @@ pipeline = BKPipeline(
             "label": "🪶 Style",
         },
     ],
+    with_build_step=not DOC_ONLY_CHANGE,
 )
-
-changed_files = get_changed_files()
 
 # run sanity build of devtool if Dockerfile is changed
 if any(x.parent.name == "devctr" for x in changed_files):
