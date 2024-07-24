@@ -7,3 +7,4 @@
 
 [safe]
  directory = /firecracker
+ directory = /firecracker/.git
