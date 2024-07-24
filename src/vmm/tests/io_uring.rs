@@ -10,8 +10,6 @@ use std::time::Duration;
 
 use utils::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
 use utils::eventfd::EventFd;
-use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
-use utils::skip_if_io_uring_unsupported;
 use utils::tempfile::TempFile;
 use vm_memory::VolatileMemory;
 use vmm::vstate::memory::{Bytes, MmapRegion};
@@ -93,8 +91,6 @@ const NUM_ENTRIES: u32 = 128;
 
 #[test]
 fn test_ring_new() {
-    skip_if_io_uring_unsupported!();
-
     // Invalid entries count: 0.
     assert!(matches!(
         IoUring::<u8>::new(0, vec![], vec![], None),
@@ -110,7 +106,6 @@ fn test_ring_new() {
 
 #[test]
 fn test_eventfd() {
-    skip_if_io_uring_unsupported!();
     // Test that events get delivered.
     let eventfd = EventFd::new(0).unwrap();
 
@@ -145,8 +140,6 @@ fn test_eventfd() {
 
 #[test]
 fn test_restrictions() {
-    skip_if_io_uring_unsupported!();
-
     // Check that only the allowlisted opcodes are permitted.
     {
         let file = TempFile::new().unwrap().into_file();
@@ -180,8 +173,6 @@ fn test_restrictions() {
 
 #[test]
 fn test_ring_push() {
-    skip_if_io_uring_unsupported!();
-
     // Forgot to register file.
     {
         let buf = [0; 4];
@@ -267,8 +258,6 @@ fn test_ring_push() {
 
 #[test]
 fn test_ring_submit() {
-    skip_if_io_uring_unsupported!();
-
     {
         let file = TempFile::new().unwrap().into_file();
         let mut ring = IoUring::new(NUM_ENTRIES, vec![&file], vec![], None).unwrap();
@@ -298,8 +287,6 @@ fn test_ring_submit() {
 
 #[test]
 fn test_submit_and_wait_all() {
-    skip_if_io_uring_unsupported!();
-
     let file = TempFile::new().unwrap().into_file();
     let mut ring = IoUring::new(NUM_ENTRIES, vec![&file], vec![], None).unwrap();
     let user_data: u8 = 71;
@@ -345,8 +332,6 @@ fn test_submit_and_wait_all() {
 
 #[test]
 fn test_write() {
-    skip_if_io_uring_unsupported!();
-
     // Test that writing the sorted values 1-100 into a file works correctly.
 
     const NUM_BYTES: usize = 100;
@@ -386,8 +371,6 @@ fn test_write() {
 
 #[test]
 fn test_read() {
-    skip_if_io_uring_unsupported!();
-
     // Test that reading the sorted values 1-100 from a file works correctly.
 
     const NUM_BYTES: usize = 100;

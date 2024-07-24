@@ -30,10 +30,6 @@ pub enum BlockIoError {
     Sync(SyncIoError),
     /// Async error: {0}
     Async(AsyncIoError),
-    /// Unsupported engine type: {0:?}
-    UnsupportedEngine(FileEngineType),
-    /// Could not get kernel version: {0}
-    GetKernelVersion(utils::kernel_version::KernelVersionError),
 }
 
 impl BlockIoError {
@@ -64,12 +60,6 @@ impl<T: Debug> FileEngine<T> {
         file: File,
         engine_type: FileEngineType,
     ) -> Result<FileEngine<T>, BlockIoError> {
-        if !engine_type
-            .is_supported()
-            .map_err(BlockIoError::GetKernelVersion)?
-        {
-            return Err(BlockIoError::UnsupportedEngine(engine_type));
-        }
         match engine_type {
             FileEngineType::Async => Ok(FileEngine::Async(
                 AsyncFileEngine::from_file(file).map_err(BlockIoError::Async)?,
@@ -199,13 +189,11 @@ pub mod tests {
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::io::FromRawFd;
 
-    use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
     use utils::tempfile::TempFile;
-    use utils::{skip_if_io_uring_supported, skip_if_io_uring_unsupported, u64_to_usize};
+    use utils::u64_to_usize;
 
     use super::*;
     use crate::devices::virtio::block::virtio::device::FileEngineType;
-    use crate::devices::virtio::block::virtio::request::PendingRequest;
     use crate::vmm_config::machine_config::HugePageConfig;
     use crate::vstate::memory::{Bitmap, Bytes, GuestMemory, GuestMemoryExtension};
 
@@ -273,19 +261,6 @@ pub mod tests {
         for offset in addr.0..addr.0 + u64::from(len) {
             assert!(!bitmap.dirty_at(u64_to_usize(offset)));
         }
-    }
-
-    #[test]
-    fn test_unsupported_engine_type() {
-        skip_if_io_uring_supported!();
-
-        assert!(matches!(
-            FileEngine::<PendingRequest>::from_file(
-                TempFile::new().unwrap().into_file(),
-                FileEngineType::Async
-            ),
-            Err(BlockIoError::UnsupportedEngine(FileEngineType::Async))
-        ));
     }
 
     #[test]
@@ -367,8 +342,6 @@ pub mod tests {
 
     #[test]
     fn test_async() {
-        skip_if_io_uring_unsupported!();
-
         // Check invalid file
         let file = unsafe { File::from_raw_fd(-2) };
         FileEngine::<()>::from_file(file, FileEngineType::Async).unwrap_err();

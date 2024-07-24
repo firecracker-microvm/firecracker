@@ -501,7 +501,6 @@ mod tests {
     use std::str::FromStr;
 
     use serde_json::{Map, Value};
-    use utils::kernel_version::KernelVersion;
     use utils::net::mac::MacAddr;
     use utils::tempfile::TempFile;
 
@@ -1409,14 +1408,12 @@ mod tests {
             VmConfigError::InvalidMemorySize
         );
 
-        if KernelVersion::get().unwrap() >= KernelVersion::new(5, 10, 0) {
-            // mem_size_mib compatible with huge page configuration
-            aux_vm_config.mem_size_mib = Some(2048);
-            // Remove the balloon device config that's added by `default_vm_resources` as it would
-            // trigger the "ballooning incompatible with huge pages" check.
-            vm_resources.balloon = BalloonBuilder::new();
-            vm_resources.update_vm_config(&aux_vm_config).unwrap();
-        }
+        // mem_size_mib compatible with huge page configuration
+        aux_vm_config.mem_size_mib = Some(2048);
+        // Remove the balloon device config that's added by `default_vm_resources` as it would
+        // trigger the "ballooning incompatible with huge pages" check.
+        vm_resources.balloon = BalloonBuilder::new();
+        vm_resources.update_vm_config(&aux_vm_config).unwrap();
     }
 
     #[test]
@@ -1454,29 +1451,27 @@ mod tests {
 
     #[test]
     fn test_negative_restore_balloon_device_with_huge_pages() {
-        if KernelVersion::get().unwrap() >= KernelVersion::new(4, 16, 0) {
-            let mut vm_resources = default_vm_resources();
-            vm_resources.balloon = BalloonBuilder::new();
-            vm_resources
-                .update_vm_config(&MachineConfigUpdate {
-                    huge_pages: Some(HugePageConfig::Hugetlbfs2M),
-                    ..Default::default()
-                })
-                .unwrap();
-            let err = vm_resources
-                .update_from_restored_device(SharedDeviceType::Balloon(Arc::new(Mutex::new(
-                    Balloon::new(128, false, 0, true).unwrap(),
-                ))))
-                .unwrap_err();
-            assert!(
-                matches!(
-                    err,
-                    ResourcesError::BalloonDevice(BalloonConfigError::HugePages)
-                ),
-                "{:?}",
-                err
-            );
-        }
+        let mut vm_resources = default_vm_resources();
+        vm_resources.balloon = BalloonBuilder::new();
+        vm_resources
+            .update_vm_config(&MachineConfigUpdate {
+                huge_pages: Some(HugePageConfig::Hugetlbfs2M),
+                ..Default::default()
+            })
+            .unwrap();
+        let err = vm_resources
+            .update_from_restored_device(SharedDeviceType::Balloon(Arc::new(Mutex::new(
+                Balloon::new(128, false, 0, true).unwrap(),
+            ))))
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ResourcesError::BalloonDevice(BalloonConfigError::HugePages)
+            ),
+            "{:?}",
+            err
+        );
     }
 
     #[test]
