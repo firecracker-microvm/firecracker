@@ -513,7 +513,7 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1, None).unwrap();
-        create_fdt(
+        let fdt_with_devices = create_fdt(
             &mem,
             vec![0],
             CString::new("console=tty0").unwrap(),
@@ -533,7 +533,7 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1, None).unwrap();
-        create_fdt(
+        let fdt_with_vmgenid = create_fdt(
             &mem,
             vec![0],
             CString::new("console=tty0").unwrap(),

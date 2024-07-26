@@ -64,7 +64,7 @@ pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::Build
     vmgenid: &Option<VmGenId>,
     initrd: &Option<super::InitrdConfig>,
 ) -> Result<(), ConfigurationError> {
-    fdt::create_fdt(
+    let fdt = fdt::create_fdt(
         guest_mem,
         vcpu_mpidr,
         cmdline_cstring,
