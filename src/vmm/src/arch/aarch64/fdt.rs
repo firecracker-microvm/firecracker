@@ -106,10 +106,6 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
 
     // Allocate another buffer so we can format and then write fdt to guest.
     let fdt_final = fdt_writer.finish()?;
-
-    // Write FDT to memory.
-    let fdt_address = GuestAddress(get_fdt_addr(guest_mem));
-    guest_mem.write_slice(fdt_final.as_slice(), fdt_address)?;
     Ok(fdt_final)
 }
 
