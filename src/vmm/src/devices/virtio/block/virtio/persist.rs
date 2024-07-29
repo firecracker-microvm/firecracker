@@ -18,7 +18,6 @@ use crate::devices::virtio::device::{DeviceState, IrqTrigger};
 use crate::devices::virtio::gen::virtio_blk::VIRTIO_BLK_F_RO;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::TYPE_BLOCK;
-use crate::logger::warn;
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::rate_limiter::RateLimiter;
 use crate::snapshot::Persist;
@@ -97,21 +96,7 @@ impl Persist<'_> for VirtioBlock {
             state.disk_path.clone(),
             is_read_only,
             state.file_engine_type.into(),
-        )
-        .or_else(|err| match err {
-            VirtioBlockError::FileEngine(io::BlockIoError::UnsupportedEngine(
-                FileEngineType::Async,
-            )) => {
-                // If the kernel does not support `Async`, fallback to `Sync`.
-                warn!(
-                    "The \"Async\" io_engine is supported for kernels starting with {}. \
-                     Defaulting to \"Sync\" mode.",
-                    utils::kernel_version::min_kernel_version_for_io_uring()
-                );
-                DiskProperties::new(state.disk_path.clone(), is_read_only, FileEngineType::Sync)
-            }
-            other => Err(other),
-        })?;
+        )?;
 
         let queue_evts = [EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?];
 
@@ -214,49 +199,6 @@ mod tests {
         assert_eq!(FileEngineType::Sync, FileEngineTypeState::Sync.into());
         // Test default impl.
         assert_eq!(FileEngineTypeState::default(), FileEngineTypeState::Sync);
-
-        let f = TempFile::new().unwrap();
-        f.as_file().set_len(0x1000).unwrap();
-
-        if !FileEngineType::Async.is_supported().unwrap() {
-            // Test what happens when restoring an Async engine on a kernel that does not support
-            // it.
-
-            let config = VirtioBlockConfig {
-                drive_id: "test".to_string(),
-                path_on_host: f.as_path().to_str().unwrap().to_string(),
-                is_root_device: false,
-                partuuid: None,
-                is_read_only: false,
-                cache_type: CacheType::Writeback,
-                rate_limiter: None,
-                // Need to use Sync because it will otherwise return an error.
-                // We'll overwrite the state instead.
-                file_engine_type: FileEngineType::Sync,
-            };
-
-            let block = VirtioBlock::new(config).unwrap();
-
-            // Save the block device.
-            let mut mem = vec![0; 4096];
-
-            let mut block_state = <VirtioBlock as Persist>::save(&block);
-            // Overwrite the engine type state with Async.
-            block_state.file_engine_type = FileEngineTypeState::Async;
-
-            Snapshot::serialize(&mut mem.as_mut_slice(), &block_state).unwrap();
-
-            // Restore the block device.
-            let restored_block = VirtioBlock::restore(
-                BlockConstructorArgs { mem: default_mem() },
-                &Snapshot::deserialize(&mut mem.as_slice()).unwrap(),
-            )
-            .unwrap();
-
-            // On kernels that don't support io_uring, the restore() function will catch the
-            // `UnsupportedEngine` error and default to Sync.
-            assert_eq!(restored_block.file_engine_type(), FileEngineType::Sync);
-        }
     }
 
     #[test]

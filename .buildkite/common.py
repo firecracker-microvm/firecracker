@@ -229,7 +229,7 @@ class BKPipeline:
 
     parser = COMMON_PARSER
 
-    def __init__(self, initial_steps=None, **kwargs):
+    def __init__(self, initial_steps=None, with_build_step=True, **kwargs):
         self.steps = []
         self.args = args = self.parser.parse_args()
         # Retry one time if agent was lost. This can happen if we terminate the
@@ -252,9 +252,12 @@ class BKPipeline:
         self.per_arch["platforms"] = [("al2", "linux_5.10")]
         self.binary_dir = args.binary_dir
         # Build sharing
-        build_cmds, self.shared_build = shared_build()
-        step_build = group("🏗️ Build", build_cmds, **self.per_arch)
-        self.steps += [step_build, "wait"]
+        if with_build_step:
+            build_cmds, self.shared_build = shared_build()
+            step_build = group("🏗️ Build", build_cmds, **self.per_arch)
+            self.steps += [step_build, "wait"]
+        else:
+            self.shared_build = None
 
         # If we run initial_steps before the "wait" step above, then a failure of the initial steps
         # would result in the build not progressing past the "wait" step (as buildkite only proceeds past a wait step
@@ -284,10 +287,12 @@ class BKPipeline:
 
     def _adapt_group(self, group):
         """"""
-        prepend = [
-            f'buildkite-agent artifact download "{self.shared_build}" .',
-            f"tar xzf {self.shared_build}",
-        ]
+        prepend = []
+        if self.shared_build is not None:
+            prepend = [
+                f'buildkite-agent artifact download "{self.shared_build}" .',
+                f"tar xzf {self.shared_build}",
+            ]
         if self.binary_dir is not None:
             prepend.extend(
                 [
@@ -327,7 +332,9 @@ class BKPipeline:
     def devtool_test(self, devtool_opts=None, pytest_opts=None):
         """Generate a `devtool test` command"""
         cmds = []
-        parts = ["./tools/devtool -y test", "--no-build"]
+        parts = ["./tools/devtool -y test"]
+        if self.shared_build is not None:
+            parts.append("--no-build")
         if devtool_opts:
             parts.append(devtool_opts)
         parts.append("--")
