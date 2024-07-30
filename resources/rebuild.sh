@@ -134,46 +134,35 @@ EOF
     rm -rf $INITRAMFS_BUILD
 }
 
-
-function get_linux_git {
-    # git clone -s -b v$KV ../../linux
-    # --depth 1
-    cd linux
-    LATEST_TAG=$(git tag -l "v$KV.*" --sort=v:refname |tail -1)
-    git clean -fdx
-    git checkout $LATEST_TAG
+function clone_amazon_linux_repo {
+    [ -d linux ] || git clone https://github.com/amazonlinux/linux linux
 }
 
-
-# Download the latest kernel source for the given kernel version
-function get_linux_tarball {
+# prints the git tag corresponding to the newest and best matching the provided kernel version $1
+# this means that if a microvm kernel exists, the tag returned will be of the form
+#
+#    microvm-kernel-$1.<patch number>.amzn2[023]
+#
+# otherwise choose the newest tag matching
+#
+#    kernel-$1.<patch number>.amzn2[023]
+function get_tag {
     local KERNEL_VERSION=$1
-    echo "Downloading the latest patch version for v$KERNEL_VERSION..."
-    local major_version="${KERNEL_VERSION%%.*}"
-    local url_base="https://cdn.kernel.org/pub/linux/kernel"
-    local LATEST_VERSION=$(
-        curl -fsSL $url_base/v$major_version.x/ \
-        | grep -o "linux-$KERNEL_VERSION\.[0-9]*\.tar.xz" \
-        | sort -rV \
-        | head -n 1 || true)
-    # Fetch tarball and sha256 checksum.
-    curl -fsSLO "$url_base/v$major_version.x/sha256sums.asc"
-    curl -fsSLO "$url_base/v$major_version.x/$LATEST_VERSION"
-    # Verify checksum.
-    grep "${LATEST_VERSION}" sha256sums.asc | sha256sum -c -
-    echo "Extracting the kernel source..."
-    tar -xaf $LATEST_VERSION
-    local DIR=$(basename $LATEST_VERSION .tar.xz)
-    ln -svfT $DIR linux
+
+    # list all tags from newest to oldest
+    (git --no-pager tag -l --sort=-creatordate | grep "microvm-kernel-$1\..*\.amzn2" \
+        || git --no-pager tag -l --sort=-creatordate | grep "kernel-$1\..*\.amzn2") | head -n1
 }
 
-function build_linux {
+function build_al_kernel {
     local KERNEL_CFG=$1
     # Extract the kernel version from the config file provided as parameter.
-    local KERNEL_VERSION=$(grep -Po "^# Linux\/\w+ \K(\d+\.\d+)" "$KERNEL_CFG")
+    local KERNEL_VERSION=$(echo $KERNEL_CFG | grep -Po "microvm-kernel-ci-$ARCH-\K(\d+\.\d+)")
 
-    get_linux_tarball $KERNEL_VERSION
     pushd linux
+    make distclean
+
+    git checkout $(get_tag $KERNEL_VERSION)
 
     arch=$(uname -m)
     if [ "$arch" = "x86_64" ]; then
@@ -187,8 +176,8 @@ function build_linux {
 
         # Patch 6.1 kernels on ARM with 6.10 patches for supporting VMGenID
         # via DeviceTree bindings.
-        # TODO: drop this (and remove the patches from the repo) when we switch
-        # to building kernels from AL tree.
+        # TODO: drop this (and remove the patches from the repo) when AL backports the
+        # patches to 6.1.
         if [[ $KERNEL_VERSION == "6.1" ]]; then
             for i in ../patches/vmgenid_dt/* ; do
                 patch -p1 < $i
@@ -204,9 +193,13 @@ function build_linux {
     make -j $(nproc) $target
     LATEST_VERSION=$(cat include/config/kernel.release)
     flavour=$(basename $KERNEL_CFG .config |grep -Po "\d+\.\d+\K(-.*)" || true)
-    OUTPUT_FILE=$OUTPUT_DIR/vmlinux-$LATEST_VERSION$flavour
+    # Strip off everything after the last number - sometimes AL kernels have some stuff there.
+    # e.g. vmlinux-4.14.348-openela -> vmlinux-4.14.348
+    normalized_version=$(echo "$LATEST_VERSION" | sed -E "s/(.*[[:digit:]]).*/\1/g")
+    OUTPUT_FILE=$OUTPUT_DIR/vmlinux-$normalized_version$flavour
     cp -v $binary_path $OUTPUT_FILE
     cp -v .config $OUTPUT_FILE.config
+
     popd &>/dev/null
 }
 
@@ -226,11 +219,13 @@ fi
 build_rootfs ubuntu-22.04 jammy
 build_initramfs
 
-build_linux $PWD/guest_configs/microvm-kernel-ci-$ARCH-4.14.config
-build_linux $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config
+clone_amazon_linux_repo
+
+build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-4.14.config
+build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config
 if [ $ARCH == "x86_64" ]; then
-    build_linux $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10-no-acpi.config
+    build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10-no-acpi.config
 fi
-build_linux $PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config
+build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config
 
 tree -h $OUTPUT_DIR
