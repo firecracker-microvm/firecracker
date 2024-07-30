@@ -936,7 +936,7 @@ pub mod tests {
                         smt: false,
                         cpu_config: CpuConfiguration {
                             cpuid: Cpuid::try_from(_vm.supported_cpuid().clone()).unwrap(),
-                            msrs: std::collections::HashMap::new(),
+                            msrs: std::collections::BTreeMap::new(),
                         },
                     },
                 )

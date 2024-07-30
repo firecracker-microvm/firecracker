@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   This is to guarantee that the vCPU will continue receiving TSC interrupts
   after restoring from the snapshot even if an interrupt is lost when taking a
   snapshot.
+- [#4666](https://github.com/firecracker-microvm/firecracker/pull/4666): Fixed
+  Firecracker sometimes restoring `MSR_IA32_TSC_DEADLINE` before `MSR_IA32_TSC`.
+  Now it always restores `MSR_IA32_TSC_DEADLINE` MSR after `MSR_IA32_TSC`, as
+  KVM relies on the guest TSC for correct restoration of
+  `MSR_IA32_TSC_DEADLINE`. This fixed guests using the `TSC_DEADLINE` hardware
+  feature receiving incorrect timer interrupts after snapshot restoration, which
+  could lead to them seemingly getting stuck in sleep-related syscalls (see also
+  https://github.com/firecracker-microvm/firecracker/pull/4099).
 
 ## [1.6.0]
 

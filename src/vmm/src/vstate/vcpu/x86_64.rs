@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::BTreeMap;
 use std::fmt::Debug;
 
 use kvm_bindings::{
@@ -147,7 +147,7 @@ pub struct KvmVcpu {
     pub pio_bus: Option<crate::devices::Bus>,
     /// Mmio bus.
     pub mmio_bus: Option<crate::devices::Bus>,
-    msrs_to_save: HashSet<u32>,
+    msrs_to_save: Vec<u32>,
 }
 
 impl KvmVcpu {
@@ -168,7 +168,7 @@ impl KvmVcpu {
             fd: kvm_vcpu,
             pio_bus: None,
             mmio_bus: None,
-            msrs_to_save: vm.msrs_to_save().as_slice().iter().copied().collect(),
+            msrs_to_save: vm.msrs_to_save().as_slice().to_vec(),
         })
     }
 
@@ -376,8 +376,8 @@ impl KvmVcpu {
     /// # Errors
     ///
     /// * When `KvmVcpu::get_msr_chunks()` returns errors.
-    pub fn get_msrs(&self, msr_index_list: &[u32]) -> Result<HashMap<u32, u64>, KvmVcpuError> {
-        let mut msrs: HashMap<u32, u64> = HashMap::new();
+    pub fn get_msrs(&self, msr_index_list: &[u32]) -> Result<BTreeMap<u32, u64>, KvmVcpuError> {
+        let mut msrs = BTreeMap::new();
         self.get_msr_chunks(msr_index_list)?
             .iter()
             .for_each(|msr_chunk| {
@@ -429,8 +429,7 @@ impl KvmVcpu {
             None
         });
         let cpuid = self.get_cpuid()?;
-        let saved_msrs =
-            self.get_msr_chunks(&self.msrs_to_save.iter().copied().collect::<Vec<_>>())?;
+        let saved_msrs = self.get_msr_chunks(&self.msrs_to_save.to_vec())?;
         let vcpu_events = self
             .fd
             .get_vcpu_events()
@@ -847,7 +846,7 @@ mod tests {
             smt: false,
             cpu_config: CpuConfiguration {
                 cpuid: Cpuid::try_from(vm.supported_cpuid().clone()).unwrap(),
-                msrs: HashMap::new(),
+                msrs: BTreeMap::new(),
             },
         };
         vcpu.configure(&vm_mem, GuestAddress(0), &vcpu_config)
@@ -909,7 +908,7 @@ mod tests {
             smt: false,
             cpu_config: CpuConfiguration {
                 cpuid: Cpuid::try_from(vm.supported_cpuid().clone()).unwrap(),
-                msrs: HashMap::new(),
+                msrs: BTreeMap::new(),
             },
         };
         vcpu.configure(&vm_mem, GuestAddress(0), &vcpu_config)
