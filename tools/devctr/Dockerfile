@@ -6,10 +6,6 @@ FROM public.ecr.aws/lts/ubuntu:22.04
 
 ARG RUST_TOOLCHAIN="1.79.0"
 ARG TMP_BUILD_DIR=/tmp/build
-ARG FIRECRACKER_SRC_DIR="/firecracker"
-ARG FIRECRACKER_BUILD_DIR="$FIRECRACKER_SRC_DIR/build"
-ARG CARGO_REGISTRY_DIR="$FIRECRACKER_BUILD_DIR/cargo_registry"
-ARG CARGO_GIT_REGISTRY_DIR="$FIRECRACKER_BUILD_DIR/cargo_git_registry"
 ARG DEBIAN_FRONTEND=noninteractive
 ARG ARCH
 
@@ -132,9 +128,7 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOL
     && cd && rm -r /tmp/crosvm \
     \
     && rm -rf "$CARGO_HOME/registry" \
-    && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
-    && rm -rf "$CARGO_HOME/git" \
-    && ln -s "$CARGO_GIT_REGISTRY_DIR" "$CARGO_HOME/git"
+    && rm -rf "$CARGO_HOME/git"
 
 # help musl-gcc find linux headers
 RUN cd /usr/include/$ARCH-linux-musl \
@@ -162,5 +156,4 @@ RUN cd /usr/local/bin \
 
 ADD tools/devctr/ctr_gitconfig /root/.gitconfig
 
-WORKDIR "$FIRECRACKER_SRC_DIR"
 ENTRYPOINT ["/usr/bin/tini", "--"]
