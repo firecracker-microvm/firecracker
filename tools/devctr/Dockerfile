@@ -110,7 +110,7 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOL
     && rustup target add x86_64-unknown-linux-musl \
     && rustup target add aarch64-unknown-linux-musl \
     && rustup component add llvm-tools-preview \
-    && cargo install --locked cargo-audit cargo-deny grcov cargo-sort \
+    && cargo install --locked cargo-audit cargo-deny grcov cargo-sort cargo-afl \
     && (if [ "$ARCH" = "x86_64" ]; then cargo install --locked kani-verifier && cargo kani setup; else true; fi) \
     \
     && apt-get update \
