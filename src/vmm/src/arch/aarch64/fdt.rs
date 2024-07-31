@@ -16,7 +16,7 @@ use super::super::{DeviceType, InitrdConfig};
 use super::cache_info::{read_cache_config, CacheEntry};
 use super::gic::GICDevice;
 use crate::devices::acpi::vmgenid::{VmGenId, VMGENID_MEM_SIZE};
-use crate::vstate::memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
+use crate::vstate::memory::{Address, GuestMemory, GuestMemoryMmap};
 
 // This is a value for uniquely identifying the FDT node declaring the interrupt controller.
 const GIC_PHANDLE: u32 = 1;
