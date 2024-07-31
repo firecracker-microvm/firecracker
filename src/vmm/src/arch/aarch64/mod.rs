@@ -17,11 +17,13 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::fmt::Debug;
 
+use vm_memory::GuestMemoryError;
+
 pub use self::fdt::DeviceInfoForFDT;
 use self::gic::GICDevice;
 use crate::arch::DeviceType;
 use crate::devices::acpi::vmgenid::VmGenId;
-use crate::vstate::memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
+use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 /// Errors thrown while configuring aarch64 system.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -30,6 +32,8 @@ pub enum ConfigurationError {
     SetupFDT(#[from] fdt::FdtError),
     /// Failed to compute the initrd address.
     InitrdAddress,
+    /// Failed to write to guest memory.
+    MemoryError(GuestMemoryError),
 }
 
 /// The start of the memory area reserved for MMIO devices.
@@ -64,7 +68,7 @@ pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::Build
     vmgenid: &Option<VmGenId>,
     initrd: &Option<super::InitrdConfig>,
 ) -> Result<(), ConfigurationError> {
-    fdt::create_fdt(
+    let fdt = fdt::create_fdt(
         guest_mem,
         vcpu_mpidr,
         cmdline_cstring,
@@ -73,6 +77,10 @@ pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::Build
         vmgenid,
         initrd,
     )?;
+    let fdt_address = GuestAddress(get_fdt_addr(guest_mem));
+    guest_mem
+        .write_slice(fdt.as_slice(), fdt_address)
+        .map_err(ConfigurationError::MemoryError)?;
     Ok(())
 }
 
