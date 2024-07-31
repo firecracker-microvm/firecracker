@@ -51,7 +51,7 @@ RUN apt-get update \
     && apt-get -y install --no-install-recommends \
         # essential build tools
         gcc make libc-dev binutils-dev libssl-dev \
-        # Useful utilifies
+        # Useful utilities
         gdbserver \
         # Needed in order to be able to compile `userfaultfd-sys`.
         clang \
