@@ -64,11 +64,11 @@ pub enum FdtError {
 }
 
 /// Creates the flattened device tree for this aarch64 microVM.
-pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher>(
+pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
     guest_mem: &GuestMemoryMmap,
     vcpu_mpidr: Vec<u64>,
     cmdline: CString,
-    device_info: &HashMap<(DeviceType, String), T, S>,
+    device_info: &HashMap<(DeviceType, String), T>,
     gic_device: &GICDevice,
     vmgenid: &Option<VmGenId>,
     initrd: &Option<InitrdConfig>,

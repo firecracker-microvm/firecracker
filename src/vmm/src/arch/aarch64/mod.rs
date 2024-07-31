@@ -59,11 +59,11 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
 /// * `device_info` - A hashmap containing the attached devices for building FDT device nodes.
 /// * `gic_device` - The GIC device.
 /// * `initrd` - Information about an optional initrd.
-pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher>(
+pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug>(
     guest_mem: &GuestMemoryMmap,
     cmdline_cstring: CString,
     vcpu_mpidr: Vec<u64>,
-    device_info: &HashMap<(DeviceType, String), T, S>,
+    device_info: &HashMap<(DeviceType, String), T>,
     gic_device: &GICDevice,
     vmgenid: &Option<VmGenId>,
     initrd: &Option<super::InitrdConfig>,
