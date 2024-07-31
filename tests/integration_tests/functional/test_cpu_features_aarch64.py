@@ -20,11 +20,11 @@ DEFAULT_G2_FEATURES = set(
 )
 
 DEFAULT_G3_FEATURES_4_14 = DEFAULT_G2_FEATURES | set(
-    "sha512 asimdfhm dit uscat ilrcpc flagm jscvt fcma sha3 sm3 sm4".split(" ")
+    "sha512 asimdfhm dit uscat ilrcpc flagm jscvt fcma sha3 sm3 sm4 rng".split(" ")
 )
 
 DEFAULT_G3_FEATURES_5_10 = DEFAULT_G3_FEATURES_4_14 | set(
-    "dcpodp i8mm bf16 dgh rng".split(" ")
+    "dcpodp i8mm bf16 dgh".split(" ")
 )
 
 DEFAULT_G3_FEATURES_WITH_SVE_AND_PAC_4_14 = DEFAULT_G3_FEATURES_4_14
