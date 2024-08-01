@@ -68,7 +68,7 @@
 DEVCTR_IMAGE_NO_TAG="public.ecr.aws/firecracker/fcuvm"
 
 # Development container tag
-DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v73}
+DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v74}
 
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
@@ -228,6 +228,7 @@ cmd_fix_perms() {
     # Yes, running Docker to get elevated privileges, just to chown some files
     # is a dirty hack.
     run_devctr \
+        --workdir "$CTR_FC_ROOT_DIR" \
         -- \
         chown -R "$(id -u):$(id -g)" "$CTR_FC_BUILD_DIR"
 }
@@ -305,6 +306,8 @@ run_devctr() {
         --rm \
         --volume /dev:/dev \
         --volume "$FC_ROOT_DIR:$CTR_FC_ROOT_DIR:z" \
+        --volume "$FC_ROOT_DIR/build/cargo_registry:/usr/local/rust/registry:z" \
+        --volume "$FC_ROOT_DIR/build/cargo_git_registry:/usr/local/rust/git:z" \
         --tmpfs /srv:exec,dev,size=32G \
         -v /boot:/boot \
         --env PYTHONDONTWRITEBYTECODE=1 \
