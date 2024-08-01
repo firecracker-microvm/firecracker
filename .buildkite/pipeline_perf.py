@@ -121,7 +121,6 @@ for test in tests:
 # to a new kernel version tagged "linux_6.1-pinned"
 pins = {
     "linux_5.10-pinned": {"instance": "m6i.metal", "kv": "linux_5.10"},
-    "linux_6.1-pinned": {"instance": "m6i.metal", "kv": "linux_6.1"},
 }
 
 
