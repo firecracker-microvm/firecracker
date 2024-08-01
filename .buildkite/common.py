@@ -188,6 +188,7 @@ def ab_revision_build(revision):
         "git branch $$branch_name $$commitish",
         f"git clone -b $$branch_name . build/{revision}",
         f"cd build/{revision} && ./tools/devtool -y build --release && cd -",
+        "git branch -D $$branch_name",
     ]
 
 
@@ -204,7 +205,9 @@ def shared_build():
     if rev_a is not None:
         rev_b = os.environ.get("REVISION_B")
         assert rev_b is not None, "REVISION_B environment variable not set"
-        build_cmds = ab_revision_build(rev_a) + ab_revision_build(rev_b)
+        build_cmds = ab_revision_build(rev_a)
+        if rev_a != rev_b:
+            build_cmds += ab_revision_build(rev_b)
     elif os.environ.get("BUILDKITE_PULL_REQUEST", "false") != "false":
         build_cmds = ab_revision_build(
             os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH", "main")

@@ -247,6 +247,7 @@ def git_clone(clone_path, commitish):
         utils.check_output(
             f"git clone -b {branch_name} {git_root.strip()} {clone_path}"
         )
+        utils.check_output(f"git branch -D {branch_name}")
     return clone_path
 
 
