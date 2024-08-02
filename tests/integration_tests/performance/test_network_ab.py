@@ -7,7 +7,6 @@ import re
 import pytest
 
 from framework.utils_iperf import IPerf3Test, emit_iperf3_metrics
-from host_tools.fcmetrics import FCMetricsMonitor
 
 
 def consume_ping_output(ping_putput, request_per_round):
@@ -45,7 +44,7 @@ def network_microvm(request, microvm_factory, guest_kernel, rootfs):
     guest_vcpus = request.param
 
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
-    vm.spawn(log_level="Info")
+    vm.spawn(log_level="Info", emit_metrics=True)
     vm.basic_config(vcpu_count=guest_vcpus, mem_size_mib=guest_mem_mib)
     vm.add_net_iface()
     vm.start()
@@ -71,8 +70,6 @@ def test_network_latency(network_microvm, metrics):
             **network_microvm.dimensions,
         }
     )
-    fcmetrics = FCMetricsMonitor(network_microvm)
-    fcmetrics.start()
 
     samples = []
     host_ip = network_microvm.iface["eth0"]["iface"].host_ip
@@ -83,7 +80,6 @@ def test_network_latency(network_microvm, metrics):
         )
 
         samples.extend(consume_ping_output(ping_output, request_per_round))
-    fcmetrics.stop()
 
     for sample in samples:
         metrics.put_metric("ping_latency", sample, "Milliseconds")
@@ -124,8 +120,6 @@ def test_network_tcp_throughput(
             **network_microvm.dimensions,
         }
     )
-    fcmetrics = FCMetricsMonitor(network_microvm)
-    fcmetrics.start()
 
     test = IPerf3Test(
         microvm=network_microvm,
@@ -140,4 +134,3 @@ def test_network_tcp_throughput(
     data = test.run_test(network_microvm.vcpus_count + 2)
 
     emit_iperf3_metrics(metrics, data, warmup_sec)
-    fcmetrics.stop()
