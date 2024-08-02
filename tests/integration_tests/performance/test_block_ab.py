@@ -11,7 +11,6 @@ import pytest
 
 import host_tools.drive as drive_tools
 from framework.utils import CmdBuilder, check_output, track_cpu_utilization
-from host_tools.fcmetrics import FCMetricsMonitor
 
 # size of the block device used in the test, in MB
 BLOCK_DEVICE_SIZE_MB = 2048
@@ -155,7 +154,7 @@ def test_block_performance(
     Execute block device emulation benchmarking scenarios.
     """
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
-    vm.spawn(log_level="Info")
+    vm.spawn(log_level="Info", emit_metrics=True)
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
     vm.add_net_iface()
     # Add a secondary block device for benchmark tests.
@@ -174,8 +173,6 @@ def test_block_performance(
             **vm.dimensions,
         }
     )
-    fcmetrics = FCMetricsMonitor(vm)
-    fcmetrics.start()
 
     vm.pin_threads(0)
 
@@ -186,8 +183,6 @@ def test_block_performance(
     for thread_name, values in cpu_util.items():
         for value in values:
             metrics.put_metric(f"cpu_utilization_{thread_name}", value, "Percent")
-
-    fcmetrics.stop()
 
 
 @pytest.mark.nonci
@@ -208,7 +203,7 @@ def test_block_vhost_user_performance(
     """
 
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
-    vm.spawn(log_level="Info")
+    vm.spawn(log_level="Info", emit_metrics=True)
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
     vm.add_net_iface()
 
@@ -226,8 +221,6 @@ def test_block_vhost_user_performance(
             **vm.dimensions,
         }
     )
-    fcmetrics = FCMetricsMonitor(vm)
-    fcmetrics.start()
 
     next_cpu = vm.pin_threads(0)
     vm.disks_vhost_user["scratch"].pin(next_cpu)
@@ -239,5 +232,3 @@ def test_block_vhost_user_performance(
     for thread_name, values in cpu_util.items():
         for value in values:
             metrics.put_metric(f"cpu_utilization_{thread_name}", value, "Percent")
-
-    fcmetrics.stop()

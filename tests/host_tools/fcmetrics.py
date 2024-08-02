@@ -500,6 +500,7 @@ class FCMetricsMonitor(Thread):
                 "guest_kernel": vm.kernel_file.stem[2:],
             }
         )
+        self.start()
 
     def _flush_metrics(self):
         """

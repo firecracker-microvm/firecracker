@@ -39,6 +39,7 @@ from framework.jailer import JailerContext
 from framework.microvm_helpers import MicrovmHelpers
 from framework.properties import global_props
 from framework.utils_drive import VhostUserBlkBackend, VhostUserBlkBackendType
+from host_tools.fcmetrics import FCMetricsMonitor
 from host_tools.memory import MemoryMonitor
 
 LOG = logging.getLogger("microvm")
@@ -558,6 +559,7 @@ class Microvm:
         log_show_level=False,
         log_show_origin=False,
         metrics_path="fc.ndjson",
+        emit_metrics: bool = False,
     ):
         """Start a microVM as a daemon or in a screen session."""
         # pylint: disable=subprocess-run-check
@@ -583,6 +585,8 @@ class Microvm:
             self.metrics_file.touch()
             self.create_jailed_resource(self.metrics_file)
             self.jailer.extra_args.update({"metrics-path": self.metrics_file.name})
+        else:
+            assert not emit_metrics
 
         if self.metadata_file:
             if os.path.exists(self.metadata_file):
@@ -618,6 +622,9 @@ class Microvm:
             self._screen_pid = screen_pid
 
         self._spawned = True
+
+        if emit_metrics:
+            self.monitors.append(FCMetricsMonitor(self))
 
         # Wait for the jailer to create resources needed, and Firecracker to
         # create its API socket.
