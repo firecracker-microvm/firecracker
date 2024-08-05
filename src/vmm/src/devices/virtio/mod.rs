@@ -72,6 +72,13 @@ pub enum ActivateError {
     TapSetOffload(TapError),
 }
 
+// Errors triggered when resetting a VirtioDevice.
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum ResetError {
+    /// Reset is not implemented for the device.
+    NotImplemented,
+}
+
 /// Trait that helps in upcasting an object to Any
 pub trait AsAny {
     /// Return the immutable any encapsulated object.

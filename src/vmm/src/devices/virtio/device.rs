@@ -13,7 +13,7 @@ use utils::eventfd::EventFd;
 
 use super::mmio::{VIRTIO_MMIO_INT_CONFIG, VIRTIO_MMIO_INT_VRING};
 use super::queue::Queue;
-use super::ActivateError;
+use super::{ActivateError, ResetError};
 use crate::devices::virtio::AsAny;
 use crate::logger::{error, warn};
 use crate::vstate::memory::GuestMemoryMmap;
@@ -175,10 +175,9 @@ pub trait VirtioDevice: AsAny + Send {
     /// Checks if the resources of this device are activated.
     fn is_activated(&self) -> bool;
 
-    /// Optionally deactivates this device and returns ownership of the guest memory map, interrupt
-    /// event, and queue events.
-    fn reset(&mut self) -> Option<(EventFd, Vec<EventFd>)> {
-        None
+    /// Optionally deactivates this device.
+    fn reset(&mut self) -> Result<(), ResetError> {
+        Err(ResetError::NotImplemented)
     }
 }
 
