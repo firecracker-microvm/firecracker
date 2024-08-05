@@ -3,17 +3,19 @@
 
 """Integration tests for hotplugging vCPUs"""
 
+import platform
 import re
 import time
 
 import pytest
 
-from framework import microvm
 from framework.defs import MAX_SUPPORTED_VCPUS
-from framework.microvm import Serial
 from framework.utils_cpuid import check_guest_cpuid_output
 
 
+@pytest.mark.skipif(
+    platform.machine() != "x86_64", reason="Hotplug only enabled on x86_64."
+)
 @pytest.mark.parametrize("vcpu_count", [1, MAX_SUPPORTED_VCPUS - 1])
 def test_hotplug_vcpus(uvm_plain, vcpu_count):
     """Test hotplugging works as intended"""
@@ -40,6 +42,9 @@ def test_hotplug_vcpus(uvm_plain, vcpu_count):
     )
 
 
+@pytest.mark.skipif(
+    platform.machine() != "x86_64", reason="Hotplug only enabled on x86_64."
+)
 @pytest.mark.parametrize(
     "vcpu_count", [-1, 0, MAX_SUPPORTED_VCPUS, MAX_SUPPORTED_VCPUS + 1]
 )
@@ -63,7 +68,7 @@ def test_negative_hotplug_vcpus(uvm_plain, vcpu_count):
         with pytest.raises(
             RuntimeError,
             match=re.compile(
-                f"An error occurred when deserializing the json body of a request: invalid value: integer `-\\d+`, expected u8+"
+                "An error occurred when deserializing the json body of a request: invalid value: integer `-\\d+`, expected u8+"
             ),
         ):
             uvm_plain.api.hotplug.put(Vcpu={"add": vcpu_count})
@@ -75,6 +80,9 @@ def test_negative_hotplug_vcpus(uvm_plain, vcpu_count):
             uvm_plain.api.hotplug.put(Vcpu={"add": vcpu_count})
 
 
+@pytest.mark.skipif(
+    platform.machine() != "x86_64", reason="Hotplug only enabled on x86_64."
+)
 @pytest.mark.parametrize("vcpu_count", [1, MAX_SUPPORTED_VCPUS - 1])
 def test_online_hotplugged_vcpus(uvm_plain, vcpu_count):
     """Test that hotplugged CPUs can be onlined"""

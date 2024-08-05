@@ -361,6 +361,9 @@ guest_kernel_linux_4_14 = pytest.fixture(
 guest_kernel_linux_5_10 = pytest.fixture(
     guest_kernel_fxt, params=kernel_params("vmlinux-5.10*")
 )
+guest_kernel_linux_acpi_only = pytest.fixture(
+    guest_kernel_fxt, params=kernel_params("vmlinux-5.10.221")
+)
 # Use the unfiltered selector, since we don't officially support 6.1 yet.
 # TODO: switch to default selector once we add full 6.1 support.
 guest_kernel_linux_6_1 = pytest.fixture(
@@ -392,6 +395,15 @@ def uvm_plain_rw(microvm_factory, guest_kernel_linux_5_10, rootfs_rw):
     rootfs: Ubuntu 22.04
     """
     return microvm_factory.build(guest_kernel_linux_5_10, rootfs_rw)
+
+
+@pytest.fixture
+def uvm_hotplug(microvm_factory, guest_kernel_linux_acpi_only, rootfs_rw):
+    """Create a VM with ACPI enabled kernels only.
+    kernel: 5.10
+    rootfs: Ubuntu 22.04
+    """
+    return microvm_factory.build(guest_kernel_linux_acpi_only, rootfs_rw)
 
 
 @pytest.fixture
