@@ -362,7 +362,10 @@ guest_kernel_linux_5_10 = pytest.fixture(
     guest_kernel_fxt, params=kernel_params("vmlinux-5.10*")
 )
 guest_kernel_linux_acpi_only = pytest.fixture(
-    guest_kernel_fxt, params=kernel_params("vmlinux-5.10.221")
+    guest_kernel_fxt, params=kernel_params("vmlinux-5.10.219")
+)
+guest_kernel_linux_6_5 = pytest.fixture(
+    guest_kernel_fxt, params=kernel_params("vmlinux-6.5.*", select=kernels_unfiltered)
 )
 # Use the unfiltered selector, since we don't officially support 6.1 yet.
 # TODO: switch to default selector once we add full 6.1 support.

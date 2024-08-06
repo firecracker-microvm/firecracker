@@ -9,7 +9,7 @@ done
 readarray -t offline_cpus < <(lscpu -p=cpu --offline | sed '/^#/d')
 
 for cpu_idx in ${offline_cpus[@]}; do
-  echo 1 >/sys/devices/system/cpu/cpu$cpu_idx/online
+  echo 1 | tee cpu*/online
 done
 
 /home/hotplug_time.o
