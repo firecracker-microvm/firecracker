@@ -207,33 +207,34 @@ impl VsockPacket {
     ///
     /// Return value will equal the total length of the underlying descriptor chain's buffers,
     /// minus the length of the vsock header.
-    pub fn buf_size(&self) -> usize {
+    pub fn buf_size(&self) -> u32 {
         let chain_length = match self.buffer {
             VsockPacketBuffer::Tx(ref iovec_buf) => iovec_buf.len(),
             VsockPacketBuffer::Rx(ref iovec_buf) => iovec_buf.len(),
         };
-        (chain_length - VSOCK_PKT_HDR_SIZE) as usize
+        chain_length - VSOCK_PKT_HDR_SIZE
     }
 
     pub fn read_at_offset_from<T: ReadVolatile + Debug>(
         &mut self,
         src: &mut T,
-        offset: usize,
-        count: usize,
-    ) -> Result<usize, VsockError> {
+        offset: u32,
+        count: u32,
+    ) -> Result<u32, VsockError> {
         match self.buffer {
             VsockPacketBuffer::Tx(_) => Err(VsockError::UnwritableDescriptor),
             VsockPacketBuffer::Rx(ref mut buffer) => {
                 if count
-                    > (buffer.len() as usize)
-                        .saturating_sub(VSOCK_PKT_HDR_SIZE as usize)
+                    > buffer
+                        .len()
+                        .saturating_sub(VSOCK_PKT_HDR_SIZE)
                         .saturating_sub(offset)
                 {
                     return Err(VsockError::GuestMemoryBounds);
                 }
 
                 buffer
-                    .write_volatile_at(src, offset + VSOCK_PKT_HDR_SIZE as usize, count)
+                    .write_volatile_at(src, offset + VSOCK_PKT_HDR_SIZE, count)
                     .map_err(|err| VsockError::GuestMemoryMmap(GuestMemoryError::from(err)))
             }
         }
@@ -242,21 +243,22 @@ impl VsockPacket {
     pub fn write_from_offset_to<T: WriteVolatile + Debug>(
         &self,
         dst: &mut T,
-        offset: usize,
-        count: usize,
-    ) -> Result<usize, VsockError> {
+        offset: u32,
+        count: u32,
+    ) -> Result<u32, VsockError> {
         match self.buffer {
             VsockPacketBuffer::Tx(ref buffer) => {
                 if count
-                    > (buffer.len() as usize)
-                        .saturating_sub(VSOCK_PKT_HDR_SIZE as usize)
+                    > buffer
+                        .len()
+                        .saturating_sub(VSOCK_PKT_HDR_SIZE)
                         .saturating_sub(offset)
                 {
                     return Err(VsockError::GuestMemoryBounds);
                 }
 
                 buffer
-                    .read_volatile_at(dst, offset + VSOCK_PKT_HDR_SIZE as usize, count)
+                    .read_volatile_at(dst, offset + VSOCK_PKT_HDR_SIZE, count)
                     .map_err(|err| VsockError::GuestMemoryMmap(GuestMemoryError::from(err)))
             }
             VsockPacketBuffer::Rx(_) => Err(VsockError::UnreadableDescriptor),
@@ -529,10 +531,7 @@ mod tests {
                     .unwrap(),
             )
             .unwrap();
-            assert_eq!(
-                pkt.buf_size(),
-                handler_ctx.guest_rxvq.dtable[1].len.get() as usize
-            );
+            assert_eq!(pkt.buf_size(), handler_ctx.guest_rxvq.dtable[1].len.get());
         }
 
         // Test case: read-only RX packet header.
@@ -641,35 +640,36 @@ mod tests {
         .unwrap();
 
         let buf_desc = &mut handler_ctx.guest_rxvq.dtable[1];
-        assert_eq!(pkt.buf_size(), buf_desc.len.get() as usize);
-        let zeros = vec![0_u8; pkt.buf_size()];
+        assert_eq!(pkt.buf_size(), buf_desc.len.get());
+        let zeros = vec![0_u8; pkt.buf_size() as usize];
         let data: Vec<u8> = (0..pkt.buf_size())
-            .map(|i| ((i as u64) & 0xff) as u8)
+            .map(|i| ((u64::from(i)) & 0xff) as u8)
             .collect();
         for offset in 0..pkt.buf_size() {
+            let count = pkt.buf_size() - offset;
             buf_desc.set_data(&zeros);
 
-            let mut expected_data = zeros[..offset].to_vec();
-            expected_data.extend_from_slice(&data[..pkt.buf_size() - offset]);
+            let mut expected_data = zeros[..offset as usize].to_vec();
+            expected_data.extend_from_slice(&data[..count as usize]);
 
-            pkt.read_at_offset_from(&mut data.as_slice(), offset, pkt.buf_size() - offset)
+            pkt.read_at_offset_from(&mut data.as_slice(), offset, count)
                 .unwrap();
 
             buf_desc.check_data(&expected_data);
 
-            let mut buf = vec![0; pkt.buf_size()];
-            pkt2.write_from_offset_to(&mut buf.as_mut_slice(), offset, pkt.buf_size() - offset)
+            let mut buf = vec![0; pkt.buf_size() as usize];
+            pkt2.write_from_offset_to(&mut buf.as_mut_slice(), offset, count)
                 .unwrap();
-            assert_eq!(&buf[..pkt.buf_size() - offset], &expected_data[offset..]);
+            assert_eq!(&buf[..count as usize], &expected_data[offset as usize..]);
         }
 
         let oob_cases = vec![
             (1, pkt.buf_size()),
             (pkt.buf_size(), 1),
-            (usize::MAX, 1),
-            (1, usize::MAX),
+            (u32::MAX, 1),
+            (1, u32::MAX),
         ];
-        let mut buf = vec![0; pkt.buf_size()];
+        let mut buf = vec![0; pkt.buf_size() as usize];
         for (offset, count) in oob_cases {
             let res = pkt.read_at_offset_from(&mut data.as_slice(), offset, count);
             assert!(matches!(res, Err(VsockError::GuestMemoryBounds)));
