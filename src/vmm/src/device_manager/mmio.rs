@@ -24,8 +24,10 @@ use super::resources::ResourceAllocator;
 use crate::arch::aarch64::DeviceInfoForFDT;
 use crate::arch::DeviceType;
 use crate::arch::DeviceType::Virtio;
+#[cfg(target_arch = "x86_64")]
+use crate::devices::acpi::cpu_container::CpuContainer;
 #[cfg(target_arch = "aarch64")]
-use crate::devices::legacy::RTCDevice;
+use crate::devices::legacy::{RTCDevice, SerialDevice};
 use crate::devices::pseudo::BootTimer;
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
@@ -160,7 +162,7 @@ impl MMIODeviceManager {
         &mut self,
         identifier: (DeviceType, String),
         device_info: MMIODeviceInfo,
-        device: Arc<Mutex<BusDevice>>,
+        device: BusDevice,
     ) -> Result<(), MmioError> {
         self.bus
             .insert(device, device_info.addr, device_info.len)
@@ -200,7 +202,7 @@ impl MMIODeviceManager {
         self.register_mmio_device(
             identifier,
             device_info.clone(),
-            Arc::new(Mutex::new(BusDevice::MmioTransport(mmio_device))),
+            BusDevice::MmioTransport(Arc::new(Mutex::new(mmio_device))),
         )
     }
 
@@ -259,7 +261,7 @@ impl MMIODeviceManager {
         &mut self,
         vm: &VmFd,
         resource_allocator: &mut ResourceAllocator,
-        serial: Arc<Mutex<BusDevice>>,
+        serial: Arc<Mutex<SerialDevice<std::io::Stdin>>>,
         device_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<(), MmioError> {
         // Create a new MMIODeviceInfo object on boot path or unwrap the
@@ -271,20 +273,14 @@ impl MMIODeviceManager {
         };
 
         vm.register_irqfd(
-            serial
-                .lock()
-                .expect("Poisoned lock")
-                .serial_ref()
-                .unwrap()
-                .serial
-                .interrupt_evt(),
+            serial.lock().expect("Poisoned lock").serial.interrupt_evt(),
             device_info.irqs[0],
         )
         .map_err(MmioError::RegisterIrqFd)?;
 
         let identifier = (DeviceType::Serial, DeviceType::Serial.to_string());
         // Register the newly created Serial object.
-        self.register_mmio_device(identifier, device_info, serial)
+        self.register_mmio_device(identifier, device_info, BusDevice::Serial(serial))
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -325,7 +321,7 @@ impl MMIODeviceManager {
         self.register_mmio_device(
             identifier,
             device_info,
-            Arc::new(Mutex::new(BusDevice::RTCDevice(rtc))),
+            BusDevice::RTCDevice(Arc::new(Mutex::new(rtc))),
         )
     }
 
@@ -342,8 +338,54 @@ impl MMIODeviceManager {
         self.register_mmio_device(
             identifier,
             device_info,
-            Arc::new(Mutex::new(BusDevice::BootTimer(device))),
+            BusDevice::BootTimer(Arc::new(Mutex::new(device))),
         )
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    pub fn register_mmio_cpu_container(
+        &mut self,
+        vm: &VmFd,
+        device: Arc<Mutex<CpuContainer>>,
+        device_info: &MMIODeviceInfo,
+    ) -> Result<(), MmioError> {
+        let identifier = (
+            DeviceType::CpuContainer,
+            DeviceType::CpuContainer.to_string(),
+        );
+        {
+            let container = device.lock().expect("Poisoned lock");
+            vm.register_irqfd(&container.mmio_interrupt_evt, device_info.irqs[0])
+                .map_err(MmioError::RegisterIrqFd)?;
+        }
+
+        self.register_mmio_device(
+            identifier,
+            device_info.clone(),
+            BusDevice::CpuContainer(device),
+        )?;
+        Ok(())
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    pub fn register_mmio_cpu_container_for_boot(
+        &mut self,
+        vm: &VmFd,
+        resource_allocator: &mut ResourceAllocator,
+        device: Arc<Mutex<CpuContainer>>,
+    ) -> Result<(), MmioError> {
+        let device_info = {
+            let locked_container = device.lock().expect("Poisoned lock");
+            let irqs = resource_allocator.allocate_gsi(1)?;
+            MMIODeviceInfo {
+                addr: locked_container.mmio_address.0,
+                len: MMIO_LEN,
+                irqs,
+            }
+        };
+
+        self.register_mmio_cpu_container(vm, device, &device_info)?;
+        Ok(())
     }
 
     /// Gets the information of the devices registered up to some point in time.
@@ -352,11 +394,7 @@ impl MMIODeviceManager {
     }
 
     /// Gets the specified device.
-    pub fn get_device(
-        &self,
-        device_type: DeviceType,
-        device_id: &str,
-    ) -> Option<&Mutex<BusDevice>> {
+    pub fn get_device(&self, device_type: DeviceType, device_id: &str) -> Option<&BusDevice> {
         if let Some(device_info) = self
             .id_to_dev_info
             .get(&(device_type, device_id.to_string()))
@@ -371,7 +409,7 @@ impl MMIODeviceManager {
     /// Run fn for each registered device.
     pub fn for_each_device<F, E: Debug>(&self, mut f: F) -> Result<(), E>
     where
-        F: FnMut(&DeviceType, &String, &MMIODeviceInfo, &Mutex<BusDevice>) -> Result<(), E>,
+        F: FnMut(&DeviceType, &String, &MMIODeviceInfo, &BusDevice) -> Result<(), E>,
     {
         for ((device_type, device_id), device_info) in self.get_device_info().iter() {
             let bus_device = self
@@ -391,8 +429,6 @@ impl MMIODeviceManager {
         self.for_each_device(|device_type, device_id, device_info, bus_device| {
             if let Virtio(virtio_type) = device_type {
                 let virtio_device = bus_device
-                    .lock()
-                    .expect("Poisoned lock")
                     .mmio_transport_ref()
                     .expect("Unexpected device type")
                     .device();
@@ -417,8 +453,6 @@ impl MMIODeviceManager {
     {
         if let Some(busdev) = self.get_device(DeviceType::Virtio(virtio_type), id) {
             let virtio_device = busdev
-                .lock()
-                .expect("Poisoned lock")
                 .mmio_transport_ref()
                 .expect("Unexpected device type")
                 .device();
@@ -844,6 +878,26 @@ mod tests {
         );
         device_manager
             .allocate_mmio_resources(&mut resource_allocator, 0)
+            .unwrap();
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_register_cpu_container() {
+        let mut device_manager = MMIODeviceManager::new();
+        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        let mut vm = Vm::new(vec![]).unwrap();
+        builder::setup_interrupt_controller(&mut vm).unwrap();
+        let cpu_container = Arc::new(Mutex::new(
+            CpuContainer::new(&mut resource_allocator, 1).unwrap(),
+        ));
+
+        device_manager
+            .register_mmio_cpu_container_for_boot(vm.fd(), &mut resource_allocator, cpu_container)
+            .unwrap();
+
+        device_manager
+            .get_device(DeviceType::CpuContainer, "CpuContainer")
             .unwrap();
     }
 }

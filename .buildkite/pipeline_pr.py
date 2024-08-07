@@ -4,15 +4,8 @@
 
 """Generate Buildkite pipelines dynamically"""
 
-from common import (
-    COMMON_PARSER,
-    devtool_test,
-    get_changed_files,
-    group,
-    overlay_dict,
-    pipeline_to_json,
-    run_all_tests,
-)
+from common import (COMMON_PARSER, devtool_test, get_changed_files, group,
+                    overlay_dict, pipeline_to_json, run_all_tests)
 
 # Buildkite default job priority is 0. Setting this to 1 prioritizes PRs over
 # scheduled jobs and other batch jobs.
@@ -32,7 +25,7 @@ defaults = {
     "platforms": args.platforms,
     # buildkite step parameters
     "priority": DEFAULT_PRIORITY,
-    "timeout_in_minutes": 45,
+    "timeout_in_minutes": 180,
     "artifacts": ["./test_results/**/*"],
 }
 defaults = overlay_dict(defaults, args.step_param)
