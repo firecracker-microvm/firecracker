@@ -909,7 +909,7 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     use crate::builder::tests::default_vmm;
     use crate::cpu_config::templates::test_utils::build_test_template;
-    use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
+    use crate::cpu_config::templates::{CpuConfiguration, CpuTemplateType, StaticCpuTemplate};
     use crate::devices::virtio::balloon::{BalloonConfig, BalloonError};
     use crate::devices::virtio::block::CacheType;
     use crate::devices::virtio::rng::EntropyError;
@@ -2149,8 +2149,21 @@ mod tests {
     #[test]
     #[cfg(target_arch = "x86_64")]
     fn test_runtime_hotplug_vcpu() {
+        use crate::cpu_config::x86_64::cpuid::Cpuid;
+
         // Case 1. Valid input
         let mut vmm = default_vmm();
+        let cpuid = Cpuid::try_from(vmm.vm.supported_cpuid().clone()).unwrap();
+        let vcpu_config = crate::VcpuConfig {
+            vcpu_count: 0,
+            smt: false,
+            cpu_config: CpuConfiguration {
+                cpuid,
+                msrs: std::collections::HashMap::new(),
+            },
+        };
+
+        vmm.attach_vcpu_config(vcpu_config.clone());
         let config = HotplugVcpuConfig { add: 4 };
         let result = vmm.hotplug_vcpus(config);
         assert_eq!(vmm.vcpus_handles.len(), 4);
@@ -2158,6 +2171,7 @@ mod tests {
 
         // Case 2. Vcpu count too low
         let mut vmm = default_vmm();
+        vmm.attach_vcpu_config(vcpu_config.clone());
         vmm.hotplug_vcpus(HotplugVcpuConfig { add: 1 }).unwrap();
         assert_eq!(vmm.vcpus_handles.len(), 1);
         let config = HotplugVcpuConfig { add: 0 };
@@ -2167,6 +2181,7 @@ mod tests {
 
         // Case 3. Vcpu count too high
         let mut vmm = default_vmm();
+        vmm.attach_vcpu_config(vcpu_config.clone());
         vmm.hotplug_vcpus(HotplugVcpuConfig { add: 1 }).unwrap();
         assert_eq!(vmm.vcpus_handles.len(), 1);
         let config = HotplugVcpuConfig { add: 33 };
@@ -2176,6 +2191,7 @@ mod tests {
 
         // Case 4. Attempted overflow of vcpus
         let mut vmm = default_vmm();
+        vmm.attach_vcpu_config(vcpu_config.clone());
         vmm.hotplug_vcpus(HotplugVcpuConfig { add: 2 }).unwrap();
         assert_eq!(vmm.vcpus_handles.len(), 2);
         let config = HotplugVcpuConfig { add: 255 };

@@ -19,6 +19,10 @@ use super::resources::ResourceAllocator;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::DeviceType;
 #[cfg(target_arch = "x86_64")]
+use crate::devices::acpi::cpu_container::{
+    CpuContainer, CpuContainerConstructorArgs, CpuContainerError, CpuContainerState,
+};
+#[cfg(target_arch = "x86_64")]
 use crate::devices::acpi::vmgenid::{VMGenIDState, VMGenIdConstructorArgs, VmGenId, VmGenIdError};
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::balloon::{Balloon, BalloonError};
@@ -57,6 +61,9 @@ pub enum DevicePersistError {
     Balloon(#[from] BalloonError),
     /// Block: {0}
     Block(#[from] BlockError),
+    /// CpuContainer: {0}
+    #[cfg(target_arch = "x86_64")]
+    CpuContainer(#[from] CpuContainerError),
     /// Device manager: {0}
     DeviceManager(#[from] super::mmio::MmioError),
     /// Mmio transport
@@ -153,6 +160,13 @@ pub struct ConnectedLegacyState {
     pub device_info: MMIODeviceInfo,
 }
 
+#[cfg(target_arch = "x86_64")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConnectedCpuContainerState {
+    pub device_state: CpuContainerState,
+    pub device_info: MMIODeviceInfo,
+}
+
 /// Holds the MMDS data store version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MmdsVersionState {
@@ -196,6 +210,9 @@ pub struct DeviceStates {
     pub mmds_version: Option<MmdsVersionState>,
     /// Entropy device state.
     pub entropy_device: Option<ConnectedEntropyState>,
+    /// Cpu Container device state.
+    #[cfg(target_arch = "x86_64")]
+    pub cpu_container: Option<ConnectedCpuContainerState>,
 }
 
 /// A type used to extract the concrete `Arc<Mutex<T>>` for each of the device
@@ -241,6 +258,7 @@ pub struct ACPIDeviceManagerConstructorArgs<'a> {
     pub mem: &'a GuestMemoryMmap,
     pub resource_allocator: &'a mut ResourceAllocator,
     pub vm: &'a VmFd,
+    pub cpu_container: Arc<Mutex<CpuContainer>>,
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -250,6 +268,9 @@ pub enum ACPIDeviceManagerRestoreError {
     Interrupt(#[from] kvm_ioctls::Error),
     /// Could not create VMGenID device: {0}
     VMGenID(#[from] VmGenIdError),
+    /// Could not create CpuContainer device: {0}
+    #[cfg(target_arch = "x86_64")]
+    CpuContainer(#[from] CpuContainerError),
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -289,11 +310,21 @@ impl<'a> Persist<'a> for MMIODeviceManager {
     type Error = DevicePersistError;
 
     fn save(&self) -> Self::State {
+        use crate::devices::bus::BusDevice::*;
         let mut states = DeviceStates::default();
+        #[allow(unused_variables)]
         let _: Result<(), ()> = self.for_each_device(|devtype, devid, device_info, bus_dev| {
-            if *devtype == crate::arch::DeviceType::BootTimer {
-                // No need to save BootTimer state.
-                return Ok(());
+            match bus_dev {
+                BootTimer(_) => return Ok(()),
+                #[cfg(target_arch = "x86_64")]
+                CpuContainer(x) => {
+                    states.cpu_container = Some(ConnectedCpuContainerState {
+                        device_state: x.lock().expect("Poisoned lock").save(),
+                        device_info: device_info.clone(),
+                    });
+                    return Ok(());
+                }
+                _ => (),
             }
 
             #[cfg(target_arch = "aarch64")]
@@ -307,9 +338,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 }
             }
 
-            let locked_bus_dev = bus_dev.lock().expect("Poisoned lock");
-
-            let mmio_transport = locked_bus_dev
+            let mmio_transport = bus_dev
                 .mmio_transport_ref()
                 .expect("Unexpected device type");
 
@@ -650,6 +679,17 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 &entropy_state.device_info,
                 constructor_args.event_manager,
             )?;
+        }
+
+        #[cfg(target_arch = "x86_64")]
+        if let Some(container) = &state.cpu_container {
+            let ctor_args = CpuContainerConstructorArgs { vm };
+            let device = Arc::new(Mutex::new(CpuContainer::restore(
+                ctor_args,
+                &container.device_state,
+            )?));
+
+            dev_manager.register_mmio_cpu_container(vm, device, &container.device_info)?;
         }
 
         Ok(dev_manager)

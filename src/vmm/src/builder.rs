@@ -29,6 +29,8 @@ use vm_superio::Serial;
 
 #[cfg(target_arch = "x86_64")]
 use crate::acpi;
+#[cfg(target_arch = "x86_64")]
+use crate::arch::DeviceType;
 use crate::arch::InitrdConfig;
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
@@ -48,11 +50,13 @@ use crate::device_manager::persist::{
 };
 use crate::device_manager::resources::ResourceAllocator;
 #[cfg(target_arch = "x86_64")]
+use crate::devices::acpi::cpu_container::{CpuContainer, CpuContainerError};
+#[cfg(target_arch = "x86_64")]
 use crate::devices::acpi::vmgenid::{VmGenId, VmGenIdError};
 use crate::devices::legacy::serial::SerialOut;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
-use crate::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
+use crate::devices::legacy::{EventFdTrigger, SerialDevice, SerialEventsWrapper, SerialWrapper};
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::device::VirtioDevice;
@@ -60,6 +64,7 @@ use crate::devices::virtio::mmio::MmioTransport;
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
+#[cfg(target_arch = "x86_64")]
 use crate::devices::BusDevice;
 use crate::logger::{debug, error};
 use crate::persist::{MicrovmState, MicrovmStateError};
@@ -81,6 +86,9 @@ pub enum StartMicrovmError {
     /// Unable to attach the VMGenID device: {0}
     #[cfg(target_arch = "x86_64")]
     AttachVmgenidDevice(kvm_ioctls::Error),
+    /// Unable to attach the CpuContainer device: {0}
+    #[cfg(target_arch = "x86_64")]
+    AttachCpuContainerDevice(kvm_ioctls::Error),
     /// System configuration error: {0}
     ConfigureSystem(crate::arch::ConfigurationError),
     /// Failed to create guest config: {0}
@@ -95,6 +103,9 @@ pub enum StartMicrovmError {
     /// Error creating VMGenID device: {0}
     #[cfg(target_arch = "x86_64")]
     CreateVMGenID(VmGenIdError),
+    /// Error creating CpuContainer device: {0}
+    #[cfg(target_arch = "x86_64")]
+    CreateCpuContainer(#[from] CpuContainerError),
     /// Invalid Memory Configuration: {0}
     GuestMemory(crate::vstate::memory::MemoryError),
     /// Cannot load initrd due to an invalid memory configuration.
@@ -232,6 +243,8 @@ fn create_vmm_and_vcpus(
         vcpus_handles: Vec::new(),
         vcpus_exit_evt,
         #[cfg(target_arch = "x86_64")]
+        vcpu_config: None,
+        #[cfg(target_arch = "x86_64")]
         seccomp_filters,
         resource_allocator,
         mmio_device_manager,
@@ -324,6 +337,9 @@ pub fn build_microvm_for_boot(
     if vm_resources.boot_timer {
         attach_boot_timer_device(&mut vmm, request_ts)?;
     }
+
+    #[cfg(target_arch = "x86_64")]
+    attach_cpu_container_device(&mut vmm, vm_resources.vm_config.vcpu_count)?;
 
     if let Some(balloon) = vm_resources.balloon.get() {
         attach_balloon_device(&mut vmm, &mut boot_cmdline, balloon, event_manager)?;
@@ -450,6 +466,8 @@ pub enum BuildMicrovmFromSnapshotError {
     StartVcpus(#[from] crate::StartVcpusError),
     /// Failed to restore vCPUs: {0}
     RestoreVcpus(#[from] VcpuError),
+    /// Failed to restore CPUID: {0}
+    RestoreCpuId(#[from] GuestConfigError),
     /// Failed to apply VMM secccomp filter as none found.
     MissingVmmSeccompFilters,
     /// Failed to apply VMM secccomp filter: {0}
@@ -522,6 +540,31 @@ pub fn build_microvm_from_snapshot(
     #[cfg(target_arch = "x86_64")]
     vmm.vm.restore_state(&microvm_state.vm_state)?;
 
+    #[cfg(target_arch = "x86_64")]
+    {
+        // FIXME: Custom templates are not stored when snapshots are taken, as they were previously
+        // only needed at boottime. With hotplugging, the template could be necessary at any time,
+        // so snapshot must be modified in order to save custom templates
+
+        // let cpuid = Cpuid::try_from(vmm.vm.supported_cpuid().clone())
+        //     .map_err(GuestConfigError::CpuidFromKvmCpuid)?;
+
+        // let_cpu_template = &microvm_state.vm_info.cpu_template;
+        //
+        // let msrs = vcpus[0]
+        //     .kvm_vcpu
+        //     .get_msrs(&[])
+        //     .map_err(GuestConfigError::VcpuIoctl)?;
+        //
+        // let cpu_config = CpuConfiguration { cpuid, msrs };
+        //
+        // let vcpu_config = VcpuConfig {
+        //     vcpu_count: vcpus.len().try_into().unwrap(),
+        //     smt: microvm_state.vm_info.smt,
+        //     cpu_config,
+        // };
+    }
+
     // Restore the boot source config paths.
     vm_resources.set_boot_source_config(microvm_state.vm_info.boot_source);
 
@@ -542,14 +585,20 @@ pub fn build_microvm_from_snapshot(
 
     #[cfg(target_arch = "x86_64")]
     {
-        let acpi_ctor_args = ACPIDeviceManagerConstructorArgs {
-            mem: &guest_memory,
-            resource_allocator: &mut vmm.resource_allocator,
-            vm: vmm.vm.fd(),
-        };
+        if let Some(BusDevice::CpuContainer(container)) =
+            vmm.get_bus_device(DeviceType::CpuContainer, "CpuContainer")
+        {
+            let container_ref = container.clone();
+            let acpi_ctor_args = ACPIDeviceManagerConstructorArgs {
+                mem: &guest_memory,
+                resource_allocator: &mut vmm.resource_allocator,
+                vm: vmm.vm.fd(),
+                cpu_container: container_ref,
+            };
 
-        vmm.acpi_device_manager =
-            ACPIDeviceManager::restore(acpi_ctor_args, &microvm_state.acpi_dev_state)?;
+            vmm.acpi_device_manager =
+                ACPIDeviceManager::restore(acpi_ctor_args, &microvm_state.acpi_dev_state)?;
+        }
 
         // Inject the notification to VMGenID that we have resumed from a snapshot.
         // This needs to happen before we resume vCPUs, so that we minimize the time between vCPUs
@@ -697,11 +746,11 @@ pub fn setup_serial_device(
     event_manager: &mut EventManager,
     input: std::io::Stdin,
     out: std::io::Stdout,
-) -> Result<Arc<Mutex<BusDevice>>, VmmError> {
+) -> Result<Arc<Mutex<SerialDevice<std::io::Stdin>>>, VmmError> {
     let interrupt_evt = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(VmmError::EventFd)?);
     let kick_stdin_read_evt =
         EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(VmmError::EventFd)?);
-    let serial = Arc::new(Mutex::new(BusDevice::Serial(SerialWrapper {
+    let serial = Arc::new(Mutex::new(SerialWrapper {
         serial: Serial::with_events(
             interrupt_evt,
             SerialEventsWrapper {
@@ -710,7 +759,7 @@ pub fn setup_serial_device(
             SerialOut::Stdout(out),
         ),
         input: Some(input),
-    })));
+    }));
     event_manager.add_subscriber(serial.clone());
     Ok(serial)
 }
@@ -812,6 +861,9 @@ pub fn configure_system_for_boot(
         smt: vm_config.smt,
         cpu_config,
     };
+
+    #[cfg(target_arch = "x86_64")]
+    vmm.attach_vcpu_config(vcpu_config.clone());
 
     // Configure vCPUs with normalizing and setting the generated CPU configuration.
     for vcpu in vcpus.iter_mut() {
@@ -1023,6 +1075,26 @@ fn attach_balloon_device(
     attach_virtio_device(event_manager, vmm, id, balloon.clone(), cmdline, false)
 }
 
+#[cfg(target_arch = "x86_64")]
+fn attach_cpu_container_device(vmm: &mut Vmm, vcpu_count: u8) -> Result<(), StartMicrovmError> {
+    let cpu_container = Arc::new(Mutex::new(CpuContainer::new(
+        &mut vmm.resource_allocator,
+        vcpu_count,
+    )?));
+    vmm.acpi_device_manager
+        .attach_cpu_container(cpu_container.clone(), vmm.vm.fd())
+        .map_err(StartMicrovmError::AttachCpuContainerDevice)?;
+    vmm.mmio_device_manager
+        .register_mmio_cpu_container_for_boot(
+            vmm.vm.fd(),
+            &mut vmm.resource_allocator,
+            cpu_container,
+        )
+        .map_err(StartMicrovmError::RegisterMmioDevice)?;
+
+    Ok(())
+}
+
 // Adds `O_NONBLOCK` to the stdout flags.
 pub(crate) fn set_stdout_nonblocking() {
     // SAFETY: Call is safe since parameters are valid.
@@ -1047,6 +1119,8 @@ pub mod tests {
     use super::*;
     use crate::arch::DeviceType;
     use crate::device_manager::resources::ResourceAllocator;
+    #[cfg(target_arch = "x86_64")]
+    use crate::devices::acpi::cpu_container::CpuContainer;
     use crate::devices::virtio::block::CacheType;
     use crate::devices::virtio::rng::device::ENTROPY_DEV_ID;
     use crate::devices::virtio::vsock::{TYPE_VSOCK, VSOCK_DEV_ID};
@@ -1125,12 +1199,23 @@ pub mod tests {
 
         let mut vm = Vm::new(vec![]).unwrap();
         vm.memory_init(&guest_memory, false).unwrap();
-        let mmio_device_manager = MMIODeviceManager::new();
+
         #[cfg(target_arch = "x86_64")]
-        let acpi_device_manager = ACPIDeviceManager::new();
+        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        #[cfg(target_arch = "aarch64")]
+        let resource_allocator = ResourceAllocator::new().unwrap();
+
+        #[cfg(target_arch = "x86_64")]
+        let mut mmio_device_manager = MMIODeviceManager::new();
+        #[cfg(target_arch = "aarch64")]
+        let mmio_device_manager = MMIODeviceManager::new();
+
+        #[cfg(target_arch = "x86_64")]
+        let mut acpi_device_manager = ACPIDeviceManager::new();
+
         #[cfg(target_arch = "x86_64")]
         let pio_device_manager = PortIODeviceManager::new(
-            Arc::new(Mutex::new(BusDevice::Serial(SerialWrapper {
+            Arc::new(Mutex::new(SerialWrapper {
                 serial: Serial::with_events(
                     EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).unwrap()),
                     SerialEventsWrapper {
@@ -1139,13 +1224,28 @@ pub mod tests {
                     SerialOut::Sink(std::io::sink()),
                 ),
                 input: None,
-            }))),
+            })),
             EventFd::new(libc::EFD_NONBLOCK).unwrap(),
         )
         .unwrap();
 
         #[cfg(target_arch = "x86_64")]
-        setup_interrupt_controller(&mut vm).unwrap();
+        {
+            setup_interrupt_controller(&mut vm).unwrap();
+            let cpu_container = Arc::new(Mutex::new(
+                CpuContainer::new(&mut resource_allocator, 1).unwrap(),
+            ));
+            acpi_device_manager
+                .attach_cpu_container(cpu_container.clone(), vm.fd())
+                .unwrap();
+            mmio_device_manager
+                .register_mmio_cpu_container_for_boot(
+                    vm.fd(),
+                    &mut resource_allocator,
+                    cpu_container,
+                )
+                .unwrap();
+        }
 
         #[cfg(target_arch = "aarch64")]
         {
@@ -1164,8 +1264,10 @@ pub mod tests {
             vcpus_handles: Vec::new(),
             vcpus_exit_evt,
             #[cfg(target_arch = "x86_64")]
+            vcpu_config: None,
+            #[cfg(target_arch = "x86_64")]
             seccomp_filters: crate::seccomp_filters::get_empty_filters(),
-            resource_allocator: ResourceAllocator::new().unwrap(),
+            resource_allocator,
             mmio_device_manager,
             #[cfg(target_arch = "x86_64")]
             pio_device_manager,
@@ -1528,8 +1630,8 @@ pub mod tests {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             assert!(cmdline_contains(
                 &cmdline,
-                "virtio_mmio.device=4K@0xd0000000:5 virtio_mmio.device=4K@0xd0001000:6 \
-                 virtio_mmio.device=4K@0xd0002000:7"
+                "virtio_mmio.device=4K@0xd0001000:7 virtio_mmio.device=4K@0xd0002000:8 \
+                 virtio_mmio.device=4K@0xd0003000:9"
             ));
         }
 
@@ -1624,7 +1726,7 @@ pub mod tests {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         assert!(cmdline_contains(
             &cmdline,
-            "virtio_mmio.device=4K@0xd0000000:5"
+            "virtio_mmio.device=4K@0xd0001000:7"
         ));
     }
 
@@ -1641,7 +1743,7 @@ pub mod tests {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         assert!(cmdline_contains(
             &cmdline,
-            "virtio_mmio.device=4K@0xd0000000:5"
+            "virtio_mmio.device=4K@0xd0001000:7"
         ));
     }
 
@@ -1660,7 +1762,7 @@ pub mod tests {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         assert!(cmdline_contains(
             &cmdline,
-            "virtio_mmio.device=4K@0xd0000000:5"
+            "virtio_mmio.device=4K@0xd0001000:7"
         ));
     }
 }

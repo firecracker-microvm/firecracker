@@ -6,6 +6,7 @@
 // found in the THIRD-PARTY file.
 
 //! Implements legacy devices (UART, RTC etc).
+#[cfg(target_arch = "x86_64")]
 mod i8042;
 #[cfg(target_arch = "aarch64")]
 pub mod rtc_pl031;
@@ -19,6 +20,7 @@ use serde::Serializer;
 use utils::eventfd::EventFd;
 use vm_superio::Trigger;
 
+#[cfg(target_arch = "x86_64")]
 pub use self::i8042::{I8042Device, I8042Error as I8042DeviceError};
 #[cfg(target_arch = "aarch64")]
 pub use self::rtc_pl031::RTCDevice;
@@ -67,6 +69,7 @@ impl EventFdTrigger {
 /// Called by METRICS.flush(), this function facilitates serialization of aggregated metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let mut seq = serializer.serialize_map(Some(1))?;
+    #[cfg(target_arch = "x86_64")]
     seq.serialize_entry("i8042", &i8042::METRICS)?;
     #[cfg(target_arch = "aarch64")]
     seq.serialize_entry("rtc", &rtc_pl031::METRICS)?;

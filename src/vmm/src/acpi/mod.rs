@@ -263,7 +263,7 @@ pub mod tests {
     fn test_write_acpi_table_small_memory() {
         let mut vmm = default_vmm();
         vmm.guest_memory = arch_mem(
-            (SYSTEM_MEM_START + SYSTEM_MEM_SIZE - 4096)
+            (SYSTEM_MEM_START + SYSTEM_MEM_SIZE - 8192)
                 .try_into()
                 .unwrap(),
         );
@@ -272,15 +272,15 @@ pub mod tests {
             resource_allocator: &mut vmm.resource_allocator,
         };
 
-        let mut sdt = MockSdt(vec![0; usize::try_from(SYSTEM_MEM_SIZE).unwrap()]);
+        let mut sdt = MockSdt(vec![0; usize::try_from(SYSTEM_MEM_SIZE - 4096).unwrap()]);
         let err = writer.write_acpi_table(&mut sdt).unwrap_err();
         assert!(
             matches!(
                 err,
                 AcpiError::AcpiTables(acpi_tables::AcpiError::GuestMemory(
                     vm_memory::GuestMemoryError::PartialBuffer {
-                        expected: 263168,  // SYSTEM_MEM_SIZE
-                        completed: 259072  // SYSTEM_MEM_SIZE - 4096
+                        expected: 259072,  // SYSTEM_MEM_SIZE - 4096
+                        completed: 254976  // SYSTEM_MEM_SIZE - 8192
                     },
                 ))
             ),
