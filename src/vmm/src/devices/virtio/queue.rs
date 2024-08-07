@@ -96,7 +96,7 @@ pub struct DescriptorChain<'a, M: GuestMemory = GuestMemoryMmap> {
 }
 
 impl<'a, M: GuestMemory> DescriptorChain<'a, M> {
-    fn checked_new(
+    pub fn checked_new(
         mem: &'a M,
         desc_table: GuestAddress,
         queue_size: u16,

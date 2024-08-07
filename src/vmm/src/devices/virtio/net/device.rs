@@ -9,15 +9,16 @@
 use std::io::Read;
 use std::mem;
 use std::net::Ipv4Addr;
-use std::num::Wrapping;
+use std::num::{NonZero, Wrapping};
 use std::sync::{Arc, Mutex};
 
 use libc::EAGAIN;
 use log::error;
 use utils::eventfd::EventFd;
 use utils::net::mac::MacAddr;
+use utils::ring_buffer::RingBuffer;
 use utils::{u64_to_usize, usize_to_u64};
-use vm_memory::{GuestAddress, GuestMemory, GuestMemoryError};
+use vm_memory::{GuestAddress, GuestMemory, VolatileMemoryError};
 
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
@@ -27,7 +28,7 @@ use crate::devices::virtio::gen::virtio_net::{
     VIRTIO_NET_F_HOST_TSO6, VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC, VIRTIO_NET_F_MRG_RXBUF,
 };
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use crate::devices::virtio::iovec::IoVecBuffer;
+use crate::devices::virtio::iovec::{IoVecBuffer, IoVecBufferMut};
 use crate::devices::virtio::net::metrics::{NetDeviceMetrics, NetMetricsPerDevice};
 use crate::devices::virtio::net::tap::Tap;
 use crate::devices::virtio::net::{
@@ -42,7 +43,7 @@ use crate::logger::{IncMetric, METRICS};
 use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
 use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
-use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap};
+use crate::vstate::memory::{ByteValued, GuestMemoryMmap};
 
 const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
 
@@ -50,14 +51,14 @@ const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
 enum FrontendError {
     /// Empty queue.
     EmptyQueue,
-    /// Guest memory error: {0}
-    GuestMemory(GuestMemoryError),
     /// Attempt to write an empty packet.
     AttemptToWriteEmptyPacket,
     /// Attempt to use more descriptor chains(heads) than it is allowed.
     MaxHeadsUsed,
-    /// Read only descriptor.
-    ReadOnlyDescriptor,
+    /// Invalid descritor chain.
+    InvalidDescriptorChain,
+    /// Error during writing to the IoVecBuffer.
+    IoVecBufferWrite(VolatileMemoryError),
 }
 
 pub(crate) const fn vnet_hdr_len() -> usize {
@@ -118,6 +119,104 @@ struct PartialWrite {
     packet_start_addr: GuestAddress,
 }
 
+// Use NonZero type to save 8 bytes of otherwise wasted space
+// for 1 bit of information.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+enum DescriptorHeadAddress {
+    #[default]
+    Invalid,
+    Address(NonZero<u64>),
+}
+
+impl DescriptorHeadAddress {
+    pub fn from_address(address: GuestAddress) -> Self {
+        match NonZero::<u64>::new(address.0) {
+            Some(v) => Self::Address(v),
+            None => Self::Invalid,
+        }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        match self {
+            Self::Invalid => false,
+            Self::Address(_) => true,
+        }
+    }
+
+    pub fn address(&self) -> GuestAddress {
+        match self {
+            Self::Invalid => GuestAddress(0),
+            Self::Address(a) => GuestAddress(a.get()),
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+struct AvailableDescriptors {
+    pub iov_ring: RingBuffer<IoVecBufferMut>,
+    pub head_address_ring: RingBuffer<DescriptorHeadAddress>,
+}
+
+impl AvailableDescriptors {
+    /// New with zero sized ring buffer.
+    pub fn new() -> Self {
+        Self {
+            iov_ring: RingBuffer::new(),
+            head_address_ring: RingBuffer::new(),
+        }
+    }
+
+    /// Update size of the ring buffer.
+    pub fn update_size(&mut self, size: usize) {
+        self.iov_ring = RingBuffer::new_with_size(size);
+        self.head_address_ring = RingBuffer::new_with_size(size);
+    }
+
+    /// Check if there are no available items.
+    pub fn is_empty(&self) -> bool {
+        self.iov_ring.is_empty()
+    }
+
+    /// Read new descriptor chains from the queue.
+    pub fn read_new_desc_chains(&mut self, queue: &mut Queue, mem: &GuestMemoryMmap) {
+        for _ in 0..queue.len(mem) {
+            let Some(next_iovec_buf) = self.iov_ring.next_available() else {
+                break;
+            };
+
+            match queue.do_pop_unchecked(mem) {
+                Some(desc_chain) => {
+                    let mut head_addr = DescriptorHeadAddress::from_address(desc_chain.addr);
+                    // SAFETY:
+                    // This descriptor chain is only processed once.
+                    if unsafe { next_iovec_buf.load_descriptor_chain(desc_chain).is_err() } {
+                        head_addr = DescriptorHeadAddress::Invalid;
+                    }
+                    self.head_address_ring.push(head_addr);
+                }
+                None => {
+                    self.head_address_ring.push(DescriptorHeadAddress::Invalid);
+                }
+            }
+        }
+    }
+
+    /// Pop first descriptor chain.
+    pub fn pop_desc_chain(&mut self) -> Option<(&mut IoVecBufferMut, DescriptorHeadAddress)> {
+        let (Some(iov), Some(head_addr)) = (
+            self.iov_ring.pop_front(),
+            self.head_address_ring.pop_front(),
+        ) else {
+            return None;
+        };
+        Some((iov, *head_addr))
+    }
+}
+
+// SAFETY:
+// Value of this type is only used by one thread.
+unsafe impl Send for AvailableDescriptors {}
+
 /// VirtIO network device.
 ///
 /// It emulates a network device able to exchange L2 frames between the guest
@@ -143,6 +242,7 @@ pub struct Net {
     rx_bytes_read: usize,
     rx_frame_buf: [u8; MAX_BUFFER_SIZE],
     rx_partial_write: Option<PartialWrite>,
+    rx_avail_desc: AvailableDescriptors,
 
     tx_frame_headers: [u8; frame_hdr_len()],
 
@@ -211,6 +311,7 @@ impl Net {
             rx_bytes_read: 0,
             rx_frame_buf: [0u8; MAX_BUFFER_SIZE],
             rx_partial_write: None,
+            rx_avail_desc: AvailableDescriptors::new(),
             tx_frame_headers: [0u8; frame_hdr_len()],
             irq_trigger: IrqTrigger::new().map_err(NetError::EventFd)?,
             config_space,
@@ -367,13 +468,10 @@ impl Net {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
-        if self.queues[RX_INDEX].is_empty(mem) {
+        if self.rx_avail_desc.is_empty() && self.queues[RX_INDEX].is_empty(mem) {
             self.metrics.no_rx_avail_buffer.inc();
             return Err(FrontendError::EmptyQueue);
         }
-
-        let next_used = self.queues[RX_INDEX].next_used;
-        let actual_size = self.queues[RX_INDEX].actual_size();
 
         let (mut slice, mut packet_start_addr, mut used_heads) =
             if let Some(pw) = &self.rx_partial_write {
@@ -402,61 +500,68 @@ impl Net {
                 break;
             }
 
-            let Some(head_desc) = self.queues[RX_INDEX].pop(mem) else {
+            if self.rx_avail_desc.is_empty() {
+                self.rx_avail_desc
+                    .read_new_desc_chains(&mut self.queues[RX_INDEX], mem);
+            }
+            let Some((iovec_buf, head_addr)) = self.rx_avail_desc.pop_desc_chain() else {
                 break;
             };
 
-            let head_desc_index = head_desc.index;
-            let mut desc_len = 0;
-
-            // If this is the first head of the packet, save it for later.
-            if packet_start_addr.is_none() {
-                packet_start_addr = Some(head_desc.addr);
-            }
-
-            // Write to the descriptor chain as much as possible.
-            let mut desc = Some(head_desc);
-            while !slice.is_empty() && desc.is_some() {
-                let d = desc.unwrap();
-
-                if !d.is_write_only() {
-                    error = Some(FrontendError::ReadOnlyDescriptor);
-                    break;
+            let desc_len = if head_addr.is_valid() {
+                // If this is the first head of the packet, save it for later.
+                if packet_start_addr.is_none() {
+                    packet_start_addr = Some(head_addr.address());
                 }
-                let len = slice.len().min(d.len as usize);
-                if let Err(err) = mem.write_slice(&slice[..len], d.addr) {
-                    if let GuestMemoryError::PartialBuffer { .. } = err {
-                        self.metrics.rx_partial_writes.inc();
+
+                match iovec_buf.write_all_volatile_at(slice, 0) {
+                    Ok(()) => {
+                        let len = slice.len();
+                        slice = &[];
+                        len
                     }
-                    error = Some(FrontendError::GuestMemory(err));
-                    break;
-                } else {
-                    desc_len += len;
-                    slice = &slice[len..];
+                    Err(VolatileMemoryError::PartialBuffer {
+                        expected: _,
+                        completed,
+                    }) => {
+                        slice = &slice[completed..];
+                        completed
+                    }
+                    Err(e) => {
+                        error = Some(FrontendError::IoVecBufferWrite(e));
+                        0
+                    }
                 }
-
-                desc = d.next_descriptor();
-            }
+            } else {
+                error = Some(FrontendError::InvalidDescriptorChain);
+                0
+            };
 
             // At this point descriptor chain was processed.
             // We add it to the used_ring.
-            let next_used_index = (next_used + Wrapping(used_heads)).0 % actual_size;
+            let next_used_index = self.queues[RX_INDEX].next_used + Wrapping(used_heads);
             let used_element = UsedElement {
-                id: u32::from(head_desc_index),
+                id: u32::from(iovec_buf.head_index),
                 len: u32::try_from(desc_len).unwrap(),
             };
             // SAFETY:
             // This should never panic as we provide index in
             // correct bounds.
             self.queues[RX_INDEX]
-                .write_used_ring(mem, next_used_index, used_element)
+                .write_used_ring(mem, next_used_index.0, used_element)
                 .unwrap();
 
             used_heads += 1;
         }
 
-        let packet_start_addr =
-            packet_start_addr.ok_or(FrontendError::AttemptToWriteEmptyPacket)?;
+        // The are 2 ways the packet_start_addr can be None:
+        // 1. the loop was never run because slice was initially empty.
+        // 2. the very first descriptor chain was invalid
+        // In second case the error will contain something, so
+        // we only care abount first case.
+        if packet_start_addr.is_none() && error.is_none() {
+            error = Some(FrontendError::AttemptToWriteEmptyPacket);
+        }
 
         let mut end_packet_processing = || {
             // We only update queues internals when packet processing has
@@ -464,11 +569,7 @@ impl Net {
             // about descriptor heads used for partialy written packets.
             // Otherwise guest will see that we used those descriptors and
             // will try to process them.
-            self.queues[RX_INDEX].next_used += Wrapping(used_heads);
-            self.queues[RX_INDEX].num_added += Wrapping(used_heads);
-
-            // Update used ring with what we used to process the packet
-            self.queues[RX_INDEX].set_used_ring_idx((next_used + Wrapping(used_heads)).0, mem);
+            self.queues[RX_INDEX].advance_used_ring(mem, used_heads);
             let next_avail = self.queues[RX_INDEX].next_avail.0;
             self.queues[RX_INDEX].set_used_ring_avail_event(next_avail, mem);
 
@@ -482,19 +583,19 @@ impl Net {
 
             self.metrics.rx_fails.inc();
 
-            // `next_used` is pointing at the first descriptor used to process the packet.
             // We used `used_heads` descriptors to process the packet. Go over all of them
             // and overwrite them with 0 len to discard them.
-            for i in 0..used_heads {
-                let next_used_index = (next_used + Wrapping(i)).0 % actual_size;
-
-                // SAFETY:
-                // This should never panic as we provide index in
-                // correct bounds.
-                let mut used_element = self.queues[RX_INDEX].read_used_ring(mem, next_used_index);
+            // Because `next_used` is bumped by `used_heads` at this point by
+            // `end_packet_processing`, it points to `next` unused descriptor.
+            // This is why we have a range from 1 to used_heads + 1.
+            for i in 1..used_heads + 1 {
+                let next_used_index = self.queues[RX_INDEX].next_used - Wrapping(i);
+                let mut used_element = self.queues[RX_INDEX].read_used_ring(mem, next_used_index.0);
                 used_element.len = 0;
+                // SAFETY:
+                // This should never panic as we only update len of the used_element.
                 self.queues[RX_INDEX]
-                    .write_used_ring(mem, next_used_index, used_element)
+                    .write_used_ring(mem, next_used_index.0, used_element)
                     .unwrap();
             }
 
@@ -508,16 +609,23 @@ impl Net {
                 .add(usize_to_u64(self.rx_bytes_read));
             self.metrics.rx_packets_count.inc();
 
+            // SAFETY: packet_start_addr cannot be None at
+            // this point.
+            let packet_start_addr = packet_start_addr.unwrap();
+
             // Update number of descriptor heads used to store a packet.
             // SAFETY:
-            // The packet_start_addr is valid guest address and we check
-            // memory boundaries.
+            // The packet_start_addr is valid address because it was
+            // obtained from a descriptor chain which was verified during
+            // its construction.
             #[allow(clippy::transmute_ptr_to_ref)]
             let header: &mut virtio_net_hdr_v1 = unsafe {
-                let header_slice = mem
+                // SAFETY:
+                // The head address was checked during descriptor chain creation.
+                let slice = mem
                     .get_slice(packet_start_addr, std::mem::size_of::<virtio_net_hdr_v1>())
-                    .map_err(FrontendError::GuestMemory)?;
-                std::mem::transmute(header_slice.ptr_guard_mut().as_ptr())
+                    .unwrap();
+                std::mem::transmute(slice.ptr_guard().as_ptr())
             };
             header.num_buffers = used_heads;
 
@@ -526,6 +634,10 @@ impl Net {
             // Packet could not be fully written to the guest
             // Save necessary info to use it during next invocation.
             self.metrics.rx_partial_writes.inc();
+
+            // SAFETY: packet_start_addr cannot be None at
+            // this point.
+            let packet_start_addr = packet_start_addr.unwrap();
 
             if let Some(pw) = &mut self.rx_partial_write {
                 pw.bytes_written = self.rx_bytes_read - slice.len();
@@ -846,7 +958,15 @@ impl Net {
             // rate limiters present but with _very high_ allowed rate
             error!("Failed to get rx queue event: {:?}", err);
             self.metrics.event_fails.inc();
-        } else if self.rx_rate_limiter.is_blocked() {
+        }
+
+        // Guest tells us there are new descriptor chains, so
+        // we read them here.
+        let mem = self.device_state.mem().unwrap();
+        self.rx_avail_desc
+            .read_new_desc_chains(&mut self.queues[RX_INDEX], mem);
+
+        if self.rx_rate_limiter.is_blocked() {
             self.metrics.rx_rate_limiter_throttled.inc();
         } else {
             // If the limiter is not blocked, resume the receiving of bytes.
@@ -1020,6 +1140,10 @@ impl VirtioDevice for Net {
         self.tap
             .set_offload(supported_flags)
             .map_err(super::super::ActivateError::TapSetOffload)?;
+        // Initially rx_avail_desc has size of 0.
+        // So we update it with correct size of the queue here.
+        self.rx_avail_desc
+            .update_size(self.queues[RX_INDEX].actual_size() as usize);
 
         if self.activate_evt.write(1).is_err() {
             self.metrics.activate_fails.inc();
@@ -1044,6 +1168,7 @@ pub mod tests {
     use std::{io, mem, thread};
 
     use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
+    use vm_memory::GuestAddress;
 
     use super::*;
     use crate::check_metric_after_block;
@@ -1059,6 +1184,7 @@ pub mod tests {
     };
     use crate::devices::virtio::net::NET_QUEUE_SIZES;
     use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
+    use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
     use crate::dumbo::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
     use crate::dumbo::pdu::ethernet::ETHERTYPE_ARP;
     use crate::dumbo::EthernetFrame;
@@ -1244,6 +1370,135 @@ pub mod tests {
         new_config_read = [0u8; MAC_ADDR_LEN as usize];
         net.read_config(0, &mut new_config_read);
         assert_eq!(new_config, new_config_read);
+    }
+
+    #[test]
+    fn test_available_descriptors_new() {
+        let avail_desc = AvailableDescriptors::new();
+        assert!(avail_desc.iov_ring.is_empty());
+        assert_eq!(avail_desc.iov_ring.items.len(), 0);
+        assert!(avail_desc.head_address_ring.is_empty());
+        assert_eq!(avail_desc.head_address_ring.items.len(), 0);
+        assert!(avail_desc.is_empty());
+    }
+
+    #[test]
+    fn test_available_descriptors_update_size() {
+        let mut avail_desc = AvailableDescriptors::new();
+        avail_desc.update_size(69);
+        assert!(avail_desc.iov_ring.is_empty());
+        assert_eq!(avail_desc.iov_ring.items.len(), 69);
+        assert!(avail_desc.head_address_ring.is_empty());
+        assert_eq!(avail_desc.head_address_ring.items.len(), 69);
+        assert!(avail_desc.is_empty());
+    }
+
+    #[test]
+    fn test_available_descriptors_read_pop_desc() {
+        let m = &default_mem();
+        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+        vq.dtable[0].set(1, 1, 0x3, 1);
+        vq.dtable[1].set(2, 2, 0x3, 2);
+        vq.dtable[2].set(3, 3, 0x2, 0);
+
+        vq.dtable[3].set(4, 4, 0x3, 4);
+        vq.dtable[4].set(5, 5, 0x3, 5);
+        vq.dtable[5].set(6, 6, 0x2, 0);
+
+        // Invalid address
+        vq.dtable[6].set(7, 7, 0x3, 7);
+        vq.dtable[7].set(u64::MAX, 8, 0x3, 8);
+        vq.dtable[8].set(9, 9, 0x2, 0);
+
+        // Not write only
+        vq.dtable[9].set(10, 10, 0x3, 10);
+        vq.dtable[10].set(11, 11, 0x0, 11);
+        vq.dtable[11].set(12, 12, 0x2, 0);
+
+        vq.avail.ring[0].set(0);
+        vq.avail.ring[1].set(3);
+        vq.avail.ring[2].set(6);
+        vq.avail.ring[3].set(9);
+
+        let mut rxq = vq.create_queue();
+
+        vq.avail.idx.set(4);
+
+        // Test if too much descriptors are avalable
+        {
+            let mut avail_desc = AvailableDescriptors::new();
+            avail_desc.update_size(1);
+            avail_desc.read_new_desc_chains(&mut rxq, m);
+
+            assert_eq!(avail_desc.iov_ring.len, 1);
+            assert_eq!(avail_desc.head_address_ring.len, 1);
+
+            assert_eq!(avail_desc.iov_ring.start, 0);
+            assert_eq!(avail_desc.head_address_ring.start, 0);
+
+            let (iovec_buf_0, head_addr_0) = avail_desc.pop_desc_chain().unwrap();
+            assert_eq!(iovec_buf_0.head_index, 0);
+            assert_eq!(iovec_buf_0.len, 6);
+            assert_eq!(iovec_buf_0.vecs[0].iov_len, 1);
+            assert_eq!(iovec_buf_0.vecs[1].iov_len, 2);
+            assert_eq!(iovec_buf_0.vecs[2].iov_len, 3);
+            assert_eq!(
+                head_addr_0,
+                DescriptorHeadAddress::from_address(GuestAddress(1))
+            );
+
+            assert!(avail_desc.is_empty());
+
+            assert!(avail_desc.pop_desc_chain().is_none());
+        }
+
+        // Reset queue
+        rxq.next_avail = Wrapping(0);
+        {
+            let mut avail_desc = AvailableDescriptors::new();
+            avail_desc.update_size(4);
+            avail_desc.read_new_desc_chains(&mut rxq, m);
+
+            assert_eq!(avail_desc.iov_ring.len, 4);
+            assert_eq!(avail_desc.head_address_ring.len, 4);
+
+            assert_eq!(avail_desc.iov_ring.start, 0);
+            assert_eq!(avail_desc.head_address_ring.start, 0);
+
+            let (iovec_buf_0, head_addr_0) = avail_desc.pop_desc_chain().unwrap();
+            assert_eq!(iovec_buf_0.head_index, 0);
+            assert_eq!(iovec_buf_0.len, 6);
+            assert_eq!(iovec_buf_0.vecs[0].iov_len, 1);
+            assert_eq!(iovec_buf_0.vecs[1].iov_len, 2);
+            assert_eq!(iovec_buf_0.vecs[2].iov_len, 3);
+            assert_eq!(
+                head_addr_0,
+                DescriptorHeadAddress::from_address(GuestAddress(1))
+            );
+
+            let (iovec_buf_1, head_addr_1) = avail_desc.pop_desc_chain().unwrap();
+            assert_eq!(iovec_buf_1.head_index, 3);
+            assert_eq!(iovec_buf_1.len, 15);
+            assert_eq!(iovec_buf_1.vecs[0].iov_len, 4);
+            assert_eq!(iovec_buf_1.vecs[1].iov_len, 5);
+            assert_eq!(iovec_buf_1.vecs[2].iov_len, 6);
+            assert_eq!(
+                head_addr_1,
+                DescriptorHeadAddress::from_address(GuestAddress(4))
+            );
+
+            let (iovec_buf_2, head_addr_2) = avail_desc.pop_desc_chain().unwrap();
+            assert_eq!(iovec_buf_2.head_index, 6);
+            assert_eq!(head_addr_2, DescriptorHeadAddress::Invalid);
+
+            let (iovec_buf_3, head_addr_3) = avail_desc.pop_desc_chain().unwrap();
+            assert_eq!(iovec_buf_3.head_index, 9);
+            assert_eq!(head_addr_3, DescriptorHeadAddress::Invalid);
+
+            assert!(avail_desc.is_empty());
+
+            assert!(avail_desc.pop_desc_chain().is_none());
+        }
     }
 
     #[test]
