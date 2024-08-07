@@ -1379,9 +1379,20 @@ mod tests {
     fn test_runtime_patch_mmds() {
         let mmds = Arc::new(Mutex::new(Mmds::default()));
         // MMDS data store is not yet initialized.
-        check_runtime_request_err(
+        check_runtime_request(
             VmmAction::PatchMMDS(Value::String("string".to_string())),
-            VmmActionError::Mmds(data_store::MmdsDatastoreError::NotInitialized),
+            |res, _| {
+                assert!(
+                    matches!(
+                        res,
+                        Err(VmmActionError::Mmds(
+                            data_store::MmdsDatastoreError::NotInitialized
+                        ))
+                    ),
+                    "{:?}",
+                    res
+                )
+            },
         );
 
         check_runtime_request_with_mmds(
@@ -1565,14 +1576,6 @@ mod tests {
         check_success(res, &vmm.lock().unwrap());
     }
 
-    // Forces error and validates error kind against expected.
-    fn check_runtime_request_err(request: VmmAction, expected_err: VmmActionError) {
-        let vmm = Arc::new(Mutex::new(MockVmm::default()));
-        let mut runtime = RuntimeApiController::new(MockVmRes::default(), vmm);
-        let err = runtime.handle_request(request).unwrap_err();
-        assert_eq!(err, expected_err);
-    }
-
     #[test]
     fn test_runtime_get_vm_config() {
         let req = VmmAction::GetVmMachineConfig;
@@ -1640,11 +1643,19 @@ mod tests {
 
     #[test]
     fn test_runtime_disallowed() {
-        check_runtime_request_err(
+        fn check_unsupported(res: Result<VmmData, VmmActionError>, _: &MockVmm) {
+            assert!(
+                matches!(res, Err(VmmActionError::OperationNotSupportedPostBoot)),
+                "{:?}",
+                res
+            );
+        }
+
+        check_runtime_request(
             VmmAction::ConfigureBootSource(BootSourceConfig::default()),
-            VmmActionError::OperationNotSupportedPostBoot,
+            check_unsupported,
         );
-        check_runtime_request_err(
+        check_runtime_request(
             VmmAction::ConfigureLogger(LoggerConfig {
                 log_path: Some(PathBuf::new()),
                 level: Some(crate::logger::LevelFilter::Debug),
@@ -1652,15 +1663,15 @@ mod tests {
                 show_log_origin: Some(false),
                 module: None,
             }),
-            VmmActionError::OperationNotSupportedPostBoot,
+            check_unsupported,
         );
-        check_runtime_request_err(
+        check_runtime_request(
             VmmAction::ConfigureMetrics(MetricsConfig {
                 metrics_path: PathBuf::new(),
             }),
-            VmmActionError::OperationNotSupportedPostBoot,
+            check_unsupported,
         );
-        check_runtime_request_err(
+        check_runtime_request(
             VmmAction::InsertBlockDevice(BlockDeviceConfig {
                 drive_id: String::new(),
                 partuuid: None,
@@ -1674,9 +1685,9 @@ mod tests {
 
                 socket: None,
             }),
-            VmmActionError::OperationNotSupportedPostBoot,
+            check_unsupported,
         );
-        check_runtime_request_err(
+        check_runtime_request(
             VmmAction::InsertNetworkDevice(NetworkInterfaceConfig {
                 iface_id: String::new(),
                 host_dev_name: String::new(),
@@ -1684,41 +1695,41 @@ mod tests {
                 rx_rate_limiter: None,
                 tx_rate_limiter: None,
             }),
-            VmmActionError::OperationNotSupportedPostBoot,
+            check_unsupported,
         );
-        check_runtime_request_err(
+        check_runtime_request(
             VmmAction::SetVsockDevice(VsockDeviceConfig {
                 vsock_id: Some(String::new()),
                 guest_cid: 0,
                 uds_path: String::new(),
             }),
-            VmmActionError::OperationNotSupportedPostBoot,
+            check_unsupported,
         );
-        check_runtime_request_err(
+        check_runtime_request(
             VmmAction::SetBalloonDevice(BalloonDeviceConfig::default()),
-            VmmActionError::OperationNotSupportedPostBoot,
+            check_unsupported,
         );
-        check_runtime_request_err(
+        check_runtime_request(
             VmmAction::SetVsockDevice(VsockDeviceConfig {
                 vsock_id: Some(String::new()),
                 guest_cid: 0,
                 uds_path: String::new(),
             }),
-            VmmActionError::OperationNotSupportedPostBoot,
+            check_unsupported,
         );
-        check_runtime_request_err(
+        check_runtime_request(
             VmmAction::SetMmdsConfiguration(MmdsConfig {
                 ipv4_address: None,
                 version: MmdsVersion::default(),
                 network_interfaces: Vec::new(),
             }),
-            VmmActionError::OperationNotSupportedPostBoot,
+            check_unsupported,
         );
-        check_runtime_request_err(
+        check_runtime_request(
             VmmAction::UpdateVmConfiguration(MachineConfigUpdate::from(MachineConfig::default())),
-            VmmActionError::OperationNotSupportedPostBoot,
+            check_unsupported,
         );
-        check_runtime_request_err(
+        check_runtime_request(
             VmmAction::LoadSnapshot(LoadSnapshotParams {
                 snapshot_path: PathBuf::new(),
                 mem_backend: MemBackendConfig {
@@ -1728,11 +1739,11 @@ mod tests {
                 enable_diff_snapshots: false,
                 resume_vm: false,
             }),
-            VmmActionError::OperationNotSupportedPostBoot,
+            check_unsupported,
         );
-        check_runtime_request_err(
+        check_runtime_request(
             VmmAction::SetEntropyDevice(EntropyDeviceConfig::default()),
-            VmmActionError::OperationNotSupportedPostBoot,
+            check_unsupported,
         );
     }
 
