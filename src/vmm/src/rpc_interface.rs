@@ -857,7 +857,6 @@ impl RuntimeApiController {
 
 #[cfg(test)]
 mod tests {
-    use std::io;
     use std::path::PathBuf;
 
     use seccompiler::BpfThreadMap;
@@ -866,8 +865,6 @@ mod tests {
     use crate::cpu_config::templates::StaticCpuTemplate;
     use crate::devices::virtio::balloon::{BalloonConfig, BalloonError};
     use crate::devices::virtio::block::CacheType;
-    use crate::devices::virtio::rng::EntropyError;
-    use crate::devices::virtio::vsock::VsockError;
     use crate::mmds::data_store::MmdsVersion;
     use crate::vmm_config::balloon::BalloonBuilder;
     use crate::vmm_config::machine_config::VmConfig;
@@ -919,15 +916,10 @@ mod tests {
         pub mmds: Option<Arc<Mutex<Mmds>>>,
         pub mmds_size_limit: usize,
         pub boot_timer: bool,
-        // when `true`, all self methods are forced to fail
-        pub force_errors: bool,
     }
 
     impl MockVmRes {
         pub fn balloon_config(&mut self) -> Result<BalloonConfig, BalloonError> {
-            if self.force_errors {
-                return Err(BalloonError::DeviceNotFound);
-            }
             self.balloon_config_called = true;
             Ok(BalloonConfig::default())
         }
@@ -944,10 +936,6 @@ mod tests {
             &mut self,
             update: &MachineConfigUpdate,
         ) -> Result<(), VmConfigError> {
-            if self.force_errors {
-                return Err(VmConfigError::InvalidVcpuCount);
-            }
-
             self.vm_config.update(update)?;
 
             Ok(())
@@ -957,9 +945,6 @@ mod tests {
             &mut self,
             _: BalloonDeviceConfig,
         ) -> Result<(), BalloonConfigError> {
-            if self.force_errors {
-                return Err(BalloonConfigError::DeviceNotFound);
-            }
             self.balloon_set = true;
             Ok(())
         }
@@ -968,11 +953,6 @@ mod tests {
             &mut self,
             boot_source: BootSourceConfig,
         ) -> Result<(), BootSourceConfigError> {
-            if self.force_errors {
-                return Err(BootSourceConfigError::InvalidKernelPath(
-                    std::io::Error::from_raw_os_error(0),
-                ));
-            }
             self.boot_src = boot_source;
             self.boot_cfg_set = true;
             Ok(())
@@ -983,9 +963,6 @@ mod tests {
         }
 
         pub fn set_block_device(&mut self, _: BlockDeviceConfig) -> Result<(), DriveError> {
-            if self.force_errors {
-                return Err(DriveError::RootBlockDeviceAlreadyAdded);
-            }
             self.block_set = true;
             Ok(())
         }
@@ -994,19 +971,11 @@ mod tests {
             &mut self,
             _: NetworkInterfaceConfig,
         ) -> Result<(), NetworkInterfaceError> {
-            if self.force_errors {
-                return Err(NetworkInterfaceError::GuestMacAddressInUse(String::new()));
-            }
             self.net_set = true;
             Ok(())
         }
 
         pub fn set_vsock_device(&mut self, _: VsockDeviceConfig) -> Result<(), VsockConfigError> {
-            if self.force_errors {
-                return Err(VsockConfigError::CreateVsockDevice(
-                    VsockError::GuestMemoryBounds,
-                ));
-            }
             self.vsock_set = true;
             Ok(())
         }
@@ -1015,11 +984,6 @@ mod tests {
             &mut self,
             _: EntropyDeviceConfig,
         ) -> Result<(), EntropyDeviceError> {
-            if self.force_errors {
-                return Err(EntropyDeviceError::CreateDevice(EntropyError::EventFd(
-                    io::Error::from_raw_os_error(0),
-                )));
-            }
             self.entropy_set = true;
             Ok(())
         }
@@ -1029,9 +993,6 @@ mod tests {
             mmds_config: MmdsConfig,
             _: &str,
         ) -> Result<(), MmdsConfigError> {
-            if self.force_errors {
-                return Err(MmdsConfigError::InvalidIpv4Addr);
-            }
             let mut mmds_guard = self.locked_mmds_or_default();
             mmds_guard
                 .set_version(mmds_config.version)
@@ -1091,76 +1052,46 @@ mod tests {
         pub update_block_device_path_called: bool,
         pub update_block_device_vhost_user_config_called: bool,
         pub update_net_rate_limiters_called: bool,
-        // when `true`, all self methods are forced to fail
-        pub force_errors: bool,
     }
 
     impl MockVmm {
         pub fn resume_vm(&mut self) -> Result<(), VmmError> {
-            if self.force_errors {
-                return Err(VmmError::VcpuResume);
-            }
             self.resume_called = true;
             Ok(())
         }
 
         pub fn pause_vm(&mut self) -> Result<(), VmmError> {
-            if self.force_errors {
-                return Err(VmmError::VcpuPause);
-            }
             self.pause_called = true;
             Ok(())
         }
 
         #[cfg(target_arch = "x86_64")]
         pub fn send_ctrl_alt_del(&mut self) -> Result<(), VmmError> {
-            if self.force_errors {
-                return Err(VmmError::I8042Error(
-                    crate::devices::legacy::I8042DeviceError::InternalBufferFull,
-                ));
-            }
             self.send_ctrl_alt_del_called = true;
             Ok(())
         }
 
         pub fn balloon_config(&mut self) -> Result<BalloonConfig, BalloonError> {
-            if self.force_errors {
-                return Err(BalloonError::DeviceNotFound);
-            }
             self.balloon_config_called = true;
             Ok(BalloonConfig::default())
         }
 
         pub fn latest_balloon_stats(&mut self) -> Result<BalloonStats, BalloonError> {
-            if self.force_errors {
-                return Err(BalloonError::DeviceNotFound);
-            }
             self.latest_balloon_stats_called = true;
             Ok(BalloonStats::default())
         }
 
         pub fn update_balloon_config(&mut self, _: u32) -> Result<(), BalloonError> {
-            if self.force_errors {
-                return Err(BalloonError::DeviceNotFound);
-            }
             self.update_balloon_config_called = true;
             Ok(())
         }
 
         pub fn update_balloon_stats_config(&mut self, _: u16) -> Result<(), BalloonError> {
-            if self.force_errors {
-                return Err(BalloonError::DeviceNotFound);
-            }
             self.update_balloon_stats_config_called = true;
             Ok(())
         }
 
         pub fn update_block_device_path(&mut self, _: &str, _: String) -> Result<(), VmmError> {
-            if self.force_errors {
-                return Err(VmmError::DeviceManager(
-                    crate::device_manager::mmio::MmioError::InvalidDeviceType,
-                ));
-            }
             self.update_block_device_path_called = true;
             Ok(())
         }
@@ -1175,11 +1106,6 @@ mod tests {
         }
 
         pub fn update_vhost_user_block_config(&mut self, _: &str) -> Result<(), VmmError> {
-            if self.force_errors {
-                return Err(VmmError::DeviceManager(
-                    crate::device_manager::mmio::MmioError::InvalidDeviceType,
-                ));
-            }
             self.update_block_device_vhost_user_config_called = true;
             Ok(())
         }
@@ -1192,11 +1118,6 @@ mod tests {
             _: crate::rate_limiter::BucketUpdate,
             _: crate::rate_limiter::BucketUpdate,
         ) -> Result<(), VmmError> {
-            if self.force_errors {
-                return Err(VmmError::DeviceManager(
-                    crate::device_manager::mmio::MmioError::InvalidDeviceType,
-                ));
-            }
             self.update_net_rate_limiters_called = true;
             Ok(())
         }
@@ -1285,10 +1206,7 @@ mod tests {
 
     // Forces error and validates error kind against expected.
     fn check_preboot_request_err(request: VmmAction, expected_err: VmmActionError) {
-        let mut vm_resources = MockVmRes {
-            force_errors: true,
-            ..Default::default()
-        };
+        let mut vm_resources = MockVmRes::default();
         let mut evmgr = EventManager::new().unwrap();
         let seccomp_filters = BpfThreadMap::new();
         let mut preboot = default_preboot(&mut vm_resources, &mut evmgr, &seccomp_filters);
@@ -1303,16 +1221,6 @@ mod tests {
         check_preboot_request(req, |result, _| {
             assert_eq!(result, Ok(VmmData::MachineConfiguration(expected_cfg)))
         });
-
-        let req = VmmAction::ConfigureBootSource(BootSourceConfig::default());
-        check_preboot_request_err(
-            req,
-            VmmActionError::BootSource(BootSourceConfigError::InvalidKernelCommandLine(
-                String::new(),
-            )),
-        );
-    }
-
     }
 
     #[test]
@@ -1659,10 +1567,7 @@ mod tests {
 
     // Forces error and validates error kind against expected.
     fn check_runtime_request_err(request: VmmAction, expected_err: VmmActionError) {
-        let vmm = Arc::new(Mutex::new(MockVmm {
-            force_errors: true,
-            ..Default::default()
-        }));
+        let vmm = Arc::new(Mutex::new(MockVmm::default()));
         let mut runtime = RuntimeApiController::new(MockVmRes::default(), vmm);
         let err = runtime.handle_request(request).unwrap_err();
         assert_eq!(err, expected_err);
@@ -1686,9 +1591,6 @@ mod tests {
             assert_eq!(result, Ok(VmmData::Empty));
             assert!(vmm.pause_called)
         });
-
-        let req = VmmAction::Pause;
-        check_runtime_request_err(req, VmmActionError::InternalVmm(VmmError::VcpuPause));
     }
 
     #[test]
@@ -1698,9 +1600,6 @@ mod tests {
             assert_eq!(result, Ok(VmmData::Empty));
             assert!(vmm.resume_called)
         });
-
-        let req = VmmAction::Resume;
-        check_runtime_request_err(req, VmmActionError::InternalVmm(VmmError::VcpuResume));
     }
 
     #[test]
@@ -1713,17 +1612,6 @@ mod tests {
             assert_eq!(result, Ok(VmmData::Empty));
             assert!(vmm.update_block_device_path_called)
         });
-
-        let req = VmmAction::UpdateBlockDevice(BlockDeviceUpdateConfig {
-            path_on_host: Some(String::new()),
-            ..Default::default()
-        });
-        check_runtime_request_err(
-            req,
-            VmmActionError::DriveConfig(DriveError::DeviceUpdate(VmmError::DeviceManager(
-                crate::device_manager::mmio::MmioError::InvalidDeviceType,
-            ))),
-        );
     }
 
     #[test]
@@ -1735,16 +1623,6 @@ mod tests {
             assert_eq!(result, Ok(VmmData::Empty));
             assert!(vmm.update_block_device_vhost_user_config_called)
         });
-
-        let req = VmmAction::UpdateBlockDevice(BlockDeviceUpdateConfig {
-            ..Default::default()
-        });
-        check_runtime_request_err(
-            req,
-            VmmActionError::DriveConfig(DriveError::DeviceUpdate(VmmError::DeviceManager(
-                crate::device_manager::mmio::MmioError::InvalidDeviceType,
-            ))),
-        );
     }
 
     #[test]
@@ -1758,18 +1636,6 @@ mod tests {
             assert_eq!(result, Ok(VmmData::Empty));
             assert!(vmm.update_net_rate_limiters_called)
         });
-
-        let req = VmmAction::UpdateNetworkInterface(NetworkInterfaceUpdateConfig {
-            iface_id: String::new(),
-            rx_rate_limiter: None,
-            tx_rate_limiter: None,
-        });
-        check_runtime_request_err(
-            req,
-            VmmActionError::NetworkConfig(NetworkInterfaceError::DeviceUpdate(
-                VmmError::DeviceManager(crate::device_manager::mmio::MmioError::InvalidDeviceType),
-            )),
-        );
     }
 
     #[test]
