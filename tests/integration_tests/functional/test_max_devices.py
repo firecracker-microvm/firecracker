@@ -6,9 +6,10 @@ import platform
 
 import pytest
 
-# IRQs are available from 5 to 23. We always use one IRQ for VMGenID device, so
-# the maximum number of devices supported at the same time is 18.
-MAX_DEVICES_ATTACHED = 18
+# IRQs are available from 5 to 23. We always use one IRQ for VMGenID device and
+# two for CPU hotplugging, so the maximum number of devices supported at the same
+# time is 16.
+MAX_DEVICES_ATTACHED = 16
 
 
 @pytest.mark.skipif(

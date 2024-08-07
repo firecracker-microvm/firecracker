@@ -323,6 +323,9 @@ pub struct Vmm {
     vcpus_handles: Vec<VcpuHandle>,
     // Used by Vcpus and devices to initiate teardown; Vmm should never write here.
     vcpus_exit_evt: EventFd,
+    // Used to configure kvm vcpus during hotplugging.
+    #[cfg(target_arch = "x86_64")]
+    vcpu_config: Option<VcpuConfig>,
     // seccomp_filters are only needed in VMM for hotplugging vCPUS.
     #[cfg(target_arch = "x86_64")]
     seccomp_filters: BpfThreadMap,
@@ -358,7 +361,7 @@ impl Vmm {
         &self,
         device_type: DeviceType,
         device_id: &str,
-    ) -> Option<&Mutex<devices::bus::BusDevice>> {
+    ) -> Option<&devices::bus::BusDevice> {
         self.mmio_device_manager.get_device(device_type, device_id)
     }
 
@@ -415,15 +418,25 @@ impl Vmm {
     pub fn resume_vm(&mut self) -> Result<(), VmmError> {
         self.mmio_device_manager.kick_devices();
 
-        // Send the events.
-        self.vcpus_handles
+        self.resume_vcpu_threads(0)?;
+
+        self.instance_info.state = VmState::Running;
+        Ok(())
+    }
+
+    /// Resume vCPU threads
+    fn resume_vcpu_threads(&mut self, start_idx: usize) -> Result<(), VmmError> {
+        if start_idx >= self.vcpus_handles.len() {
+            return Err(VmmError::VcpuMessage);
+        }
+
+        self.vcpus_handles[start_idx..]
             .iter()
             .try_for_each(|handle| handle.send_event(VcpuEvent::Resume))
             .map_err(|_| VmmError::VcpuMessage)?;
 
         // Check the responses.
-        if self
-            .vcpus_handles
+        if self.vcpus_handles[start_idx..]
             .iter()
             .map(|handle| handle.response_receiver().recv_timeout(RECV_TIMEOUT_SEC))
             .any(|response| !matches!(response, Ok(VcpuResponse::Resumed)))
@@ -431,7 +444,6 @@ impl Vmm {
             return Err(VmmError::VcpuMessage);
         }
 
-        self.instance_info.state = VmState::Running;
         Ok(())
     }
 
@@ -474,14 +486,10 @@ impl Vmm {
         #[cfg(target_arch = "aarch64")]
         {
             let serial_bus_device = self.get_bus_device(DeviceType::Serial, "Serial");
-            if serial_bus_device.is_none() {
+            let Some(serial) = serial_bus_device else {
                 return Ok(());
-            }
-            let mut serial_device_locked =
-                serial_bus_device.unwrap().lock().expect("Poisoned lock");
-            let serial = serial_device_locked
-                .serial_mut()
-                .expect("Unexpected BusDeviceType");
+            };
+            let mut serial = serial.serial_ref().expect("Unexpected device type");
 
             serial
                 .serial
@@ -492,12 +500,11 @@ impl Vmm {
 
         #[cfg(target_arch = "x86_64")]
         {
-            let mut guard = self
+            let serial = &mut self
                 .pio_device_manager
                 .stdio_serial
                 .lock()
                 .expect("Poisoned lock");
-            let serial = guard.serial_mut().unwrap();
 
             serial
                 .serial
@@ -513,9 +520,7 @@ impl Vmm {
         self.pio_device_manager
             .i8042
             .lock()
-            .expect("i8042 lock was poisoned")
-            .i8042_device_mut()
-            .unwrap()
+            .expect("Poisoned lock")
             .trigger_ctrl_alt_del()
             .map_err(VmmError::I8042Error)
     }
@@ -628,19 +633,33 @@ impl Vmm {
             return Err(HotplugVcpuError::VcpuCountTooHigh);
         }
 
+        if let Some(kvm_config) = self.vcpu_config.as_mut() {
+            kvm_config.vcpu_count += config.add;
+        }
         // Create and start new vcpus
         let mut vcpus = Vec::with_capacity(config.add.into());
 
         #[allow(clippy::cast_possible_truncation)]
         let start_idx = self.vcpus_handles.len().try_into().unwrap();
-        for cpu_idx in start_idx..(start_idx + config.add) {
-            let exit_evt = self
-                .vcpus_exit_evt
-                .try_clone()
-                .map_err(HotplugVcpuError::EventFd)?;
-            let vcpu =
-                Vcpu::new(cpu_idx, &self.vm, exit_evt).map_err(HotplugVcpuError::VcpuCreate)?;
-            vcpus.push(vcpu);
+        if let Some(devices::BusDevice::CpuContainer(cont)) =
+            self.get_bus_device(DeviceType::CpuContainer, "CpuContainer")
+        {
+            let mut locked_container = cont.lock().expect("Poisoned lock");
+            for cpu_idx in start_idx..(start_idx + config.add) {
+                let exit_evt = self
+                    .vcpus_exit_evt
+                    .try_clone()
+                    .map_err(HotplugVcpuError::EventFd)?;
+                let mut vcpu =
+                    Vcpu::new(cpu_idx, &self.vm, exit_evt).map_err(HotplugVcpuError::VcpuCreate)?;
+                if let Some(kvm_config) = self.vcpu_config.as_ref() {
+                    vcpu.kvm_vcpu.hotplug_configure(kvm_config)?;
+                } else {
+                    return Err(HotplugVcpuError::RestoredFromSnapshot);
+                }
+                locked_container.cpu_devices[cpu_idx as usize].inserting = true;
+                vcpus.push(vcpu);
+            }
         }
 
         self.start_vcpus(
@@ -665,6 +684,10 @@ impl Vmm {
             track_dirty_pages: None,
             huge_pages: None,
         };
+
+        self.resume_vcpu_threads(start_idx.into())?;
+
+        self.acpi_device_manager.notify_cpu_container()?;
 
         Ok(new_machine_config)
     }
@@ -775,8 +798,6 @@ impl Vmm {
         if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
         {
             let virtio_device = busdev
-                .lock()
-                .expect("Poisoned lock")
                 .mmio_transport_ref()
                 .expect("Unexpected device type")
                 .device();
@@ -800,8 +821,6 @@ impl Vmm {
         if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
         {
             let virtio_device = busdev
-                .lock()
-                .expect("Poisoned lock")
                 .mmio_transport_ref()
                 .expect("Unexpected device type")
                 .device();
@@ -834,8 +853,6 @@ impl Vmm {
         {
             {
                 let virtio_device = busdev
-                    .lock()
-                    .expect("Poisoned lock")
                     .mmio_transport_ref()
                     .expect("Unexpected device type")
                     .device();
@@ -864,8 +881,6 @@ impl Vmm {
         {
             {
                 let virtio_device = busdev
-                    .lock()
-                    .expect("Poisoned lock")
                     .mmio_transport_ref()
                     .expect("Unexpected device type")
                     .device();
@@ -882,6 +897,13 @@ impl Vmm {
         } else {
             Err(BalloonError::DeviceNotFound)
         }
+    }
+
+    /// Add the vcpu configuration used during boot to the VMM. This is required as part of the
+    /// hotplugging process, to correctly configure KVM vCPUs.
+    #[cfg(target_arch = "x86_64")]
+    pub fn attach_vcpu_config(&mut self, vcpu_config: VcpuConfig) {
+        self.vcpu_config = Some(vcpu_config)
     }
 
     /// Signals Vmm to stop and exit.

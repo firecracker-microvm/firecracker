@@ -13,6 +13,7 @@ use crate::{checksum, AcpiError, Result, Sdt, SdtHeader};
 
 const MADT_CPU_ENABLE_FLAG: u32 = 0;
 
+const MADT_CPU_ONLINE_CAPABLE_FLAG: u32 = 1;
 // clippy doesn't understand that we actually "use" the fields of this struct when we serialize
 // them as bytes in guest memory, so here we just ignore dead code to avoid having to name
 // everything with an underscore prefix
@@ -28,13 +29,23 @@ pub struct LocalAPIC {
 }
 
 impl LocalAPIC {
-    pub fn new(cpu_id: u8) -> Self {
-        Self {
-            r#type: 0,
-            length: 8,
-            processor_uid: cpu_id,
-            apic_id: cpu_id,
-            flags: U32::new(1u32 << MADT_CPU_ENABLE_FLAG),
+    pub fn new(cpu_id: u8, online_capable: bool) -> Self {
+        if online_capable {
+            Self {
+                r#type: 0,
+                length: 8,
+                processor_uid: cpu_id,
+                apic_id: cpu_id,
+                flags: U32::new(1u32 << MADT_CPU_ONLINE_CAPABLE_FLAG),
+            }
+        } else {
+            Self {
+                r#type: 0,
+                length: 8,
+                processor_uid: cpu_id,
+                apic_id: cpu_id,
+                flags: U32::new(1u32 << MADT_CPU_ENABLE_FLAG),
+            }
         }
     }
 }
@@ -138,5 +149,32 @@ impl Sdt for Madt {
         mem.write_slice(self.interrupt_controllers.as_bytes(), address)?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use zerocopy::little_endian::U32;
+
+    use crate::madt::LocalAPIC;
+
+    #[test]
+    fn test_online_local_apic() {
+        let online_apic = super::LocalAPIC::new(0, false);
+        assert_eq!(online_apic.r#type, 0);
+        assert_eq!(online_apic.length, 8);
+        assert_eq!(online_apic.processor_uid, 0);
+        assert_eq!(online_apic.apic_id, 0);
+        assert_eq!(online_apic.flags, U32::new(1));
+    }
+
+    #[test]
+    fn test_online_capable_local_apic() {
+        let online_capable_apic = LocalAPIC::new(1, true);
+        assert_eq!(online_capable_apic.r#type, 0);
+        assert_eq!(online_capable_apic.length, 8);
+        assert_eq!(online_capable_apic.processor_uid, 1);
+        assert_eq!(online_capable_apic.apic_id, 1);
+        assert_eq!(online_capable_apic.flags, U32::new(2));
     }
 }
