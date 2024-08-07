@@ -1204,16 +1204,6 @@ mod tests {
         check_success(res, &vm_resources);
     }
 
-    // Forces error and validates error kind against expected.
-    fn check_preboot_request_err(request: VmmAction, expected_err: VmmActionError) {
-        let mut vm_resources = MockVmRes::default();
-        let mut evmgr = EventManager::new().unwrap();
-        let seccomp_filters = BpfThreadMap::new();
-        let mut preboot = default_preboot(&mut vm_resources, &mut evmgr, &seccomp_filters);
-        let err = preboot.handle_preboot_request(request).unwrap_err();
-        assert_eq!(err, expected_err);
-    }
-
     #[test]
     fn test_preboot_get_vm_config() {
         let req = VmmAction::GetVmMachineConfig;
@@ -1313,9 +1303,20 @@ mod tests {
     fn test_preboot_patch_mmds() {
         let mmds = Arc::new(Mutex::new(Mmds::default()));
         // MMDS data store is not yet initialized.
-        check_preboot_request_err(
+        check_preboot_request(
             VmmAction::PatchMMDS(Value::String("string".to_string())),
-            VmmActionError::Mmds(data_store::MmdsDatastoreError::NotInitialized),
+            |res, _| {
+                assert!(
+                    matches!(
+                        res,
+                        Err(VmmActionError::Mmds(
+                            data_store::MmdsDatastoreError::NotInitialized
+                        ))
+                    ),
+                    "{:?}",
+                    res
+                )
+            },
         );
 
         check_preboot_request_with_mmds(
@@ -1496,57 +1497,50 @@ mod tests {
 
     #[test]
     fn test_preboot_disallowed() {
-        check_preboot_request_err(
-            VmmAction::FlushMetrics,
-            VmmActionError::OperationNotSupportedPreBoot,
-        );
-        check_preboot_request_err(
-            VmmAction::Pause,
-            VmmActionError::OperationNotSupportedPreBoot,
-        );
-        check_preboot_request_err(
-            VmmAction::Resume,
-            VmmActionError::OperationNotSupportedPreBoot,
-        );
-        check_preboot_request_err(
-            VmmAction::GetBalloonStats,
-            VmmActionError::OperationNotSupportedPreBoot,
-        );
-        check_preboot_request_err(
+        fn check_unsupported(res: Result<VmmData, VmmActionError>, _: &MockVmRes) {
+            assert!(
+                matches!(res, Err(VmmActionError::OperationNotSupportedPreBoot)),
+                "{:?}",
+                res
+            );
+        }
+
+        check_preboot_request(VmmAction::FlushMetrics, check_unsupported);
+        check_preboot_request(VmmAction::Pause, check_unsupported);
+        check_preboot_request(VmmAction::Resume, check_unsupported);
+        check_preboot_request(VmmAction::GetBalloonStats, check_unsupported);
+        check_preboot_request(
             VmmAction::UpdateBalloon(BalloonUpdateConfig { amount_mib: 0 }),
-            VmmActionError::OperationNotSupportedPreBoot,
+            check_unsupported,
         );
-        check_preboot_request_err(
+        check_preboot_request(
             VmmAction::UpdateBalloonStatistics(BalloonUpdateStatsConfig {
                 stats_polling_interval_s: 0,
             }),
-            VmmActionError::OperationNotSupportedPreBoot,
+            check_unsupported,
         );
-        check_preboot_request_err(
+        check_preboot_request(
             VmmAction::UpdateBlockDevice(BlockDeviceUpdateConfig::default()),
-            VmmActionError::OperationNotSupportedPreBoot,
+            check_unsupported,
         );
-        check_preboot_request_err(
+        check_preboot_request(
             VmmAction::UpdateNetworkInterface(NetworkInterfaceUpdateConfig {
                 iface_id: String::new(),
                 rx_rate_limiter: None,
                 tx_rate_limiter: None,
             }),
-            VmmActionError::OperationNotSupportedPreBoot,
+            check_unsupported,
         );
-        check_preboot_request_err(
+        check_preboot_request(
             VmmAction::CreateSnapshot(CreateSnapshotParams {
                 snapshot_type: SnapshotType::Full,
                 snapshot_path: PathBuf::new(),
                 mem_file_path: PathBuf::new(),
             }),
-            VmmActionError::OperationNotSupportedPreBoot,
+            check_unsupported,
         );
         #[cfg(target_arch = "x86_64")]
-        check_preboot_request_err(
-            VmmAction::SendCtrlAltDel,
-            VmmActionError::OperationNotSupportedPreBoot,
-        );
+        check_preboot_request(VmmAction::SendCtrlAltDel, check_unsupported);
     }
 
     fn check_runtime_request<F>(request: VmmAction, check_success: F)
