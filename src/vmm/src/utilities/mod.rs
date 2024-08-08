@@ -3,6 +3,5 @@
 
 #![allow(missing_docs)]
 
-pub mod mock_devices;
 pub mod mock_resources;
 pub mod test_utils;
