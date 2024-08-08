@@ -539,10 +539,11 @@ fn print_snapshot_data_format(snapshot_path: &str) -> Result<(), SnapshotVersion
     let mut snapshot_reader =
         File::open(snapshot_path).map_err(SnapshotVersionError::OpenSnapshot)?;
 
-    let data_format_version = Snapshot::get_format_version(&mut snapshot_reader)
-        .map_err(SnapshotVersionError::SnapshotVersion)?;
+    // TODO: Need to fix this
+    // let data_format_version = Snapshot::get_format_version(&mut snapshot_reader)
+    //     .map_err(SnapshotVersionError::SnapshotVersion)?;
 
-    println!("v{}", data_format_version);
+    // println!("v{}", data_format_version);
     Ok(())
 }
 

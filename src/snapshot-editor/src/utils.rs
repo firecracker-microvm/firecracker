@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use fc_utils::u64_to_usize;
 use semver::Version;
 use vmm::persist::MicrovmState;
-use vmm::snapshot::Snapshot;
+use vmm::snapshot::{Snapshot, SnapshotError, SnapshotHdr};
 
 // Some errors are only used in aarch64 code
 #[allow(unused)]
@@ -26,11 +26,13 @@ pub enum UtilsError {
 }
 
 #[allow(unused)]
-pub fn open_vmstate(snapshot_path: &PathBuf) -> Result<(MicrovmState, Version), UtilsError> {
+pub fn open_vmstate(snapshot_path: &PathBuf) -> Result<Snapshot<MicrovmState>, UtilsError> {
     let mut snapshot_reader = File::open(snapshot_path).map_err(UtilsError::VmStateFileOpen)?;
     let metadata = std::fs::metadata(snapshot_path).map_err(UtilsError::VmStateFileMeta)?;
     let snapshot_len = u64_to_usize(metadata.len());
-    Snapshot::load(&mut snapshot_reader, snapshot_len).map_err(UtilsError::VmStateLoad)
+
+    let snapshot: Result<Snapshot<MicrovmState>, UtilsError> = Snapshot::load(&mut snapshot_reader, snapshot_len).map_err(UtilsError::VmStateLoad);
+    snapshot
 }
 
 // This method is used only in aarch64 code so far
@@ -46,9 +48,10 @@ pub fn save_vmstate(
         .truncate(true)
         .open(output_path)
         .map_err(UtilsError::OutputFileOpen)?;
-    let mut snapshot = Snapshot::new(version);
+    let snapshot_hdr = SnapshotHdr::new(version);
+    let snapshot = Snapshot::new(snapshot_hdr, microvm_state);
     snapshot
-        .save(&mut output_file, &microvm_state)
+        .save(&mut output_file)
         .map_err(UtilsError::VmStateSave)?;
     Ok(())
 }
