@@ -244,7 +244,8 @@ pub struct PrebootApiController<'a> {
     instance_info: InstanceInfo,
     vm_resources: &'a mut VmResources,
     event_manager: &'a mut EventManager,
-    built_vmm: Option<Arc<Mutex<Vmm>>>,
+    /// The [`Vmm`] object constructed through requests
+    pub built_vmm: Option<Arc<Mutex<Vmm>>>,
     // Configuring boot specific resources will set this to true.
     // Loading from snapshot will not be allowed once this is true.
     boot_path: bool,
@@ -1416,48 +1417,6 @@ mod tests {
                 VmmData::MmdsValue(serde_json::from_str(r#"{"key2": "value2"}"#).unwrap())
             );
         });
-    }
-
-    #[test]
-    fn test_preboot_load_snapshot() {
-        let mut vm_resources = MockVmRes::default();
-        let mut evmgr = EventManager::new().unwrap();
-        let seccomp_filters = BpfThreadMap::new();
-        let mut preboot = default_preboot(&mut vm_resources, &mut evmgr, &seccomp_filters);
-
-        // Without resume.
-        let req = VmmAction::LoadSnapshot(LoadSnapshotParams {
-            snapshot_path: PathBuf::new(),
-            mem_backend: MemBackendConfig {
-                backend_type: MemBackendType::File,
-                backend_path: PathBuf::new(),
-            },
-            enable_diff_snapshots: false,
-            resume_vm: false,
-        });
-        // Request should succeed.
-        preboot.handle_preboot_request(req).unwrap();
-        // Should have built default mock vmm.
-        let vmm = preboot.built_vmm.take().unwrap();
-        assert_eq!(*vmm.lock().unwrap(), MockVmm::default());
-
-        // With resume.
-        let req = VmmAction::LoadSnapshot(LoadSnapshotParams {
-            snapshot_path: PathBuf::new(),
-            mem_backend: MemBackendConfig {
-                backend_type: MemBackendType::File,
-                backend_path: PathBuf::new(),
-            },
-            enable_diff_snapshots: false,
-            resume_vm: true,
-        });
-        // Request should succeed.
-        preboot.handle_preboot_request(req).unwrap();
-        let vmm = preboot.built_vmm.as_ref().unwrap().lock().unwrap();
-        // Should have built mock vmm then called resume on it.
-        assert!(vmm.resume_called);
-        // Extra sanity check - pause was never called.
-        assert!(!vmm.pause_called);
     }
 
     #[test]
