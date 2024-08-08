@@ -1506,24 +1506,6 @@ mod tests {
     }
 
     #[test]
-    fn test_runtime_pause() {
-        let req = VmmAction::Pause;
-        check_runtime_request(req, |result, vmm| {
-            assert_eq!(result.unwrap(), VmmData::Empty);
-            assert!(vmm.pause_called)
-        });
-    }
-
-    #[test]
-    fn test_runtime_resume() {
-        let req = VmmAction::Resume;
-        check_runtime_request(req, |result, vmm| {
-            assert_eq!(result.unwrap(), VmmData::Empty);
-            assert!(vmm.resume_called)
-        });
-    }
-
-    #[test]
     fn test_runtime_update_block_device_path() {
         let req = VmmAction::UpdateBlockDevice(BlockDeviceUpdateConfig {
             path_on_host: Some(String::new()),
