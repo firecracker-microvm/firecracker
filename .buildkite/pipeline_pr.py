@@ -82,4 +82,8 @@ if run_all_tests(changed_files):
         **DEFAULTS_PERF,
     )
 
+# if there's only 3 steps, it means is a doc change and we don't need to build
+if len(pipeline.steps) == 3:
+    pipeline.steps = pipeline.steps[1:]
+
 print(pipeline.to_json())
