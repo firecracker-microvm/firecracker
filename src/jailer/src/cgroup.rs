@@ -13,12 +13,6 @@ use regex::Regex;
 
 use crate::{readln_special, writeln_special, JailerError};
 
-const PROC_MOUNTS: &str = if cfg!(test) {
-    "/tmp/firecracker/test/jailer/proc/mounts"
-} else {
-    "/proc/mounts"
-};
-
 // Holds information on a cgroup mount point discovered on the system
 #[derive(Debug)]
 struct CgroupMountPoint {
@@ -28,18 +22,19 @@ struct CgroupMountPoint {
 
 // Allows creation of cgroups on the system for both versions
 #[derive(Debug)]
-pub struct CgroupBuilder {
+pub struct CgroupBuilder<'a> {
     version: u8,
     hierarchies: HashMap<String, PathBuf>,
     mount_points: Vec<CgroupMountPoint>,
+    proc_mounts_path: &'a str,
 }
 
-impl CgroupBuilder {
+impl<'a> CgroupBuilder<'a> {
     // Creates the builder object
     // It will discover cgroup mount points and hierarchies configured
     // on the system and cache the info required to create cgroups later
     // within this hierarchies
-    pub fn new(ver: u8) -> Result<Self, JailerError> {
+    pub fn new(ver: u8, proc_mounts_path: &'a str) -> Result<Self, JailerError> {
         if ver != 1 && ver != 2 {
             return Err(JailerError::CgroupInvalidVersion(ver.to_string()));
         }
@@ -48,11 +43,12 @@ impl CgroupBuilder {
             version: ver,
             hierarchies: HashMap::new(),
             mount_points: Vec::new(),
+            proc_mounts_path,
         };
 
         // search PROC_MOUNTS for cgroup mount points
-        let f = File::open(PROC_MOUNTS)
-            .map_err(|err| JailerError::FileOpen(PathBuf::from(PROC_MOUNTS), err))?;
+        let f = File::open(b.proc_mounts_path)
+            .map_err(|err| JailerError::FileOpen(PathBuf::from(b.proc_mounts_path), err))?;
 
         // Regex courtesy of Filippo.
         // This will match on each line from /proc/mounts for both v1 and v2 mount points.
@@ -72,7 +68,8 @@ impl CgroupBuilder {
         ).map_err(JailerError::RegEx)?;
 
         for l in BufReader::new(f).lines() {
-            let l = l.map_err(|err| JailerError::ReadLine(PathBuf::from(PROC_MOUNTS), err))?;
+            let l =
+                l.map_err(|err| JailerError::ReadLine(PathBuf::from(b.proc_mounts_path), err))?;
             if let Some(capture) = re.captures(&l) {
                 if ver == 2 && capture["ver"].len() == 1 {
                     // Found the cgroupv2 unified mountpoint; with cgroupsv2 there is only one
@@ -449,20 +446,18 @@ pub mod test_util {
     use std::io::Write;
     use std::path::{Path, PathBuf};
 
-    use super::PROC_MOUNTS;
+    use utils::rand;
 
     #[derive(Debug)]
     pub struct MockCgroupFs {
         mounts_file: File,
+        pub proc_mounts_path: String,
     }
 
     // Helper object that simulates the layout of the cgroup file system
     // This can be used for testing regardless of the availability of a particular
     // version of cgroups on the system
     impl MockCgroupFs {
-        const MOCK_PROCDIR: &'static str = "/tmp/firecracker/test/jailer/proc";
-        pub const MOCK_SYS_CGROUPS_DIR: &'static str = "/tmp/firecracker/test/jailer/sys_cgroup";
-
         pub fn create_file_with_contents<P: AsRef<Path> + Debug>(
             filename: P,
             contents: &str,
@@ -479,27 +474,46 @@ pub mod test_util {
         }
 
         pub fn new() -> std::result::Result<MockCgroupFs, std::io::Error> {
+            let mock_proc_mounts = format!(
+                "/tmp/firecracker/test/{}/jailer/proc/mounts",
+                rand::rand_alphanumerics(4).into_string().unwrap()
+            );
+            let mock_proc_dir = Path::new(&mock_proc_mounts).parent().unwrap();
+
             // create a mock /proc/mounts file in a temporary directory
-            fs::create_dir_all(Self::MOCK_PROCDIR)?;
+            fs::create_dir_all(mock_proc_dir)?;
             let file = OpenOptions::new()
                 .read(true)
                 .write(true)
                 .create(true)
                 .truncate(true)
-                .open(PROC_MOUNTS)?;
-
-            Ok(MockCgroupFs { mounts_file: file })
+                .open(mock_proc_mounts.clone())?;
+            Ok(MockCgroupFs {
+                mounts_file: file,
+                proc_mounts_path: mock_proc_mounts,
+            })
         }
 
         // Populate the mocked proc/mounts file with cgroupv2 entries
         // Also create a directory structure that simulates cgroupsv2 layout
         pub fn add_v2_mounts(&mut self) -> std::result::Result<(), std::io::Error> {
+            let mock_sys_cgroups_dir = format!(
+                "{}/{}",
+                Path::new(self.proc_mounts_path.as_str())
+                    .parent()
+                    .unwrap()
+                    .parent()
+                    .unwrap()
+                    .display(),
+                "sys_cgroup"
+            );
+
             writeln!(
                 self.mounts_file,
                 "cgroupv2 {}/unified cgroup2 rw,nosuid,nodev,noexec,relatime,nsdelegate 0 0",
-                Self::MOCK_SYS_CGROUPS_DIR
+                mock_sys_cgroups_dir,
             )?;
-            let cg_unified_path = PathBuf::from(format!("{}/unified", Self::MOCK_SYS_CGROUPS_DIR));
+            let cg_unified_path = PathBuf::from(format!("{}/unified", mock_sys_cgroups_dir));
             fs::create_dir_all(&cg_unified_path)?;
             Self::create_file_with_contents(
                 cg_unified_path.join("cgroup.controllers"),
@@ -519,13 +533,22 @@ pub mod test_util {
                 "cpu,cpuacct",
             ];
 
+            let mock_sys_cgroups_dir = format!(
+                "{}/{}",
+                Path::new(self.proc_mounts_path.as_str())
+                    .parent()
+                    .unwrap()
+                    .parent()
+                    .unwrap()
+                    .display(),
+                "sys_cgroup"
+            );
+
             for c in &controllers {
                 writeln!(
                     self.mounts_file,
                     "cgroup {}/{} cgroup rw,nosuid,nodev,noexec,relatime,{} 0 0",
-                    Self::MOCK_SYS_CGROUPS_DIR,
-                    c,
-                    c,
+                    mock_sys_cgroups_dir, c, c,
                 )?;
             }
             Ok(())
@@ -535,8 +558,14 @@ pub mod test_util {
     // Cleanup created files when object goes out of scope
     impl Drop for MockCgroupFs {
         fn drop(&mut self) {
-            let _ = fs::remove_file(PROC_MOUNTS);
-            let _ = fs::remove_dir_all("/tmp/firecracker/test");
+            let tmp_dir = Path::new(self.proc_mounts_path.as_str())
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap();
+            let _ = fs::remove_dir_all(tmp_dir);
         }
     }
 }
@@ -568,7 +597,7 @@ mod tests {
 
     #[test]
     fn test_cgroup_builder_no_mounts() {
-        let builder = CgroupBuilder::new(1);
+        let builder = CgroupBuilder::new(1, "/tmp/firecracker/test/jailer/proc/mounts");
         builder.unwrap_err();
     }
 
@@ -576,7 +605,7 @@ mod tests {
     fn test_cgroup_builder_v1() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
         mock_cgroups.add_v1_mounts().unwrap();
-        let builder = CgroupBuilder::new(1);
+        let builder = CgroupBuilder::new(1, mock_cgroups.proc_mounts_path.as_str());
         builder.unwrap();
     }
 
@@ -584,7 +613,7 @@ mod tests {
     fn test_cgroup_builder_v2() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
         mock_cgroups.add_v2_mounts().unwrap();
-        let builder = CgroupBuilder::new(2);
+        let builder = CgroupBuilder::new(2, mock_cgroups.proc_mounts_path.as_str());
         builder.unwrap();
     }
 
@@ -592,7 +621,7 @@ mod tests {
     fn test_cgroup_builder_v2_with_v1_mounts() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
         mock_cgroups.add_v1_mounts().unwrap();
-        let builder = CgroupBuilder::new(2);
+        let builder = CgroupBuilder::new(2, mock_cgroups.proc_mounts_path.as_str());
         builder.unwrap_err();
     }
 
@@ -600,7 +629,7 @@ mod tests {
     fn test_cgroup_builder_v1_with_v2_mounts() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
         mock_cgroups.add_v2_mounts().unwrap();
-        let builder = CgroupBuilder::new(1);
+        let builder = CgroupBuilder::new(1, mock_cgroups.proc_mounts_path.as_str());
         builder.unwrap_err();
     }
 
@@ -611,7 +640,8 @@ mod tests {
         mock_cgroups.add_v2_mounts().unwrap();
 
         for v in &[1, 2] {
-            let mut builder = CgroupBuilder::new(*v).unwrap();
+            let mut builder =
+                CgroupBuilder::new(*v, mock_cgroups.proc_mounts_path.as_str()).unwrap();
 
             let cg = builder.new_cgroup(
                 "cpuset.mems".to_string(),
@@ -630,7 +660,8 @@ mod tests {
         mock_cgroups.add_v2_mounts().unwrap();
 
         for v in &[1, 2] {
-            let mut builder = CgroupBuilder::new(*v).unwrap();
+            let mut builder =
+                CgroupBuilder::new(*v, mock_cgroups.proc_mounts_path.as_str()).unwrap();
             let cg = builder.new_cgroup(
                 "invalid.cg".to_string(),
                 "1".to_string(),
@@ -645,10 +676,10 @@ mod tests {
     fn test_cgroup_v2_write_value() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
         mock_cgroups.add_v2_mounts().unwrap();
-        let builder = CgroupBuilder::new(2);
+        let builder = CgroupBuilder::new(2, mock_cgroups.proc_mounts_path.as_str());
         builder.unwrap();
 
-        let mut builder = CgroupBuilder::new(2).unwrap();
+        let mut builder = CgroupBuilder::new(2, mock_cgroups.proc_mounts_path.as_str()).unwrap();
         let cg = builder.new_cgroup(
             "cpuset.mems".to_string(),
             "1".to_string(),
@@ -656,8 +687,18 @@ mod tests {
             Path::new("fc_test_cgv2"),
         );
         let cg = cg.unwrap();
+        let mock_sys_cgroups_dir = format!(
+            "{}/{}",
+            Path::new(mock_cgroups.proc_mounts_path.as_str())
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .display(),
+            "sys_cgroup"
+        );
 
-        let cg_root = PathBuf::from(format!("{}/unified", MockCgroupFs::MOCK_SYS_CGROUPS_DIR));
+        let cg_root = PathBuf::from(format!("{}/unified", mock_sys_cgroups_dir));
 
         // with real cgroups these files are created automatically
         // since the mock will not do it automatically, we create it here
