@@ -6,18 +6,11 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use seccompiler::BpfThreadMap;
 use serde_json::Value;
-#[cfg(test)]
-use tests::{
-    build_and_boot_microvm, create_snapshot, restore_from_snapshot, MockVmRes as VmResources,
-    MockVmm as Vmm,
-};
 
-use super::VmmError;
-#[cfg(not(test))]
-use super::{
-    builder::build_and_boot_microvm, persist::create_snapshot, persist::restore_from_snapshot,
-    resources::VmResources, Vmm,
-};
+use super::builder::build_and_boot_microvm;
+use super::persist::{create_snapshot, restore_from_snapshot};
+use super::resources::VmResources;
+use super::{Vmm, VmmError};
 use crate::builder::StartMicrovmError;
 use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
 use crate::logger::{info, warn, LoggerConfig, *};
@@ -863,280 +856,11 @@ mod tests {
     use seccompiler::BpfThreadMap;
 
     use super::*;
-    use crate::cpu_config::templates::StaticCpuTemplate;
-    use crate::devices::virtio::balloon::{BalloonConfig, BalloonError};
+    use crate::builder::tests::default_vmm;
     use crate::devices::virtio::block::CacheType;
     use crate::mmds::data_store::MmdsVersion;
-    use crate::vmm_config::balloon::BalloonBuilder;
-    use crate::vmm_config::machine_config::VmConfig;
     use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
-    use crate::vmm_config::vsock::VsockBuilder;
     use crate::HTTP_MAX_PAYLOAD_SIZE;
-
-    // Mock `VmResources` used for testing.
-    #[derive(Debug, Default)]
-    pub struct MockVmRes {
-        pub vm_config: VmConfig,
-        pub balloon: BalloonBuilder,
-        pub vsock: VsockBuilder,
-        balloon_config_called: bool,
-        balloon_set: bool,
-        boot_src: BootSourceConfig,
-        boot_cfg_set: bool,
-        block_set: bool,
-        vsock_set: bool,
-        net_set: bool,
-        entropy_set: bool,
-        pub mmds: Option<Arc<Mutex<Mmds>>>,
-        pub mmds_size_limit: usize,
-        pub boot_timer: bool,
-    }
-
-    impl MockVmRes {
-        pub fn balloon_config(&mut self) -> Result<BalloonConfig, BalloonError> {
-            self.balloon_config_called = true;
-            Ok(BalloonConfig::default())
-        }
-
-        pub fn track_dirty_pages(&self) -> bool {
-            self.vm_config.track_dirty_pages
-        }
-
-        pub fn set_track_dirty_pages(&mut self, dirty_page_tracking: bool) {
-            self.vm_config.track_dirty_pages = dirty_page_tracking;
-        }
-
-        pub fn update_vm_config(
-            &mut self,
-            update: &MachineConfigUpdate,
-        ) -> Result<(), VmConfigError> {
-            self.vm_config.update(update)?;
-
-            Ok(())
-        }
-
-        pub fn set_balloon_device(
-            &mut self,
-            _: BalloonDeviceConfig,
-        ) -> Result<(), BalloonConfigError> {
-            self.balloon_set = true;
-            Ok(())
-        }
-
-        pub fn build_boot_source(
-            &mut self,
-            boot_source: BootSourceConfig,
-        ) -> Result<(), BootSourceConfigError> {
-            self.boot_src = boot_source;
-            self.boot_cfg_set = true;
-            Ok(())
-        }
-
-        pub fn boot_source_config(&self) -> &BootSourceConfig {
-            &self.boot_src
-        }
-
-        pub fn set_block_device(&mut self, _: BlockDeviceConfig) -> Result<(), DriveError> {
-            self.block_set = true;
-            Ok(())
-        }
-
-        pub fn build_net_device(
-            &mut self,
-            _: NetworkInterfaceConfig,
-        ) -> Result<(), NetworkInterfaceError> {
-            self.net_set = true;
-            Ok(())
-        }
-
-        pub fn set_vsock_device(&mut self, _: VsockDeviceConfig) -> Result<(), VsockConfigError> {
-            self.vsock_set = true;
-            Ok(())
-        }
-
-        pub fn build_entropy_device(
-            &mut self,
-            _: EntropyDeviceConfig,
-        ) -> Result<(), EntropyDeviceError> {
-            self.entropy_set = true;
-            Ok(())
-        }
-
-        pub fn set_mmds_config(
-            &mut self,
-            mmds_config: MmdsConfig,
-            _: &str,
-        ) -> Result<(), MmdsConfigError> {
-            let mut mmds_guard = self.locked_mmds_or_default();
-            mmds_guard
-                .set_version(mmds_config.version)
-                .map_err(|err| MmdsConfigError::MmdsVersion(mmds_config.version, err))?;
-            Ok(())
-        }
-
-        /// If not initialised, create the mmds data store with the default config.
-        pub fn mmds_or_default(&mut self) -> &Arc<Mutex<Mmds>> {
-            self.mmds
-                .get_or_insert(Arc::new(Mutex::new(Mmds::default_with_limit(
-                    self.mmds_size_limit,
-                ))))
-        }
-
-        /// If not initialised, create the mmds data store with the default config.
-        pub fn locked_mmds_or_default(&mut self) -> MutexGuard<'_, Mmds> {
-            let mmds = self.mmds_or_default();
-            mmds.lock().expect("Poisoned lock")
-        }
-
-        /// Update the CPU configuration for the guest.
-        pub fn set_custom_cpu_template(&mut self, cpu_template: CustomCpuTemplate) {
-            self.vm_config.set_custom_cpu_template(cpu_template);
-        }
-    }
-
-    impl From<&MockVmRes> for VmmConfig {
-        fn from(_: &MockVmRes) -> Self {
-            VmmConfig::default()
-        }
-    }
-
-    impl From<&MockVmRes> for VmInfo {
-        fn from(value: &MockVmRes) -> Self {
-            Self {
-                mem_size_mib: value.vm_config.mem_size_mib as u64,
-                smt: value.vm_config.smt,
-                cpu_template: StaticCpuTemplate::from(&value.vm_config.cpu_template),
-                boot_source: value.boot_source_config().clone(),
-                huge_pages: value.vm_config.huge_pages,
-            }
-        }
-    }
-
-    // Mock `Vmm` used for testing.
-    #[derive(Debug, Default, PartialEq, Eq)]
-    pub struct MockVmm {
-        pub balloon_config_called: bool,
-        pub latest_balloon_stats_called: bool,
-        pub pause_called: bool,
-        pub resume_called: bool,
-        #[cfg(target_arch = "x86_64")]
-        pub send_ctrl_alt_del_called: bool,
-        pub update_balloon_config_called: bool,
-        pub update_balloon_stats_config_called: bool,
-        pub update_block_device_path_called: bool,
-        pub update_block_device_vhost_user_config_called: bool,
-        pub update_net_rate_limiters_called: bool,
-    }
-
-    impl MockVmm {
-        pub fn resume_vm(&mut self) -> Result<(), VmmError> {
-            self.resume_called = true;
-            Ok(())
-        }
-
-        pub fn pause_vm(&mut self) -> Result<(), VmmError> {
-            self.pause_called = true;
-            Ok(())
-        }
-
-        #[cfg(target_arch = "x86_64")]
-        pub fn send_ctrl_alt_del(&mut self) -> Result<(), VmmError> {
-            self.send_ctrl_alt_del_called = true;
-            Ok(())
-        }
-
-        pub fn balloon_config(&mut self) -> Result<BalloonConfig, BalloonError> {
-            self.balloon_config_called = true;
-            Ok(BalloonConfig::default())
-        }
-
-        pub fn latest_balloon_stats(&mut self) -> Result<BalloonStats, BalloonError> {
-            self.latest_balloon_stats_called = true;
-            Ok(BalloonStats::default())
-        }
-
-        pub fn update_balloon_config(&mut self, _: u32) -> Result<(), BalloonError> {
-            self.update_balloon_config_called = true;
-            Ok(())
-        }
-
-        pub fn update_balloon_stats_config(&mut self, _: u16) -> Result<(), BalloonError> {
-            self.update_balloon_stats_config_called = true;
-            Ok(())
-        }
-
-        pub fn update_block_device_path(&mut self, _: &str, _: String) -> Result<(), VmmError> {
-            self.update_block_device_path_called = true;
-            Ok(())
-        }
-
-        pub fn update_block_rate_limiter(
-            &mut self,
-            _: &str,
-            _: crate::rate_limiter::BucketUpdate,
-            _: crate::rate_limiter::BucketUpdate,
-        ) -> Result<(), VmmError> {
-            Ok(())
-        }
-
-        pub fn update_vhost_user_block_config(&mut self, _: &str) -> Result<(), VmmError> {
-            self.update_block_device_vhost_user_config_called = true;
-            Ok(())
-        }
-
-        pub fn update_net_rate_limiters(
-            &mut self,
-            _: &str,
-            _: crate::rate_limiter::BucketUpdate,
-            _: crate::rate_limiter::BucketUpdate,
-            _: crate::rate_limiter::BucketUpdate,
-            _: crate::rate_limiter::BucketUpdate,
-        ) -> Result<(), VmmError> {
-            self.update_net_rate_limiters_called = true;
-            Ok(())
-        }
-
-        pub fn instance_info(&self) -> InstanceInfo {
-            InstanceInfo::default()
-        }
-
-        pub fn version(&self) -> String {
-            String::default()
-        }
-    }
-
-    // Need to redefine this since the non-test one uses real VmResources
-    // and real Vmm instead of our mocks.
-    pub fn build_and_boot_microvm(
-        _: &InstanceInfo,
-        _: &VmResources,
-        _: &mut EventManager,
-        _: &BpfThreadMap,
-    ) -> Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
-        Ok(Arc::new(Mutex::new(MockVmm::default())))
-    }
-
-    // Need to redefine this since the non-test one uses real Vmm
-    // instead of our mocks.
-    pub fn create_snapshot(
-        _: &mut Vmm,
-        _: &VmInfo,
-        _: &CreateSnapshotParams,
-    ) -> Result<(), CreateSnapshotError> {
-        Ok(())
-    }
-
-    // Need to redefine this since the non-test one uses real Vmm
-    // instead of our mocks.
-    pub fn restore_from_snapshot(
-        _: &InstanceInfo,
-        _: &mut EventManager,
-        _: &BpfThreadMap,
-        _: &LoadSnapshotParams,
-        _: &mut MockVmRes,
-    ) -> Result<Arc<Mutex<Vmm>>, RestoreFromSnapshotError> {
-        Ok(Arc::new(Mutex::new(MockVmm::default())))
-    }
 
     fn default_preboot<'a>(
         vm_resources: &'a mut VmResources,
@@ -1149,9 +873,9 @@ mod tests {
 
     fn check_preboot_request<F>(request: VmmAction, check_success: F)
     where
-        F: FnOnce(Result<VmmData, VmmActionError>, &MockVmRes),
+        F: FnOnce(Result<VmmData, VmmActionError>, &VmResources),
     {
-        let mut vm_resources = MockVmRes::default();
+        let mut vm_resources = VmResources::default();
         let mut evmgr = EventManager::new().unwrap();
         let seccomp_filters = BpfThreadMap::new();
         let mut preboot = default_preboot(&mut vm_resources, &mut evmgr, &seccomp_filters);
@@ -1164,9 +888,9 @@ mod tests {
         mmds: Arc<Mutex<Mmds>>,
         check_success: F,
     ) where
-        F: FnOnce(Result<VmmData, VmmActionError>, &MockVmRes),
+        F: FnOnce(Result<VmmData, VmmActionError>, &VmResources),
     {
-        let mut vm_resources = MockVmRes {
+        let mut vm_resources = VmResources {
             mmds: Some(mmds),
             mmds_size_limit: HTTP_MAX_PAYLOAD_SIZE,
             ..Default::default()
@@ -1421,7 +1145,7 @@ mod tests {
 
     #[test]
     fn test_preboot_disallowed() {
-        fn check_unsupported(res: Result<VmmData, VmmActionError>, _: &MockVmRes) {
+        fn check_unsupported(res: Result<VmmData, VmmActionError>, _: &VmResources) {
             assert!(
                 matches!(res, Err(VmmActionError::OperationNotSupportedPreBoot)),
                 "{:?}",
@@ -1469,10 +1193,10 @@ mod tests {
 
     fn check_runtime_request<F>(request: VmmAction, check_success: F)
     where
-        F: FnOnce(Result<VmmData, VmmActionError>, &MockVmm),
+        F: FnOnce(Result<VmmData, VmmActionError>, &Vmm),
     {
-        let vmm = Arc::new(Mutex::new(MockVmm::default()));
-        let mut runtime = RuntimeApiController::new(MockVmRes::default(), vmm.clone());
+        let vmm = Arc::new(Mutex::new(default_vmm()));
+        let mut runtime = RuntimeApiController::new(VmResources::default(), vmm.clone());
         let res = runtime.handle_request(request);
         check_success(res, &vmm.lock().unwrap());
     }
@@ -1482,13 +1206,13 @@ mod tests {
         mmds: Arc<Mutex<Mmds>>,
         check_success: F,
     ) where
-        F: FnOnce(Result<VmmData, VmmActionError>, &MockVmm),
+        F: FnOnce(Result<VmmData, VmmActionError>, &Vmm),
     {
-        let vm_res = MockVmRes {
+        let vm_res = VmResources {
             mmds: Some(mmds),
             ..Default::default()
         };
-        let vmm = Arc::new(Mutex::new(MockVmm::default()));
+        let vmm = Arc::new(Mutex::new(default_vmm()));
         let mut runtime = RuntimeApiController::new(vm_res, vmm.clone());
         let res = runtime.handle_request(request);
         check_success(res, &vmm.lock().unwrap());
@@ -1507,7 +1231,7 @@ mod tests {
 
     #[test]
     fn test_runtime_disallowed() {
-        fn check_unsupported(res: Result<VmmData, VmmActionError>, _: &MockVmm) {
+        fn check_unsupported(res: Result<VmmData, VmmActionError>, _: &Vmm) {
             assert!(
                 matches!(res, Err(VmmActionError::OperationNotSupportedPostBoot)),
                 "{:?}",
