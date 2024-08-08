@@ -8,7 +8,7 @@ use std::time::Duration;
 use utils::tempfile::TempFile;
 use vmm::builder::build_and_boot_microvm;
 use vmm::devices::virtio::block::CacheType;
-use vmm::persist::{self, snapshot_state_sanity_check, MicrovmState, MicrovmStateError, VmInfo};
+use vmm::persist::{snapshot_state_sanity_check, MicrovmState, MicrovmStateError, VmInfo};
 use vmm::resources::VmResources;
 use vmm::rpc_interface::{
     LoadSnapshotError, PrebootApiController, RuntimeApiController, VmmAction, VmmActionError,
@@ -23,7 +23,7 @@ use vmm::vmm_config::balloon::BalloonDeviceConfig;
 use vmm::vmm_config::boot_source::BootSourceConfig;
 use vmm::vmm_config::drive::BlockDeviceConfig;
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
-use vmm::vmm_config::machine_config::{MachineConfig, MachineConfigUpdate};
+use vmm::vmm_config::machine_config::{MachineConfig, MachineConfigUpdate, VmConfig};
 use vmm::vmm_config::net::NetworkInterfaceConfig;
 use vmm::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotParams, MemBackendConfig, MemBackendType, SnapshotType,
@@ -187,12 +187,22 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
     let memory_file = TempFile::new().unwrap();
 
     let (vmm, _) = create_vmm(Some(NOISY_KERNEL_IMAGE), is_diff, true);
+    let resources = VmResources {
+        vm_config: VmConfig {
+            mem_size_mib: 1,
+            track_dirty_pages: is_diff,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let vm_info = VmInfo::from(&resources);
+    let mut controller = RuntimeApiController::new(resources, vmm.clone());
 
     // Be sure that the microVM is running.
     thread::sleep(Duration::from_millis(200));
 
     // Pause microVM.
-    vmm.lock().unwrap().pause_vm().unwrap();
+    controller.handle_request(VmmAction::Pause).unwrap();
 
     // Create snapshot.
     let snapshot_type = match is_diff {
@@ -204,15 +214,10 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
         snapshot_path: snapshot_file.as_path().to_path_buf(),
         mem_file_path: memory_file.as_path().to_path_buf(),
     };
-    let vm_info = VmInfo {
-        mem_size_mib: 1u64,
-        ..Default::default()
-    };
 
-    {
-        let mut locked_vmm = vmm.lock().unwrap();
-        persist::create_snapshot(&mut locked_vmm, &vm_info, &snapshot_params).unwrap();
-    }
+    controller
+        .handle_request(VmmAction::CreateSnapshot(snapshot_params))
+        .unwrap();
 
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 
