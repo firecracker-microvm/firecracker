@@ -161,7 +161,10 @@ impl VsockPacket {
     /// Returns [`VsockError::DescChainTooShortForHeader`] if the descriptor chain's total buffer
     /// length is insufficient to hold the 44 byte vsock header
     pub fn from_rx_virtq_head(chain: DescriptorChain) -> Result<Self, VsockError> {
-        let buffer = IoVecBufferMut::from_descriptor_chain(chain)?;
+        // SAFETY: This descriptor chain is only loaded once
+        // virtio requests are handled sequentially so no two IoVecBuffers
+        // are live at the same time, meaning this has exclusive ownership over the memory
+        let buffer = unsafe { IoVecBufferMut::from_descriptor_chain(chain)? };
 
         if buffer.len() < VSOCK_PKT_HDR_SIZE {
             return Err(VsockError::DescChainTooShortForHeader(buffer.len() as usize));
