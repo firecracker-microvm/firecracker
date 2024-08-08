@@ -219,6 +219,8 @@ impl IoVecBuffer {
 /// of data from that buffer.
 #[derive(Debug)]
 pub struct IoVecBufferMut {
+    // Index of the head desciptor
+    head_index: u16,
     // container of the memory regions included in this IO vector
     vecs: IoVecVec,
     // Total length of the IoVecBufferMut
@@ -230,6 +232,7 @@ impl IoVecBufferMut {
     pub fn from_descriptor_chain(head: DescriptorChain) -> Result<Self, IoVecError> {
         let mut vecs = IoVecVec::new();
         let mut len = 0u32;
+        let head_index = head.index;
 
         for desc in head {
             if !desc.is_write_only() {
@@ -256,7 +259,11 @@ impl IoVecBufferMut {
                 .ok_or(IoVecError::OverflowedDescriptor)?;
         }
 
-        Ok(Self { vecs, len })
+        Ok(Self {
+            head_index,
+            vecs,
+            len,
+        })
     }
 
     /// Get the total length of the memory regions covered by this `IoVecBuffer`
@@ -397,6 +404,7 @@ mod tests {
     impl From<&mut [u8]> for IoVecBufferMut {
         fn from(buf: &mut [u8]) -> Self {
             Self {
+                head_index: 0,
                 vecs: vec![iovec {
                     iov_base: buf.as_mut_ptr().cast::<c_void>(),
                     iov_len: buf.len(),
@@ -705,7 +713,12 @@ mod verification {
             };
 
             let (vecs, len) = create_iovecs(mem, GUEST_MEMORY_SIZE);
-            Self { vecs, len }
+            let head_index = kani::any();
+            Self {
+                head_index,
+                vecs,
+                len,
+            }
         }
     }
 
