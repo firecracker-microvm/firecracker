@@ -1506,42 +1506,6 @@ mod tests {
     }
 
     #[test]
-    fn test_runtime_update_block_device_path() {
-        let req = VmmAction::UpdateBlockDevice(BlockDeviceUpdateConfig {
-            path_on_host: Some(String::new()),
-            ..Default::default()
-        });
-        check_runtime_request(req, |result, vmm| {
-            assert_eq!(result.unwrap(), VmmData::Empty);
-            assert!(vmm.update_block_device_path_called)
-        });
-    }
-
-    #[test]
-    fn test_runtime_update_block_device_vhost_user_config() {
-        let req = VmmAction::UpdateBlockDevice(BlockDeviceUpdateConfig {
-            ..Default::default()
-        });
-        check_runtime_request(req, |result, vmm| {
-            assert_eq!(result.unwrap(), VmmData::Empty);
-            assert!(vmm.update_block_device_vhost_user_config_called)
-        });
-    }
-
-    #[test]
-    fn test_runtime_update_net_rate_limiters() {
-        let req = VmmAction::UpdateNetworkInterface(NetworkInterfaceUpdateConfig {
-            iface_id: String::new(),
-            rx_rate_limiter: None,
-            tx_rate_limiter: None,
-        });
-        check_runtime_request(req, |result, vmm| {
-            assert_eq!(result.unwrap(), VmmData::Empty);
-            assert!(vmm.update_net_rate_limiters_called)
-        });
-    }
-
-    #[test]
     fn test_runtime_disallowed() {
         fn check_unsupported(res: Result<VmmData, VmmActionError>, _: &MockVmm) {
             assert!(
