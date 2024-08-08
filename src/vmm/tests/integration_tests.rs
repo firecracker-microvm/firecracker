@@ -9,7 +9,7 @@ use utils::tempfile::TempFile;
 use vmm::builder::build_and_boot_microvm;
 use vmm::persist::{self, snapshot_state_sanity_check, MicrovmState, MicrovmStateError, VmInfo};
 use vmm::resources::VmResources;
-use vmm::rpc_interface::{PrebootApiController, VmmAction};
+use vmm::rpc_interface::{PrebootApiController, RuntimeApiController, VmmAction};
 use vmm::seccomp_filters::get_empty_filters;
 use vmm::snapshot::Snapshot;
 use vmm::utilities::mock_resources::{MockVmResources, NOISY_KERNEL_IMAGE};
@@ -80,13 +80,16 @@ fn test_pause_resume_microvm() {
     // Tests that pausing and resuming a microVM work as expected.
     let (vmm, _) = default_vmm(None);
 
+    let mut api_controller = RuntimeApiController::new(VmResources::default(), vmm.clone());
+
     // There's a race between this thread and the vcpu thread, but this thread
     // should be able to pause vcpu thread before it finishes running its test-binary.
-    vmm.lock().unwrap().pause_vm().unwrap();
+    api_controller.handle_request(VmmAction::Pause).unwrap();
     // Pausing again the microVM should not fail (microVM remains in the
     // `Paused` state).
-    vmm.lock().unwrap().pause_vm().unwrap();
-    vmm.lock().unwrap().resume_vm().unwrap();
+    api_controller.handle_request(VmmAction::Pause).unwrap();
+    api_controller.handle_request(VmmAction::Resume).unwrap();
+
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 }
 
