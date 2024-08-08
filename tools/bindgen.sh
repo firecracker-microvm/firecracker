@@ -4,9 +4,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # ./tools/devtool shell --privileged
-# bindgen-0.60 has a dependency that needs Rust edition 2021
-# cargo +stable install bindgen
+# cargo install bindgen-cli
 # apt update && apt install patch
+# ./tools/bindgen.sh
 
 set -eu
 
@@ -39,7 +39,7 @@ function fc-bindgen {
 )]
 
 EOF
-    bindgen --disable-header-comment --size_t-is-usize --constified-enum '*' --with-derive-default --with-derive-partialeq $@
+    bindgen --no-doc-comments --disable-header-comment --constified-enum '*' --with-derive-default --with-derive-partialeq $@
 }
 
 KERNEL_HEADERS_HOME="/usr"
@@ -89,6 +89,12 @@ fc-bindgen \
     --allowlist-var "VIRTIO_RNG_.*" \
     --allowlist-var "VIRTIO_F_.*" \
     "$KERNEL_HEADERS_HOME/include/linux/virtio_rng.h" >src/vmm/src/devices/virtio/gen/virtio_rng.rs
+
+info "BINDGEN prctl.h"
+fc-bindgen \
+    --allowlist-var "PR_.*" \
+    "$KERNEL_HEADERS_HOME/include/linux/prctl.h" >src/firecracker/src/gen/prctl.rs
+sed -i '/PR_SET_SPECULATION_CTRL/s/u32/i32/g' src/firecracker/src/gen/prctl.rs
 
 # https://www.kernel.org/doc/Documentation/kbuild/headers_install.txt
 # The Linux repo is huge. Just copy what we need.
@@ -147,15 +153,12 @@ fc-bindgen \
     --allowlist-type "io_uring_.+" \
     --allowlist-type "io_.qring_offsets" \
     "amazonlinux-v5.10.y/include/uapi/linux/io_uring.h" \
-    >src/io_uring/src/bindings.rs
+    >src/vmm/src/io_uring/bindings.rs
 
 # Apply any patches
-# src/virtio_gen
-for crate in src/vmm/src/devices/virtio/net/gen/; do
-    for patch in $(dirname $0)/bindgen-patches/$(basename $crate)/*.patch; do
-        echo PATCH $crate/$patch
-        (cd $crate; patch -p1) <$patch
-    done
+info "Apply patches"
+for PATCH in $(dirname $0)/bindgen-patches/*.patch; do
+    patch -p1 <$PATCH
 done
 
 echo "Bindings created correctly! You might want to run ./tools/test_bindings.py to test for ABI incompatibilities"
