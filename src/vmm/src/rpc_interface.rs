@@ -872,33 +872,6 @@ mod tests {
     use crate::vmm_config::vsock::VsockBuilder;
     use crate::HTTP_MAX_PAYLOAD_SIZE;
 
-    impl PartialEq for VmmActionError {
-        fn eq(&self, other: &VmmActionError) -> bool {
-            use VmmActionError::*;
-            matches!(
-                (self, other),
-                (BalloonConfig(_), BalloonConfig(_))
-                    | (BootSource(_), BootSource(_))
-                    | (CreateSnapshot(_), CreateSnapshot(_))
-                    | (DriveConfig(_), DriveConfig(_))
-                    | (InternalVmm(_), InternalVmm(_))
-                    | (LoadSnapshot(_), LoadSnapshot(_))
-                    | (MachineConfig(_), MachineConfig(_))
-                    | (Metrics(_), Metrics(_))
-                    | (Mmds(_), Mmds(_))
-                    | (MmdsLimitExceeded(_), MmdsLimitExceeded(_))
-                    | (MmdsConfig(_), MmdsConfig(_))
-                    | (NetworkConfig(_), NetworkConfig(_))
-                    | (NotSupported(_), NotSupported(_))
-                    | (OperationNotSupportedPostBoot, OperationNotSupportedPostBoot)
-                    | (OperationNotSupportedPreBoot, OperationNotSupportedPreBoot)
-                    | (StartMicrovm(_), StartMicrovm(_))
-                    | (VsockConfig(_), VsockConfig(_))
-                    | (EntropyDevice(_), EntropyDevice(_))
-            )
-        }
-    }
-
     // Mock `VmResources` used for testing.
     #[derive(Debug, Default)]
     pub struct MockVmRes {
@@ -1209,21 +1182,21 @@ mod tests {
         let req = VmmAction::GetVmMachineConfig;
         let expected_cfg = MachineConfig::default();
         check_preboot_request(req, |result, _| {
-            assert_eq!(result, Ok(VmmData::MachineConfiguration(expected_cfg)))
+            assert_eq!(result.unwrap(), VmmData::MachineConfiguration(expected_cfg))
         });
     }
 
     #[test]
     fn test_preboot_get_mmds() {
         check_preboot_request(VmmAction::GetMMDS, |result, _| {
-            assert_eq!(result, Ok(VmmData::MmdsValue(Value::Null)));
+            assert_eq!(result.unwrap(), VmmData::MmdsValue(Value::Null));
         });
     }
 
     #[test]
     fn test_runtime_get_mmds() {
         check_runtime_request(VmmAction::GetMMDS, |result, _| {
-            assert_eq!(result, Ok(VmmData::MmdsValue(Value::Null)));
+            assert_eq!(result.unwrap(), VmmData::MmdsValue(Value::Null));
         });
     }
 
@@ -1235,13 +1208,13 @@ mod tests {
             VmmAction::PutMMDS(Value::String("string".to_string())),
             mmds.clone(),
             |result, _| {
-                assert_eq!(result, Ok(VmmData::Empty));
+                assert_eq!(result.unwrap(), VmmData::Empty);
             },
         );
         check_preboot_request_with_mmds(VmmAction::GetMMDS, mmds.clone(), |result, _| {
             assert_eq!(
-                result,
-                Ok(VmmData::MmdsValue(Value::String("string".to_string())))
+                result.unwrap(),
+                VmmData::MmdsValue(Value::String("string".to_string()))
             );
         });
 
@@ -1257,8 +1230,8 @@ mod tests {
         );
         check_preboot_request_with_mmds(VmmAction::GetMMDS, mmds, |result, _| {
             assert_eq!(
-                result,
-                Ok(VmmData::MmdsValue(Value::String("string".to_string())))
+                result.unwrap(),
+                VmmData::MmdsValue(Value::String("string".to_string()))
             );
         });
     }
@@ -1271,13 +1244,13 @@ mod tests {
             VmmAction::PutMMDS(Value::String("string".to_string())),
             mmds.clone(),
             |result, _| {
-                assert_eq!(result, Ok(VmmData::Empty));
+                assert_eq!(result.unwrap(), VmmData::Empty);
             },
         );
         check_runtime_request_with_mmds(VmmAction::GetMMDS, mmds.clone(), |result, _| {
             assert_eq!(
-                result,
-                Ok(VmmData::MmdsValue(Value::String("string".to_string())))
+                result.unwrap(),
+                VmmData::MmdsValue(Value::String("string".to_string()))
             );
         });
 
@@ -1293,8 +1266,8 @@ mod tests {
         );
         check_runtime_request_with_mmds(VmmAction::GetMMDS, mmds, |result, _| {
             assert_eq!(
-                result,
-                Ok(VmmData::MmdsValue(Value::String("string".to_string())))
+                result.unwrap(),
+                VmmData::MmdsValue(Value::String("string".to_string()))
             );
         });
     }
@@ -1325,15 +1298,15 @@ mod tests {
             ),
             mmds.clone(),
             |result, _| {
-                assert_eq!(result, Ok(VmmData::Empty));
+                assert_eq!(result.unwrap(), VmmData::Empty);
             },
         );
         check_preboot_request_with_mmds(VmmAction::GetMMDS, mmds.clone(), |result, _| {
             assert_eq!(
-                result,
-                Ok(VmmData::MmdsValue(
+                result.unwrap(),
+                VmmData::MmdsValue(
                     serde_json::from_str(r#"{"key1": "value1", "key2": "val2"}"#).unwrap()
-                ))
+                )
             );
         });
 
@@ -1343,16 +1316,14 @@ mod tests {
             ),
             mmds.clone(),
             |result, _| {
-                assert_eq!(result, Ok(VmmData::Empty));
+                assert_eq!(result.unwrap(), VmmData::Empty);
             },
         );
 
         check_preboot_request_with_mmds(VmmAction::GetMMDS, mmds.clone(), |result, _| {
             assert_eq!(
-                result,
-                Ok(VmmData::MmdsValue(
-                    serde_json::from_str(r#"{"key2": "value2"}"#).unwrap()
-                ))
+                result.unwrap(),
+                VmmData::MmdsValue(serde_json::from_str(r#"{"key2": "value2"}"#).unwrap())
             );
         });
 
@@ -1368,10 +1339,8 @@ mod tests {
         );
         check_preboot_request_with_mmds(VmmAction::GetMMDS, mmds, |result, _| {
             assert_eq!(
-                result,
-                Ok(VmmData::MmdsValue(
-                    serde_json::from_str(r#"{"key2": "value2"}"#).unwrap()
-                ))
+                result.unwrap(),
+                VmmData::MmdsValue(serde_json::from_str(r#"{"key2": "value2"}"#).unwrap())
             );
         });
     }
@@ -1402,15 +1371,15 @@ mod tests {
             ),
             mmds.clone(),
             |result, _| {
-                assert_eq!(result, Ok(VmmData::Empty));
+                assert_eq!(result.unwrap(), VmmData::Empty);
             },
         );
         check_runtime_request_with_mmds(VmmAction::GetMMDS, mmds.clone(), |result, _| {
             assert_eq!(
-                result,
-                Ok(VmmData::MmdsValue(
+                result.unwrap(),
+                VmmData::MmdsValue(
                     serde_json::from_str(r#"{"key1": "value1", "key2": "val2"}"#).unwrap()
-                ))
+                )
             );
         });
 
@@ -1420,16 +1389,14 @@ mod tests {
             ),
             mmds.clone(),
             |result, _| {
-                assert_eq!(result, Ok(VmmData::Empty));
+                assert_eq!(result.unwrap(), VmmData::Empty);
             },
         );
 
         check_runtime_request_with_mmds(VmmAction::GetMMDS, mmds.clone(), |result, _| {
             assert_eq!(
-                result,
-                Ok(VmmData::MmdsValue(
-                    serde_json::from_str(r#"{"key2": "value2"}"#).unwrap()
-                ))
+                result.unwrap(),
+                VmmData::MmdsValue(serde_json::from_str(r#"{"key2": "value2"}"#).unwrap())
             );
         });
 
@@ -1445,10 +1412,8 @@ mod tests {
         );
         check_runtime_request_with_mmds(VmmAction::GetMMDS, mmds, |result, _| {
             assert_eq!(
-                result,
-                Ok(VmmData::MmdsValue(
-                    serde_json::from_str(r#"{"key2": "value2"}"#).unwrap()
-                ))
+                result.unwrap(),
+                VmmData::MmdsValue(serde_json::from_str(r#"{"key2": "value2"}"#).unwrap())
             );
         });
     }
@@ -1575,8 +1540,8 @@ mod tests {
         let req = VmmAction::GetVmMachineConfig;
         check_runtime_request(req, |result, _| {
             assert_eq!(
-                result,
-                Ok(VmmData::MachineConfiguration(MachineConfig::default()))
+                result.unwrap(),
+                VmmData::MachineConfiguration(MachineConfig::default())
             );
         });
     }
@@ -1585,7 +1550,7 @@ mod tests {
     fn test_runtime_pause() {
         let req = VmmAction::Pause;
         check_runtime_request(req, |result, vmm| {
-            assert_eq!(result, Ok(VmmData::Empty));
+            assert_eq!(result.unwrap(), VmmData::Empty);
             assert!(vmm.pause_called)
         });
     }
@@ -1594,7 +1559,7 @@ mod tests {
     fn test_runtime_resume() {
         let req = VmmAction::Resume;
         check_runtime_request(req, |result, vmm| {
-            assert_eq!(result, Ok(VmmData::Empty));
+            assert_eq!(result.unwrap(), VmmData::Empty);
             assert!(vmm.resume_called)
         });
     }
@@ -1606,7 +1571,7 @@ mod tests {
             ..Default::default()
         });
         check_runtime_request(req, |result, vmm| {
-            assert_eq!(result, Ok(VmmData::Empty));
+            assert_eq!(result.unwrap(), VmmData::Empty);
             assert!(vmm.update_block_device_path_called)
         });
     }
@@ -1617,7 +1582,7 @@ mod tests {
             ..Default::default()
         });
         check_runtime_request(req, |result, vmm| {
-            assert_eq!(result, Ok(VmmData::Empty));
+            assert_eq!(result.unwrap(), VmmData::Empty);
             assert!(vmm.update_block_device_vhost_user_config_called)
         });
     }
@@ -1630,7 +1595,7 @@ mod tests {
             tx_rate_limiter: None,
         });
         check_runtime_request(req, |result, vmm| {
-            assert_eq!(result, Ok(VmmData::Empty));
+            assert_eq!(result.unwrap(), VmmData::Empty);
             assert!(vmm.update_net_rate_limiters_called)
         });
     }
@@ -1760,11 +1725,11 @@ mod tests {
             resume_vm: false,
         });
         let err = preboot.handle_preboot_request(req);
-        assert_eq!(
-            err,
-            Err(VmmActionError::LoadSnapshot(
-                LoadSnapshotError::LoadSnapshotNotAllowed
-            )),
+        assert!(
+            matches!(
+                err.unwrap_err(),
+                VmmActionError::LoadSnapshot(LoadSnapshotError::LoadSnapshotNotAllowed)
+            ),
             "LoadSnapshot should be disallowed after {}",
             res_name
         );
