@@ -6,9 +6,10 @@ use std::thread;
 use std::time::Duration;
 
 use utils::tempfile::TempFile;
-use vmm::builder::{build_and_boot_microvm, build_microvm_from_snapshot};
+use vmm::builder::build_and_boot_microvm;
 use vmm::persist::{self, snapshot_state_sanity_check, MicrovmState, MicrovmStateError, VmInfo};
 use vmm::resources::VmResources;
+use vmm::rpc_interface::{PrebootApiController, VmmAction};
 use vmm::seccomp_filters::get_empty_filters;
 use vmm::snapshot::Snapshot;
 use vmm::utilities::mock_resources::{MockVmResources, NOISY_KERNEL_IMAGE};
@@ -16,8 +17,9 @@ use vmm::utilities::mock_resources::{MockVmResources, NOISY_KERNEL_IMAGE};
 use vmm::utilities::test_utils::dirty_tracking_vmm;
 use vmm::utilities::test_utils::{create_vmm, default_vmm, default_vmm_no_boot};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
-use vmm::vmm_config::machine_config::HugePageConfig;
-use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
+use vmm::vmm_config::snapshot::{
+    CreateSnapshotParams, LoadSnapshotParams, MemBackendConfig, MemBackendType, SnapshotType,
+};
 use vmm::{DumpCpuConfigError, EventManager, FcExitCode};
 
 #[test]
@@ -222,39 +224,32 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
 }
 
 fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
-    use vmm::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap};
-
     let mut event_manager = EventManager::new().unwrap();
     let empty_seccomp_filters = get_empty_filters();
+    let mut vm_resources = VmResources::default();
 
-    // Deserialize microVM state.
-    let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();
-    let snapshot_len = snapshot_file_metadata.len() as usize;
-    snapshot_file.as_file().seek(SeekFrom::Start(0)).unwrap();
-    let (microvm_state, _) =
-        Snapshot::load::<_, MicrovmState>(&mut snapshot_file.as_file(), snapshot_len).unwrap();
-    let mem = GuestMemoryMmap::from_state(
-        Some(memory_file.as_file()),
-        &microvm_state.memory_state,
-        false,
-        HugePageConfig::None,
-    )
-    .unwrap();
-
-    let vm_resources = &mut VmResources::default();
-
-    // Build microVM from state.
-    let vmm = build_microvm_from_snapshot(
-        &InstanceInfo::default(),
-        &mut event_manager,
-        microvm_state,
-        mem,
-        None,
+    let mut preboot_api_controller = PrebootApiController::new(
         &empty_seccomp_filters,
-        vm_resources,
-    )
-    .unwrap();
-    // For now we're happy we got this far, we don't test what the guest is actually doing.
+        InstanceInfo::default(),
+        &mut vm_resources,
+        &mut event_manager,
+    );
+
+    preboot_api_controller
+        .handle_preboot_request(VmmAction::LoadSnapshot(LoadSnapshotParams {
+            snapshot_path: snapshot_file.as_path().to_path_buf(),
+            mem_backend: MemBackendConfig {
+                backend_path: memory_file.as_path().to_path_buf(),
+                backend_type: MemBackendType::File,
+            },
+            enable_diff_snapshots: false,
+            resume_vm: true,
+        }))
+        .unwrap();
+
+    let vmm = preboot_api_controller.built_vmm.take().unwrap();
+
+    assert_eq!(vmm.lock().unwrap().instance_info.state, VmState::Running);
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 }
 
