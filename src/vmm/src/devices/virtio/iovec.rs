@@ -217,6 +217,8 @@ impl IoVecBuffer {
 /// of data from that buffer.
 #[derive(Debug, Default, Clone)]
 pub struct IoVecBufferMut {
+    // Index of the head desciptor
+    head_index: u16,
     // container of the memory regions included in this IO vector
     vecs: IoVecVec,
     // Total length of the IoVecBufferMut
@@ -234,6 +236,7 @@ impl IoVecBufferMut {
         head: DescriptorChain,
     ) -> Result<(), IoVecError> {
         self.clear();
+        self.head_index = head.index;
 
         let mut next_descriptor = Some(head);
         while let Some(desc) = next_descriptor {
@@ -422,6 +425,7 @@ mod tests {
     impl From<&mut [u8]> for IoVecBufferMut {
         fn from(buf: &mut [u8]) -> Self {
             Self {
+                head_index: 0,
                 vecs: vec![iovec {
                     iov_base: buf.as_mut_ptr().cast::<c_void>(),
                     iov_len: buf.len(),
@@ -733,7 +737,12 @@ mod verification {
             };
 
             let (vecs, len) = create_iovecs(mem, GUEST_MEMORY_SIZE);
-            Self { vecs, len }
+            let head_index = kani::any();
+            Self {
+                head_index,
+                vecs,
+                len,
+            }
         }
     }
 
