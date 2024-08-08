@@ -871,25 +871,18 @@ mod tests {
         PrebootApiController::new(seccomp_filters, instance_info, vm_resources, event_manager)
     }
 
-    fn check_preboot_request<F>(request: VmmAction, check_success: F)
-    where
-        F: FnOnce(Result<VmmData, VmmActionError>, &VmResources),
-    {
+    fn preboot_request(request: VmmAction) -> Result<VmmData, VmmActionError> {
         let mut vm_resources = VmResources::default();
         let mut evmgr = EventManager::new().unwrap();
         let seccomp_filters = BpfThreadMap::new();
         let mut preboot = default_preboot(&mut vm_resources, &mut evmgr, &seccomp_filters);
-        let res = preboot.handle_preboot_request(request);
-        check_success(res, &vm_resources);
+        preboot.handle_preboot_request(request)
     }
 
-    fn check_preboot_request_with_mmds<F>(
+    fn preboot_request_with_mmds(
         request: VmmAction,
         mmds: Arc<Mutex<Mmds>>,
-        check_success: F,
-    ) where
-        F: FnOnce(Result<VmmData, VmmActionError>, &VmResources),
-    {
+    ) -> Result<VmmData, VmmActionError> {
         let mut vm_resources = VmResources {
             mmds: Some(mmds),
             mmds_size_limit: HTTP_MAX_PAYLOAD_SIZE,
@@ -898,254 +891,231 @@ mod tests {
         let mut evmgr = EventManager::new().unwrap();
         let seccomp_filters = BpfThreadMap::new();
         let mut preboot = default_preboot(&mut vm_resources, &mut evmgr, &seccomp_filters);
-        let res = preboot.handle_preboot_request(request);
-        check_success(res, &vm_resources);
+        preboot.handle_preboot_request(request)
     }
 
     #[test]
     fn test_preboot_get_vm_config() {
-        let req = VmmAction::GetVmMachineConfig;
-        let expected_cfg = MachineConfig::default();
-        check_preboot_request(req, |result, _| {
-            assert_eq!(result.unwrap(), VmmData::MachineConfiguration(expected_cfg))
-        });
+        assert_eq!(
+            preboot_request(VmmAction::GetVmMachineConfig).unwrap(),
+            VmmData::MachineConfiguration(MachineConfig::default())
+        );
     }
 
     #[test]
     fn test_preboot_get_mmds() {
-        check_preboot_request(VmmAction::GetMMDS, |result, _| {
-            assert_eq!(result.unwrap(), VmmData::MmdsValue(Value::Null));
-        });
+        assert_eq!(
+            preboot_request(VmmAction::GetMMDS).unwrap(),
+            VmmData::MmdsValue(Value::Null)
+        );
     }
 
     #[test]
     fn test_runtime_get_mmds() {
-        check_runtime_request(VmmAction::GetMMDS, |result, _| {
-            assert_eq!(result.unwrap(), VmmData::MmdsValue(Value::Null));
-        });
+        assert_eq!(
+            runtime_request(VmmAction::GetMMDS).unwrap(),
+            VmmData::MmdsValue(Value::Null)
+        );
     }
 
     #[test]
     fn test_preboot_put_mmds() {
         let mmds = Arc::new(Mutex::new(Mmds::default()));
 
-        check_preboot_request_with_mmds(
-            VmmAction::PutMMDS(Value::String("string".to_string())),
-            mmds.clone(),
-            |result, _| {
-                assert_eq!(result.unwrap(), VmmData::Empty);
-            },
+        assert_eq!(
+            preboot_request_with_mmds(
+                VmmAction::PutMMDS(Value::String("string".to_string())),
+                mmds.clone()
+            )
+            .unwrap(),
+            VmmData::Empty
         );
-        check_preboot_request_with_mmds(VmmAction::GetMMDS, mmds.clone(), |result, _| {
-            assert_eq!(
-                result.unwrap(),
-                VmmData::MmdsValue(Value::String("string".to_string()))
-            );
-        });
+        assert_eq!(
+            preboot_request_with_mmds(VmmAction::GetMMDS, mmds.clone()).unwrap(),
+            VmmData::MmdsValue(Value::String("string".to_string()))
+        );
 
         let filling = (0..51300).map(|_| "X").collect::<String>();
         let data = "{\"key\": \"".to_string() + &filling + "\"}";
 
-        check_preboot_request_with_mmds(
-            VmmAction::PutMMDS(serde_json::from_str(&data).unwrap()),
-            mmds.clone(),
-            |result, _| {
-                assert!(matches!(result, Err(VmmActionError::MmdsLimitExceeded(_))));
-            },
+        assert!(matches!(
+            preboot_request_with_mmds(
+                VmmAction::PutMMDS(serde_json::from_str(&data).unwrap()),
+                mmds.clone()
+            ),
+            Err(VmmActionError::MmdsLimitExceeded(_))
+        ));
+        assert_eq!(
+            preboot_request_with_mmds(VmmAction::GetMMDS, mmds).unwrap(),
+            VmmData::MmdsValue(Value::String("string".to_string()))
         );
-        check_preboot_request_with_mmds(VmmAction::GetMMDS, mmds, |result, _| {
-            assert_eq!(
-                result.unwrap(),
-                VmmData::MmdsValue(Value::String("string".to_string()))
-            );
-        });
     }
 
     #[test]
     fn test_runtime_put_mmds() {
         let mmds = Arc::new(Mutex::new(Mmds::default()));
 
-        check_runtime_request_with_mmds(
-            VmmAction::PutMMDS(Value::String("string".to_string())),
-            mmds.clone(),
-            |result, _| {
-                assert_eq!(result.unwrap(), VmmData::Empty);
-            },
+        assert_eq!(
+            runtime_request_with_mmds(
+                VmmAction::PutMMDS(Value::String("string".to_string())),
+                mmds.clone()
+            )
+            .unwrap(),
+            VmmData::Empty
         );
-        check_runtime_request_with_mmds(VmmAction::GetMMDS, mmds.clone(), |result, _| {
-            assert_eq!(
-                result.unwrap(),
-                VmmData::MmdsValue(Value::String("string".to_string()))
-            );
-        });
+        assert_eq!(
+            runtime_request_with_mmds(VmmAction::GetMMDS, mmds.clone()).unwrap(),
+            VmmData::MmdsValue(Value::String("string".to_string()))
+        );
 
         let filling = (0..51300).map(|_| "X").collect::<String>();
         let data = "{\"key\": \"".to_string() + &filling + "\"}";
 
-        check_runtime_request_with_mmds(
-            VmmAction::PutMMDS(serde_json::from_str(&data).unwrap()),
-            mmds.clone(),
-            |result, _| {
-                assert!(matches!(result, Err(VmmActionError::MmdsLimitExceeded(_))));
-            },
+        assert!(matches!(
+            runtime_request_with_mmds(
+                VmmAction::PutMMDS(serde_json::from_str(&data).unwrap()),
+                mmds.clone()
+            ),
+            Err(VmmActionError::MmdsLimitExceeded(_))
+        ));
+        assert_eq!(
+            runtime_request_with_mmds(VmmAction::GetMMDS, mmds).unwrap(),
+            VmmData::MmdsValue(Value::String("string".to_string()))
         );
-        check_runtime_request_with_mmds(VmmAction::GetMMDS, mmds, |result, _| {
-            assert_eq!(
-                result.unwrap(),
-                VmmData::MmdsValue(Value::String("string".to_string()))
-            );
-        });
     }
 
     #[test]
     fn test_preboot_patch_mmds() {
         let mmds = Arc::new(Mutex::new(Mmds::default()));
         // MMDS data store is not yet initialized.
-        check_preboot_request(
-            VmmAction::PatchMMDS(Value::String("string".to_string())),
-            |res, _| {
-                assert!(
-                    matches!(
-                        res,
-                        Err(VmmActionError::Mmds(
-                            data_store::MmdsDatastoreError::NotInitialized
-                        ))
-                    ),
-                    "{:?}",
-                    res
-                )
-            },
-        );
-
-        check_preboot_request_with_mmds(
-            VmmAction::PutMMDS(
-                serde_json::from_str(r#"{"key1": "value1", "key2": "val2"}"#).unwrap(),
+        let res = preboot_request(VmmAction::PatchMMDS(Value::String("string".to_string())));
+        assert!(
+            matches!(
+                res,
+                Err(VmmActionError::Mmds(
+                    data_store::MmdsDatastoreError::NotInitialized
+                ))
             ),
-            mmds.clone(),
-            |result, _| {
-                assert_eq!(result.unwrap(), VmmData::Empty);
-            },
-        );
-        check_preboot_request_with_mmds(VmmAction::GetMMDS, mmds.clone(), |result, _| {
-            assert_eq!(
-                result.unwrap(),
-                VmmData::MmdsValue(
-                    serde_json::from_str(r#"{"key1": "value1", "key2": "val2"}"#).unwrap()
-                )
-            );
-        });
-
-        check_preboot_request_with_mmds(
-            VmmAction::PatchMMDS(
-                serde_json::from_str(r#"{"key1": null, "key2": "value2"}"#).unwrap(),
-            ),
-            mmds.clone(),
-            |result, _| {
-                assert_eq!(result.unwrap(), VmmData::Empty);
-            },
+            "{:?}",
+            res
         );
 
-        check_preboot_request_with_mmds(VmmAction::GetMMDS, mmds.clone(), |result, _| {
-            assert_eq!(
-                result.unwrap(),
-                VmmData::MmdsValue(serde_json::from_str(r#"{"key2": "value2"}"#).unwrap())
-            );
-        });
+        assert_eq!(
+            preboot_request_with_mmds(
+                VmmAction::PutMMDS(
+                    serde_json::from_str(r#"{"key1": "value1", "key2": "val2"}"#).unwrap(),
+                ),
+                mmds.clone()
+            )
+            .unwrap(),
+            VmmData::Empty
+        );
+        assert_eq!(
+            preboot_request_with_mmds(VmmAction::GetMMDS, mmds.clone()).unwrap(),
+            VmmData::MmdsValue(
+                serde_json::from_str(r#"{"key1": "value1", "key2": "val2"}"#).unwrap()
+            )
+        );
+
+        assert_eq!(
+            preboot_request_with_mmds(
+                VmmAction::PatchMMDS(
+                    serde_json::from_str(r#"{"key1": null, "key2": "value2"}"#).unwrap(),
+                ),
+                mmds.clone()
+            )
+            .unwrap(),
+            VmmData::Empty
+        );
+
+        assert_eq!(
+            preboot_request_with_mmds(VmmAction::GetMMDS, mmds.clone()).unwrap(),
+            VmmData::MmdsValue(serde_json::from_str(r#"{"key2": "value2"}"#).unwrap())
+        );
 
         let filling = (0..HTTP_MAX_PAYLOAD_SIZE).map(|_| "X").collect::<String>();
         let data = "{\"key\": \"".to_string() + &filling + "\"}";
 
-        check_preboot_request_with_mmds(
-            VmmAction::PatchMMDS(serde_json::from_str(&data).unwrap()),
-            mmds.clone(),
-            |result, _| {
-                assert!(matches!(result, Err(VmmActionError::MmdsLimitExceeded(_))));
-            },
+        assert!(matches!(
+            preboot_request_with_mmds(
+                VmmAction::PatchMMDS(serde_json::from_str(&data).unwrap()),
+                mmds.clone()
+            ),
+            Err(VmmActionError::MmdsLimitExceeded(_))
+        ));
+        assert_eq!(
+            preboot_request_with_mmds(VmmAction::GetMMDS, mmds).unwrap(),
+            VmmData::MmdsValue(serde_json::from_str(r#"{"key2": "value2"}"#).unwrap())
         );
-        check_preboot_request_with_mmds(VmmAction::GetMMDS, mmds, |result, _| {
-            assert_eq!(
-                result.unwrap(),
-                VmmData::MmdsValue(serde_json::from_str(r#"{"key2": "value2"}"#).unwrap())
-            );
-        });
     }
 
     #[test]
     fn test_runtime_patch_mmds() {
         let mmds = Arc::new(Mutex::new(Mmds::default()));
         // MMDS data store is not yet initialized.
-        check_runtime_request(
-            VmmAction::PatchMMDS(Value::String("string".to_string())),
-            |res, _| {
-                assert!(
-                    matches!(
-                        res,
-                        Err(VmmActionError::Mmds(
-                            data_store::MmdsDatastoreError::NotInitialized
-                        ))
-                    ),
-                    "{:?}",
-                    res
-                )
-            },
-        );
-
-        check_runtime_request_with_mmds(
-            VmmAction::PutMMDS(
-                serde_json::from_str(r#"{"key1": "value1", "key2": "val2"}"#).unwrap(),
+        let res = runtime_request(VmmAction::PatchMMDS(Value::String("string".to_string())));
+        assert!(
+            matches!(
+                res,
+                Err(VmmActionError::Mmds(
+                    data_store::MmdsDatastoreError::NotInitialized
+                ))
             ),
-            mmds.clone(),
-            |result, _| {
-                assert_eq!(result.unwrap(), VmmData::Empty);
-            },
-        );
-        check_runtime_request_with_mmds(VmmAction::GetMMDS, mmds.clone(), |result, _| {
-            assert_eq!(
-                result.unwrap(),
-                VmmData::MmdsValue(
-                    serde_json::from_str(r#"{"key1": "value1", "key2": "val2"}"#).unwrap()
-                )
-            );
-        });
-
-        check_runtime_request_with_mmds(
-            VmmAction::PatchMMDS(
-                serde_json::from_str(r#"{"key1": null, "key2": "value2"}"#).unwrap(),
-            ),
-            mmds.clone(),
-            |result, _| {
-                assert_eq!(result.unwrap(), VmmData::Empty);
-            },
+            "{:?}",
+            res
         );
 
-        check_runtime_request_with_mmds(VmmAction::GetMMDS, mmds.clone(), |result, _| {
-            assert_eq!(
-                result.unwrap(),
-                VmmData::MmdsValue(serde_json::from_str(r#"{"key2": "value2"}"#).unwrap())
-            );
-        });
+        assert_eq!(
+            runtime_request_with_mmds(
+                VmmAction::PutMMDS(
+                    serde_json::from_str(r#"{"key1": "value1", "key2": "val2"}"#).unwrap(),
+                ),
+                mmds.clone()
+            )
+            .unwrap(),
+            VmmData::Empty
+        );
+        assert_eq!(
+            runtime_request_with_mmds(VmmAction::GetMMDS, mmds.clone()).unwrap(),
+            VmmData::MmdsValue(
+                serde_json::from_str(r#"{"key1": "value1", "key2": "val2"}"#).unwrap()
+            )
+        );
+        assert_eq!(
+            runtime_request_with_mmds(
+                VmmAction::PatchMMDS(
+                    serde_json::from_str(r#"{"key1": null, "key2": "value2"}"#).unwrap(),
+                ),
+                mmds.clone()
+            )
+            .unwrap(),
+            VmmData::Empty
+        );
+
+        assert_eq!(
+            runtime_request_with_mmds(VmmAction::GetMMDS, mmds.clone()).unwrap(),
+            VmmData::MmdsValue(serde_json::from_str(r#"{"key2": "value2"}"#).unwrap())
+        );
 
         let filling = (0..HTTP_MAX_PAYLOAD_SIZE).map(|_| "X").collect::<String>();
         let data = "{\"key\": \"".to_string() + &filling + "\"}";
 
-        check_runtime_request_with_mmds(
-            VmmAction::PatchMMDS(serde_json::from_str(&data).unwrap()),
-            mmds.clone(),
-            |result, _| {
-                assert!(matches!(result, Err(VmmActionError::MmdsLimitExceeded(_))));
-            },
+        assert!(matches!(
+            runtime_request_with_mmds(
+                VmmAction::PatchMMDS(serde_json::from_str(&data).unwrap()),
+                mmds.clone()
+            ),
+            Err(VmmActionError::MmdsLimitExceeded(_))
+        ));
+        assert_eq!(
+            runtime_request_with_mmds(VmmAction::GetMMDS, mmds).unwrap(),
+            VmmData::MmdsValue(serde_json::from_str(r#"{"key2": "value2"}"#).unwrap())
         );
-        check_runtime_request_with_mmds(VmmAction::GetMMDS, mmds, |result, _| {
-            assert_eq!(
-                result.unwrap(),
-                VmmData::MmdsValue(serde_json::from_str(r#"{"key2": "value2"}"#).unwrap())
-            );
-        });
     }
 
     #[test]
     fn test_preboot_disallowed() {
-        fn check_unsupported(res: Result<VmmData, VmmActionError>, _: &VmResources) {
+        fn check_unsupported(res: Result<VmmData, VmmActionError>) {
             assert!(
                 matches!(res, Err(VmmActionError::OperationNotSupportedPreBoot)),
                 "{:?}",
@@ -1153,85 +1123,69 @@ mod tests {
             );
         }
 
-        check_preboot_request(VmmAction::FlushMetrics, check_unsupported);
-        check_preboot_request(VmmAction::Pause, check_unsupported);
-        check_preboot_request(VmmAction::Resume, check_unsupported);
-        check_preboot_request(VmmAction::GetBalloonStats, check_unsupported);
-        check_preboot_request(
-            VmmAction::UpdateBalloon(BalloonUpdateConfig { amount_mib: 0 }),
-            check_unsupported,
-        );
-        check_preboot_request(
-            VmmAction::UpdateBalloonStatistics(BalloonUpdateStatsConfig {
+        check_unsupported(preboot_request(VmmAction::FlushMetrics));
+        check_unsupported(preboot_request(VmmAction::Pause));
+        check_unsupported(preboot_request(VmmAction::Resume));
+        check_unsupported(preboot_request(VmmAction::GetBalloonStats));
+        check_unsupported(preboot_request(VmmAction::UpdateBalloon(
+            BalloonUpdateConfig { amount_mib: 0 },
+        )));
+        check_unsupported(preboot_request(VmmAction::UpdateBalloonStatistics(
+            BalloonUpdateStatsConfig {
                 stats_polling_interval_s: 0,
-            }),
-            check_unsupported,
-        );
-        check_preboot_request(
-            VmmAction::UpdateBlockDevice(BlockDeviceUpdateConfig::default()),
-            check_unsupported,
-        );
-        check_preboot_request(
-            VmmAction::UpdateNetworkInterface(NetworkInterfaceUpdateConfig {
+            },
+        )));
+        check_unsupported(preboot_request(VmmAction::UpdateBlockDevice(
+            BlockDeviceUpdateConfig::default(),
+        )));
+        check_unsupported(preboot_request(VmmAction::UpdateNetworkInterface(
+            NetworkInterfaceUpdateConfig {
                 iface_id: String::new(),
                 rx_rate_limiter: None,
                 tx_rate_limiter: None,
-            }),
-            check_unsupported,
-        );
-        check_preboot_request(
-            VmmAction::CreateSnapshot(CreateSnapshotParams {
+            },
+        )));
+        check_unsupported(preboot_request(VmmAction::CreateSnapshot(
+            CreateSnapshotParams {
                 snapshot_type: SnapshotType::Full,
                 snapshot_path: PathBuf::new(),
                 mem_file_path: PathBuf::new(),
-            }),
-            check_unsupported,
-        );
+            },
+        )));
         #[cfg(target_arch = "x86_64")]
-        check_preboot_request(VmmAction::SendCtrlAltDel, check_unsupported);
+        check_unsupported(preboot_request(VmmAction::SendCtrlAltDel));
     }
 
-    fn check_runtime_request<F>(request: VmmAction, check_success: F)
-    where
-        F: FnOnce(Result<VmmData, VmmActionError>, &Vmm),
-    {
+    fn runtime_request(request: VmmAction) -> Result<VmmData, VmmActionError> {
         let vmm = Arc::new(Mutex::new(default_vmm()));
         let mut runtime = RuntimeApiController::new(VmResources::default(), vmm.clone());
-        let res = runtime.handle_request(request);
-        check_success(res, &vmm.lock().unwrap());
+        runtime.handle_request(request)
     }
 
-    fn check_runtime_request_with_mmds<F>(
+    fn runtime_request_with_mmds(
         request: VmmAction,
         mmds: Arc<Mutex<Mmds>>,
-        check_success: F,
-    ) where
-        F: FnOnce(Result<VmmData, VmmActionError>, &Vmm),
-    {
+    ) -> Result<VmmData, VmmActionError> {
         let vm_res = VmResources {
             mmds: Some(mmds),
             ..Default::default()
         };
         let vmm = Arc::new(Mutex::new(default_vmm()));
         let mut runtime = RuntimeApiController::new(vm_res, vmm.clone());
-        let res = runtime.handle_request(request);
-        check_success(res, &vmm.lock().unwrap());
+        runtime.handle_request(request)
     }
 
     #[test]
     fn test_runtime_get_vm_config() {
-        let req = VmmAction::GetVmMachineConfig;
-        check_runtime_request(req, |result, _| {
-            assert_eq!(
-                result.unwrap(),
-                VmmData::MachineConfiguration(MachineConfig::default())
-            );
-        });
+        assert_eq!(
+            runtime_request(VmmAction::GetVmMachineConfig).unwrap(),
+            VmmData::MachineConfiguration(MachineConfig::default())
+        );
     }
 
     #[test]
     fn test_runtime_disallowed() {
-        fn check_unsupported(res: Result<VmmData, VmmActionError>, _: &Vmm) {
+        fn check_unsupported(res: Result<VmmData, VmmActionError>) {
             assert!(
                 matches!(res, Err(VmmActionError::OperationNotSupportedPostBoot)),
                 "{:?}",
@@ -1239,28 +1193,23 @@ mod tests {
             );
         }
 
-        check_runtime_request(
-            VmmAction::ConfigureBootSource(BootSourceConfig::default()),
-            check_unsupported,
-        );
-        check_runtime_request(
-            VmmAction::ConfigureLogger(LoggerConfig {
-                log_path: Some(PathBuf::new()),
-                level: Some(crate::logger::LevelFilter::Debug),
-                show_level: Some(false),
-                show_log_origin: Some(false),
-                module: None,
-            }),
-            check_unsupported,
-        );
-        check_runtime_request(
-            VmmAction::ConfigureMetrics(MetricsConfig {
+        check_unsupported(runtime_request(VmmAction::ConfigureBootSource(
+            BootSourceConfig::default(),
+        )));
+        check_unsupported(runtime_request(VmmAction::ConfigureLogger(LoggerConfig {
+            log_path: Some(PathBuf::new()),
+            level: Some(crate::logger::LevelFilter::Debug),
+            show_level: Some(false),
+            show_log_origin: Some(false),
+            module: None,
+        })));
+        check_unsupported(runtime_request(VmmAction::ConfigureMetrics(
+            MetricsConfig {
                 metrics_path: PathBuf::new(),
-            }),
-            check_unsupported,
-        );
-        check_runtime_request(
-            VmmAction::InsertBlockDevice(BlockDeviceConfig {
+            },
+        )));
+        check_unsupported(runtime_request(VmmAction::InsertBlockDevice(
+            BlockDeviceConfig {
                 drive_id: String::new(),
                 partuuid: None,
                 is_root_device: false,
@@ -1272,53 +1221,46 @@ mod tests {
                 file_engine_type: None,
 
                 socket: None,
-            }),
-            check_unsupported,
-        );
-        check_runtime_request(
-            VmmAction::InsertNetworkDevice(NetworkInterfaceConfig {
+            },
+        )));
+        check_unsupported(runtime_request(VmmAction::InsertNetworkDevice(
+            NetworkInterfaceConfig {
                 iface_id: String::new(),
                 host_dev_name: String::new(),
                 guest_mac: None,
                 rx_rate_limiter: None,
                 tx_rate_limiter: None,
-            }),
-            check_unsupported,
-        );
-        check_runtime_request(
-            VmmAction::SetVsockDevice(VsockDeviceConfig {
+            },
+        )));
+        check_unsupported(runtime_request(VmmAction::SetVsockDevice(
+            VsockDeviceConfig {
                 vsock_id: Some(String::new()),
                 guest_cid: 0,
                 uds_path: String::new(),
-            }),
-            check_unsupported,
-        );
-        check_runtime_request(
-            VmmAction::SetBalloonDevice(BalloonDeviceConfig::default()),
-            check_unsupported,
-        );
-        check_runtime_request(
-            VmmAction::SetVsockDevice(VsockDeviceConfig {
+            },
+        )));
+        check_unsupported(runtime_request(VmmAction::SetBalloonDevice(
+            BalloonDeviceConfig::default(),
+        )));
+        check_unsupported(runtime_request(VmmAction::SetVsockDevice(
+            VsockDeviceConfig {
                 vsock_id: Some(String::new()),
                 guest_cid: 0,
                 uds_path: String::new(),
-            }),
-            check_unsupported,
-        );
-        check_runtime_request(
-            VmmAction::SetMmdsConfiguration(MmdsConfig {
+            },
+        )));
+        check_unsupported(runtime_request(VmmAction::SetMmdsConfiguration(
+            MmdsConfig {
                 ipv4_address: None,
                 version: MmdsVersion::default(),
                 network_interfaces: Vec::new(),
-            }),
-            check_unsupported,
-        );
-        check_runtime_request(
-            VmmAction::UpdateVmConfiguration(MachineConfigUpdate::from(MachineConfig::default())),
-            check_unsupported,
-        );
-        check_runtime_request(
-            VmmAction::LoadSnapshot(LoadSnapshotParams {
+            },
+        )));
+        check_unsupported(runtime_request(VmmAction::UpdateVmConfiguration(
+            MachineConfigUpdate::from(MachineConfig::default()),
+        )));
+        check_unsupported(runtime_request(VmmAction::LoadSnapshot(
+            LoadSnapshotParams {
                 snapshot_path: PathBuf::new(),
                 mem_backend: MemBackendConfig {
                     backend_type: MemBackendType::File,
@@ -1326,12 +1268,10 @@ mod tests {
                 },
                 enable_diff_snapshots: false,
                 resume_vm: false,
-            }),
-            check_unsupported,
-        );
-        check_runtime_request(
-            VmmAction::SetEntropyDevice(EntropyDeviceConfig::default()),
-            check_unsupported,
-        );
+            },
+        )));
+        check_unsupported(runtime_request(VmmAction::SetEntropyDevice(
+            EntropyDeviceConfig::default(),
+        )));
     }
 }
