@@ -491,9 +491,7 @@ impl Net {
                 // SAFETY:
                 // This should never panic as we provide index in
                 // correct bounds.
-                let mut used_element = self.queues[RX_INDEX]
-                    .read_used_ring(mem, next_used_index)
-                    .unwrap();
+                let mut used_element = self.queues[RX_INDEX].read_used_ring(mem, next_used_index);
                 used_element.len = 0;
                 self.queues[RX_INDEX]
                     .write_used_ring(mem, next_used_index, used_element)
