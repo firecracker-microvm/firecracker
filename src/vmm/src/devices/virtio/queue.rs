@@ -391,13 +391,21 @@ impl Queue {
         &mut self,
         mem: &'b M,
     ) -> Option<DescriptorChain<'b, M>> {
+        self.get_desc_chain(self.next_avail.0, mem).map(|dc| {
+            self.next_avail += Wrapping(1);
+            dc
+        })
+    }
+
+    /// Get descriptor chain from the avail ring at the specified index.
+    pub fn get_desc_chain<'b, M: GuestMemory>(
+        &self,
+        avail_idx: u16,
+        mem: &'b M,
+    ) -> Option<DescriptorChain<'b, M>> {
         // This fence ensures all subsequent reads see the updated driver writes.
         fence(Ordering::Acquire);
 
-        // We'll need to find the first available descriptor, that we haven't yet popped.
-        // In a naive notation, that would be:
-        // `descriptor_table[avail_ring[next_avail]]`.
-        //
         // Avail ring has layout:
         // struct AvailRing {
         //     flags: u16,
@@ -408,20 +416,17 @@ impl Queue {
         // We calculate offset into `ring` field.
         let desc_index_offset = std::mem::size_of::<u16>()
             + std::mem::size_of::<u16>()
-            + std::mem::size_of::<u16>() * usize::from(self.next_avail.0 % self.actual_size());
-        let desc_index_address = self.avail_ring.unchecked_add(usize_to_u64(desc_index_offset));
+            + std::mem::size_of::<u16>() * usize::from(avail_idx % self.actual_size());
+        let desc_index_address = self
+            .avail_ring
+            .unchecked_add(usize_to_u64(desc_index_offset));
 
-        // `self.is_valid()` already performed all the bound checks on the descriptor table
-        // and virtq rings, so it's safe to unwrap guest memory reads and to use unchecked
-        // offsets.
+        // SAFETY:
+        // `desc_index_address` param is bounded by size of the queue as `avail_idx` is
+        // modded by `actual_size()`.
         let desc_index: u16 = mem.read_obj(desc_index_address).unwrap();
 
-        DescriptorChain::checked_new(mem, self.desc_table, self.actual_size(), desc_index).map(
-            |dc| {
-                self.next_avail += Wrapping(1);
-                dc
-            },
-        )
+        DescriptorChain::checked_new(mem, self.desc_table, self.actual_size(), desc_index)
     }
 
     /// Undo the effects of the last `self.pop()` call.
