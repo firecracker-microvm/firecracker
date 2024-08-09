@@ -402,33 +402,28 @@ impl Queue {
         // In a naive notation, that would be:
         // `descriptor_table[avail_ring[next_avail]]`.
         //
-        // First, we compute the byte-offset (into `self.avail_ring`) of the index of the next
-        // available descriptor. `self.avail_ring` stores the address of a `struct
-        // virtq_avail`, as defined by the VirtIO spec:
-        //
-        // ```C
-        // struct virtq_avail {
-        //   le16 flags;
-        //   le16 idx;
-        //   le16 ring[QUEUE_SIZE];
-        //   le16 used_event
+        // Avail ring has layout:
+        // struct AvailRing {
+        //     flags: u16,
+        //     idx: u16,
+        //     ring: [u16; <queue size>],
+        //     used_event: u16,
         // }
-        // ```
-        //
-        // We use `self.next_avail` to store the position, in `ring`, of the next available
-        // descriptor index, with a twist: we always only increment `self.next_avail`, so the
-        // actual position will be `self.next_avail % self.actual_size()`.
-        // We are now looking for the offset of `ring[self.next_avail % self.actual_size()]`.
-        // `ring` starts after `flags` and `idx` (4 bytes into `struct virtq_avail`), and holds
-        // 2-byte items, so the offset will be:
-        let index_offset = 4 + 2 * (self.next_avail.0 % self.actual_size());
+        // We calculate offset into `ring` field.
+        // We use `self.next_avail` to store the position, of the next available descriptor
+        // index in the `ring` field. Because `self.next_avail` is only incremented, the actual
+        // index into `AvailRing` is `self.next_avail % self.actual_size()`.
+        let desc_index_offset = std::mem::size_of::<u16>()
+            + std::mem::size_of::<u16>()
+            + std::mem::size_of::<u16>() * usize::from(self.next_avail.0 % self.actual_size());
+        let desc_index_address = self
+            .avail_ring
+            .unchecked_add(usize_to_u64(desc_index_offset));
 
         // `self.is_valid()` already performed all the bound checks on the descriptor table
         // and virtq rings, so it's safe to unwrap guest memory reads and to use unchecked
         // offsets.
-        let desc_index: u16 = mem
-            .read_obj(self.avail_ring.unchecked_add(u64::from(index_offset)))
-            .unwrap();
+        let desc_index: u16 = mem.read_obj(desc_index_address).unwrap();
 
         DescriptorChain::checked_new(mem, self.desc_table, self.actual_size(), desc_index).map(
             |dc| {
