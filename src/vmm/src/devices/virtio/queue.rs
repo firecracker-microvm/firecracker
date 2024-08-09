@@ -59,10 +59,10 @@ unsafe impl ByteValued for Descriptor {}
 /// https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html#x1-430008
 /// 2.6.8 The Virtqueue Used Ring
 #[repr(C)]
-#[derive(Default, Clone, Copy)]
-struct UsedElement {
-    id: u32,
-    len: u32,
+#[derive(Default, Debug, Clone, Copy)]
+pub struct UsedElement {
+    pub id: u32,
+    pub len: u32,
 }
 
 // SAFETY: `UsedElement` is a POD and contains no padding.
@@ -96,7 +96,7 @@ pub struct DescriptorChain<'a, M: GuestMemory = GuestMemoryMmap> {
 }
 
 impl<'a, M: GuestMemory> DescriptorChain<'a, M> {
-    fn checked_new(
+    pub fn checked_new(
         mem: &'a M,
         desc_table: GuestAddress,
         queue_size: u16,
@@ -387,51 +387,46 @@ impl Queue {
     /// # Important
     /// This is an internal method that ASSUMES THAT THERE ARE AVAILABLE DESCRIPTORS. Otherwise it
     /// will retrieve a descriptor that contains garbage data (obsolete/empty).
-    fn do_pop_unchecked<'b, M: GuestMemory>(
+    pub fn do_pop_unchecked<'b, M: GuestMemory>(
         &mut self,
+        mem: &'b M,
+    ) -> Option<DescriptorChain<'b, M>> {
+        self.get_desc_chain(self.next_avail.0, mem).map(|dc| {
+            self.next_avail += Wrapping(1);
+            dc
+        })
+    }
+
+    /// Get descriptor chain from the avail ring at the specified index.
+    pub fn get_desc_chain<'b, M: GuestMemory>(
+        &self,
+        avail_idx: u16,
         mem: &'b M,
     ) -> Option<DescriptorChain<'b, M>> {
         // This fence ensures all subsequent reads see the updated driver writes.
         fence(Ordering::Acquire);
 
-        // We'll need to find the first available descriptor, that we haven't yet popped.
-        // In a naive notation, that would be:
-        // `descriptor_table[avail_ring[next_avail]]`.
-        //
-        // First, we compute the byte-offset (into `self.avail_ring`) of the index of the next
-        // available descriptor. `self.avail_ring` stores the address of a `struct
-        // virtq_avail`, as defined by the VirtIO spec:
-        //
-        // ```C
-        // struct virtq_avail {
-        //   le16 flags;
-        //   le16 idx;
-        //   le16 ring[QUEUE_SIZE];
-        //   le16 used_event
+        // Avail ring has layout:
+        // struct AvailRing {
+        //     flags: u16,
+        //     idx: u16,
+        //     ring: [u16; <queue size>],
+        //     used_event: u16,
         // }
-        // ```
-        //
-        // We use `self.next_avail` to store the position, in `ring`, of the next available
-        // descriptor index, with a twist: we always only increment `self.next_avail`, so the
-        // actual position will be `self.next_avail % self.actual_size()`.
-        // We are now looking for the offset of `ring[self.next_avail % self.actual_size()]`.
-        // `ring` starts after `flags` and `idx` (4 bytes into `struct virtq_avail`), and holds
-        // 2-byte items, so the offset will be:
-        let index_offset = 4 + 2 * (self.next_avail.0 % self.actual_size());
+        // We calculate offset into `ring` field.
+        let desc_index_offset = std::mem::size_of::<u16>()
+            + std::mem::size_of::<u16>()
+            + std::mem::size_of::<u16>() * usize::from(avail_idx % self.actual_size());
+        let desc_index_address = self
+            .avail_ring
+            .unchecked_add(usize_to_u64(desc_index_offset));
 
-        // `self.is_valid()` already performed all the bound checks on the descriptor table
-        // and virtq rings, so it's safe to unwrap guest memory reads and to use unchecked
-        // offsets.
-        let desc_index: u16 = mem
-            .read_obj(self.avail_ring.unchecked_add(u64::from(index_offset)))
-            .unwrap();
+        // SAFETY:
+        // `desc_index_address` param is bounded by size of the queue as `avail_idx` is
+        // modded by `actual_size()`.
+        let desc_index: u16 = mem.read_obj(desc_index_address).unwrap();
 
-        DescriptorChain::checked_new(mem, self.desc_table, self.actual_size(), desc_index).map(
-            |dc| {
-                self.next_avail += Wrapping(1);
-                dc
-            },
-        )
+        DescriptorChain::checked_new(mem, self.desc_table, self.actual_size(), desc_index)
     }
 
     /// Undo the effects of the last `self.pop()` call.
@@ -449,24 +444,51 @@ impl Queue {
     ) -> Result<(), QueueError> {
         debug_assert!(self.is_layout_valid(mem));
 
-        let next_used = self.next_used.0 % self.actual_size();
         let used_element = UsedElement {
             id: u32::from(desc_index),
             len,
         };
-        self.write_used_ring(mem, next_used, used_element)?;
+        self.write_used_ring(mem, self.next_used.0, used_element)?;
+        self.advance_used_ring(mem, 1);
+        Ok(())
+    }
 
-        self.num_added += Wrapping(1);
-        self.next_used += Wrapping(1);
+    /// Advance number of used descriptor heads by `n`.
+    pub fn advance_used_ring<M: GuestMemory>(&mut self, mem: &M, n: u16) {
+        self.num_added += Wrapping(n);
+        self.next_used += Wrapping(n);
 
         // This fence ensures all descriptor writes are visible before the index update is.
         fence(Ordering::Release);
 
         self.set_used_ring_idx(self.next_used.0, mem);
-        Ok(())
     }
 
-    fn write_used_ring<M: GuestMemory>(
+    /// Read used element from a used ring at specified index.
+    #[inline(always)]
+    pub fn read_used_ring<M: GuestMemory>(&self, mem: &M, index: u16) -> UsedElement {
+        // Used ring has layout:
+        // struct UsedRing {
+        //     flags: u16,
+        //     idx: u16,
+        //     ring: [UsedElement; <queue size>],
+        //     avail_event: u16,
+        // }
+        // We calculate offset into `ring` field.
+        let used_ring_offset = std::mem::size_of::<u16>()
+            + std::mem::size_of::<u16>()
+            + std::mem::size_of::<UsedElement>() * usize::from(index % self.actual_size());
+        let used_element_address = self.used_ring.unchecked_add(usize_to_u64(used_ring_offset));
+
+        // SAFETY:
+        // `used_element_address` param is bounded by size of the queue as `index` is
+        // modded by `actual_size()`.
+        mem.read_obj(used_element_address).unwrap()
+    }
+
+    /// Read used element to the used ring at specified index.
+    #[inline(always)]
+    pub fn write_used_ring<M: GuestMemory>(
         &self,
         mem: &M,
         index: u16,
@@ -490,11 +512,14 @@ impl Queue {
         // We calculate offset into `ring` field.
         let used_ring_offset = std::mem::size_of::<u16>()
             + std::mem::size_of::<u16>()
-            + std::mem::size_of::<UsedElement>() * usize::from(index);
+            + std::mem::size_of::<UsedElement>() * usize::from(index % self.actual_size());
         let used_element_address = self.used_ring.unchecked_add(usize_to_u64(used_ring_offset));
 
-        mem.write_obj(used_element, used_element_address)
-            .map_err(QueueError::UsedRing)
+        // SAFETY:
+        // `used_element_address` param is bounded by size of the queue as `index` is
+        // modded by `actual_size()`.
+        mem.write_obj(used_element, used_element_address).unwrap();
+        Ok(())
     }
 
     /// Fetch the available ring index (`virtq_avail->idx`) from guest memory.
@@ -525,7 +550,7 @@ impl Queue {
 
     /// Helper method that writes to the `avail_event` field of the used ring.
     #[inline(always)]
-    fn set_used_ring_avail_event<M: GuestMemory>(&mut self, avail_event: u16, mem: &M) {
+    pub fn set_used_ring_avail_event<M: GuestMemory>(&mut self, avail_event: u16, mem: &M) {
         debug_assert!(self.is_layout_valid(mem));
 
         // Used ring has layout:
@@ -548,7 +573,7 @@ impl Queue {
 
     /// Helper method that writes to the `idx` field of the used ring.
     #[inline(always)]
-    fn set_used_ring_idx<M: GuestMemory>(&mut self, next_used: u16, mem: &M) {
+    pub fn set_used_ring_idx<M: GuestMemory>(&mut self, next_used: u16, mem: &M) {
         debug_assert!(self.is_layout_valid(mem));
 
         // Used ring has layout:
