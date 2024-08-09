@@ -448,12 +448,11 @@ impl Queue {
     ) -> Result<(), QueueError> {
         debug_assert!(self.is_layout_valid(mem));
 
-        let next_used = self.next_used.0 % self.actual_size();
         let used_element = UsedElement {
             id: u32::from(desc_index),
             len,
         };
-        self.write_used_ring(mem, next_used, used_element)?;
+        self.write_used_ring(mem, self.next_used.0, used_element)?;
         self.advance_used_ring(mem, 1);
         Ok(())
     }
@@ -493,11 +492,17 @@ impl Queue {
         // We calculate offset into `ring` field.
         let used_ring_offset = std::mem::size_of::<u16>()
             + std::mem::size_of::<u16>()
-            + std::mem::size_of::<UsedElement>() * usize::from(index);
+            + std::mem::size_of::<UsedElement>() * usize::from(index % self.actual_size());
         let used_element_address = self.used_ring.unchecked_add(usize_to_u64(used_ring_offset));
 
-        mem.write_obj(used_element, used_element_address)
-            .map_err(QueueError::UsedRing)
+        // SAFETY:
+        // `used_element_address` param is bounded by size of the queue as `index` is
+        // modded by `actual_size()`.
+        // `self.is_valid()` already performed all the bound checks on the descriptor table
+        // and virtq rings, so it's safe to unwrap guest memory reads and to use unchecked
+        // offsets.
+        mem.write_obj(used_element, used_element_address).unwrap();
+        Ok(())
     }
 
     /// Fetch the available ring index (`virtq_avail->idx`) from guest memory.
