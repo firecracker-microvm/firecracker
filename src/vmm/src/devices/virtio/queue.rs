@@ -450,15 +450,19 @@ impl Queue {
             len,
         };
         self.write_used_ring(mem, next_used, used_element)?;
+        self.advance_used_ring(mem, 1);
+        Ok(())
+    }
 
-        self.num_added += Wrapping(1);
-        self.next_used += Wrapping(1);
+    /// Advance number of used descriptor heads by `n`.
+    pub fn advance_used_ring<M: GuestMemory>(&mut self, mem: &M, n: u16) {
+        self.num_added += Wrapping(n);
+        self.next_used += Wrapping(n);
 
         // This fence ensures all descriptor writes are visible before the index update is.
         fence(Ordering::Release);
 
         self.set_used_ring_idx(self.next_used.0, mem);
-        Ok(())
     }
 
     /// Read used element from a used ring at specified index.
