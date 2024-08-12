@@ -243,7 +243,10 @@ class Microvm:
         self.vcpus_count = None
         self.mem_size_bytes = None
 
-        self._numa_node = numa_node
+        self._pre_cmd = []
+        if numa_node:
+            node_str = str(numa_node)
+            self.add_pre_cmd([["numactl", "-N", node_str, "-m", node_str]])
 
         # MMDS content from file
         self.metadata_file = None
@@ -552,6 +555,13 @@ class Microvm:
 
         return first_cpu + self.vcpus_count + 2
 
+    def add_pre_cmd(self, pre_cmd):
+        """Prepends commands to the command line to launch the microVM
+
+        For example, this can be used to pin the VM to a NUMA node or to trace the VM with strace.
+        """
+        self._pre_cmd = pre_cmd + self._pre_cmd
+
     def spawn(
         self,
         log_file="fc.log",
@@ -600,10 +610,11 @@ class Microvm:
             # Checking the timings requires DEBUG level log messages
             self.time_api_requests = False
 
-        cmd = [str(self.jailer_binary_path)] + self.jailer.construct_param_list()
-        if self._numa_node is not None:
-            node = str(self._numa_node)
-            cmd = ["numactl", "-N", node, "-m", node] + cmd
+        cmd = [
+            *self._pre_cmd,
+            str(self.jailer_binary_path),
+            *self.jailer.construct_param_list(),
+        ]
 
         # When the daemonize flag is on, we want to clone-exec into the
         # jailer rather than executing it via spawning a shell.
