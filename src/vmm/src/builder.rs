@@ -1225,7 +1225,16 @@ pub mod tests {
             MmdsNetworkStack::default_ipv4_addr(),
             Arc::new(Mutex::new(mmds)),
         );
-
+        // Minimal setup for queues to be considered `valid`
+        for q in net.lock().unwrap().queues.iter_mut() {
+            q.ready = true;
+            q.size = 1;
+            // Need to explicitly set these addresses otherwise the aarch64
+            // will error out as it's memory does not start at 0.
+            q.desc_table = GuestAddress(crate::arch::SYSTEM_MEM_START);
+            q.avail_ring = GuestAddress(crate::arch::SYSTEM_MEM_START);
+            q.used_ring = GuestAddress(crate::arch::SYSTEM_MEM_START);
+        }
         attach_net_devices(vmm, cmdline, net_builder.iter(), event_manager).unwrap();
     }
 

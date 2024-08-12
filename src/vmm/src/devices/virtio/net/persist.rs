@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use utils::net::mac::MacAddr;
 
 use super::device::Net;
-use super::NET_NUM_QUEUES;
+use super::{NET_NUM_QUEUES, RX_INDEX};
 use crate::devices::virtio::device::DeviceState;
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
@@ -37,6 +37,8 @@ pub struct NetConfigSpaceState {
 pub struct NetState {
     id: String,
     tap_if_name: String,
+    rx_avail_desc_len: u16,
+    rx_partial_write_used_heads: u16,
     rx_rate_limiter_state: RateLimiterState,
     tx_rate_limiter_state: RateLimiterState,
     /// The associated MMDS network stack.
@@ -73,9 +75,15 @@ impl Persist<'_> for Net {
     type Error = NetPersistError;
 
     fn save(&self) -> Self::State {
+        let rx_partial_write_used_heads =
+            self.rx_partial_write.as_ref().map_or(0, |pw| pw.used_heads);
+        let rx_avail_desc_len = u16::try_from(self.rx_avail_desc.len()).unwrap();
+
         NetState {
             id: self.id().clone(),
             tap_if_name: self.iface_name(),
+            rx_avail_desc_len,
+            rx_partial_write_used_heads,
             rx_rate_limiter_state: self.rx_rate_limiter.save(),
             tx_rate_limiter_state: self.tx_rate_limiter.save(),
             mmds_ns: self.mmds_ns.as_ref().map(|mmds| mmds.save()),
@@ -129,6 +137,25 @@ impl Persist<'_> for Net {
         net.acked_features = state.virtio_state.acked_features;
 
         if state.virtio_state.activated {
+            // Discard descriptors used for partial write.
+            // We do it here, because it requires modification of queues, but during
+            // `save` we are only given an immutable reference.
+            net.queues[RX_INDEX]
+                .advance_used_ring(&constructor_args.mem, state.rx_partial_write_used_heads);
+            let next_avail = net.queues[RX_INDEX].next_avail.0;
+            net.queues[RX_INDEX].set_used_ring_avail_event(next_avail, &constructor_args.mem);
+            net.queues[RX_INDEX]
+                .discard_used(&constructor_args.mem, state.rx_partial_write_used_heads);
+
+            // Recreate `avail_desc`. We do it by temporarily
+            // rollback `next_avail` in the RX queue. The `next_avail`
+            // will be rolled forward in the `read_new_desc_chains` method.
+            net.rx_avail_desc
+                .update_size(net.queues[RX_INDEX].actual_size() as usize);
+            net.queues[RX_INDEX].next_avail -= state.rx_avail_desc_len;
+            net.rx_avail_desc
+                .read_new_desc_chains(&mut net.queues[RX_INDEX], &constructor_args.mem);
+
             net.device_state = DeviceState::Activated(constructor_args.mem);
         }
 
@@ -146,8 +173,11 @@ mod tests {
     use crate::devices::virtio::test_utils::default_mem;
     use crate::snapshot::Snapshot;
 
-    fn validate_save_and_restore(net: Net, mmds_ds: Option<Arc<Mutex<Mmds>>>) {
-        let guest_mem = default_mem();
+    fn validate_save_and_restore(
+        guest_mem: GuestMemoryMmap,
+        net: Net,
+        mmds_ds: Option<Arc<Mutex<Mmds>>>,
+    ) {
         let mut mem = vec![0; 4096];
 
         let id;
@@ -155,6 +185,8 @@ mod tests {
         let has_mmds_ns;
         let allow_mmds_requests;
         let virtio_state;
+        let rx_partial_write_used_heads;
+        let rx_avail_desc_len;
 
         // Create and save the net device.
         {
@@ -166,6 +198,8 @@ mod tests {
             has_mmds_ns = net.mmds_ns.is_some();
             allow_mmds_requests = has_mmds_ns && mmds_ds.is_some();
             virtio_state = VirtioDeviceState::from_device(&net);
+            rx_partial_write_used_heads = net.rx_partial_write;
+            rx_avail_desc_len = net.rx_avail_desc.len();
         }
 
         // Drop the initial net device so that we don't get an error when trying to recreate the
@@ -197,6 +231,8 @@ mod tests {
                     assert_eq!(restored_net.mmds_ns.is_some(), allow_mmds_requests);
                     assert_eq!(restored_net.rx_rate_limiter, RateLimiter::default());
                     assert_eq!(restored_net.tx_rate_limiter, RateLimiter::default());
+                    assert_eq!(restored_net.rx_partial_write, rx_partial_write_used_heads);
+                    assert_eq!(restored_net.rx_avail_desc.len(), rx_avail_desc_len);
                 }
                 Err(NetPersistError::NoMmdsDataStore) => {
                     assert!(has_mmds_ns && !allow_mmds_requests)
@@ -208,17 +244,24 @@ mod tests {
 
     #[test]
     fn test_persistence() {
+        let guest_mem = default_mem();
+
         let mmds = Some(Arc::new(Mutex::new(Mmds::default())));
-        validate_save_and_restore(default_net(), mmds.as_ref().cloned());
-        validate_save_and_restore(default_net_no_mmds(), None);
+        validate_save_and_restore(guest_mem.clone(), default_net(), mmds.as_ref().cloned());
+        validate_save_and_restore(guest_mem.clone(), default_net_no_mmds(), None);
+
+        // Test activated device
+        let mut net = default_net_no_mmds();
+        net.activate(guest_mem.clone()).unwrap();
+        validate_save_and_restore(guest_mem.clone(), net, None);
 
         // Check what happens if the MMIODeviceManager gives us the reference to the MMDS
         // data store even if this device does not have mmds ns configured.
         // The restore should be conservative and not configure the mmds ns.
-        validate_save_and_restore(default_net_no_mmds(), mmds);
+        validate_save_and_restore(guest_mem.clone(), default_net_no_mmds(), mmds);
 
         // Check what happens if the MMIODeviceManager does not give us the reference to the MMDS
         // data store. This will return an error.
-        validate_save_and_restore(default_net(), None);
+        validate_save_and_restore(guest_mem, default_net(), None);
     }
 }
