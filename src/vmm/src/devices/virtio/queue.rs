@@ -113,17 +113,16 @@ impl<'a, M: GuestMemory> DescriptorChain<'a, M> {
         // bounds.
         let desc_head = desc_table.unchecked_add(u64::from(index) * 16);
 
-        // These reads can't fail unless Guest memory is hopelessly broken.
-        let desc = match mem.read_obj::<Descriptor>(desc_head) {
-            Ok(ret) => ret,
-            Err(err) => {
-                error!(
-                    "Failed to read virtio descriptor from memory at address {:#x}: {}",
-                    desc_head.0, err
-                );
-                return None;
-            }
-        };
+        // SAFETY:
+        // This can't fail as we checked the `desc_head`
+        let ptr = mem.get_host_address(desc_head).unwrap();
+
+        // SAFETY:
+        // Safe as we know that `ptr` is inside guest memory and
+        // following `std::mem::size_of::<Descriptor>` bytes belong
+        // to the descriptor table
+        let desc: &Descriptor = unsafe { &*ptr.cast::<Descriptor>() };
+
         let chain = DescriptorChain {
             mem,
             desc_table,
@@ -423,7 +422,12 @@ impl Queue {
         // `self.is_valid()` already performed all the bound checks on the descriptor table
         // and virtq rings, so it's safe to unwrap guest memory reads and to use unchecked
         // offsets.
-        let desc_index: u16 = mem.read_obj(desc_index_address).unwrap();
+        let slice = mem
+            .get_slice(desc_index_address, std::mem::size_of::<u16>())
+            .unwrap();
+        // SAFETY:
+        // We transforming valid memory slice
+        let desc_index = unsafe { *slice.ptr_guard().as_ptr().cast::<u16>() };
 
         DescriptorChain::checked_new(mem, self.desc_table, self.actual_size(), desc_index).map(
             |dc| {
@@ -1221,9 +1225,6 @@ mod tests {
         // index >= queue_size
         assert!(DescriptorChain::checked_new(m, vq.dtable_start(), 16, 16).is_none());
 
-        // desc_table address is way off
-        assert!(DescriptorChain::checked_new(m, GuestAddress(0x00ff_ffff_ffff), 16, 0).is_none());
-
         // Let's create an invalid chain.
         {
             // The first desc has a normal len, and the next_descriptor flag is set.
@@ -1255,6 +1256,16 @@ mod tests {
 
             assert!(c.next_descriptor().unwrap().next_descriptor().is_none());
         }
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_checked_new_descriptor_chain_panic() {
+        let m = &multi_region_mem(&[(GuestAddress(0), 0x10000)]);
+
+        // `checked_new` does assume that `desc_table` is valid.
+        // When desc_table address is way off, it should panic.
+        DescriptorChain::checked_new(m, GuestAddress(0x00ff_ffff_ffff), 16, 0);
     }
 
     #[test]
