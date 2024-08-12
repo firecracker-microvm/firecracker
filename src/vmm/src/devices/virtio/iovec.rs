@@ -97,10 +97,8 @@ impl IoVecBuffer {
     ///
     /// The descriptor chain cannot be referencing the same memory location as another chain
     pub unsafe fn from_descriptor_chain(head: DescriptorChain) -> Result<Self, IoVecError> {
-        let mut new_buffer: Self = Default::default();
-
+        let mut new_buffer = Self::default();
         new_buffer.load_descriptor_chain(head)?;
-
         Ok(new_buffer)
     }
 
@@ -275,10 +273,8 @@ impl IoVecBufferMut {
     ///
     /// The descriptor chain cannot be referencing the same memory location as another chain
     pub unsafe fn from_descriptor_chain(head: DescriptorChain) -> Result<Self, IoVecError> {
-        let mut new_buffer: Self = Default::default();
-
+        let mut new_buffer = Self::default();
         new_buffer.load_descriptor_chain(head)?;
-
         Ok(new_buffer)
     }
 
