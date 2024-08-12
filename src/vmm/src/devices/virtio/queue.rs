@@ -59,10 +59,10 @@ unsafe impl ByteValued for Descriptor {}
 /// https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html#x1-430008
 /// 2.6.8 The Virtqueue Used Ring
 #[repr(C)]
-#[derive(Default, Clone, Copy)]
-struct UsedElement {
-    id: u32,
-    len: u32,
+#[derive(Default, Debug, Clone, Copy)]
+pub struct UsedElement {
+    pub id: u32,
+    pub len: u32,
 }
 
 // SAFETY: `UsedElement` is a POD and contains no padding.
@@ -391,7 +391,7 @@ impl Queue {
     /// # Important
     /// This is an internal method that ASSUMES THAT THERE ARE AVAILABLE DESCRIPTORS. Otherwise it
     /// will retrieve a descriptor that contains garbage data (obsolete/empty).
-    fn do_pop_unchecked<'b, M: GuestMemory>(
+    pub fn do_pop_unchecked<'b, M: GuestMemory>(
         &mut self,
         mem: &'b M,
     ) -> Option<DescriptorChain<'b, M>> {
@@ -468,7 +468,6 @@ impl Queue {
         self.set_used_ring_idx(self.next_used.0, mem);
     }
 
-    fn write_used_ring<M: GuestMemory>(
     /// Read used element from a used ring at specified index.
     #[inline(always)]
     pub fn read_used_ring<M: GuestMemory>(&self, mem: &M, index: u16) -> UsedElement {
@@ -491,6 +490,9 @@ impl Queue {
         mem.read_obj(used_element_address).unwrap()
     }
 
+    /// Read used element to the used ring at specified index.
+    #[inline(always)]
+    pub fn write_used_ring<M: GuestMemory>(
         &self,
         mem: &M,
         index: u16,
@@ -555,7 +557,7 @@ impl Queue {
 
     /// Helper method that writes to the `avail_event` field of the used ring.
     #[inline(always)]
-    fn set_used_ring_avail_event<M: GuestMemory>(&mut self, avail_event: u16, mem: &M) {
+    pub fn set_used_ring_avail_event<M: GuestMemory>(&mut self, avail_event: u16, mem: &M) {
         debug_assert!(self.is_layout_valid(mem));
 
         // Used ring has layout:
@@ -578,7 +580,7 @@ impl Queue {
 
     /// Helper method that writes to the `idx` field of the used ring.
     #[inline(always)]
-    fn set_used_ring_idx<M: GuestMemory>(&mut self, next_used: u16, mem: &M) {
+    pub fn set_used_ring_idx<M: GuestMemory>(&mut self, next_used: u16, mem: &M) {
         debug_assert!(self.is_layout_valid(mem));
 
         // Used ring has layout:
