@@ -468,6 +468,21 @@ impl Queue {
         self.set_used_ring_idx(self.next_used.0, mem);
     }
 
+    /// Discards last `n` descriptors by setting their len to 0.
+    pub fn discard_used<M: GuestMemory>(&mut self, mem: &M, n: u16) {
+        // `next_used` is pointing to the next descriptor index.
+        // So we use range 1..n + 1 to get indexes of last n descriptors.
+        for i in 1..n + 1 {
+            let next_used_index = self.next_used - Wrapping(i);
+            let mut used_element = self.read_used_ring(mem, next_used_index.0);
+            used_element.len = 0;
+            // SAFETY:
+            // This should never panic as we only update len of the used_element.
+            self.write_used_ring(mem, next_used_index.0, used_element)
+                .unwrap();
+        }
+    }
+
     /// Read used element from a used ring at specified index.
     #[inline(always)]
     pub fn read_used_ring<M: GuestMemory>(&self, mem: &M, index: u16) -> UsedElement {
