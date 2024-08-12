@@ -14,6 +14,7 @@ pub use vmm_sys_util::{
 pub mod arg_parser;
 pub mod byte_order;
 pub mod net;
+pub mod ring_buffer;
 pub mod signal;
 pub mod sm;
 pub mod time;
