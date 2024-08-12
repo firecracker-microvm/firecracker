@@ -277,7 +277,7 @@ impl CgroupConfiguration {
 // the file no longer being empty, regardless of who actually got to populated its contents.
 
 fn inherit_from_parent_aux(
-    path: &mut PathBuf,
+    path: &Path,
     file_name: &str,
     retry_depth: u16,
 ) -> Result<(), JailerError> {
@@ -296,7 +296,7 @@ fn inherit_from_parent_aux(
 
             // Trying to avoid the race condition described above. We don't care about the result,
             // because we check once more if line.is_empty() after the end of this block.
-            let _ = inherit_from_parent_aux(&mut parent.to_path_buf(), file_name, retry_depth - 1);
+            let _ = inherit_from_parent_aux(parent, file_name, retry_depth - 1);
             line = readln_special(&parent_file)?;
         }
 
@@ -308,16 +308,12 @@ fn inherit_from_parent_aux(
         }
     }
 
-    path.push(file_name);
-    writeln_special(&path, &line)?;
-    path.pop();
+    writeln_special(&path.join(file_name), &line)?;
 
     Ok(())
 }
 
-// The path reference is &mut here because we do a push to get the destination file name. However,
-// a pop follows shortly after (see fn inherit_from_parent_aux), reverting to the original value.
-fn inherit_from_parent(path: &mut PathBuf, file_name: &str, depth: u16) -> Result<(), JailerError> {
+fn inherit_from_parent(path: &Path, file_name: &str, depth: u16) -> Result<(), JailerError> {
     inherit_from_parent_aux(path, file_name, depth)
 }
 
@@ -362,19 +358,15 @@ impl Cgroup for CgroupV1 {
     }
 
     fn write_values(&self) -> Result<(), JailerError> {
-        let location = &mut self.base.location.clone();
-
         // Create the cgroup directory for the controller.
         fs::create_dir_all(&self.base.location)
             .map_err(|err| JailerError::CreateDir(self.base.location.clone(), err))?;
 
         for property in self.base.properties.iter() {
-            let file_location = &mut location.clone();
             // Write the corresponding cgroup value. inherit_from_parent is used to
             // correctly propagate the value if not defined.
-            inherit_from_parent(location, &property.file, self.cg_parent_depth)?;
-            file_location.push(&property.file);
-            writeln_special(file_location, &property.value)?;
+            inherit_from_parent(&self.base.location, &property.file, self.cg_parent_depth)?;
+            writeln_special(&self.base.location.join(&property.file), &property.value)?;
         }
 
         Ok(())
@@ -466,7 +458,6 @@ impl Cgroup for CgroupV2 {
     }
 
     fn write_values(&self) -> Result<(), JailerError> {
-        let location = &mut self.base.location.clone();
         let mut enabled_controllers: HashSet<&str> = HashSet::new();
 
         // Create the cgroup directory for the controller.
@@ -474,7 +465,7 @@ impl Cgroup for CgroupV2 {
             .map_err(|err| JailerError::CreateDir(self.base.location.clone(), err))?;
 
         // Ok to unwrap since the path was just created.
-        let parent = location.parent().unwrap();
+        let parent = self.base.location.parent().unwrap();
 
         for property in self.base.properties.iter() {
             let controller = get_controller_from_filename(&property.file)?;
@@ -484,9 +475,7 @@ impl Cgroup for CgroupV2 {
                 CgroupV2::write_all_subtree_control(parent, controller)?;
                 enabled_controllers.insert(controller);
             }
-            let file_location = &mut location.clone();
-            file_location.push(&property.file);
-            writeln_special(file_location, &property.value)?;
+            writeln_special(&self.base.location.join(&property.file), &property.value)?;
         }
 
         Ok(())
@@ -833,8 +822,8 @@ mod tests {
         let dir = TempDir::new().expect("Cannot create temporary directory.");
         // This is /A/B/C .
         let dir2 = TempDir::new_in(dir.as_path()).expect("Cannot create temporary directory.");
-        let mut path2 = PathBuf::from(dir2.as_path());
-        let result = inherit_from_parent(&mut PathBuf::from(&path2), "inexistent", 1);
+        let path2 = PathBuf::from(dir2.as_path());
+        let result = inherit_from_parent(&path2, "inexistent", 1);
         assert!(
             matches!(result, Err(JailerError::ReadToString(_, _))),
             "{:?}",
@@ -844,11 +833,7 @@ mod tests {
         // 2. If parent file exists and is empty, will go one level up, and return error because
         // the grandparent file does not exist.
         let named_file = TempFile::new_in(dir.as_path()).expect("Cannot create named file.");
-        let result = inherit_from_parent(
-            &mut path2.clone(),
-            named_file.as_path().to_str().unwrap(),
-            1,
-        );
+        let result = inherit_from_parent(&path2, named_file.as_path().to_str().unwrap(), 1);
         assert!(
             matches!(result, Err(JailerError::CgroupInheritFromParent(_, _))),
             "{:?}",
@@ -861,7 +846,7 @@ mod tests {
         // contents.
         let some_line = "Parent line";
         writeln!(named_file.as_file(), "{}", some_line).expect("Cannot write to file.");
-        let result = inherit_from_parent(&mut path2, named_file.as_path().to_str().unwrap(), 1);
+        let result = inherit_from_parent(&path2, named_file.as_path().to_str().unwrap(), 1);
         result.unwrap();
         let res = readln_special(&child_file).expect("Cannot read from file.");
         assert!(res == some_line);
