@@ -469,6 +469,28 @@ impl Queue {
     }
 
     fn write_used_ring<M: GuestMemory>(
+    /// Read used element from a used ring at specified index.
+    #[inline(always)]
+    pub fn read_used_ring<M: GuestMemory>(&self, mem: &M, index: u16) -> UsedElement {
+        // Used ring has layout:
+        // struct UsedRing {
+        //     flags: u16,
+        //     idx: u16,
+        //     ring: [UsedElement; <queue size>],
+        //     avail_event: u16,
+        // }
+        // We calculate offset into `ring` field.
+        let used_ring_offset = std::mem::size_of::<u16>()
+            + std::mem::size_of::<u16>()
+            + std::mem::size_of::<UsedElement>() * usize::from(index % self.actual_size());
+        let used_element_address = self.used_ring.unchecked_add(usize_to_u64(used_ring_offset));
+
+        // SAFETY:
+        // `used_element_address` param is bounded by size of the queue as `index` is
+        // modded by `actual_size()`.
+        mem.read_obj(used_element_address).unwrap()
+    }
+
         &self,
         mem: &M,
         index: u16,
