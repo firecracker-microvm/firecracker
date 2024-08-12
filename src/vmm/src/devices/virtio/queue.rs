@@ -468,6 +468,23 @@ impl Queue {
         self.set_used_ring_idx(self.next_used.0, mem);
     }
 
+    /// Discards last `n` descriptors by setting their len to 0.
+    pub fn discard_used<M: GuestMemory>(&mut self, mem: &M, n: u16) {
+        // `next_used` is pointing to the next descriptor index.
+        // So we use range 1..n + 1 to get indexes of last n descriptors.
+        for i in 1..n + 1 {
+            let next_used_index = self.next_used - Wrapping(i);
+            let mut used_element = self.read_used_ring(mem, next_used_index.0);
+            used_element.len = 0;
+            // SAFETY:
+            // This should never panic as we only update len of the used_element.
+            self.write_used_ring(mem, next_used_index.0, used_element)
+                .unwrap();
+        }
+    }
+
+    /// Read used element to the used ring at specified index.
+    #[inline(always)]
     fn write_used_ring<M: GuestMemory>(
         &self,
         mem: &M,
@@ -503,6 +520,31 @@ impl Queue {
         // offsets.
         mem.write_obj(used_element, used_element_address).unwrap();
         Ok(())
+    }
+
+    /// Read used element from a used ring at specified index.
+    #[inline(always)]
+    fn read_used_ring<M: GuestMemory>(&self, mem: &M, index: u16) -> UsedElement {
+        // Used ring has layout:
+        // struct UsedRing {
+        //     flags: u16,
+        //     idx: u16,
+        //     ring: [UsedElement; <queue size>],
+        //     avail_event: u16,
+        // }
+        // We calculate offset into `ring` field.
+        let used_ring_offset = std::mem::size_of::<u16>()
+            + std::mem::size_of::<u16>()
+            + std::mem::size_of::<UsedElement>() * usize::from(index % self.actual_size());
+        let used_element_address = self.used_ring.unchecked_add(usize_to_u64(used_ring_offset));
+
+        // SAFETY:
+        // `used_element_address` param is bounded by size of the queue as `index` is
+        // modded by `actual_size()`.
+        // `self.is_valid()` already performed all the bound checks on the descriptor table
+        // and virtq rings, so it's safe to unwrap guest memory reads and to use unchecked
+        // offsets.
+        mem.read_obj(used_element_address).unwrap()
     }
 
     /// Fetch the available ring index (`virtq_avail->idx`) from guest memory.
