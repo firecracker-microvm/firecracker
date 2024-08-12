@@ -281,6 +281,23 @@ impl IoVecBufferMut {
         Ok(new_buffer)
     }
 
+    /// Get the index of the haed descriptor from which this IoVecBuffer
+    /// was built.
+    pub fn head_index(&self) -> u16 {
+        self.head_index
+    }
+
+    /// Get the host pointer to the first buffer in the guest,
+    /// this buffer points to.
+    ///
+    /// # Safety
+    ///
+    /// It is assumed that IoVecBuffer will never have 0 elements
+    /// as it is build from at DescriptorChain with length of at least 1.
+    pub fn start_address(&self) -> *mut libc::c_void {
+        self.vecs[0].iov_base
+    }
+
     /// Get the total length of the memory regions covered by this `IoVecBuffer`
     pub(crate) fn len(&self) -> u32 {
         self.len
