@@ -16,7 +16,7 @@ base64 = "0.22.1"
 bincode = "1.2.1"
 bitflags = "2.6.0"
 crc64 = "2.0.0"
-derive_more = { version = "0.99.18", default-features = false, features = ["from", "display"] }
+derive_more = { version = "1.0.0", default-features = false, features = ["from", "display"] }
 displaydoc = "0.2.5"
 event-manager = "0.4.0"
 kvm-bindings = { version = "0.9.0", features = ["fam-wrappers", "serde"] }
@@ -31,8 +31,8 @@ micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 
 seccompiler = { path = "../seccompiler" }
 semver = { version = "1.0.23", features = ["serde"] }
-serde = { version = "1.0.204", features = ["derive", "rc"] }
-serde_json = "1.0.122"
+serde = { version = "1.0.206", features = ["derive", "rc"] }
+serde_json = "1.0.124"
 slab = "0.4.7"
 smallvec = "1.11.2"
 thiserror = "1.0.63"
