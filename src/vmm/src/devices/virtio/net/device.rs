@@ -9,30 +9,32 @@
 use std::io::Read;
 use std::mem;
 use std::net::Ipv4Addr;
+use std::num::Wrapping;
 use std::sync::{Arc, Mutex};
 
 use libc::EAGAIN;
-use log::{error, warn};
+use log::error;
 use utils::eventfd::EventFd;
 use utils::net::mac::MacAddr;
-use utils::u64_to_usize;
-use vm_memory::GuestMemoryError;
+use utils::ring_buffer::RingBuffer;
+use utils::{u64_to_usize, usize_to_u64};
+use vm_memory::VolatileMemoryError;
 
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::gen::virtio_net::{
     virtio_net_hdr_v1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM, VIRTIO_NET_F_GUEST_TSO4,
     VIRTIO_NET_F_GUEST_TSO6, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4,
-    VIRTIO_NET_F_HOST_TSO6, VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC,
+    VIRTIO_NET_F_HOST_TSO6, VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC, VIRTIO_NET_F_MRG_RXBUF,
 };
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use crate::devices::virtio::iovec::IoVecBuffer;
+use crate::devices::virtio::iovec::{IoVecBuffer, IoVecBufferMut};
 use crate::devices::virtio::net::metrics::{NetDeviceMetrics, NetMetricsPerDevice};
 use crate::devices::virtio::net::tap::Tap;
 use crate::devices::virtio::net::{
     gen, NetError, NetQueue, MAX_BUFFER_SIZE, NET_QUEUE_SIZES, RX_INDEX, TX_INDEX,
 };
-use crate::devices::virtio::queue::{DescriptorChain, Queue};
+use crate::devices::virtio::queue::{Queue, UsedElement};
 use crate::devices::virtio::{ActivateError, TYPE_NET};
 use crate::devices::{report_net_event_fail, DeviceError};
 use crate::dumbo::pdu::arp::ETH_IPV4_FRAME_LEN;
@@ -41,22 +43,22 @@ use crate::logger::{IncMetric, METRICS};
 use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
 use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
-use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap};
+use crate::vstate::memory::{ByteValued, GuestMemoryMmap};
 
 const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 enum FrontendError {
-    /// Add user.
-    AddUsed,
-    /// Descriptor chain too mall.
-    DescriptorChainTooSmall,
     /// Empty queue.
     EmptyQueue,
-    /// Guest memory error: {0}
-    GuestMemory(GuestMemoryError),
-    /// Read only descriptor.
-    ReadOnlyDescriptor,
+    /// Attempt to write an empty packet.
+    AttemptToWriteEmptyPacket,
+    /// Attempt to use more descriptor chains(heads) than it is allowed.
+    MaxHeadsUsed,
+    /// Invalid descritor chain.
+    InvalidDescriptorChain,
+    /// Error during writing to the IoVecBuffer.
+    IoVecBufferWrite(VolatileMemoryError),
 }
 
 pub(crate) const fn vnet_hdr_len() -> usize {
@@ -103,6 +105,90 @@ pub struct ConfigSpace {
 // SAFETY: `ConfigSpace` contains only PODs in `repr(C)` or `repr(transparent)`, without padding.
 unsafe impl ByteValued for ConfigSpace {}
 
+// This struct contains information about partially
+// written packet.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PartialWrite {
+    // Amount of bytes written so far.
+    pub bytes_written: usize,
+    // Amount of descriptor heads used for the packet.
+    pub used_heads: u16,
+    // Address of the first buffer used for the packet.
+    // This will be used to set number of descriptors heads used
+    // to store the whole packet.
+    pub packet_start_addr: *mut libc::c_void,
+}
+
+// SAFETY:
+// Value of this type is only used by one thread.
+unsafe impl Send for PartialWrite {}
+
+#[derive(Debug, Default, Clone)]
+pub struct AvailableDescriptors {
+    iov_ring: RingBuffer<IoVecBufferMut>,
+    valid_ring: RingBuffer<bool>,
+}
+
+impl AvailableDescriptors {
+    /// New with zero sized ring buffer.
+    pub fn new() -> Self {
+        Self {
+            iov_ring: RingBuffer::new(),
+            valid_ring: RingBuffer::new(),
+        }
+    }
+
+    /// Check if there are no available items.
+    pub fn is_empty(&self) -> bool {
+        self.iov_ring.is_empty()
+    }
+
+    // Get number of descriptors
+    pub fn len(&self) -> usize {
+        self.iov_ring.len()
+    }
+
+    /// Update size of the ring buffer.
+    pub fn update_size(&mut self, size: usize) {
+        self.iov_ring = RingBuffer::new_with_size(size);
+        self.valid_ring = RingBuffer::new_with_size(size);
+    }
+
+    /// Read new descriptor chains from the queue.
+    pub fn read_new_desc_chains(&mut self, queue: &mut Queue, mem: &GuestMemoryMmap) {
+        for _ in 0..queue.len(mem) {
+            let Some(next_iovec_buf) = self.iov_ring.next_available() else {
+                break;
+            };
+
+            match queue.do_pop_unchecked(mem) {
+                Some(desc_chain) => {
+                    // SAFETY:
+                    // This descriptor chain is only processed once.
+                    let valid = unsafe { next_iovec_buf.load_descriptor_chain(desc_chain).is_ok() };
+                    self.valid_ring.push(valid);
+                }
+                None => {
+                    self.valid_ring.push(false);
+                }
+            }
+        }
+    }
+
+    /// Pop first descriptor chain.
+    pub fn pop_desc_chain(&mut self) -> Option<(&mut IoVecBufferMut, bool)> {
+        let (Some(iov), Some(valid)) = (self.iov_ring.pop_front(), self.valid_ring.pop_front())
+        else {
+            return None;
+        };
+        Some((iov, *valid))
+    }
+}
+
+// SAFETY:
+// Value of this type is only used by one thread.
+unsafe impl Send for AvailableDescriptors {}
+
 /// VirtIO network device.
 ///
 /// It emulates a network device able to exchange L2 frames between the guest
@@ -127,6 +213,8 @@ pub struct Net {
 
     rx_bytes_read: usize,
     rx_frame_buf: [u8; MAX_BUFFER_SIZE],
+    pub rx_partial_write: Option<PartialWrite>,
+    pub rx_avail_desc: AvailableDescriptors,
 
     tx_frame_headers: [u8; frame_hdr_len()],
 
@@ -163,6 +251,7 @@ impl Net {
             | 1 << VIRTIO_NET_F_HOST_TSO4
             | 1 << VIRTIO_NET_F_HOST_TSO6
             | 1 << VIRTIO_NET_F_HOST_UFO
+            | 1 << VIRTIO_NET_F_MRG_RXBUF
             | 1 << VIRTIO_F_VERSION_1
             | 1 << VIRTIO_RING_F_EVENT_IDX;
 
@@ -193,6 +282,8 @@ impl Net {
             rx_deferred_frame: false,
             rx_bytes_read: 0,
             rx_frame_buf: [0u8; MAX_BUFFER_SIZE],
+            rx_partial_write: None,
+            rx_avail_desc: AvailableDescriptors::new(),
             tx_frame_headers: [0u8; frame_hdr_len()],
             irq_trigger: IrqTrigger::new().map_err(NetError::EventFd)?,
             config_space,
@@ -322,7 +413,17 @@ impl Net {
         }
 
         // Attempt frame delivery.
-        let success = self.write_frame_to_guest();
+        let success = loop {
+            // We retry to write a frame if there were internal errors.
+            // Each new write will use new descriptor chains up to the
+            // point of consuming all available descriptors, if they are
+            // all bad.
+            match self.write_frame_to_guest() {
+                Ok(()) => break true,
+                Err(FrontendError::EmptyQueue) => break false,
+                _ => (),
+            };
+        };
 
         // Undo the tokens consumption if guest delivery failed.
         if !success {
@@ -333,108 +434,182 @@ impl Net {
         success
     }
 
-    /// Write a slice in a descriptor chain
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the descriptor chain is too short or
-    /// an inappropriate (read only) descriptor is found in the chain
-    fn write_to_descriptor_chain(
-        mem: &GuestMemoryMmap,
-        data: &[u8],
-        head: DescriptorChain,
-        net_metrics: &NetDeviceMetrics,
-    ) -> Result<(), FrontendError> {
-        let mut chunk = data;
-        let mut next_descriptor = Some(head);
-
-        while let Some(descriptor) = &next_descriptor {
-            if !descriptor.is_write_only() {
-                return Err(FrontendError::ReadOnlyDescriptor);
-            }
-
-            let len = std::cmp::min(chunk.len(), descriptor.len as usize);
-            match mem.write_slice(&chunk[..len], descriptor.addr) {
-                Ok(()) => {
-                    net_metrics.rx_count.inc();
-                    chunk = &chunk[len..];
-                }
-                Err(err) => {
-                    error!("Failed to write slice: {:?}", err);
-                    if let GuestMemoryError::PartialBuffer { .. } = err {
-                        net_metrics.rx_partial_writes.inc();
-                    }
-                    return Err(FrontendError::GuestMemory(err));
-                }
-            }
-
-            // If chunk is empty we are done here.
-            if chunk.is_empty() {
-                let len = data.len() as u64;
-                net_metrics.rx_bytes_count.add(len);
-                net_metrics.rx_packets_count.inc();
-                return Ok(());
-            }
-
-            next_descriptor = descriptor.next_descriptor();
-        }
-
-        warn!("Receiving buffer is too small to hold frame of current size");
-        Err(FrontendError::DescriptorChainTooSmall)
-    }
-
-    // Copies a single frame from `self.rx_frame_buf` into the guest.
-    fn do_write_frame_to_guest(&mut self) -> Result<(), FrontendError> {
+    /// Write packet contained in the internal buffer into guest provided
+    /// descriptor chains.
+    fn write_frame_to_guest(&mut self) -> Result<(), FrontendError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
-        let queue = &mut self.queues[RX_INDEX];
-        let head_descriptor = queue.pop_or_enable_notification(mem).ok_or_else(|| {
+        if self.rx_avail_desc.is_empty() && self.queues[RX_INDEX].is_empty(mem) {
             self.metrics.no_rx_avail_buffer.inc();
-            FrontendError::EmptyQueue
-        })?;
-        let head_index = head_descriptor.index;
-
-        let result = Self::write_to_descriptor_chain(
-            mem,
-            &self.rx_frame_buf[..self.rx_bytes_read],
-            head_descriptor,
-            &self.metrics,
-        );
-        // Mark the descriptor chain as used. If an error occurred, skip the descriptor chain.
-        let used_len = if result.is_err() {
-            self.metrics.rx_fails.inc();
-            0
-        } else {
-            // Safe to unwrap because a frame must be smaller than 2^16 bytes.
-            u32::try_from(self.rx_bytes_read).unwrap()
-        };
-        queue.add_used(mem, head_index, used_len).map_err(|err| {
-            error!("Failed to add available descriptor {}: {}", head_index, err);
-            FrontendError::AddUsed
-        })?;
-
-        result
-    }
-
-    // Copies a single frame from `self.rx_frame_buf` into the guest. In case of an error retries
-    // the operation if possible. Returns true if the operation was successfull.
-    fn write_frame_to_guest(&mut self) -> bool {
-        let max_iterations = self.queues[RX_INDEX].actual_size();
-        for _ in 0..max_iterations {
-            match self.do_write_frame_to_guest() {
-                Ok(()) => return true,
-                Err(FrontendError::EmptyQueue) | Err(FrontendError::AddUsed) => {
-                    return false;
-                }
-                Err(_) => {
-                    // retry
-                    continue;
-                }
-            }
+            return Err(FrontendError::EmptyQueue);
         }
 
-        false
+        let (mut slice, mut packet_start_addr, mut used_heads) =
+            if let Some(pw) = &self.rx_partial_write {
+                (
+                    &self.rx_frame_buf[pw.bytes_written..self.rx_bytes_read],
+                    Some(pw.packet_start_addr),
+                    pw.used_heads,
+                )
+            } else {
+                (&self.rx_frame_buf[..self.rx_bytes_read], None, 0)
+            };
+
+        let max_used_heads = if self.has_feature(u64::from(VIRTIO_NET_F_MRG_RXBUF)) {
+            // There is no real limit on how much heads we can use, but we will
+            // never use more than the queue has.
+            u16::MAX
+        } else {
+            // Without VIRTIO_NET_F_MRG_RXBUF only 1 head can be used for the packet.
+            1
+        };
+
+        let mut error = None;
+        while !slice.is_empty() && error.is_none() {
+            if used_heads == max_used_heads {
+                error = Some(FrontendError::MaxHeadsUsed);
+                break;
+            }
+
+            if self.rx_avail_desc.is_empty() {
+                self.rx_avail_desc
+                    .read_new_desc_chains(&mut self.queues[RX_INDEX], mem);
+            }
+            let Some((iovec_buf, valid)) = self.rx_avail_desc.pop_desc_chain() else {
+                break;
+            };
+
+            let desc_len = if valid {
+                // If this is the first head of the packet, save it for later.
+                if packet_start_addr.is_none() {
+                    packet_start_addr = Some(iovec_buf.start_address());
+                }
+
+                match iovec_buf.write_all_volatile_at(slice, 0) {
+                    Ok(()) => {
+                        let len = slice.len();
+                        slice = &[];
+                        len
+                    }
+                    Err(VolatileMemoryError::PartialBuffer {
+                        expected: _,
+                        completed,
+                    }) => {
+                        slice = &slice[completed..];
+                        completed
+                    }
+                    Err(e) => {
+                        error = Some(FrontendError::IoVecBufferWrite(e));
+                        0
+                    }
+                }
+            } else {
+                error = Some(FrontendError::InvalidDescriptorChain);
+                0
+            };
+
+            // At this point descriptor chain was processed.
+            // We add it to the used_ring.
+            let next_used_index = self.queues[RX_INDEX].next_used + Wrapping(used_heads);
+            let used_element = UsedElement {
+                id: u32::from(iovec_buf.head_index()),
+                len: u32::try_from(desc_len).unwrap(),
+            };
+            // SAFETY:
+            // This should never panic as we provide index in
+            // correct bounds.
+            self.queues[RX_INDEX]
+                .write_used_ring(mem, next_used_index.0, used_element)
+                .unwrap();
+
+            used_heads += 1;
+        }
+
+        // The are 2 ways the packet_start_addr can be None:
+        // 1. the loop was never run because slice was initially empty.
+        // 2. the very first descriptor chain was invalid
+        // In second case the error will contain something, so
+        // we only care abount first case.
+        if packet_start_addr.is_none() && error.is_none() {
+            error = Some(FrontendError::AttemptToWriteEmptyPacket);
+        }
+
+        let mut end_packet_processing = || {
+            // We only update queues internals when packet processing has
+            // finished. This is done to prevent giving information to the guest
+            // about descriptor heads used for partialy written packets.
+            // Otherwise guest will see that we used those descriptors and
+            // will try to process them.
+            self.queues[RX_INDEX].advance_used_ring(mem, used_heads);
+            let next_avail = self.queues[RX_INDEX].next_avail.0;
+            self.queues[RX_INDEX].set_used_ring_avail_event(next_avail, mem);
+
+            // Clear partial write info if there was one
+            self.rx_partial_write = None;
+        };
+
+        if let Some(err) = error {
+            // There was a error during writing.
+            end_packet_processing();
+
+            self.metrics.rx_fails.inc();
+
+            // We used `used_heads` descriptors to process the packet.
+            // Because this is an error case, we discard those descriptors.
+            self.queues[RX_INDEX].discard_used(mem, used_heads);
+
+            Err(err)
+        } else if slice.is_empty() {
+            // Packet was fully written.
+            end_packet_processing();
+
+            self.metrics
+                .rx_bytes_count
+                .add(usize_to_u64(self.rx_bytes_read));
+            self.metrics.rx_packets_count.inc();
+
+            // SAFETY: packet_start_addr cannot be None at
+            // this point.
+            let packet_start_addr = packet_start_addr.unwrap();
+
+            // Update number of descriptor heads used to store a packet.
+            // SAFETY:
+            // The packet_start_addr is valid address because it was
+            // obtained from a descriptor chain which was verified during
+            // its construction.
+            #[allow(clippy::transmute_ptr_to_ref)]
+            let header: &mut virtio_net_hdr_v1 = unsafe {
+                // SAFETY:
+                // The head address was checked during descriptor chain creation.
+                std::mem::transmute(packet_start_addr)
+            };
+            header.num_buffers = used_heads;
+
+            Ok(())
+        } else {
+            // Packet could not be fully written to the guest
+            // Save necessary info to use it during next invocation.
+            self.metrics.rx_partial_writes.inc();
+
+            // SAFETY: packet_start_addr cannot be None at
+            // this point.
+            let packet_start_addr = packet_start_addr.unwrap();
+
+            if let Some(pw) = &mut self.rx_partial_write {
+                pw.bytes_written = self.rx_bytes_read - slice.len();
+                pw.used_heads = used_heads;
+            } else {
+                let pw = PartialWrite {
+                    bytes_written: self.rx_bytes_read - slice.len(),
+                    used_heads,
+                    packet_start_addr,
+                };
+                self.rx_partial_write = Some(pw);
+            }
+
+            Err(FrontendError::EmptyQueue)
+        }
     }
 
     // Tries to detour the frame to MMDS and if MMDS doesn't accept it, sends it on the host TAP.
@@ -740,7 +915,15 @@ impl Net {
             // rate limiters present but with _very high_ allowed rate
             error!("Failed to get rx queue event: {:?}", err);
             self.metrics.event_fails.inc();
-        } else if self.rx_rate_limiter.is_blocked() {
+        }
+
+        // Guest tells us there are new descriptor chains, so
+        // we read them here.
+        let mem = self.device_state.mem().unwrap();
+        self.rx_avail_desc
+            .read_new_desc_chains(&mut self.queues[RX_INDEX], mem);
+
+        if self.rx_rate_limiter.is_blocked() {
             self.metrics.rx_rate_limiter_throttled.inc();
         } else {
             // If the limiter is not blocked, resume the receiving of bytes.
@@ -914,6 +1097,10 @@ impl VirtioDevice for Net {
         self.tap
             .set_offload(supported_flags)
             .map_err(super::super::ActivateError::TapSetOffload)?;
+        // Initially rx_avail_desc has size of 0.
+        // So we update it with correct size of the queue here.
+        self.rx_avail_desc
+            .update_size(self.queues[RX_INDEX].actual_size() as usize);
 
         if self.activate_evt.write(1).is_err() {
             self.metrics.activate_fails.inc();
@@ -938,6 +1125,7 @@ pub mod tests {
     use std::{io, mem, thread};
 
     use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
+    use vm_memory::GuestAddress;
 
     use super::*;
     use crate::check_metric_after_block;
@@ -948,11 +1136,12 @@ pub mod tests {
     };
     use crate::devices::virtio::net::test_utils::test::TestHelper;
     use crate::devices::virtio::net::test_utils::{
-        default_net, if_index, inject_tap_tx_frame, set_mac, NetEvent, NetQueue, ReadTapMock,
-        TapTrafficSimulator, WriteTapMock,
+        default_net, if_index, inject_tap_tx_frame, mock_frame_set_num_buffers, set_mac, NetEvent,
+        NetQueue, ReadTapMock, TapTrafficSimulator, WriteTapMock,
     };
     use crate::devices::virtio::net::NET_QUEUE_SIZES;
     use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
+    use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
     use crate::dumbo::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
     use crate::dumbo::pdu::ethernet::ETHERTYPE_ARP;
     use crate::dumbo::EthernetFrame;
@@ -1035,6 +1224,7 @@ pub mod tests {
             | 1 << VIRTIO_NET_F_HOST_TSO4
             | 1 << VIRTIO_NET_F_HOST_TSO6
             | 1 << VIRTIO_NET_F_HOST_UFO
+            | 1 << VIRTIO_NET_F_MRG_RXBUF
             | 1 << VIRTIO_F_VERSION_1
             | 1 << VIRTIO_RING_F_EVENT_IDX;
 
@@ -1140,6 +1330,117 @@ pub mod tests {
     }
 
     #[test]
+    fn test_available_descriptors_new() {
+        let avail_desc = AvailableDescriptors::new();
+        assert!(avail_desc.iov_ring.is_empty());
+        assert_eq!(avail_desc.iov_ring.items.len(), 0);
+        assert!(avail_desc.valid_ring.is_empty());
+        assert_eq!(avail_desc.valid_ring.items.len(), 0);
+        assert!(avail_desc.is_empty());
+    }
+
+    #[test]
+    fn test_available_descriptors_update_size() {
+        let mut avail_desc = AvailableDescriptors::new();
+        avail_desc.update_size(69);
+        assert!(avail_desc.iov_ring.is_empty());
+        assert_eq!(avail_desc.iov_ring.items.len(), 69);
+        assert!(avail_desc.valid_ring.is_empty());
+        assert_eq!(avail_desc.valid_ring.items.len(), 69);
+        assert!(avail_desc.is_empty());
+    }
+
+    #[test]
+    fn test_available_descriptors_read_pop_desc() {
+        let m = &default_mem();
+        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+        vq.dtable[0].set(1, 1, 0x3, 1);
+        vq.dtable[1].set(2, 2, 0x3, 2);
+        vq.dtable[2].set(3, 3, 0x2, 0);
+
+        vq.dtable[3].set(4, 4, 0x3, 4);
+        vq.dtable[4].set(5, 5, 0x3, 5);
+        vq.dtable[5].set(6, 6, 0x2, 0);
+
+        // Invalid address
+        vq.dtable[6].set(7, 7, 0x3, 7);
+        vq.dtable[7].set(u64::MAX, 8, 0x3, 8);
+        vq.dtable[8].set(9, 9, 0x2, 0);
+
+        // Not write only
+        vq.dtable[9].set(10, 10, 0x3, 10);
+        vq.dtable[10].set(11, 11, 0x0, 11);
+        vq.dtable[11].set(12, 12, 0x2, 0);
+
+        vq.avail.ring[0].set(0);
+        vq.avail.ring[1].set(3);
+        vq.avail.ring[2].set(6);
+        vq.avail.ring[3].set(9);
+
+        let mut rxq = vq.create_queue();
+
+        vq.avail.idx.set(4);
+
+        // Test if too much descriptors are avalable
+        {
+            let mut avail_desc = AvailableDescriptors::new();
+            avail_desc.update_size(1);
+            avail_desc.read_new_desc_chains(&mut rxq, m);
+
+            assert_eq!(avail_desc.iov_ring.len, 1);
+            assert_eq!(avail_desc.valid_ring.len, 1);
+
+            assert_eq!(avail_desc.iov_ring.start, 0);
+            assert_eq!(avail_desc.valid_ring.start, 0);
+
+            let (iovec_buf_0, valid_0) = avail_desc.pop_desc_chain().unwrap();
+            assert_eq!(iovec_buf_0.head_index(), 0);
+            assert_eq!(iovec_buf_0.len(), 6);
+            assert!(valid_0);
+
+            assert!(avail_desc.is_empty());
+
+            assert!(avail_desc.pop_desc_chain().is_none());
+        }
+
+        // Reset queue
+        rxq.next_avail = Wrapping(0);
+        {
+            let mut avail_desc = AvailableDescriptors::new();
+            avail_desc.update_size(4);
+            avail_desc.read_new_desc_chains(&mut rxq, m);
+
+            assert_eq!(avail_desc.iov_ring.len, 4);
+            assert_eq!(avail_desc.valid_ring.len, 4);
+
+            assert_eq!(avail_desc.iov_ring.start, 0);
+            assert_eq!(avail_desc.valid_ring.start, 0);
+
+            let (iovec_buf_0, valid_0) = avail_desc.pop_desc_chain().unwrap();
+            assert_eq!(iovec_buf_0.head_index(), 0);
+            assert_eq!(iovec_buf_0.len(), 6);
+            assert!(valid_0);
+
+            let (iovec_buf_1, valid_1) = avail_desc.pop_desc_chain().unwrap();
+            assert_eq!(iovec_buf_1.head_index(), 3);
+            assert_eq!(iovec_buf_1.len(), 15);
+            assert!(valid_1);
+
+            let (iovec_buf_2, valid_2) = avail_desc.pop_desc_chain().unwrap();
+            assert_eq!(iovec_buf_2.head_index(), 6);
+            assert!(!valid_2);
+
+            let (iovec_buf_3, valid_3) = avail_desc.pop_desc_chain().unwrap();
+            assert_eq!(iovec_buf_3.head_index(), 9);
+            assert!(!valid_3);
+
+            assert!(avail_desc.is_empty());
+
+            assert!(avail_desc.pop_desc_chain().is_none());
+        }
+    }
+
+    #[test]
     fn test_rx_missing_queue_signal() {
         let mut th = TestHelper::get_default();
         th.activate_net();
@@ -1156,9 +1457,7 @@ pub mod tests {
         assert_eq!(th.rxq.used.idx.get(), 0);
     }
 
-    #[test]
-    fn test_rx_read_only_descriptor() {
-        let mut th = TestHelper::get_default();
+    fn rx_read_only_descriptor(mut th: TestHelper) {
         th.activate_net();
 
         th.add_desc_chain(
@@ -1177,6 +1476,20 @@ pub mod tests {
     }
 
     #[test]
+    fn test_rx_read_only_descriptor() {
+        let th = TestHelper::get_default();
+        rx_read_only_descriptor(th);
+    }
+
+    #[test]
+    fn test_rx_mrg_buf_read_only_descriptor() {
+        let mut th = TestHelper::get_default();
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_read_only_descriptor(th);
+    }
+
+    #[test]
     fn test_rx_short_writable_descriptor() {
         let mut th = TestHelper::get_default();
         th.activate_net();
@@ -1189,8 +1502,64 @@ pub mod tests {
     }
 
     #[test]
-    fn test_rx_partial_write() {
+    fn test_rx_mrg_buf_short_writable_descriptor() {
         let mut th = TestHelper::get_default();
+        th.activate_net();
+        th.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
+
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+
+        th.add_desc_chain(NetQueue::Rx, 0, &[(0, 100, VIRTQ_DESC_F_WRITE)]);
+
+        _ = inject_tap_tx_frame(&th.net(), 1000);
+        // For now only 1 descriptor chain is used,
+        // but the packet is not fully written yet.
+        check_metric_after_block!(
+            th.net().metrics.rx_packets_count,
+            0,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+        th.rxq.check_used_elem(0, 0, 100);
+
+        // The write was converted to partial write
+        assert!(th.net().rx_partial_write.is_some());
+    }
+
+    #[test]
+    fn test_rx_mrg_buf_multiple_short_writable_descriptors() {
+        let mut th = TestHelper::get_default();
+        th.activate_net();
+        th.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
+
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+
+        th.add_desc_chain(NetQueue::Rx, 0, &[(0, 500, VIRTQ_DESC_F_WRITE)]);
+        th.add_desc_chain(NetQueue::Rx, 500, &[(1, 500, VIRTQ_DESC_F_WRITE)]);
+
+        // There will be 2 heads used.
+        let mut frame = inject_tap_tx_frame(&th.net(), 1000);
+        mock_frame_set_num_buffers(&mut frame, 2);
+
+        check_metric_after_block!(
+            th.net().metrics.rx_packets_count,
+            1,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+
+        assert_eq!(th.rxq.used.idx.get(), 2);
+        assert!(th.net().irq_trigger.has_pending_irq(IrqType::Vring));
+        assert!(!th.net().rx_deferred_frame);
+
+        th.rxq.check_used_elem(0, 0, 500);
+        th.rxq.check_used_elem(1, 1, 500);
+
+        th.rxq.dtable[0].check_data(&frame[..500]);
+        th.rxq.dtable[1].check_data(&frame[500..]);
+    }
+
+    fn rx_invalid_desc_chain(mut th: TestHelper) {
         th.activate_net();
 
         // The descriptor chain is created so that the last descriptor doesn't fit in the
@@ -1212,8 +1581,82 @@ pub mod tests {
     }
 
     #[test]
-    fn test_rx_retry() {
+    fn test_rx_invalid_desc_chain() {
+        let th = TestHelper::get_default();
+        rx_invalid_desc_chain(th);
+    }
+
+    #[test]
+    fn test_rx_mrg_buf_invalid_desc_chain() {
         let mut th = TestHelper::get_default();
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_invalid_desc_chain(th);
+    }
+
+    #[test]
+    fn test_rx_mrg_buf_partial_write() {
+        let mut th = TestHelper::get_default();
+        th.activate_net();
+        th.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
+
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+
+        // Add descriptor that is not big enough to store the
+        // whole packet.
+        th.add_desc_chain(NetQueue::Rx, 0, &[(0, 250, VIRTQ_DESC_F_WRITE)]);
+
+        // There will be 3 heads used.
+        let mut frame = inject_tap_tx_frame(&th.net(), 1000);
+        mock_frame_set_num_buffers(&mut frame, 3);
+
+        // For now only 1 descriptor chain is used,
+        // but the packet is not fully written yet.
+        check_metric_after_block!(
+            th.net().metrics.rx_partial_writes,
+            1,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+        th.rxq.check_used_elem(0, 0, 250);
+
+        // The write was converted to partial write
+        assert!(th.net().rx_partial_write.is_some());
+
+        // Continue writing.
+        th.add_desc_chain(NetQueue::Rx, 250, &[(1, 250, VIRTQ_DESC_F_WRITE)]);
+        // Only 500 bytes of 1000 should be written now.
+        check_metric_after_block!(
+            th.net().metrics.rx_partial_writes,
+            1,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+        th.rxq.check_used_elem(1, 1, 250);
+
+        // The write is still a partial write
+        assert!(th.net().rx_partial_write.is_some());
+
+        // Finish writing.
+        th.add_desc_chain(NetQueue::Rx, 500, &[(2, 500, VIRTQ_DESC_F_WRITE)]);
+        check_metric_after_block!(
+            th.net().metrics.rx_packets_count,
+            1,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+        assert!(th.net().rx_partial_write.is_none());
+        assert_eq!(th.rxq.used.idx.get(), 3);
+        assert!(th.net().irq_trigger.has_pending_irq(IrqType::Vring));
+
+        th.rxq.check_used_elem(0, 0, 250);
+        th.rxq.check_used_elem(1, 1, 250);
+        th.rxq.check_used_elem(2, 2, 500);
+
+        th.rxq.dtable[0].check_data(&frame[..250]);
+        th.rxq.dtable[1].check_data(&frame[250..500]);
+        th.rxq.dtable[2].check_data(&frame[500..]);
+    }
+
+    fn rx_retry(mut th: TestHelper) {
         th.activate_net();
         th.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
 
@@ -1227,9 +1670,15 @@ pub mod tests {
                 (2, 1000, VIRTQ_DESC_F_WRITE),
             ],
         );
-        // Add invalid descriptor chain - too short.
+
+        // Without VIRTIO_NET_F_MRG_RXBUF this descriptor is invalid as it is too short.
+        // With VIRTIO_NET_F_MRG_RXBUF this descriptor is valid, write will be converted into
+        // partial write.
         th.add_desc_chain(NetQueue::Rx, 1200, &[(3, 100, VIRTQ_DESC_F_WRITE)]);
         // Add invalid descriptor chain - invalid memory offset.
+        // Without VIRTIO_NET_F_MRG_RXBUF this descriptor is invalid.
+        // With VIRTIO_NET_F_MRG_RXBUF the partial write stated with previous descriptor should halt
+        // here.
         th.add_desc_chain(
             NetQueue::Rx,
             th.mem.last_addr().raw_value(),
@@ -1263,8 +1712,20 @@ pub mod tests {
     }
 
     #[test]
-    fn test_rx_complex_desc_chain() {
+    fn test_rx_retry() {
+        let th = TestHelper::get_default();
+        rx_retry(th);
+    }
+
+    #[test]
+    fn test_rx_mrg_buf_retry() {
         let mut th = TestHelper::get_default();
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_retry(th);
+    }
+
+    fn rx_complex_desc_chain(mut th: TestHelper) {
         th.activate_net();
         th.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
 
@@ -1302,8 +1763,20 @@ pub mod tests {
     }
 
     #[test]
-    fn test_rx_multiple_frames() {
+    fn test_rx_complex_desc_chain() {
+        let th = TestHelper::get_default();
+        rx_complex_desc_chain(th);
+    }
+
+    #[test]
+    fn test_rx_mrg_buf_complex_desc_chain() {
         let mut th = TestHelper::get_default();
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_complex_desc_chain(th);
+    }
+
+    fn rx_multiple_frames(mut th: TestHelper) {
         th.activate_net();
         th.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
 
@@ -1343,6 +1816,20 @@ pub mod tests {
             .check_used_elem(1, 2, frame_2.len().try_into().unwrap());
         th.rxq.dtable[2].check_data(&frame_2);
         th.rxq.dtable[3].check_data(&[0; 500]);
+    }
+
+    #[test]
+    fn test_rx_multiple_frames() {
+        let th = TestHelper::get_default();
+        rx_multiple_frames(th);
+    }
+
+    #[test]
+    fn test_rx_mrg_buf_multiple_frames() {
+        let mut th = TestHelper::get_default();
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_multiple_frames(th);
     }
 
     #[test]
