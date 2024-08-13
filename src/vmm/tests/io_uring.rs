@@ -1,8 +1,6 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#![allow(clippy::undocumented_unsafe_blocks)]
-
 use std::os::unix::fs::FileExt;
 use std::os::unix::io::AsRawFd;
 use std::thread;
