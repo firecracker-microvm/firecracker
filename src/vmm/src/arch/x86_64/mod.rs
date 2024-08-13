@@ -18,7 +18,6 @@ pub mod msr;
 /// Logic for configuring x86_64 registers.
 pub mod regs;
 
-#[allow(clippy::all)]
 #[allow(missing_docs)]
 pub mod gen;
 
