@@ -637,7 +637,7 @@ pub(crate) mod tests {
     };
     use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
-    use crate::utilities::test_utils::single_region_mem;
+    use crate::test_utils::test_utils::single_region_mem;
     use crate::vstate::memory::GuestAddress;
 
     impl Balloon {

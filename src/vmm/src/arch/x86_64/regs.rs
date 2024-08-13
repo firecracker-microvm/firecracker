@@ -243,7 +243,7 @@ mod tests {
     use kvm_ioctls::Kvm;
 
     use super::*;
-    use crate::utilities::test_utils::single_region_mem;
+    use crate::test_utils::test_utils::single_region_mem;
     use crate::vstate::memory::{Bytes, GuestAddress, GuestMemoryMmap};
 
     fn read_u64(gm: &GuestMemoryMmap, offset: u64) -> u64 {

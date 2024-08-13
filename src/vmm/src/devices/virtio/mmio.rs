@@ -382,7 +382,7 @@ pub(crate) mod tests {
     use crate::devices::virtio::device::IrqTrigger;
     use crate::devices::virtio::device_status::DEVICE_NEEDS_RESET;
     use crate::devices::virtio::ActivateError;
-    use crate::utilities::test_utils::single_region_mem;
+    use crate::test_utils::test_utils::single_region_mem;
     use crate::vstate::memory::GuestMemoryMmap;
 
     #[derive(Debug)]

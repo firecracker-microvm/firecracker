@@ -10,7 +10,7 @@ use vm_memory::GuestAddress;
 use crate::builder::build_microvm_for_boot;
 use crate::resources::VmResources;
 use crate::seccomp_filters::get_empty_filters;
-use crate::utilities::mock_resources::{MockBootSourceConfig, MockVmConfig, MockVmResources};
+use crate::test_utils::mock_resources::{MockBootSourceConfig, MockVmConfig, MockVmResources};
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::HugePageConfig;

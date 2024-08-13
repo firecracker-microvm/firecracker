@@ -218,7 +218,7 @@ mod tests {
 
     use super::*;
     use crate::arch::aarch64::layout;
-    use crate::utilities::test_utils::arch_mem;
+    use crate::test_utils::test_utils::arch_mem;
 
     #[test]
     fn test_setup_regs() {
