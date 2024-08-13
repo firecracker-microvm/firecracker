@@ -37,7 +37,7 @@ from host_tools.cargo_build import get_binary, get_firecracker_binaries
 
 # Locally, this will always compare against main, even if we try to merge into, say, a feature branch.
 # We might want to do a more sophisticated way to determine a "parent" branch here.
-DEFAULT_A_REVISION = os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH", "main")
+DEFAULT_A_REVISION = os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH") or "main"
 
 
 T = TypeVar("T")
@@ -82,11 +82,11 @@ def git_ab_test(
              (alternatively, your comparator can perform any required assertions and not return anything).
     """
 
-    dir_a = git_clone(Path("build") / a_revision, a_revision)
+    dir_a = git_clone(Path("../build") / a_revision, a_revision)
     result_a = test_runner(dir_a, True)
 
     if b_revision:
-        dir_b = git_clone(Path("build") / b_revision, b_revision)
+        dir_b = git_clone(Path("../build") / b_revision, b_revision)
     else:
         # By default, pytest execution happens inside the `tests` subdirectory. Pass the repository root, as
         # documented.
@@ -106,7 +106,7 @@ def git_ab_test_host_command_if_pr(
     command: str,
     *,
     comparator: Callable[[CommandReturn, CommandReturn], bool] = default_comparator,
-    ignore_return_code_in_nonpr=False,
+    check_in_nonpr=True,
 ):
     """Runs the given bash command as an A/B-Test if we're in a pull request context (asserting that its stdout and
     stderr did not change across the PR). Otherwise runs the command, asserting it returns a zero exit code
@@ -117,7 +117,7 @@ def git_ab_test_host_command_if_pr(
 
     return utils.run_cmd(
         command,
-        ignore_return_code=ignore_return_code_in_nonpr,
+        check=check_in_nonpr,
         cwd=Path.cwd().parent,
     )
 
@@ -131,7 +131,7 @@ def git_ab_test_host_command(
 ):
     """Performs an A/B-Test of the specified command, asserting that both the A and B invokations return the same stdout/stderr"""
     (_, old_out, old_err), (_, new_out, new_err), the_same = git_ab_test(
-        lambda path, _is_a: utils.run_cmd(command, ignore_return_code=True, cwd=path),
+        lambda path, _is_a: utils.run_cmd(command, cwd=path),
         comparator,
         a_revision=a_revision,
         b_revision=b_revision,
@@ -165,11 +165,14 @@ def git_ab_test_guest_command(
     paths to firecracker and jailer binaries."""
 
     @with_filelock
+    def build_firecracker(workspace_dir):
+        utils.check_output("./tools/release.sh --profile release", cwd=workspace_dir)
+
     def test_runner(workspace_dir, _is_a: bool):
-        utils.run_cmd("./tools/release.sh --profile release", cwd=workspace_dir)
-        bin_dir = get_binary(
-            "firecracker", workspace_dir=workspace_dir
-        ).parent.resolve()
+        firecracker = get_binary("firecracker", workspace_dir=workspace_dir)
+        if not firecracker.exists():
+            build_firecracker(workspace_dir)
+        bin_dir = firecracker.parent.resolve()
         firecracker, jailer = bin_dir / "firecracker", bin_dir / "jailer"
         microvm = microvm_factory(firecracker, jailer)
         return microvm.ssh.run(command)
@@ -188,7 +191,7 @@ def git_ab_test_guest_command_if_pr(
     command: str,
     *,
     comparator=default_comparator,
-    ignore_return_code_in_nonpr=False,
+    check_in_nonpr=True,
 ):
     """The same as git_ab_test_command_if_pr, but via SSH"""
     if is_pr():
@@ -196,10 +199,7 @@ def git_ab_test_guest_command_if_pr(
         return None
 
     microvm = microvm_factory(*get_firecracker_binaries())
-    ecode, stdout, stderr = microvm.ssh.run(command)
-    if not ignore_return_code_in_nonpr:
-        assert ecode == 0, f"stdout:\n{stdout}\nstderr:\n{stderr}\n"
-    return CommandReturn(ecode, stdout, stderr)
+    return microvm.ssh.run(command, check=check_in_nonpr)
 
 
 def check_regression(
@@ -235,17 +235,19 @@ def git_clone(clone_path, commitish):
     :return: the working copy directory.
     """
     if not clone_path.exists():
-        ret, _, _ = utils.run_cmd(
-            f"git cat-file -t {commitish}", ignore_return_code=True
-        )
+        ret, _, _ = utils.run_cmd(f"git cat-file -t {commitish}")
         if ret != 0:
             # git didn't recognize this object; qualify it if it is a branch
             commitish = f"origin/{commitish}"
         # make a temp branch for that commit so we can directly check it out
-        utils.run_cmd(f"git branch {clone_path} {commitish}")
+        branch_name = f"tmp-{commitish}"
+        utils.check_output(f"git branch {branch_name} {commitish}")
         _, git_root, _ = utils.run_cmd("git rev-parse --show-toplevel")
         # split off the '\n' at the end of the stdout
-        utils.run_cmd(f"git clone -b {clone_path} {git_root.strip()} {clone_path}")
+        utils.check_output(
+            f"git clone -b {branch_name} {git_root.strip()} {clone_path}"
+        )
+        utils.check_output(f"git branch -D {branch_name}")
     return clone_path
 
 

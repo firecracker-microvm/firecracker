@@ -15,6 +15,9 @@ use crate::device_manager::resources::ResourceAllocator;
 use crate::snapshot::Persist;
 use crate::vstate::memory::{Bytes, GuestMemoryMmap};
 
+/// Bytes of memory we allocate for VMGenID device
+pub const VMGENID_MEM_SIZE: u64 = 16;
+
 /// Virtual Machine Generation ID device
 ///
 /// VMGenID is an emulated device which exposes to the guest a 128-bit cryptographically random
@@ -86,8 +89,9 @@ impl VmGenId {
         resource_allocator: &mut ResourceAllocator,
     ) -> Result<Self, VmGenIdError> {
         let gsi = resource_allocator.allocate_gsi(1)?;
+        // The generation ID needs to live in an 8-byte aligned buffer
         let addr = resource_allocator.allocate_system_memory(
-            4096,
+            VMGENID_MEM_SIZE,
             8,
             vm_allocator::AllocPolicy::LastMatch,
         )?;
@@ -149,7 +153,7 @@ impl<'a> Persist<'a> for VmGenId {
         state: &Self::State,
     ) -> std::result::Result<Self, Self::Error> {
         constructor_args.resource_allocator.allocate_system_memory(
-            4096,
+            VMGENID_MEM_SIZE,
             8,
             vm_allocator::AllocPolicy::ExactMatch(state.addr),
         )?;

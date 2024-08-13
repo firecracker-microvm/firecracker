@@ -8,6 +8,7 @@
 """
 
 import datetime
+import json
 import math
 import platform
 import time
@@ -437,54 +438,41 @@ def get_emf_unit_for_fc_metrics(full_key):
 
 def flush_fc_metrics_to_cw(fc_metrics, metrics):
     """
-    Flush Firecracker metrics to CloudWatch
-    Use an existing metrics logger with existing dimensions so
-    that its easier to corelate the metrics with the test calling it.
-    Add a prefix "fc_metrics." to differentiate these metrics, this
-    also helps to avoid using this metrics in AB tests.
+    Flush Firecracker metrics to CloudWatch. Use an existing metrics logger with existing dimensions so that it is
+    easier to correlate the metrics with the test calling it. Add a prefix "fc_metrics." to differentiate these metrics,
+    this also helps to avoid using this metrics in A/B tests.
     NOTE:
-        There are metrics with keywords "fail", "err",
-        "num_faults", "panic" in their name and represent
-        some kind of failure in Firecracker.
-        This function `does not` assert on these failure metrics
-        since some tests might not want to assert on them while
-        some tests might want to assert on some but not others.
+        There are metrics with keywords "fail", "err", "num_faults", "panic" in their name and represent some kind of
+        failure in Firecracker.  We assert that all these are zero, to catch potentially silent failure modes. This
+        means the FcMonitor cannot be used in negative tests that might cause such metrics to be emitted.
     """
 
-    def walk_key(full_key, keys):
-        for key, value in keys.items():
-            final_full_key = full_key + "." + key
-            if isinstance(value, dict):
-                walk_key(final_full_key, value)
-            else:
-                # values are 0 when:
-                # - there is no update
-                # - device is not used
-                # - SharedIncMetric reset to 0 on flush so if
-                #   there is no change metric the values remain 0.
-                # We can save the amount of bytes we export to
-                # CloudWatch in these cases.
-                # however it is difficult to differentiate if a 0
-                # should be skipped or upload because it could be
-                # an expected value in some cases so we upload
-                # all the metrics even if data is 0.
-                unit = get_emf_unit_for_fc_metrics(final_full_key)
-                metrics.put_metric(f"fc_metrics.{final_full_key}", value, unit=unit)
+    # Pre-order tree traversal to convert a tree into its list of paths with dot separate segments
+    def flatten_dict(node, prefix: str):
+        if not isinstance(node, dict):
+            return {prefix: node}
 
-    # List of SharedStoreMetric that once updated have the same value thoughout the life of vm
-    metrics_to_export_once = {
-        "api_server",
-        "latencies_us",
-    }
-    skip = set()
-    for group, keys in fc_metrics.items():
-        if group == "utc_timestamp_ms":
+        result = {}
+        for child_metric_name, child_metrics in node.items():
+            result.update(flatten_dict(child_metrics, f"{prefix}.{child_metric_name}"))
+        return result
+
+    flattened_metrics = flatten_dict(fc_metrics, "fc_metrics")
+
+    for key, value in flattened_metrics.items():
+        if ".utc_timestamp_ms." in key:
             continue
-        if group not in skip:
-            walk_key(group, keys)
-            if group in metrics_to_export_once:
-                skip.add(group)
+        metrics.put_metric(key, value, get_emf_unit_for_fc_metrics(key))
+
     metrics.flush()
+
+    failure_metrics = {
+        key: value
+        for key, value in flattened_metrics.items()
+        if "err" in key or "fail" in key or "panic" in key or "num_faults" in key
+        if value
+    }
+    assert not failure_metrics, json.dumps(failure_metrics, indent=1)
 
 
 class FCMetricsMonitor(Thread):
@@ -500,6 +488,7 @@ class FCMetricsMonitor(Thread):
     def __init__(self, vm, timer=60):
         Thread.__init__(self, daemon=True)
         self.vm = vm
+        vm.monitors.append(self)
         self.timer = timer
 
         self.metrics_index = 0
@@ -513,6 +502,7 @@ class FCMetricsMonitor(Thread):
                 "guest_kernel": vm.kernel_file.stem[2:],
             }
         )
+        self.start()
 
     def _flush_metrics(self):
         """
@@ -538,13 +528,14 @@ class FCMetricsMonitor(Thread):
         in sleep when stop is called and once it wakes out of sleep
         the "vm" might not be avaiable to provide the metrics.
         """
-        self.running = False
-        # wait for the running thread to finish
-        # this should also avoid any race condition leading to
-        # uploading the same metrics twice
-        self.join()
-        self.vm.api.actions.put(action_type="FlushMetrics")
-        self._flush_metrics()
+        if self.is_alive():
+            self.running = False
+            # wait for the running thread to finish
+            # this should also avoid any race condition leading to
+            # uploading the same metrics twice
+            self.join()
+            self.vm.api.actions.put(action_type="FlushMetrics")
+            self._flush_metrics()
 
     def run(self):
         self.running = True

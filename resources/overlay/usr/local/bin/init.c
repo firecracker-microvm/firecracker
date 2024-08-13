@@ -38,7 +38,7 @@ int main () {
    const char *init = "/sbin/init";
 
    char *const argv[] = { "/sbin/init", NULL };
-   char *const envp[] = { };
+   char *const envp[] = { NULL };
 
    execve(init, argv, envp);
 }

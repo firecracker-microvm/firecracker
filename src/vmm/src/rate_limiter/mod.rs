@@ -28,7 +28,7 @@ const NANOSEC_IN_ONE_MILLISEC: u64 = 1_000_000;
 // Euclid's two-thousand-year-old algorithm for finding the greatest common divisor.
 #[cfg_attr(kani, kani::requires(x > 0 && y > 0))]
 #[cfg_attr(kani, kani::ensures(
-    result != 0
+    |&result| result != 0
         && x % result == 0
         && y % result == 0
 ))]
@@ -942,8 +942,8 @@ pub(crate) mod tests {
         // limiter should not be blocked
         assert!(!l.is_blocked());
         // limiter should be disabled so consume(whatever) should work
-        assert!(l.consume(u64::max_value(), TokenType::Ops));
-        assert!(l.consume(u64::max_value(), TokenType::Bytes));
+        assert!(l.consume(u64::MAX, TokenType::Ops));
+        assert!(l.consume(u64::MAX, TokenType::Bytes));
         // calling the handler without there having been an event should error
         l.event_handler().unwrap_err();
         assert_eq!(
@@ -1002,7 +1002,7 @@ pub(crate) mod tests {
         assert!(l.as_raw_fd() > 0);
 
         // ops/s limiter should be disabled so consume(whatever) should work
-        assert!(l.consume(u64::max_value(), TokenType::Ops));
+        assert!(l.consume(u64::MAX, TokenType::Ops));
 
         // do full 1000 bytes
         assert!(l.consume(1000, TokenType::Bytes));
@@ -1035,7 +1035,7 @@ pub(crate) mod tests {
         assert!(l.as_raw_fd() > 0);
 
         // bytes/s limiter should be disabled so consume(whatever) should work
-        assert!(l.consume(u64::max_value(), TokenType::Bytes));
+        assert!(l.consume(u64::MAX, TokenType::Bytes));
 
         // do full 1000 ops
         assert!(l.consume(1000, TokenType::Ops));

@@ -5,6 +5,7 @@
 
 import json
 import os
+import platform
 import re
 import shutil
 import sys
@@ -16,8 +17,12 @@ sys.path.append(os.path.join(os.getcwd(), "tests"))  # noqa: E402
 # pylint: disable=wrong-import-position
 from framework.artifacts import disks, kernels
 from framework.microvm import MicroVMFactory
-from framework.utils import generate_mmds_get_request, generate_mmds_session_token
-from framework.utils_cpuid import CpuVendor, get_cpu_vendor
+from framework.utils import (
+    configure_mmds,
+    generate_mmds_get_request,
+    generate_mmds_session_token,
+)
+from framework.utils_cpu_templates import get_supported_cpu_templates
 from host_tools.cargo_build import get_firecracker_binaries
 
 # pylint: enable=wrong-import-position
@@ -25,8 +30,6 @@ from host_tools.cargo_build import get_firecracker_binaries
 # Default IPv4 address to route MMDS requests.
 IPV4_ADDRESS = "169.254.169.254"
 NET_IFACE_FOR_MMDS = "eth3"
-# Path to the VM configuration file.
-VM_CONFIG_FILE = "tools/create_snapshot_artifact/complex_vm_config.json"
 # Root directory for the snapshot artifacts.
 SNAPSHOT_ARTIFACTS_ROOT_DIR = "snapshot_artifacts"
 
@@ -75,8 +78,8 @@ def main():
             |
             -> vm.mem
             -> vm.vmstate
-            -> ubuntu-18.04.id_rsa
-            -> ubuntu-18.04.ext4
+            -> ubuntu-22.04.id_rsa
+            -> ubuntu-22.04.ext4
         -> <guest_kernel_supported_1>_<cpu_template>_guest_snapshot
             |
             ...
@@ -87,85 +90,75 @@ def main():
     shutil.rmtree(SNAPSHOT_ARTIFACTS_ROOT_DIR, ignore_errors=True)
     vm_factory = MicroVMFactory(*get_firecracker_binaries())
 
-    cpu_templates = ["None"]
-    if get_cpu_vendor() == CpuVendor.INTEL:
-        cpu_templates.extend(["C3", "T2", "T2S"])
+    cpu_templates = []
+    if platform.machine() == "x86_64":
+        cpu_templates = ["None"]
+    cpu_templates += get_supported_cpu_templates()
 
     for cpu_template in cpu_templates:
         for kernel in kernels(glob="vmlinux-*"):
             for rootfs in disks(glob="ubuntu-*.squashfs"):
                 print(kernel, rootfs, cpu_template)
-                vm = vm_factory.build()
-                create_snapshots(vm, rootfs, kernel, cpu_template)
+                vm = vm_factory.build(kernel, rootfs)
+                vm.spawn(log_level="Info")
+                vm.basic_config(
+                    vcpu_count=2,
+                    mem_size_mib=1024,
+                    cpu_template=cpu_template,
+                    track_dirty_pages=True,
+                )
+                # Add 4 network devices
+                for i in range(4):
+                    vm.add_net_iface()
+                # Add a vsock device
+                vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/v.sock")
+                # Add MMDS
+                configure_mmds(vm, ["eth3"], version="V2")
+                # Add a memory balloon.
+                vm.api.balloon.put(
+                    amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1
+                )
 
+                vm.start()
+                # Ensure the microVM has started.
+                assert vm.state == "Running"
 
-def create_snapshots(vm, rootfs, kernel, cpu_template):
-    """Snapshot microVM built from vm configuration file."""
-    # Get ssh key from read-only artifact.
-    vm.ssh_key = rootfs.with_suffix(".id_rsa")
-    vm.rootfs_file = rootfs
-    vm.kernel_file = kernel
+                # Populate MMDS.
+                data_store = {
+                    "latest": {
+                        "meta-data": {
+                            "ami-id": "ami-12345678",
+                            "reservation-id": "r-fea54097",
+                            "local-hostname": "ip-10-251-50-12.ec2.internal",
+                            "public-hostname": "ec2-203-0-113-25.compute-1.amazonaws.com",
+                        }
+                    }
+                }
+                populate_mmds(vm, data_store)
 
-    # adapt the JSON file
-    vm_config_file = Path(VM_CONFIG_FILE)
-    obj = json.load(vm_config_file.open(encoding="UTF-8"))
-    obj["boot-source"]["kernel_image_path"] = kernel.name
-    obj["drives"][0]["path_on_host"] = rootfs.name
-    obj["drives"][0]["is_read_only"] = True
-    obj["machine-config"]["cpu_template"] = cpu_template
-    vm.create_jailed_resource(vm_config_file)
-    vm_config = Path(vm.chroot()) / vm_config_file.name
-    vm_config.write_text(json.dumps(obj))
-    vm.jailer.extra_args = {"config-file": vm_config_file.name}
+                # Iterate and validate connectivity on all ifaces after boot.
+                for i in range(4):
+                    exit_code, _, _ = vm.ssh_iface(i).run("sync")
+                    assert exit_code == 0
 
-    # since we are using a JSON file, we need to do this manually
-    vm.create_jailed_resource(rootfs)
-    vm.create_jailed_resource(kernel)
+                # Validate MMDS.
+                validate_mmds(vm.ssh, data_store)
 
-    for i in range(4):
-        vm.add_net_iface(api=False)
+                # Snapshot the microVM.
+                snapshot = vm.snapshot_diff()
 
-    vm.spawn(log_level="Info")
+                # Create snapshot artifacts directory specific for the kernel version used.
+                guest_kernel_version = re.search("vmlinux-(.*)", kernel.name)
 
-    # Ensure the microVM has started.
-    assert vm.state == "Running"
+                snapshot_artifacts_dir = (
+                    Path(SNAPSHOT_ARTIFACTS_ROOT_DIR)
+                    / f"{guest_kernel_version.group(1)}_{cpu_template}_guest_snapshot"
+                )
+                snapshot_artifacts_dir.mkdir(parents=True)
+                snapshot.save_to(snapshot_artifacts_dir)
+                print(f"Copied snapshot to: {snapshot_artifacts_dir}.")
 
-    # Populate MMDS.
-    data_store = {
-        "latest": {
-            "meta-data": {
-                "ami-id": "ami-12345678",
-                "reservation-id": "r-fea54097",
-                "local-hostname": "ip-10-251-50-12.ec2.internal",
-                "public-hostname": "ec2-203-0-113-25.compute-1.amazonaws.com",
-            }
-        }
-    }
-    populate_mmds(vm, data_store)
-
-    # Iterate and validate connectivity on all ifaces after boot.
-    for i in range(4):
-        exit_code, _, _ = vm.ssh_iface(i).run("sync")
-        assert exit_code == 0
-
-    # Validate MMDS.
-    validate_mmds(vm.ssh, data_store)
-
-    # Snapshot the microVM.
-    snapshot = vm.snapshot_diff()
-
-    # Create snapshot artifacts directory specific for the kernel version used.
-    guest_kernel_version = re.search("vmlinux-(.*)", kernel.name)
-
-    snapshot_artifacts_dir = (
-        Path(SNAPSHOT_ARTIFACTS_ROOT_DIR)
-        / f"{guest_kernel_version.group(1)}_{cpu_template}_guest_snapshot"
-    )
-    snapshot_artifacts_dir.mkdir(parents=True)
-    snapshot.save_to(snapshot_artifacts_dir)
-    print(f"Copied snapshot to: {snapshot_artifacts_dir}.")
-
-    vm.kill()
+                vm.kill()
 
 
 if __name__ == "__main__":

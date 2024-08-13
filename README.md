@@ -27,8 +27,8 @@ functionality to reduce the memory footprint and attack surface area of each
 microVM. This improves security, decreases the startup time, and increases
 hardware utilization. Firecracker has also been integrated in container
 runtimes, for example
-[Kata Containers](https://github.com/kata-containers/documentation/wiki/Initial-release-of-Kata-Containers-with-Firecracker-support)
-and [Weaveworks Ignite](https://github.com/weaveworks/ignite).
+[Kata Containers](https://github.com/kata-containers/kata-containers) and
+[Flintlock](https://github.com/liquidmetal-dev/flintlock).
 
 Firecracker was developed at Amazon Web Services to accelerate the speed and
 efficiency of services like [AWS Lambda](https://aws.amazon.com/lambda/) and
@@ -132,9 +132,9 @@ We test all combinations of:
 
 | Instance  | Host OS & Kernel  | Guest Rootfs | Guest Kernel |
 | :-------- | :---------------- | :----------- | :----------- |
-| c5n.metal | al2    linux_4.14 | ubuntu 22.04 | linux_4.14   |
-| m5n.metal | al2    linux_5.10 |              | linux_5.10   |
-| m6i.metal | al2023 linux_6.1  |              |              |
+| c5n.metal | al2    linux_5.10 | ubuntu 22.04 | linux_4.14   |
+| m5n.metal | al2023 linux_6.1  |              | linux_5.10   |
+| m6i.metal |                   |              |              |
 | m6a.metal |                   |              |              |
 | m6g.metal |                   |              |              |
 | m7g.metal |                   |              |              |

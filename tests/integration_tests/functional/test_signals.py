@@ -10,8 +10,6 @@ from time import sleep
 
 import pytest
 
-from framework import utils
-
 signum_str = {
     SIGBUS: "sigbus",
     SIGSEGV: "sigsegv",
@@ -54,10 +52,9 @@ def test_generic_signal_handler(uvm_plain, signum):
         # This is going to fail if process has exited.
         microvm.api.actions.put(action_type="FlushMetrics")
     else:
-        microvm.expect_kill_by_signal = True
-        # Ensure that the process was terminated.
-        utils.wait_process_termination(microvm.firecracker_pid)
         msg = "Shutting down VM after intercepting signal {}".format(signum)
+
+        microvm.mark_killed()
 
     microvm.check_log_message(msg)
 
@@ -95,14 +92,8 @@ def test_sigxfsz_handler(uvm_plain_rw):
     # in order to make sure the SIGXFSZ metric is logged
     res.prlimit(firecracker_pid, res.RLIMIT_FSIZE, (size * 3, res.RLIM_INFINITY))
 
-    while True:
-        try:
-            utils.run_cmd("ps -p {}".format(firecracker_pid))
-            sleep(1)
-        except ChildProcessError:
-            break
+    microvm.mark_killed()
 
-    microvm.expect_kill_by_signal = True
     msg = "Shutting down VM after intercepting signal 25, code 0"
     microvm.check_log_message(msg)
     metric_line = json.loads(metrics_fd.readlines()[0])

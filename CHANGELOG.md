@@ -10,6 +10,30 @@ and this project adheres to
 
 ### Added
 
+- [#4687](https://github.com/firecracker-microvm/firecracker/pull/4687): Added
+  VMGenID support for microVMs running on ARM hosts with 6.1 guest kernels.
+  Support for VMGenID via DeviceTree bindings exists only on mainline 6.10 Linux
+  onwards. Users of Firecracker will need to backport the relevant patches on
+  top of their 6.1 kernels to make use of the feature.
+
+### Changed
+
+### Deprecated
+
+### Removed
+
+- [#4689](https://github.com/firecracker-microvm/firecracker/pull/4689): Drop
+  support for host kernel 4.14. Linux 4.14 reached end-of-life in
+  [January 2024](https://lore.kernel.org/lkml/2024011046-ecology-tiptoeing-ce50@gregkh/).
+  The minimum supported kernel now is 5.10. Guest kernel 4.14 is still
+  supported.
+
+### Fixed
+
+## \[1.8.0\]
+
+### Added
+
 - [#4428](https://github.com/firecracker-microvm/firecracker/pull/4428): Added
   ACPI support to Firecracker for x86_64 microVMs. Currently, we pass ACPI
   tables with information about the available vCPUs, interrupt controllers,
@@ -43,6 +67,13 @@ and this project adheres to
   T2S template to set bit 27 of `MSR_IA32_ARCH_CAPABILITIES` (`RFDS_NO`) to 1
   since it assumes that the fleet only consists of processors that are not
   affected by RFDS.
+- [#4388](https://github.com/firecracker-microvm/firecracker/pull/4388): Avoid
+  setting `kvm_immediate_exit` to 1 if are already handling an exit, or if the
+  vCPU is stopped. This avoids a spurious KVM exit upon restoring snapshots.
+- [#4567](https://github.com/firecracker-microvm/firecracker/pull/4567): Do not
+  initialize vCPUs in powered-off state upon snapshot restore. No functional
+  change, as vCPU initialization is only relevant for the booted case (where the
+  guest expects CPUs to be powered off).
 
 ### Deprecated
 
@@ -60,7 +91,7 @@ and this project adheres to
 
 ### Fixed
 
-- [4526](https://github.com/firecracker-microvm/firecracker/pull/4526): Added a
+- [#4526](https://github.com/firecracker-microvm/firecracker/pull/4526): Added a
   check in the network TX path that the size of the network frames the guest
   passes to us is not bigger than the maximum frame the device expects to
   handle. On the TX path, we copy frames destined to MMDS from guest memory to
@@ -68,6 +99,29 @@ and this project adheres to
   cause an increase in the memory footprint of the Firecracker process. Now, if
   we receive such a frame, we ignore it and increase `Net::tx_malformed_frames`
   metric.
+- [#4536](https://github.com/firecracker-microvm/firecracker/pull/4536): Make
+  the first differential snapshot taken after a full snapshot contain only the
+  set of memory pages changed since the full snapshot. Previously, these
+  differential snapshots would contain all memory pages. This will result in
+  potentially much smaller differential snapshots after a full snapshot.
+- [#4578](https://github.com/firecracker-microvm/firecracker/pull/4578): Fix
+  UFFD support not being forward-compatible with new ioctl options introduced in
+  Linux 6.6. See also
+  https://github.com/bytecodealliance/userfaultfd-rs/issues/61.
+- [#4618](https://github.com/firecracker-microvm/firecracker/pull/4618): On
+  x86_64, when taking a snapshot, if a vCPU has MSR_IA32_TSC_DEADLINE set to 0,
+  Firecracker will replace it with the MSR_IA32_TSC value from the same vCPU.
+  This is to guarantee that the vCPU will continue receiving TSC interrupts
+  after restoring from the snapshot even if an interrupt is lost when taking a
+  snapshot.
+- [#4666](https://github.com/firecracker-microvm/firecracker/pull/4666): Fixed
+  Firecracker sometimes restoring `MSR_IA32_TSC_DEADLINE` before `MSR_IA32_TSC`.
+  Now it always restores `MSR_IA32_TSC_DEADLINE` MSR after `MSR_IA32_TSC`, as
+  KVM relies on the guest TSC for correct restoration of
+  `MSR_IA32_TSC_DEADLINE`. This fixed guests using the `TSC_DEADLINE` hardware
+  feature receiving incorrect timer interrupts after snapshot restoration, which
+  could lead to them seemingly getting stuck in sleep-related syscalls (see also
+  https://github.com/firecracker-microvm/firecracker/pull/4099).
 
 ## \[1.7.0\]
 
@@ -100,10 +154,12 @@ and this project adheres to
   supported snapshot version format. This change renders all previous
   Firecracker snapshots (up to Firecracker version v1.6.0) incompatible with the
   current Firecracker version.
+
 - [#4449](https://github.com/firecracker-microvm/firecracker/pull/4449): Added
   information about page size to the payload Firecracker sends to the UFFD
   handler. Each memory region object now contains a `page_size_kib` field. See
   also the [hugepages documentation](docs/hugepages.md).
+
 - [#4498](https://github.com/firecracker-microvm/firecracker/pull/4498): Only
   use memfd to back guest memory if a vhost-user-blk device is configured,
   otherwise use anonymous private memory. This is because serving page faults of

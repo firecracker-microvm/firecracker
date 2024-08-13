@@ -1,15 +1,11 @@
-FROM ubuntu:22.04
+FROM public.ecr.aws/lts/ubuntu:22.04
 
 # TODO: use a multi-stage build to reduce the download size when updating this container.
 # The Rust toolchain layer will get updated most frequently, but we could keep the system
 # dependencies layer intact for much longer.
 
-ARG RUST_TOOLCHAIN="1.76.0"
+ARG RUST_TOOLCHAIN="1.79.0"
 ARG TMP_BUILD_DIR=/tmp/build
-ARG FIRECRACKER_SRC_DIR="/firecracker"
-ARG FIRECRACKER_BUILD_DIR="$FIRECRACKER_SRC_DIR/build"
-ARG CARGO_REGISTRY_DIR="$FIRECRACKER_BUILD_DIR/cargo_registry"
-ARG CARGO_GIT_REGISTRY_DIR="$FIRECRACKER_BUILD_DIR/cargo_git_registry"
 ARG DEBIAN_FRONTEND=noninteractive
 ARG ARCH
 
@@ -51,7 +47,7 @@ RUN apt-get update \
     && apt-get -y install --no-install-recommends \
         # essential build tools
         gcc make libc-dev binutils-dev libssl-dev \
-        # Useful utilifies
+        # Useful utilities
         gdbserver \
         # Needed in order to be able to compile `userfaultfd-sys`.
         clang \
@@ -110,7 +106,7 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOL
     && rustup target add x86_64-unknown-linux-musl \
     && rustup target add aarch64-unknown-linux-musl \
     && rustup component add llvm-tools-preview \
-    && cargo install --locked cargo-audit cargo-deny grcov cargo-sort \
+    && cargo install --locked cargo-audit cargo-deny grcov cargo-sort cargo-afl \
     && (if [ "$ARCH" = "x86_64" ]; then cargo install --locked kani-verifier && cargo kani setup; else true; fi) \
     \
     && apt-get update \
@@ -132,9 +128,7 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOL
     && cd && rm -r /tmp/crosvm \
     \
     && rm -rf "$CARGO_HOME/registry" \
-    && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
-    && rm -rf "$CARGO_HOME/git" \
-    && ln -s "$CARGO_GIT_REGISTRY_DIR" "$CARGO_HOME/git"
+    && rm -rf "$CARGO_HOME/git"
 
 # help musl-gcc find linux headers
 RUN cd /usr/include/$ARCH-linux-musl \
@@ -162,5 +156,4 @@ RUN cd /usr/local/bin \
 
 ADD tools/devctr/ctr_gitconfig /root/.gitconfig
 
-WORKDIR "$FIRECRACKER_SRC_DIR"
 ENTRYPOINT ["/usr/bin/tini", "--"]

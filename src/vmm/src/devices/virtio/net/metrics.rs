@@ -102,20 +102,14 @@ impl NetMetricsPerDevice {
     /// lock is always initialized so it is safe the unwrap
     /// the lock without a check.
     pub fn alloc(iface_id: String) -> Arc<NetDeviceMetrics> {
-        if METRICS.read().unwrap().metrics.get(&iface_id).is_none() {
+        Arc::clone(
             METRICS
                 .write()
                 .unwrap()
                 .metrics
-                .insert(iface_id.clone(), Arc::new(NetDeviceMetrics::new()));
-        }
-        METRICS
-            .read()
-            .unwrap()
-            .metrics
-            .get(&iface_id)
-            .unwrap()
-            .clone()
+                .entry(iface_id)
+                .or_insert_with(|| Arc::new(NetDeviceMetrics::default())),
+        )
     }
 }
 
@@ -367,7 +361,7 @@ pub mod tests {
         drop(METRICS.write().unwrap());
 
         NetMetricsPerDevice::alloc(String::from(devn));
-        assert!(METRICS.read().unwrap().metrics.get(devn).is_some());
+        METRICS.read().unwrap().metrics.get(devn).unwrap();
 
         METRICS
             .read()

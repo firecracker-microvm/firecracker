@@ -3,6 +3,7 @@
 
 use std::ffi::OsString;
 use std::fmt::Display;
+use std::fs::read_to_string;
 use std::hash::Hash;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -70,6 +71,14 @@ pub enum UtilsError {
     CreateTempFile(#[from] vmm_sys_util::errno::Error),
     /// Failed to operate file: {0}
     FileIo(#[from] std::io::Error),
+    /// Failed to serialize/deserialize JSON file: {0}
+    Serde(#[from] serde_json::Error),
+}
+
+pub fn load_cpu_template(path: &PathBuf) -> Result<CustomCpuTemplate, UtilsError> {
+    let template_json = read_to_string(path)?;
+    let template = serde_json::from_str(&template_json)?;
+    Ok(template)
 }
 
 // Utility function to prepare scratch kernel image and rootfs and build mock Firecracker config.

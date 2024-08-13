@@ -13,7 +13,6 @@ pub use vmm_sys_util::{
 
 pub mod arg_parser;
 pub mod byte_order;
-pub mod kernel_version;
 pub mod net;
 pub mod signal;
 pub mod sm;
@@ -39,6 +38,15 @@ pub fn get_page_size() -> Result<usize, errno::Error> {
 #[allow(clippy::cast_possible_truncation)]
 pub const fn u64_to_usize(num: u64) -> usize {
     num as usize
+}
+
+/// Safely converts a usize value to a u64 value.
+/// This bypasses the Clippy lint check because we only support 64-bit platforms.
+#[cfg(target_pointer_width = "64")]
+#[inline]
+#[allow(clippy::cast_possible_truncation)]
+pub const fn usize_to_u64(num: usize) -> u64 {
+    num as u64
 }
 
 /// Converts a usize into a wrapping u32.

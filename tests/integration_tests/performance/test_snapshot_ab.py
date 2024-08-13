@@ -10,7 +10,6 @@ import pytest
 
 import host_tools.drive as drive_tools
 from framework.microvm import Microvm
-from host_tools.fcmetrics import FCMetricsMonitor
 
 USEC_IN_MSEC = 1000
 ITERATIONS = 30
@@ -53,7 +52,7 @@ class SnapshotRestoreTest:
             rootfs,
             monitor_memory=False,
         )
-        vm.spawn(log_level="Info")
+        vm.spawn(log_level="Info", emit_metrics=True)
         vm.time_api_requests = False
         vm.basic_config(
             vcpu_count=self.vcpus,
@@ -88,11 +87,9 @@ class SnapshotRestoreTest:
                 kernel=guest_kernel_linux_4_14,
                 monitor_memory=False,
             )
-            microvm.spawn()
-            microvm.restore_from_snapshot(snapshot, resume=True)
+            microvm.spawn(emit_metrics=True)
+            snapshot_copy = microvm.restore_from_snapshot(snapshot, resume=True)
 
-            fcmetrics = FCMetricsMonitor(microvm)
-            fcmetrics.start()
             microvm.wait_for_up()
 
             value = 0
@@ -106,8 +103,8 @@ class SnapshotRestoreTest:
                     break
             assert value > 0
             values.append(value)
-            fcmetrics.stop()
             microvm.kill()
+            snapshot_copy.delete()
 
         snapshot.delete()
         return values
@@ -153,11 +150,8 @@ def test_restore_latency(
             **vm.dimensions,
         }
     )
-    fcmetrics = FCMetricsMonitor(vm)
-    fcmetrics.start()
 
     snapshot = vm.snapshot_full()
-    fcmetrics.stop()
     vm.kill()
 
     samples = test_setup.sample_latency(

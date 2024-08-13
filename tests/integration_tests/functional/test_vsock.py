@@ -203,6 +203,7 @@ def test_vsock_transport_reset(
     vm2 = microvm_factory.build()
     vm2.spawn()
     vm2.restore_from_snapshot(snapshot, resume=True)
+    vm2.wait_for_up()
 
     # Check that vsock device still works.
     # Test guest-initiated connections.

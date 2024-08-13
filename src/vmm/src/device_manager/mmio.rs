@@ -193,8 +193,11 @@ impl MMIODeviceManager {
                 vm.register_ioevent(queue_evt, &io_addr, u32::try_from(i).unwrap())
                     .map_err(MmioError::RegisterIoEvent)?;
             }
-            vm.register_irqfd(locked_device.interrupt_evt(), device_info.irqs[0])
-                .map_err(MmioError::RegisterIrqFd)?;
+            vm.register_irqfd(
+                &locked_device.interrupt_trigger().irq_evt,
+                device_info.irqs[0],
+            )
+            .map_err(MmioError::RegisterIrqFd)?;
         }
 
         self.register_mmio_device(
@@ -513,13 +516,13 @@ impl DeviceInfoForFDT for MMIODeviceInfo {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::AtomicU32;
+
     use std::sync::Arc;
 
     use utils::eventfd::EventFd;
 
     use super::*;
-    use crate::devices::virtio::device::VirtioDevice;
+    use crate::devices::virtio::device::{IrqTrigger, VirtioDevice};
     use crate::devices::virtio::queue::Queue;
     use crate::devices::virtio::ActivateError;
     use crate::utilities::test_utils::multi_region_mem;
@@ -566,7 +569,7 @@ mod tests {
         dummy: u32,
         queues: Vec<Queue>,
         queue_evts: [EventFd; 1],
-        interrupt_evt: EventFd,
+        interrupt_trigger: IrqTrigger,
     }
 
     impl DummyDevice {
@@ -575,7 +578,7 @@ mod tests {
                 dummy: 0,
                 queues: QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect(),
                 queue_evts: [EventFd::new(libc::EFD_NONBLOCK).expect("cannot create eventFD")],
-                interrupt_evt: EventFd::new(libc::EFD_NONBLOCK).expect("cannot create eventFD"),
+                interrupt_trigger: IrqTrigger::new().expect("cannot create eventFD"),
             }
         }
     }
@@ -607,12 +610,8 @@ mod tests {
             &self.queue_evts
         }
 
-        fn interrupt_evt(&self) -> &EventFd {
-            &self.interrupt_evt
-        }
-
-        fn interrupt_status(&self) -> Arc<AtomicU32> {
-            Arc::new(AtomicU32::new(0))
+        fn interrupt_trigger(&self) -> &IrqTrigger {
+            &self.interrupt_trigger
         }
 
         fn ack_features_by_page(&mut self, page: u32, value: u32) {

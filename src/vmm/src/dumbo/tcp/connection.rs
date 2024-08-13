@@ -351,7 +351,7 @@ impl Connection {
     fn local_rwnd(&self) -> u16 {
         let rwnd = (self.local_rwnd_edge - self.ack_to_send).0;
 
-        u16::try_from(rwnd).unwrap_or(u16::max_value())
+        u16::try_from(rwnd).unwrap_or(u16::MAX)
     }
 
     // Will actually become meaningful when/if we implement window scaling.
@@ -714,13 +714,9 @@ impl Connection {
 
             // We check this here because if a valid payload has been received, then we must have
             // set enqueue_ack = true earlier.
-            if payload_len > 0 {
+            if let Some(payload_len) = NonZeroUsize::new(payload_len.into()) {
                 buf[..payload_len.into()].copy_from_slice(s.payload());
-                // The unwrap is safe because payload_len > 0.
-                return Ok((
-                    Some(NonZeroUsize::new(payload_len.into()).unwrap()),
-                    recv_status_flags,
-                ));
+                return Ok((Some(payload_len), recv_status_flags));
             }
         }
 

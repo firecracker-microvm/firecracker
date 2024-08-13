@@ -10,7 +10,6 @@ import subprocess
 import time
 from pathlib import Path
 
-import psutil
 import pytest
 import requests
 import urllib3
@@ -511,14 +510,13 @@ def test_negative_file_size_limit(uvm_plain):
         urllib3.exceptions.ProtocolError,
         requests.exceptions.ConnectionError,
     ) as _error:
-        test_microvm.expect_kill_by_signal = True
         # Check the microVM received signal `SIGXFSZ` (25),
         # which corresponds to exceeding file size limit.
         msg = "Shutting down VM after intercepting signal 25, code 0"
         test_microvm.check_log_message(msg)
         time.sleep(1)
-        # Check that the process was terminated.
-        assert not psutil.pid_exists(test_microvm.firecracker_pid)
+
+        test_microvm.mark_killed()
     else:
         assert False, "Negative test failed"
 
@@ -533,8 +531,10 @@ def test_negative_no_file_limit(uvm_plain):
     # pylint: disable=W0703
     try:
         test_microvm.spawn()
-    except RuntimeError as error:
+    except ChildProcessError as error:
         assert "No file descriptors available (os error 24)" in str(error)
+
+        test_microvm.mark_killed()
     else:
         assert False, "Negative test failed"
 

@@ -9,6 +9,7 @@ Run Firecracker in an IPython REPL
 """
 
 import argparse
+import json
 import re
 from pathlib import Path
 
@@ -36,12 +37,14 @@ def parse_byte_size(param):
 parser = argparse.ArgumentParser()
 parser.add_argument(
     "--kernel",
+    type=Path,
     choices=kernels,
     default=kernels[-1],
     help=f"Kernel to use. [{kernels[-1]}]",
 )
 parser.add_argument(
     "--rootfs",
+    type=Path,
     choices=rootfs,
     default=rootfs[-1],
     help=f"Rootfs to use. [{rootfs[-1]}]",
@@ -54,6 +57,7 @@ parser.add_argument(
 )
 parser.add_argument("--rootfs-size", type=parse_byte_size, default=1 * 2**30)  # 1GB
 parser.add_argument("--binary-dir", help="Path to the firecracker binaries")
+parser.add_argument("--cpu-template-path", help="CPU template to use", type=Path)
 args = parser.parse_args()
 print(args)
 
@@ -65,13 +69,19 @@ else:
     bins = get_firecracker_binaries()
 
 print("This step may take a while to compile Firecracker ...")
+cpu_template = None
+if args.cpu_template_path is not None:
+    cpu_template = json.loads(args.cpu_template_path.read_text())
 vmfcty = MicroVMFactory(*bins)
 uvm = vmfcty.build(args.kernel, args.rootfs)
 uvm.help.enable_console()
 uvm.help.resize_disk(uvm.rootfs_file, args.rootfs_size)
-uvm.spawn()
+uvm.spawn(log_show_level=True)
 uvm.help.print_log()
 uvm.add_net_iface()
 uvm.basic_config(vcpu_count=args.vcpus, mem_size_mib=args.guest_mem_size // 2**20)
+if cpu_template is not None:
+    uvm.api.cpu_config.put(**cpu_template)
+    print(cpu_template)
 uvm.start()
 uvm.get_all_metrics()

@@ -7,14 +7,14 @@ import logging
 import os
 import re
 import shutil
+import time
 from pathlib import Path
 
 import pytest
 
 import host_tools.drive as drive_tools
 from framework.microvm import SnapshotType
-from framework.properties import global_props
-from framework.utils import check_filesystem, run_cmd, wait_process_termination
+from framework.utils import check_filesystem, check_output
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
     VSOCK_UDS_PATH,
@@ -36,8 +36,7 @@ def check_vmgenid_update_count(vm, resume_count):
     Kernel will emit the DMESG_VMGENID_RESUME every time we resume
     from a snapshot
     """
-    rc, stdout, stderr = vm.ssh.run("dmesg")
-    assert rc == 0, stderr
+    _, stdout, _ = vm.ssh.check_output("dmesg")
     assert resume_count == stdout.count(DMESG_VMGENID_RESUME)
 
 
@@ -49,6 +48,45 @@ def _get_guest_drive_size(ssh_connection, guest_dev_name="/dev/vdb"):
     assert rc == 0, stderr
     lines = stdout.split("\n")
     return lines[1].strip()
+
+
+def test_resume_after_restoration(uvm_nano, microvm_factory):
+    """Tests snapshot is resumable after restoration.
+
+    Check that a restored microVM is resumable by calling PATCH /vm with Resumed
+    after PUT /snapshot/load with `resume_vm=False`.
+    """
+    vm = uvm_nano
+    vm.add_net_iface()
+    vm.start()
+    vm.wait_for_up()
+
+    snapshot = vm.snapshot_full()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+    restored_vm.restore_from_snapshot(snapshot)
+    restored_vm.resume()
+    restored_vm.wait_for_up()
+
+
+def test_resume_at_restoration(uvm_nano, microvm_factory):
+    """Tests snapshot is resumable at restoration.
+
+    Check that a restored microVM is resumable by calling PUT /snapshot/load
+    with `resume_vm=True`.
+    """
+    vm = uvm_nano
+    vm.add_net_iface()
+    vm.start()
+    vm.wait_for_up()
+
+    snapshot = vm.snapshot_full()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+    restored_vm.restore_from_snapshot(snapshot, resume=True)
+    restored_vm.wait_for_up()
 
 
 def test_snapshot_current_version(uvm_nano):
@@ -69,13 +107,13 @@ def test_snapshot_current_version(uvm_nano):
     fc_binary = uvm_nano.fc_binary_path
     # Get supported snapshot version from Firecracker binary
     snapshot_version = (
-        run_cmd(f"{fc_binary} --snapshot-version").stdout.strip().splitlines()[0]
+        check_output(f"{fc_binary} --snapshot-version").stdout.strip().splitlines()[0]
     )
 
     # Verify the output of `--describe-snapshot` command line parameter
     cmd = [str(fc_binary)] + ["--describe-snapshot", str(snapshot.vmstate)]
 
-    _, stdout, _ = run_cmd(cmd)
+    _, stdout, _ = check_output(cmd)
     assert snapshot_version in stdout
 
 
@@ -125,18 +163,17 @@ def test_5_snapshots(
     start_guest_echo_server(vm)
     snapshot = vm.make_snapshot(snapshot_type)
     base_snapshot = snapshot
+    vm.kill()
 
     for i in range(seq_len):
         logger.info("Load snapshot #%s, mem %s", i, snapshot.mem)
         microvm = microvm_factory.build()
         microvm.spawn()
-        microvm.restore_from_snapshot(snapshot, resume=True)
+        copied_snapshot = microvm.restore_from_snapshot(snapshot, resume=True)
 
-        # TODO: SIGCONT here and SIGSTOP later before creating snapshot
-        # is a temporary fix to avoid vsock timeout in
-        # _vsock_connect_to_guest(). This will be removed once we
-        # find the right solution for the timeout.
-        vm.ssh.run("pkill -SIGCONT socat")
+        # FIXME: This and the sleep below reduce the rate of vsock/ssh connection
+        # related spurious test failures, although we do not know why this is the case.
+        time.sleep(2)
         # Test vsock guest-initiated connections.
         path = os.path.join(
             microvm.path, make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
@@ -148,8 +185,8 @@ def test_5_snapshots(
 
         # Check that the root device is not corrupted.
         check_filesystem(microvm.ssh, "squashfs", "/dev/vda")
-        vm.ssh.run("pkill -SIGSTOP socat")
 
+        time.sleep(2)
         logger.info("Create snapshot %s #%d.", snapshot_type, i + 1)
         snapshot = microvm.make_snapshot(snapshot_type)
 
@@ -161,6 +198,8 @@ def test_5_snapshots(
                 base_snapshot, use_snapshot_editor=use_snapshot_editor
             )
 
+        microvm.kill()
+        copied_snapshot.delete()
         # Update the base for next iteration.
         base_snapshot = snapshot
 
@@ -199,6 +238,7 @@ def test_patch_drive_snapshot(uvm_nano, microvm_factory):
     vm = microvm_factory.build()
     vm.spawn()
     vm.restore_from_snapshot(snapshot, resume=True)
+    vm.wait_for_up()
 
     # Attempt to connect to resumed microvm and verify the new microVM has the
     # right scratch drive.
@@ -236,8 +276,7 @@ def test_load_snapshot_failure_handling(uvm_plain):
     with pytest.raises(RuntimeError, match=expected_msg):
         vm.api.snapshot_load.put(mem_file_path=jailed_mem, snapshot_path=jailed_vmstate)
 
-    # Check if FC process is closed
-    wait_process_termination(vm.firecracker_pid)
+    vm.mark_killed()
 
 
 def test_cmp_full_and_first_diff_mem(microvm_factory, guest_kernel, rootfs):
@@ -339,6 +378,8 @@ def test_negative_snapshot_permissions(uvm_plain_rw, microvm_factory):
     with pytest.raises(RuntimeError, match=expected_err):
         microvm.restore_from_snapshot(snapshot, resume=True)
 
+    microvm.mark_killed()
+
     # Remove permissions for state file.
     os.chmod(snapshot.vmstate, 0o000)
 
@@ -351,6 +392,8 @@ def test_negative_snapshot_permissions(uvm_plain_rw, microvm_factory):
     )
     with pytest.raises(RuntimeError, match=expected_err):
         microvm.restore_from_snapshot(snapshot, resume=True)
+
+    microvm.mark_killed()
 
     # Restore permissions for state file.
     os.chmod(snapshot.vmstate, 0o744)
@@ -365,6 +408,8 @@ def test_negative_snapshot_permissions(uvm_plain_rw, microvm_factory):
     expected_err = "Virtio backend error: Error manipulating the backing file: Permission denied (os error 13)"
     with pytest.raises(RuntimeError, match=re.escape(expected_err)):
         microvm.restore_from_snapshot(snapshot, resume=True)
+
+    microvm.mark_killed()
 
 
 def test_negative_snapshot_create(uvm_nano):
@@ -439,8 +484,7 @@ def test_diff_snapshot_overlay(guest_kernel, rootfs, microvm_factory):
     basevm.resume()
 
     # Run some command to dirty some pages
-    rc, _, stderr = basevm.ssh.run("true")
-    assert rc == 0, stderr
+    basevm.ssh.check_output("true")
 
     # First copy the base snapshot somewhere else, so we can make sure
     # it will actually get updated
@@ -502,9 +546,6 @@ def test_vmgenid(guest_kernel_linux_6_1, rootfs, microvm_factory, snapshot_type)
     """
     Test VMGenID device upon snapshot resume
     """
-    if global_props.cpu_architecture != "x86_64":
-        pytest.skip("At the moment we only support VMGenID on x86_64")
-
     base_vm = microvm_factory.build(guest_kernel_linux_6_1, rootfs)
     base_vm.spawn()
     base_vm.basic_config(track_dirty_pages=True)
@@ -519,8 +560,7 @@ def test_vmgenid(guest_kernel_linux_6_1, rootfs, microvm_factory, snapshot_type)
     for i in range(5):
         vm = microvm_factory.build()
         vm.spawn()
-        vm.restore_from_snapshot(snapshot, resume=True)
-        vm.wait_for_up()
+        copied_snapshot = vm.restore_from_snapshot(snapshot, resume=True)
 
         # We should have as DMESG_VMGENID_RESUME messages as
         # snapshots we have resumed
@@ -528,6 +568,7 @@ def test_vmgenid(guest_kernel_linux_6_1, rootfs, microvm_factory, snapshot_type)
 
         snapshot = vm.make_snapshot(snapshot_type)
         vm.kill()
+        copied_snapshot.delete()
 
         # If we are testing incremental snapshots we ust merge the base with
         # current layer.

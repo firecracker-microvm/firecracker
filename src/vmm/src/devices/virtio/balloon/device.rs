@@ -1,11 +1,8 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::io::Write;
-use std::sync::atomic::AtomicU32;
-use std::sync::Arc;
+use std::fmt;
 use std::time::Duration;
-use std::{cmp, fmt};
 
 use log::error;
 use serde::Serialize;
@@ -585,28 +582,16 @@ impl VirtioDevice for Balloon {
         &self.queue_evts
     }
 
-    fn interrupt_evt(&self) -> &EventFd {
-        &self.irq_trigger.irq_evt
+    fn interrupt_trigger(&self) -> &IrqTrigger {
+        &self.irq_trigger
     }
 
-    fn interrupt_status(&self) -> Arc<AtomicU32> {
-        self.irq_trigger.irq_status.clone()
-    }
-
-    fn read_config(&self, offset: u64, mut data: &mut [u8]) {
-        let config_space_bytes = self.config_space.as_slice();
-        let config_len = config_space_bytes.len() as u64;
-        if offset >= config_len {
+    fn read_config(&self, offset: u64, data: &mut [u8]) {
+        if let Some(config_space_bytes) = self.config_space.as_slice().get(u64_to_usize(offset)..) {
+            let len = config_space_bytes.len().min(data.len());
+            data[..len].copy_from_slice(&config_space_bytes[..len]);
+        } else {
             error!("Failed to read config space");
-            return;
-        }
-
-        if let Some(end) = offset.checked_add(data.len() as u64) {
-            // This write can't fail, offset and end are checked against config_len.
-            data.write_all(
-                &config_space_bytes[u64_to_usize(offset)..u64_to_usize(cmp::min(end, config_len))],
-            )
-            .unwrap();
         }
     }
 
@@ -628,10 +613,9 @@ impl VirtioDevice for Balloon {
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
         self.device_state = DeviceState::Activated(mem);
         if self.activate_evt.write(1).is_err() {
-            error!("Balloon: Cannot write to activate_evt");
             METRICS.activate_fails.inc();
             self.device_state = DeviceState::Inactive;
-            return Err(ActivateError::BadActivate);
+            return Err(ActivateError::EventFd);
         }
 
         if self.stats_enabled() {
@@ -648,8 +632,6 @@ impl VirtioDevice for Balloon {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::u32;
-
     use super::super::BALLOON_CONFIG_SPACE_SIZE;
     use super::*;
     use crate::check_metric_after_block;

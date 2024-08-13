@@ -293,7 +293,7 @@ pub type ApiResponse = Box<std::result::Result<VmmData, VmmActionError>>;
 /// Error type for `PrebootApiController::build_microvm_from_requests`.
 #[derive(Debug, thiserror::Error, displaydoc::Display, derive_more::From)]
 pub enum BuildMicrovmFromRequestsError {
-    /// Populating MMDS from file failed: {0:?}.
+    /// Populating MMDS from file failed: {0}.
     Mmds(data_store::MmdsDatastoreError),
     /// Loading snapshot failed.
     Restore,

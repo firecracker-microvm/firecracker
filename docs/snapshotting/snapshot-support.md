@@ -171,6 +171,11 @@ The snapshot functionality is still in developer preview due to the following:
   the data store is not persisted across snapshots.
 - Configuration information for metrics and logs are not saved to the snapshot.
   These need to be reconfigured on the restored microVM.
+- On x86_64, if a vCPU has MSR_IA32_TSC_DEADLINE set to 0 when a snapshot is
+  taken, Firecracker replaces it with the MSR_IA32_TSC value from the same vCPU.
+  This is to guarantee that the vCPU will continue receiving TSC interrupts
+  after restoring from the snapshot even if an interrupt is lost when taking a
+  snapshot.
 
 ## Snapshot versioning
 
@@ -579,18 +584,18 @@ we also consider microVM A insecure if it resumes execution.
 (VMGenID) is a virtual device that allows VM guests to detect when they have
 resumed from a snapshot. It works by exposing a cryptographically random
 16-bytes identifier to the guest. The VMM ensures that the value of the
-indentifier changes every time the VM a time shift happens in the lifecycle of
+identifier changes every time the VM a time shift happens in the lifecycle of
 the VM, e.g. when it resumes from a snapshot.
 
-Linux supports VMGenID since version 5.18. When Linux detects a change in the
-identifier, it uses its value to reseed its internal PRNG. Moreover,
-[since version 6.8](https://lkml.org/lkml/2023/5/31/414) Linux VMGenID driver
-also emits to userspace a uevent. User space processes can monitor this uevent
-for detecting snapshot resume events.
+Linux supports VMGenID since version 5.18 for systems with ACPI support. Linux
+6.10 added support also for systems that use DeviceTree instead of ACPI. When
+Linux detects a change in the identifier, it uses its value to reseed its
+internal PRNG.
 
-Firecracker supports VMGenID device on x86 platforms. Firecracker will always
-enable the device. During snapshot resume, Firecracker will update the 16-byte
-generation ID and inject a notification in the guest before resuming its vCPUs.
+Firecracker supports VMGenID device both on x86 and Aarch64 platforms.
+Firecracker will always enable the device. During snapshot resume, Firecracker
+will update the 16-byte generation ID and inject a notification in the guest
+before resuming its vCPUs.
 
 As a result, guests that run Linux versions >= 5.18 will re-seed their in-kernel
 PRNG upon snapshot resume. User space applications can rely on the guest kernel
@@ -598,9 +603,6 @@ for randomness. State other than the guest kernel entropy pool, such as unique
 identifiers, cached random numbers, cryptographic tokens, etc **will** still be
 replicated across multiple microVMs resumed from the same snapshot. Users need
 to implement mechanisms for ensuring de-duplication of such state, where needed.
-On guests that run Linux versions >= 6.8, users can make use of the uevent that
-VMGenID driver emits upon resuming from a snapshot, to be notified about
-snapshot resume events.
 
 ## Vsock device limitation
 
@@ -643,11 +645,8 @@ supported host kernel versions by generating snapshot artifacts through
 [this tool](../../tools/create_snapshot_artifact) and checking devices'
 functionality using
 [this test](../../tests/integration_tests/functional/test_snapshot_restore_cross_kernel.py).
-The microVM snapshotted is built from
-[this configuration file](../../tools/create_snapshot_artifact/complex_vm_config.json).
-The test restores the snapshot and ensures that all the devices set-up in the
-configuration file (network devices, disk, vsock, balloon and MMDS) are
-operational post-load.
+The test restores the snapshot and ensures that all the devices set-up (network
+devices, disk, vsock, balloon and MMDS) are operational post-load.
 
 In those tests the instance is fixed, except some combinations where we also
 test across the same CPU family (Intel x86, Gravitons). In general cross-CPU
@@ -662,8 +661,6 @@ m6i won't work on an m6g instance.
 
 | *CPU family* | *taken on host kernel* | *restored on host kernel* | *working?* |
 | ------------ | ---------------------- | ------------------------- | ---------- |
-| **x86_64**   | 4.14                   | 5.10                      | Y          |
-| **all**      | 5.10                   | 4.14                      | N          |
 | **all**      | 5.10                   | 6.1                       | Y          |
 | **all**      | 6.1                    | 5.10                      | Y          |
 

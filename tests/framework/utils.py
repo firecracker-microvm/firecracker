@@ -57,7 +57,7 @@ def set_cpu_affinity(pid: int, cpulist: list) -> list:
 
 def get_cpu_utilization(pid: int) -> Dict[str, float]:
     """Return current process per thread CPU utilization."""
-    _, stdout, _ = run_cmd(GET_CPU_LOAD.format(pid))
+    _, stdout, _ = check_output(GET_CPU_LOAD.format(pid))
     cpu_utilization = {}
 
     # Take all except the last line
@@ -330,7 +330,7 @@ def search_output_from_cmd(cmd: str, find_regex: typing.Pattern) -> typing.Match
     :return: result of re.search()
     """
     # Run the given command in a shell
-    _, stdout, _ = run_cmd(cmd)
+    _, stdout, _ = check_output(cmd)
 
     # Search for the object
     content = re.search(find_regex, stdout)
@@ -363,17 +363,29 @@ def get_free_mem_ssh(ssh_connection):
     raise Exception("Available memory not found in `/proc/meminfo")
 
 
-def run_cmd_sync(cmd, ignore_return_code=False, no_shell=False, cwd=None, timeout=None):
+def _format_output_message(proc, stdout, stderr):
+    output_message = f"\n[{proc.pid}] Command:\n{proc.args}"
+    # Append stdout/stderr to the output message
+    if stdout != "":
+        output_message += f"\n[{proc.pid}] stdout:\n{stdout.decode()}"
+    if stderr != "":
+        output_message += f"\n[{proc.pid}] stderr:\n{stderr.decode()}"
+    output_message += f"\nReturned error code: {proc.returncode}"
+    return output_message
+
+
+def run_cmd(cmd, check=False, shell=True, cwd=None, timeout=None) -> CommandReturn:
     """
     Execute a given command.
 
     :param cmd: command to execute
-    :param ignore_return_code: whether a non-zero return code should be ignored
+    :param check: whether a non-zero return code should result in a `ChildProcessError` or not.
     :param no_shell: don't run the command in a sub-shell
     :param cwd: sets the current directory before the child is executed
+    :param timeout: Time before command execution should be aborted with a `TimeoutExpired` exception
     :return: return code, stdout, stderr
     """
-    if isinstance(cmd, list) or no_shell:
+    if isinstance(cmd, list) or not shell:
         # Create the async process
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd
@@ -383,65 +395,62 @@ def run_cmd_sync(cmd, ignore_return_code=False, no_shell=False, cwd=None, timeou
             cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd
         )
 
-    # Capture stdout/stderr
-    stdout, stderr = proc.communicate(timeout=timeout)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        stdout, stderr = proc.communicate()
 
-    output_message = f"\n[{proc.pid}] Command:\n{cmd}"
-    # Append stdout/stderr to the output message
-    if stdout != "":
-        output_message += f"\n[{proc.pid}] stdout:\n{stdout.decode()}"
-    if stderr != "":
-        output_message += f"\n[{proc.pid}] stderr:\n{stderr.decode()}"
+        # Log the message with one call so that multiple statuses
+        # don't get mixed up
+        CMDLOG.warning(
+            "Timeout executing command: %s\n",
+            _format_output_message(proc, stdout, stderr),
+        )
+
+        raise
+
+    output_message = _format_output_message(proc, stdout, stderr)
 
     # If a non-zero return code was thrown, raise an exception
-    if not ignore_return_code and proc.returncode != 0:
-        output_message += f"\nReturned error code: {proc.returncode}"
+    if check and proc.returncode != 0:
+        CMDLOG.warning("Command failed: %s\n", output_message)
 
-        if stderr != "":
-            output_message += f"\nstderr:\n{stderr.decode()}"
         raise ChildProcessError(output_message)
 
-    # Log the message with one call so that multiple statuses
-    # don't get mixed up
     CMDLOG.debug(output_message)
 
     return CommandReturn(proc.returncode, stdout.decode(), stderr.decode())
 
 
-def run_cmd(cmd, **kwargs):
-    """
-    Run a command using the sync function that logs the output.
-
-    :param cmd: command to run
-    :returns: tuple of (return code, stdout, stderr)
-    """
-    return run_cmd_sync(cmd, **kwargs)
+def check_output(cmd, shell=True, cwd=None, timeout=None) -> CommandReturn:
+    """Identical to `run_cmd`, but always sets `check_output` to `True`."""
+    return run_cmd(cmd, True, shell, cwd, timeout)
 
 
 def assert_seccomp_level(pid, seccomp_level):
     """Test that seccomp_level applies to all threads of a process."""
     # Get number of threads
     cmd = "ps -T --no-headers -p {} | awk '{{print $2}}'".format(pid)
-    process = run_cmd(cmd)
+    process = check_output(cmd)
     threads_out_lines = process.stdout.splitlines()
     for tid in threads_out_lines:
         # Verify each thread's Seccomp status
         cmd = "cat /proc/{}/status | grep Seccomp:".format(tid)
-        process = run_cmd(cmd)
+        process = check_output(cmd)
         seccomp_line = "".join(process.stdout.split())
         assert seccomp_line == "Seccomp:" + seccomp_level
 
 
 def run_guest_cmd(ssh_connection, cmd, expected, use_json=False):
     """Runs a shell command at the remote accessible via SSH"""
-    rc, stdout, stderr = ssh_connection.run(cmd)
-    assert rc == 0
+    _, stdout, stderr = ssh_connection.check_output(cmd)
     assert stderr == ""
     stdout = stdout if not use_json else json.loads(stdout)
     assert stdout == expected
 
 
-@retry(wait=wait_fixed(0.5), stop=stop_after_attempt(5), reraise=True)
+@retry(wait=wait_fixed(1), stop=stop_after_attempt(10), reraise=True)
 def wait_process_termination(p_pid):
     """Wait for a process to terminate.
 
@@ -449,11 +458,8 @@ def wait_process_termination(p_pid):
     got indeed killed or raises an exception if the process
     is still alive after retrying several times.
     """
-    try:
-        _, stdout, _ = run_cmd("ps --pid {} -o comm=".format(p_pid))
-    except ChildProcessError:
-        return
-    raise Exception("{} process is still alive: ".format(stdout.strip()))
+    if psutil.pid_exists(p_pid):
+        raise Exception(f"[{p_pid}] process is still alive")
 
 
 def get_firecracker_version_from_toml():
@@ -464,8 +470,7 @@ def get_firecracker_version_from_toml():
     the code has not been released.
     """
     cmd = "cd ../src/firecracker && cargo pkgid | cut -d# -f2 | cut -d: -f2"
-    rc, stdout, stderr = run_cmd(cmd)
-    assert rc == 0, stderr
+    _, stdout, _ = check_output(cmd)
     return packaging.version.parse(stdout)
 
 
@@ -555,7 +560,7 @@ def start_screen_process(screen_log, session_name, binary_path, binary_params):
         params=" ".join(binary_params),
     )
 
-    run_cmd(start_cmd)
+    check_output(start_cmd)
 
     # Build a regex object to match (number).session_name
     regex_object = re.compile(r"([0-9]+)\.{}".format(session_name))
@@ -580,7 +585,7 @@ def start_screen_process(screen_log, session_name, binary_path, binary_params):
     wait_process_running(screen_ps)
 
     # Configure screen to flush stdout to file.
-    run_cmd(FLUSH_CMD.format(session=session_name))
+    check_output(FLUSH_CMD.format(session=session_name))
 
     return screen_pid
 
@@ -601,16 +606,12 @@ def check_filesystem(ssh_connection, disk_fmt, disk):
     """Check for filesystem corruption inside a microVM."""
     if disk_fmt == "squashfs":
         return
-    cmd = "fsck.{} -n {}".format(disk_fmt, disk)
-    exit_code, _, stderr = ssh_connection.run(cmd)
-    assert exit_code == 0, stderr
+    ssh_connection.check_output(f"fsck.{disk_fmt} -n {disk}")
 
 
 def check_entropy(ssh_connection):
     """Check that we can get random numbers from /dev/hwrng"""
-    cmd = "dd if=/dev/hwrng of=/dev/null bs=4096 count=1"
-    exit_code, _, stderr = ssh_connection.run(cmd)
-    assert exit_code == 0, stderr
+    ssh_connection.check_output("dd if=/dev/hwrng of=/dev/null bs=4096 count=1")
 
 
 @retry(wait=wait_fixed(0.5), stop=stop_after_attempt(5), reraise=True)

@@ -13,7 +13,7 @@ import pytest
 
 from framework.defs import ARTIFACT_DIR
 from framework.properties import global_props
-from framework.utils import get_firecracker_version_from_toml, run_cmd
+from framework.utils import check_output, get_firecracker_version_from_toml
 from framework.with_filelock import with_filelock
 from host_tools.cargo_build import get_binary
 
@@ -23,14 +23,7 @@ def select_supported_kernels():
     instance type.
     """
     hlv = packaging.version.parse(global_props.host_linux_version)
-    supported_kernels = [r"vmlinux-4.14.\d+"]
-    if (
-        global_props.cpu_model == "ARM_NEOVERSE_V1"
-        and global_props.host_linux_version == "4.14"
-    ):
-        supported_kernels.append(r"vmlinux-5.10-no-sve.bin")
-    else:
-        supported_kernels.append(r"vmlinux-5.10.\d+")
+    supported_kernels = [r"vmlinux-4.14.\d+", r"vmlinux-5.10.\d+"]
 
     # Booting with MPTable is deprecated but we still want to test
     # for it. Until we drop support for it we will be building a 5.10 guest
@@ -129,7 +122,7 @@ class FirecrackerArtifact:
             return self.version_tuple[:2] + (0,)
 
         return (
-            run_cmd([self.path, "--snapshot-version"])
+            check_output([self.path, "--snapshot-version"])
             .stdout.strip()
             .split("\n")[0]
             .split(".")

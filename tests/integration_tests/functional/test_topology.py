@@ -78,7 +78,22 @@ def _check_cache_topology_x86(
     )
 
 
-def _check_cache_topology_arm(test_microvm, no_cpus):
+def _aarch64_parse_cache_info(test_microvm, no_cpus):
+    def parse_cache_info(info: str):
+        "One line looks like this: /sys/devices/system/cpu/cpuX/cache/{index}/{name}:{value}"
+        cache_info = []
+        for line in info.splitlines():
+            parts = line.split("/")
+
+            index = int(parts[-2][-1])
+
+            name, value = parts[-1].split(":")
+
+            if len(cache_info) == index:
+                cache_info.append({})
+            cache_info[index][name] = value
+        return cache_info
+
     # We will check the cache topology by looking at what each cpu
     # contains as far as cache info.
     # For that we are iterating through the hierarchy of folders inside:
@@ -86,18 +101,13 @@ def _check_cache_topology_arm(test_microvm, no_cpus):
     # (i.e Instruction, Data, Unified)
     # /sys/devices/system/cpu/cpuX/cache/indexY/size - size of the cache
     # /sys/devices/system/cpu/cpuX/cache/indexY/level - L1, L2 or L3 cache.
-    # There are 2 types of L1 cache (instruction and data) that is why the
-    # "cache_info" variable below has 4 items.
-
-    sys_cpu = "/sys/devices/system/cpu"
     fields = ["level", "type", "size", "coherency_line_size", "number_of_sets"]
-
-    cmd = f"grep . {sys_cpu}/cpu{{0..{no_cpus-1}}}/cache/index*/{{{','.join(fields)}}} |sort"
+    cmd = f"grep . /sys/devices/system/cpu/cpu{{0..{no_cpus-1}}}/cache/index*/{{{','.join(fields)}}} |sort"
 
     _, guest_stdout, guest_stderr = test_microvm.ssh.run(cmd)
     assert guest_stderr == ""
 
-    res = subprocess.run(
+    host_result = subprocess.run(
         cmd,
         shell=True,
         executable="/bin/bash",
@@ -105,8 +115,36 @@ def _check_cache_topology_arm(test_microvm, no_cpus):
         check=True,
         encoding="ascii",
     )
-    assert res.stderr == ""
-    assert res.stdout == guest_stdout
+    assert host_result.stderr == ""
+    host_stdout = host_result.stdout
+
+    guest_cache_info = parse_cache_info(guest_stdout)
+    host_cache_info = parse_cache_info(host_stdout)
+
+    return guest_cache_info, host_cache_info
+
+
+def _check_cache_topology_arm(test_microvm, no_cpus, kernel_version_tpl):
+    guest_cache_info, host_cache_info = _aarch64_parse_cache_info(test_microvm, no_cpus)
+
+    # Starting from 6.3 kernel cache representation for aarch64 platform has changed.
+    # It is no longer equivalent to the host cache representation.
+    # The main change is in the level 1 cache, so for newer kernels we
+    # compare only level 2 and level 3 caches
+    if kernel_version_tpl < (6, 3):
+        assert guest_cache_info == host_cache_info
+    else:
+        guest_first_non_level_1 = 0
+        while guest_cache_info[guest_first_non_level_1]["level"] == "1":
+            guest_first_non_level_1 += 1
+        guest_slice = guest_cache_info[guest_first_non_level_1:]
+
+        host_first_non_level_1 = 0
+        while host_cache_info[host_first_non_level_1]["level"] == "1":
+            host_first_non_level_1 += 1
+        host_slice = host_cache_info[host_first_non_level_1:]
+
+        assert guest_slice == host_slice
 
 
 @pytest.mark.skipif(
@@ -129,12 +167,6 @@ def test_cpu_topology(uvm_plain_any, num_vcpus, htt):
     )
 
 
-# TODO remove this check once the solution for keeping
-# an old cache representation is found.
-@pytest.mark.skipif(
-    global_props.host_linux_version == "6.5" and PLATFORM == "aarch64",
-    reason="6.5 kernel changes cache representation for aarch64.",
-)
 @pytest.mark.parametrize("num_vcpus", [1, 2, 16])
 @pytest.mark.parametrize("htt", [True, False])
 def test_cache_topology(uvm_plain_any, num_vcpus, htt):
@@ -151,6 +183,6 @@ def test_cache_topology(uvm_plain_any, num_vcpus, htt):
     if PLATFORM == "x86_64":
         _check_cache_topology_x86(vm, 1 if htt and num_vcpus > 1 else 0, num_vcpus - 1)
     elif PLATFORM == "aarch64":
-        _check_cache_topology_arm(vm, num_vcpus)
+        _check_cache_topology_arm(vm, num_vcpus, global_props.host_linux_version_tpl)
     else:
         raise Exception("This test is not run on this platform!")

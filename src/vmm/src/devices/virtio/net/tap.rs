@@ -363,7 +363,7 @@ pub mod tests {
 
         tap.write_iovec(&scattered).unwrap();
 
-        let mut read_buf = vec![0u8; scattered.len()];
+        let mut read_buf = vec![0u8; scattered.len() as usize];
         assert!(tap_traffic_simulator.pop_rx_packet(&mut read_buf));
         assert_eq!(
             &read_buf[..PAYLOAD_SIZE - VNET_HDR_SIZE],

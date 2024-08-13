@@ -8,7 +8,6 @@ use std::thread;
 #[cfg(test)]
 use std::time::Duration;
 
-use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
 use utils::tempfile::TempFile;
 
 use super::device::VirtioBlockConfig;
@@ -32,15 +31,6 @@ pub fn default_block(file_engine_type: FileEngineType) -> VirtioBlock {
     f.as_file().set_len(0x1000).unwrap();
 
     default_block_with_path(f.as_path().to_str().unwrap().to_string(), file_engine_type)
-}
-
-/// Return the Async FileEngineType if supported by the host, otherwise default to Sync.
-pub fn default_engine_type_for_kv() -> FileEngineType {
-    if KernelVersion::get().unwrap() >= min_kernel_version_for_io_uring() {
-        FileEngineType::Async
-    } else {
-        FileEngineType::Sync
-    }
 }
 
 /// Create a default Block instance using file at the specified path to be used in tests.

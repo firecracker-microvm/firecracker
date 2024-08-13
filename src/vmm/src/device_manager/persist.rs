@@ -12,13 +12,11 @@ use log::{error, warn};
 use serde::{Deserialize, Serialize};
 use vm_allocator::AllocPolicy;
 
-#[cfg(target_arch = "x86_64")]
 use super::acpi::ACPIDeviceManager;
 use super::mmio::*;
 use super::resources::ResourceAllocator;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::DeviceType;
-#[cfg(target_arch = "x86_64")]
 use crate::devices::acpi::vmgenid::{VMGenIDState, VMGenIdConstructorArgs, VmGenId, VmGenIdError};
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::balloon::{Balloon, BalloonError};
@@ -230,20 +228,17 @@ impl fmt::Debug for MMIODevManagerConstructorArgs<'_> {
     }
 }
 
-#[cfg(target_arch = "x86_64")]
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct ACPIDeviceManagerState {
     vmgenid: Option<VMGenIDState>,
 }
 
-#[cfg(target_arch = "x86_64")]
 pub struct ACPIDeviceManagerConstructorArgs<'a> {
     pub mem: &'a GuestMemoryMmap,
     pub resource_allocator: &'a mut ResourceAllocator,
     pub vm: &'a VmFd,
 }
 
-#[cfg(target_arch = "x86_64")]
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum ACPIDeviceManagerRestoreError {
     /// Could not register device: {0}
@@ -252,7 +247,6 @@ pub enum ACPIDeviceManagerRestoreError {
     VMGenID(#[from] VmGenIdError),
 }
 
-#[cfg(target_arch = "x86_64")]
 impl<'a> Persist<'a> for ACPIDeviceManager {
     type State = ACPIDeviceManagerState;
     type ConstructorArgs = ACPIDeviceManagerConstructorArgs<'a>;
@@ -713,7 +707,7 @@ mod tests {
             // know will results in `Ok`
             let mut clone = MMIODeviceManager::new();
             // We only care about the device hashmap.
-            clone.id_to_dev_info = self.id_to_dev_info.clone();
+            clone.id_to_dev_info.clone_from(&self.id_to_dev_info);
             clone
         }
     }

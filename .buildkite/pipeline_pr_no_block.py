@@ -4,40 +4,27 @@
 
 """Generate Buildkite pipelines dynamically"""
 
-from common import (
-    COMMON_PARSER,
-    get_changed_files,
-    group,
-    overlay_dict,
-    pipeline_to_json,
-    run_all_tests,
-)
+from common import BKPipeline, get_changed_files, run_all_tests
 
 # Buildkite default job priority is 0. Setting this to 1 prioritizes PRs over
 # scheduled jobs and other batch jobs.
 DEFAULT_PRIORITY = 1
 
-args = COMMON_PARSER.parse_args()
-
-defaults = {
-    "instances": args.instances,
-    "platforms": args.platforms,
-    # buildkite step parameters
-    "timeout_in_minutes": 45,
+pipeline = BKPipeline(
+    with_build_step=False,
+    timeout_in_minutes=45,
     # some non-blocking tests are performance, so make sure they get ag=1 instances
-    "priority": DEFAULT_PRIORITY + 1,
-    "agents": {"ag": 1},
-    "artifacts": ["./test_results/**/*"],
-}
-defaults = overlay_dict(defaults, args.step_param)
-
-
-optional_grp = group(
-    "❓ Optional",
-    "./tools/devtool -y test --performance -c 1-10 -m 0 -- ../tests/integration_tests/ -m 'no_block_pr and not nonci' --log-cli-level=INFO",
-    **defaults,
+    priority=DEFAULT_PRIORITY + 1,
+    agents={"ag": 1},
 )
 
-changed_files = get_changed_files()
-pipeline = {"steps": [optional_grp]} if run_all_tests(changed_files) else {"steps": []}
-print(pipeline_to_json(pipeline))
+pipeline.build_group(
+    "❓ Optional",
+    pipeline.devtool_test(
+        devtool_opts="--performance -c 1-10 -m 0",
+        pytest_opts="integration_tests/ -m 'no_block_pr and not nonci' --log-cli-level=INFO",
+    ),
+)
+if not run_all_tests(get_changed_files()):
+    pipeline.steps = []
+print(pipeline.to_json())
