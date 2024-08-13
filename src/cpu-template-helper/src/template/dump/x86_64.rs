@@ -3,8 +3,8 @@
 
 use std::collections::BTreeMap;
 
+use vmm::arch::x86_64::gen::msr_index::*;
 use vmm::arch::x86_64::msr::MsrRange;
-use vmm::arch_gen::x86::msr_index::*;
 use vmm::cpu_config::templates::{CpuConfiguration, CustomCpuTemplate, RegisterValueFilter};
 use vmm::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
 use vmm::cpu_config::x86_64::cpuid::{Cpuid, VENDOR_ID_AMD};
