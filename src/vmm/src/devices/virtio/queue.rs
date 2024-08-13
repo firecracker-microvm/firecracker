@@ -96,6 +96,9 @@ pub struct DescriptorChain<'a, M: GuestMemory = GuestMemoryMmap> {
 }
 
 impl<'a, M: GuestMemory> DescriptorChain<'a, M> {
+    /// Creates a new `DescriptorChain` from the given memory and descriptor table.
+    ///
+    /// Note that the desc_table and queue_size are assumed to be validated by the caller.
     fn checked_new(
         mem: &'a M,
         desc_table: GuestAddress,
@@ -106,8 +109,9 @@ impl<'a, M: GuestMemory> DescriptorChain<'a, M> {
             return None;
         }
 
-        let desc_head = mem.checked_offset(desc_table, (index as usize) * 16)?;
-        mem.checked_offset(desc_head, 16)?;
+        // There's no need for checking as we already validated the descriptor table and index
+        // bounds.
+        let desc_head = desc_table.unchecked_add(u64::from(index) * 16);
 
         // These reads can't fail unless Guest memory is hopelessly broken.
         let desc = match mem.read_obj::<Descriptor>(desc_head) {
