@@ -103,7 +103,7 @@ git clone --branch linux-5.10.y --depth 1 https://github.com/amazonlinux/linux a
 
 info "BINDGEN mpspec_def.h"
 fc-bindgen amazonlinux-v5.10.y/arch/x86/include/asm/mpspec_def.h \
-           >src/vmm/src/arch_gen/x86/mpspec.rs
+           >src/vmm/src/arch/x86_64/gen/mpspec.rs
 # https://github.com/rust-lang/rust-bindgen/issues/1274
 
 info "BINDGEN msr-index.h"
@@ -115,8 +115,8 @@ fc-bindgen amazonlinux-v5.10.y/arch/x86/include/asm/msr-index.h \
     -Iamazonlinux-v5.10.y/include/ \
     -Iamazonlinux-v5.10.y/arch/x86/include/ \
     -Wno-macro-redefined \
-    >src/vmm/src/arch_gen/x86/msr_index.rs
-perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/vmm/src/arch_gen/x86/msr_index.rs
+    >src/vmm/src/arch/x86_64/gen/msr_index.rs
+perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/vmm/src/arch/x86_64/gen/msr_index.rs
 
 info "BINDGEN perf_event.h"
 grep "MSR_ARCH_PERFMON_" amazonlinux-v5.10.y/arch/x86/include/asm/perf_event.h \
@@ -124,8 +124,8 @@ grep "MSR_ARCH_PERFMON_" amazonlinux-v5.10.y/arch/x86/include/asm/perf_event.h \
 fc-bindgen amazonlinux-v5.10.y/arch/x86/include/asm/perf_event_msr.h \
     --allowlist-var "^MSR_ARCH_PERFMON_.*$" \
     -- \
-    >src/vmm/src/arch_gen/x86/perf_event.rs
-perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/vmm/src/arch_gen/x86/perf_event.rs
+    >src/vmm/src/arch/x86_64/gen/perf_event.rs
+perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/vmm/src/arch/x86_64/gen/perf_event.rs
 
 info "BINDGEN hyperv.h"
 grep "HV_X64_MSR_" amazonlinux-v5.10.y/arch/x86/kvm/hyperv.h \
@@ -133,8 +133,8 @@ grep "HV_X64_MSR_" amazonlinux-v5.10.y/arch/x86/kvm/hyperv.h \
 fc-bindgen amazonlinux-v5.10.y/arch/x86/kvm/hyperv_msr.h \
     --allowlist-var "^HV_X64_MSR_.*$" \
     -- \
-    >src/vmm/src/arch_gen/x86/hyperv.rs
-perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/vmm/src/arch_gen/x86/hyperv.rs
+    >src/vmm/src/arch/x86_64/gen/hyperv.rs
+perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/vmm/src/arch/x86_64/gen/hyperv.rs
 
 info "BINDGEN hyperv-tlfs.h"
 grep "HV_X64_MSR_" amazonlinux-v5.10.y/arch/x86/include/asm/hyperv-tlfs.h \
@@ -142,8 +142,8 @@ grep "HV_X64_MSR_" amazonlinux-v5.10.y/arch/x86/include/asm/hyperv-tlfs.h \
 fc-bindgen amazonlinux-v5.10.y/arch/x86/include/asm/hyperv-tlfs_msr.h \
     --allowlist-var "^HV_X64_MSR_.*$" \
     -- \
-    >src/vmm/src/arch_gen/x86/hyperv_tlfs.rs
-perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/vmm/src/arch_gen/x86/hyperv_tlfs.rs
+    >src/vmm/src/arch/x86_64/gen/hyperv_tlfs.rs
+perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/vmm/src/arch/x86_64/gen/hyperv_tlfs.rs
 
 info "BINDGEN io_uring.h"
 fc-bindgen \
