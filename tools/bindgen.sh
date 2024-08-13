@@ -153,7 +153,7 @@ fc-bindgen \
     --allowlist-type "io_uring_.+" \
     --allowlist-type "io_.qring_offsets" \
     "amazonlinux-v5.10.y/include/uapi/linux/io_uring.h" \
-    >src/vmm/src/io_uring/bindings.rs
+    >src/vmm/src/io_uring/gen.rs
 
 # Apply any patches
 info "Apply patches"
