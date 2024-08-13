@@ -470,7 +470,7 @@ pub(crate) mod tests {
     use super::*;
     #[cfg(target_arch = "x86_64")]
     use crate::snapshot::Snapshot;
-    use crate::utilities::test_utils::single_region_mem;
+    use crate::test_utils::test_utils::single_region_mem;
     use crate::vstate::memory::GuestMemoryMmap;
 
     // Auxiliary function being used throughout the tests.

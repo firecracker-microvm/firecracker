@@ -11,7 +11,7 @@ use vm_memory::GuestAddress;
 use vmm::devices::virtio::block::virtio::test_utils::RequestDescriptorChain;
 use vmm::devices::virtio::block::virtio::{Request, RequestHeader, VIRTIO_BLK_T_IN};
 use vmm::devices::virtio::test_utils::VirtQueue;
-use vmm::utilities::test_utils::single_region_mem;
+use vmm::test_utils::test_utils::single_region_mem;
 
 pub fn block_request_benchmark(c: &mut Criterion) {
     let mem = single_region_mem(2 * 65562);

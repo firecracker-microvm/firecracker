@@ -21,7 +21,7 @@ pub const NOISY_KERNEL_IMAGE: &str = "test_pe.bin";
 
 pub fn kernel_image_path(kernel_image: Option<&str>) -> String {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push("src/utilities/mock_resources");
+    path.push("src/test_utils/mock_resources");
     path.push(kernel_image.unwrap_or(DEFAULT_KERNEL_IMAGE));
     path.as_os_str().to_str().unwrap().to_string()
 }

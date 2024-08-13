@@ -877,9 +877,9 @@ pub mod tests {
         let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
 
         #[cfg(target_arch = "x86_64")]
-        path.push("src/utilities/mock_resources/test_elf.bin");
+        path.push("src/test_utils/mock_resources/test_elf.bin");
         #[cfg(target_arch = "aarch64")]
-        path.push("src/utilities/mock_resources/test_pe.bin");
+        path.push("src/test_utils/mock_resources/test_pe.bin");
 
         let mut kernel_file = File::open(path).expect("Cannot open kernel file");
 

@@ -225,7 +225,7 @@ mod tests {
     use super::*;
     use crate::devices::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
     use crate::devices::virtio::vsock::test_utils::{EventHandlerContext, TestContext};
-    use crate::utilities::test_utils::multi_region_mem;
+    use crate::test_utils::test_utils::multi_region_mem;
     use crate::vstate::memory::Bytes;
 
     #[test]

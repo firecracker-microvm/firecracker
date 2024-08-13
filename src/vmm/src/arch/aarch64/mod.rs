@@ -117,7 +117,7 @@ fn get_fdt_addr(mem: &GuestMemoryMmap) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utilities::test_utils::arch_mem;
+    use crate::test_utils::test_utils::arch_mem;
 
     #[test]
     fn test_regions_lt_1024gb() {

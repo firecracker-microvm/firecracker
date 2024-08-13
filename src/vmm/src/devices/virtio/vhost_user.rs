@@ -465,7 +465,7 @@ mod tests {
     use utils::tempfile::TempFile;
 
     use super::*;
-    use crate::utilities::test_utils::create_tmp_socket;
+    use crate::test_utils::test_utils::create_tmp_socket;
     use crate::vstate::memory::{FileOffset, GuestAddress, GuestMemoryExtension};
 
     #[test]

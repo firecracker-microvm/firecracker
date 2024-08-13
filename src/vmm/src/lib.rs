@@ -100,7 +100,7 @@ pub mod signal_handler;
 /// Serialization and deserialization facilities
 pub mod snapshot;
 /// Utility functions for integration and benchmark testing
-pub mod utilities;
+pub mod test_utils;
 /// Wrappers over structures used to configure the VMM.
 pub mod vmm_config;
 /// Module with virtual state structs.
