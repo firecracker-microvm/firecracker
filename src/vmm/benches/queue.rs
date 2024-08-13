@@ -12,7 +12,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use vm_memory::GuestAddress;
 use vmm::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 use vmm::devices::virtio::test_utils::VirtQueue;
-use vmm::test_utils::test_utils::single_region_mem;
+use vmm::test_utils::single_region_mem;
 
 /// Create one chain with n descriptors
 /// Descriptor buffers will leave at the offset of 2048 bytes

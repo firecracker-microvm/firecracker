@@ -1231,7 +1231,7 @@ mod tests {
     pub use super::*;
     use crate::devices::virtio::queue::QueueError::DescIndexOutOfBounds;
     use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
-    use crate::test_utils::test_utils::{multi_region_mem, single_region_mem};
+    use crate::test_utils::{multi_region_mem, single_region_mem};
     use crate::vstate::memory::GuestAddress;
 
     #[test]

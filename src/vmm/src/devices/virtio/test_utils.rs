@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use utils::u64_to_usize;
 
 use crate::devices::virtio::queue::Queue;
-use crate::test_utils::test_utils::single_region_mem;
+use crate::test_utils::single_region_mem;
 use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
 #[macro_export]
@@ -325,7 +325,7 @@ pub(crate) mod test {
     use crate::devices::virtio::net::MAX_BUFFER_SIZE;
     use crate::devices::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT};
     use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
-    use crate::test_utils::test_utils::single_region_mem;
+    use crate::test_utils::single_region_mem;
     use crate::vstate::memory::{Address, GuestAddress, GuestMemoryMmap};
 
     pub fn create_virtio_mem() -> GuestMemoryMmap {

@@ -15,10 +15,10 @@ use vmm::rpc_interface::{
 };
 use vmm::seccomp_filters::get_empty_filters;
 use vmm::snapshot::Snapshot;
-use vmm::test_utils::mock_resources::{MockVmResources, NOISY_KERNEL_IMAGE};
 #[cfg(target_arch = "x86_64")]
-use vmm::test_utils::test_utils::dirty_tracking_vmm;
-use vmm::test_utils::test_utils::{create_vmm, default_vmm, default_vmm_no_boot};
+use vmm::test_utils::dirty_tracking_vmm;
+use vmm::test_utils::mock_resources::{MockVmResources, NOISY_KERNEL_IMAGE};
+use vmm::test_utils::{create_vmm, default_vmm, default_vmm_no_boot};
 use vmm::vmm_config::balloon::BalloonDeviceConfig;
 use vmm::vmm_config::boot_source::BootSourceConfig;
 use vmm::vmm_config::drive::BlockDeviceConfig;
