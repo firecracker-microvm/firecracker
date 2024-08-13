@@ -316,7 +316,7 @@ mod tests {
 
     use super::*;
     use crate::arch::SYSTEM_MEM_START;
-    use crate::test_utils::test_utils::single_region_mem_at;
+    use crate::test_utils::single_region_mem_at;
     use crate::vstate::memory::Bytes;
 
     fn table_entry_size(type_: u8) -> usize {

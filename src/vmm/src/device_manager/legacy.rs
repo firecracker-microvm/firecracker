@@ -238,7 +238,7 @@ impl PortIODeviceManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::test_utils::single_region_mem;
+    use crate::test_utils::single_region_mem;
     use crate::Vm;
 
     #[test]

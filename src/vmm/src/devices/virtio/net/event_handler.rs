@@ -135,7 +135,7 @@ pub mod tests {
     use crate::devices::virtio::net::test_utils::test::TestHelper;
     use crate::devices::virtio::net::test_utils::NetQueue;
     use crate::devices::virtio::net::{MAX_BUFFER_SIZE, TX_INDEX};
-    use crate::test_utils::test_utils::single_region_mem;
+    use crate::test_utils::single_region_mem;
 
     #[test]
     fn test_event_handler() {

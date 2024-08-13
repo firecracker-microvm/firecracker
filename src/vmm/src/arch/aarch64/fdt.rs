@@ -460,7 +460,7 @@ mod tests {
     use crate::arch::aarch64::gic::create_gic;
     use crate::arch::aarch64::layout;
     use crate::device_manager::resources::ResourceAllocator;
-    use crate::test_utils::test_utils::arch_mem;
+    use crate::test_utils::arch_mem;
 
     const LEN: u64 = 4096;
 

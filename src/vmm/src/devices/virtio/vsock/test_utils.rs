@@ -17,7 +17,7 @@ use crate::devices::virtio::vsock::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
 use crate::devices::virtio::vsock::{
     Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
 };
-use crate::test_utils::test_utils::single_region_mem;
+use crate::test_utils::single_region_mem;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
 #[derive(Debug)]

@@ -222,7 +222,7 @@ mod tests {
     use linux_loader::loader::bootparam::boot_e820_entry;
 
     use super::*;
-    use crate::test_utils::test_utils::{arch_mem, single_region_mem};
+    use crate::test_utils::{arch_mem, single_region_mem};
 
     #[test]
     fn regions_lt_4gb() {

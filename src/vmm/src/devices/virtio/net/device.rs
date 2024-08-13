@@ -956,7 +956,7 @@ pub mod tests {
     use crate::dumbo::EthernetFrame;
     use crate::logger::IncMetric;
     use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenBucket, TokenType};
-    use crate::test_utils::test_utils::single_region_mem;
+    use crate::test_utils::single_region_mem;
     use crate::vstate::memory::{Address, GuestMemory};
 
     #[test]

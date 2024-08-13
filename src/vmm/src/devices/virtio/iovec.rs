@@ -393,7 +393,7 @@ mod tests {
     use super::{IoVecBuffer, IoVecBufferMut};
     use crate::devices::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::VirtQueue;
-    use crate::test_utils::test_utils::multi_region_mem;
+    use crate::test_utils::multi_region_mem;
     use crate::vstate::memory::{Bytes, GuestAddress, GuestMemoryMmap};
 
     impl<'a> From<&'a [u8]> for IoVecBuffer {
