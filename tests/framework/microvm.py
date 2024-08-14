@@ -974,6 +974,7 @@ class Microvm:
         snapshot: Snapshot,
         resume: bool = False,
         uffd_path: Path = None,
+        rename_interfaces: dict = None,
     ):
         """Restore a snapshot"""
         jailed_snapshot = snapshot.copy_to_chroot(Path(self.chroot()))
@@ -1001,11 +1002,27 @@ class Microvm:
         # Adjust things just in case
         self.kernel_file = Path(self.kernel_file)
 
+        iface_overrides = []
+        if rename_interfaces is not None:
+            iface_overrides = [
+                {"iface_id": k, "host_dev_name": v}
+                for k, v in rename_interfaces.items()
+            ]
+
+        optional_kwargs = {}
+        if iface_overrides:
+            # For backwards compatibility ab testing we want to avoid adding
+            # new parameters until we have a release baseline with the new
+            # parameter. Once the release baseline has moved, this assignment
+            # can be inline in the snapshot_load command below
+            optional_kwargs["network_overrides"] = iface_overrides
+
         self.api.snapshot_load.put(
             mem_backend=mem_backend,
             snapshot_path=str(jailed_vmstate),
             enable_diff_snapshots=snapshot.is_diff,
             resume_vm=resume,
+            **optional_kwargs,
         )
         # This is not a "wait for boot", but rather a "VM still works after restoration"
         if snapshot.net_ifaces and resume:
