@@ -105,6 +105,7 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, RequestError> {
         mem_backend,
         enable_diff_snapshots: snapshot_config.enable_diff_snapshots,
         resume_vm: snapshot_config.resume_vm,
+        network_overrides: snapshot_config.network_overrides,
     };
 
     // Construct the `ParsedRequest` object.
@@ -181,6 +182,7 @@ mod tests {
             },
             enable_diff_snapshots: false,
             resume_vm: false,
+            network_overrides: vec![],
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(
@@ -210,6 +212,7 @@ mod tests {
             },
             enable_diff_snapshots: true,
             resume_vm: false,
+            network_overrides: vec![],
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(
@@ -239,6 +242,7 @@ mod tests {
             },
             enable_diff_snapshots: false,
             resume_vm: true,
+            network_overrides: vec![],
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(
@@ -265,6 +269,7 @@ mod tests {
             },
             enable_diff_snapshots: false,
             resume_vm: true,
+            network_overrides: vec![],
         };
         let parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert_eq!(
