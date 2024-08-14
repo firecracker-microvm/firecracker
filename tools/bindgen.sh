@@ -4,9 +4,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # ./tools/devtool shell --privileged
-# bindgen-0.60 has a dependency that needs Rust edition 2021
-# cargo +stable install bindgen
+# cargo install bindgen-cli
 # apt update && apt install patch
+# ./tools/bindgen.sh
 
 set -eu
 
@@ -33,13 +33,12 @@ function fc-bindgen {
     non_snake_case,
     clippy::ptr_as_ptr,
     clippy::undocumented_unsafe_blocks,
-    clippy::cast_lossless,
     missing_debug_implementations,
     clippy::tests_outside_test_module
 )]
 
 EOF
-    bindgen --disable-header-comment --size_t-is-usize --constified-enum '*' --with-derive-default --with-derive-partialeq $@
+    bindgen --no-doc-comments --disable-header-comment --constified-enum '*' --with-derive-default --with-derive-partialeq $@
 }
 
 KERNEL_HEADERS_HOME="/usr"
@@ -90,6 +89,12 @@ fc-bindgen \
     --allowlist-var "VIRTIO_F_.*" \
     "$KERNEL_HEADERS_HOME/include/linux/virtio_rng.h" >src/vmm/src/devices/virtio/gen/virtio_rng.rs
 
+info "BINDGEN prctl.h"
+fc-bindgen \
+    --allowlist-var "PR_.*" \
+    "$KERNEL_HEADERS_HOME/include/linux/prctl.h" >src/firecracker/src/gen/prctl.rs
+sed -i '/PR_SET_SPECULATION_CTRL/s/u32/i32/g' src/firecracker/src/gen/prctl.rs
+
 # https://www.kernel.org/doc/Documentation/kbuild/headers_install.txt
 # The Linux repo is huge. Just copy what we need.
 # git clone --branch v5.10 --depth 1 https://github.com/torvalds/linux.git linux
@@ -97,7 +102,7 @@ git clone --branch linux-5.10.y --depth 1 https://github.com/amazonlinux/linux a
 
 info "BINDGEN mpspec_def.h"
 fc-bindgen amazonlinux-v5.10.y/arch/x86/include/asm/mpspec_def.h \
-           >src/vmm/src/arch_gen/x86/mpspec.rs
+           >src/vmm/src/arch/x86_64/gen/mpspec.rs
 # https://github.com/rust-lang/rust-bindgen/issues/1274
 
 info "BINDGEN msr-index.h"
@@ -109,8 +114,8 @@ fc-bindgen amazonlinux-v5.10.y/arch/x86/include/asm/msr-index.h \
     -Iamazonlinux-v5.10.y/include/ \
     -Iamazonlinux-v5.10.y/arch/x86/include/ \
     -Wno-macro-redefined \
-    >src/vmm/src/arch_gen/x86/msr_index.rs
-perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/vmm/src/arch_gen/x86/msr_index.rs
+    >src/vmm/src/arch/x86_64/gen/msr_index.rs
+perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/vmm/src/arch/x86_64/gen/msr_index.rs
 
 info "BINDGEN perf_event.h"
 grep "MSR_ARCH_PERFMON_" amazonlinux-v5.10.y/arch/x86/include/asm/perf_event.h \
@@ -118,8 +123,8 @@ grep "MSR_ARCH_PERFMON_" amazonlinux-v5.10.y/arch/x86/include/asm/perf_event.h \
 fc-bindgen amazonlinux-v5.10.y/arch/x86/include/asm/perf_event_msr.h \
     --allowlist-var "^MSR_ARCH_PERFMON_.*$" \
     -- \
-    >src/vmm/src/arch_gen/x86/perf_event.rs
-perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/vmm/src/arch_gen/x86/perf_event.rs
+    >src/vmm/src/arch/x86_64/gen/perf_event.rs
+perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/vmm/src/arch/x86_64/gen/perf_event.rs
 
 info "BINDGEN hyperv.h"
 grep "HV_X64_MSR_" amazonlinux-v5.10.y/arch/x86/kvm/hyperv.h \
@@ -127,8 +132,8 @@ grep "HV_X64_MSR_" amazonlinux-v5.10.y/arch/x86/kvm/hyperv.h \
 fc-bindgen amazonlinux-v5.10.y/arch/x86/kvm/hyperv_msr.h \
     --allowlist-var "^HV_X64_MSR_.*$" \
     -- \
-    >src/vmm/src/arch_gen/x86/hyperv.rs
-perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/vmm/src/arch_gen/x86/hyperv.rs
+    >src/vmm/src/arch/x86_64/gen/hyperv.rs
+perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/vmm/src/arch/x86_64/gen/hyperv.rs
 
 info "BINDGEN hyperv-tlfs.h"
 grep "HV_X64_MSR_" amazonlinux-v5.10.y/arch/x86/include/asm/hyperv-tlfs.h \
@@ -136,8 +141,8 @@ grep "HV_X64_MSR_" amazonlinux-v5.10.y/arch/x86/include/asm/hyperv-tlfs.h \
 fc-bindgen amazonlinux-v5.10.y/arch/x86/include/asm/hyperv-tlfs_msr.h \
     --allowlist-var "^HV_X64_MSR_.*$" \
     -- \
-    >src/vmm/src/arch_gen/x86/hyperv_tlfs.rs
-perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/vmm/src/arch_gen/x86/hyperv_tlfs.rs
+    >src/vmm/src/arch/x86_64/gen/hyperv_tlfs.rs
+perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/vmm/src/arch/x86_64/gen/hyperv_tlfs.rs
 
 info "BINDGEN io_uring.h"
 fc-bindgen \
@@ -147,15 +152,12 @@ fc-bindgen \
     --allowlist-type "io_uring_.+" \
     --allowlist-type "io_.qring_offsets" \
     "amazonlinux-v5.10.y/include/uapi/linux/io_uring.h" \
-    >src/io_uring/src/bindings.rs
+    >src/vmm/src/io_uring/gen.rs
 
 # Apply any patches
-# src/virtio_gen
-for crate in src/vmm/src/devices/virtio/net/gen/; do
-    for patch in $(dirname $0)/bindgen-patches/$(basename $crate)/*.patch; do
-        echo PATCH $crate/$patch
-        (cd $crate; patch -p1) <$patch
-    done
+info "Apply patches"
+for PATCH in $(dirname $0)/bindgen-patches/*.patch; do
+    git apply $PATCH
 done
 
 echo "Bindings created correctly! You might want to run ./tools/test_bindings.py to test for ABI incompatibilities"
