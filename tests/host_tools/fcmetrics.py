@@ -8,6 +8,7 @@
 """
 
 import datetime
+import json
 import math
 import platform
 import time
@@ -463,14 +464,15 @@ def flush_fc_metrics_to_cw(fc_metrics, metrics):
             continue
         metrics.put_metric(key, value, get_emf_unit_for_fc_metrics(key))
 
-    assert not {
+    metrics.flush()
+
+    failure_metrics = {
         key: value
         for key, value in flattened_metrics.items()
         if "err" in key or "fail" in key or "panic" in key or "num_faults" in key
         if value
     }
-
-    metrics.flush()
+    assert not failure_metrics, json.dumps(failure_metrics, indent=1)
 
 
 class FCMetricsMonitor(Thread):

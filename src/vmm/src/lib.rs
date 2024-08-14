@@ -12,10 +12,6 @@
 #![warn(clippy::undocumented_unsafe_blocks)]
 #![allow(clippy::blanket_clippy_restriction_lints)]
 
-/// Architecture specific bindings.
-#[allow(missing_docs)]
-pub mod arch_gen;
-
 /// Implements platform specific functionality.
 /// Supported platforms: x86_64 and aarch64.
 pub mod arch;

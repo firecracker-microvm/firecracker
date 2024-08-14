@@ -18,6 +18,9 @@ pub mod msr;
 /// Logic for configuring x86_64 registers.
 pub mod regs;
 
+#[allow(missing_docs)]
+pub mod gen;
+
 use linux_loader::configurator::linux::LinuxBootConfigurator;
 use linux_loader::configurator::{BootConfigurator, BootParams};
 use linux_loader::loader::bootparam::boot_params;
