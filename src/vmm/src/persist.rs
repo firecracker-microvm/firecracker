@@ -425,7 +425,10 @@ pub fn restore_from_snapshot(
             .iter_mut()
             .find(|x| x.device_state.id == entry.iface_id)
         {
-            device.device_state.tap_if_name = entry.host_dev_name.clone();
+            device
+                .device_state
+                .tap_if_name
+                .clone_from(&entry.host_dev_name);
         } else {
             return Err(SnapshotStateFromFileError::UnknownNetworkDevice.into());
         }

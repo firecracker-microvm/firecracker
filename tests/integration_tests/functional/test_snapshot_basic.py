@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Basic tests scenarios for snapshot save/restore."""
 
+import dataclasses
 import filecmp
 import logging
 import os
@@ -16,6 +17,7 @@ import pytest
 import host_tools.cargo_build as host
 import host_tools.drive as drive_tools
 from framework import utils
+import host_tools.network as net_tools
 from framework.microvm import SnapshotType
 from framework.properties import global_props
 from framework.utils import check_filesystem, check_output
@@ -597,3 +599,35 @@ def test_physical_couter_reset_aarch64(uvm_nano):
             reg_id, reg_value = parts
             if reg_id == cntpct_el0:
                 assert int(reg_value, 16) < max_value
+
+
+def test_snapshot_rename_interface(uvm_nano, microvm_factory):
+    """
+    Test that we can restore a snapshot and point its interface to a
+    different host interface.
+    """
+    base_iface = net_tools.NetIfaceConfig.with_id(0)
+
+    vm = uvm_nano
+    iface1 = dataclasses.replace(base_iface, tap_name="tap1")
+    vm.add_net_iface(iface=iface1)
+    # Create an interface but don't attach it to the device
+    vm.start()
+
+    snapshot = vm.snapshot_full()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+    iface2 = dataclasses.replace(base_iface, tap_name="tap2")
+
+    # The snapshot.net_faces is used by the test framework to create the
+    # appropriate tap devices on the host; we replace those here with the new
+    # name, otherwise the framework would create `tap1` when restoring the
+    # snapshot
+    snapshot.net_ifaces.clear()
+    snapshot.net_ifaces.append(iface2)
+
+    restored_vm.restore_from_snapshot(
+        snapshot, rename_interfaces={base_iface.dev_name: "tap2"}
+    )
+    restored_vm.resume()
