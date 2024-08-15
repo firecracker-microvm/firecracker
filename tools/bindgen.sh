@@ -67,7 +67,7 @@ fc-bindgen \
 
 info "BINDGEN virtio_ring.h"
 fc-bindgen \
-    --allowlist-var "VIRTIO_RING_F_EVENT_IDX" \
+    --allowlist-var "VIRTIO_RING_.*" \
     "$KERNEL_HEADERS_HOME/include/linux/virtio_ring.h" >src/vmm/src/devices/virtio/gen/virtio_ring.rs
 
 info "BINDGEN virtio_blk.h"
