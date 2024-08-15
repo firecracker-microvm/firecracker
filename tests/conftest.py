@@ -377,11 +377,9 @@ guest_kernel_linux_4_14 = pytest.fixture(
 guest_kernel_linux_5_10 = pytest.fixture(
     guest_kernel_fxt, params=kernel_params("vmlinux-5.10*")
 )
-# Use the unfiltered selector, since we don't officially support 6.1 yet.
-# TODO: switch to default selector once we add full 6.1 support.
 guest_kernel_linux_6_1 = pytest.fixture(
     guest_kernel_fxt,
-    params=kernel_params("vmlinux-6.1*", select=kernels_unfiltered),
+    params=kernel_params("vmlinux-6.1*"),
 )
 
 # Fixtures for all Ubuntu rootfs, and specific versions
