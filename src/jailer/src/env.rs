@@ -15,7 +15,7 @@ use utils::arg_parser::UtilsArgParserError::MissingValue;
 use utils::syscall::SyscallReturnCode;
 use utils::{arg_parser, validators};
 
-use crate::cgroup::{Cgroup, CgroupBuilder};
+use crate::cgroup::{CgroupConfiguration, CgroupConfigurationBuilder};
 use crate::chroot::chroot;
 use crate::resource_limits::{ResourceLimits, FSIZE_ARG, NO_FILE_ARG};
 use crate::JailerError;
@@ -124,7 +124,7 @@ pub struct Env {
     start_time_cpu_us: u64,
     jailer_cpu_time_us: u64,
     extra_args: Vec<String>,
-    cgroups: Vec<Box<dyn Cgroup>>,
+    cgroup_conf: Option<CgroupConfiguration>,
     resource_limits: ResourceLimits,
     uffd_dev_minor: Option<u32>,
 }
@@ -143,14 +143,7 @@ impl fmt::Debug for Env {
             .field("start_time_us", &self.start_time_us)
             .field("jailer_cpu_time_us", &self.jailer_cpu_time_us)
             .field("extra_args", &self.extra_args)
-            .field(
-                "cgroups",
-                &self
-                    .cgroups
-                    .iter()
-                    .map(|b| b as *const _)
-                    .collect::<Vec<_>>(),
-            )
+            .field("cgroups", &self.cgroup_conf)
             .field("resource_limits", &self.resource_limits)
             .finish()
     }
@@ -210,7 +203,7 @@ impl Env {
         let new_pid_ns = arguments.flag_present("new-pid-ns");
 
         // Optional arguments.
-        let mut cgroups: Vec<Box<dyn Cgroup>> = Vec::new();
+        let mut cgroup_conf = None;
         let parent_cgroup = match arguments.single_value("parent-cgroup") {
             Some(parent_cg) => Path::new(parent_cg),
             None => Path::new(&exec_file_name),
@@ -235,7 +228,7 @@ impl Env {
         // then the intent is to move the process to that cgroup.
         // Only applies to cgroupsv2 since it's a unified hierarchy
         if cgroups_args.is_empty() && cgroup_ver == 2 {
-            let mut builder = CgroupBuilder::new(cgroup_ver)?;
+            let builder = CgroupConfigurationBuilder::new(cgroup_ver)?;
             let cg_parent = builder.get_v2_hierarchy_path()?.join(parent_cgroup);
             let cg_parent_procs = cg_parent.join("cgroup.procs");
             if cg_parent.exists() {
@@ -246,7 +239,7 @@ impl Env {
 
         // cgroup format: <cgroup_controller>.<cgroup_property>=<value>,...
         if let Some(cgroups_args) = arguments.multiple_values("cgroup") {
-            let mut builder = CgroupBuilder::new(cgroup_ver)?;
+            let mut builder = CgroupConfigurationBuilder::new(cgroup_ver)?;
             for cg in cgroups_args {
                 let aux: Vec<&str> = cg.split('=').collect();
                 if aux.len() != 2 || aux[1].is_empty() {
@@ -259,14 +252,14 @@ impl Env {
                     return Err(JailerError::CgroupInvalidFile(cg.to_string()));
                 }
 
-                let cgroup = builder.new_cgroup(
+                builder.add_cgroup_property(
                     aux[0].to_string(), // cgroup file
                     aux[1].to_string(), // cgroup value
                     id,
                     parent_cgroup,
                 )?;
-                cgroups.push(cgroup);
             }
+            cgroup_conf = Some(builder.build());
         }
 
         let mut resource_limits = ResourceLimits::default();
@@ -289,7 +282,7 @@ impl Env {
             start_time_cpu_us,
             jailer_cpu_time_us: 0,
             extra_args: arguments.extra_args(),
-            cgroups,
+            cgroup_conf,
             resource_limits,
             uffd_dev_minor,
         })
@@ -611,16 +604,8 @@ impl Env {
         self.resource_limits.install()?;
 
         // We have to setup cgroups at this point, because we can't do it anymore after chrooting.
-        // cgroups are iterated two times as some cgroups may require others (e.g cpuset requires
-        // cpuset.mems and cpuset.cpus) to be set before attaching any pid.
-        for cgroup in &self.cgroups {
-            // it will panic if any cgroup fails to write
-            cgroup.write_value().unwrap();
-        }
-
-        for cgroup in &self.cgroups {
-            // it will panic if any cgroup fails to attach
-            cgroup.attach_pid().unwrap();
+        if let Some(ref conf) = self.cgroup_conf {
+            conf.setup()?;
         }
 
         // If daemonization was requested, open /dev/null before chrooting.

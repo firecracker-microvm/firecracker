@@ -683,7 +683,7 @@ impl Net {
             &mut tap_features,
             guest_supported_features,
             gen::TUN_F_CSUM,
-            VIRTIO_NET_F_CSUM,
+            VIRTIO_NET_F_GUEST_CSUM,
         );
         add_if_supported(
             &mut tap_features,
@@ -1058,7 +1058,7 @@ pub mod tests {
     // Test that `Net::build_tap_offload_features` creates the TAP offload features that we expect
     // it to do, based on the available guest features
     fn test_build_tap_offload_features_all() {
-        let supported_features = 1 << VIRTIO_NET_F_CSUM
+        let supported_features = 1 << VIRTIO_NET_F_GUEST_CSUM
             | 1 << VIRTIO_NET_F_GUEST_UFO
             | 1 << VIRTIO_NET_F_GUEST_TSO4
             | 1 << VIRTIO_NET_F_GUEST_TSO6;
@@ -1073,7 +1073,7 @@ pub mod tests {
     // Same as before, however, using each supported feature one by one.
     fn test_build_tap_offload_features_one_by_one() {
         let features = [
-            (1 << VIRTIO_NET_F_CSUM, gen::TUN_F_CSUM),
+            (1 << VIRTIO_NET_F_GUEST_CSUM, gen::TUN_F_CSUM),
             (1 << VIRTIO_NET_F_GUEST_UFO, gen::TUN_F_UFO),
             (1 << VIRTIO_NET_F_GUEST_TSO4, gen::TUN_F_TSO4),
         ];

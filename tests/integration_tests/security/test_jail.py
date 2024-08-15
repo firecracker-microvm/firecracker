@@ -206,7 +206,7 @@ class Cgroups:
 
     def new_cgroup(self, cgname):
         """Create a new cgroup"""
-        self.root.joinpath(cgname).mkdir(parents=True)
+        self.root.joinpath(cgname).mkdir(parents=True, exist_ok=True)
 
     def move_pid(self, cgname, pid):
         """Move a PID to a cgroup"""
@@ -612,3 +612,61 @@ def test_firecracker_kill_by_pid(uvm_plain, daemonize, new_pid_ns):
         and microvm.jailer.new_pid_ns == new_pid_ns
     )
     microvm.kill()
+
+
+def test_cgroupsv2_written_only_once(uvm_plain, cgroups_info):
+    """
+    Test that we only write to cgroup.procs once when using CgroupsV2
+
+    Assert that the jailer doesn't perform unneccessary create_dir_all
+    and attach_pid calls. This is a regression test for #2856
+    """
+    if cgroups_info.version != 2:
+        pytest.skip(reason="Requires system with cgroup-v2 enabled.")
+
+    uvm = uvm_plain
+    strace_output_path = Path(uvm.path, "strace.out")
+    strace_cmd = [
+        "strace",
+        "-tt",
+        "--syscall-times=ns",
+        "-y",
+        "-e",
+        "write,mkdir,mkdirat",
+        "-o",
+        strace_output_path,
+    ]
+    uvm.add_pre_cmd(strace_cmd)
+
+    parent_cgroup = "custom_cgroup/group2"
+    uvm.jailer.cgroup_ver = cgroups_info.version
+    uvm.jailer.parent_cgroup = parent_cgroup
+    # create the parent so that mkdirs doesn't need to
+    cgroups_info.new_cgroup(parent_cgroup)
+
+    cgroups = {
+        "cpuset.cpus": get_cpus(0),
+        "cpu.weight": 2,
+        "memory.max": 256 * 2**20,
+        "memory.min": 1 * 2**20,
+    }
+    uvm.jailer.cgroups = [f"{k}={v}" for k, v in cgroups.items()]
+    uvm.spawn()
+    uvm.basic_config()
+    uvm.add_net_iface()
+    uvm.start()
+    strace_out = strace_output_path.read_text(encoding="utf-8").splitlines()
+    write_lines = [
+        line
+        for line in strace_out
+        if "write" in line and f"{uvm.id}/cgroup.procs" in line
+    ]
+    mkdir_lines = [
+        line
+        for line in strace_out
+        if "mkdir" in line and f"{parent_cgroup}/{uvm.id}" in line
+    ]
+    assert len(write_lines) != len(cgroups), "writes equal to number of cgroups"
+    assert len(write_lines) == 1
+    assert len(mkdir_lines) != len(cgroups), "mkdir equal to number of cgroups"
+    assert len(mkdir_lines) == 1
