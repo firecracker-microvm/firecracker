@@ -21,7 +21,9 @@ use crate::devices::virtio::gen::virtio_net::{
     VIRTIO_NET_F_GUEST_TSO6, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4,
     VIRTIO_NET_F_HOST_TSO6, VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC, VIRTIO_NET_F_MRG_RXBUF,
 };
-use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
+use crate::devices::virtio::gen::virtio_ring::{
+    VIRTIO_RING_F_EVENT_IDX, VIRTIO_RING_F_INDIRECT_DESC,
+};
 use crate::devices::virtio::iovec::{
     IoVecBuffer, IoVecBufferMut, IoVecError, ParsedDescriptorChain,
 };
@@ -281,9 +283,10 @@ impl Net {
             | 1 << VIRTIO_NET_F_HOST_TSO4
             | 1 << VIRTIO_NET_F_HOST_TSO6
             | 1 << VIRTIO_NET_F_HOST_UFO
-            | 1 << VIRTIO_F_VERSION_1
             | 1 << VIRTIO_NET_F_MRG_RXBUF
-            | 1 << VIRTIO_RING_F_EVENT_IDX;
+            | 1 << VIRTIO_RING_F_INDIRECT_DESC
+            | 1 << VIRTIO_RING_F_EVENT_IDX
+            | 1 << VIRTIO_F_VERSION_1;
 
         let mut config_space = ConfigSpace::default();
         if let Some(mac) = guest_mac {
