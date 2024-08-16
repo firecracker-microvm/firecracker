@@ -124,6 +124,8 @@ pub enum VsockError {
     DescChainTooShortForHeader(usize),
     /// The descriptor chain length was greater than the max ([u32::MAX])
     DescChainOverflow,
+    /// Nested indirect descriptor
+    NestedIndirectDescriptor,
     /// The vsock header `len` field holds an invalid value: {0}
     InvalidPktLen(u32),
     /// A data fetch was attempted when no data was available.
@@ -147,6 +149,7 @@ impl From<IoVecError> for VsockError {
             IoVecError::ReadOnlyDescriptor => VsockError::UnwritableDescriptor,
             IoVecError::GuestMemory(err) => VsockError::GuestMemoryMmap(err),
             IoVecError::OverflowedDescriptor => VsockError::DescChainOverflow,
+            IoVecError::NestedIndirectDescriptor => VsockError::NestedIndirectDescriptor,
         }
     }
 }

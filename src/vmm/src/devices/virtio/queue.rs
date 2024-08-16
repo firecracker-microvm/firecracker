@@ -18,6 +18,7 @@ use crate::vstate::memory::{
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
+pub(super) const VIRTQ_DESC_F_INDIRECT: u16 = 0x4;
 
 /// Max size of virtio queues offered by firecracker's virtio devices.
 pub(super) const FIRECRACKER_MAX_QUEUE_SIZE: u16 = 256;
@@ -43,12 +44,32 @@ pub enum QueueError {
 /// https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html#x1-430008
 /// 2.6.5 The Virtqueue Descriptor Table
 #[repr(C)]
-#[derive(Default, Clone, Copy)]
-struct Descriptor {
-    addr: u64,
-    len: u32,
-    flags: u16,
-    next: u16,
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Descriptor {
+    pub addr: u64,
+    pub len: u32,
+    pub flags: u16,
+    pub next: u16,
+}
+
+impl Descriptor {
+    /// Gets if this descriptor chain has another descriptor chain linked after it.
+    pub fn has_next(&self) -> bool {
+        self.flags & VIRTQ_DESC_F_NEXT != 0
+    }
+
+    /// If the driver designated this as a write only descriptor.
+    ///
+    /// If this is false, this descriptor is read only.
+    /// Write only means the emulated device can write and the driver can read.
+    pub fn is_write_only(&self) -> bool {
+        self.flags & VIRTQ_DESC_F_WRITE != 0
+    }
+
+    /// If the driver designated this as a indirect descriptor.
+    pub fn is_indirect(&self) -> bool {
+        self.flags & VIRTQ_DESC_F_INDIRECT != 0
+    }
 }
 
 // SAFETY: `Descriptor` is a POD and contains no padding.
@@ -157,6 +178,11 @@ impl<'a, M: GuestMemory> DescriptorChain<'a, M> {
     /// Write only means the emulated device can write and the driver can read.
     pub fn is_write_only(&self) -> bool {
         self.flags & VIRTQ_DESC_F_WRITE != 0
+    }
+
+    /// If the driver designated this as a indirect descriptor.
+    pub fn is_indirect(&self) -> bool {
+        self.flags & VIRTQ_DESC_F_INDIRECT != 0
     }
 
     /// Gets the next descriptor in this descriptor chain, if there is one.
