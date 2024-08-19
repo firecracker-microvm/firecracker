@@ -12,7 +12,7 @@ name = "jailer"
 bench = false
 
 [dependencies]
-libc = "0.2.155"
+libc = "0.2.158"
 log-instrument = { path = "../log-instrument", optional = true }
 nix = { version = "0.29.0", default-features = false, features = ["dir"] }
 regex = { version = "1.10.6", default-features = false, features = ["std"] }
