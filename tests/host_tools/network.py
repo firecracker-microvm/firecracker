@@ -130,7 +130,8 @@ def mac_from_ip(ip_address):
     """Create a MAC address based on the provided IP.
 
     Algorithm:
-    - the first 2 bytes are fixed to 06:00
+    - the first 2 bytes are fixed to 06:00, which is in an LAA range
+      - https://en.wikipedia.org/wiki/MAC_address#Ranges_of_group_and_locally_administered_addresses
     - the next 4 bytes are the IP address
 
     Example of function call:
