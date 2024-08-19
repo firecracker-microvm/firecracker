@@ -683,7 +683,6 @@ impl Vmm {
 
         self.acpi_device_manager.notify_cpu_container()?;
 
-        #[cfg(test)]
         if let Some(devices::BusDevice::BootTimer(timer)) =
             self.get_bus_device(DeviceType::BootTimer, "BootTimer")
         {

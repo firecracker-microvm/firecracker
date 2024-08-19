@@ -123,3 +123,4 @@ class Api:
         self.snapshot_load = Resource(self, "/snapshot/load")
         self.cpu_config = Resource(self, "/cpu-config")
         self.entropy = Resource(self, "/entropy")
+        self.hotplug = Resource(self, "/hotplug")
