@@ -218,11 +218,11 @@ impl IoVecBuffer {
 #[derive(Debug, Default, Clone)]
 pub struct IoVecBufferMut {
     // Index of the head desciptor
-    head_index: u16,
+    pub head_index: u16,
     // container of the memory regions included in this IO vector
-    vecs: IoVecVec,
+    pub vecs: IoVecVec,
     // Total length of the IoVecBufferMut
-    len: u32,
+    pub len: u32,
 }
 
 impl IoVecBufferMut {

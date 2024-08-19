@@ -18,7 +18,7 @@ use utils::eventfd::EventFd;
 use utils::net::mac::MacAddr;
 use utils::ring_buffer::RingBuffer;
 use utils::{u64_to_usize, usize_to_u64};
-use vm_memory::VolatileMemoryError;
+use vm_memory::{GuestAddress, GuestMemory, VolatileMemoryError};
 
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
@@ -156,23 +156,86 @@ impl AvailableDescriptors {
 
     /// Read new descriptor chains from the queue.
     pub fn read_new_desc_chains(&mut self, queue: &mut Queue, mem: &GuestMemoryMmap) {
-        for _ in 0..queue.len(mem) {
+        #[repr(C)]
+        struct AvailRing {
+            flags: u16,
+            idx: u16,
+            ring: [u16; 256],
+            used_event: u16,
+        }
+        #[repr(C)]
+        #[derive(Default, Clone, Copy)]
+        struct Descriptor {
+            addr: u64,
+            len: u32,
+            flags: u16,
+            next: u16,
+        }
+
+        // SAFETY:
+        // avail_ring in the queue is a valid guest address
+        let avail_ring: &AvailRing =
+            unsafe { std::mem::transmute(mem.get_host_address(queue.avail_ring).unwrap()) };
+
+        // SAFETY:
+        // desc_table in the queue is a valid guest address
+        let desc_table: &[Descriptor; 256] =
+            unsafe { std::mem::transmute(mem.get_host_address(queue.desc_table).unwrap()) };
+
+        let avail_idx = queue.avail_idx(mem);
+        let actual_size = queue.actual_size();
+
+        while queue.next_avail.0 != avail_idx.0 {
             let Some(next_iovec_buf) = self.iov_ring.next_available() else {
                 break;
             };
 
-            match queue.do_pop_unchecked(mem) {
-                Some(desc_chain) => {
-                    // SAFETY:
-                    // This descriptor chain is only processed once.
-                    let valid = unsafe { next_iovec_buf.load_descriptor_chain(desc_chain).is_ok() };
-                    self.valid_ring.push(valid);
-                }
-                None => {
-                    self.valid_ring.push(false);
-                }
+            let avail_index = queue.next_avail.0 % actual_size;
+            queue.next_avail += Wrapping(1);
+
+            let desc_index = avail_ring.ring[avail_index as usize];
+            let mut desc = &desc_table[desc_index as usize];
+
+            next_iovec_buf.clear();
+            next_iovec_buf.head_index = desc_index;
+
+            let iov = libc::iovec {
+                iov_base: mem.get_host_address(GuestAddress(desc.addr)).unwrap().cast(),
+                iov_len: desc.len as usize,
+            };
+            next_iovec_buf.vecs.push(iov);
+            next_iovec_buf.len += desc.len;
+            self.valid_ring.push(true);
+
+            while desc.flags & crate::devices::virtio::queue::VIRTQ_DESC_F_NEXT != 0 {
+                desc = &desc_table[desc.next as usize];
+                let iov = libc::iovec {
+                    iov_base: mem.get_host_address(GuestAddress(desc.addr)).unwrap().cast(),
+                    iov_len: desc.len as usize,
+                };
+                next_iovec_buf.vecs.push(iov);
+                next_iovec_buf.len += desc.len;
+                self.valid_ring.push(true);
             }
         }
+
+        // for _ in 0..queue.len(mem) {
+        //     let Some(next_iovec_buf) = self.iov_ring.next_available() else {
+        //         break;
+        //     };
+        //
+        //     match queue.do_pop_unchecked(mem) {
+        //         Some(desc_chain) => {
+        //             // SAFETY:
+        //             // This descriptor chain is only processed once.
+        //             let valid = unsafe { next_iovec_buf.load_descriptor_chain(desc_chain).is_ok() };
+        //             self.valid_ring.push(valid);
+        //         }
+        //         None => {
+        //             self.valid_ring.push(false);
+        //         }
+        //     }
+        // }
     }
 
     /// Pop first descriptor chain.
