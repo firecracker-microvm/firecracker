@@ -5,6 +5,7 @@
 import pytest
 
 from framework.utils import check_entropy
+from host_tools.network import SSHConnection
 
 
 @pytest.fixture(params=[None])
@@ -22,6 +23,30 @@ def uvm_with_rng(uvm_plain, request):
     return uvm
 
 
+def list_rng_available(ssh_connection: SSHConnection) -> list[str]:
+    """Returns a list of rng devices available in the VM"""
+    return (
+        ssh_connection.check_output("cat /sys/class/misc/hw_random/rng_available")
+        .stdout.strip()
+        .split()
+    )
+
+
+def get_rng_current(ssh_connection: SSHConnection) -> str:
+    """Returns the current rng device used by hwrng"""
+    return ssh_connection.check_output(
+        "cat /sys/class/misc/hw_random/rng_current"
+    ).stdout.strip()
+
+
+def assert_virtio_rng_is_current_hwrng_device(ssh_connection: SSHConnection):
+    """Asserts that virtio_rng is the current device used by hwrng"""
+    # we expect something like virtio_rng.0
+    assert get_rng_current(ssh_connection).startswith(
+        "virtio_rng"
+    ), "virtio_rng device should be the current used by hwrng"
+
+
 def test_rng_not_present(uvm_nano):
     """
     Test a guest microVM *without* an entropy device and ensure that
@@ -32,15 +57,9 @@ def test_rng_not_present(uvm_nano):
     vm.add_net_iface()
     vm.start()
 
-    # If the guest kernel has been built with the virtio-rng module
-    # the device should exist in the guest filesystem but we should
-    # not be able to get random numbers out of it.
-    cmd = "test -e /dev/hwrng"
-    vm.ssh.check_output(cmd)
-
-    cmd = "dd if=/dev/hwrng of=/dev/null bs=10 count=1"
-    ecode, _, _ = vm.ssh.run(cmd)
-    assert ecode == 1
+    assert not any(
+        rng.startswith("virtio_rng") for rng in list_rng_available(vm.ssh)
+    ), "virtio_rng device should not be available in the uvm"
 
 
 def test_rng_present(uvm_with_rng):
@@ -50,6 +69,7 @@ def test_rng_present(uvm_with_rng):
     """
 
     vm = uvm_with_rng
+    assert_virtio_rng_is_current_hwrng_device(vm.ssh)
     check_entropy(vm.ssh)
 
 
@@ -60,6 +80,7 @@ def test_rng_snapshot(uvm_with_rng, microvm_factory):
     """
 
     vm = uvm_with_rng
+    assert_virtio_rng_is_current_hwrng_device(vm.ssh)
     check_entropy(vm.ssh)
     snapshot = vm.snapshot_full()
 
@@ -67,6 +88,7 @@ def test_rng_snapshot(uvm_with_rng, microvm_factory):
     new_vm.spawn()
     new_vm.restore_from_snapshot(snapshot, resume=True)
     new_vm.wait_for_up()
+    assert_virtio_rng_is_current_hwrng_device(new_vm.ssh)
     check_entropy(new_vm.ssh)
 
 
@@ -199,6 +221,7 @@ def test_rng_bw_rate_limiter(uvm_with_rng):
 
     expected_kbps = size / refill_time
 
+    assert_virtio_rng_is_current_hwrng_device(vm.ssh)
     # Check the rate limiter using a request size equal to the size
     # of the token bucket.
     _check_entropy_rate_limited(vm.ssh, size, expected_kbps)

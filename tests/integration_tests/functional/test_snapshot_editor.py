@@ -27,6 +27,7 @@ def test_remove_regs(uvm_nano, microvm_factory):
     vm = uvm_nano
     vm.add_net_iface()
     vm.start()
+    vm.wait_for_up()
 
     snapshot = vm.snapshot_full()
 
