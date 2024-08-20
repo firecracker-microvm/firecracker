@@ -198,6 +198,7 @@ def test_deflate_on_oom(uvm_plain_any, deflate_on_oom):
 
     # Start the microvm.
     test_microvm.start()
+    test_microvm.wait_for_up()
     firecracker_pid = test_microvm.firecracker_pid
 
     # We get an initial reading of the RSS, then calculate the amount
