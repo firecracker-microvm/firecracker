@@ -1166,6 +1166,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
         }
     ]
 
+    uvm_nano.wait_for_up()
     snapshot = uvm_nano.snapshot_full()
     uvm2 = microvm_factory.build()
     uvm2.spawn()
