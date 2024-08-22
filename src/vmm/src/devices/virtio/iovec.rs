@@ -470,6 +470,24 @@ mod tests {
         }
     }
 
+    impl<'a> From<Vec<&'a mut [u8]>> for IoVecBufferMut {
+        fn from(buffer: Vec<&'a mut [u8]>) -> Self {
+            let mut len = 0_u32;
+            let vecs = buffer
+                .into_iter()
+                .map(|slice| {
+                    len += TryInto::<u32>::try_into(slice.len()).unwrap();
+                    iovec {
+                        iov_base: slice.as_ptr() as *mut c_void,
+                        iov_len: slice.len(),
+                    }
+                })
+                .collect();
+
+            Self { vecs, len }
+        }
+    }
+
     fn default_mem() -> GuestMemoryMmap {
         multi_region_mem(&[
             (GuestAddress(0), 0x10000),
