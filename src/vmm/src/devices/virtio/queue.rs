@@ -176,6 +176,41 @@ impl<'a, M: GuestMemory> DescriptorChain<'a, M> {
             None
         }
     }
+
+    /// Load the next descriptor in this descriptor chain.
+    /// If none is available, return None.
+    pub fn load_next_descriptor(&mut self) -> Option<()> {
+        if !self.has_next() {
+            return None;
+        }
+        if self.next >= self.queue_size {
+            return None;
+        }
+
+        let desc_head = self.desc_table.unchecked_add(u64::from(self.next) * 16);
+        let desc = match self.mem.load_obj::<Descriptor>(desc_head) {
+            Ok(ret) => ret,
+            Err(err) => {
+                error!(
+                    "Failed to read virtio descriptor from memory at address {:#x}: {}",
+                    desc_head.0, err
+                );
+                return None;
+            }
+        };
+        self.index = self.next;
+        self.addr = GuestAddress(desc.addr);
+        self.len = desc.len;
+        self.flags = desc.flags;
+        self.next = desc.next;
+        self.ttl -= 1;
+
+        if !self.is_valid() {
+            return None;
+        }
+
+        Some(())
+    }
 }
 
 #[derive(Debug)]
