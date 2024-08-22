@@ -32,6 +32,9 @@ and this project adheres to
   [#4741](https://github.com/firecracker-microvm/firecracker/pull/4741),
   [#4746](https://github.com/firecracker-microvm/firecracker/pull/4746): Added
   official support for 6.1 microVM guest kernels.
+- [#4743](https://github.com/firecracker-microvm/firecracker/pull/4743): Added
+  support for `-h` help flag to the Jailer. The Jailer will now print the help
+  message with either `--help` or `-h`.
 
 ### Changed
 
