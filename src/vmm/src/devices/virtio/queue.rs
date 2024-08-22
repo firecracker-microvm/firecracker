@@ -114,7 +114,7 @@ impl<'a, M: GuestMemory> DescriptorChain<'a, M> {
         let desc_head = desc_table.unchecked_add(u64::from(index) * 16);
 
         // These reads can't fail unless Guest memory is hopelessly broken.
-        let desc = match mem.read_obj::<Descriptor>(desc_head) {
+        let desc = match mem.load_obj::<Descriptor>(desc_head) {
             Ok(ret) => ret,
             Err(err) => {
                 error!(
@@ -427,7 +427,7 @@ impl Queue {
         // and virtq rings, so it's safe to unwrap guest memory reads and to use unchecked
         // offsets.
         let desc_index: u16 = mem
-            .read_obj(self.avail_ring.unchecked_add(u64::from(index_offset)))
+            .load_obj(self.avail_ring.unchecked_add(u64::from(index_offset)))
             .unwrap();
 
         DescriptorChain::checked_new(mem, self.desc_table, self.actual_size(), desc_index).map(
@@ -511,7 +511,7 @@ impl Queue {
         // guest       after device activation, so we can be certain that no change has
         // occurred since the last `self.is_valid()` check.
         let addr = self.avail_ring.unchecked_add(2);
-        Wrapping(mem.read_obj::<u16>(addr).unwrap())
+        Wrapping(mem.load_obj::<u16>(addr).unwrap())
     }
 
     /// Get the value of the used event field of the avail ring.
@@ -524,7 +524,7 @@ impl Queue {
             .avail_ring
             .unchecked_add(u64::from(4 + 2 * self.actual_size()));
 
-        Wrapping(mem.read_obj::<u16>(used_event_addr).unwrap())
+        Wrapping(mem.load_obj::<u16>(used_event_addr).unwrap())
     }
 
     /// Helper method that writes to the `avail_event` field of the used ring.
@@ -642,6 +642,28 @@ impl Queue {
         new - used_event - Wrapping(1) < new - old
     }
 }
+
+trait MemBytesExt: GuestMemory {
+    /// Load a object `T` from GPA.
+    ///
+    /// Usually used for very small items.
+    #[inline(always)]
+    fn load_obj<T: ByteValued>(
+        &self,
+        addr: GuestAddress,
+    ) -> Result<T, <Self as Bytes<GuestAddress>>::E> {
+        if let Ok(s) = self.get_slice(addr, std::mem::size_of::<T>()) {
+            let ptr = s.ptr_guard().as_ptr().cast::<T>();
+            if ptr.is_aligned() {
+                // SAFETY: We just checked that the slice is of the correct size and require it impl
+                // ByteValued, also, the pointer is aligned.
+                return Ok(unsafe { ptr.read_volatile() });
+            }
+        }
+        self.read_obj::<T>(addr)
+    }
+}
+impl<T: GuestMemory> MemBytesExt for T {}
 
 #[cfg(kani)]
 #[allow(dead_code)]
@@ -1161,8 +1183,23 @@ mod tests {
                 .used_ring
                 .unchecked_add(u64::from(4 + 8 * self.actual_size()));
 
-            mem.read_obj::<u16>(avail_event_addr).unwrap()
+            mem.load_obj::<u16>(avail_event_addr).unwrap()
         }
+    }
+
+    #[test]
+    fn test_load_obj() {
+        let m = &multi_region_mem(&[(GuestAddress(0), 0x10000), (GuestAddress(0x20000), 0x2000)]);
+        // normal write and read
+        m.write_obj::<u32>(0xdeadbeef, GuestAddress(0)).unwrap();
+        assert_eq!(m.load_obj::<u32>(GuestAddress(0)).unwrap(), 0xdeadbeef);
+        // unaligned read
+        m.write_obj::<u32>(0xcafebabe, GuestAddress(1)).unwrap();
+        assert_eq!(m.load_obj::<u32>(GuestAddress(1)).unwrap(), 0xcafebabe);
+        // read across regions
+        m.write_obj::<u32>(0xdeadbeef, GuestAddress(0x1fff))
+            .unwrap();
+        assert_eq!(m.load_obj::<u32>(GuestAddress(0x1fff)).unwrap(), 0xdeadbeef);
     }
 
     #[test]
