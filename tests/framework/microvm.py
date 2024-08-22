@@ -632,6 +632,12 @@ class Microvm:
             )
             self._screen_pid = screen_pid
 
+        # If `--new-pid-ns` is used, the Firecracker process will detach from
+        # the screen and the screen process will exit. We do not want to
+        # attempt to kill it in that case to avoid a race condition.
+        if self.jailer.new_pid_ns:
+            self._screen_pid = None
+
         self._spawned = True
 
         if emit_metrics:

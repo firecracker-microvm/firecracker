@@ -193,7 +193,7 @@ mod tests {
         // Setup the resource limits
         let mut rlimits = ResourceLimits::default();
         let new_file_size_limit = 2097151;
-        let new_no_file_limit = 100;
+        let new_no_file_limit = 1000;
         rlimits.set_file_size(new_file_size_limit);
         rlimits.set_no_file(new_no_file_limit);
 
