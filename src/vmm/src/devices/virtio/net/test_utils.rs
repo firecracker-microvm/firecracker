@@ -270,6 +270,13 @@ pub fn if_index(tap: &Tap) -> i32 {
     unsafe { ifreq.ifr_ifru.ifru_ivalue }
 }
 
+
+pub fn drain_tap(tap: &Tap) {
+    let mut buf = [0u8; 1024];
+    // SAFETY: The call is safe since the parameters are valid.
+    while unsafe { libc::read(tap.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len()) != -1 } {}
+}
+
 /// Enable the tap interface.
 pub fn enable(tap: &Tap) {
     // Disable IPv6 router advertisment requests
@@ -294,6 +301,8 @@ pub fn enable(tap: &Tap) {
         )
         .execute(&sock, c_ulong::from(super::gen::sockios::SIOCSIFFLAGS))
         .unwrap();
+    // Drain the initial packets that might be in the tap interface.
+    drain_tap(tap);
 }
 
 #[cfg(test)]
