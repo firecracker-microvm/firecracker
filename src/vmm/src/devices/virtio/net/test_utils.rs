@@ -494,8 +494,8 @@ pub mod test {
             event_fd.write(1).unwrap();
         }
 
-        /// Generate a tap frame of `frame_len` and check that it is deferred
-        pub fn check_rx_deferred_frame(&mut self, frame_len: usize) -> Vec<u8> {
+        /// Generate a tap frame of `frame_len` and check that it is handled or discarded.
+        pub fn check_rx_frame(&mut self, frame_len: usize, rx_packets_count: u64) -> Vec<u8> {
             self.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
             let used_idx = self.rxq.used.idx.get();
 
@@ -503,12 +503,10 @@ pub mod test {
             let frame = inject_tap_tx_frame(&self.net(), frame_len);
             check_metric_after_block!(
                 self.net().metrics.rx_packets_count,
-                0,
+                rx_packets_count,
                 self.event_manager.run_with_timeout(100).unwrap()
             );
-            // Check that the frame has been deferred.
-            assert!(self.net().rx_deferred_frame);
-            // Check that the descriptor chain has been discarded.
+            // Check that the descriptor chain has been used or discarded.
             assert_eq!(self.rxq.used.idx.get(), used_idx + 1);
             assert!(&self.net().irq_trigger.has_pending_irq(IrqType::Vring));
 

@@ -327,6 +327,23 @@ impl IoVecBufferMut {
         self.len = 0u32;
     }
 
+    /// Push an iovec into the `IoVecBufferMut`.
+    /// # Safety
+    /// The iovec must refer to a valid memory slice.
+    pub unsafe fn push(&mut self, iovec: iovec) -> Result<(), IoVecError> {
+        let iov_len = iovec
+            .iov_len
+            .try_into()
+            .map_err(|_| IoVecError::OverflowedDescriptor)?;
+
+        self.vecs.push(iovec);
+        self.len = self
+            .len
+            .checked_add(iov_len)
+            .ok_or(IoVecError::OverflowedDescriptor)?;
+        Ok(())
+    }
+
     /// Writes a number of bytes into the `IoVecBufferMut` starting at a given offset.
     ///
     /// This will try to fill `IoVecBufferMut` writing bytes from the `buf` starting from
