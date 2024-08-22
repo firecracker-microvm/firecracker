@@ -48,7 +48,25 @@ distro installed, you can grant Read+Write access with:
 sudo setfacl -m u:${USER}:rw /dev/kvm
 ```
 
-Otherwise, if access is managed via the `kvm` group:
+If access is managed via the `kvm` group, check that the KVM group exists:
+
+```bash
+getent group kvm
+```
+
+and check that `/dev/kvm` is associated with the kvm group:
+
+```bash
+ls -l /dev/kvm
+```
+
+You can see if your current user is already in the kvm group by running:
+
+```bash
+groups
+```
+
+Otherwise, add your current user to the group by running:
 
 ```bash
 [ $(stat -c "%G" /dev/kvm) = kvm ] && sudo usermod -aG kvm ${USER} \
