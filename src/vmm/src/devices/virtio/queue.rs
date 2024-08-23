@@ -659,19 +659,6 @@ impl Queue {
         Ok(())
     }
 
-    /// Get the value of the used event field of the avail ring.
-    #[inline(always)]
-    pub fn used_event<M: GuestMemory>(&self, mem: &M) -> Wrapping<u16> {
-        debug_assert!(self.is_valid(mem));
-
-        // We need to find the `used_event` field from the avail ring.
-        let used_event_addr = self
-            .avail_ring_address
-            .unchecked_add(u64::from(4 + 2 * self.actual_size()));
-
-        Wrapping(mem.read_obj::<u16>(used_event_addr).unwrap())
-    }
-
     /// Helper method that writes to the `avail_event` field of the used ring.
     #[inline(always)]
     fn set_used_ring_avail_event<M: GuestMemory>(&mut self, avail_event: u16, mem: &M) {
@@ -782,7 +769,7 @@ impl Queue {
 
         let new = self.next_used;
         let old = self.next_used - self.num_added;
-        let used_event = self.used_event(mem);
+        let used_event = Wrapping(self.avail_ring_used_event_get());
 
         self.num_added = Wrapping(0);
 
@@ -1098,7 +1085,9 @@ mod verification {
             assert!(needs_notification);
         } else {
             // next_used - 1 is where the previous descriptor was placed
-            if queue.used_event(&mem) == queue.next_used - Wrapping(1) && num_added_old > 0 {
+            if Wrapping(queue.avail_ring_used_event_get()) == queue.next_used - Wrapping(1)
+                && num_added_old > 0
+            {
                 // If the idx field in the used ring (which determined where that descriptor index
                 // was placed) was equal to used_event, the device MUST send a
                 // notification.
@@ -1138,7 +1127,7 @@ mod verification {
         // [next_used - num_added - 1, u16::MAX] ∪ [0, next_used - 1]. Since queue size is at most
         // 2^15, intervals can only wrap at most once. This gives us the following logic:
 
-        let used_event = queue.used_event(&mem);
+        let used_event = Wrapping(queue.avail_ring_used_event_get());
         let interval_start = queue.next_used - queue.num_added;
         let interval_end = queue.next_used - Wrapping(1);
         let needs_notification = if queue.num_added.0 == 0 {
@@ -1620,13 +1609,13 @@ mod tests {
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
         let q = vq.create_queue();
-        assert_eq!(q.used_event(m), Wrapping(0));
+        assert_eq!(q.avail_ring_used_event_get(), 0);
 
         vq.avail.event.set(10);
-        assert_eq!(q.used_event(m), Wrapping(10));
+        assert_eq!(q.avail_ring_used_event_get(), 10);
 
         vq.avail.event.set(u16::MAX);
-        assert_eq!(q.used_event(m), Wrapping(u16::MAX));
+        assert_eq!(q.avail_ring_used_event_get(), u16::MAX);
     }
 
     #[test]
