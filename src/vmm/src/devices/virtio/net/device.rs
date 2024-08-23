@@ -272,15 +272,12 @@ impl Net {
     /// https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html#x1-320005
     /// 2.6.7.1 Driver Requirements: Used Buffer Notification Suppression
     fn try_signal_queue(&mut self, queue_type: NetQueue) -> Result<(), DeviceError> {
-        // This is safe since we checked in the event handler that the device is activated.
-        let mem = self.device_state.mem().unwrap();
-
         let queue = match queue_type {
             NetQueue::Rx => &mut self.queues[RX_INDEX],
             NetQueue::Tx => &mut self.queues[TX_INDEX],
         };
 
-        if queue.prepare_kick(mem) {
+        if queue.prepare_kick() {
             self.irq_trigger
                 .trigger_irq(IrqType::Vring)
                 .map_err(|err| {
