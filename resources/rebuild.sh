@@ -138,6 +138,12 @@ function clone_amazon_linux_repo {
     [ -d linux ] || git clone https://github.com/amazonlinux/linux linux
 }
 
+function apply_kernel_patches_for_ci {
+    for p in $PWD/guest_configs/patches/* ; do
+        patch -p2 < $p
+    done
+}
+
 # prints the git tag corresponding to the newest and best matching the provided kernel version $1
 # this means that if a microvm kernel exists, the tag returned will be of the form
 #
@@ -220,6 +226,9 @@ build_rootfs ubuntu-22.04 jammy
 build_initramfs
 
 clone_amazon_linux_repo
+
+# Apply kernel patches on top of AL configuration
+apply_kernel_patches_for_ci
 
 build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-4.14.config
 build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config
