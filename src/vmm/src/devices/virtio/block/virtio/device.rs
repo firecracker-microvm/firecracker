@@ -388,7 +388,6 @@ impl VirtioBlock {
         queue: &mut Queue,
         index: u16,
         len: u32,
-        mem: &GuestMemoryMmap,
         irq_trigger: &IrqTrigger,
         block_metrics: &BlockDeviceMetrics,
     ) {
@@ -396,7 +395,7 @@ impl VirtioBlock {
             error!("Failed to add available descriptor head {}: {}", index, err)
         });
 
-        if queue.prepare_kick(mem) {
+        if queue.prepare_kick() {
             irq_trigger.trigger_irq(IrqType::Vring).unwrap_or_else(|_| {
                 block_metrics.event_fails.inc();
             });
@@ -448,7 +447,6 @@ impl VirtioBlock {
                         queue,
                         head.index,
                         finished.num_bytes_to_mem,
-                        mem,
                         &self.irq_trigger,
                         &self.metrics,
                     );
@@ -500,7 +498,6 @@ impl VirtioBlock {
                         queue,
                         finished.desc_idx,
                         finished.num_bytes_to_mem,
-                        mem,
                         &self.irq_trigger,
                         &self.metrics,
                     );

@@ -657,9 +657,7 @@ impl Queue {
     /// updates `used_event` and/or the notification conditions hold once more.
     ///
     /// This is similar to the `vring_need_event()` method implemented by the Linux kernel.
-    pub fn prepare_kick<M: GuestMemory>(&mut self, mem: &M) -> bool {
-        debug_assert!(self.is_valid(mem));
-
+    pub fn prepare_kick(&mut self) -> bool {
         // If the device doesn't use notification suppression, always return true
         if !self.uses_notif_suppression {
             return true;
@@ -954,10 +952,10 @@ mod verification {
         // has been processed. This is done by the driver
         // defining a "used_event" index, which tells the device "please do not notify me until
         // used.ring[used_event] has been written to by you".
-        let ProofContext(mut queue, mem) = ProofContext::bounded_queue();
+        let ProofContext(mut queue, _) = ProofContext::bounded_queue();
 
         let num_added_old = queue.num_added.0;
-        let needs_notification = queue.prepare_kick(&mem);
+        let needs_notification = queue.prepare_kick();
 
         // uses_notif_suppression equivalent to VIRTIO_F_EVENT_IDX negotiated
         if !queue.uses_notif_suppression {
@@ -995,7 +993,7 @@ mod verification {
         // number of added descriptors being counted in Queue.num_added), and then use
         // "prepare_kick" to check if any of those descriptors should have triggered a
         // notification.
-        let ProofContext(mut queue, mem) = ProofContext::bounded_queue();
+        let ProofContext(mut queue, _) = ProofContext::bounded_queue();
 
         queue.enable_notif_suppression();
         assert!(queue.uses_notif_suppression);
@@ -1023,7 +1021,7 @@ mod verification {
             used_event >= interval_start && used_event <= interval_end
         };
 
-        assert_eq!(queue.prepare_kick(&mem), needs_notification);
+        assert_eq!(queue.prepare_kick(), needs_notification);
     }
 
     #[kani::proof]
@@ -1529,7 +1527,7 @@ mod tests {
                         q.next_used = Wrapping(used_idx);
                         vq.avail.event.set(used_event);
                         q.num_added = Wrapping(num_added);
-                        assert!(q.prepare_kick(m));
+                        assert!(q.prepare_kick());
                     }
                 }
             }
@@ -1541,7 +1539,7 @@ mod tests {
             q.next_used = Wrapping(10);
             vq.avail.event.set(6);
             q.num_added = Wrapping(5);
-            assert!(q.prepare_kick(m));
+            assert!(q.prepare_kick());
         }
 
         {
@@ -1549,7 +1547,7 @@ mod tests {
             q.next_used = Wrapping(10);
             vq.avail.event.set(6);
             q.num_added = Wrapping(4);
-            assert!(q.prepare_kick(m));
+            assert!(q.prepare_kick());
         }
 
         {
@@ -1557,7 +1555,7 @@ mod tests {
             q.next_used = Wrapping(10);
             vq.avail.event.set(6);
             q.num_added = Wrapping(3);
-            assert!(!q.prepare_kick(m));
+            assert!(!q.prepare_kick());
         }
     }
 
