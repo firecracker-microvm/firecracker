@@ -5,12 +5,13 @@ use std::io::ErrorKind;
 
 use libc::{c_void, iovec, size_t};
 use smallvec::SmallVec;
+use vm_memory::bitmap::Bitmap;
 use vm_memory::{
-    GuestMemoryError, ReadVolatile, VolatileMemoryError, VolatileSlice, WriteVolatile,
+    GuestMemory, GuestMemoryError, ReadVolatile, VolatileMemoryError, VolatileSlice, WriteVolatile,
 };
 
 use crate::devices::virtio::queue::DescriptorChain;
-use crate::vstate::memory::{Bitmap, GuestMemory};
+use crate::vstate::memory::GuestMemoryMmap;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum IoVecError {
@@ -57,6 +58,7 @@ impl IoVecBuffer {
     /// The descriptor chain cannot be referencing the same memory location as another chain
     pub unsafe fn load_descriptor_chain(
         &mut self,
+        mem: &GuestMemoryMmap,
         head: DescriptorChain,
     ) -> Result<(), IoVecError> {
         self.clear();
@@ -70,8 +72,7 @@ impl IoVecBuffer {
             // We use get_slice instead of `get_host_address` here in order to have the whole
             // range of the descriptor chain checked, i.e. [addr, addr + len) is a valid memory
             // region in the GuestMemoryMmap.
-            let iov_base = desc
-                .mem
+            let iov_base = mem
                 .get_slice(desc.addr, desc.len as usize)?
                 .ptr_guard_mut()
                 .as_ptr()
@@ -96,9 +97,12 @@ impl IoVecBuffer {
     /// # Safety
     ///
     /// The descriptor chain cannot be referencing the same memory location as another chain
-    pub unsafe fn from_descriptor_chain(head: DescriptorChain) -> Result<Self, IoVecError> {
+    pub unsafe fn from_descriptor_chain(
+        mem: &GuestMemoryMmap,
+        head: DescriptorChain,
+    ) -> Result<Self, IoVecError> {
         let mut new_buffer = Self::default();
-        new_buffer.load_descriptor_chain(head)?;
+        new_buffer.load_descriptor_chain(mem, head)?;
         Ok(new_buffer)
     }
 
@@ -231,6 +235,7 @@ impl IoVecBufferMut {
     /// The descriptor chain cannot be referencing the same memory location as another chain
     pub unsafe fn load_descriptor_chain(
         &mut self,
+        mem: &GuestMemoryMmap,
         head: DescriptorChain,
     ) -> Result<(), IoVecError> {
         self.clear();
@@ -244,7 +249,7 @@ impl IoVecBufferMut {
             // We use get_slice instead of `get_host_address` here in order to have the whole
             // range of the descriptor chain checked, i.e. [addr, addr + len) is a valid memory
             // region in the GuestMemoryMmap.
-            let slice = desc.mem.get_slice(desc.addr, desc.len as usize)?;
+            let slice = mem.get_slice(desc.addr, desc.len as usize)?;
 
             // We need to mark the area of guest memory that will be mutated through this
             // IoVecBufferMut as dirty ahead of time, as we loose access to all
@@ -272,9 +277,12 @@ impl IoVecBufferMut {
     /// # Safety
     ///
     /// The descriptor chain cannot be referencing the same memory location as another chain
-    pub unsafe fn from_descriptor_chain(head: DescriptorChain) -> Result<Self, IoVecError> {
+    pub unsafe fn from_descriptor_chain(
+        mem: &GuestMemoryMmap,
+        head: DescriptorChain,
+    ) -> Result<Self, IoVecError> {
         let mut new_buffer = Self::default();
-        new_buffer.load_descriptor_chain(head)?;
+        new_buffer.load_descriptor_chain(mem, head)?;
         Ok(new_buffer)
     }
 
@@ -484,22 +492,22 @@ mod tests {
         let (mut q, _) = read_only_chain(&mem);
         let head = q.pop(&mem).unwrap();
         // SAFETY: This descriptor chain is only loaded into one buffer
-        unsafe { IoVecBuffer::from_descriptor_chain(head).unwrap() };
+        unsafe { IoVecBuffer::from_descriptor_chain(&mem, head).unwrap() };
 
         let (mut q, _) = write_only_chain(&mem);
         let head = q.pop(&mem).unwrap();
         // SAFETY: This descriptor chain is only loaded into one buffer
-        unsafe { IoVecBuffer::from_descriptor_chain(head).unwrap_err() };
+        unsafe { IoVecBuffer::from_descriptor_chain(&mem, head).unwrap_err() };
 
         let (mut q, _) = read_only_chain(&mem);
         let head = q.pop(&mem).unwrap();
         // SAFETY: This descriptor chain is only loaded into one buffer
-        unsafe { IoVecBufferMut::from_descriptor_chain(head).unwrap_err() };
+        unsafe { IoVecBufferMut::from_descriptor_chain(&mem, head).unwrap_err() };
 
         let (mut q, _) = write_only_chain(&mem);
         let head = q.pop(&mem).unwrap();
         // SAFETY: This descriptor chain is only loaded into one buffer
-        unsafe { IoVecBufferMut::from_descriptor_chain(head).unwrap() };
+        unsafe { IoVecBufferMut::from_descriptor_chain(&mem, head).unwrap() };
     }
 
     #[test]
@@ -509,7 +517,7 @@ mod tests {
         let head = q.pop(&mem).unwrap();
 
         // SAFETY: This descriptor chain is only loaded once in this test
-        let iovec = unsafe { IoVecBuffer::from_descriptor_chain(head).unwrap() };
+        let iovec = unsafe { IoVecBuffer::from_descriptor_chain(&mem, head).unwrap() };
         assert_eq!(iovec.len(), 4 * 64);
     }
 
@@ -520,7 +528,7 @@ mod tests {
         let head = q.pop(&mem).unwrap();
 
         // SAFETY: This descriptor chain is only loaded once in this test
-        let iovec = unsafe { IoVecBufferMut::from_descriptor_chain(head).unwrap() };
+        let iovec = unsafe { IoVecBufferMut::from_descriptor_chain(&mem, head).unwrap() };
         assert_eq!(iovec.len(), 4 * 64);
     }
 
@@ -531,7 +539,7 @@ mod tests {
         let head = q.pop(&mem).unwrap();
 
         // SAFETY: This descriptor chain is only loaded once in this test
-        let iovec = unsafe { IoVecBuffer::from_descriptor_chain(head).unwrap() };
+        let iovec = unsafe { IoVecBuffer::from_descriptor_chain(&mem, head).unwrap() };
 
         let mut buf = vec![0u8; 257];
         assert_eq!(
@@ -586,7 +594,7 @@ mod tests {
         let head = q.pop(&mem).unwrap();
 
         // SAFETY: This descriptor chain is only loaded into one buffer
-        let mut iovec = unsafe { IoVecBufferMut::from_descriptor_chain(head).unwrap() };
+        let mut iovec = unsafe { IoVecBufferMut::from_descriptor_chain(&mem, head).unwrap() };
         let buf = vec![0u8, 1, 2, 3, 4];
 
         // One test vector for each part of the chain

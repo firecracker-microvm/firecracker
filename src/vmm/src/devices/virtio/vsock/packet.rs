@@ -23,7 +23,7 @@ use vm_memory::{GuestMemoryError, ReadVolatile, WriteVolatile};
 use super::{defs, VsockError};
 use crate::devices::virtio::iovec::{IoVecBuffer, IoVecBufferMut};
 use crate::devices::virtio::queue::DescriptorChain;
-use crate::vstate::memory::ByteValued;
+use crate::vstate::memory::{ByteValued, GuestMemoryMmap};
 
 // The vsock packet header is defined by the C struct:
 //
@@ -123,11 +123,14 @@ impl VsockPacket {
     ///   length would exceed [`defs::MAX_PKT_BUR_SIZE`].
     /// - [`VsockError::DescChainTooShortForPacket`] if the contained vsock header describes a vsock
     ///   packet whose length exceeds the descriptor chain's actual total buffer length.
-    pub fn from_tx_virtq_head(chain: DescriptorChain) -> Result<Self, VsockError> {
+    pub fn from_tx_virtq_head(
+        mem: &GuestMemoryMmap,
+        chain: DescriptorChain,
+    ) -> Result<Self, VsockError> {
         // SAFETY: This descriptor chain is only loaded once
         // virtio requests are handled sequentially so no two IoVecBuffers
         // are live at the same time, meaning this has exclusive ownership over the memory
-        let buffer = unsafe { IoVecBuffer::from_descriptor_chain(chain)? };
+        let buffer = unsafe { IoVecBuffer::from_descriptor_chain(mem, chain)? };
 
         let mut hdr = VsockPacketHeader::default();
         match buffer.read_exact_volatile_at(hdr.as_mut_slice(), 0) {
@@ -160,11 +163,14 @@ impl VsockPacket {
     /// ## Errors
     /// Returns [`VsockError::DescChainTooShortForHeader`] if the descriptor chain's total buffer
     /// length is insufficient to hold the 44 byte vsock header
-    pub fn from_rx_virtq_head(chain: DescriptorChain) -> Result<Self, VsockError> {
+    pub fn from_rx_virtq_head(
+        mem: &GuestMemoryMmap,
+        chain: DescriptorChain,
+    ) -> Result<Self, VsockError> {
         // SAFETY: This descriptor chain is only loaded once
         // virtio requests are handled sequentially so no two IoVecBuffers
         // are live at the same time, meaning this has exclusive ownership over the memory
-        let buffer = unsafe { IoVecBufferMut::from_descriptor_chain(chain)? };
+        let buffer = unsafe { IoVecBufferMut::from_descriptor_chain(mem, chain)? };
 
         if buffer.len() < VSOCK_PKT_HDR_SIZE {
             return Err(VsockError::DescChainTooShortForHeader(buffer.len() as usize));
@@ -395,6 +401,7 @@ mod tests {
         };
         ($test_ctx:expr, $handler_ctx:expr, $err:pat, $ctor:ident, $vq_index:ident) => {
             let result = VsockPacket::$ctor(
+                &$test_ctx.mem,
                 $handler_ctx.device.queues[$vq_index]
                     .pop(&$test_ctx.mem)
                     .unwrap(),
@@ -426,6 +433,7 @@ mod tests {
             create_context!(test_ctx, handler_ctx);
 
             let pkt = VsockPacket::from_tx_virtq_head(
+                &test_ctx.mem,
                 handler_ctx.device.queues[TXQ_INDEX]
                     .pop(&test_ctx.mem)
                     .unwrap(),
@@ -467,6 +475,7 @@ mod tests {
             create_context!(test_ctx, handler_ctx);
             set_pkt_len(0, &handler_ctx.guest_txvq.dtable[0], &test_ctx.mem);
             VsockPacket::from_tx_virtq_head(
+                &test_ctx.mem,
                 handler_ctx.device.queues[TXQ_INDEX]
                     .pop(&test_ctx.mem)
                     .unwrap(),
@@ -530,6 +539,7 @@ mod tests {
         {
             create_context!(test_ctx, handler_ctx);
             let pkt = VsockPacket::from_rx_virtq_head(
+                &test_ctx.mem,
                 handler_ctx.device.queues[RXQ_INDEX]
                     .pop(&test_ctx.mem)
                     .unwrap(),
@@ -580,6 +590,7 @@ mod tests {
 
         create_context!(test_ctx, handler_ctx);
         let mut pkt = VsockPacket::from_rx_virtq_head(
+            &test_ctx.mem,
             handler_ctx.device.queues[RXQ_INDEX]
                 .pop(&test_ctx.mem)
                 .unwrap(),
@@ -634,12 +645,14 @@ mod tests {
         // same area of memory. We need both a rx-view and a tx-view into the packet, as tx-queue
         // buffers are read only, while rx queue buffers are write-only
         let mut pkt = VsockPacket::from_rx_virtq_head(
+            &test_ctx.mem,
             handler_ctx.device.queues[RXQ_INDEX]
                 .pop(&test_ctx.mem)
                 .unwrap(),
         )
         .unwrap();
         let pkt2 = VsockPacket::from_tx_virtq_head(
+            &test_ctx.mem,
             handler_ctx.device.queues[TXQ_INDEX]
                 .pop(&test_ctx.mem)
                 .unwrap(),

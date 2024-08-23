@@ -603,7 +603,7 @@ impl Net {
             // SAFETY: This descriptor chain is only loaded once
             // virtio requests are handled sequentially so no two IoVecBuffers
             // are live at the same time, meaning this has exclusive ownership over the memory
-            if unsafe { self.tx_buffer.load_descriptor_chain(head).is_err() } {
+            if unsafe { self.tx_buffer.load_descriptor_chain(mem, head).is_err() } {
                 self.metrics.tx_fails.inc();
                 tx_queue
                     .add_used(head_index, 0)

@@ -135,7 +135,7 @@ impl Entropy {
             // SAFETY: This descriptor chain is only loaded once
             // virtio requests are handled sequentially so no two IoVecBuffers
             // are live at the same time, meaning this has exclusive ownership over the memory
-            let bytes = match unsafe { IoVecBufferMut::from_descriptor_chain(desc) } {
+            let bytes = match unsafe { IoVecBufferMut::from_descriptor_chain(mem, desc) } {
                 Ok(mut iovec) => {
                     debug!(
                         "entropy: guest request for {} bytes of entropy",
@@ -437,14 +437,14 @@ mod tests {
         let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop(&mem).unwrap();
         assert!(matches!(
             // SAFETY: This descriptor chain is only loaded into one buffer
-            unsafe { IoVecBufferMut::from_descriptor_chain(desc) },
+            unsafe { IoVecBufferMut::from_descriptor_chain(&mem, desc) },
             Err(crate::devices::virtio::iovec::IoVecError::ReadOnlyDescriptor)
         ));
 
         // This should succeed, we should have one more descriptor
         let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop(&mem).unwrap();
         // SAFETY: This descriptor chain is only loaded into one buffer
-        let mut iovec = unsafe { IoVecBufferMut::from_descriptor_chain(desc).unwrap() };
+        let mut iovec = unsafe { IoVecBufferMut::from_descriptor_chain(&mem, desc).unwrap() };
         entropy_dev.handle_one(&mut iovec).unwrap();
     }
 

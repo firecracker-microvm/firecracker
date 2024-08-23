@@ -9,12 +9,8 @@ use std::cmp::min;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
-use utils::usize_to_u64;
-
 use crate::logger::error;
-use crate::vstate::memory::{
-    Address, Bitmap, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap,
-};
+use crate::vstate::memory::{Address, Bitmap, ByteValued, GuestAddress, GuestMemory};
 
 pub const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub const VIRTQ_DESC_F_WRITE: u16 = 0x2;
@@ -72,13 +68,11 @@ unsafe impl ByteValued for UsedElement {}
 
 /// A virtio descriptor chain.
 #[derive(Debug, Copy, Clone)]
-pub struct DescriptorChain<'a, M: GuestMemory = GuestMemoryMmap> {
-    desc_table: GuestAddress,
+pub struct DescriptorChain {
+    desc_table_ptr: *const Descriptor,
+
     queue_size: u16,
     ttl: u16, // used to prevent infinite chain cycles
-
-    /// Reference to guest memory
-    pub mem: &'a M,
 
     /// Index into the descriptor table
     pub index: u16,
@@ -97,38 +91,20 @@ pub struct DescriptorChain<'a, M: GuestMemory = GuestMemoryMmap> {
     pub next: u16,
 }
 
-impl<'a, M: GuestMemory> DescriptorChain<'a, M> {
+impl DescriptorChain {
     /// Creates a new `DescriptorChain` from the given memory and descriptor table.
     ///
     /// Note that the desc_table and queue_size are assumed to be validated by the caller.
-    fn checked_new(
-        mem: &'a M,
-        desc_table: GuestAddress,
-        queue_size: u16,
-        index: u16,
-    ) -> Option<Self> {
-        if index >= queue_size {
+    fn checked_new(desc_table_ptr: *const Descriptor, queue_size: u16, index: u16) -> Option<Self> {
+        if queue_size <= index {
             return None;
         }
 
-        // There's no need for checking as we already validated the descriptor table and index
-        // bounds.
-        let desc_head = desc_table.unchecked_add(u64::from(index) * 16);
-
-        // These reads can't fail unless Guest memory is hopelessly broken.
-        let desc = match mem.read_obj::<Descriptor>(desc_head) {
-            Ok(ret) => ret,
-            Err(err) => {
-                error!(
-                    "Failed to read virtio descriptor from memory at address {:#x}: {}",
-                    desc_head.0, err
-                );
-                return None;
-            }
-        };
+        // SAFETY:
+        // index is in 0..queue_size bounds
+        let desc = unsafe { desc_table_ptr.add(usize::from(index)).read_volatile() };
         let chain = DescriptorChain {
-            mem,
-            desc_table,
+            desc_table_ptr,
             queue_size,
             ttl: queue_size,
             index,
@@ -168,7 +144,7 @@ impl<'a, M: GuestMemory> DescriptorChain<'a, M> {
     /// the head of the next _available_ descriptor chain.
     pub fn next_descriptor(&self) -> Option<Self> {
         if self.has_next() {
-            DescriptorChain::checked_new(self.mem, self.desc_table, self.queue_size, self.next).map(
+            DescriptorChain::checked_new(self.desc_table_ptr, self.queue_size, self.next).map(
                 |mut c| {
                     c.ttl = self.ttl - 1;
                     c
@@ -181,19 +157,19 @@ impl<'a, M: GuestMemory> DescriptorChain<'a, M> {
 }
 
 #[derive(Debug)]
-pub struct DescriptorIterator<'a>(Option<DescriptorChain<'a>>);
+pub struct DescriptorIterator(Option<DescriptorChain>);
 
-impl<'a> IntoIterator for DescriptorChain<'a> {
-    type Item = DescriptorChain<'a>;
-    type IntoIter = DescriptorIterator<'a>;
+impl IntoIterator for DescriptorChain {
+    type Item = DescriptorChain;
+    type IntoIter = DescriptorIterator;
 
     fn into_iter(self) -> Self::IntoIter {
         DescriptorIterator(Some(self))
     }
 }
 
-impl<'a> Iterator for DescriptorIterator<'a> {
-    type Item = DescriptorChain<'a>;
+impl Iterator for DescriptorIterator {
+    type Item = DescriptorChain;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.0.take().map(|desc| {
@@ -524,7 +500,7 @@ impl Queue {
     }
 
     /// Pop the first available descriptor chain from the avail ring.
-    pub fn pop<'b, M: GuestMemory>(&mut self, mem: &'b M) -> Option<DescriptorChain<'b, M>> {
+    pub fn pop<M: GuestMemory>(&mut self, mem: &M) -> Option<DescriptorChain> {
         debug_assert!(self.is_valid(mem));
 
         let len = self.len();
@@ -548,15 +524,15 @@ impl Queue {
             return None;
         }
 
-        self.do_pop_unchecked(mem)
+        self.do_pop_unchecked()
     }
 
     /// Try to pop the first available descriptor chain from the avail ring.
     /// If no descriptor is available, enable notifications.
-    pub fn pop_or_enable_notification<'b, M: GuestMemory>(
+    pub fn pop_or_enable_notification<M: GuestMemory>(
         &mut self,
-        mem: &'b M,
-    ) -> Option<DescriptorChain<'b, M>> {
+        mem: &M,
+    ) -> Option<DescriptorChain> {
         if !self.uses_notif_suppression {
             return self.pop(mem);
         }
@@ -565,7 +541,7 @@ impl Queue {
             return None;
         }
 
-        self.do_pop_unchecked(mem)
+        self.do_pop_unchecked()
     }
 
     /// Pop the first available descriptor chain from the avail ring.
@@ -573,10 +549,7 @@ impl Queue {
     /// # Important
     /// This is an internal method that ASSUMES THAT THERE ARE AVAILABLE DESCRIPTORS. Otherwise it
     /// will retrieve a descriptor that contains garbage data (obsolete/empty).
-    fn do_pop_unchecked<'b, M: GuestMemory>(
-        &mut self,
-        mem: &'b M,
-    ) -> Option<DescriptorChain<'b, M>> {
+    fn do_pop_unchecked(&mut self) -> Option<DescriptorChain> {
         // This fence ensures all subsequent reads see the updated driver writes.
         fence(Ordering::Acquire);
 
@@ -592,11 +565,12 @@ impl Queue {
         // index is bound by the queue size
         let desc_index = unsafe { self.avail_ring_ring_get(usize::from(idx)) };
 
-        DescriptorChain::checked_new(mem, self.desc_table_address, self.actual_size(), desc_index)
-            .map(|dc| {
+        DescriptorChain::checked_new(self.desc_table_ptr, self.actual_size(), desc_index).map(
+            |dc| {
                 self.next_avail += Wrapping(1);
                 dc
-            })
+            },
+        )
     }
 
     /// Undo the effects of the last `self.pop()` call.
@@ -1175,12 +1149,8 @@ mod verification {
         let ProofContext(queue, mem) = ProofContext::bounded_queue();
 
         let index = kani::any();
-        let maybe_chain = DescriptorChain::checked_new(
-            &mem,
-            queue.desc_table_address,
-            queue.actual_size(),
-            index,
-        );
+        let maybe_chain =
+            DescriptorChain::checked_new(queue.desc_table_ptr, queue.actual_size(), index);
 
         if index >= queue.actual_size() {
             assert!(maybe_chain.is_none())
@@ -1210,6 +1180,8 @@ mod verification {
 #[cfg(test)]
 mod tests {
 
+    use vm_memory::Bytes;
+
     pub use super::*;
     use crate::devices::virtio::queue::QueueError::DescIndexOutOfBounds;
     use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
@@ -1230,14 +1202,13 @@ mod tests {
     fn test_checked_new_descriptor_chain() {
         let m = &multi_region_mem(&[(GuestAddress(0), 0x10000), (GuestAddress(0x20000), 0x2000)]);
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
+        let mut q = vq.create_queue();
+        q.initialize(m).unwrap();
 
         assert!(vq.end().0 < 0x1000);
 
         // index >= queue_size
-        assert!(DescriptorChain::checked_new(m, vq.dtable_start(), 16, 16).is_none());
-
-        // desc_table address is way off
-        assert!(DescriptorChain::checked_new(m, GuestAddress(0x00ff_ffff_ffff), 16, 0).is_none());
+        assert!(DescriptorChain::checked_new(q.desc_table_ptr, 16, 16).is_none());
 
         // Let's create an invalid chain.
         {
@@ -1248,7 +1219,7 @@ mod tests {
             // .. but the index of the next descriptor is too large
             vq.dtable[0].next.set(16);
 
-            assert!(DescriptorChain::checked_new(m, vq.dtable_start(), 16, 0).is_none());
+            assert!(DescriptorChain::checked_new(q.desc_table_ptr, 16, 0).is_none());
         }
 
         // Finally, let's test an ok chain.
@@ -1256,10 +1227,9 @@ mod tests {
             vq.dtable[0].next.set(1);
             vq.dtable[1].set(0x2000, 0x1000, 0, 0);
 
-            let c = DescriptorChain::checked_new(m, vq.dtable_start(), 16, 0).unwrap();
+            let c = DescriptorChain::checked_new(q.desc_table_ptr, 16, 0).unwrap();
 
-            assert_eq!(c.mem as *const GuestMemoryMmap, m as *const GuestMemoryMmap);
-            assert_eq!(c.desc_table, vq.dtable_start());
+            assert_eq!(c.desc_table_ptr, q.desc_table_ptr);
             assert_eq!(c.queue_size, 16);
             assert_eq!(c.ttl, c.queue_size);
             assert_eq!(c.index, 0);
