@@ -392,7 +392,7 @@ impl VirtioBlock {
         irq_trigger: &IrqTrigger,
         block_metrics: &BlockDeviceMetrics,
     ) {
-        queue.add_used(mem, index, len).unwrap_or_else(|err| {
+        queue.add_used(index, len).unwrap_or_else(|err| {
             error!("Failed to add available descriptor head {}: {}", index, err)
         });
 

@@ -409,7 +409,7 @@ impl Net {
             // Safe to unwrap because a frame must be smaller than 2^16 bytes.
             u32::try_from(self.rx_bytes_read).unwrap()
         };
-        queue.add_used(mem, head_index, used_len).map_err(|err| {
+        queue.add_used(head_index, used_len).map_err(|err| {
             error!("Failed to add available descriptor {}: {}", head_index, err);
             FrontendError::AddUsed
         })?;
@@ -606,7 +606,7 @@ impl Net {
             if unsafe { self.tx_buffer.load_descriptor_chain(head).is_err() } {
                 self.metrics.tx_fails.inc();
                 tx_queue
-                    .add_used(mem, head_index, 0)
+                    .add_used(head_index, 0)
                     .map_err(DeviceError::QueueError)?;
                 continue;
             };
@@ -616,7 +616,7 @@ impl Net {
                 error!("net: received too big frame from driver");
                 self.metrics.tx_malformed_frames.inc();
                 tx_queue
-                    .add_used(mem, head_index, 0)
+                    .add_used(head_index, 0)
                     .map_err(DeviceError::QueueError)?;
                 continue;
             }
@@ -646,7 +646,7 @@ impl Net {
             }
 
             tx_queue
-                .add_used(mem, head_index, 0)
+                .add_used(head_index, 0)
                 .map_err(DeviceError::QueueError)?;
             used_any = true;
         }

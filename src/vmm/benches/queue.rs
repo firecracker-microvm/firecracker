@@ -146,7 +146,7 @@ pub fn queue_benchmark(c: &mut Criterion) {
             for i in 0_u16..1_u16 {
                 let index = std::hint::black_box(i);
                 let len = std::hint::black_box(i + 1);
-                _ = queue.add_used(&mem, index as u16, len as u32);
+                _ = queue.add_used(index as u16, len as u32);
             }
         })
     });
@@ -158,7 +158,7 @@ pub fn queue_benchmark(c: &mut Criterion) {
             for i in 0_u16..16_u16 {
                 let index = std::hint::black_box(i);
                 let len = std::hint::black_box(i + 1);
-                _ = queue.add_used(&mem, index as u16, len as u32);
+                _ = queue.add_used(index as u16, len as u32);
             }
         })
     });
@@ -170,7 +170,7 @@ pub fn queue_benchmark(c: &mut Criterion) {
             for i in 0_u16..256_u16 {
                 let index = std::hint::black_box(i);
                 let len = std::hint::black_box(i + 1);
-                _ = queue.add_used(&mem, index as u16, len as u32);
+                _ = queue.add_used(index as u16, len as u32);
             }
         })
     });
