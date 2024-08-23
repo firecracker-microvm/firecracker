@@ -61,7 +61,7 @@ pub fn queue_benchmark(c: &mut Criterion) {
 
     set_dtable_one_chain(&rxq, 1);
     queue.next_avail = Wrapping(0);
-    let desc = queue.pop(&mem).unwrap();
+    let desc = queue.pop().unwrap();
     c.bench_function("next_descriptor_1", |b| {
         b.iter(|| {
             let mut head = Some(desc.clone());
@@ -73,7 +73,7 @@ pub fn queue_benchmark(c: &mut Criterion) {
 
     set_dtable_one_chain(&rxq, 2);
     queue.next_avail = Wrapping(0);
-    let desc = queue.pop(&mem).unwrap();
+    let desc = queue.pop().unwrap();
     c.bench_function("next_descriptor_2", |b| {
         b.iter(|| {
             let mut head = Some(desc.clone());
@@ -85,7 +85,7 @@ pub fn queue_benchmark(c: &mut Criterion) {
 
     set_dtable_one_chain(&rxq, 4);
     queue.next_avail = Wrapping(0);
-    let desc = queue.pop(&mem).unwrap();
+    let desc = queue.pop().unwrap();
     c.bench_function("next_descriptor_4", |b| {
         b.iter(|| {
             let mut head = Some(desc.clone());
@@ -97,7 +97,7 @@ pub fn queue_benchmark(c: &mut Criterion) {
 
     set_dtable_one_chain(&rxq, 16);
     queue.next_avail = Wrapping(0);
-    let desc = queue.pop(&mem).unwrap();
+    let desc = queue.pop().unwrap();
     c.bench_function("next_descriptor_16", |b| {
         b.iter(|| {
             let mut head = Some(desc.clone());
@@ -113,7 +113,7 @@ pub fn queue_benchmark(c: &mut Criterion) {
     c.bench_function("queue_pop_1", |b| {
         b.iter(|| {
             queue.next_avail = Wrapping(0);
-            while let Some(desc) = queue.pop(&mem) {
+            while let Some(desc) = queue.pop() {
                 std::hint::black_box(desc);
             }
         })
@@ -123,7 +123,7 @@ pub fn queue_benchmark(c: &mut Criterion) {
     c.bench_function("queue_pop_4", |b| {
         b.iter(|| {
             queue.next_avail = Wrapping(0);
-            while let Some(desc) = queue.pop(&mem) {
+            while let Some(desc) = queue.pop() {
                 std::hint::black_box(desc);
             }
         })
@@ -133,7 +133,7 @@ pub fn queue_benchmark(c: &mut Criterion) {
     c.bench_function("queue_pop_16", |b| {
         b.iter(|| {
             queue.next_avail = Wrapping(0);
-            while let Some(desc) = queue.pop(&mem) {
+            while let Some(desc) = queue.pop() {
                 std::hint::black_box(desc);
             }
         })

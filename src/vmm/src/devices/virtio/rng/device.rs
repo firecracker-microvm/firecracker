@@ -128,7 +128,7 @@ impl Entropy {
         let mem = self.device_state.mem().unwrap();
 
         let mut used_any = false;
-        while let Some(desc) = self.queues[RNG_QUEUE].pop(mem) {
+        while let Some(desc) = self.queues[RNG_QUEUE].pop() {
             let index = desc.index;
             METRICS.entropy_event_count.inc();
 
@@ -434,7 +434,7 @@ mod tests {
         let mut entropy_dev = th.device();
 
         // This should succeed, we just added two descriptors
-        let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop(&mem).unwrap();
+        let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop().unwrap();
         assert!(matches!(
             // SAFETY: This descriptor chain is only loaded into one buffer
             unsafe { IoVecBufferMut::from_descriptor_chain(&mem, desc) },
@@ -442,7 +442,7 @@ mod tests {
         ));
 
         // This should succeed, we should have one more descriptor
-        let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop(&mem).unwrap();
+        let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop().unwrap();
         // SAFETY: This descriptor chain is only loaded into one buffer
         let mut iovec = unsafe { IoVecBufferMut::from_descriptor_chain(&mem, desc).unwrap() };
         entropy_dev.handle_one(&mut iovec).unwrap();

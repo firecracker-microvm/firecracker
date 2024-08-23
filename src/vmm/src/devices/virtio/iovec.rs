@@ -490,22 +490,22 @@ mod tests {
     fn test_access_mode() {
         let mem = default_mem();
         let (mut q, _) = read_only_chain(&mem);
-        let head = q.pop(&mem).unwrap();
+        let head = q.pop().unwrap();
         // SAFETY: This descriptor chain is only loaded into one buffer
         unsafe { IoVecBuffer::from_descriptor_chain(&mem, head).unwrap() };
 
         let (mut q, _) = write_only_chain(&mem);
-        let head = q.pop(&mem).unwrap();
+        let head = q.pop().unwrap();
         // SAFETY: This descriptor chain is only loaded into one buffer
         unsafe { IoVecBuffer::from_descriptor_chain(&mem, head).unwrap_err() };
 
         let (mut q, _) = read_only_chain(&mem);
-        let head = q.pop(&mem).unwrap();
+        let head = q.pop().unwrap();
         // SAFETY: This descriptor chain is only loaded into one buffer
         unsafe { IoVecBufferMut::from_descriptor_chain(&mem, head).unwrap_err() };
 
         let (mut q, _) = write_only_chain(&mem);
-        let head = q.pop(&mem).unwrap();
+        let head = q.pop().unwrap();
         // SAFETY: This descriptor chain is only loaded into one buffer
         unsafe { IoVecBufferMut::from_descriptor_chain(&mem, head).unwrap() };
     }
@@ -514,7 +514,7 @@ mod tests {
     fn test_iovec_length() {
         let mem = default_mem();
         let (mut q, _) = read_only_chain(&mem);
-        let head = q.pop(&mem).unwrap();
+        let head = q.pop().unwrap();
 
         // SAFETY: This descriptor chain is only loaded once in this test
         let iovec = unsafe { IoVecBuffer::from_descriptor_chain(&mem, head).unwrap() };
@@ -525,7 +525,7 @@ mod tests {
     fn test_iovec_mut_length() {
         let mem = default_mem();
         let (mut q, _) = write_only_chain(&mem);
-        let head = q.pop(&mem).unwrap();
+        let head = q.pop().unwrap();
 
         // SAFETY: This descriptor chain is only loaded once in this test
         let iovec = unsafe { IoVecBufferMut::from_descriptor_chain(&mem, head).unwrap() };
@@ -536,7 +536,7 @@ mod tests {
     fn test_iovec_read_at() {
         let mem = default_mem();
         let (mut q, _) = read_only_chain(&mem);
-        let head = q.pop(&mem).unwrap();
+        let head = q.pop().unwrap();
 
         // SAFETY: This descriptor chain is only loaded once in this test
         let iovec = unsafe { IoVecBuffer::from_descriptor_chain(&mem, head).unwrap() };
@@ -591,7 +591,7 @@ mod tests {
         let (mut q, vq) = write_only_chain(&mem);
 
         // This is a descriptor chain with 4 elements 64 bytes long each.
-        let head = q.pop(&mem).unwrap();
+        let head = q.pop().unwrap();
 
         // SAFETY: This descriptor chain is only loaded into one buffer
         let mut iovec = unsafe { IoVecBufferMut::from_descriptor_chain(&mem, head).unwrap() };

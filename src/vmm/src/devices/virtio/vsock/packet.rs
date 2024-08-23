@@ -402,9 +402,7 @@ mod tests {
         ($test_ctx:expr, $handler_ctx:expr, $err:pat, $ctor:ident, $vq_index:ident) => {
             let result = VsockPacket::$ctor(
                 &$test_ctx.mem,
-                $handler_ctx.device.queues[$vq_index]
-                    .pop(&$test_ctx.mem)
-                    .unwrap(),
+                $handler_ctx.device.queues[$vq_index].pop().unwrap(),
             );
             assert!(matches!(result, Err($err)), "{:?}", result)
         };
@@ -434,9 +432,7 @@ mod tests {
 
             let pkt = VsockPacket::from_tx_virtq_head(
                 &test_ctx.mem,
-                handler_ctx.device.queues[TXQ_INDEX]
-                    .pop(&test_ctx.mem)
-                    .unwrap(),
+                handler_ctx.device.queues[TXQ_INDEX].pop().unwrap(),
             )
             .unwrap();
 
@@ -476,9 +472,7 @@ mod tests {
             set_pkt_len(0, &handler_ctx.guest_txvq.dtable[0], &test_ctx.mem);
             VsockPacket::from_tx_virtq_head(
                 &test_ctx.mem,
-                handler_ctx.device.queues[TXQ_INDEX]
-                    .pop(&test_ctx.mem)
-                    .unwrap(),
+                handler_ctx.device.queues[TXQ_INDEX].pop().unwrap(),
             )
             .unwrap();
         }
@@ -540,9 +534,7 @@ mod tests {
             create_context!(test_ctx, handler_ctx);
             let pkt = VsockPacket::from_rx_virtq_head(
                 &test_ctx.mem,
-                handler_ctx.device.queues[RXQ_INDEX]
-                    .pop(&test_ctx.mem)
-                    .unwrap(),
+                handler_ctx.device.queues[RXQ_INDEX].pop().unwrap(),
             )
             .unwrap();
             assert_eq!(
@@ -591,9 +583,7 @@ mod tests {
         create_context!(test_ctx, handler_ctx);
         let mut pkt = VsockPacket::from_rx_virtq_head(
             &test_ctx.mem,
-            handler_ctx.device.queues[RXQ_INDEX]
-                .pop(&test_ctx.mem)
-                .unwrap(),
+            handler_ctx.device.queues[RXQ_INDEX].pop().unwrap(),
         )
         .unwrap();
 
@@ -646,16 +636,12 @@ mod tests {
         // buffers are read only, while rx queue buffers are write-only
         let mut pkt = VsockPacket::from_rx_virtq_head(
             &test_ctx.mem,
-            handler_ctx.device.queues[RXQ_INDEX]
-                .pop(&test_ctx.mem)
-                .unwrap(),
+            handler_ctx.device.queues[RXQ_INDEX].pop().unwrap(),
         )
         .unwrap();
         let pkt2 = VsockPacket::from_tx_virtq_head(
             &test_ctx.mem,
-            handler_ctx.device.queues[TXQ_INDEX]
-                .pop(&test_ctx.mem)
-                .unwrap(),
+            handler_ctx.device.queues[TXQ_INDEX].pop().unwrap(),
         )
         .unwrap();
 

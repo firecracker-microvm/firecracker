@@ -145,7 +145,7 @@ where
 
         let mut have_used = false;
 
-        while let Some(head) = self.queues[RXQ_INDEX].pop(mem) {
+        while let Some(head) = self.queues[RXQ_INDEX].pop() {
             let index = head.index;
             let used_len = match VsockPacket::from_rx_virtq_head(mem, head) {
                 Ok(mut pkt) => {
@@ -198,7 +198,7 @@ where
 
         let mut have_used = false;
 
-        while let Some(head) = self.queues[TXQ_INDEX].pop(mem) {
+        while let Some(head) = self.queues[TXQ_INDEX].pop() {
             let index = head.index;
             let pkt = match VsockPacket::from_tx_virtq_head(mem, head) {
                 Ok(pkt) => pkt,
@@ -237,7 +237,7 @@ where
         // This is safe since we checked in the caller function that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
-        let head = self.queues[EVQ_INDEX].pop(mem).ok_or_else(|| {
+        let head = self.queues[EVQ_INDEX].pop().ok_or_else(|| {
             METRICS.ev_queue_event_fails.inc();
             DeviceError::VsockError(VsockError::EmptyQueue)
         })?;

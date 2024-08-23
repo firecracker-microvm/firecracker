@@ -500,9 +500,7 @@ impl Queue {
     }
 
     /// Pop the first available descriptor chain from the avail ring.
-    pub fn pop<M: GuestMemory>(&mut self, mem: &M) -> Option<DescriptorChain> {
-        debug_assert!(self.is_valid(mem));
-
+    pub fn pop(&mut self) -> Option<DescriptorChain> {
         let len = self.len();
         // The number of descriptor chain heads to process should always
         // be smaller or equal to the queue size, as the driver should
@@ -531,10 +529,10 @@ impl Queue {
     /// If no descriptor is available, enable notifications.
     pub fn pop_or_enable_notification<M: GuestMemory>(
         &mut self,
-        mem: &M,
+        _mem: &M,
     ) -> Option<DescriptorChain> {
         if !self.uses_notif_suppression {
-            return self.pop(mem);
+            return self.pop();
         }
 
         if self.try_enable_notification() {
@@ -1087,7 +1085,7 @@ mod verification {
     #[kani::unwind(0)]
     #[kani::solver(cadical)]
     fn verify_pop() {
-        let ProofContext(mut queue, mem) = ProofContext::bounded_queue();
+        let ProofContext(mut queue, _) = ProofContext::bounded_queue();
 
         // This is an assertion in pop which we use to abort firecracker in a ddos scenario
         // This condition being false means that the guest is asking us to process every element
@@ -1099,7 +1097,7 @@ mod verification {
 
         let next_avail = queue.next_avail;
 
-        if let Some(_) = queue.pop(&mem) {
+        if let Some(_) = queue.pop() {
             // Can't get anything out of an empty queue, assert queue_len != 0
             assert_ne!(queue_len, 0);
             assert_eq!(queue.next_avail, next_avail + Wrapping(1));
@@ -1110,13 +1108,13 @@ mod verification {
     #[kani::unwind(0)]
     #[kani::solver(cadical)]
     fn verify_undo_pop() {
-        let ProofContext(mut queue, mem) = ProofContext::bounded_queue();
+        let ProofContext(mut queue, _) = ProofContext::bounded_queue();
 
         // See verify_pop for explanation
         kani::assume(queue.len() <= queue.actual_size());
 
         let queue_clone = queue.clone();
-        if let Some(_) = queue.pop(&mem) {
+        if let Some(_) = queue.pop() {
             queue.undo_pop();
             assert_eq!(queue, queue_clone);
 
@@ -1322,7 +1320,7 @@ mod tests {
         assert_eq!(q.len(), 2);
 
         // The first chain should hold exactly two descriptors.
-        let d = q.pop(m).unwrap().next_descriptor().unwrap();
+        let d = q.pop().unwrap().next_descriptor().unwrap();
         assert!(!d.has_next());
         assert!(d.next_descriptor().is_none());
 
@@ -1331,7 +1329,7 @@ mod tests {
 
         // The next chain holds three descriptors.
         let d = q
-            .pop(m)
+            .pop()
             .unwrap()
             .next_descriptor()
             .unwrap()
@@ -1342,7 +1340,7 @@ mod tests {
 
         // We've popped both chains, so the queue should be empty.
         assert!(q.is_empty());
-        assert!(q.pop(m).is_none());
+        assert!(q.pop().is_none());
 
         // Undoing the last pop should let us walk the last chain again.
         q.undo_pop();
@@ -1350,7 +1348,7 @@ mod tests {
 
         // Walk the last chain again (three descriptors).
         let d = q
-            .pop(m)
+            .pop()
             .unwrap()
             .next_descriptor()
             .unwrap()
@@ -1418,7 +1416,7 @@ mod tests {
         assert_eq!(q.len(), 2);
 
         // We process the first descriptor.
-        let d = q.pop(m).unwrap().next_descriptor();
+        let d = q.pop().unwrap().next_descriptor();
         assert!(matches!(d, Some(x) if !x.has_next()));
         // We confuse the device and set the available index as being 6.
         vq.avail.idx.set(6);
@@ -1429,7 +1427,7 @@ mod tests {
         // However, since the apparent length set by the driver is more than the queue size,
         // we would be running the risk of going through some descriptors more than once.
         // As such, we expect to panic.
-        q.pop(m);
+        q.pop();
     }
 
     #[test]
@@ -1592,7 +1590,7 @@ mod tests {
         assert_eq!(q.avail_event(m), 0);
 
         // Consume the descriptor. avail_event should be modified
-        assert!(q.pop(m).is_some());
+        assert!(q.pop().is_some());
         assert!(q.try_enable_notification());
         assert_eq!(q.avail_event(m), 1);
     }

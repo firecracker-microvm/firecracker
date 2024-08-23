@@ -297,7 +297,7 @@ impl Balloon {
             // Internal loop processes descriptors and acummulates the pfns in `pfn_buffer`.
             // Breaks out when there is not enough space in `pfn_buffer` to completely process
             // the next descriptor.
-            while let Some(head) = queue.pop(mem) {
+            while let Some(head) = queue.pop() {
                 let len = head.len as usize;
                 let max_len = MAX_PAGES_IN_DESC * SIZE_OF_U32;
                 valid_descs_found = true;
@@ -370,14 +370,12 @@ impl Balloon {
     }
 
     pub(crate) fn process_deflate_queue(&mut self) -> Result<(), BalloonError> {
-        // This is safe since we checked in the event handler that the device is activated.
-        let mem = self.device_state.mem().unwrap();
         METRICS.deflate_count.inc();
 
         let queue = &mut self.queues[DEFLATE_INDEX];
         let mut needs_interrupt = false;
 
-        while let Some(head) = queue.pop(mem) {
+        while let Some(head) = queue.pop() {
             queue.add_used(head.index, 0).map_err(BalloonError::Queue)?;
             needs_interrupt = true;
         }
@@ -394,7 +392,7 @@ impl Balloon {
         let mem = self.device_state.mem().unwrap();
         METRICS.stats_updates_count.inc();
 
-        while let Some(head) = self.queues[STATS_INDEX].pop(mem) {
+        while let Some(head) = self.queues[STATS_INDEX].pop() {
             if let Some(prev_stats_desc) = self.stats_desc_index {
                 // We shouldn't ever have an extra buffer if the driver follows
                 // the protocol, but return it if we find one.
