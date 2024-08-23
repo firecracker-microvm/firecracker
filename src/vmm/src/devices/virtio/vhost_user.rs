@@ -436,7 +436,7 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
                 .set_vring_addr(*queue_index, &config_data)
                 .map_err(VhostUserError::VhostUserSetVringAddr)?;
             self.vu
-                .set_vring_base(*queue_index, queue.avail_idx(mem).0)
+                .set_vring_base(*queue_index, queue.avail_ring_idx_get())
                 .map_err(VhostUserError::VhostUserSetVringBase)?;
 
             // No matter the queue, we set irq_evt for signaling the guest that buffers were
@@ -922,7 +922,7 @@ mod tests {
                     .unwrap() as u64,
                 log_addr: None,
             },
-            base: queue.avail_idx(&guest_memory).0,
+            base: queue.avail_ring_idx_get(),
             call: irq_trigger.irq_evt.as_raw_fd(),
             kick: event_fd.as_raw_fd(),
             enable: true,
