@@ -420,14 +420,14 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
                 queue_size: queue.actual_size(),
                 flags: 0u32,
                 desc_table_addr: mem
-                    .get_host_address(queue.desc_table)
+                    .get_host_address(queue.desc_table_address)
                     .map_err(VhostUserError::DescriptorTableAddress)?
                     as u64,
                 used_ring_addr: mem
-                    .get_host_address(queue.used_ring)
+                    .get_host_address(queue.used_ring_address)
                     .map_err(VhostUserError::UsedAddress)? as u64,
                 avail_ring_addr: mem
-                    .get_host_address(queue.avail_ring)
+                    .get_host_address(queue.avail_ring_address)
                     .map_err(VhostUserError::AvailAddress)? as u64,
                 log_addr: None,
             };
@@ -909,9 +909,15 @@ mod tests {
                 queue_max_size: 69,
                 queue_size: 0,
                 flags: 0,
-                desc_table_addr: guest_memory.get_host_address(queue.desc_table).unwrap() as u64,
-                used_ring_addr: guest_memory.get_host_address(queue.used_ring).unwrap() as u64,
-                avail_ring_addr: guest_memory.get_host_address(queue.avail_ring).unwrap() as u64,
+                desc_table_addr: guest_memory
+                    .get_host_address(queue.desc_table_address)
+                    .unwrap() as u64,
+                used_ring_addr: guest_memory
+                    .get_host_address(queue.used_ring_address)
+                    .unwrap() as u64,
+                avail_ring_addr: guest_memory
+                    .get_host_address(queue.avail_ring_address)
+                    .unwrap() as u64,
                 log_addr: None,
             },
             base: queue.avail_idx(&guest_memory).0,

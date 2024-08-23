@@ -214,13 +214,13 @@ pub struct Queue {
     pub ready: bool,
 
     /// Guest physical address of the descriptor table
-    pub desc_table: GuestAddress,
+    pub desc_table_address: GuestAddress,
 
     /// Guest physical address of the available ring
-    pub avail_ring: GuestAddress,
+    pub avail_ring_address: GuestAddress,
 
     /// Guest physical address of the used ring
-    pub used_ring: GuestAddress,
+    pub used_ring_address: GuestAddress,
 
     pub next_avail: Wrapping<u16>,
     pub next_used: Wrapping<u16>,
@@ -239,9 +239,9 @@ impl Queue {
             max_size,
             size: 0,
             ready: false,
-            desc_table: GuestAddress(0),
-            avail_ring: GuestAddress(0),
-            used_ring: GuestAddress(0),
+            desc_table_address: GuestAddress(0),
+            avail_ring_address: GuestAddress(0),
+            used_ring_address: GuestAddress(0),
             next_avail: Wrapping(0),
             next_used: Wrapping(0),
             uses_notif_suppression: false,
@@ -263,11 +263,11 @@ impl Queue {
     /// Validates the queue's in-memory layout is correct.
     pub fn is_layout_valid<M: GuestMemory>(&self, mem: &M) -> bool {
         let queue_size = usize::from(self.actual_size());
-        let desc_table = self.desc_table;
+        let desc_table = self.desc_table_address;
         let desc_table_size = 16 * queue_size;
-        let avail_ring = self.avail_ring;
+        let avail_ring = self.avail_ring_address;
         let avail_ring_size = 6 + 2 * queue_size;
-        let used_ring = self.used_ring;
+        let used_ring = self.used_ring_address;
         let used_ring_size = 6 + 8 * queue_size;
 
         if !self.ready {
@@ -417,7 +417,7 @@ impl Queue {
             + std::mem::size_of::<u16>()
             + std::mem::size_of::<u16>() * usize::from(self.next_avail.0 % self.actual_size());
         let desc_index_address = self
-            .avail_ring
+            .avail_ring_address
             .unchecked_add(usize_to_u64(desc_index_offset));
 
         // `self.is_valid()` already performed all the bound checks on the descriptor table
@@ -425,12 +425,11 @@ impl Queue {
         // offsets.
         let desc_index: u16 = mem.read_obj(desc_index_address).unwrap();
 
-        DescriptorChain::checked_new(mem, self.desc_table, self.actual_size(), desc_index).map(
-            |dc| {
+        DescriptorChain::checked_new(mem, self.desc_table_address, self.actual_size(), desc_index)
+            .map(|dc| {
                 self.next_avail += Wrapping(1);
                 dc
-            },
-        )
+            })
     }
 
     /// Undo the effects of the last `self.pop()` call.
@@ -490,7 +489,9 @@ impl Queue {
         let used_ring_offset = std::mem::size_of::<u16>()
             + std::mem::size_of::<u16>()
             + std::mem::size_of::<UsedElement>() * usize::from(index);
-        let used_element_address = self.used_ring.unchecked_add(usize_to_u64(used_ring_offset));
+        let used_element_address = self
+            .used_ring_address
+            .unchecked_add(usize_to_u64(used_ring_offset));
 
         mem.write_obj(used_element, used_element_address)
             .map_err(QueueError::UsedRing)
@@ -505,7 +506,7 @@ impl Queue {
         // Note: the `MmioTransport` code ensures that queue addresses cannot be changed by the
         // guest       after device activation, so we can be certain that no change has
         // occurred since the last `self.is_valid()` check.
-        let addr = self.avail_ring.unchecked_add(2);
+        let addr = self.avail_ring_address.unchecked_add(2);
         Wrapping(mem.read_obj::<u16>(addr).unwrap())
     }
 
@@ -516,7 +517,7 @@ impl Queue {
 
         // We need to find the `used_event` field from the avail ring.
         let used_event_addr = self
-            .avail_ring
+            .avail_ring_address
             .unchecked_add(u64::from(4 + 2 * self.actual_size()));
 
         Wrapping(mem.read_obj::<u16>(used_event_addr).unwrap())
@@ -539,7 +540,7 @@ impl Queue {
             + std::mem::size_of::<u16>()
             + std::mem::size_of::<UsedElement>() * usize::from(self.actual_size());
         let avail_event_addr = self
-            .used_ring
+            .used_ring_address
             .unchecked_add(usize_to_u64(avail_event_offset));
 
         mem.write_obj(avail_event, avail_event_addr).unwrap();
@@ -559,7 +560,9 @@ impl Queue {
         // }
         // We calculate offset into `idx` field.
         let idx_offset = std::mem::size_of::<u16>();
-        let next_used_addr = self.used_ring.unchecked_add(usize_to_u64(idx_offset));
+        let next_used_addr = self
+            .used_ring_address
+            .unchecked_add(usize_to_u64(idx_offset));
         mem.write_obj(next_used, next_used_addr).unwrap();
     }
 
@@ -823,9 +826,9 @@ mod verification {
 
         queue.size = FIRECRACKER_MAX_QUEUE_SIZE;
         queue.ready = true;
-        queue.desc_table = GuestAddress(QUEUE_BASE_ADDRESS);
-        queue.avail_ring = GuestAddress(AVAIL_RING_BASE_ADDRESS);
-        queue.used_ring = GuestAddress(USED_RING_BASE_ADDRESS);
+        queue.desc_table_address = GuestAddress(QUEUE_BASE_ADDRESS);
+        queue.avail_ring_address = GuestAddress(AVAIL_RING_BASE_ADDRESS);
+        queue.used_ring_address = GuestAddress(USED_RING_BASE_ADDRESS);
         queue.next_avail = Wrapping(kani::any());
         queue.next_used = Wrapping(kani::any());
         queue.uses_notif_suppression = kani::any();
@@ -876,9 +879,9 @@ mod verification {
 
             queue.size = kani::any();
             queue.ready = true;
-            queue.desc_table = GuestAddress(kani::any());
-            queue.avail_ring = GuestAddress(kani::any());
-            queue.used_ring = GuestAddress(kani::any());
+            queue.desc_table_address = GuestAddress(kani::any());
+            queue.avail_ring_address = GuestAddress(kani::any());
+            queue.used_ring_address = GuestAddress(kani::any());
             queue.next_avail = Wrapping(kani::any());
             queue.next_used = Wrapping(kani::any());
             queue.uses_notif_suppression = kani::any();
@@ -902,13 +905,14 @@ mod verification {
     mod stubs {
         use super::*;
 
-        // Calls to set_used_ring_avail_event tend to cause memory to grow unboundedly during
-        // verification. The function writes to the `avail_event` of the virtio queue, which
-        // is not read from by the device. It is only intended to be used by guest.
-        // Therefore, it does not affect any device functionality (e.g. its only call site,
-        // try_enable_notification, will behave independently of what value was written
-        // here). Thus we can stub it out with a no-op. Note that we have a separate harness
-        // for set_used_ring_avail_event, to ensure the function itself is sound.
+        // Calls to set_used_ring_address_avail_event tend to cause memory to grow unboundedly
+        // during verification. The function writes to the `avail_event` of the virtio
+        // queue, which is not read from by the device. It is only intended to be used by
+        // guest. Therefore, it does not affect any device functionality (e.g. its only call
+        // site, try_enable_notification, will behave independently of what value was
+        // written here). Thus we can stub it out with a no-op. Note that we have a separate
+        // harness for set_used_ring_address_avail_event, to ensure the function itself is
+        // sound.
         fn set_used_ring_avail_event<M: GuestMemory>(_self: &mut Queue, _val: u16, _mem: &M) {
             // do nothing
         }
@@ -937,7 +941,7 @@ mod verification {
             // After the device writes a descriptor index into the used ring:
             // – If flags is 1, the device SHOULD NOT send a notification.
             // – If flags is 0, the device MUST send a notification
-            // flags is the first field in the avail_ring, which we completely ignore. We
+            // flags is the first field in the avail_ring_address, which we completely ignore. We
             // always send a notification, and as there only is a SHOULD NOT, that is okay
             assert!(needs_notification);
         } else {
@@ -1021,9 +1025,9 @@ mod verification {
                 }
             }
 
-            assert!(alignment_of(queue.desc_table.0) >= 16);
-            assert!(alignment_of(queue.avail_ring.0) >= 2);
-            assert!(alignment_of(queue.used_ring.0) >= 4);
+            assert!(alignment_of(queue.desc_table_address.0) >= 16);
+            assert!(alignment_of(queue.avail_ring_address.0) >= 2);
+            assert!(alignment_of(queue.used_ring_address.0) >= 4);
 
             // length of queue must be power-of-two, and at most 2^15
             assert_eq!(queue.size.count_ones(), 1);
@@ -1113,8 +1117,12 @@ mod verification {
         let ProofContext(queue, mem) = ProofContext::bounded_queue();
 
         let index = kani::any();
-        let maybe_chain =
-            DescriptorChain::checked_new(&mem, queue.desc_table, queue.actual_size(), index);
+        let maybe_chain = DescriptorChain::checked_new(
+            &mem,
+            queue.desc_table_address,
+            queue.actual_size(),
+            index,
+        );
 
         if index >= queue.actual_size() {
             assert!(maybe_chain.is_none())
@@ -1123,7 +1131,7 @@ mod verification {
             // able to compute the address of the descriptor table entry without going out
             // of bounds anywhere, and also read from that address.
             let desc_head = mem
-                .checked_offset(queue.desc_table, (index as usize) * 16)
+                .checked_offset(queue.desc_table_address, (index as usize) * 16)
                 .unwrap();
             mem.checked_offset(desc_head, 16).unwrap();
             let desc = mem.read_obj::<Descriptor>(desc_head).unwrap();
@@ -1153,7 +1161,7 @@ mod tests {
     impl Queue {
         fn avail_event(&self, mem: &GuestMemoryMmap) -> u16 {
             let avail_event_addr = self
-                .used_ring
+                .used_ring_address
                 .unchecked_add(u64::from(4 + 8 * self.actual_size()));
 
             mem.read_obj::<u16>(avail_event_addr).unwrap()
@@ -1240,10 +1248,10 @@ mod tests {
         q.next_avail = Wrapping(5);
         assert!(!q.is_valid(m));
         // avail_ring + 2 is the address of avail_idx in guest mem
-        m.write_obj::<u16>(64_u16, q.avail_ring.unchecked_add(2))
+        m.write_obj::<u16>(64_u16, q.avail_ring_address.unchecked_add(2))
             .unwrap();
         assert!(!q.is_valid(m));
-        m.write_obj::<u16>(5_u16, q.avail_ring.unchecked_add(2))
+        m.write_obj::<u16>(5_u16, q.avail_ring_address.unchecked_add(2))
             .unwrap();
         q.max_size = 2;
         assert!(!q.is_valid(m));
@@ -1251,28 +1259,28 @@ mod tests {
         // reset dirtied values
         q.max_size = 16;
         q.next_avail = Wrapping(0);
-        m.write_obj::<u16>(0, q.avail_ring.unchecked_add(2))
+        m.write_obj::<u16>(0, q.avail_ring_address.unchecked_add(2))
             .unwrap();
 
         // or if the various addresses are off
 
-        q.desc_table = GuestAddress(0xffff_ffff);
+        q.desc_table_address = GuestAddress(0xffff_ffff);
         assert!(!q.is_valid(m));
-        q.desc_table = GuestAddress(0x1001);
+        q.desc_table_address = GuestAddress(0x1001);
         assert!(!q.is_valid(m));
-        q.desc_table = vq.dtable_start();
+        q.desc_table_address = vq.dtable_start();
 
-        q.avail_ring = GuestAddress(0xffff_ffff);
+        q.avail_ring_address = GuestAddress(0xffff_ffff);
         assert!(!q.is_valid(m));
-        q.avail_ring = GuestAddress(0x1001);
+        q.avail_ring_address = GuestAddress(0x1001);
         assert!(!q.is_valid(m));
-        q.avail_ring = vq.avail_start();
+        q.avail_ring_address = vq.avail_start();
 
-        q.used_ring = GuestAddress(0xffff_ffff);
+        q.used_ring_address = GuestAddress(0xffff_ffff);
         assert!(!q.is_valid(m));
-        q.used_ring = GuestAddress(0x1001);
+        q.used_ring_address = GuestAddress(0x1001);
         assert!(!q.is_valid(m));
-        q.used_ring = vq.used_start();
+        q.used_ring_address = vq.used_start();
     }
 
     #[test]
