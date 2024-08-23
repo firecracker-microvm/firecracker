@@ -537,7 +537,7 @@ impl Queue {
             return self.pop(mem);
         }
 
-        if self.try_enable_notification(mem) {
+        if self.try_enable_notification() {
             return None;
         }
 
@@ -614,9 +614,7 @@ impl Queue {
     /// successfully enabled. Otherwise it means that one or more descriptors can still be consumed
     /// from the available ring and we can't guarantee that there will be a notification. In this
     /// case the caller might want to consume the mentioned descriptors and call this method again.
-    pub fn try_enable_notification<M: GuestMemory>(&mut self, mem: &M) -> bool {
-        debug_assert!(self.is_valid(mem));
-
+    pub fn try_enable_notification(&mut self) -> bool {
         // If the device doesn't use notification suppression, we'll continue to get notifications
         // no matter what.
         if !self.uses_notif_suppression {
@@ -1129,11 +1127,11 @@ mod verification {
     #[kani::proof]
     #[kani::unwind(0)]
     fn verify_try_enable_notification() {
-        let ProofContext(mut queue, mem) = ProofContext::bounded_queue();
+        let ProofContext(mut queue, _) = ProofContext::bounded_queue();
 
         kani::assume(queue.len() <= queue.actual_size());
 
-        if queue.try_enable_notification(&mem) && queue.uses_notif_suppression {
+        if queue.try_enable_notification() && queue.uses_notif_suppression {
             // We only require new notifications if the queue is empty (e.g. we've processed
             // everything we've been notified about), or if suppression is disabled.
             assert!(queue.is_empty());
@@ -1584,18 +1582,18 @@ mod tests {
         assert_eq!(q.len(), 1);
 
         // Notification suppression is disabled. try_enable_notification shouldn't do anything.
-        assert!(q.try_enable_notification(m));
+        assert!(q.try_enable_notification());
         assert_eq!(q.avail_event(m), 0);
 
         // Enable notification suppression and check again. There is 1 available descriptor chain.
         // Again nothing should happen.
         q.enable_notif_suppression();
-        assert!(!q.try_enable_notification(m));
+        assert!(!q.try_enable_notification());
         assert_eq!(q.avail_event(m), 0);
 
         // Consume the descriptor. avail_event should be modified
         assert!(q.pop(m).is_some());
-        assert!(q.try_enable_notification(m));
+        assert!(q.try_enable_notification());
         assert_eq!(q.avail_event(m), 1);
     }
 
