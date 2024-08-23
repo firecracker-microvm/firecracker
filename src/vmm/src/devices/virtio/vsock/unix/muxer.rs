@@ -833,12 +833,14 @@ mod tests {
             let vsock_test_ctx = VsockTestContext::new();
             let mut handler_ctx = vsock_test_ctx.create_event_handler_context();
             let rx_pkt = VsockPacket::from_rx_virtq_head(
+                &vsock_test_ctx.mem,
                 handler_ctx.device.queues[RXQ_INDEX]
                     .pop(&vsock_test_ctx.mem)
                     .unwrap(),
             )
             .unwrap();
             let tx_pkt = VsockPacket::from_tx_virtq_head(
+                &vsock_test_ctx.mem,
                 handler_ctx.device.queues[TXQ_INDEX]
                     .pop(&vsock_test_ctx.mem)
                     .unwrap(),

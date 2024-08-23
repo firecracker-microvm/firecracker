@@ -147,7 +147,7 @@ where
 
         while let Some(head) = self.queues[RXQ_INDEX].pop(mem) {
             let index = head.index;
-            let used_len = match VsockPacket::from_rx_virtq_head(head) {
+            let used_len = match VsockPacket::from_rx_virtq_head(mem, head) {
                 Ok(mut pkt) => {
                     if self.backend.recv_pkt(&mut pkt).is_ok() {
                         match pkt.commit_hdr() {
@@ -200,7 +200,7 @@ where
 
         while let Some(head) = self.queues[TXQ_INDEX].pop(mem) {
             let index = head.index;
-            let pkt = match VsockPacket::from_tx_virtq_head(head) {
+            let pkt = match VsockPacket::from_tx_virtq_head(mem, head) {
                 Ok(pkt) => pkt,
                 Err(err) => {
                     error!("vsock: error reading TX packet: {:?}", err);
