@@ -863,16 +863,12 @@ mod tests {
             let stream = TestStream::new();
             let mut rx_pkt = VsockPacket::from_rx_virtq_head(
                 &vsock_test_ctx.mem,
-                handler_ctx.device.queues[RXQ_INDEX]
-                    .pop(&vsock_test_ctx.mem)
-                    .unwrap(),
+                handler_ctx.device.queues[RXQ_INDEX].pop().unwrap(),
             )
             .unwrap();
             let tx_pkt = VsockPacket::from_tx_virtq_head(
                 &vsock_test_ctx.mem,
-                handler_ctx.device.queues[TXQ_INDEX]
-                    .pop(&vsock_test_ctx.mem)
-                    .unwrap(),
+                handler_ctx.device.queues[TXQ_INDEX].pop().unwrap(),
             )
             .unwrap();
             let conn = match conn_state {

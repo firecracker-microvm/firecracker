@@ -438,7 +438,7 @@ mod tests {
             ctx.guest_rxvq.dtable[desc_idx].len.set(len);
             // If the descriptor chain is already declared invalid, there's no reason to assemble
             // a packet.
-            if let Some(rx_desc) = ctx.device.queues[RXQ_INDEX].pop(&test_ctx.mem) {
+            if let Some(rx_desc) = ctx.device.queues[RXQ_INDEX].pop() {
                 VsockPacket::from_rx_virtq_head(&test_ctx.mem, rx_desc).unwrap_err();
             }
         }
@@ -460,7 +460,7 @@ mod tests {
             ctx.guest_txvq.dtable[desc_idx].addr.set(addr);
             ctx.guest_txvq.dtable[desc_idx].len.set(len);
 
-            if let Some(tx_desc) = ctx.device.queues[TXQ_INDEX].pop(&test_ctx.mem) {
+            if let Some(tx_desc) = ctx.device.queues[TXQ_INDEX].pop() {
                 VsockPacket::from_tx_virtq_head(&test_ctx.mem, tx_desc).unwrap_err();
             }
         }
@@ -485,13 +485,13 @@ mod tests {
         // The default configured descriptor chains are valid.
         {
             let mut ctx = test_ctx.create_event_handler_context();
-            let rx_desc = ctx.device.queues[RXQ_INDEX].pop(&test_ctx.mem).unwrap();
+            let rx_desc = ctx.device.queues[RXQ_INDEX].pop().unwrap();
             VsockPacket::from_rx_virtq_head(&test_ctx.mem, rx_desc).unwrap();
         }
 
         {
             let mut ctx = test_ctx.create_event_handler_context();
-            let tx_desc = ctx.device.queues[TXQ_INDEX].pop(&test_ctx.mem).unwrap();
+            let tx_desc = ctx.device.queues[TXQ_INDEX].pop().unwrap();
             VsockPacket::from_tx_virtq_head(&test_ctx.mem, tx_desc).unwrap();
         }
 
