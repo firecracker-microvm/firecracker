@@ -597,7 +597,7 @@ impl Net {
         while let Some(head) = tx_queue.pop_or_enable_notification(mem) {
             self.metrics
                 .tx_remaining_reqs_count
-                .add(tx_queue.len(mem).into());
+                .add(tx_queue.len().into());
             let head_index = head.index;
             // Parse IoVecBuffer from descriptor head
             // SAFETY: This descriptor chain is only loaded once
@@ -751,14 +751,13 @@ impl Net {
 
     pub fn process_tap_rx_event(&mut self) {
         // This is safe since we checked in the event handler that the device is activated.
-        let mem = self.device_state.mem().unwrap();
         self.metrics.rx_tap_event_count.inc();
 
         // While there are no available RX queue buffers and there's a deferred_frame
         // don't process any more incoming. Otherwise start processing a frame. In the
         // process the deferred_frame flag will be set in order to avoid freezing the
         // RX queue.
-        if self.queues[RX_INDEX].is_empty(mem) && self.rx_deferred_frame {
+        if self.queues[RX_INDEX].is_empty() && self.rx_deferred_frame {
             self.metrics.no_rx_avail_buffer.inc();
             return;
         }

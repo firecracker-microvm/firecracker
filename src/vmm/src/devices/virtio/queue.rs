@@ -352,11 +352,8 @@ impl Queue {
         // Disable it for kani tests, otherwise it will hit this assertion
         // and fail.
         #[cfg(not(kani))]
-        if self.actual_size() < self.len(mem) {
-            return Err(QueueError::InvalidQueueSize(
-                self.len(mem),
-                self.actual_size(),
-            ));
+        if self.actual_size() < self.len() {
+            return Err(QueueError::InvalidQueueSize(self.len(), self.actual_size()));
         }
 
         Ok(())
@@ -518,22 +515,20 @@ impl Queue {
     }
 
     /// Returns the number of yet-to-be-popped descriptor chains in the avail ring.
-    pub fn len<M: GuestMemory>(&self, mem: &M) -> u16 {
-        debug_assert!(self.is_valid(mem));
-
-        (self.avail_idx(mem) - self.next_avail).0
+    pub fn len(&self) -> u16 {
+        (Wrapping(self.avail_ring_idx_get()) - self.next_avail).0
     }
 
     /// Checks if the driver has made any descriptor chains available in the avail ring.
-    pub fn is_empty<M: GuestMemory>(&self, mem: &M) -> bool {
-        self.len(mem) == 0
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// Pop the first available descriptor chain from the avail ring.
     pub fn pop<'b, M: GuestMemory>(&mut self, mem: &'b M) -> Option<DescriptorChain<'b, M>> {
         debug_assert!(self.is_valid(mem));
 
-        let len = self.len(mem);
+        let len = self.len();
         // The number of descriptor chain heads to process should always
         // be smaller or equal to the queue size, as the driver should
         // never ask the VMM to process a available ring entry more than
@@ -767,7 +762,7 @@ impl Queue {
             return true;
         }
 
-        let len = self.len(mem);
+        let len = self.len();
         if len != 0 {
             // The number of descriptor chain heads to process should always
             // be smaller or equal to the queue size.
@@ -1194,9 +1189,9 @@ mod verification {
     #[kani::proof]
     #[kani::unwind(0)]
     fn verify_is_empty() {
-        let ProofContext(queue, mem) = ProofContext::bounded_queue();
+        let ProofContext(queue, _) = ProofContext::bounded_queue();
 
-        assert_eq!(queue.len(&mem) == 0, queue.is_empty(&mem));
+        assert_eq!(queue.len() == 0, queue.is_empty());
     }
 
     #[kani::proof]
@@ -1254,7 +1249,7 @@ mod verification {
         // in the queue multiple times. It cannot be checked by is_valid, as that function
         // is called when the queue is being initialized, e.g. empty. We compute it using
         // local variables here to make things easier on kani: One less roundtrip through vm-memory.
-        let queue_len = queue.len(&mem);
+        let queue_len = queue.len();
         kani::assume(queue_len <= queue.actual_size());
 
         let next_avail = queue.next_avail;
@@ -1273,7 +1268,7 @@ mod verification {
         let ProofContext(mut queue, mem) = ProofContext::bounded_queue();
 
         // See verify_pop for explanation
-        kani::assume(queue.len(&mem) <= queue.actual_size());
+        kani::assume(queue.len() <= queue.actual_size());
 
         let queue_clone = queue.clone();
         if let Some(_) = queue.pop(&mem) {
@@ -1290,12 +1285,12 @@ mod verification {
     fn verify_try_enable_notification() {
         let ProofContext(mut queue, mem) = ProofContext::bounded_queue();
 
-        kani::assume(queue.len(&mem) <= queue.actual_size());
+        kani::assume(queue.len() <= queue.actual_size());
 
         if queue.try_enable_notification(&mem) && queue.uses_notif_suppression {
             // We only require new notifications if the queue is empty (e.g. we've processed
             // everything we've been notified about), or if suppression is disabled.
-            assert!(queue.is_empty(&mem));
+            assert!(queue.is_empty());
 
             assert_eq!(queue.avail_idx(&mem), queue.next_avail)
         }
@@ -1484,7 +1479,7 @@ mod tests {
         vq.avail.idx.set(2);
 
         // We've just set up two chains.
-        assert_eq!(q.len(m), 2);
+        assert_eq!(q.len(), 2);
 
         // The first chain should hold exactly two descriptors.
         let d = q.pop(m).unwrap().next_descriptor().unwrap();
@@ -1492,7 +1487,7 @@ mod tests {
         assert!(d.next_descriptor().is_none());
 
         // We popped one chain, so there should be only one left.
-        assert_eq!(q.len(m), 1);
+        assert_eq!(q.len(), 1);
 
         // The next chain holds three descriptors.
         let d = q
@@ -1506,12 +1501,12 @@ mod tests {
         assert!(d.next_descriptor().is_none());
 
         // We've popped both chains, so the queue should be empty.
-        assert!(q.is_empty(m));
+        assert!(q.is_empty());
         assert!(q.pop(m).is_none());
 
         // Undoing the last pop should let us walk the last chain again.
         q.undo_pop();
-        assert_eq!(q.len(m), 1);
+        assert_eq!(q.len(), 1);
 
         // Walk the last chain again (three descriptors).
         let d = q
@@ -1526,7 +1521,7 @@ mod tests {
 
         // Undoing the last pop should let us walk the last chain again.
         q.undo_pop();
-        assert_eq!(q.len(m), 1);
+        assert_eq!(q.len(), 1);
 
         // Walk the last chain again (three descriptors) using pop_or_enable_notification().
         let d = q
@@ -1580,7 +1575,7 @@ mod tests {
         vq.avail.idx.set(2);
 
         // We've just set up two chains.
-        assert_eq!(q.len(m), 2);
+        assert_eq!(q.len(), 2);
 
         // We process the first descriptor.
         let d = q.pop(m).unwrap().next_descriptor();
@@ -1589,7 +1584,7 @@ mod tests {
         vq.avail.idx.set(6);
 
         // We've actually just popped a descriptor so 6 - 1 = 5.
-        assert_eq!(q.len(m), 5);
+        assert_eq!(q.len(), 5);
 
         // However, since the apparent length set by the driver is more than the queue size,
         // we would be running the risk of going through some descriptors more than once.
@@ -1744,7 +1739,7 @@ mod tests {
         vq.avail.ring[0].set(0);
         vq.avail.idx.set(1);
 
-        assert_eq!(q.len(m), 1);
+        assert_eq!(q.len(), 1);
 
         // Notification suppression is disabled. try_enable_notification shouldn't do anything.
         assert!(q.try_enable_notification(m));
