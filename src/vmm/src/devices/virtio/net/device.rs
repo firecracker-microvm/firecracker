@@ -389,7 +389,7 @@ impl Net {
         let mem = self.device_state.mem().unwrap();
 
         let queue = &mut self.queues[RX_INDEX];
-        let head_descriptor = queue.pop_or_enable_notification(mem).ok_or_else(|| {
+        let head_descriptor = queue.pop_or_enable_notification().ok_or_else(|| {
             self.metrics.no_rx_avail_buffer.inc();
             FrontendError::EmptyQueue
         })?;
@@ -594,7 +594,7 @@ impl Net {
         let mut used_any = false;
         let tx_queue = &mut self.queues[TX_INDEX];
 
-        while let Some(head) = tx_queue.pop_or_enable_notification(mem) {
+        while let Some(head) = tx_queue.pop_or_enable_notification() {
             self.metrics
                 .tx_remaining_reqs_count
                 .add(tx_queue.len().into());

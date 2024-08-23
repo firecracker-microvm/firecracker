@@ -527,10 +527,7 @@ impl Queue {
 
     /// Try to pop the first available descriptor chain from the avail ring.
     /// If no descriptor is available, enable notifications.
-    pub fn pop_or_enable_notification<M: GuestMemory>(
-        &mut self,
-        _mem: &M,
-    ) -> Option<DescriptorChain> {
+    pub fn pop_or_enable_notification(&mut self) -> Option<DescriptorChain> {
         if !self.uses_notif_suppression {
             return self.pop();
         }
@@ -1363,7 +1360,7 @@ mod tests {
 
         // Walk the last chain again (three descriptors) using pop_or_enable_notification().
         let d = q
-            .pop_or_enable_notification(m)
+            .pop_or_enable_notification()
             .unwrap()
             .next_descriptor()
             .unwrap()
@@ -1375,13 +1372,13 @@ mod tests {
         // There are no more descriptors, but notification suppression is disabled.
         // Calling pop_or_enable_notification() should simply return None.
         assert_eq!(q.avail_event(m), 0);
-        assert!(q.pop_or_enable_notification(m).is_none());
+        assert!(q.pop_or_enable_notification().is_none());
         assert_eq!(q.avail_event(m), 0);
 
         // There are no more descriptors and notification suppression is enabled. Calling
         // pop_or_enable_notification() should enable notifications.
         q.enable_notif_suppression();
-        assert!(q.pop_or_enable_notification(m).is_none());
+        assert!(q.pop_or_enable_notification().is_none());
         assert_eq!(q.avail_event(m), 2);
     }
 
@@ -1458,7 +1455,7 @@ mod tests {
         // driver sets available index to suspicious value.
         vq.avail.idx.set(6);
 
-        q.pop_or_enable_notification(m);
+        q.pop_or_enable_notification();
     }
 
     #[test]
