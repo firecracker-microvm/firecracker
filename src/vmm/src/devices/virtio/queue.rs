@@ -36,7 +36,7 @@ pub enum QueueError {
     /// Virtio queue number of available descriptors {0} is greater than queue size {1}.
     InvalidQueueSize(u16, u16),
     /// Descriptor index out of bounds: {0}.
-    DescIndexOutOfBounds(u32),
+    DescIndexOutOfBounds(u16),
     /// Failed to write value into the virtio queue used ring: {0}
     MemoryError(#[from] vm_memory::GuestMemoryError),
 }
@@ -630,12 +630,24 @@ impl Queue {
     ) -> Result<(), QueueError> {
         debug_assert!(self.is_valid(mem));
 
+        if self.actual_size() <= desc_index {
+            error!(
+                "attempted to add out of bounds descriptor to used ring: {}",
+                desc_index
+            );
+            return Err(QueueError::DescIndexOutOfBounds(desc_index));
+        }
+
         let next_used = self.next_used.0 % self.actual_size();
         let used_element = UsedElement {
             id: u32::from(desc_index),
             len,
         };
-        self.write_used_ring(mem, next_used, used_element)?;
+        // SAFETY:
+        // index is bound by the queue size
+        unsafe {
+            self.used_ring_ring_set(usize::from(next_used), used_element);
+        }
 
         self.num_added += Wrapping(1);
         self.next_used += Wrapping(1);
@@ -645,39 +657,6 @@ impl Queue {
 
         self.set_used_ring_idx(self.next_used.0, mem);
         Ok(())
-    }
-
-    fn write_used_ring<M: GuestMemory>(
-        &self,
-        mem: &M,
-        index: u16,
-        used_element: UsedElement,
-    ) -> Result<(), QueueError> {
-        if used_element.id >= u32::from(self.actual_size()) {
-            error!(
-                "attempted to add out of bounds descriptor to used ring: {}",
-                used_element.id
-            );
-            return Err(QueueError::DescIndexOutOfBounds(used_element.id));
-        }
-
-        // Used ring has layout:
-        // struct UsedRing {
-        //     flags: u16,
-        //     idx: u16,
-        //     ring: [UsedElement; <queue size>],
-        //     avail_event: u16,
-        // }
-        // We calculate offset into `ring` field.
-        let used_ring_offset = std::mem::size_of::<u16>()
-            + std::mem::size_of::<u16>()
-            + std::mem::size_of::<UsedElement>() * usize::from(index);
-        let used_element_address = self
-            .used_ring_address
-            .unchecked_add(usize_to_u64(used_ring_offset));
-
-        mem.write_obj(used_element, used_element_address)
-            .map_err(QueueError::MemoryError)
     }
 
     /// Fetch the available ring index (`virtq_avail->idx`) from guest memory.
