@@ -323,6 +323,11 @@ where
     }
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+        for q in self.queues.iter_mut() {
+            q.initialize(&mem)
+                .map_err(ActivateError::QueueMemoryError)?;
+        }
+
         if self.queues.len() != defs::VSOCK_NUM_QUEUES {
             METRICS.activate_fails.inc();
             return Err(ActivateError::QueueMismatch {

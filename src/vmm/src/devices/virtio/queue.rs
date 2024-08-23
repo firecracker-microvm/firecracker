@@ -10,6 +10,7 @@ use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
 use utils::usize_to_u64;
+use vm_memory::bitmap::Bitmap;
 
 use crate::logger::error;
 use crate::vstate::memory::{
@@ -35,7 +36,7 @@ pub enum QueueError {
     /// Descriptor index out of bounds: {0}.
     DescIndexOutOfBounds(u32),
     /// Failed to write value into the virtio queue used ring: {0}
-    UsedRing(#[from] vm_memory::GuestMemoryError),
+    MemoryError(#[from] vm_memory::GuestMemoryError),
 }
 
 /// A virtio descriptor constraints with C representative.
@@ -43,12 +44,12 @@ pub enum QueueError {
 /// https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html#x1-430008
 /// 2.6.5 The Virtqueue Descriptor Table
 #[repr(C)]
-#[derive(Default, Clone, Copy)]
-struct Descriptor {
-    addr: u64,
-    len: u32,
-    flags: u16,
-    next: u16,
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Descriptor {
+    pub addr: u64,
+    pub len: u32,
+    pub flags: u16,
+    pub next: u16,
 }
 
 // SAFETY: `Descriptor` is a POD and contains no padding.
@@ -59,10 +60,10 @@ unsafe impl ByteValued for Descriptor {}
 /// https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html#x1-430008
 /// 2.6.8 The Virtqueue Used Ring
 #[repr(C)]
-#[derive(Default, Clone, Copy)]
-struct UsedElement {
-    id: u32,
-    len: u32,
+#[derive(Debug, Default, Clone, Copy)]
+pub struct UsedElement {
+    pub id: u32,
+    pub len: u32,
 }
 
 // SAFETY: `UsedElement` is a POD and contains no padding.
@@ -222,6 +223,50 @@ pub struct Queue {
     /// Guest physical address of the used ring
     pub used_ring_address: GuestAddress,
 
+    /// Host virtual address pointer to the descriptor table
+    /// in the guest memory .
+    /// Getting access to the underling
+    /// data structure should only occur after the
+    /// struct is initialized with `new`.
+    /// Representation of in memory struct layout.
+    /// struct DescriptorTable = [Descriptor; <queue_size>]
+    pub desc_table_ptr: *const Descriptor,
+
+    /// Host virtual address pointer to the available ring
+    /// in the guest memory .
+    /// Getting access to the underling
+    /// data structure should only occur after the
+    /// struct is initialized with `new`.
+    ///
+    /// Representation of in memory struct layout.
+    /// struct AvailRing {
+    ///     flags: u16,
+    ///     idx: u16,
+    ///     ring: [u16; <queue size>],
+    ///     used_event: u16,
+    /// }
+    ///
+    /// Because all types in the AvailRing are u16,
+    /// we store pointer as *mut u16 for simplicity.
+    pub avail_ring_ptr: *mut u16,
+
+    /// Host virtual address pointer to the used ring
+    /// in the guest memory .
+    /// Getting access to the underling
+    /// data structure should only occur after the
+    /// struct is initialized with `new`.
+    ///
+    /// Representation of in memory struct layout.
+    // struct UsedRing {
+    //     flags: u16,
+    //     idx: u16,
+    //     ring: [UsedElement; <queue size>],
+    //     avail_event: u16,
+    // }
+    /// Because types in the UsedRing are different (u16 and u32)
+    /// store pointer as *mut u8.
+    pub used_ring_ptr: *mut u8,
+
     pub next_avail: Wrapping<u16>,
     pub next_used: Wrapping<u16>,
 
@@ -230,6 +275,12 @@ pub struct Queue {
     /// The number of added used buffers since last guest kick
     pub num_added: Wrapping<u16>,
 }
+
+/// SAFETY: Queue is Send, because we use volatile memory accesses when
+/// working with pointers. These pointers are not copied or store anywhere
+/// else. We assume guest will not give different queues  same guest memory
+/// addresses.
+unsafe impl Send for Queue {}
 
 #[allow(clippy::len_without_is_empty)]
 impl Queue {
@@ -242,10 +293,151 @@ impl Queue {
             desc_table_address: GuestAddress(0),
             avail_ring_address: GuestAddress(0),
             used_ring_address: GuestAddress(0),
+
+            desc_table_ptr: std::ptr::null(),
+            avail_ring_ptr: std::ptr::null_mut(),
+            used_ring_ptr: std::ptr::null_mut(),
+
             next_avail: Wrapping(0),
             next_used: Wrapping(0),
             uses_notif_suppression: false,
             num_added: Wrapping(0),
+        }
+    }
+
+    fn desc_table_size(&self) -> usize {
+        std::mem::size_of::<Descriptor>() * usize::from(self.size)
+    }
+
+    fn avail_ring_size(&self) -> usize {
+        std::mem::size_of::<u16>()
+            + std::mem::size_of::<u16>()
+            + std::mem::size_of::<u16>() * usize::from(self.size)
+            + std::mem::size_of::<u16>()
+    }
+
+    fn used_ring_size(&self) -> usize {
+        std::mem::size_of::<u16>()
+            + std::mem::size_of::<u16>()
+            + std::mem::size_of::<UsedElement>() * usize::from(self.size)
+            + std::mem::size_of::<u16>()
+    }
+
+    fn get_slice_ptr<M: GuestMemory>(
+        &self,
+        mem: &M,
+        addr: GuestAddress,
+        len: usize,
+    ) -> Result<*mut u8, QueueError> {
+        let slice = mem.get_slice(addr, len).map_err(QueueError::MemoryError)?;
+        slice.bitmap().mark_dirty(0, len);
+        Ok(slice.ptr_guard_mut().as_ptr())
+    }
+
+    /// Set up pointers to the queue objects in the guest memory
+    /// and mark memory dirty for those objects
+    pub fn initialize<M: GuestMemory>(&mut self, mem: &M) -> Result<(), QueueError> {
+        self.desc_table_ptr = self
+            .get_slice_ptr(mem, self.desc_table_address, self.desc_table_size())?
+            .cast();
+        self.avail_ring_ptr = self
+            .get_slice_ptr(mem, self.avail_ring_address, self.avail_ring_size())?
+            .cast();
+        self.used_ring_ptr = self
+            .get_slice_ptr(mem, self.used_ring_address, self.used_ring_size())?
+            .cast();
+        Ok(())
+    }
+
+    /// Mark memory used for queue objects as dirty.
+    pub fn mark_memory_dirty<M: GuestMemory>(&self, mem: &M) -> Result<(), QueueError> {
+        _ = self.get_slice_ptr(mem, self.desc_table_address, self.desc_table_size())?;
+        _ = self.get_slice_ptr(mem, self.avail_ring_address, self.avail_ring_size())?;
+        _ = self.get_slice_ptr(mem, self.used_ring_address, self.used_ring_size())?;
+        Ok(())
+    }
+
+    /// Get AvailRing.idx
+    #[inline(always)]
+    pub fn avail_ring_idx_get(&self) -> u16 {
+        // SAFETY: `idx` is 1 u16 away from the start
+        unsafe { self.avail_ring_ptr.add(1).read_volatile() }
+    }
+
+    /// Get element from AvailRing.ring at index
+    /// # Safety
+    /// The `index` parameter should be in 0..queue_size bounds
+    #[inline(always)]
+    unsafe fn avail_ring_ring_get(&self, index: usize) -> u16 {
+        // SAFETY: `ring` is 2 u16 away from the start
+        unsafe { self.avail_ring_ptr.add(2).add(index).read_volatile() }
+    }
+
+    /// Get AvailRing.used_event
+    #[inline(always)]
+    pub fn avail_ring_used_event_get(&self) -> u16 {
+        // SAFETY: `used_event` is 2 + self.len u16 away from the start
+        unsafe {
+            self.avail_ring_ptr
+                .add(2_usize.unchecked_add(usize::from(self.size)))
+                .read_volatile()
+        }
+    }
+
+    /// Set UsedRing.idx
+    #[inline(always)]
+    pub fn used_ring_idx_set(&mut self, val: u16) {
+        // SAFETY: `idx` is 1 u16 away from the start
+        unsafe {
+            self.used_ring_ptr
+                .add(std::mem::size_of::<u16>())
+                .cast::<u16>()
+                .write_volatile(val)
+        }
+    }
+
+    /// Get element from UsedRing.ring at index
+    /// # Safety
+    /// The `index` parameter should be in 0..queue_size bounds
+    #[inline(always)]
+    unsafe fn used_ring_ring_set(&mut self, index: usize, val: UsedElement) {
+        // SAFETY: `ring` is 2 u16 away from the start
+        unsafe {
+            self.used_ring_ptr
+                .add(std::mem::size_of::<u16>().unchecked_mul(2))
+                .cast::<UsedElement>()
+                .add(index)
+                .write_volatile(val)
+        }
+    }
+
+    #[cfg(test)]
+    #[inline(always)]
+    pub fn used_ring_avail_event_get(&mut self) -> u16 {
+        // SAFETY: `avail_event` is 2 * u16 and self.len * UsedElement away from the start
+        unsafe {
+            self.used_ring_ptr
+                .add(
+                    std::mem::size_of::<u16>().unchecked_mul(2)
+                        + std::mem::size_of::<UsedElement>().unchecked_mul(usize::from(self.size)),
+                )
+                .cast::<u16>()
+                .read_volatile()
+        }
+    }
+
+    /// Set UsedRing.avail_event
+    #[inline(always)]
+    pub fn used_ring_avail_event_set(&mut self, val: u16) {
+        // SAFETY: `avail_event` is 2 * u16 and self.len * UsedElement away from the start
+        unsafe {
+            self.used_ring_ptr
+                .add(
+                    std::mem::size_of::<u16>().unchecked_mul(2)
+                        + std::mem::size_of::<UsedElement>().unchecked_mul(usize::from(self.size)),
+                )
+                .cast::<u16>()
+                .write_volatile(val)
         }
     }
 
@@ -262,13 +454,12 @@ impl Queue {
 
     /// Validates the queue's in-memory layout is correct.
     pub fn is_layout_valid<M: GuestMemory>(&self, mem: &M) -> bool {
-        let queue_size = usize::from(self.actual_size());
         let desc_table = self.desc_table_address;
-        let desc_table_size = 16 * queue_size;
+        let desc_table_size = self.desc_table_size();
         let avail_ring = self.avail_ring_address;
-        let avail_ring_size = 6 + 2 * queue_size;
+        let avail_ring_size = self.avail_ring_size();
         let used_ring = self.used_ring_address;
-        let used_ring_size = 6 + 8 * queue_size;
+        let used_ring_size = self.used_ring_size();
 
         if !self.ready {
             error!("attempt to use virtio queue that is not marked ready");
@@ -494,7 +685,7 @@ impl Queue {
             .unchecked_add(usize_to_u64(used_ring_offset));
 
         mem.write_obj(used_element, used_element_address)
-            .map_err(QueueError::UsedRing)
+            .map_err(QueueError::MemoryError)
     }
 
     /// Fetch the available ring index (`virtq_avail->idx`) from guest memory.
@@ -842,7 +1033,8 @@ mod verification {
         /// fixed to a known valid one
         pub fn bounded_queue() -> Self {
             let mem = setup_kani_guest_memory();
-            let queue = less_arbitrary_queue();
+            let mut queue = less_arbitrary_queue();
+            queue.initialize(&mem).unwrap();
 
             assert!(queue.is_layout_valid(&mem));
 
@@ -853,7 +1045,8 @@ mod verification {
         /// guest memory is initialized to all zeros.
         pub fn bounded() -> Self {
             let mem = setup_zeroed_guest_memory();
-            let queue = less_arbitrary_queue();
+            let mut queue = less_arbitrary_queue();
+            queue.initialize(&mem).unwrap();
 
             assert!(queue.is_layout_valid(&mem));
 
@@ -864,7 +1057,8 @@ mod verification {
     impl kani::Arbitrary for ProofContext {
         fn any() -> Self {
             let mem = setup_kani_guest_memory();
-            let queue: Queue = kani::any();
+            let mut queue: Queue = kani::any();
+            queue.initialize(&mem).unwrap();
 
             kani::assume(queue.is_layout_valid(&mem));
 
@@ -1153,7 +1347,7 @@ mod verification {
 mod tests {
 
     pub use super::*;
-    use crate::devices::virtio::queue::QueueError::{DescIndexOutOfBounds, UsedRing};
+    use crate::devices::virtio::queue::QueueError::DescIndexOutOfBounds;
     use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
     use crate::utilities::test_utils::{multi_region_mem, single_region_mem};
     use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
@@ -1585,7 +1779,7 @@ mod tests {
 
     #[test]
     fn test_queue_error_display() {
-        let err = UsedRing(vm_memory::GuestMemoryError::InvalidGuestAddress(
+        let err = QueueError::MemoryError(vm_memory::GuestMemoryError::InvalidGuestAddress(
             GuestAddress(0),
         ));
         let _ = format!("{}{:?}", err, err);

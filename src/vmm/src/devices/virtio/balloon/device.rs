@@ -611,6 +611,11 @@ impl VirtioDevice for Balloon {
     }
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+        for q in self.queues.iter_mut() {
+            q.initialize(&mem)
+                .map_err(ActivateError::QueueMemoryError)?;
+        }
+
         self.device_state = DeviceState::Activated(mem);
         if self.activate_evt.write(1).is_err() {
             METRICS.activate_fails.inc();

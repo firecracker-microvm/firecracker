@@ -293,6 +293,8 @@ impl<'a> VirtQueue<'a> {
         q.avail_ring_address = self.avail_start();
         q.used_ring_address = self.used_start();
 
+        q.initialize(self.memory()).unwrap();
+
         q
     }
 

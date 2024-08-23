@@ -12,7 +12,7 @@ use std::sync::Arc;
 use utils::eventfd::EventFd;
 
 use super::mmio::{VIRTIO_MMIO_INT_CONFIG, VIRTIO_MMIO_INT_VRING};
-use super::queue::Queue;
+use super::queue::{Queue, QueueError};
 use super::ActivateError;
 use crate::devices::virtio::AsAny;
 use crate::logger::{error, warn};
@@ -179,6 +179,14 @@ pub trait VirtioDevice: AsAny + Send {
     /// event, and queue events.
     fn reset(&mut self) -> Option<(EventFd, Vec<EventFd>)> {
         None
+    }
+
+    /// Mark pages used by queues as dirty.
+    fn mark_queue_memory_dirty(&self, mem: &GuestMemoryMmap) -> Result<(), QueueError> {
+        for queue in self.queues() {
+            queue.mark_memory_dirty(mem)?
+        }
+        Ok(())
     }
 }
 

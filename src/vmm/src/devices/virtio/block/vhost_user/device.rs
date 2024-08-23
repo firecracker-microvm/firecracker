@@ -331,6 +331,11 @@ impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlock
     }
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+        for q in self.queues.iter_mut() {
+            q.initialize(&mem)
+                .map_err(ActivateError::QueueMemoryError)?;
+        }
+
         let start_time = utils::time::get_time_us(utils::time::ClockType::Monotonic);
         // Setting features again, because now we negotiated them
         // with guest driver as well.

@@ -9,6 +9,7 @@
 
 use std::any::Any;
 
+use self::queue::QueueError;
 use crate::devices::virtio::net::TapError;
 
 pub mod balloon;
@@ -70,6 +71,8 @@ pub enum ActivateError {
     VhostUser(vhost_user::VhostUserError),
     /// Setting tap interface offload flags failed: {0}
     TapSetOffload(TapError),
+    /// Error setting pointers in the queue: (0)
+    QueueMemoryError(QueueError),
 }
 
 /// Trait that helps in upcasting an object to Any
