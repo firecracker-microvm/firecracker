@@ -267,6 +267,23 @@ fn snapshot_memory_to_file(
             dump_res
         }
     }?;
+    // We need to mark queues as dirty again for all activated devices. The reason we
+    // do it here is because we don't mark pages as dirty during runtime
+    // for queue objects.
+    // SAFETY:
+    // This should never fail as we only mark pages only if device has already been activated,
+    // and the address validation was already performed on device activation.
+    vmm.mmio_device_manager
+        .for_each_virtio_device(|_, _, _, dev| {
+            let d = dev.lock().unwrap();
+            if d.is_activated() {
+                d.mark_queue_memory_dirty(vmm.guest_memory())
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap();
+
     file.flush()
         .map_err(|err| MemoryBackingFile("flush", err))?;
     file.sync_all()

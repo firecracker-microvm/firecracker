@@ -891,7 +891,9 @@ mod tests {
 
         let guest_memory = GuestMemoryMmap::from_raw_regions_file(regions, false, false).unwrap();
 
-        let queue = Queue::new(69);
+        let mut queue = Queue::new(69);
+        queue.initialize(&guest_memory).unwrap();
+
         let event_fd = EventFd::new(0).unwrap();
         let irq_trigger = IrqTrigger::new().unwrap();
 

@@ -42,7 +42,7 @@ pub struct Entropy {
 
     // Transport fields
     device_state: DeviceState,
-    queues: Vec<Queue>,
+    pub(crate) queues: Vec<Queue>,
     queue_events: Vec<EventFd>,
     irq_trigger: IrqTrigger,
 
@@ -287,6 +287,11 @@ impl VirtioDevice for Entropy {
     }
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+        for q in self.queues.iter_mut() {
+            q.initialize(&mem)
+                .map_err(ActivateError::QueueMemoryError)?;
+        }
+
         self.activate_event.write(1).map_err(|_| {
             METRICS.activate_fails.inc();
             ActivateError::EventFd

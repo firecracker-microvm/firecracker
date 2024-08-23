@@ -633,6 +633,11 @@ impl VirtioDevice for VirtioBlock {
     }
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+        for q in self.queues.iter_mut() {
+            q.initialize(&mem)
+                .map_err(ActivateError::QueueMemoryError)?;
+        }
+
         let event_idx = self.has_feature(u64::from(VIRTIO_RING_F_EVENT_IDX));
         if event_idx {
             for queue in &mut self.queues {
