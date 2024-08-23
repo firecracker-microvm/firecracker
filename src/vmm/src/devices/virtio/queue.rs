@@ -659,19 +659,6 @@ impl Queue {
         Ok(())
     }
 
-    /// Fetch the available ring index (`virtq_avail->idx`) from guest memory.
-    /// This is written by the driver, to indicate the next slot that will be filled in the avail
-    /// ring.
-    pub fn avail_idx<M: GuestMemory>(&self, mem: &M) -> Wrapping<u16> {
-        // Bound checks for queue inner data have already been performed, at device activation time,
-        // via `self.is_valid()`, so it's safe to unwrap and use unchecked offsets here.
-        // Note: the `MmioTransport` code ensures that queue addresses cannot be changed by the
-        // guest       after device activation, so we can be certain that no change has
-        // occurred since the last `self.is_valid()` check.
-        let addr = self.avail_ring_address.unchecked_add(2);
-        Wrapping(mem.read_obj::<u16>(addr).unwrap())
-    }
-
     /// Get the value of the used event field of the avail ring.
     #[inline(always)]
     pub fn used_event<M: GuestMemory>(&self, mem: &M) -> Wrapping<u16> {
@@ -767,7 +754,7 @@ impl Queue {
 
         // If the actual avail_idx is different than next_avail one or more descriptors can still
         // be consumed from the available ring.
-        self.next_avail.0 == self.avail_idx(mem).0
+        self.next_avail.0 == self.avail_ring_idx_get()
     }
 
     /// Enable notification suppression.
@@ -1271,7 +1258,7 @@ mod verification {
             // everything we've been notified about), or if suppression is disabled.
             assert!(queue.is_empty());
 
-            assert_eq!(queue.avail_idx(&mem), queue.next_avail)
+            assert_eq!(Wrapping(queue.avail_ring_idx_get()), queue.next_avail)
         }
     }
 
