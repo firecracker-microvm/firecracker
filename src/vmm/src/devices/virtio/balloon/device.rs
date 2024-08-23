@@ -339,9 +339,7 @@ impl Balloon {
 
                 // Acknowledge the receipt of the descriptor.
                 // 0 is number of bytes the device has written to memory.
-                queue
-                    .add_used(mem, head.index, 0)
-                    .map_err(BalloonError::Queue)?;
+                queue.add_used(head.index, 0).map_err(BalloonError::Queue)?;
                 needs_interrupt = true;
             }
 
@@ -380,9 +378,7 @@ impl Balloon {
         let mut needs_interrupt = false;
 
         while let Some(head) = queue.pop(mem) {
-            queue
-                .add_used(mem, head.index, 0)
-                .map_err(BalloonError::Queue)?;
+            queue.add_used(head.index, 0).map_err(BalloonError::Queue)?;
             needs_interrupt = true;
         }
 
@@ -404,7 +400,7 @@ impl Balloon {
                 // the protocol, but return it if we find one.
                 error!("balloon: driver is not compliant, more than one stats buffer received");
                 self.queues[STATS_INDEX]
-                    .add_used(mem, prev_stats_desc, 0)
+                    .add_used(prev_stats_desc, 0)
                     .map_err(BalloonError::Queue)?;
             }
             for index in (0..head.len).step_by(SIZE_OF_STAT) {
@@ -450,14 +446,11 @@ impl Balloon {
     }
 
     fn trigger_stats_update(&mut self) -> Result<(), BalloonError> {
-        // This is safe since we checked in the event handler that the device is activated.
-        let mem = self.device_state.mem().unwrap();
-
         // The communication is driven by the device by using the buffer
         // and sending a used buffer notification
         if let Some(index) = self.stats_desc_index.take() {
             self.queues[STATS_INDEX]
-                .add_used(mem, index, 0)
+                .add_used(index, 0)
                 .map_err(BalloonError::Queue)?;
             self.signal_used_queue()
         } else {

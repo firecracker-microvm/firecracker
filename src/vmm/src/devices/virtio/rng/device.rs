@@ -165,7 +165,7 @@ impl Entropy {
                 }
             };
 
-            match self.queues[RNG_QUEUE].add_used(mem, index, bytes) {
+            match self.queues[RNG_QUEUE].add_used(index, bytes) {
                 Ok(_) => {
                     used_any = true;
                     METRICS.entropy_bytes.add(bytes.into());

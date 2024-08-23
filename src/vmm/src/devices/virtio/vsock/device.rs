@@ -180,7 +180,7 @@ where
 
             have_used = true;
             self.queues[RXQ_INDEX]
-                .add_used(mem, index, used_len)
+                .add_used(index, used_len)
                 .unwrap_or_else(|err| {
                     error!("Failed to add available descriptor {}: {}", index, err)
                 });
@@ -206,7 +206,7 @@ where
                     error!("vsock: error reading TX packet: {:?}", err);
                     have_used = true;
                     self.queues[TXQ_INDEX]
-                        .add_used(mem, index, 0)
+                        .add_used(index, 0)
                         .unwrap_or_else(|err| {
                             error!("Failed to add available descriptor {}: {}", index, err);
                         });
@@ -221,7 +221,7 @@ where
 
             have_used = true;
             self.queues[TXQ_INDEX]
-                .add_used(mem, index, 0)
+                .add_used(index, 0)
                 .unwrap_or_else(|err| {
                     error!("Failed to add available descriptor {}: {}", index, err);
                 });
@@ -246,7 +246,7 @@ where
             .unwrap_or_else(|err| error!("Failed to write virtio vsock reset event: {:?}", err));
 
         self.queues[EVQ_INDEX]
-            .add_used(mem, head.index, head.len)
+            .add_used(head.index, head.len)
             .unwrap_or_else(|err| {
                 error!("Failed to add used descriptor {}: {}", head.index, err);
             });

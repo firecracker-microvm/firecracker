@@ -621,14 +621,7 @@ impl Queue {
     }
 
     /// Puts an available descriptor head into the used ring for use by the guest.
-    pub fn add_used<M: GuestMemory>(
-        &mut self,
-        mem: &M,
-        desc_index: u16,
-        len: u32,
-    ) -> Result<(), QueueError> {
-        debug_assert!(self.is_valid(mem));
-
+    pub fn add_used(&mut self, desc_index: u16, len: u32) -> Result<(), QueueError> {
         if self.actual_size() <= desc_index {
             error!(
                 "attempted to add out of bounds descriptor to used ring: {}",
@@ -1528,13 +1521,13 @@ mod tests {
         // Valid queue addresses configuration
         {
             // index too large
-            match q.add_used(m, 16, 0x1000) {
+            match q.add_used(16, 0x1000) {
                 Err(DescIndexOutOfBounds(16)) => (),
                 _ => unreachable!(),
             }
 
             // should be ok
-            q.add_used(m, 1, 0x1000).unwrap();
+            q.add_used(1, 0x1000).unwrap();
             assert_eq!(vq.used.idx.get(), 1);
             let x = vq.used.ring[0].get();
             assert_eq!(x.id, 1);
