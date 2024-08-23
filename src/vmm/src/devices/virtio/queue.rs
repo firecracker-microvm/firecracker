@@ -1177,17 +1177,7 @@ mod tests {
     use crate::devices::virtio::queue::QueueError::DescIndexOutOfBounds;
     use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
     use crate::utilities::test_utils::{multi_region_mem, single_region_mem};
-    use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
-
-    impl Queue {
-        fn avail_event(&self, mem: &GuestMemoryMmap) -> u16 {
-            let avail_event_addr = self
-                .used_ring_address
-                .unchecked_add(u64::from(4 + 8 * self.actual_size()));
-
-            mem.read_obj::<u16>(avail_event_addr).unwrap()
-        }
-    }
+    use crate::vstate::memory::GuestAddress;
 
     #[test]
     fn test_checked_new_descriptor_chain() {
@@ -1369,15 +1359,15 @@ mod tests {
 
         // There are no more descriptors, but notification suppression is disabled.
         // Calling pop_or_enable_notification() should simply return None.
-        assert_eq!(q.avail_event(m), 0);
+        assert_eq!(q.used_ring_avail_event_get(), 0);
         assert!(q.pop_or_enable_notification().is_none());
-        assert_eq!(q.avail_event(m), 0);
+        assert_eq!(q.used_ring_avail_event_get(), 0);
 
         // There are no more descriptors and notification suppression is enabled. Calling
         // pop_or_enable_notification() should enable notifications.
         q.enable_notif_suppression();
         assert!(q.pop_or_enable_notification().is_none());
-        assert_eq!(q.avail_event(m), 2);
+        assert_eq!(q.used_ring_avail_event_get(), 2);
     }
 
     #[test]
@@ -1576,18 +1566,18 @@ mod tests {
 
         // Notification suppression is disabled. try_enable_notification shouldn't do anything.
         assert!(q.try_enable_notification());
-        assert_eq!(q.avail_event(m), 0);
+        assert_eq!(q.used_ring_avail_event_get(), 0);
 
         // Enable notification suppression and check again. There is 1 available descriptor chain.
         // Again nothing should happen.
         q.enable_notif_suppression();
         assert!(!q.try_enable_notification());
-        assert_eq!(q.avail_event(m), 0);
+        assert_eq!(q.used_ring_avail_event_get(), 0);
 
         // Consume the descriptor. avail_event should be modified
         assert!(q.pop().is_some());
         assert!(q.try_enable_notification());
-        assert_eq!(q.avail_event(m), 1);
+        assert_eq!(q.used_ring_avail_event_get(), 1);
     }
 
     #[test]
