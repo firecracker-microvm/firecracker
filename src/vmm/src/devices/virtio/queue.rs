@@ -655,7 +655,7 @@ impl Queue {
         // This fence ensures all descriptor writes are visible before the index update is.
         fence(Ordering::Release);
 
-        self.set_used_ring_idx(self.next_used.0, mem);
+        self.used_ring_idx_set(self.next_used.0);
         Ok(())
     }
 
@@ -680,26 +680,6 @@ impl Queue {
             .unchecked_add(usize_to_u64(avail_event_offset));
 
         mem.write_obj(avail_event, avail_event_addr).unwrap();
-    }
-
-    /// Helper method that writes to the `idx` field of the used ring.
-    #[inline(always)]
-    fn set_used_ring_idx<M: GuestMemory>(&mut self, next_used: u16, mem: &M) {
-        debug_assert!(self.is_valid(mem));
-
-        // Used ring has layout:
-        // struct UsedRing {
-        //     flags: u16,
-        //     idx: u16,
-        //     ring: [UsedElement; <queue size>],
-        //     avail_event: u16,
-        // }
-        // We calculate offset into `idx` field.
-        let idx_offset = std::mem::size_of::<u16>();
-        let next_used_addr = self
-            .used_ring_address
-            .unchecked_add(usize_to_u64(idx_offset));
-        mem.write_obj(next_used, next_used_addr).unwrap();
     }
 
     /// Try to enable notification events from the guest driver. Returns true if notifications were
