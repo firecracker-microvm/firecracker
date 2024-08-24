@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
-use utils::epoll::EventSet;
 use vmm::logger::{error, warn, IncMetric, METRICS};
+use vmm_sys_util::epoll::EventSet;
 
 /// Metrics reporting period.
 pub(crate) const WRITE_METRICS_PERIOD_MS: u64 = 60000;

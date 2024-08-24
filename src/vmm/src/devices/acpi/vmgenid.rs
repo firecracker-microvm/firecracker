@@ -8,11 +8,11 @@ use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use vm_memory::{GuestAddress, GuestMemoryError};
 use vm_superio::Trigger;
+use vmm_sys_util::eventfd::EventFd;
 
 use super::super::legacy::EventFdTrigger;
 use crate::device_manager::resources::ResourceAllocator;
 use crate::snapshot::Persist;
-use crate::utils::eventfd::EventFd;
 use crate::vstate::memory::{Bytes, GuestMemoryMmap};
 
 /// Bytes of memory we allocate for VMGenID device

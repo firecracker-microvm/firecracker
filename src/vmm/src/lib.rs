@@ -121,6 +121,9 @@ use devices::acpi::vmgenid::VmGenIdError;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use seccompiler::BpfProgram;
 use userfaultfd::Uffd;
+use vmm_sys_util::epoll::EventSet;
+use vmm_sys_util::eventfd::EventFd;
+use vmm_sys_util::terminal::Terminal;
 use vstate::vcpu::{self, KvmVcpuConfigureError, StartThreadedError, VcpuSendEventError};
 
 use crate::arch::DeviceType;
@@ -139,9 +142,6 @@ use crate::logger::{error, info, warn, MetricsError, METRICS};
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
 use crate::snapshot::Persist;
-use crate::utils::epoll::EventSet;
-use crate::utils::eventfd::EventFd;
-use crate::utils::terminal::Terminal;
 use crate::utils::u64_to_usize;
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vstate::memory::{
@@ -253,9 +253,9 @@ pub enum VmmError {
     /// Vm error: {0}
     Vm(vstate::vm::VmError),
     /// Error thrown by observer object on Vmm initialization: {0}
-    VmmObserverInit(crate::utils::errno::Error),
+    VmmObserverInit(vmm_sys_util::errno::Error),
     /// Error thrown by observer object on Vmm teardown: {0}
-    VmmObserverTeardown(crate::utils::errno::Error),
+    VmmObserverTeardown(vmm_sys_util::errno::Error),
     /// VMGenID error: {0}
     VMGenID(#[from] VmGenIdError),
 }
@@ -277,7 +277,7 @@ pub struct EmulateSerialInitError(#[from] std::io::Error);
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum StartVcpusError {
     /// VMM observer init error: {0}
-    VmmObserverInit(#[from] crate::utils::errno::Error),
+    VmmObserverInit(#[from] vmm_sys_util::errno::Error),
     /// Vcpu handle error: {0}
     VcpuHandle(#[from] StartThreadedError),
 }

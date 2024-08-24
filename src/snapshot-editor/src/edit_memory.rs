@@ -7,8 +7,8 @@ use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 
 use clap::Subcommand;
-use fc_utils::seek_hole::SeekHole;
 use vmm::utils::u64_to_usize;
+use vmm_sys_util::seek_hole::SeekHole;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum EditMemoryError {
@@ -108,7 +108,7 @@ mod tests {
     use std::io::{Seek, SeekFrom, Write};
     use std::os::unix::fs::FileExt;
 
-    use fc_utils::{rand, tempfile};
+    use vmm_sys_util::{rand, tempfile};
 
     use super::*;
 

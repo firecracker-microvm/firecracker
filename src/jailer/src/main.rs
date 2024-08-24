@@ -8,9 +8,9 @@ use std::{env as p_env, fs, io};
 
 use env::PROC_MOUNTS;
 use utils::arg_parser::{ArgParser, Argument, UtilsArgParserError as ParsingError};
-use utils::syscall::SyscallReturnCode;
 use utils::time::{get_time_us, ClockType};
 use utils::validators;
+use vmm_sys_util::syscall::SyscallReturnCode;
 
 use crate::env::Env;
 
@@ -357,7 +357,7 @@ mod tests {
     use std::fs::File;
     use std::os::unix::io::IntoRawFd;
 
-    use utils::rand;
+    use vmm_sys_util::rand;
 
     use super::*;
 

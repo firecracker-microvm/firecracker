@@ -255,6 +255,8 @@ impl Persist<'_> for MmioTransport {
 
 #[cfg(test)]
 mod tests {
+    use vmm_sys_util::tempfile::TempFile;
+
     use super::*;
     use crate::devices::virtio::block::virtio::device::FileEngineType;
     use crate::devices::virtio::block::virtio::test_utils::default_block_with_path;
@@ -265,7 +267,6 @@ mod tests {
     use crate::devices::virtio::test_utils::default_mem;
     use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
     use crate::snapshot::Snapshot;
-    use crate::utils::tempfile::TempFile;
 
     const DEFAULT_QUEUE_MAX_SIZE: u16 = 256;
     impl Default for QueueState {

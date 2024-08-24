@@ -105,7 +105,7 @@ mod tests {
     #[test]
     fn test_apic_delivery_mode() {
         let mut v: Vec<u32> = (0..20)
-            .map(|_| crate::utils::rand::xor_pseudo_rng_u32())
+            .map(|_| vmm_sys_util::rand::xor_pseudo_rng_u32())
             .collect();
 
         v.iter_mut()

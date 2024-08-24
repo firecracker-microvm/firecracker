@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use aws_lc_rs::rand;
 use vm_memory::GuestMemoryError;
+use vmm_sys_util::eventfd::EventFd;
 
 use super::metrics::METRICS;
 use super::{RNG_NUM_QUEUES, RNG_QUEUE};
@@ -18,7 +19,6 @@ use crate::devices::virtio::{ActivateError, TYPE_RNG};
 use crate::devices::DeviceError;
 use crate::logger::{debug, error, IncMetric};
 use crate::rate_limiter::{RateLimiter, TokenType};
-use crate::utils::eventfd::EventFd;
 use crate::vstate::memory::GuestMemoryMmap;
 
 pub const ENTROPY_DEV_ID: &str = "rng";

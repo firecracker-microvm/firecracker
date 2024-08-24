@@ -85,6 +85,7 @@ use std::time::{Duration, Instant};
 use log::{debug, error, info, warn};
 use vm_memory::io::{ReadVolatile, WriteVolatile};
 use vm_memory::GuestMemoryError;
+use vmm_sys_util::epoll::EventSet;
 
 use super::super::defs::uapi;
 use super::super::packet::VsockPacket;
@@ -93,7 +94,6 @@ use super::txbuf::TxBuf;
 use super::{defs, ConnState, PendingRx, PendingRxSet, VsockCsmError};
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::logger::IncMetric;
-use crate::utils::epoll::EventSet;
 use crate::utils::wrap_usize_to_u32;
 
 /// Trait that vsock connection backends need to implement.
@@ -685,6 +685,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use vm_memory::{VolatileMemoryError, VolatileSlice};
+    use vmm_sys_util::eventfd::EventFd;
 
     use super::super::super::defs::uapi;
     use super::super::defs as csm_defs;
@@ -692,7 +693,6 @@ mod tests {
     use crate::devices::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
     use crate::devices::virtio::vsock::test_utils;
     use crate::devices::virtio::vsock::test_utils::TestContext;
-    use crate::utils::eventfd::EventFd;
     use crate::vstate::memory::BitmapSlice;
 
     const LOCAL_CID: u64 = 2;

@@ -7,7 +7,7 @@ use std::io::{Seek, SeekFrom};
 use std::os::unix::io::AsRawFd;
 
 use utils::arg_parser::{ArgParser, Argument, Arguments, UtilsArgParserError as ArgError};
-use utils::seek_hole::SeekHole;
+use vmm_sys_util::seek_hole::SeekHole;
 
 const REBASE_SNAP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const BASE_FILE: &str = "base-file";
@@ -160,7 +160,7 @@ mod tests {
     use std::io::{Seek, SeekFrom, Write};
     use std::os::unix::fs::FileExt;
 
-    use utils::{rand, tempfile};
+    use vmm_sys_util::{rand, tempfile};
 
     use super::*;
 

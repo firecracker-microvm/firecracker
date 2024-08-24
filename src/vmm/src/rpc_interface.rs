@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use seccompiler::BpfThreadMap;
 use serde_json::Value;
+use utils::time::{get_time_us, ClockType};
 
 use super::builder::build_and_boot_microvm;
 use super::persist::{create_snapshot, restore_from_snapshot};
@@ -324,7 +325,7 @@ impl<'a> PrebootApiController<'a> {
         instance_info: InstanceInfo,
         from_api: &std::sync::mpsc::Receiver<ApiRequest>,
         to_api: &std::sync::mpsc::Sender<ApiResponse>,
-        api_event_fd: &crate::utils::eventfd::EventFd,
+        api_event_fd: &vmm_sys_util::eventfd::EventFd,
         boot_timer_enabled: bool,
         mmds_size_limit: usize,
         metadata_json: Option<&str>,
@@ -555,7 +556,7 @@ impl<'a> PrebootApiController<'a> {
     ) -> Result<VmmData, LoadSnapshotError> {
         log_dev_preview_warning("Virtual machine snapshots", Option::None);
 
-        let load_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+        let load_start_us = get_time_us(ClockType::Monotonic);
 
         if self.boot_path {
             let err = LoadSnapshotError::LoadSnapshotNotAllowed;
@@ -698,7 +699,7 @@ impl RuntimeApiController {
 
     /// Pauses the microVM by pausing the vCPUs.
     pub fn pause(&mut self) -> Result<VmmData, VmmActionError> {
-        let pause_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+        let pause_start_us = get_time_us(ClockType::Monotonic);
 
         self.vmm.lock().expect("Poisoned lock").pause_vm()?;
 
@@ -711,7 +712,7 @@ impl RuntimeApiController {
 
     /// Resumes the microVM by resuming the vCPUs.
     pub fn resume(&mut self) -> Result<VmmData, VmmActionError> {
-        let resume_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+        let resume_start_us = get_time_us(ClockType::Monotonic);
 
         self.vmm.lock().expect("Poisoned lock").resume_vm()?;
 
@@ -764,7 +765,7 @@ impl RuntimeApiController {
 
         let mut locked_vmm = self.vmm.lock().unwrap();
         let vm_info = VmInfo::from(&self.vm_resources);
-        let create_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+        let create_start_us = get_time_us(ClockType::Monotonic);
 
         create_snapshot(&mut locked_vmm, &vm_info, create_params)?;
 

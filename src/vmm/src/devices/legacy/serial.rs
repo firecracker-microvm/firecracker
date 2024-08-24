@@ -16,10 +16,10 @@ use log::{error, warn};
 use serde::Serialize;
 use vm_superio::serial::{Error as SerialError, SerialEvents};
 use vm_superio::{Serial, Trigger};
+use vmm_sys_util::epoll::EventSet;
 
 use crate::devices::legacy::EventFdTrigger;
 use crate::logger::{IncMetric, SharedIncMetric};
-use crate::utils::epoll::EventSet;
 
 /// Received Data Available interrupt - for letting the driver know that
 /// there is some pending data to be processed.
@@ -365,9 +365,10 @@ impl<I: Read + AsRawFd + Send + Debug + 'static>
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
+    use vmm_sys_util::eventfd::EventFd;
+
     use super::*;
     use crate::logger::IncMetric;
-    use crate::utils::eventfd::EventFd;
 
     #[test]
     fn test_serial_bus_read() {
@@ -418,7 +419,7 @@ mod tests {
         assert!(is_fifo(fds[1]));
 
         // Files arent fifos
-        let tmp_file = crate::utils::tempfile::TempFile::new().unwrap();
+        let tmp_file = vmm_sys_util::tempfile::TempFile::new().unwrap();
         assert!(!is_fifo(tmp_file.as_file().as_raw_fd()));
     }
 

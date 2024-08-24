@@ -29,7 +29,7 @@ pub enum VcpuError {
     /// Failed to set multiprocessor state: {0}
     SetMp(kvm_ioctls::Error),
     /// Failed FamStructWrapper operation: {0}
-    Fam(crate::utils::fam::Error),
+    Fam(vmm_sys_util::fam::Error),
     /// {0}
     GetMidrEl1(String),
 }

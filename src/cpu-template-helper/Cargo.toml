@@ -19,7 +19,7 @@ serde_json = "1.0.128"
 thiserror = "1.0.63"
 
 vmm = { path = "../vmm" }
-vmm-sys-util = { version = "0.12.1", features = ["with-serde"] }
+vmm-sys-util = "0.12.1"
 
 [features]
 tracing = ["log-instrument", "vmm/tracing"]

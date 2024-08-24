@@ -504,7 +504,7 @@ pub mod test_util {
     use std::io::Write;
     use std::path::{Path, PathBuf};
 
-    use utils::rand;
+    use vmm_sys_util::rand;
 
     #[derive(Debug)]
     pub struct MockCgroupFs {
@@ -617,8 +617,8 @@ mod tests {
     use std::io::{BufReader, Write};
     use std::path::PathBuf;
 
-    use utils::tempdir::TempDir;
-    use utils::tempfile::TempFile;
+    use vmm_sys_util::tempdir::TempDir;
+    use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
     use crate::cgroup::test_util::MockCgroupFs;

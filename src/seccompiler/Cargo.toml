@@ -26,6 +26,9 @@ thiserror = "1.0.63"
 
 utils = { path = "../utils" }
 
+[dev-dependencies]
+vmm-sys-util = "0.12.1"
+
 [features]
 tracing = ["log-instrument", "utils/tracing"]
 

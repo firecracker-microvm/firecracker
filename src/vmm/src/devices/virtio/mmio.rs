@@ -373,13 +373,14 @@ impl MmioTransport {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use vmm_sys_util::eventfd::EventFd;
+
     use super::*;
     use crate::devices::virtio::device::IrqTrigger;
     use crate::devices::virtio::device_status::DEVICE_NEEDS_RESET;
     use crate::devices::virtio::ActivateError;
     use crate::test_utils::single_region_mem;
     use crate::utils::byte_order::{read_le_u32, write_le_u32};
-    use crate::utils::eventfd::EventFd;
     use crate::utils::u64_to_usize;
     use crate::vstate::memory::GuestMemoryMmap;
 

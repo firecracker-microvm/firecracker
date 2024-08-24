@@ -7,6 +7,7 @@ use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+use vmm_sys_util::eventfd::EventFd;
 
 use super::device::DiskProperties;
 use super::*;
@@ -20,7 +21,6 @@ use crate::devices::virtio::TYPE_BLOCK;
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::rate_limiter::RateLimiter;
 use crate::snapshot::Persist;
-use crate::utils::eventfd::EventFd;
 
 /// Holds info about block's file engine type. Gets saved in snapshot.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -151,12 +151,13 @@ impl Persist<'_> for VirtioBlock {
 mod tests {
     use std::sync::atomic::Ordering;
 
+    use vmm_sys_util::tempfile::TempFile;
+
     use super::*;
     use crate::devices::virtio::block::virtio::device::VirtioBlockConfig;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::test_utils::default_mem;
     use crate::snapshot::Snapshot;
-    use crate::utils::tempfile::TempFile;
 
     #[test]
     fn test_cache_semantic_ser() {

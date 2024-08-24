@@ -250,7 +250,7 @@ pub(crate) fn inject_tap_tx_frame(net: &Net, len: usize) -> Vec<u8> {
 
     assert!(len >= vnet_hdr_len());
     let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&net.tap));
-    let mut frame = crate::utils::rand::rand_alphanumerics(len - vnet_hdr_len())
+    let mut frame = vmm_sys_util::rand::rand_alphanumerics(len - vnet_hdr_len())
         .as_bytes()
         .to_vec();
     tap_traffic_simulator.push_tx_packet(&frame);
@@ -418,7 +418,7 @@ pub mod test {
                 addr += u64::from(len);
                 // Add small random gaps between descriptor addresses in order to make sure we
                 // don't blindly read contiguous memory.
-                addr += u64::from(crate::utils::rand::xor_pseudo_rng_u32()) % 10;
+                addr += u64::from(vmm_sys_util::rand::xor_pseudo_rng_u32()) % 10;
             }
 
             // Mark the chain as available.
@@ -480,7 +480,7 @@ pub mod test {
         // Generates a frame of `frame_len` and writes it to the provided descriptor chain.
         // Doesn't generate an error if the descriptor chain is longer than `frame_len`.
         pub fn write_tx_frame(&self, desc_list: &[(u16, u32, u16)], frame_len: usize) -> Vec<u8> {
-            let mut frame = crate::utils::rand::rand_alphanumerics(frame_len)
+            let mut frame = vmm_sys_util::rand::rand_alphanumerics(frame_len)
                 .as_bytes()
                 .to_vec();
             let prefix_len = vnet_hdr_len() + ETH_HLEN as usize;

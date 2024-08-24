@@ -17,8 +17,9 @@ pub use vm_memory::{
     GuestUsize, MemoryRegionAddress, MmapRegion,
 };
 use vm_memory::{Error as VmMemoryError, GuestMemoryError, WriteVolatile};
+use vmm_sys_util::errno;
 
-use crate::utils::{errno, get_page_size, u64_to_usize};
+use crate::utils::{get_page_size, u64_to_usize};
 use crate::vmm_config::machine_config::HugePageConfig;
 use crate::DirtyBitmap;
 
@@ -425,10 +426,11 @@ mod tests {
     use std::collections::HashMap;
     use std::io::{Read, Seek};
 
+    use vmm_sys_util::tempfile::TempFile;
+
     use super::*;
     use crate::snapshot::Snapshot;
     use crate::utils::get_page_size;
-    use crate::utils::tempfile::TempFile;
 
     #[test]
     fn test_from_raw_regions() {

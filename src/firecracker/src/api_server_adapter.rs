@@ -9,8 +9,6 @@ use std::thread;
 
 use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
 use seccompiler::BpfThreadMap;
-use utils::epoll::EventSet;
-use utils::eventfd::EventFd;
 use vmm::logger::{error, warn, ProcessTimeReporter};
 use vmm::resources::VmResources;
 use vmm::rpc_interface::{
@@ -19,6 +17,8 @@ use vmm::rpc_interface::{
 };
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::{EventManager, FcExitCode, Vmm};
+use vmm_sys_util::epoll::EventSet;
+use vmm_sys_util::eventfd::EventFd;
 
 use super::api_server::{ApiServer, HttpServer, ServerError};
 

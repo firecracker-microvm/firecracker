@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 use libc::EAGAIN;
 use log::{error, warn};
 use vm_memory::GuestMemoryError;
+use vmm_sys_util::eventfd::EventFd;
 
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
@@ -37,7 +38,6 @@ use crate::logger::{IncMetric, METRICS};
 use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
 use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
-use crate::utils::eventfd::EventFd;
 use crate::utils::net::mac::MacAddr;
 use crate::utils::u64_to_usize;
 use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap};

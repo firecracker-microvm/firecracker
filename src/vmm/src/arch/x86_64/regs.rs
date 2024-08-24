@@ -44,7 +44,7 @@ pub enum RegsError {
 /// Error type for [`setup_fpu`].
 #[derive(Debug, derive_more::From, PartialEq, Eq, thiserror::Error)]
 #[error("Failed to setup FPU: {0}")]
-pub struct SetupFpuError(crate::utils::errno::Error);
+pub struct SetupFpuError(vmm_sys_util::errno::Error);
 
 /// Configure Floating-Point Unit (FPU) registers for a given CPU.
 ///
@@ -68,7 +68,7 @@ pub fn setup_fpu(vcpu: &VcpuFd) -> Result<(), SetupFpuError> {
 /// Error type of [`setup_regs`].
 #[derive(Debug, derive_more::From, PartialEq, Eq, thiserror::Error)]
 #[error("Failed to setup registers: {0}")]
-pub struct SetupRegistersError(crate::utils::errno::Error);
+pub struct SetupRegistersError(vmm_sys_util::errno::Error);
 
 /// Configure base registers for a given CPU.
 ///
@@ -103,13 +103,13 @@ pub fn setup_regs(vcpu: &VcpuFd, boot_ip: u64) -> Result<(), SetupRegistersError
 #[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq, Eq)]
 pub enum SetupSpecialRegistersError {
     /// Failed to get special registers: {0}
-    GetSpecialRegisters(crate::utils::errno::Error),
+    GetSpecialRegisters(vmm_sys_util::errno::Error),
     /// Failed to configure segments and special registers: {0}
     ConfigureSegmentsAndSpecialRegisters(RegsError),
     /// Failed to setup page tables: {0}
     SetupPageTables(RegsError),
     /// Failed to set special registers: {0}
-    SetSpecialRegisters(crate::utils::errno::Error),
+    SetSpecialRegisters(vmm_sys_util::errno::Error),
 }
 
 /// Configures the special registers and system page tables for a given CPU.

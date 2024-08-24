@@ -36,8 +36,9 @@ pub fn init_metrics(metrics_cfg: MetricsConfig) -> Result<(), MetricsConfigError
 
 #[cfg(test)]
 mod tests {
+    use vmm_sys_util::tempfile::TempFile;
+
     use super::*;
-    use crate::utils::tempfile::TempFile;
 
     #[test]
     fn test_init_metrics() {
