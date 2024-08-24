@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use utils::epoll::EventSet;
 
 use super::{report_balloon_event_fail, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX};
 use crate::devices::virtio::balloon::device::Balloon;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::logger::{error, warn};
+use crate::utils::epoll::EventSet;
 
 impl Balloon {
     const PROCESS_ACTIVATE: u32 = 0;

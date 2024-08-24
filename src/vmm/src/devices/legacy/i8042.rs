@@ -10,9 +10,9 @@ use std::num::Wrapping;
 
 use log::warn;
 use serde::Serialize;
-use utils::eventfd::EventFd;
 
 use crate::logger::{error, IncMetric, SharedIncMetric};
+use crate::utils::eventfd::EventFd;
 
 /// Errors thrown by the i8042 device.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]

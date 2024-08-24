@@ -6,7 +6,6 @@ use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
 use aws_lc_rs::rand;
-use utils::eventfd::EventFd;
 use vm_memory::GuestMemoryError;
 
 use super::metrics::METRICS;
@@ -19,6 +18,7 @@ use crate::devices::virtio::{ActivateError, TYPE_RNG};
 use crate::devices::DeviceError;
 use crate::logger::{debug, error, IncMetric};
 use crate::rate_limiter::{RateLimiter, TokenType};
+use crate::utils::eventfd::EventFd;
 use crate::vstate::memory::GuestMemoryMmap;
 
 pub const ENTROPY_DEV_ID: &str = "rng";

@@ -8,7 +8,6 @@ use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use utils::net::mac::MacAddr;
 
 use super::device::Net;
 use super::NET_NUM_QUEUES;
@@ -22,6 +21,7 @@ use crate::mmds::persist::MmdsNetworkStackState;
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::rate_limiter::RateLimiter;
 use crate::snapshot::Persist;
+use crate::utils::net::mac::MacAddr;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// Information about the network config's that are saved

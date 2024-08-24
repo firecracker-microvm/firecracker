@@ -8,8 +8,6 @@ use std::thread;
 #[cfg(test)]
 use std::time::Duration;
 
-use utils::tempfile::TempFile;
-
 use super::device::VirtioBlockConfig;
 use super::RequestHeader;
 use crate::devices::virtio::block::virtio::device::FileEngineType;
@@ -21,6 +19,7 @@ use crate::devices::virtio::device::IrqType;
 use crate::devices::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
 use crate::rate_limiter::RateLimiter;
+use crate::utils::tempfile::TempFile;
 use crate::vmm_config::{RateLimiterConfig, TokenBucketConfig};
 use crate::vstate::memory::{Bytes, GuestAddress};
 

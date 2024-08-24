@@ -529,13 +529,12 @@ mod tests {
 
     use std::sync::Arc;
 
-    use utils::eventfd::EventFd;
-
     use super::*;
     use crate::devices::virtio::device::{IrqTrigger, VirtioDevice};
     use crate::devices::virtio::queue::Queue;
     use crate::devices::virtio::ActivateError;
     use crate::test_utils::multi_region_mem;
+    use crate::utils::eventfd::EventFd;
     use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
     use crate::{builder, Vm};
 

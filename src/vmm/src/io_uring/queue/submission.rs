@@ -8,12 +8,12 @@ use std::num::Wrapping;
 use std::os::unix::io::RawFd;
 use std::sync::atomic::Ordering;
 
-use utils::syscall::SyscallReturnCode;
 use vm_memory::{VolatileMemory, VolatileMemoryError};
 
 use super::mmap::{mmap, MmapError};
 use crate::io_uring::gen;
 use crate::io_uring::operation::Sqe;
+use crate::utils::syscall::SyscallReturnCode;
 use crate::vstate::memory::{Bytes, MmapRegion};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]

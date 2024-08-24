@@ -11,11 +11,10 @@ use std::io::{Error as IoError, Read};
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
-use utils::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
-use utils::{ioctl_ioc_nr, ioctl_iow_nr};
-
 use crate::devices::virtio::iovec::IoVecBuffer;
 use crate::devices::virtio::net::gen;
+use crate::utils::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
+use crate::utils::{ioctl_ioc_nr, ioctl_iow_nr};
 
 // As defined in the Linux UAPI:
 // https://elixir.bootlin.com/linux/v4.17/source/include/uapi/linux/if.h#L33
@@ -293,7 +292,7 @@ pub mod tests {
         enable(&tap);
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&tap));
 
-        let packet = utils::rand::rand_alphanumerics(PAYLOAD_SIZE);
+        let packet = crate::utils::rand::rand_alphanumerics(PAYLOAD_SIZE);
         tap_traffic_simulator.push_tx_packet(packet.as_bytes());
 
         let mut buf = [0u8; PACKET_SIZE];
@@ -310,11 +309,11 @@ pub mod tests {
         enable(&tap);
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&tap));
 
-        let mut fragment1 = utils::rand::rand_bytes(PAYLOAD_SIZE);
+        let mut fragment1 = crate::utils::rand::rand_bytes(PAYLOAD_SIZE);
         fragment1.as_mut_slice()[..gen::ETH_HLEN as usize]
             .copy_from_slice(&[0; gen::ETH_HLEN as usize]);
-        let fragment2 = utils::rand::rand_bytes(PAYLOAD_SIZE);
-        let fragment3 = utils::rand::rand_bytes(PAYLOAD_SIZE);
+        let fragment2 = crate::utils::rand::rand_bytes(PAYLOAD_SIZE);
+        let fragment3 = crate::utils::rand::rand_bytes(PAYLOAD_SIZE);
 
         let scattered = IoVecBuffer::from(vec![
             fragment1.as_slice(),

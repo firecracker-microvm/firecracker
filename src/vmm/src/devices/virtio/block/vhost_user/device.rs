@@ -7,8 +7,6 @@
 use std::sync::Arc;
 
 use log::error;
-use utils::eventfd::EventFd;
-use utils::u64_to_usize;
 use vhost::vhost_user::message::*;
 use vhost::vhost_user::Frontend;
 
@@ -26,6 +24,8 @@ use crate::devices::virtio::vhost_user_metrics::{
 };
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
 use crate::logger::{log_dev_preview_warning, IncMetric, StoreMetric};
+use crate::utils::eventfd::EventFd;
+use crate::utils::u64_to_usize;
 use crate::vmm_config::drive::BlockDeviceConfig;
 use crate::vstate::memory::GuestMemoryMmap;
 
@@ -370,13 +370,13 @@ mod tests {
     use std::os::unix::net::UnixStream;
     use std::sync::atomic::Ordering;
 
-    use utils::tempfile::TempFile;
     use vhost::{VhostUserMemoryRegionInfo, VringConfigData};
 
     use super::*;
     use crate::devices::virtio::block::virtio::device::FileEngineType;
     use crate::devices::virtio::mmio::VIRTIO_MMIO_INT_CONFIG;
     use crate::test_utils::create_tmp_socket;
+    use crate::utils::tempfile::TempFile;
     use crate::vstate::memory::{FileOffset, GuestAddress, GuestMemoryExtension};
 
     #[test]

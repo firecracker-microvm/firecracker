@@ -5,8 +5,8 @@
 
 use std::sync::{Arc, Mutex};
 
-use utils::tempdir::TempDir;
 use vm_memory::GuestAddress;
+use vmm_sys_util::tempdir::TempDir;
 
 use crate::builder::build_microvm_for_boot;
 use crate::resources::VmResources;

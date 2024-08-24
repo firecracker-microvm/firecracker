@@ -8,11 +8,11 @@ use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 
 use super::ns::MmdsNetworkStack;
 use crate::mmds::data_store::Mmds;
 use crate::snapshot::Persist;
+use crate::utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 
 /// State of a MmdsNetworkStack.
 #[derive(Debug, Clone, Serialize, Deserialize)]

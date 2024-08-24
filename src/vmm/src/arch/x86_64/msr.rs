@@ -16,7 +16,7 @@ use crate::cpu_config::x86_64::cpuid::common::GetCpuidError;
 /// MSR related errors.
 pub enum MsrError {
     /// Failed to create `vmm_sys_util::fam::FamStructWrapper` for MSRs
-    Fam(#[from] utils::fam::Error),
+    Fam(#[from] crate::utils::fam::Error),
     /// Failed to get MSR index list: {0}
     GetMsrIndexList(kvm_ioctls::Error),
     /// Invalid CPU vendor: {0}

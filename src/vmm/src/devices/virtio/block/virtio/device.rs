@@ -15,8 +15,6 @@ use std::sync::Arc;
 
 use block_io::FileEngine;
 use serde::{Deserialize, Serialize};
-use utils::eventfd::EventFd;
-use utils::u64_to_usize;
 
 use super::io::async_io;
 use super::request::*;
@@ -35,6 +33,8 @@ use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
 use crate::logger::{error, warn, IncMetric};
 use crate::rate_limiter::{BucketUpdate, RateLimiter};
+use crate::utils::eventfd::EventFd;
+use crate::utils::u64_to_usize;
 use crate::vmm_config::drive::BlockDeviceConfig;
 use crate::vmm_config::RateLimiterConfig;
 use crate::vstate::memory::GuestMemoryMmap;
@@ -678,8 +678,6 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use utils::tempfile::TempFile;
-
     use super::*;
     use crate::check_metric_after_block;
     use crate::devices::virtio::block::virtio::test_utils::{
@@ -691,6 +689,7 @@ mod tests {
     use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
     use crate::rate_limiter::TokenType;
+    use crate::utils::tempfile::TempFile;
     use crate::vstate::memory::{Address, Bytes, GuestAddress};
 
     #[test]
@@ -1084,7 +1083,9 @@ mod tests {
             let status_addr = GuestAddress(vq.dtable[2].addr.get());
 
             let empty_data = vec![0; 512];
-            let rand_data = utils::rand::rand_alphanumerics(1024).as_bytes().to_vec();
+            let rand_data = crate::utils::rand::rand_alphanumerics(1024)
+                .as_bytes()
+                .to_vec();
 
             // Write with invalid data len (not a multiple of 512).
             {

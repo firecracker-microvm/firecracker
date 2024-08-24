@@ -24,10 +24,10 @@ pub mod gen;
 use linux_loader::configurator::linux::LinuxBootConfigurator;
 use linux_loader::configurator::{BootConfigurator, BootParams};
 use linux_loader::loader::bootparam::boot_params;
-use utils::u64_to_usize;
 
 use crate::arch::InitrdConfig;
 use crate::device_manager::resources::ResourceAllocator;
+use crate::utils::u64_to_usize;
 use crate::vstate::memory::{
     Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion,
 };

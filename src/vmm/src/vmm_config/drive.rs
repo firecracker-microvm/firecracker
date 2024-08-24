@@ -177,10 +177,9 @@ impl BlockBuilder {
 
 #[cfg(test)]
 mod tests {
-    use utils::tempfile::TempFile;
-
     use super::*;
     use crate::devices::virtio::block::virtio::VirtioBlockError;
+    use crate::utils::tempfile::TempFile;
 
     impl PartialEq for DriveError {
         fn eq(&self, other: &DriveError) -> bool {

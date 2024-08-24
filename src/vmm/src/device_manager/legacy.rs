@@ -12,12 +12,12 @@ use std::sync::{Arc, Mutex};
 use acpi_tables::{aml, Aml};
 use kvm_ioctls::VmFd;
 use libc::EFD_NONBLOCK;
-use utils::eventfd::EventFd;
 use vm_superio::Serial;
 
 use crate::devices::bus::BusDevice;
 use crate::devices::legacy::serial::SerialOut;
 use crate::devices::legacy::{EventFdTrigger, SerialDevice, SerialEventsWrapper};
+use crate::utils::eventfd::EventFd;
 
 /// Errors corresponding to the `PortIODeviceManager`.
 #[derive(Debug, derive_more::From, thiserror::Error, displaydoc::Display)]

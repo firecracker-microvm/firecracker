@@ -6,7 +6,6 @@ use std::fs::File;
 use std::os::fd::RawFd;
 use std::os::unix::io::AsRawFd;
 
-use utils::eventfd::EventFd;
 use vm_memory::GuestMemoryError;
 
 use crate::devices::virtio::block::virtio::io::UserDataError;
@@ -15,6 +14,7 @@ use crate::io_uring::operation::{Cqe, OpCode, Operation};
 use crate::io_uring::restriction::Restriction;
 use crate::io_uring::{self, IoUring, IoUringError};
 use crate::logger::log_dev_preview_warning;
+use crate::utils::eventfd::EventFd;
 use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryExtension, GuestMemoryMmap};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
