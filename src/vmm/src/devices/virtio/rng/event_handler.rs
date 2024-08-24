@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use utils::epoll::EventSet;
 
 use super::{Entropy, RNG_QUEUE};
 use crate::devices::virtio::device::VirtioDevice;
 use crate::logger::{error, warn};
+use crate::utils::epoll::EventSet;
 
 impl Entropy {
     const PROCESS_ACTIVATE: u32 = 0;

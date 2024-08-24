@@ -12,9 +12,6 @@ use std::sync::{Arc, Mutex};
 
 use libc::EAGAIN;
 use log::{error, warn};
-use utils::eventfd::EventFd;
-use utils::net::mac::MacAddr;
-use utils::u64_to_usize;
 use vm_memory::GuestMemoryError;
 
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
@@ -40,6 +37,9 @@ use crate::logger::{IncMetric, METRICS};
 use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
 use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
+use crate::utils::eventfd::EventFd;
+use crate::utils::net::mac::MacAddr;
+use crate::utils::u64_to_usize;
 use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap};
 
 const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
@@ -935,8 +935,6 @@ pub mod tests {
     use std::time::Duration;
     use std::{mem, thread};
 
-    use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
-
     use super::*;
     use crate::check_metric_after_block;
     use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
@@ -957,6 +955,7 @@ pub mod tests {
     use crate::logger::IncMetric;
     use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenBucket, TokenType};
     use crate::test_utils::single_region_mem;
+    use crate::utils::net::mac::{MacAddr, MAC_ADDR_LEN};
     use crate::vstate::memory::{Address, GuestMemory};
 
     #[test]

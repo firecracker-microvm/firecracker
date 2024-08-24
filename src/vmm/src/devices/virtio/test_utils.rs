@@ -8,10 +8,9 @@ use std::marker::PhantomData;
 use std::mem;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use utils::u64_to_usize;
-
 use crate::devices::virtio::queue::Queue;
 use crate::test_utils::single_region_mem;
+use crate::utils::u64_to_usize;
 use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
 #[macro_export]
@@ -470,7 +469,7 @@ pub(crate) mod test {
                 addr += u64::from(len);
                 // Add small random gaps between descriptor addresses in order to make sure we
                 // don't blindly read contiguous memory.
-                addr += u64::from(utils::rand::xor_pseudo_rng_u32()) % 10;
+                addr += u64::from(crate::utils::rand::xor_pseudo_rng_u32()) % 10;
             }
 
             // Mark the chain as available.

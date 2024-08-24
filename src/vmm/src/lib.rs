@@ -101,6 +101,8 @@ pub mod signal_handler;
 pub mod snapshot;
 /// Utility functions for integration and benchmark testing
 pub mod test_utils;
+/// Utility functions and struct
+pub mod utils;
 /// Wrappers over structures used to configure the VMM.
 pub mod vmm_config;
 /// Module with virtual state structs.
@@ -119,10 +121,6 @@ use devices::acpi::vmgenid::VmGenIdError;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use seccompiler::BpfProgram;
 use userfaultfd::Uffd;
-use utils::epoll::EventSet;
-use utils::eventfd::EventFd;
-use utils::terminal::Terminal;
-use utils::u64_to_usize;
 use vstate::vcpu::{self, KvmVcpuConfigureError, StartThreadedError, VcpuSendEventError};
 
 use crate::arch::DeviceType;
@@ -141,6 +139,10 @@ use crate::logger::{error, info, warn, MetricsError, METRICS};
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
 use crate::snapshot::Persist;
+use crate::utils::epoll::EventSet;
+use crate::utils::eventfd::EventFd;
+use crate::utils::terminal::Terminal;
+use crate::utils::u64_to_usize;
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vstate::memory::{
     GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion,
@@ -251,9 +253,9 @@ pub enum VmmError {
     /// Vm error: {0}
     Vm(vstate::vm::VmError),
     /// Error thrown by observer object on Vmm initialization: {0}
-    VmmObserverInit(utils::errno::Error),
+    VmmObserverInit(crate::utils::errno::Error),
     /// Error thrown by observer object on Vmm teardown: {0}
-    VmmObserverTeardown(utils::errno::Error),
+    VmmObserverTeardown(crate::utils::errno::Error),
     /// VMGenID error: {0}
     VMGenID(#[from] VmGenIdError),
 }
@@ -275,7 +277,7 @@ pub struct EmulateSerialInitError(#[from] std::io::Error);
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum StartVcpusError {
     /// VMM observer init error: {0}
-    VmmObserverInit(#[from] utils::errno::Error),
+    VmmObserverInit(#[from] crate::utils::errno::Error),
     /// Vcpu handle error: {0}
     VcpuHandle(#[from] StartThreadedError),
 }

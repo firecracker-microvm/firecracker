@@ -6,13 +6,13 @@ use aws_lc_rs::error::Unspecified as RandError;
 use aws_lc_rs::rand;
 use log::{debug, error};
 use serde::{Deserialize, Serialize};
-use utils::eventfd::EventFd;
 use vm_memory::{GuestAddress, GuestMemoryError};
 use vm_superio::Trigger;
 
 use super::super::legacy::EventFdTrigger;
 use crate::device_manager::resources::ResourceAllocator;
 use crate::snapshot::Persist;
+use crate::utils::eventfd::EventFd;
 use crate::vstate::memory::{Bytes, GuestMemoryMmap};
 
 /// Bytes of memory we allocate for VMGenID device

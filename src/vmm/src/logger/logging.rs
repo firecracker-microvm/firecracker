@@ -351,7 +351,7 @@ mod tests {
     #[test]
     fn logger() {
         // Get temp file path.
-        let file = utils::tempfile::TempFile::new().unwrap();
+        let file = crate::utils::tempfile::TempFile::new().unwrap();
         let path = file.as_path().to_str().unwrap().to_string();
         drop(file);
 

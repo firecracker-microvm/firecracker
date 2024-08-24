@@ -652,13 +652,12 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
 #[cfg(test)]
 mod tests {
-    use utils::tempfile::TempFile;
-
     use super::*;
     use crate::builder::tests::*;
     use crate::devices::virtio::block::CacheType;
     use crate::resources::VmmConfig;
     use crate::snapshot::Snapshot;
+    use crate::utils::tempfile::TempFile;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::entropy::EntropyDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;

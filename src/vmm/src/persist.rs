@@ -15,8 +15,6 @@ use seccompiler::BpfThreadMap;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
-use utils::sock_ctrl_msg::ScmSocket;
-use utils::u64_to_usize;
 
 #[cfg(target_arch = "aarch64")]
 use crate::arch::aarch64::vcpu::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
@@ -30,6 +28,8 @@ use crate::device_manager::persist::{ACPIDeviceManagerState, DevicePersistError,
 use crate::logger::{info, warn};
 use crate::resources::VmResources;
 use crate::snapshot::Snapshot;
+use crate::utils::sock_ctrl_msg::ScmSocket;
+use crate::utils::u64_to_usize;
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{HugePageConfig, MachineConfigUpdate, VmConfigError};
@@ -534,7 +534,7 @@ pub enum GuestMemoryFromUffdError {
     /// Failed to connect to UDS Unix stream: {0}
     Connect(#[from] std::io::Error),
     /// Failed to sends file descriptor: {0}
-    Send(#[from] utils::errno::Error),
+    Send(#[from] crate::utils::errno::Error),
 }
 
 fn guest_memory_from_uffd(
@@ -643,8 +643,6 @@ fn send_uffd_handshake(
 mod tests {
     use std::os::unix::net::UnixListener;
 
-    use utils::tempfile::TempFile;
-
     use super::*;
     #[cfg(target_arch = "x86_64")]
     use crate::builder::tests::insert_vmgenid_device;
@@ -656,6 +654,7 @@ mod tests {
     use crate::construct_kvm_mpidrs;
     use crate::devices::virtio::block::CacheType;
     use crate::snapshot::Persist;
+    use crate::utils::tempfile::TempFile;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::tests::default_config;

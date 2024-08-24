@@ -956,9 +956,8 @@ mod tests {
     use std::sync::Arc;
     use std::thread;
 
-    use utils::tempfile::TempFile;
-
     use super::*;
+    use crate::utils::tempfile::TempFile;
 
     #[test]
     fn test_init() {

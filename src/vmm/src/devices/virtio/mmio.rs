@@ -9,12 +9,11 @@ use std::fmt::Debug;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use utils::byte_order;
-
 use crate::devices::virtio::device::{IrqType, VirtioDevice};
 use crate::devices::virtio::device_status;
 use crate::devices::virtio::queue::Queue;
 use crate::logger::{error, warn};
+use crate::utils::byte_order;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
 // TODO crosvm uses 0 here, but IIRC virtio specified some other vendor id that should be used
@@ -374,15 +373,14 @@ impl MmioTransport {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use utils::byte_order::{read_le_u32, write_le_u32};
-    use utils::eventfd::EventFd;
-    use utils::u64_to_usize;
-
     use super::*;
     use crate::devices::virtio::device::IrqTrigger;
     use crate::devices::virtio::device_status::DEVICE_NEEDS_RESET;
     use crate::devices::virtio::ActivateError;
     use crate::test_utils::single_region_mem;
+    use crate::utils::byte_order::{read_le_u32, write_le_u32};
+    use crate::utils::eventfd::EventFd;
+    use crate::utils::u64_to_usize;
     use crate::vstate::memory::GuestMemoryMmap;
 
     #[derive(Debug)]

@@ -324,7 +324,7 @@ impl<'a> PrebootApiController<'a> {
         instance_info: InstanceInfo,
         from_api: &std::sync::mpsc::Receiver<ApiRequest>,
         to_api: &std::sync::mpsc::Sender<ApiResponse>,
-        api_event_fd: &utils::eventfd::EventFd,
+        api_event_fd: &crate::utils::eventfd::EventFd,
         boot_timer_enabled: bool,
         mmds_size_limit: usize,
         metadata_json: Option<&str>,

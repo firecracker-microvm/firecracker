@@ -68,7 +68,7 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
-use utils::byte_order;
+use crate::utils::byte_order;
 
 /// Represents an immutable view into a sequence of bytes which stands for different values packed
 /// together using network byte ordering.

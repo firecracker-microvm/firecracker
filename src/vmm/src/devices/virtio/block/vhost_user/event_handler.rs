@@ -1,11 +1,11 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use utils::epoll::EventSet;
 
 use super::VhostUserBlock;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::logger::{error, warn};
+use crate::utils::epoll::EventSet;
 
 impl VhostUserBlock {
     const PROCESS_ACTIVATE: u32 = 0;

@@ -1566,6 +1566,7 @@ dependencies = [
  "vm-fdt",
  "vm-memory",
  "vm-superio",
+ "vmm-sys-util",
  "zerocopy",
 ]
 

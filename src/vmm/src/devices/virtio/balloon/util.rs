@@ -3,10 +3,9 @@
 
 use std::io;
 
-use utils::u64_to_usize;
-
 use super::{RemoveRegionError, MAX_PAGE_COMPACT_BUFFER};
 use crate::logger::error;
+use crate::utils::u64_to_usize;
 use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 /// This takes a vector of page frame numbers, and compacts them
