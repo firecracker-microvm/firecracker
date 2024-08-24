@@ -13,6 +13,7 @@ use std::{fmt, io};
 
 use utils::arg_parser::UtilsArgParserError::MissingValue;
 use utils::syscall::SyscallReturnCode;
+use utils::time::{get_time_us, ClockType};
 use utils::{arg_parser, validators};
 
 use crate::cgroup::{CgroupConfiguration, CgroupConfigurationBuilder};
@@ -663,7 +664,7 @@ impl Env {
         // Daemonize before exec, if so required (when the dev_null variable != None).
         if let Some(dev_null) = dev_null {
             // Meter CPU usage before fork()
-            self.jailer_cpu_time_us = utils::time::get_time_us(utils::time::ClockType::ProcessCpu);
+            self.jailer_cpu_time_us = get_time_us(ClockType::ProcessCpu);
 
             // We follow the double fork method to daemonize the jailer referring to
             // https://0xjet.github.io/3OHA/2022/04/11/post.html
@@ -688,7 +689,7 @@ impl Env {
                 .map_err(JailerError::SetSid)?;
 
             // Meter CPU usage before fork()
-            self.jailer_cpu_time_us += utils::time::get_time_us(utils::time::ClockType::ProcessCpu);
+            self.jailer_cpu_time_us += get_time_us(ClockType::ProcessCpu);
 
             // Daemons should not have controlling terminals.
             // If a daemon has a controlling terminal, it can receive signals
@@ -714,8 +715,7 @@ impl Env {
         }
 
         // Compute jailer's total CPU time up to the current time.
-        self.jailer_cpu_time_us +=
-            utils::time::get_time_us(utils::time::ClockType::ProcessCpu) - self.start_time_cpu_us;
+        self.jailer_cpu_time_us += get_time_us(ClockType::ProcessCpu) - self.start_time_cpu_us;
         // Reset process start time.
         self.start_time_cpu_us = 0;
 

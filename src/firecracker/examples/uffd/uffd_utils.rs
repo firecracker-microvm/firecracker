@@ -299,8 +299,8 @@ mod tests {
     use std::mem::MaybeUninit;
     use std::os::unix::net::UnixListener;
 
-    use utils::tempdir::TempDir;
-    use utils::tempfile::TempFile;
+    use vmm::utils::tempdir::TempDir;
+    use vmm::utils::tempfile::TempFile;
 
     use super::*;
 

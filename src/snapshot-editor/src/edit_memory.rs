@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use clap::Subcommand;
 use fc_utils::seek_hole::SeekHole;
-use fc_utils::u64_to_usize;
+use vmm::utils::u64_to_usize;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum EditMemoryError {

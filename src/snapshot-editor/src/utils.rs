@@ -4,10 +4,10 @@
 use std::fs::{File, OpenOptions};
 use std::path::PathBuf;
 
-use fc_utils::u64_to_usize;
 use semver::Version;
 use vmm::persist::MicrovmState;
 use vmm::snapshot::Snapshot;
+use vmm::utils::u64_to_usize;
 
 // Some errors are only used in aarch64 code
 #[allow(unused)]
