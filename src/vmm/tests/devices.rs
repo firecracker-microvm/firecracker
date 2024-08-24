@@ -11,7 +11,7 @@ use libc::EFD_NONBLOCK;
 use vm_superio::Serial;
 use vmm::devices::legacy::serial::SerialOut;
 use vmm::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
-use vmm::utils::eventfd::EventFd;
+use vmm_sys_util::eventfd::EventFd;
 
 fn create_serial(
     pipe: c_int,

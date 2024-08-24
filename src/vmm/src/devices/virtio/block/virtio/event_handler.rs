@@ -1,12 +1,12 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 use event_manager::{EventOps, Events, MutEventSubscriber};
+use vmm_sys_util::epoll::EventSet;
 
 use super::io::FileEngine;
 use crate::devices::virtio::block::virtio::device::VirtioBlock;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::logger::{error, warn};
-use crate::utils::epoll::EventSet;
 
 impl VirtioBlock {
     const PROCESS_ACTIVATE: u32 = 0;

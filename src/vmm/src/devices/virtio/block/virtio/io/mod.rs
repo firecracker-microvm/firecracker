@@ -189,9 +189,10 @@ pub mod tests {
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::io::FromRawFd;
 
+    use vmm_sys_util::tempfile::TempFile;
+
     use super::*;
     use crate::devices::virtio::block::virtio::device::FileEngineType;
-    use crate::utils::tempfile::TempFile;
     use crate::utils::u64_to_usize;
     use crate::vmm_config::machine_config::HugePageConfig;
     use crate::vstate::memory::{Bitmap, Bytes, GuestMemory, GuestMemoryExtension};
@@ -279,7 +280,7 @@ pub mod tests {
         let file = TempFile::new().unwrap().into_file();
         let mut engine = FileEngine::from_file(file, FileEngineType::Sync).unwrap();
 
-        let data = crate::utils::rand::rand_alphanumerics(FILE_LEN as usize)
+        let data = vmm_sys_util::rand::rand_alphanumerics(FILE_LEN as usize)
             .as_bytes()
             .to_vec();
 
@@ -349,7 +350,7 @@ pub mod tests {
         let file = TempFile::new().unwrap().into_file();
         let mut engine = FileEngine::<()>::from_file(file, FileEngineType::Async).unwrap();
 
-        let data = crate::utils::rand::rand_alphanumerics(FILE_LEN as usize)
+        let data = vmm_sys_util::rand::rand_alphanumerics(FILE_LEN as usize)
             .as_bytes()
             .to_vec();
 

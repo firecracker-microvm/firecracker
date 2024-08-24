@@ -501,6 +501,7 @@ mod tests {
     use std::str::FromStr;
 
     use serde_json::{Map, Value};
+    use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
     use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
@@ -510,7 +511,6 @@ mod tests {
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
     use crate::resources::VmResources;
     use crate::utils::net::mac::MacAddr;
-    use crate::utils::tempfile::TempFile;
     use crate::vmm_config::boot_source::{
         BootConfig, BootSource, BootSourceConfig, DEFAULT_KERNEL_CMDLINE,
     };

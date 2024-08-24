@@ -11,10 +11,10 @@ use vhost::vhost_user::message::*;
 use vhost::vhost_user::{Frontend, VhostUserFrontend};
 use vhost::{Error as VhostError, VhostBackend, VhostUserMemoryRegionInfo, VringConfigData};
 use vm_memory::{Address, Error as MmapError, GuestMemory, GuestMemoryError, GuestMemoryRegion};
+use vmm_sys_util::eventfd::EventFd;
 
 use crate::devices::virtio::device::IrqTrigger;
 use crate::devices::virtio::queue::Queue;
-use crate::utils::eventfd::EventFd;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// vhost-user error.
@@ -462,9 +462,10 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
+    use vmm_sys_util::tempfile::TempFile;
+
     use super::*;
     use crate::test_utils::create_tmp_socket;
-    use crate::utils::tempfile::TempFile;
     use crate::vstate::memory::{FileOffset, GuestAddress, GuestMemoryExtension};
 
     #[test]

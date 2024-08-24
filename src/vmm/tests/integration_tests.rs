@@ -5,7 +5,6 @@ use std::io::{Seek, SeekFrom};
 use std::thread;
 use std::time::Duration;
 
-use utils::tempfile::TempFile;
 use vmm::builder::build_and_boot_microvm;
 use vmm::devices::virtio::block::CacheType;
 use vmm::persist::{snapshot_state_sanity_check, MicrovmState, MicrovmStateError, VmInfo};
@@ -30,6 +29,7 @@ use vmm::vmm_config::snapshot::{
 };
 use vmm::vmm_config::vsock::VsockDeviceConfig;
 use vmm::{DumpCpuConfigError, EventManager, FcExitCode};
+use vmm_sys_util::tempfile::TempFile;
 
 #[test]
 fn test_build_and_boot_microvm() {

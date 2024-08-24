@@ -618,6 +618,7 @@ dependencies = [
  "userfaultfd",
  "utils",
  "vmm",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -785,6 +786,7 @@ dependencies = [
  "regex",
  "thiserror",
  "utils",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -1117,6 +1119,7 @@ dependencies = [
  "log-instrument",
  "thiserror",
  "utils",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -1194,6 +1197,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "utils",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -1280,6 +1284,7 @@ dependencies = [
  "thiserror",
  "utils",
  "vmm",
+ "vmm-sys-util",
 ]
 
 [[package]]

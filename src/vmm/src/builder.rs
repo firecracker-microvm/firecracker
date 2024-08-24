@@ -24,6 +24,7 @@ use vm_memory::ReadVolatile;
 #[cfg(target_arch = "aarch64")]
 use vm_superio::Rtc;
 use vm_superio::Serial;
+use vmm_sys_util::eventfd::EventFd;
 
 #[cfg(target_arch = "x86_64")]
 use crate::acpi;
@@ -59,7 +60,6 @@ use crate::logger::{debug, error};
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
-use crate::utils::eventfd::EventFd;
 use crate::utils::u64_to_usize;
 use crate::vmm_config::boot_source::BootConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
@@ -412,7 +412,7 @@ pub enum BuildMicrovmFromSnapshotError {
     /// Failed to create microVM and vCPUs: {0}
     CreateMicrovmAndVcpus(#[from] StartMicrovmError),
     /// Could not access KVM: {0}
-    KvmAccess(#[from] crate::utils::errno::Error),
+    KvmAccess(#[from] vmm_sys_util::errno::Error),
     /// Error configuring the TSC, frequency not present in the given snapshot.
     TscFrequencyNotPresent,
     #[cfg(target_arch = "x86_64")]
@@ -1022,6 +1022,7 @@ pub mod tests {
     use std::io::Write;
 
     use linux_loader::cmdline::Cmdline;
+    use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
     use crate::arch::DeviceType;
@@ -1033,7 +1034,6 @@ pub mod tests {
     use crate::mmds::data_store::{Mmds, MmdsVersion};
     use crate::mmds::ns::MmdsNetworkStack;
     use crate::test_utils::{arch_mem, single_region_mem, single_region_mem_at};
-    use crate::utils::tempfile::TempFile;
     use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
     use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};

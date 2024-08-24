@@ -143,6 +143,8 @@ pub struct VhostUserDeviceMetrics {
 
 #[cfg(test)]
 pub mod tests {
+    use utils::time::{get_time_us, ClockType};
+
     use super::*;
     use crate::logger::{IncMetric, StoreMetric};
 
@@ -158,10 +160,10 @@ pub mod tests {
     #[test]
     fn test_vhost_user_basic_metrics() {
         let vhost_user_dev_name: String = String::from("vhost_user_block_drvN");
-        let start_time = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+        let start_time = get_time_us(ClockType::Monotonic);
         let vhost_user_metrics: Arc<VhostUserDeviceMetrics> =
             VhostUserMetricsPerDevice::alloc(vhost_user_dev_name.clone());
-        let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time;
+        let delta_us = get_time_us(ClockType::Monotonic) - start_time;
         vhost_user_metrics.activate_fails.inc();
         assert_eq!(vhost_user_metrics.activate_fails.count(), 1);
 

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
+use vmm_sys_util::eventfd::EventFd;
 
 use super::persist::{BlockConstructorArgs, BlockState};
 use super::vhost_user::device::{VhostUserBlock, VhostUserBlockConfig};
@@ -12,7 +13,6 @@ use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
 use crate::rate_limiter::BucketUpdate;
 use crate::snapshot::Persist;
-use crate::utils::eventfd::EventFd;
 use crate::vmm_config::drive::BlockDeviceConfig;
 use crate::vstate::memory::GuestMemoryMmap;
 

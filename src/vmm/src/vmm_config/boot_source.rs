@@ -99,9 +99,10 @@ impl BootConfig {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use vmm_sys_util::tempfile::TempFile;
+
     use super::*;
     use crate::snapshot::Snapshot;
-    use crate::utils::tempfile::TempFile;
 
     #[test]
     fn test_boot_config() {

@@ -19,7 +19,6 @@ use event_manager::SubscriberOps;
 use seccomp::FilterError;
 use seccompiler::BpfThreadMap;
 use utils::arg_parser::{ArgParser, Argument};
-use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
 use vmm::builder::StartMicrovmError;
 use vmm::logger::{
@@ -32,6 +31,7 @@ use vmm::snapshot::{Snapshot, SnapshotError};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
 use vmm::{EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
+use vmm_sys_util::terminal::Terminal;
 
 use crate::seccomp::SeccompConfig;
 
@@ -47,7 +47,7 @@ enum MainError {
     /// Failed to set the logger: {0}
     SetLogger(vmm::logger::LoggerInitError),
     /// Failed to register signal handlers: {0}
-    RegisterSignalHandlers(#[source] utils::errno::Error),
+    RegisterSignalHandlers(#[source] vmm_sys_util::errno::Error),
     /// Arguments parsing error: {0} \n\nFor more information try --help.
     ParseArguments(#[from] utils::arg_parser::UtilsArgParserError),
     /// When printing Snapshot Data format: {0}

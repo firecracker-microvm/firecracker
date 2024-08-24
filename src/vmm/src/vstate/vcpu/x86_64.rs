@@ -15,6 +15,7 @@ use kvm_bindings::{
 use kvm_ioctls::{VcpuExit, VcpuFd};
 use log::{error, warn};
 use serde::{Deserialize, Serialize};
+use vmm_sys_util::fam;
 
 use crate::arch::x86_64::gen::msr_index::{MSR_IA32_TSC, MSR_IA32_TSC_DEADLINE};
 use crate::arch::x86_64::interrupts;
@@ -22,7 +23,6 @@ use crate::arch::x86_64::msr::{create_boot_msr_entries, MsrError};
 use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use crate::cpu_config::x86_64::{cpuid, CpuConfiguration};
 use crate::logger::{IncMetric, METRICS};
-use crate::utils::fam;
 use crate::vstate::memory::{Address, GuestAddress, GuestMemoryMmap};
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
 use crate::vstate::vm::Vm;
@@ -50,7 +50,7 @@ pub enum KvmVcpuError {
     /// Failed to convert `kvm_bindings::CpuId` to `Cpuid`: {0}
     ConvertCpuidType(#[from] cpuid::CpuidTryFromKvmCpuid),
     /// Failed FamStructWrapper operation: {0}
-    Fam(#[from] crate::utils::fam::Error),
+    Fam(#[from] vmm_sys_util::fam::Error),
     /// Failed to get dumpable MSR index list: {0}
     GetMsrsToDump(#[from] crate::arch::x86_64::msr::MsrError),
     /// Cannot open the VCPU file descriptor: {0}
@@ -106,7 +106,7 @@ pub enum KvmVcpuError {
 /// Error type for [`KvmVcpu::get_tsc_khz`] and [`KvmVcpu::is_tsc_scaling_required`].
 #[derive(Debug, thiserror::Error, derive_more::From, Eq, PartialEq)]
 #[error("{0}")]
-pub struct GetTscError(crate::utils::errno::Error);
+pub struct GetTscError(vmm_sys_util::errno::Error);
 
 /// Error type for [`KvmVcpu::set_tsc_khz`].
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
@@ -117,11 +117,11 @@ pub struct SetTscError(#[from] kvm_ioctls::Error);
 #[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
 pub enum KvmVcpuConfigureError {
     /// Failed to convert `Cpuid` to `kvm_bindings::CpuId`: {0}
-    ConvertCpuidType(#[from] crate::utils::fam::Error),
+    ConvertCpuidType(#[from] vmm_sys_util::fam::Error),
     /// Failed to apply modifications to CPUID: {0}
     NormalizeCpuidError(#[from] cpuid::NormalizeCpuidError),
     /// Failed to set CPUID: {0}
-    SetCpuid(#[from] crate::utils::errno::Error),
+    SetCpuid(#[from] vmm_sys_util::errno::Error),
     /// Failed to set MSRs: {0}
     SetMsrs(#[from] MsrError),
     /// Failed to setup registers: {0}

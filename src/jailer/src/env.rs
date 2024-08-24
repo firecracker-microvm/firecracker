@@ -12,9 +12,9 @@ use std::process::{exit, id, Command, Stdio};
 use std::{fmt, io};
 
 use utils::arg_parser::UtilsArgParserError::MissingValue;
-use utils::syscall::SyscallReturnCode;
 use utils::time::{get_time_us, ClockType};
 use utils::{arg_parser, validators};
+use vmm_sys_util::syscall::SyscallReturnCode;
 
 use crate::cgroup::{CgroupConfiguration, CgroupConfigurationBuilder};
 use crate::chroot::chroot;
@@ -736,9 +736,9 @@ mod tests {
     use std::fs::create_dir_all;
     use std::os::linux::fs::MetadataExt;
 
-    use utils::rand;
-    use utils::tempdir::TempDir;
-    use utils::tempfile::TempFile;
+    use vmm_sys_util::rand;
+    use vmm_sys_util::tempdir::TempDir;
+    use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
     use crate::build_arg_parser;

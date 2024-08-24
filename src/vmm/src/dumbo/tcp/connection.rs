@@ -10,6 +10,7 @@ use std::fmt::Debug;
 use std::num::{NonZeroU16, NonZeroU64, NonZeroUsize, Wrapping};
 
 use bitflags::bitflags;
+use vmm_sys_util::rand::xor_pseudo_rng_u32;
 
 use crate::dumbo::pdu::bytes::NetworkBytes;
 use crate::dumbo::pdu::tcp::{Flags as TcpFlags, TcpError as TcpSegmentError, TcpSegment};
@@ -18,7 +19,6 @@ use crate::dumbo::tcp::{
     seq_after, seq_at_or_after, NextSegmentStatus, RstConfig, MAX_WINDOW_SIZE, MSS_DEFAULT,
 };
 use crate::dumbo::ByteBuffer;
-use crate::utils::rand::xor_pseudo_rng_u32;
 
 bitflags! {
     // We use a set of flags, instead of a state machine, to represent the connection status. Some

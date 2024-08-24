@@ -16,13 +16,13 @@ pub use micro_http::{Body, HttpServer, Request, Response, ServerError, StatusCod
 use parsed_request::{ParsedRequest, RequestAction};
 use seccompiler::BpfProgramRef;
 use serde_json::json;
-use utils::eventfd::EventFd;
 use utils::time::{get_time_us, ClockType};
 use vmm::logger::{
     debug, error, info, update_metric_with_elapsed_time, warn, ProcessTimeReporter, METRICS,
 };
 use vmm::rpc_interface::{ApiRequest, ApiResponse, VmmAction};
 use vmm::vmm_config::snapshot::SnapshotType;
+use vmm_sys_util::eventfd::EventFd;
 
 /// Structure associated with the API server implementation.
 #[derive(Debug)]
@@ -204,7 +204,6 @@ mod tests {
     use std::thread;
 
     use micro_http::HttpConnection;
-    use utils::tempfile::TempFile;
     use utils::time::ClockType;
     use vmm::builder::StartMicrovmError;
     use vmm::logger::StoreMetric;
@@ -212,6 +211,7 @@ mod tests {
     use vmm::seccomp_filters::get_empty_filters;
     use vmm::vmm_config::instance_info::InstanceInfo;
     use vmm::vmm_config::snapshot::CreateSnapshotParams;
+    use vmm_sys_util::tempfile::TempFile;
 
     use super::request::cpu_configuration::parse_put_cpu_config;
     use super::*;

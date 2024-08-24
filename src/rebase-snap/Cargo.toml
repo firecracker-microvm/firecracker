@@ -14,6 +14,7 @@ displaydoc = "0.2.5"
 libc = "0.2.158"
 log-instrument = { path = "../log-instrument", optional = true }
 thiserror = "1.0.63"
+vmm-sys-util = "0.12.1"
 
 utils = { path = "../utils" }
 

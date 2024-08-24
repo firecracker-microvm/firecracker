@@ -16,6 +16,7 @@ pub use metrics::{
     IncMetric, LatencyAggregateMetrics, MetricsError, ProcessTimeReporter, SharedIncMetric,
     SharedStoreMetric, StoreMetric, METRICS,
 };
+use utils::time::{get_time_us, ClockType};
 
 /// Alias for `std::io::LineWriter<std::fs::File>`.
 pub type FcLineWriter = std::io::LineWriter<std::fs::File>;
@@ -38,7 +39,7 @@ pub fn log_dev_preview_warning(feature_name: &str, msg_opt: Option<String>) {
 /// Helper function for updating the value of a store metric with elapsed time since some time in a
 /// past.
 pub fn update_metric_with_elapsed_time(metric: &SharedStoreMetric, start_time_us: u64) -> u64 {
-    let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time_us;
+    let delta_us = get_time_us(ClockType::Monotonic) - start_time_us;
     metric.store(delta_us);
     delta_us
 }

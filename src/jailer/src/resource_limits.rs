@@ -4,7 +4,7 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
 
-use utils::syscall::SyscallReturnCode;
+use vmm_sys_util::syscall::SyscallReturnCode;
 
 use super::JailerError;
 
