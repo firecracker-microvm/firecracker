@@ -17,6 +17,7 @@ use parsed_request::{ParsedRequest, RequestAction};
 use seccompiler::BpfProgramRef;
 use serde_json::json;
 use utils::eventfd::EventFd;
+use utils::time::{get_time_us, ClockType};
 use vmm::logger::{
     debug, error, info, update_metric_with_elapsed_time, warn, ProcessTimeReporter, METRICS,
 };
@@ -101,8 +102,7 @@ impl ApiServer {
                 }
             };
             for server_request in request_vec {
-                let request_processing_start_us =
-                    utils::time::get_time_us(utils::time::ClockType::Monotonic);
+                let request_processing_start_us = get_time_us(ClockType::Monotonic);
                 // Use `self.handle_request()` as the processing callback.
                 let response = server_request
                     .process(|request| self.handle_request(request, request_processing_start_us));
@@ -110,8 +110,7 @@ impl ApiServer {
                     error!("API Server encountered an error on response: {}", err);
                 };
 
-                let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic)
-                    - request_processing_start_us;
+                let delta_us = get_time_us(ClockType::Monotonic) - request_processing_start_us;
                 debug!("Total previous API call duration: {} us.", delta_us);
             }
         }
@@ -259,7 +258,7 @@ mod tests {
         // latencies_us.pause_vm metric can be set to 0, failing the assertion below. By
         // subtracting 1 we assure that the metric will always be set to at least 1 (if it gets set
         // at all, which is what this test is trying to prove).
-        let start_time_us = utils::time::get_time_us(ClockType::Monotonic) - 1;
+        let start_time_us = get_time_us(ClockType::Monotonic) - 1;
         assert_eq!(METRICS.latencies_us.pause_vm.fetch(), 0);
         to_api.send(Box::new(Ok(VmmData::Empty))).unwrap();
         let response =
