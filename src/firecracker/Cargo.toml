@@ -18,14 +18,14 @@ bench = false
 [dependencies]
 displaydoc = "0.2.5"
 event-manager = "0.4.0"
-libc = "0.2.155"
+libc = "0.2.158"
 log-instrument = { path = "../log-instrument", optional = true }
 micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 
 seccompiler = { path = "../seccompiler" }
-serde = { version = "1.0.206", features = ["derive"] }
+serde = { version = "1.0.209", features = ["derive"] }
 serde_derive = "1.0.136"
-serde_json = "1.0.124"
+serde_json = "1.0.127"
 thiserror = "1.0.63"
 timerfd = "1.6.0"
 utils = { path = "../utils" }
@@ -33,18 +33,18 @@ vmm = { path = "../vmm" }
 
 [dev-dependencies]
 cargo_toml = "0.20.4"
-libc = "0.2.155"
+libc = "0.2.158"
 regex = { version = "1.10.6", default-features = false, features = ["std", "unicode-perl"] }
 
 # Dev-Dependencies for uffd examples
-serde = { version = "1.0.206", features = ["derive"] }
+serde = { version = "1.0.209", features = ["derive"] }
 userfaultfd = "0.8.1"
 
 [build-dependencies]
 bincode = "1.2.1"
 seccompiler = { path = "../seccompiler" }
-serde = { version = "1.0.206" }
-serde_json = "1.0.124"
+serde = { version = "1.0.209" }
+serde_json = "1.0.127"
 
 [features]
 tracing = ["log-instrument", "seccompiler/tracing", "utils/tracing", "vmm/tracing"]
