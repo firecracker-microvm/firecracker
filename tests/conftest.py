@@ -284,9 +284,11 @@ def microvm_factory(request, record_property, results_dir):
     # if the test failed, save important files from the root of the uVM into `test_results` for troubleshooting
     report = request.node.stash[PHASE_REPORT_KEY]
     if "call" in report and report["call"].failed:
+        dmesg = utils.run_cmd(["dmesg", "-dPx"])
         for uvm in uvm_factory.vms:
             uvm_data = results_dir / uvm.id
             uvm_data.mkdir()
+            uvm_data.joinpath("host-dmesg.log").write_text(dmesg.stdout)
 
             uvm_root = Path(uvm.chroot())
             for item in os.listdir(uvm_root):
