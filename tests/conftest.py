@@ -297,6 +297,9 @@ def microvm_factory(request, record_property, results_dir):
                     continue
                 dst = uvm_data / item
                 shutil.copy(src, dst)
+                console_data = uvm.console_data
+                if console_data:
+                    uvm_data.joinpath("guest-console.log").write_text(console_data)
 
     uvm_factory.kill()
 
