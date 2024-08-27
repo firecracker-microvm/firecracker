@@ -570,6 +570,33 @@ ipdb> test_microvm.help.gdbserver()
 
 You get some instructions on how to run GDB to attach to gdbserver.
 
+## How to run tests with a different version of Firecracker
+
+The integration tests usually compile Firecracker as part of the test
+initialization. But there's an option in case we want to run the tests against a
+different version of Firecracker, for example a previous release:
+
+```sh
+./tools/devtool test -- --binary-dir ../v1.8.0
+```
+
+The directory specified with `--binary-dir` should contain at least two
+binaries: `firecracker` and `jailer`.
+
+## How to run tests outside of Docker
+
+Tested in Ubuntu 22.04 and AL2023. AL2 does not work due to an old Python (3.8).
+
+```sh
+# replace with yum in Fedora/AmazonLinux
+sudo apt install python3-pip
+sudo pip3 install pytest ipython requests psutil tenacity filelock "urllib3<2.0" requests_unixsocket aws_embedded_metrics pytest-json-report pytest-timeout
+cd tests
+sudo env /usr/local/bin/pytest integration_tests/functional/test_api.py
+```
+
+> :warning: **Notice this runs the tests as root!**
+
 ## Sandbox
 
 ```sh

@@ -22,7 +22,7 @@ event-manager = "0.4.0"
 kvm-bindings = { version = "0.9.0", features = ["fam-wrappers", "serde"] }
 kvm-ioctls = "0.18.0"
 lazy_static = "1.5.0"
-libc = "0.2.155"
+libc = "0.2.158"
 linux-loader = "0.11.0"
 log = { version = "0.4.22", features = ["std", "serde"] }
 log-instrument = { path = "../log-instrument", optional = true }
@@ -31,8 +31,8 @@ micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 
 seccompiler = { path = "../seccompiler" }
 semver = { version = "1.0.23", features = ["serde"] }
-serde = { version = "1.0.206", features = ["derive", "rc"] }
-serde_json = "1.0.124"
+serde = { version = "1.0.209", features = ["derive", "rc"] }
+serde_json = "1.0.127"
 slab = "0.4.7"
 smallvec = "1.11.2"
 thiserror = "1.0.63"

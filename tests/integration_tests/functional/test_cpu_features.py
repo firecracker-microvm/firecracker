@@ -402,6 +402,7 @@ def test_cpu_wrmsr_snapshot(
         mem_size_mib=guest_mem_mib,
         cpu_template=msr_cpu_template,
         track_dirty_pages=True,
+        boot_args="msr.allow_writes=on",
     )
     vm.start()
 
