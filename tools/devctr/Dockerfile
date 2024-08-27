@@ -74,10 +74,6 @@ RUN apt-get update \
         screen tmux \
         tzdata \
         tini \
-        # for cpu-template-helper
-        # TODO: Remove `dmidecode` after the end of kernel 4.14 support.
-        # https://github.com/firecracker-microvm/firecracker/issues/3677
-        dmidecode \
         # for aws-lc-rs
         cmake \
         # for Qemu vhost-user-blk backend
