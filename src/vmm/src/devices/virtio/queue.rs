@@ -18,6 +18,7 @@ use crate::vstate::memory::{
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
+pub(super) const VIRTQ_DESC_F_INDIRECT: u16 = 0x4;
 
 /// Max size of virtio queues offered by firecracker's virtio devices.
 pub(super) const FIRECRACKER_MAX_QUEUE_SIZE: u16 = 256;
@@ -43,12 +44,32 @@ pub enum QueueError {
 /// https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html#x1-430008
 /// 2.6.5 The Virtqueue Descriptor Table
 #[repr(C)]
-#[derive(Default, Clone, Copy)]
-struct Descriptor {
-    addr: u64,
-    len: u32,
-    flags: u16,
-    next: u16,
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Descriptor {
+    pub addr: u64,
+    pub len: u32,
+    pub flags: u16,
+    pub next: u16,
+}
+
+impl Descriptor {
+    /// Gets if this descriptor chain has another descriptor chain linked after it.
+    pub fn has_next(&self) -> bool {
+        self.flags & VIRTQ_DESC_F_NEXT != 0
+    }
+
+    /// If the driver designated this as a write only descriptor.
+    ///
+    /// If this is false, this descriptor is read only.
+    /// Write only means the emulated device can write and the driver can read.
+    pub fn is_write_only(&self) -> bool {
+        self.flags & VIRTQ_DESC_F_WRITE != 0
+    }
+
+    /// If the driver designated this as a indirect descriptor.
+    pub fn is_indirect(&self) -> bool {
+        self.flags & VIRTQ_DESC_F_INDIRECT != 0
+    }
 }
 
 // SAFETY: `Descriptor` is a POD and contains no padding.
@@ -59,10 +80,10 @@ unsafe impl ByteValued for Descriptor {}
 /// https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html#x1-430008
 /// 2.6.8 The Virtqueue Used Ring
 #[repr(C)]
-#[derive(Default, Clone, Copy)]
-struct UsedElement {
-    id: u32,
-    len: u32,
+#[derive(Default, Debug, Clone, Copy)]
+pub struct UsedElement {
+    pub id: u32,
+    pub len: u32,
 }
 
 // SAFETY: `UsedElement` is a POD and contains no padding.
@@ -113,17 +134,16 @@ impl<'a, M: GuestMemory> DescriptorChain<'a, M> {
         // bounds.
         let desc_head = desc_table.unchecked_add(u64::from(index) * 16);
 
-        // These reads can't fail unless Guest memory is hopelessly broken.
-        let desc = match mem.read_obj::<Descriptor>(desc_head) {
-            Ok(ret) => ret,
-            Err(err) => {
-                error!(
-                    "Failed to read virtio descriptor from memory at address {:#x}: {}",
-                    desc_head.0, err
-                );
-                return None;
-            }
-        };
+        // SAFETY:
+        // This can't fail as we checked the `desc_head`
+        let ptr = mem.get_host_address(desc_head).unwrap();
+
+        // SAFETY:
+        // Safe as we know that `ptr` is inside guest memory and
+        // following `std::mem::size_of::<Descriptor>` bytes belong
+        // to the descriptor table
+        let desc: &Descriptor = unsafe { &*ptr.cast::<Descriptor>() };
+
         let chain = DescriptorChain {
             mem,
             desc_table,
@@ -158,6 +178,11 @@ impl<'a, M: GuestMemory> DescriptorChain<'a, M> {
     /// Write only means the emulated device can write and the driver can read.
     pub fn is_write_only(&self) -> bool {
         self.flags & VIRTQ_DESC_F_WRITE != 0
+    }
+
+    /// If the driver designated this as a indirect descriptor.
+    pub fn is_indirect(&self) -> bool {
+        self.flags & VIRTQ_DESC_F_INDIRECT != 0
     }
 
     /// Gets the next descriptor in this descriptor chain, if there is one.
@@ -391,7 +416,7 @@ impl Queue {
     /// # Important
     /// This is an internal method that ASSUMES THAT THERE ARE AVAILABLE DESCRIPTORS. Otherwise it
     /// will retrieve a descriptor that contains garbage data (obsolete/empty).
-    fn do_pop_unchecked<'b, M: GuestMemory>(
+    pub fn do_pop_unchecked<'b, M: GuestMemory>(
         &mut self,
         mem: &'b M,
     ) -> Option<DescriptorChain<'b, M>> {
@@ -402,33 +427,33 @@ impl Queue {
         // In a naive notation, that would be:
         // `descriptor_table[avail_ring[next_avail]]`.
         //
-        // First, we compute the byte-offset (into `self.avail_ring`) of the index of the next
-        // available descriptor. `self.avail_ring` stores the address of a `struct
-        // virtq_avail`, as defined by the VirtIO spec:
-        //
-        // ```C
-        // struct virtq_avail {
-        //   le16 flags;
-        //   le16 idx;
-        //   le16 ring[QUEUE_SIZE];
-        //   le16 used_event
+        // Avail ring has layout:
+        // struct AvailRing {
+        //     flags: u16,
+        //     idx: u16,
+        //     ring: [u16; <queue size>],
+        //     used_event: u16,
         // }
-        // ```
-        //
-        // We use `self.next_avail` to store the position, in `ring`, of the next available
-        // descriptor index, with a twist: we always only increment `self.next_avail`, so the
-        // actual position will be `self.next_avail % self.actual_size()`.
-        // We are now looking for the offset of `ring[self.next_avail % self.actual_size()]`.
-        // `ring` starts after `flags` and `idx` (4 bytes into `struct virtq_avail`), and holds
-        // 2-byte items, so the offset will be:
-        let index_offset = 4 + 2 * (self.next_avail.0 % self.actual_size());
+        // We calculate offset into `ring` field.
+        // We use `self.next_avail` to store the position, of the next available descriptor
+        // index in the `ring` field. Because `self.next_avail` is only incremented, the actual
+        // index into `AvailRing` is `self.next_avail % self.actual_size()`.
+        let desc_index_offset = std::mem::size_of::<u16>()
+            + std::mem::size_of::<u16>()
+            + std::mem::size_of::<u16>() * usize::from(self.next_avail.0 % self.actual_size());
+        let desc_index_address = self
+            .avail_ring
+            .unchecked_add(usize_to_u64(desc_index_offset));
 
         // `self.is_valid()` already performed all the bound checks on the descriptor table
         // and virtq rings, so it's safe to unwrap guest memory reads and to use unchecked
         // offsets.
-        let desc_index: u16 = mem
-            .read_obj(self.avail_ring.unchecked_add(u64::from(index_offset)))
+        let slice = mem
+            .get_slice(desc_index_address, std::mem::size_of::<u16>())
             .unwrap();
+        // SAFETY:
+        // We transforming valid memory slice
+        let desc_index = unsafe { *slice.ptr_guard().as_ptr().cast::<u16>() };
 
         DescriptorChain::checked_new(mem, self.desc_table, self.actual_size(), desc_index).map(
             |dc| {
@@ -453,24 +478,66 @@ impl Queue {
     ) -> Result<(), QueueError> {
         debug_assert!(self.is_layout_valid(mem));
 
-        let next_used = self.next_used.0 % self.actual_size();
         let used_element = UsedElement {
             id: u32::from(desc_index),
             len,
         };
-        self.write_used_ring(mem, next_used, used_element)?;
+        self.write_used_ring(mem, self.next_used.0, used_element)?;
+        self.advance_used_ring(mem, 1);
+        Ok(())
+    }
 
-        self.num_added += Wrapping(1);
-        self.next_used += Wrapping(1);
+    /// Advance number of used descriptor heads by `n`.
+    pub fn advance_used_ring<M: GuestMemory>(&mut self, mem: &M, n: u16) {
+        self.num_added += Wrapping(n);
+        self.next_used += Wrapping(n);
 
         // This fence ensures all descriptor writes are visible before the index update is.
         fence(Ordering::Release);
 
         self.set_used_ring_idx(self.next_used.0, mem);
-        Ok(())
     }
 
-    fn write_used_ring<M: GuestMemory>(
+    /// Discards last `n` descriptors by setting their len to 0.
+    pub fn discard_used<M: GuestMemory>(&mut self, mem: &M, n: u16) {
+        // `next_used` is pointing to the next descriptor index.
+        // So we use range 1..n + 1 to get indexes of last n descriptors.
+        for i in 1..n + 1 {
+            let next_used_index = self.next_used - Wrapping(i);
+            let mut used_element = self.read_used_ring(mem, next_used_index.0);
+            used_element.len = 0;
+            // SAFETY:
+            // This should never panic as we only update len of the used_element.
+            self.write_used_ring(mem, next_used_index.0, used_element)
+                .unwrap();
+        }
+    }
+
+    /// Read used element from a used ring at specified index.
+    #[inline(always)]
+    pub fn read_used_ring<M: GuestMemory>(&self, mem: &M, index: u16) -> UsedElement {
+        // Used ring has layout:
+        // struct UsedRing {
+        //     flags: u16,
+        //     idx: u16,
+        //     ring: [UsedElement; <queue size>],
+        //     avail_event: u16,
+        // }
+        // We calculate offset into `ring` field.
+        let used_ring_offset = std::mem::size_of::<u16>()
+            + std::mem::size_of::<u16>()
+            + std::mem::size_of::<UsedElement>() * usize::from(index % self.actual_size());
+        let used_element_address = self.used_ring.unchecked_add(usize_to_u64(used_ring_offset));
+
+        // SAFETY:
+        // `used_element_address` param is bounded by size of the queue as `index` is
+        // modded by `actual_size()`.
+        mem.read_obj(used_element_address).unwrap()
+    }
+
+    /// Read used element to the used ring at specified index.
+    #[inline(always)]
+    pub fn write_used_ring<M: GuestMemory>(
         &self,
         mem: &M,
         index: u16,
@@ -494,11 +561,17 @@ impl Queue {
         // We calculate offset into `ring` field.
         let used_ring_offset = std::mem::size_of::<u16>()
             + std::mem::size_of::<u16>()
-            + std::mem::size_of::<UsedElement>() * usize::from(index);
+            + std::mem::size_of::<UsedElement>() * usize::from(index % self.actual_size());
         let used_element_address = self.used_ring.unchecked_add(usize_to_u64(used_ring_offset));
 
-        mem.write_obj(used_element, used_element_address)
-            .map_err(QueueError::UsedRing)
+        // SAFETY:
+        // `used_element_address` param is bounded by size of the queue as `index` is
+        // modded by `actual_size()`.
+        // `self.is_valid()` already performed all the bound checks on the descriptor table
+        // and virtq rings, so it's safe to unwrap guest memory reads and to use unchecked
+        // offsets.
+        mem.write_obj(used_element, used_element_address).unwrap();
+        Ok(())
     }
 
     /// Fetch the available ring index (`virtq_avail->idx`) from guest memory.
@@ -529,7 +602,7 @@ impl Queue {
 
     /// Helper method that writes to the `avail_event` field of the used ring.
     #[inline(always)]
-    fn set_used_ring_avail_event<M: GuestMemory>(&mut self, avail_event: u16, mem: &M) {
+    pub fn set_used_ring_avail_event<M: GuestMemory>(&mut self, avail_event: u16, mem: &M) {
         debug_assert!(self.is_layout_valid(mem));
 
         // Used ring has layout:
@@ -552,7 +625,7 @@ impl Queue {
 
     /// Helper method that writes to the `idx` field of the used ring.
     #[inline(always)]
-    fn set_used_ring_idx<M: GuestMemory>(&mut self, next_used: u16, mem: &M) {
+    pub fn set_used_ring_idx<M: GuestMemory>(&mut self, next_used: u16, mem: &M) {
         debug_assert!(self.is_layout_valid(mem));
 
         // Used ring has layout:
@@ -1175,9 +1248,6 @@ mod tests {
         // index >= queue_size
         assert!(DescriptorChain::checked_new(m, vq.dtable_start(), 16, 16).is_none());
 
-        // desc_table address is way off
-        assert!(DescriptorChain::checked_new(m, GuestAddress(0x00ff_ffff_ffff), 16, 0).is_none());
-
         // Let's create an invalid chain.
         {
             // The first desc has a normal len, and the next_descriptor flag is set.
@@ -1209,6 +1279,16 @@ mod tests {
 
             assert!(c.next_descriptor().unwrap().next_descriptor().is_none());
         }
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_checked_new_descriptor_chain_panic() {
+        let m = &multi_region_mem(&[(GuestAddress(0), 0x10000)]);
+
+        // `checked_new` does assume that `desc_table` is valid.
+        // When desc_table address is way off, it should panic.
+        DescriptorChain::checked_new(m, GuestAddress(0x00ff_ffff_ffff), 16, 0);
     }
 
     #[test]

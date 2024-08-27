@@ -6,11 +6,12 @@ use std::io::ErrorKind;
 use libc::{c_void, iovec, size_t};
 use smallvec::SmallVec;
 use vm_memory::{
-    GuestMemoryError, ReadVolatile, VolatileMemoryError, VolatileSlice, WriteVolatile,
+    GuestAddress, GuestMemoryError, ReadVolatile, VolatileMemoryError, VolatileSlice, WriteVolatile,
 };
 
+use super::queue::Descriptor;
 use crate::devices::virtio::queue::DescriptorChain;
-use crate::vstate::memory::{Bitmap, GuestMemory};
+use crate::vstate::memory::{Bitmap, GuestMemory, GuestMemoryMmap};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum IoVecError {
@@ -20,6 +21,8 @@ pub enum IoVecError {
     ReadOnlyDescriptor,
     /// Tried to create an `IoVec` or `IoVecMut` from a descriptor chain that was too large
     OverflowedDescriptor,
+    /// Nested indirect descriptor
+    NestedIndirectDescriptor,
     /// Guest memory error: {0}
     GuestMemory(#[from] GuestMemoryError),
 }
@@ -63,31 +66,73 @@ impl IoVecBuffer {
 
         let mut next_descriptor = Some(head);
         while let Some(desc) = next_descriptor {
-            if desc.is_write_only() {
-                return Err(IoVecError::WriteOnlyDescriptor);
-            }
+            if desc.is_indirect() {
+                // We use get_slice instead of `get_host_address` here in order to have the whole
+                // range of the descriptor chain checked, i.e. [addr, addr + len) is a valid memory
+                // region in the GuestMemoryMmap.
+                let indirect_desc_slice = desc
+                    .mem
+                    .get_slice(desc.addr, desc.len as usize)
+                    .map_err(IoVecError::GuestMemory)?;
 
-            // We use get_slice instead of `get_host_address` here in order to have the whole
-            // range of the descriptor chain checked, i.e. [addr, addr + len) is a valid memory
-            // region in the GuestMemoryMmap.
-            let iov_base = desc
-                .mem
-                .get_slice(desc.addr, desc.len as usize)?
-                .ptr_guard_mut()
-                .as_ptr()
-                .cast::<c_void>();
-            self.vecs.push(iovec {
-                iov_base,
-                iov_len: desc.len as size_t,
-            });
-            self.len = self
-                .len
-                .checked_add(desc.len)
-                .ok_or(IoVecError::OverflowedDescriptor)?;
+                // SAFETY:
+                // We checked the slice above. We just transform it into
+                // a slice of Descriptors.
+                let indirect_desc_slice: &[Descriptor] = unsafe {
+                    std::slice::from_raw_parts(
+                        indirect_desc_slice.ptr_guard().as_ptr().cast(),
+                        desc.len as usize / std::mem::size_of::<Descriptor>(),
+                    )
+                };
+
+                for d in indirect_desc_slice.iter() {
+                    if desc.is_write_only() {
+                        return Err(IoVecError::WriteOnlyDescriptor);
+                    }
+                    if d.is_indirect() {
+                        return Err(IoVecError::NestedIndirectDescriptor);
+                    }
+                    self.add_descriptor(desc.mem, GuestAddress(d.addr), d.len)?;
+                    if !d.has_next() {
+                        break;
+                    }
+                }
+            } else {
+                if desc.is_write_only() {
+                    return Err(IoVecError::WriteOnlyDescriptor);
+                }
+
+                self.add_descriptor(desc.mem, desc.addr, desc.len)?;
+            }
 
             next_descriptor = desc.next_descriptor();
         }
 
+        Ok(())
+    }
+
+    fn add_descriptor(
+        &mut self,
+        mem: &GuestMemoryMmap,
+        addr: GuestAddress,
+        len: u32,
+    ) -> Result<(), IoVecError> {
+        // We use get_slice instead of `get_host_address` here in order to have the whole
+        // range of the descriptor chain checked, i.e. [addr, addr + len) is a valid memory
+        // region in the GuestMemoryMmap.
+        let iov_base = mem
+            .get_slice(addr, len as usize)?
+            .ptr_guard_mut()
+            .as_ptr()
+            .cast::<c_void>();
+        self.vecs.push(iovec {
+            iov_base,
+            iov_len: len as size_t,
+        });
+        self.len = self
+            .len
+            .checked_add(len)
+            .ok_or(IoVecError::OverflowedDescriptor)?;
         Ok(())
     }
 
@@ -97,10 +142,8 @@ impl IoVecBuffer {
     ///
     /// The descriptor chain cannot be referencing the same memory location as another chain
     pub unsafe fn from_descriptor_chain(head: DescriptorChain) -> Result<Self, IoVecError> {
-        let mut new_buffer: Self = Default::default();
-
+        let mut new_buffer = Self::default();
         new_buffer.load_descriptor_chain(head)?;
-
         Ok(new_buffer)
     }
 
@@ -217,8 +260,10 @@ impl IoVecBuffer {
 /// It describes a write-only buffer passed to us by the guest that is scattered across multiple
 /// memory regions. Additionally, this wrapper provides methods that allow reading arbitrary ranges
 /// of data from that buffer.
-#[derive(Debug)]
+#[derive(Debug, Default, Clone)]
 pub struct IoVecBufferMut {
+    // Index of the head desciptor
+    head_index: u16,
     // container of the memory regions included in this IO vector
     vecs: IoVecVec,
     // Total length of the IoVecBufferMut
@@ -226,42 +271,130 @@ pub struct IoVecBufferMut {
 }
 
 impl IoVecBufferMut {
-    /// Create an `IoVecBufferMut` from a `DescriptorChain`
-    pub fn from_descriptor_chain(head: DescriptorChain) -> Result<Self, IoVecError> {
-        let mut vecs = IoVecVec::new();
-        let mut len = 0u32;
+    /// Create an `IoVecBuffer` from a `DescriptorChain`
+    ///
+    /// # Safety
+    ///
+    /// The descriptor chain cannot be referencing the same memory location as another chain
+    pub unsafe fn load_descriptor_chain(
+        &mut self,
+        head: DescriptorChain,
+    ) -> Result<(), IoVecError> {
+        self.clear();
+        self.head_index = head.index;
 
-        for desc in head {
-            if !desc.is_write_only() {
-                return Err(IoVecError::ReadOnlyDescriptor);
+        let mut next_descriptor = Some(head);
+        while let Some(desc) = next_descriptor {
+            if desc.is_indirect() {
+                // We use get_slice instead of `get_host_address` here in order to have the whole
+                // range of the descriptor chain checked, i.e. [addr, addr + len) is a valid memory
+                // region in the GuestMemoryMmap.
+                let indirect_desc_slice = desc
+                    .mem
+                    .get_slice(desc.addr, desc.len as usize)
+                    .map_err(IoVecError::GuestMemory)?;
+
+                // SAFETY:
+                // We checked the slice above. We just transform it into
+                // a slice of Descriptors.
+                let indirect_desc_slice: &[Descriptor] = unsafe {
+                    std::slice::from_raw_parts(
+                        indirect_desc_slice.ptr_guard().as_ptr().cast(),
+                        desc.len as usize / std::mem::size_of::<Descriptor>(),
+                    )
+                };
+
+                for d in indirect_desc_slice.iter() {
+                    if !desc.is_write_only() {
+                        return Err(IoVecError::ReadOnlyDescriptor);
+                    }
+                    if d.is_indirect() {
+                        return Err(IoVecError::NestedIndirectDescriptor);
+                    }
+                    self.add_descriptor(desc.mem, GuestAddress(d.addr), d.len)?;
+                    if !d.has_next() {
+                        break;
+                    }
+                }
+            } else {
+                if !desc.is_write_only() {
+                    return Err(IoVecError::ReadOnlyDescriptor);
+                }
+
+                self.add_descriptor(desc.mem, desc.addr, desc.len)?;
             }
 
-            // We use get_slice instead of `get_host_address` here in order to have the whole
-            // range of the descriptor chain checked, i.e. [addr, addr + len) is a valid memory
-            // region in the GuestMemoryMmap.
-            let slice = desc.mem.get_slice(desc.addr, desc.len as usize)?;
-
-            // We need to mark the area of guest memory that will be mutated through this
-            // IoVecBufferMut as dirty ahead of time, as we loose access to all
-            // vm-memory related information after converting down to iovecs.
-            slice.bitmap().mark_dirty(0, desc.len as usize);
-
-            let iov_base = slice.ptr_guard_mut().as_ptr().cast::<c_void>();
-            vecs.push(iovec {
-                iov_base,
-                iov_len: desc.len as size_t,
-            });
-            len = len
-                .checked_add(desc.len)
-                .ok_or(IoVecError::OverflowedDescriptor)?;
+            next_descriptor = desc.next_descriptor();
         }
 
-        Ok(Self { vecs, len })
+        Ok(())
+    }
+
+    fn add_descriptor(
+        &mut self,
+        mem: &GuestMemoryMmap,
+        addr: GuestAddress,
+        len: u32,
+    ) -> Result<(), IoVecError> {
+        // We use get_slice instead of `get_host_address` here in order to have the whole
+        // range of the descriptor chain checked, i.e. [addr, addr + len) is a valid memory
+        // region in the GuestMemoryMmap.
+        let slice = mem.get_slice(addr, len as usize)?;
+
+        // We need to mark the area of guest memory that will be mutated through this
+        // IoVecBufferMut as dirty ahead of time, as we loose access to all
+        // vm-memory related information after converting down to iovecs.
+        slice.bitmap().mark_dirty(0, len as usize);
+
+        let iov_base = slice.ptr_guard_mut().as_ptr().cast::<c_void>();
+        self.vecs.push(iovec {
+            iov_base,
+            iov_len: len as size_t,
+        });
+        self.len = self
+            .len
+            .checked_add(len)
+            .ok_or(IoVecError::OverflowedDescriptor)?;
+        Ok(())
+    }
+
+    /// Create an `IoVecBuffer` from a `DescriptorChain`
+    ///
+    /// # Safety
+    ///
+    /// The descriptor chain cannot be referencing the same memory location as another chain
+    pub unsafe fn from_descriptor_chain(head: DescriptorChain) -> Result<Self, IoVecError> {
+        let mut new_buffer = Self::default();
+        new_buffer.load_descriptor_chain(head)?;
+        Ok(new_buffer)
+    }
+
+    /// Get the index of the haed descriptor from which this IoVecBuffer
+    /// was built.
+    pub fn head_index(&self) -> u16 {
+        self.head_index
+    }
+
+    /// Get the host pointer to the first buffer in the guest,
+    /// this buffer points to.
+    ///
+    /// # Safety
+    ///
+    /// It is assumed that IoVecBuffer will never have 0 elements
+    /// as it is build from at least one DescriptorChain.
+    pub fn start_address(&self) -> *mut libc::c_void {
+        self.vecs[0].iov_base
     }
 
     /// Get the total length of the memory regions covered by this `IoVecBuffer`
     pub(crate) fn len(&self) -> u32 {
         self.len
+    }
+
+    /// Clears the `iovec` array
+    pub fn clear(&mut self) {
+        self.vecs.clear();
+        self.len = 0u32;
     }
 
     /// Writes a number of bytes into the `IoVecBufferMut` starting at a given offset.
@@ -397,6 +530,7 @@ mod tests {
     impl From<&mut [u8]> for IoVecBufferMut {
         fn from(buf: &mut [u8]) -> Self {
             Self {
+                head_index: 0,
                 vecs: vec![iovec {
                     iov_base: buf.as_mut_ptr().cast::<c_void>(),
                     iov_len: buf.len(),
@@ -468,11 +602,13 @@ mod tests {
 
         let (mut q, _) = read_only_chain(&mem);
         let head = q.pop(&mem).unwrap();
-        IoVecBufferMut::from_descriptor_chain(head).unwrap_err();
+        // SAFETY: This descriptor chain is only loaded into one buffer
+        unsafe { IoVecBufferMut::from_descriptor_chain(head).unwrap_err() };
 
         let (mut q, _) = write_only_chain(&mem);
         let head = q.pop(&mem).unwrap();
-        IoVecBufferMut::from_descriptor_chain(head).unwrap();
+        // SAFETY: This descriptor chain is only loaded into one buffer
+        unsafe { IoVecBufferMut::from_descriptor_chain(head).unwrap() };
     }
 
     #[test]
@@ -493,7 +629,7 @@ mod tests {
         let head = q.pop(&mem).unwrap();
 
         // SAFETY: This descriptor chain is only loaded once in this test
-        let iovec = IoVecBufferMut::from_descriptor_chain(head).unwrap();
+        let iovec = unsafe { IoVecBufferMut::from_descriptor_chain(head).unwrap() };
         assert_eq!(iovec.len(), 4 * 64);
     }
 
@@ -558,7 +694,8 @@ mod tests {
         // This is a descriptor chain with 4 elements 64 bytes long each.
         let head = q.pop(&mem).unwrap();
 
-        let mut iovec = IoVecBufferMut::from_descriptor_chain(head).unwrap();
+        // SAFETY: This descriptor chain is only loaded into one buffer
+        let mut iovec = unsafe { IoVecBufferMut::from_descriptor_chain(head).unwrap() };
         let buf = vec![0u8, 1, 2, 3, 4];
 
         // One test vector for each part of the chain
@@ -705,7 +842,12 @@ mod verification {
             };
 
             let (vecs, len) = create_iovecs(mem, GUEST_MEMORY_SIZE);
-            Self { vecs, len }
+            let head_index = kani::any();
+            Self {
+                head_index,
+                vecs,
+                len,
+            }
         }
     }
 
