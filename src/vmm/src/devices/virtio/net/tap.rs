@@ -14,7 +14,7 @@ use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use utils::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 use utils::{ioctl_ioc_nr, ioctl_iow_nr};
 
-use crate::devices::virtio::iovec::IoVecBuffer;
+use crate::devices::virtio::iovec::{IoVecBuffer, IoVecBufferMut};
 use crate::devices::virtio::net::gen;
 #[cfg(test)]
 use crate::devices::virtio::net::test_utils::Mocks;
@@ -185,8 +185,22 @@ impl Tap {
         Ok(())
     }
 
+    /// Read an `IoVecBufferMut` from tap
+    pub(crate) fn read_iovec(&self, buffer: &mut IoVecBufferMut) -> Result<usize, IoError> {
+        let iovcnt = i32::try_from(buffer.iovec_count()).unwrap();
+        let iov = buffer.as_iovec_ptr();
+
+        // SAFETY: `readv` is safe. Called with a valid tap fd, the iovec pointer and length
+        // is provide by the `IoVecBufferMut` implementation and we check the return value.
+        let ret = unsafe { libc::readv(self.tap_file.as_raw_fd(), iov, iovcnt) };
+        if ret == -1 {
+            return Err(IoError::last_os_error());
+        }
+        Ok(usize::try_from(ret).unwrap())
+    }
+
     /// Write an `IoVecBuffer` to tap
-    pub(crate) fn write_iovec(&mut self, buffer: &IoVecBuffer) -> Result<usize, IoError> {
+    pub(crate) fn write_iovec(&self, buffer: &IoVecBuffer) -> Result<usize, IoError> {
         let iovcnt = i32::try_from(buffer.iovec_count()).unwrap();
         let iov = buffer.as_iovec_ptr();
 
@@ -324,6 +338,28 @@ pub mod tests {
     }
 
     #[test]
+    fn test_read_iovec() {
+        let tap = Tap::open_named("").unwrap();
+        enable(&tap);
+        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&tap));
+
+        let packet = utils::rand::rand_alphanumerics(PAYLOAD_SIZE);
+        tap_traffic_simulator.push_tx_packet(packet.as_bytes());
+
+        let mut fragment1 = [0_u8; VNET_HDR_SIZE];
+        let mut fragment2 = [0_u8; PAYLOAD_SIZE];
+
+        let mut scattered =
+            IoVecBufferMut::from(vec![fragment1.as_mut_slice(), fragment2.as_mut_slice()]);
+
+        assert_eq!(
+            tap.read_iovec(&mut scattered).unwrap(),
+            PAYLOAD_SIZE + VNET_HDR_SIZE
+        );
+        assert_eq!(fragment2, packet.as_bytes());
+    }
+
+    #[test]
     fn test_write() {
         let mut tap = Tap::open_named("").unwrap();
         enable(&tap);
@@ -345,7 +381,7 @@ pub mod tests {
 
     #[test]
     fn test_write_iovec() {
-        let mut tap = Tap::open_named("").unwrap();
+        let tap = Tap::open_named("").unwrap();
         enable(&tap);
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&tap));
 

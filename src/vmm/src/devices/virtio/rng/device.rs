@@ -132,7 +132,8 @@ impl Entropy {
             let index = desc.index;
             METRICS.entropy_event_count.inc();
 
-            let bytes = match IoVecBufferMut::from_descriptor_chain(desc) {
+            // SAFETY: This descriptor chain is only loaded into one buffer.
+            let bytes = match unsafe { IoVecBufferMut::from_descriptor_chain(desc) } {
                 Ok(mut iovec) => {
                     debug!(
                         "entropy: guest request for {} bytes of entropy",
@@ -428,13 +429,15 @@ mod tests {
         // This should succeed, we just added two descriptors
         let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop(&mem).unwrap();
         assert!(matches!(
-            IoVecBufferMut::from_descriptor_chain(desc),
+            // SAFETY: This descriptor chain is only loaded into one buffer.
+            unsafe { IoVecBufferMut::from_descriptor_chain(desc) },
             Err(crate::devices::virtio::iovec::IoVecError::ReadOnlyDescriptor)
         ));
 
         // This should succeed, we should have one more descriptor
         let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop(&mem).unwrap();
-        let mut iovec = IoVecBufferMut::from_descriptor_chain(desc).unwrap();
+        // SAFETY: This descriptor chain is only loaded into one buffer.
+        let mut iovec = unsafe { IoVecBufferMut::from_descriptor_chain(desc).unwrap() };
         entropy_dev.handle_one(&mut iovec).unwrap();
     }
 

@@ -26,6 +26,10 @@
                 "syscall": "read"
             },
             {
+                "syscall": "readv",
+                "comment": "Used by the VirtIO net device to read from tap"
+            },
+            {
                 "syscall": "write"
             },
             {
