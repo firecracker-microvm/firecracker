@@ -297,7 +297,8 @@ pub enum DumpCpuConfigError {
 #[derive(Debug)]
 pub struct Vmm {
     events_observer: Option<std::io::Stdin>,
-    instance_info: InstanceInfo,
+    /// The [`InstanceInfo`] state of this [`Vmm`].
+    pub instance_info: InstanceInfo,
     shutdown_exit_code: Option<FcExitCode>,
 
     // Guest VM core resources.

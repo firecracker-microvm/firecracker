@@ -10,12 +10,12 @@ name = "cpu-template-helper"
 bench = false
 
 [dependencies]
-clap = { version = "4.5.15", features = ["derive", "string"] }
+clap = { version = "4.5.16", features = ["derive", "string"] }
 displaydoc = "0.2.5"
-libc = "0.2.155"
+libc = "0.2.158"
 log-instrument = { path = "../log-instrument", optional = true }
-serde = { version = "1.0.206", features = ["derive"] }
-serde_json = "1.0.124"
+serde = { version = "1.0.209", features = ["derive"] }
+serde_json = "1.0.127"
 thiserror = "1.0.63"
 
 vmm = { path = "../vmm" }
