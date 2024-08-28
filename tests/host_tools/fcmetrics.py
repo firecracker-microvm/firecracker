@@ -157,6 +157,7 @@ def validate_fc_metrics(metrics):
             "hotplug_request_fails",
             "vcpu_hotplug_request_fails",
             "vcpus_added",
+            "vcpus_removed",
         ],
         "i8042": [
             "error_count",

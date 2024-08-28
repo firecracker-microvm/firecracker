@@ -976,10 +976,12 @@ definitions:
         type: object
         description: Hotplug requests relating to vCPU cores.
         properties:
-          add:
-            description: Number of vCPUs cores to be added to the VM
+          target:
+            description: The new number of vCPUs the system should have.
             type: integer
             minimum: 1
+            maximum: 32
+          
 
 
   InstanceActionInfo:
