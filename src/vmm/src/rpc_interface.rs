@@ -670,7 +670,17 @@ impl RuntimeApiController {
                 self.vmm.lock().expect("Poisoned lock").version(),
             )),
             #[cfg(target_arch = "x86_64")]
-            HotplugRequest(request_type) => self.handle_hotplug_request(request_type),
+            HotplugRequest(request_type) => {
+                let curr_vcpus: u8 = self
+                    .vmm
+                    .lock()
+                    .expect("Poisoned lock")
+                    .vcpus_handles
+                    .len()
+                    .try_into()
+                    .unwrap();
+                self.handle_hotplug_request(request_type, curr_vcpus)
+            }
             PatchMMDS(value) => self.patch_mmds(value),
             Pause => self.pause(),
             PutMMDS(value) => self.put_mmds(value),
@@ -872,13 +882,25 @@ impl RuntimeApiController {
     fn handle_hotplug_request(
         &mut self,
         cfg: HotplugRequestConfig,
+        curr_vcpus: u8,
     ) -> Result<VmmData, VmmActionError> {
         match cfg {
             HotplugRequestConfig::Vcpu(cfg) => {
-                let result = self.vmm.lock().expect("Poisoned lock").hotplug_vcpus(cfg);
-                result
-                    .map_err(|err| VmmActionError::HotplugRequest(HotplugRequestError::Vcpu(err)))
-                    .and_then(|machine_cfg_update| self.update_vm_config(machine_cfg_update))
+                if cfg.target > curr_vcpus {
+                    let result = self.vmm.lock().expect("Poisoned lock").hotplug_vcpus(cfg);
+                    result
+                        .map_err(|err| {
+                            VmmActionError::HotplugRequest(HotplugRequestError::Vcpu(err))
+                        })
+                        .and_then(|machine_cfg_update| self.update_vm_config(machine_cfg_update))
+                } else {
+                    let result = self.vmm.lock().expect("Poisoned lock").hotunplug_vcpus(cfg);
+                    result
+                        .map_err(|err| {
+                            VmmActionError::HotplugRequest(HotplugRequestError::Vcpu(err))
+                        })
+                        .and_then(|machine_cfg_update| self.update_vm_config(machine_cfg_update))
+                }
             }
         }
     }

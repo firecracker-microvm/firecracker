@@ -615,7 +615,7 @@ impl Vmm {
         config: HotplugVcpuConfig,
     ) -> Result<MachineConfigUpdate, HotplugVcpuError> {
         use crate::logger::IncMetric;
-        if config.target > MAX_SUPPORTED_VCPUS.into() {
+        if config.target > MAX_SUPPORTED_VCPUS {
             return Err(HotplugVcpuError::VcpuCountTooHigh);
         }
 
@@ -682,6 +682,52 @@ impl Vmm {
     }
 
     /// Removes vCPUs from VMM.
+    #[cfg(target_arch = "x86_64")]
+    pub fn hotunplug_vcpus(
+        &mut self,
+        config: HotplugVcpuConfig,
+    ) -> Result<MachineConfigUpdate, HotplugVcpuError> {
+        use crate::logger::IncMetric;
+        if config.target < 1 {
+            return Err(HotplugVcpuError::VcpuCountTooLow);
+        }
+        if let Some(kvm_config) = self.vcpu_config.as_mut() {
+            kvm_config.vcpu_count = config.target;
+        }
+
+        #[allow(clippy::cast_possible_truncation)]
+        let start_idx: u8 = config.target;
+        if let Some(devices::BusDevice::CpuContainer(cont)) =
+            self.get_bus_device(DeviceType::CpuContainer, "CpuContainer")
+        {
+            let mut locked_container = cont.lock().expect("Poisoned lock");
+            for cpu_idx in start_idx..u8::try_from(self.vcpus_handles.len()).unwrap() {
+                locked_container.cpu_devices[cpu_idx as usize].removing = true;
+            }
+        }
+
+        #[allow(clippy::cast_lossless)]
+        METRICS
+            .hotplug
+            .vcpus_added
+            .add(self.vcpus_handles.len() as u64 - config.target as u64);
+
+        // Update VM config to reflect new CPUs added
+        #[allow(clippy::cast_possible_truncation)]
+        let new_machine_config = MachineConfigUpdate {
+            vcpu_count: Some(self.vcpus_handles.len() as u8),
+            mem_size_mib: None,
+            smt: None,
+            cpu_template: None,
+            track_dirty_pages: None,
+            huge_pages: None,
+        };
+
+        self.acpi_device_manager.notify_cpu_container()?;
+
+        Ok(new_machine_config)
+    }
+
     /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
     pub fn reset_dirty_bitmap(&self) {
         self.guest_memory
