@@ -1914,7 +1914,7 @@ mod tests {
 
         #[cfg(target_arch = "x86_64")]
         check_preboot_request_err(
-            VmmAction::HotplugRequest(HotplugRequestConfig::Vcpu(HotplugVcpuConfig { add: 4 })),
+            VmmAction::HotplugRequest(HotplugRequestConfig::Vcpu(HotplugVcpuConfig { target: 4 })),
             VmmActionError::OperationNotSupportedPreBoot,
         );
     }
@@ -2166,7 +2166,7 @@ mod tests {
         };
 
         vmm.attach_vcpu_config(vcpu_config.clone());
-        let config = HotplugVcpuConfig { add: 4 };
+        let config = HotplugVcpuConfig { target: 4 };
         let result = vmm.hotplug_vcpus(config);
         assert_eq!(vmm.vcpus_handles.len(), 4);
         result.unwrap();
@@ -2174,9 +2174,9 @@ mod tests {
         // Case 2. Vcpu count too low
         let mut vmm = default_vmm();
         vmm.attach_vcpu_config(vcpu_config.clone());
-        vmm.hotplug_vcpus(HotplugVcpuConfig { add: 1 }).unwrap();
+        vmm.hotplug_vcpus(HotplugVcpuConfig { target: 1 }).unwrap();
         assert_eq!(vmm.vcpus_handles.len(), 1);
-        let config = HotplugVcpuConfig { add: 0 };
+        let config = HotplugVcpuConfig { target: 0 };
         let result = vmm.hotplug_vcpus(config);
         result.unwrap_err();
         assert_eq!(vmm.vcpus_handles.len(), 1);
@@ -2184,9 +2184,9 @@ mod tests {
         // Case 3. Vcpu count too high
         let mut vmm = default_vmm();
         vmm.attach_vcpu_config(vcpu_config.clone());
-        vmm.hotplug_vcpus(HotplugVcpuConfig { add: 1 }).unwrap();
+        vmm.hotplug_vcpus(HotplugVcpuConfig { target: 1 }).unwrap();
         assert_eq!(vmm.vcpus_handles.len(), 1);
-        let config = HotplugVcpuConfig { add: 33 };
+        let config = HotplugVcpuConfig { target: 33 };
         let result = vmm.hotplug_vcpus(config);
         result.unwrap_err();
         assert_eq!(vmm.vcpus_handles.len(), 1);
@@ -2194,9 +2194,9 @@ mod tests {
         // Case 4. Attempted overflow of vcpus
         let mut vmm = default_vmm();
         vmm.attach_vcpu_config(vcpu_config.clone());
-        vmm.hotplug_vcpus(HotplugVcpuConfig { add: 2 }).unwrap();
+        vmm.hotplug_vcpus(HotplugVcpuConfig { target: 2 }).unwrap();
         assert_eq!(vmm.vcpus_handles.len(), 2);
-        let config = HotplugVcpuConfig { add: 255 };
+        let config = HotplugVcpuConfig { target: 255 };
         let result = vmm.hotplug_vcpus(config);
         result.unwrap_err();
         assert_eq!(vmm.vcpus_handles.len(), 2);
