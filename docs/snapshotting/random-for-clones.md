@@ -137,8 +137,10 @@ Firecracker supports VMGenID on ARM systems using the DeviceTree binding that
 was added for the device in Linux 6.10. However, the latest Linux kernel that
 Firecracker supports is 6.1. As a result, in order to use VMGenID on ARM
 systems, users need to use a 6.1 kernel with the DeviceTree binding support
-backported from 6.10. We provide a set of patches that apply cleanly on mainline
-Linux 6.1 [here](../../resources/patches/vmgenid_dt).
+backported from 6.10. For our CI we backport the
+[relevant changes](https://github.com/torvalds/linux/commit/f0cd69b8cca6a5096463644d6dacc9f991bfa521)
+from 6.10 to 6.1. Consumers of Firecracker that want to use the feature on ARM
+need to ensure they backport these changes on their guest kernels.
 
 Please note that, Firecracker will always enable VMGenID. In kernels where there
 is no VMGenID driver, the device will not have any effect in the guest.

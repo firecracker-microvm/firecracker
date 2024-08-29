@@ -179,16 +179,6 @@ function build_al_kernel {
         format="pe"
         target="Image"
         binary_path="arch/arm64/boot/$target"
-
-        # Patch 6.1 kernels on ARM with 6.10 patches for supporting VMGenID
-        # via DeviceTree bindings.
-        # TODO: drop this (and remove the patches from the repo) when AL backports the
-        # patches to 6.1.
-        if [[ $KERNEL_VERSION == "6.1" ]]; then
-            for i in ../patches/vmgenid_dt/* ; do
-                patch -p1 < $i
-            done
-        fi
     else
         echo "FATAL: Unsupported architecture!"
         exit 1
