@@ -10,7 +10,9 @@ per [Firecracker’s release policy](../docs/RELEASE_POLICY.md)) using a
 combination of:
 
 - host linux kernel versions 5.10, and 6.1;
-- guest linux kernel versions 4.14, and 5.10.
+- guest linux kernel versions 5.10 and 6.1. Guest linux kernels 4.14 are
+  deprecated with Firecracker v1.9 and we will drop support for them with
+  Firecracker v1.10.
 
 While other versions and other kernel configs might work, they are not
 periodically validated in our test suite, and using them might result in
@@ -21,10 +23,10 @@ Once a kernel version is officially enabled, it is supported for a **minimum of
 2 years**. Adding support for a new kernel version will result in a Firecracker
 release only if compatibility changes are required.
 
-| Host kernel | Guest kernel v4.14 | Guest kernel v5.10 | Min. end of support |
-| ----------: | :----------------: | :----------------: | ------------------: |
-|       v5.10 |         Y          |         Y          |          2024-01-31 |
-|        v6.1 |         Y          |         Y          |          2025-10-12 |
+| Host kernel | Guest kernel v4.14 (deprecated) | Guest kernel v5.10 | Guest kernel v6.1 | Min. end of support |
+| ----------: | :-----------------------------: | :----------------: | :---------------: | ------------------: |
+|       v5.10 |         Y (deprecated)          |         Y          |         Y         |          2024-01-31 |
+|        v6.1 |         Y (deprecated)          |         Y          |         Y         |          2025-10-12 |
 
 The guest kernel configs used in our validation pipelines can be found
 [here](../resources/guest_configs/) while a breakdown of the relevant guest
