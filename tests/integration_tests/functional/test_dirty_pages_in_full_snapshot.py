@@ -23,8 +23,11 @@ def test_dirty_pages_after_full_snapshot(uvm_plain):
     # file size is the same, but the `diff` snapshot is actually a sparse file
     assert snap_full.mem.stat().st_size == snap_diff.mem.stat().st_size
 
-    # diff -> diff there should be no differences
-    assert snap_diff2.mem.stat().st_blocks == 0
+    # full -> diff: full should have more things in it
+    # Diff snapshots will contain some pages, because we always mark
+    # pages used for virt queues as dirty.
+    assert snap_diff.mem.stat().st_blocks < snap_full.mem.stat().st_blocks
+    assert snap_diff2.mem.stat().st_blocks < snap_full.mem.stat().st_blocks
 
-    # full -> diff there should be no differences
-    assert snap_diff.mem.stat().st_blocks == 0
+    # diff -> diff: there should be no differences
+    assert snap_diff.mem.stat().st_blocks == snap_diff2.mem.stat().st_blocks
