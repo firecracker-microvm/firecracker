@@ -15,10 +15,18 @@ and this project adheres to
   Support for VMGenID via DeviceTree bindings exists only on mainline 6.10 Linux
   onwards. Users of Firecracker will need to backport the relevant patches on
   top of their 6.1 kernels to make use of the feature.
+- [#4732](https://github.com/firecracker-microvm/firecracker/pull/4732),
+  [#4733](https://github.com/firecracker-microvm/firecracker/pull/4733),
+  [#4741](https://github.com/firecracker-microvm/firecracker/pull/4741),
+  [#4746](https://github.com/firecracker-microvm/firecracker/pull/4746): Added
+  official support for 6.1 microVM guest kernels.
 
 ### Changed
 
 ### Deprecated
+
+- Support for guest kernel 4.14 is now deprecated. We will completely remove
+  4.14 support with Firecracker version v1.10
 
 ### Removed
 
