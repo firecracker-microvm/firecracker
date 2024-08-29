@@ -30,7 +30,7 @@ pub enum EditMemoryError {
 
 #[derive(Debug, Subcommand)]
 pub enum EditMemorySubCommand {
-    /// Remove registers from vcpu states.
+    /// Apply a diff snapshot on top of a base one
     Rebase {
         /// Path to the memory file.
         #[arg(short, long)]
