@@ -1,11 +1,14 @@
+// Copyright © 2024, Institute of Software, CAS. All rights reserved.
 // Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+//
 // SPDX-License-Identifier: Apache-2.0
+//
 
 mod fdt;
 // /// Module for the global interrupt controller configuration.
 // pub mod aia;
-// /// Layout for this riscv64 system.
-// pub mod layout;
+/// Layout for this riscv64 system.
+pub mod layout;
 // /// Logic for configuring riscv64 registers.
 // pub mod regs;
 // /// Helper methods for VcpuFd.
@@ -16,8 +19,8 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::fmt::Debug;
 
-pub use self::fdt::DeviceInfoForFDT;
 use self::aia::AIADevice;
+pub use self::fdt::DeviceInfoForFDT;
 use crate::arch::DeviceType;
 use crate::vstate::memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
 

@@ -1,4 +1,6 @@
+// Copyright © 2024, Institute of Software, CAS. All rights reserved.
 // Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+//
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -10,8 +12,8 @@ use vm_fdt::{Error as VmFdtError, FdtWriter, FdtWriterNode};
 use vm_memory::GuestMemoryError;
 
 use super::super::{DeviceType, InitrdConfig};
-use super::get_fdt_addr;
 use super::aia::AIADevice;
+use super::get_fdt_addr;
 use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 const CPU_BASE_PHANDLE: u32 = 0x100;
@@ -169,5 +171,4 @@ fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildH
 }
 
 #[cfg(test)]
-mod tests {
-}
+mod tests {}
