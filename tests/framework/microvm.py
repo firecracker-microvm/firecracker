@@ -411,7 +411,10 @@ class Microvm:
         """Return the output of microVM's console"""
         if self.screen_log is None:
             return None
-        return Path(self.screen_log).read_text(encoding="utf-8")
+        file = Path(self.screen_log)
+        if not file.exists():
+            return None
+        return file.read_text(encoding="utf-8")
 
     @property
     def state(self):
