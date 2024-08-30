@@ -138,6 +138,12 @@ function clone_amazon_linux_repo {
     [ -d linux ] || git clone https://github.com/amazonlinux/linux linux
 }
 
+function apply_kernel_patches_for_ci {
+    for p in $PWD/guest_configs/patches/* ; do
+        patch -p2 < $p
+    done
+}
+
 # prints the git tag corresponding to the newest and best matching the provided kernel version $1
 # this means that if a microvm kernel exists, the tag returned will be of the form
 #
@@ -173,16 +179,6 @@ function build_al_kernel {
         format="pe"
         target="Image"
         binary_path="arch/arm64/boot/$target"
-
-        # Patch 6.1 kernels on ARM with 6.10 patches for supporting VMGenID
-        # via DeviceTree bindings.
-        # TODO: drop this (and remove the patches from the repo) when AL backports the
-        # patches to 6.1.
-        if [[ $KERNEL_VERSION == "6.1" ]]; then
-            for i in ../patches/vmgenid_dt/* ; do
-                patch -p1 < $i
-            done
-        fi
     else
         echo "FATAL: Unsupported architecture!"
         exit 1
@@ -220,6 +216,9 @@ build_rootfs ubuntu-22.04 jammy
 build_initramfs
 
 clone_amazon_linux_repo
+
+# Apply kernel patches on top of AL configuration
+apply_kernel_patches_for_ci
 
 build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-4.14.config
 build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config
