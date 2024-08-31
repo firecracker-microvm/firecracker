@@ -271,7 +271,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
 ```
 
 Details about the required and optional fields can be found in the
-[swagger definition](../../src/firecracker/swagger/firecracker.yaml).
+[OpenAPI specification](../../src/firecracker/openapi/firecracker.yaml).
 
 *Note*: If the files indicated by `snapshot_path` and `mem_file_path` don't
 exist at the specified paths, then they will be created right before generating
@@ -446,7 +446,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
 ```
 
 Details about the required and optional fields can be found in the
-[swagger definition](../../src/firecracker/swagger/firecracker.yaml).
+[OpenAPI specification](../../src/firecracker/openapi/firecracker.yaml).
 
 **Prerequisites**: A full memory snapshot and a microVM state file **must** be
 provided. The disk backing files, network interfaces backing TAPs and/or vsock

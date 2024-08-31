@@ -20,6 +20,8 @@ and this project adheres to
   [#4741](https://github.com/firecracker-microvm/firecracker/pull/4741),
   [#4746](https://github.com/firecracker-microvm/firecracker/pull/4746): Added
   official support for 6.1 microVM guest kernels.
+- [#4763](https://github.com/firecracker-microvm/firecracker/pull/4763): Migrated
+  API specification from Swagger 2.0 to OpenAPI 3.1.
 
 ### Changed
 

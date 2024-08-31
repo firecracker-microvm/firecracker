@@ -143,19 +143,19 @@ conditions, there are 2 major cases where we need to deprecate an endpoint:
     but doing so immediately would be a breaking change.
   - We just mark the endpoint as deprecated.
 
-### Keeping Swagger updated
+### Keeping OpenAPI specification updated
 
 Make sure that any changes you make in the code are also reflected in the
-swagger specification.
+OpenAPI specification.
 
 Some tips:
 
-- There is nothing in the swagger file that shows whether an endpoint is
+- There is nothing in the OpenAPI file that shows whether an endpoint is
   mandatory or optional, it’s all code logic.
 - Mandatory fields in a request or response body are marked with
-  `required: true` in the swagger definition. All other fields are optional.
+  the `required` array. All other fields are optional.
 - If you need to redirect an endpoint, you have to clone the old one under the
-  new URI in the swagger specification.
+  new URI in the OpenAPI specification.
 
 ### Marking endpoints as deprecated
 
@@ -234,7 +234,7 @@ Firecracker API.
     deprecation case.
   - Add a unit test where you test your new code paths.
   - Fix all other failing unit tests.
-  - Update the swagger file to reflect the change, in this case by removing the
+  - Update the OpenAPI specification to reflect the change, in this case by removing the
     `vsock_id` field from the required parameter list in the `Vsock` definition
     and adding a description to it stating that it is deprecated since the
     current version.

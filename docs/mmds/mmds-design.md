@@ -116,7 +116,7 @@ reply.
 
 Somewhat confusingly, this is the name of the component which taps the device
 model. It has a user-configured IPv4 address (see
-[Firecracker MMDS configuration API](../../src/firecracker/swagger/firecracker.yaml))
+[Firecracker MMDS configuration API](../../src/firecracker/openapi/firecracker.yaml))
 and MAC (`06:01:23:45:67:01`) addresses. The latter is also used to respond to
 ARP requests. For every frame coming from the guest, the following steps take
 place:

@@ -33,9 +33,9 @@ BadRequest - HTTP response.
 
 ## Input Schema
 
-All input schema fields can be found in the [Swagger](https://swagger.io)
+All input schema fields can be found in the [OpenAPI](https://www.openapis.org/)
 specification:
-[firecracker.yaml](./../src/firecracker/swagger/firecracker.yaml).
+[firecracker.yaml](./../src/firecracker/openapi/firecracker.yaml).
 
 | Schema                    | Property              | keyboard | serial console | virtio-block | vhost-user-block | virtio-net | virtio-vsock | virtio-rng |
 | ------------------------- | --------------------- | :------: | :------------: | :----------: | :--------------: | :--------: | :----------: | :--------: |
@@ -108,9 +108,9 @@ virtio-block and virtio-rng devices.
 
 ## Output Schema
 
-All output schema fields can be found in the [Swagger](https://swagger.io)
+All output schema fields can be found in the [OpenAPI](https://www.openapis.org/)
 specification:
-[firecracker.yaml](./../src/firecracker/swagger/firecracker.yaml).
+[firecracker.yaml](./../src/firecracker/openapi/firecracker.yaml).
 
 | Schema                 | Property          | keyboard | serial console | virtio-block | vhost-user-block | virtio-net | virtio-vsock |
 | ---------------------- | ----------------- | :------: | :------------: | :----------: | :--------------: | :--------: | :----------: |
@@ -133,9 +133,9 @@ If more than 64 devices are configured for a VM in total on aarch64, only first
 
 ## Instance Actions
 
-All instance actions can be found in the [Swagger](https://swagger.io)
+All instance actions can be found in the [OpenAPI](https://www.openapis.org/)
 specification:
-[firecracker.yaml](./../src/firecracker/swagger/firecracker.yaml).
+[firecracker.yaml](./../src/firecracker/openapi/firecracker.yaml).
 
 | Action           | keyboard | serial console | virtio-block | vhost-user-block | virtio-net | virtio-vsock |
 | ---------------- | :------: | :------------: | :----------: | :--------------: | :--------: | :----------: |

@@ -43,7 +43,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
 ```
 
 Details about this configuration can be found in the
-[swagger definition](../src/firecracker/swagger/firecracker.yaml).
+[OpenAPI specification](../src/firecracker/openapi/firecracker.yaml).
 
 The metrics are written to the `metrics_path` in JSON format.
 
