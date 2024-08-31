@@ -1,835 +1,968 @@
-swagger: "2.0"
+openapi: 3.0.1
 info:
   title: Firecracker API
-  description: RESTful public-facing API.
-    The API is accessible through HTTP calls on specific URLs
-    carrying JSON modeled data.
-    The transport medium is a Unix Domain Socket.
-  version: 1.10.0-dev
+  description: RESTful public-facing API. The API is accessible through HTTP calls
+    on specific URLs carrying JSON modeled data. The transport medium is a Unix Domain
+    Socket.
   termsOfService: ""
   contact:
-    email: "compute-capsule@amazon.com"
+    email: compute-capsule@amazon.com
   license:
-    name: "Apache 2.0"
-    url: "http://www.apache.org/licenses/LICENSE-2.0.html"
-
-host: "localhost"
-basePath: "/"
-
-schemes:
-  - http
-consumes:
-  - application/json
-produces:
-  - application/json
-
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  version: 1.10.0-dev
+servers:
+- url: http://localhost/
 paths:
   /:
     get:
       summary: Returns general information about an instance.
       operationId: describeInstance
       responses:
-        200:
+        "200":
           description: The instance information
-          schema:
-            $ref: "#/definitions/InstanceInfo"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstanceInfo'
         default:
           description: Internal Server Error
-          schema:
-            $ref: "#/definitions/Error"
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /actions:
     put:
       summary: Creates a synchronous action.
       operationId: createSyncAction
-      parameters:
-        - name: info
-          in: body
-          required: true
-          schema:
-            $ref: "#/definitions/InstanceActionInfo"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InstanceActionInfo'
+        required: true
       responses:
-        204:
+        "204":
           description: The update was successful
-        400:
+          content: {}
+        "400":
           description: The action cannot be executed due to bad input
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: Internal Server Error
-          schema:
-            $ref: "#/definitions/Error"
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: info
   /balloon:
     get:
       summary: Returns the current balloon device configuration.
       operationId: describeBalloonConfig
       responses:
-        200:
+        "200":
           description: The balloon device configuration
-          schema:
-            $ref: "#/definitions/Balloon"
-        400:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Balloon'
+        "400":
           description: Balloon device not configured.
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: Internal Server Error
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     put:
       summary: Creates or updates a balloon device.
-      description:
-        Creates a new balloon device if one does not already exist, otherwise updates it, before machine startup.
-        This will fail after machine startup.
-        Will fail if update is not possible.
+      description: "Creates a new balloon device if one does not already exist, otherwise\
+        \ updates it, before machine startup. This will fail after machine startup.\
+        \ Will fail if update is not possible."
       operationId: putBalloon
-      parameters:
-      - name: body
-        in: body
+      requestBody:
         description: Balloon properties
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Balloon'
         required: true
-        schema:
-          $ref: "#/definitions/Balloon"
       responses:
-        204:
+        "204":
           description: Balloon device created/updated
-        400:
+          content: {}
+        "400":
           description: Balloon device cannot be created/updated due to bad input
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
     patch:
       summary: Updates a balloon device.
-      description:
-        Updates an existing balloon device, before or after machine startup.
-        Will fail if update is not possible.
+      description: "Updates an existing balloon device, before or after machine startup.\
+        \ Will fail if update is not possible."
       operationId: patchBalloon
-      parameters:
-      - name: body
-        in: body
+      requestBody:
         description: Balloon properties
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BalloonUpdate'
         required: true
-        schema:
-          $ref: "#/definitions/BalloonUpdate"
       responses:
-        204:
+        "204":
           description: Balloon device updated
-        400:
+          content: {}
+        "400":
           description: Balloon device cannot be updated due to bad input
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
   /balloon/statistics:
     get:
-      summary: Returns the latest balloon device statistics, only if enabled pre-boot.
+      summary: "Returns the latest balloon device statistics, only if enabled pre-boot."
       operationId: describeBalloonStats
       responses:
-        200:
+        "200":
           description: The balloon device statistics
-          schema:
-            $ref: "#/definitions/BalloonStats"
-        400:
-          description: The balloon device statistics were not enabled when the device was configured.
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalloonStats'
+        "400":
+          description: The balloon device statistics were not enabled when the device
+            was configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: Internal Server Error
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     patch:
       summary: Updates a balloon device statistics polling interval.
-      description:
-        Updates an existing balloon device statistics interval, before or after machine startup.
-        Will fail if update is not possible.
+      description: "Updates an existing balloon device statistics interval, before\
+        \ or after machine startup. Will fail if update is not possible."
       operationId: patchBalloonStatsInterval
-      parameters:
-      - name: body
-        in: body
+      requestBody:
         description: Balloon properties
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BalloonStatsUpdate'
         required: true
-        schema:
-          $ref: "#/definitions/BalloonStatsUpdate"
       responses:
-        204:
+        "204":
           description: Balloon statistics interval updated
-        400:
+          content: {}
+        "400":
           description: Balloon statistics interval cannot be updated due to bad input
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
   /boot-source:
     put:
       summary: Creates or updates the boot source. Pre-boot only.
-      description:
-        Creates new boot source if one does not already exist, otherwise updates it.
-        Will fail if update is not possible.
+      description: "Creates new boot source if one does not already exist, otherwise\
+        \ updates it. Will fail if update is not possible."
       operationId: putGuestBootSource
-      parameters:
-        - name: body
-          in: body
-          description: Guest boot source properties
-          required: true
-          schema:
-            $ref: "#/definitions/BootSource"
+      requestBody:
+        description: Guest boot source properties
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BootSource'
+        required: true
       responses:
-        204:
+        "204":
           description: Boot source created/updated
-        400:
+          content: {}
+        "400":
           description: Boot source cannot be created due to bad input
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
   /cpu-config:
     put:
-      summary: Configures CPU features flags for the vCPUs of the guest VM. Pre-boot only.
-      description:
-        Provides configuration to the Firecracker process to specify vCPU resource configuration prior to
-        launching the guest machine.
+      summary: Configures CPU features flags for the vCPUs of the guest VM. Pre-boot
+        only.
+      description: Provides configuration to the Firecracker process to specify vCPU
+        resource configuration prior to launching the guest machine.
       operationId: putCpuConfiguration
-      parameters:
-        - name: body
-          in: body
-          description: CPU configuration request
-          schema:
-            $ref: "#/definitions/CpuConfig"
+      requestBody:
+        description: CPU configuration request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CpuConfig'
+        required: false
       responses:
-        204:
+        "204":
           description: CPU configuration set successfully
-        400:
+          content: {}
+        "400":
           description: CPU configuration cannot be updated due to invalid input format
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
-
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
   /drives/{drive_id}:
     put:
       summary: Creates or updates a drive. Pre-boot only.
-      description:
-        Creates new drive with ID specified by drive_id path parameter.
-        If a drive with the specified ID already exists, updates its state based on new input.
-        Will fail if update is not possible.
+      description: "Creates new drive with ID specified by drive_id path parameter.\
+        \ If a drive with the specified ID already exists, updates its state based\
+        \ on new input. Will fail if update is not possible."
       operationId: putGuestDriveByID
       parameters:
-        - name: drive_id
-          in: path
-          description: The id of the guest drive
-          required: true
+      - name: drive_id
+        in: path
+        description: The id of the guest drive
+        required: true
+        schema:
           type: string
-        - name: body
-          in: body
-          description: Guest drive properties
-          required: true
-          schema:
-            $ref: "#/definitions/Drive"
+      requestBody:
+        description: Guest drive properties
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Drive'
+        required: true
       responses:
-        204:
+        "204":
           description: Drive created/updated
-        400:
+          content: {}
+        "400":
           description: Drive cannot be created/updated due to bad input
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: Internal server error.
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
     patch:
       summary: Updates the properties of a drive. Post-boot only.
-      description:
-        Updates the properties of the drive with the ID specified by drive_id path parameter.
-        Will fail if update is not possible.
+      description: Updates the properties of the drive with the ID specified by drive_id
+        path parameter. Will fail if update is not possible.
       operationId: patchGuestDriveByID
       parameters:
-        - name: drive_id
-          in: path
-          description: The id of the guest drive
-          required: true
+      - name: drive_id
+        in: path
+        description: The id of the guest drive
+        required: true
+        schema:
           type: string
-        - name: body
-          in: body
-          description: Guest drive properties
-          required: true
-          schema:
-            $ref: "#/definitions/PartialDrive"
+      requestBody:
+        description: Guest drive properties
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PartialDrive'
+        required: true
       responses:
-        204:
+        "204":
           description: Drive updated
-        400:
+          content: {}
+        "400":
           description: Drive cannot be updated due to bad input
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: Internal server error.
-          schema:
-            $ref: "#/definitions/Error"
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
   /logger:
     put:
-      summary: Initializes the logger by specifying a named pipe or a file for the logs output.
+      summary: Initializes the logger by specifying a named pipe or a file for the
+        logs output.
       operationId: putLogger
-      parameters:
-        - name: body
-          in: body
-          description: Logging system description
-          required: true
-          schema:
-            $ref: "#/definitions/Logger"
+      requestBody:
+        description: Logging system description
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Logger'
+        required: true
       responses:
-        204:
+        "204":
           description: Logger created.
-        400:
+          content: {}
+        "400":
           description: Logger cannot be initialized due to bad input.
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: Internal server error.
-          schema:
-            $ref: "#/definitions/Error"
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
   /machine-config:
     get:
       summary: Gets the machine configuration of the VM.
-      description:
-        Gets the machine configuration of the VM. When called before the PUT operation, it
-        will return the default values for the vCPU count (=1), memory size (=128 MiB).
-        By default SMT is disabled and there is no CPU Template.
+      description: "Gets the machine configuration of the VM. When called before the\
+        \ PUT operation, it will return the default values for the vCPU count (=1),\
+        \ memory size (=128 MiB). By default SMT is disabled and there is no CPU Template."
       operationId: getMachineConfiguration
       responses:
-        200:
+        "200":
           description: OK
-          schema:
-            $ref: "#/definitions/MachineConfiguration"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MachineConfiguration'
         default:
           description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     put:
       summary: Updates the Machine Configuration of the VM. Pre-boot only.
-      description:
-        Updates the Virtual Machine Configuration with the specified input.
-        Firecracker starts with default values for vCPU count (=1) and memory size (=128 MiB).
-        The vCPU count is restricted to the [1, 32] range.
-        With SMT enabled, the vCPU count is required to be either 1 or an even number in the range.
-        otherwise there are no restrictions regarding the vCPU count.
-        If 2M hugetlbfs pages are specified, then `mem_size_mib` must be a multiple of 2.
-        If any of the parameters has an incorrect value, the whole update fails.
-        All parameters that are optional and are not specified are set to their default values
-        (smt = false, track_dirty_pages = false, cpu_template = None, huge_pages = None).
+      description: "Updates the Virtual Machine Configuration with the specified input.\
+        \ Firecracker starts with default values for vCPU count (=1) and memory size\
+        \ (=128 MiB). The vCPU count is restricted to the [1, 32] range. With SMT\
+        \ enabled, the vCPU count is required to be either 1 or an even number in\
+        \ the range. otherwise there are no restrictions regarding the vCPU count.\
+        \ If 2M hugetlbfs pages are specified, then `mem_size_mib` must be a multiple\
+        \ of 2. If any of the parameters has an incorrect value, the whole update\
+        \ fails. All parameters that are optional and are not specified are set to\
+        \ their default values (smt = false, track_dirty_pages = false, cpu_template\
+        \ = None, huge_pages = None)."
       operationId: putMachineConfiguration
-      parameters:
-        - name: body
-          in: body
-          description: Machine Configuration Parameters
-          schema:
-            $ref: "#/definitions/MachineConfiguration"
+      requestBody:
+        description: Machine Configuration Parameters
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MachineConfiguration'
+        required: false
       responses:
-        204:
+        "204":
           description: Machine Configuration created/updated
-        400:
+          content: {}
+        "400":
           description: Machine Configuration cannot be updated due to bad input
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
     patch:
       summary: Partially updates the Machine Configuration of the VM. Pre-boot only.
-      description:
-        Partially updates the Virtual Machine Configuration with the specified input.
-        If any of the parameters has an incorrect value, the whole update fails.
+      description: "Partially updates the Virtual Machine Configuration with the specified\
+        \ input. If any of the parameters has an incorrect value, the whole update\
+        \ fails."
       operationId: patchMachineConfiguration
-      parameters:
-        - name: body
-          in: body
-          description: A subset of Machine Configuration Parameters
-          schema:
-            $ref: "#/definitions/MachineConfiguration"
+      requestBody:
+        description: A subset of Machine Configuration Parameters
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MachineConfiguration'
+        required: false
       responses:
-        204:
+        "204":
           description: Machine Configuration created/updated
-        400:
+          content: {}
+        "400":
           description: Machine Configuration cannot be updated due to bad input
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
   /metrics:
     put:
-      summary: Initializes the metrics system by specifying a named pipe or a file for the metrics output.
+      summary: Initializes the metrics system by specifying a named pipe or a file
+        for the metrics output.
       operationId: putMetrics
-      parameters:
-        - name: body
-          in: body
-          description: Metrics system description
-          required: true
-          schema:
-            $ref: "#/definitions/Metrics"
+      requestBody:
+        description: Metrics system description
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Metrics'
+        required: true
       responses:
-        204:
+        "204":
           description: Metrics system created.
-        400:
-          description: Metrics system cannot be initialized due to bad input request or metrics system already initialized.
-          schema:
-            $ref: "#/definitions/Error"
+          content: {}
+        "400":
+          description: Metrics system cannot be initialized due to bad input request
+            or metrics system already initialized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: Internal server error.
-          schema:
-            $ref: "#/definitions/Error"
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
   /mmds:
-    put:
-      summary: Creates a MMDS (Microvm Metadata Service) data store.
-      operationId: putMmds
-      parameters:
-        - name: body
-          in: body
-          description: The MMDS data store as JSON.
-          schema:
-            $ref: "#/definitions/MmdsContentsObject"
-      responses:
-        204:
-          description: MMDS data store created/updated.
-        400:
-          description: MMDS data store cannot be created due to bad input.
-          schema:
-            $ref: "#/definitions/Error"
-        default:
-          description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
-    patch:
-      summary: Updates the MMDS data store.
-      operationId: patchMmds
-      parameters:
-        - name: body
-          in: body
-          description: The MMDS data store patch JSON.
-          schema:
-            $ref: "#/definitions/MmdsContentsObject"
-      responses:
-        204:
-          description: MMDS data store updated.
-        400:
-          description: MMDS data store cannot be updated due to bad input.
-          schema:
-            $ref: "#/definitions/Error"
-        default:
-          description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
     get:
       summary: Get the MMDS data store.
       operationId: getMmds
       responses:
-        200:
+        "200":
           description: The MMDS data store JSON.
-          schema:
-            type: object
-        404:
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
           description: The MMDS data store content can not be found.
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      summary: Creates a MMDS (Microvm Metadata Service) data store.
+      operationId: putMmds
+      requestBody:
+        description: The MMDS data store as JSON.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MmdsContentsObject'
+        required: false
+      responses:
+        "204":
+          description: MMDS data store created/updated.
+          content: {}
+        "400":
+          description: MMDS data store cannot be created due to bad input.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
+    patch:
+      summary: Updates the MMDS data store.
+      operationId: patchMmds
+      requestBody:
+        description: The MMDS data store patch JSON.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MmdsContentsObject'
+        required: false
+      responses:
+        "204":
+          description: MMDS data store updated.
+          content: {}
+        "400":
+          description: MMDS data store cannot be updated due to bad input.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
   /mmds/config:
     put:
       summary: Set MMDS configuration. Pre-boot only.
+      description: "Configures MMDS version, IPv4 address used by the MMDS network\
+        \ stack and interfaces that allow MMDS requests."
       operationId: putMmdsConfig
-      description:
-        Configures MMDS version, IPv4 address used by the MMDS network stack
-        and interfaces that allow MMDS requests.
-      parameters:
-        - name: body
-          in: body
-          description: The MMDS configuration as JSON.
-          required: true
-          schema:
-            $ref: "#/definitions/MmdsConfig"
+      requestBody:
+        description: The MMDS configuration as JSON.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MmdsConfig'
+        required: true
       responses:
-        204:
+        "204":
           description: MMDS configuration was created/updated.
-        400:
+          content: {}
+        "400":
           description: MMDS configuration cannot be updated due to bad input.
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
   /entropy:
     put:
       summary: Creates an entropy device. Pre-boot only.
-      description:
-        Enables an entropy device that provides high-quality random data to the guest.
+      description: Enables an entropy device that provides high-quality random data
+        to the guest.
       operationId: putEntropyDevice
-      parameters:
-        - name: body
-          in: body
-          description: Guest entropy device properties
-          required: true
-          schema:
-            $ref: "#/definitions/EntropyDevice"
+      requestBody:
+        description: Guest entropy device properties
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EntropyDevice'
+        required: true
       responses:
-        204:
+        "204":
           description: Entropy device created
+          content: {}
         default:
           description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
-
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
   /network-interfaces/{iface_id}:
     put:
       summary: Creates a network interface. Pre-boot only.
-      description:
-        Creates new network interface with ID specified by iface_id path parameter.
+      description: Creates new network interface with ID specified by iface_id path
+        parameter.
       operationId: putGuestNetworkInterfaceByID
       parameters:
-        - name: iface_id
-          in: path
-          description: The id of the guest network interface
-          required: true
+      - name: iface_id
+        in: path
+        description: The id of the guest network interface
+        required: true
+        schema:
           type: string
-        - name: body
-          in: body
-          description: Guest network interface properties
-          required: true
-          schema:
-            $ref: "#/definitions/NetworkInterface"
+      requestBody:
+        description: Guest network interface properties
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NetworkInterface'
+        required: true
       responses:
-        204:
+        "204":
           description: Network interface created/updated
-        400:
+          content: {}
+        "400":
           description: Network interface cannot be created due to bad input
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
     patch:
-      summary: Updates the rate limiters applied to a network interface. Post-boot only.
-      description:
-        Updates the rate limiters applied to a network interface.
+      summary: Updates the rate limiters applied to a network interface. Post-boot
+        only.
+      description: Updates the rate limiters applied to a network interface.
       operationId: patchGuestNetworkInterfaceByID
       parameters:
-        - name: iface_id
-          in: path
-          description: The id of the guest network interface
-          required: true
+      - name: iface_id
+        in: path
+        description: The id of the guest network interface
+        required: true
+        schema:
           type: string
-        - name: body
-          in: body
-          description: A subset of the guest network interface properties
-          required: true
-          schema:
-            $ref: "#/definitions/PartialNetworkInterface"
+      requestBody:
+        description: A subset of the guest network interface properties
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PartialNetworkInterface'
+        required: true
       responses:
-        204:
+        "204":
           description: Network interface updated
-        400:
+          content: {}
+        "400":
           description: Network interface cannot be updated due to bad input
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
   /snapshot/create:
     put:
       summary: Creates a full or diff snapshot. Post-boot only.
-      description:
-        Creates a snapshot of the microVM state. The microVM should be
+      description: Creates a snapshot of the microVM state. The microVM should be
         in the `Paused` state.
       operationId: createSnapshot
-      parameters:
-        - name: body
-          in: body
-          description: The configuration used for creating a snaphot.
-          required: true
-          schema:
-            $ref: "#/definitions/SnapshotCreateParams"
+      requestBody:
+        description: The configuration used for creating a snaphot.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SnapshotCreateParams'
+        required: true
       responses:
-        204:
+        "204":
           description: Snapshot created
-        400:
+          content: {}
+        "400":
           description: Snapshot cannot be created due to bad input
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
   /snapshot/load:
     put:
       summary: Loads a snapshot. Pre-boot only.
-      description:
-        Loads the microVM state from a snapshot.
-        Only accepted on a fresh Firecracker process (before configuring
-        any resource other than the Logger and Metrics).
+      description: Loads the microVM state from a snapshot. Only accepted on a fresh
+        Firecracker process (before configuring any resource other than the Logger
+        and Metrics).
       operationId: loadSnapshot
-      parameters:
-        - name: body
-          in: body
-          description: The configuration used for loading a snaphot.
-          required: true
-          schema:
-            $ref: "#/definitions/SnapshotLoadParams"
+      requestBody:
+        description: The configuration used for loading a snaphot.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SnapshotLoadParams'
+        required: true
       responses:
-        204:
+        "204":
           description: Snapshot loaded
-        400:
+          content: {}
+        "400":
           description: Snapshot cannot be loaded due to bad input
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
   /version:
     get:
       summary: Gets the Firecracker version.
       operationId: getFirecrackerVersion
       responses:
-        200:
+        "200":
           description: OK
-          schema:
-            $ref: "#/definitions/FirecrackerVersion"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FirecrackerVersion'
         default:
           description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /vm:
     patch:
       summary: Updates the microVM state.
-      description:
-        Sets the desired state (Paused or Resumed) for the microVM.
+      description: Sets the desired state (Paused or Resumed) for the microVM.
       operationId: patchVm
-      parameters:
-        - name: body
-          in: body
-          description: The microVM state
-          required: true
-          schema:
-            $ref: "#/definitions/Vm"
+      requestBody:
+        description: The microVM state
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Vm'
+        required: true
       responses:
-        204:
+        "204":
           description: Vm state updated
-        400:
+          content: {}
+        "400":
           description: Vm state cannot be updated due to bad input
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
   /vm/config:
     get:
       summary: Gets the full VM configuration.
-      description:
-        Gets configuration for all VM resources. If the VM is restored from a snapshot, the boot-source,
-        machine-config.smt and machine-config.cpu_template will be empty.
+      description: "Gets configuration for all VM resources. If the VM is restored\
+        \ from a snapshot, the boot-source, machine-config.smt and machine-config.cpu_template\
+        \ will be empty."
       operationId: getExportVmConfig
       responses:
-        200:
+        "200":
           description: OK
-          schema:
-            $ref: "#/definitions/FullVmConfiguration"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FullVmConfiguration'
         default:
           description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /vsock:
     put:
       summary: Creates/updates a vsock device. Pre-boot only.
-      description:
-        The first call creates the device with the configuration specified
-        in body. Subsequent calls will update the device configuration.
-        May fail if update is not possible.
+      description: The first call creates the device with the configuration specified
+        in body. Subsequent calls will update the device configuration. May fail if
+        update is not possible.
       operationId: putGuestVsock
-      parameters:
-        - name: body
-          in: body
-          description: Guest vsock properties
-          required: true
-          schema:
-            $ref: "#/definitions/Vsock"
+      requestBody:
+        description: Guest vsock properties
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Vsock'
+        required: true
       responses:
-        204:
+        "204":
           description: Vsock created/updated
-        400:
+          content: {}
+        "400":
           description: Vsock cannot be created due to bad input
-          schema:
-            $ref: "#/definitions/Error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
-
-definitions:
-  Balloon:
-    type: object
-    required:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
+components:
+  schemas:
+    Balloon:
+      required:
       - amount_mib
       - deflate_on_oom
-    description:
-      Balloon device descriptor.
-    properties:
-      amount_mib:
-        type: integer
-        description: Target balloon size in MiB.
-      deflate_on_oom:
-        type: boolean
-        description: Whether the balloon should deflate when the guest has memory pressure.
-      stats_polling_interval_s:
-        type: integer
-        description: Interval in seconds between refreshing statistics. A non-zero value will enable the statistics. Defaults to 0.
-
-  BalloonUpdate:
-    type: object
-    required:
+      type: object
+      properties:
+        amount_mib:
+          type: integer
+          description: Target balloon size in MiB.
+        deflate_on_oom:
+          type: boolean
+          description: Whether the balloon should deflate when the guest has memory
+            pressure.
+        stats_polling_interval_s:
+          type: integer
+          description: Interval in seconds between refreshing statistics. A non-zero
+            value will enable the statistics. Defaults to 0.
+      description: Balloon device descriptor.
+    BalloonUpdate:
+      required:
       - amount_mib
-    description:
-      Balloon device descriptor.
-    properties:
-      amount_mib:
-        type: integer
-        description: Target balloon size in MiB.
-
-  BalloonStats:
-    type: object
-    description:
-      Describes the balloon device statistics.
-    required:
-      - target_pages
+      type: object
+      properties:
+        amount_mib:
+          type: integer
+          description: Target balloon size in MiB.
+      description: Balloon device descriptor.
+    BalloonStats:
+      required:
+      - actual_mib
       - actual_pages
       - target_mib
-      - actual_mib
-    properties:
-      target_pages:
-        description: Target number of pages the device aims to hold.
-        type: integer
-      actual_pages:
-        description: Actual number of pages the device is holding.
-        type: integer
-      target_mib:
-        description: Target amount of memory (in MiB) the device aims to hold.
-        type: integer
-      actual_mib:
-        description: Actual amount of memory (in MiB) the device is holding.
-        type: integer
-      swap_in:
-        description: The amount of memory that has been swapped in (in bytes).
-        type: integer
-        format: int64
-      swap_out:
-        description: The amount of memory that has been swapped out to disk (in bytes).
-        type: integer
-        format: int64
-      major_faults:
-        description: The number of major page faults that have occurred.
-        type: integer
-        format: int64
-      minor_faults:
-        description: The number of minor page faults that have occurred.
-        type: integer
-        format: int64
-      free_memory:
-        description: The amount of memory not being used for any purpose (in bytes).
-        type: integer
-        format: int64
-      total_memory:
-        description: The total amount of memory available (in bytes).
-        type: integer
-        format: int64
-      available_memory:
-        description: An estimate of how much memory is available (in bytes) for starting new applications, without pushing the system to swap.
-        type: integer
-        format: int64
-      disk_caches:
-        description: The amount of memory, in bytes, that can be quickly reclaimed without additional I/O. Typically these pages are used for caching files from disk.
-        type: integer
-        format: int64
-      hugetlb_allocations:
-        description: The number of successful hugetlb page allocations in the guest.
-        type: integer
-        format: int64
-      hugetlb_failures:
-        description: The number of failed hugetlb page allocations in the guest.
-        type: integer
-        format: int64
-
-  BalloonStatsUpdate:
-    type: object
-    required:
+      - target_pages
+      type: object
+      properties:
+        target_pages:
+          type: integer
+          description: Target number of pages the device aims to hold.
+        actual_pages:
+          type: integer
+          description: Actual number of pages the device is holding.
+        target_mib:
+          type: integer
+          description: Target amount of memory (in MiB) the device aims to hold.
+        actual_mib:
+          type: integer
+          description: Actual amount of memory (in MiB) the device is holding.
+        swap_in:
+          type: integer
+          description: The amount of memory that has been swapped in (in bytes).
+          format: int64
+        swap_out:
+          type: integer
+          description: The amount of memory that has been swapped out to disk (in
+            bytes).
+          format: int64
+        major_faults:
+          type: integer
+          description: The number of major page faults that have occurred.
+          format: int64
+        minor_faults:
+          type: integer
+          description: The number of minor page faults that have occurred.
+          format: int64
+        free_memory:
+          type: integer
+          description: The amount of memory not being used for any purpose (in bytes).
+          format: int64
+        total_memory:
+          type: integer
+          description: The total amount of memory available (in bytes).
+          format: int64
+        available_memory:
+          type: integer
+          description: "An estimate of how much memory is available (in bytes) for\
+            \ starting new applications, without pushing the system to swap."
+          format: int64
+        disk_caches:
+          type: integer
+          description: "The amount of memory, in bytes, that can be quickly reclaimed\
+            \ without additional I/O. Typically these pages are used for caching files\
+            \ from disk."
+          format: int64
+        hugetlb_allocations:
+          type: integer
+          description: The number of successful hugetlb page allocations in the guest.
+          format: int64
+        hugetlb_failures:
+          type: integer
+          description: The number of failed hugetlb page allocations in the guest.
+          format: int64
+      description: Describes the balloon device statistics.
+    BalloonStatsUpdate:
+      required:
       - stats_polling_interval_s
-    description:
-      Update the statistics polling interval, with the first statistics update scheduled immediately. Statistics cannot be turned on/off after boot.
-    properties:
-      stats_polling_interval_s:
-        type: integer
-        description: Interval in seconds between refreshing statistics.
-
-  BootSource:
-    type: object
-    required:
+      type: object
+      properties:
+        stats_polling_interval_s:
+          type: integer
+          description: Interval in seconds between refreshing statistics.
+      description: "Update the statistics polling interval, with the first statistics\
+        \ update scheduled immediately. Statistics cannot be turned on/off after boot."
+    BootSource:
+      required:
       - kernel_image_path
-    description:
-      Boot source descriptor.
-    properties:
-      boot_args:
-        type: string
-        description: Kernel boot arguments
-      initrd_path:
-        type: string
-        description: Host level path to the initrd image used to boot the guest
-      kernel_image_path:
-        type: string
-        description: Host level path to the kernel image used to boot the guest
-
-  CpuTemplate:
-    type: string
-    description:
-      The CPU Template defines a set of flags to be disabled from the microvm so that
-      the features exposed to the guest are the same as in the selected instance type.
-      This parameter has been deprecated and it will be removed in future Firecracker
-      release.
-    enum:
+      type: object
+      properties:
+        boot_args:
+          type: string
+          description: Kernel boot arguments
+        initrd_path:
+          type: string
+          description: Host level path to the initrd image used to boot the guest
+        kernel_image_path:
+          type: string
+          description: Host level path to the kernel image used to boot the guest
+      description: Boot source descriptor.
+    CpuTemplate:
+      type: string
+      description: The CPU Template defines a set of flags to be disabled from the
+        microvm so that the features exposed to the guest are the same as in the selected
+        instance type. This parameter has been deprecated and it will be removed in
+        future Firecracker release.
+      default: None
+      enum:
       - C3
       - T2
       - T2S
@@ -837,492 +970,448 @@ definitions:
       - T2A
       - V1N1
       - None
-    default: "None"
-
-  CpuConfig:
-    type: string
-    description:
-      The CPU configuration template defines a set of bit maps as modifiers of flags accessed by register
-      to be disabled/enabled for the microvm.
-    properties:
-      cpuid_modifiers:
-        type: object
-        description: A collection of CPUIDs to be modified. (x86_64)
-      msr_modifiers:
-        type: object
-        description: A collection of model specific registers to be modified. (x86_64)
-      reg_modifiers:
-        type: object
-        description: A collection of registers to be modified. (aarch64)
-
-  Drive:
-    type: object
-    required:
+    CpuConfig:
+      type: string
+      properties:
+        cpuid_modifiers:
+          type: object
+          properties: {}
+          description: A collection of CPUIDs to be modified. (x86_64)
+        msr_modifiers:
+          type: object
+          properties: {}
+          description: A collection of model specific registers to be modified. (x86_64)
+        reg_modifiers:
+          type: object
+          properties: {}
+          description: A collection of registers to be modified. (aarch64)
+      description: The CPU configuration template defines a set of bit maps as modifiers
+        of flags accessed by register to be disabled/enabled for the microvm.
+    Drive:
+      required:
       - drive_id
       - is_root_device
-    properties:
-      drive_id:
-        type: string
-      partuuid:
-        type: string
-        description:
-          Represents the unique id of the boot partition of this device. It is
-          optional and it will be taken into account only if the is_root_device
-          field is true.
-      is_root_device:
-        type: boolean
-      cache_type:
-        type: string
-        description:
-          Represents the caching strategy for the block device.
-        enum: ["Unsafe", "Writeback"]
-        default: "Unsafe"
-
-      # VirtioBlock specific parameters
-      is_read_only:
-        type: boolean
-        description:
-          Is block read only. 
-          This field is required for virtio-block config and should be omitted for vhost-user-block configuration.
-      path_on_host:
-        type: string
-        description:
-          Host level path for the guest drive.
-          This field is required for virtio-block config and should be omitted for vhost-user-block configuration.
-      rate_limiter:
-        $ref: "#/definitions/RateLimiter"
-      io_engine:
-        type: string
-        description:
-          Type of the IO engine used by the device. "Async" is supported on
-          host kernels newer than 5.10.51.
-          This field is optional for virtio-block config and should be omitted for vhost-user-block configuration.
-        enum: ["Sync", "Async"]
-        default: "Sync"
-
-      # VhostUserBlock specific parameters
-      socket:
-        type: string
-        description:
-          Path to the socket of vhost-user-block backend.
-          This field is required for vhost-user-block config should be omitted for virtio-block configuration.
-
-  Error:
-    type: object
-    properties:
-      fault_message:
-        type: string
-        description: A description of the error condition
-        readOnly: true
-
-  FullVmConfiguration:
-    type: object
-    properties:
-      balloon:
-        $ref: "#/definitions/Balloon"
-      drives:
-        type: array
-        description: Configurations for all block devices.
-        items:
-          $ref: "#/definitions/Drive"
-      boot-source:
-        $ref: "#/definitions/BootSource"
-      logger:
-        $ref: "#/definitions/Logger"
-      machine-config:
-        $ref: "#/definitions/MachineConfiguration"
-      metrics:
-        $ref: "#/definitions/Metrics"
-      mmds-config:
-        $ref: "#/definitions/MmdsConfig"
-      network-interfaces:
-        type: array
-        description: Configurations for all net devices.
-        items:
-          $ref: "#/definitions/NetworkInterface"
-      vsock:
-        $ref: "#/definitions/Vsock"
-
-  InstanceActionInfo:
-    type: object
-    description:
-      Variant wrapper containing the real action.
-    required:
+      type: object
+      properties:
+        drive_id:
+          type: string
+        partuuid:
+          type: string
+          description: Represents the unique id of the boot partition of this device.
+            It is optional and it will be taken into account only if the is_root_device
+            field is true.
+        is_root_device:
+          type: boolean
+        cache_type:
+          type: string
+          description: Represents the caching strategy for the block device.
+          default: Unsafe
+          enum:
+          - Unsafe
+          - Writeback
+        is_read_only:
+          type: boolean
+          description: Is block read only. This field is required for virtio-block
+            config and should be omitted for vhost-user-block configuration.
+        path_on_host:
+          type: string
+          description: Host level path for the guest drive. This field is required
+            for virtio-block config and should be omitted for vhost-user-block configuration.
+        rate_limiter:
+          $ref: '#/components/schemas/RateLimiter'
+        io_engine:
+          type: string
+          description: Type of the IO engine used by the device. "Async" is supported
+            on host kernels newer than 5.10.51. This field is optional for virtio-block
+            config and should be omitted for vhost-user-block configuration.
+          default: Sync
+          enum:
+          - Sync
+          - Async
+        socket:
+          type: string
+          description: Path to the socket of vhost-user-block backend. This field
+            is required for vhost-user-block config should be omitted for virtio-block
+            configuration.
+    Error:
+      type: object
+      properties:
+        fault_message:
+          type: string
+          description: A description of the error condition
+          readOnly: true
+    FullVmConfiguration:
+      type: object
+      properties:
+        balloon:
+          $ref: '#/components/schemas/Balloon'
+        drives:
+          type: array
+          description: Configurations for all block devices.
+          items:
+            $ref: '#/components/schemas/Drive'
+        boot-source:
+          $ref: '#/components/schemas/BootSource'
+        logger:
+          $ref: '#/components/schemas/Logger'
+        machine-config:
+          $ref: '#/components/schemas/MachineConfiguration'
+        metrics:
+          $ref: '#/components/schemas/Metrics'
+        mmds-config:
+          $ref: '#/components/schemas/MmdsConfig'
+        network-interfaces:
+          type: array
+          description: Configurations for all net devices.
+          items:
+            $ref: '#/components/schemas/NetworkInterface'
+        vsock:
+          $ref: '#/components/schemas/Vsock'
+    InstanceActionInfo:
+      required:
       - action_type
-    properties:
-      action_type:
-        description: Enumeration indicating what type of action is contained in the payload
-        type: string
-        enum:
+      type: object
+      properties:
+        action_type:
+          type: string
+          description: Enumeration indicating what type of action is contained in
+            the payload
+          enum:
           - FlushMetrics
           - InstanceStart
           - SendCtrlAltDel
-
-  InstanceInfo:
-    type: object
-    description:
-      Describes MicroVM instance information.
-    required:
+      description: Variant wrapper containing the real action.
+    InstanceInfo:
+      required:
       - app_name
       - id
       - state
       - vmm_version
-    properties:
-      app_name:
-        description: Application name.
-        type: string
-      id:
-        description: MicroVM / instance ID.
-        type: string
-      state:
-        description:
-          The current detailed state (Not started, Running, Paused) of the Firecracker instance.
-          This value is read-only for the control-plane.
-        type: string
-        enum:
+      type: object
+      properties:
+        app_name:
+          type: string
+          description: Application name.
+        id:
+          type: string
+          description: MicroVM / instance ID.
+        state:
+          type: string
+          description: "The current detailed state (Not started, Running, Paused)\
+            \ of the Firecracker instance. This value is read-only for the control-plane."
+          enum:
           - Not started
           - Running
           - Paused
-      vmm_version:
-        description: MicroVM hypervisor build version.
-        type: string
-
-  Logger:
-    type: object
-    description:
-      Describes the configuration option for the logging capability.
-    properties:
-      level:
-        type: string
-        description: Set the level. The possible values are case-insensitive.
-        enum: [Error, Warning, Info, Debug, Trace, Off]
-        default: Info
-      log_path:
-        type: string
-        description: Path to the named pipe or file for the human readable log output.
-      show_level:
-        type: boolean
-        description: Whether or not to output the level in the logs.
-        default: false
-      show_log_origin:
-        type: boolean
-        description: Whether or not to include the file path and line number of the log's origin.
-        default: false
-      module:
-        type: string
-        description: The module path to filter log messages by.
-        example: api_server::request
-
-  MachineConfiguration:
-    type: object
-    description:
-      Describes the number of vCPUs, memory size, SMT capabilities, huge page configuration and
-      the CPU template.
-    required:
+        vmm_version:
+          type: string
+          description: MicroVM hypervisor build version.
+      description: Describes MicroVM instance information.
+    Logger:
+      type: object
+      properties:
+        level:
+          type: string
+          description: Set the level. The possible values are case-insensitive.
+          default: Info
+          enum:
+          - Error
+          - Warning
+          - Info
+          - Debug
+          - Trace
+        log_path:
+          type: string
+          description: Path to the named pipe or file for the human readable log output.
+        show_level:
+          type: boolean
+          description: Whether or not to output the level in the logs.
+          default: false
+        show_log_origin:
+          type: boolean
+          description: Whether or not to include the file path and line number of
+            the log's origin.
+          default: false
+        module:
+          type: string
+          description: The module path to filter log messages by.
+          example: api_server::request
+      description: Describes the configuration option for the logging capability.
+    MachineConfiguration:
+      required:
       - mem_size_mib
       - vcpu_count
-    properties:
-      cpu_template:
-        $ref: "#/definitions/CpuTemplate"
-      smt:
-        type: boolean
-        description: Flag for enabling/disabling simultaneous multithreading. Can be enabled only on x86.
-        default: false
-      mem_size_mib:
-        type: integer
-        description: Memory size of VM
-      track_dirty_pages:
-        type: boolean
-        description:
-          Enable dirty page tracking. If this is enabled, then incremental guest memory
-          snapshots can be created. These belong to diff snapshots, which contain, besides
-          the microVM state, only the memory dirtied since a previous snapshot. Full snapshots
-          each contain a full copy of the guest memory.
-        default: false
-      vcpu_count:
-        type: integer
-        minimum: 1
-        maximum: 32
-        description: Number of vCPUs (either 1 or an even number)
-      huge_pages:
-        type: string
-        enum:
+      type: object
+      properties:
+        cpu_template:
+          $ref: '#/components/schemas/CpuTemplate'
+        smt:
+          type: boolean
+          description: Flag for enabling/disabling simultaneous multithreading. Can
+            be enabled only on x86.
+          default: false
+        mem_size_mib:
+          type: integer
+          description: Memory size of VM
+        track_dirty_pages:
+          type: boolean
+          description: "Enable dirty page tracking. If this is enabled, then incremental\
+            \ guest memory snapshots can be created. These belong to diff snapshots,\
+            \ which contain, besides the microVM state, only the memory dirtied since\
+            \ a previous snapshot. Full snapshots each contain a full copy of the\
+            \ guest memory."
+          default: false
+        vcpu_count:
+          maximum: 32
+          minimum: 1
+          type: integer
+          description: Number of vCPUs (either 1 or an even number)
+        huge_pages:
+          type: string
+          description: Which huge pages configuration (if any) should be used to back
+            guest memory.
+          enum:
           - None
           - 2M
-        description: Which huge pages configuration (if any) should be used to back guest memory.
-
-  MemoryBackend:
-    type: object
-    required:
-      - backend_type
+      description: "Describes the number of vCPUs, memory size, SMT capabilities,\
+        \ huge page configuration and the CPU template."
+    MemoryBackend:
+      required:
       - backend_path
-    properties:
-      backend_type:
-        type: string
-        enum:
+      - backend_type
+      type: object
+      properties:
+        backend_type:
+          type: string
+          enum:
           - File
           - Uffd
-      backend_path:
-        type: string
-        description: Based on 'backend_type' it is either
-          1) Path to the file that contains the guest memory to be loaded
-          2) Path to the UDS where a process is listening for a UFFD initialization
-          control payload and open file descriptor that it can use to serve this
-          process's guest memory page faults
-
-  Metrics:
-    type: object
-    description:
-      Describes the configuration option for the metrics capability.
-    required:
+        backend_path:
+          type: string
+          description: Based on 'backend_type' it is either 1) Path to the file that
+            contains the guest memory to be loaded 2) Path to the UDS where a process
+            is listening for a UFFD initialization control payload and open file descriptor
+            that it can use to serve this process's guest memory page faults
+    Metrics:
+      required:
       - metrics_path
-    properties:
-      metrics_path:
-        type: string
-        description: Path to the named pipe or file where the JSON-formatted metrics are flushed.
-
-  MmdsConfig:
-    type: object
-    description:
-      Defines the MMDS configuration.
-    required:
+      type: object
+      properties:
+        metrics_path:
+          type: string
+          description: Path to the named pipe or file where the JSON-formatted metrics
+            are flushed.
+      description: Describes the configuration option for the metrics capability.
+    MmdsConfig:
+      required:
       - network_interfaces
-    properties:
-      version:
-        description: Enumeration indicating the MMDS version to be configured.
-        type: string
-        enum:
+      type: object
+      properties:
+        version:
+          type: string
+          description: Enumeration indicating the MMDS version to be configured.
+          default: V1
+          enum:
           - V1
           - V2
-        default: V1
-      network_interfaces:
-        description:
-          List of the network interface IDs capable of forwarding packets to
-          the MMDS. Network interface IDs mentioned must be valid at the time
-          of this request. The net device model will reply to HTTP GET requests
-          sent to the MMDS address via the interfaces mentioned. In this
-          case, both ARP requests and TCP segments heading to `ipv4_address`
-          are intercepted by the device model, and do not reach the associated
-          TAP device.
-        type: array
-        items:
+        network_interfaces:
+          type: array
+          description: "List of the network interface IDs capable of forwarding packets\
+            \ to the MMDS. Network interface IDs mentioned must be valid at the time\
+            \ of this request. The net device model will reply to HTTP GET requests\
+            \ sent to the MMDS address via the interfaces mentioned. In this case,\
+            \ both ARP requests and TCP segments heading to `ipv4_address` are intercepted\
+            \ by the device model, and do not reach the associated TAP device."
+          items:
+            type: string
+        ipv4_address:
           type: string
-      ipv4_address:
-        type: string
-        format: "169.254.([1-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-4]).([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])"
-        default: "169.254.169.254"
-        description: A valid IPv4 link-local address.
-
-  MmdsContentsObject:
-    type: object
-    description:
-      Describes the contents of MMDS in JSON format.
-
-  NetworkInterface:
-    type: object
-    description:
-      Defines a network interface.
-    required:
+          description: A valid IPv4 link-local address.
+          format: "169.254.([1-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-4]).([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])"
+          default: 169.254.169.254
+      description: Defines the MMDS configuration.
+    MmdsContentsObject:
+      type: object
+      description: Describes the contents of MMDS in JSON format.
+    NetworkInterface:
+      required:
       - host_dev_name
       - iface_id
-    properties:
-      guest_mac:
-        type: string
-      host_dev_name:
-        type: string
-        description: Host level path for the guest network interface
-      iface_id:
-        type: string
-      rx_rate_limiter:
-        $ref: "#/definitions/RateLimiter"
-      tx_rate_limiter:
-        $ref: "#/definitions/RateLimiter"
-
-  PartialDrive:
-    type: object
-    required:
+      type: object
+      properties:
+        guest_mac:
+          type: string
+        host_dev_name:
+          type: string
+          description: Host level path for the guest network interface
+        iface_id:
+          type: string
+        rx_rate_limiter:
+          $ref: '#/components/schemas/RateLimiter'
+        tx_rate_limiter:
+          $ref: '#/components/schemas/RateLimiter'
+      description: Defines a network interface.
+    PartialDrive:
+      required:
       - drive_id
-    properties:
-      drive_id:
-        type: string
-      path_on_host:
-        type: string
-        description:
-          Host level path for the guest drive.
-          This field is optional for virtio-block config and should be omitted for vhost-user-block configuration.
-      rate_limiter:
-        $ref: "#/definitions/RateLimiter"
-
-  PartialNetworkInterface:
-    type: object
-    description:
-      Defines a partial network interface structure, used to update the rate limiters
-      for that interface, after microvm start.
-    required:
+      type: object
+      properties:
+        drive_id:
+          type: string
+        path_on_host:
+          type: string
+          description: Host level path for the guest drive. This field is optional
+            for virtio-block config and should be omitted for vhost-user-block configuration.
+        rate_limiter:
+          $ref: '#/components/schemas/RateLimiter'
+    PartialNetworkInterface:
+      required:
       - iface_id
-    properties:
-      iface_id:
-        type: string
-      rx_rate_limiter:
-        $ref: "#/definitions/RateLimiter"
-      tx_rate_limiter:
-        $ref: "#/definitions/RateLimiter"
-
-  RateLimiter:
-    type: object
-    description:
-      Defines an IO rate limiter with independent bytes/s and ops/s limits.
-      Limits are defined by configuring each of the _bandwidth_ and _ops_ token buckets.
-      This field is optional for virtio-block config and should be omitted for vhost-user-block configuration.
-    properties:
-      bandwidth:
-        $ref: "#/definitions/TokenBucket"
-        description: Token bucket with bytes as tokens
-      ops:
-        $ref: "#/definitions/TokenBucket"
-        description: Token bucket with operations as tokens
-
-  SnapshotCreateParams:
-    type: object
-    required:
+      type: object
+      properties:
+        iface_id:
+          type: string
+        rx_rate_limiter:
+          $ref: '#/components/schemas/RateLimiter'
+        tx_rate_limiter:
+          $ref: '#/components/schemas/RateLimiter'
+      description: "Defines a partial network interface structure, used to update\
+        \ the rate limiters for that interface, after microvm start."
+    RateLimiter:
+      type: object
+      properties:
+        bandwidth:
+          $ref: '#/components/schemas/TokenBucket'
+        ops:
+          $ref: '#/components/schemas/TokenBucket'
+      description: Defines an IO rate limiter with independent bytes/s and ops/s limits.
+        Limits are defined by configuring each of the _bandwidth_ and _ops_ token
+        buckets. This field is optional for virtio-block config and should be omitted
+        for vhost-user-block configuration.
+    SnapshotCreateParams:
+      required:
       - mem_file_path
       - snapshot_path
-    properties:
-      mem_file_path:
-        type: string
-        description: Path to the file that will contain the guest memory.
-      snapshot_path:
-        type: string
-        description: Path to the file that will contain the microVM state.
-      snapshot_type:
-        type: string
-        enum:
+      type: object
+      properties:
+        mem_file_path:
+          type: string
+          description: Path to the file that will contain the guest memory.
+        snapshot_path:
+          type: string
+          description: Path to the file that will contain the microVM state.
+        snapshot_type:
+          type: string
+          description: "Type of snapshot to create. It is optional and by default,\
+            \ a full snapshot is created."
+          enum:
           - Full
           - Diff
-        description:
-          Type of snapshot to create. It is optional and by default, a full
-          snapshot is created.
-
-  SnapshotLoadParams:
-    type: object
-    description:
-      Defines the configuration used for handling snapshot resume. Exactly one of
-      the two `mem_*` fields must be present in the body of the request.
-    required:
+    SnapshotLoadParams:
+      required:
       - snapshot_path
-    properties:
-      enable_diff_snapshots:
-        type: boolean
-        description:
-          Enable support for incremental (diff) snapshots by tracking dirty guest pages.
-      mem_file_path:
-        type: string
-        description:
-          Path to the file that contains the guest memory to be loaded.
-          It is only allowed if `mem_backend` is not present. This parameter has
-          been deprecated and it will be removed in future Firecracker release.
-      mem_backend:
-        $ref: "#/definitions/MemoryBackend"
-        description:
-          Configuration for the backend that handles memory load. If this field
-          is specified, `mem_file_path` is forbidden. Either `mem_backend` or
-          `mem_file_path` must be present at a time.
-      snapshot_path:
-        type: string
-        description: Path to the file that contains the microVM state to be loaded.
-      resume_vm:
-        type: boolean
-        description:
-          When set to true, the vm is also resumed if the snapshot load is successful.
-
-  TokenBucket:
-    type: object
-    description:
-      Defines a token bucket with a maximum capacity (size), an initial burst size
-      (one_time_burst) and an interval for refilling purposes (refill_time).
-      The refill-rate is derived from size and refill_time, and it is the constant
-      rate at which the tokens replenish. The refill process only starts happening after
-      the initial burst budget is consumed.
-      Consumption from the token bucket is unbounded in speed which allows for bursts
-      bound in size by the amount of tokens available.
-      Once the token bucket is empty, consumption speed is bound by the refill_rate.
-    required:
+      type: object
+      properties:
+        enable_diff_snapshots:
+          type: boolean
+          description: Enable support for incremental (diff) snapshots by tracking
+            dirty guest pages.
+        mem_file_path:
+          type: string
+          description: Path to the file that contains the guest memory to be loaded.
+            It is only allowed if `mem_backend` is not present. This parameter has
+            been deprecated and it will be removed in future Firecracker release.
+        mem_backend:
+          $ref: '#/components/schemas/MemoryBackend'
+        snapshot_path:
+          type: string
+          description: Path to the file that contains the microVM state to be loaded.
+        resume_vm:
+          type: boolean
+          description: "When set to true, the vm is also resumed if the snapshot load\
+            \ is successful."
+      description: Defines the configuration used for handling snapshot resume. Exactly
+        one of the two `mem_*` fields must be present in the body of the request.
+    TokenBucket:
+      required:
       - refill_time
       - size
-    properties:
-      one_time_burst:
-        type: integer
-        format: int64
-        description: The initial size of a token bucket.
-        minimum: 0
-      refill_time:
-        type: integer
-        format: int64
-        description: The amount of milliseconds it takes for the bucket to refill.
-        minimum: 0
-      size:
-        type: integer
-        format: int64
-        description: The total number of tokens this bucket can hold.
-        minimum: 0
-
-  Vm:
-    type: object
-    description:
-      Defines the microVM running state. It is especially useful in the snapshotting context.
-    required:
+      type: object
+      properties:
+        one_time_burst:
+          minimum: 0
+          type: integer
+          description: The initial size of a token bucket.
+          format: int64
+        refill_time:
+          minimum: 0
+          type: integer
+          description: The amount of milliseconds it takes for the bucket to refill.
+          format: int64
+        size:
+          minimum: 0
+          type: integer
+          description: The total number of tokens this bucket can hold.
+          format: int64
+      description: "Defines a token bucket with a maximum capacity (size), an initial\
+        \ burst size (one_time_burst) and an interval for refilling purposes (refill_time).\
+        \ The refill-rate is derived from size and refill_time, and it is the constant\
+        \ rate at which the tokens replenish. The refill process only starts happening\
+        \ after the initial burst budget is consumed. Consumption from the token bucket\
+        \ is unbounded in speed which allows for bursts bound in size by the amount\
+        \ of tokens available. Once the token bucket is empty, consumption speed is\
+        \ bound by the refill_rate."
+    Vm:
+      required:
       - state
-    properties:
-      state:
-        type: string
-        enum:
+      type: object
+      properties:
+        state:
+          type: string
+          enum:
           - Paused
           - Resumed
-
-  EntropyDevice:
-    type: object
-    description:
-      Defines an entropy device.
-    properties:
-      rate_limiter:
-        $ref: "#/definitions/RateLimiter"
-
-  FirecrackerVersion:
-    type: object
-    description:
-      Describes the Firecracker version.
-    required:
+      description: Defines the microVM running state. It is especially useful in the
+        snapshotting context.
+    EntropyDevice:
+      type: object
+      properties:
+        rate_limiter:
+          $ref: '#/components/schemas/RateLimiter'
+      description: Defines an entropy device.
+    FirecrackerVersion:
+      required:
       - firecracker_version
-    properties:
-      firecracker_version:
-        description: Firecracker build version.
-        type: string
-
-  Vsock:
-    type: object
-    description:
-      Defines a vsock device, backed by a set of Unix Domain Sockets, on the host side.
-      For host-initiated connections, Firecracker will be listening on the Unix socket
-      identified by the path `uds_path`. Firecracker will create this socket, bind and
-      listen on it. Host-initiated connections will be performed by connection to this
-      socket and issuing a connection forwarding request to the desired guest-side vsock
-      port (i.e. `CONNECT 52\n`, to connect to port 52).
-      For guest-initiated connections, Firecracker will expect host software to be
-      bound and listening on Unix sockets at `uds_path_<PORT>`.
-      E.g. "/path/to/host_vsock.sock_52" for port number 52.
-    required:
+      type: object
+      properties:
+        firecracker_version:
+          type: string
+          description: Firecracker build version.
+      description: Describes the Firecracker version.
+    Vsock:
+      required:
       - guest_cid
       - uds_path
-    properties:
-      guest_cid:
-        type: integer
-        minimum: 3
-        description: Guest Vsock CID
-      uds_path:
-        type: string
-        description: Path to UNIX domain socket, used to proxy vsock connections.
-      vsock_id:
-        type: string
-        description:
-          This parameter has been deprecated and it will be removed in future
-          Firecracker release.
+      type: object
+      properties:
+        guest_cid:
+          minimum: 3
+          type: integer
+          description: Guest Vsock CID
+        uds_path:
+          type: string
+          description: "Path to UNIX domain socket, used to proxy vsock connections."
+        vsock_id:
+          type: string
+          description: This parameter has been deprecated and it will be removed in
+            future Firecracker release.
+      description: "Defines a vsock device, backed by a set of Unix Domain Sockets,\
+        \ on the host side. For host-initiated connections, Firecracker will be listening\
+        \ on the Unix socket identified by the path `uds_path`. Firecracker will create\
+        \ this socket, bind and listen on it. Host-initiated connections will be performed\
+        \ by connection to this socket and issuing a connection forwarding request\
+        \ to the desired guest-side vsock port (i.e. `CONNECT 52\\n`, to connect to\
+        \ port 52). For guest-initiated connections, Firecracker will expect host\
+        \ software to be bound and listening on Unix sockets at `uds_path_<PORT>`.\
+        \ E.g. \"/path/to/host_vsock.sock_52\" for port number 52."
+x-original-swagger-version: "2.0"
