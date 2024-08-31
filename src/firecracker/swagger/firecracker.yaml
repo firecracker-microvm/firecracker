@@ -1,4 +1,4 @@
-openapi: 3.0.1
+openapi: 3.1.0
 info:
   title: Firecracker API
   description: RESTful public-facing API. The API is accessible through HTTP calls
@@ -1135,7 +1135,8 @@ components:
         module:
           type: string
           description: The module path to filter log messages by.
-          example: api_server::request
+          examples:
+          - api_server::request
       description: Describes the configuration option for the logging capability.
     MachineConfiguration:
       required:
