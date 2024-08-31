@@ -49,7 +49,7 @@ const APIC_BASE_MSR: u32 = 0x800;
 /// Number of APIC MSR indexes
 const APIC_MSR_INDEXES: u32 = 0x400;
 
-/// /// Custom KVM MSRs fall in the range 0x4b564d00-0x4b564def (0x4b564df0-0x4b564dff is reserved for PVM)
+/// Custom MSRs fall in the range 0x4b564d00-0x4b564dff
 const MSR_KVM_WALL_CLOCK_NEW: u32 = 0x4b56_4d00;
 const MSR_KVM_SYSTEM_TIME_NEW: u32 = 0x4b56_4d01;
 const MSR_KVM_ASYNC_PF_EN: u32 = 0x4b56_4d02;
@@ -57,16 +57,6 @@ const MSR_KVM_STEAL_TIME: u32 = 0x4b56_4d03;
 const MSR_KVM_PV_EOI_EN: u32 = 0x4b56_4d04;
 const MSR_KVM_POLL_CONTROL: u32 = 0x4b56_4d05;
 const MSR_KVM_ASYNC_PF_INT: u32 = 0x4b56_4d06;
-
-// Custom PVM MSRs fall in the range 0x4b564df0-0x4b564dff
-const MSR_PVM_LINEAR_ADDRESS_RANGE: u32 = 0x4b56_4df0;
-const MSR_PVM_VCPU_STRUCT: u32 = 0x4b56_4df1;
-const MSR_PVM_SUPERVISOR_RSP: u32 = 0x4b56_4df2;
-const MSR_PVM_SUPERVISOR_REDZONE: u32 = 0x4b56_4df3;
-const MSR_PVM_EVENT_ENTRY: u32 = 0x4b56_4df4;
-const MSR_PVM_RETU_RIP: u32 = 0x4b56_4df5;
-const MSR_PVM_RETS_RIP: u32 = 0x4b56_4df6;
-const MSR_PVM_SWITCH_CR3: u32 = 0x4b56_4df7;
 
 /// Taken from arch/x86/include/asm/msr-index.h
 /// Spectre mitigations control MSR
@@ -247,14 +237,6 @@ static SERIALIZABLE_MSR_RANGES: &[MsrRange] = &[
     MSR_RANGE!(MSR_KVM_POLL_CONTROL),
     MSR_RANGE!(MSR_KVM_ASYNC_PF_INT),
     MSR_RANGE!(MSR_IA32_TSX_CTRL),
-    MSR_RANGE!(MSR_PVM_LINEAR_ADDRESS_RANGE),
-    MSR_RANGE!(MSR_PVM_VCPU_STRUCT),
-    MSR_RANGE!(MSR_PVM_SUPERVISOR_RSP),
-    MSR_RANGE!(MSR_PVM_SUPERVISOR_REDZONE),
-    MSR_RANGE!(MSR_PVM_EVENT_ENTRY),
-    MSR_RANGE!(MSR_PVM_RETU_RIP),
-    MSR_RANGE!(MSR_PVM_RETS_RIP),
-    MSR_RANGE!(MSR_PVM_SWITCH_CR3),
 ];
 
 /// Specifies whether a particular MSR should be included in vcpu serialization.
