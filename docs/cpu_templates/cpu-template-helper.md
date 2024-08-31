@@ -235,6 +235,7 @@ CPU features to a heterogeneous fleet consisting of multiple CPU models.
 | HV_X64_MSR_SYNDBG_PENDING_BUFFER        | 0x400000f5              |
 | HV_X64_MSR_SYNDBG_OPTIONS               | 0x400000ff              |
 | HV_X64_MSR_TSC_INVARIANT_CONTROL        | 0x40000118              |
+| HV_X64_MSR_TSC_INVARIANT_CONTROL        | 0x40000118              |
 
 ### ARM registers excluded from guest CPU configuration dump
 

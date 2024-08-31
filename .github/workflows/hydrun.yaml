@@ -1,0 +1,97 @@
+name: hydrun CI
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 0 * * 0"
+
+jobs:
+  build-linux:
+    runs-on: ${{ matrix.target.runner }}
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        target:
+          # Binaries
+          - id: rust.x86_64
+            src: .
+            os: alpine:edge
+            flags: ""
+            cmd: ./Hydrunfile rust x86_64
+            dst: out/*
+            runner: depot-ubuntu-22.04-32
+          - id: rust.aarch64
+            src: .
+            os: alpine:edge
+            flags: ""
+            cmd: ./Hydrunfile rust aarch64
+            dst: out/*
+            runner: depot-ubuntu-22.04-arm-32
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            /tmp/ccache
+          key: cache-ccache-${{ matrix.target.id }}
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Set up hydrun
+        run: |
+          curl -L -o /tmp/hydrun "https://github.com/pojntfx/hydrun/releases/latest/download/hydrun.linux-$(uname -m)"
+          sudo install /tmp/hydrun /usr/local/bin
+      - name: Build with hydrun
+        working-directory: ${{ matrix.target.src }}
+        run: hydrun -o ${{ matrix.target.os }} ${{ matrix.target.flags }} "${{ matrix.target.cmd }}"
+      - name: Fix permissions for output
+        run: sudo chown -R $USER .
+      - name: Save ccache
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            /tmp/ccache
+          key: cache-ccache-${{ matrix.target.id }}
+      - name: Upload output
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target.id }}
+          path: ${{ matrix.target.dst }}
+
+  publish-linux:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    needs: build-linux
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Download output
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/out
+      - name: Extract branch name
+        id: extract_branch
+        run: echo "##[set-output name=branch;]$(echo ${GITHUB_REF#refs/heads/})"
+      - name: Publish pre-release to GitHub releases
+        if: ${{ github.ref == 'refs/heads/main-live-migration-pvm' || github.ref == 'refs/heads/main-live-migration' || github.ref == 'refs/heads/firecracker-v1.8-live-migration-pvm' || github.ref == 'refs/heads/firecracker-v1.8-live-migration' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: release-${{ steps.extract_branch.outputs.branch }}
+          prerelease: true
+          files: |
+            /tmp/out/*/*
+      - name: Publish release to GitHub releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: false
+          files: |
+            /tmp/out/*/*

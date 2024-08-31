@@ -87,7 +87,11 @@ where
         state: &GuestMemoryState,
         track_dirty_pages: bool,
         huge_pages: HugePageConfig,
+        shared: bool,
     ) -> Result<Self, MemoryError>;
+
+    /// Flushes memory contents to disk.
+    fn msync(&self) -> std::result::Result<(), MemoryError>;
 
     /// Describes GuestMemoryMmap through a GuestMemoryState struct.
     fn describe(&self) -> GuestMemoryState;
@@ -230,6 +234,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
         state: &GuestMemoryState,
         track_dirty_pages: bool,
         huge_pages: HugePageConfig,
+        shared: bool,
     ) -> Result<Self, MemoryError> {
         match file {
             Some(f) => {
@@ -249,7 +254,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                     .collect::<Result<Vec<_>, std::io::Error>>()
                     .map_err(MemoryError::FileError)?;
 
-                Self::from_raw_regions_file(regions, track_dirty_pages, false)
+                Self::from_raw_regions_file(regions, track_dirty_pages, shared)
             }
             None => {
                 let regions = state
@@ -260,6 +265,21 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                 Self::from_raw_regions(&regions, track_dirty_pages, huge_pages)
             }
         }
+    }
+
+    /// Flushes memory contents to disk.
+    fn msync(&self) -> std::result::Result<(), MemoryError> {
+        self.iter().for_each(|region| {
+            // SAFETY: It is safe to call `msync()` on both an anonymous (where it is a nop) and shared (where it flushes to disk) region
+            unsafe {
+                libc::msync(
+                    region.as_ptr().cast::<libc::c_void>(),
+                    region.size(),
+                    libc::MS_SYNC,
+                );
+            }
+        });
+        Ok(())
     }
 
     /// Describes GuestMemoryMmap through a GuestMemoryState struct.
@@ -541,9 +561,14 @@ mod tests {
         let file = TempFile::new().unwrap().into_file();
 
         // No mapping of snapshots that were taken with hugetlbfs enabled
-        let err =
-            GuestMemoryMmap::from_state(Some(&file), &state, false, HugePageConfig::Hugetlbfs2M)
-                .unwrap_err();
+        let err = GuestMemoryMmap::from_state(
+            Some(&file),
+            &state,
+            false,
+            HugePageConfig::Hugetlbfs2M,
+            false,
+        )
+        .unwrap_err();
 
         assert!(matches!(err, MemoryError::HugetlbfsSnapshot), "{:?}", err);
     }
@@ -732,6 +757,7 @@ mod tests {
             &memory_state,
             false,
             HugePageConfig::None,
+            false,
         )
         .unwrap();
 
@@ -790,9 +816,14 @@ mod tests {
         guest_memory.dump_dirty(&mut file, &dirty_bitmap).unwrap();
 
         // We can restore from this because this is the first dirty dump.
-        let restored_guest_memory =
-            GuestMemoryMmap::from_state(Some(&file), &memory_state, false, HugePageConfig::None)
-                .unwrap();
+        let restored_guest_memory = GuestMemoryMmap::from_state(
+            Some(&file),
+            &memory_state,
+            false,
+            HugePageConfig::None,
+            false,
+        )
+        .unwrap();
 
         // Check that the region contents are the same.
         let mut restored_region = vec![0u8; region_size];

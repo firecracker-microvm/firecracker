@@ -147,6 +147,8 @@ pub enum CreateSnapshotError {
     UnsupportedVersion,
     /// Cannot write memory file: {0}
     Memory(MemoryError),
+    /// Cannot msync memory file: {0}
+    MemoryMsync(MemoryError),
     /// Cannot perform {0} on the memory backing file: {1}
     MemoryBackingFile(&'static str, io::Error),
     /// Cannot save the microVM state: {0}
@@ -168,11 +170,16 @@ pub fn create_snapshot(
     vm_info: &VmInfo,
     params: &CreateSnapshotParams,
 ) -> Result<(), CreateSnapshotError> {
-    let microvm_state = vmm
-        .save_state(vm_info)
-        .map_err(CreateSnapshotError::MicrovmState)?;
+    match params.snapshot_type {
+        SnapshotType::Diff | SnapshotType::Full | SnapshotType::MsyncAndState => {
+            let microvm_state = vmm
+                .save_state(vm_info)
+                .map_err(CreateSnapshotError::MicrovmState)?;
 
-    snapshot_state_to_file(&microvm_state, &params.snapshot_path)?;
+            snapshot_state_to_file(&microvm_state, &params.snapshot_path)?;
+        }
+        SnapshotType::Msync => (),
+    }
 
     snapshot_memory_to_file(vmm, &params.mem_file_path, params.snapshot_type)?;
 
@@ -216,63 +223,64 @@ fn snapshot_memory_to_file(
 ) -> Result<(), CreateSnapshotError> {
     use self::CreateSnapshotError::*;
 
-    // Need to check this here, as we create the file in the line below
-    let file_existed = mem_file_path.exists();
-
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .open(mem_file_path)
-        .map_err(|err| MemoryBackingFile("open", err))?;
-
-    // Determine what size our total memory area is.
-    let mem_size_mib = mem_size_mib(vmm.guest_memory());
-    let expected_size = mem_size_mib * 1024 * 1024;
-
-    if file_existed {
-        let file_size = file
-            .metadata()
-            .map_err(|e| MemoryBackingFile("get_metadata", e))?
-            .len();
-
-        // Here we only truncate the file if the size mismatches.
-        // - For full snapshots, the entire file's contents will be overwritten anyway. We have to
-        //   avoid truncating here to deal with the edge case where it represents the snapshot file
-        //   from which this very microVM was loaded (as modifying the memory file would be
-        //   reflected in the mmap of the file, meaning a truncate operation would zero out guest
-        //   memory, and thus corrupt the VM).
-        // - For diff snapshots, we want to merge the diff layer directly into the file.
-        if file_size != expected_size {
-            file.set_len(0)
-                .map_err(|err| MemoryBackingFile("truncate", err))?;
-        }
-    }
-
-    // Set the length of the file to the full size of the memory area.
-    file.set_len(expected_size)
-        .map_err(|e| MemoryBackingFile("set_length", e))?;
-
     match snapshot_type {
-        SnapshotType::Diff => {
-            let dirty_bitmap = vmm.get_dirty_bitmap().map_err(DirtyBitmap)?;
-            vmm.guest_memory()
-                .dump_dirty(&mut file, &dirty_bitmap)
-                .map_err(Memory)
-        }
-        SnapshotType::Full => {
-            let dump_res = vmm.guest_memory().dump(&mut file).map_err(Memory);
-            if dump_res.is_ok() {
-                vmm.reset_dirty_bitmap();
-                vmm.guest_memory().reset_dirty();
+        SnapshotType::Diff | SnapshotType::Full => {
+            // Need to check this here, as we create the file in the line below
+            let file_existed = mem_file_path.exists();
+
+            let mut file = OpenOptions::new()
+                .write(true)
+                .truncate(false) // No need to truncate; see file_existed check below
+                .create(true)
+                .open(mem_file_path)
+                .map_err(|err| MemoryBackingFile("open", err))?;
+
+            // Determine what size our total memory area is.
+            let mem_size_mib = mem_size_mib(vmm.guest_memory());
+            let expected_size = mem_size_mib * 1024 * 1024;
+
+            if file_existed {
+                let file_size = file
+                    .metadata()
+                    .map_err(|e| MemoryBackingFile("get_metadata", e))?
+                    .len();
+
+                // Here we only truncate the file if the size mismatches.
+                // - For full snapshots, the entire file's contents will be overwritten anyway. We have to
+                //   avoid truncating here to deal with the edge case where it represents the snapshot file
+                //   from which this very microVM was loaded (as modifying the memory file would be
+                //   reflected in the mmap of the file, meaning a truncate operation would zero out guest
+                //   memory, and thus corrupt the VM).
+                // - For diff snapshots, we want to merge the diff layer directly into the file.
+                if file_size != expected_size {
+                    file.set_len(0)
+                        .map_err(|err| MemoryBackingFile("truncate", err))?;
+                }
             }
 
-            dump_res
+            // Set the length of the file to the full size of the memory area.
+            file.set_len(expected_size)
+                .map_err(|e| MemoryBackingFile("set_length", e))?;
+
+            match snapshot_type {
+                SnapshotType::Diff => {
+                    let dirty_bitmap = vmm.get_dirty_bitmap().map_err(DirtyBitmap)?;
+                    vmm.guest_memory()
+                        .dump_dirty(&mut file, &dirty_bitmap)
+                        .map_err(Memory)
+                }
+                SnapshotType::Full => vmm.guest_memory().dump(&mut file).map_err(Memory),
+                _ => Ok(()),
+            }?;
+            file.flush()
+                .map_err(|err| MemoryBackingFile("flush", err))?;
+            file.sync_all()
+                .map_err(|err| MemoryBackingFile("sync_all", err))
         }
-    }?;
-    file.flush()
-        .map_err(|err| MemoryBackingFile("flush", err))?;
-    file.sync_all()
-        .map_err(|err| MemoryBackingFile("sync_all", err))
+        SnapshotType::Msync | SnapshotType::MsyncAndState => {
+            vmm.guest_memory().msync().map_err(MemoryMsync)
+        }
+    }
 }
 
 /// Validates that snapshot CPU vendor matches the host CPU vendor.
@@ -434,6 +442,7 @@ pub fn restore_from_snapshot(
                 mem_state,
                 track_dirty_pages,
                 vm_resources.vm_config.huge_pages,
+                params.shared,
             )
             .map_err(RestoreFromSnapshotGuestMemoryError::File)?,
             None,
@@ -467,7 +476,7 @@ pub enum SnapshotStateFromFileError {
     /// Failed to open snapshot file: {0}
     Open(std::io::Error),
     /// Failed to read snapshot file metadata: {0}
-    Meta(std::io::Error),
+    Meta(crate::snapshot::SnapshotError),
     /// Failed to load snapshot state from file: {0}
     Load(#[from] crate::snapshot::SnapshotError),
 }
@@ -478,8 +487,9 @@ fn snapshot_state_from_file(
     let snapshot = Snapshot::new(SNAPSHOT_VERSION);
     let mut snapshot_reader =
         File::open(snapshot_path).map_err(SnapshotStateFromFileError::Open)?;
-    let metadata = std::fs::metadata(snapshot_path).map_err(SnapshotStateFromFileError::Meta)?;
-    let snapshot_len = u64_to_usize(metadata.len());
+    let raw_snapshot_len: u64 =
+        Snapshot::deserialize(&mut snapshot_reader).map_err(SnapshotStateFromFileError::Meta)?;
+    let snapshot_len = u64_to_usize(raw_snapshot_len);
     let state: MicrovmState = snapshot
         .load_with_version_check(&mut snapshot_reader, snapshot_len)
         .map_err(SnapshotStateFromFileError::Load)?;
@@ -500,10 +510,24 @@ fn guest_memory_from_file(
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
+    shared: bool,
 ) -> Result<GuestMemoryMmap, GuestMemoryFromFileError> {
-    let mem_file = File::open(mem_file_path)?;
-    let guest_mem =
-        GuestMemoryMmap::from_state(Some(&mem_file), mem_state, track_dirty_pages, huge_pages)?;
+    let mem_file = if shared {
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(mem_file_path)?
+    } else {
+        File::open(mem_file_path)?
+    };
+
+    let guest_mem = GuestMemoryMmap::from_state(
+        Some(&mem_file),
+        mem_state,
+        track_dirty_pages,
+        huge_pages,
+        shared,
+    )?;
     Ok(guest_mem)
 }
 
@@ -562,7 +586,8 @@ fn create_guest_memory(
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
 ) -> Result<(GuestMemoryMmap, Vec<GuestRegionUffdMapping>), GuestMemoryFromUffdError> {
-    let guest_memory = GuestMemoryMmap::from_state(None, mem_state, track_dirty_pages, huge_pages)?;
+    let guest_memory =
+        GuestMemoryMmap::from_state(None, mem_state, track_dirty_pages, huge_pages, false)?;
     let mut backend_mappings = Vec::with_capacity(guest_memory.num_regions());
     for (mem_region, state_region) in guest_memory.iter().zip(mem_state.regions.iter()) {
         backend_mappings.push(GuestRegionUffdMapping {

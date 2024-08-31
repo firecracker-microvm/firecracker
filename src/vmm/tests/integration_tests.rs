@@ -6,8 +6,12 @@ use std::thread;
 use std::time::Duration;
 
 use utils::tempfile::TempFile;
+use utils::u64_to_usize;
 use vmm::builder::{build_and_boot_microvm, build_microvm_from_snapshot};
-use vmm::persist::{self, snapshot_state_sanity_check, MicrovmState, MicrovmStateError, VmInfo};
+use vmm::persist::{
+    self, snapshot_state_sanity_check, MicrovmState, MicrovmStateError, SnapshotStateFromFileError,
+    VmInfo,
+};
 use vmm::resources::VmResources;
 use vmm::seccomp_filters::get_empty_filters;
 use vmm::snapshot::Snapshot;
@@ -203,9 +207,10 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 
     // Check that we can deserialize the microVM state from `snapshot_file`.
-    let snapshot_path = snapshot_file.as_path().to_path_buf();
-    let snapshot_file_metadata = std::fs::metadata(snapshot_path).unwrap();
-    let snapshot_len = snapshot_file_metadata.len() as usize;
+    let raw_snapshot_len: u64 = Snapshot::deserialize(&mut snapshot_file.as_file())
+        .map_err(SnapshotStateFromFileError::Meta)
+        .unwrap();
+    let snapshot_len = u64_to_usize(raw_snapshot_len);
     let (restored_microvm_state, _) =
         Snapshot::load::<_, MicrovmState>(&mut snapshot_file.as_file(), snapshot_len).unwrap();
 
@@ -238,6 +243,7 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
         &microvm_state.memory_state,
         false,
         HugePageConfig::None,
+        false,
     )
     .unwrap();
 
@@ -298,11 +304,13 @@ fn test_snapshot_load_sanity_checks() {
 fn get_microvm_state_from_snapshot() -> MicrovmState {
     // Create a diff snapshot
     let (snapshot_file, _) = verify_create_snapshot(true);
+    snapshot_file.as_file().seek(SeekFrom::Start(0)).unwrap();
 
     // Deserialize the microVM state.
-    let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();
-    let snapshot_len = snapshot_file_metadata.len() as usize;
-    snapshot_file.as_file().seek(SeekFrom::Start(0)).unwrap();
+    let raw_snapshot_len: u64 = Snapshot::deserialize(&mut snapshot_file.as_file())
+        .map_err(SnapshotStateFromFileError::Meta)
+        .unwrap();
+    let snapshot_len = u64_to_usize(raw_snapshot_len);
     let (state, _) = Snapshot::load(&mut snapshot_file.as_file(), snapshot_len).unwrap();
     state
 }

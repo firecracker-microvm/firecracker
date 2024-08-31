@@ -62,6 +62,10 @@ pub enum SnapshotError {
     Io(i32),
     /// An error occured with serialization/deserialization: {0}
     Serde(String),
+    /// Failed to flush snapshot CRC to snapshot buffer
+    Flush,
+    /// Failed to write snapshot buffer to snapshot file
+    Write,
 }
 
 /// Firecracker snapshot header
@@ -204,12 +208,21 @@ impl Snapshot {
         T: Write + Debug,
         O: Serialize + Debug,
     {
-        let mut crc_writer = CRC64Writer::new(writer);
+        let mut snapshot_buf = Vec::new();
+
+        let mut crc_writer = CRC64Writer::new(&mut snapshot_buf);
         self.save_without_crc(&mut crc_writer, object)?;
 
         // Now write CRC value
         let checksum = crc_writer.checksum();
-        Self::serialize(&mut crc_writer, &checksum)
+        Self::serialize(&mut crc_writer, &checksum)?;
+
+        crc_writer.flush().map_err(|_| SnapshotError::Flush)?;
+
+        let snapshot_len = snapshot_buf.len() as u64;
+        Self::serialize(writer, &snapshot_len)?;
+
+        writer.write_all(&snapshot_buf).map_err(|_| SnapshotError::Write)
     }
 
     /// Save a snapshot with no CRC64 checksum included.
