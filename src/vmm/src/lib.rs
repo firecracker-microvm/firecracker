@@ -683,6 +683,13 @@ impl Vmm {
 
         self.acpi_device_manager.notify_cpu_container()?;
 
+        if let Some(devices::BusDevice::BootTimer(timer)) =
+            self.get_bus_device(DeviceType::BootTimer, "BootTimer")
+        {
+            let mut locked_timer = timer.lock().expect("Poisoned lock");
+            locked_timer.start_ts = utils::time::TimestampUs::default();
+        }
+
         Ok(new_machine_config)
     }
 

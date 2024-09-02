@@ -10,7 +10,7 @@ const MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE: u8 = 123;
 /// Pseudo device to record the kernel boot time.
 #[derive(Debug)]
 pub struct BootTimer {
-    start_ts: TimestampUs,
+    pub start_ts: TimestampUs,
 }
 
 impl BootTimer {
