@@ -4,6 +4,7 @@
 //! Defines the structures needed for saving/restoring MmdsNetworkStack.
 
 use std::net::Ipv4Addr;
+use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -19,8 +20,8 @@ pub struct MmdsNetworkStackState {
     mac_addr: [u8; MAC_ADDR_LEN as usize],
     ipv4_addr: u32,
     tcp_port: u16,
-    max_connections: usize,
-    max_pending_resets: usize,
+    max_connections: NonZeroUsize,
+    max_pending_resets: NonZeroUsize,
 }
 
 impl Persist<'_> for MmdsNetworkStack {
@@ -49,8 +50,8 @@ impl Persist<'_> for MmdsNetworkStack {
             MacAddr::from_bytes_unchecked(&state.mac_addr),
             Ipv4Addr::from(state.ipv4_addr),
             state.tcp_port,
-            std::num::NonZeroUsize::new(state.max_connections).unwrap(),
-            std::num::NonZeroUsize::new(state.max_pending_resets).unwrap(),
+            state.max_connections,
+            state.max_pending_resets,
             mmds,
         ))
     }
