@@ -65,5 +65,9 @@ harness = false
 name = "queue"
 harness = false
 
+[[bench]]
+name = "block_request"
+harness = false
+
 [lints]
 workspace = true
