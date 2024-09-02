@@ -837,6 +837,7 @@ pub struct HotplugMetrics {
     pub hotplug_request_fails: SharedIncMetric,
     pub vcpu_hotplug_request_fails: SharedIncMetric,
     pub vcpus_added: SharedIncMetric,
+    pub vcpus_removed: SharedIncMetric,
 }
 
 impl HotplugMetrics {
@@ -848,6 +849,7 @@ impl HotplugMetrics {
             hotplug_request_fails: SharedIncMetric::new(),
             vcpu_hotplug_request_fails: SharedIncMetric::new(),
             vcpus_added: SharedIncMetric::new(),
+            vcpus_removed: SharedIncMetric::new(),
         }
     }
 }

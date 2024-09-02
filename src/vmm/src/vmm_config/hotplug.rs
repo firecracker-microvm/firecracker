@@ -50,6 +50,6 @@ pub enum HotplugVcpuError {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct HotplugVcpuConfig {
-    /// Number of vcpus to start.
-    pub add: u8,
+    /// Number of vcpus after operation.
+    pub target: u8,
 }

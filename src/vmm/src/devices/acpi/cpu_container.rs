@@ -51,6 +51,8 @@ pub const CPU_CONTAINER_ACPI_SIZE: usize = 0xC;
 
 const CPU_ENABLE_BIT: u8 = 1 << 0;
 const CPU_INSERTING_BIT: u8 = 1 << 1;
+const CPU_REMOVING_BIT: u8 = 1 << 2;
+const CPU_EJECT_BIT: u8 = 1 << 3;
 
 const CPU_SELECTION_OFFSET: u64 = 0;
 const CPU_STATUS_OFFSET: u64 = 4;
@@ -94,6 +96,7 @@ impl CpuContainer {
                 cpu_id: i,
                 active: i < boot_count,
                 inserting: false,
+                removing: false,
             })
         }
 
@@ -123,6 +126,9 @@ impl CpuContainer {
                     if cpu_device.inserting {
                         data[0] |= CPU_INSERTING_BIT;
                     }
+                    if cpu_device.removing {
+                        data[0] |= CPU_REMOVING_BIT;
+                    }
                 } else {
                     error!("Out of range vCPU id: {}", self.selected_cpu)
                 }
@@ -142,6 +148,10 @@ impl CpuContainer {
                     }
                     if data[0] & CPU_ENABLE_BIT != 0 {
                         cpu_device.active = true;
+                    }
+                    if data[0] & CPU_EJECT_BIT != 0 {
+                        cpu_device.active = false;
+                        // TODO: Remove vCPU handle from VMM
                     }
                 } else {
                     error!("Out of range vCPU id: {}", self.selected_cpu)
@@ -215,7 +225,9 @@ impl Aml for CpuContainer {
                         aml::FieldEntry::Reserved(32),
                         aml::FieldEntry::Named(*b"CPEN", 1),
                         aml::FieldEntry::Named(*b"CINS", 1),
-                        aml::FieldEntry::Reserved(6),
+                        aml::FieldEntry::Named(*b"CRMV", 1),
+                        aml::FieldEntry::Named(*b"CEJ0", 1),
+                        aml::FieldEntry::Reserved(4),
                         aml::FieldEntry::Named(*b"CCMD", 8),
                     ],
                 ),
@@ -270,6 +282,8 @@ pub struct CpuDevice {
     pub active: bool,
     /// Whether this CPU is in the process of being inserted
     pub inserting: bool,
+    /// Whether this CPU is in the process of being removed
+    pub removing: bool,
 }
 
 impl CpuDevice {
@@ -305,6 +319,16 @@ impl Aml for CpuDevice {
                     ))],
                 ),
                 &aml::Name::new("_MAT".into(), &aml::Buffer::new(mat_data)),
+                &aml::Method::new(
+                    "_EJ0".into(),
+                    1,
+                    false,
+                    // Call into CEJ0 method which will actually eject device
+                    vec![&aml::MethodCall::new(
+                        "\\_SB_.CPUS.CEJ0".into(),
+                        vec![&self.cpu_id],
+                    )],
+                ),
             ],
         )
         .append_aml_bytes(v)
@@ -320,7 +344,7 @@ impl Aml for CpuNotify {
         let object = aml::Path::new(&format!("C{:03X}", self.cpu_id));
         aml::If::new(
             &aml::Equal::new(&aml::Arg(0), &self.cpu_id),
-            vec![&aml::Notify::new(&object, &1u8)],
+            vec![&aml::Notify::new(&object, &aml::Arg(1))],
         )
         .append_aml_bytes(v)
     }
@@ -370,6 +394,21 @@ impl Aml for CpuMethods {
         aml::Method::new("CTFY".into(), 2, true, cpu_notifies_refs).append_aml_bytes(v);
 
         aml::Method::new(
+            "CEJ0".into(),
+            1,
+            true,
+            vec![
+                &aml::Acquire::new("\\_SB_.PRES.CPLK".into(), 0xffff),
+                // Write CPU number (in first argument) to I/O port via field
+                &aml::Store::new(&aml::Path::new("\\_SB_.PRES.CSEL"), &aml::Arg(0)),
+                // Set CEJ0 bit
+                &aml::Store::new(&aml::Path::new("\\_SB_.PRES.CEJ0"), &aml::ONE),
+                &aml::Release::new("\\_SB_.PRES.CPLK".into()),
+            ],
+        )
+        .append_aml_bytes(v);
+
+        aml::Method::new(
             "CSCN".into(),
             0,
             true,
@@ -394,6 +433,15 @@ impl Aml for CpuMethods {
                                 ),
                                 // Reset CINS bit
                                 &aml::Store::new(&aml::Path::new("\\_SB_.PRES.CINS"), &aml::ONE),
+                            ],
+                        ),
+                        &aml::If::new(
+                            &aml::Equal::new(&aml::Path::new("\\_SB_.PRES.CRMV"), &aml::ONE),
+                            // Notify device if it is (with the eject constant 0x3)
+                            vec![
+                                &aml::MethodCall::new("CTFY".into(), vec![&aml::Local(0), &3u8]),
+                                // Reset CRMV bit
+                                &aml::Store::new(&aml::Path::new("\\_SB_.PRES.CRMV"), &aml::ONE),
                             ],
                         ),
                         &aml::Add::new(&aml::Local(0), &aml::Local(0), &aml::ONE),

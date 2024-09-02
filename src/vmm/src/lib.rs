@@ -615,23 +615,15 @@ impl Vmm {
         config: HotplugVcpuConfig,
     ) -> Result<MachineConfigUpdate, HotplugVcpuError> {
         use crate::logger::IncMetric;
-        if config.add < 1 {
-            return Err(HotplugVcpuError::VcpuCountTooLow);
-        } else if self
-            .vcpus_handles
-            .len()
-            .checked_add(config.add.into())
-            .ok_or(HotplugVcpuError::VcpuCountTooHigh)?
-            > MAX_SUPPORTED_VCPUS.into()
-        {
+        if config.target > MAX_SUPPORTED_VCPUS {
             return Err(HotplugVcpuError::VcpuCountTooHigh);
         }
 
         if let Some(kvm_config) = self.vcpu_config.as_mut() {
-            kvm_config.vcpu_count += config.add;
+            kvm_config.vcpu_count = config.target;
         }
         // Create and start new vcpus
-        let mut vcpus = Vec::with_capacity(config.add.into());
+        let mut vcpus = Vec::with_capacity(config.target.into());
 
         #[allow(clippy::cast_possible_truncation)]
         let start_idx = self.vcpus_handles.len().try_into().unwrap();
@@ -639,7 +631,7 @@ impl Vmm {
             self.get_bus_device(DeviceType::CpuContainer, "CpuContainer")
         {
             let mut locked_container = cont.lock().expect("Poisoned lock");
-            for cpu_idx in start_idx..(start_idx + config.add) {
+            for cpu_idx in start_idx..config.target {
                 let exit_evt = self
                     .vcpus_exit_evt
                     .try_clone()
@@ -666,7 +658,10 @@ impl Vmm {
         .map_err(HotplugVcpuError::VcpuStart)?;
 
         #[allow(clippy::cast_lossless)]
-        METRICS.hotplug.vcpus_added.add(config.add.into());
+        METRICS
+            .hotplug
+            .vcpus_added
+            .add(self.vcpus_handles.len() as u64 - config.target as u64);
 
         // Update VM config to reflect new CPUs added
         #[allow(clippy::cast_possible_truncation)]
@@ -680,6 +675,53 @@ impl Vmm {
         };
 
         self.resume_vcpu_threads(start_idx.into())?;
+
+        self.acpi_device_manager.notify_cpu_container()?;
+
+        Ok(new_machine_config)
+    }
+
+    /// Removes vCPUs from VMM.
+    #[cfg(target_arch = "x86_64")]
+    pub fn hotunplug_vcpus(
+        &mut self,
+        config: HotplugVcpuConfig,
+    ) -> Result<MachineConfigUpdate, HotplugVcpuError> {
+        use crate::logger::IncMetric;
+        if config.target < 1 {
+            return Err(HotplugVcpuError::VcpuCountTooLow);
+        }
+        if let Some(kvm_config) = self.vcpu_config.as_mut() {
+            kvm_config.vcpu_count = config.target;
+        }
+
+        #[allow(clippy::cast_possible_truncation)]
+        let start_idx: u8 = config.target;
+        if let Some(devices::BusDevice::CpuContainer(cont)) =
+            self.get_bus_device(DeviceType::CpuContainer, "CpuContainer")
+        {
+            let mut locked_container = cont.lock().expect("Poisoned lock");
+            for cpu_idx in start_idx..u8::try_from(self.vcpus_handles.len()).unwrap() {
+                locked_container.cpu_devices[cpu_idx as usize].removing = true;
+            }
+        }
+
+        #[allow(clippy::cast_lossless)]
+        METRICS
+            .hotplug
+            .vcpus_added
+            .add(self.vcpus_handles.len() as u64 - config.target as u64);
+
+        // Update VM config to reflect new CPUs added
+        #[allow(clippy::cast_possible_truncation)]
+        let new_machine_config = MachineConfigUpdate {
+            vcpu_count: Some(self.vcpus_handles.len() as u8),
+            mem_size_mib: None,
+            smt: None,
+            cpu_template: None,
+            track_dirty_pages: None,
+            huge_pages: None,
+        };
 
         self.acpi_device_manager.notify_cpu_container()?;
 
