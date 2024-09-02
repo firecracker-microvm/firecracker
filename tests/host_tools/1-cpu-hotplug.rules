@@ -1,0 +1,1 @@
+SUBSYSTEM=="cpu", ACTION=="add", ATTR{online}!="1", ATTR{online}="1"
