@@ -376,6 +376,12 @@ def rootfs_fxt(request, record_property):
 
 # Fixtures for all guest kernels, and specific versions
 guest_kernel = pytest.fixture(guest_kernel_fxt, params=kernel_params("vmlinux-*"))
+guest_kernel_acpi = pytest.fixture(
+    guest_kernel_fxt,
+    params=filter(
+        lambda kernel: "no-acpi" not in kernel.id, kernel_params("vmlinux-*")
+    ),
+)
 guest_kernel_linux_4_14 = pytest.fixture(
     guest_kernel_fxt, params=kernel_params("vmlinux-4.14*")
 )

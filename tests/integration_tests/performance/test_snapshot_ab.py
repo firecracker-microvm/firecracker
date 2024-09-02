@@ -43,12 +43,12 @@ class SnapshotRestoreTest:
     def configure_vm(
         self,
         microvm_factory,
-        guest_kernel,
+        guest_kernel_acpi,
         rootfs,
     ) -> Microvm:
         """Creates the initial snapshot that will be loaded repeatedly to sample latencies"""
         vm = microvm_factory.build(
-            guest_kernel,
+            guest_kernel_acpi,
             rootfs,
             monitor_memory=False,
         )
