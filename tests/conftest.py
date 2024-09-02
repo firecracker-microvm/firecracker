@@ -386,7 +386,10 @@ guest_kernel_linux_4_14 = pytest.fixture(
     guest_kernel_fxt, params=kernel_params("vmlinux-4.14*")
 )
 guest_kernel_linux_5_10 = pytest.fixture(
-    guest_kernel_fxt, params=kernel_params("vmlinux-5.10*")
+    guest_kernel_fxt,
+    params=filter(
+        lambda kernel: "no-acpi" not in kernel.id, kernel_params("vmlinux-5.10*")
+    ),
 )
 guest_kernel_linux_6_1 = pytest.fixture(
     guest_kernel_fxt,
