@@ -181,7 +181,7 @@ Contributors to the Firecracker repository:
 - milahu <milahu@gmail.com>
 - moricho <ikeda.morito@gmail.com>
 - Muki Kiboigo <muki@kiboigo.com>
-- Muskaan Singla <ec2-user@ip-172-31-1-28.us-west-2.compute.internal>
+- Muskaan Singla <msinglaa@amazon.com>
 - Narek Galstyan <narekg@berkeley.edu>
 - Nathan Hoang <nathanhoang5@gmail.com>
 - Nathan Sizemore <nathanrsizemore@gmail.com>
@@ -226,7 +226,6 @@ Contributors to the Firecracker repository:
 - Sean Lavine <freewil@users.noreply.github.com>
 - Sebastien Boeuf <sebastien.boeuf@intel.com>
 - Serban Iorga <seriorga@amazon.com>
-- ShadowCurse <yegorlz@amazon.co.uk>
 - shakram02 <ahmedhamdyau@gmail.com>
 - Shen Jiale <shenjiale@baidu.com>
 - Shion Yamashita <shioyama1118@gmail.com>
@@ -235,7 +234,7 @@ Contributors to the Firecracker repository:
 - Sripracha <ramsri@amazon.com>
 - Stefan Nita <32079871+stefannita01@users.noreply.github.com>
 - StemCll <lydjotj6f@mozmail.com>
-- Sudan Landge <sudanl@amazon.com>
+- Sudan Landge <sudanl@amazon.co.uk>
 - sundar.preston.789@gmail.com <sundar.preston.789@gmail.com>
 - Takahiro Itazuri <itazur@amazon.com>
 - Tal Hoffman <talhof8@gmail.com>
