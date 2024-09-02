@@ -16,8 +16,8 @@ use crate::vstate::memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap,
 };
 
-pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
-pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
+pub const VIRTQ_DESC_F_NEXT: u16 = 0x1;
+pub const VIRTQ_DESC_F_WRITE: u16 = 0x2;
 
 /// Max size of virtio queues offered by firecracker's virtio devices.
 pub(super) const FIRECRACKER_MAX_QUEUE_SIZE: u16 = 256;
@@ -69,7 +69,7 @@ struct UsedElement {
 unsafe impl ByteValued for UsedElement {}
 
 /// A virtio descriptor chain.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct DescriptorChain<'a, M: GuestMemory = GuestMemoryMmap> {
     desc_table: GuestAddress,
     queue_size: u16,
@@ -205,7 +205,7 @@ impl<'a> Iterator for DescriptorIterator<'a> {
 /// A virtio queue's parameters.
 pub struct Queue {
     /// The maximal size in elements offered by the device
-    pub(crate) max_size: u16,
+    pub max_size: u16,
 
     /// The queue size in elements the driver selected
     pub size: u16,
@@ -222,13 +222,13 @@ pub struct Queue {
     /// Guest physical address of the used ring
     pub used_ring: GuestAddress,
 
-    pub(crate) next_avail: Wrapping<u16>,
-    pub(crate) next_used: Wrapping<u16>,
+    pub next_avail: Wrapping<u16>,
+    pub next_used: Wrapping<u16>,
 
     /// VIRTIO_F_RING_EVENT_IDX negotiated (notification suppression enabled)
-    pub(crate) uses_notif_suppression: bool,
+    pub uses_notif_suppression: bool,
     /// The number of added used buffers since last guest kick
-    pub(crate) num_added: Wrapping<u16>,
+    pub num_added: Wrapping<u16>,
 }
 
 #[allow(clippy::len_without_is_empty)]
