@@ -173,7 +173,7 @@ def find_events(log_data):
     [(1, 128), (1, 1024), (2, 2048), (4, 4096)],
 )
 def test_boottime(
-    microvm_factory, guest_kernel, rootfs_rw, vcpu_count, mem_size_mib, metrics
+    microvm_factory, guest_kernel_acpi, rootfs_rw, vcpu_count, mem_size_mib, metrics
 ):
     """Test boot time with different guest configurations"""
 
@@ -181,14 +181,14 @@ def test_boottime(
         {
             **DIMENSIONS,
             "performance_test": "test_boottime",
-            "guest_kernel": guest_kernel.name,
+            "guest_kernel_acpi": guest_kernel_acpi.name,
             "vcpus": str(vcpu_count),
             "mem_size_mib": str(mem_size_mib),
         }
     )
 
     for _ in range(10):
-        vm = microvm_factory.build(guest_kernel, rootfs_rw)
+        vm = microvm_factory.build(guest_kernel_acpi, rootfs_rw)
         vm.jailer.extra_args.update({"boot-timer": None})
         vm.spawn()
         vm.basic_config(

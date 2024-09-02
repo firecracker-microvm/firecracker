@@ -29,7 +29,7 @@ X86_MEMORY_GAP_START = 3328 * 2**20
     [(1, 128), (1, 1024), (2, 2048), (4, 4096)],
 )
 def test_memory_overhead(
-    microvm_factory, guest_kernel, rootfs, vcpu_count, mem_size_mib, metrics
+    microvm_factory, guest_kernel_acpi, rootfs, vcpu_count, mem_size_mib, metrics
 ):
     """Track Firecracker memory overhead.
 
@@ -37,7 +37,7 @@ def test_memory_overhead(
     """
 
     for _ in range(5):
-        microvm = microvm_factory.build(guest_kernel, rootfs)
+        microvm = microvm_factory.build(guest_kernel_acpi, rootfs)
         microvm.spawn(emit_metrics=True)
         microvm.basic_config(vcpu_count=vcpu_count, mem_size_mib=mem_size_mib)
         microvm.add_net_iface()
