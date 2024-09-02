@@ -38,6 +38,15 @@ and this project adheres to
 
 ### Fixed
 
+- [4680](https://github.com/firecracker-microvm/firecracker/pull/4680): Fixed an
+  issue
+  ([#4659](https://github.com/firecracker-microvm/firecracker/issues/4659))
+  where the virtio-net device implementation would always assume the guest
+  accepts all VirtIO features the device offers. This is always true with the
+  Linux guest kernels we are testing but other kernels, like FreeBSD make
+  different assumptions. This PR fixes the emulation code to set the TAP
+  features based on the features accepted by the guest.
+
 ## \[1.8.0\]
 
 ### Added
