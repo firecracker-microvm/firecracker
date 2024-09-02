@@ -496,6 +496,7 @@ cmd_build() {
 }
 
 function cmd_make_release {
+    ensure_build_dir
     run_devctr \
         --user "$(id -u):$(id -g)" \
         --workdir "$CTR_FC_ROOT_DIR" \
