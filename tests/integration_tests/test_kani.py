@@ -1,7 +1,7 @@
 # Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """
-Proofs ensuring memory safety properites, user-defined assertions,
+Proofs ensuring memory safety properties, user-defined assertions,
 absence of panics and some types of unexpected behavior (e.g., arithmetic overflows).
 """
 import os
@@ -14,7 +14,9 @@ from framework import utils
 PLATFORM = platform.machine()
 
 
-@pytest.mark.timeout(1800)
+# The `check_output` timeout will always fire before this one, but we need to
+# set a timeout here to override the default pytest timeout of 180s.
+@pytest.mark.timeout(2420)
 @pytest.mark.skipif(PLATFORM != "x86_64", reason="Kani proofs run only on x86_64.")
 @pytest.mark.skipif(
     os.environ.get("BUILDKITE") != "true",
@@ -31,7 +33,8 @@ def test_kani(results_dir):
     # --output-format terse is required by -j
     # --enable-unstable is needed to enable `-Z` flags
     _, stdout, _ = utils.check_output(
-        "cargo kani --enable-unstable -Z stubbing -Z function-contracts --restrict-vtable -j --output-format terse"
+        "cargo kani --enable-unstable -Z stubbing -Z function-contracts --restrict-vtable -j --output-format terse",
+        timeout=2400,
     )
 
     (results_dir / "kani_log").write_text(stdout, encoding="utf-8")
