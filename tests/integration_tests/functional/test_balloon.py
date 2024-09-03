@@ -518,24 +518,6 @@ def test_balloon_snapshot(microvm_factory, guest_kernel, rootfs):
     assert stats_after_snap["available_memory"] > latest_stats["available_memory"]
 
 
-def test_snapshot_compatibility(microvm_factory, guest_kernel, rootfs):
-    """
-    Test that the balloon serializes correctly.
-    """
-    vm = microvm_factory.build(guest_kernel, rootfs)
-    vm.spawn()
-    vm.basic_config(
-        vcpu_count=2,
-        mem_size_mib=256,
-    )
-
-    # Add a memory balloon with stats enabled.
-    vm.api.balloon.put(amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1)
-
-    vm.start()
-    vm.snapshot_full()
-
-
 def test_memory_scrub(microvm_factory, guest_kernel, rootfs):
     """
     Test that the memory is zeroed after deflate.
