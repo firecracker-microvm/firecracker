@@ -75,7 +75,7 @@ def make_guest_dirty_memory(ssh_connection, amount_mib=32):
             logger.error("stdout: %s", stdout)
             logger.error("stderr: %s", stderr)
     except TimeoutExpired:
-        # It's ok if this expires. Some times the SSH connection
+        # It's ok if this expires. Sometimes the SSH connection
         # gets killed by the OOM killer *after* the fillmem program
         # started. As a result, we can ignore timeouts here.
         pass
