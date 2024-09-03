@@ -31,7 +31,7 @@ DIMENSIONS = {
 
 
 @pytest.fixture
-def fast_microvm(microvm_factory, guest_kernel_linux_4_14, rootfs_rw):
+def fast_microvm(microvm_factory, guest_kernel_linux_5_10, rootfs_rw):
     """The microvm defined for the boottime SLA
 
     Guest kernel 4.14
@@ -40,7 +40,7 @@ def fast_microvm(microvm_factory, guest_kernel_linux_4_14, rootfs_rw):
     Using ext4 seems to result in a faster boot than with squashfs. Probably
     because we have to spend CPU time decompressing and extracting into memory.
     """
-    return microvm_factory.build(kernel=guest_kernel_linux_4_14, rootfs=rootfs_rw)
+    return microvm_factory.build(kernel=guest_kernel_linux_5_10, rootfs=rootfs_rw)
 
 
 def test_no_boottime(uvm_plain):
