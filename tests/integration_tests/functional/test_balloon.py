@@ -129,6 +129,7 @@ def test_rss_memory_lower(uvm_plain_any):
 
     # Start the microvm.
     test_microvm.start()
+    test_microvm.wait_for_up()
 
     _test_rss_memory_lower(test_microvm)
 
@@ -150,6 +151,7 @@ def test_inflate_reduces_free(uvm_plain_any):
 
     # Start the microvm
     test_microvm.start()
+    test_microvm.wait_for_up()
     firecracker_pid = test_microvm.firecracker_pid
 
     # Get the free memory before ballooning.
@@ -301,6 +303,7 @@ def test_size_reduction(uvm_plain_any):
 
     # Start the microvm.
     test_microvm.start()
+    test_microvm.wait_for_up()
     firecracker_pid = test_microvm.firecracker_pid
 
     # Check memory usage.
@@ -343,6 +346,7 @@ def test_stats(uvm_plain_any):
 
     # Start the microvm.
     test_microvm.start()
+    test_microvm.wait_for_up()
     firecracker_pid = test_microvm.firecracker_pid
 
     # Get an initial reading of the stats.
@@ -403,6 +407,7 @@ def test_stats_update(uvm_plain_any):
 
     # Start the microvm.
     test_microvm.start()
+    test_microvm.wait_for_up()
     firecracker_pid = test_microvm.firecracker_pid
 
     # Dirty 30MB of pages.
@@ -454,6 +459,7 @@ def test_balloon_snapshot(microvm_factory, guest_kernel, rootfs):
     )
 
     vm.start()
+    vm.wait_for_up()
 
     # Dirty 60MB of pages.
     make_guest_dirty_memory(vm.ssh, amount_mib=60)
@@ -533,6 +539,7 @@ def test_memory_scrub(microvm_factory, guest_kernel, rootfs):
     )
 
     microvm.start()
+    microvm.wait_for_up()
 
     # Dirty 60MB of pages.
     make_guest_dirty_memory(microvm.ssh, amount_mib=60)
