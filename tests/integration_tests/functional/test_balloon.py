@@ -74,8 +74,6 @@ def make_guest_dirty_memory(ssh_connection, amount_mib=32):
             logger.error("while running: %s", cmd)
             logger.error("stdout: %s", stdout)
             logger.error("stderr: %s", stderr)
-
-        cmd = "cat /tmp/fillmem_output.txt"
     except TimeoutExpired:
         # It's ok if this expires. Some times the SSH connection
         # gets killed by the OOM killer *after* the fillmem program
