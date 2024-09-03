@@ -432,7 +432,7 @@ def test_config_start_and_mmds_with_api(uvm_plain, vm_config_file):
     assert response.json() == {}
 
     # Populate MMDS with data.
-    response = test_microvm.api.mmds.put(**data_store)
+    test_microvm.api.mmds.put(**data_store)
 
     # Ensure the MMDS contents have been successfully updated.
     response = test_microvm.api.mmds.get()
