@@ -3,6 +3,7 @@
 """Performance benchmark for block device emulation."""
 
 import concurrent
+import json
 import os
 import shutil
 from pathlib import Path
@@ -67,18 +68,17 @@ def run_fio(microvm, mode, block_size):
         .with_arg("--cpus_allowed_policy=split")
         .with_arg("--randrepeat=0")
         .with_arg(f"--runtime={RUNTIME_SEC}")
-        .with_arg(f"--write_bw_log={mode}")
-        .with_arg("--log_avg_msec=1000")
         .with_arg("--output-format=json+")
+        .with_arg("--output=fio.json")
         .build()
     )
 
-    logs_path = Path(microvm.jailer.chroot_base_with_id()) / "fio_output"
+    output_path = Path(microvm.jailer.chroot_base_with_id()) / "fio_output"
 
-    if logs_path.is_dir():
-        shutil.rmtree(logs_path)
+    if output_path.is_dir():
+        shutil.rmtree(output_path)
 
-    logs_path.mkdir()
+    output_path.mkdir()
 
     prepare_microvm_for_test(microvm)
 
@@ -96,47 +96,33 @@ def run_fio(microvm, mode, block_size):
         assert rc == 0, stderr
         assert stderr == ""
 
-        microvm.ssh.scp_get("/tmp/*.log", logs_path)
-        microvm.ssh.check_output("rm /tmp/*.log")
+        microvm.ssh.scp_get("/tmp/fio.json", output_path)
+        fio_json_path = output_path / "fio.json"
 
-        return logs_path, cpu_load_future.result()
+        microvm.ssh.check_output("rm /tmp/fio.json")
+
+        return fio_json_path, cpu_load_future.result()
 
 
-def process_fio_logs(vm, fio_mode, logs_dir, metrics):
-    """Parses the fio logs in `{logs_dir}/{fio_mode}_bw.*.log and emits their contents as CloudWatch metrics"""
+def process_fio_json(json_path, metrics):
+    """Parse fio json ouput"""
+    data = json.loads(json_path.read_text(encoding="utf-8"))
 
-    data = [
-        Path(f"{logs_dir}/{fio_mode}_bw.{job_id + 1}.log")
-        .read_text("UTF-8")
-        .splitlines()
-        for job_id in range(vm.vcpus_count)
-    ]
+    bw_read = 0
+    bw_write = 0
 
-    for tup in zip(*data):
-        bw_read = 0
-        bw_write = 0
+    for job in data["jobs"]:
+        bw_read += job["read"]["bw"]
+        bw_write += job["write"]["bw"]
 
-        for line in tup:
-            _, value, direction, _ = line.split(",", maxsplit=3)
-            value = int(value.strip())
-
-            # See https://fio.readthedocs.io/en/latest/fio_doc.html#log-file-formats
-            match direction.strip():
-                case "0":
-                    bw_read += value
-                case "1":
-                    bw_write += value
-                case _:
-                    assert False
-
-        if bw_read:
-            metrics.put_metric("bw_read", bw_read, "Kilobytes/Second")
-        if bw_write:
-            metrics.put_metric("bw_write", bw_write, "Kilobytes/Second")
+    if bw_read:
+        metrics.put_metric("bw_read", bw_read, "Kilobytes/Second")
+    if bw_write:
+        metrics.put_metric("bw_write", bw_write, "Kilobytes/Second")
 
 
 @pytest.mark.timeout(120)
-@pytest.mark.nonci
+# @pytest.mark.nonci
 @pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
 @pytest.mark.parametrize("fio_mode", ["randread", "randwrite"])
 @pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])
@@ -176,9 +162,8 @@ def test_block_performance(
 
     vm.pin_threads(0)
 
-    logs_dir, cpu_util = run_fio(vm, fio_mode, fio_block_size)
-
-    process_fio_logs(vm, fio_mode, logs_dir, metrics)
+    fio_json_path, cpu_util = run_fio(vm, fio_mode, fio_block_size)
+    process_fio_json(fio_json_path, metrics)
 
     for thread_name, values in cpu_util.items():
         for value in values:
@@ -225,9 +210,8 @@ def test_block_vhost_user_performance(
     next_cpu = vm.pin_threads(0)
     vm.disks_vhost_user["scratch"].pin(next_cpu)
 
-    logs_dir, cpu_util = run_fio(vm, fio_mode, fio_block_size)
-
-    process_fio_logs(vm, fio_mode, logs_dir, metrics)
+    fio_json_path, cpu_util = run_fio(vm, fio_mode, fio_block_size)
+    process_fio_json(fio_json_path, metrics)
 
     for thread_name, values in cpu_util.items():
         for value in values:
