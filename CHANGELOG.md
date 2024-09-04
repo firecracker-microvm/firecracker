@@ -10,6 +10,18 @@ and this project adheres to
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+## \[1.9.0\]
+
+### Added
+
 - [#4687](https://github.com/firecracker-microvm/firecracker/pull/4687): Added
   VMGenID support for microVMs running on ARM hosts with 6.1 guest kernels.
   Support for VMGenID via DeviceTree bindings exists only on mainline 6.10 Linux

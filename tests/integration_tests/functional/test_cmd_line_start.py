@@ -7,7 +7,6 @@ import os
 import platform
 import re
 import shutil
-import time
 from pathlib import Path
 
 import pytest
@@ -164,7 +163,7 @@ def test_config_start_no_api_exit(uvm_plain, vm_config_file):
     test_microvm.jailer.extra_args.update({"no-api": None})
 
     test_microvm.spawn()  # Start Firecracker and MicroVM
-    time.sleep(3)  # Wait for startup
+    test_microvm.wait_for_up()
     test_microvm.ssh.run("reboot")  # Exit
 
     test_microvm.mark_killed()  # waits for process to terminate
@@ -266,7 +265,7 @@ def test_config_start_with_limit(uvm_plain, vm_config_file):
     response += '{ "error": "Request payload with size 260 is larger than '
     response += "the limit of 250 allowed by server.\n"
     response += 'All previous unanswered requests will be dropped." }'
-    _, stdout, _stderr = utils.check_output(cmd)
+    _, stdout, _ = utils.check_output(cmd)
     assert stdout.encode("utf-8") == response.encode("utf-8")
 
 
@@ -420,8 +419,7 @@ def test_config_start_and_mmds_with_api(uvm_plain, vm_config_file):
 
     # Network namespace has already been created.
     test_microvm.spawn()
-
-    assert test_microvm.state == "Running"
+    test_microvm.wait_for_up()
 
     data_store = {
         "latest": {
@@ -434,7 +432,7 @@ def test_config_start_and_mmds_with_api(uvm_plain, vm_config_file):
     assert response.json() == {}
 
     # Populate MMDS with data.
-    response = test_microvm.api.mmds.put(**data_store)
+    test_microvm.api.mmds.put(**data_store)
 
     # Ensure the MMDS contents have been successfully updated.
     response = test_microvm.api.mmds.get()
@@ -480,6 +478,7 @@ def test_with_config_and_metadata_no_api(uvm_plain, vm_config_file, metadata_fil
     _configure_network_interface(test_microvm)
     test_microvm.jailer.extra_args.update({"no-api": None})
     test_microvm.spawn()
+    test_microvm.wait_for_up()
 
     # Get MMDS version and IPv4 address configured from the file.
     version, ipv4_address = _get_optional_fields_from_file(vm_config_file)
