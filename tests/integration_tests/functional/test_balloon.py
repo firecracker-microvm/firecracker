@@ -341,7 +341,9 @@ def test_stats(uvm_plain_any):
 
     # Add a memory balloon with stats enabled.
     test_microvm.api.balloon.put(
-        amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1
+        amount_mib=0,
+        deflate_on_oom=True,
+        stats_polling_interval_s=STATS_POLLING_INTERVAL_S,
     )
 
     # Start the microvm.
@@ -349,8 +351,17 @@ def test_stats(uvm_plain_any):
     test_microvm.wait_for_up()
     firecracker_pid = test_microvm.firecracker_pid
 
+    # Give Firecracker enough time to poll the stats at least once post-boot
+    time.sleep(STATS_POLLING_INTERVAL_S * 2)
+
     # Get an initial reading of the stats.
     initial_stats = test_microvm.api.balloon_stats.get().json()
+
+    # Major faults happen when a page fault has to be satisfied from disk. They are not
+    # triggered by our `make_guest_dirty_memory` workload, as it uses MAP_ANONYMOUS, which
+    # only triggers minor faults. However, during the boot process, things are read from the
+    # rootfs, so we should at least see a non-zero number of major faults.
+    assert initial_stats["major_faults"] > 0
 
     # Dirty 10MB of pages.
     make_guest_dirty_memory(test_microvm.ssh, amount_mib=10)
@@ -361,7 +372,6 @@ def test_stats(uvm_plain_any):
     # Make sure that the stats catch the page faults.
     after_workload_stats = test_microvm.api.balloon_stats.get().json()
     assert initial_stats.get("minor_faults", 0) < after_workload_stats["minor_faults"]
-    assert initial_stats.get("major_faults", 0) < after_workload_stats["major_faults"]
 
     # Now inflate the balloon with 10MB of pages.
     test_microvm.api.balloon.patch(amount_mib=10)
