@@ -396,7 +396,7 @@ impl Queue {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, kani))]
     #[inline(always)]
     pub fn used_ring_avail_event_get(&mut self) -> u16 {
         // SAFETY: `avail_event` is 2 * u16 and self.len * UsedElement away from the start
@@ -685,9 +685,7 @@ mod verification {
     use vm_memory::guest_memory::GuestMemoryIterator;
     use vm_memory::{GuestMemoryRegion, MemoryRegionAddress};
 
-    use crate::devices::virtio::queue::{
-        Descriptor, DescriptorChain, Queue, FIRECRACKER_MAX_QUEUE_SIZE, VIRTQ_DESC_F_NEXT,
-    };
+    use super::*;
     use crate::vstate::memory::{Bytes, FileOffset, GuestAddress, GuestMemory, MmapRegion};
 
     /// A made-for-kani version of `vm_memory::GuestMemoryMmap`. Unlike the real
@@ -1070,10 +1068,52 @@ mod verification {
 
     #[kani::proof]
     #[kani::unwind(0)]
-    fn verify_set_used_ring_avail_event() {
-        let ProofContext(mut queue, _) = ProofContext::bounded_queue();
+    fn verify_avail_ring_idx_get() {
+        let ProofContext(queue, _) = kani::any();
+        _ = queue.avail_ring_idx_get();
+    }
 
-        queue.used_ring_avail_event_set(kani::any());
+    #[kani::proof]
+    #[kani::unwind(0)]
+    fn verify_avail_ring_ring_get() {
+        let ProofContext(queue, _) = kani::any();
+        let x: usize = kani::any_where(|x| *x < usize::from(queue.size));
+        unsafe { _ = queue.avail_ring_ring_get(x) };
+    }
+
+    #[kani::proof]
+    #[kani::unwind(0)]
+    fn verify_avail_ring_used_event_get() {
+        let ProofContext(queue, _) = kani::any();
+        _ = queue.avail_ring_used_event_get();
+    }
+
+    #[kani::proof]
+    #[kani::unwind(0)]
+    fn verify_used_ring_idx_set() {
+        let ProofContext(mut queue, _) = kani::any();
+        queue.used_ring_idx_set(kani::any());
+    }
+
+    #[kani::proof]
+    #[kani::unwind(0)]
+    fn verify_used_ring_ring_set() {
+        let ProofContext(mut queue, _) = kani::any();
+        let x: usize = kani::any_where(|x| *x < usize::from(queue.size));
+        let used_element = UsedElement {
+            id: kani::any(),
+            len: kani::any(),
+        };
+        unsafe { queue.used_ring_ring_set(x, used_element) };
+    }
+
+    #[kani::proof]
+    #[kani::unwind(0)]
+    fn verify_used_ring_avail_event() {
+        let ProofContext(mut queue, _) = kani::any();
+        let x = kani::any();
+        queue.used_ring_avail_event_set(x);
+        assert_eq!(x, queue.used_ring_avail_event_get());
     }
 
     #[kani::proof]
