@@ -79,10 +79,9 @@ EOF
     id_rsa=$OUTPUT_DIR/$ROOTFS_NAME.id_rsa
     cp id_rsa $id_rsa
 
-    # -comp zstd but guest kernel does not support
     rootfs_img="$OUTPUT_DIR/$ROOTFS_NAME.squashfs"
     mv $rootfs/root/manifest $OUTPUT_DIR/$ROOTFS_NAME.manifest
-    mksquashfs $rootfs $rootfs_img -all-root -noappend
+    mksquashfs $rootfs $rootfs_img -all-root -noappend -comp zstd
     rm -rf $rootfs
     for bin in fast_page_fault_helper fillmem init readmem; do
         rm $PWD/overlay/usr/local/bin/$bin
