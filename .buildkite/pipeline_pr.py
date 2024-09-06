@@ -51,7 +51,7 @@ if not changed_files or any(
 ):
     kani_grp = pipeline.build_group(
         "🔍 Kani",
-        "./tools/devtool -y test -- ../tests/integration_tests/test_kani.py -n auto",
+        "./tools/devtool -y test --no-build -- ../tests/integration_tests/test_kani.py -n auto",
         # Kani step default
         # Kani runs fastest on m6a.metal
         instances=["m6a.metal"],
