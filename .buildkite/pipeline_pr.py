@@ -58,10 +58,12 @@ if not changed_files or any(
         platforms=[("al2", "linux_5.10")],
         timeout_in_minutes=300,
         **DEFAULTS_PERF,
+        decorate=False,
     )
     # modify Kani steps' label
     for step in kani_grp["steps"]:
         step["label"] = "🔍 Kani"
+    kani_grp["depends_on"] = None
 
 if run_all_tests(changed_files):
     pipeline.build_group(
