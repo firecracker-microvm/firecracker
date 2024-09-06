@@ -826,15 +826,6 @@ mod verification {
         )
     }
 
-    fn setup_zeroed_guest_memory() -> ProofGuestMemory {
-        guest_memory(unsafe {
-            std::alloc::alloc_zeroed(std::alloc::Layout::from_size_align_unchecked(
-                GUEST_MEMORY_SIZE,
-                16,
-            ))
-        })
-    }
-
     // Constants describing the in-memory layout of a queue of size FIRECRACKER_MAX_SIZE starting
     // at the beginning of guest memory. These are based on Section 2.6 of the VirtIO 1.1
     // specification.
@@ -882,27 +873,15 @@ mod verification {
 
             ProofContext(queue, mem)
         }
-
-        /// Creates a [`ProofContext`] where the queue layout is fixed to a valid one and where
-        /// guest memory is initialized to all zeros.
-        pub fn bounded() -> Self {
-            let mem = setup_zeroed_guest_memory();
-            let mut queue = less_arbitrary_queue();
-            queue.initialize(&mem).unwrap();
-
-            assert!(queue.is_valid(&mem));
-
-            ProofContext(queue, mem)
-        }
     }
 
     impl kani::Arbitrary for ProofContext {
         fn any() -> Self {
             let mem = setup_kani_guest_memory();
             let mut queue: Queue = kani::any();
-            queue.initialize(&mem).unwrap();
 
             kani::assume(queue.is_valid(&mem));
+            queue.initialize(&mem).unwrap();
 
             ProofContext(queue, mem)
         }
@@ -950,7 +929,7 @@ mod verification {
         // has been processed. This is done by the driver
         // defining a "used_event" index, which tells the device "please do not notify me until
         // used.ring[used_event] has been written to by you".
-        let ProofContext(mut queue, _) = ProofContext::bounded_queue();
+        let ProofContext(mut queue, _) = kani::any();
 
         let num_added_old = queue.num_added.0;
         let needs_notification = queue.prepare_kick();
@@ -991,7 +970,7 @@ mod verification {
         // number of added descriptors being counted in Queue.num_added), and then use
         // "prepare_kick" to check if any of those descriptors should have triggered a
         // notification.
-        let ProofContext(mut queue, _) = ProofContext::bounded_queue();
+        let ProofContext(mut queue, _) = kani::any();
 
         queue.enable_notif_suppression();
         assert!(queue.uses_notif_suppression);
@@ -1024,8 +1003,44 @@ mod verification {
 
     #[kani::proof]
     #[kani::unwind(0)]
+    fn verify_add_used() {
+        let ProofContext(mut queue, _) = kani::any();
+
+        // The spec here says (2.6.8.2):
+        //
+        // The device MUST set len prior to updating the used idx.
+        // The device MUST write at least len bytes to descriptor, beginning at the first
+        // device-writable buffer, prior to updating the used idx.
+        // The device MAY write more than len bytes to descriptor.
+        //
+        // We can't really verify any of these. We can verify that guest memory is updated correctly
+        // though
+
+        // index into used ring at which the index of the descriptor to which
+        // the device wrote.
+        let used_idx = queue.next_used;
+
+        let used_desc_table_index = kani::any();
+        if queue.add_used(used_desc_table_index, kani::any()).is_ok() {
+            assert_eq!(queue.next_used, used_idx + Wrapping(1));
+        } else {
+            assert_eq!(queue.next_used, used_idx);
+
+            // Ideally, here we would want to actually read the relevant values from memory and
+            // assert they are unchanged. However, kani will run out of memory if we try to do so,
+            // so we instead verify the following "proxy property": If an error happened, then
+            // it happened at the very beginning of add_used, meaning no memory accesses were
+            // done. This is relying on implementation details of add_used, namely that
+            // the check for out-of-bounds descriptor index happens at the very beginning of the
+            // function.
+            assert!(used_desc_table_index >= queue.actual_size());
+        }
+    }
+
+    #[kani::proof]
+    #[kani::unwind(0)]
     fn verify_is_empty() {
-        let ProofContext(queue, _) = ProofContext::bounded_queue();
+        let ProofContext(queue, _) = kani::any();
 
         assert_eq!(queue.len() == 0, queue.is_empty());
     }
@@ -1120,7 +1135,7 @@ mod verification {
     #[kani::unwind(0)]
     #[kani::solver(cadical)]
     fn verify_pop() {
-        let ProofContext(mut queue, _) = ProofContext::bounded_queue();
+        let ProofContext(mut queue, _) = kani::any();
 
         // This is an assertion in pop which we use to abort firecracker in a ddos scenario
         // This condition being false means that the guest is asking us to process every element
@@ -1143,7 +1158,7 @@ mod verification {
     #[kani::unwind(0)]
     #[kani::solver(cadical)]
     fn verify_undo_pop() {
-        let ProofContext(mut queue, _) = ProofContext::bounded_queue();
+        let ProofContext(mut queue, _) = kani::any();
 
         // See verify_pop for explanation
         kani::assume(queue.len() <= queue.actual_size());
@@ -1177,7 +1192,7 @@ mod verification {
     #[kani::unwind(0)]
     #[kani::solver(cadical)]
     fn verify_checked_new() {
-        let ProofContext(queue, mem) = ProofContext::bounded_queue();
+        let ProofContext(queue, mem) = kani::any();
 
         let index = kani::any();
         let maybe_chain =
