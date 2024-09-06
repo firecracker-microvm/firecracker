@@ -31,6 +31,19 @@ if [ -f $CGROUP/cgroup.controllers -a -e $CGROUP/cgroup.type ]; then
         > $CGROUP/cgroup.subtree_control
 fi
 
+cd build/img/$(uname -m)
+for SQUASHFS in *.squashfs; do
+    EXT4=$(basename $SQUASHFS .squashfs).ext4
+    # Create rw ext4 image from ro squashfs
+    [ -f $EXT4 ] && continue
+    say "Converting $SQUASHFS to $EXT4"
+    truncate -s 400M $EXT4
+    unsquashfs $SQUASHFS
+    mkfs.ext4 -F $EXT4 -d squashfs-root
+    rm -rf squashfs-root
+done
+cd -
+
 say "Copy CI artifacts to /srv, so hardlinks work"
 cp -ruvf build/img /srv
 
