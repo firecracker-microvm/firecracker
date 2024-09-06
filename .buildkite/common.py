@@ -314,8 +314,9 @@ class BKPipeline:
 
         https://buildkite.com/docs/pipelines/group-step
         """
+        decorate = kwargs.pop("decorate", True)
         combined = overlay_dict(self.per_instance, kwargs)
-        return self.add_step(group(*args, **combined))
+        return self.add_step(group(*args, **combined), decorate=decorate)
 
     def build_group_per_arch(self, *args, **kwargs):
         """
