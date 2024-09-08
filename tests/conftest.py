@@ -35,7 +35,7 @@ import pytest
 
 import host_tools.cargo_build as build_tools
 from framework import defs, utils
-from framework.artifacts import kernel_params, kernels_unfiltered, rootfs_params
+from framework.artifacts import kernel_params, rootfs_params
 from framework.microvm import MicroVMFactory
 from framework.properties import global_props
 from framework.utils_cpu_templates import (
@@ -376,11 +376,20 @@ def rootfs_fxt(request, record_property):
 
 # Fixtures for all guest kernels, and specific versions
 guest_kernel = pytest.fixture(guest_kernel_fxt, params=kernel_params("vmlinux-*"))
+guest_kernel_acpi = pytest.fixture(
+    guest_kernel_fxt,
+    params=filter(
+        lambda kernel: "no-acpi" not in kernel.id, kernel_params("vmlinux-*")
+    ),
+)
 guest_kernel_linux_4_14 = pytest.fixture(
     guest_kernel_fxt, params=kernel_params("vmlinux-4.14*")
 )
 guest_kernel_linux_5_10 = pytest.fixture(
-    guest_kernel_fxt, params=kernel_params("vmlinux-5.10*")
+    guest_kernel_fxt,
+    params=filter(
+        lambda kernel: "no-acpi" not in kernel.id, kernel_params("vmlinux-5.10*")
+    ),
 )
 guest_kernel_linux_6_1 = pytest.fixture(
     guest_kernel_fxt,

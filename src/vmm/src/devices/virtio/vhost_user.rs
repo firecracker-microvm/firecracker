@@ -420,14 +420,14 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
                 queue_size: queue.actual_size(),
                 flags: 0u32,
                 desc_table_addr: mem
-                    .get_host_address(queue.desc_table)
+                    .get_host_address(queue.desc_table_address)
                     .map_err(VhostUserError::DescriptorTableAddress)?
                     as u64,
                 used_ring_addr: mem
-                    .get_host_address(queue.used_ring)
+                    .get_host_address(queue.used_ring_address)
                     .map_err(VhostUserError::UsedAddress)? as u64,
                 avail_ring_addr: mem
-                    .get_host_address(queue.avail_ring)
+                    .get_host_address(queue.avail_ring_address)
                     .map_err(VhostUserError::AvailAddress)? as u64,
                 log_addr: None,
             };
@@ -436,7 +436,7 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
                 .set_vring_addr(*queue_index, &config_data)
                 .map_err(VhostUserError::VhostUserSetVringAddr)?;
             self.vu
-                .set_vring_base(*queue_index, queue.avail_idx(mem).0)
+                .set_vring_base(*queue_index, queue.avail_ring_idx_get())
                 .map_err(VhostUserError::VhostUserSetVringBase)?;
 
             // No matter the queue, we set irq_evt for signaling the guest that buffers were
@@ -891,7 +891,9 @@ mod tests {
 
         let guest_memory = GuestMemoryMmap::from_raw_regions_file(regions, false, false).unwrap();
 
-        let queue = Queue::new(69);
+        let mut queue = Queue::new(69);
+        queue.initialize(&guest_memory).unwrap();
+
         let event_fd = EventFd::new(0).unwrap();
         let irq_trigger = IrqTrigger::new().unwrap();
 
@@ -909,12 +911,18 @@ mod tests {
                 queue_max_size: 69,
                 queue_size: 0,
                 flags: 0,
-                desc_table_addr: guest_memory.get_host_address(queue.desc_table).unwrap() as u64,
-                used_ring_addr: guest_memory.get_host_address(queue.used_ring).unwrap() as u64,
-                avail_ring_addr: guest_memory.get_host_address(queue.avail_ring).unwrap() as u64,
+                desc_table_addr: guest_memory
+                    .get_host_address(queue.desc_table_address)
+                    .unwrap() as u64,
+                used_ring_addr: guest_memory
+                    .get_host_address(queue.used_ring_address)
+                    .unwrap() as u64,
+                avail_ring_addr: guest_memory
+                    .get_host_address(queue.avail_ring_address)
+                    .unwrap() as u64,
                 log_addr: None,
             },
-            base: queue.avail_idx(&guest_memory).0,
+            base: queue.avail_ring_idx_get(),
             call: irq_trigger.irq_evt.as_raw_fd(),
             kick: event_fd.as_raw_fd(),
             enable: true,

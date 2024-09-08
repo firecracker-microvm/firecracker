@@ -42,7 +42,7 @@ pub struct Entropy {
 
     // Transport fields
     device_state: DeviceState,
-    queues: Vec<Queue>,
+    pub(crate) queues: Vec<Queue>,
     queue_events: Vec<EventFd>,
     irq_trigger: IrqTrigger,
 
@@ -128,14 +128,14 @@ impl Entropy {
         let mem = self.device_state.mem().unwrap();
 
         let mut used_any = false;
-        while let Some(desc) = self.queues[RNG_QUEUE].pop(mem) {
+        while let Some(desc) = self.queues[RNG_QUEUE].pop() {
             let index = desc.index;
             METRICS.entropy_event_count.inc();
 
             // SAFETY: This descriptor chain is only loaded once
             // virtio requests are handled sequentially so no two IoVecBuffers
             // are live at the same time, meaning this has exclusive ownership over the memory
-            let bytes = match unsafe { IoVecBufferMut::from_descriptor_chain(desc) } {
+            let bytes = match unsafe { IoVecBufferMut::from_descriptor_chain(mem, desc) } {
                 Ok(mut iovec) => {
                     debug!(
                         "entropy: guest request for {} bytes of entropy",
@@ -165,7 +165,7 @@ impl Entropy {
                 }
             };
 
-            match self.queues[RNG_QUEUE].add_used(mem, index, bytes) {
+            match self.queues[RNG_QUEUE].add_used(index, bytes) {
                 Ok(_) => {
                     used_any = true;
                     METRICS.entropy_bytes.add(bytes.into());
@@ -287,6 +287,11 @@ impl VirtioDevice for Entropy {
     }
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+        for q in self.queues.iter_mut() {
+            q.initialize(&mem)
+                .map_err(ActivateError::QueueMemoryError)?;
+        }
+
         self.activate_event.write(1).map_err(|_| {
             METRICS.activate_fails.inc();
             ActivateError::EventFd
@@ -429,17 +434,17 @@ mod tests {
         let mut entropy_dev = th.device();
 
         // This should succeed, we just added two descriptors
-        let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop(&mem).unwrap();
+        let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop().unwrap();
         assert!(matches!(
             // SAFETY: This descriptor chain is only loaded into one buffer
-            unsafe { IoVecBufferMut::from_descriptor_chain(desc) },
+            unsafe { IoVecBufferMut::from_descriptor_chain(&mem, desc) },
             Err(crate::devices::virtio::iovec::IoVecError::ReadOnlyDescriptor)
         ));
 
         // This should succeed, we should have one more descriptor
-        let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop(&mem).unwrap();
+        let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop().unwrap();
         // SAFETY: This descriptor chain is only loaded into one buffer
-        let mut iovec = unsafe { IoVecBufferMut::from_descriptor_chain(desc).unwrap() };
+        let mut iovec = unsafe { IoVecBufferMut::from_descriptor_chain(&mem, desc).unwrap() };
         entropy_dev.handle_one(&mut iovec).unwrap();
     }
 

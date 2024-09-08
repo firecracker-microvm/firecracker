@@ -289,9 +289,11 @@ impl<'a> VirtQueue<'a> {
 
         q.size = self.size();
         q.ready = true;
-        q.desc_table = self.dtable_start();
-        q.avail_ring = self.avail_start();
-        q.used_ring = self.used_start();
+        q.desc_table_address = self.dtable_start();
+        q.avail_ring_address = self.avail_start();
+        q.used_ring_address = self.used_start();
+
+        q.initialize(self.memory()).unwrap();
 
         q
     }

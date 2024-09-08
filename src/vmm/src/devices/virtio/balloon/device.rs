@@ -297,7 +297,7 @@ impl Balloon {
             // Internal loop processes descriptors and acummulates the pfns in `pfn_buffer`.
             // Breaks out when there is not enough space in `pfn_buffer` to completely process
             // the next descriptor.
-            while let Some(head) = queue.pop(mem) {
+            while let Some(head) = queue.pop() {
                 let len = head.len as usize;
                 let max_len = MAX_PAGES_IN_DESC * SIZE_OF_U32;
                 valid_descs_found = true;
@@ -339,9 +339,7 @@ impl Balloon {
 
                 // Acknowledge the receipt of the descriptor.
                 // 0 is number of bytes the device has written to memory.
-                queue
-                    .add_used(mem, head.index, 0)
-                    .map_err(BalloonError::Queue)?;
+                queue.add_used(head.index, 0).map_err(BalloonError::Queue)?;
                 needs_interrupt = true;
             }
 
@@ -372,17 +370,13 @@ impl Balloon {
     }
 
     pub(crate) fn process_deflate_queue(&mut self) -> Result<(), BalloonError> {
-        // This is safe since we checked in the event handler that the device is activated.
-        let mem = self.device_state.mem().unwrap();
         METRICS.deflate_count.inc();
 
         let queue = &mut self.queues[DEFLATE_INDEX];
         let mut needs_interrupt = false;
 
-        while let Some(head) = queue.pop(mem) {
-            queue
-                .add_used(mem, head.index, 0)
-                .map_err(BalloonError::Queue)?;
+        while let Some(head) = queue.pop() {
+            queue.add_used(head.index, 0).map_err(BalloonError::Queue)?;
             needs_interrupt = true;
         }
 
@@ -398,13 +392,13 @@ impl Balloon {
         let mem = self.device_state.mem().unwrap();
         METRICS.stats_updates_count.inc();
 
-        while let Some(head) = self.queues[STATS_INDEX].pop(mem) {
+        while let Some(head) = self.queues[STATS_INDEX].pop() {
             if let Some(prev_stats_desc) = self.stats_desc_index {
                 // We shouldn't ever have an extra buffer if the driver follows
                 // the protocol, but return it if we find one.
                 error!("balloon: driver is not compliant, more than one stats buffer received");
                 self.queues[STATS_INDEX]
-                    .add_used(mem, prev_stats_desc, 0)
+                    .add_used(prev_stats_desc, 0)
                     .map_err(BalloonError::Queue)?;
             }
             for index in (0..head.len).step_by(SIZE_OF_STAT) {
@@ -450,14 +444,11 @@ impl Balloon {
     }
 
     fn trigger_stats_update(&mut self) -> Result<(), BalloonError> {
-        // This is safe since we checked in the event handler that the device is activated.
-        let mem = self.device_state.mem().unwrap();
-
         // The communication is driven by the device by using the buffer
         // and sending a used buffer notification
         if let Some(index) = self.stats_desc_index.take() {
             self.queues[STATS_INDEX]
-                .add_used(mem, index, 0)
+                .add_used(index, 0)
                 .map_err(BalloonError::Queue)?;
             self.signal_used_queue()
         } else {
@@ -611,6 +602,11 @@ impl VirtioDevice for Balloon {
     }
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+        for q in self.queues.iter_mut() {
+            q.initialize(&mem)
+                .map_err(ActivateError::QueueMemoryError)?;
+        }
+
         self.device_state = DeviceState::Activated(mem);
         if self.activate_evt.write(1).is_err() {
             METRICS.activate_fails.inc();

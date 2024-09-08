@@ -272,15 +272,12 @@ impl Net {
     /// https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html#x1-320005
     /// 2.6.7.1 Driver Requirements: Used Buffer Notification Suppression
     fn try_signal_queue(&mut self, queue_type: NetQueue) -> Result<(), DeviceError> {
-        // This is safe since we checked in the event handler that the device is activated.
-        let mem = self.device_state.mem().unwrap();
-
         let queue = match queue_type {
             NetQueue::Rx => &mut self.queues[RX_INDEX],
             NetQueue::Tx => &mut self.queues[TX_INDEX],
         };
 
-        if queue.prepare_kick(mem) {
+        if queue.prepare_kick() {
             self.irq_trigger
                 .trigger_irq(IrqType::Vring)
                 .map_err(|err| {
@@ -389,7 +386,7 @@ impl Net {
         let mem = self.device_state.mem().unwrap();
 
         let queue = &mut self.queues[RX_INDEX];
-        let head_descriptor = queue.pop_or_enable_notification(mem).ok_or_else(|| {
+        let head_descriptor = queue.pop_or_enable_notification().ok_or_else(|| {
             self.metrics.no_rx_avail_buffer.inc();
             FrontendError::EmptyQueue
         })?;
@@ -409,7 +406,7 @@ impl Net {
             // Safe to unwrap because a frame must be smaller than 2^16 bytes.
             u32::try_from(self.rx_bytes_read).unwrap()
         };
-        queue.add_used(mem, head_index, used_len).map_err(|err| {
+        queue.add_used(head_index, used_len).map_err(|err| {
             error!("Failed to add available descriptor {}: {}", head_index, err);
             FrontendError::AddUsed
         })?;
@@ -594,19 +591,19 @@ impl Net {
         let mut used_any = false;
         let tx_queue = &mut self.queues[TX_INDEX];
 
-        while let Some(head) = tx_queue.pop_or_enable_notification(mem) {
+        while let Some(head) = tx_queue.pop_or_enable_notification() {
             self.metrics
                 .tx_remaining_reqs_count
-                .add(tx_queue.len(mem).into());
+                .add(tx_queue.len().into());
             let head_index = head.index;
             // Parse IoVecBuffer from descriptor head
             // SAFETY: This descriptor chain is only loaded once
             // virtio requests are handled sequentially so no two IoVecBuffers
             // are live at the same time, meaning this has exclusive ownership over the memory
-            if unsafe { self.tx_buffer.load_descriptor_chain(head).is_err() } {
+            if unsafe { self.tx_buffer.load_descriptor_chain(mem, head).is_err() } {
                 self.metrics.tx_fails.inc();
                 tx_queue
-                    .add_used(mem, head_index, 0)
+                    .add_used(head_index, 0)
                     .map_err(DeviceError::QueueError)?;
                 continue;
             };
@@ -616,7 +613,7 @@ impl Net {
                 error!("net: received too big frame from driver");
                 self.metrics.tx_malformed_frames.inc();
                 tx_queue
-                    .add_used(mem, head_index, 0)
+                    .add_used(head_index, 0)
                     .map_err(DeviceError::QueueError)?;
                 continue;
             }
@@ -646,7 +643,7 @@ impl Net {
             }
 
             tx_queue
-                .add_used(mem, head_index, 0)
+                .add_used(head_index, 0)
                 .map_err(DeviceError::QueueError)?;
             used_any = true;
         }
@@ -751,14 +748,13 @@ impl Net {
 
     pub fn process_tap_rx_event(&mut self) {
         // This is safe since we checked in the event handler that the device is activated.
-        let mem = self.device_state.mem().unwrap();
         self.metrics.rx_tap_event_count.inc();
 
         // While there are no available RX queue buffers and there's a deferred_frame
         // don't process any more incoming. Otherwise start processing a frame. In the
         // process the deferred_frame flag will be set in order to avoid freezing the
         // RX queue.
-        if self.queues[RX_INDEX].is_empty(mem) && self.rx_deferred_frame {
+        if self.queues[RX_INDEX].is_empty() && self.rx_deferred_frame {
             self.metrics.no_rx_avail_buffer.inc();
             return;
         }
@@ -903,6 +899,11 @@ impl VirtioDevice for Net {
     }
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+        for q in self.queues.iter_mut() {
+            q.initialize(&mem)
+                .map_err(ActivateError::QueueMemoryError)?;
+        }
+
         let event_idx = self.has_feature(u64::from(VIRTIO_RING_F_EVENT_IDX));
         if event_idx {
             for queue in &mut self.queues {

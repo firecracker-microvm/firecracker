@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
+use super::queue::QueueError;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::mmio::MmioTransport;
@@ -21,6 +22,8 @@ use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 pub enum PersistError {
     /// Snapshot state contains invalid queue info.
     InvalidInput,
+    /// Could not restore queue.
+    QueueConstruction(QueueError),
 }
 
 /// Queue information saved in snapshot.
@@ -51,38 +54,59 @@ pub struct QueueState {
     num_added: Wrapping<u16>,
 }
 
+/// Auxiliary structure for restoring queues.
+#[derive(Debug, Clone)]
+pub struct QueueConstructorArgs {
+    /// Pointer to guest memory.
+    pub mem: GuestMemoryMmap,
+    /// Is device this queue belong to activated
+    pub is_activated: bool,
+}
+
 impl Persist<'_> for Queue {
     type State = QueueState;
-    type ConstructorArgs = ();
-    type Error = ();
+    type ConstructorArgs = QueueConstructorArgs;
+    type Error = QueueError;
 
     fn save(&self) -> Self::State {
         QueueState {
             max_size: self.max_size,
             size: self.size,
             ready: self.ready,
-            desc_table: self.desc_table.0,
-            avail_ring: self.avail_ring.0,
-            used_ring: self.used_ring.0,
+            desc_table: self.desc_table_address.0,
+            avail_ring: self.avail_ring_address.0,
+            used_ring: self.used_ring_address.0,
             next_avail: self.next_avail,
             next_used: self.next_used,
             num_added: self.num_added,
         }
     }
 
-    fn restore(_: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
-        Ok(Queue {
+    fn restore(
+        constructor_args: Self::ConstructorArgs,
+        state: &Self::State,
+    ) -> Result<Self, Self::Error> {
+        let mut queue = Queue {
             max_size: state.max_size,
             size: state.size,
             ready: state.ready,
-            desc_table: GuestAddress(state.desc_table),
-            avail_ring: GuestAddress(state.avail_ring),
-            used_ring: GuestAddress(state.used_ring),
+            desc_table_address: GuestAddress(state.desc_table),
+            avail_ring_address: GuestAddress(state.avail_ring),
+            used_ring_address: GuestAddress(state.used_ring),
+
+            desc_table_ptr: std::ptr::null(),
+            avail_ring_ptr: std::ptr::null_mut(),
+            used_ring_ptr: std::ptr::null_mut(),
+
             next_avail: state.next_avail,
             next_used: state.next_used,
             uses_notif_suppression: false,
             num_added: state.num_added,
-        })
+        };
+        if constructor_args.is_activated {
+            queue.initialize(&constructor_args.mem)?;
+        }
+        Ok(queue)
     }
 }
 
@@ -137,18 +161,24 @@ impl VirtioDeviceState {
         }
 
         let uses_notif_suppression = (self.acked_features & 1u64 << VIRTIO_RING_F_EVENT_IDX) != 0;
+        let queue_construction_args = QueueConstructorArgs {
+            mem: mem.clone(),
+            is_activated: self.activated,
+        };
         let queues: Vec<Queue> = self
             .queues
             .iter()
             .map(|queue_state| {
-                // Safe to unwrap, `Queue::restore` has no error case.
-                let mut queue = Queue::restore((), queue_state).unwrap();
-                if uses_notif_suppression {
-                    queue.enable_notif_suppression();
-                }
-                queue
+                Queue::restore(queue_construction_args.clone(), queue_state)
+                    .map(|mut queue| {
+                        if uses_notif_suppression {
+                            queue.enable_notif_suppression();
+                        }
+                        queue
+                    })
+                    .map_err(PersistError::QueueConstruction)
             })
-            .collect();
+            .collect::<Result<_, _>>()?;
 
         for q in &queues {
             // Sanity check queue size and queue max size.
@@ -316,14 +346,21 @@ mod tests {
 
     #[test]
     fn test_queue_persistence() {
-        let queue = Queue::new(128);
+        let mem = default_mem();
 
-        let mut mem = vec![0; 4096];
+        let mut queue = Queue::new(128);
+        queue.initialize(&mem).unwrap();
 
-        Snapshot::serialize(&mut mem.as_mut_slice(), &queue.save()).unwrap();
+        let mut bytes = vec![0; 4096];
 
+        Snapshot::serialize(&mut bytes.as_mut_slice(), &queue.save()).unwrap();
+
+        let ca = QueueConstructorArgs {
+            mem,
+            is_activated: true,
+        };
         let restored_queue =
-            Queue::restore((), &Snapshot::deserialize(&mut mem.as_slice()).unwrap()).unwrap();
+            Queue::restore(ca, &Snapshot::deserialize(&mut bytes.as_slice()).unwrap()).unwrap();
 
         assert_eq!(restored_queue, queue);
     }

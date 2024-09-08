@@ -51,17 +51,19 @@ if not changed_files or any(
 ):
     kani_grp = pipeline.build_group(
         "🔍 Kani",
-        "./tools/devtool -y test -- ../tests/integration_tests/test_kani.py -n auto",
+        "./tools/devtool -y test --no-build -- ../tests/integration_tests/test_kani.py -n auto",
         # Kani step default
         # Kani runs fastest on m6a.metal
         instances=["m6a.metal"],
         platforms=[("al2", "linux_5.10")],
         timeout_in_minutes=300,
         **DEFAULTS_PERF,
+        decorate=False,
     )
     # modify Kani steps' label
     for step in kani_grp["steps"]:
         step["label"] = "🔍 Kani"
+    kani_grp["depends_on"] = None
 
 if run_all_tests(changed_files):
     pipeline.build_group(

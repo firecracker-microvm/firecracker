@@ -340,12 +340,12 @@ impl MmioTransport {
                         }
                     }
                     0x70 => self.set_device_status(v),
-                    0x80 => self.update_queue_field(|q| lo(&mut q.desc_table, v)),
-                    0x84 => self.update_queue_field(|q| hi(&mut q.desc_table, v)),
-                    0x90 => self.update_queue_field(|q| lo(&mut q.avail_ring, v)),
-                    0x94 => self.update_queue_field(|q| hi(&mut q.avail_ring, v)),
-                    0xa0 => self.update_queue_field(|q| lo(&mut q.used_ring, v)),
-                    0xa4 => self.update_queue_field(|q| hi(&mut q.used_ring, v)),
+                    0x80 => self.update_queue_field(|q| lo(&mut q.desc_table_address, v)),
+                    0x84 => self.update_queue_field(|q| hi(&mut q.desc_table_address, v)),
+                    0x90 => self.update_queue_field(|q| lo(&mut q.avail_ring_address, v)),
+                    0x94 => self.update_queue_field(|q| hi(&mut q.avail_ring_address, v)),
+                    0xa0 => self.update_queue_field(|q| lo(&mut q.used_ring_address, v)),
+                    0xa4 => self.update_queue_field(|q| hi(&mut q.used_ring_address, v)),
                     _ => {
                         warn!("unknown virtio mmio register write: 0x{:x}", offset);
                     }
@@ -696,32 +696,35 @@ pub(crate) mod tests {
         d.bus_write(0x44, &buf[..]);
         assert!(d.locked_device().queues()[0].ready);
 
-        assert_eq!(d.locked_device().queues()[0].desc_table.0, 0);
+        assert_eq!(d.locked_device().queues()[0].desc_table_address.0, 0);
         write_le_u32(&mut buf[..], 123);
         d.bus_write(0x80, &buf[..]);
-        assert_eq!(d.locked_device().queues()[0].desc_table.0, 123);
+        assert_eq!(d.locked_device().queues()[0].desc_table_address.0, 123);
         d.bus_write(0x84, &buf[..]);
         assert_eq!(
-            d.locked_device().queues()[0].desc_table.0,
+            d.locked_device().queues()[0].desc_table_address.0,
             123 + (123 << 32)
         );
 
-        assert_eq!(d.locked_device().queues()[0].avail_ring.0, 0);
+        assert_eq!(d.locked_device().queues()[0].avail_ring_address.0, 0);
         write_le_u32(&mut buf[..], 124);
         d.bus_write(0x90, &buf[..]);
-        assert_eq!(d.locked_device().queues()[0].avail_ring.0, 124);
+        assert_eq!(d.locked_device().queues()[0].avail_ring_address.0, 124);
         d.bus_write(0x94, &buf[..]);
         assert_eq!(
-            d.locked_device().queues()[0].avail_ring.0,
+            d.locked_device().queues()[0].avail_ring_address.0,
             124 + (124 << 32)
         );
 
-        assert_eq!(d.locked_device().queues()[0].used_ring.0, 0);
+        assert_eq!(d.locked_device().queues()[0].used_ring_address.0, 0);
         write_le_u32(&mut buf[..], 125);
         d.bus_write(0xa0, &buf[..]);
-        assert_eq!(d.locked_device().queues()[0].used_ring.0, 125);
+        assert_eq!(d.locked_device().queues()[0].used_ring_address.0, 125);
         d.bus_write(0xa4, &buf[..]);
-        assert_eq!(d.locked_device().queues()[0].used_ring.0, 125 + (125 << 32));
+        assert_eq!(
+            d.locked_device().queues()[0].used_ring_address.0,
+            125 + (125 << 32)
+        );
 
         set_device_status(
             &mut d,

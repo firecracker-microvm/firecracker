@@ -10,6 +10,21 @@ and this project adheres to
 
 ### Added
 
+### Changed
+
+- [#4763](https://github.com/firecracker-microvm/firecracker/pull/4763):
+  Migrated API specification from Swagger 2.0 to OpenAPI 3.1.
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+## \[1.9.0\]
+
+### Added
+
 - [#4687](https://github.com/firecracker-microvm/firecracker/pull/4687): Added
   VMGenID support for microVMs running on ARM hosts with 6.1 guest kernels.
   Support for VMGenID via DeviceTree bindings exists only on mainline 6.10 Linux
@@ -20,8 +35,9 @@ and this project adheres to
   [#4741](https://github.com/firecracker-microvm/firecracker/pull/4741),
   [#4746](https://github.com/firecracker-microvm/firecracker/pull/4746): Added
   official support for 6.1 microVM guest kernels.
-- [#4763](https://github.com/firecracker-microvm/firecracker/pull/4763):
-  Migrated API specification from Swagger 2.0 to OpenAPI 3.1.
+- [#4743](https://github.com/firecracker-microvm/firecracker/pull/4743): Added
+  support for `-h` help flag to the Jailer. The Jailer will now print the help
+  message with either `--help` or `-h`.
 
 ### Changed
 
@@ -39,6 +55,15 @@ and this project adheres to
   supported.
 
 ### Fixed
+
+- [4680](https://github.com/firecracker-microvm/firecracker/pull/4680): Fixed an
+  issue
+  ([#4659](https://github.com/firecracker-microvm/firecracker/issues/4659))
+  where the virtio-net device implementation would always assume the guest
+  accepts all VirtIO features the device offers. This is always true with the
+  Linux guest kernels we are testing but other kernels, like FreeBSD make
+  different assumptions. This PR fixes the emulation code to set the TAP
+  features based on the features accepted by the guest.
 
 ## \[1.8.0\]
 

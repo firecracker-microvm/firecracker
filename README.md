@@ -134,7 +134,7 @@ We test all combinations of:
 | :-------- | :---------------- | :----------- | :----------- |
 | c5n.metal | al2    linux_5.10 | ubuntu 22.04 | linux_4.14   |
 | m5n.metal | al2023 linux_6.1  |              | linux_5.10   |
-| m6i.metal |                   |              |              |
+| m6i.metal |                   |              | linux_6.1    |
 | m6a.metal |                   |              |              |
 | m6g.metal |                   |              |              |
 | m7g.metal |                   |              |              |
