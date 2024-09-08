@@ -95,7 +95,7 @@ get_user_confirmation() {
 # Get version from the swagger file
 function get_swagger_version {
     local file=${1:-"$FC_ROOT_DIR/src/firecracker/openapi/firecracker.yaml"}
-    grep -oP 'version: \K.*' "$file"
+    grep -oP '^\s+version: \K.*' "$file"
 }
 
 function check_local_branch_is_release_branch {
