@@ -16,7 +16,7 @@ two steps:
    `/network-interfaces/${MMDS_NET_IF}`. The full network configuration API can
    be found in the
    [Firecracker OpenAPI specification](../../src/firecracker/openapi/firecracker.yaml).
-2. Configure MMDS through an HTTP `PUT` request to `/mmds/config` resource and
+1. Configure MMDS through an HTTP `PUT` request to `/mmds/config` resource and
    include the IDs of the network interfaces that should allow forwarding
    requests to MMDS in the `network_interfaces` list. The complete MMDS API is
    described in the

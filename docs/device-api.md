@@ -108,8 +108,8 @@ virtio-block and virtio-rng devices.
 
 ## Output Schema
 
-All output schema fields can be found in the [OpenAPI](https://www.openapis.org/)
-specification:
+All output schema fields can be found in the
+[OpenAPI](https://www.openapis.org/) specification:
 [firecracker.yaml](./../src/firecracker/openapi/firecracker.yaml).
 
 | Schema                 | Property          | keyboard | serial console | virtio-block | vhost-user-block | virtio-net | virtio-vsock |

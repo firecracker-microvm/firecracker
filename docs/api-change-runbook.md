@@ -152,8 +152,8 @@ Some tips:
 
 - There is nothing in the OpenAPI file that shows whether an endpoint is
   mandatory or optional, it’s all code logic.
-- Mandatory fields in a request or response body are marked with
-  the `required` array. All other fields are optional.
+- Mandatory fields in a request or response body are marked with the `required`
+  array. All other fields are optional.
 - If you need to redirect an endpoint, you have to clone the old one under the
   new URI in the OpenAPI specification.
 
@@ -234,10 +234,10 @@ Firecracker API.
     deprecation case.
   - Add a unit test where you test your new code paths.
   - Fix all other failing unit tests.
-  - Update the OpenAPI specification to reflect the change, in this case by removing the
-    `vsock_id` field from the required parameter list in the `Vsock` definition
-    and adding a description to it stating that it is deprecated since the
-    current version.
+  - Update the OpenAPI specification to reflect the change, in this case by
+    removing the `vsock_id` field from the required parameter list in the
+    `Vsock` definition and adding a description to it stating that it is
+    deprecated since the current version.
   - Update any relevant documentation.
 - We update the python integration tests to reflect the change (reference
   implementation in [this commit][4]).
