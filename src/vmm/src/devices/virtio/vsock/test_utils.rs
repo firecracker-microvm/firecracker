@@ -69,7 +69,7 @@ impl VsockChannel for TestBackend {
                 let buf_size = pkt.buf_size();
                 if buf_size > 0 {
                     let buf: Vec<u8> = (0..buf_size)
-                        .map(|i| cool_buf[i % cool_buf.len()])
+                        .map(|i| cool_buf[i as usize % cool_buf.len()])
                         .collect();
                     pkt.read_at_offset_from(&mut buf.as_slice(), 0, buf_size)
                         .unwrap();
@@ -206,8 +206,8 @@ impl<'a> EventHandlerContext<'a> {
 }
 
 #[cfg(test)]
-pub fn read_packet_data(pkt: &VsockPacket, how_much: usize) -> Vec<u8> {
-    let mut buf = vec![0; how_much];
+pub fn read_packet_data(pkt: &VsockPacket, how_much: u32) -> Vec<u8> {
+    let mut buf = vec![0; how_much as usize];
     pkt.write_from_offset_to(&mut buf.as_mut_slice(), 0, how_much)
         .unwrap();
     buf

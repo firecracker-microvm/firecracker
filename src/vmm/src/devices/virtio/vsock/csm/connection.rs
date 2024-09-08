@@ -237,8 +237,7 @@ where
                         // length of the read data.
                         // Safe to unwrap because read_cnt is no more than max_len, which is bounded
                         // by self.peer_avail_credit(), a u32 internally.
-                        pkt.set_op(uapi::VSOCK_OP_RW)
-                            .set_len(u32::try_from(read_cnt).unwrap());
+                        pkt.set_op(uapi::VSOCK_OP_RW).set_len(read_cnt);
                         METRICS.rx_bytes_count.add(read_cnt as u64);
                     }
                     self.rx_cnt += Wrapping(pkt.len());
@@ -605,7 +604,7 @@ where
     /// Raw data can either be sent straight to the host stream, or to our TX buffer, if the
     /// former fails.
     fn send_bytes(&mut self, pkt: &VsockPacket) -> Result<(), VsockError> {
-        let len = pkt.len() as usize;
+        let len = pkt.len();
 
         // If there is data in the TX buffer, that means we're already registered for EPOLLOUT
         // events on the underlying stream. Therefore, there's no point in attempting a write
@@ -635,7 +634,7 @@ where
         };
         // Move the "forwarded bytes" counter ahead by how much we were able to send out.
         // Safe to unwrap because the maximum value is pkt.len(), which is a u32.
-        self.fwd_cnt += wrap_usize_to_u32(written);
+        self.fwd_cnt += written;
         METRICS.tx_bytes_count.add(written as u64);
 
         // If we couldn't write the whole slice, we'll need to push the remaining data to our
@@ -662,8 +661,8 @@ where
 
     /// Get the maximum number of bytes that we can send to our peer, without overflowing its
     /// buffer.
-    fn peer_avail_credit(&self) -> usize {
-        (Wrapping(self.peer_buf_alloc) - (self.rx_cnt - self.peer_fwd_cnt)).0 as usize
+    fn peer_avail_credit(&self) -> u32 {
+        (Wrapping(self.peer_buf_alloc) - (self.rx_cnt - self.peer_fwd_cnt)).0
     }
 
     /// Prepare a packet header for transmission to our peer.
@@ -916,7 +915,7 @@ mod tests {
             assert!(credit < self.conn.peer_buf_alloc);
             self.conn.peer_fwd_cnt = Wrapping(0);
             self.conn.rx_cnt = Wrapping(self.conn.peer_buf_alloc - credit);
-            assert_eq!(self.conn.peer_avail_credit(), credit as usize);
+            assert_eq!(self.conn.peer_avail_credit(), credit);
         }
 
         fn send(&mut self) {
@@ -941,11 +940,13 @@ mod tests {
         }
 
         fn init_data_tx_pkt(&mut self, mut data: &[u8]) -> &VsockPacket {
-            assert!(data.len() <= self.tx_pkt.buf_size());
+            assert!(data.len() <= self.tx_pkt.buf_size() as usize);
             self.init_tx_pkt(uapi::VSOCK_OP_RW, u32::try_from(data.len()).unwrap());
 
             let len = data.len();
-            self.rx_pkt.read_at_offset_from(&mut data, 0, len).unwrap();
+            self.rx_pkt
+                .read_at_offset_from(&mut data, 0, len.try_into().unwrap())
+                .unwrap();
             &self.tx_pkt
         }
     }
@@ -1282,7 +1283,7 @@ mod tests {
         ctx.set_stream(stream);
 
         // Fill up the TX buffer.
-        let data = vec![0u8; ctx.tx_pkt.buf_size()];
+        let data = vec![0u8; ctx.tx_pkt.buf_size() as usize];
         ctx.init_data_tx_pkt(data.as_slice());
         for _i in 0..(csm_defs::CONN_TX_BUF_SIZE as usize / data.len()) {
             ctx.send();
