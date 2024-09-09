@@ -181,7 +181,7 @@ def test_boottime(
         {
             **DIMENSIONS,
             "performance_test": "test_boottime",
-            "guest_kernel_acpi": guest_kernel_acpi.name,
+            "guest_kernel": guest_kernel_acpi.name,
             "vcpus": str(vcpu_count),
             "mem_size_mib": str(mem_size_mib),
         }
