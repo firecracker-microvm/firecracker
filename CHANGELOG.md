@@ -17,6 +17,9 @@ and this project adheres to
   from net device creation to device activation time, but it was not reflected
   in the restore path. This was leading to inability to connect to the restored
   VM if the offload features were used.
+- [#4829](https://github.com/firecracker-microvm/firecracker/pull/4829): v1.9.0
+  was missing most of the debugging information in the debuginfo file, due to a
+  change in the Cargo defaults. This has been corrected.
 
 ## \[1.9.0\]
 
