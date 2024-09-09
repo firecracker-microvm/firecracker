@@ -22,6 +22,9 @@ and this project adheres to
   Vsock not notifying guest about `TRANSPORT_RESET_EVENT` event after snapshot
   restore. This resulted in guest waiting indefinitely on a connection which was
   reset during snapshot creation.
+- [#4790](https://github.com/firecracker-microvm/firecracker/pull/4790): v1.9.0
+  was missing most of the debugging information in the debuginfo file, due to a
+  change in the Cargo defaults. This has been corrected.
 
 ## \[1.9.0\]
 
