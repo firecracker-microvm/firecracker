@@ -33,7 +33,7 @@ use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::mmio::MmioTransport;
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::rng::Entropy;
-use crate::devices::virtio::vsock::TYPE_VSOCK;
+use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend, TYPE_VSOCK};
 use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG};
 use crate::devices::BusDevice;
 #[cfg(target_arch = "x86_64")]
@@ -486,6 +486,16 @@ impl MMIODeviceManager {
                         // so for Vsock we don't support connection persistence through snapshot.
                         // Any in-flight packets or events are simply lost.
                         // Vsock is restored 'empty'.
+                        // The only reason we still `kick` it is to make guest process
+                        // `TRANSPORT_RESET_EVENT` event we sent during snapshot creation.
+                        let vsock = virtio
+                            .as_mut_any()
+                            .downcast_mut::<Vsock<VsockUnixBackend>>()
+                            .unwrap();
+                        if vsock.is_activated() {
+                            info!("kick vsock {id}.");
+                            vsock.signal_used_queue().unwrap();
+                        }
                     }
                     TYPE_RNG => {
                         let entropy = virtio.as_mut_any().downcast_mut::<Entropy>().unwrap();
