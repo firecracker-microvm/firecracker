@@ -14,6 +14,9 @@ In order to test the vsock device connection state machine, these tests will:
 """
 
 import os.path
+import subprocess
+import time
+from pathlib import Path
 from socket import timeout as SocketTimeout
 
 from framework.utils_vsock import (
@@ -126,7 +129,7 @@ def test_vsock_epipe(uvm_plain, bin_vsock_path, test_fc_session_root_path):
     validate_fc_metrics(metrics)
 
 
-def test_vsock_transport_reset(
+def test_vsock_transport_reset_h2g(
     uvm_nano, microvm_factory, bin_vsock_path, test_fc_session_root_path
 ):
     """
@@ -215,3 +218,67 @@ def test_vsock_transport_reset(
     check_host_connections(path, blob_path, blob_hash)
     metrics = vm2.flush_metrics()
     validate_fc_metrics(metrics)
+
+
+def test_vsock_transport_reset_g2h(uvm_nano, microvm_factory):
+    """
+    Vsock transport reset test.
+    """
+    test_vm = uvm_nano
+    test_vm.add_net_iface()
+    test_vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
+    test_vm.start()
+    test_vm.wait_for_up()
+
+    host_socket_path = os.path.join(
+        test_vm.path, f"{VSOCK_UDS_PATH}_{ECHO_SERVER_PORT}"
+    )
+    host_socat_commmand = [
+        "socat",
+        "-dddd",
+        f"UNIX-LISTEN:{host_socket_path},fork",
+        "STDOUT",
+    ]
+    host_socat = subprocess.Popen(
+        host_socat_commmand, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+
+    # Give some time for host socat to create socket
+    time.sleep(0.5)
+    assert Path(host_socket_path).exists()
+    test_vm.create_jailed_resource(host_socket_path)
+
+    # Create a socat process in the guest which will connect to the host socat
+    guest_socat_commmand = f"tmux new -d 'socat - vsock-connect:2:{ECHO_SERVER_PORT}'"
+    test_vm.ssh.run(guest_socat_commmand)
+
+    # socat should be running in the guest now
+    code, _, _ = test_vm.ssh.run("pidof socat")
+    assert code == 0
+
+    # Create snapshot.
+    snapshot = test_vm.snapshot_full()
+    test_vm.resume()
+
+    # After `create_snapshot` + 'restore' calls, connection should be dropped
+    code, _, _ = test_vm.ssh.run("pidof socat")
+    assert code == 1
+
+    # Kill host socat as it is not useful anymore
+    host_socat.kill()
+    host_socat.communicate()
+
+    # Terminate VM.
+    test_vm.kill()
+
+    # Load snapshot.
+    vm2 = microvm_factory.build()
+    vm2.spawn()
+    vm2.restore_from_snapshot(snapshot, resume=True)
+    vm2.wait_for_up()
+
+    # After snap restore all vsock connections should be
+    # dropped. This means guest socat should exit same way
+    # as it did after snapshot was taken.
+    code, _, _ = vm2.ssh.run("pidof socat")
+    assert code == 1
