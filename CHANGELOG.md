@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## \[Unreleased\]
+
+### Fixed
+
+- [#4836](https://github.com/firecracker-microvm/firecracker/pull/4836): Fixed
+  Vsock not notifying guest about `TRANSPORT_RESET_EVENT` event after snapshot
+  restore. This resulted in guest waiting indefinitely on a connection which was
+  reset during snapshot creation.
+
 ## \[1.9.1\]
 
 ### Fixed
