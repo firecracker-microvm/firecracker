@@ -653,6 +653,8 @@ class Microvm:
         # and leave 0.2 delay between them.
         if "no-api" not in self.jailer.extra_args:
             self._wait_create()
+        if "config-file" in self.jailer.extra_args and self.iface:
+            self.wait_for_up()
         if self.log_file and log_level in ("Trace", "Debug", "Info"):
             self.check_log_message("Running Firecracker")
 
