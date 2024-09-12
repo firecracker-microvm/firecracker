@@ -833,7 +833,7 @@ mod tests {
         fn new(name: &str) -> Self {
             let vsock_test_ctx = VsockTestContext::new();
             let mut handler_ctx = vsock_test_ctx.create_event_handler_context();
-            let mut rx_pkt = VsockPacketRx::default();
+            let mut rx_pkt = VsockPacketRx::new().unwrap();
             rx_pkt
                 .parse(
                     &vsock_test_ctx.mem,
