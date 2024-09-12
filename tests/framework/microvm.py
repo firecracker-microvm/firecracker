@@ -961,6 +961,9 @@ class Microvm:
             enable_diff_snapshots=snapshot.is_diff,
             resume_vm=resume,
         )
+        # This is not a "wait for boot", but rather a "VM still works after restoration"
+        if snapshot.net_ifaces and resume:
+            self.wait_for_up()
         return jailed_snapshot
 
     def enable_entropy_device(self):
