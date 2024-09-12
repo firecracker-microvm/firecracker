@@ -141,6 +141,8 @@ pub enum VsockError {
     VsockUdsBackend(VsockUnixBackendError),
     /// Underlying IovDeque error: {0}
     IovDeque(IovDequeError),
+    /// Tried to push to full IovDeque.
+    IovDequeOverflow,
 }
 
 impl From<IoVecError> for VsockError {
@@ -151,6 +153,7 @@ impl From<IoVecError> for VsockError {
             IoVecError::GuestMemory(err) => VsockError::GuestMemoryMmap(err),
             IoVecError::OverflowedDescriptor => VsockError::DescChainOverflow,
             IoVecError::IovDeque(err) => VsockError::IovDeque(err),
+            IoVecError::IovDequeOverflow => VsockError::IovDequeOverflow,
         }
     }
 }

@@ -21,6 +21,8 @@ pub enum IoVecError {
     ReadOnlyDescriptor,
     /// Tried to create an `IoVec` or `IoVecMut` from a descriptor chain that was too large
     OverflowedDescriptor,
+    /// Tried to push to full IovDeque.
+    IovDequeOverflow,
     /// Guest memory error: {0}
     GuestMemory(#[from] GuestMemoryError),
     /// Error with underlying `IovDeque`: {0}
@@ -250,7 +252,7 @@ impl IoVecBufferMut {
         let mut nr_iovecs = 0u16;
         while let Some(desc) = next_descriptor {
             if !desc.is_write_only() {
-                self.vecs.pop_front(nr_iovecs);
+                self.vecs.pop_back(nr_iovecs);
                 return Err(IoVecError::ReadOnlyDescriptor);
             }
 
@@ -258,26 +260,31 @@ impl IoVecBufferMut {
             // range of the descriptor chain checked, i.e. [addr, addr + len) is a valid memory
             // region in the GuestMemoryMmap.
             let slice = mem.get_slice(desc.addr, desc.len as usize).map_err(|err| {
-                self.vecs.pop_front(nr_iovecs);
+                self.vecs.pop_back(nr_iovecs);
                 err
             })?;
-
             // We need to mark the area of guest memory that will be mutated through this
             // IoVecBufferMut as dirty ahead of time, as we loose access to all
             // vm-memory related information after converting down to iovecs.
             slice.bitmap().mark_dirty(0, desc.len as usize);
-
             let iov_base = slice.ptr_guard_mut().as_ptr().cast::<c_void>();
+
+            if self.vecs.is_full() {
+                self.vecs.pop_back(nr_iovecs);
+                return Err(IoVecError::IovDequeOverflow);
+            }
+
             self.vecs.push_back(iovec {
                 iov_base,
                 iov_len: desc.len as size_t,
             });
+
             nr_iovecs += 1;
             length = length
                 .checked_add(desc.len)
                 .ok_or(IoVecError::OverflowedDescriptor)
                 .map_err(|err| {
-                    self.vecs.pop_front(nr_iovecs);
+                    self.vecs.pop_back(nr_iovecs);
                     err
                 })?;
 
@@ -285,7 +292,7 @@ impl IoVecBufferMut {
         }
 
         self.len = self.len.checked_add(length).ok_or_else(|| {
-            self.vecs.pop_front(nr_iovecs);
+            self.vecs.pop_back(nr_iovecs);
             IoVecError::OverflowedDescriptor
         })?;
 
@@ -333,11 +340,19 @@ impl IoVecBufferMut {
         self.parse_descriptor(mem, head)
     }
 
-    /// Drop memory from the `IoVecBufferMut`
+    /// Drop descriptor chain from the `IoVecBufferMut` front
     ///
     /// This will drop memory described by the `IoVecBufferMut` from the beginning.
-    pub fn drop_descriptor_chain(&mut self, parse_descriptor: &ParsedDescriptorChain) {
+    pub fn drop_chain_front(&mut self, parse_descriptor: &ParsedDescriptorChain) {
         self.vecs.pop_front(parse_descriptor.nr_iovecs);
+        self.len -= parse_descriptor.length;
+    }
+
+    /// Drop descriptor chain from the `IoVecBufferMut` back
+    ///
+    /// This will drop memory described by the `IoVecBufferMut` from the beginning.
+    pub fn drop_chain_back(&mut self, parse_descriptor: &ParsedDescriptorChain) {
+        self.vecs.pop_back(parse_descriptor.nr_iovecs);
         self.len -= parse_descriptor.length;
     }
 
