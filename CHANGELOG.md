@@ -18,6 +18,11 @@ and this project adheres to
 
 ### Fixed
 
+- [#4796](https://github.com/firecracker-microvm/firecracker/pull/4796): Fixed
+  Vsock not notifying guest about `TRANSPORT_RESET_EVENT` event after snapshot
+  restore. This resulted in guest waiting indefinitely on a connection which was
+  reset during snapshot creation.
+
 ## \[1.9.0\]
 
 ### Added
