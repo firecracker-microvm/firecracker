@@ -90,8 +90,6 @@ class SnapshotRestoreTest:
             microvm.spawn(emit_metrics=True)
             snapshot_copy = microvm.restore_from_snapshot(snapshot, resume=True)
 
-            microvm.wait_for_up()
-
             value = 0
             # Parse all metric data points in search of load_snapshot time.
             microvm.flush_metrics()
@@ -138,7 +136,6 @@ def test_restore_latency(
     """
     vm = test_setup.configure_vm(microvm_factory, guest_kernel_linux_4_14, rootfs)
     vm.start()
-    vm.wait_for_up()
 
     metrics.set_dimensions(
         {

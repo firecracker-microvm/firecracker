@@ -41,7 +41,6 @@ def test_diff_snapshot_works_after_error(
     uvm.basic_config(mem_size_mib=vm_mem_size, track_dirty_pages=True)
     uvm.add_net_iface()
     uvm.start()
-    uvm.wait_for_up()
 
     chroot = Path(uvm.chroot())
 
@@ -68,6 +67,5 @@ def test_diff_snapshot_works_after_error(
     vm2 = microvm_factory.build()
     vm2.spawn()
     vm2.restore_from_snapshot(snap2, resume=True)
-    vm2.wait_for_up()
 
     uvm.kill()
