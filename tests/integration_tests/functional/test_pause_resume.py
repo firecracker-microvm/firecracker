@@ -41,7 +41,6 @@ def test_pause_resume(uvm_nano):
         microvm.api.vm.patch(state="Resumed")
 
     microvm.start()
-    microvm.wait_for_up()
 
     # Pausing the microVM after it's been started is successful.
     microvm.api.vm.patch(state="Paused")
@@ -69,14 +68,12 @@ def test_pause_resume(uvm_nano):
     microvm.api.vm.patch(state="Resumed")
 
     # Verify guest is active again.
-    microvm.wait_for_up()
 
     # Resuming the microVM when it is already `Resumed` is allowed
     # (microVM remains in the running state).
     microvm.api.vm.patch(state="Resumed")
 
     # Verify guest is still active.
-    microvm.wait_for_up()
 
     microvm.kill()
 

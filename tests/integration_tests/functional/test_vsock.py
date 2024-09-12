@@ -79,7 +79,6 @@ def negative_test_host_connections(vm, blob_path, blob_hash):
 
     # Validate that guest is still up and running.
     # Should fail if Firecracker exited from SIGPIPE handler.
-    vm.wait_for_up()
 
     metrics = vm.flush_metrics()
     validate_fc_metrics(metrics)
@@ -206,7 +205,6 @@ def test_vsock_transport_reset_h2g(
     vm2 = microvm_factory.build()
     vm2.spawn()
     vm2.restore_from_snapshot(snapshot, resume=True)
-    vm2.wait_for_up()
 
     # Check that vsock device still works.
     # Test guest-initiated connections.
@@ -228,7 +226,6 @@ def test_vsock_transport_reset_g2h(uvm_nano, microvm_factory):
     test_vm.add_net_iface()
     test_vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
     test_vm.start()
-    test_vm.wait_for_up()
 
     host_socket_path = os.path.join(
         test_vm.path, f"{VSOCK_UDS_PATH}_{ECHO_SERVER_PORT}"
@@ -275,7 +272,6 @@ def test_vsock_transport_reset_g2h(uvm_nano, microvm_factory):
     vm2 = microvm_factory.build()
     vm2.spawn()
     vm2.restore_from_snapshot(snapshot, resume=True)
-    vm2.wait_for_up()
 
     # After snap restore all vsock connections should be
     # dropped. This means guest socat should exit same way

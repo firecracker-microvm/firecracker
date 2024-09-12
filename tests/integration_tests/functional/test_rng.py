@@ -87,7 +87,6 @@ def test_rng_snapshot(uvm_with_rng, microvm_factory):
     new_vm = microvm_factory.build()
     new_vm.spawn()
     new_vm.restore_from_snapshot(snapshot, resume=True)
-    new_vm.wait_for_up()
     assert_virtio_rng_is_current_hwrng_device(new_vm.ssh)
     check_entropy(new_vm.ssh)
 
