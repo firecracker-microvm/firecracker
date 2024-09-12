@@ -277,7 +277,7 @@ impl VsockPacketTx {
 ///
 /// Encapsulates the virtio descriptor chain containing the packet through the `IoVecBuffer[Mut]`
 /// abstractions.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct VsockPacketRx {
     /// A copy of the vsock packet's 44-byte header, held in hypervisor memory
     /// to minimize the number of accesses to guest memory. Can be written back
@@ -289,6 +289,15 @@ pub struct VsockPacketRx {
 }
 
 impl VsockPacketRx {
+    /// Creates new VsockPacketRx.
+    pub fn new() -> Result<Self, VsockError> {
+        let buffer = IoVecBufferMut::new().map_err(VsockError::IovDeque)?;
+        Ok(Self {
+            hdr: Default::default(),
+            buffer,
+        })
+    }
+
     /// Create the packet wrapper from an RX virtq chain head.
     ///
     /// ## Errors
@@ -529,7 +538,7 @@ mod tests {
         // Test case: successful RX packet assembly.
         {
             create_context!(test_ctx, handler_ctx);
-            let mut pkt = VsockPacketRx::default();
+            let mut pkt = VsockPacketRx::new().unwrap();
             pkt.parse(
                 &test_ctx.mem,
                 handler_ctx.device.queues[RXQ_INDEX].pop().unwrap(),
@@ -543,7 +552,7 @@ mod tests {
             create_context!(test_ctx, handler_ctx);
             handler_ctx.guest_rxvq.dtable[0].flags.set(0);
             assert!(matches!(
-                VsockPacketRx::default().parse(
+                VsockPacketRx::new().unwrap().parse(
                     &test_ctx.mem,
                     handler_ctx.device.queues[RXQ_INDEX].pop().unwrap(),
                 ),
@@ -559,7 +568,7 @@ mod tests {
                 .set(VSOCK_PKT_HDR_SIZE - 1);
             handler_ctx.guest_rxvq.dtable[1].len.set(0);
             assert!(matches!(
-                VsockPacketRx::default().parse(
+                VsockPacketRx::new().unwrap().parse(
                     &test_ctx.mem,
                     handler_ctx.device.queues[RXQ_INDEX].pop().unwrap(),
                 ),
@@ -629,7 +638,7 @@ mod tests {
         // create_context gives us an rx descriptor chain and a tx descriptor chain pointing to the
         // same area of memory. We need both a rx-view and a tx-view into the packet, as tx-queue
         // buffers are read only, while rx queue buffers are write-only
-        let mut pkt = VsockPacketRx::default();
+        let mut pkt = VsockPacketRx::new().unwrap();
         pkt.parse(
             &test_ctx.mem,
             handler_ctx.device.queues[RXQ_INDEX].pop().unwrap(),

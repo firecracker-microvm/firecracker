@@ -13,6 +13,7 @@ use super::metrics::METRICS;
 use super::{RNG_NUM_QUEUES, RNG_QUEUE};
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::devices::virtio::gen::virtio_rng::VIRTIO_F_VERSION_1;
+use crate::devices::virtio::iov_deque::IovDequeError;
 use crate::devices::virtio::iovec::IoVecBufferMut;
 use crate::devices::virtio::queue::{Queue, FIRECRACKER_MAX_QUEUE_SIZE};
 use crate::devices::virtio::{ActivateError, TYPE_RNG};
@@ -31,6 +32,8 @@ pub enum EntropyError {
     GuestMemory(#[from] GuestMemoryError),
     /// Could not get random bytes: {0}
     Random(#[from] aws_lc_rs::error::Unspecified),
+    /// Underlying IovDeque error: {0}
+    IovDeque(#[from] IovDequeError),
 }
 
 #[derive(Debug)]
@@ -77,7 +80,7 @@ impl Entropy {
             queue_events,
             irq_trigger,
             rate_limiter,
-            buffer: IoVecBufferMut::default(),
+            buffer: IoVecBufferMut::new()?,
         })
     }
 
@@ -111,7 +114,7 @@ impl Entropy {
 
     fn handle_one(&mut self) -> Result<u32, EntropyError> {
         // If guest provided us with an empty buffer just return directly
-        if self.buffer.len() == 0 {
+        if self.buffer.is_empty() {
             return Ok(0);
         }
 
