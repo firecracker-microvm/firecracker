@@ -129,7 +129,6 @@ def test_rss_memory_lower(uvm_plain_any):
 
     # Start the microvm.
     test_microvm.start()
-    test_microvm.wait_for_up()
 
     _test_rss_memory_lower(test_microvm)
 
@@ -151,7 +150,6 @@ def test_inflate_reduces_free(uvm_plain_any):
 
     # Start the microvm
     test_microvm.start()
-    test_microvm.wait_for_up()
     firecracker_pid = test_microvm.firecracker_pid
 
     # Get the free memory before ballooning.
@@ -198,7 +196,6 @@ def test_deflate_on_oom(uvm_plain_any, deflate_on_oom):
 
     # Start the microvm.
     test_microvm.start()
-    test_microvm.wait_for_up()
     firecracker_pid = test_microvm.firecracker_pid
 
     # We get an initial reading of the RSS, then calculate the amount
@@ -243,7 +240,6 @@ def test_reinflate_balloon(uvm_plain_any):
 
     # Start the microvm.
     test_microvm.start()
-    test_microvm.wait_for_up()
     firecracker_pid = test_microvm.firecracker_pid
 
     # First inflate the balloon to free up the uncertain amount of memory
@@ -303,7 +299,6 @@ def test_size_reduction(uvm_plain_any):
 
     # Start the microvm.
     test_microvm.start()
-    test_microvm.wait_for_up()
     firecracker_pid = test_microvm.firecracker_pid
 
     # Check memory usage.
@@ -348,7 +343,6 @@ def test_stats(uvm_plain_any):
 
     # Start the microvm.
     test_microvm.start()
-    test_microvm.wait_for_up()
     firecracker_pid = test_microvm.firecracker_pid
 
     # Give Firecracker enough time to poll the stats at least once post-boot
@@ -417,7 +411,6 @@ def test_stats_update(uvm_plain_any):
 
     # Start the microvm.
     test_microvm.start()
-    test_microvm.wait_for_up()
     firecracker_pid = test_microvm.firecracker_pid
 
     # Dirty 30MB of pages.
@@ -469,7 +462,6 @@ def test_balloon_snapshot(microvm_factory, guest_kernel, rootfs):
     )
 
     vm.start()
-    vm.wait_for_up()
 
     # Dirty 60MB of pages.
     make_guest_dirty_memory(vm.ssh, amount_mib=60)
@@ -495,8 +487,6 @@ def test_balloon_snapshot(microvm_factory, guest_kernel, rootfs):
     microvm = microvm_factory.build()
     microvm.spawn()
     microvm.restore_from_snapshot(snapshot, resume=True)
-
-    microvm.wait_for_up()
 
     # Get the firecracker from snapshot pid, and open an ssh connection.
     firecracker_pid = microvm.firecracker_pid
@@ -549,7 +539,6 @@ def test_memory_scrub(microvm_factory, guest_kernel, rootfs):
     )
 
     microvm.start()
-    microvm.wait_for_up()
 
     # Dirty 60MB of pages.
     make_guest_dirty_memory(microvm.ssh, amount_mib=60)

@@ -163,7 +163,6 @@ def test_config_start_no_api_exit(uvm_plain, vm_config_file):
     test_microvm.jailer.extra_args.update({"no-api": None})
 
     test_microvm.spawn()  # Start Firecracker and MicroVM
-    test_microvm.wait_for_up()
     test_microvm.ssh.run("reboot")  # Exit
 
     test_microvm.mark_killed()  # waits for process to terminate
@@ -419,7 +418,6 @@ def test_config_start_and_mmds_with_api(uvm_plain, vm_config_file):
 
     # Network namespace has already been created.
     test_microvm.spawn()
-    test_microvm.wait_for_up()
 
     data_store = {
         "latest": {
@@ -478,7 +476,6 @@ def test_with_config_and_metadata_no_api(uvm_plain, vm_config_file, metadata_fil
     _configure_network_interface(test_microvm)
     test_microvm.jailer.extra_args.update({"no-api": None})
     test_microvm.spawn()
-    test_microvm.wait_for_up()
 
     # Get MMDS version and IPv4 address configured from the file.
     version, ipv4_address = _get_optional_fields_from_file(vm_config_file)

@@ -45,7 +45,6 @@ def test_memory_overhead(
         metrics.set_dimensions(
             {"performance_test": "test_memory_overhead", **microvm.dimensions}
         )
-        microvm.wait_for_up()
 
         guest_mem_bytes = mem_size_mib * 2**20
         guest_mem_splits = {
