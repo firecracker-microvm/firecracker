@@ -110,6 +110,7 @@ CTR_FC_ROOT_DIR="/firecracker"
 
 # Full path to the build dir, as bind-mounted in the container.
 CTR_FC_BUILD_DIR="${CTR_FC_ROOT_DIR}/build"
+CTR_TEST_RESULTS_DIR="${CTR_FC_ROOT_DIR}/test_results"
 
 # Full path to the cargo target dir, as bind-mounted in the container.
 CTR_CARGO_TARGET_DIR="$CTR_FC_BUILD_DIR/cargo_target"
@@ -230,7 +231,7 @@ cmd_fix_perms() {
     run_devctr \
         --workdir "$CTR_FC_ROOT_DIR" \
         -- \
-        chown -R "$(id -u):$(id -g)" "$CTR_FC_BUILD_DIR"
+        chown -R "$(id -u):$(id -g)" "$CTR_FC_BUILD_DIR"  "$CTR_TEST_RESULTS_DIR"
 }
 
 # Builds the development container from its Dockerfile.
