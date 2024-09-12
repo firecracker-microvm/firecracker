@@ -11,6 +11,7 @@ bench = false
 [dependencies]
 acpi_tables = { path = "../acpi-tables" } 
 aes-gcm =  { version = "0.10.1", default-features = false, features = ["aes"] }
+arrayvec = { version = "0.7.6", optional = true }
 aws-lc-rs = { version = "1.10.0", features = ["bindgen"] }
 base64 = "0.22.1"
 bincode = "1.2.1"
@@ -19,6 +20,8 @@ crc64 = "2.0.0"
 derive_more = { version = "1.0.0", default-features = false, features = ["from", "display"] }
 displaydoc = "0.2.5"
 event-manager = "0.4.0"
+gdbstub = { version = "0.7.2", optional = true }
+gdbstub_arch = { version = "0.3.0", optional = true }
 kvm-bindings = { version = "0.9.1", features = ["fam-wrappers", "serde"] }
 kvm-ioctls = "0.18.0"
 lazy_static = "1.5.0"
@@ -55,7 +58,9 @@ itertools = "0.13.0"
 proptest = { version = "1.5.0", default-features = false, features = ["std"] }
 
 [features]
+default = []
 tracing = ["log-instrument"]
+gdb = ["arrayvec", "gdbstub", "gdbstub_arch"]
 
 [[bench]]
 name = "cpu_templates"

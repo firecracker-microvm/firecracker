@@ -6,6 +6,8 @@
 // found in the THIRD-PARTY file.
 
 use std::cell::Cell;
+#[cfg(feature = "gdb")]
+use std::os::fd::AsRawFd;
 use std::sync::atomic::{fence, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Barrier};
@@ -13,6 +15,8 @@ use std::{fmt, io, thread};
 
 use kvm_bindings::{KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN};
 use kvm_ioctls::VcpuExit;
+#[cfg(feature = "gdb")]
+use kvm_ioctls::VcpuFd;
 use libc::{c_int, c_void, siginfo_t};
 use log::{error, info, warn};
 use seccompiler::{BpfProgram, BpfProgramRef};
@@ -20,6 +24,8 @@ use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
 
 use crate::cpu_config::templates::{CpuConfiguration, GuestConfigError};
+#[cfg(feature = "gdb")]
+use crate::gdb::target::{get_raw_tid, GdbTargetError};
 use crate::logger::{IncMetric, METRICS};
 use crate::utils::signal::{register_signal_handler, sigrtmin, Killable};
 use crate::utils::sm::StateMachine;
@@ -60,6 +66,9 @@ pub enum VcpuError {
     VcpuTlsInit,
     /// Vcpu not present in TLS
     VcpuTlsNotPresent,
+    /// Error with gdb request sent
+    #[cfg(feature = "gdb")]
+    GdbRequest(GdbTargetError),
 }
 
 /// Encapsulates configuration parameters for the guest vCPUS.
@@ -81,6 +90,17 @@ type VcpuCell = Cell<Option<*mut Vcpu>>;
 #[error("Failed to spawn vCPU thread: {0}")]
 pub struct StartThreadedError(std::io::Error);
 
+/// Error type for [`Vcpu::copy_kvm_vcpu_fd`].
+#[cfg(feature = "gdb")]
+#[derive(Debug, thiserror::Error)]
+#[error("Failed to clone kvm Vcpu fd: {0}")]
+pub enum CopyKvmFdError {
+    /// Error with libc dup of kvm Vcpu fd
+    DupError(#[from] std::io::Error),
+    /// Error creating the Vcpu from the duplicated Vcpu fd
+    CreateVcpuError(#[from] kvm_ioctls::Error),
+}
+
 /// A wrapper around creating and using a vcpu.
 #[derive(Debug)]
 pub struct Vcpu {
@@ -89,6 +109,9 @@ pub struct Vcpu {
 
     /// File descriptor for vcpu to trigger exit event on vmm.
     exit_evt: EventFd,
+    /// Debugger emitter for gdb events
+    #[cfg(feature = "gdb")]
+    gdb_event: Option<Sender<usize>>,
     /// The receiving end of events channel owned by the vcpu side.
     event_receiver: Receiver<VcpuEvent>,
     /// The transmitting end of the events channel which will be given to the handler.
@@ -200,6 +223,8 @@ impl Vcpu {
             event_sender: Some(event_sender),
             response_receiver: Some(response_receiver),
             response_sender,
+            #[cfg(feature = "gdb")]
+            gdb_event: None,
             kvm_vcpu,
         })
     }
@@ -207,6 +232,24 @@ impl Vcpu {
     /// Sets a MMIO bus for this vcpu.
     pub fn set_mmio_bus(&mut self, mmio_bus: crate::devices::Bus) {
         self.kvm_vcpu.peripherals.mmio_bus = Some(mmio_bus);
+    }
+
+    /// Attaches the fields required for debugging
+    #[cfg(feature = "gdb")]
+    pub fn attach_debug_info(&mut self, gdb_event: Sender<usize>) {
+        self.gdb_event = Some(gdb_event);
+    }
+
+    /// Obtains a copy of the VcpuFd
+    #[cfg(feature = "gdb")]
+    pub fn copy_kvm_vcpu_fd(&self, vm: &Vm) -> Result<VcpuFd, CopyKvmFdError> {
+        // SAFETY: We own this fd so it is considered safe to clone
+        let r = unsafe { libc::dup(self.kvm_vcpu.fd.as_raw_fd()) };
+        if r < 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        // SAFETY: We assert this is a valid fd by checking the result from the dup
+        unsafe { Ok(vm.fd().create_vcpu_from_rawfd(r)?) }
     }
 
     /// Moves the vcpu to its own thread and constructs a VcpuHandle.
@@ -271,6 +314,11 @@ impl Vcpu {
                 // - the other vCPUs won't ever exit out of `KVM_RUN`, but they won't consume CPU.
                 // So we pause vCPU0 and send a signal to the emulation thread to stop the VMM.
                 Ok(VcpuEmulation::Stopped) => return self.exit(FcExitCode::Ok),
+                // If the emulation requests a pause lets do this
+                #[cfg(feature = "gdb")]
+                Ok(VcpuEmulation::Paused) => {
+                    return StateMachine::next(Self::paused);
+                }
                 // Emulation errors lead to vCPU exit.
                 Err(_) => return self.exit(FcExitCode::GenericError),
             }
@@ -447,6 +495,16 @@ impl Vcpu {
                 self.kvm_vcpu.fd.set_kvm_immediate_exit(0);
                 // Notify that this KVM_RUN was interrupted.
                 Ok(VcpuEmulation::Interrupted)
+            }
+            #[cfg(feature = "gdb")]
+            Ok(VcpuExit::Debug(_)) => {
+                if let Some(gdb_event) = &self.gdb_event {
+                    gdb_event
+                        .send(get_raw_tid(self.kvm_vcpu.index.into()))
+                        .expect("Unable to notify gdb event");
+                }
+
+                Ok(VcpuEmulation::Paused)
             }
             emulation_result => handle_kvm_exit(&mut self.kvm_vcpu.peripherals, emulation_result),
         }
@@ -688,6 +746,9 @@ pub enum VcpuEmulation {
     Interrupted,
     /// Stopped.
     Stopped,
+    /// Pause request
+    #[cfg(feature = "gdb")]
+    Paused,
 }
 
 #[cfg(test)]

@@ -83,6 +83,9 @@ pub(crate) mod device_manager;
 pub mod devices;
 /// minimalist HTTP/TCP/IPv4 stack named DUMBO
 pub mod dumbo;
+/// Support for GDB debugging the guest
+#[cfg(feature = "gdb")]
+pub mod gdb;
 /// Logger
 pub mod logger;
 /// microVM Metadata Service MMDS
@@ -845,6 +848,12 @@ impl Vmm {
 
         // Break the main event loop, propagating the Vmm exit-code.
         self.shutdown_exit_code = Some(exit_code);
+    }
+
+    /// Gets a reference to kvm-ioctls Vm
+    #[cfg(feature = "gdb")]
+    pub fn vm(&self) -> &Vm {
+        &self.vm
     }
 }
 

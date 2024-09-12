@@ -49,6 +49,7 @@ serde_json = "1.0.128"
 
 [features]
 tracing = ["log-instrument", "seccompiler/tracing", "utils/tracing", "vmm/tracing"]
+gdb = ["vmm/gdb"]
 
 [lints]
 workspace = true
