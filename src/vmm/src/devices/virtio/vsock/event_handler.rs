@@ -439,7 +439,8 @@ mod tests {
             // If the descriptor chain is already declared invalid, there's no reason to assemble
             // a packet.
             if let Some(rx_desc) = ctx.device.queues[RXQ_INDEX].pop() {
-                VsockPacketRx::default()
+                VsockPacketRx::new()
+                    .unwrap()
                     .parse(&test_ctx.mem, rx_desc)
                     .unwrap_err();
             }
@@ -490,7 +491,8 @@ mod tests {
         {
             let mut ctx = test_ctx.create_event_handler_context();
             let rx_desc = ctx.device.queues[RXQ_INDEX].pop().unwrap();
-            VsockPacketRx::default()
+            VsockPacketRx::new()
+                .unwrap()
                 .parse(&test_ctx.mem, rx_desc)
                 .unwrap();
         }

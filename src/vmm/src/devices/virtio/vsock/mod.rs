@@ -30,6 +30,7 @@ pub use self::defs::VSOCK_DEV_ID;
 pub use self::device::Vsock;
 use self::packet::{VsockPacketRx, VsockPacketTx};
 pub use self::unix::{VsockUnixBackend, VsockUnixBackendError};
+use super::iov_deque::IovDequeError;
 use crate::devices::virtio::iovec::IoVecError;
 use crate::devices::virtio::persist::PersistError as VirtioStateError;
 
@@ -138,6 +139,10 @@ pub enum VsockError {
     VirtioState(VirtioStateError),
     /// Vsock uds backend error: {0}
     VsockUdsBackend(VsockUnixBackendError),
+    /// Underlying IovDeque error: {0}
+    IovDeque(IovDequeError),
+    /// Tried to push to full IovDeque.
+    IovDequeOverflow,
 }
 
 impl From<IoVecError> for VsockError {
@@ -147,6 +152,8 @@ impl From<IoVecError> for VsockError {
             IoVecError::ReadOnlyDescriptor => VsockError::UnwritableDescriptor,
             IoVecError::GuestMemory(err) => VsockError::GuestMemoryMmap(err),
             IoVecError::OverflowedDescriptor => VsockError::DescChainOverflow,
+            IoVecError::IovDeque(err) => VsockError::IovDeque(err),
+            IoVecError::IovDequeOverflow => VsockError::IovDequeOverflow,
         }
     }
 }

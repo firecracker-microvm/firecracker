@@ -104,7 +104,7 @@ where
             irq_trigger: IrqTrigger::new().map_err(VsockError::EventFd)?,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?,
             device_state: DeviceState::Inactive,
-            rx_packet: VsockPacketRx::default(),
+            rx_packet: VsockPacketRx::new()?,
             tx_packet: VsockPacketTx::default(),
         })
     }
