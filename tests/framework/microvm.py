@@ -876,6 +876,9 @@ class Microvm:
         # Check that the VM has started
         assert self.state == "Running"
 
+        if self.iface:
+            self.wait_for_up()
+
     def pause(self):
         """Pauses the microVM"""
         self.api.vm.patch(state="Paused")
