@@ -33,6 +33,108 @@
                 "comment": "Used by the VirtIO net device to write to tap"
             },
             {
+                "syscall": "readv",
+                "comment": "Used by the VirtIO net device to read from tap"
+            },
+            {
+                "syscall": "memfd_create",
+                "comment": "Used by the IovDeque implementation"
+            },
+            {
+                "syscall": "fcntl",
+                "comment": "Used by the IovDeque implementation",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1033,
+                        "comment": "FCNTL_F_SETFD"
+                    },
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 6,
+                        "comment": "F_SEAL_SHRINK|F_SEAL_GROW"
+                    }
+                ]
+            },
+            {
+                "syscall": "fcntl",
+                "comment": "Used by the IovDeque implementation",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1033,
+                        "comment": "FCNTL_F_SETFD"
+                    },
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "F_SEAL_SEAL"
+                    }
+                ]
+            },
+            {
+                "syscall": "mmap",
+                "comment": "Used by the IovDeque implementation",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4096,
+                        "comment": "Page size allocation"
+                    },
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 3,
+                        "comment": "PROT_READ|PROT_WRITE"
+                    },
+                    {
+                        "index": 3,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 17,
+                        "comment": "MAP_SHARED|MAP_FIXED"
+                    }
+                ]
+            },
+            {
+                "syscall": "mmap",
+                "comment": "Used by the IovDeque implementation",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 8192,
+                        "comment": "2 pages allocation"
+                    },
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 0,
+                        "comment": "PROT_NONE"
+                    },
+                    {
+                        "index": 3,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 34,
+                        "comment": "MAP_PRIVATE|MAP_ANONYMOUS"
+                    }
+                ]
+            },
+            {
                 "syscall": "fsync"
             },
             {
