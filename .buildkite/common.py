@@ -13,14 +13,14 @@ import string
 import subprocess
 from pathlib import Path
 
-DEFAULT_INSTANCES = [
-    "c5n.metal",  # Intel Skylake
-    "m5n.metal",  # Intel Cascade Lake
-    "m6i.metal",  # Intel Icelake
-    "m6a.metal",  # AMD Milan
-    "m6g.metal",  # Graviton2
-    "m7g.metal",  # Graviton3
-]
+DEFAULT_INSTANCES = {
+    "c5n.metal": "x86_64",  # Intel Skylake
+    "m5n.metal": "x86_64",  # Intel Cascade Lake
+    "m6i.metal": "x86_64",  # Intel Icelake
+    "m6a.metal": "x86_64",  # AMD Milan
+    "m6g.metal": "aarch64",  # Graviton2
+    "m7g.metal": "aarch64",  # Graviton3
+}
 
 DEFAULT_PLATFORMS = [
     ("al2", "linux_5.10"),
@@ -146,7 +146,7 @@ COMMON_PARSER.add_argument(
     "--instances",
     required=False,
     nargs="+",
-    default=DEFAULT_INSTANCES,
+    default=DEFAULT_INSTANCES.keys(),
 )
 COMMON_PARSER.add_argument(
     "--platforms",
