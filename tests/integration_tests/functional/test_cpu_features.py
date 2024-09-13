@@ -686,6 +686,7 @@ def test_cpu_template(uvm_plain_any, cpu_template, microvm_factory):
 def check_masked_features(test_microvm, cpu_template):
     """Verify the masked features of the given template."""
     # fmt: off
+    must_be_unset = []
     if cpu_template == "C3":
         must_be_unset = [
             (0x1, 0x0, "ecx",
