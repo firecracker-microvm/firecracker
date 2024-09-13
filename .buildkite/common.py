@@ -233,7 +233,7 @@ class BKPipeline:
 
     parser = COMMON_PARSER
 
-    def __init__(self, initial_steps=None, with_build_step=True, **kwargs):
+    def __init__(self, with_build_step=True, **kwargs):
         self.steps = []
         self.args = args = self.parser.parse_args()
         # Retry one time if agent was lost. This can happen if we terminate the
@@ -262,18 +262,6 @@ class BKPipeline:
             self.steps += [step_build, "wait"]
         else:
             self.shared_build = None
-
-        # If we run initial_steps before the "wait" step above, then a failure of the initial steps
-        # would result in the build not progressing past the "wait" step (as buildkite only proceeds past a wait step
-        # if everything before it passed). Thus put the initial steps after the "wait" step, but set `"depends_on": null`
-        # to start running them immediately (e.g. without waiting for the "wait" step to unblock).
-        #
-        # See also https://buildkite.com/docs/pipelines/dependencies#explicit-dependencies-in-uploaded-steps
-        if initial_steps:
-            for step in initial_steps:
-                step["depends_on"] = None
-
-            self.steps += initial_steps
 
     def add_step(self, step, decorate=True):
         """

@@ -21,13 +21,16 @@ if changed_files and all(f.suffix == ".md" for f in changed_files):
 pipeline = BKPipeline(
     priority=DEFAULT_PRIORITY,
     timeout_in_minutes=45,
-    initial_steps=[
-        {
-            "command": "./tools/devtool -y checkstyle",
-            "label": "🪶 Style",
-        },
-    ],
     with_build_step=not DOC_ONLY_CHANGE,
+)
+
+pipeline.add_step(
+    {
+        "command": "./tools/devtool -y checkstyle",
+        "label": "🪶 Style",
+        "depends_on": None,
+    },
+    decorate=False,
 )
 
 # run sanity build of devtool if Dockerfile is changed
