@@ -5,7 +5,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-#[cfg(not(test))]
 use std::io::Read;
 use std::mem;
 use std::net::Ipv4Addr;
@@ -716,12 +715,10 @@ impl Net {
         self.tx_rate_limiter.update_buckets(tx_bytes, tx_ops);
     }
 
-    #[cfg(not(test))]
     fn read_tap(&mut self) -> std::io::Result<usize> {
         self.tap.read(&mut self.rx_frame_buf)
     }
 
-    #[cfg(not(test))]
     fn write_tap(tap: &mut Tap, buf: &IoVecBuffer) -> std::io::Result<usize> {
         tap.write_iovec(buf)
     }
@@ -932,11 +929,11 @@ impl VirtioDevice for Net {
 #[cfg(test)]
 #[macro_use]
 pub mod tests {
-    use std::io::Read;
     use std::net::Ipv4Addr;
+    use std::os::fd::AsRawFd;
     use std::str::FromStr;
     use std::time::Duration;
-    use std::{io, mem, thread};
+    use std::{mem, thread};
 
     use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 
@@ -949,8 +946,8 @@ pub mod tests {
     };
     use crate::devices::virtio::net::test_utils::test::TestHelper;
     use crate::devices::virtio::net::test_utils::{
-        default_net, if_index, inject_tap_tx_frame, set_mac, NetEvent, NetQueue, ReadTapMock,
-        TapTrafficSimulator, WriteTapMock,
+        default_net, if_index, inject_tap_tx_frame, set_mac, NetEvent, NetQueue,
+        TapTrafficSimulator,
     };
     use crate::devices::virtio::net::NET_QUEUE_SIZES;
     use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
@@ -960,28 +957,6 @@ pub mod tests {
     use crate::logger::IncMetric;
     use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenBucket, TokenType};
     use crate::vstate::memory::{Address, GuestMemory};
-
-    impl Net {
-        pub(crate) fn read_tap(&mut self) -> io::Result<usize> {
-            match &self.tap.mocks.read_tap {
-                ReadTapMock::Failure => Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "Read tap synthetically failed.",
-                )),
-                ReadTapMock::TapFrame => self.tap.read(&mut self.rx_frame_buf),
-            }
-        }
-
-        pub(crate) fn write_tap(tap: &mut Tap, buf: &IoVecBuffer) -> io::Result<usize> {
-            match tap.mocks.write_tap {
-                WriteTapMock::Success => tap.write_iovec(buf),
-                WriteTapMock::Failure => Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "Write tap mock failure.",
-                )),
-            }
-        }
-    }
 
     #[test]
     fn test_vnet_helpers() {
@@ -1212,7 +1187,6 @@ pub mod tests {
     fn test_rx_retry() {
         let mut th = TestHelper::get_default();
         th.activate_net();
-        th.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
 
         // Add invalid descriptor chain - read only descriptor.
         th.add_desc_chain(
@@ -1263,7 +1237,6 @@ pub mod tests {
     fn test_rx_complex_desc_chain() {
         let mut th = TestHelper::get_default();
         th.activate_net();
-        th.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
 
         // Create a valid Rx avail descriptor chain with multiple descriptors.
         th.add_desc_chain(
@@ -1302,7 +1275,6 @@ pub mod tests {
     fn test_rx_multiple_frames() {
         let mut th = TestHelper::get_default();
         th.activate_net();
-        th.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
 
         // Create 2 valid Rx avail descriptor chains. Each one has enough space to fit the
         // following 2 frames. But only 1 frame has to be written to each chain.
@@ -1525,7 +1497,9 @@ pub mod tests {
     fn test_tx_tap_failure() {
         let mut th = TestHelper::get_default();
         th.activate_net();
-        th.net().tap.mocks.set_write_tap(WriteTapMock::Failure);
+        // force the next write to the tap to return an error by simply closing the fd
+        // SAFETY: its a valid fd
+        unsafe { libc::close(th.net.lock().unwrap().tap.as_raw_fd()) };
 
         let desc_list = [(0, 1000, 0)];
         th.add_desc_chain(NetQueue::Tx, 0, &desc_list);
@@ -1725,7 +1699,9 @@ pub mod tests {
     fn test_read_tap_fail_event_handler() {
         let mut th = TestHelper::get_default();
         th.activate_net();
-        th.net().tap.mocks.set_read_tap(ReadTapMock::Failure);
+        // force the next write to the tap to return an error by simply closing the fd
+        // SAFETY: its a valid fd
+        unsafe { libc::close(th.net.lock().unwrap().tap.as_raw_fd()) };
 
         // The RX queue is empty and rx_deffered_frame is set.
         th.net().rx_deferred_frame = true;
@@ -1753,7 +1729,6 @@ pub mod tests {
     fn test_deferred_frame() {
         let mut th = TestHelper::get_default();
         th.activate_net();
-        th.net().tap.mocks.set_read_tap(ReadTapMock::TapFrame);
 
         let rx_packets_count = th.net().metrics.rx_packets_count.count();
         let _ = inject_tap_tx_frame(&th.net(), 1000);

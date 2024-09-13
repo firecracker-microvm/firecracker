@@ -16,8 +16,6 @@ use utils::{ioctl_ioc_nr, ioctl_iow_nr};
 
 use crate::devices::virtio::iovec::IoVecBuffer;
 use crate::devices::virtio::net::gen;
-#[cfg(test)]
-use crate::devices::virtio::net::test_utils::Mocks;
 
 // As defined in the Linux UAPI:
 // https://elixir.bootlin.com/linux/v4.17/source/include/uapi/linux/if.h#L33
@@ -53,9 +51,6 @@ ioctl_iow_nr!(TUNSETVNETHDRSZ, TUNTAP, 216, ::std::os::raw::c_int);
 pub struct Tap {
     tap_file: File,
     pub(crate) if_name: [u8; IFACE_NAME_MAX_LEN],
-
-    #[cfg(test)]
-    pub(crate) mocks: Mocks,
 }
 
 // Returns a byte vector representing the contents of a null terminated C string which
@@ -149,9 +144,6 @@ impl Tap {
             tap_file: tuntap,
             // SAFETY: Safe since only the name is accessed, and it's cloned out.
             if_name: unsafe { ifreq.ifr_ifrn.ifrn_name },
-
-            #[cfg(test)]
-            mocks: Mocks::default(),
         })
     }
 
@@ -278,7 +270,6 @@ pub mod tests {
         let faulty_tap = Tap {
             tap_file: unsafe { File::from_raw_fd(-2) },
             if_name: [0x01; 16],
-            mocks: Default::default(),
         };
         assert_eq!(
             faulty_tap.set_vnet_hdr_size(16).unwrap_err().to_string(),
