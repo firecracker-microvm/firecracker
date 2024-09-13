@@ -33,6 +33,7 @@ def test_vhost_user_block_metrics(
     )
     vm.spawn(log_level="Info")
     vm.basic_config(vcpu_count=vcpu_count)
+    vm.add_net_iface()
 
     # Add a block device to test resizing.
     fs = drive_tools.FilesystemFile(size=orig_size)
