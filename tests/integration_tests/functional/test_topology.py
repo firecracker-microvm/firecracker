@@ -43,6 +43,7 @@ def _check_cache_topology_x86(
     )
 
     cpu_vendor = utils.get_cpu_vendor()
+    expected_level_1_topology = expected_level_3_topology = None
     if cpu_vendor == utils.CpuVendor.AMD:
         key_share = "extra cores sharing this cache"
         expected_level_1_topology = {

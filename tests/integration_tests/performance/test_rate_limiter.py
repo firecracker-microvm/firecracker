@@ -440,6 +440,7 @@ def _process_iperf_line(line):
 def _process_iperf_output(iperf_out):
     """Parse iperf3 output and return average test time and bandwidth."""
     iperf_out_lines = iperf_out.splitlines()
+    send_time = send_bw = rcv_time = rcv_bw = None
     for line in iperf_out_lines:
         if line.find("sender") != -1:
             send_time, send_bw = _process_iperf_line(line)
