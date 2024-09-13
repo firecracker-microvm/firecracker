@@ -956,6 +956,7 @@ pub mod tests {
     use crate::dumbo::EthernetFrame;
     use crate::logger::IncMetric;
     use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenBucket, TokenType};
+    use crate::utilities::test_utils::single_region_mem;
     use crate::vstate::memory::{Address, GuestMemory};
 
     #[test]
@@ -1113,7 +1114,8 @@ pub mod tests {
 
     #[test]
     fn test_rx_missing_queue_signal() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
 
         th.add_desc_chain(NetQueue::Rx, 0, &[(0, 4096, VIRTQ_DESC_F_WRITE)]);
@@ -1130,7 +1132,8 @@ pub mod tests {
 
     #[test]
     fn test_rx_read_only_descriptor() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
 
         th.add_desc_chain(
@@ -1150,7 +1153,8 @@ pub mod tests {
 
     #[test]
     fn test_rx_short_writable_descriptor() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
 
         th.add_desc_chain(NetQueue::Rx, 0, &[(0, 100, VIRTQ_DESC_F_WRITE)]);
@@ -1162,7 +1166,8 @@ pub mod tests {
 
     #[test]
     fn test_rx_partial_write() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
 
         // The descriptor chain is created so that the last descriptor doesn't fit in the
@@ -1185,7 +1190,8 @@ pub mod tests {
 
     #[test]
     fn test_rx_retry() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
 
         // Add invalid descriptor chain - read only descriptor.
@@ -1235,7 +1241,8 @@ pub mod tests {
 
     #[test]
     fn test_rx_complex_desc_chain() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
 
         // Create a valid Rx avail descriptor chain with multiple descriptors.
@@ -1273,7 +1280,8 @@ pub mod tests {
 
     #[test]
     fn test_rx_multiple_frames() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
 
         // Create 2 valid Rx avail descriptor chains. Each one has enough space to fit the
@@ -1316,7 +1324,8 @@ pub mod tests {
 
     #[test]
     fn test_tx_missing_queue_signal() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
@@ -1336,7 +1345,8 @@ pub mod tests {
 
     #[test]
     fn test_tx_writeable_descriptor() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
@@ -1355,7 +1365,8 @@ pub mod tests {
 
     #[test]
     fn test_tx_short_frame() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
@@ -1377,7 +1388,8 @@ pub mod tests {
 
     #[test]
     fn test_tx_big_frame() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
@@ -1403,7 +1415,8 @@ pub mod tests {
 
     #[test]
     fn test_tx_empty_frame() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
@@ -1425,7 +1438,8 @@ pub mod tests {
 
     #[test]
     fn test_tx_retry() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
@@ -1467,7 +1481,8 @@ pub mod tests {
 
     #[test]
     fn test_tx_complex_descriptor() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
@@ -1495,7 +1510,8 @@ pub mod tests {
 
     #[test]
     fn test_tx_tap_failure() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
         // force the next write to the tap to return an error by simply closing the fd
         // SAFETY: its a valid fd
@@ -1519,7 +1535,8 @@ pub mod tests {
 
     #[test]
     fn test_tx_multiple_frame() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
@@ -1672,7 +1689,8 @@ pub mod tests {
 
     #[test]
     fn test_process_error_cases() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
 
         // RX rate limiter events should error since the limiter is not blocked.
@@ -1697,7 +1715,8 @@ pub mod tests {
     //  * interrupt_evt.write
     #[test]
     fn test_read_tap_fail_event_handler() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
         // force the next write to the tap to return an error by simply closing the fd
         // SAFETY: its a valid fd
@@ -1727,7 +1746,8 @@ pub mod tests {
 
     #[test]
     fn test_deferred_frame() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
 
         let rx_packets_count = th.net().metrics.rx_packets_count.count();
@@ -1779,7 +1799,8 @@ pub mod tests {
 
     #[test]
     fn test_rx_rate_limiter_handling() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
 
         th.net().rx_rate_limiter = RateLimiter::new(0, 0, 0, 0, 0, 0).unwrap();
@@ -1793,7 +1814,8 @@ pub mod tests {
 
     #[test]
     fn test_tx_rate_limiter_handling() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
 
         th.net().tx_rate_limiter = RateLimiter::new(0, 0, 0, 0, 0, 0).unwrap();
@@ -1808,7 +1830,8 @@ pub mod tests {
 
     #[test]
     fn test_bandwidth_rate_limiter() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
 
         // Test TX bandwidth rate limiting
@@ -1948,7 +1971,8 @@ pub mod tests {
 
     #[test]
     fn test_ops_rate_limiter() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
 
         // Test TX ops rate limiting
@@ -2059,7 +2083,8 @@ pub mod tests {
 
     #[test]
     fn test_patch_rate_limiters() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
 
         th.net().rx_rate_limiter = RateLimiter::new(10, 0, 10, 2, 0, 2).unwrap();
@@ -2100,7 +2125,8 @@ pub mod tests {
 
     #[test]
     fn test_virtio_device() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.activate_net();
         let net = th.net.lock().unwrap();
 
@@ -2121,7 +2147,8 @@ pub mod tests {
     fn test_queues_notification_suppression() {
         let features = 1 << VIRTIO_RING_F_EVENT_IDX;
 
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
         th.net().set_acked_features(features);
         th.activate_net();
 

@@ -300,7 +300,7 @@ pub mod test {
     #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::ffi::OsStrExt;
     use std::sync::{Arc, Mutex, MutexGuard};
-    use std::{cmp, fmt, mem};
+    use std::{cmp, fmt};
 
     use event_manager::{EventManager, SubscriberId, SubscriberOps};
 
@@ -311,18 +311,17 @@ pub mod test {
     use crate::devices::virtio::net::test_utils::{
         assign_queues, default_net, inject_tap_tx_frame, NetEvent, NetQueue,
     };
-    use crate::devices::virtio::net::{Net, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX};
+    use crate::devices::virtio::net::{Net, RX_INDEX, TX_INDEX};
     use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
     use crate::logger::IncMetric;
-    use crate::utilities::test_utils::single_region_mem;
     use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
     pub struct TestHelper<'a> {
         pub event_manager: EventManager<Arc<Mutex<Net>>>,
         pub subscriber_id: SubscriberId,
         pub net: Arc<Mutex<Net>>,
-        pub mem: GuestMemoryMmap,
+        pub mem: &'a GuestMemoryMmap,
         pub rxq: VirtQueue<'a>,
         pub txq: VirtQueue<'a>,
     }
@@ -343,18 +342,14 @@ pub mod test {
     impl<'a> TestHelper<'a> {
         const QUEUE_SIZE: u16 = 16;
 
-        pub fn get_default() -> TestHelper<'a> {
+        pub fn get_default(mem: &'a GuestMemoryMmap) -> TestHelper<'a> {
             let mut event_manager = EventManager::new().unwrap();
             let mut net = default_net();
-            let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
 
-            // transmute mem_ref lifetime to 'a
-            let mem_ref = unsafe { mem::transmute::<&GuestMemoryMmap, &'a GuestMemoryMmap>(&mem) };
-
-            let rxq = VirtQueue::new(GuestAddress(0), mem_ref, Self::QUEUE_SIZE);
+            let rxq = VirtQueue::new(GuestAddress(0), mem, Self::QUEUE_SIZE);
             let txq = VirtQueue::new(
                 rxq.end().unchecked_align_up(VirtqDesc::ALIGNMENT),
-                mem_ref,
+                mem,
                 Self::QUEUE_SIZE,
             );
             assign_queues(&mut net, rxq.create_queue(), txq.create_queue());
