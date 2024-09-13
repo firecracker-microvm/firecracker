@@ -261,7 +261,6 @@ class BKPipeline:
             self.build_group_per_arch(
                 "🏗️ Build", build_cmds, decorate=False, key_prefix="build"
             )
-            self.steps += ["wait"]
         else:
             self.shared_build = None
 
@@ -297,6 +296,10 @@ class BKPipeline:
 
         for step in group["steps"]:
             step["command"] = prepend + step["command"]
+            if self.shared_build is not None:
+                step["depends_on"] = (
+                    "build_" + DEFAULT_INSTANCES[step["agents"]["instance"]]
+                )
         return group
 
     def build_group(self, *args, **kwargs):
