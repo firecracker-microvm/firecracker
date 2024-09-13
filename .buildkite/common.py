@@ -258,8 +258,8 @@ class BKPipeline:
         # Build sharing
         if with_build_step:
             build_cmds, self.shared_build = shared_build()
-            step_build = group("🏗️ Build", build_cmds, **self.per_arch)
-            self.steps += [step_build, "wait"]
+            self.build_group_per_arch("🏗️ Build", build_cmds, decorate=False)
+            self.steps += ["wait"]
         else:
             self.shared_build = None
 
@@ -311,8 +311,9 @@ class BKPipeline:
         """
         Build a group, parametrizing over the architectures only.
         """
+        decorate = kwargs.pop("decorate", True)
         combined = overlay_dict(self.per_arch, kwargs)
-        return self.add_step(group(*args, **combined))
+        return self.add_step(group(*args, **combined), decorate=decorate)
 
     def to_dict(self):
         """Render the pipeline as a dictionary."""
