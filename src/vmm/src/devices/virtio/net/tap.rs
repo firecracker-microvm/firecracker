@@ -7,7 +7,7 @@
 
 use std::fmt::{self, Debug};
 use std::fs::File;
-use std::io::{Error as IoError, Read, Write};
+use std::io::{Error as IoError, Read};
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
@@ -206,16 +206,6 @@ impl Read for Tap {
     }
 }
 
-impl Write for Tap {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, IoError> {
-        self.tap_file.write(buf)
-    }
-
-    fn flush(&mut self) -> Result<(), IoError> {
-        Ok(())
-    }
-}
-
 impl AsRawFd for Tap {
     fn as_raw_fd(&self) -> RawFd {
         self.tap_file.as_raw_fd()
@@ -320,26 +310,6 @@ pub mod tests {
         assert_eq!(
             &buf[VNET_HDR_SIZE..packet.len() + VNET_HDR_SIZE],
             packet.as_bytes()
-        );
-    }
-
-    #[test]
-    fn test_write() {
-        let mut tap = Tap::open_named("").unwrap();
-        enable(&tap);
-        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&tap));
-
-        let mut packet = [0u8; PACKET_SIZE];
-        let payload = utils::rand::rand_alphanumerics(PAYLOAD_SIZE);
-        packet[gen::ETH_HLEN as usize..payload.len() + gen::ETH_HLEN as usize]
-            .copy_from_slice(payload.as_bytes());
-        assert_eq!(tap.write(&packet).unwrap(), PACKET_SIZE);
-
-        let mut read_buf = [0u8; PACKET_SIZE];
-        assert!(tap_traffic_simulator.pop_rx_packet(&mut read_buf));
-        assert_eq!(
-            &read_buf[..PACKET_SIZE - VNET_HDR_SIZE],
-            &packet[VNET_HDR_SIZE..]
         );
     }
 
