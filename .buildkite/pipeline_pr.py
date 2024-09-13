@@ -72,6 +72,7 @@ if run_all_tests(changed_files):
     pipeline.build_group(
         "📦 Build",
         pipeline.devtool_test(pytest_opts="integration_tests/build/"),
+        decorate=False,
     )
 
     pipeline.build_group(
