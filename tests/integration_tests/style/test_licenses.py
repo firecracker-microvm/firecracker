@@ -98,7 +98,6 @@ def _validate_license(filename):
             or has_intel_copyright
             or has_rivos_copyright
         )
-    return True
 
 
 def test_for_valid_licenses():
@@ -142,7 +141,3 @@ def test_dependency_licenses():
     # or remove them if they are incompatible with our licenses.
     license_res = [line for line in stderr.split("\n") if "license" in line]
     assert not license_res
-
-
-if __name__ == "__main__":
-    test_for_valid_licenses()
