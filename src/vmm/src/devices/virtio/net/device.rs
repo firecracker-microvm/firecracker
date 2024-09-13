@@ -964,10 +964,6 @@ pub mod tests {
     impl Net {
         pub(crate) fn read_tap(&mut self) -> io::Result<usize> {
             match &self.tap.mocks.read_tap {
-                ReadTapMock::MockFrame(frame) => {
-                    self.rx_frame_buf[..frame.len()].copy_from_slice(frame);
-                    Ok(frame.len())
-                }
                 ReadTapMock::Failure => Err(io::Error::new(
                     io::ErrorKind::Other,
                     "Read tap synthetically failed.",
@@ -1911,17 +1907,21 @@ pub mod tests {
 
         // Test RX bandwidth rate limiting
         {
-            // create bandwidth rate limiter that allows 40960 bytes/s with bucket size 4096 bytes
-            let mut rl = RateLimiter::new(0x1000, 0, 100, 0, 0, 0).unwrap();
-            // use up the budget
-            assert!(rl.consume(0x1000, TokenType::Bytes));
-
-            // set this rx rate limiter to be used
-            th.net().rx_rate_limiter = rl;
+            // create bandwidth rate limiter that allows 2000 bytes/s with bucket size 1000 bytes
+            let mut rl = RateLimiter::new(1000, 0, 500, 0, 0, 0).unwrap();
 
             // set up RX
             assert!(!th.net().rx_deferred_frame);
             th.add_desc_chain(NetQueue::Rx, 0, &[(0, 4096, VIRTQ_DESC_F_WRITE)]);
+
+            let frame = inject_tap_tx_frame(&th.net(), 1000);
+
+            // use up the budget (do it after injecting the tx frame, as socket communication is
+            // slow enough that the ratelimiter could replenish in the meantime).
+            assert!(rl.consume(1000, TokenType::Bytes));
+
+            // set this rx rate limiter to be used
+            th.net().rx_rate_limiter = rl;
 
             // following RX procedure should fail because of bandwidth rate limiting
             {
@@ -1946,13 +1946,12 @@ pub mod tests {
                 assert_eq!(th.net().metrics.rx_rate_limiter_throttled.count(), 2);
             }
 
-            // wait for 100ms to give the rate-limiter timer a chance to replenish
-            // wait for an extra 100ms to make sure the timerfd event makes its way from the kernel
-            thread::sleep(Duration::from_millis(200));
+            // wait for 500ms to give the rate-limiter timer a chance to replenish
+            // wait for an extra 500ms to make sure the timerfd event makes its way from the kernel
+            thread::sleep(Duration::from_millis(1000));
 
             // following RX procedure should succeed because bandwidth should now be available
             {
-                let frame = &th.net().tap.mocks.read_tap.mock_frame();
                 // no longer throttled
                 check_metric_after_block!(
                     th.net().metrics.rx_rate_limiter_throttled,
@@ -1967,7 +1966,7 @@ pub mod tests {
                 assert_eq!(th.rxq.used.idx.get(), 1);
                 th.rxq
                     .check_used_elem(0, 0, frame.len().try_into().unwrap());
-                th.rxq.dtable[0].check_data(frame);
+                th.rxq.dtable[0].check_data(&frame);
             }
         }
     }
@@ -2025,17 +2024,19 @@ pub mod tests {
 
         // Test RX ops rate limiting
         {
-            // create ops rate limiter that allows 10 ops/s with bucket size 1 ops
-            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 100).unwrap();
+            // create ops rate limiter that allows 2 ops/s with bucket size 1 ops
+            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 500).unwrap();
+
+            // set up RX
+            assert!(!th.net().rx_deferred_frame);
+            th.add_desc_chain(NetQueue::Rx, 0, &[(0, 4096, VIRTQ_DESC_F_WRITE)]);
+            let frame = inject_tap_tx_frame(&th.net(), 1234);
+
             // use up the initial budget
             assert!(rl.consume(1, TokenType::Ops));
 
             // set this rx rate limiter to be used
             th.net().rx_rate_limiter = rl;
-
-            // set up RX
-            assert!(!th.net().rx_deferred_frame);
-            th.add_desc_chain(NetQueue::Rx, 0, &[(0, 4096, VIRTQ_DESC_F_WRITE)]);
 
             // following RX procedure should fail because of ops rate limiting
             {
@@ -2063,13 +2064,12 @@ pub mod tests {
                 assert_eq!(th.rxq.used.idx.get(), 0);
             }
 
-            // wait for 100ms to give the rate-limiter timer a chance to replenish
-            // wait for an extra 100ms to make sure the timerfd event makes its way from the kernel
-            thread::sleep(Duration::from_millis(200));
+            // wait for 500ms to give the rate-limiter timer a chance to replenish
+            // wait for an extra 500ms to make sure the timerfd event makes its way from the kernel
+            thread::sleep(Duration::from_millis(1000));
 
             // following RX procedure should succeed because ops should now be available
             {
-                let frame = &th.net().tap.mocks.read_tap.mock_frame();
                 th.simulate_event(NetEvent::RxRateLimiter);
                 // make sure the virtio queue operation completed this time
                 assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
@@ -2077,7 +2077,7 @@ pub mod tests {
                 assert_eq!(th.rxq.used.idx.get(), 1);
                 th.rxq
                     .check_used_elem(0, 0, frame.len().try_into().unwrap());
-                th.rxq.dtable[0].check_data(frame);
+                th.rxq.dtable[0].check_data(&frame);
             }
         }
     }

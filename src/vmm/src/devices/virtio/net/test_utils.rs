@@ -6,7 +6,6 @@
 use std::fs::File;
 use std::mem;
 use std::os::raw::c_ulong;
-use std::os::unix::ffi::OsStrExt;
 use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::process::Command;
 use std::str::FromStr;
@@ -80,17 +79,7 @@ pub fn default_net_no_mmds() -> Net {
 #[derive(Debug)]
 pub enum ReadTapMock {
     Failure,
-    MockFrame(Vec<u8>),
     TapFrame,
-}
-
-impl ReadTapMock {
-    pub fn mock_frame(&self) -> Vec<u8> {
-        if let ReadTapMock::MockFrame(frame) = self {
-            return frame.clone();
-        }
-        panic!("Can't get last mock frame");
-    }
 }
 
 #[derive(Debug)]
@@ -119,9 +108,7 @@ impl Mocks {
 impl Default for Mocks {
     fn default() -> Mocks {
         Mocks {
-            read_tap: ReadTapMock::MockFrame(
-                utils::rand::rand_alphanumerics(1234).as_bytes().to_vec(),
-            ),
+            read_tap: ReadTapMock::TapFrame,
             write_tap: WriteTapMock::Success,
         }
     }
@@ -298,6 +285,8 @@ pub fn enable(tap: &Tap) {
 
 #[cfg(test)]
 pub(crate) fn inject_tap_tx_frame(net: &Net, len: usize) -> Vec<u8> {
+    use std::os::unix::ffi::OsStrExt;
+
     assert!(len >= vnet_hdr_len());
     let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&net.tap));
     let mut frame = utils::rand::rand_alphanumerics(len - vnet_hdr_len())
