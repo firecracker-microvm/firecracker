@@ -661,11 +661,5 @@ m6i won't work on an m6g instance.
 
 | *CPU family* | *taken on host kernel* | *restored on host kernel* | *working?* |
 | ------------ | ---------------------- | ------------------------- | ---------- |
-| **all**      | 5.10                   | 6.1                       | Y          |
-| **all**      | 6.1                    | 5.10                      | Y          |
-
-What doesn't work:
-
-- Graviton 4.14 \<-> 5.10 does not restore due to register incompatibility.
-- Intel 5.10 -> 4.14 does not restore because unresponsive net devices
-- AMD m6a 5.10 -> 4.14 does not restore due to mismatch in MSRs
+| **x86_64**   | 5.10                   | 6.1                       | Y          |
+| **x86_64**   | 6.1                    | 5.10                      | N          |
