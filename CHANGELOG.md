@@ -16,6 +16,11 @@ and this project adheres to
 
 ### Removed
 
+- [#4804](https://github.com/firecracker-microvm/firecracker/pull/4804): Drop
+  Support for guest kernel 4.14. Linux 4.14 reached end-of-life in
+  [January 2024](https://lore.kernel.org/lkml/2024011046-ecology-tiptoeing-ce50@gregkh/)
+  The minimum supported guest kernel now is 5.10.
+
 ### Fixed
 
 - [#4796](https://github.com/firecracker-microvm/firecracker/pull/4796): Fixed

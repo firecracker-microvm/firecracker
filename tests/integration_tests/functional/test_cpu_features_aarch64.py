@@ -19,15 +19,12 @@ DEFAULT_G2_FEATURES = set(
     ).split(" ")
 )
 
-DEFAULT_G3_FEATURES_4_14 = DEFAULT_G2_FEATURES | set(
-    "sha512 asimdfhm dit uscat ilrcpc flagm jscvt fcma sha3 sm3 sm4 rng".split(" ")
+DEFAULT_G3_FEATURES_5_10 = DEFAULT_G2_FEATURES | set(
+    "sha512 asimdfhm dit uscat ilrcpc flagm jscvt fcma sha3 sm3 sm4 rng dcpodp i8mm bf16 dgh".split(
+        " "
+    )
 )
 
-DEFAULT_G3_FEATURES_5_10 = DEFAULT_G3_FEATURES_4_14 | set(
-    "dcpodp i8mm bf16 dgh".split(" ")
-)
-
-DEFAULT_G3_FEATURES_WITH_SVE_AND_PAC_4_14 = DEFAULT_G3_FEATURES_4_14
 DEFAULT_G3_FEATURES_WITH_SVE_AND_PAC_5_10 = DEFAULT_G3_FEATURES_5_10 | set(
     "paca pacg sve svebf16 svei8mm".split(" ")
 )
@@ -42,10 +39,6 @@ def _check_cpu_features_arm(test_microvm, guest_kv, template_name=None):
             expected_cpu_features = DEFAULT_G2_FEATURES
         case CpuModel.ARM_NEOVERSE_N1, _, None:
             expected_cpu_features = DEFAULT_G2_FEATURES
-        case CpuModel.ARM_NEOVERSE_V1, "4.14", "aarch64_with_sve_and_pac":
-            expected_cpu_features = DEFAULT_G3_FEATURES_WITH_SVE_AND_PAC_4_14
-        case CpuModel.ARM_NEOVERSE_V1, "4.14", None:
-            expected_cpu_features = DEFAULT_G3_FEATURES_4_14
 
         # [cm]7g with guest kernel 5.10 and later
         case CpuModel.ARM_NEOVERSE_V1, _, "v1n1":
