@@ -28,7 +28,6 @@ pipeline.add_step(
     {
         "command": "./tools/devtool -y checkstyle",
         "label": "🪶 Style",
-        "depends_on": None,
     },
     depends_on_build=False,
 )
@@ -66,7 +65,6 @@ if not changed_files or any(
     # modify Kani steps' label
     for step in kani_grp["steps"]:
         step["label"] = "🔍 Kani"
-    kani_grp["depends_on"] = None
 
 if run_all_tests(changed_files):
     pipeline.build_group(

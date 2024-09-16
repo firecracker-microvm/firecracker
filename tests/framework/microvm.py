@@ -654,7 +654,7 @@ class Microvm:
         if "no-api" not in self.jailer.extra_args:
             self._wait_create()
         if "config-file" in self.jailer.extra_args and self.iface:
-            self.wait_for_up()
+            self.wait_for_ssh_up()
         if self.log_file and log_level in ("Trace", "Debug", "Info"):
             self.check_log_message("Running Firecracker")
 
@@ -879,7 +879,7 @@ class Microvm:
         assert self.state == "Running"
 
         if self.iface:
-            self.wait_for_up()
+            self.wait_for_ssh_up()
 
     def pause(self):
         """Pauses the microVM"""
@@ -963,7 +963,7 @@ class Microvm:
         )
         # This is not a "wait for boot", but rather a "VM still works after restoration"
         if snapshot.net_ifaces and resume:
-            self.wait_for_up()
+            self.wait_for_ssh_up()
         return jailed_snapshot
 
     def enable_entropy_device(self):
@@ -1003,7 +1003,7 @@ class Microvm:
                 )
         return "\n".join(backtraces)
 
-    def wait_for_up(self, timeout=10):
+    def wait_for_ssh_up(self, timeout=10):
         """Wait for guest running inside the microVM to come up and respond.
 
         :param timeout: seconds to wait.
