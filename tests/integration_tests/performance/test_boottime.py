@@ -11,7 +11,9 @@ import pytest
 from framework.properties import global_props
 
 # The maximum acceptable boot time in us.
-MAX_BOOT_TIME_US = 150000
+# It is a bit bigger than the default 150_000 because
+# we have ftrace enabled in the guest kernels.
+MAX_BOOT_TIME_US = 170000
 
 # Regex for obtaining boot time from some string.
 TIMESTAMP_LOG_REGEX = r"Guest-boot-time\s+\=\s+(\d+)\s+us"
