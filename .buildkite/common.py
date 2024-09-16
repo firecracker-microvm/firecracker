@@ -13,14 +13,14 @@ import string
 import subprocess
 from pathlib import Path
 
-DEFAULT_INSTANCES = [
-    "c5n.metal",  # Intel Skylake
-    "m5n.metal",  # Intel Cascade Lake
-    "m6i.metal",  # Intel Icelake
-    "m6a.metal",  # AMD Milan
-    "m6g.metal",  # Graviton2
-    "m7g.metal",  # Graviton3
-]
+DEFAULT_INSTANCES = {
+    "c5n.metal": "x86_64",  # Intel Skylake
+    "m5n.metal": "x86_64",  # Intel Cascade Lake
+    "m6i.metal": "x86_64",  # Intel Icelake
+    "m6a.metal": "x86_64",  # AMD Milan
+    "m6g.metal": "aarch64",  # Graviton2
+    "m7g.metal": "aarch64",  # Graviton3
+}
 
 DEFAULT_PLATFORMS = [
     ("al2", "linux_5.10"),
@@ -146,7 +146,7 @@ COMMON_PARSER.add_argument(
     "--instances",
     required=False,
     nargs="+",
-    default=DEFAULT_INSTANCES,
+    default=DEFAULT_INSTANCES.keys(),
 )
 COMMON_PARSER.add_argument(
     "--platforms",
@@ -233,7 +233,7 @@ class BKPipeline:
 
     parser = COMMON_PARSER
 
-    def __init__(self, initial_steps=None, with_build_step=True, **kwargs):
+    def __init__(self, with_build_step=True, **kwargs):
         self.steps = []
         self.args = args = self.parser.parse_args()
         # Retry one time if agent was lost. This can happen if we terminate the
@@ -258,33 +258,22 @@ class BKPipeline:
         # Build sharing
         if with_build_step:
             build_cmds, self.shared_build = shared_build()
-            step_build = group("🏗️ Build", build_cmds, **self.per_arch)
-            self.steps += [step_build, "wait"]
+            self.build_group_per_arch(
+                "🏗️ Build", build_cmds, depends_on_build=False, key_prefix="build"
+            )
         else:
             self.shared_build = None
 
-        # If we run initial_steps before the "wait" step above, then a failure of the initial steps
-        # would result in the build not progressing past the "wait" step (as buildkite only proceeds past a wait step
-        # if everything before it passed). Thus put the initial steps after the "wait" step, but set `"depends_on": null`
-        # to start running them immediately (e.g. without waiting for the "wait" step to unblock).
-        #
-        # See also https://buildkite.com/docs/pipelines/dependencies#explicit-dependencies-in-uploaded-steps
-        if initial_steps:
-            for step in initial_steps:
-                step["depends_on"] = None
-
-            self.steps += initial_steps
-
-    def add_step(self, step, decorate=True):
+    def add_step(self, step, depends_on_build=True):
         """
         Add a step to the pipeline.
 
         https://buildkite.com/docs/pipelines/step-reference
 
         :param step: a Buildkite step
-        :param decorate: inject needed commands for sharing builds
+        :param depends_on_build: inject needed commands for sharing builds
         """
-        if decorate and isinstance(step, dict):
+        if depends_on_build and isinstance(step, dict):
             step = self._adapt_group(step)
         self.steps.append(step)
         return step
@@ -307,6 +296,10 @@ class BKPipeline:
 
         for step in group["steps"]:
             step["command"] = prepend + step["command"]
+            if self.shared_build is not None:
+                step["depends_on"] = (
+                    "build_" + DEFAULT_INSTANCES[step["agents"]["instance"]]
+                )
         return group
 
     def build_group(self, *args, **kwargs):
@@ -315,16 +308,30 @@ class BKPipeline:
 
         https://buildkite.com/docs/pipelines/group-step
         """
-        decorate = kwargs.pop("decorate", True)
+        depends_on_build = kwargs.pop("depends_on_build", True)
         combined = overlay_dict(self.per_instance, kwargs)
-        return self.add_step(group(*args, **combined), decorate=decorate)
+        return self.add_step(
+            group(*args, **combined), depends_on_build=depends_on_build
+        )
 
-    def build_group_per_arch(self, *args, **kwargs):
+    def build_group_per_arch(self, label, *args, **kwargs):
         """
         Build a group, parametrizing over the architectures only.
+
+        kwargs consumed by this method and not passed down to `group`:
+        - `depends_on_build` (default: `True`): Whether the steps in this group depend on the artifacts from the shared compilation steps
+        - `key_prefix`: If set, causes the generated steps to have a "key" field set to f"{key_prefix}_{$ARCH}".
         """
+        depends_on_build = kwargs.pop("depends_on_build", True)
+        key_prefix = kwargs.pop("key_prefix", None)
         combined = overlay_dict(self.per_arch, kwargs)
-        return self.add_step(group(*args, **combined))
+        grp = group(label, *args, **combined)
+        if key_prefix:
+            for step in grp["steps"]:
+                step["key"] = (
+                    key_prefix + "_" + DEFAULT_INSTANCES[step["agents"]["instance"]]
+                )
+        return self.add_step(grp, depends_on_build=depends_on_build)
 
     def to_dict(self):
         """Render the pipeline as a dictionary."""

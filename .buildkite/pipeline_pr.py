@@ -21,13 +21,16 @@ if changed_files and all(f.suffix == ".md" for f in changed_files):
 pipeline = BKPipeline(
     priority=DEFAULT_PRIORITY,
     timeout_in_minutes=45,
-    initial_steps=[
-        {
-            "command": "./tools/devtool -y checkstyle",
-            "label": "🪶 Style",
-        },
-    ],
     with_build_step=not DOC_ONLY_CHANGE,
+)
+
+pipeline.add_step(
+    {
+        "command": "./tools/devtool -y checkstyle",
+        "label": "🪶 Style",
+        "depends_on": None,
+    },
+    depends_on_build=False,
 )
 
 # run sanity build of devtool if Dockerfile is changed
@@ -58,7 +61,7 @@ if not changed_files or any(
         platforms=[("al2", "linux_5.10")],
         timeout_in_minutes=300,
         **DEFAULTS_PERF,
-        decorate=False,
+        depends_on_build=False,
     )
     # modify Kani steps' label
     for step in kani_grp["steps"]:
@@ -69,6 +72,7 @@ if run_all_tests(changed_files):
     pipeline.build_group(
         "📦 Build",
         pipeline.devtool_test(pytest_opts="integration_tests/build/"),
+        depends_on_build=False,
     )
 
     pipeline.build_group(
