@@ -30,7 +30,7 @@ pipeline.add_step(
         "label": "🪶 Style",
         "depends_on": None,
     },
-    decorate=False,
+    depends_on_build=False,
 )
 
 # run sanity build of devtool if Dockerfile is changed
@@ -61,7 +61,7 @@ if not changed_files or any(
         platforms=[("al2", "linux_5.10")],
         timeout_in_minutes=300,
         **DEFAULTS_PERF,
-        decorate=False,
+        depends_on_build=False,
     )
     # modify Kani steps' label
     for step in kani_grp["steps"]:
@@ -72,7 +72,7 @@ if run_all_tests(changed_files):
     pipeline.build_group(
         "📦 Build",
         pipeline.devtool_test(pytest_opts="integration_tests/build/"),
-        decorate=False,
+        depends_on_build=False,
     )
 
     pipeline.build_group(

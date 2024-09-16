@@ -259,21 +259,21 @@ class BKPipeline:
         if with_build_step:
             build_cmds, self.shared_build = shared_build()
             self.build_group_per_arch(
-                "🏗️ Build", build_cmds, decorate=False, key_prefix="build"
+                "🏗️ Build", build_cmds, depends_on_build=False, key_prefix="build"
             )
         else:
             self.shared_build = None
 
-    def add_step(self, step, decorate=True):
+    def add_step(self, step, depends_on_build=True):
         """
         Add a step to the pipeline.
 
         https://buildkite.com/docs/pipelines/step-reference
 
         :param step: a Buildkite step
-        :param decorate: inject needed commands for sharing builds
+        :param depends_on_build: inject needed commands for sharing builds
         """
-        if decorate and isinstance(step, dict):
+        if depends_on_build and isinstance(step, dict):
             step = self._adapt_group(step)
         self.steps.append(step)
         return step
@@ -308,15 +308,17 @@ class BKPipeline:
 
         https://buildkite.com/docs/pipelines/group-step
         """
-        decorate = kwargs.pop("decorate", True)
+        depends_on_build = kwargs.pop("depends_on_build", True)
         combined = overlay_dict(self.per_instance, kwargs)
-        return self.add_step(group(*args, **combined), decorate=decorate)
+        return self.add_step(
+            group(*args, **combined), depends_on_build=depends_on_build
+        )
 
     def build_group_per_arch(self, label, *args, **kwargs):
         """
         Build a group, parametrizing over the architectures only.
         """
-        decorate = kwargs.pop("decorate", True)
+        depends_on_build = kwargs.pop("depends_on_build", True)
         key_prefix = kwargs.pop("key_prefix", None)
         combined = overlay_dict(self.per_arch, kwargs)
         grp = group(label, *args, **combined)
@@ -325,7 +327,7 @@ class BKPipeline:
                 step["key"] = (
                     key_prefix + "_" + DEFAULT_INSTANCES[step["agents"]["instance"]]
                 )
-        return self.add_step(grp, decorate=decorate)
+        return self.add_step(grp, depends_on_build=depends_on_build)
 
     def to_dict(self):
         """Render the pipeline as a dictionary."""
