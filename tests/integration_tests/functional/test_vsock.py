@@ -189,7 +189,7 @@ def test_vsock_transport_reset_h2g(
             response = worker.sock.recv(32)
             assert (
                 response == b""
-            ), f"Connection not closed: response recieved '{response.decode('utf-8')}'"
+            ), f"Connection not closed: response received '{response.decode('utf-8')}'"
         except (SocketTimeout, ConnectionResetError, BrokenPipeError):
             pass
 
