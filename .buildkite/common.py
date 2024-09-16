@@ -317,6 +317,10 @@ class BKPipeline:
     def build_group_per_arch(self, label, *args, **kwargs):
         """
         Build a group, parametrizing over the architectures only.
+
+        kwargs consumed by this method and not passed down to `group`:
+        - `depends_on_build` (default: `True`): Whether the steps in this group depend on the artifacts from the shared compilation steps
+        - `key_prefix`: If set, causes the generated steps to have a "key" field set to f"{key_prefix}_{$ARCH}".
         """
         depends_on_build = kwargs.pop("depends_on_build", True)
         key_prefix = kwargs.pop("key_prefix", None)
