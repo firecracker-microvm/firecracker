@@ -50,7 +50,7 @@ def test_pause_resume(uvm_nano):
 
     # Verify guest is no longer active.
     with pytest.raises(AssertionError):
-        microvm.wait_for_up()
+        microvm.wait_for_ssh_up()
 
     # Verify emulation was indeed paused and no events from either
     # guest or host side were handled.
@@ -58,7 +58,7 @@ def test_pause_resume(uvm_nano):
 
     # Verify guest is no longer active.
     with pytest.raises(AssertionError):
-        microvm.wait_for_up()
+        microvm.wait_for_ssh_up()
 
     # Pausing the microVM when it is already `Paused` is allowed
     # (microVM remains in `Paused` state).
