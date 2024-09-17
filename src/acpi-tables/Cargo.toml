@@ -9,7 +9,7 @@ license = "Apache-2.0"
 [dependencies]
 displaydoc = "0.2.5"
 thiserror = "1.0.63"
-vm-memory = { version = "0.14.1", features = ["backend-mmap", "backend-bitmap"] }
+vm-memory = { version = "0.15.0", features = ["backend-mmap", "backend-bitmap"] }
 zerocopy = { version = "0.7.35", features = ["derive"] }
 
 [lib]
