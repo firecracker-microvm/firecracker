@@ -16,6 +16,7 @@ pub mod balloon;
 pub mod block;
 pub mod device;
 pub mod gen;
+pub mod iov_ring_buffer;
 pub mod iovec;
 pub mod mmio;
 pub mod net;
