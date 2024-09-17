@@ -117,11 +117,11 @@ def group_snapshot_restore(test_step):
                 BkStep.COMMAND: restore_commands,
                 BkStep.LABEL: restore_label,
                 BkStep.TIMEOUT: test_step["restore"][BkStep.TIMEOUT],
-                "agents": [
-                    f"instance={restore_instance}",
-                    f"kv={restore_kv}",
-                    f"os={restore_os}",
-                ],
+                "agents": {
+                    "instance": restore_instance,
+                    "kv": restore_kv,
+                    "os": restore_os,
+                },
             }
         )
 
