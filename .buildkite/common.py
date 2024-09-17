@@ -259,7 +259,7 @@ class BKPipeline:
         if with_build_step:
             build_cmds, self.shared_build = shared_build()
             self.build_group_per_arch(
-                "🏗️ Build", build_cmds, depends_on_build=False, key_prefix="build"
+                "🏗️ Build", build_cmds, depends_on_build=False, set_key=True
             )
         else:
             self.shared_build = None
@@ -297,8 +297,8 @@ class BKPipeline:
         for step in group["steps"]:
             step["command"] = prepend + step["command"]
             if self.shared_build is not None:
-                step["depends_on"] = (
-                    "build_" + DEFAULT_INSTANCES[step["agents"]["instance"]]
+                step["depends_on"] = self.build_key(
+                    DEFAULT_INSTANCES[step["agents"]["instance"]]
                 )
         return group
 
@@ -314,22 +314,26 @@ class BKPipeline:
             group(*args, **combined), depends_on_build=depends_on_build
         )
 
+    def build_key(self, arch):
+        """Return the Buildkite key for the build step, for the specified arch"""
+        return self.shared_build.replace("$(uname -m)", arch).replace(".tar.gz", "")
+
     def build_group_per_arch(self, label, *args, **kwargs):
         """
         Build a group, parametrizing over the architectures only.
 
         kwargs consumed by this method and not passed down to `group`:
         - `depends_on_build` (default: `True`): Whether the steps in this group depend on the artifacts from the shared compilation steps
-        - `key_prefix`: If set, causes the generated steps to have a "key" field set to f"{key_prefix}_{$ARCH}".
+        - `set_key`: If True, causes the generated steps to have a "key" field
         """
         depends_on_build = kwargs.pop("depends_on_build", True)
-        key_prefix = kwargs.pop("key_prefix", None)
+        set_key = kwargs.pop("set_key", None)
         combined = overlay_dict(self.per_arch, kwargs)
         grp = group(label, *args, **combined)
-        if key_prefix:
+        if set_key:
             for step in grp["steps"]:
-                step["key"] = (
-                    key_prefix + "_" + DEFAULT_INSTANCES[step["agents"]["instance"]]
+                step["key"] = self.build_key(
+                    DEFAULT_INSTANCES[step["agents"]["instance"]]
                 )
         return self.add_step(grp, depends_on_build=depends_on_build)
 
