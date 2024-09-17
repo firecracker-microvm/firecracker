@@ -1,26 +1,3 @@
-diff --git a/resources/guest_configs/microvm-kernel-ci-aarch64-4.14.config b/resources/guest_configs/microvm-kernel-ci-aarch64-4.14.config
-index 694058ca9..bf06466ab 100644
---- a/resources/guest_configs/microvm-kernel-ci-aarch64-4.14.config
-+++ b/resources/guest_configs/microvm-kernel-ci-aarch64-4.14.config
-@@ -2482,7 +2482,17 @@ CONFIG_HAVE_FTRACE_MCOUNT_RECORD=y
- CONFIG_HAVE_SYSCALL_TRACEPOINTS=y
- CONFIG_HAVE_C_RECORDMCOUNT=y
- CONFIG_TRACING_SUPPORT=y
--# CONFIG_FTRACE is not set
-+CONFIG_FTRACE=y
-+CONFIG_FUNCTION_TRACER=y
-+CONFIG_FUNCTION_GRAPH_TRACER=y
-+CONFIG_IRQSOFF_TRACER=y
-+CONFIG_PREEMPT_TRACER=y
-+CONFIG_SCHED_TRACER=y
-+CONFIG_STACK_TRACER=y
-+CONFIG_BLK_DEV_IO_TRACE=y
-+CONFIG_FUNCTION_PROFILER=y
-+CONFIG_FTRACE_MCOUNT_RECORD=y
-+CONFIG_FTRACE_SYSCALLS=y
- # CONFIG_DMA_API_DEBUG is not set
- # CONFIG_KUNIT is not set
- 
 diff --git a/resources/guest_configs/microvm-kernel-ci-aarch64-5.10.config b/resources/guest_configs/microvm-kernel-ci-aarch64-5.10.config
 index ac44904c1..2a6f2310f 100644
 --- a/resources/guest_configs/microvm-kernel-ci-aarch64-5.10.config
@@ -67,29 +44,6 @@ index 26b87a658..f0f765298 100644
  # CONFIG_SAMPLES is not set
  # CONFIG_STRICT_DEVMEM is not set
  
-diff --git a/resources/guest_configs/microvm-kernel-ci-x86_64-4.14.config b/resources/guest_configs/microvm-kernel-ci-x86_64-4.14.config
-index ee6df5ffc..3ab74b395 100644
---- a/resources/guest_configs/microvm-kernel-ci-x86_64-4.14.config
-+++ b/resources/guest_configs/microvm-kernel-ci-x86_64-4.14.config
-@@ -2694,7 +2694,17 @@ CONFIG_HAVE_SYSCALL_TRACEPOINTS=y
- CONFIG_HAVE_FENTRY=y
- CONFIG_HAVE_C_RECORDMCOUNT=y
- CONFIG_TRACING_SUPPORT=y
--# CONFIG_FTRACE is not set
-+CONFIG_FTRACE=y
-+CONFIG_FUNCTION_TRACER=y
-+CONFIG_FUNCTION_GRAPH_TRACER=y
-+CONFIG_IRQSOFF_TRACER=y
-+CONFIG_PREEMPT_TRACER=y
-+CONFIG_SCHED_TRACER=y
-+CONFIG_STACK_TRACER=y
-+CONFIG_BLK_DEV_IO_TRACE=y
-+CONFIG_FUNCTION_PROFILER=y
-+CONFIG_FTRACE_MCOUNT_RECORD=y
-+CONFIG_FTRACE_SYSCALLS=y
- # CONFIG_PROVIDE_OHCI1394_DMA_INIT is not set
- # CONFIG_DMA_API_DEBUG is not set
- # CONFIG_KUNIT is not set
 diff --git a/resources/guest_configs/microvm-kernel-ci-x86_64-5.10-no-acpi.config b/resources/guest_configs/microvm-kernel-ci-x86_64-5.10-no-acpi.config
 index b87fb3e44..fc45dda19 100644
 --- a/resources/guest_configs/microvm-kernel-ci-x86_64-5.10-no-acpi.config

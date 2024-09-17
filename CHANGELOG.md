@@ -16,12 +16,20 @@ and this project adheres to
 
 ### Removed
 
+- [#4804](https://github.com/firecracker-microvm/firecracker/pull/4804): Drop
+  Support for guest kernel 4.14. Linux 4.14 reached end-of-life in
+  [January 2024](https://lore.kernel.org/lkml/2024011046-ecology-tiptoeing-ce50@gregkh/)
+  The minimum supported guest kernel now is 5.10.
+
 ### Fixed
 
 - [#4796](https://github.com/firecracker-microvm/firecracker/pull/4796): Fixed
   Vsock not notifying guest about `TRANSPORT_RESET_EVENT` event after snapshot
   restore. This resulted in guest waiting indefinitely on a connection which was
   reset during snapshot creation.
+- [#4790](https://github.com/firecracker-microvm/firecracker/pull/4790): v1.9.0
+  was missing most of the debugging information in the debuginfo file, due to a
+  change in the Cargo defaults. This has been corrected.
 
 ## \[1.9.0\]
 

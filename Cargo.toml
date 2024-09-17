@@ -27,3 +27,7 @@ panic = "abort"
 [profile.release]
 panic = "abort"
 lto = true
+strip = "none"
+
+[profile.bench]
+strip = "debuginfo"
