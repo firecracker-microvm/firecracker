@@ -59,42 +59,6 @@ pub fn queue_benchmark(c: &mut Criterion) {
     let rxq = VirtQueue::new(GuestAddress(0), &mem, 256);
     let mut queue = rxq.create_queue();
 
-    set_dtable_one_chain(&rxq, 1);
-    queue.next_avail = Wrapping(0);
-    let desc = queue.pop().unwrap();
-    c.bench_function("next_descriptor_1", |b| {
-        b.iter(|| {
-            let mut head = Some(desc);
-            while let Some(d) = head {
-                head = std::hint::black_box(d.next_descriptor());
-            }
-        })
-    });
-
-    set_dtable_one_chain(&rxq, 2);
-    queue.next_avail = Wrapping(0);
-    let desc = queue.pop().unwrap();
-    c.bench_function("next_descriptor_2", |b| {
-        b.iter(|| {
-            let mut head = Some(desc);
-            while let Some(d) = head {
-                head = std::hint::black_box(d.next_descriptor());
-            }
-        })
-    });
-
-    set_dtable_one_chain(&rxq, 4);
-    queue.next_avail = Wrapping(0);
-    let desc = queue.pop().unwrap();
-    c.bench_function("next_descriptor_4", |b| {
-        b.iter(|| {
-            let mut head = Some(desc);
-            while let Some(d) = head {
-                head = std::hint::black_box(d.next_descriptor());
-            }
-        })
-    });
-
     set_dtable_one_chain(&rxq, 16);
     queue.next_avail = Wrapping(0);
     let desc = queue.pop().unwrap();
@@ -107,46 +71,12 @@ pub fn queue_benchmark(c: &mut Criterion) {
         })
     });
 
-    // Queue pop
-
-    set_dtable_many_chains(&rxq, 1);
-    c.bench_function("queue_pop_1", |b| {
-        b.iter(|| {
-            queue.next_avail = Wrapping(0);
-            while let Some(desc) = queue.pop() {
-                std::hint::black_box(desc);
-            }
-        })
-    });
-
-    set_dtable_many_chains(&rxq, 4);
-    c.bench_function("queue_pop_4", |b| {
-        b.iter(|| {
-            queue.next_avail = Wrapping(0);
-            while let Some(desc) = queue.pop() {
-                std::hint::black_box(desc);
-            }
-        })
-    });
-
     set_dtable_many_chains(&rxq, 16);
     c.bench_function("queue_pop_16", |b| {
         b.iter(|| {
             queue.next_avail = Wrapping(0);
             while let Some(desc) = queue.pop() {
                 std::hint::black_box(desc);
-            }
-        })
-    });
-
-    c.bench_function("queue_add_used_1", |b| {
-        b.iter(|| {
-            queue.num_added = Wrapping(0);
-            queue.next_used = Wrapping(0);
-            for i in 0_u16..1_u16 {
-                let index = std::hint::black_box(i);
-                let len = std::hint::black_box(i + 1);
-                _ = queue.add_used(index as u16, len as u32);
             }
         })
     });
@@ -178,7 +108,7 @@ pub fn queue_benchmark(c: &mut Criterion) {
 
 criterion_group! {
     name = queue_benches;
-    config = Criterion::default().sample_size(200).noise_threshold(0.05);
+    config = Criterion::default().sample_size(1000).noise_threshold(0.15);
     targets = queue_benchmark
 }
 

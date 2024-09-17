@@ -14,7 +14,7 @@ use vmm::devices::virtio::test_utils::VirtQueue;
 use vmm::test_utils::single_region_mem;
 
 pub fn block_request_benchmark(c: &mut Criterion) {
-    let mem = single_region_mem(2 * 65562);
+    let mem = single_region_mem(65562);
     let virt_queue = VirtQueue::new(GuestAddress(0), &mem, 16);
 
     // We don't really care about what request is. We just
@@ -36,7 +36,7 @@ pub fn block_request_benchmark(c: &mut Criterion) {
 
 criterion_group! {
     name = block_request_benches;
-    config = Criterion::default().sample_size(200).noise_threshold(0.05);
+    config = Criterion::default().sample_size(1000).noise_threshold(0.05);
     targets = block_request_benchmark
 }
 
