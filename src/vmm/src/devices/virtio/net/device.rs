@@ -20,7 +20,7 @@ use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::gen::virtio_net::{
     virtio_net_hdr_v1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM, VIRTIO_NET_F_GUEST_TSO4,
     VIRTIO_NET_F_GUEST_TSO6, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4,
-    VIRTIO_NET_F_HOST_TSO6, VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC,
+    VIRTIO_NET_F_HOST_TSO6, VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC, VIRTIO_NET_F_MRG_RXBUF,
 };
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::iovec::IoVecBuffer;
@@ -150,6 +150,7 @@ impl Net {
             | 1 << VIRTIO_NET_F_HOST_TSO6
             | 1 << VIRTIO_NET_F_HOST_UFO
             | 1 << VIRTIO_F_VERSION_1
+            | 1 << VIRTIO_NET_F_MRG_RXBUF
             | 1 << VIRTIO_RING_F_EVENT_IDX;
 
         let mut config_space = ConfigSpace::default();
@@ -646,7 +647,11 @@ impl Net {
     }
 
     fn read_tap(&mut self) -> std::io::Result<usize> {
-        self.tap.read_iovec(self.rx_buffer.one_chain_mut_slice())
+        if self.has_feature(u64::from(VIRTIO_NET_F_MRG_RXBUF)) {
+            self.tap.read_iovec(self.rx_buffer.all_chains_mut_slice())
+        } else {
+            self.tap.read_iovec(self.rx_buffer.one_chain_mut_slice())
+        }
     }
 
     /// Process a single RX queue event.
@@ -858,7 +863,7 @@ pub mod tests {
     use crate::devices::virtio::net::device::{
         frame_bytes_from_buf, frame_bytes_from_buf_mut, frame_hdr_len, init_vnet_hdr, vnet_hdr_len,
     };
-    use crate::devices::virtio::net::rx_buffer::ChainInfo;
+    use crate::devices::virtio::net::rx_buffer::{header_set_num_buffers, ChainInfo};
     use crate::devices::virtio::net::test_utils::test::TestHelper;
     use crate::devices::virtio::net::test_utils::{
         default_net, if_index, inject_tap_tx_frame, set_mac, NetEvent, NetQueue,
@@ -925,6 +930,7 @@ pub mod tests {
             | 1 << VIRTIO_NET_F_HOST_TSO6
             | 1 << VIRTIO_NET_F_HOST_UFO
             | 1 << VIRTIO_F_VERSION_1
+            | 1 << VIRTIO_NET_F_MRG_RXBUF
             | 1 << VIRTIO_RING_F_EVENT_IDX;
 
         assert_eq!(
@@ -1046,10 +1052,9 @@ pub mod tests {
         assert_eq!(th.rxq.used.idx.get(), 0);
     }
 
-    #[test]
-    fn test_rx_read_only_descriptor() {
-        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
-        let mut th = TestHelper::get_default(&mem);
+    fn rx_read_only_descriptor(mut th: TestHelper) {
+        // let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        // let mut th = TestHelper::get_default(&mem);
         th.activate_net();
 
         th.add_desc_chain(
@@ -1068,9 +1073,22 @@ pub mod tests {
     }
 
     #[test]
-    fn test_rx_partial_write() {
+    fn test_rx_read_only_descriptor() {
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let th = TestHelper::get_default(&mem);
+        rx_read_only_descriptor(th);
+    }
+
+    #[test]
+    fn test_rx_read_only_descriptor_mrg_buf() {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_read_only_descriptor(th);
+    }
+
+    fn rx_partial_write(mut th: TestHelper) {
         th.activate_net();
 
         // The descriptor chain is created so that the last descriptor doesn't fit in the
@@ -1092,9 +1110,22 @@ pub mod tests {
     }
 
     #[test]
-    fn test_rx_retry() {
+    fn test_rx_partial_write() {
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let th = TestHelper::get_default(&mem);
+        rx_partial_write(th);
+    }
+
+    #[test]
+    fn test_rx_partial_write_mrg_buf() {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_partial_write(th);
+    }
+
+    fn rx_retry(mut th: TestHelper) {
         th.activate_net();
 
         // Even though too short descriptor chains are also
@@ -1144,9 +1175,22 @@ pub mod tests {
     }
 
     #[test]
-    fn test_rx_complex_desc_chain() {
+    fn test_rx_retry() {
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let th = TestHelper::get_default(&mem);
+        rx_retry(th);
+    }
+
+    #[test]
+    fn test_rx_retry_mrg_buf() {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_retry(th);
+    }
+
+    fn rx_complex_desc_chain(mut th: TestHelper) {
         th.activate_net();
 
         // Create a valid Rx avail descriptor chain with multiple descriptors.
@@ -1183,9 +1227,22 @@ pub mod tests {
     }
 
     #[test]
-    fn test_rx_multiple_frames() {
+    fn test_rx_complex_desc_chain() {
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let th = TestHelper::get_default(&mem);
+        rx_complex_desc_chain(th);
+    }
+
+    #[test]
+    fn test_rx_complex_desc_chain_mrg_buf() {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_complex_desc_chain(th);
+    }
+
+    fn rx_multiple_frames(mut th: TestHelper) {
         th.activate_net();
 
         // Create 2 valid Rx avail descriptor chains. Each one has enough space to fit the
@@ -1224,6 +1281,70 @@ pub mod tests {
             .check_used_elem(1, 2, frame_2.len().try_into().unwrap());
         th.rxq.dtable[2].check_data(&frame_2);
         th.rxq.dtable[3].check_data(&[0; 500]);
+    }
+
+    #[test]
+    fn test_rx_multiple_frames() {
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let th = TestHelper::get_default(&mem);
+        rx_multiple_frames(th);
+    }
+
+    #[test]
+    fn test_rx_multiple_frames_mrg_buf() {
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_multiple_frames(th);
+    }
+
+    #[test]
+    fn test_rx_multiple_frames_mrg() {
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
+
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+
+        th.activate_net();
+
+        // Create 2 valid avail descriptor chains. We will send
+        // one packet that shuld be split amound these 2 chains.
+        th.add_desc_chain(
+            NetQueue::Rx,
+            0,
+            &[(0, 100, VIRTQ_DESC_F_WRITE), (1, 100, VIRTQ_DESC_F_WRITE)],
+        );
+        th.add_desc_chain(
+            NetQueue::Rx,
+            1000,
+            &[(2, 100, VIRTQ_DESC_F_WRITE), (3, 100, VIRTQ_DESC_F_WRITE)],
+        );
+        // Inject frame into tap and run epoll.
+        let mut frame = inject_tap_tx_frame(&th.net(), 400);
+        // SAFETY: frame is big enough and has correct alingment.
+        unsafe {
+            header_set_num_buffers(frame.as_mut_ptr().cast(), 2);
+        }
+        check_metric_after_block!(
+            th.net().metrics.rx_packets_count,
+            1,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+
+        // Check that the frame wasn't deferred.
+        assert!(th.net().deferred_rx_bytes.is_none());
+        // Check that the used queue has advanced.
+        assert_eq!(th.rxq.used.idx.get(), 2);
+        assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
+        // Check that the frame was written successfully into both descriptor chains.
+        th.rxq.check_used_elem(0, 0, 200);
+        th.rxq.check_used_elem(1, 2, 200);
+        th.rxq.dtable[0].check_data(&frame[0..100]);
+        th.rxq.dtable[1].check_data(&frame[100..200]);
+        th.rxq.dtable[2].check_data(&frame[200..300]);
+        th.rxq.dtable[3].check_data(&frame[300..400]);
     }
 
     #[test]
@@ -1520,6 +1641,7 @@ pub mod tests {
         net.rx_buffer.chain_infos.push_back(ChainInfo {
             head_index: 0,
             chain_len: 1,
+            chain_capacity: 128,
         });
 
         let src_mac = MacAddr::from_str("11:11:11:11:11:11").unwrap();

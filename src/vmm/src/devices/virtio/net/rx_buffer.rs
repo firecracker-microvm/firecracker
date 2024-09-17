@@ -56,6 +56,7 @@ impl RxBufferState {
 pub struct ChainInfo {
     pub head_index: u16,
     pub chain_len: u16,
+    pub chain_capacity: u32,
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -66,6 +67,8 @@ pub enum RxBufferError {
     GuestMemory(#[from] GuestMemoryError),
     /// Tried to add a read-only descriptor chain to the `RxBuffer`
     ReadOnlyDescriptor,
+    /// Tried to add too long descriptor chain.
+    ChainOverflow,
     /// Tried to write more bytes than `RxBuffer` can hold.
     WriteOverflow,
 }
@@ -108,6 +111,12 @@ impl RxBuffer {
         }
     }
 
+    /// Returns a slice of underlying iovec for the all chains
+    /// in the buffer.
+    pub fn all_chains_mut_slice(&mut self) -> &mut [iovec] {
+        self.iovecs.as_mut_slice()
+    }
+
     /// Add a new `DescriptorChain` that we received from the RX queue in the buffer.
     ///
     /// # Safety
@@ -122,6 +131,7 @@ impl RxBuffer {
 
         let mut next_descriptor = Some(head);
         let mut chain_len: u16 = 0;
+        let mut chain_capacity: u32 = 0;
         while let Some(desc) = next_descriptor {
             if !desc.is_write_only() {
                 self.iovecs.pop_back(usize::from(chain_len));
@@ -149,6 +159,9 @@ impl RxBuffer {
                 iov_base,
                 iov_len: desc.len as size_t,
             });
+            chain_capacity = chain_capacity
+                .checked_add(desc.len)
+                .ok_or(RxBufferError::ChainOverflow)?;
             chain_len += 1;
 
             next_descriptor = desc.next_descriptor();
@@ -156,6 +169,7 @@ impl RxBuffer {
         self.chain_infos.push_back(ChainInfo {
             head_index,
             chain_len,
+            chain_capacity,
         });
 
         Ok(())
@@ -188,7 +202,7 @@ impl RxBuffer {
     /// # Safety
     /// `RxBuffer` should not be empty when this method is called because it
     /// assumes there is at least one chain holding data.
-    pub unsafe fn finish_packet(&mut self, bytes_written: u32, rx_queue: &mut Queue) {
+    pub unsafe fn finish_packet(&mut self, mut bytes_written: u32, rx_queue: &mut Queue) {
         // This function is called only after some bytes were written to the
         // buffer. This means the iov_ring cannot be empty.
         debug_assert!(!self.iovecs.is_empty());
@@ -199,28 +213,42 @@ impl RxBuffer {
             "Network buffer should be big enough for virtio_net_hdr_v1 object"
         );
 
-        let iov_info = self
-            .chain_infos
-            .pop_front()
-            .expect("This should never happen if write to the buffer succeded.");
-        self.iovecs.pop_front(usize::from(iov_info.chain_len));
+        let mut used_heads = 0;
+        let mut write_used = |head_index: u16, bytes_written: u32, rx_queue: &mut Queue| {
+            if let Err(err) = rx_queue.write_used_element(
+                (rx_queue.next_used + Wrapping(self.used_descriptors)).0,
+                head_index,
+                bytes_written,
+            ) {
+                error!(
+                    "net: Failed to add used descriptor {} of length {} to RX queue: {err}",
+                    head_index, bytes_written
+                );
+            }
+            used_heads += 1;
+            self.used_descriptors += 1;
+        };
 
-        if let Err(err) = rx_queue.write_used_element(
-            (rx_queue.next_used + Wrapping(self.used_descriptors)).0,
-            iov_info.head_index,
-            bytes_written,
-        ) {
-            error!(
-                "net: Failed to add used descriptor {} of length {} to RX queue: {err}",
-                iov_info.head_index, bytes_written
-            );
+        loop {
+            let iov_info = self
+                .chain_infos
+                .pop_front()
+                .expect("This should never happen if write to the buffer succeded.");
+            self.iovecs.pop_front(usize::from(iov_info.chain_len));
+
+            if bytes_written <= iov_info.chain_capacity {
+                write_used(iov_info.head_index, bytes_written, rx_queue);
+                break;
+            } else {
+                write_used(iov_info.head_index, iov_info.chain_capacity, rx_queue);
+                bytes_written -= iov_info.chain_capacity;
+            }
         }
-        self.used_descriptors += 1;
 
         // SAFETY: The user space pointer was verified at the point of creation and
         // we verified the alignment and header buffer size.
         unsafe {
-            header_set_num_buffers(header_ptr, 1);
+            header_set_num_buffers(header_ptr, used_heads);
         }
     }
 
@@ -240,7 +268,9 @@ mod tests {
     use vm_memory::GuestAddress;
 
     use super::*;
-    use crate::devices::virtio::test_utils::{set_dtable_one_chain, VirtQueue};
+    use crate::devices::virtio::test_utils::{
+        set_dtable_many_chains, set_dtable_one_chain, VirtQueue,
+    };
     use crate::test_utils::single_region_mem;
 
     #[test]
@@ -281,9 +311,44 @@ mod tests {
                 buff.chain_infos.items[0],
                 ChainInfo {
                     head_index: 0,
-                    chain_len: 16
+                    chain_len: 16,
+                    chain_capacity: 16 * 1024,
                 }
             );
+        }
+
+        // 16 chains of len 1
+        {
+            let chains = 16;
+            set_dtable_many_chains(&rxq, chains);
+            queue.next_avail = Wrapping(0);
+            let mut buff = RxBuffer::new().unwrap();
+            while let Some(desc) = queue.pop() {
+                // SAFETY: safe it is a test memory
+                unsafe {
+                    buff.add_chain(&mem, desc).unwrap();
+                }
+            }
+            let slice = buff.all_chains_mut_slice();
+            for i in 0..chains {
+                assert_eq!(
+                    slice[i].iov_base as u64,
+                    mem.get_host_address(GuestAddress((2048 + 1024 * i) as u64))
+                        .unwrap() as u64
+                );
+                assert_eq!(slice[i].iov_len, 1024);
+            }
+            assert_eq!(buff.chain_infos.len(), 16);
+            for (i, ci) in buff.chain_infos.items[0..16].iter().enumerate() {
+                assert_eq!(
+                    *ci,
+                    ChainInfo {
+                        head_index: i as u16,
+                        chain_len: 1,
+                        chain_capacity: 1024,
+                    }
+                );
+            }
         }
     }
 
@@ -309,7 +374,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rx_buffer_write() {
+    fn test_rx_buffer_write_no_mrg_buf() {
         let mem = single_region_mem(65562);
         let rxq = VirtQueue::new(GuestAddress(0), &mem, 256);
         let mut queue = rxq.create_queue();
@@ -341,7 +406,48 @@ mod tests {
     }
 
     #[test]
-    fn test_rx_buffer_finish_packet_and_notify() {
+    fn test_rx_buffer_write_mrg_buf() {
+        let mem = single_region_mem(65562);
+        let rxq = VirtQueue::new(GuestAddress(0), &mem, 256);
+        let mut queue = rxq.create_queue();
+
+        set_dtable_many_chains(&rxq, 2);
+
+        let mut buff = RxBuffer::new().unwrap();
+        while let Some(desc) = queue.pop() {
+            // SAFETY: safe it is a test memory
+            unsafe {
+                buff.add_chain(&mem, desc).unwrap();
+            }
+        }
+
+        // Initially data should be all zeros
+        let slice = buff.all_chains_mut_slice();
+        let data_slice_before: &[u8] =
+            // SAFETY: safe as iovecs are verified on creation.
+            unsafe { std::slice::from_raw_parts(slice[0].iov_base.cast(), slice[0].iov_len) };
+        assert_eq!(data_slice_before, &[0; 1024]);
+        let data_slice_before: &[u8] =
+            // SAFETY: safe as iovecs are verified on creation.
+            unsafe { std::slice::from_raw_parts(slice[1].iov_base.cast(), slice[1].iov_len) };
+        assert_eq!(data_slice_before, &[0; 1024]);
+
+        // Write should hapepn to all 2 iovecs
+        buff.write(&[69; 2 * 1024]).unwrap();
+
+        let slice = buff.all_chains_mut_slice();
+        let data_slice_after: &[u8] =
+            // SAFETY: safe as iovecs are verified on creation.
+            unsafe { std::slice::from_raw_parts(slice[0].iov_base.cast(), slice[0].iov_len) };
+        assert_eq!(data_slice_after, &[69; 1024]);
+        let data_slice_after: &[u8] =
+            // SAFETY: safe as iovecs are verified on creation.
+            unsafe { std::slice::from_raw_parts(slice[1].iov_base.cast(), slice[1].iov_len) };
+        assert_eq!(data_slice_after, &[69; 1024]);
+    }
+
+    #[test]
+    fn test_rx_buffer_finish_packet_and_notify_no_mrg_buf() {
         let mem = single_region_mem(65562);
         let rxq = VirtQueue::new(GuestAddress(0), &mem, 256);
         let mut queue = rxq.create_queue();
@@ -378,5 +484,45 @@ mod tests {
         buff.notify_queue(&mut queue);
         assert_eq!(buff.used_descriptors, 0);
         assert_eq!(rxq.used.idx.get(), 1);
+    }
+
+    #[test]
+    fn test_rx_buffer_finish_packet_and_notify_mrg_buf() {
+        let mem = single_region_mem(65562);
+        let rxq = VirtQueue::new(GuestAddress(0), &mem, 256);
+        let mut queue = rxq.create_queue();
+
+        set_dtable_many_chains(&rxq, 2);
+
+        let mut buff = RxBuffer::new().unwrap();
+        while let Some(desc) = queue.pop() {
+            // SAFETY: safe it is a test memory
+            unsafe {
+                buff.add_chain(&mem, desc).unwrap();
+            }
+        }
+
+        let slice = buff.one_chain_mut_slice();
+        // SAFETY: The user space pointer was verified at the point of creation.
+        #[allow(clippy::transmute_ptr_to_ref)]
+        let header: &virtio_net_hdr_v1 = unsafe { std::mem::transmute(slice[0].iov_base) };
+        assert_eq!(header.num_buffers, 0);
+
+        // There are 2 chains in the buffer. The length of the data "written" to it
+        // is big enough to touch both chains. We need to check that both chains present were
+        // popped and number of buffers is correctly set in the header.
+        // SAFETY: the buff is not empty
+        unsafe {
+            buff.finish_packet(2 * 1024, &mut queue);
+        }
+        assert_eq!(buff.iovecs.len(), 0);
+        assert!(buff.is_empty());
+        assert_eq!(header.num_buffers, 2);
+
+        assert_eq!(buff.used_descriptors, 2);
+        assert_eq!(rxq.used.idx.get(), 0);
+        buff.notify_queue(&mut queue);
+        assert_eq!(buff.used_descriptors, 0);
+        assert_eq!(rxq.used.idx.get(), 2);
     }
 }
