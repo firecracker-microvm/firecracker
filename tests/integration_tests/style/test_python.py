@@ -8,7 +8,7 @@ from subprocess import run
 import pytest
 
 
-@pytest.mark.parametrize("formatter", ["black", "isort"])
+@pytest.mark.parametrize("formatter", ["black --config tests/pyproject.toml", "isort"])
 def test_python_style(formatter):
     """
     Test that python code passes `formatter`
