@@ -23,7 +23,7 @@ kvm-bindings = { version = "0.9.1", features = ["fam-wrappers", "serde"] }
 kvm-ioctls = "0.18.0"
 lazy_static = "1.5.0"
 libc = "0.2.158"
-linux-loader = "0.11.0"
+linux-loader = "0.12.0"
 log = { version = "0.4.22", features = ["std", "serde"] }
 log-instrument = { path = "../log-instrument", optional = true }
 memfd = "0.6.3"
@@ -39,9 +39,9 @@ thiserror = "1.0.63"
 timerfd = "1.5.0"
 userfaultfd = "0.8.1"
 utils = { path = "../utils" }
-vhost = { version = "0.11.0", features = ["vhost-user-frontend"] }
+vhost = { version = "0.12.0", features = ["vhost-user-frontend"] }
 vm-allocator = "0.1.0"
-vm-memory = { version = "0.14.1", features = ["backend-mmap", "backend-bitmap"] }
+vm-memory = { version = "0.15.0", features = ["backend-mmap", "backend-bitmap"] }
 vm-superio = "0.8.0"
 vmm-sys-util = { version = "0.12.1", features = ["with-serde"] }
 zerocopy = { version = "0.7.35" }
