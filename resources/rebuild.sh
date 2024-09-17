@@ -135,8 +135,10 @@ function clone_amazon_linux_repo {
 }
 
 function apply_kernel_patches_for_ci {
-    for p in $PWD/guest_configs/patches/* ; do
-        patch -p2 < $p
+    local PATCHES_DIR=$1
+    for patch in $PATCHES_DIR/*; do
+        echo "Applying $patch"
+        patch -p2 < $patch
     done
 }
 
@@ -224,7 +226,7 @@ function build_al_kernels {
     clone_amazon_linux_repo
 
     # Apply kernel patches on top of AL configuration
-    apply_kernel_patches_for_ci
+    apply_kernel_patches_for_ci guest_configs/patches
 
     if [[ "$KERNEL_VERSION" == @(all|5.10) ]]; then
         build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config
@@ -239,6 +241,13 @@ function build_al_kernels {
     # Undo kernel patches on top of AL configuration
     git restore $PWD/guest_configs
     rm -rf $PWD/guest_configs/*.orig
+
+    # Build debug kernels
+    OUTPUT_DIR=$OUTPUT_DIR/debug
+    mkdir -pv $OUTPUT_DIR
+    apply_kernel_patches_for_ci guest_configs/patches-debug
+    build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config
+    build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config
 }
 
 function print_help {
