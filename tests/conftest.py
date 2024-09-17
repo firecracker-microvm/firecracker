@@ -432,6 +432,18 @@ def uvm_plain_any(microvm_factory, guest_kernel, rootfs_ubuntu_22):
     return microvm_factory.build(guest_kernel, rootfs_ubuntu_22)
 
 
+guest_kernel_6_1_debug = pytest.fixture(
+    guest_kernel_fxt,
+    params=kernel_params("vmlinux-6.1*", artifact_dir=defs.ARTIFACT_DIR / "debug"),
+)
+
+
+@pytest.fixture
+def uvm_plain_debug(microvm_factory, guest_kernel_6_1_debug, rootfs_rw):
+    """VM running a kernel with debug/trace Kconfig options"""
+    return microvm_factory.build(guest_kernel_6_1_debug, rootfs_rw)
+
+
 @pytest.fixture
 def uvm_with_initrd(
     microvm_factory, guest_kernel_linux_5_10, record_property, artifact_dir
