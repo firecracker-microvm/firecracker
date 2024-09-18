@@ -19,7 +19,7 @@ IPERF_TCP_WINDOW = "256K"
 RATE_LIMIT_BYTES = 10485760
 
 # The initial token bucket size
-BURST_SIZE = 104857600
+BURST_SIZE = RATE_LIMIT_BYTES * 50
 
 # The refill time for the token bucket
 REFILL_TIME_MS = 100
