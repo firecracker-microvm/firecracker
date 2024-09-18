@@ -70,7 +70,7 @@ pub enum IovRingBufferError {
 // Like that, the elements stored in the buffer are always laid out in contiguous virtual memory,
 // so making a slice out of them does not require any copies.
 #[derive(Debug)]
-pub(crate) struct IovRingBuffer {
+pub struct IovRingBuffer {
     iov_ptr: *mut iovec,
     start: usize,
     len: usize,

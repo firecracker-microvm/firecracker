@@ -5,6 +5,8 @@
 pub mod byte_order;
 /// Module with network related helpers
 pub mod net;
+/// Module with `RingBuffer` struct
+pub mod ring_buffer;
 /// Module with external libc functions
 pub mod signal;
 /// Module with state machine
@@ -20,6 +22,15 @@ pub fn get_page_size() -> Result<usize, vmm_sys_util::errno::Error> {
         -1 => Err(vmm_sys_util::errno::Error::last()),
         ps => Ok(usize::try_from(ps).unwrap()),
     }
+}
+
+/// Safely converts a u32 value to a usize value.
+/// This bypasses the Clippy lint check because we only support 64-bit platforms.
+#[cfg(target_pointer_width = "64")]
+#[inline]
+#[allow(clippy::cast_possible_truncation)]
+pub const fn u32_to_usize(num: u32) -> usize {
+    num as usize
 }
 
 /// Safely converts a u64 value to a usize value.
