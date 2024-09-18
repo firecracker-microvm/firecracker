@@ -365,11 +365,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         .downcast_mut::<Vsock<VsockUnixBackend>>()
                         .unwrap();
 
-                    let vsock_state = VsockState {
-                        backend: vsock.backend().save(),
-                        frontend: vsock.save(),
-                    };
-
                     // Send Transport event to reset connections if device
                     // is activated.
                     if vsock.is_activated() {
@@ -377,6 +372,13 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                             error!("Failed to send reset transport event: {:?}", err);
                         });
                     }
+
+                    // Save state after potential notification to the guest. This
+                    // way we save changes to the queue the notification can cause.
+                    let vsock_state = VsockState {
+                        backend: vsock.backend().save(),
+                        frontend: vsock.save(),
+                    };
 
                     states.vsock_device = Some(ConnectedVsockState {
                         device_id: devid.clone(),
