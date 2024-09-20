@@ -7,6 +7,7 @@
 
 use std::mem;
 use std::net::Ipv4Addr;
+use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 
 use libc::EAGAIN;
@@ -107,9 +108,9 @@ pub struct Net {
     pub(crate) rx_rate_limiter: RateLimiter,
     pub(crate) tx_rate_limiter: RateLimiter,
 
-    pub(crate) rx_deferred_frame: bool,
-
-    rx_bytes_read: usize,
+    /// Used to store last RX packet size and
+    /// rate limit RX queue.
+    deferred_rx_bytes: Option<NonZeroUsize>,
     rx_frame_buf: [u8; MAX_BUFFER_SIZE],
 
     tx_frame_headers: [u8; frame_hdr_len()],
@@ -175,8 +176,7 @@ impl Net {
             queue_evts,
             rx_rate_limiter,
             tx_rate_limiter,
-            rx_deferred_frame: false,
-            rx_bytes_read: 0,
+            deferred_rx_bytes: None,
             rx_frame_buf: [0u8; MAX_BUFFER_SIZE],
             tx_frame_headers: [0u8; frame_hdr_len()],
             irq_trigger: IrqTrigger::new().map_err(NetError::EventFd)?,
@@ -298,16 +298,22 @@ impl Net {
     // Attempts to copy a single frame into the guest if there is enough
     // rate limiting budget.
     // Returns true on successful frame delivery.
-    fn rate_limited_rx_single_frame(&mut self) -> bool {
-        let rx_queue = &mut self.queues[RX_INDEX];
-        if !Self::rate_limiter_consume_op(&mut self.rx_rate_limiter, self.rx_bytes_read as u64) {
-            self.metrics.rx_rate_limiter_throttled.inc();
-            return false;
+    fn send_deferred_rx_bytes(&mut self) -> bool {
+        match self.deferred_rx_bytes {
+            Some(bytes) => {
+                if Self::rate_limiter_consume_op(&mut self.rx_rate_limiter, bytes.get() as u64) {
+                    // The packet is good to go, reset `deferred_rx_bytes`.
+                    self.deferred_rx_bytes = None;
+                    // Attempt frame delivery.
+                    self.rx_buffer.notify_queue(&mut self.queues[RX_INDEX]);
+                    true
+                } else {
+                    self.metrics.rx_rate_limiter_throttled.inc();
+                    false
+                }
+            }
+            None => true,
         }
-
-        // Attempt frame delivery.
-        self.rx_buffer.notify_queue(rx_queue);
-        true
     }
 
     /// Parse available RX `DescriptorChains` from the queue and
@@ -456,6 +462,10 @@ impl Net {
 
     /// Read as many frames as possible.
     fn process_rx(&mut self) -> Result<(), DeviceError> {
+        if !self.send_deferred_rx_bytes() {
+            return Ok(());
+        }
+
         self.parse_rx_descriptors();
 
         loop {
@@ -465,11 +475,10 @@ impl Net {
                     break;
                 }
                 Ok(count) => {
-                    self.rx_bytes_read = count;
+                    self.deferred_rx_bytes = NonZeroUsize::new(count);
                     self.metrics.rx_count.inc();
                     self.metrics.rx_packets_count.inc();
-                    if !self.rate_limited_rx_single_frame() {
-                        self.rx_deferred_frame = true;
+                    if !self.send_deferred_rx_bytes() {
                         break;
                     }
                 }
@@ -493,26 +502,6 @@ impl Net {
         }
 
         self.try_signal_queue(NetQueue::Rx)
-    }
-
-    // Process the deferred frame first, then continue reading from tap.
-    fn handle_deferred_frame(&mut self) -> Result<(), DeviceError> {
-        if self.rate_limited_rx_single_frame() {
-            self.rx_deferred_frame = false;
-            // process_rx() was interrupted possibly before consuming all
-            // packets in the tap; try continuing now.
-            return self.process_rx();
-        }
-
-        self.try_signal_queue(NetQueue::Rx)
-    }
-
-    fn resume_rx(&mut self) -> Result<(), DeviceError> {
-        if self.rx_deferred_frame {
-            self.handle_deferred_frame()
-        } else {
-            self.process_rx()
-        }
     }
 
     fn process_tx(&mut self) -> Result<(), DeviceError> {
@@ -573,7 +562,7 @@ impl Net {
                 &self.metrics,
             )
             .unwrap_or(false);
-            if frame_consumed_by_mmds && !self.rx_deferred_frame {
+            if frame_consumed_by_mmds {
                 // MMDS consumed this frame/request, let's also try to process the response.
                 process_rx_for_mmds = true;
             }
@@ -680,7 +669,7 @@ impl Net {
             self.metrics.rx_rate_limiter_throttled.inc();
         } else {
             // If the limiter is not blocked, resume the receiving of bytes.
-            self.resume_rx()
+            self.process_rx()
                 .unwrap_or_else(|err| report_net_event_fail(&self.metrics, err));
         }
     }
@@ -689,31 +678,14 @@ impl Net {
         // This is safe since we checked in the event handler that the device is activated.
         self.metrics.rx_tap_event_count.inc();
 
-        // While there are no available RX queue buffers and there's a deferred_frame
-        // don't process any more incoming. Otherwise start processing a frame. In the
-        // process the deferred_frame flag will be set in order to avoid freezing the
-        // RX queue.
-        if self.queues[RX_INDEX].is_empty() && self.rx_deferred_frame {
-            self.metrics.no_rx_avail_buffer.inc();
-            return;
-        }
-
         // While limiter is blocked, don't process any more incoming.
         if self.rx_rate_limiter.is_blocked() {
             self.metrics.rx_rate_limiter_throttled.inc();
             return;
         }
 
-        if self.rx_deferred_frame
-        // Process a deferred frame first if available. Don't read from tap again
-        // until we manage to receive this deferred frame.
-        {
-            self.handle_deferred_frame()
-                .unwrap_or_else(|err| report_net_event_fail(&self.metrics, err));
-        } else {
-            self.process_rx()
-                .unwrap_or_else(|err| report_net_event_fail(&self.metrics, err));
-        }
+        self.process_rx()
+            .unwrap_or_else(|err| report_net_event_fail(&self.metrics, err));
     }
 
     /// Process a single TX queue event.
@@ -743,7 +715,7 @@ impl Net {
         match self.rx_rate_limiter.event_handler() {
             Ok(_) => {
                 // There might be enough budget now to receive the frame.
-                self.resume_rx()
+                self.process_rx()
                     .unwrap_or_else(|err| report_net_event_fail(&self.metrics, err));
             }
             Err(err) => {
@@ -772,7 +744,7 @@ impl Net {
 
     /// Process device virtio queue(s).
     pub fn process_virtio_queues(&mut self) {
-        let _ = self.resume_rx();
+        let _ = self.process_rx();
         let _ = self.process_tx();
     }
 }
@@ -1164,7 +1136,7 @@ pub mod tests {
         th.rxq.check_used_elem(0, 0, 0);
         th.rxq.check_used_elem(1, 3, 0);
         // Check that the frame wasn't deferred.
-        assert!(!th.net().rx_deferred_frame);
+        assert!(th.net().deferred_rx_bytes.is_none());
         // Check that the frame has been written successfully to the valid Rx descriptor chain.
         th.rxq
             .check_used_elem(2, 4, frame.len().try_into().unwrap());
@@ -1198,7 +1170,7 @@ pub mod tests {
         );
 
         // Check that the frame wasn't deferred.
-        assert!(!th.net().rx_deferred_frame);
+        assert!(th.net().deferred_rx_bytes.is_none());
         // Check that the used queue has advanced.
         assert_eq!(th.rxq.used.idx.get(), 1);
         assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
@@ -1238,7 +1210,7 @@ pub mod tests {
         );
 
         // Check that the frames weren't deferred.
-        assert!(!th.net().rx_deferred_frame);
+        assert!(th.net().deferred_rx_bytes.is_none());
         // Check that the used queue has advanced.
         assert_eq!(th.rxq.used.idx.get(), 2);
         assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
@@ -1666,79 +1638,13 @@ pub mod tests {
         // SAFETY: its a valid fd
         unsafe { libc::close(th.net.lock().unwrap().tap.as_raw_fd()) };
 
-        // The RX queue is empty and rx_deffered_frame is set.
-        th.net().rx_deferred_frame = true;
-        check_metric_after_block!(
-            th.net().metrics.no_rx_avail_buffer,
-            1,
-            th.simulate_event(NetEvent::Tap)
-        );
-
-        // We need to set this here to false, otherwise the device will try to
-        // handle a deferred frame, it will fail and will never try to read from
-        // the tap.
-        th.net().rx_deferred_frame = false;
-
-        // Fake an avail buffer; this time, tap reading should error out.
+        // Fake an avail buffer; tap reading should error out.
         th.add_desc_chain(NetQueue::Rx, 0, &[(0, 4096, VIRTQ_DESC_F_WRITE)]);
         check_metric_after_block!(
             th.net().metrics.tap_read_fails,
             1,
             th.simulate_event(NetEvent::Tap)
         );
-    }
-
-    #[test]
-    fn test_deferred_frame() {
-        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
-        let mut th = TestHelper::get_default(&mem);
-        th.activate_net();
-
-        let rx_packets_count = th.net().metrics.rx_packets_count.count();
-        let _ = inject_tap_tx_frame(&th.net(), 1000);
-        // Trigger a Tap event that. This should fail since there
-        // are not any available descriptors in the queue
-        check_metric_after_block!(
-            th.net().metrics.no_rx_avail_buffer,
-            1,
-            th.simulate_event(NetEvent::Tap)
-        );
-        // The frame we read from the tap should be deferred now and
-        // no frames should have been transmitted
-        assert!(th.net().rx_deferred_frame);
-        assert_eq!(th.net().metrics.rx_packets_count.count(), rx_packets_count);
-
-        // Let's add a second frame, which should really have the same
-        // fate.
-        let _ = inject_tap_tx_frame(&th.net(), 1000);
-
-        // Adding a descriptor in the queue. This should handle the first deferred
-        // frame. However, this should try to handle the second tap as well and fail
-        // since there's only one Descriptor Chain in the queue.
-        th.add_desc_chain(NetQueue::Rx, 0, &[(0, 4096, VIRTQ_DESC_F_WRITE)]);
-        check_metric_after_block!(
-            th.net().metrics.no_rx_avail_buffer,
-            1,
-            th.simulate_event(NetEvent::Tap)
-        );
-        // We should still have a deferred frame
-        assert!(th.net().rx_deferred_frame);
-        // However, we should have delivered the first frame
-        assert_eq!(
-            th.net().metrics.rx_packets_count.count(),
-            rx_packets_count + 1
-        );
-
-        // Let's add one more descriptor and try to handle the last frame as well.
-        th.add_desc_chain(NetQueue::Rx, 0, &[(0, 4096, VIRTQ_DESC_F_WRITE)]);
-        check_metric_after_block!(
-            th.net().metrics.rx_packets_count,
-            1,
-            th.simulate_event(NetEvent::RxQueue)
-        );
-
-        // We should be done with any deferred frame
-        assert!(!th.net().rx_deferred_frame);
     }
 
     #[test]
@@ -1853,7 +1759,7 @@ pub mod tests {
             let mut rl = RateLimiter::new(1000, 0, 500, 0, 0, 0).unwrap();
 
             // set up RX
-            assert!(!th.net().rx_deferred_frame);
+            assert!(th.net().deferred_rx_bytes.is_none());
             th.add_desc_chain(NetQueue::Rx, 0, &[(0, 4096, VIRTQ_DESC_F_WRITE)]);
 
             let frame = inject_tap_tx_frame(&th.net(), 1000);
@@ -1873,7 +1779,7 @@ pub mod tests {
                 // assert that limiter is blocked
                 assert!(th.net().rx_rate_limiter.is_blocked());
                 assert_eq!(th.net().metrics.rx_rate_limiter_throttled.count(), 1);
-                assert!(th.net().rx_deferred_frame);
+                assert!(th.net().deferred_rx_bytes.is_some());
                 // assert that no operation actually completed (limiter blocked it)
                 assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
                 // make sure the data is still queued for processing
@@ -1971,7 +1877,7 @@ pub mod tests {
             let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 500).unwrap();
 
             // set up RX
-            assert!(!th.net().rx_deferred_frame);
+            assert!(th.net().deferred_rx_bytes.is_none());
             th.add_desc_chain(NetQueue::Rx, 0, &[(0, 4096, VIRTQ_DESC_F_WRITE)]);
             let frame = inject_tap_tx_frame(&th.net(), 1234);
 
@@ -1993,7 +1899,7 @@ pub mod tests {
                 // assert that limiter is blocked
                 assert!(th.net().rx_rate_limiter.is_blocked());
                 assert!(th.net().metrics.rx_rate_limiter_throttled.count() >= 1);
-                assert!(th.net().rx_deferred_frame);
+                assert!(th.net().deferred_rx_bytes.is_some());
                 // assert that no operation actually completed (limiter blocked it)
                 assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
                 // make sure the data is still queued for processing
