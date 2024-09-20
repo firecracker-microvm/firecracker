@@ -10,7 +10,8 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use super::device::Net;
-use super::NET_NUM_QUEUES;
+use super::rx_buffer::RxBufferState;
+use super::{NET_NUM_QUEUES, RX_INDEX};
 use crate::devices::virtio::device::DeviceState;
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
@@ -43,6 +44,7 @@ pub struct NetState {
     pub mmds_ns: Option<MmdsNetworkStackState>,
     config_space: NetConfigSpaceState,
     virtio_state: VirtioDeviceState,
+    rx_buffer_state: RxBufferState,
 }
 
 /// Auxiliary structure for creating a device when resuming from a snapshot.
@@ -83,6 +85,7 @@ impl Persist<'_> for Net {
                 guest_mac: self.guest_mac,
             },
             virtio_state: VirtioDeviceState::from_device(self),
+            rx_buffer_state: RxBufferState::from_rx_buffer(&self.rx_buffer),
         }
     }
 
@@ -130,6 +133,13 @@ impl Persist<'_> for Net {
 
         if state.virtio_state.activated {
             net.device_state = DeviceState::Activated(constructor_args.mem);
+
+            // Recreate `rx_buffer`. We do it by temporarily
+            // rolling back `next_avail` in the RX queue. The `next_avail`
+            // will be rolled forward in the `parse_rx_descriptors` method.
+            net.queues[RX_INDEX].next_avail -= state.rx_buffer_state.chains_count;
+            net.parse_rx_descriptors();
+            net.rx_buffer.used_descriptors = state.rx_buffer_state.used_descriptors;
         }
 
         Ok(net)

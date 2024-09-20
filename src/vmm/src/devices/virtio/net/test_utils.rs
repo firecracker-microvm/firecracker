@@ -4,7 +4,7 @@
 #![doc(hidden)]
 
 use std::fs::File;
-use std::mem;
+use std::mem::{self};
 use std::os::raw::c_ulong;
 use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::process::Command;
@@ -12,8 +12,10 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::devices::virtio::gen::virtio_net::virtio_net_hdr_v1;
 #[cfg(test)]
 use crate::devices::virtio::net::device::vnet_hdr_len;
+use crate::devices::virtio::net::rx_buffer::header_set_num_buffers;
 use crate::devices::virtio::net::tap::{IfReqBuilder, Tap};
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::queue::{Queue, QueueError};
@@ -244,17 +246,27 @@ pub fn enable(tap: &Tap) {
         .unwrap();
 }
 
+pub fn mock_frame(len: usize) -> Vec<u8> {
+    assert!(std::mem::size_of::<virtio_net_hdr_v1>() <= len);
+    // virtio_net_hdr_v1.num_buffers is a u16, so we need at least u16 alignment.
+    let layout = std::alloc::Layout::from_size_align(len, std::mem::align_of::<u16>()).unwrap();
+    // SAFETY:
+    // We need mock frame to be with 0x2 alignment for virtio_net_hdr_v1.
+    let mut mock_frame = unsafe { Vec::from_raw_parts(std::alloc::alloc_zeroed(layout), len, len) };
+    // SAFETY:
+    // Frame is bigger than the header and has correct alignment.
+    unsafe {
+        header_set_num_buffers(mock_frame.as_mut_ptr().cast(), 1);
+    }
+    mock_frame
+}
+
 #[cfg(test)]
 pub(crate) fn inject_tap_tx_frame(net: &Net, len: usize) -> Vec<u8> {
-    use std::os::unix::ffi::OsStrExt;
-
     assert!(len >= vnet_hdr_len());
     let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&net.tap));
-    let mut frame = vmm_sys_util::rand::rand_alphanumerics(len - vnet_hdr_len())
-        .as_bytes()
-        .to_vec();
-    tap_traffic_simulator.push_tx_packet(&frame);
-    frame.splice(0..0, vec![b'\0'; vnet_hdr_len()]);
+    let frame = mock_frame(len);
+    tap_traffic_simulator.push_tx_packet(&frame[vnet_hdr_len()..]);
 
     frame
 }
@@ -430,8 +442,8 @@ pub mod test {
             event_fd.write(1).unwrap();
         }
 
-        /// Generate a tap frame of `frame_len` and check that it is deferred
-        pub fn check_rx_deferred_frame(&mut self, frame_len: usize) -> Vec<u8> {
+        /// Generate a tap frame of `frame_len` and check that it is discarded
+        pub fn check_rx_discard_frame(&mut self, frame_len: usize) -> Vec<u8> {
             let used_idx = self.rxq.used.idx.get();
 
             // Inject frame to tap and run epoll.
@@ -441,8 +453,6 @@ pub mod test {
                 0,
                 self.event_manager.run_with_timeout(100).unwrap()
             );
-            // Check that the frame has been deferred.
-            assert!(self.net().rx_deferred_frame);
             // Check that the descriptor chain has been discarded.
             assert_eq!(self.rxq.used.idx.get(), used_idx + 1);
             assert!(&self.net().irq_trigger.has_pending_irq(IrqType::Vring));

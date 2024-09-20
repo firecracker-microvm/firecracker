@@ -7,10 +7,11 @@
 
 use std::fmt::{self, Debug};
 use std::fs::File;
-use std::io::{Error as IoError, Read};
+use std::io::Error as IoError;
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
+use libc::iovec;
 use vmm_sys_util::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 use vmm_sys_util::{ioctl_ioc_nr, ioctl_iow_nr};
 
@@ -190,11 +191,21 @@ impl Tap {
         }
         Ok(usize::try_from(ret).unwrap())
     }
-}
 
-impl Read for Tap {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, IoError> {
-        self.tap_file.read(buf)
+    /// Read from tap into a slice of `iovec`.
+    pub(crate) fn read_iovec(&mut self, buffer: &mut [iovec]) -> Result<usize, IoError> {
+        // SAFETY: buffer maximum length FIRECRACKER_MAX_QUEUE_SIZE (256).
+        #[allow(clippy::cast_possible_wrap)]
+        #[allow(clippy::cast_possible_truncation)]
+        let len = buffer.len() as i32;
+
+        // SAFETY: `readv` is safe. Called with a valid tap fd, the iovec pointer and length
+        // is provide by the `IoVecBuffer` implementation and we check the return value.
+        let ret = unsafe { libc::readv(self.tap_file.as_raw_fd(), buffer.as_ptr(), len) };
+        if ret == -1 {
+            return Err(IoError::last_os_error());
+        }
+        Ok(usize::try_from(ret).unwrap())
     }
 }
 
@@ -208,6 +219,7 @@ impl AsRawFd for Tap {
 pub mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
+    use std::io::Read;
     use std::os::unix::ffi::OsStrExt;
 
     use super::*;
@@ -297,7 +309,10 @@ pub mod tests {
         tap_traffic_simulator.push_tx_packet(packet.as_bytes());
 
         let mut buf = [0u8; PACKET_SIZE];
-        assert_eq!(tap.read(&mut buf).unwrap(), PAYLOAD_SIZE + VNET_HDR_SIZE);
+        assert_eq!(
+            tap.tap_file.read(&mut buf).unwrap(),
+            PAYLOAD_SIZE + VNET_HDR_SIZE
+        );
         assert_eq!(
             &buf[VNET_HDR_SIZE..packet.len() + VNET_HDR_SIZE],
             packet.as_bytes()
@@ -338,5 +353,36 @@ pub mod tests {
             &read_buf[2 * PAYLOAD_SIZE - VNET_HDR_SIZE..3 * PAYLOAD_SIZE - VNET_HDR_SIZE],
             fragment3
         );
+    }
+
+    #[test]
+    fn test_read_iovec() {
+        let mut tap = Tap::open_named("").unwrap();
+        enable(&tap);
+        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&tap));
+
+        let mut buff1 = vec![0; PAYLOAD_SIZE + VNET_HDR_SIZE];
+        let mut buff2 = vec![0; 2 * PAYLOAD_SIZE];
+
+        let mut iovs = [
+            iovec {
+                iov_base: buff1.as_mut_ptr().cast(),
+                iov_len: buff1.len(),
+            },
+            iovec {
+                iov_base: buff2.as_mut_ptr().cast(),
+                iov_len: buff2.len(),
+            },
+        ];
+
+        let packet = vmm_sys_util::rand::rand_alphanumerics(2 * PAYLOAD_SIZE);
+        tap_traffic_simulator.push_tx_packet(packet.as_bytes());
+        assert_eq!(
+            tap.read_iovec(&mut iovs).unwrap(),
+            2 * PAYLOAD_SIZE + VNET_HDR_SIZE
+        );
+        assert_eq!(&buff1[VNET_HDR_SIZE..], &packet.as_bytes()[..PAYLOAD_SIZE]);
+        assert_eq!(&buff2[..PAYLOAD_SIZE], &packet.as_bytes()[PAYLOAD_SIZE..]);
+        assert_eq!(&buff2[PAYLOAD_SIZE..], &vec![0; PAYLOAD_SIZE])
     }
 }

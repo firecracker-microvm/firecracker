@@ -10,49 +10,8 @@ use std::num::Wrapping;
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use vm_memory::GuestAddress;
-use vmm::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
-use vmm::devices::virtio::test_utils::VirtQueue;
+use vmm::devices::virtio::test_utils::{set_dtable_many_chains, set_dtable_one_chain, VirtQueue};
 use vmm::test_utils::single_region_mem;
-
-/// Create one chain with n descriptors
-/// Descriptor buffers will leave at the offset of 2048 bytes
-/// to leave some room for queue objects.
-/// We don't really care about sizes of descriptors,
-/// so pick 1024.
-fn set_dtable_one_chain(rxq: &VirtQueue, n: usize) {
-    let desc_size = 1024;
-    for i in 0..n {
-        rxq.dtable[i].set(
-            (2048 + desc_size * i) as u64,
-            desc_size as u32,
-            VIRTQ_DESC_F_WRITE | VIRTQ_DESC_F_NEXT,
-            (i + 1) as u16,
-        );
-    }
-    rxq.dtable[n - 1].flags.set(VIRTQ_DESC_F_WRITE);
-    rxq.dtable[n - 1].next.set(0);
-    rxq.avail.ring[0].set(0);
-    rxq.avail.idx.set(n as u16);
-}
-
-/// Create n chains with 1 descriptors each
-/// Descriptor buffers will leave at the offset of 2048 bytes
-/// to leave some room for queue objects.
-/// We don't really care about sizes of descriptors,
-/// so pick 1024.
-fn set_dtable_many_chains(rxq: &VirtQueue, n: usize) {
-    let desc_size = 1024;
-    for i in 0..n {
-        rxq.dtable[i].set(
-            (2048 + desc_size * i) as u64,
-            desc_size as u32,
-            VIRTQ_DESC_F_WRITE,
-            0,
-        );
-        rxq.avail.ring[i].set(i as u16);
-    }
-    rxq.avail.idx.set(n as u16);
-}
 
 pub fn queue_benchmark(c: &mut Criterion) {
     let mem = single_region_mem(65562);
