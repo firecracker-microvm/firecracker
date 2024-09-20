@@ -21,14 +21,17 @@ pub mod device;
 mod event_handler;
 pub mod metrics;
 pub mod persist;
+pub mod rx_buffer;
 mod tap;
 pub mod test_utils;
 
 mod gen;
 
 pub use tap::{Tap, TapError};
+use vm_memory::VolatileMemoryError;
 
 pub use self::device::Net;
+use self::rx_buffer::RxBufferError;
 
 /// Enum representing the Net device queue types
 #[derive(Debug)]
@@ -50,6 +53,10 @@ pub enum NetError {
     EventFd(io::Error),
     /// IO error: {0}
     IO(io::Error),
+    /// Error writing in guest memory: {0}
+    GuestMemoryError(#[from] VolatileMemoryError),
     /// The VNET header is missing from the frame
     VnetHeaderMissing,
+    /// RxBuffer error: {0}
+    RxBufferError(#[from] RxBufferError),
 }

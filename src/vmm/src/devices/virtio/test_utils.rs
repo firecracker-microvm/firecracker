@@ -8,6 +8,7 @@ use std::marker::PhantomData;
 use std::mem;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use super::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 use crate::devices::virtio::queue::Queue;
 use crate::test_utils::single_region_mem;
 use crate::utils::u64_to_usize;
@@ -310,6 +311,52 @@ impl<'a> VirtQueue<'a> {
         assert_eq!(used_elem.id, u32::from(expected_id));
         assert_eq!(used_elem.len, expected_len);
     }
+}
+
+/// Create one chain with n descriptors
+/// Descriptor buffers will leave at the offset of 2048 bytes
+/// to leave some room for queue objects.
+/// We don't really care about sizes of descriptors,
+/// so pick 1024.
+/// Allow casting because this is a test code
+#[allow(clippy::cast_possible_wrap)]
+#[allow(clippy::cast_possible_truncation)]
+pub fn set_dtable_one_chain(rxq: &VirtQueue, n: usize) {
+    let desc_size = 1024;
+    for i in 0..n {
+        rxq.dtable[i].set(
+            (2048 + desc_size * i) as u64,
+            desc_size as u32,
+            VIRTQ_DESC_F_WRITE | VIRTQ_DESC_F_NEXT,
+            (i + 1) as u16,
+        );
+    }
+    rxq.dtable[n - 1].flags.set(VIRTQ_DESC_F_WRITE);
+    rxq.dtable[n - 1].next.set(0);
+    rxq.avail.ring[0].set(0);
+    rxq.avail.idx.set(n as u16);
+}
+
+/// Create n chains with 1 descriptors each
+/// Descriptor buffers will leave at the offset of 2048 bytes
+/// to leave some room for queue objects.
+/// We don't really care about sizes of descriptors,
+/// so pick 1024.
+/// Allow casting because this is a test code
+#[allow(clippy::cast_possible_wrap)]
+#[allow(clippy::cast_possible_truncation)]
+pub fn set_dtable_many_chains(rxq: &VirtQueue, n: usize) {
+    let desc_size = 1024;
+    for i in 0..n {
+        rxq.dtable[i].set(
+            (2048 + desc_size * i) as u64,
+            desc_size as u32,
+            VIRTQ_DESC_F_WRITE,
+            0,
+        );
+        rxq.avail.ring[i].set(i as u16);
+    }
+    rxq.avail.idx.set(n as u16);
 }
 
 #[cfg(test)]
