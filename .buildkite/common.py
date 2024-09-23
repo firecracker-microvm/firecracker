@@ -24,8 +24,7 @@ DEFAULT_INSTANCES = {
 
 DEFAULT_PLATFORMS = [
     ("al2", "linux_5.10"),
-    # TODO: unpin 6.1 AMI once the bug is fixed
-    ("al2023", "linux_6.1-pinned"),
+    ("al2023", "linux_6.1"),
 ]
 
 
