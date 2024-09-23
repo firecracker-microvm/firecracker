@@ -648,7 +648,10 @@ impl Net {
 
     fn read_tap(&mut self) -> std::io::Result<usize> {
         if self.has_feature(u64::from(VIRTIO_NET_F_MRG_RXBUF)) {
-            self.tap.read_iovec(self.rx_buffer.all_chains_mut_slice())
+            let Some(s) = self.rx_buffer.all_chains_mut_slice() else {
+                return Err(std::io::Error::from_raw_os_error(EAGAIN));
+            };
+            self.tap.read_iovec(s)
         } else {
             self.tap.read_iovec(self.rx_buffer.one_chain_mut_slice())
         }

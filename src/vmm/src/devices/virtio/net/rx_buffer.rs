@@ -81,6 +81,8 @@ pub struct RxBuffer {
     pub iovecs: IovRingBuffer,
     // Ring buffer of meta data about descriptor chains stored in the `iov_ring`.
     pub chain_infos: RingBuffer<ChainInfo>,
+    // Total capacity this buffer holds.
+    pub total_capacity: u32,
     // Number of descriptor chains we have used to process packets.
     pub used_descriptors: u16,
 }
@@ -92,6 +94,7 @@ impl RxBuffer {
             iovecs: IovRingBuffer::new()?,
             chain_infos: RingBuffer::new_with_size(u32::from(FIRECRACKER_MAX_QUEUE_SIZE)),
             used_descriptors: 0,
+            total_capacity: 0,
         })
     }
 
@@ -113,8 +116,12 @@ impl RxBuffer {
 
     /// Returns a slice of underlying iovec for the all chains
     /// in the buffer.
-    pub fn all_chains_mut_slice(&mut self) -> &mut [iovec] {
-        self.iovecs.as_mut_slice()
+    pub fn all_chains_mut_slice(&mut self) -> Option<&mut [iovec]> {
+        if self.total_capacity < u32::from(u16::MAX) {
+            None
+        } else {
+            Some(self.iovecs.as_mut_slice())
+        }
     }
 
     /// Add a new `DescriptorChain` that we received from the RX queue in the buffer.
@@ -171,6 +178,7 @@ impl RxBuffer {
             chain_len,
             chain_capacity,
         });
+        self.total_capacity += chain_capacity;
 
         Ok(())
     }
@@ -235,6 +243,7 @@ impl RxBuffer {
                 .pop_front()
                 .expect("This should never happen if write to the buffer succeded.");
             self.iovecs.pop_front(usize::from(iov_info.chain_len));
+            self.total_capacity -= iov_info.chain_capacity;
 
             if bytes_written <= iov_info.chain_capacity {
                 write_used(iov_info.head_index, bytes_written, rx_queue);
@@ -282,7 +291,7 @@ mod tests {
 
     #[test]
     fn test_rx_buffer_add_chain() {
-        let mem = single_region_mem(65562);
+        let mem = single_region_mem(65562 * 2);
         let rxq = VirtQueue::new(GuestAddress(0), &mem, 256);
         let mut queue = rxq.create_queue();
 
@@ -317,9 +326,10 @@ mod tests {
             );
         }
 
-        // 16 chains of len 1
+        // 64 chains of len 1 and size 1024
+        // in total 64K
         {
-            let chains = 16;
+            let chains = 64;
             set_dtable_many_chains(&rxq, chains);
             queue.next_avail = Wrapping(0);
             let mut buff = RxBuffer::new().unwrap();
@@ -329,7 +339,7 @@ mod tests {
                     buff.add_chain(&mem, desc).unwrap();
                 }
             }
-            let slice = buff.all_chains_mut_slice();
+            let slice = buff.all_chains_mut_slice().unwrap();
             for i in 0..chains {
                 assert_eq!(
                     slice[i].iov_base as u64,
@@ -338,7 +348,7 @@ mod tests {
                 );
                 assert_eq!(slice[i].iov_len, 1024);
             }
-            assert_eq!(buff.chain_infos.len(), 16);
+            assert_eq!(buff.chain_infos.len(), chains as u32);
             for (i, ci) in buff.chain_infos.items[0..16].iter().enumerate() {
                 assert_eq!(
                     *ci,
@@ -407,11 +417,11 @@ mod tests {
 
     #[test]
     fn test_rx_buffer_write_mrg_buf() {
-        let mem = single_region_mem(65562);
+        let mem = single_region_mem(65562 * 2);
         let rxq = VirtQueue::new(GuestAddress(0), &mem, 256);
         let mut queue = rxq.create_queue();
 
-        set_dtable_many_chains(&rxq, 2);
+        set_dtable_many_chains(&rxq, 64);
 
         let mut buff = RxBuffer::new().unwrap();
         while let Some(desc) = queue.pop() {
@@ -422,7 +432,7 @@ mod tests {
         }
 
         // Initially data should be all zeros
-        let slice = buff.all_chains_mut_slice();
+        let slice = buff.all_chains_mut_slice().unwrap();
         let data_slice_before: &[u8] =
             // SAFETY: safe as iovecs are verified on creation.
             unsafe { std::slice::from_raw_parts(slice[0].iov_base.cast(), slice[0].iov_len) };
@@ -435,7 +445,7 @@ mod tests {
         // Write should hapepn to all 2 iovecs
         buff.write(&[69; 2 * 1024]).unwrap();
 
-        let slice = buff.all_chains_mut_slice();
+        let slice = buff.all_chains_mut_slice().unwrap();
         let data_slice_after: &[u8] =
             // SAFETY: safe as iovecs are verified on creation.
             unsafe { std::slice::from_raw_parts(slice[0].iov_base.cast(), slice[0].iov_len) };
