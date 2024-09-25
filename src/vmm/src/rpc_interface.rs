@@ -755,7 +755,7 @@ impl RuntimeApiController {
         log_dev_preview_warning("Virtual machine snapshots", None);
 
         if create_params.snapshot_type == SnapshotType::Diff
-            && !self.vm_resources.track_dirty_pages()
+            && !self.vm_resources.vm_config.track_dirty_pages
         {
             return Err(VmmActionError::NotSupported(
                 "Diff snapshots are not allowed on uVMs with dirty page tracking disabled."
