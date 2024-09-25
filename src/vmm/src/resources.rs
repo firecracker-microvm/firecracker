@@ -28,6 +28,7 @@ use crate::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::vsock::*;
+use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap, MemoryError};
 
 /// Errors encountered when configuring microVM resources.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -467,6 +468,42 @@ impl VmResources {
         }
 
         Ok(())
+    }
+
+    /// Allocates guest memory in a configuration most appropriate for these [`VmResources`].
+    ///
+    /// If vhost-user-blk devices are in use, allocates memfd-backed shared memory, otherwise
+    /// prefers anonymous memory for performance reasons.
+    pub fn allocate_guest_memory(&self) -> Result<GuestMemoryMmap, MemoryError> {
+        let vhost_user_device_used = self
+            .block
+            .devices
+            .iter()
+            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user());
+
+        // Page faults are more expensive for shared memory mapping, including  memfd.
+        // For this reason, we only back guest memory with a memfd
+        // if a vhost-user-blk device is configured in the VM, otherwise we fall back to
+        // an anonymous private memory.
+        //
+        // The vhost-user-blk branch is not currently covered by integration tests in Rust,
+        // because that would require running a backend process. If in the future we converge to
+        // a single way of backing guest memory for vhost-user and non-vhost-user cases,
+        // that would not be worth the effort.
+        if vhost_user_device_used {
+            GuestMemoryMmap::memfd_backed(
+                self.vm_config.mem_size_mib,
+                self.vm_config.track_dirty_pages,
+                self.vm_config.huge_pages,
+            )
+        } else {
+            let regions = crate::arch::arch_memory_regions(self.vm_config.mem_size_mib << 20);
+            GuestMemoryMmap::from_raw_regions(
+                &regions,
+                self.vm_config.track_dirty_pages,
+                self.vm_config.huge_pages,
+            )
+        }
     }
 }
 
