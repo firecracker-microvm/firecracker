@@ -252,8 +252,6 @@ pub fn build_microvm_for_boot(
         .boot_source_builder()
         .ok_or(MissingKernelConfig)?;
 
-    let track_dirty_pages = vm_resources.track_dirty_pages();
-
     let vhost_user_device_used = vm_resources
         .block
         .devices
@@ -272,7 +270,7 @@ pub fn build_microvm_for_boot(
     let guest_memory = if vhost_user_device_used {
         GuestMemoryMmap::memfd_backed(
             vm_resources.vm_config.mem_size_mib,
-            track_dirty_pages,
+            vm_resources.vm_config.track_dirty_pages,
             vm_resources.vm_config.huge_pages,
         )
         .map_err(StartMicrovmError::GuestMemory)?
@@ -280,7 +278,7 @@ pub fn build_microvm_for_boot(
         let regions = crate::arch::arch_memory_regions(vm_resources.vm_config.mem_size_mib << 20);
         GuestMemoryMmap::from_raw_regions(
             &regions,
-            track_dirty_pages,
+            vm_resources.vm_config.track_dirty_pages,
             vm_resources.vm_config.huge_pages,
         )
         .map_err(StartMicrovmError::GuestMemory)?
@@ -299,7 +297,7 @@ pub fn build_microvm_for_boot(
         event_manager,
         guest_memory,
         None,
-        track_dirty_pages,
+        vm_resources.vm_config.track_dirty_pages,
         vm_resources.vm_config.vcpu_count,
         cpu_template.kvm_capabilities.clone(),
     )?;

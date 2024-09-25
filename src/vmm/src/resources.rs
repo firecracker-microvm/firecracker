@@ -234,11 +234,6 @@ impl VmResources {
         Ok(())
     }
 
-    /// Returns whether dirty page tracking is enabled or not.
-    pub fn track_dirty_pages(&self) -> bool {
-        self.vm_config.track_dirty_pages
-    }
-
     /// Add a custom CPU template to the VM resources
     /// to configure vCPUs.
     pub fn set_custom_cpu_template(&mut self, cpu_template: CustomCpuTemplate) {
