@@ -64,7 +64,7 @@ use crate::utils::u64_to_usize;
 use crate::vmm_config::boot_source::BootConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{VmConfig, VmConfigError};
-use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryExtension, GuestMemoryMmap};
+use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
 use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuError};
 use crate::vstate::vm::Vm;
 use crate::{device_manager, EventManager, Vmm, VmmError};
@@ -252,37 +252,9 @@ pub fn build_microvm_for_boot(
         .boot_source_builder()
         .ok_or(MissingKernelConfig)?;
 
-    let vhost_user_device_used = vm_resources
-        .block
-        .devices
-        .iter()
-        .any(|b| b.lock().expect("Poisoned lock").is_vhost_user());
-
-    // Page faults are more expensive for shared memory mapping, including  memfd.
-    // For this reason, we only back guest memory with a memfd
-    // if a vhost-user-blk device is configured in the VM, otherwise we fall back to
-    // an anonymous private memory.
-    //
-    // The vhost-user-blk branch is not currently covered by integration tests in Rust,
-    // because that would require running a backend process. If in the future we converge to
-    // a single way of backing guest memory for vhost-user and non-vhost-user cases,
-    // that would not be worth the effort.
-    let guest_memory = if vhost_user_device_used {
-        GuestMemoryMmap::memfd_backed(
-            vm_resources.vm_config.mem_size_mib,
-            vm_resources.vm_config.track_dirty_pages,
-            vm_resources.vm_config.huge_pages,
-        )
-        .map_err(StartMicrovmError::GuestMemory)?
-    } else {
-        let regions = crate::arch::arch_memory_regions(vm_resources.vm_config.mem_size_mib << 20);
-        GuestMemoryMmap::from_raw_regions(
-            &regions,
-            vm_resources.vm_config.track_dirty_pages,
-            vm_resources.vm_config.huge_pages,
-        )
-        .map_err(StartMicrovmError::GuestMemory)?
-    };
+    let guest_memory = vm_resources
+        .allocate_guest_memory()
+        .map_err(StartMicrovmError::GuestMemory)?;
 
     let entry_addr = load_kernel(boot_config, &guest_memory)?;
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
