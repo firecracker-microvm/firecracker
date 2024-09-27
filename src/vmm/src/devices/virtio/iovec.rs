@@ -4,6 +4,7 @@
 use std::io::ErrorKind;
 
 use libc::{c_void, iovec, size_t};
+use serde::{Deserialize, Serialize};
 use vm_memory::bitmap::Bitmap;
 use vm_memory::{
     GuestMemory, GuestMemoryError, ReadVolatile, VolatileMemoryError, VolatileSlice, WriteVolatile,
@@ -210,7 +211,7 @@ impl IoVecBuffer {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParsedDescriptorChain {
     pub head_index: u16,
     pub length: u32,
@@ -225,12 +226,12 @@ pub struct ParsedDescriptorChain {
 #[derive(Debug)]
 pub struct IoVecBufferMut {
     // container of the memory regions included in this IO vector
-    vecs: IovDeque,
+    pub vecs: IovDeque,
     // Total length of the IoVecBufferMut
     // We use `u32` here because we use this type in devices which
     // should not give us huge buffers. In any case this
     // value will not overflow as we explicitly check for this case.
-    len: u32,
+    pub len: u32,
 }
 
 // SAFETY: `IoVecBufferMut` doesn't allow for interior mutability and no shared ownership is
