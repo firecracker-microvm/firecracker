@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use super::device::Net;
-use super::NET_NUM_QUEUES;
+use super::{TapError, NET_NUM_QUEUES};
 use crate::devices::virtio::device::DeviceState;
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
@@ -65,6 +65,8 @@ pub enum NetPersistError {
     VirtioState(#[from] VirtioStateError),
     /// Indicator that no MMDS is associated with this device.
     NoMmdsDataStore,
+    /// Setting tap interface offload flags failed: {0}
+    TapSetOffload(TapError),
 }
 
 impl Persist<'_> for Net {
@@ -129,6 +131,11 @@ impl Persist<'_> for Net {
         net.acked_features = state.virtio_state.acked_features;
 
         if state.virtio_state.activated {
+            let supported_flags: u32 = Net::build_tap_offload_features(net.acked_features);
+            net.tap
+                .set_offload(supported_flags)
+                .map_err(NetPersistError::TapSetOffload)?;
+
             net.device_state = DeviceState::Activated(constructor_args.mem);
         }
 
