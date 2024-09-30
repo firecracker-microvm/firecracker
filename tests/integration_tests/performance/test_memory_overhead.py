@@ -28,6 +28,7 @@ X86_MEMORY_GAP_START = 3328 * 2**20
     "vcpu_count,mem_size_mib",
     [(1, 128), (1, 1024), (2, 2048), (4, 4096)],
 )
+@pytest.mark.nonci
 def test_memory_overhead(
     microvm_factory, guest_kernel_acpi, rootfs, vcpu_count, mem_size_mib, metrics
 ):
