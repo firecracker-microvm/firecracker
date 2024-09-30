@@ -30,6 +30,13 @@ and this project adheres to
 - [#4790](https://github.com/firecracker-microvm/firecracker/pull/4790): v1.9.0
   was missing most of the debugging information in the debuginfo file, due to a
   change in the Cargo defaults. This has been corrected.
+- [#4826](https://github.com/firecracker-microvm/firecracker/pull/4826): Add
+  missing configuration of tap offload features when restoring from a snapshot.
+  Setting the features was previously
+  [moved](https://github.com/firecracker-microvm/firecracker/pull/4680/commits/49ed5ea4b48ccd98903da037368fa3108f58ac1f)
+  from net device creation to device activation time, but it was not reflected
+  in the restore path. This was leading to inability to connect to the restored
+  VM if the offload features were used.
 
 ## \[1.9.0\]
 
