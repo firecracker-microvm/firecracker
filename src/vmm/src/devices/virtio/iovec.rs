@@ -795,6 +795,7 @@ mod tests {
 }
 
 #[cfg(kani)]
+#[allow(dead_code)] // Avoid warning when using stubs
 mod verification {
     use std::mem::ManuallyDrop;
 
@@ -803,7 +804,9 @@ mod verification {
     use vm_memory::VolatileSlice;
 
     use super::{IoVecBuffer, IoVecBufferMut, IoVecVec};
+    use crate::arch::PAGE_SIZE;
     use crate::devices::virtio::iov_deque::IovDeque;
+    use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 
     // Maximum memory size to use for our buffers. For the time being 1KB.
     const GUEST_MEMORY_SIZE: usize = 1 << 10;
@@ -814,6 +817,50 @@ mod verification {
     // our code does not make any assumption about the length of the chain, apart from it being
     // >= 1.
     const MAX_DESC_LENGTH: usize = 4;
+
+    mod stubs {
+        use super::*;
+
+        /// This is a stub for the `IovDeque::push_back` method.
+        ///
+        /// `IovDeque` relies on a special allocation of two pages of virtual memory, where both of
+        /// these point to the same underlying physical page. This way, the contents of the first
+        /// page of virtual memory are automatically mirrored in the second virtual page. We do
+        /// that in order to always have the elements that are currently in the ring buffer in
+        /// consecutive (virtual) memory.
+        ///
+        /// To build this particular memory layout we create a new `memfd` object, allocate memory
+        /// with `mmap` and call `mmap` again to make sure both pages point to the page allocated
+        /// via the `memfd` object. These ffi calls make kani complain, so here we mock the
+        /// `IovDeque` object memory with a normal memory allocation of two pages worth of data.
+        ///
+        /// This stub helps imitate the effect of mirroring without all the elaborate memory
+        /// allocation trick.
+        pub fn push_back(deque: &mut IovDeque, iov: iovec) {
+            // This should NEVER happen, since our ring buffer is as big as the maximum queue size.
+            // We also check for the sanity of the VirtIO queues, in queue.rs, which means that if
+            // we ever try to add something in a full ring buffer, there is an internal
+            // bug in the device emulation logic. Panic here because the device is
+            // hopelessly broken.
+            assert!(
+                !deque.is_full(),
+                "The number of `iovec` objects is bigger than the available space"
+            );
+
+            let offset = (deque.start + deque.len) as usize;
+            let mirror = if offset >= FIRECRACKER_MAX_QUEUE_SIZE as usize {
+                offset - FIRECRACKER_MAX_QUEUE_SIZE as usize
+            } else {
+                offset + FIRECRACKER_MAX_QUEUE_SIZE as usize
+            };
+
+            // SAFETY: self.iov is a valid pointer and `self.start + self.len` is within range (we
+            // asserted before that the buffer is not full).
+            unsafe { deque.iov.add(offset).write_volatile(iov) };
+            unsafe { deque.iov.add(mirror).write_volatile(iov) };
+            deque.len += 1;
+        }
+    }
 
     fn create_iovecs(mem: *mut u8, size: usize, nr_descs: usize) -> (IoVecVec, u32) {
         let mut vecs: Vec<iovec> = Vec::with_capacity(nr_descs);
@@ -845,8 +892,23 @@ mod verification {
         }
     }
 
+    fn create_iov_deque() -> IovDeque {
+        // SAFETY: safe because the layout has non-zero size
+        let mem = unsafe {
+            std::alloc::alloc(std::alloc::Layout::from_size_align_unchecked(
+                2 * PAGE_SIZE,
+                PAGE_SIZE,
+            ))
+        };
+        IovDeque {
+            iov: mem.cast(),
+            start: kani::any_where(|&start| start < FIRECRACKER_MAX_QUEUE_SIZE),
+            len: 0,
+        }
+    }
+
     fn create_iovecs_mut(mem: *mut u8, size: usize, nr_descs: usize) -> (IovDeque, u32) {
-        let mut vecs = IovDeque::new().unwrap();
+        let mut vecs = create_iov_deque();
         let mut len = 0u32;
         for _ in 0..nr_descs {
             // The `IoVecBufferMut` constructors ensure that the memory region described by every
@@ -955,6 +1017,7 @@ mod verification {
     #[kani::proof]
     #[kani::unwind(5)]
     #[kani::solver(cadical)]
+    #[kani::stub(IovDeque::push_back, stubs::push_back)]
     fn verify_write_to_iovec() {
         for nr_descs in 0..MAX_DESC_LENGTH {
             let mut iov_mut = IoVecBufferMut::any_of_length(nr_descs);
@@ -979,6 +1042,7 @@ mod verification {
                     .unwrap(),
                 buf.len().min(iov_mut.len().saturating_sub(offset) as usize)
             );
+            std::mem::forget(iov_mut.vecs);
         }
     }
 }

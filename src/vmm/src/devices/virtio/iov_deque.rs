@@ -71,9 +71,9 @@ pub enum IovDequeError {
 // so making a slice out of them does not require any copies.
 #[derive(Debug)]
 pub struct IovDeque {
-    iov: *mut libc::iovec,
-    start: u16,
-    len: u16,
+    pub iov: *mut libc::iovec,
+    pub start: u16,
+    pub len: u16,
 }
 
 // SAFETY: This is `Send`. We hold sole ownership of the underlying buffer.
@@ -215,7 +215,7 @@ impl IovDeque {
 
     /// Returns `true` if the [`IovDeque`] is full, `false` otherwise
     #[inline(always)]
-    fn is_full(&self) -> bool {
+    pub fn is_full(&self) -> bool {
         self.len() == FIRECRACKER_MAX_QUEUE_SIZE
     }
 
