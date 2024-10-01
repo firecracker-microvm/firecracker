@@ -18,7 +18,7 @@ bench = false
 [dependencies]
 displaydoc = "0.2.5"
 event-manager = "0.4.0"
-libc = "0.2.158"
+libc = "0.2.159"
 log-instrument = { path = "../log-instrument", optional = true }
 micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 
@@ -33,9 +33,9 @@ vmm = { path = "../vmm" }
 vmm-sys-util = { version = "0.12.1", features = ["with-serde"] }
 
 [dev-dependencies]
-cargo_toml = "0.20.4"
-libc = "0.2.158"
-regex = { version = "1.10.6", default-features = false, features = ["std", "unicode-perl"] }
+cargo_toml = "0.20.5"
+libc = "0.2.159"
+regex = { version = "1.11.0", default-features = false, features = ["std", "unicode-perl"] }
 
 # Dev-Dependencies for uffd examples
 serde = { version = "1.0.210", features = ["derive"] }
