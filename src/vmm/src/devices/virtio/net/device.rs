@@ -6,11 +6,11 @@
 // found in the THIRD-PARTY file.
 
 use std::collections::VecDeque;
-use std::mem;
+use std::mem::{self};
 use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
 
-use libc::EAGAIN;
+use libc::{iovec, EAGAIN};
 use log::error;
 use vmm_sys_util::eventfd::EventFd;
 
@@ -19,7 +19,7 @@ use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::gen::virtio_net::{
     virtio_net_hdr_v1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM, VIRTIO_NET_F_GUEST_TSO4,
     VIRTIO_NET_F_GUEST_TSO6, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4,
-    VIRTIO_NET_F_HOST_TSO6, VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC,
+    VIRTIO_NET_F_HOST_TSO6, VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC, VIRTIO_NET_F_MRG_RXBUF,
 };
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::iovec::{
@@ -108,7 +108,8 @@ pub struct RxBuffers {
     // A map of which part of the memory belongs to which `DescriptorChain` object
     pub parsed_descriptors: VecDeque<ParsedDescriptorChain>,
     // Buffers that we have used and they are ready to be given back to the guest.
-    pub deferred_descriptor: Option<ParsedDescriptorChain>,
+    pub used_descriptors: u16,
+    pub used_bytes: u32,
 }
 
 impl RxBuffers {
@@ -118,7 +119,8 @@ impl RxBuffers {
             min_buffer_size: 0,
             iovec: IoVecBufferMut::new()?,
             parsed_descriptors: VecDeque::with_capacity(FIRECRACKER_MAX_QUEUE_SIZE.into()),
-            deferred_descriptor: None,
+            used_descriptors: 0,
+            used_bytes: 0,
         })
     }
 
@@ -141,10 +143,10 @@ impl RxBuffers {
         Ok(())
     }
 
-    /// Returns `true` if there buffer is emply.
+    /// Returns the total size of available space in the buffer.
     #[inline(always)]
-    fn is_empty(&self) -> bool {
-        self.iovec.len() == 0
+    fn capacity(&self) -> u32 {
+        self.iovec.len()
     }
 
     /// Mark the first `size` bytes of available memory as used.
@@ -154,18 +156,36 @@ impl RxBuffers {
     /// * The `RxBuffers` should include at least one parsed `DescriptorChain`.
     /// * `size` needs to be smaller or equal to total length of the first `DescriptorChain` stored
     ///   in the `RxBuffers`.
-    unsafe fn mark_used(&mut self, size: u32) -> ParsedDescriptorChain {
-        // Since we were able to write a frame in guest memory, we should have at least one
-        // descriptor chain here. If not, we have a bug, so fail fast, since the device is
-        // fundamentally broken.
-        let mut parsed_dc = self.parsed_descriptors.pop_front().expect(
-            "net: internal bug. Mismatch between written frame size and available descriptors",
-        );
+    unsafe fn mark_used(&mut self, mut bytes_written: u32, rx_queue: &mut Queue) {
+        self.used_bytes = bytes_written;
 
-        self.header_set_num_buffers(1);
-        self.iovec.drop_chain_front(&parsed_dc);
-        parsed_dc.length = size;
-        parsed_dc
+        let mut used_heads: u16 = 0;
+        for parsed_dc in self.parsed_descriptors.iter() {
+            let used_bytes = bytes_written.min(parsed_dc.length);
+            // Safe because we know head_index isn't out of bounds
+            rx_queue
+                .write_used_element(self.used_descriptors, parsed_dc.head_index, used_bytes)
+                .unwrap();
+            bytes_written -= used_bytes;
+            self.used_descriptors += 1;
+            used_heads += 1;
+
+            if bytes_written == 0 {
+                break;
+            }
+        }
+
+        // We need to set num_buffers before dropping chains from `self.iovec`. Otherwise
+        // when we set headers, we will iterate over new, yet unused chains instead of the ones
+        // we need.
+        self.header_set_num_buffers(used_heads);
+        for _ in 0..used_heads {
+            let parsed_dc = self
+                .parsed_descriptors
+                .pop_front()
+                .expect("This should never happen if write to the buffer succeeded.");
+            self.iovec.drop_chain_front(&parsed_dc);
+        }
     }
 
     /// Write the number of descriptors used in VirtIO header
@@ -184,14 +204,22 @@ impl RxBuffers {
 
     /// This will let the guest know that about all the `DescriptorChain` object that has been
     /// used to receive a frame from the TAP.
-    fn finish_frame(&mut self, dc: &ParsedDescriptorChain, rx_queue: &mut Queue) {
-        // It is fine to `.unrap()` here. The only reason why `add_used` can fail is if the
-        // `head_index` is not a valid descriptor id. `head_index` here is a valid
-        // `DescriptorChain` index. We got it from `queue.pop_or_enable_notification()` which
-        // checks for its validity. In other words, if this unwrap() fails there's a bug in our
-        // emulation logic which, most likely, we can't recover from. So, let's crash here
-        // instead of logging an error and continuing.
-        rx_queue.add_used(dc.head_index, dc.length).unwrap();
+    fn finish_frame(&mut self, rx_queue: &mut Queue) {
+        rx_queue.advance_used_ring(self.used_descriptors);
+        self.used_descriptors = 0;
+        self.used_bytes = 0;
+    }
+
+    /// Return a slice of iovecs for the first slice in the buffer.
+    /// Panics if there are no parsed descriptors.
+    fn single_chain_slice_mut(&mut self) -> &mut [iovec] {
+        let nr_iovecs = self.parsed_descriptors[0].nr_iovecs as usize;
+        &mut self.iovec.as_iovec_mut_slice()[..nr_iovecs]
+    }
+
+    /// Return a slice of iovecs for all descriptor chains in the buffer.
+    fn all_chains_slice_mut(&mut self) -> &mut [iovec] {
+        self.iovec.as_iovec_mut_slice()
     }
 }
 
@@ -254,6 +282,7 @@ impl Net {
             | 1 << VIRTIO_NET_F_HOST_TSO6
             | 1 << VIRTIO_NET_F_HOST_UFO
             | 1 << VIRTIO_F_VERSION_1
+            | 1 << VIRTIO_NET_F_MRG_RXBUF
             | 1 << VIRTIO_RING_F_EVENT_IDX;
 
         let mut config_space = ConfigSpace::default();
@@ -401,27 +430,31 @@ impl Net {
     // Attempts to copy a single frame into the guest if there is enough
     // rate limiting budget.
     // Returns true on successful frame delivery.
-    fn rate_limited_rx_single_frame(&mut self, dc: &ParsedDescriptorChain) -> bool {
+    pub fn rate_limited_rx_single_frame(&mut self, frame_size: u32) -> bool {
         let rx_queue = &mut self.queues[RX_INDEX];
-        if !Self::rate_limiter_consume_op(&mut self.rx_rate_limiter, dc.length as u64) {
+        if !Self::rate_limiter_consume_op(&mut self.rx_rate_limiter, frame_size as u64) {
             self.metrics.rx_rate_limiter_throttled.inc();
             return false;
         }
 
-        self.rx_buffer.finish_frame(dc, rx_queue);
+        self.rx_buffer.finish_frame(rx_queue);
         true
     }
 
     /// Returns the minimum size of buffer we expect the guest to provide us depending on the
     /// features we have negotiated with it
     fn minimum_rx_buffer_size(&self) -> u32 {
-        if self.has_feature(VIRTIO_NET_F_GUEST_TSO4 as u64)
-            || self.has_feature(VIRTIO_NET_F_GUEST_TSO6 as u64)
-            || self.has_feature(VIRTIO_NET_F_GUEST_UFO as u64)
-        {
-            65562
+        if !self.has_feature(VIRTIO_NET_F_MRG_RXBUF as u64) {
+            if self.has_feature(VIRTIO_NET_F_GUEST_TSO4 as u64)
+                || self.has_feature(VIRTIO_NET_F_GUEST_TSO6 as u64)
+                || self.has_feature(VIRTIO_NET_F_GUEST_UFO as u64)
+            {
+                MAX_BUFFER_SIZE.try_into().unwrap()
+            } else {
+                1526
+            }
         } else {
-            1526
+            vnet_hdr_len().try_into().unwrap()
         }
     }
 
@@ -445,13 +478,15 @@ impl Net {
                 }
 
                 error!("net: Could not parse an RX descriptor: {err}");
-                // Try to add the bad descriptor to the used ring.
-                if let Err(err) = queue.add_used(index, 0) {
-                    error!(
-                        "net: Failed to add available RX descriptor {index} while handling a \
-                         parsing error: {err}",
-                    );
-                }
+
+                // Add this broken chain to the used_ring. It will be
+                // reported to the quest on the next `rx_buffer.finish_frame` call.
+                // SAFETY:
+                // index is verified on `DescriptorChain` creation.
+                queue
+                    .write_used_element(self.rx_buffer.used_descriptors, index, 0)
+                    .unwrap();
+                self.rx_buffer.used_descriptors += 1;
             }
         }
     }
@@ -531,16 +566,18 @@ impl Net {
     }
 
     // We currently prioritize packets from the MMDS over regular network packets.
-    fn read_from_mmds_or_tap(&mut self) -> Result<Option<ParsedDescriptorChain>, NetError> {
-        // If we don't have any buffers available try to parse more from the RX queue. There might
-        // be some buffers we didn't get the chance to process, because we got to handle the TAP
-        // event before the RX queue event.
-        if self.rx_buffer.is_empty() {
+    fn read_from_mmds_or_tap(&mut self) -> Result<Option<u32>, NetError> {
+        // We only want to read from TAP (or mmds) if we have at least 64K of available capacity as
+        // this is the max size of 1 packet.
+        // SAFETY:
+        // * MAX_BUFFER_SIZE is constant and fits into u32
+        #[allow(clippy::cast_possible_truncation)]
+        if self.rx_buffer.capacity() < MAX_BUFFER_SIZE as u32 {
             self.parse_rx_descriptors();
 
-            // If after parsing the RX queue we still don't have any buffers stop processing RX
+            // If after parsing the RX queue we still don't have enough capacity, stop processing RX
             // frames.
-            if self.rx_buffer.is_empty() {
+            if self.rx_buffer.capacity() < MAX_BUFFER_SIZE as u32 {
                 return Ok(None);
             }
         }
@@ -556,29 +593,37 @@ impl Net {
                 self.rx_buffer
                     .iovec
                     .write_all_volatile_at(&self.rx_frame_buf[..vnet_hdr_len() + len], 0)?;
-                // SAFETY: This is safe:
+                // SAFETY:
+                // * len will never be bigger that u32::MAX because mmds is bound
+                // by the size of `self.rx_frame_buf` which is MAX_BUFFER_SIZE size.
+                let len: u32 = (vnet_hdr_len() + len).try_into().unwrap();
+
+                // SAFETY:
                 // * We checked that `rx_buffer` includes at least one `DescriptorChain`
                 // * `rx_frame_buf` has size of `MAX_BUFFER_SIZE` and all `DescriptorChain` objects
                 //   are at least that big.
-                let dc = unsafe {
-                    self.rx_buffer
-                        .mark_used((vnet_hdr_len() + len).try_into().unwrap())
-                };
-
-                return Ok(Some(dc));
+                unsafe {
+                    self.rx_buffer.mark_used(len, &mut self.queues[RX_INDEX]);
+                }
+                return Ok(Some(len));
             }
         }
 
-        // SAFETY: this is safe because we ensured that `self.rx_buffer` has at least one
-        // DescriptorChain parsed in it.
+        // SAFETY:
+        // * We ensured that `self.rx_buffer` has at least one DescriptorChain parsed in it.
         let len = unsafe { self.read_tap().map_err(NetError::IO) }?;
+        // SAFETY:
+        // * len will never be bigger that u32::MAX
+        let len: u32 = len.try_into().unwrap();
 
-        // SAFETY: This is safe,
+        // SAFETY:
         // * `rx_buffer` has at least one `DescriptorChain`
         // * `read_tap` passes the first `DescriptorChain` to `readv` so we can't have read more
         //   bytes than its capacity.
-        let dc = unsafe { self.rx_buffer.mark_used(len.try_into().unwrap()) };
-        Ok(Some(dc))
+        unsafe {
+            self.rx_buffer.mark_used(len, &mut self.queues[RX_INDEX]);
+        }
+        Ok(Some(len))
     }
 
     /// Read as many frames as possible.
@@ -589,12 +634,11 @@ impl Net {
                     self.metrics.no_rx_avail_buffer.inc();
                     break;
                 }
-                Ok(Some(dc)) => {
+                Ok(Some(bytes)) => {
                     self.metrics.rx_count.inc();
-                    self.metrics.rx_bytes_count.add(dc.length as u64);
+                    self.metrics.rx_bytes_count.add(bytes as u64);
                     self.metrics.rx_packets_count.inc();
-                    if !self.rate_limited_rx_single_frame(&dc) {
-                        self.rx_buffer.deferred_descriptor = Some(dc);
+                    if !self.rate_limited_rx_single_frame(bytes) {
                         break;
                     }
                 }
@@ -622,11 +666,10 @@ impl Net {
 
     fn resume_rx(&mut self) -> Result<(), DeviceError> {
         // First try to handle any deferred frame
-        if let Some(deferred_descriptor) = self.rx_buffer.deferred_descriptor.take() {
+        if self.rx_buffer.used_bytes != 0 {
             // If can't finish sending this frame, re-set it as deferred and return; we can't
             // process any more frames from the TAP.
-            if !self.rate_limited_rx_single_frame(&deferred_descriptor) {
-                self.rx_buffer.deferred_descriptor = Some(deferred_descriptor);
+            if !self.rate_limited_rx_single_frame(self.rx_buffer.used_bytes) {
                 return Ok(());
             }
         }
@@ -692,7 +735,7 @@ impl Net {
                 &self.metrics,
             )
             .unwrap_or(false);
-            if frame_consumed_by_mmds && self.rx_buffer.deferred_descriptor.is_none() {
+            if frame_consumed_by_mmds && self.rx_buffer.used_bytes == 0 {
                 // MMDS consumed this frame/request, let's also try to process the response.
                 process_rx_for_mmds = true;
             }
@@ -777,9 +820,12 @@ impl Net {
     ///
     /// `self.rx_buffer` needs to have at least one descriptor chain parsed
     pub unsafe fn read_tap(&mut self) -> std::io::Result<usize> {
-        let nr_iovecs = self.rx_buffer.parsed_descriptors[0].nr_iovecs as usize;
-        self.tap
-            .read_iovec(&mut self.rx_buffer.iovec.as_iovec_mut_slice()[..nr_iovecs])
+        let slice = if self.has_feature(VIRTIO_NET_F_MRG_RXBUF as u64) {
+            self.rx_buffer.all_chains_slice_mut()
+        } else {
+            self.rx_buffer.single_chain_slice_mut()
+        };
+        self.tap.read_iovec(slice)
     }
 
     fn write_tap(tap: &mut Tap, buf: &IoVecBuffer) -> std::io::Result<usize> {
@@ -981,12 +1027,15 @@ impl VirtioDevice for Net {
 
 #[cfg(test)]
 #[macro_use]
+#[allow(clippy::cast_possible_truncation)]
 pub mod tests {
     use std::net::Ipv4Addr;
     use std::os::fd::AsRawFd;
     use std::str::FromStr;
     use std::time::Duration;
     use std::{mem, thread};
+
+    use vm_memory::GuestAddress;
 
     use super::*;
     use crate::check_metric_after_block;
@@ -1002,6 +1051,7 @@ pub mod tests {
     };
     use crate::devices::virtio::net::NET_QUEUE_SIZES;
     use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
+    use crate::devices::virtio::test_utils::VirtQueue;
     use crate::dumbo::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
     use crate::dumbo::pdu::ethernet::ETHERTYPE_ARP;
     use crate::dumbo::EthernetFrame;
@@ -1010,6 +1060,12 @@ pub mod tests {
     use crate::test_utils::single_region_mem;
     use crate::utils::net::mac::{MacAddr, MAC_ADDR_LEN};
     use crate::vstate::memory::{Address, GuestMemory};
+
+    impl Net {
+        pub fn finish_frame(&mut self) {
+            self.rx_buffer.finish_frame(&mut self.queues[RX_INDEX]);
+        }
+    }
 
     /// Write the number of descriptors used in VirtIO header
     fn header_set_num_buffers(frame: &mut [u8], nr_descs: u16) {
@@ -1069,6 +1125,7 @@ pub mod tests {
             | 1 << VIRTIO_NET_F_HOST_TSO6
             | 1 << VIRTIO_NET_F_HOST_UFO
             | 1 << VIRTIO_F_VERSION_1
+            | 1 << VIRTIO_NET_F_MRG_RXBUF
             | 1 << VIRTIO_RING_F_EVENT_IDX;
 
         assert_eq!(
@@ -1190,10 +1247,7 @@ pub mod tests {
         assert_eq!(th.rxq.used.idx.get(), 0);
     }
 
-    #[test]
-    fn test_rx_read_only_descriptor() {
-        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
-        let mut th = TestHelper::get_default(&mem);
+    fn rx_read_only_descriptor(mut th: TestHelper) {
         th.activate_net();
 
         th.add_desc_chain(
@@ -1217,12 +1271,25 @@ pub mod tests {
     }
 
     #[test]
-    fn test_rx_short_writable_descriptor() {
+    fn test_rx_read_only_descriptor() {
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let th = TestHelper::get_default(&mem);
+        rx_read_only_descriptor(th);
+    }
+
+    #[test]
+    fn test_rx_read_only_descriptor_mrg() {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_read_only_descriptor(th);
+    }
+
+    fn rx_short_descriptor(mut th: TestHelper) {
         th.activate_net();
 
-        th.add_desc_chain(NetQueue::Rx, 0, &[(0, 100, VIRTQ_DESC_F_WRITE)]);
+        th.add_desc_chain(NetQueue::Rx, 0, &[(0, 10, VIRTQ_DESC_F_WRITE)]);
         let mut frame = th.check_rx_discarded_buffer(1000);
         th.rxq.check_used_elem(0, 0, 0);
 
@@ -1231,9 +1298,22 @@ pub mod tests {
     }
 
     #[test]
-    fn test_rx_partial_write() {
+    fn test_rx_short_descriptor() {
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let th = TestHelper::get_default(&mem);
+        rx_short_descriptor(th);
+    }
+
+    #[test]
+    fn test_rx_short_descriptor_mrg() {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_short_descriptor(th);
+    }
+
+    fn rx_invalid_descriptor(mut th: TestHelper) {
         th.activate_net();
 
         // The descriptor chain is created so that the last descriptor doesn't fit in the
@@ -1256,9 +1336,22 @@ pub mod tests {
     }
 
     #[test]
-    fn test_rx_retry() {
+    fn test_rx_invalid_descriptor() {
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let th = TestHelper::get_default(&mem);
+        rx_invalid_descriptor(th);
+    }
+
+    #[test]
+    fn test_rx_invalid_descriptor_mrg() {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_invalid_descriptor(th);
+    }
+
+    fn rx_retry(mut th: TestHelper) {
         th.activate_net();
 
         // Add invalid descriptor chain - read only descriptor.
@@ -1272,7 +1365,7 @@ pub mod tests {
             ],
         );
         // Add invalid descriptor chain - too short.
-        th.add_desc_chain(NetQueue::Rx, 1200, &[(3, 100, VIRTQ_DESC_F_WRITE)]);
+        th.add_desc_chain(NetQueue::Rx, 1200, &[(3, 10, VIRTQ_DESC_F_WRITE)]);
         // Add invalid descriptor chain - invalid memory offset.
         th.add_desc_chain(
             NetQueue::Rx,
@@ -1282,7 +1375,11 @@ pub mod tests {
 
         // Add valid descriptor chain. TestHelper does not negotiate any feature offloading so the
         // buffers need to be at least 1526 bytes long.
-        th.add_desc_chain(NetQueue::Rx, 1300, &[(5, 1526, VIRTQ_DESC_F_WRITE)]);
+        th.add_desc_chain(
+            NetQueue::Rx,
+            1300,
+            &[(5, MAX_BUFFER_SIZE as u32, VIRTQ_DESC_F_WRITE)],
+        );
 
         // Inject frame to tap and run epoll.
         let mut frame = inject_tap_tx_frame(&th.net(), 1000);
@@ -1300,7 +1397,7 @@ pub mod tests {
         th.rxq.check_used_elem(1, 3, 0);
         th.rxq.check_used_elem(2, 4, 0);
         // Check that the frame wasn't deferred.
-        assert!(th.net().rx_buffer.deferred_descriptor.is_none());
+        assert!(th.net().rx_buffer.used_descriptors == 0);
         // Check that the frame has been written successfully to the valid Rx descriptor chain.
         th.rxq
             .check_used_elem(3, 5, frame.len().try_into().unwrap());
@@ -1309,9 +1406,22 @@ pub mod tests {
     }
 
     #[test]
-    fn test_rx_complex_desc_chain() {
+    fn test_rx_retry() {
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let th = TestHelper::get_default(&mem);
+        rx_retry(th);
+    }
+
+    #[test]
+    fn test_rx_retry_mrg() {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_retry(th);
+    }
+
+    fn rx_complex_desc_chain(mut th: TestHelper) {
         th.activate_net();
 
         // Create a valid Rx avail descriptor chain with multiple descriptors.
@@ -1323,7 +1433,7 @@ pub mod tests {
             &[
                 (3, 100, VIRTQ_DESC_F_WRITE),
                 (5, 50, VIRTQ_DESC_F_WRITE),
-                (11, 4096, VIRTQ_DESC_F_WRITE),
+                (11, MAX_BUFFER_SIZE as u32 - 100 - 50, VIRTQ_DESC_F_WRITE),
             ],
         );
         // Inject frame to tap and run epoll.
@@ -1335,7 +1445,7 @@ pub mod tests {
         );
 
         // Check that the frame wasn't deferred.
-        assert!(th.net().rx_buffer.deferred_descriptor.is_none());
+        assert!(th.net().rx_buffer.used_descriptors == 0);
         // Check that the used queue has advanced.
         assert_eq!(th.rxq.used.idx.get(), 1);
         assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
@@ -1349,9 +1459,22 @@ pub mod tests {
     }
 
     #[test]
-    fn test_rx_multiple_frames() {
+    fn test_rx_complex_desc_chain() {
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let th = TestHelper::get_default(&mem);
+        rx_complex_desc_chain(th);
+    }
+
+    #[test]
+    fn test_rx_complex_desc_chain_mrg() {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_complex_desc_chain(th);
+    }
+
+    fn rx_multiple_frames(mut th: TestHelper) {
         th.activate_net();
 
         // Create 2 valid Rx avail descriptor chains. Each one has enough space to fit the
@@ -1362,16 +1485,17 @@ pub mod tests {
             &[
                 (0, 500, VIRTQ_DESC_F_WRITE),
                 (1, 500, VIRTQ_DESC_F_WRITE),
-                (2, 526, VIRTQ_DESC_F_WRITE),
+                (2, MAX_BUFFER_SIZE as u32 - 1000, VIRTQ_DESC_F_WRITE),
             ],
         );
+        // Second chain needs at least MAX_BUFFER_SIZE offset
         th.add_desc_chain(
             NetQueue::Rx,
-            2000,
+            MAX_BUFFER_SIZE as u64 + 1000,
             &[
                 (3, 500, VIRTQ_DESC_F_WRITE),
                 (4, 500, VIRTQ_DESC_F_WRITE),
-                (5, 526, VIRTQ_DESC_F_WRITE),
+                (5, MAX_BUFFER_SIZE as u32 - 1000, VIRTQ_DESC_F_WRITE),
             ],
         );
         // Inject 2 frames to tap and run epoll.
@@ -1384,7 +1508,7 @@ pub mod tests {
         );
 
         // Check that the frames weren't deferred.
-        assert!(th.net().rx_buffer.deferred_descriptor.is_none());
+        assert!(th.net().rx_buffer.used_bytes == 0);
         // Check that the used queue has advanced.
         assert_eq!(th.rxq.used.idx.get(), 2);
         assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
@@ -1394,14 +1518,85 @@ pub mod tests {
             .check_used_elem(0, 0, frame_1.len().try_into().unwrap());
         th.rxq.dtable[0].check_data(&frame_1);
         th.rxq.dtable[1].check_data(&[0; 500]);
-        th.rxq.dtable[2].check_data(&[0; 526]);
+        th.rxq.dtable[2].check_data(&[0; MAX_BUFFER_SIZE - 1000]);
         // Check that the 2nd frame was written successfully to the 2nd Rx descriptor chain.
         header_set_num_buffers(frame_2.as_mut_slice(), 1);
         th.rxq
             .check_used_elem(1, 3, frame_2.len().try_into().unwrap());
         th.rxq.dtable[3].check_data(&frame_2);
         th.rxq.dtable[4].check_data(&[0; 500]);
-        th.rxq.dtable[2].check_data(&[0; 526]);
+        th.rxq.dtable[5].check_data(&[0; MAX_BUFFER_SIZE - 1000]);
+    }
+
+    #[test]
+    fn test_rx_multiple_frames() {
+        let mem = single_region_mem(3 * MAX_BUFFER_SIZE);
+        let th = TestHelper::get_default(&mem);
+        rx_multiple_frames(th);
+    }
+
+    #[test]
+    fn test_rx_multiple_frames_mrg() {
+        let mem = single_region_mem(3 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_multiple_frames(th);
+    }
+
+    fn rx_mrg_rxbuf_only(mut th: TestHelper) {
+        th.activate_net();
+
+        // Create 2 valid Rx avail descriptor chains. The total size should
+        // be at least 64K to pass the capacity check for rx_buffers.
+        // First chain is intentionally small, so non VIRTIO_NET_F_MRG_RXBUF
+        // version will skip it.
+        th.add_desc_chain(NetQueue::Rx, 0, &[(0, 500, VIRTQ_DESC_F_WRITE)]);
+        th.add_desc_chain(
+            NetQueue::Rx,
+            1000,
+            &[(1, MAX_BUFFER_SIZE as u32, VIRTQ_DESC_F_WRITE)],
+        );
+        // Inject frame to tap and run epoll.
+        let mut frame = inject_tap_tx_frame(&th.net(), 1000);
+        check_metric_after_block!(
+            th.net().metrics.rx_packets_count,
+            1,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+
+        // Check that the frame wasn't deferred.
+        assert!(th.net().rx_buffer.used_bytes == 0);
+        // Check that the used queue has advanced.
+        assert_eq!(th.rxq.used.idx.get(), 2);
+        assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
+        // 2 chains should be used for the packet.
+        header_set_num_buffers(frame.as_mut_slice(), 2);
+
+        // Here non VIRTIO_NET_F_MRG_RXBUF version should panic as
+        // first descriptor will be discarded by it.
+        th.rxq.check_used_elem(0, 0, 500);
+
+        th.rxq.check_used_elem(1, 1, 500);
+        th.rxq.dtable[0].check_data(&frame[0..500]);
+        th.rxq.dtable[1].check_data(&frame[500..]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_rx_mrg_rxbuf_only() {
+        let mem = single_region_mem(3 * MAX_BUFFER_SIZE);
+        let th = TestHelper::get_default(&mem);
+        rx_mrg_rxbuf_only(th);
+    }
+
+    #[test]
+    fn test_rx_mrg_rxbuf_only_mrg() {
+        let mem = single_region_mem(3 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_mrg_rxbuf_only(th);
     }
 
     #[test]
@@ -1688,9 +1883,13 @@ pub mod tests {
     fn test_mmds_detour_and_injection() {
         let mut net = default_net();
 
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let rxq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        net.queues[RX_INDEX] = rxq.create_queue();
+
         // Inject a fake buffer in the devices buffers, otherwise we won't be able to receive the
         // MMDS frame. One iovec will be just fine.
-        let mut fake_buffer = vec![0u8; 1024];
+        let mut fake_buffer = vec![0u8; MAX_BUFFER_SIZE];
         let iov_buffer = IoVecBufferMut::from(fake_buffer.as_mut_slice());
         net.rx_buffer.iovec = iov_buffer;
         net.rx_buffer
@@ -1818,11 +2017,8 @@ pub mod tests {
         unsafe { libc::close(th.net.lock().unwrap().tap.as_raw_fd()) };
 
         // The RX queue is empty and there is a deferred frame.
-        th.net().rx_buffer.deferred_descriptor = Some(ParsedDescriptorChain {
-            head_index: 1,
-            length: 100,
-            nr_iovecs: 1,
-        });
+        th.net().rx_buffer.used_descriptors = 1;
+        th.net().rx_buffer.used_bytes = 100;
         check_metric_after_block!(
             th.net().metrics.no_rx_avail_buffer,
             1,
@@ -1832,9 +2028,14 @@ pub mod tests {
         // We need to set this here to false, otherwise the device will try to
         // handle a deferred frame, it will fail and will never try to read from
         // the tap.
-        th.net().rx_buffer.deferred_descriptor = None;
+        th.net().rx_buffer.used_descriptors = 0;
+        th.net().rx_buffer.used_bytes = 0;
 
-        th.add_desc_chain(NetQueue::Rx, 0, &[(0, 4096, VIRTQ_DESC_F_WRITE)]);
+        th.add_desc_chain(
+            NetQueue::Rx,
+            0,
+            &[(0, MAX_BUFFER_SIZE as u32, VIRTQ_DESC_F_WRITE)],
+        );
         check_metric_after_block!(
             th.net().metrics.tap_read_fails,
             1,
@@ -1954,8 +2155,12 @@ pub mod tests {
             let mut rl = RateLimiter::new(1000, 0, 500, 0, 0, 0).unwrap();
 
             // set up RX
-            assert!(th.net().rx_buffer.deferred_descriptor.is_none());
-            th.add_desc_chain(NetQueue::Rx, 0, &[(0, 4096, VIRTQ_DESC_F_WRITE)]);
+            assert!(th.net().rx_buffer.used_descriptors == 0);
+            th.add_desc_chain(
+                NetQueue::Rx,
+                0,
+                &[(0, MAX_BUFFER_SIZE as u32, VIRTQ_DESC_F_WRITE)],
+            );
 
             let mut frame = inject_tap_tx_frame(&th.net(), 1000);
 
@@ -1974,7 +2179,7 @@ pub mod tests {
                 // assert that limiter is blocked
                 assert!(th.net().rx_rate_limiter.is_blocked());
                 assert_eq!(th.net().metrics.rx_rate_limiter_throttled.count(), 1);
-                assert!(th.net().rx_buffer.deferred_descriptor.is_some());
+                assert!(th.net().rx_buffer.used_descriptors != 0);
                 // assert that no operation actually completed (limiter blocked it)
                 assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
                 // make sure the data is still queued for processing
@@ -2073,8 +2278,12 @@ pub mod tests {
             let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 500).unwrap();
 
             // set up RX
-            assert!(th.net().rx_buffer.deferred_descriptor.is_none());
-            th.add_desc_chain(NetQueue::Rx, 0, &[(0, 4096, VIRTQ_DESC_F_WRITE)]);
+            assert!(th.net().rx_buffer.used_descriptors == 0);
+            th.add_desc_chain(
+                NetQueue::Rx,
+                0,
+                &[(0, MAX_BUFFER_SIZE as u32, VIRTQ_DESC_F_WRITE)],
+            );
             let mut frame = inject_tap_tx_frame(&th.net(), 1234);
 
             // use up the initial budget
@@ -2095,7 +2304,7 @@ pub mod tests {
                 // assert that limiter is blocked
                 assert!(th.net().rx_rate_limiter.is_blocked());
                 assert!(th.net().metrics.rx_rate_limiter_throttled.count() >= 1);
-                assert!(th.net().rx_buffer.deferred_descriptor.is_some());
+                assert!(th.net().rx_buffer.used_descriptors != 0);
                 // assert that no operation actually completed (limiter blocked it)
                 assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
                 // make sure the data is still queued for processing
