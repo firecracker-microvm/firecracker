@@ -665,7 +665,7 @@ impl Net {
 
     /// Builds the offload features we will setup on the TAP device based on the features that the
     /// guest supports.
-    fn build_tap_offload_features(guest_supported_features: u64) -> u32 {
+    pub fn build_tap_offload_features(guest_supported_features: u64) -> u32 {
         let add_if_supported =
             |tap_features: &mut u32, supported_features: u64, tap_flag: u32, virtio_flag: u32| {
                 if supported_features & (1 << virtio_flag) != 0 {
