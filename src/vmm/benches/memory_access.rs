@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
-use vm_memory::{GuestAddress, GuestMemory};
+use vm_memory::GuestMemory;
 use vmm::resources::VmResources;
 use vmm::vmm_config::machine_config::{HugePageConfig, VmConfig};
 
@@ -11,11 +11,10 @@ fn bench_single_page_fault(c: &mut Criterion, configuration: VmResources) {
         b.iter_batched(
             || {
                 let memory = configuration.allocate_guest_memory().unwrap();
-                let ptr = memory
-                    .get_slice(GuestAddress(0), 1)
-                    .unwrap()
-                    .ptr_guard_mut()
-                    .as_ptr();
+                // Get a pointer to the first memory region (cannot do `.get_slice(GuestAddress(0),
+                // 1)`, because on ARM64 guest memory does not start at physical
+                // address 0).
+                let ptr = memory.iter().next().unwrap().as_ptr();
 
                 // fine to return both here, because ptr is not a reference into `memory` (e.g. no
                 // self-referential structs are happening here)
