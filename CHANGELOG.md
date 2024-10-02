@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## \[Unreleased\]
+
+### Fixed
+
+- [#4824](https://github.com/firecracker-microvm/firecracker/pull/4824): Add
+  missing configuration of tap offload features when restoring from a snapshot.
+  Setting the features was previously
+  [moved](https://github.com/firecracker-microvm/firecracker/pull/4680/commits/49ed5ea4b48ccd98903da037368fa3108f58ac1f)
+  from net device creation to device activation time, but it was not reflected
+  in the restore path. This was leading to inability to connect to the restored
+  VM if the offload features were used.
+
 ## \[1.9.0\]
 
 ### Added
