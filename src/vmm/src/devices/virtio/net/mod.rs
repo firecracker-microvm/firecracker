@@ -27,8 +27,10 @@ pub mod test_utils;
 mod gen;
 
 pub use tap::{Tap, TapError};
+use vm_memory::VolatileMemoryError;
 
 pub use self::device::Net;
+use super::iovec::IoVecError;
 
 /// Enum representing the Net device queue types
 #[derive(Debug)]
@@ -50,6 +52,10 @@ pub enum NetError {
     EventFd(io::Error),
     /// IO error: {0}
     IO(io::Error),
+    /// Error writing in guest memory: {0}
+    GuestMemoryError(#[from] VolatileMemoryError),
     /// The VNET header is missing from the frame
     VnetHeaderMissing,
+    /// IoVecBuffer(Mut) error: {0}
+    IoVecError(#[from] IoVecError),
 }
