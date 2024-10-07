@@ -11,7 +11,7 @@ bench = false
 [dependencies]
 acpi_tables = { path = "../acpi-tables" } 
 aes-gcm =  { version = "0.10.1", default-features = false, features = ["aes"] }
-aws-lc-rs = { version = "1.9.0", features = ["bindgen"] }
+aws-lc-rs = { version = "1.10.0", features = ["bindgen"] }
 base64 = "0.22.1"
 bincode = "1.2.1"
 bitflags = "2.6.0"
@@ -43,7 +43,7 @@ vm-allocator = "0.1.0"
 vm-memory = { version = "0.15.0", features = ["backend-mmap", "backend-bitmap"] }
 vm-superio = "0.8.0"
 vmm-sys-util = { version = "0.12.1", features = ["with-serde"] }
-zerocopy = { version = "0.7.35" }
+zerocopy = { version = "0.8.2" }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 vm-fdt = "0.3.0"
