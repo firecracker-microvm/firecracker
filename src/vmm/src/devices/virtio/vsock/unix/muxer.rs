@@ -40,12 +40,12 @@ use vmm_sys_util::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
 
 use super::super::csm::ConnState;
 use super::super::defs::uapi;
-use super::super::packet::VsockPacket;
 use super::super::{VsockBackend, VsockChannel, VsockEpollListener, VsockError};
 use super::muxer_killq::MuxerKillQ;
 use super::muxer_rxq::MuxerRxQ;
 use super::{defs, MuxerConnection, VsockUnixBackendError};
 use crate::devices::virtio::vsock::metrics::METRICS;
+use crate::devices::virtio::vsock::packet::{VsockPacketRx, VsockPacketTx};
 use crate::logger::IncMetric;
 
 /// A unique identifier of a `MuxerConnection` object. Connections are stored in a hash map,
@@ -115,7 +115,7 @@ impl VsockChannel for VsockMuxer {
     /// Retuns:
     /// - `Ok(())`: `pkt` has been successfully filled in; or
     /// - `Err(VsockError::NoData)`: there was no available data with which to fill in the packet.
-    fn recv_pkt(&mut self, pkt: &mut VsockPacket) -> Result<(), VsockError> {
+    fn recv_pkt(&mut self, pkt: &mut VsockPacketRx) -> Result<(), VsockError> {
         // We'll look for instructions on how to build the RX packet in the RX queue. If the
         // queue is empty, that doesn't necessarily mean we don't have any pending RX, since
         // the queue might be out-of-sync. If that's the case, we'll attempt to sync it first,
@@ -131,7 +131,8 @@ impl VsockChannel for VsockMuxer {
                     local_port,
                     peer_port,
                 } => {
-                    pkt.set_op(uapi::VSOCK_OP_RST)
+                    pkt.hdr
+                        .set_op(uapi::VSOCK_OP_RST)
                         .set_src_cid(uapi::VSOCK_HOST_CID)
                         .set_dst_cid(self.cid)
                         .set_src_port(local_port)
@@ -165,14 +166,14 @@ impl VsockChannel for VsockMuxer {
                 // Inspect traffic, looking for RST packets, since that means we have to
                 // terminate and remove this connection from the active connection pool.
                 //
-                if pkt.op() == uapi::VSOCK_OP_RST {
+                if pkt.hdr.op() == uapi::VSOCK_OP_RST {
                     self.remove_connection(ConnMapKey {
-                        local_port: pkt.src_port(),
-                        peer_port: pkt.dst_port(),
+                        local_port: pkt.hdr.src_port(),
+                        peer_port: pkt.hdr.dst_port(),
                     });
                 }
 
-                debug!("vsock muxer: RX pkt: {:?}", pkt.hdr());
+                debug!("vsock muxer: RX pkt: {:?}", pkt.hdr);
                 return Ok(());
             }
         }
@@ -188,31 +189,31 @@ impl VsockChannel for VsockMuxer {
     /// Returns:
     /// always `Ok(())` - the packet has been consumed, and its virtio TX buffers can be
     /// returned to the guest vsock driver.
-    fn send_pkt(&mut self, pkt: &VsockPacket) -> Result<(), VsockError> {
+    fn send_pkt(&mut self, pkt: &VsockPacketTx) -> Result<(), VsockError> {
         let conn_key = ConnMapKey {
-            local_port: pkt.dst_port(),
-            peer_port: pkt.src_port(),
+            local_port: pkt.hdr.dst_port(),
+            peer_port: pkt.hdr.src_port(),
         };
 
         debug!(
             "vsock: muxer.send[rxq.len={}]: {:?}",
             self.rxq.len(),
-            pkt.hdr()
+            pkt.hdr
         );
 
         // If this packet has an unsupported type (!=stream), we must send back an RST.
         //
-        if pkt.type_() != uapi::VSOCK_TYPE_STREAM {
-            self.enq_rst(pkt.dst_port(), pkt.src_port());
+        if pkt.hdr.type_() != uapi::VSOCK_TYPE_STREAM {
+            self.enq_rst(pkt.hdr.dst_port(), pkt.hdr.src_port());
             return Ok(());
         }
 
         // We don't know how to handle packets addressed to other CIDs. We only handle the host
         // part of the guest - host communication here.
-        if pkt.dst_cid() != uapi::VSOCK_HOST_CID {
+        if pkt.hdr.dst_cid() != uapi::VSOCK_HOST_CID {
             info!(
                 "vsock: dropping guest packet for unknown CID: {:?}",
-                pkt.hdr()
+                pkt.hdr
             );
             return Ok(());
         }
@@ -221,12 +222,12 @@ impl VsockChannel for VsockMuxer {
             // This packet can't be routed to any active connection (based on its src and dst
             // ports).  The only orphan / unroutable packets we know how to handle are
             // connection requests.
-            if pkt.op() == uapi::VSOCK_OP_REQUEST {
+            if pkt.hdr.op() == uapi::VSOCK_OP_REQUEST {
                 // Oh, this is a connection request!
                 self.handle_peer_request_pkt(pkt);
             } else {
                 // Send back an RST, to let the drive know we weren't expecting this packet.
-                self.enq_rst(pkt.dst_port(), pkt.src_port());
+                self.enq_rst(pkt.hdr.dst_port(), pkt.hdr.src_port());
             }
             return Ok(());
         }
@@ -234,7 +235,7 @@ impl VsockChannel for VsockMuxer {
         // Right, we know where to send this packet, then (to `conn_key`).
         // However, if this is an RST, we have to forcefully terminate the connection, so
         // there's no point in forwarding it the packet.
-        if pkt.op() == uapi::VSOCK_OP_RST {
+        if pkt.hdr.op() == uapi::VSOCK_OP_RST {
             self.remove_connection(conn_key);
             return Ok(());
         }
@@ -608,8 +609,8 @@ impl VsockMuxer {
     /// the file system path corresponing to the destination port. If successful, a new
     /// connection object will be created and added to the connection pool. On failure, a new
     /// RST packet will be scheduled for delivery to the guest.
-    fn handle_peer_request_pkt(&mut self, pkt: &VsockPacket) {
-        let port_path = format!("{}_{}", self.host_sock_path, pkt.dst_port());
+    fn handle_peer_request_pkt(&mut self, pkt: &VsockPacketTx) {
+        let port_path = format!("{}_{}", self.host_sock_path, pkt.hdr.dst_port());
 
         UnixStream::connect(port_path)
             .and_then(|stream| stream.set_nonblocking(true).map(|_| stream))
@@ -617,20 +618,20 @@ impl VsockMuxer {
             .and_then(|stream| {
                 self.add_connection(
                     ConnMapKey {
-                        local_port: pkt.dst_port(),
-                        peer_port: pkt.src_port(),
+                        local_port: pkt.hdr.dst_port(),
+                        peer_port: pkt.hdr.src_port(),
                     },
                     MuxerConnection::new_peer_init(
                         stream,
                         uapi::VSOCK_HOST_CID,
                         self.cid,
-                        pkt.dst_port(),
-                        pkt.src_port(),
-                        pkt.buf_alloc(),
+                        pkt.hdr.dst_port(),
+                        pkt.hdr.src_port(),
+                        pkt.hdr.buf_alloc(),
                     ),
                 )
             })
-            .unwrap_or_else(|_| self.enq_rst(pkt.dst_port(), pkt.src_port()));
+            .unwrap_or_else(|_| self.enq_rst(pkt.hdr.dst_port(), pkt.hdr.src_port()));
     }
 
     /// Perform an action that might mutate a connection's state.
@@ -806,8 +807,8 @@ mod tests {
     struct MuxerTestContext {
         _vsock_test_ctx: VsockTestContext,
         // Two views of the same in-memory packet. rx-view for writing, tx-view for reading
-        rx_pkt: VsockPacket,
-        tx_pkt: VsockPacket,
+        rx_pkt: VsockPacketRx,
+        tx_pkt: VsockPacketTx,
         muxer: VsockMuxer,
     }
 
@@ -832,16 +833,20 @@ mod tests {
         fn new(name: &str) -> Self {
             let vsock_test_ctx = VsockTestContext::new();
             let mut handler_ctx = vsock_test_ctx.create_event_handler_context();
-            let rx_pkt = VsockPacket::from_rx_virtq_head(
-                &vsock_test_ctx.mem,
-                handler_ctx.device.queues[RXQ_INDEX].pop().unwrap(),
-            )
-            .unwrap();
-            let tx_pkt = VsockPacket::from_tx_virtq_head(
-                &vsock_test_ctx.mem,
-                handler_ctx.device.queues[TXQ_INDEX].pop().unwrap(),
-            )
-            .unwrap();
+            let mut rx_pkt = VsockPacketRx::default();
+            rx_pkt
+                .parse(
+                    &vsock_test_ctx.mem,
+                    handler_ctx.device.queues[RXQ_INDEX].pop().unwrap(),
+                )
+                .unwrap();
+            let mut tx_pkt = VsockPacketTx::default();
+            tx_pkt
+                .parse(
+                    &vsock_test_ctx.mem,
+                    handler_ctx.device.queues[TXQ_INDEX].pop().unwrap(),
+                )
+                .unwrap();
 
             let muxer = VsockMuxer::new(PEER_CID, get_file(name)).unwrap();
             Self {
@@ -852,15 +857,17 @@ mod tests {
             }
         }
 
-        fn init_tx_pkt(&mut self, local_port: u32, peer_port: u32, op: u16) -> &mut VsockPacket {
+        fn init_tx_pkt(&mut self, local_port: u32, peer_port: u32, op: u16) -> &mut VsockPacketTx {
             self.tx_pkt
+                .hdr
                 .set_type(uapi::VSOCK_TYPE_STREAM)
                 .set_src_cid(PEER_CID)
                 .set_dst_cid(uapi::VSOCK_HOST_CID)
                 .set_src_port(peer_port)
                 .set_dst_port(local_port)
                 .set_op(op)
-                .set_buf_alloc(PEER_BUF_ALLOC)
+                .set_buf_alloc(PEER_BUF_ALLOC);
+            &mut self.tx_pkt
         }
 
         fn init_data_tx_pkt(
@@ -868,10 +875,10 @@ mod tests {
             local_port: u32,
             peer_port: u32,
             mut data: &[u8],
-        ) -> &mut VsockPacket {
+        ) -> &mut VsockPacketTx {
             assert!(data.len() <= self.tx_pkt.buf_size() as usize);
-            self.init_tx_pkt(local_port, peer_port, uapi::VSOCK_OP_RW)
-                .set_len(u32::try_from(data.len()).unwrap());
+            let tx_pkt = self.init_tx_pkt(local_port, peer_port, uapi::VSOCK_OP_RW);
+            tx_pkt.hdr.set_len(u32::try_from(data.len()).unwrap());
 
             let data_len = data.len().try_into().unwrap(); // store in tmp var to make borrow checker happy.
             self.rx_pkt
@@ -948,9 +955,9 @@ mod tests {
             // A connection request for the peer should now be available from the muxer.
             assert!(self.muxer.has_pending_rx());
             self.recv();
-            assert_eq!(self.rx_pkt.op(), uapi::VSOCK_OP_REQUEST);
-            assert_eq!(self.rx_pkt.dst_port(), peer_port);
-            assert_eq!(self.rx_pkt.src_port(), local_port);
+            assert_eq!(self.rx_pkt.hdr.op(), uapi::VSOCK_OP_REQUEST);
+            assert_eq!(self.rx_pkt.hdr.dst_port(), peer_port);
+            assert_eq!(self.rx_pkt.hdr.src_port(), local_port);
 
             self.init_tx_pkt(local_port, peer_port, uapi::VSOCK_OP_RESPONSE);
             self.send();
@@ -1022,19 +1029,19 @@ mod tests {
         const SOCK_DGRAM: u16 = 2;
 
         let mut ctx = MuxerTestContext::new("bad_peer_pkt");
-        ctx.init_tx_pkt(LOCAL_PORT, PEER_PORT, uapi::VSOCK_OP_REQUEST)
-            .set_type(SOCK_DGRAM);
+        let tx_pkt = ctx.init_tx_pkt(LOCAL_PORT, PEER_PORT, uapi::VSOCK_OP_REQUEST);
+        tx_pkt.hdr.set_type(SOCK_DGRAM);
         ctx.send();
 
         // The guest sent a SOCK_DGRAM packet. Per the vsock spec, we need to reply with an RST
         // packet, since vsock only supports stream sockets.
         assert!(ctx.muxer.has_pending_rx());
         ctx.recv();
-        assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RST);
-        assert_eq!(ctx.rx_pkt.src_cid(), uapi::VSOCK_HOST_CID);
-        assert_eq!(ctx.rx_pkt.dst_cid(), PEER_CID);
-        assert_eq!(ctx.rx_pkt.src_port(), LOCAL_PORT);
-        assert_eq!(ctx.rx_pkt.dst_port(), PEER_PORT);
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RST);
+        assert_eq!(ctx.rx_pkt.hdr.src_cid(), uapi::VSOCK_HOST_CID);
+        assert_eq!(ctx.rx_pkt.hdr.dst_cid(), PEER_CID);
+        assert_eq!(ctx.rx_pkt.hdr.src_port(), LOCAL_PORT);
+        assert_eq!(ctx.rx_pkt.hdr.dst_port(), PEER_PORT);
 
         // Any orphan (i.e. without a connection), non-RST packet, should be replied to with an
         // RST.
@@ -1050,15 +1057,15 @@ mod tests {
             ctx.send();
             assert!(ctx.muxer.has_pending_rx());
             ctx.recv();
-            assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RST);
-            assert_eq!(ctx.rx_pkt.src_port(), LOCAL_PORT);
-            assert_eq!(ctx.rx_pkt.dst_port(), PEER_PORT);
+            assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RST);
+            assert_eq!(ctx.rx_pkt.hdr.src_port(), LOCAL_PORT);
+            assert_eq!(ctx.rx_pkt.hdr.dst_port(), PEER_PORT);
         }
 
         // Any packet addressed to anything other than VSOCK_VHOST_CID should get dropped.
         assert!(!ctx.muxer.has_pending_rx());
-        ctx.init_tx_pkt(LOCAL_PORT, PEER_PORT, uapi::VSOCK_OP_REQUEST)
-            .set_dst_cid(uapi::VSOCK_HOST_CID + 1);
+        let tx_pkt = ctx.init_tx_pkt(LOCAL_PORT, PEER_PORT, uapi::VSOCK_OP_REQUEST);
+        tx_pkt.hdr.set_dst_cid(uapi::VSOCK_HOST_CID + 1);
         ctx.send();
         assert!(!ctx.muxer.has_pending_rx());
     }
@@ -1074,12 +1081,12 @@ mod tests {
         ctx.init_tx_pkt(LOCAL_PORT, PEER_PORT, uapi::VSOCK_OP_REQUEST);
         ctx.send();
         ctx.recv();
-        assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RST);
-        assert_eq!(ctx.rx_pkt.len(), 0);
-        assert_eq!(ctx.rx_pkt.src_cid(), uapi::VSOCK_HOST_CID);
-        assert_eq!(ctx.rx_pkt.dst_cid(), PEER_CID);
-        assert_eq!(ctx.rx_pkt.src_port(), LOCAL_PORT);
-        assert_eq!(ctx.rx_pkt.dst_port(), PEER_PORT);
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RST);
+        assert_eq!(ctx.rx_pkt.hdr.len(), 0);
+        assert_eq!(ctx.rx_pkt.hdr.src_cid(), uapi::VSOCK_HOST_CID);
+        assert_eq!(ctx.rx_pkt.hdr.dst_cid(), PEER_CID);
+        assert_eq!(ctx.rx_pkt.hdr.src_port(), LOCAL_PORT);
+        assert_eq!(ctx.rx_pkt.hdr.dst_port(), PEER_PORT);
 
         // Test peer connection accepted.
         let mut listener = ctx.create_local_listener(LOCAL_PORT);
@@ -1088,12 +1095,12 @@ mod tests {
         assert_eq!(ctx.muxer.conn_map.len(), 1);
         let mut stream = listener.accept();
         ctx.recv();
-        assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RESPONSE);
-        assert_eq!(ctx.rx_pkt.len(), 0);
-        assert_eq!(ctx.rx_pkt.src_cid(), uapi::VSOCK_HOST_CID);
-        assert_eq!(ctx.rx_pkt.dst_cid(), PEER_CID);
-        assert_eq!(ctx.rx_pkt.src_port(), LOCAL_PORT);
-        assert_eq!(ctx.rx_pkt.dst_port(), PEER_PORT);
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RESPONSE);
+        assert_eq!(ctx.rx_pkt.hdr.len(), 0);
+        assert_eq!(ctx.rx_pkt.hdr.src_cid(), uapi::VSOCK_HOST_CID);
+        assert_eq!(ctx.rx_pkt.hdr.dst_cid(), PEER_CID);
+        assert_eq!(ctx.rx_pkt.hdr.src_port(), LOCAL_PORT);
+        assert_eq!(ctx.rx_pkt.hdr.dst_port(), PEER_PORT);
         let key = ConnMapKey {
             local_port: LOCAL_PORT,
             peer_port: PEER_PORT,
@@ -1120,9 +1127,9 @@ mod tests {
         // of its connections, so it should now be reporting that it can fill in an RX packet.
         assert!(ctx.muxer.has_pending_rx());
         ctx.recv();
-        assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RW);
-        assert_eq!(ctx.rx_pkt.src_port(), LOCAL_PORT);
-        assert_eq!(ctx.rx_pkt.dst_port(), PEER_PORT);
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RW);
+        assert_eq!(ctx.rx_pkt.hdr.src_port(), LOCAL_PORT);
+        assert_eq!(ctx.rx_pkt.hdr.dst_port(), PEER_PORT);
 
         let buf = test_utils::read_packet_data(&ctx.tx_pkt, 4);
         assert_eq!(&buf, &data);
@@ -1156,9 +1163,9 @@ mod tests {
 
         assert!(ctx.muxer.has_pending_rx());
         ctx.recv();
-        assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RW);
-        assert_eq!(ctx.rx_pkt.src_port(), local_port);
-        assert_eq!(ctx.rx_pkt.dst_port(), peer_port);
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RW);
+        assert_eq!(ctx.rx_pkt.hdr.src_port(), local_port);
+        assert_eq!(ctx.rx_pkt.hdr.dst_port(), peer_port);
 
         let buf = test_utils::read_packet_data(&ctx.tx_pkt, 4);
         assert_eq!(&buf, &data);
@@ -1179,11 +1186,11 @@ mod tests {
         ctx.notify_muxer();
         assert!(ctx.muxer.has_pending_rx());
         ctx.recv();
-        assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_SHUTDOWN);
-        assert_ne!(ctx.rx_pkt.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_SEND, 0);
-        assert_ne!(ctx.rx_pkt.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_RCV, 0);
-        assert_eq!(ctx.rx_pkt.src_port(), local_port);
-        assert_eq!(ctx.rx_pkt.dst_port(), peer_port);
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_SHUTDOWN);
+        assert_ne!(ctx.rx_pkt.hdr.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_SEND, 0);
+        assert_ne!(ctx.rx_pkt.hdr.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_RCV, 0);
+        assert_eq!(ctx.rx_pkt.hdr.src_port(), local_port);
+        assert_eq!(ctx.rx_pkt.hdr.dst_port(), peer_port);
 
         // The connection should get removed (and its local port freed), after the peer replies
         // with an RST.
@@ -1210,9 +1217,9 @@ mod tests {
 
         assert!(ctx.muxer.has_pending_rx());
         ctx.recv();
-        assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RESPONSE);
-        assert_eq!(ctx.rx_pkt.src_port(), local_port);
-        assert_eq!(ctx.rx_pkt.dst_port(), peer_port);
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RESPONSE);
+        assert_eq!(ctx.rx_pkt.hdr.src_port(), local_port);
+        assert_eq!(ctx.rx_pkt.hdr.dst_port(), peer_port);
         let key = ConnMapKey {
             local_port,
             peer_port,
@@ -1220,17 +1227,17 @@ mod tests {
         assert!(ctx.muxer.conn_map.contains_key(&key));
 
         // Emulate a full shutdown from the peer (no-more-send + no-more-recv).
-        ctx.init_tx_pkt(local_port, peer_port, uapi::VSOCK_OP_SHUTDOWN)
-            .set_flag(uapi::VSOCK_FLAGS_SHUTDOWN_SEND)
-            .set_flag(uapi::VSOCK_FLAGS_SHUTDOWN_RCV);
+        let tx_pkt = ctx.init_tx_pkt(local_port, peer_port, uapi::VSOCK_OP_SHUTDOWN);
+        tx_pkt.hdr.set_flag(uapi::VSOCK_FLAGS_SHUTDOWN_SEND);
+        tx_pkt.hdr.set_flag(uapi::VSOCK_FLAGS_SHUTDOWN_RCV);
         ctx.send();
 
         // Now, the muxer should remove the connection from its map, and reply with an RST.
         assert!(ctx.muxer.has_pending_rx());
         ctx.recv();
-        assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RST);
-        assert_eq!(ctx.rx_pkt.src_port(), local_port);
-        assert_eq!(ctx.rx_pkt.dst_port(), peer_port);
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RST);
+        assert_eq!(ctx.rx_pkt.hdr.src_port(), local_port);
+        assert_eq!(ctx.rx_pkt.hdr.dst_port(), peer_port);
         let key = ConnMapKey {
             local_port,
             peer_port,
@@ -1277,15 +1284,15 @@ mod tests {
 
         for peer_port in peer_port_first..peer_port_first + defs::MUXER_RXQ_SIZE - 1 {
             ctx.recv();
-            assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RESPONSE);
+            assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RESPONSE);
             // The response order should hold. The evicted response should have been the last
             // enqueued.
-            assert_eq!(ctx.rx_pkt.dst_port(), peer_port);
+            assert_eq!(ctx.rx_pkt.hdr.dst_port(), peer_port);
         }
         // There should be one more packet in the queue: the RST.
         assert_eq!(ctx.muxer.rxq.len(), 1);
         ctx.recv();
-        assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RST);
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RST);
 
         // The queue should now be empty, but out-of-sync, so the muxer should report it has some
         // pending RX.
@@ -1299,11 +1306,11 @@ mod tests {
         // - the one that got evicted by the RST.
         ctx.recv();
         assert!(ctx.muxer.rxq.is_synced());
-        assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RESPONSE);
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RESPONSE);
 
         assert!(ctx.muxer.has_pending_rx());
         ctx.recv();
-        assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RESPONSE);
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RESPONSE);
     }
 
     #[test]
@@ -1325,17 +1332,17 @@ mod tests {
             ctx.send();
             ctx.notify_muxer();
             ctx.recv();
-            assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RESPONSE);
-            assert_eq!(ctx.rx_pkt.src_port(), local_port);
-            assert_eq!(ctx.rx_pkt.dst_port(), peer_port);
+            assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RESPONSE);
+            assert_eq!(ctx.rx_pkt.hdr.src_port(), local_port);
+            assert_eq!(ctx.rx_pkt.hdr.dst_port(), peer_port);
             {
                 let _stream = listener.accept();
             }
             ctx.notify_muxer();
             ctx.recv();
-            assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_SHUTDOWN);
-            assert_eq!(ctx.rx_pkt.src_port(), local_port);
-            assert_eq!(ctx.rx_pkt.dst_port(), peer_port);
+            assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_SHUTDOWN);
+            assert_eq!(ctx.rx_pkt.hdr.src_port(), local_port);
+            assert_eq!(ctx.rx_pkt.hdr.dst_port(), peer_port);
             // The kill queue should be synchronized, up until the `defs::MUXER_KILLQ_SIZE`th
             // connection we schedule for termination.
             assert_eq!(
@@ -1380,8 +1387,8 @@ mod tests {
         // dying connections in the recent killq sweep.
         for _p in peer_port_first..peer_port_last {
             ctx.recv();
-            assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RST);
-            assert_eq!(ctx.rx_pkt.src_port(), local_port);
+            assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RST);
+            assert_eq!(ctx.rx_pkt.hdr.src_port(), local_port);
         }
 
         // The connections should have been removed here.
@@ -1393,8 +1400,8 @@ mod tests {
         // There should be one more packet in the RX queue: the connection response our request
         // that triggered the kill queue sweep.
         ctx.recv();
-        assert_eq!(ctx.rx_pkt.op(), uapi::VSOCK_OP_RESPONSE);
-        assert_eq!(ctx.rx_pkt.dst_port(), peer_port_last + 1);
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RESPONSE);
+        assert_eq!(ctx.rx_pkt.hdr.dst_port(), peer_port_last + 1);
 
         assert!(!ctx.muxer.has_pending_rx());
     }

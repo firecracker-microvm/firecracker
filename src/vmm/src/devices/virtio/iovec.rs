@@ -219,13 +219,17 @@ impl IoVecBuffer {
 /// It describes a write-only buffer passed to us by the guest that is scattered across multiple
 /// memory regions. Additionally, this wrapper provides methods that allow reading arbitrary ranges
 /// of data from that buffer.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default)]
 pub struct IoVecBufferMut {
     // container of the memory regions included in this IO vector
     vecs: IoVecVec,
     // Total length of the IoVecBufferMut
     len: u32,
 }
+
+// SAFETY: `IoVecBufferMut` doesn't allow for interior mutability and no shared ownership is possible
+// as it doesn't implement clone
+unsafe impl Send for IoVecBufferMut {}
 
 impl IoVecBufferMut {
     /// Create an `IoVecBuffer` from a `DescriptorChain`
