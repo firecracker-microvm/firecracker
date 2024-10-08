@@ -17,7 +17,6 @@ PLATFORM = platform.machine()
 # The `check_output` timeout will always fire before this one, but we need to
 # set a timeout here to override the default pytest timeout of 180s.
 @pytest.mark.timeout(2420)
-@pytest.mark.skipif(PLATFORM != "x86_64", reason="Kani proofs run only on x86_64.")
 @pytest.mark.skipif(
     os.environ.get("BUILDKITE") != "true",
     reason="Kani's memory requirements likely cannot be satisfied locally",
