@@ -6,7 +6,7 @@
 
 use vm_memory::{Bytes, GuestAddress, GuestMemory};
 use zerocopy::little_endian::{U32, U64};
-use zerocopy::AsBytes;
+use zerocopy::{Immutable, IntoBytes};
 
 use crate::{checksum, Result, Sdt};
 
@@ -22,7 +22,7 @@ use crate::{checksum, Result, Sdt};
 /// More information about this structure can be found in the ACPI specification:
 /// https://uefi.org/specs/ACPI/6.5/05_ACPI_Software_Programming_Model.html#root-system-description-pointer-rsdp
 #[repr(packed)]
-#[derive(Clone, Copy, Debug, Default, AsBytes)]
+#[derive(Clone, Copy, Debug, Default, IntoBytes, Immutable)]
 pub struct Rsdp {
     signature: [u8; 8],
     checksum: u8,
