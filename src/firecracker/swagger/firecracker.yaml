@@ -927,6 +927,8 @@ definitions:
           $ref: "#/definitions/Drive"
       boot-source:
         $ref: "#/definitions/BootSource"
+      cpu-config:
+        $ref: "#/definitions/CpuConfig"
       logger:
         $ref: "#/definitions/Logger"
       machine-config:
@@ -942,6 +944,8 @@ definitions:
           $ref: "#/definitions/NetworkInterface"
       vsock:
         $ref: "#/definitions/Vsock"
+      entropy:
+        $ref: "#/definitions/EntropyDevice"
 
   InstanceActionInfo:
     type: object
