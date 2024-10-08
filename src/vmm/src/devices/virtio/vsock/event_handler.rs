@@ -439,7 +439,9 @@ mod tests {
             // If the descriptor chain is already declared invalid, there's no reason to assemble
             // a packet.
             if let Some(rx_desc) = ctx.device.queues[RXQ_INDEX].pop() {
-                VsockPacket::from_rx_virtq_head(&test_ctx.mem, rx_desc).unwrap_err();
+                VsockPacketRx::default()
+                    .parse(&test_ctx.mem, rx_desc)
+                    .unwrap_err();
             }
         }
 
@@ -461,7 +463,9 @@ mod tests {
             ctx.guest_txvq.dtable[desc_idx].len.set(len);
 
             if let Some(tx_desc) = ctx.device.queues[TXQ_INDEX].pop() {
-                VsockPacket::from_tx_virtq_head(&test_ctx.mem, tx_desc).unwrap_err();
+                VsockPacketTx::default()
+                    .parse(&test_ctx.mem, tx_desc)
+                    .unwrap_err();
             }
         }
     }
@@ -486,13 +490,17 @@ mod tests {
         {
             let mut ctx = test_ctx.create_event_handler_context();
             let rx_desc = ctx.device.queues[RXQ_INDEX].pop().unwrap();
-            VsockPacket::from_rx_virtq_head(&test_ctx.mem, rx_desc).unwrap();
+            VsockPacketRx::default()
+                .parse(&test_ctx.mem, rx_desc)
+                .unwrap();
         }
 
         {
             let mut ctx = test_ctx.create_event_handler_context();
             let tx_desc = ctx.device.queues[TXQ_INDEX].pop().unwrap();
-            VsockPacket::from_tx_virtq_head(&test_ctx.mem, tx_desc).unwrap();
+            VsockPacketTx::default()
+                .parse(&test_ctx.mem, tx_desc)
+                .unwrap();
         }
 
         // Let's check what happens when the header descriptor is right before the gap.

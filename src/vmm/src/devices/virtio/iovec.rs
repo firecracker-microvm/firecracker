@@ -4,7 +4,6 @@
 use std::io::ErrorKind;
 
 use libc::{c_void, iovec, size_t};
-use smallvec::SmallVec;
 use vm_memory::bitmap::Bitmap;
 use vm_memory::{
     GuestMemory, GuestMemoryError, ReadVolatile, VolatileMemoryError, VolatileSlice, WriteVolatile,
@@ -25,14 +24,6 @@ pub enum IoVecError {
     GuestMemory(#[from] GuestMemoryError),
 }
 
-// Using SmallVec in the kani proofs causes kani to use unbounded amounts of memory
-// during post-processing, and then crash.
-// TODO: remove new-type once kani performance regression are resolved
-#[cfg(kani)]
-type IoVecVec = Vec<iovec>;
-#[cfg(not(kani))]
-type IoVecVec = SmallVec<[iovec; 4]>;
-
 /// This is essentially a wrapper of a `Vec<libc::iovec>` which can be passed to `libc::writev`.
 ///
 /// It describes a buffer passed to us by the guest that is scattered across multiple
@@ -41,7 +32,7 @@ type IoVecVec = SmallVec<[iovec; 4]>;
 #[derive(Debug, Default)]
 pub struct IoVecBuffer {
     // container of the memory regions included in this IO vector
-    vecs: IoVecVec,
+    vecs: Vec<iovec>,
     // Total length of the IoVecBuffer
     len: u32,
 }
@@ -219,13 +210,17 @@ impl IoVecBuffer {
 /// It describes a write-only buffer passed to us by the guest that is scattered across multiple
 /// memory regions. Additionally, this wrapper provides methods that allow reading arbitrary ranges
 /// of data from that buffer.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default)]
 pub struct IoVecBufferMut {
     // container of the memory regions included in this IO vector
-    vecs: IoVecVec,
+    vecs: Vec<iovec>,
     // Total length of the IoVecBufferMut
     len: u32,
 }
+
+// SAFETY: `IoVecBufferMut` doesn't allow for interior mutability and no shared ownership is
+// possible as it doesn't implement clone
+unsafe impl Send for IoVecBufferMut {}
 
 impl IoVecBufferMut {
     /// Create an `IoVecBuffer` from a `DescriptorChain`
@@ -402,8 +397,7 @@ mod tests {
                 vecs: vec![iovec {
                     iov_base: buf.as_ptr() as *mut c_void,
                     iov_len: buf.len(),
-                }]
-                .into(),
+                }],
                 len: buf.len().try_into().unwrap(),
             }
         }
@@ -433,8 +427,7 @@ mod tests {
                 vecs: vec![iovec {
                     iov_base: buf.as_mut_ptr().cast::<c_void>(),
                     iov_len: buf.len(),
-                }]
-                .into(),
+                }],
                 len: buf.len().try_into().unwrap(),
             }
         }
@@ -686,7 +679,7 @@ mod verification {
     use vm_memory::bitmap::BitmapSlice;
     use vm_memory::VolatileSlice;
 
-    use super::{IoVecBuffer, IoVecBufferMut, IoVecVec};
+    use super::{IoVecBuffer, IoVecBufferMut};
 
     // Maximum memory size to use for our buffers. For the time being 1KB.
     const GUEST_MEMORY_SIZE: usize = 1 << 10;
@@ -698,7 +691,7 @@ mod verification {
     // >= 1.
     const MAX_DESC_LENGTH: usize = 4;
 
-    fn create_iovecs(mem: *mut u8, size: usize, nr_descs: usize) -> (IoVecVec, u32) {
+    fn create_iovecs(mem: *mut u8, size: usize, nr_descs: usize) -> (Vec<iovec>, u32) {
         let mut vecs: Vec<iovec> = Vec::with_capacity(nr_descs);
         let mut len = 0u32;
         for _ in 0..nr_descs {
