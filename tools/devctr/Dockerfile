@@ -108,7 +108,7 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-too
     && rustup target add aarch64-unknown-linux-musl \
     && rustup component add llvm-tools-preview clippy rustfmt \
     && cargo install --locked cargo-audit cargo-deny grcov cargo-sort cargo-afl \
-    && (if [ "$ARCH" = "x86_64" ]; then cargo install --locked kani-verifier && cargo kani setup; else true; fi) \
+    && cargo install --locked kani-verifier && cargo kani setup \
     \
     && apt-get update \
     && apt-get -y install --no-install-recommends \
