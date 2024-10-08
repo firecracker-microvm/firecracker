@@ -112,7 +112,7 @@ impl Entropy {
             return Ok(0);
         }
 
-        let mut rand_bytes = vec![0; iovec.len()];
+        let mut rand_bytes = vec![0; iovec.len() as usize];
         rand::fill(&mut rand_bytes).map_err(|err| {
             METRICS.host_rng_fails.inc();
             err
@@ -120,9 +120,7 @@ impl Entropy {
 
         // It is ok to unwrap here. We are writing `iovec.len()` bytes at offset 0.
         iovec.write_all_volatile_at(&rand_bytes, 0).unwrap();
-        // It is ok to unwrap here. `iovec` contains only a single `DescriptorChain`, which means
-        // that its length fit in a u32.
-        Ok(u32::try_from(iovec.len()).unwrap())
+        Ok(iovec.len())
     }
 
     fn process_entropy_queue(&mut self) {
@@ -147,7 +145,7 @@ impl Entropy {
                     // Check for available rate limiting budget.
                     // If not enough budget is available, leave the request descriptor in the queue
                     // to handle once we do have budget.
-                    if !Self::rate_limit_request(&mut self.rate_limiter, iovec.len() as u64) {
+                    if !Self::rate_limit_request(&mut self.rate_limiter, u64::from(iovec.len())) {
                         debug!("entropy: throttling entropy queue");
                         METRICS.entropy_rate_limiter_throttled.inc();
                         self.queues[RNG_QUEUE].undo_pop();
