@@ -367,8 +367,13 @@ impl IoVecBufferMut {
     /// In contrast to the equivalent [`IoVecBuffer::len()`] which returns `u32`, this one returns
     /// `usize` since the buffer can contain multiple `DescriptorChain` objects, so we don't have
     /// the limit that the length of a buffer is limited by `u32`.
-    pub(crate) fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.len
+    }
+
+    /// Returns true if there is buffer is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
     }
 
     /// Returns a pointer to the memory keeping the `iovec` structs

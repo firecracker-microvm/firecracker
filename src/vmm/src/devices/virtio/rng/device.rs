@@ -108,7 +108,7 @@ impl Entropy {
 
     fn handle_one(&self, iovec: &mut IoVecBufferMut) -> Result<u32, EntropyError> {
         // If guest provided us with an empty buffer just return directly
-        if iovec.len() == 0 {
+        if iovec.is_empty() {
             return Ok(0);
         }
 

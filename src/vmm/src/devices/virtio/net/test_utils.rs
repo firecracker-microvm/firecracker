@@ -295,8 +295,9 @@ pub fn assign_queues(net: &mut Net, rxq: Queue, txq: Queue) {
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::undocumented_unsafe_blocks)]
 pub mod test {
-    #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::ffi::OsStrExt;
     use std::sync::{Arc, Mutex, MutexGuard};
     use std::{cmp, fmt};
@@ -310,7 +311,7 @@ pub mod test {
     use crate::devices::virtio::net::test_utils::{
         assign_queues, default_net, inject_tap_tx_frame, NetEvent, NetQueue,
     };
-    use crate::devices::virtio::net::{Net, RX_INDEX, TX_INDEX};
+    use crate::devices::virtio::net::{Net, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX};
     use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
     use crate::logger::IncMetric;
@@ -453,9 +454,12 @@ pub mod test {
         /// is eventually received by the guest
         pub fn check_rx_queue_resume(&mut self, expected_frame: &[u8]) {
             let used_idx = self.rxq.used.idx.get();
-            // Add a valid Rx avail descriptor chain and run epoll. We do not negotiate any feature
-            // offloading so the buffers need to be at least 1526 bytes long.
-            self.add_desc_chain(NetQueue::Rx, 0, &[(0, 1526, VIRTQ_DESC_F_WRITE)]);
+            // Add a valid Rx avail descriptor chain and run epoll.
+            self.add_desc_chain(
+                NetQueue::Rx,
+                0,
+                &[(0, MAX_BUFFER_SIZE as u32, VIRTQ_DESC_F_WRITE)],
+            );
             check_metric_after_block!(
                 self.net().metrics.rx_packets_count,
                 1,
