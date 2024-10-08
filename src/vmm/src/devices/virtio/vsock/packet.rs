@@ -172,10 +172,8 @@ impl VsockPacket {
         // are live at the same time, meaning this has exclusive ownership over the memory
         let buffer = unsafe { IoVecBufferMut::from_descriptor_chain(mem, chain)? };
 
-        // It is ok to unwrap the conversion from usize to u32, because the `buffer` only contains
-        // a single `DescriptorChain`, so its length fits in a u32.
-        if (u32::try_from(buffer.len()).unwrap()) < VSOCK_PKT_HDR_SIZE {
-            return Err(VsockError::DescChainTooShortForHeader(buffer.len()));
+        if buffer.len() < VSOCK_PKT_HDR_SIZE {
+            return Err(VsockError::DescChainTooShortForHeader(buffer.len() as usize));
         }
 
         Ok(Self {
@@ -224,7 +222,7 @@ impl VsockPacket {
     pub fn buf_size(&self) -> u32 {
         let chain_length = match self.buffer {
             VsockPacketBuffer::Tx(ref iovec_buf) => iovec_buf.len(),
-            VsockPacketBuffer::Rx(ref iovec_buf) => u32::try_from(iovec_buf.len()).unwrap(),
+            VsockPacketBuffer::Rx(ref iovec_buf) => iovec_buf.len(),
         };
         chain_length - VSOCK_PKT_HDR_SIZE
     }
@@ -239,8 +237,8 @@ impl VsockPacket {
             VsockPacketBuffer::Tx(_) => Err(VsockError::UnwritableDescriptor),
             VsockPacketBuffer::Rx(ref mut buffer) => {
                 if count
-                    > u32::try_from(buffer.len())
-                        .unwrap()
+                    > buffer
+                        .len()
                         .saturating_sub(VSOCK_PKT_HDR_SIZE)
                         .saturating_sub(offset)
                 {
