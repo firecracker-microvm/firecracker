@@ -7,7 +7,7 @@ use std::mem::size_of;
 
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemory};
 use zerocopy::little_endian::U32;
-use zerocopy::AsBytes;
+use zerocopy::{Immutable, IntoBytes};
 
 use crate::{checksum, AcpiError, Result, Sdt, SdtHeader};
 
@@ -18,7 +18,7 @@ const MADT_CPU_ENABLE_FLAG: u32 = 0;
 // everything with an underscore prefix
 #[allow(dead_code)]
 #[repr(packed)]
-#[derive(Copy, Clone, Debug, Default, AsBytes)]
+#[derive(Copy, Clone, Debug, Default, IntoBytes, Immutable)]
 pub struct LocalAPIC {
     r#type: u8,
     length: u8,
@@ -44,7 +44,7 @@ impl LocalAPIC {
 // everything with an underscore prefix
 #[allow(dead_code)]
 #[repr(packed)]
-#[derive(Copy, Clone, Debug, Default, AsBytes)]
+#[derive(Copy, Clone, Debug, Default, IntoBytes, Immutable)]
 pub struct IoAPIC {
     r#type: u8,
     length: u8,
@@ -72,7 +72,7 @@ impl IoAPIC {
 // everything with an underscore prefix
 #[allow(dead_code)]
 #[repr(packed)]
-#[derive(Debug, AsBytes)]
+#[derive(Debug, IntoBytes, Immutable)]
 struct MadtHeader {
     sdt: SdtHeader,
     base_address: U32,

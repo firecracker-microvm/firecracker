@@ -10,7 +10,7 @@ use acpi_tables::fadt::{
 use acpi_tables::madt::{IoAPIC, LocalAPIC};
 use acpi_tables::Fadt;
 use vm_memory::GuestAddress;
-use zerocopy::AsBytes;
+use zerocopy::IntoBytes;
 
 use crate::arch::x86_64::layout;
 use crate::device_manager::legacy::PortIODeviceManager;

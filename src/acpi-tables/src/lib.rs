@@ -20,7 +20,7 @@ pub use madt::Madt;
 pub use rsdp::Rsdp;
 pub use xsdt::Xsdt;
 use zerocopy::little_endian::{U32, U64};
-use zerocopy::AsBytes;
+use zerocopy::{Immutable, IntoBytes};
 
 // This is the creator ID that we will embed in ACPI tables that are created using this crate.
 const FC_ACPI_CREATOR_ID: [u8; 4] = *b"FCAT";
@@ -50,7 +50,7 @@ pub type Result<T> = std::result::Result<T, AcpiError>;
 
 /// ACPI type representing memory addresses
 #[repr(packed)]
-#[derive(AsBytes, Clone, Copy, Debug, Default)]
+#[derive(IntoBytes, Immutable, Clone, Copy, Debug, Default)]
 pub struct GenericAddressStructure {
     pub address_space_id: u8,
     pub register_bit_width: u8,
@@ -79,7 +79,7 @@ impl GenericAddressStructure {
 
 /// Header included in all System Descriptor Tables
 #[repr(packed)]
-#[derive(Clone, Debug, Copy, Default, AsBytes)]
+#[derive(Clone, Debug, Copy, Default, IntoBytes, Immutable)]
 pub struct SdtHeader {
     pub signature: [u8; 4],
     pub length: U32,
