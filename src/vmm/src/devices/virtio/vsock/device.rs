@@ -27,7 +27,7 @@ use vmm_sys_util::eventfd::EventFd;
 
 use super::super::super::DeviceError;
 use super::defs::uapi;
-use super::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
+use super::packet::{VsockPacketRx, VsockPacketTx, VSOCK_PKT_HDR_SIZE};
 use super::{defs, VsockBackend};
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::devices::virtio::queue::Queue as VirtQueue;
@@ -68,6 +68,9 @@ pub struct Vsock<B> {
     // continuous triggers from happening before the device gets activated.
     pub(crate) activate_evt: EventFd,
     pub(crate) device_state: DeviceState,
+
+    pub rx_packet: VsockPacketRx,
+    pub tx_packet: VsockPacketTx,
 }
 
 // TODO: Detect / handle queue deadlock:
@@ -101,6 +104,8 @@ where
             irq_trigger: IrqTrigger::new().map_err(VsockError::EventFd)?,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?,
             device_state: DeviceState::Inactive,
+            rx_packet: VsockPacketRx::default(),
+            tx_packet: VsockPacketTx::default(),
         })
     }
 
@@ -147,14 +152,14 @@ where
 
         while let Some(head) = self.queues[RXQ_INDEX].pop() {
             let index = head.index;
-            let used_len = match VsockPacket::from_rx_virtq_head(mem, head) {
-                Ok(mut pkt) => {
-                    if self.backend.recv_pkt(&mut pkt).is_ok() {
-                        match pkt.commit_hdr() {
+            let used_len = match self.rx_packet.parse(mem, head) {
+                Ok(()) => {
+                    if self.backend.recv_pkt(&mut self.rx_packet).is_ok() {
+                        match self.rx_packet.commit_hdr() {
                             // This addition cannot overflow, because packet length
                             // is previously validated against `MAX_PKT_BUF_SIZE`
                             // bound as part of `commit_hdr()`.
-                            Ok(()) => VSOCK_PKT_HDR_SIZE + pkt.len(),
+                            Ok(()) => VSOCK_PKT_HDR_SIZE + self.rx_packet.hdr.len(),
                             Err(err) => {
                                 warn!(
                                     "vsock: Error writing packet header to guest memory: \
@@ -200,8 +205,9 @@ where
 
         while let Some(head) = self.queues[TXQ_INDEX].pop() {
             let index = head.index;
-            let pkt = match VsockPacket::from_tx_virtq_head(mem, head) {
-                Ok(pkt) => pkt,
+            // let pkt = match VsockPacket::from_tx_virtq_head(mem, head) {
+            match self.tx_packet.parse(mem, head) {
+                Ok(()) => (),
                 Err(err) => {
                     error!("vsock: error reading TX packet: {:?}", err);
                     have_used = true;
@@ -214,7 +220,7 @@ where
                 }
             };
 
-            if self.backend.send_pkt(&pkt).is_err() {
+            if self.backend.send_pkt(&self.tx_packet).is_err() {
                 self.queues[TXQ_INDEX].undo_pop();
                 break;
             }
