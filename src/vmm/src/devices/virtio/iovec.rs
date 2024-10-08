@@ -4,7 +4,6 @@
 use std::io::ErrorKind;
 
 use libc::{c_void, iovec, size_t};
-use serde::{Deserialize, Serialize};
 #[cfg(not(kani))]
 use smallvec::SmallVec;
 use vm_memory::bitmap::Bitmap;
@@ -219,7 +218,7 @@ impl IoVecBuffer {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct ParsedDescriptorChain {
     pub head_index: u16,
     pub length: u32,
@@ -234,9 +233,9 @@ pub struct ParsedDescriptorChain {
 #[derive(Debug)]
 pub struct IoVecBufferMut {
     // container of the memory regions included in this IO vector
-    pub vecs: IovDeque,
+    vecs: IovDeque,
     // Total length of the IoVecBufferMut
-    pub len: usize,
+    len: usize,
 }
 
 impl IoVecBufferMut {
