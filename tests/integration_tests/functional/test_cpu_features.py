@@ -4,6 +4,7 @@
 
 # pylint: disable=too-many-lines
 
+import csv
 import io
 import os
 import platform
@@ -14,7 +15,6 @@ import time
 from difflib import unified_diff
 from pathlib import Path
 
-import pandas as pd
 import pytest
 
 import framework.utils_cpuid as cpuid_utils
@@ -28,6 +28,12 @@ UNSUPPORTED_HOST_KERNEL = (
     utils.get_kernel_version(level=1) not in SUPPORTED_HOST_KERNELS
 )
 DATA_FILES = Path("./data/msr")
+
+
+def read_msr_csv(fd):
+    """Read a CSV of MSRs"""
+    csvin = csv.DictReader(fd)
+    return list(csvin)
 
 
 def clean_and_mkdir(dir_path):
@@ -313,7 +319,7 @@ def test_cpu_rdmsr(
     assert stderr == ""
 
     # Load results read from the microvm
-    microvm_df = pd.read_csv(io.StringIO(stdout))
+    guest_recs = read_msr_csv(io.StringIO(stdout))
 
     # Load baseline
     host_cpu = global_props.cpu_codename
@@ -329,11 +335,9 @@ def test_cpu_rdmsr(
 
     # Load baseline
     baseline_file_path = DATA_FILES / baseline_file_name
-    # We can use the following line when regathering baselines.
-    # microvm_df.to_csv(baseline_file_path, index=False, encoding="utf-8")
-    baseline_df = pd.read_csv(baseline_file_path)
+    baseline_recs = read_msr_csv(baseline_file_path.open())
 
-    check_msrs_are_equal(baseline_df, microvm_df)
+    check_msrs_are_equal(baseline_recs, guest_recs)
 
 
 # These names need to be consistent across the two parts of the snapshot-restore test
@@ -441,29 +445,31 @@ def test_cpu_wrmsr_snapshot(
     snapshot.save_to(snapshot_artifacts_dir)
 
 
-def check_msrs_are_equal(before_df, after_df):
+def check_msrs_are_equal(before_recs, after_recs):
     """
     Checks that reported MSRs and their values in the files are equal.
     """
 
+    before = {x["MSR_ADDR"]: x["VALUE"] for x in before_recs}
+    after = {x["MSR_ADDR"]: x["VALUE"] for x in after_recs}
     # We first want to see if the same set of MSRs are exposed in the microvm.
-    # Drop the VALUE columns and compare the 2 dataframes.
-    join = pd.merge(before_df, after_df, on="MSR_ADDR", how="outer", indicator=True)
-    removed = join[join["_merge"] == "left_only"]
-    added = join[join["_merge"] == "right_only"]
+    all_msrs = set(before.keys()) | set(after.keys())
 
-    assert removed.empty, f"MSRs removed:\n{removed[['MSR_ADDR', 'VALUE_x']]}"
-    assert added.empty, f"MSRs added:\n{added[['MSR_ADDR', 'VALUE_y']]}"
-
-    # Remove MSR that can change at runtime.
-    before_df = before_df[~before_df["MSR_ADDR"].isin(MSR_EXCEPTION_LIST)]
-    after_df = after_df[~after_df["MSR_ADDR"].isin(MSR_EXCEPTION_LIST)]
-
-    # Compare values
-    val_diff = pd.concat(
-        [before_df, after_df], keys=["before", "after"]
-    ).drop_duplicates(keep=False)
-    assert val_diff.empty, f"\n {val_diff.to_string()}"
+    changes = 0
+    for msr in all_msrs:
+        if msr in before and msr not in after:
+            print(f"MSR removed {msr} before={before[msr]}")
+            changes += 1
+        elif msr not in before and msr in after:
+            print(f"MSR added {msr} after={after[msr]}")
+            changes += 1
+        elif msr in MSR_EXCEPTION_LIST:
+            continue
+        elif before[msr] != after[msr]:
+            # Compare values
+            print(f"MSR changed {msr} before={before[msr]} after={after[msr]}")
+            changes += 1
+    assert changes == 0
 
 
 @pytest.mark.skipif(
@@ -504,11 +510,12 @@ def test_cpu_wrmsr_restore(microvm_factory, msr_cpu_template, guest_kernel):
     # Dump MSR state to a file for further comparison
     msrs_after_fname = snapshot_artifacts_dir / shared_names["msrs_after_fname"]
     dump_msr_state_to_file(msrs_after_fname, vm.ssh, shared_names)
+    msrs_before_fname = snapshot_artifacts_dir / shared_names["msrs_before_fname"]
 
     # Compare the two lists of MSR values and assert they are equal
-    before_df = pd.read_csv(snapshot_artifacts_dir / shared_names["msrs_before_fname"])
-    after_df = pd.read_csv(snapshot_artifacts_dir / shared_names["msrs_after_fname"])
-    check_msrs_are_equal(before_df, after_df)
+    before_recs = read_msr_csv(msrs_before_fname.open())
+    after_recs = read_msr_csv(msrs_after_fname.open())
+    check_msrs_are_equal(before_recs, after_recs)
 
 
 def dump_cpuid_to_file(dump_fname, ssh_conn):
@@ -679,6 +686,7 @@ def test_cpu_template(uvm_plain_any, cpu_template, microvm_factory):
 def check_masked_features(test_microvm, cpu_template):
     """Verify the masked features of the given template."""
     # fmt: off
+    must_be_unset = []
     if cpu_template == "C3":
         must_be_unset = [
             (0x1, 0x0, "ecx",

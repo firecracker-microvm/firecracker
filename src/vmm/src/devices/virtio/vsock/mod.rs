@@ -22,13 +22,13 @@ mod unix;
 
 use std::os::unix::io::AsRawFd;
 
-use packet::VsockPacket;
 use vm_memory::GuestMemoryError;
 use vmm_sys_util::epoll::EventSet;
 
 pub use self::defs::uapi::VIRTIO_ID_VSOCK as TYPE_VSOCK;
 pub use self::defs::VSOCK_DEV_ID;
 pub use self::device::Vsock;
+use self::packet::{VsockPacketRx, VsockPacketTx};
 pub use self::unix::{VsockUnixBackend, VsockUnixBackendError};
 use crate::devices::virtio::iovec::IoVecError;
 use crate::devices::virtio::persist::PersistError as VirtioStateError;
@@ -174,10 +174,10 @@ pub trait VsockEpollListener: AsRawFd {
 ///       - `send_pkt(&pkt)` will fetch data from `pkt`, and place it into the channel.
 pub trait VsockChannel {
     /// Read/receive an incoming packet from the channel.
-    fn recv_pkt(&mut self, pkt: &mut VsockPacket) -> Result<(), VsockError>;
+    fn recv_pkt(&mut self, pkt: &mut VsockPacketRx) -> Result<(), VsockError>;
 
     /// Write/send a packet through the channel.
-    fn send_pkt(&mut self, pkt: &VsockPacket) -> Result<(), VsockError>;
+    fn send_pkt(&mut self, pkt: &VsockPacketTx) -> Result<(), VsockError>;
 
     /// Checks whether there is pending incoming data inside the channel, meaning that a subsequent
     /// call to `recv_pkt()` won't fail.
