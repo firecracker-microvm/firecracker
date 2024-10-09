@@ -70,15 +70,6 @@ EOF
     # TBD what abt /etc/hosts?
     echo | tee $rootfs/etc/resolv.conf
 
-    # Generate key for ssh access from host
-    if [ ! -s id_rsa ]; then
-        ssh-keygen -f id_rsa -N ""
-    fi
-    install -d -m 0600 "$rootfs/root/.ssh/"
-    cp id_rsa.pub "$rootfs/root/.ssh/authorized_keys"
-    id_rsa=$OUTPUT_DIR/$ROOTFS_NAME.id_rsa
-    cp id_rsa $id_rsa
-
     rootfs_img="$OUTPUT_DIR/$ROOTFS_NAME.squashfs"
     mv $rootfs/root/manifest $OUTPUT_DIR/$ROOTFS_NAME.manifest
     mksquashfs $rootfs $rootfs_img -all-root -noappend -comp zstd
@@ -86,7 +77,6 @@ EOF
     for bin in fast_page_fault_helper fillmem init readmem; do
         rm $PWD/overlay/usr/local/bin/$bin
     done
-    rm -f id_rsa{,.pub}
     rm -f nohup.out
 }
 

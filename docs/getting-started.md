@@ -106,13 +106,15 @@ latest=$(wget "http://spec.ccfc.min.s3.amazonaws.com/?prefix=firecracker-ci/v1.1
 wget "https://s3.amazonaws.com/spec.ccfc.min/${latest}"
 
 # Download a rootfs
-wget "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.10/${ARCH}/ubuntu-24.04.ext4"
+wget -O ubuntu-24.04.squashfs.upstream "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.10/${ARCH}/ubuntu-24.04.squashfs"
 
-# Download the ssh key for the rootfs
-wget "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.10/${ARCH}/ubuntu-24.04.id_rsa"
-
-# Set user read permission on the ssh key
-chmod 400 ./ubuntu-24.04.id_rsa
+# Create an ssh key for the rootfs
+unsquashfs ubuntu-24.04.squashfs.upstream
+ssh-keygen -f id_rsa -N ""
+cp -v id_rsa.pub squashfs-root/root/.ssh/authorized_keys
+mv -v id_rsa ./ubuntu-24.04.id_rsa
+# re-squash
+mksquashfs squashfs-root ubuntu-24.04.squashfs -all-root -noappend -comp zstd
 ```
 
 ### Getting a Firecracker Binary

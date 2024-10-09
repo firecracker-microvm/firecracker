@@ -31,14 +31,32 @@ if [ -f $CGROUP/cgroup.controllers -a -e $CGROUP/cgroup.type ]; then
         > $CGROUP/cgroup.subtree_control
 fi
 
+say "Fixing CI artifacts"
 cd build/img/$(uname -m)
+# Generate key for ssh access from host
+if [ ! -s id_rsa ]; then
+    ssh-keygen -f id_rsa -N ""
+fi
 for SQUASHFS in *.squashfs; do
+    RSA=$(basename $SQUASHFS .squashfs).id_rsa
     EXT4=$(basename $SQUASHFS .squashfs).ext4
+    [ -s $SQUASHFS.orig ] && continue
+    unsquashfs $SQUASHFS
+    mkdir -pv squashfs-root/root/.ssh
+    # copy the SSH key into the rootfs
+    if [ ! -s $RSA ]; then
+        # append SSH key to the squashfs image
+        cp -v id_rsa.pub squashfs-root/root/.ssh/authorized_keys
+        cp -v id_rsa $RSA
+    fi
+    # re-squash
+    mv -v $SQUASHFS $SQUASHFS.orig
+    mksquashfs squashfs-root $SQUASHFS -all-root -noappend -comp zstd
+
     # Create rw ext4 image from ro squashfs
     [ -f $EXT4 ] && continue
     say "Converting $SQUASHFS to $EXT4"
     truncate -s 400M $EXT4
-    unsquashfs $SQUASHFS
     mkfs.ext4 -F $EXT4 -d squashfs-root
     rm -rf squashfs-root
 done

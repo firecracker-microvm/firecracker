@@ -542,7 +542,6 @@ ensure_ci_artifacts() {
         mkdir -pv $ARTIFACTS
         aws s3 sync --no-sign-request "$S3_URL" "$ARTIFACTS"
         # fix permissions
-        find "$ARTIFACTS" -type f -name "*.id_rsa" |xargs chmod -c 400
         find "$ARTIFACTS/firecracker" -type f |xargs chmod -c 755
     fi
 }
