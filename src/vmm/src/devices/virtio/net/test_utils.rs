@@ -430,8 +430,9 @@ pub mod test {
             event_fd.write(1).unwrap();
         }
 
-        /// Generate a tap frame of `frame_len` and check that it is deferred
-        pub fn check_rx_deferred_frame(&mut self, frame_len: usize) -> Vec<u8> {
+        /// Generate a tap frame of `frame_len` and check that it is not read and
+        /// the descriptor chain has been discarded
+        pub fn check_rx_discarded_buffer(&mut self, frame_len: usize) -> Vec<u8> {
             let used_idx = self.rxq.used.idx.get();
 
             // Inject frame to tap and run epoll.
@@ -441,8 +442,6 @@ pub mod test {
                 0,
                 self.event_manager.run_with_timeout(100).unwrap()
             );
-            // Check that the frame has been deferred.
-            assert!(self.net().rx_deferred_frame);
             // Check that the descriptor chain has been discarded.
             assert_eq!(self.rxq.used.idx.get(), used_idx + 1);
             assert!(&self.net().irq_trigger.has_pending_irq(IrqType::Vring));
@@ -454,16 +453,9 @@ pub mod test {
         /// is eventually received by the guest
         pub fn check_rx_queue_resume(&mut self, expected_frame: &[u8]) {
             let used_idx = self.rxq.used.idx.get();
-            // Add a valid Rx avail descriptor chain and run epoll.
-            self.add_desc_chain(
-                NetQueue::Rx,
-                0,
-                &[(
-                    0,
-                    u32::try_from(expected_frame.len()).unwrap(),
-                    VIRTQ_DESC_F_WRITE,
-                )],
-            );
+            // Add a valid Rx avail descriptor chain and run epoll. We do not negotiate any feature
+            // offloading so the buffers need to be at least 1526 bytes long.
+            self.add_desc_chain(NetQueue::Rx, 0, &[(0, 1526, VIRTQ_DESC_F_WRITE)]);
             check_metric_after_block!(
                 self.net().metrics.rx_packets_count,
                 1,

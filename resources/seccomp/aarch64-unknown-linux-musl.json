@@ -33,6 +33,10 @@
                 "comment": "Used by the VirtIO net device to write to tap"
             },
             {
+                "syscall": "readv",
+                "comment": "Used by the VirtIO net device to read from tap"
+            },
+            {
                 "syscall": "fsync"
             },
             {
