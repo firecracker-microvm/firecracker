@@ -48,6 +48,8 @@ pub struct Entropy {
 
     // Device specific fields
     rate_limiter: RateLimiter,
+
+    buffer: IoVecBufferMut,
 }
 
 impl Entropy {
@@ -75,6 +77,7 @@ impl Entropy {
             queue_events,
             irq_trigger,
             rate_limiter,
+            buffer: IoVecBufferMut::default(),
         })
     }
 
@@ -88,13 +91,13 @@ impl Entropy {
             .map_err(DeviceError::FailedSignalingIrq)
     }
 
-    fn rate_limit_request(rate_limiter: &mut RateLimiter, bytes: u64) -> bool {
-        if !rate_limiter.consume(1, TokenType::Ops) {
+    fn rate_limit_request(&mut self, bytes: u64) -> bool {
+        if !self.rate_limiter.consume(1, TokenType::Ops) {
             return false;
         }
 
-        if !rate_limiter.consume(bytes, TokenType::Bytes) {
-            rate_limiter.manual_replenish(1, TokenType::Ops);
+        if !self.rate_limiter.consume(bytes, TokenType::Bytes) {
+            self.rate_limiter.manual_replenish(1, TokenType::Ops);
             return false;
         }
 
@@ -106,53 +109,52 @@ impl Entropy {
         rate_limiter.manual_replenish(bytes, TokenType::Bytes);
     }
 
-    fn handle_one(&self, iovec: &mut IoVecBufferMut) -> Result<u32, EntropyError> {
+    fn handle_one(&mut self) -> Result<u32, EntropyError> {
         // If guest provided us with an empty buffer just return directly
-        if iovec.len() == 0 {
+        if self.buffer.len() == 0 {
             return Ok(0);
         }
 
-        let mut rand_bytes = vec![0; iovec.len() as usize];
+        let mut rand_bytes = vec![0; self.buffer.len() as usize];
         rand::fill(&mut rand_bytes).map_err(|err| {
             METRICS.host_rng_fails.inc();
             err
         })?;
 
         // It is ok to unwrap here. We are writing `iovec.len()` bytes at offset 0.
-        iovec.write_all_volatile_at(&rand_bytes, 0).unwrap();
-        Ok(iovec.len())
+        self.buffer.write_all_volatile_at(&rand_bytes, 0).unwrap();
+        Ok(self.buffer.len())
     }
 
     fn process_entropy_queue(&mut self) {
-        // This is safe since we checked in the event handler that the device is activated.
-        let mem = self.device_state.mem().unwrap();
-
         let mut used_any = false;
         while let Some(desc) = self.queues[RNG_QUEUE].pop() {
+            // This is safe since we checked in the event handler that the device is activated.
+            let mem = self.device_state.mem().unwrap();
             let index = desc.index;
             METRICS.entropy_event_count.inc();
 
-            // SAFETY: This descriptor chain is only loaded once
-            // virtio requests are handled sequentially so no two IoVecBuffers
-            // are live at the same time, meaning this has exclusive ownership over the memory
-            let bytes = match unsafe { IoVecBufferMut::from_descriptor_chain(mem, desc) } {
-                Ok(mut iovec) => {
+            // SAFETY: This descriptor chain points to a single `DescriptorChain` memory buffer,
+            // no other `IoVecBufferMut` object points to the same `DescriptorChain` at the same
+            // time and we clear the `iovec` after we process the request.
+            let bytes = match unsafe { self.buffer.load_descriptor_chain(mem, desc) } {
+                Ok(()) => {
                     debug!(
                         "entropy: guest request for {} bytes of entropy",
-                        iovec.len()
+                        self.buffer.len()
                     );
 
                     // Check for available rate limiting budget.
                     // If not enough budget is available, leave the request descriptor in the queue
                     // to handle once we do have budget.
-                    if !Self::rate_limit_request(&mut self.rate_limiter, u64::from(iovec.len())) {
+                    if !self.rate_limit_request(u64::from(self.buffer.len())) {
                         debug!("entropy: throttling entropy queue");
                         METRICS.entropy_rate_limiter_throttled.inc();
                         self.queues[RNG_QUEUE].undo_pop();
                         break;
                     }
 
-                    self.handle_one(&mut iovec).unwrap_or_else(|err| {
+                    self.handle_one().unwrap_or_else(|err| {
                         error!("entropy: {err}");
                         METRICS.entropy_event_fails.inc();
                         0
@@ -444,8 +446,8 @@ mod tests {
         // This should succeed, we should have one more descriptor
         let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop().unwrap();
         // SAFETY: This descriptor chain is only loaded into one buffer
-        let mut iovec = unsafe { IoVecBufferMut::from_descriptor_chain(&mem, desc).unwrap() };
-        entropy_dev.handle_one(&mut iovec).unwrap();
+        entropy_dev.buffer = unsafe { IoVecBufferMut::from_descriptor_chain(&mem, desc).unwrap() };
+        entropy_dev.handle_one().unwrap();
     }
 
     #[test]
