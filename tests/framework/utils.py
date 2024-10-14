@@ -7,6 +7,7 @@ import logging
 import os
 import platform
 import re
+import select
 import signal
 import stat
 import subprocess
@@ -450,16 +451,39 @@ def run_guest_cmd(ssh_connection, cmd, expected, use_json=False):
     assert stdout == expected
 
 
-@retry(wait=wait_fixed(1), stop=stop_after_attempt(10), reraise=True)
+def get_process_pidfd(pid):
+    """Get a pidfd file descriptor for the process with PID `pid`
+
+    Will return a pid file descriptor for the process with PID `pid` if it is
+    still alive. If the process has already exited it will return `None`.
+
+    Any other error while calling the system call, will raise an OSError
+    exception.
+    """
+    try:
+        pidfd = os.pidfd_open(pid)
+    except ProcessLookupError:
+        return None
+
+    return pidfd
+
+
 def wait_process_termination(p_pid):
     """Wait for a process to terminate.
 
-    Will return sucessfully if the process
+    Will return successfully if the process
     got indeed killed or raises an exception if the process
     is still alive after retrying several times.
     """
-    if psutil.pid_exists(p_pid):
-        raise Exception(f"[{p_pid}] process is still alive")
+    pidfd = get_process_pidfd(p_pid)
+
+    # If pidfd is None the process has already terminated
+    if pidfd is not None:
+        epoll = select.epoll()
+        epoll.register(pidfd, select.EPOLLIN)
+        # This will return once the process exits
+        epoll.poll()
+        os.close(pidfd)
 
 
 def get_firecracker_version_from_toml():
