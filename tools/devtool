@@ -863,8 +863,8 @@ cmd_sandbox_native() {
     cmd_build --release
 
     source /etc/os-release
-    case $ID-$VERSION_ID in
-        ubuntu-22.04)
+    case $ID$VERSION_ID in
+        ubuntu22.04)
             sudo apt install python3-pip python3.11-dev gcc tmux
             ;;
         al2023)
@@ -873,7 +873,8 @@ cmd_sandbox_native() {
     esac
     python3.11 -m venv sandbox
     source sandbox/bin/activate
-    pip3.11 install ipython requests requests_unixsocket "urllib3<2" psutil tenacity filelock
+    pip3.11 install ipython requests requests_unixsocket2 psutil tenacity filelock
+    pip3.11 install jsonschema aws_embedded_metrics
     pip3.11 install packaging pytest
     ensure_ci_artifacts
     tmux neww sudo --preserve-env=HOME,PATH,TMUX env PYTHONPATH=tests IPYTHONDIR=\$PWD/.ipython ipython -i ./tools/sandbox.py $@
