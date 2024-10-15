@@ -3,16 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 //
 
-extern crate byteorder;
-extern crate vm_memory;
+use std::io;
+use std::sync::Arc;
 
 use byteorder::{ByteOrder, LittleEndian};
-use std::sync::Arc;
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use vm_device::interrupt::{
     InterruptIndex, InterruptSourceConfig, InterruptSourceGroup, MsiIrqSourceConfig,
 };
-
-use log::error;
 
 // MSI control masks
 const MSI_CTL_ENABLE: u16 = 0x1;
@@ -37,7 +36,17 @@ pub fn msi_num_enabled_vectors(msg_ctl: u16) -> usize {
     1 << field
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("Failed enabling the interrupt route: {0}")]
+    EnableInterruptRoute(io::Error),
+    #[error("Failed updating the interrupt route: {0}")]
+    UpdateInterruptRoute(io::Error),
+}
+
+pub const MSI_CONFIG_ID: &str = "msi_config";
+
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
 pub struct MsiCap {
     // Message Control Register
     //   0:     MSI enable.
@@ -162,22 +171,67 @@ impl MsiCap {
     }
 }
 
-pub struct MsiConfig {
+#[derive(Serialize, Deserialize)]
+pub struct MsiConfigState {
     cap: MsiCap,
-    interrupt_source_group: Arc<Box<dyn InterruptSourceGroup>>,
+}
+
+pub struct MsiConfig {
+    pub cap: MsiCap,
+    interrupt_source_group: Arc<dyn InterruptSourceGroup>,
 }
 
 impl MsiConfig {
-    pub fn new(msg_ctl: u16, interrupt_source_group: Arc<Box<dyn InterruptSourceGroup>>) -> Self {
-        let cap = MsiCap {
-            msg_ctl,
-            ..Default::default()
+    pub fn new(
+        msg_ctl: u16,
+        interrupt_source_group: Arc<dyn InterruptSourceGroup>,
+        state: Option<MsiConfigState>,
+    ) -> Result<Self, Error> {
+        let cap = if let Some(state) = state {
+            if state.cap.enabled() {
+                for idx in 0..state.cap.num_enabled_vectors() {
+                    let config = MsiIrqSourceConfig {
+                        high_addr: state.cap.msg_addr_hi,
+                        low_addr: state.cap.msg_addr_lo,
+                        data: state.cap.msg_data as u32,
+                        devid: 0,
+                    };
+
+                    interrupt_source_group
+                        .update(
+                            idx as InterruptIndex,
+                            InterruptSourceConfig::MsiIrq(config),
+                            state.cap.vector_masked(idx),
+                            false,
+                        )
+                        .map_err(Error::UpdateInterruptRoute)?;
+                }
+
+                interrupt_source_group
+                    .set_gsi()
+                    .map_err(Error::EnableInterruptRoute)?;
+
+                interrupt_source_group
+                    .enable()
+                    .map_err(Error::EnableInterruptRoute)?;
+            }
+
+            state.cap
+        } else {
+            MsiCap {
+                msg_ctl,
+                ..Default::default()
+            }
         };
 
-        MsiConfig {
+        Ok(MsiConfig {
             cap,
             interrupt_source_group,
-        }
+        })
+    }
+
+    fn state(&self) -> MsiConfigState {
+        MsiConfigState { cap: self.cap }
     }
 
     pub fn enabled(&self) -> bool {
@@ -206,19 +260,13 @@ impl MsiConfig {
                     devid: 0,
                 };
 
-                if let Err(e) = self
-                    .interrupt_source_group
-                    .update(idx as InterruptIndex, InterruptSourceConfig::MsiIrq(config))
-                {
+                if let Err(e) = self.interrupt_source_group.update(
+                    idx as InterruptIndex,
+                    InterruptSourceConfig::MsiIrq(config),
+                    self.cap.vector_masked(idx),
+                    true,
+                ) {
                     error!("Failed updating vector: {:?}", e);
-                }
-
-                if self.cap.vector_masked(idx) {
-                    if let Err(e) = self.interrupt_source_group.mask(idx as InterruptIndex) {
-                        error!("Failed masking vector: {:?}", e);
-                    }
-                } else if let Err(e) = self.interrupt_source_group.unmask(idx as InterruptIndex) {
-                    error!("Failed unmasking vector: {:?}", e);
                 }
             }
 

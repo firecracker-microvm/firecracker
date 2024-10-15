@@ -3,8 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
 //
 
-// use devices::interrupt_controller::InterruptController;
-// use hypervisor::IrqRoutingEntry;
 use std::collections::HashMap;
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,6 +11,7 @@ use vm_device::interrupt::{
     InterruptIndex, InterruptManager, InterruptSourceConfig, InterruptSourceGroup, MsiIrqGroupConfig,
 };
 use kvm_ioctls::{VmFd};
+use vmm_sys_util::eventfd::EventFd;
 
 /// Reuse std::io::Result to simplify interoperability among crates.
 pub type Result<T> = std::io::Result<T>;
@@ -42,7 +41,7 @@ impl InterruptRoute {
             vm.register_irqfd(&self.irq_fd, self.gsi).map_err(|e| {
                 io::Error::new(
                     io::ErrorKind::Other,
-                    format!("Failed registering irq_fd: {}", e),
+                    format!("Failed registering irq_fd: {e}"),
                 )
             })?;
 
@@ -58,7 +57,7 @@ impl InterruptRoute {
             vm.unregister_irqfd(&self.irq_fd, self.gsi).map_err(|e| {
                 io::Error::new(
                     io::ErrorKind::Other,
-                    format!("Failed unregistering irq_fd: {}", e),
+                    format!("Failed unregistering irq_fd: {e}"),
                 )
             })?;
 
@@ -99,7 +98,7 @@ use vm_system_allocator::SystemAllocator;
 impl MsiInterruptGroup<IrqRoutingEntry> {
     fn set_gsi_routes(&self, routes: &HashMap<u32, RoutingEntry<IrqRoutingEntry>>) -> Result<()> {
         let mut entry_vec: Vec<IrqRoutingEntry> = Vec::new();
-        
+                
         for i in 0..24 {
             let mut kvm_route = kvm_irq_routing_entry {
                 gsi: i,
@@ -135,7 +134,7 @@ impl MsiInterruptGroup<IrqRoutingEntry> {
         self.vm.lock().expect("Poisoned VmFd lock").set_gsi_routing(&irq_routing[0]).map_err(|e| {
             io::Error::new(
                 io::ErrorKind::Other,
-                format!("Failed setting GSI routing: {}", e),
+                format!("Failed setting GSI routing: {e}"),
             )
         })
     }
@@ -191,63 +190,52 @@ impl InterruptSourceGroup for MsiInterruptGroup<IrqRoutingEntry> {
         None
     }
 
-    fn update(&self, index: InterruptIndex, config: InterruptSourceConfig) -> Result<()> {
+    fn update(
+        &self,
+        index: InterruptIndex,
+        config: InterruptSourceConfig,
+        masked: bool,
+        set_gsi: bool,
+    ) -> Result<()> {
         if let Some(route) = self.irq_routes.get(&index) {
             let entry = RoutingEntry::<_>::make_entry(route.gsi, &config)?;
+
+
+            // When mask a msi irq, entry.masked is set to be true,
+            // and the gsi will not be passed to KVM through KVM_SET_GSI_ROUTING.
+            // So it's required to call disable() (which deassign KVM_IRQFD) before
+            // set_gsi_routes() to avoid kernel panic (see #3827)
+            if masked {
+                route.disable(&self.vm.lock().unwrap())?;
+            }
+
             let mut routes = self.gsi_msi_routes.lock().unwrap();
             routes.insert(route.gsi, *entry);
-            return self.set_gsi_routes(&routes);
+            if set_gsi {
+                self.set_gsi_routes(&routes)?;
+            }
+
+            // Assign KVM_IRQFD after KVM_SET_GSI_ROUTING to avoid
+            // panic on kernel which not have commit a80ced6ea514
+            // (KVM: SVM: fix panic on out-of-bounds guest IRQ).
+            if !masked {
+                route.enable(&self.vm.lock().unwrap())?;
+            }
+
+            return Ok(());
         }
 
         Err(io::Error::new(
             io::ErrorKind::Other,
-            format!("update: Invalid interrupt index {}", index),
+            format!("update: Invalid interrupt index {index}"),
         ))
     }
 
-    fn mask(&self, index: InterruptIndex) -> Result<()> {
-        if let Some(route) = self.irq_routes.get(&index) {
-            let mut routes = self.gsi_msi_routes.lock().unwrap();
-            if let Some(entry) = routes.get_mut(&route.gsi) {
-                entry.masked = true;
-            } else {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("mask: No existing route for interrupt index {}", index),
-                ));
-            }
-            self.set_gsi_routes(&routes)?;
-            return route.disable(&self.vm.lock().expect("Poisoned lock"));
-        }
-
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("mask: Invalid interrupt index {}", index),
-        ))
-    }
-
-    fn unmask(&self, index: InterruptIndex) -> Result<()> {
-        if let Some(route) = self.irq_routes.get(&index) {
-            let mut routes = self.gsi_msi_routes.lock().unwrap();
-            if let Some(entry) = routes.get_mut(&route.gsi) {
-                entry.masked = false;
-            } else {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("mask: No existing route for interrupt index {}", index),
-                ));
-            }
-            self.set_gsi_routes(&routes)?;
-            return route.enable(&&self.vm.lock().expect("Poisoned lock"));
-        }
-
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("unmask: Invalid interrupt index {}", index),
-        ))
+    fn set_gsi(&self) -> Result<()> {
+        let routes = self.gsi_msi_routes.lock().unwrap();
+        self.set_gsi_routes(&routes)
     }
 }
-
 pub struct MsiInterruptManager<IrqRoutingEntry> {
     allocator: Arc<Mutex<SystemAllocator>>,
     vm: Arc<Mutex<VmFd>>,
@@ -273,10 +261,7 @@ impl MsiInterruptManager<IrqRoutingEntry> {
 impl InterruptManager for MsiInterruptManager<IrqRoutingEntry> {
     type GroupConfig = MsiIrqGroupConfig;
 
-    fn create_group(
-        &self,
-        config: Self::GroupConfig,
-    ) -> Result<Arc<Box<dyn InterruptSourceGroup>>> {
+    fn create_group(&self, config: Self::GroupConfig) -> Result<Arc<dyn InterruptSourceGroup>> {
         let mut allocator = self.allocator.lock().unwrap();
         let mut irq_routes: HashMap<InterruptIndex, InterruptRoute> =
             HashMap::with_capacity(config.count as usize);
@@ -284,14 +269,14 @@ impl InterruptManager for MsiInterruptManager<IrqRoutingEntry> {
             irq_routes.insert(i, InterruptRoute::new(&mut allocator)?);
         }
 
-        Ok(Arc::new(Box::new(MsiInterruptGroup::new(
+        Ok(Arc::new(MsiInterruptGroup::new(
             self.vm.clone(),
             self.gsi_msi_routes.clone(),
             irq_routes,
-        ))))
+        )))
     }
 
-    fn destroy_group(&self, _group: Arc<Box<dyn InterruptSourceGroup>>) -> Result<()> {
+    fn destroy_group(&self, _group: Arc<dyn InterruptSourceGroup>) -> Result<()> {
         Ok(())
     }
 }

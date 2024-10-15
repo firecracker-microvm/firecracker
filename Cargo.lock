@@ -977,6 +977,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c9be0862c1b3f26a88803c4a49de6889c10e608b3ee9344e6ef5b45fb37ad3d1"
 
 [[package]]
+name = "mshv-bindings"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "576504619272a742fa7b75e69c9cd92520df5b4b66181c55e0d3eeb10d8341f8"
+dependencies = [
+ "libc",
+ "num_enum",
+ "serde",
+ "serde_derive",
+ "vmm-sys-util",
+ "zerocopy 0.8.10",
+]
+
+[[package]]
+name = "mshv-ioctls"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8ccd62dfa7e0448b49700744f4d23e28ed7a49e83087ba6d7c06c4ee18b8821c"
+dependencies = [
+ "libc",
+ "mshv-bindings",
+ "thiserror 1.0.69",
+ "vmm-sys-util",
+]
+
+[[package]]
 name = "nix"
 version = "0.27.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1020,6 +1046,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "num_enum"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e613fc340b2220f734a8595782c551f1250e969d87d3be1ae0579e8d4065179"
+dependencies = [
+ "num_enum_derive",
+]
+
+[[package]]
+name = "num_enum_derive"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af1844ef2428cc3e1cb900be36181049ef3d3193c63e43026cfe202983b27a56"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1053,6 +1099,8 @@ dependencies = [
  "kvm-ioctls",
  "libc",
  "log",
+ "serde",
+ "thiserror 1.0.69",
  "vfio-bindings 0.2.0",
  "vfio-ioctls",
  "vm-device",
@@ -1596,6 +1644,8 @@ dependencies = [
  "kvm-ioctls",
  "libc",
  "log",
+ "mshv-bindings",
+ "mshv-ioctls",
  "thiserror 1.0.69",
  "vfio-bindings 0.4.0",
  "vm-memory",
@@ -1631,8 +1681,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "serde",
- "serde_derive",
- "serde_json",
  "thiserror 1.0.69",
  "vfio-ioctls",
  "vm-memory",

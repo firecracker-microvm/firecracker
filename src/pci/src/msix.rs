@@ -3,18 +3,17 @@
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 //
 
-extern crate byteorder;
-extern crate vm_memory;
-
-use crate::{PciCapability, PciCapabilityId};
-use byteorder::{ByteOrder, LittleEndian};
 use std::sync::Arc;
+use std::{io, result};
+
+use byteorder::{ByteOrder, LittleEndian};
+use serde::{Deserialize, Serialize};
 use vm_device::interrupt::{
     InterruptIndex, InterruptSourceConfig, InterruptSourceGroup, MsiIrqSourceConfig,
 };
 use vm_memory::ByteValued;
 
-use log::{debug, error};
+use crate::{PciCapability, PciCapabilityId};
 
 const MAX_MSIX_VECTORS_PER_DEVICE: u16 = 2048;
 const MSIX_TABLE_ENTRIES_MODULO: u64 = 16;
@@ -25,8 +24,17 @@ const MSIX_ENABLE_BIT: u8 = 15;
 const FUNCTION_MASK_MASK: u16 = (1 << FUNCTION_MASK_BIT) as u16;
 const MSIX_ENABLE_MASK: u16 = (1 << MSIX_ENABLE_BIT) as u16;
 pub const MSIX_TABLE_ENTRY_SIZE: usize = 16;
+pub const MSIX_CONFIG_ID: &str = "msix_config";
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
+pub enum Error {
+    /// Failed enabling the interrupt route.
+    EnableInterruptRoute(io::Error),
+    /// Failed updating the interrupt route.
+    UpdateInterruptRoute(io::Error),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct MsixTableEntry {
     pub msg_addr_lo: u32,
     pub msg_addr_hi: u32,
@@ -51,11 +59,19 @@ impl Default for MsixTableEntry {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct MsixConfigState {
+    table_entries: Vec<MsixTableEntry>,
+    pba_entries: Vec<u64>,
+    masked: bool,
+    enabled: bool,
+}
+
 pub struct MsixConfig {
     pub table_entries: Vec<MsixTableEntry>,
     pub pba_entries: Vec<u64>,
     pub devid: u32,
-    interrupt_source_group: Arc<Box<dyn InterruptSourceGroup>>,
+    interrupt_source_group: Arc<dyn InterruptSourceGroup>,
     masked: bool,
     enabled: bool,
 }
@@ -63,24 +79,73 @@ pub struct MsixConfig {
 impl MsixConfig {
     pub fn new(
         msix_vectors: u16,
-        interrupt_source_group: Arc<Box<dyn InterruptSourceGroup>>,
+        interrupt_source_group: Arc<dyn InterruptSourceGroup>,
         devid: u32,
-    ) -> Self {
+        state: Option<MsixConfigState>,
+    ) -> result::Result<Self, Error> {
         assert!(msix_vectors <= MAX_MSIX_VECTORS_PER_DEVICE);
 
-        let mut table_entries: Vec<MsixTableEntry> = Vec::new();
-        table_entries.resize_with(msix_vectors as usize, Default::default);
-        let mut pba_entries: Vec<u64> = Vec::new();
-        let num_pba_entries: usize = ((msix_vectors as usize) / BITS_PER_PBA_ENTRY) + 1;
-        pba_entries.resize_with(num_pba_entries, Default::default);
+        let (table_entries, pba_entries, masked, enabled) = if let Some(state) = state {
+            if state.enabled && !state.masked {
+                for (idx, table_entry) in state.table_entries.iter().enumerate() {
+                    if table_entry.masked() {
+                        continue;
+                    }
 
-        MsixConfig {
+                    let config = MsiIrqSourceConfig {
+                        high_addr: table_entry.msg_addr_hi,
+                        low_addr: table_entry.msg_addr_lo,
+                        data: table_entry.msg_data,
+                        devid,
+                    };
+
+                    interrupt_source_group
+                        .update(
+                            idx as InterruptIndex,
+                            InterruptSourceConfig::MsiIrq(config),
+                            state.masked,
+                            true,
+                        )
+                        .map_err(Error::UpdateInterruptRoute)?;
+
+                    interrupt_source_group
+                        .enable()
+                        .map_err(Error::EnableInterruptRoute)?;
+                }
+            }
+
+            (
+                state.table_entries,
+                state.pba_entries,
+                state.masked,
+                state.enabled,
+            )
+        } else {
+            let mut table_entries: Vec<MsixTableEntry> = Vec::new();
+            table_entries.resize_with(msix_vectors as usize, Default::default);
+            let mut pba_entries: Vec<u64> = Vec::new();
+            let num_pba_entries: usize = ((msix_vectors as usize) / BITS_PER_PBA_ENTRY) + 1;
+            pba_entries.resize_with(num_pba_entries, Default::default);
+
+            (table_entries, pba_entries, true, false)
+        };
+
+        Ok(MsixConfig {
             table_entries,
             pba_entries,
             devid,
             interrupt_source_group,
-            masked: true,
-            enabled: false,
+            masked,
+            enabled,
+        })
+    }
+
+    fn state(&self) -> MsixConfigState {
+        MsixConfigState {
+            table_entries: self.table_entries.clone(),
+            pba_entries: self.pba_entries.clone(),
+            masked: self.masked,
+            enabled: self.enabled,
         }
     }
 
@@ -102,6 +167,7 @@ impl MsixConfig {
         // Update interrupt routing
         if old_masked != self.masked || old_enabled != self.enabled {
             if self.enabled && !self.masked {
+                debug!("MSI-X enabled for device 0x{:x}", self.devid);
                 for (idx, table_entry) in self.table_entries.iter().enumerate() {
                     let config = MsiIrqSourceConfig {
                         high_addr: table_entry.msg_addr_hi,
@@ -110,23 +176,17 @@ impl MsixConfig {
                         devid: self.devid,
                     };
 
-                    if let Err(e) = self
-                        .interrupt_source_group
-                        .update(idx as InterruptIndex, InterruptSourceConfig::MsiIrq(config))
-                    {
+                    if let Err(e) = self.interrupt_source_group.update(
+                        idx as InterruptIndex,
+                        InterruptSourceConfig::MsiIrq(config),
+                        table_entry.masked(),
+                        true,
+                    ) {
                         error!("Failed updating vector: {:?}", e);
-                    }
-
-                    if table_entry.masked() {
-                        if let Err(e) = self.interrupt_source_group.mask(idx as InterruptIndex) {
-                            error!("Failed masking vector: {:?}", e);
-                        }
-                    } else if let Err(e) = self.interrupt_source_group.unmask(idx as InterruptIndex)
-                    {
-                        error!("Failed unmasking vector: {:?}", e);
                     }
                 }
             } else if old_enabled || !old_masked {
+                debug!("MSI-X disabled for device 0x{:x}", self.devid);
                 if let Err(e) = self.interrupt_source_group.disable() {
                     error!("Failed disabling irq_fd: {:?}", e);
                 }
@@ -151,6 +211,12 @@ impl MsixConfig {
 
         let index: usize = (offset / MSIX_TABLE_ENTRIES_MODULO) as usize;
         let modulo_offset = offset % MSIX_TABLE_ENTRIES_MODULO;
+
+        if index >= self.table_entries.len() {
+            debug!("Invalid MSI-X table entry index {index}");
+            data.copy_from_slice(&[0xff; 8][..data.len()]);
+            return;
+        }
 
         match data.len() {
             4 => {
@@ -199,8 +265,13 @@ impl MsixConfig {
         let index: usize = (offset / MSIX_TABLE_ENTRIES_MODULO) as usize;
         let modulo_offset = offset % MSIX_TABLE_ENTRIES_MODULO;
 
+        if index >= self.table_entries.len() {
+            debug!("Invalid MSI-X table entry index {index}");
+            return;
+        }
+
         // Store the value of the entry before modification
-        let mut old_entry: Option<MsixTableEntry> = None;
+        let old_entry = self.table_entries[index].clone();
 
         match data.len() {
             4 => {
@@ -210,7 +281,6 @@ impl MsixConfig {
                     0x4 => self.table_entries[index].msg_addr_hi = value,
                     0x8 => self.table_entries[index].msg_data = value,
                     0xc => {
-                        old_entry = Some(self.table_entries[index].clone());
                         self.table_entries[index].vector_ctl = value;
                     }
                     _ => error!("invalid offset"),
@@ -226,7 +296,6 @@ impl MsixConfig {
                         self.table_entries[index].msg_addr_hi = (value >> 32) as u32;
                     }
                     0x8 => {
-                        old_entry = Some(self.table_entries[index].clone());
                         self.table_entries[index].msg_data = (value & 0xffff_ffffu64) as u32;
                         self.table_entries[index].vector_ctl = (value >> 32) as u32;
                     }
@@ -238,10 +307,18 @@ impl MsixConfig {
             _ => error!("invalid data length"),
         };
 
-        // Update interrupt routes
-        if self.enabled && !self.masked {
-            let table_entry = &self.table_entries[index];
+        let table_entry = &self.table_entries[index];
 
+        // Optimisation to avoid excessive updates
+        if &old_entry == table_entry {
+            return;
+        }
+
+        // Update interrupt routes
+        // Optimisation: only update routes if the entry is not masked;
+        // this is safe because if the entry is masked (starts masked as per spec)
+        // in the table then it won't be triggered. (See: #4273)
+        if self.enabled && !self.masked && !table_entry.masked() {
             let config = MsiIrqSourceConfig {
                 high_addr: table_entry.msg_addr_hi,
                 low_addr: table_entry.msg_addr_lo,
@@ -252,16 +329,10 @@ impl MsixConfig {
             if let Err(e) = self.interrupt_source_group.update(
                 index as InterruptIndex,
                 InterruptSourceConfig::MsiIrq(config),
+                table_entry.masked(),
+                true,
             ) {
                 error!("Failed updating vector: {:?}", e);
-            }
-
-            if table_entry.masked() {
-                if let Err(e) = self.interrupt_source_group.mask(index as InterruptIndex) {
-                    error!("Failed masking vector: {:?}", e);
-                }
-            } else if let Err(e) = self.interrupt_source_group.unmask(index as InterruptIndex) {
-                error!("Failed unmasking vector: {:?}", e);
             }
         }
 
@@ -272,15 +343,15 @@ impl MsixConfig {
         // has been injected, the pending bit in the PBA needs to be cleared.
         // All of this is valid only if MSI-X has not been masked for the whole
         // device.
-        if let Some(old_entry) = old_entry {
-            // Check if bit has been flipped
-            if !self.masked()
-                && old_entry.masked()
-                && !self.table_entries[index].masked()
-                && self.get_pba_bit(index as u16) == 1
-            {
-                self.inject_msix_and_clear_pba(index);
-            }
+
+        // Check if bit has been flipped
+        if !self.masked()
+            && self.enabled()
+            && old_entry.masked()
+            && !table_entry.masked()
+            && self.get_pba_bit(index as u16) == 1
+        {
+            self.inject_msix_and_clear_pba(index);
         }
     }
 
@@ -289,6 +360,12 @@ impl MsixConfig {
 
         let index: usize = (offset / MSIX_PBA_ENTRIES_MODULO) as usize;
         let modulo_offset = offset % MSIX_PBA_ENTRIES_MODULO;
+
+        if index >= self.pba_entries.len() {
+            debug!("Invalid MSI-X PBA entry index {index}");
+            data.copy_from_slice(&[0xff; 8][..data.len()]);
+            return;
+        }
 
         match data.len() {
             4 => {
@@ -367,7 +444,7 @@ impl MsixConfig {
 
 #[allow(dead_code)]
 #[repr(packed)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
 pub struct MsixCap {
     // Message Control Register
     //   10-0:  MSI-X Table size
@@ -385,7 +462,7 @@ pub struct MsixCap {
     pub pba: u32,
 }
 
-// It is safe to implement ByteValued. All members are simple numbers and any value is valid.
+// SAFETY: All members are simple numbers and any value is valid.
 unsafe impl ByteValued for MsixCap {}
 
 impl PciCapability for MsixCap {
@@ -439,6 +516,16 @@ impl MsixCap {
         self.pba & 0xffff_fff8
     }
 
+    pub fn table_set_offset(&mut self, addr: u32) {
+        self.table &= 0x7;
+        self.table += addr;
+    }
+
+    pub fn pba_set_offset(&mut self, addr: u32) {
+        self.pba &= 0x7;
+        self.pba += addr;
+    }
+
     pub fn table_bir(&self) -> u32 {
         self.table & 0x7
     }
@@ -449,5 +536,17 @@ impl MsixCap {
 
     pub fn table_size(&self) -> u16 {
         (self.msg_ctl & 0x7ff) + 1
+    }
+
+    pub fn table_range(&self) -> (u64, u64) {
+        // The table takes 16 bytes per entry.
+        let size = self.table_size() as u64 * 16;
+        (self.table_offset() as u64, size)
+    }
+
+    pub fn pba_range(&self) -> (u64, u64) {
+        // The table takes 1 bit per entry modulo 8 bytes.
+        let size = ((self.table_size() as u64 / 64) + 1) * 8;
+        (self.pba_offset() as u64, size)
     }
 }

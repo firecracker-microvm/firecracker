@@ -1,21 +1,28 @@
 // Copyright 2018 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE-BSD-3-Clause file.
+//
+// SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
+
+use std::any::Any;
+use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
+use std::ops::DerefMut;
+use std::sync::{Arc, Barrier, Mutex};
+
+use byteorder::{ByteOrder, LittleEndian};
 
 use pci::configuration::{
     PciBarRegionType, PciBridgeSubclass, PciClassCode, PciConfiguration, PciHeaderType,
 };
-use pci::device::PciDevice;
-use byteorder::{ByteOrder, LittleEndian};
-use log::error;
-use std::any::Any;
-use std::collections::HashMap;
-use std::fmt;
-use std::fmt::{Debug, Formatter};
-use std::sync::{Arc, Barrier, Mutex};
-use vm_memory::{Address, GuestAddress, GuestUsize};
+use pci::device::{Error as PciDeviceError, PciDevice};
+use pci::PciBarConfiguration;
 
 use super::{Bus, BusDevice};
+
+use crate::logger::error;
+
+use std::fmt;
 
 const VENDOR_ID_INTEL: u16 = 0x8086;
 const DEVICE_ID_INTEL_VIRT_PCIE_HOST: u16 = 0x0d57;
@@ -24,8 +31,14 @@ const NUM_DEVICE_IDS: usize = 32;
 /// Errors for device manager.
 #[derive(Debug)]
 pub enum PciRootError {
+    /// Could not allocate device address space for the device.
+    AllocateDeviceAddrs(PciDeviceError),
     /// Could not allocate an IRQ number.
     AllocateIrq,
+    /// Could not add a device to the port io bus.
+    PioInsert(vm_device::BusError),
+    /// Could not add a device to the mmio bus.
+    MmioInsert(vm_device::BusError),
     /// Could not find an available device slot on the PCI bus.
     NoPciDeviceSlotAvailable,
     /// Invalid PCI device identifier provided.
@@ -66,6 +79,7 @@ impl PciRoot {
                     0,
                     0,
                     None,
+                    None,
                 ),
             }
         }
@@ -89,6 +103,10 @@ impl PciDevice for PciRoot {
 
     fn as_any(&mut self) -> &mut dyn Any {
         self
+    }
+
+    fn id(&self) -> Option<String> {
+        None
     }
 }
 
@@ -115,23 +133,24 @@ impl PciBus {
 
     pub fn register_mapping(
         &self,
-        dev: Arc<Mutex<BusDevice>>,
-        io_bus: &mut Bus,
+        dev: Arc<Mutex<BusDevice>>,        
+        #[cfg(target_arch = "x86_64")] io_bus: &mut Bus,
         mmio_bus: &mut Bus,
-        bars: Vec<(GuestAddress, GuestUsize, PciBarRegionType)>,
+        bars: Vec<PciBarConfiguration>,
     ) -> Result<()> {
-        for (address, size, type_) in bars {
-            match type_ {
+        for bar in bars {
+            match bar.region_type() {
                 PciBarRegionType::IoRegion => {
+                    #[cfg(target_arch = "x86_64")]
                     io_bus
-                        .insert(dev.clone(), address.raw_value(), size)
+                        .insert(dev.clone(), bar.addr(), bar.size())
                         .unwrap();
-                    error!("cannot register bus mappings {:x} {:x} IO", address.0, size);
+                    error!("cannot register bus mappings {:x} {:x} IO", bar.addr(), bar.size());
                 }
                 PciBarRegionType::Memory32BitRegion | PciBarRegionType::Memory64BitRegion => {
-                    error!("Registering bus mappings {:x} {:x}", address.0, size);
+                    error!("Registering bus mappings {:x} {:x}", bar.addr(), bar.size());
                     mmio_bus
-                        .insert(dev.clone(), address.raw_value(), size)
+                        .insert(dev.clone(), bar.addr(), bar.size())
                         .unwrap();
                 }
             }
@@ -139,12 +158,8 @@ impl PciBus {
         Ok(())
     }
 
-    pub fn add_device(
-        &mut self,
-        pci_device_bdf: u32,
-        device: Arc<Mutex<BusDevice>>,
-    ) -> Result<()> {
-        self.devices.insert(pci_device_bdf >> 3, device);
+    pub fn add_device(&mut self, device_id: u32, device: Arc<Mutex<BusDevice>>) -> Result<()> {
+        self.devices.insert(device_id, device);
         Ok(())
     }
 
@@ -203,8 +218,8 @@ impl Debug for PciConfigIo {
 impl PciConfigIo {
     pub fn new(pci_bus: Arc<Mutex<PciBus>>) -> Self {
         PciConfigIo {
-            pci_bus,
             config_address: 0,
+            pci_bus,
         }
     }
 
@@ -233,6 +248,7 @@ impl PciConfigIo {
         }
 
         self.pci_bus
+            .as_ref()
             .lock()
             .unwrap()
             .devices
@@ -260,10 +276,12 @@ impl PciConfigIo {
             return None;
         }
 
-        let pci_bus = self.pci_bus.lock().unwrap();
+        let pci_bus = self.pci_bus.as_ref().lock().unwrap();
         if let Some(d) = pci_bus.devices.get(&(device as u32)) {
             let mut device = d.lock().unwrap();
 
+            // Find out if one of the device's BAR is being reprogrammed, and
+            // reprogram it if needed.
             if let Some(params) = device.pci_device_mut().unwrap().detect_bar_reprogramming(register, data) {
                 // if let Err(e) = pci_bus.device_reloc.move_bar(
                 //     params.old_base,
@@ -272,11 +290,6 @@ impl PciConfigIo {
                 //     device.deref_mut(),
                 //     params.region_type,
                 // ) {
-                //     error!(
-                //         "Failed moving device BAR: {}: 0x{:x}->0x{:x}(0x{:x})",
-                //         e, params.old_base, params.new_base, params.len
-                //     );
-                // }
                 error!(
                     "Failed moving device BAR: 0x{:x}->0x{:x}(0x{:x})",
                     params.old_base, params.new_base, params.len
@@ -397,6 +410,8 @@ impl PciConfigMmio {
         if let Some(d) = pci_bus.devices.get(&(device as u32)) {
             let mut device = d.lock().unwrap();
 
+            // Find out if one of the device's BAR is being reprogrammed, and
+            // reprogram it if needed.
             if let Some(params) = device.pci_device_mut().unwrap().detect_bar_reprogramming(register, data) {
                 // if let Err(e) = pci_bus.device_reloc.move_bar(
                 //     params.old_base,
@@ -427,7 +442,7 @@ impl PciConfigMmio {
         // Only allow reads to the register boundary.
         let start = offset as usize % 4;
         let end = start + data.len();
-        if end > 4 || offset > u64::from(u32::max_value()) {
+        if end > 4 || offset > u64::from(u32::MAX) {
             for d in data {
                 *d = 0xff;
             }

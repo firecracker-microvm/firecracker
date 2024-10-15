@@ -1,12 +1,18 @@
 // Copyright 2018 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE-BSD-3-Clause file.
+//
+// SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
 
-use crate::{BarReprogrammingParams, MsixConfig, PciInterruptPin};
-use byteorder::{ByteOrder, LittleEndian};
 use std::fmt::{self, Display};
 use std::sync::{Arc, Mutex};
-use log::{debug, warn};
+
+use byteorder::{ByteOrder, LittleEndian};
+use serde::{Deserialize, Serialize};
+use vm_device::PciBarType;
+
+use crate::device::BarReprogrammingParams;
+use crate::{MsixConfig, PciInterruptPin};
 
 // The number of 32bit registers in the config space, 4096 bytes.
 const NUM_CONFIGURATION_REGISTERS: usize = 1024;
@@ -15,15 +21,20 @@ const STATUS_REG: usize = 1;
 const STATUS_REG_CAPABILITIES_USED_MASK: u32 = 0x0010_0000;
 const BAR0_REG: usize = 4;
 const ROM_BAR_REG: usize = 12;
+const ROM_BAR_IDX: usize = 6;
 const BAR_IO_ADDR_MASK: u32 = 0xffff_fffc;
 const BAR_MEM_ADDR_MASK: u32 = 0xffff_fff0;
 const ROM_BAR_ADDR_MASK: u32 = 0xffff_f800;
+const MSI_CAPABILITY_REGISTER_MASK: u32 = 0x0071_0000;
+const MSIX_CAPABILITY_REGISTER_MASK: u32 = 0xc000_0000;
 const NUM_BAR_REGS: usize = 6;
 const CAPABILITY_LIST_HEAD_OFFSET: usize = 0x34;
-pub const FIRST_CAPABILITY_OFFSET: usize = 0x40;
-pub const CAPABILITY_MAX_OFFSET: usize = 192;
+const FIRST_CAPABILITY_OFFSET: usize = 0x40;
+const CAPABILITY_MAX_OFFSET: usize = 192;
 
 const INTERRUPT_LINE_PIN_REG: usize = 15;
+
+pub const PCI_CONFIGURATION_ID: &str = "pci_configuration";
 
 /// Represents the types of PCI headers allowed in the configuration registers.
 #[derive(Copy, Clone)]
@@ -170,8 +181,10 @@ impl PciSubclass for PciNetworkControllerSubclass {
     }
 }
 
-/// A PCI class programming interface. Each combination of `PciClassCode` and
-/// `PciSubclass` can specify a set of register-level programming interfaces.
+/// Trait to define a PCI class programming interface
+///
+/// Each combination of `PciClassCode` and `PciSubclass` can specify a
+/// set of register-level programming interfaces.
 /// This trait is implemented by each programming interface.
 /// It allows use of a trait object to generate configurations.
 pub trait PciProgrammingInterface {
@@ -180,10 +193,10 @@ pub trait PciProgrammingInterface {
 }
 
 /// Types of PCI capabilities.
-#[derive(PartialEq, Copy, Clone)]
+#[derive(PartialEq, Eq, Copy, Clone)]
 #[allow(dead_code)]
 #[allow(non_camel_case_types)]
-#[repr(C)]
+#[repr(u8)]
 pub enum PciCapabilityId {
     ListId = 0,
     PowerManagement = 0x01,
@@ -237,6 +250,118 @@ impl From<u8> for PciCapabilityId {
     }
 }
 
+/// Types of PCI Express capabilities.
+#[derive(PartialEq, Eq, Copy, Clone, Debug)]
+#[allow(dead_code)]
+#[repr(u16)]
+pub enum PciExpressCapabilityId {
+    NullCapability = 0x0000,
+    AdvancedErrorReporting = 0x0001,
+    VirtualChannelMultiFunctionVirtualChannelNotPresent = 0x0002,
+    DeviceSerialNumber = 0x0003,
+    PowerBudgeting = 0x0004,
+    RootComplexLinkDeclaration = 0x0005,
+    RootComplexInternalLinkControl = 0x0006,
+    RootComplexEventCollectorEndpointAssociation = 0x0007,
+    MultiFunctionVirtualChannel = 0x0008,
+    VirtualChannelMultiFunctionVirtualChannelPresent = 0x0009,
+    RootComplexRegisterBlock = 0x000a,
+    VendorSpecificExtendedCapability = 0x000b,
+    ConfigurationAccessCorrelation = 0x000c,
+    AccessControlServices = 0x000d,
+    AlternativeRoutingIdentificationInterpretation = 0x000e,
+    AddressTranslationServices = 0x000f,
+    SingleRootIoVirtualization = 0x0010,
+    DeprecatedMultiRootIoVirtualization = 0x0011,
+    Multicast = 0x0012,
+    PageRequestInterface = 0x0013,
+    ReservedForAmd = 0x0014,
+    ResizeableBar = 0x0015,
+    DynamicPowerAllocation = 0x0016,
+    ThpRequester = 0x0017,
+    LatencyToleranceReporting = 0x0018,
+    SecondaryPciExpress = 0x0019,
+    ProtocolMultiplexing = 0x001a,
+    ProcessAddressSpaceId = 0x001b,
+    LnRequester = 0x001c,
+    DownstreamPortContainment = 0x001d,
+    L1PmSubstates = 0x001e,
+    PrecisionTimeMeasurement = 0x001f,
+    PciExpressOverMphy = 0x0020,
+    FRSQueueing = 0x0021,
+    ReadinessTimeReporting = 0x0022,
+    DesignatedVendorSpecificExtendedCapability = 0x0023,
+    VfResizeableBar = 0x0024,
+    DataLinkFeature = 0x0025,
+    PhysicalLayerSixteenGts = 0x0026,
+    LaneMarginingAtTheReceiver = 0x0027,
+    HierarchyId = 0x0028,
+    NativePcieEnclosureManagement = 0x0029,
+    PhysicalLayerThirtyTwoGts = 0x002a,
+    AlternateProtocol = 0x002b,
+    SystemFirmwareIntermediary = 0x002c,
+    ShadowFunctions = 0x002d,
+    DataObjectExchange = 0x002e,
+    Reserved = 0x002f,
+    ExtendedCapabilitiesAbsence = 0xffff,
+}
+
+impl From<u16> for PciExpressCapabilityId {
+    fn from(c: u16) -> Self {
+        match c {
+            0x0000 => PciExpressCapabilityId::NullCapability,
+            0x0001 => PciExpressCapabilityId::AdvancedErrorReporting,
+            0x0002 => PciExpressCapabilityId::VirtualChannelMultiFunctionVirtualChannelNotPresent,
+            0x0003 => PciExpressCapabilityId::DeviceSerialNumber,
+            0x0004 => PciExpressCapabilityId::PowerBudgeting,
+            0x0005 => PciExpressCapabilityId::RootComplexLinkDeclaration,
+            0x0006 => PciExpressCapabilityId::RootComplexInternalLinkControl,
+            0x0007 => PciExpressCapabilityId::RootComplexEventCollectorEndpointAssociation,
+            0x0008 => PciExpressCapabilityId::MultiFunctionVirtualChannel,
+            0x0009 => PciExpressCapabilityId::VirtualChannelMultiFunctionVirtualChannelPresent,
+            0x000a => PciExpressCapabilityId::RootComplexRegisterBlock,
+            0x000b => PciExpressCapabilityId::VendorSpecificExtendedCapability,
+            0x000c => PciExpressCapabilityId::ConfigurationAccessCorrelation,
+            0x000d => PciExpressCapabilityId::AccessControlServices,
+            0x000e => PciExpressCapabilityId::AlternativeRoutingIdentificationInterpretation,
+            0x000f => PciExpressCapabilityId::AddressTranslationServices,
+            0x0010 => PciExpressCapabilityId::SingleRootIoVirtualization,
+            0x0011 => PciExpressCapabilityId::DeprecatedMultiRootIoVirtualization,
+            0x0012 => PciExpressCapabilityId::Multicast,
+            0x0013 => PciExpressCapabilityId::PageRequestInterface,
+            0x0014 => PciExpressCapabilityId::ReservedForAmd,
+            0x0015 => PciExpressCapabilityId::ResizeableBar,
+            0x0016 => PciExpressCapabilityId::DynamicPowerAllocation,
+            0x0017 => PciExpressCapabilityId::ThpRequester,
+            0x0018 => PciExpressCapabilityId::LatencyToleranceReporting,
+            0x0019 => PciExpressCapabilityId::SecondaryPciExpress,
+            0x001a => PciExpressCapabilityId::ProtocolMultiplexing,
+            0x001b => PciExpressCapabilityId::ProcessAddressSpaceId,
+            0x001c => PciExpressCapabilityId::LnRequester,
+            0x001d => PciExpressCapabilityId::DownstreamPortContainment,
+            0x001e => PciExpressCapabilityId::L1PmSubstates,
+            0x001f => PciExpressCapabilityId::PrecisionTimeMeasurement,
+            0x0020 => PciExpressCapabilityId::PciExpressOverMphy,
+            0x0021 => PciExpressCapabilityId::FRSQueueing,
+            0x0022 => PciExpressCapabilityId::ReadinessTimeReporting,
+            0x0023 => PciExpressCapabilityId::DesignatedVendorSpecificExtendedCapability,
+            0x0024 => PciExpressCapabilityId::VfResizeableBar,
+            0x0025 => PciExpressCapabilityId::DataLinkFeature,
+            0x0026 => PciExpressCapabilityId::PhysicalLayerSixteenGts,
+            0x0027 => PciExpressCapabilityId::LaneMarginingAtTheReceiver,
+            0x0028 => PciExpressCapabilityId::HierarchyId,
+            0x0029 => PciExpressCapabilityId::NativePcieEnclosureManagement,
+            0x002a => PciExpressCapabilityId::PhysicalLayerThirtyTwoGts,
+            0x002b => PciExpressCapabilityId::AlternateProtocol,
+            0x002c => PciExpressCapabilityId::SystemFirmwareIntermediary,
+            0x002d => PciExpressCapabilityId::ShadowFunctions,
+            0x002e => PciExpressCapabilityId::DataObjectExchange,
+            0xffff => PciExpressCapabilityId::ExtendedCapabilitiesAbsence,
+            _ => PciExpressCapabilityId::Reserved,
+        }
+    }
+}
+
 /// A PCI capability list. Devices can optionally specify capabilities in their configuration space.
 pub trait PciCapability {
     fn bytes(&self) -> &[u8];
@@ -275,7 +400,7 @@ fn decode_64_bits_bar_size(bar_size_hi: u32, bar_size_lo: u32) -> Option<u64> {
     None
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 struct PciBar {
     addr: u32,
     size: u32,
@@ -283,7 +408,20 @@ struct PciBar {
     r#type: Option<PciBarRegionType>,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct PciConfigurationState {
+    registers: Vec<u32>,
+    writable_bits: Vec<u32>,
+    bars: Vec<PciBar>,
+    rom_bar_addr: u32,
+    rom_bar_size: u32,
+    rom_bar_used: bool,
+    last_capability: Option<(usize, usize)>,
+    msix_cap_reg_idx: Option<usize>,
+}
+
 /// Contains the configuration space of a PCI node.
+///
 /// See the [specification](https://en.wikipedia.org/wiki/PCI_configuration_space).
 /// The configuration space is accessed with DWORD reads and writes from the guest.
 pub struct PciConfiguration {
@@ -300,11 +438,31 @@ pub struct PciConfiguration {
 }
 
 /// See pci_regs.h in kernel
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Debug)]
 pub enum PciBarRegionType {
     Memory32BitRegion = 0,
     IoRegion = 0x01,
     Memory64BitRegion = 0x04,
+}
+
+impl From<PciBarType> for PciBarRegionType {
+    fn from(type_: PciBarType) -> Self {
+        match type_ {
+            PciBarType::Io => PciBarRegionType::IoRegion,
+            PciBarType::Mmio32 => PciBarRegionType::Memory32BitRegion,
+            PciBarType::Mmio64 => PciBarRegionType::Memory64BitRegion,
+        }
+    }
+}
+
+impl From<PciBarRegionType> for PciBarType {
+    fn from(val: PciBarRegionType) -> Self {
+        match val {
+            PciBarRegionType::IoRegion => PciBarType::Io,
+            PciBarRegionType::Memory32BitRegion => PciBarType::Mmio32,
+            PciBarRegionType::Memory64BitRegion => PciBarType::Mmio64,
+        }
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -313,11 +471,20 @@ pub enum PciBarPrefetchable {
     Prefetchable = 0x08,
 }
 
+impl From<PciBarPrefetchable> for bool {
+    fn from(val: PciBarPrefetchable) -> Self {
+        match val {
+            PciBarPrefetchable::NotPrefetchable => false,
+            PciBarPrefetchable::Prefetchable => true,
+        }
+    }
+}
+
 #[derive(Copy, Clone)]
 pub struct PciBarConfiguration {
     addr: u64,
     size: u64,
-    reg_idx: usize,
+    idx: usize,
     region_type: PciBarRegionType,
     prefetchable: PciBarPrefetchable,
 }
@@ -350,9 +517,9 @@ impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::Error::*;
         match self {
-            BarAddressInvalid(a, s) => write!(f, "address {} size {} too big", a, s),
-            BarInUse(b) => write!(f, "bar {} already used", b),
-            BarInUse64(b) => write!(f, "64bit bar {} already used(requires two regs)", b),
+            BarAddressInvalid(a, s) => write!(f, "address {a} size {s} too big"),
+            BarInUse(b) => write!(f, "bar {b} already used"),
+            BarInUse64(b) => write!(f, "64bit bar {b} already used(requires two regs)"),
             BarInvalid(b) => write!(f, "bar {} invalid, max {}", b, NUM_BAR_REGS - 1),
             BarInvalid64(b) => write!(
                 f,
@@ -360,18 +527,18 @@ impl Display for Error {
                 b,
                 NUM_BAR_REGS - 1
             ),
-            BarSizeInvalid(s) => write!(f, "bar address {} not a power of two", s),
+            BarSizeInvalid(s) => write!(f, "bar address {s} not a power of two"),
             CapabilityEmpty => write!(f, "empty capabilities are invalid"),
-            CapabilityLengthInvalid(l) => write!(f, "Invalid capability length {}", l),
-            CapabilitySpaceFull(s) => write!(f, "capability of size {} doesn't fit", s),
+            CapabilityLengthInvalid(l) => write!(f, "Invalid capability length {l}"),
+            CapabilitySpaceFull(s) => write!(f, "capability of size {s} doesn't fit"),
             Decode32BarSize => write!(f, "failed to decode 32 bits BAR size"),
             Decode64BarSize => write!(f, "failed to decode 64 bits BAR size"),
             Encode32BarSize => write!(f, "failed to encode 32 bits BAR size"),
             Encode64BarSize => write!(f, "failed to encode 64 bits BAR size"),
-            RomBarAddressInvalid(a, s) => write!(f, "address {} size {} too big", a, s),
-            RomBarInUse(b) => write!(f, "rom bar {} already used", b),
+            RomBarAddressInvalid(a, s) => write!(f, "address {a} size {s} too big"),
+            RomBarInUse(b) => write!(f, "rom bar {b} already used"),
             RomBarInvalid(b) => write!(f, "rom bar {} invalid, max {}", b, NUM_BAR_REGS - 1),
-            RomBarSizeInvalid(s) => write!(f, "rom bar address {} not a power of two", s),
+            RomBarSizeInvalid(s) => write!(f, "rom bar address {s} not a power of two"),
         }
     }
 }
@@ -389,46 +556,92 @@ impl PciConfiguration {
         subsystem_vendor_id: u16,
         subsystem_id: u16,
         msix_config: Option<Arc<Mutex<MsixConfig>>>,
+        state: Option<PciConfigurationState>,
     ) -> Self {
-        let mut registers = [0u32; NUM_CONFIGURATION_REGISTERS];
-        let mut writable_bits = [0u32; NUM_CONFIGURATION_REGISTERS];
-        registers[0] = u32::from(device_id) << 16 | u32::from(vendor_id);
-        // TODO(dverkamp): Status should be write-1-to-clear
-        writable_bits[1] = 0x0000_ffff; // Status (r/o), command (r/w)
-        let pi = if let Some(pi) = programming_interface {
-            pi.get_register_value()
+        let (
+            registers,
+            writable_bits,
+            bars,
+            rom_bar_addr,
+            rom_bar_size,
+            rom_bar_used,
+            last_capability,
+            msix_cap_reg_idx,
+        ) = if let Some(state) = state {
+            (
+                state.registers.try_into().unwrap(),
+                state.writable_bits.try_into().unwrap(),
+                state.bars.try_into().unwrap(),
+                state.rom_bar_addr,
+                state.rom_bar_size,
+                state.rom_bar_used,
+                state.last_capability,
+                state.msix_cap_reg_idx,
+            )
         } else {
-            0
+            let mut registers = [0u32; NUM_CONFIGURATION_REGISTERS];
+            let mut writable_bits = [0u32; NUM_CONFIGURATION_REGISTERS];
+            registers[0] = u32::from(device_id) << 16 | u32::from(vendor_id);
+            // TODO(dverkamp): Status should be write-1-to-clear
+            writable_bits[1] = 0x0000_ffff; // Status (r/o), command (r/w)
+            let pi = if let Some(pi) = programming_interface {
+                pi.get_register_value()
+            } else {
+                0
+            };
+            registers[2] = u32::from(class_code.get_register_value()) << 24
+                | u32::from(subclass.get_register_value()) << 16
+                | u32::from(pi) << 8
+                | u32::from(revision_id);
+            writable_bits[3] = 0x0000_00ff; // Cacheline size (r/w)
+            match header_type {
+                PciHeaderType::Device => {
+                    registers[3] = 0x0000_0000; // Header type 0 (device)
+                    writable_bits[15] = 0x0000_00ff; // Interrupt line (r/w)
+                }
+                PciHeaderType::Bridge => {
+                    registers[3] = 0x0001_0000; // Header type 1 (bridge)
+                    writable_bits[9] = 0xfff0_fff0; // Memory base and limit
+                    writable_bits[15] = 0xffff_00ff; // Bridge control (r/w), interrupt line (r/w)
+                }
+            };
+            registers[11] = u32::from(subsystem_id) << 16 | u32::from(subsystem_vendor_id);
+
+            (
+                registers,
+                writable_bits,
+                [PciBar::default(); NUM_BAR_REGS],
+                0,
+                0,
+                false,
+                None,
+                None,
+            )
         };
-        registers[2] = u32::from(class_code.get_register_value()) << 24
-            | u32::from(subclass.get_register_value()) << 16
-            | u32::from(pi) << 8
-            | u32::from(revision_id);
-        writable_bits[3] = 0x0000_00ff; // Cacheline size (r/w)
-        match header_type {
-            PciHeaderType::Device => {
-                registers[3] = 0x0000_0000; // Header type 0 (device)
-                writable_bits[15] = 0x0000_00ff; // Interrupt line (r/w)
-            }
-            PciHeaderType::Bridge => {
-                registers[3] = 0x0001_0000; // Header type 1 (bridge)
-                writable_bits[9] = 0xfff0_fff0; // Memory base and limit
-                writable_bits[15] = 0xffff_00ff; // Bridge control (r/w), interrupt line (r/w)
-            }
-        };
-        registers[11] = u32::from(subsystem_id) << 16 | u32::from(subsystem_vendor_id);
-        let bars = [PciBar::default(); NUM_BAR_REGS];
 
         PciConfiguration {
             registers,
             writable_bits,
             bars,
-            rom_bar_addr: 0,
-            rom_bar_size: 0,
-            rom_bar_used: false,
-            last_capability: None,
-            msix_cap_reg_idx: None,
+            rom_bar_addr,
+            rom_bar_size,
+            rom_bar_used,
+            last_capability,
+            msix_cap_reg_idx,
             msix_config,
+        }
+    }
+
+    fn state(&self) -> PciConfigurationState {
+        PciConfigurationState {
+            registers: self.registers.to_vec(),
+            writable_bits: self.writable_bits.to_vec(),
+            bars: self.bars.to_vec(),
+            rom_bar_addr: self.rom_bar_addr,
+            rom_bar_size: self.rom_bar_size,
+            rom_bar_used: self.rom_bar_used,
+            last_capability: self.last_capability,
+            msix_cap_reg_idx: self.msix_cap_reg_idx,
         }
     }
 
@@ -511,48 +724,45 @@ impl PciConfiguration {
 
     /// Adds a region specified by `config`.  Configures the specified BAR(s) to
     /// report this region and size to the guest kernel.  Enforces a few constraints
-    /// (i.e, region size must be power of two, register not already used). Returns 'None' on
-    /// failure all, `Some(BarIndex)` on success.
-    pub fn add_pci_bar(&mut self, config: &PciBarConfiguration) -> Result<usize> {
-        if self.bars[config.reg_idx].used {
-            return Err(Error::BarInUse(config.reg_idx));
+    /// (i.e, region size must be power of two, register not already used).
+    pub fn add_pci_bar(&mut self, config: &PciBarConfiguration) -> Result<()> {
+        let bar_idx = config.idx;
+        let reg_idx = BAR0_REG + bar_idx;
+
+        if self.bars[bar_idx].used {
+            return Err(Error::BarInUse(bar_idx));
         }
 
         if config.size.count_ones() != 1 {
             return Err(Error::BarSizeInvalid(config.size));
         }
 
-        if config.reg_idx >= NUM_BAR_REGS {
-            return Err(Error::BarInvalid(config.reg_idx));
+        if bar_idx >= NUM_BAR_REGS {
+            return Err(Error::BarInvalid(bar_idx));
         }
 
-        let bar_idx = BAR0_REG + config.reg_idx;
         let end_addr = config
             .addr
             .checked_add(config.size - 1)
             .ok_or(Error::BarAddressInvalid(config.addr, config.size))?;
         match config.region_type {
             PciBarRegionType::Memory32BitRegion | PciBarRegionType::IoRegion => {
-                if end_addr > u64::from(u32::max_value()) {
+                if end_addr > u64::from(u32::MAX) {
                     return Err(Error::BarAddressInvalid(config.addr, config.size));
                 }
 
                 // Encode the BAR size as expected by the software running in
                 // the guest.
-                self.bars[config.reg_idx].size =
+                self.bars[bar_idx].size =
                     encode_32_bits_bar_size(config.size as u32).ok_or(Error::Encode32BarSize)?;
             }
             PciBarRegionType::Memory64BitRegion => {
-                if config.reg_idx + 1 >= NUM_BAR_REGS {
-                    return Err(Error::BarInvalid64(config.reg_idx));
+                if bar_idx + 1 >= NUM_BAR_REGS {
+                    return Err(Error::BarInvalid64(bar_idx));
                 }
 
-                if end_addr > u64::max_value() {
-                    return Err(Error::BarAddressInvalid(config.addr, config.size));
-                }
-
-                if self.bars[config.reg_idx + 1].used {
-                    return Err(Error::BarInUse64(config.reg_idx));
+                if self.bars[bar_idx + 1].used {
+                    return Err(Error::BarInUse64(bar_idx));
                 }
 
                 // Encode the BAR size as expected by the software running in
@@ -560,12 +770,12 @@ impl PciConfiguration {
                 let (bar_size_hi, bar_size_lo) =
                     encode_64_bits_bar_size(config.size).ok_or(Error::Encode64BarSize)?;
 
-                self.registers[bar_idx + 1] = (config.addr >> 32) as u32;
-                self.writable_bits[bar_idx + 1] = 0xffff_ffff;
-                self.bars[config.reg_idx + 1].addr = self.registers[bar_idx + 1];
-                self.bars[config.reg_idx].size = bar_size_lo;
-                self.bars[config.reg_idx + 1].size = bar_size_hi;
-                self.bars[config.reg_idx + 1].used = true;
+                self.registers[reg_idx + 1] = (config.addr >> 32) as u32;
+                self.writable_bits[reg_idx + 1] = 0xffff_ffff;
+                self.bars[bar_idx + 1].addr = self.registers[reg_idx + 1];
+                self.bars[bar_idx].size = bar_size_lo;
+                self.bars[bar_idx + 1].size = bar_size_hi;
+                self.bars[bar_idx + 1].used = true;
             }
         }
 
@@ -577,26 +787,30 @@ impl PciConfiguration {
             PciBarRegionType::IoRegion => (BAR_IO_ADDR_MASK, config.region_type as u32),
         };
 
-        self.registers[bar_idx] = ((config.addr as u32) & mask) | lower_bits;
-        self.writable_bits[bar_idx] = mask;
-        self.bars[config.reg_idx].addr = self.registers[bar_idx];
-        self.bars[config.reg_idx].used = true;
-        self.bars[config.reg_idx].r#type = Some(config.region_type);
-        Ok(config.reg_idx)
+        self.registers[reg_idx] = ((config.addr as u32) & mask) | lower_bits;
+        self.writable_bits[reg_idx] = mask;
+        self.bars[bar_idx].addr = self.registers[reg_idx];
+        self.bars[bar_idx].used = true;
+        self.bars[bar_idx].r#type = Some(config.region_type);
+
+        Ok(())
     }
 
     /// Adds rom expansion BAR.
-    pub fn add_pci_rom_bar(&mut self, config: &PciBarConfiguration, active: u32) -> Result<usize> {
+    pub fn add_pci_rom_bar(&mut self, config: &PciBarConfiguration, active: u32) -> Result<()> {
+        let bar_idx = config.idx;
+        let reg_idx = ROM_BAR_REG;
+
         if self.rom_bar_used {
-            return Err(Error::RomBarInUse(config.reg_idx));
+            return Err(Error::RomBarInUse(bar_idx));
         }
 
         if config.size.count_ones() != 1 {
             return Err(Error::RomBarSizeInvalid(config.size));
         }
 
-        if config.reg_idx != ROM_BAR_REG {
-            return Err(Error::RomBarInvalid(config.reg_idx));
+        if bar_idx != ROM_BAR_IDX {
+            return Err(Error::RomBarInvalid(bar_idx));
         }
 
         let end_addr = config
@@ -604,17 +818,18 @@ impl PciConfiguration {
             .checked_add(config.size - 1)
             .ok_or(Error::RomBarAddressInvalid(config.addr, config.size))?;
 
-        if end_addr > u64::from(u32::max_value()) {
+        if end_addr > u64::from(u32::MAX) {
             return Err(Error::RomBarAddressInvalid(config.addr, config.size));
         }
 
-        self.registers[config.reg_idx] = (config.addr as u32) | active;
-        self.writable_bits[config.reg_idx] = ROM_BAR_ADDR_MASK;
-        self.rom_bar_addr = self.registers[config.reg_idx];
+        self.registers[reg_idx] = (config.addr as u32) | active;
+        self.writable_bits[reg_idx] = ROM_BAR_ADDR_MASK;
+        self.rom_bar_addr = self.registers[reg_idx];
         self.rom_bar_size =
             encode_32_bits_bar_size(config.size as u32).ok_or(Error::Encode32BarSize)?;
         self.rom_bar_used = true;
-        Ok(config.reg_idx)
+
+        Ok(())
     }
 
     /// Returns the address of the given BAR region.
@@ -671,8 +886,15 @@ impl PciConfiguration {
         }
         self.last_capability = Some((cap_offset, total_len));
 
-        if cap_data.id() == PciCapabilityId::MsiX {
-            self.msix_cap_reg_idx = Some(cap_offset / 4);
+        match cap_data.id() {
+            PciCapabilityId::MessageSignalledInterrupts => {
+                self.writable_bits[cap_offset / 4] = MSI_CAPABILITY_REGISTER_MASK;
+            }
+            PciCapabilityId::MsiX => {
+                self.msix_cap_reg_idx = Some(cap_offset / 4);
+                self.writable_bits[self.msix_cap_reg_idx.unwrap()] = MSIX_CAPABILITY_REGISTER_MASK;
+            }
+            _ => {}
         }
 
         Ok(cap_offset)
@@ -697,6 +919,11 @@ impl PciConfiguration {
                         .lock()
                         .unwrap()
                         .set_msg_ctl(LittleEndian::read_u16(data));
+                } else if msix_cap_reg_idx == reg_idx && offset == 0 && data.len() == 4 {
+                    msix_config
+                        .lock()
+                        .unwrap()
+                        .set_msg_ctl((LittleEndian::read_u32(data) >> 16) as u16);
                 }
             }
         }
@@ -729,85 +956,77 @@ impl PciConfiguration {
 
         let mask = self.writable_bits[reg_idx];
         if (BAR0_REG..BAR0_REG + NUM_BAR_REGS).contains(&reg_idx) {
+            // Ignore the case where the BAR size is being asked for.
+            if value == 0xffff_ffff {
+                return None;
+            }
+
             let bar_idx = reg_idx - 4;
-            if (value & mask) != (self.bars[bar_idx].addr & mask) {
-                // Handle special case where the address being written is
-                // different from the address initially provided. This is a
-                // BAR reprogramming case which needs to be properly caught.
-                if let Some(bar_type) = self.bars[bar_idx].r#type {
-                    match bar_type {
-                        PciBarRegionType::Memory64BitRegion => {}
-                        _ => {
-                            // Ignore the case where the BAR size is being
-                            // asked for.
-                            if value == 0xffff_ffff {
-                                return None;
-                            }
-
-                            debug!(
-                                "DETECT BAR REPROG: current 0x{:x}, new 0x{:x}",
-                                self.registers[reg_idx], value
-                            );
-                            let old_base = u64::from(self.bars[bar_idx].addr & mask);
-                            let new_base = u64::from(value & mask);
-                            let len = u64::from(
-                                decode_32_bits_bar_size(self.bars[bar_idx].size)
-                                    .ok_or(Error::Decode32BarSize)
-                                    .unwrap(),
-                            );
-                            let region_type = bar_type;
-
-                            self.bars[bar_idx].addr = value;
-
-                            return Some(BarReprogrammingParams {
-                                old_base,
-                                new_base,
-                                len,
-                                region_type,
-                            });
-                        }
-                    }
-                } else if (reg_idx > BAR0_REG)
-                    && (self.registers[reg_idx - 1] & self.writable_bits[reg_idx - 1])
-                        != (self.bars[bar_idx - 1].addr & self.writable_bits[reg_idx - 1])
-                {
-                    // Ignore the case where the BAR size is being asked for.
-                    // Because we are in the 64bits case here, we have to check
-                    // if the lower 32bits of the current BAR have already been
-                    // asked for the BAR size too.
-                    if value == 0xffff_ffff
-                        && self.registers[reg_idx - 1] & self.writable_bits[reg_idx - 1]
-                            == self.bars[bar_idx - 1].size & self.writable_bits[reg_idx - 1]
-                    {
-                        return None;
-                    }
-
-                    debug!(
-                        "DETECT BAR REPROG: current 0x{:x}, new 0x{:x}",
-                        self.registers[reg_idx], value
-                    );
-                    let old_base = u64::from(self.bars[bar_idx].addr & mask) << 32
-                        | u64::from(self.bars[bar_idx - 1].addr & self.writable_bits[reg_idx - 1]);
-                    let new_base = u64::from(value & mask) << 32
-                        | u64::from(self.registers[reg_idx - 1] & self.writable_bits[reg_idx - 1]);
-                    let len = decode_64_bits_bar_size(
-                        self.bars[bar_idx].size,
-                        self.bars[bar_idx - 1].size,
-                    )
-                    .ok_or(Error::Decode64BarSize)
-                    .unwrap();
-                    let region_type = PciBarRegionType::Memory64BitRegion;
-
-                    self.bars[bar_idx].addr = value;
-                    self.bars[bar_idx - 1].addr = self.registers[reg_idx - 1];
-
-                    return Some(BarReprogrammingParams {
-                        old_base,
-                        new_base,
-                        len,
-                        region_type,
-                    });
+            // Handle special case where the address being written is
+            // different from the address initially provided. This is a
+            // BAR reprogramming case which needs to be properly caught.
+            if let Some(bar_type) = self.bars[bar_idx].r#type {
+                // In case of 64 bits memory BAR, we don't do anything until
+                // the upper BAR is modified, otherwise we would be moving the
+                // BAR to a wrong location in memory.
+                if bar_type == PciBarRegionType::Memory64BitRegion {
+                    return None;
                 }
+
+                // Ignore the case where the value is unchanged.
+                if (value & mask) == (self.bars[bar_idx].addr & mask) {
+                    return None;
+                }
+
+                info!(
+                    "Detected BAR reprogramming: (BAR {}) 0x{:x}->0x{:x}",
+                    reg_idx, self.registers[reg_idx], value
+                );
+                let old_base = u64::from(self.bars[bar_idx].addr & mask);
+                let new_base = u64::from(value & mask);
+                let len = u64::from(
+                    decode_32_bits_bar_size(self.bars[bar_idx].size)
+                        .ok_or(Error::Decode32BarSize)
+                        .unwrap(),
+                );
+                let region_type = bar_type;
+
+                self.bars[bar_idx].addr = value;
+
+                return Some(BarReprogrammingParams {
+                    old_base,
+                    new_base,
+                    len,
+                    region_type,
+                });
+            } else if (reg_idx > BAR0_REG)
+                && ((self.registers[reg_idx - 1] & self.writable_bits[reg_idx - 1])
+                    != (self.bars[bar_idx - 1].addr & self.writable_bits[reg_idx - 1])
+                    || (value & mask) != (self.bars[bar_idx].addr & mask))
+            {
+                info!(
+                    "Detected BAR reprogramming: (BAR {}) 0x{:x}->0x{:x}",
+                    reg_idx, self.registers[reg_idx], value
+                );
+                let old_base = u64::from(self.bars[bar_idx].addr & mask) << 32
+                    | u64::from(self.bars[bar_idx - 1].addr & self.writable_bits[reg_idx - 1]);
+                let new_base = u64::from(value & mask) << 32
+                    | u64::from(self.registers[reg_idx - 1] & self.writable_bits[reg_idx - 1]);
+                let len =
+                    decode_64_bits_bar_size(self.bars[bar_idx].size, self.bars[bar_idx - 1].size)
+                        .ok_or(Error::Decode64BarSize)
+                        .unwrap();
+                let region_type = PciBarRegionType::Memory64BitRegion;
+
+                self.bars[bar_idx].addr = value;
+                self.bars[bar_idx - 1].addr = self.registers[reg_idx - 1];
+
+                return Some(BarReprogrammingParams {
+                    old_base,
+                    new_base,
+                    len,
+                    region_type,
+                });
             }
         } else if reg_idx == ROM_BAR_REG && (value & mask) != (self.rom_bar_addr & mask) {
             // Ignore the case where the BAR size is being asked for.
@@ -815,9 +1034,9 @@ impl PciConfiguration {
                 return None;
             }
 
-            debug!(
-                "DETECT ROM BAR REPROG: current 0x{:x}, new 0x{:x}",
-                self.registers[reg_idx], value
+            info!(
+                "Detected ROM BAR reprogramming: (BAR {}) 0x{:x}->0x{:x}",
+                reg_idx, self.registers[reg_idx], value
             );
             let old_base = u64::from(self.rom_bar_addr & mask);
             let new_base = u64::from(value & mask);
@@ -845,7 +1064,7 @@ impl PciConfiguration {
 impl Default for PciBarConfiguration {
     fn default() -> Self {
         PciBarConfiguration {
-            reg_idx: 0,
+            idx: 0,
             addr: 0,
             size: 0,
             region_type: PciBarRegionType::Memory64BitRegion,
@@ -856,13 +1075,13 @@ impl Default for PciBarConfiguration {
 
 impl PciBarConfiguration {
     pub fn new(
-        reg_idx: usize,
+        idx: usize,
         size: u64,
         region_type: PciBarRegionType,
         prefetchable: PciBarPrefetchable,
     ) -> Self {
         PciBarConfiguration {
-            reg_idx,
+            idx,
             addr: 0,
             size,
             region_type,
@@ -870,32 +1089,54 @@ impl PciBarConfiguration {
         }
     }
 
-    pub fn set_register_index(mut self, reg_idx: usize) -> Self {
-        self.reg_idx = reg_idx;
+    #[must_use]
+    pub fn set_index(mut self, idx: usize) -> Self {
+        self.idx = idx;
         self
     }
 
+    #[must_use]
     pub fn set_address(mut self, addr: u64) -> Self {
         self.addr = addr;
         self
     }
 
+    #[must_use]
     pub fn set_size(mut self, size: u64) -> Self {
         self.size = size;
         self
     }
 
-    pub fn get_size(&self) -> u64 {
-        self.size
-    }
-
+    #[must_use]
     pub fn set_region_type(mut self, region_type: PciBarRegionType) -> Self {
         self.region_type = region_type;
         self
     }
-    pub fn set_prefetch(mut self, prefetchable: PciBarPrefetchable) -> Self {
+
+    #[must_use]
+    pub fn set_prefetchable(mut self, prefetchable: PciBarPrefetchable) -> Self {
         self.prefetchable = prefetchable;
         self
+    }
+
+    pub fn idx(&self) -> usize {
+        self.idx
+    }
+
+    pub fn addr(&self) -> u64 {
+        self.addr
+    }
+
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+
+    pub fn region_type(&self) -> PciBarRegionType {
+        self.region_type
+    }
+
+    pub fn prefetchable(&self) -> PciBarPrefetchable {
+        self.prefetchable
     }
 }
 
@@ -913,7 +1154,7 @@ mod tests {
         foo: u8,
     }
 
-    // It is safe to implement BytesValued; all members are simple numbers and any value is valid.
+    // SAFETY: All members are simple numbers and any value is valid.
     unsafe impl ByteValued for TestCap {}
 
     impl PciCapability for TestCap {
@@ -938,6 +1179,7 @@ mod tests {
             PciHeaderType::Device,
             0xABCD,
             0x2468,
+            None,
             None,
         );
 
@@ -994,6 +1236,7 @@ mod tests {
             PciHeaderType::Device,
             0xABCD,
             0x2468,
+            None,
             None,
         );
 

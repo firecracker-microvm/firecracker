@@ -28,8 +28,7 @@ use seccompiler::BpfThreadMap;
 use userfaultfd::Uffd;
 use utils::time::TimestampUs;
 use vfio_ioctls::{VfioContainer, VfioDevice, VfioDeviceFd};
-use vm_allocator::AddressAllocator;
-use vm_system_allocator::{GsiApic, SystemAllocator};
+use vm_system_allocator::{GsiApic, AddressAllocator, SystemAllocator};
 use vm_device::interrupt::{InterruptManager, MsiIrqGroupConfig};
 use vm_memory::ReadVolatile;
 #[cfg(target_arch = "aarch64")]
@@ -39,7 +38,7 @@ use vmm_sys_util::eventfd::EventFd;
 
 #[cfg(target_arch = "x86_64")]
 use crate::acpi;
-use crate::arch::InitrdConfig;
+use crate::arch::{InitrdConfig, MEM_32BIT_DEVICES_SIZE, MEM_32BIT_DEVICES_START};
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
 use crate::cpu_config::templates::{
@@ -179,12 +178,26 @@ fn add_vfio_device(
     memory: GuestMemoryMmap,
     allocator: Arc<Mutex<SystemAllocator>>
 ) {
+    // alignment 4 << 10
+    let pci_mmio32_allocator = Arc::new(Mutex::new(
+        AddressAllocator::new(GuestAddress(MEM_32BIT_DEVICES_START), MEM_32BIT_DEVICES_SIZE).unwrap(),
+    ));
+
+    // alignment 4 << 30
+    let pci_mmio64_allocator = Arc::new(Mutex::new(
+        AddressAllocator::new(
+            GuestAddress(0),
+            mmio_address_space_size(46),
+        ).unwrap()
+    ));
+
     // We need to shift the device id since the 3 first bits
     // are dedicated to the PCI function, and we know we don't
     // do multifunction. Also, because we only support one PCI
     // bus, the bus 0, we don't need to add anything to the
     // global device ID.
-    let pci_device_bdf = pci.lock().expect("bad lock").next_device_id().unwrap() << 3;
+    let pci_device_id = pci.lock().expect("bad lock").next_device_id().unwrap();
+    let pci_device_bdf = pci_device_id << 3;
 
     // Safe because we know the RawFd is valid.
     //
@@ -219,7 +232,24 @@ fn add_vfio_device(
 
 
     let vfio_pci_device =
-        BusDevice::VfioPciDevice(VfioPciDevice::new(vm, vfio_device, vfio_container.clone(), &interrupt_manager, None, false).unwrap());
+        BusDevice::VfioPciDevice(VfioPciDevice::new(
+            pci_device_id.to_string(),
+            vm, 
+            vfio_device, 
+            vfio_container.clone(), 
+            interrupt_manager, 
+            None, 
+            false,
+            pci_device_bdf.into(),
+            Arc::new(move || {
+                static mut CURRENT: u32 = 1;
+                unsafe {
+                    CURRENT += 1;
+                    CURRENT
+                }
+            }),
+            None
+        ).unwrap());
 
     let vfio_pci_device = Arc::new(Mutex::new(vfio_pci_device));
     let bars = vfio_pci_device
@@ -227,7 +257,12 @@ fn add_vfio_device(
         .expect("bad lock")
         .vfio_pci_device_mut()
         .unwrap()
-        .allocate_bars(&mut allocator.lock().expect("Poisoned lock"))
+        .allocate_bars(
+            &allocator,
+            &mut pci_mmio32_allocator.lock().unwrap(),
+            &mut pci_mmio64_allocator.lock().unwrap(),
+            None,
+        )
         .unwrap();
 
     // Register DMA mapping in IOMMU.
@@ -332,8 +367,8 @@ fn create_vmm_and_vcpus(
             },
             GuestAddress(0),
             mmio_address_space_size(46),
-            GuestAddress(crate::arch::MEM_32BIT_DEVICES_START),
-            crate::arch::MEM_32BIT_DEVICES_SIZE,
+            // GuestAddress(crate::arch::MEM_32BIT_DEVICES_START),
+            // crate::arch::MEM_32BIT_DEVICES_SIZE,
             #[cfg(target_arch = "x86_64")]
             vec![GsiApic::new(
                 X86_64_IRQ_BASE,

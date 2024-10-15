@@ -10,13 +10,11 @@
 
 //! Manages system resources that can be allocated to VMs and their devices.
 
-extern crate libc;
-extern crate vm_memory;
-
 mod address;
 mod gsi;
+/// page size related utility functions
+pub mod page_size;
 mod system;
-mod arch;
 
 pub use crate::address::AddressAllocator;
 pub use crate::gsi::GsiAllocator;

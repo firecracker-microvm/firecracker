@@ -9,6 +9,7 @@
 
 use std::collections::btree_map::BTreeMap;
 use std::result;
+
 use vm_memory::{Address, GuestAddress, GuestUsize};
 
 #[derive(Debug)]
@@ -201,6 +202,16 @@ impl AddressAllocator {
             }
         }
     }
+
+    /// Start address of the allocator
+    pub fn base(&self) -> GuestAddress {
+        self.base
+    }
+
+    /// Last address of the allocator
+    pub fn end(&self) -> GuestAddress {
+        self.end
+    }
 }
 
 #[cfg(test)]
@@ -209,10 +220,7 @@ mod tests {
 
     #[test]
     fn new_fails_overflow() {
-        assert_eq!(
-            AddressAllocator::new(GuestAddress(u64::max_value()), 0x100),
-            None
-        );
+        assert_eq!(AddressAllocator::new(GuestAddress(u64::MAX), 0x100), None);
     }
 
     #[test]

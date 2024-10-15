@@ -123,7 +123,7 @@ pub struct MsiIrqGroupConfig {
 ///
 /// The InterruptManager implementations should protect itself from concurrent accesses internally,
 /// so it could be invoked from multi-threaded context.
-pub trait InterruptManager: {
+pub trait InterruptManager: Send + Sync {
     type GroupConfig;
 
     /// Create an [InterruptSourceGroup](trait.InterruptSourceGroup.html) object to manage
@@ -136,8 +136,7 @@ pub trait InterruptManager: {
     /// * interrupt_type: type of interrupt source.
     /// * base: base Interrupt Source ID to be managed by the group object.
     /// * count: number of Interrupt Sources to be managed by the group object.
-    fn create_group(&self, config: Self::GroupConfig)
-        -> Result<Arc<Box<dyn InterruptSourceGroup>>>;
+    fn create_group(&self, config: Self::GroupConfig) -> Result<Arc<dyn InterruptSourceGroup>>;
 
     /// Destroy an [InterruptSourceGroup](trait.InterruptSourceGroup.html) object created by
     /// [create_group()](trait.InterruptManager.html#tymethod.create_group).
@@ -145,7 +144,7 @@ pub trait InterruptManager: {
     /// Assume the caller takes the responsibility to disable all interrupt sources of the group
     /// before calling destroy_group(). This assumption helps to simplify InterruptSourceGroup
     /// implementations.
-    fn destroy_group(&self, group: Arc<Box<dyn InterruptSourceGroup>>) -> Result<()>;
+    fn destroy_group(&self, group: Arc<dyn InterruptSourceGroup>) -> Result<()>;
 }
 
 pub trait InterruptSourceGroup: Send + Sync {
@@ -179,19 +178,16 @@ pub trait InterruptSourceGroup: Send + Sync {
     /// # Arguments
     /// * index: sub-index into the group.
     /// * config: configuration data for the interrupt source.
-    fn update(&self, index: InterruptIndex, config: InterruptSourceConfig) -> Result<()>;
+    /// * masked: if the interrupt is masked
+    /// * set_gsi: whether update the GSI routing table.
+    fn update(
+        &self,
+        index: InterruptIndex,
+        config: InterruptSourceConfig,
+        masked: bool,
+        set_gsi: bool,
+    ) -> Result<()>;
 
-    /// Mask an interrupt from this interrupt source.
-    fn mask(&self, _index: InterruptIndex) -> Result<()> {
-        // Not all interrupt sources can be disabled.
-        // To accommodate this, we can have a no-op here.
-        Ok(())
-    }
-
-    /// Unmask an interrupt from this interrupt source.
-    fn unmask(&self, _index: InterruptIndex) -> Result<()> {
-        // Not all interrupt sources can be disabled.
-        // To accommodate this, we can have a no-op here.
-        Ok(())
-    }
+    /// Set the interrupt group GSI routing table.
+    fn set_gsi(&self) -> Result<()>;
 }
