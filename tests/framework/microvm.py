@@ -18,7 +18,6 @@ import re
 import select
 import shutil
 import signal
-import subprocess
 import time
 import uuid
 from collections import namedtuple
@@ -1003,26 +1002,19 @@ class Microvm:
                 )
         return "\n".join(backtraces)
 
-    def wait_for_ssh_up(self, timeout=10):
-        """Wait for guest running inside the microVM to come up and respond.
-
-        :param timeout: seconds to wait.
-        """
+    def wait_for_ssh_up(self):
+        """Wait for guest running inside the microVM to come up and respond."""
         try:
-            rc, stdout, stderr = self.ssh.run("true", timeout)
-        except subprocess.TimeoutExpired:
+            # Ensure that we have an initialized SSH connection to the guest that can
+            # run commands. The actual connection retry loop happens in SSHConnection._init_connection
+            self.ssh_iface(0)
+        except Exception as exc:
             print(
-                f"Remote command did not respond within {timeout}s\n\n"
+                f"Failed to establish SSH connection to guest: {exc}\n\n"
                 f"Firecracker logs:\n{self.log_data}\n"
                 f"Thread backtraces:\n{self.thread_backtraces}"
             )
             raise
-        assert rc == 0, (
-            f"Remote command exited with non-0 status code\n\n"
-            f"{rc=}\n{stdout=}\n{stderr=}\n\n"
-            f"Firecracker logs:\n{self.log_data}\n"
-            f"Thread backtraces:\n{self.thread_backtraces}"
-        )
 
 
 class MicroVMFactory:
