@@ -186,12 +186,14 @@ impl BusDevice {
     pub fn pci_device_ref(&self) -> Option<&dyn PciDevice> {
         match self {
             Self::VfioPciDevice(x) => Some(x),
+            Self::PciRoot(x) => Some(x),
             _ => None,
         }
     }
     pub fn pci_device_mut(&mut self) -> Option<&mut dyn PciDevice> {
         match self {
             Self::VfioPciDevice(x) => Some(x),
+            Self::PciRoot(x) => Some(x),
             _ => None,
         }
     }

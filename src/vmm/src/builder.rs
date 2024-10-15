@@ -372,7 +372,7 @@ fn create_vmm_and_vcpus(
     // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
     // while on aarch64 we need to do it the other way around.
     #[cfg(target_arch = "x86_64")]
-    let (mut vcpus, pio_device_manager) = {
+    let (vcpus, mut pio_device_manager) = {
         setup_interrupt_controller(&mut vm)?;
         let vcpus = create_vcpus(&vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
 
@@ -404,20 +404,20 @@ fn create_vmm_and_vcpus(
     };
 
     // Create passthru device for a GPU.
-    // let device_fd = create_passthrough_device(vm.fd());
+    let device_fd = create_passthrough_device(vm.fd());
 
-    // add_vfio_device(
-    //     Arc::clone(&vm_fd),
-    //     device_fd,
-    //     Arc::clone(&pci_bus),
-    //     &mut mmio_device_manager,
-    //     &mut pio_device_manager,
-    //     Arc::clone(&msi_interrupt_manager),
-    //     guest_memory.clone(),
-    //     Arc::clone(&allocator)
-    // );
+    add_vfio_device(
+        Arc::clone(&vm_fd),
+        device_fd,
+        Arc::clone(&pci_bus),
+        &mut mmio_device_manager,
+        &mut pio_device_manager,
+        Arc::clone(&msi_interrupt_manager),
+        guest_memory.clone(),
+        Arc::clone(&allocator)
+    );
     
-    vcpus = create_vcpus(&vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
+    
     let pci_config_mmio = Arc::new(Mutex::new(BusDevice::MmioPciBus(PciConfigMmio::new(Arc::clone(&pci_bus)))));
     mmio_device_manager
         .register_pci_bus(pci_config_mmio)
