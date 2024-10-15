@@ -28,9 +28,6 @@ use vm_superio::Rtc;
 use vm_superio::Serial;
 use vmm_sys_util::eventfd::EventFd;
 
-#[cfg(all(feature = "gdb", target_arch = "aarch64"))]
-compile_error!("GDB feature not supported on ARM");
-
 #[cfg(target_arch = "x86_64")]
 use crate::acpi;
 use crate::arch::InitrdConfig;
