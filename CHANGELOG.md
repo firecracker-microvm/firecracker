@@ -10,6 +10,11 @@ and this project adheres to
 
 ### Added
 
+- [#4834](https://github.com/firecracker-microvm/firecracker/pull/4834): Add
+  `VIRTIO_NET_F_RX_MRGBUF` support to the `virtio-net` device. When this feature
+  is negotiated, guest `virtio-net` driver can perform more efficient memory
+  management which in turn improves RX and TX performance.
+
 ### Changed
 
 ### Deprecated

@@ -12,7 +12,6 @@ use serde::{Deserialize, Serialize};
 use super::device::{Net, RxBuffers};
 use super::{TapError, NET_NUM_QUEUES, RX_INDEX};
 use crate::devices::virtio::device::DeviceState;
-use crate::devices::virtio::iovec::ParsedDescriptorChain;
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::devices::virtio::TYPE_NET;
@@ -37,14 +36,18 @@ pub struct NetConfigSpaceState {
 pub struct RxBufferState {
     // Number of iovecs we have parsed from the guest
     parsed_descriptor_chains_nr: u16,
-    deferred_descriptor: Option<ParsedDescriptorChain>,
+    // Number of used descriptors
+    used_descriptors: u16,
+    // Number of used bytes
+    used_bytes: u32,
 }
 
 impl RxBufferState {
     fn from_rx_buffers(rx_buffer: &RxBuffers) -> Self {
         RxBufferState {
             parsed_descriptor_chains_nr: rx_buffer.parsed_descriptors.len().try_into().unwrap(),
-            deferred_descriptor: rx_buffer.deferred_descriptor.clone(),
+            used_descriptors: rx_buffer.used_descriptors,
+            used_bytes: rx_buffer.used_bytes,
         }
     }
 }
@@ -162,9 +165,8 @@ impl Persist<'_> for Net {
             // rolling back `next_avail` in the RX queue and call `parse_rx_descriptors`.
             net.queues[RX_INDEX].next_avail -= state.rx_buffers_state.parsed_descriptor_chains_nr;
             net.parse_rx_descriptors();
-            net.rx_buffer
-                .deferred_descriptor
-                .clone_from(&state.rx_buffers_state.deferred_descriptor);
+            net.rx_buffer.used_descriptors = state.rx_buffers_state.used_descriptors;
+            net.rx_buffer.used_bytes = state.rx_buffers_state.used_bytes;
         }
 
         Ok(net)
