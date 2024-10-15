@@ -466,11 +466,19 @@ def flush_fc_metrics_to_cw(fc_metrics, metrics):
 
     metrics.flush()
 
+    ignored_failure_metrics = [
+        # We trigger these spuriously in vsock tests due to iperf-vsock not implementing connection shutdown
+        # See also https://github.com/stefano-garzarella/iperf-vsock/issues/4
+        "fc_metrics.vsock.rx_read_fails",
+        "fc_metrics.vsock.tx_write_fails",
+    ]
+
     failure_metrics = {
         key: value
         for key, value in flattened_metrics.items()
         if "err" in key or "fail" in key or "panic" in key or "num_faults" in key
         if value
+        if key not in ignored_failure_metrics
     }
     assert not failure_metrics, json.dumps(failure_metrics, indent=1)
 
