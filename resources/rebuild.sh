@@ -5,12 +5,14 @@
 # fail if we encounter an error, uninitialized variable or a pipe breaks
 set -eu -o pipefail
 
-set -x
 PS4='+\t '
 
 cd $(dirname $0)
 ARCH=$(uname -m)
 OUTPUT_DIR=$PWD/$ARCH
+
+GIT_ROOT_DIR=$(git rev-parse --show-toplevel)
+source "$GIT_ROOT_DIR/tools/functions"
 
 # Make sure we have all the needed tools
 function install_dependencies {
@@ -50,7 +52,7 @@ function build_rootfs {
     local flavour=${2}
     local FROM_CTR=public.ecr.aws/ubuntu/ubuntu:$flavour
     local rootfs="tmp_rootfs"
-    mkdir -pv "$rootfs" "$OUTPUT_DIR"
+    mkdir -pv "$rootfs"
 
     cp -rvf overlay/* $rootfs
 
@@ -199,31 +201,113 @@ function build_al_kernel {
     popd &>/dev/null
 }
 
-#### main ####
+function prepare_and_build_rootfs {
+    BIN=overlay/usr/local/bin
+    compile_and_install $BIN/init.c $BIN/init
+    compile_and_install $BIN/fillmem.c $BIN/fillmem
+    compile_and_install $BIN/fast_page_fault_helper.c $BIN/fast_page_fault_helper
+    compile_and_install $BIN/readmem.c $BIN/readmem
+    if [ $ARCH == "aarch64" ]; then
+        compile_and_install $BIN/devmemread.c $BIN/devmemread
+    fi
 
-install_dependencies
+    build_rootfs ubuntu-22.04 jammy
+    build_initramfs
+}
 
-BIN=overlay/usr/local/bin
-compile_and_install $BIN/init.c    $BIN/init
-compile_and_install $BIN/fillmem.c $BIN/fillmem
-compile_and_install $BIN/fast_page_fault_helper.c $BIN/fast_page_fault_helper
-compile_and_install $BIN/readmem.c $BIN/readmem
-if [ $ARCH == "aarch64" ]; then
-    compile_and_install $BIN/devmemread.c $BIN/devmemread
-fi
+function build_al_kernels {
+    if [[ $# = 0 ]]; then
+        local KERNEL_VERSION="all"
+    elif [[ $# -ne 1 ]]; then
+        die "Too many arguments in '$(basename $0) kernels' command. Please use \`$0 help\` for help."
+    else 
+        KERNEL_VERSION=$1
+        if [[ "$KERNEL_VERSION" != @(5.10|5.10-no-acpi|6.1) ]]; then
+            die "Unsupported kernel version: '$KERNEL_VERSION'. Please use \`$0 help\` for help."
+        fi
+    fi
 
-build_rootfs ubuntu-22.04 jammy
-build_initramfs
+    clone_amazon_linux_repo
 
-clone_amazon_linux_repo
+    # Apply kernel patches on top of AL configuration
+    apply_kernel_patches_for_ci
 
-# Apply kernel patches on top of AL configuration
-apply_kernel_patches_for_ci
+    if [[ "$KERNEL_VERSION" == @(all|5.10) ]]; then
+        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config
+    fi
+    if [[ $ARCH == "x86_64" && "$KERNEL_VERSION" == @(all|5.10-no-acpi) ]]; then
+        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10-no-acpi.config
+    fi
+    if [[ "$KERNEL_VERSION" == @(all|6.1) ]]; then
+        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config 5.10
+    fi
+}
 
-build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config
-if [ $ARCH == "x86_64" ]; then
-    build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10-no-acpi.config
-fi
-build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config
+function print_help {
+    cat <<EOF
+Firecracker CI artifacts build script
 
-tree -h $OUTPUT_DIR
+Usage: $(basename $0) [<command>] [<command args>]
+    
+Available commands:
+    
+    all (default)
+        Build CI rootfs and default guest kernels using configurations from
+        resources/guest_configs.
+        This will patch the guest configurations with all the patches under
+        resources/guest_configs/patches.
+        This is the default command, if no command is chosen.
+    
+    rootfs
+        Builds only the CI rootfs.
+    
+    kernels [version]
+        Builds our the currently supported CI kernels.
+    
+        version: Optionally choose a kernel version to build. Supported
+                 versions are: 5.10, 5.10-no-acpi or 6.1.
+    
+    help
+        Displays the help message and exits.
+EOF
+}
+
+function main {
+    if [[ $# = 0 ]]; then
+        local MODE="all"
+    else
+        case $1 in
+            all|rootfs|kernels)
+                local MODE=$1
+                shift
+                ;;
+            help)
+                print_help
+                exit 0
+                ;;
+            *)
+                die "Unknown command: '$1'. Please use \`$0 help\` for help."
+        esac
+    fi
+
+    set -x
+        
+    install_dependencies
+
+    # Create the directory in which we will store the kernels and rootfs
+    mkdir -pv $OUTPUT_DIR
+
+    if [[ "$MODE" =~ (all|rootfs) ]]; then
+        say "Building rootfs"
+        prepare_and_build_rootfs
+    fi
+
+    if [[ "$MODE" =~ (all|kernels) ]]; then
+        say "Building CI kernels"
+        build_al_kernels "$@"
+    fi
+
+    tree -h $OUTPUT_DIR
+}
+
+main "$@"
