@@ -1,14 +1,16 @@
 # GDB Debugging with Firecracker
 
+**The GDB feature is not for production use.**
+
 Firecracker supports debugging the guest kernel via GDB remote serial protocol.
 This allows us to connect GDB to the firecracker process and step through debug
-the guest kernel. Currently only debugging on x86 is supported.
+the guest kernel.
 
 The GDB feature requires Firecracker to be booted with a config file.
 
 ## Prerequisites
 
-Firstly, to enable GDB debugging we need to compile Firecracker with the `debug`
+Firstly, to enable GDB debugging we need to compile Firecracker with the `gdb`
 feature enabled, this will enable the necessary components for the debugging
 process.
 
@@ -102,9 +104,14 @@ command in the GDB session which will terminate both.
   mitigated by setting these kernel config values:
 
   ```
-    CONFIG_SCHED_MC=y
-    CONFIG_SCHED_MC_PRIO=y
+    CONFIG_SCHED_MC=n
+    CONFIG_SCHED_MC_PRIO=n
   ```
 
 - Currently we support a limited subset of cpu registers for get and set
   operations, if more are required feel free to contribute.
+
+- On ARM the guest virtual address translation will only work on guests with 4kb
+  pages and not all physical address sizes are supported. If the current
+  translation implementation doesn't cover a specific setup, feel free to
+  contribute.
