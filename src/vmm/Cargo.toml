@@ -21,7 +21,7 @@ derive_more = { version = "1.0.0", default-features = false, features = ["from",
 displaydoc = "0.2.5"
 event-manager = "0.4.0"
 gdbstub = { version = "0.7.2", optional = true }
-gdbstub_arch = { version = "0.3.0", optional = true }
+gdbstub_arch = { version = "0.3.1", optional = true }
 kvm-bindings = { version = "0.9.1", features = ["fam-wrappers", "serde"] }
 kvm-ioctls = "0.18.0"
 lazy_static = "1.5.0"
@@ -46,7 +46,7 @@ vm-allocator = "0.1.0"
 vm-memory = { version = "0.15.0", features = ["backend-mmap", "backend-bitmap"] }
 vm-superio = "0.8.0"
 vmm-sys-util = { version = "0.12.1", features = ["with-serde"] }
-zerocopy = { version = "0.8.2" }
+zerocopy = { version = "0.8.5" }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 vm-fdt = "0.3.0"
