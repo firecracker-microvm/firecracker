@@ -99,6 +99,16 @@ arm64_sys_reg!(SYS_CNTV_CVAL_EL0, 3, 3, 14, 3, 2);
 // https://elixir.bootlin.com/linux/v6.8/source/arch/arm64/include/asm/sysreg.h#L459
 arm64_sys_reg!(SYS_CNTPCT_EL0, 3, 3, 14, 0, 1);
 
+// Translation Table Base Register
+// https://developer.arm.com/documentation/ddi0595/2021-03/AArch64-Registers/TTBR1-EL1--Translation-Table-Base-Register-1--EL1-
+arm64_sys_reg!(TTBR1_EL1, 3, 0, 2, 0, 1);
+// Translation Control Register
+// https://developer.arm.com/documentation/ddi0601/2024-09/AArch64-Registers/TCR-EL1--Translation-Control-Register--EL1-
+arm64_sys_reg!(TCR_EL1, 3, 0, 2, 0, 2);
+// AArch64 Memory Model Feature Register
+// https://developer.arm.com/documentation/100798/0400/register-descriptions/aarch64-system-registers/id-aa64mmfr0-el1--aarch64-memory-model-feature-register-0--el1
+arm64_sys_reg!(ID_AA64MMFR0_EL1, 3, 0, 0, 7, 0);
+
 /// Vector lengths pseudo-register
 /// TODO: this can be removed after https://github.com/rust-vmm/kvm-bindings/pull/89
 /// is merged and new version is used in Firecracker.
