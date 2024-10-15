@@ -8,6 +8,7 @@ use vm_memory::GuestAddress;
 
 use crate::gdb::target::GdbTargetError;
 use crate::logger::error;
+use crate::Vmm;
 
 /// Sets the 9th (Global Exact Breakpoint enable) and the 10th (always 1) bits for the DR7 debug
 /// control register
@@ -30,11 +31,11 @@ pub fn get_instruction_pointer(vcpu_fd: &VcpuFd) -> Result<u64, GdbTargetError> 
 }
 
 /// Translates a virtual address according to the vCPU's current address translation mode.
-pub fn translate_gva(vcpu_fd: &VcpuFd, gva: u64) -> Result<u64, GdbTargetError> {
+pub fn translate_gva(vcpu_fd: &VcpuFd, gva: u64, _vmm: &Vmm) -> Result<u64, GdbTargetError> {
     let tr = vcpu_fd.translate_gva(gva)?;
 
     if tr.valid == 0 {
-        return Err(GdbTargetError::KvmGvaTranslateError);
+        return Err(GdbTargetError::GvaTranslateError);
     }
 
     Ok(tr.physical_address)
