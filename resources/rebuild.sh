@@ -16,8 +16,8 @@ source "$GIT_ROOT_DIR/tools/functions"
 
 # Make sure we have all the needed tools
 function install_dependencies {
-    sudo apt update
-    sudo apt install -y bc flex bison gcc make libelf-dev libssl-dev squashfs-tools busybox-static tree cpio curl
+    apt update
+    apt install -y bc flex bison gcc make libelf-dev libssl-dev squashfs-tools busybox-static tree cpio curl patch docker.io
 }
 
 function dir2ext4img {
@@ -30,13 +30,21 @@ function dir2ext4img {
     local TMP_MNT=$(mktemp -d)
     truncate -s "$SIZE" "$IMG"
     mkfs.ext4 -F "$IMG"
-    sudo mount "$IMG" "$TMP_MNT"
-    sudo tar c -C $DIR . |sudo tar x -C "$TMP_MNT"
+    mount "$IMG" "$TMP_MNT"
+    tar c -C $DIR . |tar x -C "$TMP_MNT"
     # cleanup
-    sudo umount "$TMP_MNT"
+    # Use the -l flag for lazy unmounting since sometimes umount fails
+    # with "device busy" and simply calling `sync` doesn't help
+    umount -l "$TMP_MNT"
     rmdir $TMP_MNT
 }
 
+function prepare_docker {
+    nohup /usr/bin/dockerd --host=unix:///var/run/docker.sock --host=tcp://127.0.0.1:2375 &
+
+    # Wait for Docker socket to be created
+    timeout 15 sh -c "until docker info; do echo .; sleep 1; done"
+}
 
 function compile_and_install {
     local C_FILE=$1
@@ -53,6 +61,9 @@ function build_rootfs {
     local FROM_CTR=public.ecr.aws/ubuntu/ubuntu:$flavour
     local rootfs="tmp_rootfs"
     mkdir -pv "$rootfs"
+
+    # Launch Docker
+    prepare_docker
 
     cp -rvf overlay/* $rootfs
 
@@ -76,25 +87,29 @@ mkdir -pv $rootfs/var/lib/dpkg/
 EOF
 
     # TBD what abt /etc/hosts?
-    echo |sudo tee $rootfs/etc/resolv.conf
+    echo | tee $rootfs/etc/resolv.conf
 
     # Generate key for ssh access from host
     if [ ! -s id_rsa ]; then
         ssh-keygen -f id_rsa -N ""
     fi
-    sudo install -d -m 0600 "$rootfs/root/.ssh/"
-    sudo cp id_rsa.pub "$rootfs/root/.ssh/authorized_keys"
+    install -d -m 0600 "$rootfs/root/.ssh/"
+    cp id_rsa.pub "$rootfs/root/.ssh/authorized_keys"
     id_rsa=$OUTPUT_DIR/$ROOTFS_NAME.id_rsa
-    sudo cp id_rsa $id_rsa
+    cp id_rsa $id_rsa
 
     # -comp zstd but guest kernel does not support
     rootfs_img="$OUTPUT_DIR/$ROOTFS_NAME.squashfs"
-    sudo mv $rootfs/root/manifest $OUTPUT_DIR/$ROOTFS_NAME.manifest
-    sudo mksquashfs $rootfs $rootfs_img -all-root -noappend
+    mv $rootfs/root/manifest $OUTPUT_DIR/$ROOTFS_NAME.manifest
+    mksquashfs $rootfs $rootfs_img -all-root -noappend
     rootfs_ext4=$OUTPUT_DIR/$ROOTFS_NAME.ext4
     dir2ext4img $rootfs $rootfs_ext4
-    sudo rm -rf $rootfs
-    sudo chown -Rc $USER. $OUTPUT_DIR
+    rm -rf $rootfs
+    for bin in fast_page_fault_helper fillmem init readmem; do
+        rm $PWD/overlay/usr/local/bin/$bin
+    done
+    rm -f id_rsa{,.pub}
+    rm -f nohup.out
 }
 
 
@@ -241,6 +256,10 @@ function build_al_kernels {
     if [[ "$KERNEL_VERSION" == @(all|6.1) ]]; then
         build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config 5.10
     fi
+
+    # Undo kernel patches on top of AL configuration
+    git restore $PWD/guest_configs
+    rm -rf $PWD/guest_configs/*.orig 
 }
 
 function print_help {
