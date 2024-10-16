@@ -83,7 +83,7 @@ RUN apt-get update \
         # for crosvm (vhost-user-blk backend)
         libcap2 \
         # for debugging
-        gdb strace \
+        gdb strace trace-cmd \
     && rm -rf /var/lib/apt/lists/* \
     && pip3 install --upgrade poetry
 
