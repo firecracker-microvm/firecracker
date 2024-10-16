@@ -222,3 +222,26 @@ class MicrovmHelpers:
 
         # add a route on the host for the clone address
         run(f"ip route add {ingress_ipv4} via {veth_guest_ip}")
+
+    def trace_cmd_guest(self, fns, cmd, port=4321):
+        """Run trace-cmd on the guest, but transfer the data directly to the host."""
+        docker_apt_install("trace-cmd")
+        print("host> trace-cmd listen")
+        _proc = subprocess.Popen(
+            [
+                "ip",
+                "netns",
+                "exec",
+                self.vm.netns.id,
+                "trace-cmd",
+                "listen",
+                "-p",
+                str(port),
+            ]
+        )
+        print("guest> trace-cmd record")
+        host_ip = self.vm.iface["eth0"]["iface"].host_ip
+        _guest_ps = self.vm.ssh.run(
+            f"trace-cmd record -N {host_ip}:{port} -p function {" ".join(fns)} {cmd}"
+        )
+        return list(Path(".").glob("trace.*.dat"))
