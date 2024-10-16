@@ -90,24 +90,33 @@ class SSHConnection:
         We'll keep trying to execute a remote command that can't fail
         (`/bin/true`), until we get a successful (0) exit code.
         """
-        self.check_output("true", timeout=10)
+        self.check_output("true", timeout=10, debug=True)
 
-    def run(self, cmd_string, timeout=None, *, check=False):
-        """Execute the command passed as a string in the ssh context."""
+    def run(self, cmd_string, timeout=None, *, check=False, debug=False):
+        """
+        Execute the command passed as a string in the ssh context.
+
+        If `debug` is set, pass `-vvv` to `ssh`. Note that this will clobber stderr.
+        """
+        command = [
+            "ssh",
+            *self.options,
+            f"{self.user}@{self.host}",
+            cmd_string,
+        ]
+
+        if debug:
+            command.insert(1, "-vvv")
+
         return self._exec(
-            [
-                "ssh",
-                *self.options,
-                f"{self.user}@{self.host}",
-                cmd_string,
-            ],
+            command,
             timeout,
             check=check,
         )
 
-    def check_output(self, cmd_string, timeout=None):
+    def check_output(self, cmd_string, timeout=None, *, debug=False):
         """Same as `run`, but raises an exception on non-zero return code of remote command"""
-        return self.run(cmd_string, timeout, check=True)
+        return self.run(cmd_string, timeout, check=True, debug=debug)
 
     def _exec(self, cmd, timeout=None, check=False):
         """Private function that handles the ssh client invocation."""
