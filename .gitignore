@@ -12,3 +12,6 @@ test_results/*
 *.profraw
 .DS_Store
 *.bin
+/resources/linux
+/resources/x86_64
+/resources/aarch64
