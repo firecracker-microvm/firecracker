@@ -300,7 +300,7 @@ fn add_vfio_device(
 
     pci.lock()
         .expect("bad lock")
-        .add_device(pci_device_bdf, vfio_pci_device.clone())
+        .add_device(pci_device_id, vfio_pci_device.clone())
         .unwrap();
 
     pci.lock()
