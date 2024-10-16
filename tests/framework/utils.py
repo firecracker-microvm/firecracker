@@ -381,7 +381,7 @@ def run_cmd(cmd, check=False, shell=True, cwd=None, timeout=None) -> CommandRetu
 
     :param cmd: command to execute
     :param check: whether a non-zero return code should result in a `ChildProcessError` or not.
-    :param no_shell: don't run the command in a sub-shell
+    :param shell: run the command in a sub-shell
     :param cwd: sets the current directory before the child is executed
     :param timeout: Time before command execution should be aborted with a `TimeoutExpired` exception
     :return: return code, stdout, stderr
