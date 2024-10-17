@@ -95,7 +95,7 @@ def run_udp_offload_test(vm):
     # Start a UDP server in the guest
     # vm.ssh.check_output(f"nohup socat UDP-LISTEN:{port} - > {out_filename} &")
     vm.ssh.check_output(
-        f"nohup socat UDP-LISTEN:{port} OPEN:{out_filename},creat > /dev/null 2>&1 &"
+        f"nohup socat UDP4-LISTEN:{port} OPEN:{out_filename},creat > /dev/null 2>&1 &"
     )
 
     # Try to send a UDP message from host with UDP offload enabled
