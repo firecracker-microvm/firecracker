@@ -26,13 +26,22 @@ pub enum UtilsError {
 }
 
 #[allow(unused)]
-pub fn open_vmstate(snapshot_path: &PathBuf) -> Result<Snapshot<MicrovmState>, UtilsError> {
+pub fn open_vmstate(snapshot_path: &PathBuf) -> Result<(MicrovmState, Version), UtilsError> {
     let mut snapshot_reader = File::open(snapshot_path).map_err(UtilsError::VmStateFileOpen)?;
     let metadata = std::fs::metadata(snapshot_path).map_err(UtilsError::VmStateFileMeta)?;
     let snapshot_len = u64_to_usize(metadata.len());
 
     let snapshot: Result<Snapshot<MicrovmState>, UtilsError> = Snapshot::load(&mut snapshot_reader, snapshot_len).map_err(UtilsError::VmStateLoad);
-    snapshot
+    match snapshot {
+        Ok(snapshot) => {
+            let version = snapshot.version();
+            Ok((snapshot.data, version.to_owned()))
+        }
+        Err(e) => {
+            return Err(e);
+        }
+    }
+    
 }
 
 // This method is used only in aarch64 code so far

@@ -82,19 +82,16 @@ impl SnapshotHdr {
     }
 
     pub fn load<R: Read>(reader: &mut R) -> Result<Self, SnapshotError> {
-        let hdr: SnapshotHdr = bincode::DefaultOptions::new()
-            .with_limit(VM_STATE_DESERIALIZE_LIMIT)
-            .with_fixint_encoding()
-            .allow_trailing_bytes() // need this because we deserialize header and snapshot from the same file, so after
-            // reading the header, there will be trailing bytes.
-            .deserialize_from(reader)
-            .map_err(|err| SnapshotError::Serde(err.to_string()))?;
+        let hdr: SnapshotHdr = deserialize(reader)?;
 
         Ok(hdr)
     }
 
     pub fn store<W: Write>(&self, writer: &mut W) -> Result<(), SnapshotError> {
-        bincode::serialize_into(writer, self).map_err(|err| SnapshotError::Serde(err.to_string()))
+        match serialize(writer, self) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e)
+        }
     }
 }
 
@@ -105,33 +102,17 @@ pub struct Snapshot<Data> {
     pub data: Data,
 }
 
-impl<Data: for<'a> Deserialize<'a>> Snapshot<Data> {
-    /// Helper function to deserialize an object from a reader
-    pub fn deserialize<T, O>(reader: &mut T) -> Result<O, SnapshotError>
-    where
-        T: Read,
-        O: DeserializeOwned + Debug,
-    {
-        // flags below are those used by default by bincode::deserialize_from, plus `with_limit`.
-        bincode::DefaultOptions::new()
-            .with_limit(VM_STATE_DESERIALIZE_LIMIT)
-            .with_fixint_encoding()
-            .allow_trailing_bytes() // need this because we deserialize header and snapshot from the same file, so after
-            // reading the header, there will be trailing bytes.
-            .deserialize_from(reader)
-            .map_err(|err| SnapshotError::Serde(err.to_string()))
-    }
-
+impl<Data: DeserializeOwned> Snapshot<Data> {
     pub fn load_unchecked<R: Read>(reader: &mut R) -> Result<Self, SnapshotError>
     where
         Data: DeserializeOwned + Debug,
     {
-        let hdr: SnapshotHdr = Self::deserialize(reader)?;
+        let hdr: SnapshotHdr = deserialize(reader)?;
         if hdr.magic != SNAPSHOT_MAGIC_ID {
             return Err(SnapshotError::InvalidMagic(hdr.magic));
         }
 
-        let data: Data = Self::deserialize(reader)?;
+        let data: Data = deserialize(reader)?;
         Ok(Self { header: hdr, data })
     }
 
@@ -156,7 +137,7 @@ impl<Data: for<'a> Deserialize<'a>> Snapshot<Data> {
         // 2 statements is important, we first get the checksum computed on the read bytes
         // then read the stored checksum.
         let computed_checksum = crc_reader.checksum();
-        let stored_checksum: u64 = Self::deserialize(&mut crc_reader)?;
+        let stored_checksum: u64 = deserialize(&mut crc_reader)?;
         if computed_checksum != stored_checksum {
             return Err(SnapshotError::Crc64(computed_checksum));
         }
@@ -167,29 +148,11 @@ impl<Data: for<'a> Deserialize<'a>> Snapshot<Data> {
 }
 
 impl<Data: Serialize + Debug> Snapshot<Data> {
-    /// Helper function to serialize an object to a writer
-    pub fn serialize<T, O>(writer: &mut T, data: &O) -> Result<usize, SnapshotError>
-    where
-        T: Write,
-        O: Serialize + Debug,
-    {
-        let mut buffer = Vec::new();
-        bincode::serialize_into(&mut buffer, data)
-            .map_err(|err| SnapshotError::Serde(err.to_string()))?;
-
-        writer
-            .write_all(&buffer)
-            .map_err(|err| SnapshotError::Serde(err.to_string()))?;
-
-        Ok(buffer.len())
-        // bincode::serialize_into(writer, data).map_err(|err| SnapshotError::Serde(err.to_string()))
-    }
-
     pub fn save<W: Write>(&self, mut writer: &mut W) -> Result<usize, SnapshotError> {
         // Write magic value and snapshot version
-        Self::serialize(&mut writer, &SnapshotHdr::new(self.header.version.clone()))?;
+        serialize(&mut writer, &SnapshotHdr::new(self.header.version.clone()))?;
         // Write data
-        Self::serialize(&mut writer, &self.data)
+        serialize(&mut writer, &self.data)
     }
 
     pub fn save_with_crc<W: Write>(&self, writer: &mut W) -> Result<usize, SnapshotError> {
@@ -198,7 +161,7 @@ impl<Data: Serialize + Debug> Snapshot<Data> {
 
         // Now write CRC value
         let checksum = crc_writer.checksum();
-        Self::serialize(&mut crc_writer, &checksum)
+        serialize(&mut crc_writer, &checksum)
     }
 }
 
@@ -206,6 +169,44 @@ impl<Data> Snapshot<Data> {
     pub fn new(header: SnapshotHdr, data: Data) -> Self {
         Snapshot { header, data }
     }
+
+    pub fn version(&self) -> Version {
+        self.header.version.clone()
+    }
+}
+
+/// Helper function to deserialize an object from a reader
+fn deserialize<T, O>(reader: &mut T) -> Result<O, SnapshotError>
+where
+    T: Read,
+    O: DeserializeOwned + Debug,
+{
+    // flags below are those used by default by bincode::deserialize_from, plus `with_limit`.
+    bincode::DefaultOptions::new()
+        .with_limit(VM_STATE_DESERIALIZE_LIMIT)
+        .with_fixint_encoding()
+        .allow_trailing_bytes() // need this because we deserialize header and snapshot from the same file, so after
+        // reading the header, there will be trailing bytes.
+        .deserialize_from(reader)
+        .map_err(|err| SnapshotError::Serde(err.to_string()))
+}
+
+/// Helper function to serialize an object to a writer
+fn serialize<T, O>(writer: &mut T, data: &O) -> Result<usize, SnapshotError>
+where
+    T: Write,
+    O: Serialize + Debug,
+{
+    let mut buffer = Vec::new();
+    bincode::serialize_into(&mut buffer, data)
+        .map_err(|err| SnapshotError::Serde(err.to_string()))?;
+
+    writer
+        .write_all(&buffer)
+        .map_err(|err| SnapshotError::Serde(err.to_string()))?;
+
+    Ok(buffer.len())
+    // bincode::serialize_into(writer, data).map_err(|err| SnapshotError::Serde(err.to_string()))
 }
 
 #[cfg(test)]

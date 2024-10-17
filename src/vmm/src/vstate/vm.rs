@@ -579,7 +579,7 @@ pub(crate) mod tests {
         let (mut vm, _) = setup_vm(0x1000);
         vm.setup_irqchip().unwrap();
         let state = vm.save_state().unwrap();
-        Snapshot::serialize(&mut snapshot_data.as_mut_slice(), &state).unwrap();
+        Snapshot::serialize::<&mut [u8], VmState>(&mut snapshot_data.as_mut_slice(), &state).unwrap();
         let restored_state: VmState = Snapshot::deserialize(&mut snapshot_data.as_slice()).unwrap();
 
         vm.restore_state(&restored_state).unwrap();
