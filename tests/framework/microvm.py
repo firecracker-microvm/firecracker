@@ -983,6 +983,7 @@ class Microvm:
             ssh_key=self.ssh_key,
             user="root",
             host=guest_ip,
+            on_error=self._dump_debug_information,
         )
 
     @property
@@ -1002,19 +1003,23 @@ class Microvm:
                 )
         return "\n".join(backtraces)
 
+    def _dump_debug_information(self, exc: Exception):
+        """
+        Dumps debug information about this microvm
+
+        Used for example when running a command inside the guest via `SSHConnection.check_output` fails.
+        """
+        print(
+            f"Failure executing command via SSH in microVM: {exc}\n\n"
+            f"Firecracker logs:\n{self.log_data}\n"
+            f"Thread backtraces:\n{self.thread_backtraces}"
+        )
+
     def wait_for_ssh_up(self):
         """Wait for guest running inside the microVM to come up and respond."""
-        try:
-            # Ensure that we have an initialized SSH connection to the guest that can
-            # run commands. The actual connection retry loop happens in SSHConnection._init_connection
-            self.ssh_iface(0)
-        except Exception as exc:
-            print(
-                f"Failed to establish SSH connection to guest: {exc}\n\n"
-                f"Firecracker logs:\n{self.log_data}\n"
-                f"Thread backtraces:\n{self.thread_backtraces}"
-            )
-            raise
+        # Ensure that we have an initialized SSH connection to the guest that can
+        # run commands. The actual connection retry loop happens in SSHConnection._init_connection
+        _ = self.ssh_iface(0)
 
 
 class MicroVMFactory:

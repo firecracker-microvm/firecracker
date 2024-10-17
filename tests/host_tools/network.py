@@ -25,7 +25,7 @@ class SSHConnection:
     ssh -i ssh_key_path username@hostname
     """
 
-    def __init__(self, netns, ssh_key: Path, host, user):
+    def __init__(self, netns, ssh_key: Path, host, user, *, on_error=None):
         """Instantiate a SSH client and connect to a microVM."""
         self.netns = netns
         self.ssh_key = ssh_key
@@ -36,6 +36,8 @@ class SSHConnection:
         assert (ssh_key.stat().st_mode & 0o777) == 0o400
         self.host = host
         self.user = user
+
+        self._on_error = None
 
         self.options = [
             "-o",
@@ -52,7 +54,18 @@ class SSHConnection:
             str(self.ssh_key),
         ]
 
-        self._init_connection()
+        # _init_connection loops until it can connect to the guest
+        # dumping debug state on every iteration is not useful or wanted, so
+        # only dump it once if _all_ iterations fail.
+        try:
+            self._init_connection()
+        except Exception as exc:
+            if on_error:
+                on_error(exc)
+
+            raise
+
+        self._on_error = on_error
 
     def remote_path(self, path):
         """Convert a path to remote"""
@@ -123,7 +136,13 @@ class SSHConnection:
         if self.netns is not None:
             cmd = ["ip", "netns", "exec", self.netns] + cmd
 
-        return utils.run_cmd(cmd, check=check, timeout=timeout)
+        try:
+            return utils.run_cmd(cmd, check=check, timeout=timeout)
+        except Exception as exc:
+            if self._on_error:
+                self._on_error(exc)
+
+            raise
 
 
 def mac_from_ip(ip_address):
