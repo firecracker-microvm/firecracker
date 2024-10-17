@@ -272,7 +272,7 @@ def msr_cpu_template_fxt(request):
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
 def test_cpu_rdmsr(
-    microvm_factory, msr_cpu_template, guest_kernel, rootfs_ubuntu_22, results_dir
+    microvm_factory, msr_cpu_template, guest_kernel, rootfs_ubuntu_24, results_dir
 ):
     """
     Test MSRs that are available to the guest.
@@ -307,7 +307,7 @@ def test_cpu_rdmsr(
     """
 
     vcpus, guest_mem_mib = 1, 1024
-    vm = microvm_factory.build(guest_kernel, rootfs_ubuntu_22, monitor_memory=False)
+    vm = microvm_factory.build(guest_kernel, rootfs_ubuntu_24, monitor_memory=False)
     vm.spawn()
     vm.add_net_iface()
     vm.basic_config(
@@ -377,7 +377,7 @@ def dump_msr_state_to_file(dump_fname, ssh_conn, shared_names):
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
 def test_cpu_wrmsr_snapshot(
-    microvm_factory, guest_kernel, rootfs_ubuntu_22, msr_cpu_template
+    microvm_factory, guest_kernel, rootfs_ubuntu_24, msr_cpu_template
 ):
     """
     This is the first part of the test verifying
@@ -398,7 +398,7 @@ def test_cpu_wrmsr_snapshot(
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
 
     vcpus, guest_mem_mib = 1, 1024
-    vm = microvm_factory.build(guest_kernel, rootfs_ubuntu_22, monitor_memory=False)
+    vm = microvm_factory.build(guest_kernel, rootfs_ubuntu_24, monitor_memory=False)
     vm.spawn()
     vm.add_net_iface()
     vm.basic_config(
@@ -534,7 +534,7 @@ def dump_cpuid_to_file(dump_fname, ssh_conn):
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
 def test_cpu_cpuid_snapshot(
-    microvm_factory, guest_kernel, rootfs_ubuntu_22, msr_cpu_template
+    microvm_factory, guest_kernel, rootfs_ubuntu_24, msr_cpu_template
 ):
     """
     This is the first part of the test verifying
@@ -551,7 +551,7 @@ def test_cpu_cpuid_snapshot(
 
     vm = microvm_factory.build(
         kernel=guest_kernel,
-        rootfs=rootfs_ubuntu_22,
+        rootfs=rootfs_ubuntu_24,
     )
     vm.spawn()
     vm.add_net_iface()
@@ -927,9 +927,9 @@ def check_enabled_features(test_microvm, cpu_template):
         "enhanced REP MOVSB/STOSB": "true",
         "SMAP: supervisor mode access prevention": "true",
         # xsave_0xd_0
-        "XCR0 supported: x87 state": "true",
-        "XCR0 supported: SSE state": "true",
-        "XCR0 supported: AVX state": "true",
+        "x87 state": "true",
+        "SSE state": "true",
+        "AVX state": "true",
         # xsave_0xd_1
         "XSAVEOPT instruction": "true",
         # extended_080000001_edx

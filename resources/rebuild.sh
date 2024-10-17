@@ -20,25 +20,6 @@ function install_dependencies {
     apt install -y bc flex bison gcc make libelf-dev libssl-dev squashfs-tools busybox-static tree cpio curl patch docker.io
 }
 
-function dir2ext4img {
-    # ext4
-    # https://unix.stackexchange.com/questions/503211/how-can-an-image-file-be-created-for-a-directory
-    local DIR=$1
-    local IMG=$2
-    # Default size for the resulting rootfs image is 300M
-    local SIZE=${3:-300M}
-    local TMP_MNT=$(mktemp -d)
-    truncate -s "$SIZE" "$IMG"
-    mkfs.ext4 -F "$IMG"
-    mount "$IMG" "$TMP_MNT"
-    tar c -C $DIR . |tar x -C "$TMP_MNT"
-    # cleanup
-    # Use the -l flag for lazy unmounting since sometimes umount fails
-    # with "device busy" and simply calling `sync` doesn't help
-    umount -l "$TMP_MNT"
-    rmdir $TMP_MNT
-}
-
 function prepare_docker {
     nohup /usr/bin/dockerd --host=unix:///var/run/docker.sock --host=tcp://127.0.0.1:2375 &
 
@@ -67,7 +48,7 @@ function build_rootfs {
 
     cp -rvf overlay/* $rootfs
 
-    # curl -O https://cloud-images.ubuntu.com/minimal/releases/jammy/release/ubuntu-22.04-minimal-cloudimg-amd64-root.tar.xz
+    # curl -O https://cloud-images.ubuntu.com/minimal/releases/noble/release/ubuntu-24.04-minimal-cloudimg-amd64-root.tar.xz
     #
     # TBD use systemd-nspawn instead of Docker
     #   sudo tar xaf ubuntu-22.04-minimal-cloudimg-amd64-root.tar.xz -C $rootfs
@@ -89,21 +70,9 @@ EOF
     # TBD what abt /etc/hosts?
     echo | tee $rootfs/etc/resolv.conf
 
-    # Generate key for ssh access from host
-    if [ ! -s id_rsa ]; then
-        ssh-keygen -f id_rsa -N ""
-    fi
-    install -d -m 0600 "$rootfs/root/.ssh/"
-    cp id_rsa.pub "$rootfs/root/.ssh/authorized_keys"
-    id_rsa=$OUTPUT_DIR/$ROOTFS_NAME.id_rsa
-    cp id_rsa $id_rsa
-
-    # -comp zstd but guest kernel does not support
     rootfs_img="$OUTPUT_DIR/$ROOTFS_NAME.squashfs"
     mv $rootfs/root/manifest $OUTPUT_DIR/$ROOTFS_NAME.manifest
-    mksquashfs $rootfs $rootfs_img -all-root -noappend
-    rootfs_ext4=$OUTPUT_DIR/$ROOTFS_NAME.ext4
-    dir2ext4img $rootfs $rootfs_ext4
+    mksquashfs $rootfs $rootfs_img -all-root -noappend -comp zstd
     rm -rf $rootfs
     for bin in fast_page_fault_helper fillmem init readmem; do
         rm $PWD/overlay/usr/local/bin/$bin
@@ -156,8 +125,10 @@ function clone_amazon_linux_repo {
 }
 
 function apply_kernel_patches_for_ci {
-    for p in $PWD/guest_configs/patches/* ; do
-        patch -p2 < $p
+    local PATCHES_DIR=$1
+    for patch in $PATCHES_DIR/*; do
+        echo "Applying $patch"
+        patch -p2 < $patch
     done
 }
 
@@ -226,7 +197,7 @@ function prepare_and_build_rootfs {
         compile_and_install $BIN/devmemread.c $BIN/devmemread
     fi
 
-    build_rootfs ubuntu-22.04 jammy
+    build_rootfs ubuntu-24.04 noble
     build_initramfs
 }
 
@@ -235,7 +206,7 @@ function build_al_kernels {
         local KERNEL_VERSION="all"
     elif [[ $# -ne 1 ]]; then
         die "Too many arguments in '$(basename $0) kernels' command. Please use \`$0 help\` for help."
-    else 
+    else
         KERNEL_VERSION=$1
         if [[ "$KERNEL_VERSION" != @(5.10|5.10-no-acpi|6.1) ]]; then
             die "Unsupported kernel version: '$KERNEL_VERSION'. Please use \`$0 help\` for help."
@@ -245,7 +216,7 @@ function build_al_kernels {
     clone_amazon_linux_repo
 
     # Apply kernel patches on top of AL configuration
-    apply_kernel_patches_for_ci
+    apply_kernel_patches_for_ci guest_configs/patches
 
     if [[ "$KERNEL_VERSION" == @(all|5.10) ]]; then
         build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config
@@ -259,7 +230,14 @@ function build_al_kernels {
 
     # Undo kernel patches on top of AL configuration
     git restore $PWD/guest_configs
-    rm -rf $PWD/guest_configs/*.orig 
+    rm -rf $PWD/guest_configs/*.orig
+
+    # Build debug kernels
+    OUTPUT_DIR=$OUTPUT_DIR/debug
+    mkdir -pv $OUTPUT_DIR
+    apply_kernel_patches_for_ci guest_configs/patches-debug
+    build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config
+    build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config
 }
 
 function print_help {
@@ -267,25 +245,25 @@ function print_help {
 Firecracker CI artifacts build script
 
 Usage: $(basename $0) [<command>] [<command args>]
-    
+
 Available commands:
-    
+
     all (default)
         Build CI rootfs and default guest kernels using configurations from
         resources/guest_configs.
         This will patch the guest configurations with all the patches under
         resources/guest_configs/patches.
         This is the default command, if no command is chosen.
-    
+
     rootfs
         Builds only the CI rootfs.
-    
+
     kernels [version]
         Builds our the currently supported CI kernels.
-    
+
         version: Optionally choose a kernel version to build. Supported
                  versions are: 5.10, 5.10-no-acpi or 6.1.
-    
+
     help
         Displays the help message and exits.
 EOF
@@ -310,7 +288,7 @@ function main {
     fi
 
     set -x
-        
+
     install_dependencies
 
     # Create the directory in which we will store the kernels and rootfs
