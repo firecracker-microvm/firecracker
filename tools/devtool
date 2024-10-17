@@ -233,7 +233,7 @@ cmd_fix_perms() {
     run_devctr \
         --workdir "$CTR_FC_ROOT_DIR" \
         -- \
-        chown -R "$(id -u):$(id -g)" "$CTR_FC_BUILD_DIR" "$CTR_TEST_RESULTS_DIR" "$CTR_CI_ARTIFACTS_PATH"
+        chown -f -R "$(id -u):$(id -g)" "$CTR_FC_BUILD_DIR" "$CTR_TEST_RESULTS_DIR" "$CTR_CI_ARTIFACTS_PATH"
 }
 
 # Builds the development container from its Dockerfile.
