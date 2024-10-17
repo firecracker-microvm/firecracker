@@ -132,7 +132,7 @@ pub(crate) mod tests {
         };
 
         let mut snapshot_data = vec![0u8; 1000];
-        Snapshot::serialize(&mut snapshot_data.as_mut_slice(), &boot_src_cfg).unwrap();
+        Snapshot::serialize::<&BootSourceConfig>(&mut snapshot_data.as_mut_slice(), &boot_src_cfg).unwrap();
         let restored_boot_cfg = Snapshot::deserialize(&mut snapshot_data.as_slice()).unwrap();
         assert_eq!(boot_src_cfg, restored_boot_cfg);
     }

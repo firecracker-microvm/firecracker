@@ -731,6 +731,8 @@ mod tests {
             #[cfg(target_arch = "x86_64")]
             acpi_dev_state: vmm.acpi_device_manager.save(),
         };
+        let vm_info = microvm_state.vm_info.clone();
+        let device_states = microvm_state.device_states.clone();
 
         let mut buf = vec![0; 10000];
 
@@ -742,10 +744,10 @@ mod tests {
             Snapshot::load(&mut buf.as_slice(), buf.len()).unwrap();
         let restored_microvm_state = restored_snapshot.data;
 
-        assert_eq!(restored_microvm_state.vm_info, microvm_state.vm_info);
+        assert_eq!(restored_microvm_state.vm_info, vm_info);
         assert_eq!(
             restored_microvm_state.device_states,
-            microvm_state.device_states
+            device_states
         )
     }
 
