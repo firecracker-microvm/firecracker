@@ -415,8 +415,6 @@ def run_cmd(cmd, check=False, shell=True, cwd=None, timeout=None) -> CommandRetu
 
     # If a non-zero return code was thrown, raise an exception
     if check and proc.returncode != 0:
-        CMDLOG.warning("Command failed: %s\n", output_message)
-
         raise ChildProcessError(output_message)
 
     CMDLOG.debug(output_message)
