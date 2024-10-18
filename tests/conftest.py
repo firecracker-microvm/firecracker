@@ -307,14 +307,20 @@ def custom_cpu_template(request, record_property):
 
 
 @pytest.fixture(
-    params=list(static_cpu_templates_params()) + list(custom_cpu_templates_params())
+    params=[
+        pytest.param(None, id="NO_CPU_TMPL"),
+        *static_cpu_templates_params(),
+        *custom_cpu_templates_params(),
+    ],
 )
 def cpu_template_any(request, record_property):
-    """This fixture combines static and custom CPU templates"""
-    if "name" in request.param:
-        record_property("custom_cpu_template", request.param["name"])
-    else:
-        record_property("static_cpu_template", request.param)
+    """This fixture combines no template, static and custom CPU templates"""
+    cpu_template_name = request.param
+    if request.param is None:
+        cpu_template_name = "None"
+    elif "name" in request.param:
+        cpu_template_name = request.param["name"]
+    record_property("cpu_template", cpu_template_name)
     return request.param
 
 
