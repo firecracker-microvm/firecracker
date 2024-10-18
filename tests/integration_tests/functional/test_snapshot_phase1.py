@@ -45,7 +45,7 @@ def test_snapshot_phase1(
         cpu_template_name = f"custom_{cpu_template_any['name']}"
     vm.basic_config(
         vcpu_count=2,
-        mem_size_mib=1024,
+        mem_size_mib=512,
         cpu_template=static_cpu_template,
     )
 
