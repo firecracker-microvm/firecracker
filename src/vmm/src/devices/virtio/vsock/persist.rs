@@ -134,14 +134,13 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use utils::byte_order;
-
     use super::device::AVAIL_FEATURES;
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::vsock::defs::uapi;
     use crate::devices::virtio::vsock::test_utils::{TestBackend, TestContext};
     use crate::snapshot::Snapshot;
+    use crate::utils::byte_order;
 
     impl Persist<'_> for TestBackend {
         type State = VsockBackendState;

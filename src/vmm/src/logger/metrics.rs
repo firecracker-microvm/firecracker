@@ -68,6 +68,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use serde::{Serialize, Serializer};
+use utils::time::{get_time_ns, get_time_us, ClockType};
 
 use super::FcLineWriter;
 use crate::devices::legacy;
@@ -324,7 +325,7 @@ impl ProcessTimeReporter {
     /// Obtain process start time in microseconds.
     pub fn report_start_time(&self) {
         if let Some(start_time) = self.start_time_us {
-            let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time;
+            let delta_us = get_time_us(ClockType::Monotonic) - start_time;
             METRICS.api_server.process_startup_time_us.store(delta_us);
         }
     }
@@ -332,8 +333,7 @@ impl ProcessTimeReporter {
     /// Obtain process CPU start time in microseconds.
     pub fn report_cpu_start_time(&self) {
         if let Some(cpu_start_time) = self.start_time_cpu_us {
-            let delta_us = utils::time::get_time_us(utils::time::ClockType::ProcessCpu)
-                - cpu_start_time
+            let delta_us = get_time_us(ClockType::ProcessCpu) - cpu_start_time
                 + self.parent_cpu_time_us.unwrap_or_default();
             METRICS
                 .api_server
@@ -701,7 +701,7 @@ impl<'a> LatencyMetricsRecorder<'a> {
     /// Const default construction.
     fn new(metric: &'a LatencyAggregateMetrics) -> Self {
         Self {
-            start_time: utils::time::get_time_us(utils::time::ClockType::Monotonic),
+            start_time: get_time_us(ClockType::Monotonic),
             metric,
         }
     }
@@ -712,8 +712,7 @@ impl<'a> Drop for LatencyMetricsRecorder<'a> {
     /// and updates min/max/sum metrics.
     ///  self.start_time is recorded in new() and metrics are updated in drop
     fn drop(&mut self) {
-        let delta_us =
-            utils::time::get_time_us(utils::time::ClockType::Monotonic) - self.start_time;
+        let delta_us = get_time_us(ClockType::Monotonic) - self.start_time;
         self.metric.sum_us.add(delta_us);
         let min_us = self.metric.min_us.fetch();
         let max_us = self.metric.max_us.fetch();
@@ -836,10 +835,7 @@ impl SerializeToUtcTimestampMs {
 
 impl Serialize for SerializeToUtcTimestampMs {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_i64(
-            i64::try_from(utils::time::get_time_ns(utils::time::ClockType::Real) / 1_000_000)
-                .unwrap(),
-        )
+        serializer.serialize_i64(i64::try_from(get_time_ns(ClockType::Real) / 1_000_000).unwrap())
     }
 }
 
@@ -956,7 +952,7 @@ mod tests {
     use std::sync::Arc;
     use std::thread;
 
-    use utils::tempfile::TempFile;
+    use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
 

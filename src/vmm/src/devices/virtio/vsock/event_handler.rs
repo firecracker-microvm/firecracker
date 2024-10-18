@@ -28,7 +28,7 @@ use std::fmt::Debug;
 ///     buffers.
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use log::{error, warn};
-use utils::epoll::EventSet;
+use vmm_sys_util::epoll::EventSet;
 
 use super::device::{Vsock, EVQ_INDEX, RXQ_INDEX, TXQ_INDEX};
 use super::VsockBackend;
@@ -225,7 +225,7 @@ mod tests {
     use super::*;
     use crate::devices::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
     use crate::devices::virtio::vsock::test_utils::{EventHandlerContext, TestContext};
-    use crate::utilities::test_utils::multi_region_mem;
+    use crate::test_utils::multi_region_mem;
     use crate::vstate::memory::Bytes;
 
     #[test]
@@ -438,8 +438,11 @@ mod tests {
             ctx.guest_rxvq.dtable[desc_idx].len.set(len);
             // If the descriptor chain is already declared invalid, there's no reason to assemble
             // a packet.
-            if let Some(rx_desc) = ctx.device.queues[RXQ_INDEX].pop(&test_ctx.mem) {
-                VsockPacket::from_rx_virtq_head(rx_desc).unwrap_err();
+            if let Some(rx_desc) = ctx.device.queues[RXQ_INDEX].pop() {
+                VsockPacketRx::new()
+                    .unwrap()
+                    .parse(&test_ctx.mem, rx_desc)
+                    .unwrap_err();
             }
         }
 
@@ -460,8 +463,10 @@ mod tests {
             ctx.guest_txvq.dtable[desc_idx].addr.set(addr);
             ctx.guest_txvq.dtable[desc_idx].len.set(len);
 
-            if let Some(tx_desc) = ctx.device.queues[TXQ_INDEX].pop(&test_ctx.mem) {
-                VsockPacket::from_tx_virtq_head(tx_desc).unwrap_err();
+            if let Some(tx_desc) = ctx.device.queues[TXQ_INDEX].pop() {
+                VsockPacketTx::default()
+                    .parse(&test_ctx.mem, tx_desc)
+                    .unwrap_err();
             }
         }
     }
@@ -485,14 +490,19 @@ mod tests {
         // The default configured descriptor chains are valid.
         {
             let mut ctx = test_ctx.create_event_handler_context();
-            let rx_desc = ctx.device.queues[RXQ_INDEX].pop(&test_ctx.mem).unwrap();
-            VsockPacket::from_rx_virtq_head(rx_desc).unwrap();
+            let rx_desc = ctx.device.queues[RXQ_INDEX].pop().unwrap();
+            VsockPacketRx::new()
+                .unwrap()
+                .parse(&test_ctx.mem, rx_desc)
+                .unwrap();
         }
 
         {
             let mut ctx = test_ctx.create_event_handler_context();
-            let tx_desc = ctx.device.queues[TXQ_INDEX].pop(&test_ctx.mem).unwrap();
-            VsockPacket::from_tx_virtq_head(tx_desc).unwrap();
+            let tx_desc = ctx.device.queues[TXQ_INDEX].pop().unwrap();
+            VsockPacketTx::default()
+                .parse(&test_ctx.mem, tx_desc)
+                .unwrap();
         }
 
         // Let's check what happens when the header descriptor is right before the gap.

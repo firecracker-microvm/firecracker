@@ -186,7 +186,7 @@ pub mod tests {
     use crate::acpi::{AcpiError, AcpiTableWriter};
     use crate::arch::x86_64::layout::{SYSTEM_MEM_SIZE, SYSTEM_MEM_START};
     use crate::builder::tests::default_vmm;
-    use crate::utilities::test_utils::arch_mem;
+    use crate::test_utils::arch_mem;
 
     struct MockSdt(Vec<u8>);
 

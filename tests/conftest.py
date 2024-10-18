@@ -35,7 +35,7 @@ import pytest
 
 import host_tools.cargo_build as build_tools
 from framework import defs, utils
-from framework.artifacts import kernel_params, kernels_unfiltered, rootfs_params
+from framework.artifacts import kernel_params, rootfs_params
 from framework.microvm import MicroVMFactory
 from framework.properties import global_props
 from framework.utils_cpu_templates import (
@@ -284,9 +284,11 @@ def microvm_factory(request, record_property, results_dir):
     # if the test failed, save important files from the root of the uVM into `test_results` for troubleshooting
     report = request.node.stash[PHASE_REPORT_KEY]
     if "call" in report and report["call"].failed:
+        dmesg = utils.run_cmd(["dmesg", "-dPx"])
         for uvm in uvm_factory.vms:
             uvm_data = results_dir / uvm.id
             uvm_data.mkdir()
+            uvm_data.joinpath("host-dmesg.log").write_text(dmesg.stdout)
 
             uvm_root = Path(uvm.chroot())
             for item in os.listdir(uvm_root):
@@ -295,6 +297,9 @@ def microvm_factory(request, record_property, results_dir):
                     continue
                 dst = uvm_data / item
                 shutil.copy(src, dst)
+                console_data = uvm.console_data
+                if console_data:
+                    uvm_data.joinpath("guest-console.log").write_text(console_data)
 
     uvm_factory.kill()
 
@@ -371,17 +376,21 @@ def rootfs_fxt(request, record_property):
 
 # Fixtures for all guest kernels, and specific versions
 guest_kernel = pytest.fixture(guest_kernel_fxt, params=kernel_params("vmlinux-*"))
-guest_kernel_linux_4_14 = pytest.fixture(
-    guest_kernel_fxt, params=kernel_params("vmlinux-4.14*")
+guest_kernel_acpi = pytest.fixture(
+    guest_kernel_fxt,
+    params=filter(
+        lambda kernel: "no-acpi" not in kernel.id, kernel_params("vmlinux-*")
+    ),
 )
 guest_kernel_linux_5_10 = pytest.fixture(
-    guest_kernel_fxt, params=kernel_params("vmlinux-5.10*")
+    guest_kernel_fxt,
+    params=filter(
+        lambda kernel: "no-acpi" not in kernel.id, kernel_params("vmlinux-5.10*")
+    ),
 )
-# Use the unfiltered selector, since we don't officially support 6.1 yet.
-# TODO: switch to default selector once we add full 6.1 support.
 guest_kernel_linux_6_1 = pytest.fixture(
     guest_kernel_fxt,
-    params=kernel_params("vmlinux-6.1*", select=kernels_unfiltered),
+    params=kernel_params("vmlinux-6.1*"),
 )
 
 # Fixtures for all Ubuntu rootfs, and specific versions

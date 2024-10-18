@@ -20,8 +20,6 @@ from pathlib import Path
 import psutil
 import pytest
 
-from host_tools.fcmetrics import FCMetricsMonitor
-
 # If guest memory is >3328MB, it is split in a 2nd region
 X86_MEMORY_GAP_START = 3328 * 2**20
 
@@ -30,8 +28,9 @@ X86_MEMORY_GAP_START = 3328 * 2**20
     "vcpu_count,mem_size_mib",
     [(1, 128), (1, 1024), (2, 2048), (4, 4096)],
 )
+@pytest.mark.nonci
 def test_memory_overhead(
-    microvm_factory, guest_kernel, rootfs, vcpu_count, mem_size_mib, metrics
+    microvm_factory, guest_kernel_acpi, rootfs, vcpu_count, mem_size_mib, metrics
 ):
     """Track Firecracker memory overhead.
 
@@ -39,17 +38,14 @@ def test_memory_overhead(
     """
 
     for _ in range(5):
-        microvm = microvm_factory.build(guest_kernel, rootfs)
-        microvm.spawn()
+        microvm = microvm_factory.build(guest_kernel_acpi, rootfs)
+        microvm.spawn(emit_metrics=True)
         microvm.basic_config(vcpu_count=vcpu_count, mem_size_mib=mem_size_mib)
         microvm.add_net_iface()
         microvm.start()
         metrics.set_dimensions(
             {"performance_test": "test_memory_overhead", **microvm.dimensions}
         )
-        fcmetrics = FCMetricsMonitor(microvm)
-        fcmetrics.start()
-        microvm.wait_for_up()
 
         guest_mem_bytes = mem_size_mib * 2**20
         guest_mem_splits = {
@@ -84,4 +80,3 @@ def test_memory_overhead(
         for metric in ["uss", "text"]:
             val = getattr(mem_info, metric)
             metrics.put_metric(metric, val, unit="Bytes")
-        fcmetrics.stop()

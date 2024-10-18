@@ -7,8 +7,6 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand, ValueEnum};
 use vmm::cpu_config::templates::{GetCpuTemplate, GetCpuTemplateError};
 
-use crate::utils::UtilsError;
-
 mod fingerprint;
 mod template;
 mod utils;
@@ -26,7 +24,7 @@ enum HelperError {
     /// Failed to serialize/deserialize JSON file: {0}
     Serde(#[from] serde_json::Error),
     /// {0}
-    Utils(#[from] UtilsError),
+    Utils(#[from] utils::UtilsError),
     /// {0}
     TemplateDump(#[from] template::dump::DumpError),
     /// {0}
@@ -59,6 +57,9 @@ enum TemplateOperation {
         /// Path of firecracker config file.
         #[arg(short, long, value_name = "PATH")]
         config: Option<PathBuf>,
+        /// Path of CPU template to apply.
+        #[arg(short, long, value_name = "PATH")]
+        template: Option<PathBuf>,
         /// Path of output file.
         #[arg(short, long, value_name = "PATH", default_value = "cpu_config.json")]
         output: PathBuf,
@@ -90,6 +91,9 @@ enum FingerprintOperation {
         /// Path of firecracker config file.
         #[arg(short, long, value_name = "PATH")]
         config: Option<PathBuf>,
+        /// Path of CPU template to apply.
+        #[arg(short, long, value_name = "PATH")]
+        template: Option<PathBuf>,
         /// Path of output file.
         #[arg(short, long, value_name = "PATH", default_value = "fingerprint.json")]
         output: PathBuf,
@@ -117,9 +121,17 @@ enum FingerprintOperation {
 fn run(cli: Cli) -> Result<(), HelperError> {
     match cli.command {
         Command::Template(op) => match op {
-            TemplateOperation::Dump { config, output } => {
+            TemplateOperation::Dump {
+                config,
+                template,
+                output,
+            } => {
                 let config = config.map(read_to_string).transpose()?;
-                let (vmm, _) = utils::build_microvm_from_config(config, None)?;
+                let template = template
+                    .as_ref()
+                    .map(utils::load_cpu_template)
+                    .transpose()?;
+                let (vmm, _) = utils::build_microvm_from_config(config, template)?;
 
                 let cpu_config = template::dump::dump(vmm)?;
 
@@ -127,12 +139,10 @@ fn run(cli: Cli) -> Result<(), HelperError> {
                 write(output, cpu_config_json)?;
             }
             TemplateOperation::Strip { paths, suffix } => {
-                let mut templates = Vec::with_capacity(paths.len());
-                for path in &paths {
-                    let template_json = read_to_string(path)?;
-                    let template = serde_json::from_str(&template_json)?;
-                    templates.push(template);
-                }
+                let templates = paths
+                    .iter()
+                    .map(utils::load_cpu_template)
+                    .collect::<Result<Vec<_>, utils::UtilsError>>()?;
 
                 let stripped_templates = template::strip::strip(templates)?;
 
@@ -144,13 +154,10 @@ fn run(cli: Cli) -> Result<(), HelperError> {
             }
             TemplateOperation::Verify { config, template } => {
                 let config = config.map(read_to_string).transpose()?;
-                let template = match template {
-                    Some(path) => {
-                        let template_json = read_to_string(path)?;
-                        Some(serde_json::from_str(&template_json)?)
-                    }
-                    None => None,
-                };
+                let template = template
+                    .as_ref()
+                    .map(utils::load_cpu_template)
+                    .transpose()?;
                 let (vmm, vm_resources) = utils::build_microvm_from_config(config, template)?;
 
                 let cpu_template = vm_resources
@@ -164,9 +171,17 @@ fn run(cli: Cli) -> Result<(), HelperError> {
             }
         },
         Command::Fingerprint(op) => match op {
-            FingerprintOperation::Dump { config, output } => {
+            FingerprintOperation::Dump {
+                config,
+                template,
+                output,
+            } => {
                 let config = config.map(read_to_string).transpose()?;
-                let (vmm, _) = utils::build_microvm_from_config(config, None)?;
+                let template = template
+                    .as_ref()
+                    .map(utils::load_cpu_template)
+                    .transpose()?;
+                let (vmm, _) = utils::build_microvm_from_config(config, template)?;
 
                 let fingerprint = fingerprint::dump::dump(vmm)?;
 

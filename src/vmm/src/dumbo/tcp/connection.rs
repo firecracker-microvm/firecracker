@@ -10,7 +10,7 @@ use std::fmt::Debug;
 use std::num::{NonZeroU16, NonZeroU64, NonZeroUsize, Wrapping};
 
 use bitflags::bitflags;
-use utils::rand::xor_pseudo_rng_u32;
+use vmm_sys_util::rand::xor_pseudo_rng_u32;
 
 use crate::dumbo::pdu::bytes::NetworkBytes;
 use crate::dumbo::pdu::tcp::{Flags as TcpFlags, TcpError as TcpSegmentError, TcpSegment};

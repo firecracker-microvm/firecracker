@@ -18,6 +18,7 @@ format.
 ```
 cpu-template-helper template dump \
     --output <cpu-config> \
+    [--template <cpu-template>] \
     [--config <firecracker-config>]
 ```
 
@@ -70,7 +71,7 @@ This command verifies that the given custom CPU template is applied correctly.
 
 ```
 cpu-template-helper template verify \
-    --template <cpu-template>
+    --template <cpu-template> \
     [--config <firecracker-config>]
 ```
 
@@ -98,6 +99,7 @@ information that could affect the validity of custom CPU templates.
 ```
 cpu-template-helper fingerprint dump \
     --output <output-path> \
+    [--template <cpu-template>] \
     [--config <firecracker-config>]
 ```
 

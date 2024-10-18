@@ -17,14 +17,14 @@ use kvm_bindings::{
 use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION, KVM_MEM_LOG_DIRTY_PAGES};
 use kvm_ioctls::{Kvm, VmFd};
 use serde::{Deserialize, Serialize};
-#[cfg(target_arch = "x86_64")]
-use utils::u64_to_usize;
 
 #[cfg(target_arch = "aarch64")]
 use crate::arch::aarch64::gic::GICDevice;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::aarch64::gic::GicState;
 use crate::cpu_config::templates::KvmCapability;
+#[cfg(target_arch = "x86_64")]
+use crate::utils::u64_to_usize;
 use crate::vstate::memory::{Address, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -470,7 +470,7 @@ pub(crate) mod tests {
     use super::*;
     #[cfg(target_arch = "x86_64")]
     use crate::snapshot::Snapshot;
-    use crate::utilities::test_utils::single_region_mem;
+    use crate::test_utils::single_region_mem;
     use crate::vstate::memory::GuestMemoryMmap;
 
     // Auxiliary function being used throughout the tests.

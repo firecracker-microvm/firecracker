@@ -119,7 +119,7 @@ mod tests {
     use std::sync::Arc;
 
     use seccompiler::BpfThreadMap;
-    use utils::tempfile::TempFile;
+    use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
 

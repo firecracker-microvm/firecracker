@@ -16,8 +16,8 @@ use std::ops::Deref;
 
 use serde::ser::SerializeMap;
 use serde::Serializer;
-use utils::eventfd::EventFd;
 use vm_superio::Trigger;
+use vmm_sys_util::eventfd::EventFd;
 
 pub use self::i8042::{I8042Device, I8042Error as I8042DeviceError};
 #[cfg(target_arch = "aarch64")]

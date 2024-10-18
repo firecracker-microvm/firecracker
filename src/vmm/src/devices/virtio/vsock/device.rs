@@ -23,12 +23,11 @@
 use std::fmt::Debug;
 
 use log::{error, warn};
-use utils::byte_order;
-use utils::eventfd::EventFd;
+use vmm_sys_util::eventfd::EventFd;
 
 use super::super::super::DeviceError;
 use super::defs::uapi;
-use super::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
+use super::packet::{VsockPacketRx, VsockPacketTx, VSOCK_PKT_HDR_SIZE};
 use super::{defs, VsockBackend};
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::devices::virtio::queue::Queue as VirtQueue;
@@ -36,6 +35,7 @@ use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::devices::virtio::vsock::VsockError;
 use crate::devices::virtio::ActivateError;
 use crate::logger::IncMetric;
+use crate::utils::byte_order;
 use crate::vstate::memory::{Bytes, GuestMemoryMmap};
 
 pub(crate) const RXQ_INDEX: usize = 0;
@@ -68,6 +68,9 @@ pub struct Vsock<B> {
     // continuous triggers from happening before the device gets activated.
     pub(crate) activate_evt: EventFd,
     pub(crate) device_state: DeviceState,
+
+    pub rx_packet: VsockPacketRx,
+    pub tx_packet: VsockPacketTx,
 }
 
 // TODO: Detect / handle queue deadlock:
@@ -101,6 +104,8 @@ where
             irq_trigger: IrqTrigger::new().map_err(VsockError::EventFd)?,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?,
             device_state: DeviceState::Inactive,
+            rx_packet: VsockPacketRx::new()?,
+            tx_packet: VsockPacketTx::default(),
         })
     }
 
@@ -145,16 +150,16 @@ where
 
         let mut have_used = false;
 
-        while let Some(head) = self.queues[RXQ_INDEX].pop(mem) {
+        while let Some(head) = self.queues[RXQ_INDEX].pop() {
             let index = head.index;
-            let used_len = match VsockPacket::from_rx_virtq_head(head) {
-                Ok(mut pkt) => {
-                    if self.backend.recv_pkt(&mut pkt).is_ok() {
-                        match pkt.commit_hdr() {
+            let used_len = match self.rx_packet.parse(mem, head) {
+                Ok(()) => {
+                    if self.backend.recv_pkt(&mut self.rx_packet).is_ok() {
+                        match self.rx_packet.commit_hdr() {
                             // This addition cannot overflow, because packet length
                             // is previously validated against `MAX_PKT_BUF_SIZE`
                             // bound as part of `commit_hdr()`.
-                            Ok(()) => VSOCK_PKT_HDR_SIZE + pkt.len(),
+                            Ok(()) => VSOCK_PKT_HDR_SIZE + self.rx_packet.hdr.len(),
                             Err(err) => {
                                 warn!(
                                     "vsock: Error writing packet header to guest memory: \
@@ -180,7 +185,7 @@ where
 
             have_used = true;
             self.queues[RXQ_INDEX]
-                .add_used(mem, index, used_len)
+                .add_used(index, used_len)
                 .unwrap_or_else(|err| {
                     error!("Failed to add available descriptor {}: {}", index, err)
                 });
@@ -198,15 +203,16 @@ where
 
         let mut have_used = false;
 
-        while let Some(head) = self.queues[TXQ_INDEX].pop(mem) {
+        while let Some(head) = self.queues[TXQ_INDEX].pop() {
             let index = head.index;
-            let pkt = match VsockPacket::from_tx_virtq_head(head) {
-                Ok(pkt) => pkt,
+            // let pkt = match VsockPacket::from_tx_virtq_head(mem, head) {
+            match self.tx_packet.parse(mem, head) {
+                Ok(()) => (),
                 Err(err) => {
                     error!("vsock: error reading TX packet: {:?}", err);
                     have_used = true;
                     self.queues[TXQ_INDEX]
-                        .add_used(mem, index, 0)
+                        .add_used(index, 0)
                         .unwrap_or_else(|err| {
                             error!("Failed to add available descriptor {}: {}", index, err);
                         });
@@ -214,14 +220,14 @@ where
                 }
             };
 
-            if self.backend.send_pkt(&pkt).is_err() {
+            if self.backend.send_pkt(&self.tx_packet).is_err() {
                 self.queues[TXQ_INDEX].undo_pop();
                 break;
             }
 
             have_used = true;
             self.queues[TXQ_INDEX]
-                .add_used(mem, index, 0)
+                .add_used(index, 0)
                 .unwrap_or_else(|err| {
                     error!("Failed to add available descriptor {}: {}", index, err);
                 });
@@ -237,7 +243,7 @@ where
         // This is safe since we checked in the caller function that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
-        let head = self.queues[EVQ_INDEX].pop(mem).ok_or_else(|| {
+        let head = self.queues[EVQ_INDEX].pop().ok_or_else(|| {
             METRICS.ev_queue_event_fails.inc();
             DeviceError::VsockError(VsockError::EmptyQueue)
         })?;
@@ -246,7 +252,7 @@ where
             .unwrap_or_else(|err| error!("Failed to write virtio vsock reset event: {:?}", err));
 
         self.queues[EVQ_INDEX]
-            .add_used(mem, head.index, head.len)
+            .add_used(head.index, head.len)
             .unwrap_or_else(|err| {
                 error!("Failed to add used descriptor {}: {}", head.index, err);
             });
@@ -323,6 +329,11 @@ where
     }
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+        for q in self.queues.iter_mut() {
+            q.initialize(&mem)
+                .map_err(ActivateError::QueueMemoryError)?;
+        }
+
         if self.queues.len() != defs::VSOCK_NUM_QUEUES {
             METRICS.activate_fails.inc();
             return Err(ActivateError::QueueMismatch {

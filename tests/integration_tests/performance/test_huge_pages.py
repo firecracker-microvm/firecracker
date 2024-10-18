@@ -62,7 +62,6 @@ def test_hugetlbfs_boot(uvm_plain):
     uvm_plain.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB, mem_size_mib=128)
     uvm_plain.add_net_iface()
     uvm_plain.start()
-    uvm_plain.wait_for_up()
 
     check_hugetlbfs_in_use(
         uvm_plain.firecracker_pid,
@@ -84,7 +83,6 @@ def test_hugetlbfs_snapshot(
     vm.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB, mem_size_mib=128)
     vm.add_net_iface()
     vm.start()
-    vm.wait_for_up()
 
     check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
 
@@ -102,7 +100,6 @@ def test_hugetlbfs_snapshot(
     )
 
     vm.restore_from_snapshot(snapshot, resume=True, uffd_path=SOCKET_PATH)
-    vm.wait_for_up()
 
     check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
 
@@ -126,14 +123,12 @@ def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain, uffd_handler_paths)
     uvm_plain.start()
 
     # Wait for microvm to boot
-    uvm_plain.wait_for_up()
 
     base_snapshot = uvm_plain.snapshot_diff()
     uvm_plain.resume()
 
     # Run command to dirty some pages
-    rc, _, _ = uvm_plain.ssh.run("sync")
-    assert not rc
+    uvm_plain.ssh.check_output("sync")
 
     snapshot_diff = uvm_plain.snapshot_diff()
     snapshot_merged = snapshot_diff.rebase_snapshot(base_snapshot)
@@ -151,7 +146,6 @@ def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain, uffd_handler_paths)
     vm.restore_from_snapshot(snapshot_merged, resume=True, uffd_path=SOCKET_PATH)
 
     # Verify if the restored microvm works.
-    vm.wait_for_up()
 
 
 @pytest.mark.parametrize("huge_pages", HugePagesConfig)
@@ -186,13 +180,11 @@ def test_ept_violation_count(
 
     # Wait for microvm to boot. Then spawn fast_page_fault_helper to setup an environment where we can trigger
     # a lot of fast_page_faults after restoring the snapshot.
-    rc, _, _ = vm.ssh.run(
+    vm.ssh.check_output(
         "nohup /usr/local/bin/fast_page_fault_helper >/dev/null 2>&1 </dev/null &"
     )
-    assert not rc
 
-    rc, pid, _ = vm.ssh.run("pidof fast_page_fault_helper")
-    assert not rc
+    _, pid, _ = vm.ssh.check_output("pidof fast_page_fault_helper")
 
     # Give the helper time to initialize
     time.sleep(5)
@@ -214,11 +206,9 @@ def test_ept_violation_count(
 
     with ftrace_events("kvm:*"):
         vm.restore_from_snapshot(snapshot, resume=True, uffd_path=SOCKET_PATH)
-        vm.wait_for_up()
 
         # Verify if guest can run commands, and also wake up the fast page fault helper to trigger page faults.
-        rc, _, _ = vm.ssh.run(f"kill -s {signal.SIGUSR1} {pid}")
-        assert not rc
+        vm.ssh.check_output(f"kill -s {signal.SIGUSR1} {pid}")
 
         # Give the helper time to touch all its pages
         time.sleep(5)

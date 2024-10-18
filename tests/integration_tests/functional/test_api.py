@@ -83,7 +83,6 @@ def test_drive_io_engine(uvm_plain):
         test_microvm.api.drive.put(**kwargs)
 
     test_microvm.start()
-    test_microvm.wait_for_up()
 
     assert test_microvm.api.vm_config.get().json()["drives"][0]["io_engine"] == "Sync"
 

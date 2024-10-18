@@ -112,7 +112,7 @@ impl VsockBuilder {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use utils::tempfile::TempFile;
+    use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;

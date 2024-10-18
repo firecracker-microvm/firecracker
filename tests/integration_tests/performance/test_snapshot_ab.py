@@ -10,7 +10,6 @@ import pytest
 
 import host_tools.drive as drive_tools
 from framework.microvm import Microvm
-from host_tools.fcmetrics import FCMetricsMonitor
 
 USEC_IN_MSEC = 1000
 ITERATIONS = 30
@@ -44,16 +43,16 @@ class SnapshotRestoreTest:
     def configure_vm(
         self,
         microvm_factory,
-        guest_kernel,
+        guest_kernel_acpi,
         rootfs,
     ) -> Microvm:
         """Creates the initial snapshot that will be loaded repeatedly to sample latencies"""
         vm = microvm_factory.build(
-            guest_kernel,
+            guest_kernel_acpi,
             rootfs,
             monitor_memory=False,
         )
-        vm.spawn(log_level="Info")
+        vm.spawn(log_level="Info", emit_metrics=True)
         vm.time_api_requests = False
         vm.basic_config(
             vcpu_count=self.vcpus,
@@ -78,22 +77,18 @@ class SnapshotRestoreTest:
         return vm
 
     def sample_latency(
-        self, microvm_factory, snapshot, guest_kernel_linux_4_14
+        self, microvm_factory, snapshot, guest_kernel_linux_5_10
     ) -> List[float]:
         """Collects latency samples for the microvm configuration specified by this instance"""
         values = []
 
         for _ in range(ITERATIONS):
             microvm = microvm_factory.build(
-                kernel=guest_kernel_linux_4_14,
+                kernel=guest_kernel_linux_5_10,
                 monitor_memory=False,
             )
-            microvm.spawn()
+            microvm.spawn(emit_metrics=True)
             snapshot_copy = microvm.restore_from_snapshot(snapshot, resume=True)
-
-            fcmetrics = FCMetricsMonitor(microvm)
-            fcmetrics.start()
-            microvm.wait_for_up()
 
             value = 0
             # Parse all metric data points in search of load_snapshot time.
@@ -106,7 +101,6 @@ class SnapshotRestoreTest:
                     break
             assert value > 0
             values.append(value)
-            fcmetrics.stop()
             microvm.kill()
             snapshot_copy.delete()
 
@@ -131,7 +125,7 @@ class SnapshotRestoreTest:
     ids=lambda x: x.id,
 )
 def test_restore_latency(
-    microvm_factory, rootfs, guest_kernel_linux_4_14, test_setup, metrics
+    microvm_factory, rootfs, guest_kernel_linux_5_10, test_setup, metrics
 ):
     """
     Restores snapshots with vcpu/memory configuration, roughly scaling according to mem = (vcpus - 1) * 2048MB,
@@ -140,9 +134,8 @@ def test_restore_latency(
 
     We only test a single guest kernel, as the guest kernel does not "participate" in snapshot restore.
     """
-    vm = test_setup.configure_vm(microvm_factory, guest_kernel_linux_4_14, rootfs)
+    vm = test_setup.configure_vm(microvm_factory, guest_kernel_linux_5_10, rootfs)
     vm.start()
-    vm.wait_for_up()
 
     metrics.set_dimensions(
         {
@@ -154,17 +147,14 @@ def test_restore_latency(
             **vm.dimensions,
         }
     )
-    fcmetrics = FCMetricsMonitor(vm)
-    fcmetrics.start()
 
     snapshot = vm.snapshot_full()
-    fcmetrics.stop()
     vm.kill()
 
     samples = test_setup.sample_latency(
         microvm_factory,
         snapshot,
-        guest_kernel_linux_4_14,
+        guest_kernel_linux_5_10,
     )
 
     for sample in samples:

@@ -3,3 +3,6 @@ build/
 src/
 tests/
 docs/
+resources/
+tools/test-popular-containers/
+test_results/

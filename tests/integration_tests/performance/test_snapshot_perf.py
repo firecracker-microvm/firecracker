@@ -21,13 +21,13 @@ def snapshot_create_producer(vm):
 
 def test_snapshot_create_latency(
     microvm_factory,
-    guest_kernel_linux_4_14,
+    guest_kernel_linux_5_10,
     rootfs,
     metrics,
 ):
     """Measure the latency of creating a Full snapshot"""
 
-    vm = microvm_factory.build(guest_kernel_linux_4_14, rootfs, monitor_memory=False)
+    vm = microvm_factory.build(guest_kernel_linux_5_10, rootfs, monitor_memory=False)
     vm.spawn()
     vm.basic_config(vcpu_count=2, mem_size_mib=512)
     vm.start()

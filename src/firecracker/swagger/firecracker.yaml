@@ -5,7 +5,7 @@ info:
     The API is accessible through HTTP calls on specific URLs
     carrying JSON modeled data.
     The transport medium is a Unix Domain Socket.
-  version: 1.9.0-dev
+  version: 1.10.0-dev
   termsOfService: ""
   contact:
     email: "compute-capsule@amazon.com"
@@ -927,6 +927,8 @@ definitions:
           $ref: "#/definitions/Drive"
       boot-source:
         $ref: "#/definitions/BootSource"
+      cpu-config:
+        $ref: "#/definitions/CpuConfig"
       logger:
         $ref: "#/definitions/Logger"
       machine-config:
@@ -942,6 +944,8 @@ definitions:
           $ref: "#/definitions/NetworkInterface"
       vsock:
         $ref: "#/definitions/Vsock"
+      entropy:
+        $ref: "#/definitions/EntropyDevice"
 
   InstanceActionInfo:
     type: object

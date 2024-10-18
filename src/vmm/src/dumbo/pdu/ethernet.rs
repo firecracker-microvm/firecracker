@@ -240,9 +240,8 @@ mod tests {
 #[cfg(kani)]
 #[allow(dead_code)] // Avoid warning when using stubs.
 mod kani_proofs {
-    use utils::net::mac::MAC_ADDR_LEN;
-
     use super::*;
+    use crate::utils::net::mac::MAC_ADDR_LEN;
 
     // See the Virtual I/O Device (VIRTIO) specification, Sec. 5.1.6.2.
     // https://docs.oasis-open.org/virtio/virtio/v1.2/csd01/virtio-v1.2-csd01.pdf
@@ -520,7 +519,7 @@ mod kani_proofs {
 
     #[kani::proof]
     #[kani::solver(cadical)]
-    #[kani::stub(utils::byte_order::read_be_u16, stubs::read_be_u16)]
+    #[kani::stub(crate::utils::byte_order::read_be_u16, stubs::read_be_u16)]
     fn verify_with_payload_len_unchecked() {
         // Create non-deterministic stream of bytes up to MAX_FRAME_SIZE
         let mut bytes: [u8; MAX_FRAME_SIZE] = kani::Arbitrary::any_array::<MAX_FRAME_SIZE>();

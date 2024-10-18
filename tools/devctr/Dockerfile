@@ -1,4 +1,4 @@
-FROM public.ecr.aws/lts/ubuntu:22.04
+FROM public.ecr.aws/lts/ubuntu:24.04
 
 # TODO: use a multi-stage build to reduce the download size when updating this container.
 # The Rust toolchain layer will get updated most frequently, but we could keep the system
@@ -6,11 +6,8 @@ FROM public.ecr.aws/lts/ubuntu:22.04
 
 ARG RUST_TOOLCHAIN="1.79.0"
 ARG TMP_BUILD_DIR=/tmp/build
-ARG FIRECRACKER_SRC_DIR="/firecracker"
-ARG FIRECRACKER_BUILD_DIR="$FIRECRACKER_SRC_DIR/build"
-ARG CARGO_REGISTRY_DIR="$FIRECRACKER_BUILD_DIR/cargo_registry"
-ARG CARGO_GIT_REGISTRY_DIR="$FIRECRACKER_BUILD_DIR/cargo_git_registry"
 ARG DEBIAN_FRONTEND=noninteractive
+ARG PIP_BREAK_SYSTEM_PACKAGES=1
 ARG ARCH
 
 ENV CARGO_HOME=/usr/local/rust
@@ -41,7 +38,7 @@ RUN apt-get update \
     && pip3 uninstall -y meson \
     && apt-get purge -y \
         curl gpg gpg-agent \
-        python3-pip build-essential ninja-build libglib2.0-dev libpixman-1-dev flex bison \
+        build-essential ninja-build libglib2.0-dev libpixman-1-dev flex bison \
     && apt-get autoremove -y \
     && cd && rm -r /tmp/qemu_build
 
@@ -51,7 +48,7 @@ RUN apt-get update \
     && apt-get -y install --no-install-recommends \
         # essential build tools
         gcc make libc-dev binutils-dev libssl-dev \
-        # Useful utilifies
+        # Useful utilities
         gdbserver \
         # Needed in order to be able to compile `userfaultfd-sys`.
         clang \
@@ -61,8 +58,6 @@ RUN apt-get update \
         jq \
         less \
         libbfd-dev \
-        # for pandas
-        libbz2-dev \
         libdw-dev \
         # for aarch64, but can install in x86_64
         libfdt-dev \
@@ -80,10 +75,7 @@ RUN apt-get update \
         screen tmux \
         tzdata \
         tini \
-        # for cpu-template-helper
-        # TODO: Remove `dmidecode` after the end of kernel 4.14 support.
-        # https://github.com/firecracker-microvm/firecracker/issues/3677
-        dmidecode \
+        squashfs-tools \
         # for aws-lc-rs
         cmake \
         # for Qemu vhost-user-blk backend
@@ -93,25 +85,30 @@ RUN apt-get update \
         # for debugging
         gdb strace \
     && rm -rf /var/lib/apt/lists/* \
-    && pip3 install --upgrade pip poetry
+    && pip3 install --upgrade poetry
 
-
+ARG VENV="/opt/venv"
 COPY tools/devctr /tmp/poetry
-RUN cd /tmp/poetry && \
-    HOME=. POETRY_VIRTUALENVS_CREATE=false poetry install --only main --no-interaction \
-    && rm -rf ~/.cache ~/.local /tmp/poetry
+RUN cd /tmp/poetry \
+    && virtualenv $VENV \
+    && . $VENV/bin/activate \
+    && poetry install --only main --no-directory --no-interaction \
+    && rm -rf ~/.local/share/virtualenv/ ~/.cache /tmp/poetry \
+    && cd -
+ENV VIRTUAL_ENV=$VENV
+ENV PATH=$VENV/bin:$PATH
 
 # Running the three as a single dockerfile command to avoid inflation of the image:
 # - Install the Rust toolchain. Kani only work on x86, so only try to install it there
 # - Build and install crosvm (used as vhost-user-blk backend)
 # - Clean up cargo compilation directories
 # - Always install both x86_64 and aarch64 musl targets, as our rust-toolchain.toml would force on-the-fly installation of both anyway
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOLCHAIN" \
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
     && rustup target add x86_64-unknown-linux-musl \
     && rustup target add aarch64-unknown-linux-musl \
-    && rustup component add llvm-tools-preview \
-    && cargo install --locked cargo-audit cargo-deny grcov cargo-sort \
-    && (if [ "$ARCH" = "x86_64" ]; then cargo install --locked kani-verifier && cargo kani setup; else true; fi) \
+    && rustup component add llvm-tools-preview clippy rustfmt \
+    && cargo install --locked cargo-audit cargo-deny grcov cargo-sort cargo-afl \
+    && cargo install --locked kani-verifier && cargo kani setup \
     \
     && apt-get update \
     && apt-get -y install --no-install-recommends \
@@ -132,9 +129,7 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOL
     && cd && rm -r /tmp/crosvm \
     \
     && rm -rf "$CARGO_HOME/registry" \
-    && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
-    && rm -rf "$CARGO_HOME/git" \
-    && ln -s "$CARGO_GIT_REGISTRY_DIR" "$CARGO_HOME/git"
+    && rm -rf "$CARGO_HOME/git"
 
 # help musl-gcc find linux headers
 RUN cd /usr/include/$ARCH-linux-musl \
@@ -162,5 +157,4 @@ RUN cd /usr/local/bin \
 
 ADD tools/devctr/ctr_gitconfig /root/.gitconfig
 
-WORKDIR "$FIRECRACKER_SRC_DIR"
 ENTRYPOINT ["/usr/bin/tini", "--"]

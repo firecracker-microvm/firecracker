@@ -1,10 +1,8 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#![warn(missing_docs)]
-
 #[allow(clippy::undocumented_unsafe_blocks)]
-mod bindings;
+mod gen;
 pub mod operation;
 mod probe;
 mod queue;
@@ -16,7 +14,7 @@ use std::fs::File;
 use std::io::Error as IOError;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
-use bindings::io_uring_params;
+use gen::io_uring_params;
 use operation::{Cqe, FixedFd, OpCode, Operation};
 use probe::{ProbeWrapper, PROBE_LEN};
 pub use queue::completion::CQueueError;
@@ -24,7 +22,7 @@ use queue::completion::CompletionQueue;
 pub use queue::submission::SQueueError;
 use queue::submission::SubmissionQueue;
 use restriction::Restriction;
-use utils::syscall::SyscallReturnCode;
+use vmm_sys_util::syscall::SyscallReturnCode;
 
 // IO_uring operations that we require to be supported by the host kernel.
 const REQUIRED_OPS: [OpCode; 2] = [OpCode::Read, OpCode::Write];
@@ -39,7 +37,7 @@ pub enum IoUringError {
     /// Could not enable the ring: {0}
     Enable(IOError),
     /// A FamStructWrapper operation has failed: {0}
-    Fam(utils::fam::Error),
+    Fam(vmm_sys_util::fam::Error),
     /// The number of ops in the ring is >= CQ::count
     FullCQueue,
     /// Fd was not registered: {0}
@@ -112,7 +110,7 @@ impl<T: Debug> IoUring<T> {
     ) -> Result<Self, IoUringError> {
         let mut params = io_uring_params {
             // Create the ring as disabled, so that we may register restrictions.
-            flags: bindings::IORING_SETUP_R_DISABLED,
+            flags: gen::IORING_SETUP_R_DISABLED,
 
             ..Default::default()
         };
@@ -252,7 +250,7 @@ impl<T: Debug> IoUring<T> {
             libc::syscall(
                 libc::SYS_io_uring_register,
                 self.fd.as_raw_fd(),
-                bindings::IORING_REGISTER_ENABLE_RINGS,
+                gen::IORING_REGISTER_ENABLE_RINGS,
                 std::ptr::null::<libc::c_void>(),
                 0,
             )
@@ -277,7 +275,7 @@ impl<T: Debug> IoUring<T> {
             libc::syscall(
                 libc::SYS_io_uring_register,
                 self.fd.as_raw_fd(),
-                bindings::IORING_REGISTER_FILES,
+                gen::IORING_REGISTER_FILES,
                 files
                     .iter()
                     .map(|f| f.as_raw_fd())
@@ -301,7 +299,7 @@ impl<T: Debug> IoUring<T> {
             libc::syscall(
                 libc::SYS_io_uring_register,
                 self.fd.as_raw_fd(),
-                bindings::IORING_REGISTER_EVENTFD,
+                gen::IORING_REGISTER_EVENTFD,
                 (&fd) as *const _,
                 1,
             )
@@ -320,10 +318,10 @@ impl<T: Debug> IoUring<T> {
             libc::syscall(
                 libc::SYS_io_uring_register,
                 self.fd.as_raw_fd(),
-                bindings::IORING_REGISTER_RESTRICTIONS,
+                gen::IORING_REGISTER_RESTRICTIONS,
                 restrictions
                     .iter()
-                    .map(bindings::io_uring_restriction::from)
+                    .map(gen::io_uring_restriction::from)
                     .collect::<Vec<_>>()
                     .as_mut_slice()
                     .as_mut_ptr(),
@@ -341,7 +339,7 @@ impl<T: Debug> IoUring<T> {
         // An alternative fix would be to keep an internal counter that tracks the number of
         // submitted entries that haven't been completed and makes sure it doesn't exceed
         // (2 * num_entries).
-        if (params.features & bindings::IORING_FEAT_NODROP) == 0 {
+        if (params.features & gen::IORING_FEAT_NODROP) == 0 {
             return Err(IoUringError::UnsupportedFeature("IORING_FEAT_NODROP"));
         }
 
@@ -356,7 +354,7 @@ impl<T: Debug> IoUring<T> {
             libc::syscall(
                 libc::SYS_io_uring_register,
                 self.fd.as_raw_fd(),
-                bindings::IORING_REGISTER_PROBE,
+                gen::IORING_REGISTER_PROBE,
                 probes.as_mut_fam_struct_ptr(),
                 PROBE_LEN,
             )
@@ -367,7 +365,7 @@ impl<T: Debug> IoUring<T> {
         let supported_opcodes: HashSet<u8> = probes
             .as_slice()
             .iter()
-            .filter(|op| ((u32::from(op.flags)) & bindings::IO_URING_OP_SUPPORTED) != 0)
+            .filter(|op| ((u32::from(op.flags)) & gen::IO_URING_OP_SUPPORTED) != 0)
             .map(|op| op.op)
             .collect();
 
@@ -389,11 +387,9 @@ mod tests {
     use proptest::prelude::*;
     use proptest::strategy::Strategy;
     use proptest::test_runner::{Config, TestRunner};
-    use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
-    use utils::skip_if_io_uring_unsupported;
-    use utils::syscall::SyscallReturnCode;
-    use utils::tempfile::TempFile;
     use vm_memory::VolatileMemory;
+    use vmm_sys_util::syscall::SyscallReturnCode;
+    use vmm_sys_util::tempfile::TempFile;
 
     /// -------------------------------------
     /// BEGIN PROPERTY BASED TESTING
@@ -475,7 +471,6 @@ mod tests {
 
     #[test]
     fn proptest_read_write_correctness() {
-        skip_if_io_uring_unsupported!();
         // Performs a sequence of random read and write operations on two files, with sync and
         // async IO, respectively.
         // Verifies that the files are identical afterwards and that the read operations returned

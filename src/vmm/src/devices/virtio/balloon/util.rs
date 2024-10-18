@@ -3,10 +3,9 @@
 
 use std::io;
 
-use utils::u64_to_usize;
-
 use super::{RemoveRegionError, MAX_PAGE_COMPACT_BUFFER};
 use crate::logger::error;
+use crate::utils::u64_to_usize;
 use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 /// This takes a vector of page frame numbers, and compacts them
@@ -263,7 +262,7 @@ mod tests {
     /// BEGIN PROPERTY BASED TESTING
     use proptest::prelude::*;
 
-    use crate::utilities::test_utils::single_region_mem;
+    use crate::test_utils::single_region_mem;
 
     #[allow(clippy::let_with_type_underscore)]
     fn random_pfn_u32_max() -> impl Strategy<Value = Vec<u32>> {

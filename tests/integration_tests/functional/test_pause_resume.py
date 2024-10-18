@@ -41,7 +41,6 @@ def test_pause_resume(uvm_nano):
         microvm.api.vm.patch(state="Resumed")
 
     microvm.start()
-    microvm.wait_for_up()
 
     # Pausing the microVM after it's been started is successful.
     microvm.api.vm.patch(state="Paused")
@@ -50,16 +49,16 @@ def test_pause_resume(uvm_nano):
     microvm.flush_metrics()
 
     # Verify guest is no longer active.
-    with pytest.raises(AssertionError):
-        microvm.wait_for_up()
+    with pytest.raises(ChildProcessError):
+        microvm.ssh.check_output("true")
 
     # Verify emulation was indeed paused and no events from either
     # guest or host side were handled.
     verify_net_emulation_paused(microvm.flush_metrics())
 
     # Verify guest is no longer active.
-    with pytest.raises(AssertionError):
-        microvm.wait_for_up()
+    with pytest.raises(ChildProcessError):
+        microvm.ssh.check_output("true")
 
     # Pausing the microVM when it is already `Paused` is allowed
     # (microVM remains in `Paused` state).
@@ -69,14 +68,12 @@ def test_pause_resume(uvm_nano):
     microvm.api.vm.patch(state="Resumed")
 
     # Verify guest is active again.
-    microvm.wait_for_up()
 
     # Resuming the microVM when it is already `Resumed` is allowed
     # (microVM remains in the running state).
     microvm.api.vm.patch(state="Resumed")
 
     # Verify guest is still active.
-    microvm.wait_for_up()
 
     microvm.kill()
 

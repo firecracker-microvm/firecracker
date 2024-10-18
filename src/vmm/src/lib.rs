@@ -12,10 +12,6 @@
 #![warn(clippy::undocumented_unsafe_blocks)]
 #![allow(clippy::blanket_clippy_restriction_lints)]
 
-/// Architecture specific bindings.
-#[allow(missing_docs)]
-pub mod arch_gen;
-
 /// Implements platform specific functionality.
 /// Supported platforms: x86_64 and aarch64.
 pub mod arch;
@@ -87,6 +83,9 @@ pub(crate) mod device_manager;
 pub mod devices;
 /// minimalist HTTP/TCP/IPv4 stack named DUMBO
 pub mod dumbo;
+/// Support for GDB debugging the guest
+#[cfg(feature = "gdb")]
+pub mod gdb;
 /// Logger
 pub mod logger;
 /// microVM Metadata Service MMDS
@@ -104,7 +103,9 @@ pub mod signal_handler;
 /// Serialization and deserialization facilities
 pub mod snapshot;
 /// Utility functions for integration and benchmark testing
-pub mod utilities;
+pub mod test_utils;
+/// Utility functions and struct
+pub mod utils;
 /// Wrappers over structures used to configure the VMM.
 pub mod vmm_config;
 /// Module with virtual state structs.
@@ -117,18 +118,15 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 
-#[cfg(target_arch = "x86_64")]
 use device_manager::acpi::ACPIDeviceManager;
 use device_manager::resources::ResourceAllocator;
-#[cfg(target_arch = "x86_64")]
 use devices::acpi::vmgenid::VmGenIdError;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use seccompiler::BpfProgram;
 use userfaultfd::Uffd;
-use utils::epoll::EventSet;
-use utils::eventfd::EventFd;
-use utils::terminal::Terminal;
-use utils::u64_to_usize;
+use vmm_sys_util::epoll::EventSet;
+use vmm_sys_util::eventfd::EventFd;
+use vmm_sys_util::terminal::Terminal;
 use vstate::vcpu::{self, KvmVcpuConfigureError, StartThreadedError, VcpuSendEventError};
 
 use crate::arch::DeviceType;
@@ -147,6 +145,7 @@ use crate::logger::{error, info, warn, MetricsError, METRICS};
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
 use crate::snapshot::Persist;
+use crate::utils::u64_to_usize;
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vstate::memory::{
     GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion,
@@ -257,11 +256,10 @@ pub enum VmmError {
     /// Vm error: {0}
     Vm(vstate::vm::VmError),
     /// Error thrown by observer object on Vmm initialization: {0}
-    VmmObserverInit(utils::errno::Error),
+    VmmObserverInit(vmm_sys_util::errno::Error),
     /// Error thrown by observer object on Vmm teardown: {0}
-    VmmObserverTeardown(utils::errno::Error),
+    VmmObserverTeardown(vmm_sys_util::errno::Error),
     /// VMGenID error: {0}
-    #[cfg(target_arch = "x86_64")]
     VMGenID(#[from] VmGenIdError),
 }
 
@@ -282,7 +280,7 @@ pub struct EmulateSerialInitError(#[from] std::io::Error);
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum StartVcpusError {
     /// VMM observer init error: {0}
-    VmmObserverInit(#[from] utils::errno::Error),
+    VmmObserverInit(#[from] vmm_sys_util::errno::Error),
     /// Vcpu handle error: {0}
     VcpuHandle(#[from] StartThreadedError),
 }
@@ -304,7 +302,8 @@ pub enum DumpCpuConfigError {
 #[derive(Debug)]
 pub struct Vmm {
     events_observer: Option<std::io::Stdin>,
-    instance_info: InstanceInfo,
+    /// The [`InstanceInfo`] state of this [`Vmm`].
+    pub instance_info: InstanceInfo,
     shutdown_exit_code: Option<FcExitCode>,
 
     // Guest VM core resources.
@@ -318,13 +317,12 @@ pub struct Vmm {
     // Used by Vcpus and devices to initiate teardown; Vmm should never write here.
     vcpus_exit_evt: EventFd,
 
-    // Allocator for guest resrouces
+    // Allocator for guest resources
     resource_allocator: ResourceAllocator,
     // Guest VM devices.
     mmio_device_manager: MMIODeviceManager,
     #[cfg(target_arch = "x86_64")]
     pio_device_manager: PortIODeviceManager,
-    #[cfg(target_arch = "x86_64")]
     acpi_device_manager: ACPIDeviceManager,
 }
 
@@ -530,7 +528,6 @@ impl Vmm {
         let device_states = self.mmio_device_manager.save();
 
         let memory_state = self.guest_memory().describe();
-        #[cfg(target_arch = "x86_64")]
         let acpi_dev_state = self.acpi_device_manager.save();
 
         Ok(MicrovmState {
@@ -539,7 +536,6 @@ impl Vmm {
             vm_state,
             vcpu_states,
             device_states,
-            #[cfg(target_arch = "x86_64")]
             acpi_dev_state,
         })
     }
@@ -852,6 +848,12 @@ impl Vmm {
 
         // Break the main event loop, propagating the Vmm exit-code.
         self.shutdown_exit_code = Some(exit_code);
+    }
+
+    /// Gets a reference to kvm-ioctls Vm
+    #[cfg(feature = "gdb")]
+    pub fn vm(&self) -> &Vm {
+        &self.vm
     }
 }
 

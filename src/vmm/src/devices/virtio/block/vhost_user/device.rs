@@ -7,10 +7,10 @@
 use std::sync::Arc;
 
 use log::error;
-use utils::eventfd::EventFd;
-use utils::u64_to_usize;
+use utils::time::{get_time_us, ClockType};
 use vhost::vhost_user::message::*;
 use vhost::vhost_user::Frontend;
+use vmm_sys_util::eventfd::EventFd;
 
 use super::{VhostUserBlockError, NUM_QUEUES, QUEUE_SIZE};
 use crate::devices::virtio::block::CacheType;
@@ -26,6 +26,7 @@ use crate::devices::virtio::vhost_user_metrics::{
 };
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
 use crate::logger::{log_dev_preview_warning, IncMetric, StoreMetric};
+use crate::utils::u64_to_usize;
 use crate::vmm_config::drive::BlockDeviceConfig;
 use crate::vstate::memory::GuestMemoryMmap;
 
@@ -162,7 +163,7 @@ impl<T: VhostUserHandleBackend> std::fmt::Debug for VhostUserBlockImpl<T> {
 impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
     pub fn new(config: VhostUserBlockConfig) -> Result<Self, VhostUserBlockError> {
         log_dev_preview_warning("vhost-user-blk device", Option::None);
-        let start_time = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+        let start_time = get_time_us(ClockType::Monotonic);
         let mut requested_features = AVAILABLE_FEATURES;
 
         if config.cache_type == CacheType::Writeback {
@@ -213,7 +214,7 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
         let vhost_user_block_metrics_name = format!("block_{}", config.drive_id);
 
         let metrics = VhostUserMetricsPerDevice::alloc(vhost_user_block_metrics_name);
-        let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time;
+        let delta_us = get_time_us(ClockType::Monotonic) - start_time;
         metrics.init_time_us.store(delta_us);
 
         Ok(Self {
@@ -255,7 +256,7 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
     }
 
     pub fn config_update(&mut self) -> Result<(), VhostUserBlockError> {
-        let start_time = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+        let start_time = get_time_us(ClockType::Monotonic);
 
         // This buffer is used for config size check in vhost crate.
         let buffer = [0u8; BLOCK_CONFIG_SPACE_SIZE as usize];
@@ -274,7 +275,7 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
             .trigger_irq(IrqType::Config)
             .map_err(VhostUserBlockError::IrqTrigger)?;
 
-        let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time;
+        let delta_us = get_time_us(ClockType::Monotonic) - start_time;
         self.metrics.config_change_time_us.store(delta_us);
 
         Ok(())
@@ -331,7 +332,12 @@ impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlock
     }
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
-        let start_time = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+        for q in self.queues.iter_mut() {
+            q.initialize(&mem)
+                .map_err(ActivateError::QueueMemoryError)?;
+        }
+
+        let start_time = get_time_us(ClockType::Monotonic);
         // Setting features again, because now we negotiated them
         // with guest driver as well.
         self.vu_handle
@@ -348,7 +354,7 @@ impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlock
                 ActivateError::VhostUser(err)
             })?;
         self.device_state = DeviceState::Activated(mem);
-        let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time;
+        let delta_us = get_time_us(ClockType::Monotonic) - start_time;
         self.metrics.activate_time_us.store(delta_us);
         Ok(())
     }
@@ -365,13 +371,13 @@ mod tests {
     use std::os::unix::net::UnixStream;
     use std::sync::atomic::Ordering;
 
-    use utils::tempfile::TempFile;
     use vhost::{VhostUserMemoryRegionInfo, VringConfigData};
+    use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
     use crate::devices::virtio::block::virtio::device::FileEngineType;
     use crate::devices::virtio::mmio::VIRTIO_MMIO_INT_CONFIG;
-    use crate::utilities::test_utils::create_tmp_socket;
+    use crate::test_utils::create_tmp_socket;
     use crate::vstate::memory::{FileOffset, GuestAddress, GuestMemoryExtension};
 
     #[test]

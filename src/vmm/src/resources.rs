@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
-use utils::net::ipv4addr::is_link_local_valid;
 
 use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::device_manager::persist::SharedDeviceType;
@@ -14,6 +13,7 @@ use crate::logger::{info, log_dev_preview_warning};
 use crate::mmds;
 use crate::mmds::data_store::{Mmds, MmdsVersion};
 use crate::mmds::ns::MmdsNetworkStack;
+use crate::utils::net::ipv4addr::is_link_local_valid;
 use crate::vmm_config::balloon::*;
 use crate::vmm_config::boot_source::{
     BootConfig, BootSource, BootSourceConfig, BootSourceConfigError,
@@ -28,6 +28,7 @@ use crate::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::vsock::*;
+use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap, MemoryError};
 
 /// Errors encountered when configuring microVM resources.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -85,6 +86,9 @@ pub struct VmmConfig {
     vsock_device: Option<VsockDeviceConfig>,
     #[serde(rename = "entropy")]
     entropy_device: Option<EntropyDeviceConfig>,
+    #[cfg(feature = "gdb")]
+    #[serde(rename = "gdb-socket")]
+    gdb_socket_addr: Option<String>,
 }
 
 /// A data structure that encapsulates the device configurations
@@ -113,6 +117,9 @@ pub struct VmResources {
     pub mmds_size_limit: usize,
     /// Whether or not to load boot timer device.
     pub boot_timer: bool,
+    #[cfg(feature = "gdb")]
+    /// Configures the location of the GDB socket
+    pub gdb_socket_addr: Option<String>,
 }
 
 impl VmResources {
@@ -135,6 +142,8 @@ impl VmResources {
 
         let mut resources: Self = Self {
             mmds_size_limit,
+            #[cfg(feature = "gdb")]
+            gdb_socket_addr: vmm_config.gdb_socket_addr,
             ..Default::default()
         };
         if let Some(machine_config) = vmm_config.machine_config {
@@ -232,11 +241,6 @@ impl VmResources {
         }
 
         Ok(())
-    }
-
-    /// Returns whether dirty page tracking is enabled or not.
-    pub fn track_dirty_pages(&self) -> bool {
-        self.vm_config.track_dirty_pages
     }
 
     /// Add a custom CPU template to the VM resources
@@ -473,6 +477,42 @@ impl VmResources {
 
         Ok(())
     }
+
+    /// Allocates guest memory in a configuration most appropriate for these [`VmResources`].
+    ///
+    /// If vhost-user-blk devices are in use, allocates memfd-backed shared memory, otherwise
+    /// prefers anonymous memory for performance reasons.
+    pub fn allocate_guest_memory(&self) -> Result<GuestMemoryMmap, MemoryError> {
+        let vhost_user_device_used = self
+            .block
+            .devices
+            .iter()
+            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user());
+
+        // Page faults are more expensive for shared memory mapping, including  memfd.
+        // For this reason, we only back guest memory with a memfd
+        // if a vhost-user-blk device is configured in the VM, otherwise we fall back to
+        // an anonymous private memory.
+        //
+        // The vhost-user-blk branch is not currently covered by integration tests in Rust,
+        // because that would require running a backend process. If in the future we converge to
+        // a single way of backing guest memory for vhost-user and non-vhost-user cases,
+        // that would not be worth the effort.
+        if vhost_user_device_used {
+            GuestMemoryMmap::memfd_backed(
+                self.vm_config.mem_size_mib,
+                self.vm_config.track_dirty_pages,
+                self.vm_config.huge_pages,
+            )
+        } else {
+            let regions = crate::arch::arch_memory_regions(self.vm_config.mem_size_mib << 20);
+            GuestMemoryMmap::from_raw_regions(
+                &regions,
+                self.vm_config.track_dirty_pages,
+                self.vm_config.huge_pages,
+            )
+        }
+    }
 }
 
 impl From<&VmResources> for VmmConfig {
@@ -489,6 +529,8 @@ impl From<&VmResources> for VmmConfig {
             net_devices: resources.net_builder.configs(),
             vsock_device: resources.vsock.config(),
             entropy_device: resources.entropy.config(),
+            #[cfg(feature = "gdb")]
+            gdb_socket_addr: resources.gdb_socket_addr.clone(),
         }
     }
 }
@@ -501,9 +543,7 @@ mod tests {
     use std::str::FromStr;
 
     use serde_json::{Map, Value};
-    use utils::kernel_version::KernelVersion;
-    use utils::net::mac::MacAddr;
-    use utils::tempfile::TempFile;
+    use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
     use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
@@ -512,6 +552,7 @@ mod tests {
     use crate::devices::virtio::block::{BlockError, CacheType};
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
     use crate::resources::VmResources;
+    use crate::utils::net::mac::MacAddr;
     use crate::vmm_config::boot_source::{
         BootConfig, BootSource, BootSourceConfig, DEFAULT_KERNEL_CMDLINE,
     };
@@ -599,6 +640,8 @@ mod tests {
             boot_timer: false,
             mmds_size_limit: HTTP_MAX_PAYLOAD_SIZE,
             entropy: Default::default(),
+            #[cfg(feature = "gdb")]
+            gdb_socket_addr: None,
         }
     }
 
@@ -1409,14 +1452,12 @@ mod tests {
             VmConfigError::InvalidMemorySize
         );
 
-        if KernelVersion::get().unwrap() >= KernelVersion::new(5, 10, 0) {
-            // mem_size_mib compatible with huge page configuration
-            aux_vm_config.mem_size_mib = Some(2048);
-            // Remove the balloon device config that's added by `default_vm_resources` as it would
-            // trigger the "ballooning incompatible with huge pages" check.
-            vm_resources.balloon = BalloonBuilder::new();
-            vm_resources.update_vm_config(&aux_vm_config).unwrap();
-        }
+        // mem_size_mib compatible with huge page configuration
+        aux_vm_config.mem_size_mib = Some(2048);
+        // Remove the balloon device config that's added by `default_vm_resources` as it would
+        // trigger the "ballooning incompatible with huge pages" check.
+        vm_resources.balloon = BalloonBuilder::new();
+        vm_resources.update_vm_config(&aux_vm_config).unwrap();
     }
 
     #[test]
@@ -1454,29 +1495,27 @@ mod tests {
 
     #[test]
     fn test_negative_restore_balloon_device_with_huge_pages() {
-        if KernelVersion::get().unwrap() >= KernelVersion::new(4, 16, 0) {
-            let mut vm_resources = default_vm_resources();
-            vm_resources.balloon = BalloonBuilder::new();
-            vm_resources
-                .update_vm_config(&MachineConfigUpdate {
-                    huge_pages: Some(HugePageConfig::Hugetlbfs2M),
-                    ..Default::default()
-                })
-                .unwrap();
-            let err = vm_resources
-                .update_from_restored_device(SharedDeviceType::Balloon(Arc::new(Mutex::new(
-                    Balloon::new(128, false, 0, true).unwrap(),
-                ))))
-                .unwrap_err();
-            assert!(
-                matches!(
-                    err,
-                    ResourcesError::BalloonDevice(BalloonConfigError::HugePages)
-                ),
-                "{:?}",
-                err
-            );
-        }
+        let mut vm_resources = default_vm_resources();
+        vm_resources.balloon = BalloonBuilder::new();
+        vm_resources
+            .update_vm_config(&MachineConfigUpdate {
+                huge_pages: Some(HugePageConfig::Hugetlbfs2M),
+                ..Default::default()
+            })
+            .unwrap();
+        let err = vm_resources
+            .update_from_restored_device(SharedDeviceType::Balloon(Arc::new(Mutex::new(
+                Balloon::new(128, false, 0, true).unwrap(),
+            ))))
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ResourcesError::BalloonDevice(BalloonConfigError::HugePages)
+            ),
+            "{:?}",
+            err
+        );
     }
 
     #[test]

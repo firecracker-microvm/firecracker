@@ -48,7 +48,25 @@ distro installed, you can grant Read+Write access with:
 sudo setfacl -m u:${USER}:rw /dev/kvm
 ```
 
-Otherwise, if access is managed via the `kvm` group:
+If access is managed via the `kvm` group, check that the KVM group exists:
+
+```bash
+getent group kvm
+```
+
+and check that `/dev/kvm` is associated with the kvm group:
+
+```bash
+ls -l /dev/kvm
+```
+
+You can see if your current user is already in the kvm group by running:
+
+```bash
+groups
+```
+
+Otherwise, add your current user to the group by running:
 
 ```bash
 [ $(stat -c "%G" /dev/kvm) = kvm ] && sudo usermod -aG kvm ${USER} \
@@ -82,16 +100,16 @@ kernel image with a Ubuntu 22.04 rootfs from our CI:
 ```bash
 ARCH="$(uname -m)"
 
-latest=$(wget "http://spec.ccfc.min.s3.amazonaws.com/?prefix=firecracker-ci/v1.9/x86_64/vmlinux-5.10&list-type=2" -O - 2>/dev/null | grep "(?<=<Key>)(firecracker-ci/v1.9/x86_64/vmlinux-5\.10\.[0-9]{3})(?=</Key>)" -o -P)
+latest=$(wget "http://spec.ccfc.min.s3.amazonaws.com/?prefix=firecracker-ci/v1.10/x86_64/vmlinux-5.10&list-type=2" -O - 2>/dev/null | grep "(?<=<Key>)(firecracker-ci/v1.10/x86_64/vmlinux-5\.10\.[0-9]{3})(?=</Key>)" -o -P)
 
 # Download a linux kernel binary
-wget https://s3.amazonaws.com/spec.ccfc.min/${latest}
+wget "https://s3.amazonaws.com/spec.ccfc.min/${latest}"
 
 # Download a rootfs
-wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.9/${ARCH}/ubuntu-22.04.ext4
+wget "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.10/${ARCH}/ubuntu-22.04.ext4"
 
 # Download the ssh key for the rootfs
-wget https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.9/${ARCH}/ubuntu-22.04.id_rsa
+wget "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.10/${ARCH}/ubuntu-22.04.id_rsa"
 
 # Set user read permission on the ssh key
 chmod 400 ./ubuntu-22.04.id_rsa
@@ -182,10 +200,10 @@ HOST_IFACE="eth0"
 sudo iptables -t nat -D POSTROUTING -o "$HOST_IFACE" -j MASQUERADE || true
 sudo iptables -D FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT \
     || true
-sudo iptables -D FORWARD -i tap0 -o "$HOST_IFACE" -j ACCEPT || true
+sudo iptables -D FORWARD -i "$TAP_DEV" -o "$HOST_IFACE" -j ACCEPT || true
 sudo iptables -t nat -A POSTROUTING -o "$HOST_IFACE" -j MASQUERADE
 sudo iptables -I FORWARD 1 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-sudo iptables -I FORWARD 1 -i tap0 -o "$HOST_IFACE" -j ACCEPT
+sudo iptables -I FORWARD 1 -i "$TAP_DEV" -o "$HOST_IFACE" -j ACCEPT
 
 API_SOCKET="/tmp/firecracker.socket"
 LOGFILE="./firecracker.log"
@@ -203,7 +221,7 @@ sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     }" \
     "http://localhost/logger"
 
-KERNEL="./vmlinux-5.10.210"
+KERNEL="./$(ls vmlinux* | tail -1)"
 KERNEL_BOOT_ARGS="console=ttyS0 reboot=k panic=1 pci=off"
 
 ARCH=$(uname -m)

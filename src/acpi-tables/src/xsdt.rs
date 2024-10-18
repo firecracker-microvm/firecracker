@@ -6,7 +6,7 @@
 use std::mem::size_of;
 
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemory};
-use zerocopy::AsBytes;
+use zerocopy::IntoBytes;
 
 use crate::{checksum, AcpiError, Result, Sdt, SdtHeader};
 

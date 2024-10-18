@@ -17,10 +17,13 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::fmt::Debug;
 
+use vm_memory::GuestMemoryError;
+
 pub use self::fdt::DeviceInfoForFDT;
 use self::gic::GICDevice;
 use crate::arch::DeviceType;
-use crate::vstate::memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
+use crate::devices::acpi::vmgenid::VmGenId;
+use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 /// Errors thrown while configuring aarch64 system.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -29,6 +32,8 @@ pub enum ConfigurationError {
     SetupFDT(#[from] fdt::FdtError),
     /// Failed to compute the initrd address.
     InitrdAddress,
+    /// Failed to write to guest memory.
+    MemoryError(GuestMemoryError),
 }
 
 /// The start of the memory area reserved for MMIO devices.
@@ -54,28 +59,34 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
 /// * `device_info` - A hashmap containing the attached devices for building FDT device nodes.
 /// * `gic_device` - The GIC device.
 /// * `initrd` - Information about an optional initrd.
-pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher>(
+pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug>(
     guest_mem: &GuestMemoryMmap,
     cmdline_cstring: CString,
     vcpu_mpidr: Vec<u64>,
-    device_info: &HashMap<(DeviceType, String), T, S>,
+    device_info: &HashMap<(DeviceType, String), T>,
     gic_device: &GICDevice,
+    vmgenid: &Option<VmGenId>,
     initrd: &Option<super::InitrdConfig>,
 ) -> Result<(), ConfigurationError> {
-    fdt::create_fdt(
+    let fdt = fdt::create_fdt(
         guest_mem,
         vcpu_mpidr,
         cmdline_cstring,
         device_info,
         gic_device,
+        vmgenid,
         initrd,
     )?;
+    let fdt_address = GuestAddress(get_fdt_addr(guest_mem));
+    guest_mem
+        .write_slice(fdt.as_slice(), fdt_address)
+        .map_err(ConfigurationError::MemoryError)?;
     Ok(())
 }
 
 /// Returns the memory address where the kernel could be loaded.
 pub fn get_kernel_start() -> u64 {
-    layout::DRAM_MEM_START
+    layout::SYSTEM_MEM_START + layout::SYSTEM_MEM_SIZE
 }
 
 /// Returns the memory address where the initrd could be loaded.
@@ -114,7 +125,7 @@ fn get_fdt_addr(mem: &GuestMemoryMmap) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utilities::test_utils::arch_mem;
+    use crate::test_utils::arch_mem;
 
     #[test]
     fn test_regions_lt_1024gb() {

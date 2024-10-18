@@ -120,8 +120,6 @@ def main():
                 )
 
                 vm.start()
-                # Ensure the microVM has started.
-                assert vm.state == "Running"
 
                 # Populate MMDS.
                 data_store = {

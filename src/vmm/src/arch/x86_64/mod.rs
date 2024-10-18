@@ -18,13 +18,16 @@ pub mod msr;
 /// Logic for configuring x86_64 registers.
 pub mod regs;
 
+#[allow(missing_docs)]
+pub mod gen;
+
 use linux_loader::configurator::linux::LinuxBootConfigurator;
 use linux_loader::configurator::{BootConfigurator, BootParams};
 use linux_loader::loader::bootparam::boot_params;
-use utils::u64_to_usize;
 
 use crate::arch::InitrdConfig;
 use crate::device_manager::resources::ResourceAllocator;
+use crate::utils::u64_to_usize;
 use crate::vstate::memory::{
     Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion,
 };
@@ -219,7 +222,7 @@ mod tests {
     use linux_loader::loader::bootparam::boot_e820_entry;
 
     use super::*;
-    use crate::utilities::test_utils::{arch_mem, single_region_mem};
+    use crate::test_utils::{arch_mem, single_region_mem};
 
     #[test]
     fn regions_lt_4gb() {
