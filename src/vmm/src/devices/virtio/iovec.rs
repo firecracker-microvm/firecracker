@@ -7,10 +7,12 @@ use libc::{c_void, iovec, size_t};
 use serde::{Deserialize, Serialize};
 use vm_memory::bitmap::Bitmap;
 use vm_memory::{
-    GuestMemory, GuestMemoryError, ReadVolatile, VolatileMemoryError, VolatileSlice, WriteVolatile,
+    GuestAddress, GuestMemory, GuestMemoryError, ReadVolatile, VolatileMemoryError, VolatileSlice,
+    WriteVolatile,
 };
 
 use super::iov_deque::{IovDeque, IovDequeError};
+use super::queue::Descriptor;
 use crate::devices::virtio::queue::DescriptorChain;
 use crate::vstate::memory::GuestMemoryMmap;
 
@@ -24,6 +26,8 @@ pub enum IoVecError {
     OverflowedDescriptor,
     /// Tried to push to full IovDeque.
     IovDequeOverflow,
+    /// Nested indirect descriptor
+    NestedIndirectDescriptor,
     /// Guest memory error: {0}
     GuestMemory(#[from] GuestMemoryError),
     /// Error with underlying `IovDeque`: {0}
@@ -62,30 +66,72 @@ impl IoVecBuffer {
 
         let mut next_descriptor = Some(head);
         while let Some(desc) = next_descriptor {
-            if desc.is_write_only() {
-                return Err(IoVecError::WriteOnlyDescriptor);
-            }
+            if desc.is_indirect() {
+                // We use get_slice instead of `get_host_address` here in order to have the whole
+                // range of the descriptor chain checked, i.e. [addr, addr + len) is a valid memory
+                // region in the GuestMemoryMmap.
+                let indirect_desc_slice = mem
+                    .get_slice(desc.addr, desc.len as usize)
+                    .map_err(IoVecError::GuestMemory)?;
 
-            // We use get_slice instead of `get_host_address` here in order to have the whole
-            // range of the descriptor chain checked, i.e. [addr, addr + len) is a valid memory
-            // region in the GuestMemoryMmap.
-            let iov_base = mem
-                .get_slice(desc.addr, desc.len as usize)?
-                .ptr_guard_mut()
-                .as_ptr()
-                .cast::<c_void>();
-            self.vecs.push(iovec {
-                iov_base,
-                iov_len: desc.len as size_t,
-            });
-            self.len = self
-                .len
-                .checked_add(desc.len)
-                .ok_or(IoVecError::OverflowedDescriptor)?;
+                // SAFETY:
+                // We checked the slice above. We just transform it into
+                // a slice of Descriptors.
+                let indirect_desc_slice: &[Descriptor] = unsafe {
+                    std::slice::from_raw_parts(
+                        indirect_desc_slice.ptr_guard().as_ptr().cast(),
+                        desc.len as usize / std::mem::size_of::<Descriptor>(),
+                    )
+                };
+
+                for d in indirect_desc_slice.iter() {
+                    if desc.is_write_only() {
+                        return Err(IoVecError::WriteOnlyDescriptor);
+                    }
+                    if d.is_indirect() {
+                        return Err(IoVecError::NestedIndirectDescriptor);
+                    }
+                    self.add_descriptor(mem, GuestAddress(d.addr), d.len)?;
+                    if !d.has_next() {
+                        break;
+                    }
+                }
+            } else {
+                if desc.is_write_only() {
+                    return Err(IoVecError::WriteOnlyDescriptor);
+                }
+
+                self.add_descriptor(mem, desc.addr, desc.len)?;
+            }
 
             next_descriptor = desc.next_descriptor();
         }
 
+        Ok(())
+    }
+
+    fn add_descriptor(
+        &mut self,
+        mem: &GuestMemoryMmap,
+        addr: GuestAddress,
+        len: u32,
+    ) -> Result<(), IoVecError> {
+        // We use get_slice instead of `get_host_address` here in order to have the whole
+        // range of the descriptor chain checked, i.e. [addr, addr + len) is a valid memory
+        // region in the GuestMemoryMmap.
+        let iov_base = mem
+            .get_slice(addr, len as usize)?
+            .ptr_guard_mut()
+            .as_ptr()
+            .cast::<c_void>();
+        self.vecs.push(iovec {
+            iov_base,
+            iov_len: len as size_t,
+        });
+        self.len = self
+            .len
+            .checked_add(len)
+            .ok_or(IoVecError::OverflowedDescriptor)?;
         Ok(())
     }
 

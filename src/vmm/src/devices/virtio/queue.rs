@@ -14,6 +14,7 @@ use crate::vstate::memory::{Address, Bitmap, ByteValued, GuestAddress, GuestMemo
 
 pub const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub const VIRTQ_DESC_F_WRITE: u16 = 0x2;
+pub const VIRTQ_DESC_F_INDIRECT: u16 = 0x4;
 
 /// Max size of virtio queues offered by firecracker's virtio devices.
 pub(super) const FIRECRACKER_MAX_QUEUE_SIZE: u16 = 256;
@@ -47,6 +48,26 @@ pub struct Descriptor {
     pub len: u32,
     pub flags: u16,
     pub next: u16,
+}
+
+impl Descriptor {
+    /// Gets if this descriptor chain has another descriptor chain linked after it.
+    pub fn has_next(&self) -> bool {
+        self.flags & VIRTQ_DESC_F_NEXT != 0
+    }
+
+    /// If the driver designated this as a write only descriptor.
+    ///
+    /// If this is false, this descriptor is read only.
+    /// Write only means the emulated device can write and the driver can read.
+    pub fn is_write_only(&self) -> bool {
+        self.flags & VIRTQ_DESC_F_WRITE != 0
+    }
+
+    /// If the driver designated this as a indirect descriptor.
+    pub fn is_indirect(&self) -> bool {
+        self.flags & VIRTQ_DESC_F_INDIRECT != 0
+    }
 }
 
 // SAFETY: `Descriptor` is a POD and contains no padding.
@@ -136,6 +157,11 @@ impl DescriptorChain {
     /// Write only means the emulated device can write and the driver can read.
     pub fn is_write_only(&self) -> bool {
         self.flags & VIRTQ_DESC_F_WRITE != 0
+    }
+
+    /// If the driver designated this as a indirect descriptor.
+    pub fn is_indirect(&self) -> bool {
+        self.flags & VIRTQ_DESC_F_INDIRECT != 0
     }
 
     /// Gets the next descriptor in this descriptor chain, if there is one.
