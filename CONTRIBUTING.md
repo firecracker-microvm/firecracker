@@ -65,6 +65,32 @@ cargo install rusty-hook
 rusty-hook init
 ```
 
+This project also has linters for Python and Markdown. These will be called by
+the pre-commit when you modify any Python and Markdown files. In order to make
+sure you are setup we recommend you install
+[poetry](https://python-poetry.org/docs/) and
+[pyenv](https://github.com/pyenv/pyenv?tab=readme-ov-file#installation).
+
+Poetry is used by this project and pyenv will help you make sure you have a
+Python version compatible with the poetry python project we use as part of
+`./tools/devctr`.
+
+Once you have these two installed you can run the following to install the dev
+container poetry project:
+
+```
+poetry -C ./tools/devctr install --no-root
+```
+
+Then, you can activate the poetry virtual environment by running:
+
+```
+poetry shell -C ./tools/devctr
+```
+
+Which you will need to do after modifying python or markdown files so that the
+pre-commit can finish successfully.
+
 Your contribution needs to meet the following standards:
 
 - Separate each **logical change** into its own commit.

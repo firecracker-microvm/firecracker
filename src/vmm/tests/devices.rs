@@ -8,10 +8,10 @@ use std::sync::{Arc, Mutex};
 
 use event_manager::{EventManager, SubscriberOps};
 use libc::EFD_NONBLOCK;
-use utils::eventfd::EventFd;
 use vm_superio::Serial;
 use vmm::devices::legacy::serial::SerialOut;
 use vmm::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
+use vmm_sys_util::eventfd::EventFd;
 
 fn create_serial(
     pipe: c_int,

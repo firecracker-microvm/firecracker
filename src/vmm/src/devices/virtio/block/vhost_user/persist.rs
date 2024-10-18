@@ -38,6 +38,6 @@ impl Persist<'_> for VhostUserBlock {
         _constructor_args: Self::ConstructorArgs,
         _state: &Self::State,
     ) -> Result<Self, Self::Error> {
-        unimplemented!("VhostUserBlock does not support snapshotting yet");
+        Err(VhostUserBlockError::SnapshottingNotSupported)
     }
 }

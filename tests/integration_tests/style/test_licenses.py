@@ -5,6 +5,8 @@
 import datetime
 
 from framework import utils_repo
+from framework.defs import FC_WORKSPACE_DIR
+from host_tools.cargo_build import cargo
 
 AMAZON_COPYRIGHT_YEARS = range(2018, datetime.datetime.now().year + 1)
 AMAZON_COPYRIGHT = (
@@ -96,7 +98,6 @@ def _validate_license(filename):
             or has_intel_copyright
             or has_rivos_copyright
         )
-    return True
 
 
 def test_for_valid_licenses():
@@ -116,5 +117,27 @@ def test_for_valid_licenses():
     assert not error_msg, f"Files {error_msg} have invalid licenses"
 
 
-if __name__ == "__main__":
-    test_for_valid_licenses()
+def test_dependency_licenses():
+    """Ensure license compatibility for Firecracker.
+
+    For a list of currently allowed licenses checkout deny.toml in
+    the root directory.
+    """
+    toml_file = FC_WORKSPACE_DIR / "Cargo.toml"
+
+    _, stdout, stderr = cargo(
+        "deny", f"--manifest-path {toml_file} check licenses bans"
+    )
+    assert "licenses ok" in stdout
+
+    # "cargo deny" should deny licenses by default but for some reason copyleft is allowed
+    # by it and if we add a dependency which has copyleft licenses "cargo deny" won't report
+    # it unless it is explicitly told to do so from the deny.toml.
+    # Our current deny.toml seems to cover all the cases we need but,
+    # if there is an exception like copyleft (where we don't want and don't deny
+    # in deny.toml and is allowed by cardo deny), we don't want to be left in the dark.
+    # For such cases check "cargo deny" output, make sure that there are no warnings reported
+    # related to the license and take appropriate actions i.e. either add them to allow list
+    # or remove them if they are incompatible with our licenses.
+    license_res = [line for line in stderr.split("\n") if "license" in line]
+    assert not license_res

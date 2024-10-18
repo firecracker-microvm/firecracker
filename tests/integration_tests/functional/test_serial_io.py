@@ -226,6 +226,5 @@ def test_no_serial_fd_error_when_daemonized(uvm_plain):
         mem_size_mib=512,
     )
     test_microvm.start()
-    test_microvm.wait_for_up()
 
     assert REGISTER_FAILED_WARNING not in test_microvm.log_data

@@ -12,8 +12,8 @@ use std::sync::{Arc, Mutex};
 use acpi_tables::{aml, Aml};
 use kvm_ioctls::VmFd;
 use libc::EFD_NONBLOCK;
-use utils::eventfd::EventFd;
 use vm_superio::Serial;
+use vmm_sys_util::eventfd::EventFd;
 
 use crate::devices::bus::BusDevice;
 use crate::devices::legacy::serial::SerialOut;
@@ -238,7 +238,7 @@ impl PortIODeviceManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utilities::test_utils::single_region_mem;
+    use crate::test_utils::single_region_mem;
     use crate::Vm;
 
     #[test]

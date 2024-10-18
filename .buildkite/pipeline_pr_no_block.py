@@ -11,6 +11,7 @@ from common import BKPipeline, get_changed_files, run_all_tests
 DEFAULT_PRIORITY = 1
 
 pipeline = BKPipeline(
+    with_build_step=False,
     timeout_in_minutes=45,
     # some non-blocking tests are performance, so make sure they get ag=1 instances
     priority=DEFAULT_PRIORITY + 1,

@@ -58,6 +58,9 @@ class MicrovmHelpers:
     # private block
     _supernet = ipaddress.IPv4Network("10.255.0.0/16")
     _subnets_gen = _supernet.subnets(new_prefix=30)
+    # Addresses that can be used outside the netns. Could be public IPv4 blocks
+    _ingress_net = ipaddress.IPv4Network("172.16.0.0/12")
+    _ingress_gen = _ingress_net.hosts()
 
     def __init__(self, vm):
         self.vm = vm
@@ -140,18 +143,17 @@ class MicrovmHelpers:
         """How to get into this container from outside"""
         return f"docker exec -it {DOCKER.id}"
 
-    def enable_ip_forwarding(self, iface="eth0"):
+    def enable_ip_forwarding(self, iface="eth0", ingress_ipv4=None):
         """Enables IP forwarding in the guest"""
         i = MicrovmHelpers.shared_subnet_ctr
         MicrovmHelpers.shared_subnet_ctr += 1
         netns = self.vm.netns.id
         veth_host = f"vethhost{i}"
-        veth_vpn = f"vethvpn{i}"
+        veth_guest = f"vethguest{i}"
         veth_net = next(self._subnets_gen)
-        veth_host_ip, veth_vpn_ip = list(veth_net.hosts())
+        veth_host_ip, veth_guest_ip = list(veth_net.hosts())
         iface = self.vm.iface[iface]["iface"]
         tap_host_ip = iface.host_ip
-        tap_dev = iface.tap_name
         tap_net = iface.network.with_netmask  # i.e. 192.168.7.0/255.255.255.0
         # get the device associated with the default route
         upstream_dev = (
@@ -170,30 +172,26 @@ class MicrovmHelpers:
             return run(f"ip netns exec {netns} " + cmd)
 
         # outside netns
-        # iptables -L -v -n
+        # iptables -L -v -n --line-numbers
         run(
-            f"ip link add name {veth_host} type veth peer name {veth_vpn} netns {netns}"
+            f"ip link add name {veth_host} type veth peer name {veth_guest} netns {netns}"
         )
         run(f"ip addr add {veth_host_ip}/{veth_net.prefixlen} dev {veth_host}")
-        run_in_netns(f"ip addr add {veth_vpn_ip}/{veth_net.prefixlen} dev {veth_vpn}")
+        run_in_netns(
+            f"ip addr add {veth_guest_ip}/{veth_net.prefixlen} dev {veth_guest}"
+        )
         run(f"ip link set {veth_host} up")
-        run_in_netns(f"ip link set {veth_vpn} up")
+        run_in_netns(f"ip link set {veth_guest} up")
 
-        run("iptables -P FORWARD DROP")
+        run("iptables -P FORWARD ACCEPT")
         # iptables -L FORWARD
         # iptables -t nat -L
         run(
             f"iptables -t nat -A POSTROUTING -s {veth_net} -o {upstream_dev} -j MASQUERADE"
         )
-        run(f"iptables -A FORWARD -i {upstream_dev} -o {veth_host} -j ACCEPT")
-        run(f"iptables -A FORWARD -i {veth_host} -o {upstream_dev} -j ACCEPT")
-
-        # in the netns
         run_in_netns(f"ip route add default via {veth_host_ip}")
-        run_in_netns(f"iptables -A FORWARD -i {tap_dev} -o {veth_vpn} -j ACCEPT")
-        run_in_netns(f"iptables -A FORWARD -i {veth_vpn} -o {tap_dev}  -j ACCEPT")
         run_in_netns(
-            f"iptables -t nat -A POSTROUTING -s {tap_net} -o {veth_vpn} -j MASQUERADE"
+            f"iptables -t nat -A POSTROUTING -s {tap_net} -o {veth_guest} -j MASQUERADE"
         )
 
         # Configure the guest
@@ -207,3 +205,20 @@ class MicrovmHelpers:
             .strip()
         )
         self.vm.ssh.run(f"echo nameserver {nameserver} >/etc/resolv.conf")
+
+        # only configure ingress if we get an IP
+        if not ingress_ipv4:
+            return
+
+        if not isinstance(ingress_ipv4, ipaddress.IPv4Address):
+            ingress_ipv4 = next(self._ingress_gen)
+
+        guest_ip = iface.guest_ip
+
+        # packets heading towards the clone address are rewritten to the guest ip
+        run_in_netns(
+            f"iptables -t nat -A PREROUTING -i {veth_guest} -d {ingress_ipv4} -j DNAT --to {guest_ip}"
+        )
+
+        # add a route on the host for the clone address
+        run(f"ip route add {ingress_ipv4} via {veth_guest_ip}")

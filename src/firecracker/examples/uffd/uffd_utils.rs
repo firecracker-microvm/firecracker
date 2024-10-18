@@ -12,7 +12,7 @@ use std::ptr;
 
 use serde::{Deserialize, Serialize};
 use userfaultfd::{Error, Event, Uffd};
-use utils::sock_ctrl_msg::ScmSocket;
+use vmm_sys_util::sock_ctrl_msg::ScmSocket;
 
 // This is the same with the one used in src/vmm.
 /// This describes the mapping between Firecracker base virtual address and offset in the
@@ -299,8 +299,8 @@ mod tests {
     use std::mem::MaybeUninit;
     use std::os::unix::net::UnixListener;
 
-    use utils::tempdir::TempDir;
-    use utils::tempfile::TempFile;
+    use vmm_sys_util::tempdir::TempDir;
+    use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
 

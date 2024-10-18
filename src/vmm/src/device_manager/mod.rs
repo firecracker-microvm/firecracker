@@ -6,7 +6,6 @@
 // found in the THIRD-PARTY file.
 
 /// ACPI device manager.
-#[cfg(target_arch = "x86_64")]
 pub mod acpi;
 /// Legacy Device Manager.
 pub mod legacy;

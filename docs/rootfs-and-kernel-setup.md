@@ -56,21 +56,28 @@ For a list of currently supported kernel versions, check out the
 ### Use the provided recipe
 
 The kernel images used in our CI to test Firecracker's features are obtained by
-using the recipe inside devtool:
+running the script `resources/rebuild.sh`.
+
+Users can build those locally by running:
 
 ```bash
-config="resources/guest_configs/microvm-kernel-x86_64-4.14.config"
-./tools/devtool build_kernel -c $config -n 8
+./tools/devtool build_ci_artifacts kernels
 ```
 
-or
+This will build all versions that we currently use in our CI. `kernels`
+subcommand allows passing a specific kernel version to build. For example:
 
 ```bash
-config="resources/guest_configs/microvm-kernel-arm64-4.14.config"
-./tools/devtool build_kernel -c $config -n 8
+./tools/devtool build_ci_artifacts kernels 6.1
 ```
 
-on an aarch64 machine.
+will build only the 6.1 kernel.
+
+Currently supported kernel versions are: `5.10`, `5.10-no-acpi` (same as 5.10
+but without ACPI support) and `6.1`.
+
+After the command finishes, the kernels along with the corresponding KConfig
+used will be stored under `resources/$(uname -m)`.
 
 ## Creating a rootfs Image
 
@@ -170,11 +177,11 @@ The disk images used in our CI to test Firecracker's features are obtained by
 using the recipe (in a Ubuntu 22.04 host):
 
 ```bash
-./resources/rebuild.sh
+./tools/devtool build_ci_artifacts rootfs
 ```
 
 The images resulting using this method are minimized Ubuntu 22.04. Feel free to
 adjust the script(s) to suit your use case.
 
-You should now have a kernel image (`vmlinux`) and a rootfs image
-(`rootfs.ext4`), that you can boot with Firecracker.
+You should now have a rootfs image (`ubuntu-22.04.ext4`), that you can boot with
+Firecracker.

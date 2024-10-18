@@ -19,7 +19,6 @@ $0 <version>
 
     Bump Firecracker release version:
     1. Updates Cargo.toml / Cargo.lock
-    2. Runs 'cargo update'
 EOF
     exit 1
 fi
@@ -60,5 +59,5 @@ done
 # NOTE: This will break if it finds paths with spaces in them
 find . -path ./build -prune -o -name Cargo.lock -print |while read -r cargo_lock; do
     say "Updating $cargo_lock ..."
-    (cd "$(dirname "$cargo_lock")"; cargo check; cargo update)
+    (cd "$(dirname "$cargo_lock")"; cargo check)
 done

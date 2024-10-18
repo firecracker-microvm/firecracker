@@ -9,6 +9,7 @@ pub type Result<T> = result::Result<T, UtilsArgParserError>;
 const ARG_PREFIX: &str = "--";
 const ARG_SEPARATOR: &str = "--";
 const HELP_ARG: &str = "--help";
+const SHORT_HELP_ARG: &str = "-h";
 const VERSION_ARG: &str = "--version";
 
 /// Errors associated with parsing and validating arguments.
@@ -330,10 +331,10 @@ impl<'a> Arguments<'a> {
         let (args, extra_args) = Arguments::split_args(&args[1..]);
         self.extra_args = extra_args.to_vec();
 
-        // If `--help` is provided as a parameter, we artificially skip the parsing of other
+        // If `--help` or `-h`is provided as a parameter, we artificially skip the parsing of other
         // command line arguments by adding just the help argument to the parsed list and
         // returning.
-        if args.contains(&HELP_ARG.to_string()) {
+        if args.contains(&HELP_ARG.to_string()) || args.contains(&SHORT_HELP_ARG.to_string()) {
             let mut help_arg = Argument::new("help").help("Show the help message.");
             help_arg.user_value = Some(Value::Flag);
             self.insert_arg(help_arg);
@@ -643,6 +644,16 @@ mod tests {
         let mut arguments = arg_parser.arguments().clone();
 
         let args = vec!["binary-name", "--exec-file", "foo", "--help"]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<String>>();
+
+        arguments.parse(&args).unwrap();
+        assert!(arguments.args.contains_key("help"));
+
+        arguments = arg_parser.arguments().clone();
+
+        let args = vec!["binary-name", "--exec-file", "foo", "-h"]
             .into_iter()
             .map(String::from)
             .collect::<Vec<String>>();

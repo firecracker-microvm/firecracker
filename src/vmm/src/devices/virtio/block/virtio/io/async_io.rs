@@ -6,8 +6,8 @@ use std::fs::File;
 use std::os::fd::RawFd;
 use std::os::unix::io::AsRawFd;
 
-use utils::eventfd::EventFd;
 use vm_memory::GuestMemoryError;
+use vmm_sys_util::eventfd::EventFd;
 
 use crate::devices::virtio::block::virtio::io::UserDataError;
 use crate::devices::virtio::block::virtio::IO_URING_NUM_ENTRIES;

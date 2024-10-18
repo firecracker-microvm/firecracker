@@ -5,7 +5,7 @@
 
 use vm_memory::{Bytes, GuestAddress, GuestMemory};
 use zerocopy::little_endian::{U16, U32, U64};
-use zerocopy::AsBytes;
+use zerocopy::{Immutable, IntoBytes};
 
 use crate::{checksum, GenericAddressStructure, Result, Sdt, SdtHeader};
 
@@ -42,7 +42,7 @@ pub const FADT_F_HW_REDUCED_ACPI: u8 = 20;
 /// More information about this table can be found in the ACPI specification:
 /// https://uefi.org/specs/ACPI/6.5/05_ACPI_Software_Programming_Model.html#fixed-acpi-description-table-fadt
 #[repr(packed)]
-#[derive(Debug, Copy, Clone, Default, AsBytes)]
+#[derive(Debug, Copy, Clone, Default, IntoBytes, Immutable)]
 pub struct Fadt {
     header: SdtHeader,
     firmware_control: U32,

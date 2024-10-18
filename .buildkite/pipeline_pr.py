@@ -14,18 +14,23 @@ DEFAULTS_PERF = {
     "agents": {"ag": 1},
 }
 
+changed_files = get_changed_files()
+DOC_ONLY_CHANGE = False
+if changed_files and all(f.suffix == ".md" for f in changed_files):
+    DOC_ONLY_CHANGE = True
 pipeline = BKPipeline(
     priority=DEFAULT_PRIORITY,
     timeout_in_minutes=45,
-    initial_steps=[
-        {
-            "command": "./tools/devtool -y checkstyle",
-            "label": "🪶 Style",
-        },
-    ],
+    with_build_step=not DOC_ONLY_CHANGE,
 )
 
-changed_files = get_changed_files()
+pipeline.add_step(
+    {
+        "command": "./tools/devtool -y checkstyle",
+        "label": "🪶 Style",
+    },
+    depends_on_build=False,
+)
 
 # run sanity build of devtool if Dockerfile is changed
 if any(x.parent.name == "devctr" for x in changed_files):
@@ -48,13 +53,14 @@ if not changed_files or any(
 ):
     kani_grp = pipeline.build_group(
         "🔍 Kani",
-        "./tools/devtool -y test -- ../tests/integration_tests/test_kani.py -n auto",
+        "./tools/devtool -y test --no-build -- ../tests/integration_tests/test_kani.py -n auto",
         # Kani step default
         # Kani runs fastest on m6a.metal
-        instances=["m6a.metal"],
+        instances=["m6a.metal", "m7g.metal"],
         platforms=[("al2", "linux_5.10")],
         timeout_in_minutes=300,
         **DEFAULTS_PERF,
+        depends_on_build=False,
     )
     # modify Kani steps' label
     for step in kani_grp["steps"]:
@@ -64,6 +70,7 @@ if run_all_tests(changed_files):
     pipeline.build_group(
         "📦 Build",
         pipeline.devtool_test(pytest_opts="integration_tests/build/"),
+        depends_on_build=False,
     )
 
     pipeline.build_group(

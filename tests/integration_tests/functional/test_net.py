@@ -78,3 +78,65 @@ def test_multi_queue_unsupported(uvm_plain):
             host_dev_name=tapname,
             guest_mac="AA:FC:00:00:00:01",
         )
+
+
+def run_udp_offload_test(vm):
+    """
+    - Start a socat UDP server in the guest.
+    - Try to send a UDP message with UDP offload enabled.
+
+    If tap offload features are not configured, an attempt to send a message will fail with EIO "Input/output error".
+    More info (search for "TUN_F_CSUM is a must"): https://blog.cloudflare.com/fr-fr/virtual-networking-101-understanding-tap/
+    """
+    port = "81"
+    out_filename = "/tmp/out.txt"
+    message = "x"
+
+    # Start a UDP server in the guest
+    # vm.ssh.check_output(f"nohup socat UDP-LISTEN:{port} - > {out_filename} &")
+    vm.ssh.check_output(
+        f"nohup socat UDP-LISTEN:{port} OPEN:{out_filename},creat > /dev/null 2>&1 &"
+    )
+
+    # Try to send a UDP message from host with UDP offload enabled
+    cmd = f"ip netns exec {vm.ssh_iface().netns} python3 ./host_tools/udp_offload.py {vm.ssh_iface().host} {port}"
+    ret = utils.run_cmd(cmd)
+
+    # Check that the transmission was successful
+    assert ret.returncode == 0, f"{ret.stdout=} {ret.stderr=}"
+
+    # Check that the server received the message
+    ret = vm.ssh.run(f"cat {out_filename}")
+    assert ret.stdout == message, f"{ret.stdout=} {ret.stderr=}"
+
+
+def test_tap_offload_booted(uvm_plain_any):
+    """
+    Verify that tap offload features are configured for a booted VM.
+    """
+    vm = uvm_plain_any
+    vm.spawn()
+    vm.basic_config()
+    vm.add_net_iface()
+    vm.start()
+
+    run_udp_offload_test(vm)
+
+
+def test_tap_offload_restored(microvm_factory, guest_kernel, rootfs_ubuntu_22):
+    """
+    Verify that tap offload features are configured for a restored VM.
+    """
+    src = microvm_factory.build(guest_kernel, rootfs_ubuntu_22, monitor_memory=False)
+    src.spawn()
+    src.basic_config()
+    src.add_net_iface()
+    src.start()
+    snapshot = src.snapshot_full()
+    src.kill()
+
+    dst = microvm_factory.build()
+    dst.spawn()
+    dst.restore_from_snapshot(snapshot, resume=True)
+
+    run_udp_offload_test(dst)

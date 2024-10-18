@@ -10,9 +10,63 @@ and this project adheres to
 
 ### Added
 
+- [#4834](https://github.com/firecracker-microvm/firecracker/pull/4834): Add
+  `VIRTIO_NET_F_RX_MRGBUF` support to the `virtio-net` device. When this feature
+  is negotiated, guest `virtio-net` driver can perform more efficient memory
+  management which in turn improves RX and TX performance.
+
 ### Changed
 
 ### Deprecated
+
+### Removed
+
+- [#4804](https://github.com/firecracker-microvm/firecracker/pull/4804): Drop
+  Support for guest kernel 4.14. Linux 4.14 reached end-of-life in
+  [January 2024](https://lore.kernel.org/lkml/2024011046-ecology-tiptoeing-ce50@gregkh/)
+  The minimum supported guest kernel now is 5.10.
+
+### Fixed
+
+- [#4796](https://github.com/firecracker-microvm/firecracker/pull/4796): Fixed
+  Vsock not notifying guest about `TRANSPORT_RESET_EVENT` event after snapshot
+  restore. This resulted in guest waiting indefinitely on a connection which was
+  reset during snapshot creation.
+- [#4790](https://github.com/firecracker-microvm/firecracker/pull/4790): v1.9.0
+  was missing most of the debugging information in the debuginfo file, due to a
+  change in the Cargo defaults. This has been corrected.
+- [#4826](https://github.com/firecracker-microvm/firecracker/pull/4826): Add
+  missing configuration of tap offload features when restoring from a snapshot.
+  Setting the features was previously
+  [moved](https://github.com/firecracker-microvm/firecracker/pull/4680/commits/49ed5ea4b48ccd98903da037368fa3108f58ac1f)
+  from net device creation to device activation time, but it was not reflected
+  in the restore path. This was leading to inability to connect to the restored
+  VM if the offload features were used.
+
+## \[1.9.0\]
+
+### Added
+
+- [#4687](https://github.com/firecracker-microvm/firecracker/pull/4687): Added
+  VMGenID support for microVMs running on ARM hosts with 6.1 guest kernels.
+  Support for VMGenID via DeviceTree bindings exists only on mainline 6.10 Linux
+  onwards. Users of Firecracker will need to backport the relevant patches on
+  top of their 6.1 kernels to make use of the feature.
+- [#4732](https://github.com/firecracker-microvm/firecracker/pull/4732),
+  [#4733](https://github.com/firecracker-microvm/firecracker/pull/4733),
+  [#4741](https://github.com/firecracker-microvm/firecracker/pull/4741),
+  [#4746](https://github.com/firecracker-microvm/firecracker/pull/4746): Added
+  official support for 6.1 microVM guest kernels.
+- [#4743](https://github.com/firecracker-microvm/firecracker/pull/4743): Added
+  support for `-h` help flag to the Jailer. The Jailer will now print the help
+  message with either `--help` or `-h`.
+
+### Changed
+
+### Deprecated
+
+- Support for guest kernel 4.14 is now deprecated. We will completely remove
+  4.14 support with Firecracker version v1.10
 
 ### Removed
 
@@ -23,6 +77,15 @@ and this project adheres to
   supported.
 
 ### Fixed
+
+- [4680](https://github.com/firecracker-microvm/firecracker/pull/4680): Fixed an
+  issue
+  ([#4659](https://github.com/firecracker-microvm/firecracker/issues/4659))
+  where the virtio-net device implementation would always assume the guest
+  accepts all VirtIO features the device offers. This is always true with the
+  Linux guest kernels we are testing but other kernels, like FreeBSD make
+  different assumptions. This PR fixes the emulation code to set the TAP
+  features based on the features accepted by the guest.
 
 ## \[1.8.0\]
 
@@ -774,7 +837,9 @@ and this project adheres to
   `--show-level` and `--show-log-origin` that can be used for configuring the
   Logger when starting the process. When using this method for configuration,
   only `--log-path` is mandatory.
-- Added a [guide](docs/devctr-image.md) for updating the dev container image.
+- Added a
+  [guide](https://github.com/firecracker-microvm/firecracker/blob/v0.22.0/docs/devctr-image.md)
+  for updating the dev container image.
 - Added a new API call, `PUT /mmds/config`, for configuring the `MMDS` with a
   custom valid link-local IPv4 address.
 - Added experimental JSON response format support for MMDS guest applications

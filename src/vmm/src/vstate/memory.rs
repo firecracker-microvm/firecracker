@@ -9,7 +9,6 @@ use std::fs::File;
 use std::io::SeekFrom;
 
 use serde::{Deserialize, Serialize};
-use utils::{errno, get_page_size, u64_to_usize};
 pub use vm_memory::bitmap::{AtomicBitmap, Bitmap, BitmapSlice, BS};
 pub use vm_memory::mmap::MmapRegionBuilder;
 use vm_memory::mmap::{MmapRegionError, NewBitmap};
@@ -18,7 +17,9 @@ pub use vm_memory::{
     GuestUsize, MemoryRegionAddress, MmapRegion,
 };
 use vm_memory::{Error as VmMemoryError, GuestMemoryError, WriteVolatile};
+use vmm_sys_util::errno;
 
+use crate::utils::{get_page_size, u64_to_usize};
 use crate::vmm_config::machine_config::HugePageConfig;
 use crate::DirtyBitmap;
 
@@ -425,11 +426,11 @@ mod tests {
     use std::collections::HashMap;
     use std::io::{Read, Seek};
 
-    use utils::get_page_size;
-    use utils::tempfile::TempFile;
+    use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
     use crate::snapshot::Snapshot;
+    use crate::utils::get_page_size;
 
     #[test]
     fn test_from_raw_regions() {

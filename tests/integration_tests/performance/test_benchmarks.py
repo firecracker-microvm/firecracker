@@ -17,7 +17,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 @pytest.mark.no_block_pr
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_no_regression_relative_to_target_branch():
     """
     Run the microbenchmarks in this repository, comparing results from pull
@@ -79,7 +79,7 @@ def compare_results(location_a_baselines: Path, location_b_baselines: Path):
     _, stdout, _ = cargo(
         "bench",
         f"--all --target {platform.machine()}-unknown-linux-musl",
-        "--load-baseline a_baseline --baseline b_baseline",
+        "--baseline a_baseline --load-baseline b_baseline",
     )
 
     regressions_only = "\n\n".join(

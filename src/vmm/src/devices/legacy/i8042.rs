@@ -10,7 +10,7 @@ use std::num::Wrapping;
 
 use log::warn;
 use serde::Serialize;
-use utils::eventfd::EventFd;
+use vmm_sys_util::eventfd::EventFd;
 
 use crate::logger::{error, IncMetric, SharedIncMetric};
 

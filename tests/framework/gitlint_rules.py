@@ -20,7 +20,7 @@ class EndsSigned(CommitRule):
     id = "UC2"
 
     def validate(self, commit):
-        r"""Validate user defined gitlint rules.
+        r"""Validates Signed-off-by and Co-authored-by tags as Linux's scripts/checkpatch.pl
 
         >>> from gitlint.tests.base import BaseTestCase
         >>> from gitlint.rules import RuleViolation
@@ -36,8 +36,8 @@ class EndsSigned(CommitRule):
         []
         >>> msg2 = (
         ... f"Title\n\nMessage.\n\n"
-        ... f"Signed-off-by: name <email>\n\n"
-        ... f"Co-authored-by: name <email>"
+        ... f"Co-authored-by: name <email>\n\n"
+        ... f"Signed-off-by: name <email>"
         ... )
         >>> commit2 = BaseTestCase.gitcommit(msg2)
         >>> ends_signed.validate(commit2)
@@ -48,8 +48,7 @@ class EndsSigned(CommitRule):
         >>> commit3 = BaseTestCase.gitcommit(msg3)
         >>> vio3 = ends_signed.validate(commit3)
         >>> vio_msg3 = (
-        ... f"'Signed-off-by:' not found "
-        ... f"in commit message body"
+        ... f"'Signed-off-by:' not found in commit message body"
         ... )
         >>> vio3 == [RuleViolation("UC2", vio_msg3)]
         True
@@ -60,86 +59,92 @@ class EndsSigned(CommitRule):
         >>> commit4 = BaseTestCase.gitcommit(msg4)
         >>> vio4 = ends_signed.validate(commit4)
         >>> vio_msg4 = (
-        ... f"Non 'Co-authored-by:' or 'Signed-off-by:'"
-        ... f" string found following 1st 'Signed-off-by:'"
+        ... f"Non 'Co-authored-by:' or 'Signed-off-by:' string found following 1st 'Signed-off-by:'"
         ... )
         >>> vio4 == [RuleViolation("UC2", vio_msg4, None, 5)]
         True
         >>> msg5 = (
         ... f"Title\n\nMessage.\n\n"
-        ... f"Co-authored-by: name <email@domain>\n\n"
-        ... f"a sentence."
+        ... f"Co-authored-by: name <email@domain>"
         ... )
         >>> commit5 = BaseTestCase.gitcommit(msg5)
         >>> vio5 = ends_signed.validate(commit5)
         >>> vio_msg5 = (
-        ... f"'Co-authored-by:' found before 'Signed-off-by:'"
+        ... f"Missing 'Signed-off-by:' following 'Co-authored-by:'"
         ... )
-        >>> vio5 == [RuleViolation("UC2", vio_msg5, None, 3)]
+        >>> vio5 == [RuleViolation("UC2", vio_msg5, None, 2)]
         True
         >>> msg6 = (
         ... f"Title\n\nMessage.\n\n"
-        ... f"Signed-off-by: name <email@domain>\n\n"
         ... f"Co-authored-by: name <email@domain>\n\n"
-        ... f"a sentence"
+        ... f"Signed-off-by: different name <email@domain>"
         ... )
         >>> commit6 = BaseTestCase.gitcommit(msg6)
         >>> vio6 = ends_signed.validate(commit6)
         >>> vio_msg6 = (
-        ... f"Non 'Co-authored-by:' string found "
-        ... f"after 1st 'Co-authored-by:'"
+        ... f"'Co-authored-by:' and 'Signed-off-by:' name/email do not match"
         ... )
         >>> vio6 == [RuleViolation("UC2", vio_msg6, None, 6)]
         True
         """
 
+        violations = []
+
         # Utilities
-        def rtn(stmt, i):
-            return [RuleViolation(self.id, stmt, None, i)]
+        def vln(stmt, i):
+            return RuleViolation(self.id, stmt, None, i)
 
         co_auth = "Co-authored-by:"
         sig = "Signed-off-by:"
 
         message_iter = enumerate(commit.message.original.split("\n"))
 
-        # Checks commit message contains a `sig` string
-        found = False
+        # Skip ahead to the first signoff or co-author tag
+
+        # Checks commit message contains a `Signed-off-by` string
         for i, line in message_iter:
-            # We check that no co-authors are declared before signatures.
-            if line.startswith(co_auth):
-                return rtn(f"'{co_auth}' found before '{sig}'", i)
-            if line.startswith(sig):
-                found = True
+            if line.startswith(sig) or line.startswith(co_auth):
                 break
+        else:
+            # No signature was found in the message (before `message_iter` ended)
+            # This check here can have false-negatives (e.g. if the body ends with only
+            # a 'Co-authored-by' tag), but then below will realize that the co-authored-by
+            # tag isnt followed by a Signed-off-by tag and fail (and also the DCO check will
+            # complain).
+            violations.append(vln(f"'{sig}' not found in commit message body", None))
 
-        # If no signature was found in the message
-        # (before `message_iter` ended)
-        if not found:
-            return rtn(f"'{sig}' not found in commit message body", None)
-
-        # Checks lines following signature are
-        # either signatures or co-authors
+        # Check that from here on out we only have signatures and co-authors, and that
+        # every co-author is immediately followed by a signature with the same name/email.
         for i, line in message_iter:
+            if line.startswith(co_auth):
+                try:
+                    _, next_line = next(message_iter)
+                except StopIteration:
+                    violations.append(
+                        vln(f"Missing '{sig}' tag following '{co_auth}'", i)
+                    )
+                else:
+                    if not next_line.startswith(sig):
+                        violations.append(
+                            vln(f"Missing '{sig}' tag following '{co_auth}'", i + 1)
+                        )
+                        continue
+
+                    if next_line.split(":")[1].strip() != line.split(":")[1].strip():
+                        violations.append(
+                            vln(f"{co_auth} and {sig} name/email do not match", i + 1)
+                        )
+                continue
+
             if line.startswith(sig) or not line.strip():
                 continue
 
-            # Once we encounter the first co-author,
-            # we no longer accept signatures
-            if line.startswith(co_auth):
-                break
-
-            return rtn(
-                f"Non '{co_auth}' or '{sig}' string found " f"following 1st '{sig}'",
-                i,
-            )
-
-        # Checks lines following co-author are only additional co-authors.
-        for i, line in message_iter:
-            if line and not line.startswith(co_auth):
-                return rtn(
-                    f"Non '{co_auth}' string found after 1st '{co_auth}'",
+            violations.append(
+                vln(
+                    f"Non '{co_auth}' or '{sig}' string found following 1st '{sig}'",
                     i,
                 )
+            )
 
-        # Return no errors
-        return []
+        # Return errors
+        return violations

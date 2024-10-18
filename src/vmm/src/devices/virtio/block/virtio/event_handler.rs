@@ -1,7 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use utils::epoll::EventSet;
+use vmm_sys_util::epoll::EventSet;
 
 use super::io::FileEngine;
 use crate::devices::virtio::block::virtio::device::VirtioBlock;

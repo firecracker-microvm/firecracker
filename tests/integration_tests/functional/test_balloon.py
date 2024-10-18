@@ -74,10 +74,8 @@ def make_guest_dirty_memory(ssh_connection, amount_mib=32):
             logger.error("while running: %s", cmd)
             logger.error("stdout: %s", stdout)
             logger.error("stderr: %s", stderr)
-
-        cmd = "cat /tmp/fillmem_output.txt"
     except TimeoutExpired:
-        # It's ok if this expires. Some times the SSH connection
+        # It's ok if this expires. Sometimes the SSH connection
         # gets killed by the OOM killer *after* the fillmem program
         # started. As a result, we can ignore timeouts here.
         pass
@@ -242,7 +240,6 @@ def test_reinflate_balloon(uvm_plain_any):
 
     # Start the microvm.
     test_microvm.start()
-    test_microvm.wait_for_up()
     firecracker_pid = test_microvm.firecracker_pid
 
     # First inflate the balloon to free up the uncertain amount of memory
@@ -339,15 +336,26 @@ def test_stats(uvm_plain_any):
 
     # Add a memory balloon with stats enabled.
     test_microvm.api.balloon.put(
-        amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1
+        amount_mib=0,
+        deflate_on_oom=True,
+        stats_polling_interval_s=STATS_POLLING_INTERVAL_S,
     )
 
     # Start the microvm.
     test_microvm.start()
     firecracker_pid = test_microvm.firecracker_pid
 
+    # Give Firecracker enough time to poll the stats at least once post-boot
+    time.sleep(STATS_POLLING_INTERVAL_S * 2)
+
     # Get an initial reading of the stats.
     initial_stats = test_microvm.api.balloon_stats.get().json()
+
+    # Major faults happen when a page fault has to be satisfied from disk. They are not
+    # triggered by our `make_guest_dirty_memory` workload, as it uses MAP_ANONYMOUS, which
+    # only triggers minor faults. However, during the boot process, things are read from the
+    # rootfs, so we should at least see a non-zero number of major faults.
+    assert initial_stats["major_faults"] > 0
 
     # Dirty 10MB of pages.
     make_guest_dirty_memory(test_microvm.ssh, amount_mib=10)
@@ -358,7 +366,6 @@ def test_stats(uvm_plain_any):
     # Make sure that the stats catch the page faults.
     after_workload_stats = test_microvm.api.balloon_stats.get().json()
     assert initial_stats.get("minor_faults", 0) < after_workload_stats["minor_faults"]
-    assert initial_stats.get("major_faults", 0) < after_workload_stats["major_faults"]
 
     # Now inflate the balloon with 10MB of pages.
     test_microvm.api.balloon.patch(amount_mib=10)
@@ -481,8 +488,6 @@ def test_balloon_snapshot(microvm_factory, guest_kernel, rootfs):
     microvm.spawn()
     microvm.restore_from_snapshot(snapshot, resume=True)
 
-    microvm.wait_for_up()
-
     # Get the firecracker from snapshot pid, and open an ssh connection.
     firecracker_pid = microvm.firecracker_pid
 
@@ -517,24 +522,6 @@ def test_balloon_snapshot(microvm_factory, guest_kernel, rootfs):
     # Ensure the stats are still working after restore and show
     # that the balloon inflated.
     assert stats_after_snap["available_memory"] > latest_stats["available_memory"]
-
-
-def test_snapshot_compatibility(microvm_factory, guest_kernel, rootfs):
-    """
-    Test that the balloon serializes correctly.
-    """
-    vm = microvm_factory.build(guest_kernel, rootfs)
-    vm.spawn()
-    vm.basic_config(
-        vcpu_count=2,
-        mem_size_mib=256,
-    )
-
-    # Add a memory balloon with stats enabled.
-    vm.api.balloon.put(amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1)
-
-    vm.start()
-    vm.snapshot_full()
 
 
 def test_memory_scrub(microvm_factory, guest_kernel, rootfs):

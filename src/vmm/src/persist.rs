@@ -15,8 +15,7 @@ use seccompiler::BpfThreadMap;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
-use utils::sock_ctrl_msg::ScmSocket;
-use utils::u64_to_usize;
+use vmm_sys_util::sock_ctrl_msg::ScmSocket;
 
 #[cfg(target_arch = "aarch64")]
 use crate::arch::aarch64::vcpu::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
@@ -26,12 +25,11 @@ use crate::cpu_config::templates::StaticCpuTemplate;
 use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
 #[cfg(target_arch = "x86_64")]
 use crate::cpu_config::x86_64::cpuid::CpuidTrait;
-#[cfg(target_arch = "x86_64")]
-use crate::device_manager::persist::ACPIDeviceManagerState;
-use crate::device_manager::persist::{DevicePersistError, DeviceStates};
+use crate::device_manager::persist::{ACPIDeviceManagerState, DevicePersistError, DeviceStates};
 use crate::logger::{info, warn};
 use crate::resources::VmResources;
-use crate::snapshot::{Snapshot, SnapshotHdr};
+use crate::snapshot::Snapshot;
+use crate::utils::u64_to_usize;
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{HugePageConfig, MachineConfigUpdate, VmConfigError};
@@ -86,7 +84,6 @@ pub struct MicrovmState {
     /// Device states.
     pub device_states: DeviceStates,
     /// ACPI devices state.
-    #[cfg(target_arch = "x86_64")]
     pub acpi_dev_state: ACPIDeviceManagerState,
 }
 
@@ -160,7 +157,7 @@ pub enum CreateSnapshotError {
 }
 
 /// Snapshot version
-pub const SNAPSHOT_VERSION: Version = Version::new(2, 0, 0);
+pub const SNAPSHOT_VERSION: Version = Version::new(3, 0, 0);
 
 /// Creates a Microvm snapshot.
 pub fn create_snapshot(
@@ -271,6 +268,23 @@ fn snapshot_memory_to_file(
             dump_res
         }
     }?;
+    // We need to mark queues as dirty again for all activated devices. The reason we
+    // do it here is because we don't mark pages as dirty during runtime
+    // for queue objects.
+    // SAFETY:
+    // This should never fail as we only mark pages only if device has already been activated,
+    // and the address validation was already performed on device activation.
+    vmm.mmio_device_manager
+        .for_each_virtio_device(|_, _, _, dev| {
+            let d = dev.lock().unwrap();
+            if d.is_activated() {
+                d.mark_queue_memory_dirty(vmm.guest_memory())
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap();
+
     file.flush()
         .map_err(|err| MemoryBackingFile("flush", err))?;
     file.sync_all()
@@ -520,7 +534,7 @@ pub enum GuestMemoryFromUffdError {
     /// Failed to connect to UDS Unix stream: {0}
     Connect(#[from] std::io::Error),
     /// Failed to sends file descriptor: {0}
-    Send(#[from] utils::errno::Error),
+    Send(#[from] vmm_sys_util::errno::Error),
 }
 
 fn guest_memory_from_uffd(
@@ -629,7 +643,7 @@ fn send_uffd_handshake(
 mod tests {
     use std::os::unix::net::UnixListener;
 
-    use utils::tempfile::TempFile;
+    use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
     #[cfg(target_arch = "x86_64")]
@@ -728,7 +742,6 @@ mod tests {
             vm_state: vmm.vm.save_state(&mpidrs).unwrap(),
             #[cfg(target_arch = "x86_64")]
             vm_state: vmm.vm.save_state().unwrap(),
-            #[cfg(target_arch = "x86_64")]
             acpi_dev_state: vmm.acpi_device_manager.save(),
         };
         let vm_info = microvm_state.vm_info.clone();

@@ -29,7 +29,7 @@ pub enum VcpuError {
     /// Failed to set multiprocessor state: {0}
     SetMp(kvm_ioctls::Error),
     /// Failed FamStructWrapper operation: {0}
-    Fam(utils::fam::Error),
+    Fam(vmm_sys_util::fam::Error),
     /// {0}
     GetMidrEl1(String),
 }
@@ -218,7 +218,7 @@ mod tests {
 
     use super::*;
     use crate::arch::aarch64::layout;
-    use crate::utilities::test_utils::arch_mem;
+    use crate::test_utils::arch_mem;
 
     #[test]
     fn test_setup_regs() {

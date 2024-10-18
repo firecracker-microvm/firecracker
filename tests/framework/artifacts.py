@@ -12,7 +12,6 @@ import packaging.version
 import pytest
 
 from framework.defs import ARTIFACT_DIR
-from framework.properties import global_props
 from framework.utils import check_output, get_firecracker_version_from_toml
 from framework.with_filelock import with_filelock
 from host_tools.cargo_build import get_binary
@@ -22,8 +21,7 @@ def select_supported_kernels():
     """Select guest kernels supported by the current combination of kernel and
     instance type.
     """
-    hlv = packaging.version.parse(global_props.host_linux_version)
-    supported_kernels = [r"vmlinux-4.14.\d+", r"vmlinux-5.10.\d+"]
+    supported_kernels = [r"vmlinux-5.10.\d+", r"vmlinux-6.1.\d+"]
 
     # Booting with MPTable is deprecated but we still want to test
     # for it. Until we drop support for it we will be building a 5.10 guest
@@ -31,10 +29,6 @@ def select_supported_kernels():
     # as well.
     # TODO: remove this once we drop support for MPTable
     supported_kernels.append(r"vmlinux-5.10.\d+-no-acpi")
-
-    # Support Linux 6.1 guest in a limited fashion
-    if global_props.cpu_model == "ARM_NEOVERSE_V1" and (hlv.major, hlv.minor) >= (6, 1):
-        supported_kernels.append(r"vmlinux-6.1.\d+")
 
     return supported_kernels
 
@@ -46,19 +40,6 @@ def kernels(glob) -> Iterator:
     supported_kernels = select_supported_kernels()
     for kernel in sorted(ARTIFACT_DIR.rglob(glob)):
         for kernel_regex in supported_kernels:
-            if re.fullmatch(kernel_regex, kernel.name):
-                yield kernel
-                break
-
-
-def kernels_unfiltered(glob) -> Iterator:
-    """Return kernels from the CI artifacts. This one does not filter for
-    supported kernels. It will return any kernel in the CI artifacts folder
-    that matches the 'glob'
-    """
-    all_kernels = [r"vmlinux-\d.\d+.\d+", r"vmlinux-5.10-no-sve-bin"]
-    for kernel in sorted(ARTIFACT_DIR.rglob(glob)):
-        for kernel_regex in all_kernels:
             if re.fullmatch(kernel_regex, kernel.name):
                 yield kernel
                 break

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use utils::epoll::EventSet;
+use vmm_sys_util::epoll::EventSet;
 
 use super::{Entropy, RNG_QUEUE};
 use crate::devices::virtio::device::VirtioDevice;

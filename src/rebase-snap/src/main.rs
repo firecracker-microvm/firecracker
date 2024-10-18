@@ -7,8 +7,7 @@ use std::io::{Seek, SeekFrom};
 use std::os::unix::io::AsRawFd;
 
 use utils::arg_parser::{ArgParser, Argument, Arguments, UtilsArgParserError as ArgError};
-use utils::seek_hole::SeekHole;
-use utils::u64_to_usize;
+use vmm_sys_util::seek_hole::SeekHole;
 
 const REBASE_SNAP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const BASE_FILE: &str = "base-file";
@@ -104,7 +103,7 @@ fn rebase(base_file: &mut File, diff_file: &mut File) -> Result<(), FileError> {
                     base_file.as_raw_fd(),
                     diff_file.as_raw_fd(),
                     (&mut cursor as *mut u64).cast::<i64>(),
-                    u64_to_usize(block_end.saturating_sub(cursor)),
+                    usize::try_from(block_end.saturating_sub(cursor)).unwrap(),
                 )
             };
             if num_transferred_bytes < 0 {
@@ -161,7 +160,7 @@ mod tests {
     use std::io::{Seek, SeekFrom, Write};
     use std::os::unix::fs::FileExt;
 
-    use utils::{rand, tempfile};
+    use vmm_sys_util::{rand, tempfile};
 
     use super::*;
 

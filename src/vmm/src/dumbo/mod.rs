@@ -1,8 +1,6 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#![warn(missing_docs)]
-
 //! Provides helper logic for parsing and writing protocol data units, and minimalist
 //! implementations of a TCP listener, a TCP connection, and an HTTP/1.1 server.
 pub mod pdu;
@@ -10,14 +8,13 @@ pub mod tcp;
 
 use std::ops::Index;
 
-use utils::net::mac::MacAddr;
-
 pub use crate::dumbo::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
 pub use crate::dumbo::pdu::ethernet::{
     EthernetFrame, ETHERTYPE_ARP, ETHERTYPE_IPV4, PAYLOAD_OFFSET as ETHERNET_PAYLOAD_OFFSET,
 };
 pub use crate::dumbo::pdu::ipv4::{IPv4Packet, PROTOCOL_TCP, PROTOCOL_UDP};
 pub use crate::dumbo::pdu::udp::{UdpDatagram, UDP_HEADER_SIZE};
+use crate::utils::net::mac::MacAddr;
 
 /// Represents a generalization of a borrowed `[u8]` slice.
 #[allow(clippy::len_without_is_empty)]

@@ -1,6 +1,6 @@
 [package]
 name = "seccompiler"
-version = "1.9.0-dev"
+version = "1.10.0-dev"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2021"
 description = "Program that compiles multi-threaded seccomp-bpf filters expressed as JSON into raw BPF programs, serializing them and outputting them to a file."
@@ -18,13 +18,16 @@ bench = false
 [dependencies]
 bincode = "1.2.1"
 displaydoc = "0.2.5"
-libc = "0.2.155"
+libc = "0.2.159"
 log-instrument = { path = "../log-instrument", optional = true }
-serde = { version = "1.0.204", features = ["derive"] }
-serde_json = "1.0.120"
-thiserror = "1.0.62"
+serde = { version = "1.0.210", features = ["derive"] }
+serde_json = "1.0.128"
+thiserror = "1.0.64"
 
 utils = { path = "../utils" }
+
+[dev-dependencies]
+vmm-sys-util = "0.12.1"
 
 [features]
 tracing = ["log-instrument", "utils/tracing"]

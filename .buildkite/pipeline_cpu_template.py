@@ -23,7 +23,7 @@ class BkStep(str, Enum):
 cpu_template_test = {
     "rdmsr": {
         BkStep.COMMAND: [
-            "tools/devtool -y test --no-build -- -s -ra -m nonci -n4 --log-cli-level=INFO integration_tests/functional/test_cpu_features.py -k 'test_cpu_rdmsr' "
+            "tools/devtool -y test --no-build -- -m nonci -n4 --dist worksteal integration_tests/functional/test_cpu_features.py -k 'test_cpu_rdmsr' "
         ],
         BkStep.LABEL: "📖 rdmsr",
         "instances": ["c5n.metal", "m5n.metal", "m6a.metal", "m6i.metal"],
@@ -34,13 +34,13 @@ cpu_template_test = {
             "tools/devtool -y test --no-build -- -m no_block_pr integration_tests/functional/test_cpu_template_helper.py -k test_guest_cpu_config_change",
         ],
         BkStep.LABEL: "🖐️ fingerprint",
-        "instances": DEFAULT_INSTANCES,
+        "instances": DEFAULT_INSTANCES.keys(),
         "platforms": DEFAULT_PLATFORMS,
     },
     "cpuid_wrmsr": {
         "snapshot": {
             BkStep.COMMAND: [
-                "tools/devtool -y test --no-build -- -s -ra -m nonci -n4 --log-cli-level=INFO integration_tests/functional/test_cpu_features.py -k 'test_cpu_wrmsr_snapshot or test_cpu_cpuid_snapshot'",
+                "tools/devtool -y test --no-build -- -m nonci -n4 --dist worksteal integration_tests/functional/test_cpu_features.py -k 'test_cpu_wrmsr_snapshot or test_cpu_cpuid_snapshot'",
                 "mkdir -pv tests/snapshot_artifacts_upload/{instance}_{os}_{kv}",
                 "sudo mv tests/snapshot_artifacts/* tests/snapshot_artifacts_upload/{instance}_{os}_{kv}",
             ],
@@ -52,7 +52,7 @@ cpu_template_test = {
             BkStep.COMMAND: [
                 "buildkite-agent artifact download tests/snapshot_artifacts_upload/{instance}_{os}_{kv}/**/* .",
                 "mv tests/snapshot_artifacts_upload/{instance}_{os}_{kv} tests/snapshot_artifacts",
-                "tools/devtool -y test --no-build -- -s -ra -m nonci -n4 --log-cli-level=INFO integration_tests/functional/test_cpu_features.py -k 'test_cpu_wrmsr_restore or test_cpu_cpuid_restore'",
+                "tools/devtool -y test --no-build -- -m nonci -n4 --dist worksteal integration_tests/functional/test_cpu_features.py -k 'test_cpu_wrmsr_restore or test_cpu_cpuid_restore'",
             ],
             BkStep.LABEL: "📸 load snapshot artifacts created on {instance} {snapshot_os} {snapshot_kv} to {restore_instance} {restore_os} {restore_kv}",
             BkStep.TIMEOUT: 30,
@@ -117,11 +117,11 @@ def group_snapshot_restore(test_step):
                 BkStep.COMMAND: restore_commands,
                 BkStep.LABEL: restore_label,
                 BkStep.TIMEOUT: test_step["restore"][BkStep.TIMEOUT],
-                "agents": [
-                    f"instance={restore_instance}",
-                    f"kv={restore_kv}",
-                    f"os={restore_os}",
-                ],
+                "agents": {
+                    "instance": restore_instance,
+                    "kv": restore_kv,
+                    "os": restore_os,
+                },
             }
         )
 

@@ -13,8 +13,8 @@ use libc::c_char;
 use log::debug;
 use vm_allocator::AllocPolicy;
 
+use crate::arch::x86_64::gen::mpspec;
 use crate::arch::IRQ_MAX;
-use crate::arch_gen::x86::mpspec;
 use crate::device_manager::resources::ResourceAllocator;
 use crate::vstate::memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap,
@@ -316,7 +316,7 @@ mod tests {
 
     use super::*;
     use crate::arch::SYSTEM_MEM_START;
-    use crate::utilities::test_utils::single_region_mem_at;
+    use crate::test_utils::single_region_mem_at;
     use crate::vstate::memory::Bytes;
 
     fn table_entry_size(type_: u8) -> usize {

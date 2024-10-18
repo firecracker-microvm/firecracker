@@ -6,7 +6,7 @@ use std::ffi::CStr;
 use std::path::Path;
 use std::ptr::null;
 
-use utils::syscall::SyscallReturnCode;
+use vmm_sys_util::syscall::SyscallReturnCode;
 
 use super::{to_cstring, JailerError};
 

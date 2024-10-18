@@ -214,7 +214,7 @@ mod tests {
     use std::path::PathBuf;
 
     use bincode::Error as BincodeError;
-    use utils::tempfile::TempFile;
+    use vmm_sys_util::tempfile::TempFile;
 
     use super::compiler::CompilationError as FilterFormatError;
     use super::{

@@ -71,4 +71,3 @@ def test_remove_regs(uvm_nano, microvm_factory):
     new_vm = microvm_factory.build()
     new_vm.spawn()
     new_vm.restore_from_snapshot(snapshot, resume=True)
-    new_vm.wait_for_up()

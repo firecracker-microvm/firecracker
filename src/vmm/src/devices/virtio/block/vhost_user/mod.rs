@@ -19,8 +19,8 @@ pub const QUEUE_SIZE: u16 = 256;
 pub enum VhostUserBlockError {
     /// Cannot create config
     Config,
-    /// Persistence error: {0}
-    Persist(crate::devices::virtio::persist::PersistError),
+    /// Snapshotting of vhost-user-blk devices is not supported
+    SnapshottingNotSupported,
     /// Vhost-user error: {0}
     VhostUser(VhostUserError),
     /// Vhost error: {0}

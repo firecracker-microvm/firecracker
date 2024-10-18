@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use utils::epoll::EventSet;
+use vmm_sys_util::epoll::EventSet;
 
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::net::device::Net;
@@ -134,11 +134,13 @@ impl MutEventSubscriber for Net {
 pub mod tests {
     use crate::devices::virtio::net::test_utils::test::TestHelper;
     use crate::devices::virtio::net::test_utils::NetQueue;
-    use crate::devices::virtio::net::TX_INDEX;
+    use crate::devices::virtio::net::{MAX_BUFFER_SIZE, TX_INDEX};
+    use crate::test_utils::single_region_mem;
 
     #[test]
     fn test_event_handler() {
-        let mut th = TestHelper::get_default();
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
 
         // Push a queue event, use the TX_QUEUE_EVENT in this test.
         th.add_desc_chain(NetQueue::Tx, 0, &[(0, 4096, 0)]);

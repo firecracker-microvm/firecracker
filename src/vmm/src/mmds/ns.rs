@@ -11,7 +11,6 @@ use std::result::Result;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
-use utils::net::mac::MacAddr;
 use utils::time::timestamp_cycles;
 
 use crate::dumbo::pdu::arp::{
@@ -29,6 +28,7 @@ use crate::dumbo::tcp::handler::{RecvEvent, TcpIPv4Handler, WriteEvent, WriteNex
 use crate::dumbo::tcp::NextSegmentStatus;
 use crate::logger::{IncMetric, METRICS};
 use crate::mmds::data_store::Mmds;
+use crate::utils::net::mac::MacAddr;
 
 const DEFAULT_MAC_ADDR: &str = "06:01:23:45:67:01";
 const DEFAULT_IPV4_ADDR: [u8; 4] = [169, 254, 169, 254];

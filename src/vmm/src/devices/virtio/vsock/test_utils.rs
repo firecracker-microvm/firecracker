@@ -6,18 +6,19 @@
 
 use std::os::unix::io::{AsRawFd, RawFd};
 
-use utils::epoll::EventSet;
-use utils::eventfd::EventFd;
+use vmm_sys_util::epoll::EventSet;
+use vmm_sys_util::eventfd::EventFd;
 
+use super::packet::{VsockPacketRx, VsockPacketTx};
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 use crate::devices::virtio::test_utils::VirtQueue as GuestQ;
 use crate::devices::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
-use crate::devices::virtio::vsock::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
+use crate::devices::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
 use crate::devices::virtio::vsock::{
     Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
 };
-use crate::utilities::test_utils::single_region_mem;
+use crate::test_utils::single_region_mem;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
 #[derive(Debug)]
@@ -62,14 +63,14 @@ impl Default for TestBackend {
 }
 
 impl VsockChannel for TestBackend {
-    fn recv_pkt(&mut self, pkt: &mut VsockPacket) -> Result<(), VsockError> {
+    fn recv_pkt(&mut self, pkt: &mut VsockPacketRx) -> Result<(), VsockError> {
         let cool_buf = [0xDu8, 0xE, 0xA, 0xD, 0xB, 0xE, 0xE, 0xF];
         match self.rx_err.take() {
             None => {
                 let buf_size = pkt.buf_size();
                 if buf_size > 0 {
                     let buf: Vec<u8> = (0..buf_size)
-                        .map(|i| cool_buf[i % cool_buf.len()])
+                        .map(|i| cool_buf[i as usize % cool_buf.len()])
                         .collect();
                     pkt.read_at_offset_from(&mut buf.as_slice(), 0, buf_size)
                         .unwrap();
@@ -81,7 +82,7 @@ impl VsockChannel for TestBackend {
         }
     }
 
-    fn send_pkt(&mut self, _pkt: &VsockPacket) -> Result<(), VsockError> {
+    fn send_pkt(&mut self, _pkt: &VsockPacketTx) -> Result<(), VsockError> {
         match self.tx_err.take() {
             None => {
                 self.tx_ok_cnt += 1;
@@ -206,8 +207,8 @@ impl<'a> EventHandlerContext<'a> {
 }
 
 #[cfg(test)]
-pub fn read_packet_data(pkt: &VsockPacket, how_much: usize) -> Vec<u8> {
-    let mut buf = vec![0; how_much];
+pub fn read_packet_data(pkt: &VsockPacketTx, how_much: u32) -> Vec<u8> {
+    let mut buf = vec![0; how_much as usize];
     pkt.write_from_offset_to(&mut buf.as_mut_slice(), 0, how_much)
         .unwrap();
     buf

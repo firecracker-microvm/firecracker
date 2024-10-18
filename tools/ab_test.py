@@ -211,9 +211,6 @@ def analyze_data(
         ), "A and B run produced incomparable data. This is a bug in the test!"
 
         for metric, (values_a, unit) in metrics_a.items():
-            print(
-                f"Doing A/B-test for dimensions {dimension_set} and property {metric}"
-            )
             result = check_regression(
                 values_a, metrics_b[metric][0], n_resamples=n_resamples
             )
@@ -268,6 +265,8 @@ def analyze_data(
     for (dimension_set, metric), (result, unit) in results.items():
         if is_ignored(dict(dimension_set)):
             continue
+
+        print(f"Doing A/B-test for dimensions {dimension_set} and property {metric}")
 
         values_a = processed_emf_a[dimension_set][metric][0]
         baseline_mean = statistics.mean(values_a)

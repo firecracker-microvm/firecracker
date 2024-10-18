@@ -8,10 +8,9 @@ use std::marker::PhantomData;
 use std::mem;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use utils::u64_to_usize;
-
 use crate::devices::virtio::queue::Queue;
-use crate::utilities::test_utils::single_region_mem;
+use crate::test_utils::single_region_mem;
+use crate::utils::u64_to_usize;
 use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
 #[macro_export]
@@ -289,9 +288,11 @@ impl<'a> VirtQueue<'a> {
 
         q.size = self.size();
         q.ready = true;
-        q.desc_table = self.dtable_start();
-        q.avail_ring = self.avail_start();
-        q.used_ring = self.used_start();
+        q.desc_table_address = self.dtable_start();
+        q.avail_ring_address = self.avail_start();
+        q.used_ring_address = self.used_start();
+
+        q.initialize(self.memory()).unwrap();
 
         q
     }
@@ -323,7 +324,7 @@ pub(crate) mod test {
     use crate::devices::virtio::net::MAX_BUFFER_SIZE;
     use crate::devices::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT};
     use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
-    use crate::utilities::test_utils::single_region_mem;
+    use crate::test_utils::single_region_mem;
     use crate::vstate::memory::{Address, GuestAddress, GuestMemoryMmap};
 
     pub fn create_virtio_mem() -> GuestMemoryMmap {
@@ -468,7 +469,7 @@ pub(crate) mod test {
                 addr += u64::from(len);
                 // Add small random gaps between descriptor addresses in order to make sure we
                 // don't blindly read contiguous memory.
-                addr += u64::from(utils::rand::xor_pseudo_rng_u32()) % 10;
+                addr += u64::from(vmm_sys_util::rand::xor_pseudo_rng_u32()) % 10;
             }
 
             // Mark the chain as available.

@@ -8,7 +8,6 @@ import pytest
 
 from framework.utils_iperf import IPerf3Test, emit_iperf3_metrics
 from framework.utils_vsock import VSOCK_UDS_PATH, make_host_port_path
-from host_tools.fcmetrics import FCMetricsMonitor
 
 
 class VsockIPerf3Test(IPerf3Test):
@@ -74,7 +73,7 @@ class VsockIPerf3Test(IPerf3Test):
 @pytest.mark.parametrize("payload_length", ["64K", "1024K"], ids=["p64K", "p1024K"])
 @pytest.mark.parametrize("mode", ["g2h", "h2g", "bd"])
 def test_vsock_throughput(
-    microvm_factory, guest_kernel, rootfs, vcpus, payload_length, mode, metrics
+    microvm_factory, guest_kernel_acpi, rootfs, vcpus, payload_length, mode, metrics
 ):
     """
     Test vsock throughput for multiple vm configurations.
@@ -86,8 +85,8 @@ def test_vsock_throughput(
         pytest.skip("bidrectional test only done with at least 2 vcpus")
 
     mem_size_mib = 1024
-    vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
-    vm.spawn(log_level="Info")
+    vm = microvm_factory.build(guest_kernel_acpi, rootfs, monitor_memory=False)
+    vm.spawn(log_level="Info", emit_metrics=True)
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=mem_size_mib)
     vm.add_net_iface()
     # Create a vsock device
@@ -102,13 +101,10 @@ def test_vsock_throughput(
             **vm.dimensions,
         }
     )
-    fcmetrics = FCMetricsMonitor(vm)
-    fcmetrics.start()
 
     vm.pin_threads(0)
 
     test = VsockIPerf3Test(vm, mode, payload_length)
     data = test.run_test(vm.vcpus_count + 2)
 
-    fcmetrics.stop()
     emit_iperf3_metrics(metrics, data, VsockIPerf3Test.WARMUP_SEC)

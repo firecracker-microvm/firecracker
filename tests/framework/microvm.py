@@ -18,7 +18,6 @@ import re
 import select
 import shutil
 import signal
-import subprocess
 import time
 import uuid
 from collections import namedtuple
@@ -39,6 +38,7 @@ from framework.jailer import JailerContext
 from framework.microvm_helpers import MicrovmHelpers
 from framework.properties import global_props
 from framework.utils_drive import VhostUserBlkBackend, VhostUserBlkBackendType
+from host_tools.fcmetrics import FCMetricsMonitor
 from host_tools.memory import MemoryMonitor
 
 LOG = logging.getLogger("microvm")
@@ -242,7 +242,10 @@ class Microvm:
         self.vcpus_count = None
         self.mem_size_bytes = None
 
-        self._numa_node = numa_node
+        self._pre_cmd = []
+        if numa_node:
+            node_str = str(numa_node)
+            self.add_pre_cmd([["numactl", "-N", node_str, "-m", node_str]])
 
         # MMDS content from file
         self.metadata_file = None
@@ -407,7 +410,10 @@ class Microvm:
         """Return the output of microVM's console"""
         if self.screen_log is None:
             return None
-        return Path(self.screen_log).read_text(encoding="utf-8")
+        file = Path(self.screen_log)
+        if not file.exists():
+            return None
+        return file.read_text(encoding="utf-8")
 
     @property
     def state(self):
@@ -551,6 +557,13 @@ class Microvm:
 
         return first_cpu + self.vcpus_count + 2
 
+    def add_pre_cmd(self, pre_cmd):
+        """Prepends commands to the command line to launch the microVM
+
+        For example, this can be used to pin the VM to a NUMA node or to trace the VM with strace.
+        """
+        self._pre_cmd = pre_cmd + self._pre_cmd
+
     def spawn(
         self,
         log_file="fc.log",
@@ -558,6 +571,7 @@ class Microvm:
         log_show_level=False,
         log_show_origin=False,
         metrics_path="fc.ndjson",
+        emit_metrics: bool = False,
     ):
         """Start a microVM as a daemon or in a screen session."""
         # pylint: disable=subprocess-run-check
@@ -583,6 +597,8 @@ class Microvm:
             self.metrics_file.touch()
             self.create_jailed_resource(self.metrics_file)
             self.jailer.extra_args.update({"metrics-path": self.metrics_file.name})
+        else:
+            assert not emit_metrics
 
         if self.metadata_file:
             if os.path.exists(self.metadata_file):
@@ -596,10 +612,11 @@ class Microvm:
             # Checking the timings requires DEBUG level log messages
             self.time_api_requests = False
 
-        cmd = [str(self.jailer_binary_path)] + self.jailer.construct_param_list()
-        if self._numa_node is not None:
-            node = str(self._numa_node)
-            cmd = ["numactl", "-N", node, "-m", node] + cmd
+        cmd = [
+            *self._pre_cmd,
+            str(self.jailer_binary_path),
+            *self.jailer.construct_param_list(),
+        ]
 
         # When the daemonize flag is on, we want to clone-exec into the
         # jailer rather than executing it via spawning a shell.
@@ -617,7 +634,16 @@ class Microvm:
             )
             self._screen_pid = screen_pid
 
+        # If `--new-pid-ns` is used, the Firecracker process will detach from
+        # the screen and the screen process will exit. We do not want to
+        # attempt to kill it in that case to avoid a race condition.
+        if self.jailer.new_pid_ns:
+            self._screen_pid = None
+
         self._spawned = True
+
+        if emit_metrics:
+            self.monitors.append(FCMetricsMonitor(self))
 
         # Wait for the jailer to create resources needed, and Firecracker to
         # create its API socket.
@@ -626,6 +652,8 @@ class Microvm:
         # and leave 0.2 delay between them.
         if "no-api" not in self.jailer.extra_args:
             self._wait_create()
+        if "config-file" in self.jailer.extra_args and self.iface:
+            self.wait_for_ssh_up()
         if self.log_file and log_level in ("Trace", "Debug", "Info"):
             self.check_log_message("Running Firecracker")
 
@@ -849,6 +877,9 @@ class Microvm:
         # Check that the VM has started
         assert self.state == "Running"
 
+        if self.iface:
+            self.wait_for_ssh_up()
+
     def pause(self):
         """Pauses the microVM"""
         self.api.vm.patch(state="Paused")
@@ -929,6 +960,9 @@ class Microvm:
             enable_diff_snapshots=snapshot.is_diff,
             resume_vm=resume,
         )
+        # This is not a "wait for boot", but rather a "VM still works after restoration"
+        if snapshot.net_ifaces and resume:
+            self.wait_for_ssh_up()
         return jailed_snapshot
 
     def enable_entropy_device(self):
@@ -968,26 +1002,19 @@ class Microvm:
                 )
         return "\n".join(backtraces)
 
-    def wait_for_up(self, timeout=10):
-        """Wait for guest running inside the microVM to come up and respond.
-
-        :param timeout: seconds to wait.
-        """
+    def wait_for_ssh_up(self):
+        """Wait for guest running inside the microVM to come up and respond."""
         try:
-            rc, stdout, stderr = self.ssh.run("true", timeout)
-        except subprocess.TimeoutExpired:
+            # Ensure that we have an initialized SSH connection to the guest that can
+            # run commands. The actual connection retry loop happens in SSHConnection._init_connection
+            self.ssh_iface(0)
+        except Exception as exc:
             print(
-                f"Remote command did not respond within {timeout}s\n\n"
+                f"Failed to establish SSH connection to guest: {exc}\n\n"
                 f"Firecracker logs:\n{self.log_data}\n"
                 f"Thread backtraces:\n{self.thread_backtraces}"
             )
             raise
-        assert rc == 0, (
-            f"Remote command exited with non-0 status code\n\n"
-            f"{rc=}\n{stdout=}\n{stderr=}\n\n"
-            f"Firecracker logs:\n{self.log_data}\n"
-            f"Thread backtraces:\n{self.thread_backtraces}"
-        )
 
 
 class MicroVMFactory:

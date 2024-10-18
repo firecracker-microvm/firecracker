@@ -410,7 +410,7 @@ impl TryFrom<kvm_bindings::CpuId> for Cpuid {
 }
 
 impl TryFrom<Cpuid> for kvm_bindings::CpuId {
-    type Error = utils::fam::Error;
+    type Error = vmm_sys_util::fam::Error;
 
     fn try_from(cpuid: Cpuid) -> Result<Self, Self::Error> {
         let entries = cpuid
