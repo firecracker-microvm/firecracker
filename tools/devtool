@@ -536,13 +536,12 @@ ensure_ci_artifacts() {
 
     # Fetch all the artifacts so they are local
     say "Fetching CI artifacts from S3"
-    S3_URL=s3://spec.ccfc.min/firecracker-ci/v1.10/$(uname -m)
+    S3_URL=s3://spec.ccfc.min/firecracker-ci/v1.10-2404/$(uname -m)
     ARTIFACTS=$MICROVM_IMAGES_DIR/$(uname -m)
     if [ ! -d "$ARTIFACTS" ]; then
         mkdir -pv $ARTIFACTS
         aws s3 sync --no-sign-request "$S3_URL" "$ARTIFACTS"
         # fix permissions
-        find "$ARTIFACTS" -type f -name "*.id_rsa" |xargs chmod -c 400
         find "$ARTIFACTS/firecracker" -type f |xargs chmod -c 755
     fi
 }
