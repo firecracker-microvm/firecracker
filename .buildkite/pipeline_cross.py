@@ -21,13 +21,9 @@ if __name__ == "__main__":
     instances_x86_64 = ["c5n.metal", "m5n.metal", "m6i.metal", "m6a.metal"]
     instances_aarch64 = ["m7g.metal"]
     commands = [
-        # we run 0 tests for the side effect of downloading the artifacts. We
-        # should convert create_snapshot_artifact to a proper test/
-        "./tools/devtool test -- integration_tests/performance/test_benchmarks.py",
-        "./tools/devtool -y sh ./tools/create_snapshot_artifact/main.py",
+        "./tools/devtool -y test --no-build -- -m nonci -n4 integration_tests/functional/test_snapshot_phase1.py",
         "mkdir -pv snapshots/{instance}_{kv}",
-        "sudo chown -Rc $USER: snapshot_artifacts",
-        "mv -v snapshot_artifacts/* snapshots/{instance}_{kv}",
+        "mv -v test_results/test_snapshot_phase1/* snapshots/{instance}_{kv}",
     ]
     pipeline.build_group(
         "📸 create snapshots",
@@ -86,7 +82,7 @@ if __name__ == "__main__":
                 f"buildkite-agent artifact download snapshots/{src_instance}_{src_kv}/* .",
                 f"mv -v snapshots/{src_instance}_{src_kv} snapshot_artifacts",
                 *pipeline.devtool_test(
-                    pytest_opts=f"-m nonci {k_val} integration_tests/functional/test_snapshot_restore_cross_kernel.py",
+                    pytest_opts=f"-m nonci -n4 {k_val} integration_tests/functional/test_snapshot_restore_cross_kernel.py",
                 ),
             ],
             "label": f"🎬 {src_instance} {src_kv} ➡️ {dst_instance} {dst_kv}",

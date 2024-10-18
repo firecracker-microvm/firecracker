@@ -30,7 +30,7 @@ def uvm_with_cpu_template(
     if isinstance(cpu_template_any, str):
         cpu_template = cpu_template_any
     vm.basic_config(cpu_template=cpu_template)
-    if cpu_template is None:
+    if isinstance(cpu_template_any, dict):
         vm.api.cpu_config.put(**cpu_template_any["template"])
     vm.add_net_iface()
     vm.start()
