@@ -46,3 +46,22 @@ def test_release_debuginfo(microvm_factory):
     }
     missing_sections = needed_sections - matches
     assert missing_sections == set()
+
+
+def test_release_no_gdb(microvm_factory):
+    """Ensure the gdb feature is not enabled in releases"""
+    fc_binary = microvm_factory.fc_binary_path
+    # We use C++ demangle since there's no Rust support, but it's good enough
+    # for our purposes.
+    stdout = subprocess.check_output(
+        ["readelf", "-W", "--demangle", "-s", str(fc_binary)],
+        encoding="ascii",
+    )
+    gdb_symbols = []
+    for line in stdout.splitlines():
+        parts = line.split(maxsplit=7)
+        if len(parts) == 8:
+            symbol_name = parts[-1]
+            if "gdb" in symbol_name:
+                gdb_symbols.append(symbol_name)
+    assert not gdb_symbols
