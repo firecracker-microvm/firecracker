@@ -459,3 +459,38 @@ def uvm_with_initrd(
     uvm = microvm_factory.build(guest_kernel_linux_5_10)
     uvm.initrd_file = fs
     yield uvm
+
+
+def uvm_booted(microvm_factory, guest_kernel, rootfs, cpu_template):
+    """Return a booted uvm"""
+    uvm = microvm_factory.build(guest_kernel, rootfs)
+    uvm.spawn()
+    uvm.basic_config(vcpu_count=2, mem_size_mib=256)
+    uvm.set_cpu_template(cpu_template)
+    uvm.add_net_iface()
+    uvm.start()
+    return uvm
+
+
+def uvm_restored(microvm_factory, guest_kernel, rootfs, cpu_template):
+    """Return a restored uvm"""
+    uvm = uvm_booted(microvm_factory, guest_kernel, rootfs, cpu_template)
+    snapshot = uvm.snapshot_full()
+    uvm.kill()
+    uvm2 = microvm_factory.build()
+    uvm2.spawn()
+    uvm2.restore_from_snapshot(snapshot, resume=True)
+    uvm2.cpu_template_name = uvm.cpu_template_name
+    return uvm2
+
+
+@pytest.fixture(params=[uvm_booted, uvm_restored])
+def uvm_ctor(request):
+    """Fixture to return uvms with different constructors"""
+    return request.param
+
+
+@pytest.fixture
+def uvm_any(microvm_factory, uvm_ctor, guest_kernel, rootfs, cpu_template_any):
+    """Return booted and restored uvms"""
+    return uvm_ctor(microvm_factory, guest_kernel, rootfs, cpu_template_any)

@@ -84,14 +84,23 @@ def test_multi_queue_unsupported(uvm_plain):
         )
 
 
-def run_udp_offload_test(vm):
+@pytest.fixture
+def uvm_any(microvm_factory, uvm_ctor, guest_kernel, rootfs):
+    """Return booted and restored uvm with no CPU templates"""
+    return uvm_ctor(microvm_factory, guest_kernel, rootfs, None)
+
+
+def test_tap_offload(uvm_any):
     """
+    Verify that tap offload features are configured for a booted/restored VM.
+
     - Start a socat UDP server in the guest.
     - Try to send a UDP message with UDP offload enabled.
 
     If tap offload features are not configured, an attempt to send a message will fail with EIO "Input/output error".
     More info (search for "TUN_F_CSUM is a must"): https://blog.cloudflare.com/fr-fr/virtual-networking-101-understanding-tap/
     """
+    vm = uvm_any
     port = "81"
     out_filename = "/tmp/out.txt"
     message = "x"
@@ -112,35 +121,3 @@ def run_udp_offload_test(vm):
     # Check that the server received the message
     ret = vm.ssh.run(f"cat {out_filename}")
     assert ret.stdout == message, f"{ret.stdout=} {ret.stderr=}"
-
-
-def test_tap_offload_booted(uvm_plain_any):
-    """
-    Verify that tap offload features are configured for a booted VM.
-    """
-    vm = uvm_plain_any
-    vm.spawn()
-    vm.basic_config()
-    vm.add_net_iface()
-    vm.start()
-
-    run_udp_offload_test(vm)
-
-
-def test_tap_offload_restored(microvm_factory, guest_kernel, rootfs):
-    """
-    Verify that tap offload features are configured for a restored VM.
-    """
-    src = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
-    src.spawn()
-    src.basic_config()
-    src.add_net_iface()
-    src.start()
-    snapshot = src.snapshot_full()
-    src.kill()
-
-    dst = microvm_factory.build()
-    dst.spawn()
-    dst.restore_from_snapshot(snapshot, resume=True)
-
-    run_udp_offload_test(dst)

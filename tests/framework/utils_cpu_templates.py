@@ -3,6 +3,8 @@
 
 """Utilities for CPU template related functionality."""
 
+# pylint:disable=too-many-return-statements
+
 import json
 from pathlib import Path
 
@@ -23,9 +25,7 @@ def get_supported_cpu_templates():
     """
     Return the list of CPU templates supported by the platform.
     """
-    # pylint:disable=too-many-return-statements
     host_linux = global_props.host_linux_version_tpl
-
     match get_cpu_vendor(), global_props.cpu_codename:
         # T2CL template is only supported on Cascade Lake and newer CPUs.
         case CpuVendor.INTEL, CpuModel.INTEL_SKYLAKE:
