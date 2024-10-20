@@ -306,10 +306,14 @@ that are pre-initialized with specific guest kernels and rootfs:
   24.04 squashfs as rootfs,
 - `uvm_plain` yields a Firecracker process pre-initialized with a 5.10 kernel
   and the same Ubuntu 24.04 squashfs.
+- `uvm_any` yields started microvms, parametrized by all supported kernels, all
+  CPU templates (static, custom and none), and either booted or restored from a
+  snapshot.
+- `uvm_any_booted` works the same as `uvm_any`, but only for booted VMs.
 
-Generally, tests should use the former if you are testing some interaction
-between the guest and Firecracker, while the latter should be used if
-Firecracker functionality unrelated to the guest is being tested.
+Generally, tests should use `uvm_plain_any` if you are testing some interaction
+between the guest and Firecracker, and `uvm_plain` should be used if Firecracker
+functionality unrelated to the guest is being tested.
 
 ### Markers
 

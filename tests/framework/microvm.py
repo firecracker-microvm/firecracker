@@ -244,6 +244,7 @@ class Microvm:
         self.disks_vhost_user = {}
         self.vcpus_count = None
         self.mem_size_bytes = None
+        self.cpu_template_name = None
 
         self._pre_cmd = []
         if numa_node:
@@ -735,11 +736,13 @@ class Microvm:
             smt=smt,
             mem_size_mib=mem_size_mib,
             track_dirty_pages=track_dirty_pages,
-            cpu_template=cpu_template,
             huge_pages=huge_pages,
         )
         self.vcpus_count = vcpu_count
         self.mem_size_bytes = mem_size_mib * 2**20
+
+        if cpu_template is not None:
+            self.set_cpu_template(cpu_template)
 
         if self.memory_monitor:
             self.memory_monitor.start()
@@ -772,6 +775,19 @@ class Microvm:
 
         if enable_entropy_device:
             self.enable_entropy_device()
+
+    def set_cpu_template(self, cpu_template):
+        """Set guest CPU template."""
+        if cpu_template is None:
+            return
+        # static CPU template
+        if isinstance(cpu_template, str):
+            self.api.machine_config.patch(cpu_template=cpu_template)
+            self.cpu_template_name = cpu_template.lower()
+        # custom CPU template
+        elif isinstance(cpu_template, dict):
+            self.api.cpu_config.put(**cpu_template["template"])
+            self.cpu_template_name = cpu_template["name"].lower()
 
     def add_drive(
         self,
