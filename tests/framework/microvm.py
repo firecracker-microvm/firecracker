@@ -75,6 +75,7 @@ class Snapshot:
     disks: dict
     ssh_key: Path
     snapshot_type: SnapshotType
+    meta: dict
 
     @property
     def is_diff(self) -> bool:
@@ -110,6 +111,7 @@ class Snapshot:
             disks=self.disks,
             ssh_key=self.ssh_key,
             snapshot_type=self.snapshot_type,
+            meta=self.meta,
         )
 
     @classmethod
@@ -125,6 +127,7 @@ class Snapshot:
             disks={dsk: src / p for dsk, p in obj["disks"].items()},
             ssh_key=src / obj["ssh_key"],
             snapshot_type=SnapshotType(obj["snapshot_type"]),
+            meta=obj["meta"],
         )
 
     def save_to(self, dst: Path):
@@ -917,6 +920,9 @@ class Microvm:
             net_ifaces=[x["iface"] for ifname, x in self.iface.items()],
             ssh_key=self.ssh_key,
             snapshot_type=snapshot_type,
+            meta={
+                "kernel_file": self.kernel_file,
+            },
         )
 
     def snapshot_diff(self, *, mem_path: str = "mem", vmstate_path="vmstate"):
@@ -953,6 +959,9 @@ class Microvm:
         mem_backend = {"backend_type": "File", "backend_path": str(jailed_mem)}
         if uffd_path is not None:
             mem_backend = {"backend_type": "Uffd", "backend_path": str(uffd_path)}
+
+        for key, value in snapshot.meta.items():
+            setattr(self, key, value)
 
         self.api.snapshot_load.put(
             mem_backend=mem_backend,
