@@ -7,9 +7,11 @@
 
 //! Handles routing to devices in an address space.
 
+use std::any::Any;
 use std::cmp::{Ord, Ordering, PartialEq, PartialOrd};
 use std::collections::btree_map::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::result::Result;
+use std::sync::{Arc, Barrier, Mutex};
 
 /// Errors triggered during bus operations.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -51,12 +53,15 @@ pub struct Bus {
 }
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use pci::{PciDevice, VfioPciDevice};
+use pci::{BarReprogrammingParams, PciBarConfiguration, PciDevice, VfioPciDevice};
+use pci::device::Error as PciDeviceError;
+use vm_device::Resource;
+use vm_system_allocator::{AddressAllocator, SystemAllocator};
 
 #[cfg(target_arch = "aarch64")]
 use super::legacy::RTCDevice;
 use super::legacy::{I8042Device, SerialDevice};
-use super::pci::{PciConfigIo, PciConfigMmio, PciRoot};
+use pci::{PciConfigIo, PciConfigMmio, PciRoot};
 use super::pseudo::BootTimer;
 use super::virtio::mmio::MmioTransport;
 
@@ -68,7 +73,6 @@ pub enum BusDevice {
     BootTimer(BootTimer),
     MmioTransport(MmioTransport),
     Serial(SerialDevice<std::io::Stdin>),
-    PciRoot(PciRoot),
     PioPciBus(PciConfigIo),
     MmioPciBus(PciConfigMmio),
     VfioPciDevice(VfioPciDevice),
@@ -186,14 +190,12 @@ impl BusDevice {
     pub fn pci_device_ref(&self) -> Option<&dyn PciDevice> {
         match self {
             Self::VfioPciDevice(x) => Some(x),
-            Self::PciRoot(x) => Some(x),
             _ => None,
         }
     }
     pub fn pci_device_mut(&mut self) -> Option<&mut dyn PciDevice> {
         match self {
             Self::VfioPciDevice(x) => Some(x),
-            Self::PciRoot(x) => Some(x),
             _ => None,
         }
     }
@@ -221,18 +223,6 @@ impl BusDevice {
             _ => None,
         }
     }
-    pub fn pci_root_ref(&self) -> Option<&PciRoot> {
-        match self {
-            Self::PciRoot(x) => Some(x),
-            _ => None,
-        }
-    }
-    pub fn pci_root_mut(&mut self) -> Option<&mut PciRoot> {
-        match self {
-            Self::PciRoot(x) => Some(x),
-            _ => None,
-        }
-    }
 
     pub fn read(&mut self, base: u64, offset: u64, data: &mut [u8]) {
         match self {
@@ -245,7 +235,6 @@ impl BusDevice {
             Self::VfioPciDevice(x) => x.bus_read(base, offset, data),
             Self::MmioPciBus(x) => x.bus_read(base, offset, data),
             Self::PioPciBus(x) => x.bus_read(base, offset, data),
-            Self::PciRoot(x) => (),
             #[cfg(test)]
             Self::Dummy(x) => x.bus_read(offset, data),
             #[cfg(test)]
@@ -264,12 +253,95 @@ impl BusDevice {
             Self::VfioPciDevice(x) => x.bus_write(base, offset, data),
             Self::MmioPciBus(x) => x.bus_write(base, offset, data),
             Self::PioPciBus(x) => x.bus_write(base, offset, data),
-            Self::PciRoot(x) => (),
             #[cfg(test)]
             Self::Dummy(x) => x.bus_write(offset, data),
             #[cfg(test)]
             Self::Constant(x) => x.bus_write(offset, data),
         }
+    }
+}
+
+// TODO: hack to make pci crate compatible with firecracker BusDevices
+type PciDeviceResult<T> = Result<T, PciDeviceError>;
+impl PciDevice for BusDevice {
+    fn allocate_bars(
+        &mut self,
+        allocator: &Arc<Mutex<SystemAllocator>>,
+        mmio32_allocator: &mut AddressAllocator,
+        mmio64_allocator: &mut AddressAllocator,
+        resources: Option<Vec<Resource>>,
+    ) -> PciDeviceResult<Vec<PciBarConfiguration>> {
+        self.pci_device_mut()
+            .unwrap()
+            .allocate_bars(allocator, mmio32_allocator, mmio64_allocator, resources)
+    }
+
+    fn free_bars(
+        &mut self,
+        allocator: &mut SystemAllocator,
+        mmio32_allocator: &mut AddressAllocator,
+        mmio64_allocator: &mut AddressAllocator,
+    ) -> PciDeviceResult<()> {
+        self.pci_device_mut()
+            .unwrap()
+            .free_bars(allocator, mmio32_allocator, mmio64_allocator)
+    }
+
+    fn write_config_register(
+        &mut self,
+        reg_idx: usize,
+        offset: u64,
+        data: &[u8],
+    ) -> Option<Arc<Barrier>> {
+        self.pci_device_mut()
+            .unwrap()
+            .write_config_register(reg_idx, offset, data)
+    }
+
+    fn read_config_register(&mut self, reg_idx: usize) -> u32 {
+        self.pci_device_mut()
+            .unwrap()
+            .read_config_register(reg_idx)
+    }
+
+    fn detect_bar_reprogramming(
+        &mut self,
+        reg_idx: usize,
+        data: &[u8],
+    ) -> Option<BarReprogrammingParams> {
+        self.pci_device_mut()
+            .unwrap()
+            .detect_bar_reprogramming(reg_idx, data)
+    }
+
+    fn read_bar(&mut self, base: u64, offset: u64, data: &mut [u8]) {
+        self.pci_device_mut()
+            .unwrap()
+            .read_bar(base, offset, data)
+    }
+
+    fn write_bar(&mut self, base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+        self.pci_device_mut()
+            .unwrap()
+            .write_bar(base, offset, data)
+    }
+
+    fn move_bar(&mut self, old_base: u64, new_base: u64) -> std::result::Result<(), std::io::Error> {
+        self.pci_device_mut()
+            .unwrap()
+            .move_bar(old_base, new_base)
+    }
+
+    fn as_any(&mut self) -> &mut dyn Any {
+        self.pci_device_mut()
+            .unwrap()
+            .as_any()
+    }
+
+    fn id(&self) -> Option<String> {
+        self.pci_device_ref()
+            .unwrap()
+            .id()
     }
 }
 

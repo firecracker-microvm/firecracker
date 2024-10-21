@@ -23,7 +23,7 @@ use linux_loader::loader::elf::Elf as Loader;
 #[cfg(target_arch = "aarch64")]
 use linux_loader::loader::pe::PE as Loader;
 use linux_loader::loader::KernelLoader;
-use pci::{PciDevice, VfioPciDevice};
+use pci::{DeviceRelocation, PciBarConfiguration, PciBarRegionType, PciDevice, VfioPciDevice};
 use seccompiler::BpfThreadMap;
 use userfaultfd::Uffd;
 use utils::time::TimestampUs;
@@ -48,7 +48,7 @@ use crate::cpu_config::templates::{
 use crate::device_manager::acpi::ACPIDeviceManager;
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager::legacy::PortIODeviceManager;
-use crate::device_manager::mmio::MMIODeviceManager;
+use crate::device_manager::mmio::{MMIODeviceManager, MmioError};
 use crate::device_manager::persist::{
     ACPIDeviceManagerConstructorArgs, ACPIDeviceManagerRestoreError, MMIODevManagerConstructorArgs,
 };
@@ -58,7 +58,7 @@ use crate::devices::legacy::serial::SerialOut;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
 use crate::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
-use crate::devices::pci::{PciBus, PciConfigIo, PciConfigMmio, PciRoot};
+use pci::{PciBus, PciConfigIo, PciConfigMmio, PciRoot};
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::device::VirtioDevice;
@@ -66,7 +66,7 @@ use crate::devices::virtio::mmio::MmioTransport;
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
-use crate::devices::BusDevice;
+use crate::devices::{Bus, BusDevice};
 #[cfg(feature = "gdb")]
 use crate::gdb;
 use crate::interrupt::MsiInterruptManager;
@@ -166,6 +166,32 @@ fn create_passthrough_device(vm: &VmFd) -> DeviceFd {
     };
 
     vm.create_device(&mut vfio_dev).unwrap()
+}
+
+fn register_pci_device_mapping(
+    dev: Arc<Mutex<BusDevice>>,
+    #[cfg(target_arch = "x86_64")] io_bus: &mut Bus,
+    mmio_bus: &mut Bus,
+    bars: Vec<PciBarConfiguration>,
+) -> Result<(), VmmError> {
+    for bar in bars {
+        match bar.region_type() {
+            PciBarRegionType::IoRegion => {
+                #[cfg(target_arch = "x86_64")]
+                io_bus
+                    .insert(dev.clone(), bar.addr(), bar.size())
+                    .map_err(|e| VmmError::DeviceManager(MmioError::BusInsert(e)))?;
+                #[cfg(not(target_arch = "x86_64"))]
+                error!("I/O region is not supported");
+            }
+            PciBarRegionType::Memory32BitRegion | PciBarRegionType::Memory64BitRegion => {
+                mmio_bus
+                    .insert(dev.clone(), bar.addr(), bar.size())
+                    .map_err(|e| VmmError::DeviceManager(MmioError::BusInsert(e)))?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn add_vfio_device(
@@ -282,7 +308,7 @@ fn add_vfio_device(
             region.len() as u64,
             // memory.get_host_address(region.start_addr()).unwrap() as u64,
             region.as_ptr() as u64
-        );
+        ).unwrap();
         // vfio_container.vfio_dma_map(
         //     region.start_addr().0,
         //     region.len() as u64,
@@ -303,16 +329,13 @@ fn add_vfio_device(
         .add_device(pci_device_id, vfio_pci_device.clone())
         .unwrap();
 
-    pci.lock()
-        .expect("bad lock")
-        .register_mapping(
-            vfio_pci_device.clone(),
-            #[cfg(target_arch = "x86_64")]
-            &mut pio_manager.io_bus,
-            &mut dev_manager.bus,
-            bars.clone(),
-        )
-        .unwrap();
+    register_pci_device_mapping(
+        vfio_pci_device.clone(),
+        #[cfg(target_arch = "x86_64")]
+        &mut pio_manager.io_bus,
+        &mut dev_manager.bus,
+        bars.clone(),
+    ).unwrap();
 
     // Need to register bus mappings ?
 }
@@ -324,6 +347,24 @@ fn add_vfio_device(
 //  - Windows requires the addressable space size to be 64k aligned
 fn mmio_address_space_size(phys_bits: u8) -> u64 {
     (1 << phys_bits) - (1 << 16)
+}
+
+struct DummyDeviceRelocation;
+impl DeviceRelocation for DummyDeviceRelocation {
+    fn move_bar(
+            &self,
+            old_base: u64,
+            new_base: u64,
+            len: u64,
+            _pci_dev: &mut dyn PciDevice,
+            _region_type: PciBarRegionType,
+        ) -> std::result::Result<(), io::Error> {
+            error!(
+                "Failed moving device BAR: 0x{:x}->0x{:x}(0x{:x})",
+                old_base, new_base, len
+            );
+            Ok(())
+    }
 }
 
 #[cfg_attr(target_arch = "aarch64", allow(unused))]
@@ -399,8 +440,7 @@ fn create_vmm_and_vcpus(
     // Instantiate ACPI device manager.
     let acpi_device_manager = ACPIDeviceManager::new();
 
-    let pci_root = BusDevice::PciRoot(PciRoot::new(None));
-    let pci_bus = PciBus::new(pci_root);
+    let pci_bus = PciBus::new(PciRoot::new(None), Arc::new(DummyDeviceRelocation{}));
 
     let pci_bus = Arc::new(Mutex::new(pci_bus));
 

@@ -8,7 +8,7 @@
 #[macro_use]
 extern crate log;
 
-// mod bus;
+mod bus;
 pub mod configuration;
 pub mod device;
 pub mod msi;
@@ -21,7 +21,7 @@ use std::str::FromStr;
 
 use serde::de::Visitor;
 
-// pub use self::bus::{PciBus, PciConfigIo, PciConfigMmio, PciRoot, PciRootError};
+pub use self::bus::{PciBus, PciConfigIo, PciConfigMmio, PciRoot, PciRootError};
 pub use self::configuration::{
     PciBarConfiguration, PciBarPrefetchable, PciBarRegionType, PciCapability, PciCapabilityId,
     PciClassCode, PciConfiguration, PciExpressCapabilityId, PciHeaderType, PciMassStorageSubclass,
