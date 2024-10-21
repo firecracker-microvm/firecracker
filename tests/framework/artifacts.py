@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
 
-import packaging.version
 import pytest
 
 from framework.defs import ARTIFACT_DIR
@@ -98,9 +97,6 @@ class FirecrackerArtifact:
         # independent of Firecracker versions. For these Firecracker versions, use
         # the --snapshot-version Firecracker flag, to figure out which snapshot version
         # it supports.
-        # TODO: remove this check once all version up to (and including) 1.6.0 go out of support.
-        if packaging.version.parse(self.version) < packaging.version.parse("1.7.0"):
-            return self.version_tuple[:2] + (0,)
 
         return (
             check_output([self.path, "--snapshot-version"])
