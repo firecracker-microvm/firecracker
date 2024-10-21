@@ -180,7 +180,7 @@ def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
     cmd += "  ({})& ".format(worker_cmd)
     cmd += '  workers="$workers $!";'
     cmd += "done;"
-    cmd += "for w in $workers; do wait $w || exit -1; done"
+    cmd += "for w in $workers; do wait $w || exit 1; done"
 
     ecode, _, stderr = vm.ssh.run(cmd)
     echo_server.terminate()
