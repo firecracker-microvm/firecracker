@@ -103,7 +103,7 @@ class SSHConnection:
         We'll keep trying to execute a remote command that can't fail
         (`/bin/true`), until we get a successful (0) exit code.
         """
-        self.check_output("true", timeout=10, debug=True)
+        self.check_output("true", timeout=100, debug=True)
 
     def run(self, cmd_string, timeout=None, *, check=False, debug=False):
         """
