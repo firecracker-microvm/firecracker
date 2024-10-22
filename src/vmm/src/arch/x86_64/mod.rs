@@ -21,6 +21,7 @@ pub mod regs;
 #[allow(missing_docs)]
 pub mod gen;
 
+use layout::PCI_MMCONFIG_SIZE;
 use linux_loader::configurator::linux::LinuxBootConfigurator;
 use linux_loader::configurator::{BootConfigurator, BootParams};
 use linux_loader::loader::bootparam::boot_params;
@@ -157,6 +158,8 @@ pub fn configure_system(
         layout::SYSTEM_MEM_SIZE,
         E820_RESERVED,
     )?;
+
+    add_e820_entry(&mut params, layout::PCI_MMCONFIG_START, PCI_MMCONFIG_SIZE, E820_RESERVED)?;
 
     let last_addr = guest_mem.last_addr();
     if last_addr < end_32bit_gap_start {
