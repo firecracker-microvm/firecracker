@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Basic tests scenarios for snapshot save/restore."""
 
+import platform
+import time
+
 import pytest
 
 
@@ -127,3 +130,38 @@ def test_pause_resume_preboot(uvm_nano):
     # Try to resume microvm when not running, it must fail.
     with pytest.raises(RuntimeError, match=expected_err):
         basevm.api.vm.patch(state="Resumed")
+
+
+@pytest.mark.skipif(
+    platform.machine() != "x86_64", reason="Only x86_64 supports pvclocks."
+)
+def test_kvmclock_ctrl(uvm_plain_any):
+    """
+    Test that pausing vCPUs does not trigger a soft lock-up
+    """
+
+    microvm = uvm_plain_any
+    microvm.help.enable_console()
+    microvm.spawn()
+    microvm.basic_config()
+    microvm.add_net_iface()
+    microvm.start()
+
+    # Launch reproducer in host
+    # This launches `ls -R /` in a loop inside the guest. The command writes its output in the
+    # console. This detail is important as it writing in the console seems to increase the probability
+    # that we will pause the execution inside the kernel and cause a lock up. Setting KVM_CLOCK_CTRL
+    # bit that informs the guest we're pausing the vCPUs, should avoid that lock up.
+    microvm.ssh.check_output(
+        "timeout 60 sh -c 'while true; do ls -R /; done' > /dev/ttyS0 2>&1 < /dev/null &"
+    )
+
+    for _ in range(12):
+        microvm.api.vm.patch(state="Paused")
+        time.sleep(5)
+        microvm.api.vm.patch(state="Resumed")
+
+    dmesg = microvm.ssh.check_output("dmesg").stdout
+    assert "rcu_sched self-detected stall on CPU" not in dmesg
+    assert "rcu_preempt detected stalls on CPUs/tasks" not in dmesg
+    assert "BUG: soft lockup -" not in dmesg
