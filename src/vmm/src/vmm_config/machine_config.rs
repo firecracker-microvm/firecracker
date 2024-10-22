@@ -111,6 +111,10 @@ pub struct MachineConfig {
     /// Configures what page size Firecracker should use to back guest memory.
     #[serde(default)]
     pub huge_pages: HugePageConfig,
+    /// GDB socket address.
+    #[cfg(feature = "gdb")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gdb_socket_path: Option<String>,
 }
 
 impl Default for MachineConfig {
@@ -146,6 +150,10 @@ pub struct MachineConfigUpdate {
     /// Configures what page size Firecracker should use to back guest memory.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub huge_pages: Option<HugePageConfig>,
+    /// GDB socket address.
+    #[cfg(feature = "gdb")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gdb_socket_path: Option<String>,
 }
 
 impl MachineConfigUpdate {
@@ -166,6 +174,8 @@ impl From<MachineConfig> for MachineConfigUpdate {
             cpu_template: cfg.cpu_template,
             track_dirty_pages: Some(cfg.track_dirty_pages),
             huge_pages: Some(cfg.huge_pages),
+            #[cfg(feature = "gdb")]
+            gdb_socket_path: cfg.gdb_socket_path,
         }
     }
 }
@@ -185,6 +195,9 @@ pub struct VmConfig {
     pub track_dirty_pages: bool,
     /// Configures what page size Firecracker should use to back guest memory.
     pub huge_pages: HugePageConfig,
+    /// GDB socket address.
+    #[cfg(feature = "gdb")]
+    pub gdb_socket_path: Option<String>,
 }
 
 impl VmConfig {
@@ -238,6 +251,8 @@ impl VmConfig {
             cpu_template,
             track_dirty_pages: update.track_dirty_pages.unwrap_or(self.track_dirty_pages),
             huge_pages: page_config,
+            #[cfg(feature = "gdb")]
+            gdb_socket_path: update.gdb_socket_path.clone(),
         })
     }
 }
@@ -251,6 +266,8 @@ impl Default for VmConfig {
             cpu_template: None,
             track_dirty_pages: false,
             huge_pages: HugePageConfig::None,
+            #[cfg(feature = "gdb")]
+            gdb_socket_path: None,
         }
     }
 }
@@ -264,6 +281,8 @@ impl From<&VmConfig> for MachineConfig {
             cpu_template: value.cpu_template.as_ref().map(|template| template.into()),
             track_dirty_pages: value.track_dirty_pages,
             huge_pages: value.huge_pages,
+            #[cfg(feature = "gdb")]
+            gdb_socket_path: value.gdb_socket_path.clone(),
         }
     }
 }

@@ -86,9 +86,6 @@ pub struct VmmConfig {
     vsock_device: Option<VsockDeviceConfig>,
     #[serde(rename = "entropy")]
     entropy_device: Option<EntropyDeviceConfig>,
-    #[cfg(feature = "gdb")]
-    #[serde(rename = "gdb-socket")]
-    gdb_socket_addr: Option<String>,
 }
 
 /// A data structure that encapsulates the device configurations
@@ -117,9 +114,6 @@ pub struct VmResources {
     pub mmds_size_limit: usize,
     /// Whether or not to load boot timer device.
     pub boot_timer: bool,
-    #[cfg(feature = "gdb")]
-    /// Configures the location of the GDB socket
-    pub gdb_socket_addr: Option<String>,
 }
 
 impl VmResources {
@@ -142,8 +136,6 @@ impl VmResources {
 
         let mut resources: Self = Self {
             mmds_size_limit,
-            #[cfg(feature = "gdb")]
-            gdb_socket_addr: vmm_config.gdb_socket_addr,
             ..Default::default()
         };
         if let Some(machine_config) = vmm_config.machine_config {
@@ -529,8 +521,6 @@ impl From<&VmResources> for VmmConfig {
             net_devices: resources.net_builder.configs(),
             vsock_device: resources.vsock.config(),
             entropy_device: resources.entropy.config(),
-            #[cfg(feature = "gdb")]
-            gdb_socket_addr: resources.gdb_socket_addr.clone(),
         }
     }
 }
@@ -640,8 +630,6 @@ mod tests {
             boot_timer: false,
             mmds_size_limit: HTTP_MAX_PAYLOAD_SIZE,
             entropy: Default::default(),
-            #[cfg(feature = "gdb")]
-            gdb_socket_addr: None,
         }
     }
 
