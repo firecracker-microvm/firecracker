@@ -9,6 +9,7 @@ license = "Apache-2.0"
 bench = false
 
 [dependencies]
+anyhow = "1.0.87"
 acpi_tables = { path = "../acpi-tables" } 
 aes-gcm =  { version = "0.10.1", default-features = false, features = ["aes"] }
 arrayvec = { version = "0.7.6", optional = true }
@@ -43,6 +44,7 @@ thiserror = "2.0.3"
 timerfd = "1.5.0"
 userfaultfd = "0.8.1"
 utils = { path = "../utils" }
+uuid = "1.8.0"
 vfio-ioctls = { git = "https://github.com/rust-vmm/vfio", branch = "main" }
 vhost = { version = "0.13.0", features = ["vhost-user-frontend"] }
 vm-allocator = "0.1.0"

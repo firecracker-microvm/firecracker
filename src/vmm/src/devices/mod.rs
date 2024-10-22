@@ -14,6 +14,7 @@ pub mod bus;
 pub mod legacy;
 pub mod pseudo;
 pub mod virtio;
+pub mod pci_segment;
 
 pub use bus::{Bus, BusDevice, BusError};
 use log::error;
