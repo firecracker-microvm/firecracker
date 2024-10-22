@@ -1028,6 +1028,9 @@ definitions:
     properties:
       cpu_template:
         $ref: "#/definitions/CpuTemplate"
+      # gdb_socket_path:
+      #   type: string
+      #   description: Path to the GDB socket. Requires the gdb feature to be enabled.
       smt:
         type: boolean
         description: Flag for enabling/disabling simultaneous multithreading. Can be enabled only on x86.
