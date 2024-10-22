@@ -38,7 +38,7 @@ use vmm_sys_util::eventfd::EventFd;
 
 #[cfg(target_arch = "x86_64")]
 use crate::acpi;
-use crate::arch::{InitrdConfig, MEM_32BIT_DEVICES_SIZE, MEM_32BIT_DEVICES_START};
+use crate::arch::{InitrdConfig, MEM_32BIT_DEVICES_SIZE, MEM_32BIT_DEVICES_START, PCI_MMCONFIG_START};
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
 use crate::cpu_config::templates::{
@@ -1123,6 +1123,7 @@ pub fn configure_system_for_boot(
             &mut vmm.resource_allocator,
             &vmm.mmio_device_manager,
             &vmm.acpi_device_manager,
+            PCI_MMCONFIG_START,
             vcpus,
         )?;
     }

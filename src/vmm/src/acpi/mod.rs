@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use acpi_tables::fadt::{FADT_F_HW_REDUCED_ACPI, FADT_F_PWR_BUTTON, FADT_F_SLP_BUTTON};
-use acpi_tables::{aml, Aml, Dsdt, Fadt, Madt, Rsdp, Sdt, Xsdt};
+use acpi_tables::{aml, Aml, Dsdt, Fadt, Madt, Mcfg, Rsdp, Sdt, Xsdt};
 use log::{debug, error};
 use vm_allocator::AllocPolicy;
 
@@ -128,14 +128,27 @@ impl<'a> AcpiTableWriter<'a> {
     /// Build the XSDT table for the guest
     ///
     /// Currently, we pass to the guest just FADT and MADT tables.
-    fn build_xsdt(&mut self, fadt_addr: u64, madt_addr: u64) -> Result<u64, AcpiError> {
+    fn build_xsdt(&mut self, fadt_addr: u64, madt_addr: u64, mcfg_addr: u64) -> Result<u64, AcpiError> {
         let mut xsdt = Xsdt::new(
             OEM_ID,
             *b"FCMVXSDT",
             OEM_REVISION,
-            vec![fadt_addr, madt_addr],
+            vec![fadt_addr, madt_addr, mcfg_addr],
         );
         self.write_acpi_table(&mut xsdt)
+    }
+
+    /// Build the XSDT table for the guest
+    ///
+    /// Currently, we pass to the guest just FADT and MADT tables.
+    fn build_mcfg(&mut self, pci_mmio_config_addr: u64) -> Result<u64, AcpiError> {
+        let mut mcfg = Mcfg::new(
+            OEM_ID,
+            *b"CHMCFG  ",
+            OEM_REVISION,
+            pci_mmio_config_addr,
+        );
+        self.write_acpi_table(&mut mcfg)
     }
 
     /// Build the RSDP pointer for the guest.
@@ -166,6 +179,7 @@ pub(crate) fn create_acpi_tables(
     resource_allocator: &mut ResourceAllocator,
     mmio_device_manager: &MMIODeviceManager,
     acpi_device_manager: &ACPIDeviceManager,
+    pci_mmio_config_addr: u64,
     vcpus: &[Vcpu],
 ) -> Result<(), AcpiError> {
     let mut writer = AcpiTableWriter {
@@ -176,7 +190,8 @@ pub(crate) fn create_acpi_tables(
     let dsdt_addr = writer.build_dsdt(mmio_device_manager, acpi_device_manager)?;
     let fadt_addr = writer.build_fadt(dsdt_addr)?;
     let madt_addr = writer.build_madt(vcpus.len().try_into().unwrap())?;
-    let xsdt_addr = writer.build_xsdt(fadt_addr, madt_addr)?;
+    let mcfg_addr = writer.build_mcfg(pci_mmio_config_addr)?;
+    let xsdt_addr = writer.build_xsdt(fadt_addr, madt_addr, mcfg_addr)?;
     writer.build_rsdp(xsdt_addr)
 }
 
