@@ -12,6 +12,7 @@ use crate::acpi::x86_64::{
 use crate::device_manager::acpi::ACPIDeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::resources::ResourceAllocator;
+use crate::devices::pci_segment::PciSegment;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 use crate::Vcpu;
 
@@ -80,6 +81,7 @@ impl<'a> AcpiTableWriter<'a> {
     fn build_dsdt(
         &mut self,
         mmio_device_manager: &MMIODeviceManager,
+        pci_segment: &PciSegment,
         acpi_device_manager: &ACPIDeviceManager,
     ) -> Result<u64, AcpiError> {
         let mut dsdt_data = Vec::new();
@@ -92,6 +94,8 @@ impl<'a> AcpiTableWriter<'a> {
 
         // Architecture specific DSDT data
         setup_arch_dsdt(&mut dsdt_data)?;
+
+        pci_segment.append_aml_bytes(&mut dsdt_data);
 
         let mut dsdt = Dsdt::new(OEM_ID, *b"FCVMDSDT", OEM_REVISION, dsdt_data);
         self.write_acpi_table(&mut dsdt)
@@ -179,6 +183,7 @@ pub(crate) fn create_acpi_tables(
     resource_allocator: &mut ResourceAllocator,
     mmio_device_manager: &MMIODeviceManager,
     acpi_device_manager: &ACPIDeviceManager,
+    pci_segment: &PciSegment,
     pci_mmio_config_addr: u64,
     vcpus: &[Vcpu],
 ) -> Result<(), AcpiError> {
@@ -187,7 +192,7 @@ pub(crate) fn create_acpi_tables(
         resource_allocator,
     };
 
-    let dsdt_addr = writer.build_dsdt(mmio_device_manager, acpi_device_manager)?;
+    let dsdt_addr = writer.build_dsdt(mmio_device_manager, pci_segment, acpi_device_manager)?;
     let fadt_addr = writer.build_fadt(dsdt_addr)?;
     let madt_addr = writer.build_madt(vcpus.len().try_into().unwrap())?;
     let mcfg_addr = writer.build_mcfg(pci_mmio_config_addr)?;
