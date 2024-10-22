@@ -28,7 +28,7 @@ use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemo
 /// Errors thrown while configuring aarch64 system.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum ConfigurationError {
-    /// Failed to create a Flattened Device Tree for this aarch64 microVM.
+    /// Failed to create a Flattened Device Tree for this aarch64 microVM: {0}
     SetupFDT(#[from] fdt::FdtError),
     /// Failed to compute the initrd address.
     InitrdAddress,
