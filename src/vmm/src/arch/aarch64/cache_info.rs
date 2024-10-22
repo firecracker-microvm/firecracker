@@ -38,7 +38,7 @@ pub(crate) struct CacheEntry {
     // Type of cache: Unified, Data, Instruction.
     pub type_: CacheType,
     pub size_: Option<u32>,
-    pub number_of_sets: Option<u16>,
+    pub number_of_sets: Option<u32>,
     pub line_size: Option<u16>,
     // How many CPUS share this cache.
     pub cpus_per_unit: u16,
@@ -114,7 +114,7 @@ impl CacheEntry {
         }
 
         if let Ok(number_of_sets) = store.get_by_key(index, "number_of_sets") {
-            cache.number_of_sets = Some(number_of_sets.parse::<u16>().map_err(|err| {
+            cache.number_of_sets = Some(number_of_sets.parse::<u32>().map_err(|err| {
                 CacheInfoError::InvalidCacheAttr("number_of_sets".to_string(), err.to_string())
             })?);
         } else {
