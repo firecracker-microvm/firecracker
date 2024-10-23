@@ -388,20 +388,17 @@ guest_kernel_linux_6_1 = pytest.fixture(
 )
 
 # Fixtures for all Ubuntu rootfs, and specific versions
-rootfs = pytest.fixture(rootfs_fxt, params=rootfs_params("*.squashfs"))
-rootfs_ubuntu_24 = pytest.fixture(
-    rootfs_fxt, params=rootfs_params("ubuntu-24*.squashfs")
-)
+rootfs = pytest.fixture(rootfs_fxt, params=rootfs_params("ubuntu-24*.squashfs"))
 rootfs_rw = pytest.fixture(rootfs_fxt, params=rootfs_params("*.ext4"))
 
 
 @pytest.fixture
-def uvm_plain(microvm_factory, guest_kernel_linux_5_10, rootfs_ubuntu_24):
+def uvm_plain(microvm_factory, guest_kernel_linux_5_10, rootfs):
     """Create a vanilla VM, non-parametrized
     kernel: 5.10
     rootfs: Ubuntu 24.04
     """
-    return microvm_factory.build(guest_kernel_linux_5_10, rootfs_ubuntu_24)
+    return microvm_factory.build(guest_kernel_linux_5_10, rootfs)
 
 
 @pytest.fixture
@@ -430,12 +427,12 @@ def artifact_dir():
 
 
 @pytest.fixture
-def uvm_plain_any(microvm_factory, guest_kernel, rootfs_ubuntu_24):
+def uvm_plain_any(microvm_factory, guest_kernel, rootfs):
     """All guest kernels
     kernel: all
     rootfs: Ubuntu 24.04
     """
-    return microvm_factory.build(guest_kernel, rootfs_ubuntu_24)
+    return microvm_factory.build(guest_kernel, rootfs)
 
 
 guest_kernel_6_1_debug = pytest.fixture(

@@ -127,11 +127,11 @@ def test_tap_offload_booted(uvm_plain_any):
     run_udp_offload_test(vm)
 
 
-def test_tap_offload_restored(microvm_factory, guest_kernel, rootfs_ubuntu_24):
+def test_tap_offload_restored(microvm_factory, guest_kernel, rootfs):
     """
     Verify that tap offload features are configured for a restored VM.
     """
-    src = microvm_factory.build(guest_kernel, rootfs_ubuntu_24, monitor_memory=False)
+    src = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     src.spawn()
     src.basic_config()
     src.add_net_iface()

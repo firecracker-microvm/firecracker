@@ -20,11 +20,9 @@ import pytest
 
 
 @pytest.fixture
-def uvm_with_cpu_template(
-    microvm_factory, guest_kernel, rootfs_ubuntu_24, cpu_template_any
-):
+def uvm_with_cpu_template(microvm_factory, guest_kernel, rootfs, cpu_template_any):
     """A microvm fixture parametrized with all possible templates"""
-    vm = microvm_factory.build(guest_kernel, rootfs_ubuntu_24)
+    vm = microvm_factory.build(guest_kernel, rootfs)
     vm.spawn()
     cpu_template = None
     if isinstance(cpu_template_any, str):
