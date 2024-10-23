@@ -1,6 +1,7 @@
 # Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Generic utility functions that are used in the framework."""
+import errno
 import functools
 import json
 import logging
@@ -453,7 +454,9 @@ def get_process_pidfd(pid):
     """Get a pidfd file descriptor for the process with PID `pid`
 
     Will return a pid file descriptor for the process with PID `pid` if it is
-    still alive. If the process has already exited it will return `None`.
+    still alive. If the process has already exited we will receive either a
+    `ProcessLookupError` exception or and an `OSError` exception with errno `EINVAL`.
+    In these cases, we will return `None`.
 
     Any other error while calling the system call, will raise an OSError
     exception.
@@ -462,6 +465,11 @@ def get_process_pidfd(pid):
         pidfd = os.pidfd_open(pid)
     except ProcessLookupError:
         return None
+    except OSError as err:
+        if err.errno == errno.EINVAL:
+            return None
+
+        raise
 
     return pidfd
 
