@@ -14,6 +14,8 @@ pub enum AmlError {
     NameEmpty,
     /// Invalid name part length
     InvalidPartLength,
+    /// Invalid address range
+    AddressRange,
 }
 
 pub trait Aml {
@@ -420,32 +422,49 @@ pub struct AddressSpace<T> {
     type_flags: u8,
 }
 
-impl<T> AddressSpace<T> {
-    pub fn new_memory(cacheable: AddressSpaceCacheable, read_write: bool, min: T, max: T) -> Self {
-        AddressSpace {
+impl<T> AddressSpace<T>
+where
+    T: PartialOrd,
+{
+    pub fn new_memory(
+        cacheable: AddressSpaceCacheable,
+        read_write: bool,
+        min: T,
+        max: T,
+    ) -> Result<Self, AmlError> {
+        if min > max {
+            return Err(AmlError::AddressRange);
+        }
+        Ok(AddressSpace {
             r#type: AddressSpaceType::Memory,
             min,
             max,
             type_flags: (cacheable as u8) << 1 | u8::from(read_write),
-        }
+        })
     }
 
-    pub fn new_io(min: T, max: T) -> Self {
-        AddressSpace {
+    pub fn new_io(min: T, max: T) -> Result<Self, AmlError> {
+        if min > max {
+            return Err(AmlError::AddressRange);
+        }
+        Ok(AddressSpace {
             r#type: AddressSpaceType::Io,
             min,
             max,
             type_flags: 3, // EntireRange
-        }
+        })
     }
 
-    pub fn new_bus_number(min: T, max: T) -> Self {
-        AddressSpace {
+    pub fn new_bus_number(min: T, max: T) -> Result<Self, AmlError> {
+        if min > max {
+            return Err(AmlError::AddressRange);
+        }
+        Ok(AddressSpace {
             r#type: AddressSpaceType::BusNumber,
             min,
             max,
             type_flags: 0,
-        }
+        })
     }
 
     fn push_header(&self, bytes: &mut Vec<u8>, descriptor: u8, length: usize) {
@@ -1340,7 +1359,9 @@ mod tests {
         assert_eq!(
             Name::new(
                 "_CRS".try_into().unwrap(),
-                &ResourceTemplate::new(vec![&AddressSpace::new_bus_number(0x0u16, 0xffu16),])
+                &ResourceTemplate::new(vec![
+                    &AddressSpace::new_bus_number(0x0u16, 0xffu16).unwrap(),
+                ])
             )
             .unwrap()
             .to_aml_bytes()
@@ -1360,8 +1381,8 @@ mod tests {
             Name::new(
                 "_CRS".try_into().unwrap(),
                 &ResourceTemplate::new(vec![
-                    &AddressSpace::new_io(0x0u16, 0xcf7u16),
-                    &AddressSpace::new_io(0xd00u16, 0xffffu16),
+                    &AddressSpace::new_io(0x0u16, 0xcf7u16).unwrap(),
+                    &AddressSpace::new_io(0xd00u16, 0xffffu16).unwrap(),
                 ])
             )
             .unwrap()
@@ -1388,13 +1409,15 @@ mod tests {
                         true,
                         0xa_0000u32,
                         0xb_ffffu32
-                    ),
+                    )
+                    .unwrap(),
                     &AddressSpace::new_memory(
                         AddressSpaceCacheable::NotCacheable,
                         true,
                         0xc000_0000u32,
                         0xfebf_ffffu32
-                    ),
+                    )
+                    .unwrap(),
                 ])
             )
             .unwrap()
@@ -1420,7 +1443,8 @@ mod tests {
                     true,
                     0x8_0000_0000u64,
                     0xf_ffff_ffffu64
-                )])
+                )
+                .unwrap()])
             )
             .unwrap()
             .to_aml_bytes()
@@ -1988,7 +2012,8 @@ mod tests {
                             true,
                             0x0000_0000_0000_0000u64,
                             0xFFFF_FFFF_FFFF_FFFEu64
-                        )])
+                        )
+                        .unwrap()])
                     )
                     .unwrap(),
                     &CreateField::<u64>::new(
