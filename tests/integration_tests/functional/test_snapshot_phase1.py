@@ -27,11 +27,11 @@ NET_IFACE_FOR_MMDS = "eth3"
 
 @pytest.mark.nonci
 def test_snapshot_phase1(
-    microvm_factory, guest_kernel, rootfs_ubuntu_24, cpu_template_any, results_dir
+    microvm_factory, guest_kernel, rootfs, cpu_template_any, results_dir
 ):
     """Create a snapshot and save it to disk"""
 
-    vm = microvm_factory.build(guest_kernel, rootfs_ubuntu_24, monitor_memory=False)
+    vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn(log_level="Info")
     vm.add_net_iface()
 
