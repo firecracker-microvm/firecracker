@@ -9,6 +9,7 @@
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
+use acpi_tables::aml::AmlError;
 use acpi_tables::{aml, Aml};
 use kvm_ioctls::VmFd;
 use libc::EFD_NONBLOCK;
@@ -169,7 +170,7 @@ impl PortIODeviceManager {
         Ok(())
     }
 
-    pub(crate) fn append_aml_bytes(bytes: &mut Vec<u8>) {
+    pub(crate) fn append_aml_bytes(bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         // Set up COM devices
         let gsi = [
             Self::COM_EVT_1_3_GSI,
@@ -180,13 +181,13 @@ impl PortIODeviceManager {
         for com in 0u8..4 {
             // COM1
             aml::Device::new(
-                format!("_SB_.COM{}", com + 1).as_str().into(),
+                format!("_SB_.COM{}", com + 1).as_str().try_into()?,
                 vec![
-                    &aml::Name::new("_HID".into(), &aml::EisaName::new("PNP0501")),
-                    &aml::Name::new("_UID".into(), &com),
-                    &aml::Name::new("_DDN".into(), &format!("COM{}", com + 1)),
+                    &aml::Name::new("_HID".try_into()?, &aml::EisaName::new("PNP0501")?)?,
+                    &aml::Name::new("_UID".try_into()?, &com)?,
+                    &aml::Name::new("_DDN".try_into()?, &format!("COM{}", com + 1))?,
                     &aml::Name::new(
-                        "_CRS".into(),
+                        "_CRS".try_into().unwrap(),
                         &aml::ResourceTemplate::new(vec![
                             &aml::Interrupt::new(true, true, false, false, gsi[com as usize]),
                             &aml::Io::new(
@@ -200,19 +201,24 @@ impl PortIODeviceManager {
                                 PortIODeviceManager::SERIAL_PORT_SIZE.try_into().unwrap(),
                             ),
                         ]),
-                    ),
+                    )?,
                 ],
             )
-            .append_aml_bytes(bytes);
+            .append_aml_bytes(bytes)?;
         }
         // Setup i8042
         aml::Device::new(
-            "_SB_.PS2_".into(),
+            "_SB_.PS2_".try_into()?,
             vec![
-                &aml::Name::new("_HID".into(), &aml::EisaName::new("PNP0303")),
-                &aml::Method::new("_STA".into(), 0, false, vec![&aml::Return::new(&0x0fu8)]),
+                &aml::Name::new("_HID".try_into()?, &aml::EisaName::new("PNP0303")?)?,
+                &aml::Method::new(
+                    "_STA".try_into()?,
+                    0,
+                    false,
+                    vec![&aml::Return::new(&0x0fu8)],
+                ),
                 &aml::Name::new(
-                    "_CRS".into(),
+                    "_CRS".try_into()?,
                     &aml::ResourceTemplate::new(vec![
                         &aml::Io::new(
                             PortIODeviceManager::I8042_KDB_DATA_REGISTER_ADDRESS
@@ -228,10 +234,10 @@ impl PortIODeviceManager {
                         &aml::Io::new(0x0064, 0x0064, 1u8, 1u8),
                         &aml::Interrupt::new(true, true, false, false, Self::KBD_EVT_GSI),
                     ]),
-                ),
+                )?,
             ],
         )
-        .append_aml_bytes(bytes);
+        .append_aml_bytes(bytes)
     }
 }
 

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use acpi_tables::fadt::{FADT_F_HW_REDUCED_ACPI, FADT_F_PWR_BUTTON, FADT_F_SLP_BUTTON};
-use acpi_tables::{Aml, Dsdt, Fadt, Madt, Rsdp, Sdt, Xsdt};
+use acpi_tables::{aml, Aml, Dsdt, Fadt, Madt, Rsdp, Sdt, Xsdt};
 use log::{debug, error};
 use vm_allocator::AllocPolicy;
 
@@ -37,6 +37,8 @@ pub enum AcpiError {
     VmAllocator(#[from] vm_allocator::Error),
     /// ACPI tables error: {0}
     AcpiTables(#[from] acpi_tables::AcpiError),
+    /// Error creating AML bytecode: {0}
+    AmlError(#[from] aml::AmlError),
 }
 
 /// Helper type that holds the guest memory in which we write the tables in and a resource
@@ -86,10 +88,10 @@ impl<'a> AcpiTableWriter<'a> {
         dsdt_data.extend_from_slice(&mmio_device_manager.dsdt_data);
 
         // Add GED and VMGenID AML data.
-        acpi_device_manager.append_aml_bytes(&mut dsdt_data);
+        acpi_device_manager.append_aml_bytes(&mut dsdt_data)?;
 
         // Architecture specific DSDT data
-        setup_arch_dsdt(&mut dsdt_data);
+        setup_arch_dsdt(&mut dsdt_data)?;
 
         let mut dsdt = Dsdt::new(OEM_ID, *b"FCVMDSDT", OEM_REVISION, dsdt_data);
         self.write_acpi_table(&mut dsdt)

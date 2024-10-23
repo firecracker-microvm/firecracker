@@ -162,20 +162,20 @@ impl<'a> Persist<'a> for VmGenId {
 }
 
 impl Aml for VmGenId {
-    fn append_aml_bytes(&self, v: &mut Vec<u8>) {
+    fn append_aml_bytes(&self, v: &mut Vec<u8>) -> Result<(), aml::AmlError> {
         #[allow(clippy::cast_possible_truncation)]
         let addr_low = self.guest_address.0 as u32;
         let addr_high = (self.guest_address.0 >> 32) as u32;
         aml::Device::new(
-            "_SB_.VGEN".into(),
+            "_SB_.VGEN".try_into()?,
             vec![
-                &aml::Name::new("_HID".into(), &"FCVMGID"),
-                &aml::Name::new("_CID".into(), &"VM_Gen_Counter"),
-                &aml::Name::new("_DDN".into(), &"VM_Gen_Counter"),
+                &aml::Name::new("_HID".try_into()?, &"FCVMGID")?,
+                &aml::Name::new("_CID".try_into()?, &"VM_Gen_Counter")?,
+                &aml::Name::new("_DDN".try_into()?, &"VM_Gen_Counter")?,
                 &aml::Name::new(
-                    "ADDR".into(),
+                    "ADDR".try_into()?,
                     &aml::Package::new(vec![&addr_low, &addr_high]),
-                ),
+                )?,
             ],
         )
         .append_aml_bytes(v)
