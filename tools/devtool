@@ -661,6 +661,7 @@ unapply_performance_tweaks() {
 cmd_test() {
     do_ab_test=0
     do_build=1
+    do_kvm_check=1
     # Parse any command line args.
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -682,6 +683,9 @@ cmd_test() {
             "--no-build")
                 do_build=0
                 ;;
+            "--no-kvm-check")
+                do_kvm_check=0
+                ;;
             "--")               { shift; break;     } ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
@@ -691,7 +695,7 @@ cmd_test() {
     done
 
     # Check prerequisites.
-    ensure_kvm
+    [ $do_kvm_check != 0 ] && ensure_kvm
     ensure_devctr
     ensure_build_dir
     ensure_ci_artifacts
@@ -907,7 +911,7 @@ cmd_mkdocs() {
 }
 
 cmd_checkstyle() {
-    cmd_test --no-build -- integration_tests/style -n 4 --dist worksteal
+    cmd_test --no-build --no-kvm-check -- integration_tests/style -n 4 --dist worksteal
 }
 
 # Check if able to run firecracker.
