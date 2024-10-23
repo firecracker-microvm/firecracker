@@ -8,7 +8,7 @@ use acpi_tables::fadt::{
     IAPC_BOOT_ARG_FLAGS_VGA_NOT_PRESENT,
 };
 use acpi_tables::madt::{IoAPIC, LocalAPIC};
-use acpi_tables::Fadt;
+use acpi_tables::{aml, Fadt};
 use vm_memory::GuestAddress;
 use zerocopy::IntoBytes;
 
@@ -41,7 +41,7 @@ pub(crate) fn setup_arch_fadt(fadt: &mut Fadt) {
 }
 
 #[inline(always)]
-pub(crate) fn setup_arch_dsdt(dsdt_data: &mut Vec<u8>) {
+pub(crate) fn setup_arch_dsdt(dsdt_data: &mut Vec<u8>) -> Result<(), aml::AmlError> {
     PortIODeviceManager::append_aml_bytes(dsdt_data)
 }
 

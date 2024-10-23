@@ -60,6 +60,9 @@ pub enum MmioError {
     RegisterIoEvent(kvm_ioctls::Error),
     /// Failed to register irqfd: {0}
     RegisterIrqFd(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to create AML code for device
+    AmlError(#[from] aml::AmlError),
 }
 
 /// This represents the size of the mmio device specified to the kernel through ACPI and as a
@@ -81,20 +84,25 @@ pub struct MMIODeviceInfo {
 }
 
 #[cfg(target_arch = "x86_64")]
-fn add_virtio_aml(dsdt_data: &mut Vec<u8>, addr: u64, len: u64, irq: u32) {
+fn add_virtio_aml(
+    dsdt_data: &mut Vec<u8>,
+    addr: u64,
+    len: u64,
+    irq: u32,
+) -> Result<(), aml::AmlError> {
     let dev_id = irq - crate::arch::IRQ_BASE;
     debug!(
         "acpi: Building AML for VirtIO device _SB_.V{:03}. memory range: {:#010x}:{} irq: {}",
         dev_id, addr, len, irq
     );
     aml::Device::new(
-        format!("V{:03}", dev_id).as_str().into(),
+        format!("V{:03}", dev_id).as_str().try_into()?,
         vec![
-            &aml::Name::new("_HID".into(), &"LNRO0005"),
-            &aml::Name::new("_UID".into(), &dev_id),
-            &aml::Name::new("_CCA".into(), &aml::ONE),
+            &aml::Name::new("_HID".try_into()?, &"LNRO0005")?,
+            &aml::Name::new("_UID".try_into()?, &dev_id)?,
+            &aml::Name::new("_CCA".try_into()?, &aml::ONE)?,
             &aml::Name::new(
-                "_CRS".into(),
+                "_CRS".try_into()?,
                 &aml::ResourceTemplate::new(vec![
                     &aml::Memory32Fixed::new(
                         true,
@@ -103,10 +111,10 @@ fn add_virtio_aml(dsdt_data: &mut Vec<u8>, addr: u64, len: u64, irq: u32) {
                     ),
                     &aml::Interrupt::new(true, true, false, false, irq),
                 ]),
-            ),
+            )?,
         ],
     )
-    .append_aml_bytes(dsdt_data);
+    .append_aml_bytes(dsdt_data)
 }
 
 /// Manages the complexities of registering a MMIO device.
@@ -250,7 +258,7 @@ impl MMIODeviceManager {
                 // We are sure that `irqs` has at least one element; allocate_mmio_resources makes
                 // sure of it.
                 device_info.irqs[0],
-            );
+            )?;
         }
         Ok(device_info)
     }
