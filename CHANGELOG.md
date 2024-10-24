@@ -23,6 +23,9 @@ and this project adheres to
   set, it won't trigger the lockup condition. Calling the ioctl for guests that
   don't use kvmclock will fail. These failures are not fatal. We log the failure
   and increase the `vcpu.kvmclock_ctrl_fails` metric.
+- [#4869](https://github.com/firecracker-microvm/firecracker/pull/4869): Added
+  support for Aarch64 systems which feature CPU caches with a number of sets
+  higher than `u16::MAX`.
 
 ### Changed
 
