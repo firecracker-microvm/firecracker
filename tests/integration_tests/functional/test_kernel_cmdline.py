@@ -29,4 +29,4 @@ def test_init_params(uvm_plain):
     serial = Serial(vm)
     serial.open()
     # If the string does not show up, the test will fail.
-    serial.rx(token="Ubuntu 22.04")
+    serial.rx(token="Ubuntu 24.04")

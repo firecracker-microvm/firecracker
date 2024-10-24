@@ -11,7 +11,7 @@ import host_tools.drive as drive_tools
 
 @pytest.mark.parametrize("vcpu_count", [1, 2], ids=["1vcpu", "2vcpu"])
 def test_vhost_user_block_metrics(
-    microvm_factory, guest_kernel_acpi, rootfs_ubuntu_22, vcpu_count, metrics
+    microvm_factory, guest_kernel_acpi, rootfs, vcpu_count, metrics
 ):
     """
     This test tries to boot a VM with vhost-user-block
@@ -28,9 +28,7 @@ def test_vhost_user_block_metrics(
     # low->high->low->high and so the numbers are not in monotonic sequence.
     new_sizes = [20, 10, 30]  # MB
 
-    vm = microvm_factory.build(
-        guest_kernel_acpi, rootfs_ubuntu_22, monitor_memory=False
-    )
+    vm = microvm_factory.build(guest_kernel_acpi, rootfs, monitor_memory=False)
     vm.spawn(log_level="Info")
     vm.basic_config(vcpu_count=vcpu_count)
     vm.add_net_iface()

@@ -9,7 +9,7 @@ You can check if your system meets the requirements by running
 `firecracker/tools/devtool checkenv`.
 
 An opinionated way to run Firecracker is to launch an
-[EC2](https://aws.amazon.com/ec2/) `c5.metal` instance with Ubuntu 22.04.
+[EC2](https://aws.amazon.com/ec2/) `c5.metal` instance with Ubuntu 24.04.
 
 Firecracker requires [the KVM Linux kernel module](https://www.linux-kvm.org/)
 to perform its virtualization and emulation tasks.
@@ -95,24 +95,26 @@ For simplicity, this guide will not use the [`jailer`](../src/jailer/).
 
 To successfully start a microVM, you will need an uncompressed Linux kernel
 binary, and an ext4 file system image (to use as rootfs). This guide uses a 5.10
-kernel image with a Ubuntu 22.04 rootfs from our CI:
+kernel image with a Ubuntu 24.04 rootfs from our CI:
 
 ```bash
 ARCH="$(uname -m)"
 
-latest=$(wget "http://spec.ccfc.min.s3.amazonaws.com/?prefix=firecracker-ci/v1.10/x86_64/vmlinux-5.10&list-type=2" -O - 2>/dev/null | grep "(?<=<Key>)(firecracker-ci/v1.10/x86_64/vmlinux-5\.10\.[0-9]{3})(?=</Key>)" -o -P)
+latest=$(wget "http://spec.ccfc.min.s3.amazonaws.com/?prefix=firecracker-ci/v1.10/$ARCH/vmlinux-5.10&list-type=2" -O - 2>/dev/null | grep -oP "(?<=<Key>)(firecracker-ci/v1.10/$ARCH/vmlinux-5\.10\.[0-9]{1,3})(?=</Key>)")
 
 # Download a linux kernel binary
 wget "https://s3.amazonaws.com/spec.ccfc.min/${latest}"
 
 # Download a rootfs
-wget "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.10/${ARCH}/ubuntu-22.04.ext4"
+wget -O ubuntu-24.04.squashfs.upstream "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.10/${ARCH}/ubuntu-24.04.squashfs"
 
-# Download the ssh key for the rootfs
-wget "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.10/${ARCH}/ubuntu-22.04.id_rsa"
-
-# Set user read permission on the ssh key
-chmod 400 ./ubuntu-22.04.id_rsa
+# Create an ssh key for the rootfs
+unsquashfs ubuntu-24.04.squashfs.upstream
+ssh-keygen -f id_rsa -N ""
+cp -v id_rsa.pub squashfs-root/root/.ssh/authorized_keys
+mv -v id_rsa ./ubuntu-24.04.id_rsa
+# re-squash
+mksquashfs squashfs-root ubuntu-24.04.squashfs -all-root -noappend -comp zstd
 ```
 
 ### Getting a Firecracker Binary
@@ -238,7 +240,7 @@ sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     }" \
     "http://localhost/boot-source"
 
-ROOTFS="./ubuntu-22.04.ext4"
+ROOTFS="./ubuntu-24.04.ext4"
 
 # Set rootfs
 sudo curl -X PUT --unix-socket "${API_SOCKET}" \
@@ -280,13 +282,13 @@ sudo curl -X PUT --unix-socket "${API_SOCKET}" \
 sleep 2s
 
 # Setup internet access in the guest
-ssh -i ./ubuntu-22.04.id_rsa root@172.16.0.2  "ip route add default via 172.16.0.1 dev eth0"
+ssh -i ./ubuntu-24.04.id_rsa root@172.16.0.2  "ip route add default via 172.16.0.1 dev eth0"
 
 # Setup DNS resolution in the guest
-ssh -i ./ubuntu-22.04.id_rsa root@172.16.0.2  "echo 'nameserver 8.8.8.8' > /etc/resolv.conf"
+ssh -i ./ubuntu-24.04.id_rsa root@172.16.0.2  "echo 'nameserver 8.8.8.8' > /etc/resolv.conf"
 
 # SSH into the microVM
-ssh -i ./ubuntu-22.04.id_rsa root@172.16.0.2
+ssh -i ./ubuntu-24.04.id_rsa root@172.16.0.2
 
 # Use `root` for both the login and password.
 # Run `reboot` to exit.

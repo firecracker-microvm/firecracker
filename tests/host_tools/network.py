@@ -5,6 +5,7 @@
 import ipaddress
 import random
 import string
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -67,9 +68,14 @@ class SSHConnection:
 
         self._on_error = on_error
 
+    @property
+    def user_host(self):
+        """remote address for in SSH format <user>@<IP>"""
+        return f"{self.user}@{self.host}"
+
     def remote_path(self, path):
         """Convert a path to remote"""
-        return f"{self.user}@{self.host}:{path}"
+        return f"{self.user_host}:{path}"
 
     def _scp(self, path1, path2, options):
         """Copy files to/from the VM using scp."""
@@ -111,21 +117,12 @@ class SSHConnection:
 
         If `debug` is set, pass `-vvv` to `ssh`. Note that this will clobber stderr.
         """
-        command = [
-            "ssh",
-            *self.options,
-            f"{self.user}@{self.host}",
-            cmd_string,
-        ]
+        command = ["ssh", *self.options, self.user_host, cmd_string]
 
         if debug:
             command.insert(1, "-vvv")
 
-        return self._exec(
-            command,
-            timeout,
-            check=check,
-        )
+        return self._exec(command, timeout, check=check)
 
     def check_output(self, cmd_string, timeout=None, *, debug=False):
         """Same as `run`, but raises an exception on non-zero return code of remote command"""
@@ -143,6 +140,27 @@ class SSHConnection:
                 self._on_error(exc)
 
             raise
+
+    # pylint:disable=invalid-name
+    def Popen(
+        self,
+        cmd: str,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        **kwargs,
+    ) -> subprocess.Popen:
+        """Execute the command in the guest and return a Popen object.
+
+        pop = uvm.ssh.Popen("while true; do echo $(date -Is) $RANDOM; sleep 1; done")
+        pop.stdout.read(16)
+        """
+        cmd = ["ssh", *self.options, self.user_host, cmd]
+        if self.netns is not None:
+            cmd = ["ip", "netns", "exec", self.netns] + cmd
+        return subprocess.Popen(
+            cmd, stdin=stdin, stdout=stdout, stderr=stderr, **kwargs
+        )
 
 
 def mac_from_ip(ip_address):

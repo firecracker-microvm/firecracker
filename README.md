@@ -132,7 +132,7 @@ We test all combinations of:
 
 | Instance  | Host OS & Kernel  | Guest Rootfs | Guest Kernel |
 | :-------- | :---------------- | :----------- | :----------- |
-| c5n.metal | al2    linux_5.10 | ubuntu 22.04 | linux_5.10   |
+| c5n.metal | al2    linux_5.10 | ubuntu 24.04 | linux_5.10   |
 | m5n.metal | al2023 linux_6.1  |              | linux_6.1    |
 | m6i.metal |                   |              |              |
 | m6a.metal |                   |              |              |
