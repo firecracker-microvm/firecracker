@@ -779,6 +779,8 @@ pub struct VcpuMetrics {
     pub exit_mmio_write: SharedIncMetric,
     /// Number of errors during this VCPU's run.
     pub failures: SharedIncMetric,
+    /// Number of times that the `KVM_KVMCLOCK_CTRL` ioctl failed.
+    pub kvmclock_ctrl_fails: SharedIncMetric,
     /// Provides Min/max/sum for KVM exits handling input IO.
     pub exit_io_in_agg: LatencyAggregateMetrics,
     /// Provides Min/max/sum for KVM exits handling output IO.
@@ -797,6 +799,7 @@ impl VcpuMetrics {
             exit_mmio_read: SharedIncMetric::new(),
             exit_mmio_write: SharedIncMetric::new(),
             failures: SharedIncMetric::new(),
+            kvmclock_ctrl_fails: SharedIncMetric::new(),
             exit_io_in_agg: LatencyAggregateMetrics::new(),
             exit_io_out_agg: LatencyAggregateMetrics::new(),
             exit_mmio_read_agg: LatencyAggregateMetrics::new(),

@@ -234,6 +234,7 @@ def validate_fc_metrics(metrics):
             "exit_mmio_read",
             "exit_mmio_write",
             "failures",
+            "kvmclock_ctrl_fails",
             {"exit_io_in_agg": latency_agg_metrics_fields},
             {"exit_io_out_agg": latency_agg_metrics_fields},
             {"exit_mmio_read_agg": latency_agg_metrics_fields},

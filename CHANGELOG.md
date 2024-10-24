@@ -14,6 +14,15 @@ and this project adheres to
   `VIRTIO_NET_F_RX_MRGBUF` support to the `virtio-net` device. When this feature
   is negotiated, guest `virtio-net` driver can perform more efficient memory
   management which in turn improves RX and TX performance.
+- [#4460](https://github.com/firecracker-microvm/firecracker/pull/4460): Add a
+  call to
+  [`KVM_KVMCLOCK_CTRL`](https://docs.kernel.org/virt/kvm/api.html#kvm-kvmclock-ctrl)
+  after pausing vCPUs on x86_64 architectures. This ioctl sets a flag in the KVM
+  state of the vCPU indicating that it has been paused by the host userspace. In
+  guests that use kvmclock, the soft lockup watchdog checks this flag. If it is
+  set, it won't trigger the lockup condition. Calling the ioctl for guests that
+  don't use kvmclock will fail. These failures are not fatal. We log the failure
+  and increase the `vcpu.kvmclock_ctrl_fails` metric.
 
 ### Changed
 
