@@ -14,6 +14,10 @@ and this project adheres to
   `VIRTIO_NET_F_RX_MRGBUF` support to the `virtio-net` device. When this feature
   is negotiated, guest `virtio-net` driver can perform more efficient memory
   management which in turn improves RX and TX performance.
+- [#4797](https://github.com/firecracker-microvm/firecracker/pull/4797),
+  [#4854](https://github.com/firecracker-microvm/firecracker/pull/4854): Added
+  GDB debugging support for a microVM guest kernel. Please see our
+  [GDB debugging documentation](docs/gdb-debugging.md) for more information.
 
 ### Changed
 

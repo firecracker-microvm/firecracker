@@ -6,8 +6,6 @@ Firecracker supports debugging the guest kernel via GDB remote serial protocol.
 This allows us to connect GDB to the firecracker process and step through debug
 the guest kernel.
 
-The GDB feature requires Firecracker to be booted with a config file.
-
 ## Prerequisites
 
 Firstly, to enable GDB debugging we need to compile Firecracker with the `gdb`
@@ -25,20 +23,33 @@ debugging to work. The key config options to enable are:
 
 ```
 CONFIG_FRAME_POINTER=y
-CONFIG_KGDB=y
-CONFIG_KGDB_SERIAL_CONSOLE=y
 CONFIG_DEBUG_INFO=y
 ```
 
-For GDB debugging the `gdb-socket` option should be set in your config file. In
-this example we set it to `/tmp/gdb.socket`
+For GDB debugging the `gdb_socket_path` option under `machine-config` should be
+set. When using the API the socket address must be set before instance start.
+
+In this example we set the address to `/tmp/gdb.socket` in the config file:
 
 ```
 {
   ...
-  "gdb-socket": "/tmp/gdb.socket"
+  "machine-config": {
+    ...
+    "gdb_socket_path": "/tmp/gdb.socket"
+    ...
+  }
   ...
 }
+```
+
+Using the API the socket address can be configured before boot like so:
+
+```
+sudo curl -X PATCH --unix-socket "${API_SOCKET}" \
+  --data "{
+    \"gdb_socket_path\": \"/tmp/gdb.socket\"
+  }" "http://localhost/machine-config"
 ```
 
 ## Starting Firecracker with GDB
