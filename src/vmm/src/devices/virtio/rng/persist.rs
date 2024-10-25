@@ -66,7 +66,7 @@ impl Persist<'_> for Entropy {
         let mut entropy = Entropy::new_with_queues(queues, rate_limiter)?;
         entropy.set_avail_features(state.virtio_state.avail_features);
         entropy.set_acked_features(state.virtio_state.acked_features);
-        entropy.set_irq_status(state.virtio_state.interrupt_status);
+        // entropy.set_irq_status(state.virtio_state.interrupt_status);
         if state.virtio_state.activated {
             entropy.set_activated(constructor_args.0);
         }

@@ -148,7 +148,7 @@ impl Persist<'_> for Net {
             NET_NUM_QUEUES,
             NET_QUEUE_MAX_SIZE,
         )?;
-        net.irq_trigger.irq_status = Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
+        // net.irq_trigger.irq_status = Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
         net.avail_features = state.virtio_state.avail_features;
         net.acked_features = state.virtio_state.acked_features;
 

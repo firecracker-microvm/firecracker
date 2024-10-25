@@ -131,7 +131,7 @@ impl Persist<'_> for VirtioBlock {
             queues,
             queue_evts,
             device_state,
-            irq_trigger,
+            virtio_interrupt: Some(Arc::new(irq_trigger)),
 
             id: state.id.clone(),
             partuuid: state.partuuid.clone(),

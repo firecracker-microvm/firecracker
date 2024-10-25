@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use super::queue::QueueError;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use crate::devices::virtio::mmio::MmioTransport;
+use crate::devices::virtio::transport::MmioTransport;
 use crate::devices::virtio::queue::Queue;
 use crate::snapshot::Persist;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
@@ -261,7 +261,7 @@ mod tests {
     use crate::devices::virtio::block::virtio::device::FileEngineType;
     use crate::devices::virtio::block::virtio::test_utils::default_block_with_path;
     use crate::devices::virtio::block::virtio::VirtioBlock;
-    use crate::devices::virtio::mmio::tests::DummyDevice;
+    use crate::devices::virtio::transport::mmio::tests::DummyDevice;
     use crate::devices::virtio::net::test_utils::default_net;
     use crate::devices::virtio::net::Net;
     use crate::devices::virtio::test_utils::default_mem;
