@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use vmm_sys_util::eventfd::EventFd;
 
-use super::mmio::{VIRTIO_MMIO_INT_CONFIG, VIRTIO_MMIO_INT_VRING};
+use super::transport::mmio::{VIRTIO_MMIO_INT_CONFIG, VIRTIO_MMIO_INT_VRING};
 use super::queue::{Queue, QueueError};
 use super::ActivateError;
 use crate::devices::virtio::AsAny;

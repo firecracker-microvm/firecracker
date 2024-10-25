@@ -24,7 +24,7 @@ use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
 use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::device::VirtioDevice;
-use crate::devices::virtio::mmio::MmioTransport;
+use crate::devices::virtio::transport::MmioTransport;
 use crate::devices::virtio::net::persist::{
     NetConstructorArgs, NetPersistError as NetError, NetState,
 };

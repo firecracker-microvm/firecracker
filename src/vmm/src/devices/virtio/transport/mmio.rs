@@ -9,7 +9,7 @@ use std::fmt::Debug;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use crate::devices::virtio::device::{IrqType, VirtioDevice};
+use crate::devices::virtio::device::{IrqType, VirtioDevice, VirtioInterruptType};
 use crate::devices::virtio::device_status;
 use crate::devices::virtio::queue::Queue;
 use crate::logger::{error, warn};
@@ -187,7 +187,7 @@ impl MmioTransport {
                 let device_activated = self.locked_device().is_activated();
                 if !device_activated && self.are_queues_valid() {
                     // temporary variable needed for borrow checker
-                    let activate_result = self.locked_device().activate(self.mem.clone());
+                    let activate_result = self.locked_device().activate(self.mem.clone(), None);
                     if let Err(err) = activate_result {
                         self.device_status |= DEVICE_NEEDS_RESET;
 
@@ -195,8 +195,8 @@ impl MmioTransport {
                         // configuration change interrupt
                         let _ = self
                             .locked_device()
-                            .interrupt_trigger()
-                            .trigger_irq(IrqType::Config);
+                            .interrupt()
+                            .trigger(VirtioInterruptType::Config);
 
                         error!("Failed to activate virtio device: {}", err)
                     }
@@ -365,10 +365,11 @@ impl MmioTransport {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use aes_gcm::aes::cipher::inout::IntoArrayError;
     use vmm_sys_util::eventfd::EventFd;
 
     use super::*;
-    use crate::devices::virtio::device::IrqTrigger;
+    use crate::devices::virtio::device::{IrqTrigger, VirtioInterrupt, VirtioInterruptType};
     use crate::devices::virtio::device_status::DEVICE_NEEDS_RESET;
     use crate::devices::virtio::ActivateError;
     use crate::test_utils::single_region_mem;
@@ -380,7 +381,7 @@ pub(crate) mod tests {
     pub(crate) struct DummyDevice {
         acked_features: u64,
         avail_features: u64,
-        interrupt_trigger: IrqTrigger,
+        virtio_interrupt: Arc<dyn VirtioInterrupt>,
         queue_evts: Vec<EventFd>,
         queues: Vec<Queue>,
         device_activated: bool,
@@ -393,7 +394,7 @@ pub(crate) mod tests {
             DummyDevice {
                 acked_features: 0,
                 avail_features: 0,
-                interrupt_trigger: IrqTrigger::new().unwrap(),
+                virtio_interrupt: Arc::new(IrqTrigger::new().unwrap()),
                 queue_evts: vec![
                     EventFd::new(libc::EFD_NONBLOCK).unwrap(),
                     EventFd::new(libc::EFD_NONBLOCK).unwrap(),
@@ -439,8 +440,8 @@ pub(crate) mod tests {
             &self.queue_evts
         }
 
-        fn interrupt_trigger(&self) -> &IrqTrigger {
-            &self.interrupt_trigger
+        fn interrupt(&self) -> Arc<dyn VirtioInterrupt> {
+            self.virtio_interrupt.clone()
         }
 
         fn read_config(&self, offset: u64, data: &mut [u8]) {
@@ -453,7 +454,7 @@ pub(crate) mod tests {
             }
         }
 
-        fn activate(&mut self, _: GuestMemoryMmap) -> Result<(), ActivateError> {
+        fn activate(&mut self, _: GuestMemoryMmap, _: Option<Arc<dyn VirtioInterrupt>>) -> Result<(), ActivateError> {
             self.device_activated = true;
             if self.activate_should_error {
                 Err(ActivateError::EventFd)
@@ -884,8 +885,9 @@ pub(crate) mod tests {
         // We actually wrote to the eventfd
         assert_eq!(
             d.locked_device()
-                .interrupt_trigger()
-                .irq_evt
+                .interrupt()
+                .notifier(VirtioInterruptType::Config)
+                .unwrap()
                 .read()
                 .unwrap(),
             1
