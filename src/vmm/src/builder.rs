@@ -247,8 +247,9 @@ fn add_pci_device(
 
 fn add_vfio_device(
     vmm: &mut Vmm,
-    fd: DeviceFd,
+    fd: &DeviceFd,
     device_path: &Path,
+    memory_slot: Arc<dyn Fn() -> u32 + Send + Sync>,
 ) -> Result<(), StartMicrovmError>{
     let pci_segment = vmm.pci_segment.as_ref().expect("pci should be enabled");
 
@@ -296,14 +297,7 @@ fn add_vfio_device(
             None, 
             false,
             pci_device_bdf.into(),
-            Arc::new(move || {
-                // TODO use allocator for memory slots
-                static mut CURRENT: u32 = 1;
-                unsafe {
-                    CURRENT += 1;
-                    CURRENT
-                }
-            }),
+            memory_slot,
             None
         ).unwrap());
 
@@ -624,8 +618,17 @@ pub fn build_microvm_for_boot(
     }
 
     if let Some(vfio_devices) = vm_resources.pci_config.as_ref().map(|x| x.vfio_devices.as_ref()).flatten() {
+        let device_fd = create_passthrough_device(vmm.vm.fd());
+        let memory_slot = Arc::new(move || {
+            // TODO use allocator for memory slots
+            static mut CURRENT: u32 = 1;
+            unsafe {
+                CURRENT += 1;
+                CURRENT
+            }
+        });
         for vfio_device in vfio_devices {
-            attach_vfio_device(&mut vmm, Path::new(&vfio_device.path))?;
+            add_vfio_device(&mut vmm, &device_fd, Path::new(&vfio_device.path), memory_slot.clone())?;
         }
     }
 
@@ -1385,19 +1388,6 @@ fn attach_balloon_device(
     let id = String::from(balloon.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
     attach_virtio_device(event_manager, vmm, id, balloon.clone(), cmdline, false)
-}
-
-fn attach_vfio_device(
-    vmm: &mut Vmm,
-    device_path: &Path
-) -> Result<(), StartMicrovmError> {
-    let device_fd = create_passthrough_device(vmm.vm.fd());
-
-    add_vfio_device(
-        vmm,
-        device_fd,
-        device_path,
-    )
 }
 
 // Adds `O_NONBLOCK` to the stdout flags.
