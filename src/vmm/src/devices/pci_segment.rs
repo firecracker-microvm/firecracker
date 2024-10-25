@@ -59,24 +59,6 @@ impl Debug for PciSegment {
     }
 }
 
-struct DummyDeviceRelocation;
-impl DeviceRelocation for DummyDeviceRelocation {
-    fn move_bar(
-            &self,
-            old_base: u64,
-            new_base: u64,
-            len: u64,
-            _pci_dev: &mut dyn PciDevice,
-            _region_type: PciBarRegionType,
-        ) -> std::result::Result<(), io::Error> {
-            error!(
-                "Failed moving device BAR: 0x{:x}->0x{:x}(0x{:x})",
-                old_base, new_base, len
-            );
-            Ok(())
-    }
-}
-
 impl PciSegment {
     pub(crate) fn new(
         id: u16,
@@ -85,11 +67,12 @@ impl PciSegment {
         mem64_allocator: Arc<Mutex<AddressAllocator>>,
         mmio_bus: &mut Bus,
         pci_irq_slots: &[u8; 32],
+        device_relocation: Arc<dyn DeviceRelocation>,
     ) -> Result<PciSegment> {
         let pci_root = PciRoot::new(None);
         let pci_bus = Arc::new(Mutex::new(PciBus::new(
             pci_root,
-            Arc::new(DummyDeviceRelocation{})
+            device_relocation,
         )));
 
         let pci_config_mmio = Arc::new(Mutex::new(BusDevice::MmioPciBus(PciConfigMmio::new(Arc::clone(&pci_bus)))));
@@ -136,53 +119,53 @@ impl PciSegment {
         Ok(segment)
     }
 
-    #[cfg(target_arch = "x86_64")]
-    pub(crate) fn new_default_segment(
-        mem32_allocator: Arc<Mutex<AddressAllocator>>,
-        mem64_allocator: Arc<Mutex<AddressAllocator>>,
-        mmio_bus: &mut Bus,
-        io_bus: &mut Bus,
-        pci_irq_slots: &[u8; 32],
-    ) -> Result<PciSegment> {
-        let mut segment = Self::new(
-            0,
-            0,
-            mem32_allocator,
-            mem64_allocator,
-            mmio_bus,
-            pci_irq_slots,
-        )?;
-        let pci_config_io = Arc::new(Mutex::new(BusDevice::PioPciBus(PciConfigIo::new(Arc::clone(&segment.pci_bus)))));
+    // #[cfg(target_arch = "x86_64")]
+    // pub(crate) fn new_default_segment(
+    //     mem32_allocator: Arc<Mutex<AddressAllocator>>,
+    //     mem64_allocator: Arc<Mutex<AddressAllocator>>,
+    //     mmio_bus: &mut Bus,
+    //     io_bus: &mut Bus,
+    //     pci_irq_slots: &[u8; 32],
+    // ) -> Result<PciSegment> {
+    //     let mut segment = Self::new(
+    //         0,
+    //         0,
+    //         mem32_allocator,
+    //         mem64_allocator,
+    //         mmio_bus,
+    //         pci_irq_slots,
+    //     )?;
+    //     let pci_config_io = Arc::new(Mutex::new(BusDevice::PioPciBus(PciConfigIo::new(Arc::clone(&segment.pci_bus)))));
 
-        io_bus
-            .insert(
-                pci_config_io.clone(),
-                PCI_CONFIG_IO_PORT,
-                PCI_CONFIG_IO_PORT_SIZE,
-            )
-            .map_err(|e| anyhow!("error adding pci bus to pio bus {e}"))?;
+    //     io_bus
+    //         .insert(
+    //             pci_config_io.clone(),
+    //             PCI_CONFIG_IO_PORT,
+    //             PCI_CONFIG_IO_PORT_SIZE,
+    //         )
+    //         .map_err(|e| anyhow!("error adding pci bus to pio bus {e}"))?;
 
-        segment.pci_config_io = Some(pci_config_io);
+    //     segment.pci_config_io = Some(pci_config_io);
 
-        Ok(segment)
-    }
+    //     Ok(segment)
+    // }
 
-    #[cfg(target_arch = "aarch64")]
-    pub(crate) fn new_default_segment(
-        address_manager: &Arc<AddressManager>,
-        mem32_allocator: Arc<Mutex<AddressAllocator>>,
-        mem64_allocator: Arc<Mutex<AddressAllocator>>,
-        pci_irq_slots: &[u8; 32],
-    ) -> DeviceManagerResult<PciSegment> {
-        Self::new(
-            0,
-            0,
-            address_manager,
-            mem32_allocator,
-            mem64_allocator,
-            pci_irq_slots,
-        )
-    }
+    // #[cfg(target_arch = "aarch64")]
+    // pub(crate) fn new_default_segment(
+    //     address_manager: &Arc<AddressManager>,
+    //     mem32_allocator: Arc<Mutex<AddressAllocator>>,
+    //     mem64_allocator: Arc<Mutex<AddressAllocator>>,
+    //     pci_irq_slots: &[u8; 32],
+    // ) -> DeviceManagerResult<PciSegment> {
+    //     Self::new(
+    //         0,
+    //         0,
+    //         address_manager,
+    //         mem32_allocator,
+    //         mem64_allocator,
+    //         pci_irq_slots,
+    //     )
+    // }
 
     pub(crate) fn next_device_bdf(&self) -> Result<PciBdf> {
         Ok(PciBdf::new(
