@@ -28,6 +28,7 @@ use crate::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::vsock::*;
+use crate::vmm_config::pci::PciConfig;
 use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap, MemoryError};
 
 /// Errors encountered when configuring microVM resources.
@@ -86,6 +87,11 @@ pub struct VmmConfig {
     vsock_device: Option<VsockDeviceConfig>,
     #[serde(rename = "entropy")]
     entropy_device: Option<EntropyDeviceConfig>,
+    #[cfg(feature = "gdb")]
+    #[serde(rename = "gdb-socket")]
+    gdb_socket_addr: Option<String>,
+    #[serde(rename = "pci")]
+    pci_config: Option<PciConfig>,
 }
 
 /// A data structure that encapsulates the device configurations
@@ -114,6 +120,10 @@ pub struct VmResources {
     pub mmds_size_limit: usize,
     /// Whether or not to load boot timer device.
     pub boot_timer: bool,
+    #[cfg(feature = "gdb")]
+    /// Configures the location of the GDB socket
+    pub gdb_socket_addr: Option<String>,
+    pub pci_config: Option<PciConfig>,
 }
 
 impl VmResources {
@@ -167,6 +177,11 @@ impl VmResources {
         if let Some(balloon_config) = vmm_config.balloon_device {
             resources.set_balloon_device(balloon_config)?;
         }
+
+        if let Some(pci_config) = vmm_config.pci_config {
+            resources.pci_config = Some(pci_config.clone());
+        }
+
 
         // Init the data store from file, if present.
         if let Some(data) = metadata_json {
@@ -509,6 +524,9 @@ impl From<&VmResources> for VmmConfig {
             net_devices: resources.net_builder.configs(),
             vsock_device: resources.vsock.config(),
             entropy_device: resources.entropy.config(),
+            #[cfg(feature = "gdb")]
+            gdb_socket_addr: resources.gdb_socket_addr.clone(),
+            pci_config: resources.pci_config.clone(), // TODO snapshot-restore support
         }
     }
 }
@@ -618,6 +636,9 @@ mod tests {
             boot_timer: false,
             mmds_size_limit: HTTP_MAX_PAYLOAD_SIZE,
             entropy: Default::default(),
+            #[cfg(feature = "gdb")]
+            gdb_socket_addr: None,
+            pci_config: None,
         }
     }
 

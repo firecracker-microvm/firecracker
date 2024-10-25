@@ -337,9 +337,12 @@ pub struct Vmm {
     #[cfg(target_arch = "x86_64")]
     pio_device_manager: PortIODeviceManager,
     acpi_device_manager: ACPIDeviceManager,
-    pci_segment: PciSegment,
-    msi_interrupt_manager: Arc<dyn InterruptManager<GroupConfig = MsiIrqGroupConfig>>,
-    allocator: Arc<Mutex<SystemAllocator>>,
+
+    // PCI-related
+    extra_fd: Option<Arc<Mutex<VmFd>>>,
+    pci_segment: Option<PciSegment>,
+    msi_interrupt_manager: Option<Arc<dyn InterruptManager<GroupConfig = MsiIrqGroupConfig>>>,
+    allocator: Option<Arc<Mutex<SystemAllocator>>>,
 }
 
 impl Vmm {
