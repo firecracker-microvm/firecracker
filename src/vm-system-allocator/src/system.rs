@@ -7,6 +7,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
 
+use std::fmt::{Debug, Formatter};
+
 use vm_memory::{GuestAddress, GuestUsize};
 
 use crate::address::AddressAllocator;
@@ -46,6 +48,13 @@ pub struct SystemAllocator {
     io_address_space: AddressAllocator,
     platform_mmio_address_space: AddressAllocator,
     gsi_allocator: GsiAllocator,
+}
+
+impl Debug for SystemAllocator {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        f.debug_struct("SystemAllocator")
+            .finish()
+    }
 }
 
 impl SystemAllocator {

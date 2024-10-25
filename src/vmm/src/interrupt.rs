@@ -4,6 +4,7 @@
 //
 
 use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -240,6 +241,14 @@ pub struct MsiInterruptManager<IrqRoutingEntry> {
     allocator: Arc<Mutex<SystemAllocator>>,
     vm: Arc<Mutex<VmFd>>,
     gsi_msi_routes: Arc<Mutex<HashMap<u32, RoutingEntry<IrqRoutingEntry>>>>,
+}
+
+impl Debug for MsiInterruptManager<IrqRoutingEntry> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        // TODO
+        f.debug_struct("MsiInterruptManager")
+            .finish()
+    }
 }
 
 impl MsiInterruptManager<IrqRoutingEntry> {
