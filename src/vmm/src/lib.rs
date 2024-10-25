@@ -1068,14 +1068,12 @@ impl DeviceRelocation for AddressManager {
                 error!("I/O region is not supported");
             }
             PciBarRegionType::Memory32BitRegion | PciBarRegionType::Memory64BitRegion => {
-                let allocators = if region_type == PciBarRegionType::Memory32BitRegion {
-                    &self.pci_mmio32_allocators
-                } else {
-                    &self.pci_mmio64_allocators
-                };
+                let allocators = self.pci_mmio32_allocators
+                    .iter()
+                    .chain(self.pci_mmio64_allocators.iter());
 
                 // Find the specific allocator that this BAR was allocated from and use it for new one
-                for allocator in allocators {
+                for allocator in allocators.clone() {
                     let allocator_base = allocator.lock().unwrap().base();
                     let allocator_end = allocator.lock().unwrap().end();
 
@@ -1122,9 +1120,9 @@ impl DeviceRelocation for AddressManager {
                 const NOTIFICATION_BAR_OFFSET: u64 = 0x6000;
                 const NOTIFY_OFF_MULTIPLIER: u32 = 4; // A dword per notification address.
 
-                let notify_base = old_base + NOTIFICATION_BAR_OFFSET;
+                let old_notify_base = old_base + NOTIFICATION_BAR_OFFSET;
                 for (i, queue_evt) in virtio_pci_dev.virtio_device().lock().unwrap().queue_events().iter().enumerate() {
-                    let addr = notify_base + i as u64 * u64::from(NOTIFY_OFF_MULTIPLIER);
+                    let addr = old_notify_base + i as u64 * u64::from(NOTIFY_OFF_MULTIPLIER);
                     let io_addr = IoEventAddress::Mmio(addr);
                     self.vm.lock().unwrap().unregister_ioevent(queue_evt, &io_addr, NoDatamatch).map_err(|e| {
                         io::Error::new(
@@ -1133,8 +1131,9 @@ impl DeviceRelocation for AddressManager {
                         )
                     })?;
                 }
+                let new_notify_base = new_base + NOTIFICATION_BAR_OFFSET;
                 for (i, queue_evt) in virtio_pci_dev.virtio_device().lock().unwrap().queue_events().iter().enumerate() {
-                    let addr = notify_base + i as u64 * u64::from(NOTIFY_OFF_MULTIPLIER);
+                    let addr = new_notify_base + i as u64 * u64::from(NOTIFY_OFF_MULTIPLIER);
                     let io_addr = IoEventAddress::Mmio(addr);
                     self.vm.lock().unwrap()
                         .register_ioevent(queue_evt, &io_addr, NoDatamatch)
