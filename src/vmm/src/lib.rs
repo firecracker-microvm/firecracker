@@ -338,6 +338,8 @@ pub struct Vmm {
     pio_device_manager: PortIODeviceManager,
     acpi_device_manager: ACPIDeviceManager,
     pci_segment: PciSegment,
+    msi_interrupt_manager: Arc<dyn InterruptManager<GroupConfig = MsiIrqGroupConfig>>,
+    allocator: Arc<Mutex<SystemAllocator>>,
 }
 
 impl Vmm {

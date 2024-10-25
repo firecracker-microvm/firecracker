@@ -65,7 +65,7 @@ use super::legacy::RTCDevice;
 use super::legacy::{I8042Device, SerialDevice};
 use pci::{PciConfigIo, PciConfigMmio, PciRoot};
 use super::pseudo::BootTimer;
-use super::virtio::mmio::MmioTransport;
+use super::virtio::transport::{MmioTransport, VirtioPciDevice};
 
 #[derive(Debug)]
 pub enum BusDevice {
@@ -78,6 +78,7 @@ pub enum BusDevice {
     PioPciBus(PciConfigIo),
     MmioPciBus(PciConfigMmio),
     VfioPciDevice(VfioPciDevice),
+    VirtioPciDevice(VirtioPciDevice),
     #[cfg(test)]
     Dummy(DummyDevice),
     #[cfg(test)]
@@ -189,15 +190,29 @@ impl BusDevice {
             _ => None,
         }
     }
+    pub fn virtio_pci_device_ref(&self) -> Option<&VirtioPciDevice> {
+        match self {
+            Self::VirtioPciDevice(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn virtio_pci_device_mut(&mut self) -> Option<&mut VirtioPciDevice> {
+        match self {
+            Self::VirtioPciDevice(x) => Some(x),
+            _ => None,
+        }
+    }
     pub fn pci_device_ref(&self) -> Option<&dyn PciDevice> {
         match self {
             Self::VfioPciDevice(x) => Some(x),
+            Self::VirtioPciDevice(x) => Some(x),
             _ => None,
         }
     }
     pub fn pci_device_mut(&mut self) -> Option<&mut dyn PciDevice> {
         match self {
             Self::VfioPciDevice(x) => Some(x),
+            Self::VirtioPciDevice(x) => Some(x),
             _ => None,
         }
     }
@@ -235,6 +250,7 @@ impl BusDevice {
             Self::MmioTransport(x) => x.bus_read(offset, data),
             Self::Serial(x) => x.bus_read(offset, data),
             Self::VfioPciDevice(x) => x.bus_read(base, offset, data),
+            Self::VirtioPciDevice(x) => x.bus_read(base, offset, data),
             Self::MmioPciBus(x) => x.bus_read(base, offset, data),
             Self::PioPciBus(x) => x.bus_read(base, offset, data),
             #[cfg(test)]
@@ -253,6 +269,7 @@ impl BusDevice {
             Self::MmioTransport(x) => x.bus_write(offset, data),
             Self::Serial(x) => x.bus_write(offset, data),
             Self::VfioPciDevice(x) => x.bus_write(base, offset, data),
+            Self::VirtioPciDevice(x) => x.bus_write(base, offset, data),
             Self::MmioPciBus(x) => x.bus_write(base, offset, data),
             Self::PioPciBus(x) => x.bus_write(base, offset, data),
             #[cfg(test)]
