@@ -191,8 +191,17 @@ where
                 Self::PROCESS_NOTIFY_BACKEND => raise_irq = self.notify_backend(evset),
                 _ => warn!("Unexpected vsock event received: {:?}", source),
             }
+            let mut queue_index = 0;
+            match source {
+                Self::PROCESS_ACTIVATE => self.handle_activate_event(ops),
+                Self::PROCESS_RXQ => queue_index = RXQ_INDEX,
+                Self::PROCESS_TXQ => queue_index = TXQ_INDEX,
+                Self::PROCESS_EVQ => queue_index = EVQ_INDEX,
+                Self::PROCESS_NOTIFY_BACKEND => queue_index = TXQ_INDEX, // TODO this could be either tx or rx
+                _ => warn!("Unexpected vsock event received: {:?}", source),
+            }
             if raise_irq {
-                self.signal_used_queue().unwrap_or_default();
+                self.signal_used_queue(queue_index).unwrap_or_default();
             }
         } else {
             warn!(
@@ -236,7 +245,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), None);
 
             ctx.device.backend.set_pending_rx(false);
             ctx.signal_txq_event();
@@ -253,7 +262,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), None);
 
             ctx.device.backend.set_pending_rx(true);
             ctx.signal_txq_event();
@@ -269,7 +278,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), None);
 
             ctx.device.backend.set_pending_rx(false);
             ctx.device.backend.set_tx_err(Some(VsockError::NoData));
@@ -285,7 +294,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), None);
 
             // Invalidate the descriptor chain, by setting its length to 0.
             ctx.guest_txvq.dtable[0].len.set(0);
@@ -302,7 +311,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), None);
 
             assert!(!ctx.device.handle_txq_event(EventSet::IN));
         }
@@ -317,7 +326,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), None);
 
             ctx.device.backend.set_pending_rx(true);
             ctx.device.backend.set_rx_err(Some(VsockError::NoData));
@@ -334,7 +343,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), None);
 
             ctx.device.backend.set_pending_rx(true);
             ctx.signal_rxq_event();
@@ -347,7 +356,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), None);
 
             // Invalidate the descriptor chain, by setting its length to 0.
             ctx.guest_rxvq.dtable[0].len.set(0);
@@ -363,7 +372,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), None);
             ctx.device.backend.set_pending_rx(false);
             assert!(!ctx.device.handle_rxq_event(EventSet::IN));
         }
@@ -388,7 +397,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), None);
 
             ctx.device.backend.set_pending_rx(true);
             ctx.device.notify_backend(EventSet::IN);
@@ -407,7 +416,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), None);
 
             ctx.device.backend.set_pending_rx(false);
             ctx.device.notify_backend(EventSet::IN);
@@ -568,7 +577,7 @@ mod tests {
         vsock
             .lock()
             .unwrap()
-            .activate(test_ctx.mem.clone())
+            .activate(test_ctx.mem.clone(), None)
             .unwrap();
         // Process the activate event.
         let ev_count = event_manager.run_with_timeout(50).unwrap();

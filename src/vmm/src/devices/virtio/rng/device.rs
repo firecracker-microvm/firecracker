@@ -6,12 +6,13 @@ use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
 use aws_lc_rs::rand;
+use libc::IWEVEXPIRED;
 use vm_memory::GuestMemoryError;
 use vmm_sys_util::eventfd::EventFd;
 
 use super::metrics::METRICS;
 use super::{RNG_NUM_QUEUES, RNG_QUEUE};
-use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
+use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice, VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::gen::virtio_rng::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::iov_deque::IovDequeError;
 use crate::devices::virtio::iovec::IoVecBufferMut;
@@ -47,7 +48,7 @@ pub struct Entropy {
     device_state: DeviceState,
     pub(crate) queues: Vec<Queue>,
     queue_events: Vec<EventFd>,
-    irq_trigger: IrqTrigger,
+    virtio_interrupt: Option<Arc<dyn VirtioInterrupt>>,
 
     // Device specific fields
     rate_limiter: RateLimiter,
@@ -78,7 +79,7 @@ impl Entropy {
             device_state: DeviceState::Inactive,
             queues,
             queue_events,
-            irq_trigger,
+            virtio_interrupt: Some(Arc::new(irq_trigger)),
             rate_limiter,
             buffer: IoVecBufferMut::new()?,
         })
@@ -88,9 +89,9 @@ impl Entropy {
         ENTROPY_DEV_ID
     }
 
-    fn signal_used_queue(&self) -> Result<(), DeviceError> {
-        self.irq_trigger
-            .trigger_irq(IrqType::Vring)
+    fn signal_used_queue(&self, queue_index: usize) -> Result<(), DeviceError> {
+        self.interrupt()
+            .trigger(VirtioInterruptType::Queue(queue_index as u16))
             .map_err(DeviceError::FailedSignalingIrq)
     }
 
@@ -188,7 +189,7 @@ impl Entropy {
         }
 
         if used_any {
-            self.signal_used_queue().unwrap_or_else(|err| {
+            self.signal_used_queue(RNG_QUEUE).unwrap_or_else(|err| {
                 error!("entropy: {err:?}");
                 METRICS.entropy_event_fails.inc()
             });
@@ -237,9 +238,9 @@ impl Entropy {
         self.acked_features = features;
     }
 
-    pub(crate) fn set_irq_status(&mut self, status: u32) {
-        self.irq_trigger.irq_status = Arc::new(AtomicU32::new(status));
-    }
+    // pub(crate) fn set_irq_status(&mut self, status: u32) {
+    //     self.irq_trigger.irq_status = Arc::new(AtomicU32::new(status));
+    // }
 
     pub(crate) fn set_activated(&mut self, mem: GuestMemoryMmap) {
         self.device_state = DeviceState::Activated(mem);
@@ -267,8 +268,8 @@ impl VirtioDevice for Entropy {
         &self.queue_events
     }
 
-    fn interrupt_trigger(&self) -> &IrqTrigger {
-        &self.irq_trigger
+    fn interrupt(&self) -> Arc<dyn VirtioInterrupt> {
+        self.virtio_interrupt.as_ref().expect("interrupt must be set up").clone()
     }
 
     fn avail_features(&self) -> u64 {
@@ -291,7 +292,9 @@ impl VirtioDevice for Entropy {
         self.device_state.is_activated()
     }
 
-    fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+    fn activate(&mut self, mem: GuestMemoryMmap, virtio_interrupt: Option<Arc<dyn VirtioInterrupt>>) -> Result<(), ActivateError> {
+        self.virtio_interrupt = virtio_interrupt.or(self.virtio_interrupt.take());
+
         for q in self.queues.iter_mut() {
             q.initialize(&mem)
                 .map_err(ActivateError::QueueMemoryError)?;

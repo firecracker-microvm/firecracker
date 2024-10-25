@@ -177,7 +177,7 @@ pub mod tests {
         }
 
         // Now activate the device.
-        balloon.lock().unwrap().activate(mem.clone()).unwrap();
+        balloon.lock().unwrap().activate(mem.clone(), None).unwrap();
         // Process the activate event.
         let ev_count = event_manager.run_with_timeout(50).unwrap();
         assert_eq!(ev_count, 1);

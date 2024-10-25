@@ -29,7 +29,7 @@ use crate::devices::legacy::RTCDevice;
 use crate::devices::pseudo::BootTimer;
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
-use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::device::{VirtioDevice, VirtioInterruptType};
 use crate::devices::virtio::transport::MmioTransport;
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::rng::Entropy;
@@ -217,7 +217,9 @@ impl MMIODeviceManager {
                     .map_err(MmioError::RegisterIoEvent)?;
             }
             vm.register_irqfd(
-                &locked_device.interrupt_trigger().irq_evt,
+                &locked_device.interrupt()
+                    .notifier(VirtioInterruptType::Queue(0))
+                    .expect("mmio device should have evenfd"),
                 device_info.irqs[0],
             )
             .map_err(MmioError::RegisterIrqFd)?;
@@ -517,7 +519,8 @@ impl MMIODeviceManager {
                             .unwrap();
                         if vsock.is_activated() {
                             info!("kick vsock {id}.");
-                            vsock.signal_used_queue().unwrap();
+                            // TODO should we kick rx as well?
+                            vsock.signal_used_queue(1).unwrap();
                         }
                     }
                     TYPE_RNG => {
@@ -555,7 +558,7 @@ mod tests {
     use vmm_sys_util::eventfd::EventFd;
 
     use super::*;
-    use crate::devices::virtio::device::{IrqTrigger, VirtioDevice};
+    use crate::devices::virtio::device::{IrqTrigger, VirtioDevice, VirtioInterrupt};
     use crate::devices::virtio::queue::Queue;
     use crate::devices::virtio::ActivateError;
     use crate::test_utils::multi_region_mem;
@@ -602,7 +605,7 @@ mod tests {
         dummy: u32,
         queues: Vec<Queue>,
         queue_evts: [EventFd; 1],
-        interrupt_trigger: IrqTrigger,
+        interrupt: Arc<IrqTrigger>,
     }
 
     impl DummyDevice {
@@ -611,7 +614,7 @@ mod tests {
                 dummy: 0,
                 queues: QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect(),
                 queue_evts: [EventFd::new(libc::EFD_NONBLOCK).expect("cannot create eventFD")],
-                interrupt_trigger: IrqTrigger::new().expect("cannot create eventFD"),
+                interrupt: Arc::new(IrqTrigger::new().expect("cannot create eventFD")),
             }
         }
     }
@@ -643,8 +646,8 @@ mod tests {
             &self.queue_evts
         }
 
-        fn interrupt_trigger(&self) -> &IrqTrigger {
-            &self.interrupt_trigger
+        fn interrupt(&self) -> Arc<dyn VirtioInterrupt> {
+            self.interrupt.clone()
         }
 
         fn ack_features_by_page(&mut self, page: u32, value: u32) {
@@ -662,7 +665,7 @@ mod tests {
             let _ = data;
         }
 
-        fn activate(&mut self, _: GuestMemoryMmap) -> Result<(), ActivateError> {
+        fn activate(&mut self, _: GuestMemoryMmap, _: Option<Arc<dyn VirtioInterrupt>>) -> Result<(), ActivateError> {
             Ok(())
         }
 

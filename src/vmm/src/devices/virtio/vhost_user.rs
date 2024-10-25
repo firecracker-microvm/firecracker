@@ -6,6 +6,7 @@
 
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
+use std::sync::Arc;
 
 use vhost::vhost_user::message::*;
 use vhost::vhost_user::{Frontend, VhostUserFrontend};
@@ -16,6 +17,8 @@ use vmm_sys_util::eventfd::EventFd;
 use crate::devices::virtio::device::IrqTrigger;
 use crate::devices::virtio::queue::Queue;
 use crate::vstate::memory::GuestMemoryMmap;
+
+use super::device::{VirtioInterrupt, VirtioInterruptType};
 
 /// vhost-user error.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -400,7 +403,7 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
         &mut self,
         mem: &GuestMemoryMmap,
         queues: &[(usize, &Queue, &EventFd)],
-        irq_trigger: &IrqTrigger,
+        interrupt: Arc<dyn VirtioInterrupt>,
     ) -> Result<(), VhostUserError> {
         // Provide the memory table to the backend.
         self.update_mem_table(mem)?;
@@ -442,7 +445,7 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
             // No matter the queue, we set irq_evt for signaling the guest that buffers were
             // consumed.
             self.vu
-                .set_vring_call(*queue_index, &irq_trigger.irq_evt)
+                .set_vring_call(*queue_index, &interrupt.notifier(VirtioInterruptType::Queue(*queue_index as u16)).expect("vring irq should be initialized"))
                 .map_err(VhostUserError::VhostUserSetVringCall)?;
 
             self.vu
@@ -895,11 +898,11 @@ mod tests {
         queue.initialize(&guest_memory).unwrap();
 
         let event_fd = EventFd::new(0).unwrap();
-        let irq_trigger = IrqTrigger::new().unwrap();
+        let interrupt = Arc::new(IrqTrigger::new().unwrap());
 
         let queues = [(0, &queue, &event_fd)];
 
-        vuh.setup_backend(&guest_memory, &queues, &irq_trigger)
+        vuh.setup_backend(&guest_memory, &queues, interrupt.clone())
             .unwrap();
 
         // VhostUserHandleImpl should correctly send memory and queues information to
@@ -923,7 +926,7 @@ mod tests {
                 log_addr: None,
             },
             base: queue.avail_ring_idx_get(),
-            call: irq_trigger.irq_evt.as_raw_fd(),
+            call: interrupt.notifier(VirtioInterruptType::Queue(0)).expect("vring irq should be initialized").as_raw_fd(),
             kick: event_fd.as_raw_fd(),
             enable: true,
         };

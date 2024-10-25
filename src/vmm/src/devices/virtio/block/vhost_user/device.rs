@@ -14,6 +14,8 @@ use vmm_sys_util::eventfd::EventFd;
 
 use super::{VhostUserBlockError, NUM_QUEUES, QUEUE_SIZE};
 use crate::devices::virtio::block::CacheType;
+use crate::devices::virtio::device::VirtioInterrupt;
+use crate::devices::virtio::device::VirtioInterruptType;
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::devices::virtio::gen::virtio_blk::{
     VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_F_VERSION_1,
@@ -118,7 +120,7 @@ pub struct VhostUserBlockImpl<T: VhostUserHandleBackend> {
     pub queues: Vec<Queue>,
     pub queue_evts: [EventFd; u64_to_usize(NUM_QUEUES)],
     pub device_state: DeviceState,
-    pub irq_trigger: IrqTrigger,
+    pub virtio_interrupt: Option<Arc<dyn VirtioInterrupt>>,
 
     // Implementation specific fields.
     pub id: String,
@@ -144,7 +146,6 @@ impl<T: VhostUserHandleBackend> std::fmt::Debug for VhostUserBlockImpl<T> {
             .field("queues", &self.queues)
             .field("queue_evts", &self.queue_evts)
             .field("device_state", &self.device_state)
-            .field("irq_trigger", &self.irq_trigger)
             .field("id", &self.id)
             .field("partuuid", &self.partuuid)
             .field("cache_type", &self.cache_type)
@@ -204,7 +205,7 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
         let queue_evts = [EventFd::new(libc::EFD_NONBLOCK).map_err(VhostUserBlockError::EventFd)?;
             u64_to_usize(NUM_QUEUES)];
         let device_state = DeviceState::Inactive;
-        let irq_trigger = IrqTrigger::new().map_err(VhostUserBlockError::IrqTrigger)?;
+        let virtio_interrupt: Option<Arc<dyn VirtioInterrupt>> = Some(Arc::new(IrqTrigger::new().map_err(VhostUserBlockError::IrqTrigger)?));
 
         // We negotiated features with backend. Now these acked_features
         // are available for guest driver to choose from.
@@ -226,7 +227,7 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
             queues,
             queue_evts,
             device_state,
-            irq_trigger,
+            virtio_interrupt,
 
             id: config.drive_id,
             partuuid: config.partuuid,
@@ -271,8 +272,9 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
             )
             .map_err(VhostUserBlockError::Vhost)?;
         self.config_space = new_config_space;
-        self.irq_trigger
-            .trigger_irq(IrqType::Config)
+        self.virtio_interrupt.as_ref()
+            .expect("interrupt must be set up")
+            .trigger(VirtioInterruptType::Config)
             .map_err(VhostUserBlockError::IrqTrigger)?;
 
         let delta_us = get_time_us(ClockType::Monotonic) - start_time;
@@ -311,8 +313,8 @@ impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlock
         &self.queue_evts
     }
 
-    fn interrupt_trigger(&self) -> &IrqTrigger {
-        &self.irq_trigger
+    fn interrupt(&self) -> Arc<dyn VirtioInterrupt> {
+        self.virtio_interrupt.as_ref().expect("interrupt must be set up").clone()
     }
 
     fn read_config(&self, offset: u64, data: &mut [u8]) {
@@ -331,7 +333,9 @@ impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlock
         // Other block config fields are immutable.
     }
 
-    fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+    fn activate(&mut self, mem: GuestMemoryMmap, virtio_interrupt: Option<Arc<dyn VirtioInterrupt>>) -> Result<(), ActivateError> {
+        self.virtio_interrupt = virtio_interrupt.or(self.virtio_interrupt.take());
+
         for q in self.queues.iter_mut() {
             q.initialize(&mem)
                 .map_err(ActivateError::QueueMemoryError)?;
@@ -346,7 +350,7 @@ impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlock
                 self.vu_handle.setup_backend(
                     &mem,
                     &[(0, &self.queues[0], &self.queue_evts[0])],
-                    &self.irq_trigger,
+                    self.interrupt(),
                 )
             })
             .map_err(|err| {
@@ -376,7 +380,7 @@ mod tests {
 
     use super::*;
     use crate::devices::virtio::block::virtio::device::FileEngineType;
-    use crate::devices::virtio::mmio::VIRTIO_MMIO_INT_CONFIG;
+    use crate::devices::virtio::transport::mmio::VIRTIO_MMIO_INT_CONFIG;
     use crate::test_utils::create_tmp_socket;
     use crate::vstate::memory::{FileOffset, GuestAddress, GuestMemoryExtension};
 
@@ -786,7 +790,7 @@ mod tests {
         let guest_memory = GuestMemoryMmap::from_raw_regions_file(regions, false, false).unwrap();
 
         // During actiavion of the device features, memory and queues should be set and activated.
-        vhost_block.activate(guest_memory).unwrap();
+        vhost_block.activate(guest_memory, None).unwrap();
         assert!(unsafe { *vhost_block.vu_handle.vu.features_are_set.get() });
         assert!(unsafe { *vhost_block.vu_handle.vu.memory_is_set.get() });
         assert!(unsafe { *vhost_block.vu_handle.vu.vring_enabled.get() });

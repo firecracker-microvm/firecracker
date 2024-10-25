@@ -1,6 +1,8 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::Arc;
+
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use vmm_sys_util::eventfd::EventFd;
 
@@ -8,7 +10,7 @@ use super::persist::{BlockConstructorArgs, BlockState};
 use super::vhost_user::device::{VhostUserBlock, VhostUserBlockConfig};
 use super::virtio::device::{VirtioBlock, VirtioBlockConfig};
 use super::BlockError;
-use crate::devices::virtio::device::{IrqTrigger, VirtioDevice};
+use crate::devices::virtio::device::{IrqTrigger, VirtioDevice, VirtioInterrupt};
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
 use crate::rate_limiter::BucketUpdate;
@@ -173,10 +175,10 @@ impl VirtioDevice for Block {
         }
     }
 
-    fn interrupt_trigger(&self) -> &IrqTrigger {
+    fn interrupt(&self) -> Arc<dyn VirtioInterrupt> {
         match self {
-            Self::Virtio(b) => &b.irq_trigger,
-            Self::VhostUser(b) => &b.irq_trigger,
+            Self::Virtio(b) => b.interrupt(),
+            Self::VhostUser(b) => b.interrupt(),
         }
     }
 
@@ -194,10 +196,10 @@ impl VirtioDevice for Block {
         }
     }
 
-    fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+    fn activate(&mut self, mem: GuestMemoryMmap, virtio_interrupt: Option<Arc<dyn VirtioInterrupt>>) -> Result<(), ActivateError> {
         match self {
-            Self::Virtio(b) => b.activate(mem),
-            Self::VhostUser(b) => b.activate(mem),
+            Self::Virtio(b) => b.activate(mem, virtio_interrupt),
+            Self::VhostUser(b) => b.activate(mem, virtio_interrupt),
         }
     }
 

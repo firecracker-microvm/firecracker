@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::fmt;
+use std::fmt::{self, Debug};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
@@ -17,6 +17,27 @@ use super::ActivateError;
 use crate::devices::virtio::AsAny;
 use crate::logger::{error, warn};
 use crate::vstate::memory::GuestMemoryMmap;
+pub enum VirtioInterruptType {
+    Config,
+    Queue(u16),
+}
+
+pub trait VirtioInterrupt: Send + Sync {
+    fn trigger(&self, int_type: VirtioInterruptType) -> std::result::Result<(), std::io::Error>;
+    fn notifier(&self, _int_type: VirtioInterruptType) -> Option<EventFd> {
+        None
+    }
+    // TODO hack to make it backwards compatible with IrqInterrupt
+    fn status(&self) -> Arc<AtomicU32> {
+        Arc::new(AtomicU32::new(0))
+    }
+}
+
+impl Debug for dyn VirtioInterrupt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "VirtioInterrupt")
+    }
+}
 
 /// Enum that indicates if a VirtioDevice is inactive or has been activated
 /// and memory attached to it.
@@ -84,6 +105,23 @@ impl IrqTrigger {
     }
 }
 
+impl VirtioInterrupt for IrqTrigger {
+    fn trigger(&self, int_type: VirtioInterruptType) -> std::result::Result<(), std::io::Error> {
+        match int_type {
+            VirtioInterruptType::Config => self.trigger_irq(IrqType::Config),
+            VirtioInterruptType::Queue(_) => self.trigger_irq(IrqType::Vring),
+        }
+    }
+
+    fn notifier(&self, _int_type: VirtioInterruptType) -> Option<EventFd> {
+        Some(self.irq_evt.try_clone().ok()?)
+    }
+
+    fn status(&self) -> Arc<AtomicU32> {
+        self.irq_status.clone()
+    }
+}
+
 /// Trait for virtio devices to be driven by a virtio transport.
 ///
 /// The lifecycle of a virtio device is to be moved to a virtio transport, which will then query the
@@ -121,10 +159,10 @@ pub trait VirtioDevice: AsAny + Send {
 
     /// Returns the current device interrupt status.
     fn interrupt_status(&self) -> Arc<AtomicU32> {
-        Arc::clone(&self.interrupt_trigger().irq_status)
+        self.interrupt().status().clone()
     }
 
-    fn interrupt_trigger(&self) -> &IrqTrigger;
+    fn interrupt(&self) -> Arc<dyn VirtioInterrupt>;
 
     /// The set of feature bits shifted by `page * 32`.
     fn avail_features_by_page(&self, page: u32) -> u32 {
@@ -170,14 +208,14 @@ pub trait VirtioDevice: AsAny + Send {
     fn write_config(&mut self, offset: u64, data: &[u8]);
 
     /// Performs the formal activation for a device, which can be verified also with `is_activated`.
-    fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError>;
+    fn activate(&mut self, mem: GuestMemoryMmap, virtio_interrupt: Option<Arc<dyn VirtioInterrupt>>) -> Result<(), ActivateError>;
 
     /// Checks if the resources of this device are activated.
     fn is_activated(&self) -> bool;
 
     /// Optionally deactivates this device and returns ownership of the guest memory map, interrupt
     /// event, and queue events.
-    fn reset(&mut self) -> Option<(EventFd, Vec<EventFd>)> {
+    fn reset(&mut self) -> Option<(Arc<dyn VirtioInterrupt>, Vec<EventFd>)> {
         None
     }
 
@@ -275,7 +313,7 @@ pub(crate) mod tests {
             todo!()
         }
 
-        fn interrupt_trigger(&self) -> &IrqTrigger {
+        fn interrupt(&self) -> Arc<dyn VirtioInterrupt> {
             todo!()
         }
 
@@ -287,7 +325,7 @@ pub(crate) mod tests {
             todo!()
         }
 
-        fn activate(&mut self, _mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+        fn activate(&mut self, _mem: GuestMemoryMmap, _virtio_interrupt: Option<Arc<dyn VirtioInterrupt>>) -> Result<(), ActivateError> {
             todo!()
         }
 

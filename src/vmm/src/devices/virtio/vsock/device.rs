@@ -21,6 +21,7 @@
 //! - a backend FD.
 
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use log::{error, warn};
 use vmm_sys_util::eventfd::EventFd;
@@ -29,7 +30,7 @@ use super::super::super::DeviceError;
 use super::defs::uapi;
 use super::packet::{VsockPacketRx, VsockPacketTx, VSOCK_PKT_HDR_SIZE};
 use super::{defs, VsockBackend};
-use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
+use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice, VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::queue::Queue as VirtQueue;
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::devices::virtio::vsock::VsockError;
@@ -60,7 +61,7 @@ pub struct Vsock<B> {
     pub(crate) backend: B,
     pub(crate) avail_features: u64,
     pub(crate) acked_features: u64,
-    pub(crate) irq_trigger: IrqTrigger,
+    pub(crate) virtio_interrupt: Option<Arc<dyn VirtioInterrupt>>,
     // This EventFd is the only one initially registered for a vsock device, and is used to convert
     // a VirtioDevice::activate call into an EventHandler read event which allows the other events
     // (queue and backend related) to be registered post virtio device activation. That's
@@ -101,7 +102,7 @@ where
             backend,
             avail_features: AVAIL_FEATURES,
             acked_features: 0,
-            irq_trigger: IrqTrigger::new().map_err(VsockError::EventFd)?,
+            virtio_interrupt: Some(Arc::new(IrqTrigger::new().map_err(VsockError::EventFd)?)),
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?,
             device_state: DeviceState::Inactive,
             rx_packet: VsockPacketRx::new()?,
@@ -135,9 +136,9 @@ where
 
     /// Signal the guest driver that we've used some virtio buffers that it had previously made
     /// available.
-    pub fn signal_used_queue(&self) -> Result<(), DeviceError> {
-        self.irq_trigger
-            .trigger_irq(IrqType::Vring)
+    pub fn signal_used_queue(&self, queue_index: usize) -> Result<(), DeviceError> {
+        self.virtio_interrupt.as_ref().expect("interrupt should be setup")
+            .trigger(VirtioInterruptType::Queue(queue_index as u16))
             .map_err(DeviceError::FailedSignalingIrq)
     }
 
@@ -257,7 +258,7 @@ where
                 error!("Failed to add used descriptor {}: {}", head.index, err);
             });
 
-        self.signal_used_queue()?;
+        self.signal_used_queue(EVQ_INDEX)?;
 
         Ok(())
     }
@@ -295,8 +296,8 @@ where
         &self.queue_events
     }
 
-    fn interrupt_trigger(&self) -> &IrqTrigger {
-        &self.irq_trigger
+    fn interrupt(&self) -> Arc<dyn VirtioInterrupt> {
+        self.virtio_interrupt.as_ref().expect("interrupt must be set up").clone()
     }
 
     fn read_config(&self, offset: u64, data: &mut [u8]) {
@@ -328,7 +329,9 @@ where
         );
     }
 
-    fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+    fn activate(&mut self, mem: GuestMemoryMmap, virtio_interrupt: Option<Arc<dyn VirtioInterrupt>>) -> Result<(), ActivateError> {
+        self.virtio_interrupt = virtio_interrupt.or(self.virtio_interrupt.take());
+
         for q in self.queues.iter_mut() {
             q.initialize(&mem)
                 .map_err(ActivateError::QueueMemoryError)?;
@@ -430,6 +433,6 @@ mod tests {
         // }
 
         // Test a correct activation.
-        ctx.device.activate(ctx.mem.clone()).unwrap();
+        ctx.device.activate(ctx.mem.clone(), None).unwrap();
     }
 }

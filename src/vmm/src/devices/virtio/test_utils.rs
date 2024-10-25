@@ -414,7 +414,7 @@ pub(crate) mod test {
 
         /// Activate the device
         pub fn activate_device(&mut self, mem: &'a GuestMemoryMmap) {
-            self.device.lock().unwrap().activate(mem.clone()).unwrap();
+            self.device.lock().unwrap().activate(mem.clone(), None).unwrap();
             // Process the activate event
             let ev_count = self.event_manager.run_with_timeout(100).unwrap();
             assert_eq!(ev_count, 1);
