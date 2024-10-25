@@ -11,13 +11,15 @@ use std::any::Any;
 use std::cmp::{Ord, Ordering, PartialEq, PartialOrd};
 use std::collections::btree_map::BTreeMap;
 use std::result::Result;
-use std::sync::{Arc, Barrier, Mutex};
+use std::sync::{Arc, Barrier, Mutex, RwLock};
 
 /// Errors triggered during bus operations.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BusError {
     /// The insertion failed because the new device overlapped with an old device.
     Overlap,
+    /// The relocation failed because no device was mapped at the address
+    MissingAddressRange,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -49,7 +51,7 @@ impl PartialOrd for BusRange {
 /// only restriction is that no two devices can overlap in this address space.
 #[derive(Debug, Clone, Default)]
 pub struct Bus {
-    devices: BTreeMap<BusRange, Arc<Mutex<BusDevice>>>,
+    devices: Arc<RwLock<BTreeMap<BusRange, Arc<Mutex<BusDevice>>>>>,
 }
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
@@ -364,21 +366,21 @@ impl Bus {
     /// Constructs an a bus with an empty address space.
     pub fn new() -> Bus {
         Bus {
-            devices: BTreeMap::new(),
+            devices: Arc::new(RwLock::new(BTreeMap::new())),
         }
     }
 
-    fn first_before(&self, addr: u64) -> Option<(BusRange, &Mutex<BusDevice>)> {
+    fn first_before(&self, addr: u64) -> Option<(BusRange, Arc<Mutex<BusDevice>>)> {
         // for when we switch to rustc 1.17: self.devices.range(..addr).iter().rev().next()
-        for (range, dev) in self.devices.iter().rev() {
+        for (range, dev) in self.devices.read().unwrap().iter().rev() {
             if range.0 <= addr {
-                return Some((*range, dev));
+                return Some((*range, dev.clone()));
             }
         }
         None
     }
 
-    pub fn get_device(&self, addr: u64) -> Option<(u64, u64, &Mutex<BusDevice>)> {
+    pub fn get_device(&self, addr: u64) -> Option<(u64, u64, Arc<Mutex<BusDevice>>)> {
         if let Some((BusRange(start, len), dev)) = self.first_before(addr) {
             let offset = addr - start;
             if offset < len {
@@ -390,7 +392,7 @@ impl Bus {
 
     /// Puts the given device at the given address space.
     pub fn insert(
-        &mut self,
+        &self,
         device: Arc<Mutex<BusDevice>>,
         base: u64,
         len: u64,
@@ -416,10 +418,18 @@ impl Bus {
             }
         }
 
-        if self.devices.insert(BusRange(base, len), device).is_some() {
+        if self.devices.write().unwrap().insert(BusRange(base, len), device).is_some() {
             return Err(BusError::Overlap);
         }
 
+        Ok(())
+    }
+
+    pub fn remove(&self, base: u64, len: u64) -> Result<(), BusError> {
+        let range = BusRange(base, len);
+        if self.devices.write().unwrap().remove(&range).is_none() {
+            return Err(BusError::MissingAddressRange);
+        }
         Ok(())
     }
 
@@ -452,6 +462,29 @@ impl Bus {
             false
         }
     }
+    
+    /// Updates the address range for an existing device.
+    pub fn update_range(
+        &self,
+        old_base: u64,
+        old_len: u64,
+        new_base: u64,
+        new_len: u64,
+    ) -> Result<(), BusError> {
+        // Retrieve the device corresponding to the range
+        let device = if let Some((_, _, dev)) = self.get_device(old_base) {
+            dev.clone()
+        } else {
+            return Err(BusError::MissingAddressRange);
+        };
+
+        // Remove the old address range
+        self.remove(old_base, old_len)?;
+
+        // Insert the new address range
+        self.insert(device, new_base, new_len)
+    }
+
 }
 
 #[cfg(test)]

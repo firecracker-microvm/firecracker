@@ -382,7 +382,7 @@ impl MMIODeviceManager {
         &self,
         device_type: DeviceType,
         device_id: &str,
-    ) -> Option<&Mutex<BusDevice>> {
+    ) -> Option<Arc<Mutex<BusDevice>>> {
         if let Some(device_info) = self
             .id_to_dev_info
             .get(&(device_type, device_id.to_string()))
@@ -397,7 +397,7 @@ impl MMIODeviceManager {
     /// Run fn for each registered device.
     pub fn for_each_device<F, E: Debug>(&self, mut f: F) -> Result<(), E>
     where
-        F: FnMut(&DeviceType, &String, &MMIODeviceInfo, &Mutex<BusDevice>) -> Result<(), E>,
+        F: FnMut(&DeviceType, &String, &MMIODeviceInfo, Arc<Mutex<BusDevice>>) -> Result<(), E>,
     {
         for ((device_type, device_id), device_info) in self.get_device_info().iter() {
             let bus_device = self
