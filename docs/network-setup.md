@@ -1,50 +1,75 @@
 # Getting Started Firecracker Network Setup
 
-This is a very simple quick-start guide to getting a Firecracker guest connected
-to the network. If you're using Firecracker in production, or even want to run
-multiple guests, you'll need to adapt this setup.
+This is a simple quick-start guide to getting one or more Firecracker microVMs
+connected to the Internet via the host. If you run a production setup, you should
+consider modifying this setup to accommodate your specific needs.
 
-**Note** Currently firecracker supports only TUN/TAP network backend with no
+**Note:** Currently, Firecracker supports only a TUN/TAP network backend with no
 multi queue support.
 
-The simple steps in this guide assume that your internet-facing interface is
-`eth0`, you have nothing else using `tap0` and no other `iptables` rules. Check
-out the *Advanced:* sections if that doesn't work for you.
+The steps in this guide assume `eth0` to be your Internet-facing network interface
+on the host. If `eth0` isn't your main network interface, you should change the
+value to the correct one in the commands below. IPv4 is also assumed to be used,
+check out the _Advanced: IPv6 support_ section as an alternative.
 
-## On The Host
+To run multiple microVMs with this approach, check out the
+_Advanced: Multiple guests_ section.
 
-The first step on the host is to create a `tap` device:
+The `nftables` Linux firewall with the `nft` command should be used instead of
+`iptables`, since `iptables` and the associated tools are
+[no longer recommended](https://access.redhat.com/solutions/6739041) for use on
+production Linux systems.
+
+## On the Host
+
+The first step on the host for any microVM is to create a Linux `tap` device, which Firecracker
+will use for networking.
+
+For this setup, only two IP addresses will be necessary - one for the `tap` device and one for
+the guest itself, through which you will, for example, `ssh` into the guest. So, we'll choose the
+smallest IPv4 subnet needed for 2 addresses: `/30`. For this VM, let's use the `172.16.0.1` `tap` IP
+and the `172.16.0.2` guest IP.
 
 ```bash
+# Create the tap device.
 sudo ip tuntap add tap0 mode tap
+# Assign it the tap IP and start up the device.
+sudo ip addr add 172.16.0.1/30 dev tap0
+sudo ip link set tap0 up
 ```
 
-Then you have a few options for routing traffic out of the tap device, through
-your host's network interface. One option is NAT, set up like this:
+We'll use **NAT** for routing packets from the TAP device to `eth0` - you might want to consider
+a bridge interface instead in order to connect the guest to your local network (LAN), for which
+you can check out the _Advanced: Bridge-based routing_ section.
 
+Firstly, we'll need to enable IPv4 forwarding on the system.
 ```bash
-sudo ip addr add 172.16.0.1/24 dev tap0
-sudo ip link set tap0 up
 sudo sh -c "echo 1 > /proc/sys/net/ipv4/ip_forward"
-sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-sudo iptables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-sudo iptables -A FORWARD -i tap0 -o eth0 -j ACCEPT
+```
+
+Then, we'll need an nftables table for our routing needs, and 2 chains inside that table: one
+for NAT on `postrouting` stage, and another one for filtering on `forward` stage:
+```bash
+sudo nft add table firecracker
+sudo nft 'add chain firecracker postrouting { type nat hook postrouting priority srcnat; policy accept; }'
+sudo nft 'add chain firecracker filter { type filter hook forward priority filter; policy accept; }'
+```
+
+The first rule we'll need will masquerade packets from the guest IP as if they came from the
+host's IP, by changing the source IP address of these packets:
+```bash
+sudo nft add rule firecracker postrouting ip saddr 172.16.0.2 oifname eth0 counter masquerade
+```
+
+The second rule we'll need will accept packets from the tap IP (the guest will use the tap IP as its
+gateway and will therefore route its own packets through the tap IP) and direct them to the host
+network interface:
+```bash
+sudo nft add rule firecracker filter iifname tap0 oifname eth0 accept
 ```
 
 *Note:* The IP of the TAP device should be chosen such that it's not in the same
 subnet as the IP address of the host.
-
-*Advanced:* If you are running multiple Firecracker MicroVMs in parallel, or
-have something else on your system using `tap0` then you need to create a `tap`
-for each one, with a unique name.
-
-*Advanced:* You also need to do the `iptables` set up for each new `tap`. If you
-have `iptables` rules you care about on your host, you may want to save those
-rules before starting.
-
-```bash
-sudo iptables-save > iptables.rules.old
-```
 
 ## Setting Up Firecracker
 
@@ -85,14 +110,20 @@ configuration file like this:
 ```
 
 Alternatively, if you are using firectl, add
---tap-device=tap0/06:00:AC:10:00:02\` to your command line.
+`--tap-device=tap0/06:00:AC:10:00:02\` to your command line.
 
 ## In The Guest
 
-Once you have booted the guest, bring up networking within the guest:
+Once you have booted the guest, it will have its networking interface with the
+name specified by `iface_id` in the Firecracker configuration.
+
+You'll now need to assign the guest its IP, activate the guest's networking
+interface and set up the `tap` IP as the guest's gateway address, so that packets
+are routed through the `tap` device, where they are then picked up by the setup
+on the host prepared before:
 
 ```bash
-ip addr add 172.16.0.2/24 dev eth0
+ip addr add 172.16.0.2/30 dev eth0
 ip link set eth0 up
 ip route add default via 172.16.0.1 dev eth0
 ```
@@ -107,7 +138,46 @@ your environment. For testing, you can add a public DNS server to
 nameserver 8.8.8.8
 ```
 
-## \[Advanced\] Setting Up a Bridge Interface
+**Note:** Sometimes, it's undesirable to have `iproute2` (providing the `ip` command)
+installed on your guest OS, or you simply want to have these steps be performed
+automatically. To do this, check out the
+_Advanced: Guest network configuration at kernel level_ section.
+
+## Cleaning up
+
+The first step to cleaning up is deleting the tap device:
+
+```bash
+sudo ip link del tap0
+```
+
+If you don't have anything else using `iptables` on your machine, clean up those
+rules:
+
+```bash
+sudo iptables -F
+sudo sh -c "echo 0 > /proc/sys/net/ipv4/ip_forward" # usually the default
+```
+
+If you have an existing iptables setup, you'll want to be more careful about
+cleaning up.
+
+*Advanced:* If you saved your iptables rules in the first step, then you can
+restore them like this:
+
+```bash
+if [ -f iptables.rules.old ]; then
+    sudo iptables-restore < iptables.rules.old
+fi
+```
+
+*Advanced:* If you created a bridge interface, delete it using the following:
+
+```bash
+sudo ip link del br0
+```
+
+## Advanced: Bridge-based routing
 
 ### On The Host
 
@@ -184,36 +254,12 @@ nameserver 8.8.8.8
    nameserver 192.168.1.1
    ```
 
-## Cleaning up
+## Advanced: Guest network configuration at kernel level
 
-The first step to cleaning up is deleting the tap device:
+**TODO**
 
-```bash
-sudo ip link del tap0
-```
+## Advanced: IPv6 support
 
-If you don't have anything else using `iptables` on your machine, clean up those
-rules:
+**TODO**
 
-```bash
-sudo iptables -F
-sudo sh -c "echo 0 > /proc/sys/net/ipv4/ip_forward" # usually the default
-```
-
-If you have an existing iptables setup, you'll want to be more careful about
-cleaning up.
-
-*Advanced:* If you saved your iptables rules in the first step, then you can
-restore them like this:
-
-```bash
-if [ -f iptables.rules.old ]; then
-    sudo iptables-restore < iptables.rules.old
-fi
-```
-
-*Advanced:* If you created a bridge interface, delete it using the following:
-
-```bash
-sudo ip link del br0
-```
+## Advanced: Multiple guests
