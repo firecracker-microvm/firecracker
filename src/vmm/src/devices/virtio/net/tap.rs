@@ -219,9 +219,12 @@ pub mod tests {
     use std::os::unix::ffi::OsStrExt;
 
     use super::*;
-    use crate::devices::virtio::iovec::IoVecBufferMut;
     use crate::devices::virtio::net::gen;
     use crate::devices::virtio::net::test_utils::{enable, if_index, TapTrafficSimulator};
+
+    // Redefine `IoVecBufferMut` with specific length. Otherwise
+    // Rust will not know what to do.
+    type IoVecBufferMut = crate::devices::virtio::iovec::IoVecBufferMut<256>;
 
     // The size of the virtio net header
     const VNET_HDR_SIZE: usize = 10;

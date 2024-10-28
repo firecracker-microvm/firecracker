@@ -11,6 +11,7 @@ use vm_memory::{
 };
 
 use super::iov_deque::{IovDeque, IovDequeError};
+use super::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::devices::virtio::queue::DescriptorChain;
 use crate::vstate::memory::GuestMemoryMmap;
 
@@ -223,10 +224,11 @@ pub struct ParsedDescriptorChain {
 /// It describes a write-only buffer passed to us by the guest that is scattered across multiple
 /// memory regions. Additionally, this wrapper provides methods that allow reading arbitrary ranges
 /// of data from that buffer.
+/// `L` const generic value must be a multiple of 256 as required by the `IovDeque` requirements.
 #[derive(Debug)]
-pub struct IoVecBufferMut {
+pub struct IoVecBufferMut<const L: u16 = FIRECRACKER_MAX_QUEUE_SIZE> {
     // container of the memory regions included in this IO vector
-    pub vecs: IovDeque,
+    pub vecs: IovDeque<L>,
     // Total length of the IoVecBufferMut
     // We use `u32` here because we use this type in devices which
     // should not give us huge buffers. In any case this
@@ -236,9 +238,9 @@ pub struct IoVecBufferMut {
 
 // SAFETY: `IoVecBufferMut` doesn't allow for interior mutability and no shared ownership is
 // possible as it doesn't implement clone
-unsafe impl Send for IoVecBufferMut {}
+unsafe impl<const L: u16> Send for IoVecBufferMut<L> {}
 
-impl IoVecBufferMut {
+impl<const L: u16> IoVecBufferMut<L> {
     /// Append a `DescriptorChain` in this `IoVecBufferMut`
     ///
     /// # Safety
@@ -477,7 +479,11 @@ mod tests {
     use libc::{c_void, iovec};
     use vm_memory::VolatileMemoryError;
 
-    use super::{IoVecBuffer, IoVecBufferMut};
+    use super::IoVecBuffer;
+    // Redefine `IoVecBufferMut` with specific length. Otherwise
+    // Rust will not know what to do.
+    type IoVecBufferMut = super::IoVecBufferMut<256>;
+
     use crate::devices::virtio::iov_deque::IovDeque;
     use crate::devices::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::VirtQueue;
@@ -514,7 +520,7 @@ mod tests {
         }
     }
 
-    impl From<&mut [u8]> for IoVecBufferMut {
+    impl<const L: u16> From<&mut [u8]> for super::IoVecBufferMut<L> {
         fn from(buf: &mut [u8]) -> Self {
             let mut vecs = IovDeque::new().unwrap();
             vecs.push_back(iovec {
@@ -529,7 +535,7 @@ mod tests {
         }
     }
 
-    impl From<Vec<&mut [u8]>> for IoVecBufferMut {
+    impl<const L: u16> From<Vec<&mut [u8]>> for super::IoVecBufferMut<L> {
         fn from(buffer: Vec<&mut [u8]>) -> Self {
             let mut len = 0;
             let mut vecs = IovDeque::new().unwrap();
@@ -804,9 +810,14 @@ mod verification {
     use vm_memory::bitmap::BitmapSlice;
     use vm_memory::VolatileSlice;
 
-    use super::{IoVecBuffer, IoVecBufferMut};
-    use crate::arch::PAGE_SIZE;
+    use super::IoVecBuffer;
     use crate::devices::virtio::iov_deque::IovDeque;
+    // Redefine `IoVecBufferMut` and `IovDeque` with specific length. Otherwise
+    // Rust will not know what to do.
+    type IoVecBufferMut256 = super::IoVecBufferMut<256>;
+    type IovDeque256 = IovDeque<256>;
+
+    use crate::arch::PAGE_SIZE;
     use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 
     // Maximum memory size to use for our buffers. For the time being 1KB.
@@ -837,7 +848,7 @@ mod verification {
         ///
         /// This stub helps imitate the effect of mirroring without all the elaborate memory
         /// allocation trick.
-        pub fn push_back(deque: &mut IovDeque, iov: iovec) {
+        pub fn push_back<const L: u16>(deque: &mut IovDeque<L>, iov: iovec) {
             // This should NEVER happen, since our ring buffer is as big as the maximum queue size.
             // We also check for the sanity of the VirtIO queues, in queue.rs, which means that if
             // we ever try to add something in a full ring buffer, there is an internal
@@ -893,7 +904,7 @@ mod verification {
         }
     }
 
-    fn create_iov_deque() -> IovDeque {
+    fn create_iov_deque() -> IovDeque256 {
         // SAFETY: safe because the layout has non-zero size
         let mem = unsafe {
             std::alloc::alloc(std::alloc::Layout::from_size_align_unchecked(
@@ -901,14 +912,14 @@ mod verification {
                 PAGE_SIZE,
             ))
         };
-        IovDeque {
+        IovDeque256 {
             iov: mem.cast(),
             start: kani::any_where(|&start| start < FIRECRACKER_MAX_QUEUE_SIZE),
             len: 0,
         }
     }
 
-    fn create_iovecs_mut(mem: *mut u8, size: usize, nr_descs: usize) -> (IovDeque, u32) {
+    fn create_iovecs_mut(mem: *mut u8, size: usize, nr_descs: usize) -> (IovDeque256, u32) {
         let mut vecs = create_iov_deque();
         let mut len = 0u32;
         for _ in 0..nr_descs {
@@ -928,7 +939,7 @@ mod verification {
         (vecs, len)
     }
 
-    impl IoVecBufferMut {
+    impl IoVecBufferMut256 {
         fn any_of_length(nr_descs: usize) -> Self {
             // We only write into `IoVecBufferMut` objects, so we can simply create a guest memory
             // object initialized to zeroes, trying to be nice to Kani.
@@ -1018,10 +1029,12 @@ mod verification {
     #[kani::proof]
     #[kani::unwind(5)]
     #[kani::solver(cadical)]
+    // The `IovDeque` is defined as type alias in the kani module. Because of this
+    // we need to specify original type here for stub to work.
     #[kani::stub(IovDeque::push_back, stubs::push_back)]
     fn verify_write_to_iovec() {
         for nr_descs in 0..MAX_DESC_LENGTH {
-            let mut iov_mut = IoVecBufferMut::any_of_length(nr_descs);
+            let mut iov_mut = IoVecBufferMut256::any_of_length(nr_descs);
 
             let mut buf = kani::vec::any_vec::<u8, GUEST_MEMORY_SIZE>();
             let offset: u32 = kani::any();
