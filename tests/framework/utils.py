@@ -234,17 +234,14 @@ class CpuMap:
         #  - cgroupsv1: /cpuset.cpus
         #  - cgroupsv2: /cpuset.cpus.effective
         # For more details, see https://docs.kernel.org/admin-guide/cgroup-v2.html#cpuset-interface-files
-        cpulist = None
         for path in [
             Path("/sys/fs/cgroup/cpuset/cpuset.cpus"),
             Path("/sys/fs/cgroup/cpuset.cpus.effective"),
         ]:
             if path.exists():
-                cpulist = path.read_text("ascii").strip()
-                break
-        else:
-            raise RuntimeError("Could not find cgroups cpuset")
-        return ListFormatParser(cpulist).parse()
+                return ListFormatParser(path.read_text("ascii").strip()).parse()
+
+        raise RuntimeError("Could not find cgroups cpuset")
 
 
 class ListFormatParser:
