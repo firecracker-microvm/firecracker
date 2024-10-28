@@ -5,13 +5,13 @@
 
 use std::io;
 
-use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
-
+/// Maximum size of the queue for network device.
+pub const NET_QUEUE_MAX_SIZE: u16 = 512;
 /// Maximum size of the frame buffers handled by this device.
 pub const MAX_BUFFER_SIZE: usize = 65562;
 /// The number of queues of the network device.
 pub const NET_NUM_QUEUES: usize = 2;
-pub const NET_QUEUE_SIZES: [u16; NET_NUM_QUEUES] = [FIRECRACKER_MAX_QUEUE_SIZE; NET_NUM_QUEUES];
+pub const NET_QUEUE_SIZES: [u16; NET_NUM_QUEUES] = [NET_QUEUE_MAX_SIZE; NET_NUM_QUEUES];
 /// The index of the rx queue from Net device queues/queues_evts vector.
 pub const RX_INDEX: usize = 0;
 /// The index of the tx queue from Net device queues/queues_evts vector.
