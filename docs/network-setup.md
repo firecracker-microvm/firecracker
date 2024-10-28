@@ -145,37 +145,49 @@ _Advanced: Guest network configuration at kernel level_ section.
 
 ## Cleaning up
 
-The first step to cleaning up is deleting the tap device:
+The first step to cleaning up is to delete the tap device on the host:
 
 ```bash
 sudo ip link del tap0
 ```
 
-If you don't have anything else using `iptables` on your machine, clean up those
-rules:
+You'll then want to delete the two nftables rules for NAT routing from the
+`postrouting` and `filter` chains. To do this with nftables, you'll need to
+look up the _handles_ (identifiers) of these rules by running:
 
 ```bash
-sudo iptables -F
-sudo sh -c "echo 0 > /proc/sys/net/ipv4/ip_forward" # usually the default
+sudo nft -a list ruleset
 ```
 
-If you have an existing iptables setup, you'll want to be more careful about
-cleaning up.
-
-*Advanced:* If you saved your iptables rules in the first step, then you can
-restore them like this:
-
+Now, find the `# handle` comments relating to the two rules and delete them.
+For example, if the handle to the masquerade rule is 1 and the one to the
+other rule is 2:
 ```bash
-if [ -f iptables.rules.old ]; then
-    sudo iptables-restore < iptables.rules.old
-fi
+sudo nft delete rule firecracker postrouting handle 1
+sudo nft delete rule firecracker filter handle 2
 ```
 
-*Advanced:* If you created a bridge interface, delete it using the following:
-
+_Advanced:_ If you created a bridge interface, delete it using the following:
 ```bash
 sudo ip link del br0
 ```
+
+Run the following steps only **if you have no more guests** running on the host:
+
+Set IPv4 forwarding back to disabled:
+```bash
+sudo sh -c "echo 0 > /proc/sys/net/ipv4/ip_forward" # usually the default
+```
+
+Delete the `firecracker` nftables table to revert your nftables configuration
+fully back to its initial state:
+```bash
+sudo nft delete table firecracker
+```
+
+## Advanced: Multiple guests
+
+**TODO**
 
 ## Advanced: Bridge-based routing
 
@@ -261,5 +273,3 @@ sudo ip link del br0
 ## Advanced: IPv6 support
 
 **TODO**
-
-## Advanced: Multiple guests
