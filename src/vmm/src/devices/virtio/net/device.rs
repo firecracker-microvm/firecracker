@@ -14,6 +14,7 @@ use libc::{iovec, EAGAIN};
 use log::error;
 use vmm_sys_util::eventfd::EventFd;
 
+use super::NET_QUEUE_MAX_SIZE;
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::gen::virtio_net::{
@@ -104,7 +105,7 @@ pub struct RxBuffers {
     pub min_buffer_size: u32,
     // An [`IoVecBufferMut`] covering all the memory we have available for receiving network
     // frames.
-    pub iovec: IoVecBufferMut,
+    pub iovec: IoVecBufferMut<NET_QUEUE_MAX_SIZE>,
     // A map of which part of the memory belongs to which `DescriptorChain` object
     pub parsed_descriptors: VecDeque<ParsedDescriptorChain>,
     // Buffers that we have used and they are ready to be given back to the guest.
