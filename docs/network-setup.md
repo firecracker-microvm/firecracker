@@ -187,7 +187,65 @@ sudo nft delete table firecracker
 
 ## Advanced: Multiple guests
 
-**TODO**
+To configure multiple guests, we will only need to repeat some of the steps in this setup
+for each of the microVMs:
+
+1. Each microVM has its own subnet and the two IP addresses inside of it: the `tap` IP and
+the guest IP.
+2. Each microVM has its own two nftables rules for masquerading and forwarding in the same
+table and chains shared between the microVMs.
+3. Each microVM has its own routing configuration inside the guest itself (achieved through
+`iproute2` or the method described in the _Advanced: Guest network configuration at kernel level_
+section).
+
+To give a more concrete example, **let's add a second microVM** to the one you've already configured:
+
+Let's assume we allocate /30 subnets in the 172.16.0.0/16 range sequentially to give out as
+few addresses as needed.
+
+The next /30 subnet in the 172.16.0.0/16 range will have give us these two IPs:
+172.16.0.6 as the `tap` IP and 172.16.0.7 as the guest IP, let's use these.
+
+Our new `tap` device will, sequentially, have the name `tap1`:
+```bash
+sudo ip tuntap add tap1 mode tap
+sudo ip addr add 172.16.0.5/30 dev tap1
+sudo ip link set tap1 up
+```
+
+Now, let's add the new two nftables rules, also with the new values:
+```bash
+sudo nft add rule firecracker postrouting ip saddr 172.16.0.6 oifname eth0 counter masquerade
+sudo nft add rule firecracker filter iifname tap1 oifname eth0 accept
+```
+
+Modify your Firecracker configuration with the `host_dev_name` now being `tap1` instead of `tap0`,
+boot up the guest and perform the routing inside of it like so, changing the guest IP and `tap` IP:
+```bash
+ip addr add 172.16.0.6/30 dev eth0
+ip link set eth0 up
+ip route add default via 172.16.0.5 dev eth0
+```
+
+Or, you can use the setup from _Advanced: Guest network configuration at kernel level_ by simply
+changing the G and T variables, i.e. the guest IP and `tap` IP.
+
+**Note:** if you'd like to calculate the guest and `tap` IPs using the sequential subnet allocation
+method that has been used here, you can use the following formula specific to IPv4 addresses:
+
+Guest IP = `172.16.[(A*O+1)/256].[(A*O+1)%256]`.
+
+`tap` IP = `172.16.[(A*O+2)/256].[(A*O+2)%256]`.
+
+Round down the division and place `A` as the amount of IP addresses inside your subnet (for a
+/30 subnet, that will be 4 addresses, for example) and `O` as the sequential number of your microVM,
+starting at 0. You can replace `172.16` with any other values.
+
+For example, let's calculate the addresses of the 1000-th microVM with a /30 subnet:
+
+Guest IP = `172.16.[(4*999+1)/256].[(4*999+1)%256]` = `172.16.15.157`.
+
+`tap` IP = `172.16.[(4*999+2)/256].[(4*999+2)%256]` = `172.16.15.158`.
 
 ## Advanced: Bridge-based routing
 
@@ -268,7 +326,21 @@ sudo nft delete table firecracker
 
 ## Advanced: Guest network configuration at kernel level
 
-**TODO**
+The Linux kernel supports an `ip` CLI arguments that can be passed to it when booting.
+Boot arguments in Firecracker are configured in the `boot_args` property of the boot source
+(`boot-source` object in the JSON configuration or the equivalent endpoint in the API server).
+
+The value of the `ip` CLI argument for our setup will be the of this format:
+`G::T:GM::GI:off`. G is the guest IP (without the subnet), T is the `tap` IP (without the subnet),
+GM is the "long" mask IP of the guest CIDR and GI is the name of the guest network interface.
+
+Substituting our values, we get: `ip=172.16.0.2::172.16.0.1:255.255.255.252::eth0:off`. Insert this
+at the end of your boot arguments for your microVM, and the guest Linux kernel will automatically
+perform the routing configuration done in the _In the Guest_ section without needing `iproute2`
+installed in the guest. (This argument doesn't configure DNS, however).
+
+As soon as you boot the guest, it will already be connected to the network (assuming you correctly
+performing the other steps).
 
 ## Advanced: IPv6 support
 
