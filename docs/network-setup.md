@@ -192,8 +192,8 @@ for each of the microVMs:
 
 1. Each microVM has its own subnet and the two IP addresses inside of it: the `tap` IP and
 the guest IP.
-2. Each microVM has its own two nftables rules for masquerading and forwarding in the same
-table and chains shared between the microVMs.
+2. Each microVM has its own two nftables rules for masquerading and forwarding, while the same
+table and two chains can be shared between the microVMs.
 3. Each microVM has its own routing configuration inside the guest itself (achieved through
 `iproute2` or the method described in the _Advanced: Guest network configuration at kernel level_
 section).
@@ -231,21 +231,26 @@ Or, you can use the setup from _Advanced: Guest network configuration at kernel 
 changing the G and T variables, i.e. the guest IP and `tap` IP.
 
 **Note:** if you'd like to calculate the guest and `tap` IPs using the sequential subnet allocation
-method that has been used here, you can use the following formula specific to IPv4 addresses:
+method that has been used here, you can use the following formulas specific to IPv4 addresses:
 
-Guest IP = `172.16.[(A*O+1)/256].[(A*O+1)%256]`.
+`tap` IP = `172.16.[(A*O+1)/256].[(A*O+1)%256]`.
 
-`tap` IP = `172.16.[(A*O+2)/256].[(A*O+2)%256]`.
+Guest IP = `172.16.[(A*O+2)/256].[(A*O+2)%256]`.
 
-Round down the division and place `A` as the amount of IP addresses inside your subnet (for a
-/30 subnet, that will be 4 addresses, for example) and `O` as the sequential number of your microVM,
-starting at 0. You can replace `172.16` with any other values.
+Round down the division and replace `A` with the amount of IP addresses inside your subnet (for a
+/30 subnet, that will be 4 addresses, for example) and replace `O` with the sequential number of
+your microVM, starting at 0. You can replace `172.16` with any other values that fit between between
+1 and 255 as usual with an IPv4 address.
 
-For example, let's calculate the addresses of the 1000-th microVM with a /30 subnet:
+For example, let's calculate the addresses of the 1000-th microVM with a /30 subnet in
+the `172.16.0.0/16` range:
 
-Guest IP = `172.16.[(4*999+1)/256].[(4*999+1)%256]` = `172.16.15.157`.
+`tap` IP = `172.16.[(4*999+1)/256].[(4*999+1)%256]` = `172.16.15.157`.
 
-`tap` IP = `172.16.[(4*999+2)/256].[(4*999+2)%256]` = `172.16.15.158`.
+Guest IP = `172.16.[(4*999+2)/256].[(4*999+2)%256]` = `172.16.15.158`.
+
+This allocation setup has been used successfully in the `firecracker-demo` project for launching several
+thousand microVMs on the same host: [relevant lines](https://github.com/firecracker-microvm/firecracker-demo/blob/63717c6e7fbd277bdec8e26a5533d53544a760bb/start-firecracker.sh#L45).
 
 ## Advanced: Bridge-based routing
 
@@ -344,4 +349,18 @@ performing the other steps).
 
 ## Advanced: IPv6 support
 
-**TODO**
+In order to achieve IPv6 support both in the host and guest, you'll need to carefully perform the following changes to this setup:
+
+1. Adapt the guest and `tap` IPs to be IPv6.
+2. Ensure the host OS has IPv6 configured and it is used on the host network interface (`eth0`).
+3. Ensure the guest kernel was built with IPv6 enabled as well (**Important!** The guest kernel configs in
+[this repository](https://github.com/firecracker-microvm/firecracker/tree/main/resources/guest_configs)
+disable IPv6, so make sure to change these configurations if you're using them).
+4. When creating the nftables table named `firecracker`, specify the `ip6` (IPv6) family like so:
+```bash
+sudo nft add table ip6 firecracker
+```
+5. When adding the masquerade nftables rule, change `ip` before `saddr` to `ip6` like so:
+```bash
+sudo nft add rule firecracker postrouting ip6 saddr NEW_IPV6_GUEST_IP oifname eth0 counter masquerade
+```
