@@ -442,7 +442,7 @@ mod tests {
         let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop().unwrap();
         assert!(matches!(
             // SAFETY: This descriptor chain is only loaded into one buffer
-            unsafe { IoVecBufferMut::from_descriptor_chain(&mem, desc) },
+            unsafe { IoVecBufferMut::<256>::from_descriptor_chain(&mem, desc) },
             Err(crate::devices::virtio::iovec::IoVecError::ReadOnlyDescriptor)
         ));
 
