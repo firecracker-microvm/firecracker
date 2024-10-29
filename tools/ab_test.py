@@ -155,7 +155,7 @@ def load_data_series(report_path: Path, tag=None, *, reemit: bool = False):
 
 def collect_data(binary_dir: Path, tests: list[str]):
     """Executes the specified test using the provided firecracker binaries"""
-    # Example binary_dir: ../build/main/build/cargo_target/x86_64-unknown-linux-musl/release
+    binary_dir = binary_dir.resolve()
 
     print(f"Collecting samples with {binary_dir}")
     subprocess.run(

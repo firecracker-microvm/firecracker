@@ -180,16 +180,7 @@ def random_str(k: int):
 
 def ab_revision_build(revision):
     """Generate steps for building an A/B-test revision"""
-    # Copied from framework/ab_test. Double dollar signs needed for Buildkite (otherwise it will try to interpolate itself)
-    return [
-        f"commitish={revision}",
-        f"if ! git cat-file -t $$commitish; then commitish=origin/{revision}; fi",
-        "branch_name=tmp-$$commitish",
-        "git branch $$branch_name $$commitish",
-        f"git clone -b $$branch_name . build/{revision}",
-        f"cd build/{revision} && ./tools/devtool -y build --release && cd -",
-        "git branch -D $$branch_name",
-    ]
+    return [f"./tools/devtool -y build --rev {revision} --release"]
 
 
 def shared_build():

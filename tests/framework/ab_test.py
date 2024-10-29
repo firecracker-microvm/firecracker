@@ -101,6 +101,7 @@ def git_ab_test(
     return result_a, result_b, comparison
 
 
+DEFAULT_A_DIRECTORY = FC_WORKSPACE_DIR / "build" / "main"
 DEFAULT_B_DIRECTORY = FC_WORKSPACE_DIR / "build" / "cargo_target" / DEFAULT_TARGET_DIR
 
 
@@ -108,7 +109,7 @@ def binary_ab_test(
     test_runner: Callable[[Path, bool], T],
     comparator: Callable[[T, T], U] = default_comparator,
     *,
-    a_directory: Path,
+    a_directory: Path = DEFAULT_A_DIRECTORY,
     b_directory: Path = DEFAULT_B_DIRECTORY,
 ):
     """
