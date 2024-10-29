@@ -200,10 +200,10 @@ def test_deflate_on_oom(uvm_plain_any, deflate_on_oom):
 
     # We get an initial reading of the RSS, then calculate the amount
     # we need to inflate the balloon with by subtracting it from the
-    # VM size and adding an offset of 10 MiB in order to make sure we
+    # VM size and adding an offset of 50 MiB in order to make sure we
     # get a lower reading than the initial one.
     initial_rss = get_stable_rss_mem_by_pid(firecracker_pid)
-    inflate_size = 256 - int(initial_rss / 1024) + 10
+    inflate_size = 256 - (int(initial_rss / 1024) + 50)
 
     # Inflate the balloon
     test_microvm.api.balloon.patch(amount_mib=inflate_size)
@@ -213,7 +213,7 @@ def test_deflate_on_oom(uvm_plain_any, deflate_on_oom):
     # Check that using memory leads to the balloon device automatically
     # deflate (or not).
     balloon_size_before = test_microvm.api.balloon_stats.get().json()["actual_mib"]
-    make_guest_dirty_memory(test_microvm.ssh, 64)
+    make_guest_dirty_memory(test_microvm.ssh, 128)
 
     balloon_size_after = test_microvm.api.balloon_stats.get().json()["actual_mib"]
     print(f"size before: {balloon_size_before} size after: {balloon_size_after}")
