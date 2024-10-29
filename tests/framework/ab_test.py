@@ -24,6 +24,7 @@ does not block PRs). If not, it fails, preventing PRs from introducing new vulne
 import os
 import statistics
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Callable, List, Optional, TypeVar
 
 import scipy
@@ -82,19 +83,20 @@ def git_ab_test(
              (alternatively, your comparator can perform any required assertions and not return anything).
     """
 
-    dir_a = git_clone(Path("../build") / a_revision, a_revision)
-    result_a = test_runner(dir_a, True)
+    with TemporaryDirectory() as tmp_dir:
+        dir_a = git_clone(Path(tmp_dir) / a_revision, a_revision)
+        result_a = test_runner(dir_a, True)
 
-    if b_revision:
-        dir_b = git_clone(Path("../build") / b_revision, b_revision)
-    else:
-        # By default, pytest execution happens inside the `tests` subdirectory. Pass the repository root, as
-        # documented.
-        dir_b = Path.cwd().parent
-    result_b = test_runner(dir_b, False)
+        if b_revision:
+            dir_b = git_clone(Path(tmp_dir) / b_revision, b_revision)
+        else:
+            # By default, pytest execution happens inside the `tests` subdirectory. Pass the repository root, as
+            # documented.
+            dir_b = Path.cwd().parent
+        result_b = test_runner(dir_b, False)
 
-    comparison = comparator(result_a, result_b)
-    return result_a, result_b, comparison
+        comparison = comparator(result_a, result_b)
+        return result_a, result_b, comparison
 
 
 DEFAULT_A_DIRECTORY = FC_WORKSPACE_DIR / "build" / "main"
