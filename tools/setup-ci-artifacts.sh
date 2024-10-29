@@ -43,3 +43,6 @@ for SQUASHFS in *.squashfs; do
     mkfs.ext4 -F $EXT4 -d squashfs-root
     rm -rf squashfs-root
 done
+
+say "Uncompress debuginfo files"
+find . -name "*.debug.gz" -print0 | xargs -P4 -0 -t -n1 gunzip
