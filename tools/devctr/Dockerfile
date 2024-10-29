@@ -75,7 +75,7 @@ RUN apt-get update \
         screen tmux \
         tzdata \
         tini \
-        squashfs-tools \
+        squashfs-tools zstd \
         # for aws-lc-rs
         cmake \
         # for Qemu vhost-user-blk backend
