@@ -10,7 +10,7 @@ multi queue support.
 The steps in this guide assume `eth0` to be your Internet-facing network interface
 on the host. If `eth0` isn't your main network interface, you should change the
 value to the correct one in the commands below. IPv4 is also assumed to be used,
-check out the _Advanced: IPv6 support_ section as an alternative.
+so you will need to adapt the instructions accordingly to support IPv6.
 
 To run multiple microVMs with this approach, check out the
 _Advanced: Multiple guests_ section.
@@ -346,21 +346,3 @@ installed in the guest. (This argument doesn't configure DNS, however).
 
 As soon as you boot the guest, it will already be connected to the network (assuming you correctly
 performing the other steps).
-
-## Advanced: IPv6 support
-
-In order to achieve IPv6 support both in the host and guest, you'll need to carefully perform the following changes to this setup:
-
-1. Adapt the guest and `tap` IPs to be IPv6.
-2. Ensure the host OS has IPv6 configured and it is used on the host network interface (`eth0`).
-3. Ensure the guest kernel was built with IPv6 enabled as well (**Important!** The guest kernel configs in
-[this repository](https://github.com/firecracker-microvm/firecracker/tree/main/resources/guest_configs)
-disable IPv6, so make sure to change these configurations if you're using them).
-4. When creating the nftables table named `firecracker`, specify the `ip6` (IPv6) family like so:
-```bash
-sudo nft add table ip6 firecracker
-```
-5. When adding the masquerade nftables rule, change `ip` before `saddr` to `ip6` like so:
-```bash
-sudo nft add rule firecracker postrouting ip6 saddr NEW_IPV6_GUEST_IP oifname eth0 counter masquerade
-```
