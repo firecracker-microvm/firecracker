@@ -81,8 +81,12 @@ pub(crate) trait VgicRegEngine {
         let mut data = Vec::with_capacity(reg.iter::<Self::RegChunk>().count());
         for offset in reg.iter::<Self::RegChunk>() {
             let mut val = Self::RegChunk::default();
-            fd.get_device_attr(&mut Self::kvm_device_attr(offset, &mut val, mpidr))
-                .map_err(|err| GicError::DeviceAttribute(err, false, Self::group()))?;
+            // SAFETY: `val` is a mutable memory location sized correctly for the attribute we're
+            // requesting
+            unsafe {
+                fd.get_device_attr(&mut Self::kvm_device_attr(offset, &mut val, mpidr))
+                    .map_err(|err| GicError::DeviceAttribute(err, false, Self::group()))?;
+            }
             data.push(val);
         }
 
