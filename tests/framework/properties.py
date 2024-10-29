@@ -48,11 +48,11 @@ def get_host_os(kv: str = None):
         kv = platform.release()
     parts = kv.split("-")
     if len(parts) < 2:
-        return None
+        return kv
     misc = parts[1].split(".")
     if len(misc) > 2 and misc[2] in {"amzn2", "amzn2023"}:
         return misc[2]
-    return None
+    return kv
 
 
 class GlobalProps:
