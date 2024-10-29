@@ -21,7 +21,6 @@ while still preventing the latter: We run cargo audit twice, once on main HEAD, 
 of both invocations is the same, the test passes (with us being alerted to this situtation via a special pipeline that
 does not block PRs). If not, it fails, preventing PRs from introducing new vulnerable dependencies.
 """
-import contextlib
 import os
 import statistics
 from pathlib import Path
@@ -249,17 +248,3 @@ def git_clone(clone_path, commitish):
         )
         utils.check_output(f"git branch -D {branch_name}")
     return clone_path
-
-
-# Once we upgrade to python 3.11, this will be in contextlib:
-# https://docs.python.org/3/library/contextlib.html#contextlib.chdir
-@contextlib.contextmanager
-def chdir(to):
-    """Context manager that temporarily `chdir`s to the specified path"""
-    cur = os.getcwd()
-
-    try:
-        os.chdir(to)
-        yield
-    finally:
-        os.chdir(cur)

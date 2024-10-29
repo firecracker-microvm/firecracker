@@ -1,6 +1,7 @@
 # Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Optional benchmarks-do-not-regress test"""
+import contextlib
 import json
 import logging
 import platform
@@ -10,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from framework import utils
-from framework.ab_test import chdir, git_ab_test
+from framework.ab_test import git_ab_test
 from host_tools.cargo_build import cargo
 
 LOGGER = logging.getLogger(__name__)
@@ -32,7 +33,7 @@ def run_criterion(firecracker_checkout: Path, is_a: bool) -> Path:
     """
     baseline_name = "a_baseline" if is_a else "b_baseline"
 
-    with chdir(firecracker_checkout):
+    with contextlib.chdir(firecracker_checkout):
         # Passing --message-format json to cargo tells it to print its log in a json format. At the end, instead of the
         # usual "placed executable <...> at <...>" we'll get a json object with an 'executable' key, from which we
         # extract the path to the compiled benchmark binary.
