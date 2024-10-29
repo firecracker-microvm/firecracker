@@ -29,10 +29,15 @@ from typing import Callable, List, Optional, TypeVar
 import scipy
 
 from framework import utils
+from framework.defs import FC_WORKSPACE_DIR
 from framework.microvm import Microvm
 from framework.utils import CommandReturn
 from framework.with_filelock import with_filelock
-from host_tools.cargo_build import get_binary, get_firecracker_binaries
+from host_tools.cargo_build import (
+    DEFAULT_TARGET_DIR,
+    get_binary,
+    get_firecracker_binaries,
+)
 
 # Locally, this will always compare against main, even if we try to merge into, say, a feature branch.
 # We might want to do a more sophisticated way to determine a "parent" branch here.
@@ -94,6 +99,26 @@ def git_ab_test(
 
     comparison = comparator(result_a, result_b)
     return result_a, result_b, comparison
+
+
+DEFAULT_B_DIRECTORY = FC_WORKSPACE_DIR / "build" / "cargo_target" / DEFAULT_TARGET_DIR
+
+
+def binary_ab_test(
+    test_runner: Callable[[Path, bool], T],
+    comparator: Callable[[T, T], U] = default_comparator,
+    *,
+    a_directory: Path,
+    b_directory: Path = DEFAULT_B_DIRECTORY,
+):
+    """
+    Similar to `git_ab_test`, but instead of locally checking out different revisions, it operates on
+    directories containing firecracker/jailer binaries
+    """
+    result_a = test_runner(a_directory, True)
+    result_b = test_runner(b_directory, False)
+
+    return result_a, result_b, comparator(result_a, result_b)
 
 
 def is_pr() -> bool:
