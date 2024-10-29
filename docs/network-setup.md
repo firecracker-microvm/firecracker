@@ -68,7 +68,7 @@ network interface:
 sudo nft add rule firecracker filter iifname tap0 oifname eth0 accept
 ```
 
-*Note:* The IP of the TAP device should be chosen such that it's not in the same
+**Note:** The IP of the TAP device should be chosen such that it's not in the same
 subnet as the IP address of the host.
 
 ## Setting Up Firecracker
@@ -203,8 +203,8 @@ To give a more concrete example, **let's add a second microVM** to the one you'v
 Let's assume we allocate /30 subnets in the 172.16.0.0/16 range sequentially to give out as
 few addresses as needed.
 
-The next /30 subnet in the 172.16.0.0/16 range will have give us these two IPs:
-172.16.0.6 as the `tap` IP and 172.16.0.7 as the guest IP, let's use these.
+The next /30 subnet in the 172.16.0.0/16 range will give us these two IPs: 172.16.0.5 as the
+`tap` IP and 172.16.0.6 as the guest IP.
 
 Our new `tap` device will, sequentially, have the name `tap1`:
 ```bash
