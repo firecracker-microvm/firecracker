@@ -169,16 +169,21 @@ function to [`.buildkite/pipeline_perf.py`](../.buildkite/pipeline_perf.py). To
 manually run an A/B-Test, use
 
 ```sh
-tools/devtool -y test --ab [optional arguments to ab_test.py] run <revision A> <revision B> --test <test specification>
+tools/devtool -y test --ab [optional arguments to ab_test.py] run <dir A> <dir B> --test <test specification>
 ```
 
-Here, _revision A_ and _revision B_ can be arbitrary git objects, such as commit
-SHAs, branches or tags. For example, to compare boottime of microVMs between
-Firecracker binaries compiled from the `main` branch and the `HEAD` of your
-current branch, run
+Here, _dir A_ and _dir B_ are directories containing firecracker and jailer
+binaries whose performance characteristics you wish to compare. You can use
+`./tools/devtool build --rev <revision> --release` to compile binaries from an
+arbitrary git object (commit SHAs, branches, tags etc.). This will create
+sub-directories in `build` containing the binaries. For example, to compare
+boottime of microVMs between Firecracker binaries compiled from the `main`
+branch and the `HEAD` of your current branch, run
 
 ```sh
-tools/devtool -y test --ab run main HEAD --test integration_tests/performance/test_boottime.py::test_boottime
+tools/devtool -y build --rev main --release
+tools/devtool -y build --rev HEAD --release
+tools/devtool -y test --ab -- run build/main build/HEAD --test integration_tests/performance/test_boottime.py::test_boottime
 ```
 
 #### How to Write an A/B-Compatible Test and Common Pitfalls
