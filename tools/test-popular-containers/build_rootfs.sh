@@ -67,6 +67,6 @@ EOF
 
 make_rootfs alpine:latest
 make_rootfs ubuntu:22.04
-make_rootfs ubuntu:23.10
 make_rootfs ubuntu:24.04
+make_rootfs ubuntu:24.10
 # make_rootfs ubuntu:latest
