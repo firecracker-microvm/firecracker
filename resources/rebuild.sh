@@ -193,6 +193,20 @@ function prepare_and_build_rootfs {
     build_initramfs
 }
 
+function vmlinux_split_debuginfo {
+    VMLINUX="$1"
+    DEBUGINFO="$VMLINUX.debug"
+    VMLINUX_ORIG="$VMLINUX"
+    if [ $ARCH = "aarch64" ]; then
+        # in aarch64, the debug info is in vmlinux
+        VMLINUX_ORIG=linux/vmlinux
+    fi
+    objcopy --only-keep-debug $VMLINUX_ORIG $DEBUGINFO
+    objcopy --preserve-dates --strip-debug --add-gnu-debuglink=$DEBUGINFO $VMLINUX
+    # gdb does not support compressed files, but compress them because they are huge
+    gzip -v $DEBUGINFO
+}
+
 function build_al_kernels {
     if [[ $# = 0 ]]; then
         local KERNEL_VERSION="all"
@@ -208,7 +222,6 @@ function build_al_kernels {
     clone_amazon_linux_repo
 
     CI_CONFIG="$PWD/guest_configs/ci.config"
-    FTRACE_CONFIG="$PWD/guest_configs/ftrace.config"
 
     if [[ "$KERNEL_VERSION" == @(all|5.10) ]]; then
         build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config "$CI_CONFIG"
@@ -221,10 +234,18 @@ function build_al_kernels {
     fi
 
     # Build debug kernels
+    FTRACE_CONFIG="$PWD/guest_configs/ftrace.config"
+    DEBUG_CONFIG="$PWD/guest_configs/debug.config"
     OUTPUT_DIR=$OUTPUT_DIR/debug
     mkdir -pv $OUTPUT_DIR
-    build_al_kernel "$PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config" "$CI_CONFIG" "$FTRACE_CONFIG"
-    build_al_kernel "$PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config" "$CI_CONFIG" "$FTRACE_CONFIG"
+    if [[ "$KERNEL_VERSION" == @(all|5.10) ]]; then
+        build_al_kernel "$PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config" "$CI_CONFIG" "$FTRACE_CONFIG" "$DEBUG_CONFIG"
+        vmlinux_split_debuginfo $OUTPUT_DIR/vmlinux-5.10.*
+    fi
+    if [[ "$KERNEL_VERSION" == @(all|6.1) ]]; then
+        build_al_kernel "$PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config" "$CI_CONFIG" "$FTRACE_CONFIG" "$DEBUG_CONFIG"
+        vmlinux_split_debuginfo $OUTPUT_DIR/vmlinux-6.1.*
+    fi
 }
 
 function print_help {
