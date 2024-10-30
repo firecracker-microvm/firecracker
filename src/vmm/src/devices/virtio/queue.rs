@@ -700,7 +700,6 @@ mod verification {
     use std::mem::ManuallyDrop;
     use std::num::Wrapping;
 
-    use vm_memory::guest_memory::GuestMemoryIterator;
     use vm_memory::{GuestMemoryRegion, MemoryRegionAddress};
 
     use super::*;
@@ -717,13 +716,8 @@ mod verification {
         the_region: vm_memory::GuestRegionMmap,
     }
 
-    impl<'a> GuestMemoryIterator<'a, vm_memory::GuestRegionMmap> for ProofGuestMemory {
-        type Iter = std::iter::Once<&'a vm_memory::GuestRegionMmap>;
-    }
-
     impl GuestMemory for ProofGuestMemory {
         type R = vm_memory::GuestRegionMmap;
-        type I = Self;
 
         fn num_regions(&self) -> usize {
             1
@@ -735,7 +729,7 @@ mod verification {
                 .map(|_| &self.the_region)
         }
 
-        fn iter(&self) -> <Self::I as GuestMemoryIterator<Self::R>>::Iter {
+        fn iter(&self) -> impl Iterator<Item = &Self::R> {
             std::iter::once(&self.the_region)
         }
 
