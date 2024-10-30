@@ -64,19 +64,14 @@ def test_empty_jailer_id(uvm_plain):
         exec_file=test_microvm.fc_binary_path,
     )
 
-    # pylint: disable=W0703
-    try:
+    # If the exception is not thrown, it means that Firecracker was
+    # started successfully, hence there's a bug in the code due to which
+    # we can set an empty ID.
+    with pytest.raises(
+        ChildProcessError,
+        match=r"Jailer error: Invalid instance ID: Invalid len \(0\);  the length must be between 1 and 64",
+    ):
         test_microvm.spawn()
-        # If the exception is not thrown, it means that Firecracker was
-        # started successfully, hence there's a bug in the code due to which
-        # we can set an empty ID.
-        assert False
-    except Exception as err:
-        expected_err = (
-            "Jailer error: Invalid instance ID: Invalid len (0);"
-            "  the length must be between 1 and 64"
-        )
-        assert expected_err in str(err)
 
 
 def test_exec_file_not_exist(uvm_plain, tmp_path):
