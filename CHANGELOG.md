@@ -29,6 +29,14 @@ and this project adheres to
 
 ### Changed
 
+- [#4875](https://github.com/firecracker-microvm/firecracker/pull/4875):
+  Increase default queue size for the `virtio-net` device from 256 to 512. This
+  decreases wait time between guest and vmm threads for network packets
+  processing and allows for more throughput.
+- [#4844](https://github.com/firecracker-microvm/firecracker/pull/4844): Upgrade
+  `virtio-net` device to use `readv` syscall to avoid unnecessary memory copies
+  on RX path, increasing the RX performance.
+
 ### Deprecated
 
 ### Removed
