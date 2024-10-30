@@ -24,35 +24,37 @@ except ImportError:
     SOL_UDP = 17  # Protocol number for UDP
     UDP_SEGMENT = 103  # Option code for UDP segmentation (non-standard)
 
-# Get the IP and port from command-line arguments
-if len(sys.argv) != 3:
-    eprint("Usage: python3 udp_offload.py <ip_address> <port>")
-    sys.exit(1)
 
-ip_address = sys.argv[1]
-port = int(sys.argv[2])
+if __name__ == "__main__":
+    # Get the IP and port from command-line arguments
+    if len(sys.argv) != 3:
+        eprint("Usage: python3 udp_offload.py <ip_address> <port>")
+        sys.exit(1)
 
-# Create a UDP socket
-sockfd = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    ip_address = sys.argv[1]
+    port = int(sys.argv[2])
 
-# Set the UDP segmentation option (UDP_SEGMENT) to 1400 bytes
-OPTVAL = 1400
-try:
-    sockfd.setsockopt(SOL_UDP, UDP_SEGMENT, OPTVAL)
-except (AttributeError, PermissionError):
-    eprint("Unable to set UDP_SEGMENT option")
-    sys.exit(1)
+    # Create a UDP socket
+    sockfd = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-# Set the destination address and port
-servaddr = (ip_address, port)
+    # Set the UDP segmentation option (UDP_SEGMENT) to 1400 bytes
+    OPTVAL = 1400
+    try:
+        sockfd.setsockopt(SOL_UDP, UDP_SEGMENT, OPTVAL)
+    except (AttributeError, PermissionError):
+        eprint("Unable to set UDP_SEGMENT option")
+        sys.exit(1)
 
-# Send the message to the destination address
-MESSAGE = b"x"
-try:
-    sockfd.sendto(MESSAGE, servaddr)
-    print("Message sent successfully")
-except socket.error as e:
-    eprint(f"Error sending message: {e}")
-    sys.exit(1)
+    # Set the destination address and port
+    servaddr = (ip_address, port)
 
-sockfd.close()
+    # Send the message to the destination address
+    MESSAGE = b"x"
+    try:
+        sockfd.sendto(MESSAGE, servaddr)
+        print("Message sent successfully")
+    except socket.error as e:
+        eprint(f"Error sending message: {e}")
+        sys.exit(1)
+
+    sockfd.close()
