@@ -2,13 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for the CPU features for aarch64."""
 
+import os
 import platform
 import re
 
 import pytest
 
 import framework.utils_cpuid as cpuid_utils
-from framework.utils_cpuid import CpuModel
+from framework import utils
+from framework.utils_cpuid import CPU_FEATURES_CMD, CpuModel
 
 PLATFORM = platform.machine()
 
@@ -48,7 +50,7 @@ def _check_cpu_features_arm(test_microvm, guest_kv, template_name=None):
         case CpuModel.ARM_NEOVERSE_V1, _, None:
             expected_cpu_features = DEFAULT_G3_FEATURES_5_10
 
-    _, stdout, _ = test_microvm.ssh.check_output(r"lscpu |grep -oP '^Flags:\s+\K.+'")
+    _, stdout, _ = test_microvm.ssh.check_output(CPU_FEATURES_CMD)
     flags = set(stdout.strip().split(" "))
     assert flags == expected_cpu_features
 
@@ -61,6 +63,46 @@ def get_cpu_template_dir(cpu_template):
 
     """
     return cpu_template if cpu_template else "none"
+
+
+@pytest.mark.skipif(
+    PLATFORM != "aarch64",
+    reason="This is aarch64 specific test.",
+)
+def test_host_vs_guest_cpu_features_aarch64(uvm_nano):
+    """Check CPU features host vs guest"""
+
+    vm = uvm_nano
+    vm.add_net_iface()
+    vm.start()
+    host_feats = set(utils.check_output(CPU_FEATURES_CMD).stdout.strip().split(" "))
+    guest_feats = set(vm.ssh.check_output(CPU_FEATURES_CMD).stdout.strip().split(" "))
+
+    cpu_model = cpuid_utils.get_cpu_model_name()
+    match cpu_model:
+        case CpuModel.ARM_NEOVERSE_N1:
+            assert host_feats - guest_feats == set()
+            # Kernel should hide this feature, but our guest kernel
+            # currently lacks the commit with this change.
+            # The commit that introduces the change:
+            # https://github.com/torvalds/linux/commit/7187bb7d0b5c7dfa18ca82e9e5c75e13861b1d88
+            assert guest_feats - host_feats == {"ssbs"}
+        case CpuModel.ARM_NEOVERSE_V1:
+            # KVM does not enable PAC or SVE features by default
+            # and Firecracker does not enable them either.
+            assert host_feats - guest_feats == {
+                "paca",
+                "pacg",
+                "sve",
+                "svebf16",
+                "svei8mm",
+            }
+            # kernel should hide this feature, but our guest kernel
+            # is not recent enough for this.
+            assert guest_feats - host_feats == {"ssbs"}
+        case _:
+            if os.environ.get("BUILDKITE") is not None:
+                assert False, f"Cpu model {cpu_model} is not supported"
 
 
 @pytest.mark.skipif(
