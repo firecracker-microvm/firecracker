@@ -26,7 +26,7 @@ def get_os_version():
     """Get the OS version
 
     >>> get_os_version()
-    Ubuntu 18.04.6 LTS
+    'Ubuntu 24.04.1 LTS'
     """
 
     os_release = Path("/etc/os-release").read_text(encoding="ascii")
@@ -41,7 +41,7 @@ def get_host_os(kv: str = None):
     This only works for AL2 and AL2023
 
     >>> get_host_os("6.1.41-63.118.amzn2023.x86_64")
-    amzn2023
+    'amzn2023'
     """
     if kv is None:
         kv = platform.release()
