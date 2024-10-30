@@ -10,6 +10,8 @@ from enum import Enum, auto
 from framework.utils import check_output
 from framework.utils_imdsv2 import imdsv2_get
 
+CPU_FEATURES_CMD = r"lscpu |grep -oP '^Flags:\s+\K.+'"
+
 
 class CpuVendor(Enum):
     """CPU vendors enum."""
