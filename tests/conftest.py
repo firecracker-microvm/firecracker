@@ -494,3 +494,9 @@ def uvm_ctor(request):
 def uvm_any(microvm_factory, uvm_ctor, guest_kernel, rootfs, cpu_template_any):
     """Return booted and restored uvms"""
     return uvm_ctor(microvm_factory, guest_kernel, rootfs, cpu_template_any)
+
+
+@pytest.fixture
+def uvm_any_booted(microvm_factory, guest_kernel, rootfs, cpu_template_any):
+    """Return booted uvms"""
+    return uvm_booted(microvm_factory, guest_kernel, rootfs, cpu_template_any)
