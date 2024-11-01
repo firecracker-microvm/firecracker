@@ -12,13 +12,28 @@ on the host. If `eth0` isn't your main network interface, you should change the
 value to the correct one in the commands below. IPv4 is also assumed to be used,
 so you will need to adapt the instructions accordingly to support IPv6.
 
+Each microVM requires a host network interface (like `eth0`) and a Linux
+`tap` device (like `tap0`) used by Firecracker, but the differences in configuration
+stem from routing: how packets from the `tap` get to the network interface (egress)
+and vice-versa (ingress). There are three main approaches of how to configure routing
+for a microVM.
+
+1. **NAT-based**, which is presented in the main part of this guide. It is simple but
+   doesn't expose your microVM to the local network (LAN).
+2. **Bridge-based**, which exposes your microVM to the local network. Learn more about in
+   the _Advanced: Bridge-based routing_ section of this guide.
+3. **Namespaced**, which sacrifices performance in comparison to the other approaches
+   but is desired in the scenario when two clones of the same microVM are running at the same
+   time. To learn more about it, check out the [Network Connectivity for Clones](./snapshotting/network-for-clones.md) guide.
+
 To run multiple microVMs with this approach, check out the
 _Advanced: Multiple guests_ section.
 
-The `nftables` Linux firewall with the `nft` command should be used instead of
-`iptables`, since `iptables` and the associated tools are
-[no longer recommended](https://access.redhat.com/solutions/6739041) for use on
-production Linux systems.
+For the choice of firewall, `nft` is recommended for use on production Linux systems,
+but, for the sake of compatibility, this guide provides a choice between either
+`nft` or the `iptables-nft` translation layer. The latter is
+[no longer recommended](https://access.redhat.com/solutions/6739041) but may be more
+familiar to readers.
 
 ## On the Host
 
@@ -38,16 +53,21 @@ sudo ip addr add 172.16.0.1/30 dev tap0
 sudo ip link set tap0 up
 ```
 
+**Note:** The IP of the TAP device should be chosen such that it's not in the same
+subnet as the IP address of the host.
+
 We'll use **NAT** for routing packets from the TAP device to `eth0` - you might want to consider
 a bridge interface instead in order to connect the guest to your local network (LAN), for which
 you can check out the _Advanced: Bridge-based routing_ section.
 
 Firstly, we'll need to enable IPv4 forwarding on the system.
 ```bash
-sudo sh -c "echo 1 > /proc/sys/net/ipv4/ip_forward"
+echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward
 ```
 
-Then, we'll need an nftables table for our routing needs, and 2 chains inside that table: one
+### Configuration via `nft`
+
+We'll need an nftables table for our routing needs, and 2 chains inside that table: one
 for NAT on `postrouting` stage, and another one for filtering on `forward` stage:
 ```bash
 sudo nft add table firecracker
@@ -68,8 +88,16 @@ network interface:
 sudo nft add rule firecracker filter iifname tap0 oifname eth0 accept
 ```
 
-**Note:** The IP of the TAP device should be chosen such that it's not in the same
-subnet as the IP address of the host.
+### Configuration via `iptables-nft`
+
+Tables and chains are managed by `iptables-nft` automatically, but we'll need three rules to perform
+the NAT steps:
+
+```bash
+sudo iptables-nft -t nat -A POSTROUTING -o eth0 -s 172.16.0.2 -j MASQUERADE
+sudo iptables-nft -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+sudo iptables-nft -A FORWARD -i tap0 -o eth0 -j ACCEPT
+```
 
 ## Setting Up Firecracker
 
@@ -141,7 +169,7 @@ nameserver 8.8.8.8
 **Note:** Sometimes, it's undesirable to have `iproute2` (providing the `ip` command)
 installed on your guest OS, or you simply want to have these steps be performed
 automatically. To do this, check out the
-_Advanced: Guest network configuration at kernel level_ section.
+_Advanced: Guest network configuration using kernel command line_ section.
 
 ## Cleaning up
 
@@ -151,7 +179,9 @@ The first step to cleaning up is to delete the tap device on the host:
 sudo ip link del tap0
 ```
 
-You'll then want to delete the two nftables rules for NAT routing from the
+### Cleanup using `nft`
+
+You'll want to delete the two nftables rules for NAT routing from the
 `postrouting` and `filter` chains. To do this with nftables, you'll need to
 look up the _handles_ (identifiers) of these rules by running:
 
@@ -161,28 +191,54 @@ sudo nft -a list ruleset
 
 Now, find the `# handle` comments relating to the two rules and delete them.
 For example, if the handle to the masquerade rule is 1 and the one to the
-other rule is 2:
+forwarding rule is 2:
 ```bash
 sudo nft delete rule firecracker postrouting handle 1
 sudo nft delete rule firecracker filter handle 2
-```
-
-_Advanced:_ If you created a bridge interface, delete it using the following:
-```bash
-sudo ip link del br0
 ```
 
 Run the following steps only **if you have no more guests** running on the host:
 
 Set IPv4 forwarding back to disabled:
 ```bash
-sudo sh -c "echo 0 > /proc/sys/net/ipv4/ip_forward" # usually the default
+echo 0 | sudo tee /proc/sys/net/ipv4/ip_forward
 ```
 
-Delete the `firecracker` nftables table to revert your nftables configuration
-fully back to its initial state:
+If you're using `nft`, delete the `firecracker` table to revert your nftables
+configuration fully back to its initial state:
 ```bash
 sudo nft delete table firecracker
+```
+
+### Cleanup using `iptables-nft`
+
+Of the configured `iptables-nft` rules, two should be deleted if you have guests
+remaining in your configuration:
+
+```bash
+sudo iptables-nft -t nat -D POSTROUTING -o eth0 -s 172.16.0.2 -j MASQUERADE
+sudo iptables-nft -D FORWARD -i tap0 -o eth0 -j ACCEPT
+```
+
+**If you have no more guests** running on the host, then similarly set IPv4 forwarding
+back to disabled:
+
+```bash
+echo 0 | sudo tee /proc/sys/net/ipv4/ip_forward
+```
+
+And delete the remaining `conntrack` rule that applies to all guests:
+
+```bash
+sudo iptables-nft -D FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+```
+
+If nothing else is using `iptables-nft` on the system, you may even want to delete the
+entire system ruleset like so:
+
+```bash
+sudo iptables-nft -F
+sudo iptables-nft -t nat -F
 ```
 
 ## Advanced: Multiple guests
@@ -213,10 +269,16 @@ sudo ip addr add 172.16.0.5/30 dev tap1
 sudo ip link set tap1 up
 ```
 
-Now, let's add the new two nftables rules, also with the new values:
+Now, let's add the new two `nft` rules, also with the new values:
 ```bash
 sudo nft add rule firecracker postrouting ip saddr 172.16.0.6 oifname eth0 counter masquerade
 sudo nft add rule firecracker filter iifname tap1 oifname eth0 accept
+```
+
+If using `iptables-nft`, add the rules like so:
+```bash
+sudo iptables-nft -t nat -A POSTROUTING -o eth0 -s 172.16.0.6 -j MASQUERADE
+sudo iptables-nft -A FORWARD -i tap1 -o eth0 -j ACCEPT
 ```
 
 Modify your Firecracker configuration with the `host_dev_name` now being `tap1` instead of `tap0`,
@@ -256,19 +318,19 @@ thousand microVMs on the same host: [relevant lines](https://github.com/firecrac
 
 ### On The Host
 
-1. Create a bridge interface
+1. Create a bridge interface:
 
    ```bash
    sudo ip link add name br0 type bridge
    ```
 
-1. Add tap interface [created above](#on-the-host) to the bridge
+2. Add the `tap` device [created above](#on-the-host) to the bridge:
 
    ```bash
    sudo ip link set dev tap0 master br0
    ```
 
-1. Define an IP address in your network for the bridge.
+3. Define an IP address in your network for the bridge:
 
    For example, if your gateway were on `192.168.1.1` and you wanted to use this
    for getting dynamic IPs, you would want to give the bridge an unused IP
@@ -278,36 +340,42 @@ thousand microVMs on the same host: [relevant lines](https://github.com/firecrac
    sudo ip address add 192.168.1.7/24 dev br0
    ```
 
-1. Add firewall rules to allow traffic to be routed to the guest
+4. Add a firewall rule to allow traffic to be routed to the guest:
 
    ```bash
    sudo iptables -t nat -A POSTROUTING -o br0 -j MASQUERADE
+   ```
+
+5. Once you're cleaning up the configuration, make sure to delete the bridge:
+
+   ```bash
+   sudo ip link del br0
    ```
 
 ### On The Guest
 
 1. Define an unused IP address in the bridge's subnet e.g., `192.168.1.169/24`.
 
-   _Note: Alternatively, you could rely on DHCP for getting a dynamic IP address
-   from your gateway._
+   **Note**: Alternatively, you could rely on DHCP for getting a dynamic IP address
+   from your gateway.
 
    ```bash
    ip addr add 192.168.1.169/24 dev eth0
    ```
 
-1. Set the interface up.
+2. Enable the network interface:
 
    ```bash
    ip link set eth0 up
    ```
 
-1. Create a route to the bridge device
+3. Create a route to the bridge device
 
    ```bash
    ip r add 192.168.1.1 via 192.168.1.7 dev eth0
    ```
 
-1. Create a route to the internet via the bridge
+4. Create a route to the internet via the bridge
 
    ```bash
    ip r add default via 192.168.1.7 dev eth0
@@ -322,14 +390,14 @@ thousand microVMs on the same host: [relevant lines](https://github.com/firecrac
    192.168.1.1 via 192.168.1.7 dev eth0
    ```
 
-1. Add your nameserver to `resolve.conf`
+5. Add your nameserver to `/etc/resolve.conf`
 
    ```bash
    # cat /etc/resolv.conf
    nameserver 192.168.1.1
    ```
 
-## Advanced: Guest network configuration at kernel level
+## Advanced: Guest network configuration using kernel command line
 
 The Linux kernel supports an `ip` CLI arguments that can be passed to it when booting.
 Boot arguments in Firecracker are configured in the `boot_args` property of the boot source
@@ -342,7 +410,14 @@ GM is the "long" mask IP of the guest CIDR and GI is the name of the guest netwo
 Substituting our values, we get: `ip=172.16.0.2::172.16.0.1:255.255.255.252::eth0:off`. Insert this
 at the end of your boot arguments for your microVM, and the guest Linux kernel will automatically
 perform the routing configuration done in the _In the Guest_ section without needing `iproute2`
-installed in the guest. (This argument doesn't configure DNS, however).
+installed in the guest.
 
 As soon as you boot the guest, it will already be connected to the network (assuming you correctly
 performing the other steps).
+
+**Note**: you can also use the `ip` argument to configure a primary DNS server and, optionally, a
+second DNS server without needing to touch `/etc/resolv.conf`. As an example:
+
+`ip=172.16.0.2::172.16.0.1:255.255.255.252::eth0:off:8.8.8.8:1.1.1.1` configures `8.8.8.8` as the
+primary DNS server and `1.1.1.1` as the secondary DNS server, as well as the rest of the guest-side
+routing.
