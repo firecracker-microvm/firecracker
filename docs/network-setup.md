@@ -22,12 +22,13 @@ for a microVM.
    doesn't expose your microVM to the local network (LAN).
 2. **Bridge-based**, which exposes your microVM to the local network. Learn more about in
    the _Advanced: Bridge-based routing_ section of this guide.
-3. **Namespaced**, which sacrifices performance in comparison to the other approaches
+3. **Namespaced NAT**, which sacrifices performance in comparison to the other approaches
    but is desired in the scenario when two clones of the same microVM are running at the same
    time. To learn more about it, check out the [Network Connectivity for Clones](./snapshotting/network-for-clones.md) guide.
 
-To run multiple microVMs with this approach, check out the
-_Advanced: Multiple guests_ section.
+To run multiple microVMs while using NAT-based routing, check out the
+_Advanced: Multiple guests_ section. The same principles can be applied to other routing
+methods with a bit more effort.
 
 For the choice of firewall, `nft` is recommended for use on production Linux systems,
 but, for the sake of compatibility, this guide provides a choice between either
@@ -56,11 +57,7 @@ sudo ip link set tap0 up
 **Note:** The IP of the TAP device should be chosen such that it's not in the same
 subnet as the IP address of the host.
 
-We'll use **NAT** for routing packets from the TAP device to `eth0` - you might want to consider
-a bridge interface instead in order to connect the guest to your local network (LAN), for which
-you can check out the _Advanced: Bridge-based routing_ section.
-
-Firstly, we'll need to enable IPv4 forwarding on the system.
+We'll need to enable IPv4 forwarding on the system.
 ```bash
 echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward
 ```
