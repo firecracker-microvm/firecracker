@@ -31,7 +31,7 @@ use crate::devices::virtio::net::tap::Tap;
 use crate::devices::virtio::net::{
     gen, NetError, NetQueue, MAX_BUFFER_SIZE, NET_QUEUE_SIZES, RX_INDEX, TX_INDEX,
 };
-use crate::devices::virtio::queue::{DescriptorChain, Queue, FIRECRACKER_MAX_QUEUE_SIZE};
+use crate::devices::virtio::queue::{DescriptorChain, Queue};
 use crate::devices::virtio::{ActivateError, TYPE_NET};
 use crate::devices::{report_net_event_fail, DeviceError};
 use crate::dumbo::pdu::arp::ETH_IPV4_FRAME_LEN;
@@ -119,7 +119,7 @@ impl RxBuffers {
         Ok(Self {
             min_buffer_size: 0,
             iovec: IoVecBufferMut::new()?,
-            parsed_descriptors: VecDeque::with_capacity(FIRECRACKER_MAX_QUEUE_SIZE.into()),
+            parsed_descriptors: VecDeque::with_capacity(NET_QUEUE_MAX_SIZE.into()),
             used_descriptors: 0,
             used_bytes: 0,
         })
