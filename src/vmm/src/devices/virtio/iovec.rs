@@ -482,10 +482,12 @@ mod tests {
     use super::IoVecBuffer;
     // Redefine `IoVecBufferMut` with specific length. Otherwise
     // Rust will not know what to do.
-    type IoVecBufferMut = super::IoVecBufferMut<256>;
+    type IoVecBufferMutDefault = super::IoVecBufferMut<FIRECRACKER_MAX_QUEUE_SIZE>;
 
     use crate::devices::virtio::iov_deque::IovDeque;
-    use crate::devices::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+    use crate::devices::virtio::queue::{
+        Queue, FIRECRACKER_MAX_QUEUE_SIZE, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE,
+    };
     use crate::devices::virtio::test_utils::VirtQueue;
     use crate::test_utils::multi_region_mem;
     use crate::vstate::memory::{Bytes, GuestAddress, GuestMemoryMmap};
@@ -614,12 +616,12 @@ mod tests {
         let (mut q, _) = read_only_chain(&mem);
         let head = q.pop().unwrap();
         // SAFETY: This descriptor chain is only loaded into one buffer
-        unsafe { IoVecBufferMut::from_descriptor_chain(&mem, head).unwrap_err() };
+        unsafe { IoVecBufferMutDefault::from_descriptor_chain(&mem, head).unwrap_err() };
 
         let (mut q, _) = write_only_chain(&mem);
         let head = q.pop().unwrap();
         // SAFETY: This descriptor chain is only loaded into one buffer
-        unsafe { IoVecBufferMut::from_descriptor_chain(&mem, head).unwrap() };
+        unsafe { IoVecBufferMutDefault::from_descriptor_chain(&mem, head).unwrap() };
     }
 
     #[test]
@@ -640,7 +642,8 @@ mod tests {
         let head = q.pop().unwrap();
 
         // SAFETY: This descriptor chain is only loaded once in this test
-        let mut iovec = unsafe { IoVecBufferMut::from_descriptor_chain(&mem, head).unwrap() };
+        let mut iovec =
+            unsafe { IoVecBufferMutDefault::from_descriptor_chain(&mem, head).unwrap() };
         assert_eq!(iovec.len(), 4 * 64);
 
         // We are creating a new queue where we can get descriptors from. Probably, this is not
@@ -717,7 +720,8 @@ mod tests {
         let head = q.pop().unwrap();
 
         // SAFETY: This descriptor chain is only loaded into one buffer
-        let mut iovec = unsafe { IoVecBufferMut::from_descriptor_chain(&mem, head).unwrap() };
+        let mut iovec =
+            unsafe { IoVecBufferMutDefault::from_descriptor_chain(&mem, head).unwrap() };
         let buf = vec![0u8, 1, 2, 3, 4];
 
         // One test vector for each part of the chain
@@ -814,8 +818,8 @@ mod verification {
     use crate::devices::virtio::iov_deque::IovDeque;
     // Redefine `IoVecBufferMut` and `IovDeque` with specific length. Otherwise
     // Rust will not know what to do.
-    type IoVecBufferMut256 = super::IoVecBufferMut<256>;
-    type IovDeque256 = IovDeque<256>;
+    type IoVecBufferMutDefault = super::IoVecBufferMut<FIRECRACKER_MAX_QUEUE_SIZE>;
+    type IovDequeDefault = IovDeque<FIRECRACKER_MAX_QUEUE_SIZE>;
 
     use crate::arch::PAGE_SIZE;
     use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
@@ -860,10 +864,10 @@ mod verification {
             );
 
             let offset = (deque.start + deque.len) as usize;
-            let mirror = if offset >= FIRECRACKER_MAX_QUEUE_SIZE as usize {
-                offset - FIRECRACKER_MAX_QUEUE_SIZE as usize
+            let mirror = if offset >= L as usize {
+                offset - L as usize
             } else {
-                offset + FIRECRACKER_MAX_QUEUE_SIZE as usize
+                offset + L as usize
             };
 
             // SAFETY: self.iov is a valid pointer and `self.start + self.len` is within range (we
@@ -904,7 +908,7 @@ mod verification {
         }
     }
 
-    fn create_iov_deque() -> IovDeque256 {
+    fn create_iov_deque() -> IovDequeDefault {
         // SAFETY: safe because the layout has non-zero size
         let mem = unsafe {
             std::alloc::alloc(std::alloc::Layout::from_size_align_unchecked(
@@ -912,14 +916,14 @@ mod verification {
                 PAGE_SIZE,
             ))
         };
-        IovDeque256 {
+        IovDequeDefault {
             iov: mem.cast(),
             start: kani::any_where(|&start| start < FIRECRACKER_MAX_QUEUE_SIZE),
             len: 0,
         }
     }
 
-    fn create_iovecs_mut(mem: *mut u8, size: usize, nr_descs: usize) -> (IovDeque256, u32) {
+    fn create_iovecs_mut(mem: *mut u8, size: usize, nr_descs: usize) -> (IovDequeDefault, u32) {
         let mut vecs = create_iov_deque();
         let mut len = 0u32;
         for _ in 0..nr_descs {
@@ -939,7 +943,7 @@ mod verification {
         (vecs, len)
     }
 
-    impl IoVecBufferMut256 {
+    impl IoVecBufferMutDefault {
         fn any_of_length(nr_descs: usize) -> Self {
             // We only write into `IoVecBufferMut` objects, so we can simply create a guest memory
             // object initialized to zeroes, trying to be nice to Kani.
@@ -1029,12 +1033,10 @@ mod verification {
     #[kani::proof]
     #[kani::unwind(5)]
     #[kani::solver(cadical)]
-    // The `IovDeque` is defined as type alias in the kani module. Because of this
-    // we need to specify original type here for stub to work.
     #[kani::stub(IovDeque::push_back, stubs::push_back)]
     fn verify_write_to_iovec() {
         for nr_descs in 0..MAX_DESC_LENGTH {
-            let mut iov_mut = IoVecBufferMut256::any_of_length(nr_descs);
+            let mut iov_mut = IoVecBufferMutDefault::any_of_length(nr_descs);
 
             let mut buf = kani::vec::any_vec::<u8, GUEST_MEMORY_SIZE>();
             let offset: u32 = kani::any();
