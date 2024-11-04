@@ -16,7 +16,7 @@ libc = "0.2.161"
 log-instrument = { path = "../log-instrument", optional = true }
 serde = { version = "1.0.214", features = ["derive"] }
 serde_json = "1.0.132"
-thiserror = "1.0.65"
+thiserror = "1.0.67"
 
 vmm = { path = "../vmm" }
 vmm-sys-util = "0.12.1"
