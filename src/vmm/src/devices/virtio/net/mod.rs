@@ -6,7 +6,7 @@
 use std::io;
 
 /// Maximum size of the queue for network device.
-pub const NET_QUEUE_MAX_SIZE: u16 = 512;
+pub const NET_QUEUE_MAX_SIZE: u16 = 256;
 /// Maximum size of the frame buffers handled by this device.
 pub const MAX_BUFFER_SIZE: usize = 65562;
 /// The number of queues of the network device.
