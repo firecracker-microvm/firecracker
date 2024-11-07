@@ -33,13 +33,13 @@ def test_high_ingress_traffic(uvm_plain_any):
     test_microvm.start()
 
     # Start iperf3 server on the guest.
-    test_microvm.ssh.run("{} -sD\n".format(IPERF_BINARY))
+    test_microvm.ssh.check_output("{} -sD\n".format(IPERF_BINARY))
     time.sleep(1)
 
     # Start iperf3 client on the host. Send 1Gbps UDP traffic.
     # If the net device breaks, iperf will freeze. We have to use a timeout.
-    utils.run_cmd(
-        "timeout 30 {} {} -c {} -u -V -b 1000000000 -t 30".format(
+    utils.check_output(
+        "timeout 31 {} {} -c {} -u -V -b 1000000000 -t 30".format(
             test_microvm.netns.cmd_prefix(),
             IPERF_BINARY,
             guest_ip,
