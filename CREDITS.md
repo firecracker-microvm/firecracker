@@ -36,6 +36,7 @@ Contributors to the Firecracker repository:
 - Alexandru Cihodaru <cihodar@amazon.com>
 - Alexandru-Cezar Sardan <alsardan@amazon.com>
 - Alin Dima <alindima@amazon.com>
+- Anatoli Babenia <anatoli@rainforce.org>
 - Andrea Manzini <ilmanzo@gmail.com>
 - Andreea Florescu <fandree@amazon.com>
 - Andrei Casu-Pop <cpo@amazon.com>
@@ -73,6 +74,7 @@ Contributors to the Firecracker repository:
 - Chris Christensen <christianchristensen@gmail.com>
 - Christian González <cgonzalez@opennebula.io>
 - Christopher Diehl <diehl.chris24@gmail.com>
+- Christos Katsakioris <ckatsak@cslab.ece.ntua.gr>
 - cneira <cneirabustos@gmail.com>
 - Colin Percival <cperciva@tarsnap.com>
 - Colton J. McCurdy <mccurdyc22@gmail.com>
@@ -125,6 +127,7 @@ Contributors to the Firecracker repository:
 - Iulian Barbu <iul@amazon.com>
 - Ives van Hoorne <ives@codesandbox.io>
 - Jack Thomson <jackabt@amazon.co.uk>
+- jackabald <jwarchibald@wisc.edu>
 - James Curtis <jxcurtis@amazon.co.uk>
 - James Turnbull <james@lovedthanlost.net>
 - Javier Romero <xavinux@gmail.com>
@@ -212,6 +215,7 @@ Contributors to the Firecracker repository:
 - Ria <juthi_paul@utexas.edu>
 - Riccardo Mancini <mancio@amazon.com>
 - Richard Case <richard@weave.works>
+- River Phillips <riverphillips1@gmail.com>
 - Rob Devereux <robdevereux92@gmail.com>
 - Robert Grimes <rmzgrimes@gmail.com>
 - Rodrigue Chakode <rodrigue.chakode@continental-corporation.com>
@@ -245,6 +249,7 @@ Contributors to the Firecracker repository:
 - timvisee <tim@visee.me>
 - Tobias Pfandzelter <pfandzelter@campus.tu-berlin.de>
 - Tomas Valenta <valenta.and.thomas@gmail.com>
+- tommady <tommady@users.noreply.github.com>
 - Tomoya Iwata <iwata.tomoya@classmethod.jp>
 - Trăistaru Andrei Cristian <atc@amazon.com>
 - Tyler Anton <tyler@debian.anton>
@@ -262,10 +267,10 @@ Contributors to the Firecracker repository:
 - xiekeyang <keyang.xie@gmail.com>
 - Ye Sijun <junnplus@gmail.com>
 - Yichen Zhang <jakezhang2020@gmail.com>
+- Yılmaz ŞEN <yilmazsen94@gmail.com>
 - YLyu <lyuyuan92@gmail.com>
 - YUAN LYU <lyuyuan92@gmail.com>
 - Yuval Kohavi <yuval.kohavi@gmail.com>
-- Yılmaz ŞEN <yilmazsen94@gmail.com>
 - Zhenyu Qi <qzydustin@hotmail.com>
 - Zi Shen Lim <zlim.lnx@gmail.com>
 - Zicklag <zicklag@katharostech.com>
