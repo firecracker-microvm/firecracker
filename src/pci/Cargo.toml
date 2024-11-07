@@ -16,7 +16,7 @@ vmm-sys-util = ">=0.3.1"
 libc = "0.2.158"
 log = { version = "0.4.22", features = ["std", "serde"] }
 vm-memory = { version = "0.16.1", features = ["backend-mmap", "backend-bitmap"] }
-vfio-ioctls = { git = "https://github.com/rust-vmm/vfio", branch = "main" }
+vfio-ioctls = { git = "https://github.com/rust-vmm/vfio", rev = "b135b8305c2cc8ec333e0cf77a780445cc98dcee" }
 serde = { version = "1.0.208", features = ["derive"] }
 thiserror = "1.0.62"
 vfio-bindings = { version = "0.2.0", features = ["fam-wrappers"] }

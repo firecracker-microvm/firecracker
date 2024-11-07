@@ -45,7 +45,7 @@ timerfd = "1.5.0"
 userfaultfd = "0.8.1"
 utils = { path = "../utils" }
 uuid = "1.8.0"
-vfio-ioctls = { git = "https://github.com/rust-vmm/vfio", branch = "main" }
+vfio-ioctls = { git = "https://github.com/rust-vmm/vfio", rev = "b135b8305c2cc8ec333e0cf77a780445cc98dcee" }
 vhost = { version = "0.13.0", features = ["vhost-user-frontend"] }
 vm-allocator = "0.1.0"
 vm-system-allocator = { path = "../vm-system-allocator" }
