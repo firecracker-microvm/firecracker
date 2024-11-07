@@ -343,7 +343,7 @@ def test_host_vs_guest_cpu_features_x86_64(uvm_nano):
                 "umip",
             }
         case CpuModel.INTEL_CASCADELAKE:
-            assert host_feats - guest_feats == {
+            expected = {
                 "acpi",
                 "aperfmperf",
                 "arch_perfmon",
@@ -392,6 +392,14 @@ def test_host_vs_guest_cpu_features_x86_64(uvm_nano):
                 "vpid",
                 "xtpr",
             }
+            # Linux kernel v6.4+ passes through the CPUID bit for "flush_l1d" to guests.
+            # https://github.com/torvalds/linux/commit/45cf86f26148e549c5ba4a8ab32a390e4bde216e
+            #
+            # Our test ubuntu host kernel is v6.8 and has the commit.
+            if global_props.host_linux_version_tpl >= (6, 4):
+                expected -= {"flush_l1d"}
+            assert host_feats - guest_feats == expected
+
             assert guest_feats - host_feats == {
                 "hypervisor",
                 "tsc_known_freq",
