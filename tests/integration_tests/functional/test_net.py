@@ -10,7 +10,11 @@ import pytest
 from framework import utils
 
 # The iperf version to run this tests with
-IPERF_BINARY = "iperf3"
+IPERF_BINARY_GUEST = "iperf3"
+# We are using iperf3-vsock instead of a regular iperf3,
+# because iperf3 3.16+ crashes on aarch64 sometimes
+# when running this test.
+IPERF_BINARY_HOST = "iperf3-vsock"
 
 
 def test_high_ingress_traffic(uvm_plain_any):
@@ -33,15 +37,15 @@ def test_high_ingress_traffic(uvm_plain_any):
     test_microvm.start()
 
     # Start iperf3 server on the guest.
-    test_microvm.ssh.run("{} -sD\n".format(IPERF_BINARY))
+    test_microvm.ssh.check_output("{} -sD\n".format(IPERF_BINARY_GUEST))
     time.sleep(1)
 
     # Start iperf3 client on the host. Send 1Gbps UDP traffic.
     # If the net device breaks, iperf will freeze. We have to use a timeout.
-    utils.run_cmd(
-        "timeout 30 {} {} -c {} -u -V -b 1000000000 -t 30".format(
+    utils.check_output(
+        "timeout 31 {} {} -c {} -u -V -b 1000000000 -t 30".format(
             test_microvm.netns.cmd_prefix(),
-            IPERF_BINARY,
+            IPERF_BINARY_HOST,
             guest_ip,
         ),
     )
