@@ -10,10 +10,9 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use super::device::{Net, RxBuffers};
-use super::{TapError, NET_NUM_QUEUES, RX_INDEX};
+use super::{TapError, NET_NUM_QUEUES, NET_QUEUE_MAX_SIZE, RX_INDEX};
 use crate::devices::virtio::device::DeviceState;
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
-use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::devices::virtio::TYPE_NET;
 use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
@@ -147,7 +146,7 @@ impl Persist<'_> for Net {
             &constructor_args.mem,
             TYPE_NET,
             NET_NUM_QUEUES,
-            FIRECRACKER_MAX_QUEUE_SIZE,
+            NET_QUEUE_MAX_SIZE,
         )?;
         net.irq_trigger.irq_status = Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
         net.avail_features = state.virtio_state.avail_features;

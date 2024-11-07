@@ -26,8 +26,16 @@ and this project adheres to
 - [#4869](https://github.com/firecracker-microvm/firecracker/pull/4869): Added
   support for Aarch64 systems which feature CPU caches with a number of sets
   higher than `u16::MAX`.
+- [#4797](https://github.com/firecracker-microvm/firecracker/pull/4797),
+  [#4854](https://github.com/firecracker-microvm/firecracker/pull/4854): Added
+  GDB debugging support for a microVM guest kernel. Please see our
+  [GDB debugging documentation](docs/gdb-debugging.md) for more information.
 
 ### Changed
+
+- [#4844](https://github.com/firecracker-microvm/firecracker/pull/4844): Upgrade
+  `virtio-net` device to use `readv` syscall to avoid unnecessary memory copies
+  on RX path, increasing the RX performance.
 
 ### Deprecated
 

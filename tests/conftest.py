@@ -99,19 +99,7 @@ def record_props(request, record_property):
 
     # Extract attributes from the docstrings
     function_docstring = inspect.getdoc(request.function)
-    description = []
-    attributes = {}
-    for line in function_docstring.split("\n"):
-        # extract tags like @type, @issue, etc
-        match = re.match(r"\s*@(?P<attr>\w+):\s*(?P<value>\w+)", line)
-        if match:
-            attr, value = match["attr"], match["value"]
-            attributes[attr] = value
-        else:
-            description.append(line)
-    for attr_name, attr_value in attributes.items():
-        record_property(attr_name, attr_value)
-    record_property("description", "".join(description))
+    record_property("description", function_docstring)
 
 
 def pytest_runtest_logreport(report):

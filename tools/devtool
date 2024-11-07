@@ -446,12 +446,14 @@ cmd_build() {
     profile="debug"
     libc="musl"
 
+
     # Parse any command line args.
     while [ $# -gt 0 ]; do
         case "$1" in
             "-h"|"--help")  { cmd_help; exit 1;     } ;;
             "--debug")      { profile="debug";      } ;;
             "--release")    { profile="release";    } ;;
+            "--rev")       { shift; revision=$1; } ;;
             "--ssh-keys")
                 shift
                 [[ -z "$1" ]] && \
@@ -489,16 +491,40 @@ cmd_build() {
         extra_args="--volume $host_pub_key_path:$PUB_KEY_PATH:z \
                     --volume $host_priv_key_path:$PRIV_KEY_PATH:z"
 
+    workdir="$CTR_FC_ROOT_DIR"
+    if [ ! -z "$revision" ]; then
+      commitish="$revision"
+      if ! git cat-file -t "$commitish"; then commitish=origin/"$revision"; fi
+      branch_name=tmp-$commitish
+
+      tmp_dir=$(mktemp -d)
+
+      git branch $branch_name $commitish
+      git clone -b $branch_name . $tmp_dir
+      pushd $tmp_dir
+      workdir=$tmp_dir
+      extra_args="$extra_args --volume $tmp_dir:$tmp_dir:z"
+    fi
+
     # Run the cargo build process inside the container.
     # We don't need any special privileges for the build phase, so we run the
     # container as the current user/group.
     run_devctr \
         --user "$(id -u):$(id -g)" \
-        --workdir "$CTR_FC_ROOT_DIR" \
+        --workdir "$workdir" \
         ${extra_args} \
         -- \
         ./tools/release.sh --libc $libc --profile $profile
     ret=$?
+
+    if [ ! -z "$revision" ]; then
+      popd
+      git branch -D $branch_name
+      mkdir -p build/"$revision"
+      cp $tmp_dir/build/cargo_target/$(uname -m)-unknown-linux-$libc/$profile/* build/"$revision"
+      rm -rf $tmp_dir
+    fi
+
     return $ret
 }
 

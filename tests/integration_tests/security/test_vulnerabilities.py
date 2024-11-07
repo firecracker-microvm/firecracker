@@ -11,11 +11,11 @@ import os
 import pytest
 import requests
 
+from framework import utils
 from framework.ab_test import (
-    git_ab_test_guest_command,
-    git_ab_test_guest_command_if_pr,
-    git_ab_test_host_command_if_pr,
     is_pr,
+    precompiled_ab_test_guest_command,
+    precompiled_ab_test_guest_command_if_pr,
     set_did_not_grow_comparator,
 )
 from framework.properties import global_props
@@ -212,20 +212,17 @@ def check_vulnerabilities_on_guest(status):
     assert report_guest_vulnerabilities == known_guest_vulnerabilities
 
 
+# Nothing can be sensibly tested in a PR context here
+@pytest.mark.skipif(
+    is_pr(), reason="Test depends solely on factors external to GitHub repository"
+)
 def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
     """
     Test with the spectre / meltdown checker on host.
     """
-    output = git_ab_test_host_command_if_pr(
-        f"sh {spectre_meltdown_checker} --batch json",
-        comparator=set_did_not_grow_comparator(
-            spectre_meltdown_reported_vulnerablities
-        ),
-        check_in_nonpr=False,
-    )
+    rc, output, _ = utils.run_cmd(f"sh {spectre_meltdown_checker} --batch json")
 
-    # Outside the PR context, checks the return code with some exceptions.
-    if output and output.returncode != 0:
+    if output and rc != 0:
         report = spectre_meltdown_reported_vulnerablities(output)
         expected = {}
         assert report == expected, f"Unexpected vulnerabilities: {report} vs {expected}"
@@ -236,7 +233,7 @@ def test_spectre_meltdown_checker_on_guest(spectre_meltdown_checker, build_micro
     Test with the spectre / meltdown checker on guest.
     """
 
-    status = git_ab_test_guest_command_if_pr(
+    status = precompiled_ab_test_guest_command_if_pr(
         with_checker(build_microvm, spectre_meltdown_checker),
         REMOTE_CHECKER_COMMAND,
         comparator=set_did_not_grow_comparator(
@@ -254,7 +251,7 @@ def test_spectre_meltdown_checker_on_restored_guest(
     """
     Test with the spectre / meltdown checker on a restored guest.
     """
-    status = git_ab_test_guest_command_if_pr(
+    status = precompiled_ab_test_guest_command_if_pr(
         with_checker(
             with_restore(build_microvm, microvm_factory), spectre_meltdown_checker
         ),
@@ -275,7 +272,7 @@ def test_spectre_meltdown_checker_on_guest_with_template(
     Test with the spectre / meltdown checker on guest with CPU template.
     """
 
-    git_ab_test_guest_command_if_pr(
+    precompiled_ab_test_guest_command_if_pr(
         with_checker(build_microvm_with_template, spectre_meltdown_checker),
         REMOTE_CHECKER_COMMAND,
         comparator=set_did_not_grow_comparator(
@@ -290,7 +287,7 @@ def test_spectre_meltdown_checker_on_guest_with_custom_template(
     """
     Test with the spectre / meltdown checker on guest with a custom CPU template.
     """
-    git_ab_test_guest_command_if_pr(
+    precompiled_ab_test_guest_command_if_pr(
         with_checker(build_microvm_with_custom_template, spectre_meltdown_checker),
         REMOTE_CHECKER_COMMAND,
         comparator=set_did_not_grow_comparator(
@@ -305,7 +302,7 @@ def test_spectre_meltdown_checker_on_restored_guest_with_template(
     """
     Test with the spectre / meltdown checker on a restored guest with a CPU template.
     """
-    git_ab_test_guest_command_if_pr(
+    precompiled_ab_test_guest_command_if_pr(
         with_checker(
             with_restore(build_microvm_with_template, microvm_factory),
             spectre_meltdown_checker,
@@ -325,7 +322,7 @@ def test_spectre_meltdown_checker_on_restored_guest_with_custom_template(
     """
     Test with the spectre / meltdown checker on a restored guest with a custom CPU template.
     """
-    git_ab_test_guest_command_if_pr(
+    precompiled_ab_test_guest_command_if_pr(
         with_checker(
             with_restore(build_microvm_with_custom_template, microvm_factory),
             spectre_meltdown_checker,
@@ -383,17 +380,15 @@ def get_vuln_files_exception_dict(template):
     return exception_dict
 
 
+# Nothing can be sensibly tested here in a PR context
+@pytest.mark.skipif(
+    is_pr(), reason="Test depends solely on factors external to GitHub repository"
+)
 def test_vulnerabilities_on_host():
     """
     Test vulnerabilities files on host.
     """
-
-    git_ab_test_host_command_if_pr(
-        f"! grep -r Vulnerable {VULN_DIR}",
-        comparator=set_did_not_grow_comparator(
-            lambda output: set(output.stdout.splitlines())
-        ),
-    )
+    utils.check_output(f"! grep -r Vulnerable {VULN_DIR}")
 
 
 def check_vulnerabilities_files_on_guest(microvm):
@@ -429,7 +424,7 @@ def check_vulnerabilities_files_ab(builder):
     running in a PR pipeline, and otherwise calls `check_vulnerabilities_files_on_guest`
     """
     if is_pr():
-        git_ab_test_guest_command(
+        precompiled_ab_test_guest_command(
             builder,
             f"! grep -r Vulnerable {VULN_DIR}",
             comparator=set_did_not_grow_comparator(
