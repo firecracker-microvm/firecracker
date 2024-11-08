@@ -2153,7 +2153,7 @@ pub mod tests {
         // Test RX bandwidth rate limiting
         {
             // create bandwidth rate limiter that allows 2000 bytes/s with bucket size 1000 bytes
-            let mut rl = RateLimiter::new(1000, 0, 500, 0, 0, 0).unwrap();
+            let mut rl = RateLimiter::new(1000, 0, 1000, 0, 0, 0).unwrap();
 
             // set up RX
             assert!(th.net().rx_buffer.used_descriptors == 0);
@@ -2195,9 +2195,9 @@ pub mod tests {
                 assert_eq!(th.net().metrics.rx_rate_limiter_throttled.count(), 2);
             }
 
-            // wait for 500ms to give the rate-limiter timer a chance to replenish
-            // wait for an extra 500ms to make sure the timerfd event makes its way from the kernel
-            thread::sleep(Duration::from_millis(1000));
+            // wait for 1000ms to give the rate-limiter timer a chance to replenish
+            // wait for an extra 1000ms to make sure the timerfd event makes its way from the kernel
+            thread::sleep(Duration::from_millis(2000));
 
             // following RX procedure should succeed because bandwidth should now be available
             {
@@ -2276,7 +2276,7 @@ pub mod tests {
         // Test RX ops rate limiting
         {
             // create ops rate limiter that allows 2 ops/s with bucket size 1 ops
-            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 500).unwrap();
+            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 1000).unwrap();
 
             // set up RX
             assert!(th.net().rx_buffer.used_descriptors == 0);
@@ -2319,9 +2319,9 @@ pub mod tests {
                 assert_eq!(th.rxq.used.idx.get(), 0);
             }
 
-            // wait for 500ms to give the rate-limiter timer a chance to replenish
-            // wait for an extra 500ms to make sure the timerfd event makes its way from the kernel
-            thread::sleep(Duration::from_millis(1000));
+            // wait for 1000ms to give the rate-limiter timer a chance to replenish
+            // wait for an extra 1000ms to make sure the timerfd event makes its way from the kernel
+            thread::sleep(Duration::from_millis(2000));
 
             // following RX procedure should succeed because ops should now be available
             {
