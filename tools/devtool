@@ -1191,7 +1191,7 @@ cmd_install() {
     # Install the binaries
     for binary in "${binaries[@]}"; do
         say "Installing $binary in $install_path"
-        install -m 755 "$( build_bin_path "$target" "$profile" "$binary" )" "$install_path"
+        install -m 755 -D -t "$install_path" "$( build_bin_path "$target" "$profile" "$binary" )"
     done
 }
 
