@@ -27,7 +27,6 @@ use linux_loader::configurator::linux::LinuxBootConfigurator;
 use linux_loader::configurator::pvh::PvhBootConfigurator;
 use linux_loader::configurator::{BootConfigurator, BootParams};
 use linux_loader::loader::bootparam::boot_params;
-
 use linux_loader::loader::elf::start_info::{
     hvm_memmap_table_entry, hvm_modlist_entry, hvm_start_info,
 };
@@ -136,7 +135,8 @@ pub fn configure_system(
     boot_prot: BootProtocol,
 ) -> Result<(), ConfigurationError> {
     // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
-    mptable::setup_mptable(guest_mem, resource_allocator, num_cpus).map_err(ConfigurationError::MpTableSetup)?;
+    mptable::setup_mptable(guest_mem, resource_allocator, num_cpus)
+        .map_err(ConfigurationError::MpTableSetup)?;
 
     match boot_prot {
         BootProtocol::PvhBoot => {
@@ -214,6 +214,7 @@ fn configure_pvh(
     // boot_params.  This will be stored at PVH_INFO_START address, and %rbx
     // will be initialized to contain PVH_INFO_START prior to starting the
     // guest, as required by the PVH ABI.
+    #[allow(clippy::cast_possible_truncation)] // the vec lenghts are single digit integers
     let mut start_info = hvm_start_info {
         magic: XEN_HVM_START_MAGIC_VALUE,
         version: 1,
@@ -275,10 +276,11 @@ fn configure_64bit_boot(
 
     let himem_start = GuestAddress(layout::HIMEM_START);
 
-    let mut params = boot_params::default();
-
     // Set the location of RSDP in Boot Parameters to help the guest kernel find it faster.
-    params.acpi_rsdp_addr = layout::RSDP_ADDR;
+    let mut params = boot_params {
+        acpi_rsdp_addr: layout::RSDP_ADDR,
+        ..boot_params::default()
+    };
     params.hdr.type_of_loader = KERNEL_LOADER_OTHER;
     params.hdr.boot_flag = KERNEL_BOOT_FLAG_MAGIC;
     params.hdr.header = KERNEL_HDR_MAGIC;
@@ -388,8 +390,15 @@ mod tests {
         let no_vcpus = 4;
         let gm = single_region_mem(0x10000);
         let mut resource_allocator = ResourceAllocator::new().unwrap();
-        let config_err =
-            configure_system(&gm, &mut resource_allocator, GuestAddress(0), 0, &None, 1, BootProtocol::LinuxBoot);
+        let config_err = configure_system(
+            &gm,
+            &mut resource_allocator,
+            GuestAddress(0),
+            0,
+            &None,
+            1,
+            BootProtocol::LinuxBoot,
+        );
         assert_eq!(
             config_err.unwrap_err(),
             super::ConfigurationError::MpTableSetup(mptable::MptableError::NotEnoughMemory)

@@ -191,16 +191,16 @@ Firecracker.
 Here's a quick step-by-step guide to building a FreeBSD rootfs and kernel that
 Firecracker can boot:
 
-1. Boot a FreeBSD system.  In EC2, the
+1. Boot a FreeBSD system. In EC2, the
    [FreeBSD 13 Marketplace image](https://aws.amazon.com/marketplace/pp/prodview-ukzmy5dzc6nbq)
    is a good option; you can also use weekly snapshot AMIs published by the
-   FreeBSD project.  (Firecracker support is in FreeBSD 14 and later, so you'll
+   FreeBSD project. (Firecracker support is in FreeBSD 14 and later, so you'll
    need FreeBSD 13 or later to build it.)
 
    The build will require about 50 GB of disk space, so size the disk
    appropriately.
 
-1. Log in to the FreeBSD system and become root.  If using EC2, you'll want to
+1. Log in to the FreeBSD system and become root. If using EC2, you'll want to
    ssh in as `ec2-user` with your chosen SSH key and then `su` to become root.
 
 1. Install git and check out the FreeBSD src tree:
@@ -220,10 +220,10 @@ Firecracker can boot:
    make -C /usr/src/release firecracker DESTDIR=`pwd`
    ```
 
-You should now have a rootfs `freebsd-rootfs.bin` and a kernel `freebsd-kern.bin`
-in the current directory (or elsewhere if you change the `DESTDIR` value) that
-you can boot with Firecracker.  Note that the FreeBSD rootfs generated in this
-manner is somewhat minimized compared to "stock" FreeBSD; it omits utilities
-which are only relevant on physical systems (e.g., utilities related to floppy
-disks, USB devices, and some network interfaces) and also debug files and the
-system compiler.
+You should now have a rootfs `freebsd-rootfs.bin` and a kernel
+`freebsd-kern.bin` in the current directory (or elsewhere if you change the
+`DESTDIR` value) that you can boot with Firecracker. Note that the FreeBSD
+rootfs generated in this manner is somewhat minimized compared to "stock"
+FreeBSD; it omits utilities which are only relevant on physical systems (e.g.,
+utilities related to floppy disks, USB devices, and some network interfaces) and
+also debug files and the system compiler.

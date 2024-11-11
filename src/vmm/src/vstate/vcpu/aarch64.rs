@@ -302,6 +302,7 @@ mod tests {
 
     use kvm_bindings::{KVM_ARM_VCPU_PSCI_0_2, KVM_REG_SIZE_U64};
     use vm_memory::GuestAddress;
+
     use super::*;
     use crate::arch::aarch64::regs::Aarch64RegisterRef;
     use crate::arch::BootProtocol;
@@ -344,16 +345,15 @@ mod tests {
             cpu_config: CpuConfiguration::default(),
         };
 
-        vcpu
-            .configure(
-                &vm_mem,
-                EntryPoint {
-                    entry_addr: GuestAddress(crate::arch::get_kernel_start()),
-                    protocol: BootProtocol::LinuxBoot,
-                },
-                &vcpu_config,
-            )
-            .unwrap();
+        vcpu.configure(
+            &vm_mem,
+            EntryPoint {
+                entry_addr: GuestAddress(crate::arch::get_kernel_start()),
+                protocol: BootProtocol::LinuxBoot,
+            },
+            &vcpu_config,
+        )
+        .unwrap();
 
         unsafe { libc::close(vcpu.fd.as_raw_fd()) };
 

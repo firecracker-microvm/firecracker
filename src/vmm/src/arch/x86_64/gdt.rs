@@ -49,6 +49,7 @@ fn get_base(entry: u64) -> u64 {
 // (For more information concerning the formats of segment descriptors, VMCS fields, et cetera,
 // please consult the Intel Software Developer Manual.)
 fn get_limit(entry: u64) -> u32 {
+    #[allow(clippy::cast_possible_truncation)] // clearly, truncation is not possible
     let limit: u32 =
         ((((entry) & 0x000F_0000_0000_0000) >> 32) | ((entry) & 0x0000_0000_0000_FFFF)) as u32;
 

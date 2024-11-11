@@ -406,7 +406,7 @@ mod tests {
         [BootProtocol::LinuxBoot, BootProtocol::PvhBoot]
             .iter()
             .for_each(|boot_prot| {
-                assert!(vcpu.set_sregs(&Default::default()).is_ok());
+                vcpu.set_sregs(&Default::default()).unwrap();
                 setup_sregs(&gm, &vcpu, *boot_prot).unwrap();
 
                 let mut sregs: kvm_sregs = vcpu.get_sregs().unwrap();
