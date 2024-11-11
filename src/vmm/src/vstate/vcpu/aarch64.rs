@@ -301,7 +301,7 @@ mod tests {
     use std::os::unix::io::AsRawFd;
 
     use kvm_bindings::{KVM_ARM_VCPU_PSCI_0_2, KVM_REG_SIZE_U64};
-
+    use vm_memory::GuestAddress;
     use super::*;
     use crate::arch::aarch64::regs::Aarch64RegisterRef;
     use crate::arch::BootProtocol;

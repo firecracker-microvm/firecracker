@@ -349,7 +349,7 @@ pub fn build_microvm_for_boot(
 
     #[cfg(feature = "gdb")]
     if let Some(gdb_socket_path) = &vm_resources.vm_config.gdb_socket_path {
-        gdb::gdb_thread(vmm.clone(), vcpu_fds, gdb_rx, entry_addr, gdb_socket_path)
+        gdb::gdb_thread(vmm.clone(), vcpu_fds, gdb_rx, entry_point.entry_addr, gdb_socket_path)
             .map_err(GdbServer)?;
     } else {
         debug!("No GDB socket provided not starting gdb server.");
