@@ -7,9 +7,9 @@ name = "acpi_tables"
 version = "0.1.0"
 dependencies = [
  "displaydoc",
- "thiserror",
+ "thiserror 2.0.3",
  "vm-memory",
- "zerocopy 0.8.8",
+ "zerocopy 0.8.9",
 ]
 
 [[package]]
@@ -64,9 +64,9 @@ checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
 
 [[package]]
 name = "anstream"
-version = "0.6.17"
+version = "0.6.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23a1e53f0f5d86382dafe1cf314783b2044280f406e7e1506368220ad11b1338"
+checksum = "8acc5369981196006228e28809f761875c0327210a891e941f4c683b3a99529b"
 dependencies = [
  "anstyle",
  "anstyle-parse",
@@ -261,9 +261,9 @@ checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
 
 [[package]]
 name = "cc"
-version = "1.1.34"
+version = "1.1.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67b9470d453346108f93a59222a9a1a5724db32d0a4727b7ab7ace4b4d822dc9"
+checksum = "40545c26d092346d8a8dab71ee48e7685a7a9cba76e634790c215b41a4a7b4cf"
 dependencies = [
  "jobserver",
  "libc",
@@ -426,7 +426,7 @@ dependencies = [
  "log-instrument",
  "serde",
  "serde_json",
- "thiserror",
+ "thiserror 2.0.3",
  "vmm",
  "vmm-sys-util",
 ]
@@ -620,7 +620,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "thiserror",
+ "thiserror 2.0.3",
  "timerfd",
  "userfaultfd",
  "utils",
@@ -707,9 +707,9 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
-version = "0.15.0"
+version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e087f84d4f86bf4b218b927129862374b72199ae7d8657835f1e89000eea4fb"
+checksum = "3a9bfc1af68b1726ea47d3d5109de126281def866b33970e10fbab11b5dafab3"
 
 [[package]]
 name = "heck"
@@ -806,7 +806,7 @@ dependencies = [
  "log-instrument",
  "nix 0.29.0",
  "regex",
- "thiserror",
+ "thiserror 2.0.3",
  "utils",
  "vmm-sys-util",
 ]
@@ -857,9 +857,9 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "libc"
-version = "0.2.161"
+version = "0.2.162"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e9489c2807c139ffd9c1794f4af0ebe86a828db53ecdc7fea2111d0fed085d1"
+checksum = "18d287de67fe55fd7e1581fe933d965a5a9477b38e949cfa9f8574ef01506398"
 
 [[package]]
 name = "libloading"
@@ -1145,7 +1145,7 @@ dependencies = [
  "displaydoc",
  "libc",
  "log-instrument",
- "thiserror",
+ "thiserror 2.0.3",
  "utils",
  "vmm-sys-util",
 ]
@@ -1164,9 +1164,9 @@ dependencies = [
 
 [[package]]
 name = "regex-automata"
-version = "0.4.8"
+version = "0.4.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "368758f23274712b504848e9d5a6f010445cc8b87a7cdb4d7cbee666c1288da3"
+checksum = "809e8dc61f6de73b46c85f4c96486310fe304c434cfa43669d7b40f711150908"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -1187,9 +1187,9 @@ checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
 name = "rustix"
-version = "0.38.38"
+version = "0.38.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa260229e6538e52293eeb577aabd09945a09d6d9cc0fc550ed7529056c2e32a"
+checksum = "99e4ea3e1cdc4b559b8e5650f9c8e5998e3e5c1343b4eaf034565f32318d63c0"
 dependencies = [
  "bitflags 2.6.0",
  "errno",
@@ -1223,7 +1223,7 @@ dependencies = [
  "log-instrument",
  "serde",
  "serde_json",
- "thiserror",
+ "thiserror 2.0.3",
  "utils",
  "vmm-sys-util",
 ]
@@ -1303,7 +1303,7 @@ dependencies = [
  "libc",
  "log-instrument",
  "semver",
- "thiserror",
+ "thiserror 2.0.3",
  "utils",
  "vmm",
  "vmm-sys-util",
@@ -1334,18 +1334,38 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.67"
+version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b3c6efbfc763e64eb85c11c25320f0737cb7364c4b6336db90aa9ebe27a0bbd"
+checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
 dependencies = [
- "thiserror-impl",
+ "thiserror-impl 1.0.69",
+]
+
+[[package]]
+name = "thiserror"
+version = "2.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c006c85c7651b3cf2ada4584faa36773bd07bac24acfb39f3c431b36d7e667aa"
+dependencies = [
+ "thiserror-impl 2.0.3",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.67"
+version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b607164372e89797d78b8e23a6d67d5d1038c1c65efd52e1389ef8b77caba2a6"
+checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "2.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f077553d607adc1caf65430528a576c757a71ed73944b66ebb58ef2bbd243568"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1455,7 +1475,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "nix 0.27.1",
- "thiserror",
+ "thiserror 1.0.69",
  "userfaultfd-sys",
 ]
 
@@ -1486,7 +1506,7 @@ dependencies = [
  "log-instrument",
  "serde",
  "serde_json",
- "thiserror",
+ "thiserror 2.0.3",
  "vm-memory",
  "vmm-sys-util",
 ]
@@ -1539,7 +1559,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e4ce718bd4e8d74b1747363e27f715a6b1bd6971597cb21425dadbf4e712241"
 dependencies = [
  "libc",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -1550,12 +1570,12 @@ checksum = "7e21282841a059bb62627ce8441c491f09603622cd5a21c43bfedc85a2952f23"
 
 [[package]]
 name = "vm-memory"
-version = "0.16.0"
+version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2919f87420b6998a131eb7c78843890295e91a3f8f786ccc925c8d387b75121"
+checksum = "f1720e7240cdc739f935456eb77f370d7e9b2a3909204da1e2b47bef1137a013"
 dependencies = [
  "libc",
- "thiserror",
+ "thiserror 1.0.69",
  "winapi",
 ]
 
@@ -1600,7 +1620,7 @@ dependencies = [
  "serde",
  "serde_json",
  "slab",
- "thiserror",
+ "thiserror 2.0.3",
  "timerfd",
  "userfaultfd",
  "utils",
@@ -1610,7 +1630,7 @@ dependencies = [
  "vm-memory",
  "vm-superio",
  "vmm-sys-util",
- "zerocopy 0.8.8",
+ "zerocopy 0.8.9",
 ]
 
 [[package]]
@@ -1787,11 +1807,11 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.8"
+version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a4e33e6dce36f2adba29746927f8e848ba70989fdb61c772773bbdda8b5d6a7"
+checksum = "f49e690f8f352f4a9ee8679a8c5921f42ffd0d6d6413a0a66b8e81cf524e109c"
 dependencies = [
- "zerocopy-derive 0.8.8",
+ "zerocopy-derive 0.8.9",
 ]
 
 [[package]]
@@ -1807,9 +1827,9 @@ dependencies = [
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.8"
+version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3cd137b4cc21bde6ecce3bbbb3350130872cda0be2c6888874279ea76e17d4c1"
+checksum = "fa732fcc881df7a6fbe8e3ed17baadece53b379ad58fe2633396b1a2b108a7b1"
 dependencies = [
  "proc-macro2",
  "quote",
