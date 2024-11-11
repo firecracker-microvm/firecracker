@@ -18,11 +18,11 @@ bench = false
 [dependencies]
 bincode = "1.2.1"
 displaydoc = "0.2.5"
-libc = "0.2.161"
+libc = "0.2.162"
 log-instrument = { path = "../log-instrument", optional = true }
 serde = { version = "1.0.214", features = ["derive"] }
 serde_json = "1.0.132"
-thiserror = "1.0.67"
+thiserror = "2.0.3"
 
 utils = { path = "../utils" }
 
