@@ -11,9 +11,9 @@ bench = false
 
 [dependencies]
 displaydoc = "0.2.5"
-libc = "0.2.161"
+libc = "0.2.162"
 log-instrument = { path = "../log-instrument", optional = true }
-thiserror = "1.0.67"
+thiserror = "2.0.3"
 vmm-sys-util = "0.12.1"
 
 utils = { path = "../utils" }
