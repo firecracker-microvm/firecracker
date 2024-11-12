@@ -252,7 +252,7 @@ mod tests {
         let guest_mem = single_region_mem(0x1000);
         let mut vm = Vm::new(vec![]).unwrap();
         vm.memory_init(&guest_mem, false).unwrap();
-        crate::builder::setup_interrupt_controller(&mut vm).unwrap();
+        crate::builder::x86_64::setup_interrupt_controller(&mut vm).unwrap();
         let mut ldm = PortIODeviceManager::new(
             Arc::new(Mutex::new(BusDevice::Serial(SerialDevice {
                 serial: Serial::with_events(

@@ -148,24 +148,340 @@ impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
     }
 }
 
-#[cfg_attr(target_arch = "aarch64", allow(unused))]
-fn create_vmm_and_vcpus(
+#[cfg(target_arch = "aarch64")]
+pub mod aarch64 {
+    use super::*;
+
+    fn attach_legacy_devices_aarch64(
+        event_manager: &mut EventManager,
+        vmm: &mut Vmm,
+        cmdline: &mut LoaderKernelCmdline,
+    ) -> Result<(), VmmError> {
+        // Serial device setup.
+        let cmdline_contains_console = cmdline
+            .as_cstring()
+            .map_err(|_| VmmError::Cmdline)?
+            .into_string()
+            .map_err(|_| VmmError::Cmdline)?
+            .contains("console=");
+
+        if cmdline_contains_console {
+            // Make stdout non-blocking.
+            set_stdout_nonblocking();
+            let serial = setup_serial_device(event_manager, std::io::stdin(), std::io::stdout())?;
+            vmm.mmio_device_manager
+                .register_mmio_serial(vmm.vm.fd(), &mut vmm.resource_allocator, serial, None)
+                .map_err(VmmError::RegisterMMIODevice)?;
+            vmm.mmio_device_manager
+                .add_mmio_serial_to_cmdline(cmdline)
+                .map_err(VmmError::RegisterMMIODevice)?;
+        }
+
+        let rtc = RTCDevice(Rtc::with_events(
+            &crate::devices::legacy::rtc_pl031::METRICS,
+        ));
+        vmm.mmio_device_manager
+            .register_mmio_rtc(&mut vmm.resource_allocator, rtc, None)
+            .map_err(VmmError::RegisterMMIODevice)
+    }
+
+    /// Configures the system for booting Linux.
+    pub fn configure_system_for_boot(
+        vmm: &mut Vmm,
+        vcpus: &mut [Vcpu],
+        vm_config: &VmConfig,
+        cpu_template: &CustomCpuTemplate,
+        entry_addr: GuestAddress,
+        initrd: &Option<InitrdConfig>,
+        boot_cmdline: LoaderKernelCmdline,
+    ) -> Result<(), StartMicrovmError> {
+        use self::StartMicrovmError::*;
+
+        // Construct the base CpuConfiguration to apply CPU template onto.
+        let cpu_config = {
+            use crate::arch::aarch64::regs::Aarch64RegisterVec;
+            use crate::arch::aarch64::vcpu::get_registers;
+
+            for vcpu in vcpus.iter_mut() {
+                vcpu.kvm_vcpu
+                    .init(&cpu_template.vcpu_features)
+                    .map_err(VmmError::VcpuInit)
+                    .map_err(Internal)?;
+            }
+
+            let mut regs = Aarch64RegisterVec::default();
+            get_registers(&vcpus[0].kvm_vcpu.fd, &cpu_template.reg_list(), &mut regs)
+                .map_err(GuestConfigError)?;
+            CpuConfiguration { regs }
+        };
+
+        // Apply CPU template to the base CpuConfiguration.
+        let cpu_config = CpuConfiguration::apply_template(cpu_config, cpu_template)?;
+
+        let vcpu_config = VcpuConfig {
+            vcpu_count: vm_config.vcpu_count,
+            smt: vm_config.smt,
+            cpu_config,
+        };
+
+        // Configure vCPUs with normalizing and setting the generated CPU configuration.
+        for vcpu in vcpus.iter_mut() {
+            vcpu.kvm_vcpu
+                .configure(vmm.guest_memory(), entry_addr, &vcpu_config)
+                .map_err(VmmError::VcpuConfigure)
+                .map_err(Internal)?;
+        }
+
+        let vcpu_mpidr = vcpus
+            .iter_mut()
+            .map(|cpu| cpu.kvm_vcpu.get_mpidr())
+            .collect();
+        let cmdline = boot_cmdline.as_cstring()?;
+        crate::arch::aarch64::configure_system(
+            &vmm.guest_memory,
+            cmdline,
+            vcpu_mpidr,
+            vmm.mmio_device_manager.get_device_info(),
+            vmm.vm.get_irqchip(),
+            &vmm.acpi_device_manager.vmgenid,
+            initrd,
+        )
+        .map_err(ConfigureSystem)?;
+
+        Ok(())
+    }
+
+    /// Sets up the irqchip for a aarch64 microVM.
+    pub fn setup_interrupt_controller(vm: &mut Vm, vcpu_count: u8) -> Result<(), VmmError> {
+        vm.setup_irqchip(vcpu_count).map_err(VmmError::Vm)
+    }
+
+    /// On aarch64, the vCPUs need to be created (i.e call KVM_CREATE_VCPU) before setting up the
+    /// IRQ chip because the `KVM_CREATE_VCPU` ioctl will return error if the IRQCHIP
+    /// was already initialized.
+    /// Search for `kvm_arch_vcpu_create` in arch/arm/kvm/arm.c.
+    pub fn create_vcpus(
+        vm: &mut Vm,
+        vcpu_count: u8,
+        exit_evt: &EventFd,
+    ) -> Result<Vec<Vcpu>, VmmError> {
+        let mut vcpus = Vec::with_capacity(vcpu_count as usize);
+        for cpu_idx in 0..vcpu_count {
+            let exit_evt = exit_evt.try_clone().map_err(VmmError::EventFd)?;
+            let vcpu = Vcpu::new(cpu_idx, vm, exit_evt).map_err(VmmError::VcpuCreate)?;
+            vcpus.push(vcpu);
+        }
+
+        setup_interrupt_controller(vm, vcpu_count)?;
+
+        Ok(vcpus)
+    }
+
+    pub fn load_kernel(
+        boot_config: &BootConfig,
+        guest_memory: &GuestMemoryMmap,
+    ) -> Result<GuestAddress, StartMicrovmError> {
+        let mut kernel_file = boot_config
+            .kernel_file
+            .try_clone()
+            .map_err(|err| StartMicrovmError::Internal(VmmError::KernelFile(err)))?;
+
+        let entry_addr = Loader::load::<std::fs::File, GuestMemoryMmap>(
+            guest_memory,
+            Some(GuestAddress(crate::arch::get_kernel_start())),
+            &mut kernel_file,
+            None,
+        )
+        .map_err(StartMicrovmError::KernelLoader)?;
+
+        Ok(entry_addr.kernel_load)
+    }
+
+    pub fn create_vmm_and_vcpus(
+        instance_info: &InstanceInfo,
+        guest_memory: GuestMemoryMmap,
+        uffd: Option<Uffd>,
+        vm_config: &VmConfig,
+        kvm_capabilities: Vec<KvmCapability>,
+    ) -> Result<(Vmm, Vec<Vcpu>), StartMicrovmError> {
+        let mut vmm = build_vmm(
+            instance_info,
+            guest_memory,
+            uffd,
+            vm_config,
+            kvm_capabilities,
+        )?;
+
+        let vcpus =
+            create_vcpus(&mut vm, vm_config.vcpu_count, &vmm.vcpus_exit_evt).map_err(Internal)?;
+
+        Ok((vmm, vcpus))
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+pub mod x86_64 {
+    use super::*;
+
+    /// Configures the system for booting Linux.
+    pub fn configure_system_for_boot(
+        vmm: &mut Vmm,
+        vcpus: &mut [Vcpu],
+        vm_config: &VmConfig,
+        cpu_template: &CustomCpuTemplate,
+        entry_addr: GuestAddress,
+        initrd: &Option<InitrdConfig>,
+        boot_cmdline: LoaderKernelCmdline,
+    ) -> Result<(), StartMicrovmError> {
+        use self::StartMicrovmError::*;
+
+        // Construct the base CpuConfiguration to apply CPU template onto.
+        let cpu_config = {
+            use crate::cpu_config::x86_64::cpuid;
+            let cpuid = cpuid::Cpuid::try_from(vmm.vm.supported_cpuid().clone())
+                .map_err(GuestConfigError::CpuidFromKvmCpuid)?;
+            let msrs = vcpus[0]
+                .kvm_vcpu
+                .get_msrs(cpu_template.msr_index_iter())
+                .map_err(GuestConfigError::VcpuIoctl)?;
+            CpuConfiguration { cpuid, msrs }
+        };
+
+        // Apply CPU template to the base CpuConfiguration.
+        let cpu_config = CpuConfiguration::apply_template(cpu_config, cpu_template)?;
+
+        let vcpu_config = VcpuConfig {
+            vcpu_count: vm_config.vcpu_count,
+            smt: vm_config.smt,
+            cpu_config,
+        };
+
+        // Configure vCPUs with normalizing and setting the generated CPU configuration.
+        for vcpu in vcpus.iter_mut() {
+            vcpu.kvm_vcpu
+                .configure(vmm.guest_memory(), entry_addr, &vcpu_config)
+                .map_err(VmmError::VcpuConfigure)
+                .map_err(Internal)?;
+        }
+
+        // Write the kernel command line to guest memory. This is x86_64 specific, since on
+        // aarch64 the command line will be specified through the FDT.
+        let cmdline_size = boot_cmdline
+            .as_cstring()
+            .map(|cmdline_cstring| cmdline_cstring.as_bytes_with_nul().len())?;
+
+        linux_loader::loader::load_cmdline::<crate::vstate::memory::GuestMemoryMmap>(
+            vmm.guest_memory(),
+            GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
+            &boot_cmdline,
+        )
+        .map_err(LoadCommandline)?;
+        crate::arch::x86_64::configure_system(
+            &vmm.guest_memory,
+            &mut vmm.resource_allocator,
+            crate::vstate::memory::GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
+            cmdline_size,
+            initrd,
+            vcpu_config.vcpu_count,
+        )
+        .map_err(ConfigureSystem)?;
+
+        // Create ACPI tables and write them in guest memory
+        // For the time being we only support ACPI in x86_64
+        acpi::create_acpi_tables(
+            &vmm.guest_memory,
+            &mut vmm.resource_allocator,
+            &vmm.mmio_device_manager,
+            &vmm.acpi_device_manager,
+            vcpus,
+        )?;
+
+        Ok(())
+    }
+
+    /// Sets up the irqchip for a x86_64 microVM.
+    pub fn setup_interrupt_controller(vm: &mut Vm) -> Result<(), VmmError> {
+        vm.setup_irqchip().map_err(VmmError::Vm)
+    }
+
+    /// For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
+    /// while on aarch64 we need to do it the other way around.
+    pub fn create_vcpus(
+        vm: &mut Vm,
+        vcpu_count: u8,
+        exit_evt: &EventFd,
+    ) -> Result<Vec<Vcpu>, VmmError> {
+        setup_interrupt_controller(vm)?;
+
+        let mut vcpus = Vec::with_capacity(vcpu_count as usize);
+        for cpu_idx in 0..vcpu_count {
+            let exit_evt = exit_evt.try_clone().map_err(VmmError::EventFd)?;
+            let vcpu = Vcpu::new(cpu_idx, vm, exit_evt).map_err(VmmError::VcpuCreate)?;
+            vcpus.push(vcpu);
+        }
+        // Make stdout non blocking.
+        set_stdout_nonblocking();
+
+        Ok(vcpus)
+    }
+
+    pub fn load_kernel(
+        boot_config: &BootConfig,
+        guest_memory: &GuestMemoryMmap,
+    ) -> Result<GuestAddress, StartMicrovmError> {
+        let mut kernel_file = boot_config
+            .kernel_file
+            .try_clone()
+            .map_err(|err| StartMicrovmError::Internal(VmmError::KernelFile(err)))?;
+
+        let entry_addr = Loader::load::<std::fs::File, GuestMemoryMmap>(
+            guest_memory,
+            None,
+            &mut kernel_file,
+            Some(GuestAddress(crate::arch::get_kernel_start())),
+        )
+        .map_err(StartMicrovmError::KernelLoader)?;
+
+        Ok(entry_addr.kernel_load)
+    }
+
+    pub fn create_vmm_and_vcpus(
+        instance_info: &InstanceInfo,
+        guest_memory: GuestMemoryMmap,
+        uffd: Option<Uffd>,
+        vm_config: &VmConfig,
+        kvm_capabilities: Vec<KvmCapability>,
+    ) -> Result<(Vmm, Vec<Vcpu>), StartMicrovmError> {
+        let mut vmm = build_vmm(
+            instance_info,
+            guest_memory,
+            uffd,
+            vm_config,
+            kvm_capabilities,
+        )?;
+
+        let vcpus = create_vcpus(&mut vmm.vm, vm_config.vcpu_count, &vmm.vcpus_exit_evt)
+            .map_err(StartMicrovmError::Internal)?;
+
+        Ok((vmm, vcpus))
+    }
+}
+
+fn build_vmm(
     instance_info: &InstanceInfo,
-    event_manager: &mut EventManager,
     guest_memory: GuestMemoryMmap,
     uffd: Option<Uffd>,
-    track_dirty_pages: bool,
-    vcpu_count: u8,
+    vm_config: &VmConfig,
     kvm_capabilities: Vec<KvmCapability>,
-) -> Result<(Vmm, Vec<Vcpu>), StartMicrovmError> {
+) -> Result<Vmm, StartMicrovmError> {
     use self::StartMicrovmError::*;
 
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
-    let mut vm = Vm::new(kvm_capabilities)
+    let vm = Vm::new(kvm_capabilities)
         .map_err(VmmError::Vm)
         .map_err(StartMicrovmError::Internal)?;
-    vm.memory_init(&guest_memory, track_dirty_pages)
+    vm.memory_init(&guest_memory, vm_config.track_dirty_pages)
         .map_err(VmmError::Vm)
         .map_err(StartMicrovmError::Internal)?;
 
@@ -184,16 +500,10 @@ fn create_vmm_and_vcpus(
     // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
     // while on aarch64 we need to do it the other way around.
     #[cfg(target_arch = "x86_64")]
-    let (vcpus, pio_device_manager) = {
-        setup_interrupt_controller(&mut vm)?;
-        let vcpus = create_vcpus(&vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
-
-        // Make stdout non blocking.
-        set_stdout_nonblocking();
-
+    let pio_device_manager = {
         // Serial device setup.
         let serial_device =
-            setup_serial_device(event_manager, std::io::stdin(), io::stdout()).map_err(Internal)?;
+            setup_serial_device(std::io::stdin(), io::stdout()).map_err(Internal)?;
 
         // x86_64 uses the i8042 reset event as the Vmm exit event.
         let reset_evt = vcpus_exit_evt
@@ -209,21 +519,10 @@ fn create_vmm_and_vcpus(
             pio_dev_mgr
         };
 
-        (vcpus, pio_device_manager)
+        pio_device_manager
     };
 
-    // On aarch64, the vCPUs need to be created (i.e call KVM_CREATE_VCPU) before setting up the
-    // IRQ chip because the `KVM_CREATE_VCPU` ioctl will return error if the IRQCHIP
-    // was already initialized.
-    // Search for `kvm_arch_vcpu_create` in arch/arm/kvm/arm.c.
-    #[cfg(target_arch = "aarch64")]
-    let vcpus = {
-        let vcpus = create_vcpus(&vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
-        setup_interrupt_controller(&mut vm, vcpu_count)?;
-        vcpus
-    };
-
-    let vmm = Vmm {
+    Ok(Vmm {
         events_observer: Some(std::io::stdin()),
         instance_info: instance_info.clone(),
         shutdown_exit_code: None,
@@ -237,9 +536,7 @@ fn create_vmm_and_vcpus(
         #[cfg(target_arch = "x86_64")]
         pio_device_manager,
         acpi_device_manager,
-    };
-
-    Ok((vmm, vcpus))
+    })
 }
 
 /// Builds and starts a microVM based on the current Firecracker VmResources configuration.
@@ -266,7 +563,11 @@ pub fn build_microvm_for_boot(
         .allocate_guest_memory()
         .map_err(StartMicrovmError::GuestMemory)?;
 
-    let entry_addr = load_kernel(boot_config, &guest_memory)?;
+    #[cfg(target_arch = "x86_64")]
+    let entry_addr = x86_64::load_kernel(boot_config, &guest_memory)?;
+    #[cfg(target_arch = "aarch64")]
+    let entry_addr = aarch64::load_kernel(boot_config, &guest_memory)?;
+
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
@@ -274,13 +575,23 @@ pub fn build_microvm_for_boot(
 
     let cpu_template = vm_resources.vm_config.cpu_template.get_cpu_template()?;
 
-    let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
+    #[cfg(target_arch = "x86_64")]
+    let (mut vmm, mut vcpus) = x86_64::create_vmm_and_vcpus(
         instance_info,
-        event_manager,
         guest_memory,
         None,
-        vm_resources.vm_config.track_dirty_pages,
-        vm_resources.vm_config.vcpu_count,
+        &vm_resources.vm_config,
+        cpu_template.kvm_capabilities.clone(),
+    )?;
+    #[cfg(target_arch = "x86_64")]
+    event_manager.add_subscriber(vmm.pio_device_manager.stdio_serial.clone());
+
+    #[cfg(target_arch = "aarch64")]
+    let (mut vmm, mut vcpus) = aarch64::create_vmm_and_vcpus(
+        instance_info,
+        guest_memory,
+        None,
+        &vm_resources.vm_config,
         cpu_template.kvm_capabilities.clone(),
     )?;
 
@@ -329,11 +640,23 @@ pub fn build_microvm_for_boot(
     }
 
     #[cfg(target_arch = "aarch64")]
-    attach_legacy_devices_aarch64(event_manager, &mut vmm, &mut boot_cmdline).map_err(Internal)?;
+    aarch::attach_legacy_devices_aarch64(event_manager, &mut vmm, &mut boot_cmdline)
+        .map_err(Internal)?;
 
     attach_vmgenid_device(&mut vmm)?;
 
-    configure_system_for_boot(
+    #[cfg(target_arch = "x86_64")]
+    x86_64::configure_system_for_boot(
+        &mut vmm,
+        vcpus.as_mut(),
+        &vm_resources.vm_config,
+        &cpu_template,
+        entry_addr,
+        &initrd,
+        boot_cmdline,
+    )?;
+    #[cfg(target_arch = "aarch64")]
+    aarch64::configure_system_for_boot(
         &mut vmm,
         vcpus.as_mut(),
         &vm_resources.vm_config,
@@ -464,13 +787,22 @@ pub fn build_microvm_from_snapshot(
 ) -> Result<Arc<Mutex<Vmm>>, BuildMicrovmFromSnapshotError> {
     // Build Vmm.
     debug!("event_start: build microvm from snapshot");
-    let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
+    #[cfg(target_arch = "x86_64")]
+    let (mut vmm, mut vcpus) = x86_64::create_vmm_and_vcpus(
         instance_info,
-        event_manager,
         guest_memory.clone(),
         uffd,
-        vm_resources.vm_config.track_dirty_pages,
-        vm_resources.vm_config.vcpu_count,
+        &vm_resources.vm_config,
+        microvm_state.vm_state.kvm_cap_modifiers.clone(),
+    )?;
+    #[cfg(target_arch = "x86_64")]
+    event_manager.add_subscriber(vmm.pio_device_manager.stdio_serial.clone());
+    #[cfg(target_arch = "aarch64")]
+    let (mut vmm, mut vcpus) = aarch64::create_vmm_and_vcpus(
+        instance_info,
+        guest_memory.clone(),
+        uffd,
+        &vm_resources.vm_config,
         microvm_state.vm_state.kvm_cap_modifiers.clone(),
     )?;
 
@@ -567,36 +899,6 @@ pub fn build_microvm_from_snapshot(
     Ok(vmm)
 }
 
-fn load_kernel(
-    boot_config: &BootConfig,
-    guest_memory: &GuestMemoryMmap,
-) -> Result<GuestAddress, StartMicrovmError> {
-    let mut kernel_file = boot_config
-        .kernel_file
-        .try_clone()
-        .map_err(|err| StartMicrovmError::Internal(VmmError::KernelFile(err)))?;
-
-    #[cfg(target_arch = "x86_64")]
-    let entry_addr = Loader::load::<std::fs::File, GuestMemoryMmap>(
-        guest_memory,
-        None,
-        &mut kernel_file,
-        Some(GuestAddress(crate::arch::get_kernel_start())),
-    )
-    .map_err(StartMicrovmError::KernelLoader)?;
-
-    #[cfg(target_arch = "aarch64")]
-    let entry_addr = Loader::load::<std::fs::File, GuestMemoryMmap>(
-        guest_memory,
-        Some(GuestAddress(crate::arch::get_kernel_start())),
-        &mut kernel_file,
-        None,
-    )
-    .map_err(StartMicrovmError::KernelLoader)?;
-
-    Ok(entry_addr.kernel_load)
-}
-
 fn load_initrd_from_config(
     boot_cfg: &BootConfig,
     vm_memory: &GuestMemoryMmap,
@@ -660,25 +962,8 @@ where
     })
 }
 
-/// Sets up the irqchip for a x86_64 microVM.
-#[cfg(target_arch = "x86_64")]
-pub fn setup_interrupt_controller(vm: &mut Vm) -> Result<(), StartMicrovmError> {
-    vm.setup_irqchip()
-        .map_err(VmmError::Vm)
-        .map_err(StartMicrovmError::Internal)
-}
-
-/// Sets up the irqchip for a aarch64 microVM.
-#[cfg(target_arch = "aarch64")]
-pub fn setup_interrupt_controller(vm: &mut Vm, vcpu_count: u8) -> Result<(), StartMicrovmError> {
-    vm.setup_irqchip(vcpu_count)
-        .map_err(VmmError::Vm)
-        .map_err(StartMicrovmError::Internal)
-}
-
 /// Sets up the serial device.
 pub fn setup_serial_device(
-    event_manager: &mut EventManager,
     input: std::io::Stdin,
     out: std::io::Stdout,
 ) -> Result<Arc<Mutex<BusDevice>>, VmmError> {
@@ -695,168 +980,8 @@ pub fn setup_serial_device(
         ),
         input: Some(input),
     })));
-    event_manager.add_subscriber(serial.clone());
+
     Ok(serial)
-}
-
-#[cfg(target_arch = "aarch64")]
-fn attach_legacy_devices_aarch64(
-    event_manager: &mut EventManager,
-    vmm: &mut Vmm,
-    cmdline: &mut LoaderKernelCmdline,
-) -> Result<(), VmmError> {
-    // Serial device setup.
-    let cmdline_contains_console = cmdline
-        .as_cstring()
-        .map_err(|_| VmmError::Cmdline)?
-        .into_string()
-        .map_err(|_| VmmError::Cmdline)?
-        .contains("console=");
-
-    if cmdline_contains_console {
-        // Make stdout non-blocking.
-        set_stdout_nonblocking();
-        let serial = setup_serial_device(event_manager, std::io::stdin(), std::io::stdout())?;
-        vmm.mmio_device_manager
-            .register_mmio_serial(vmm.vm.fd(), &mut vmm.resource_allocator, serial, None)
-            .map_err(VmmError::RegisterMMIODevice)?;
-        vmm.mmio_device_manager
-            .add_mmio_serial_to_cmdline(cmdline)
-            .map_err(VmmError::RegisterMMIODevice)?;
-    }
-
-    let rtc = RTCDevice(Rtc::with_events(
-        &crate::devices::legacy::rtc_pl031::METRICS,
-    ));
-    vmm.mmio_device_manager
-        .register_mmio_rtc(&mut vmm.resource_allocator, rtc, None)
-        .map_err(VmmError::RegisterMMIODevice)
-}
-
-fn create_vcpus(vm: &Vm, vcpu_count: u8, exit_evt: &EventFd) -> Result<Vec<Vcpu>, VmmError> {
-    let mut vcpus = Vec::with_capacity(vcpu_count as usize);
-    for cpu_idx in 0..vcpu_count {
-        let exit_evt = exit_evt.try_clone().map_err(VmmError::EventFd)?;
-        let vcpu = Vcpu::new(cpu_idx, vm, exit_evt).map_err(VmmError::VcpuCreate)?;
-        vcpus.push(vcpu);
-    }
-    Ok(vcpus)
-}
-
-/// Configures the system for booting Linux.
-#[cfg_attr(target_arch = "aarch64", allow(unused))]
-pub fn configure_system_for_boot(
-    vmm: &mut Vmm,
-    vcpus: &mut [Vcpu],
-    vm_config: &VmConfig,
-    cpu_template: &CustomCpuTemplate,
-    entry_addr: GuestAddress,
-    initrd: &Option<InitrdConfig>,
-    boot_cmdline: LoaderKernelCmdline,
-) -> Result<(), StartMicrovmError> {
-    use self::StartMicrovmError::*;
-
-    // Construct the base CpuConfiguration to apply CPU template onto.
-    #[cfg(target_arch = "x86_64")]
-    let cpu_config = {
-        use crate::cpu_config::x86_64::cpuid;
-        let cpuid = cpuid::Cpuid::try_from(vmm.vm.supported_cpuid().clone())
-            .map_err(GuestConfigError::CpuidFromKvmCpuid)?;
-        let msrs = vcpus[0]
-            .kvm_vcpu
-            .get_msrs(cpu_template.msr_index_iter())
-            .map_err(GuestConfigError::VcpuIoctl)?;
-        CpuConfiguration { cpuid, msrs }
-    };
-
-    #[cfg(target_arch = "aarch64")]
-    let cpu_config = {
-        use crate::arch::aarch64::regs::Aarch64RegisterVec;
-        use crate::arch::aarch64::vcpu::get_registers;
-
-        for vcpu in vcpus.iter_mut() {
-            vcpu.kvm_vcpu
-                .init(&cpu_template.vcpu_features)
-                .map_err(VmmError::VcpuInit)
-                .map_err(Internal)?;
-        }
-
-        let mut regs = Aarch64RegisterVec::default();
-        get_registers(&vcpus[0].kvm_vcpu.fd, &cpu_template.reg_list(), &mut regs)
-            .map_err(GuestConfigError)?;
-        CpuConfiguration { regs }
-    };
-
-    // Apply CPU template to the base CpuConfiguration.
-    let cpu_config = CpuConfiguration::apply_template(cpu_config, cpu_template)?;
-
-    let vcpu_config = VcpuConfig {
-        vcpu_count: vm_config.vcpu_count,
-        smt: vm_config.smt,
-        cpu_config,
-    };
-
-    // Configure vCPUs with normalizing and setting the generated CPU configuration.
-    for vcpu in vcpus.iter_mut() {
-        vcpu.kvm_vcpu
-            .configure(vmm.guest_memory(), entry_addr, &vcpu_config)
-            .map_err(VmmError::VcpuConfigure)
-            .map_err(Internal)?;
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    {
-        // Write the kernel command line to guest memory. This is x86_64 specific, since on
-        // aarch64 the command line will be specified through the FDT.
-        let cmdline_size = boot_cmdline
-            .as_cstring()
-            .map(|cmdline_cstring| cmdline_cstring.as_bytes_with_nul().len())?;
-
-        linux_loader::loader::load_cmdline::<crate::vstate::memory::GuestMemoryMmap>(
-            vmm.guest_memory(),
-            GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
-            &boot_cmdline,
-        )
-        .map_err(LoadCommandline)?;
-        crate::arch::x86_64::configure_system(
-            &vmm.guest_memory,
-            &mut vmm.resource_allocator,
-            crate::vstate::memory::GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
-            cmdline_size,
-            initrd,
-            vcpu_config.vcpu_count,
-        )
-        .map_err(ConfigureSystem)?;
-
-        // Create ACPI tables and write them in guest memory
-        // For the time being we only support ACPI in x86_64
-        acpi::create_acpi_tables(
-            &vmm.guest_memory,
-            &mut vmm.resource_allocator,
-            &vmm.mmio_device_manager,
-            &vmm.acpi_device_manager,
-            vcpus,
-        )?;
-    }
-    #[cfg(target_arch = "aarch64")]
-    {
-        let vcpu_mpidr = vcpus
-            .iter_mut()
-            .map(|cpu| cpu.kvm_vcpu.get_mpidr())
-            .collect();
-        let cmdline = boot_cmdline.as_cstring()?;
-        crate::arch::aarch64::configure_system(
-            &vmm.guest_memory,
-            cmdline,
-            vcpu_mpidr,
-            vmm.mmio_device_manager.get_device_info(),
-            vmm.vm.get_irqchip(),
-            &vmm.acpi_device_manager.vmgenid,
-            initrd,
-        )
-        .map_err(ConfigureSystem)?;
-    }
-    Ok(())
 }
 
 /// Attaches a VirtioDevice device to the device manager and event manager.
@@ -1127,7 +1252,7 @@ pub mod tests {
         .unwrap();
 
         #[cfg(target_arch = "x86_64")]
-        setup_interrupt_controller(&mut vm).unwrap();
+        x86_64::setup_interrupt_controller(&mut vm).unwrap();
 
         #[cfg(target_arch = "aarch64")]
         {
@@ -1363,9 +1488,9 @@ pub mod tests {
         let evfd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
 
         #[cfg(target_arch = "x86_64")]
-        setup_interrupt_controller(&mut vm).unwrap();
+        x86_64::setup_interrupt_controller(&mut vm).unwrap();
 
-        let vcpu_vec = create_vcpus(&vm, vcpu_count, &evfd).unwrap();
+        let vcpu_vec = x86_64::create_vcpus(&mut vm, vcpu_count, &evfd).unwrap();
         assert_eq!(vcpu_vec.len(), vcpu_count as usize);
     }
 
