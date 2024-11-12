@@ -18,6 +18,13 @@ and this project adheres to
 
 ### Fixed
 
+## \[1.10.1\]
+
+### Changed
+
+- [#4907](https://github.com/firecracker-microvm/firecracker/pull/4907): Bump
+  snapshot version to 4.0.0.
+
 ## \[1.10.0\]
 
 ### Added
