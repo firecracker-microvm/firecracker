@@ -276,7 +276,7 @@ pub(crate) enum RequestError {
     #[error("API Resource IDs can only contain alphanumeric characters and underscores.")]
     InvalidID,
     // The HTTP method & request path combination is not valid.
-    #[error("Invalid request method and/or path: {} {0}.", .1.to_str())]
+    #[error("Invalid request method and/or path: {} {}.", .1.to_str(), .0)]
     InvalidPathMethod(String, Method),
     // An error occurred when deserializing the json body of a request.
     #[error("An error occurred when deserializing the json body of a request: {0}.")]
