@@ -4,7 +4,6 @@
 //! Defines the structures needed for saving/restoring MmdsNetworkStack.
 
 use std::net::Ipv4Addr;
-use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -20,8 +19,6 @@ pub struct MmdsNetworkStackState {
     mac_addr: [u8; MAC_ADDR_LEN as usize],
     ipv4_addr: u32,
     tcp_port: u16,
-    max_connections: NonZeroUsize,
-    max_pending_resets: NonZeroUsize,
 }
 
 impl Persist<'_> for MmdsNetworkStack {
@@ -37,8 +34,6 @@ impl Persist<'_> for MmdsNetworkStack {
             mac_addr,
             ipv4_addr: self.ipv4_addr.into(),
             tcp_port: self.tcp_handler.local_port(),
-            max_connections: self.tcp_handler.max_connections(),
-            max_pending_resets: self.tcp_handler.max_pending_resets(),
         }
     }
 
@@ -50,8 +45,6 @@ impl Persist<'_> for MmdsNetworkStack {
             MacAddr::from_bytes_unchecked(&state.mac_addr),
             Ipv4Addr::from(state.ipv4_addr),
             state.tcp_port,
-            state.max_connections,
-            state.max_pending_resets,
             mmds,
         ))
     }
@@ -82,14 +75,6 @@ mod tests {
         assert_eq!(
             restored_ns.tcp_handler.local_port(),
             ns.tcp_handler.local_port()
-        );
-        assert_eq!(
-            restored_ns.tcp_handler.max_connections(),
-            ns.tcp_handler.max_connections()
-        );
-        assert_eq!(
-            restored_ns.tcp_handler.max_pending_resets(),
-            ns.tcp_handler.max_pending_resets()
         );
     }
 }
