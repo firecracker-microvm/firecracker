@@ -553,14 +553,8 @@ mod tests {
         let ip = Ipv4Addr::from(DEFAULT_IPV4_ADDR);
         let other_ip = Ipv4Addr::new(5, 6, 7, 8);
         let mac = MacAddr::from_bytes_unchecked(&[0; 6]);
-        let mut ns = MmdsNetworkStack::new(
-            mac,
-            ip,
-            DEFAULT_TCP_PORT,
-            NonZeroUsize::new(DEFAULT_MAX_CONNECTIONS).unwrap(),
-            NonZeroUsize::new(DEFAULT_MAX_PENDING_RESETS).unwrap(),
-            Arc::new(Mutex::new(Mmds::default())),
-        );
+        let mut ns =
+            MmdsNetworkStack::new_with_defaults(Some(ip), Arc::new(Mutex::new(Mmds::default())));
 
         let mut eth =
             EthernetFrame::write_incomplete(buf.as_mut(), mac, mac, ETHERTYPE_ARP).unwrap();
@@ -580,14 +574,8 @@ mod tests {
         let ip = Ipv4Addr::from(DEFAULT_IPV4_ADDR);
         let other_ip = Ipv4Addr::new(5, 6, 7, 8);
         let mac = MacAddr::from_bytes_unchecked(&[0; 6]);
-        let ns = MmdsNetworkStack::new(
-            mac,
-            ip,
-            DEFAULT_TCP_PORT,
-            NonZeroUsize::new(DEFAULT_MAX_CONNECTIONS).unwrap(),
-            NonZeroUsize::new(DEFAULT_MAX_PENDING_RESETS).unwrap(),
-            Arc::new(Mutex::new(Mmds::default())),
-        );
+        let ns =
+            MmdsNetworkStack::new_with_defaults(Some(ip), Arc::new(Mutex::new(Mmds::default())));
 
         let mut eth =
             EthernetFrame::write_incomplete(buf.as_mut(), mac, mac, ETHERTYPE_IPV4).unwrap();
@@ -606,14 +594,8 @@ mod tests {
         let ip = Ipv4Addr::from(DEFAULT_IPV4_ADDR);
         let other_ip = Ipv4Addr::new(5, 6, 7, 8);
         let mac = MacAddr::from_bytes_unchecked(&[0; 6]);
-        let mut ns = MmdsNetworkStack::new(
-            mac,
-            ip,
-            DEFAULT_TCP_PORT,
-            NonZeroUsize::new(DEFAULT_MAX_CONNECTIONS).unwrap(),
-            NonZeroUsize::new(DEFAULT_MAX_PENDING_RESETS).unwrap(),
-            Arc::new(Mutex::new(Mmds::default())),
-        );
+        let mut ns =
+            MmdsNetworkStack::new_with_defaults(Some(ip), Arc::new(Mutex::new(Mmds::default())));
 
         // try IPv4 with detour_arp
         let mut eth =
