@@ -722,7 +722,7 @@ class Microvm:
         the response is within the interval [200, 300).
 
         If boot_args is None, the default boot_args in Firecracker is
-            reboot=k panic=1 pci=off nomodule 8250.nr_uarts=0
+            reboot=k panic=1 iommu=off nomodule 8250.nr_uarts=0
             i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd
 
         Reference: file:../../src/vmm/src/vmm_config/boot_source.rs::DEFAULT_KERNEL_CMDLINE

@@ -701,7 +701,7 @@ mod tests {
             r#"{{
                     "boot-source": {{
                         "kernel_image_path": "/invalid/path",
-                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                        "boot_args": "console=ttyS0 reboot=k panic=1 iommu=off"
                     }},
                     "drives": [
                         {{
@@ -736,7 +736,7 @@ mod tests {
             r#"{{
                     "boot-source": {{
                         "kernel_image_path": "{}",
-                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                        "boot_args": "console=ttyS0 reboot=k panic=1 iommu=off"
                     }},
                     "drives": [
                         {{
@@ -772,7 +772,7 @@ mod tests {
             r#"{{
                     "boot-source": {{
                         "kernel_image_path": "{}",
-                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                        "boot_args": "console=ttyS0 reboot=k panic=1 iommu=off"
                     }},
                     "drives": [
                         {{
@@ -813,7 +813,7 @@ mod tests {
             r#"{{
                     "boot-source": {{
                         "kernel_image_path": "{}",
-                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                        "boot_args": "console=ttyS0 reboot=k panic=1 iommu=off"
                     }},
                     "drives": [
                         {{
@@ -853,7 +853,7 @@ mod tests {
             r#"{{
                     "boot-source": {{
                         "kernel_image_path": "{}",
-                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                        "boot_args": "console=ttyS0 reboot=k panic=1 iommu=off"
                     }},
                     "drives": [
                         {{
@@ -892,7 +892,7 @@ mod tests {
             r#"{{
                     "boot-source": {{
                         "kernel_image_path": "{}",
-                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                        "boot_args": "console=ttyS0 reboot=k panic=1 iommu=off"
                     }},
                     "drives": [
                         {{
@@ -931,7 +931,7 @@ mod tests {
             r#"{{
                     "boot-source": {{
                         "kernel_image_path": "{}",
-                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                        "boot_args": "console=ttyS0 reboot=k panic=1 iommu=off"
                     }},
                     "drives": [
                         {{
@@ -982,7 +982,7 @@ mod tests {
             r#"{{
                     "boot-source": {{
                         "kernel_image_path": "{}",
-                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                        "boot_args": "console=ttyS0 reboot=k panic=1 iommu=off"
                     }},
                     "drives": [
                         {{
@@ -1032,7 +1032,7 @@ mod tests {
                     }},
                     "boot-source": {{
                         "kernel_image_path": "{}",
-                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                        "boot_args": "console=ttyS0 reboot=k panic=1 iommu=off"
                     }},
                     "drives": [
                         {{
@@ -1088,7 +1088,7 @@ mod tests {
             r#"{{
                     "boot-source": {{
                         "kernel_image_path": "{}",
-                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                        "boot_args": "console=ttyS0 reboot=k panic=1 iommu=off"
                     }},
                     "cpu-config": "/invalid/path",
                     "drives": [
@@ -1131,7 +1131,7 @@ mod tests {
             r#"{{
                     "boot-source": {{
                         "kernel_image_path": "{}",
-                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                        "boot_args": "console=ttyS0 reboot=k panic=1 iommu=off"
                     }},
                     "cpu-config": "{}",
                     "drives": [
@@ -1176,7 +1176,7 @@ mod tests {
                     }},
                     "boot-source": {{
                         "kernel_image_path": "{}",
-                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                        "boot_args": "console=ttyS0 reboot=k panic=1 iommu=off"
                     }},
                     "drives": [
                         {{
@@ -1251,7 +1251,7 @@ mod tests {
                     }},
                     "boot-source": {{
                         "kernel_image_path": "{}",
-                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                        "boot_args": "console=ttyS0 reboot=k panic=1 iommu=off"
                     }},
                     "drives": [
                         {{
@@ -1311,7 +1311,7 @@ mod tests {
                     }},
                     "boot-source": {{
                         "kernel_image_path": "{}",
-                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                        "boot_args": "console=ttyS0 reboot=k panic=1 iommu=off"
                     }},
                     "drives": [
                         {{
@@ -1533,7 +1533,7 @@ mod tests {
     #[test]
     fn test_set_boot_source() {
         let tmp_file = TempFile::new().unwrap();
-        let cmdline = "reboot=k panic=1 pci=off nomodule 8250.nr_uarts=0";
+        let cmdline = "reboot=k panic=1 iommu=off nomodule 8250.nr_uarts=0";
         let expected_boot_cfg = BootSourceConfig {
             kernel_image_path: String::from(tmp_file.as_path().to_str().unwrap()),
             initrd_path: Some(String::from(tmp_file.as_path().to_str().unwrap())),

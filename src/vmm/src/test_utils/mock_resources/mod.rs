@@ -9,7 +9,7 @@ use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::machine_config::{MachineConfig, MachineConfigUpdate};
 
-pub const DEFAULT_BOOT_ARGS: &str = "reboot=k panic=1 pci=off";
+pub const DEFAULT_BOOT_ARGS: &str = "reboot=k panic=1 iommu=off";
 #[cfg(target_arch = "x86_64")]
 pub const DEFAULT_KERNEL_IMAGE: &str = "test_elf.bin";
 #[cfg(target_arch = "aarch64")]

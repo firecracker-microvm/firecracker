@@ -19,7 +19,7 @@ def test_microvm_initrd_with_serial(uvm_with_initrd):
     vm.basic_config(
         add_root_device=False,
         vcpu_count=1,
-        boot_args="console=ttyS0 reboot=k panic=1 pci=off",
+        boot_args="console=ttyS0 reboot=k panic=1 iommu=off",
         use_initrd=True,
     )
 

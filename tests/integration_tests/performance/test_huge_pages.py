@@ -267,7 +267,7 @@ def test_negative_huge_pages_plus_initrd(uvm_with_initrd):
         # `basic_config` first does a PUT to /machine-config, which will apply the huge pages configuration,
         # and then a PUT to /boot-source, which will register the initrd
         uvm_with_initrd.basic_config(
-            boot_args="console=ttyS0 reboot=k panic=1 pci=off",
+            boot_args="console=ttyS0 reboot=k panic=1 iommu=off",
             use_initrd=True,
             huge_pages=HugePagesConfig.HUGETLBFS_2MB,
             add_root_device=False,
@@ -279,7 +279,7 @@ def test_negative_huge_pages_plus_initrd(uvm_with_initrd):
     # PUT to /boot-source to register the initrd
     uvm_with_initrd.basic_config(
         huge_pages=HugePagesConfig.NONE,
-        boot_args="console=ttyS0 reboot=k panic=1 pci=off",
+        boot_args="console=ttyS0 reboot=k panic=1 iommu=off",
         use_initrd=True,
     )
     with pytest.raises(
