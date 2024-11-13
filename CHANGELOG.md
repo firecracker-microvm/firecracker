@@ -12,6 +12,10 @@ and this project adheres to
 
 ### Changed
 
+- [#4913](https://github.com/firecracker-microvm/firecracker/pull/4913): Removed
+  unnecessary fields (`max_connections` and `max_pending_resets`) from the
+  snapshot format, bumping the snapshot version to 5.0.0.
+
 ### Deprecated
 
 ### Removed
