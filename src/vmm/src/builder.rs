@@ -570,7 +570,7 @@ pub fn build_microvm_for_boot(
         vm_resources.vm_config.track_dirty_pages,
         vm_resources.vm_config.vcpu_count,
         cpu_template.kvm_capabilities.clone(),
-        vm_resources.pci_config.as_ref().map(|x| x.enabled).unwrap_or(false),
+        vm_resources.pci_config.as_ref().map(|x| x.enabled).unwrap_or(true),
     )?;
 
     #[cfg(feature = "gdb")]
