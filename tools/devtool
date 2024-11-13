@@ -418,6 +418,9 @@ cmd_help() {
     echo "        Builds the rootfs and guest kernel artifacts we use for our CI."
     echo "        Run './tools/devtool build_ci_artifacts help' for more details about the available commands."
     echo ""
+    echo "    setup_local_ci_artifacts"
+    echo "        Copies and setups the artifacts built using "build_ci_artifacts" to use them with the devtool commands"
+    echo ""
 
     cat <<EOF
     test_debug [-- [<pytest args>]]
@@ -1210,6 +1213,14 @@ cmd_build_ci_artifacts() {
     cmd_fix_perms
 }
 
+cmd_setup_local_ci_artifacts() {
+    LOCAL_ARTIFACTS="resources/$(uname -m)"
+    ARTIFACTS=$MICROVM_IMAGES_DIR/$(uname -m)
+    rm -rfv "$ARTIFACTS" 
+    mkdir -pv "$ARTIFACTS"
+    cp -ruvf "$LOCAL_ARTIFACTS/" "$MICROVM_IMAGES_DIR"
+    cmd_sh "./tools/setup-ci-artifacts.sh"
+}
 
 main() {
 

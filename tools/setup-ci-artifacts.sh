@@ -12,7 +12,9 @@ say "Setup CI artifacts"
 cd build/img/$(uname -m)
 
 say "Fix executable permissions"
-find "firecracker" -type f |xargs chmod -c 755
+if [ -d "firecracker" ]; then
+    find "firecracker" -type f |xargs chmod -c 755
+fi
 
 say "Generate SSH key to connect from host"
 if [ ! -s id_rsa ]; then
