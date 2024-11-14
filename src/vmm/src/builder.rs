@@ -152,7 +152,7 @@ impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
 pub mod aarch64 {
     use super::*;
 
-    fn attach_legacy_devices_aarch64(
+    fn attach_legacy_devices(
         event_manager: &mut EventManager,
         vmm: &mut Vmm,
         cmdline: &mut LoaderKernelCmdline,
@@ -168,7 +168,9 @@ pub mod aarch64 {
         if cmdline_contains_console {
             // Make stdout non-blocking.
             set_stdout_nonblocking();
-            let serial = setup_serial_device(event_manager, std::io::stdin(), std::io::stdout())?;
+            let serial = setup_serial_device(std::io::stdin(), std::io::stdout())?;
+            event_manager.add_subscriber(serial.clone());
+
             vmm.mmio_device_manager
                 .register_mmio_serial(vmm.vm.fd(), &mut vmm.resource_allocator, serial, None)
                 .map_err(VmmError::RegisterMMIODevice)?;
@@ -220,7 +222,8 @@ pub mod aarch64 {
 
         let vcpu_config = VcpuConfig {
             vcpu_count: vm_config.vcpu_count,
-            smt: vm_config.smt,
+            // smt does not exist on aarch64
+            smt: false,
             cpu_config,
         };
 
@@ -640,8 +643,7 @@ pub fn build_microvm_for_boot(
     }
 
     #[cfg(target_arch = "aarch64")]
-    aarch::attach_legacy_devices_aarch64(event_manager, &mut vmm, &mut boot_cmdline)
-        .map_err(Internal)?;
+    aarch::attach_legacy_devices(event_manager, &mut vmm, &mut boot_cmdline).map_err(Internal)?;
 
     attach_vmgenid_device(&mut vmm)?;
 

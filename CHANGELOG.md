@@ -14,7 +14,8 @@ and this project adheres to
 
 - [#4913](https://github.com/firecracker-microvm/firecracker/pull/4913): Removed
   unnecessary fields (`max_connections` and `max_pending_resets`) from the
-  snapshot format, bumping the snapshot version to 5.0.0.
+  snapshot format, bumping the snapshot version to 5.0.0. Users need to
+  regenerate snapshots.
 
 ### Deprecated
 
@@ -26,8 +27,8 @@ and this project adheres to
 
 ### Changed
 
-- [#4907](https://github.com/firecracker-microvm/firecracker/pull/4907): Bump
-  snapshot version to 4.0.0.
+- [#4907](https://github.com/firecracker-microvm/firecracker/pull/4907): Bumped
+  the snapshot version to 4.0.0, so users need to regenerate snapshots.
 
 ## \[1.10.0\]
 
