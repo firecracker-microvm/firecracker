@@ -418,13 +418,11 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
         #[cfg(target_arch = "aarch64")]
         {
+            use crate::builder::setup_serial_device;
+
             for state in &state.legacy_devices {
                 if state.type_ == DeviceType::Serial {
-                    let serial = crate::builder::setup_serial_device(
-                        constructor_args.event_manager,
-                        std::io::stdin(),
-                        std::io::stdout(),
-                    )?;
+                    let serial = setup_serial_device(std::io::stdin(), std::io::stdout())?;
 
                     constructor_args
                         .resource_allocator

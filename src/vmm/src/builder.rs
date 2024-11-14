@@ -148,11 +148,12 @@ impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
     }
 }
 
+/// This module is dedicated to code tailored specifically for the aarch64 architecture
 #[cfg(target_arch = "aarch64")]
 pub mod aarch64 {
     use super::*;
 
-    fn attach_legacy_devices(
+    pub(crate) fn attach_legacy_devices(
         event_manager: &mut EventManager,
         vmm: &mut Vmm,
         cmdline: &mut LoaderKernelCmdline,
@@ -166,8 +167,6 @@ pub mod aarch64 {
             .contains("console=");
 
         if cmdline_contains_console {
-            // Make stdout non-blocking.
-            set_stdout_nonblocking();
             let serial = setup_serial_device(std::io::stdin(), std::io::stdout())?;
             event_manager.add_subscriber(serial.clone());
 
@@ -280,7 +279,7 @@ pub mod aarch64 {
         Ok(vcpus)
     }
 
-    pub fn load_kernel(
+    pub(crate) fn load_kernel(
         boot_config: &BootConfig,
         guest_memory: &GuestMemoryMmap,
     ) -> Result<GuestAddress, StartMicrovmError> {
@@ -300,7 +299,7 @@ pub mod aarch64 {
         Ok(entry_addr.kernel_load)
     }
 
-    pub fn create_vmm_and_vcpus(
+    pub(crate) fn create_vmm_and_vcpus(
         instance_info: &InstanceInfo,
         guest_memory: GuestMemoryMmap,
         uffd: Option<Uffd>,
@@ -315,13 +314,14 @@ pub mod aarch64 {
             kvm_capabilities,
         )?;
 
-        let vcpus =
-            create_vcpus(&mut vm, vm_config.vcpu_count, &vmm.vcpus_exit_evt).map_err(Internal)?;
+        let vcpus = create_vcpus(&mut vmm.vm, vm_config.vcpu_count, &vmm.vcpus_exit_evt)
+            .map_err(StartMicrovmError::Internal)?;
 
         Ok((vmm, vcpus))
     }
 }
 
+/// This module is dedicated to code tailored specifically for the x86_64 architecture
 #[cfg(target_arch = "x86_64")]
 pub mod x86_64 {
     use super::*;
@@ -422,13 +422,11 @@ pub mod x86_64 {
             let vcpu = Vcpu::new(cpu_idx, vm, exit_evt).map_err(VmmError::VcpuCreate)?;
             vcpus.push(vcpu);
         }
-        // Make stdout non blocking.
-        set_stdout_nonblocking();
 
         Ok(vcpus)
     }
 
-    pub fn load_kernel(
+    pub(crate) fn load_kernel(
         boot_config: &BootConfig,
         guest_memory: &GuestMemoryMmap,
     ) -> Result<GuestAddress, StartMicrovmError> {
@@ -448,7 +446,7 @@ pub mod x86_64 {
         Ok(entry_addr.kernel_load)
     }
 
-    pub fn create_vmm_and_vcpus(
+    pub(crate) fn create_vmm_and_vcpus(
         instance_info: &InstanceInfo,
         guest_memory: GuestMemoryMmap,
         uffd: Option<Uffd>,
@@ -643,7 +641,7 @@ pub fn build_microvm_for_boot(
     }
 
     #[cfg(target_arch = "aarch64")]
-    aarch::attach_legacy_devices(event_manager, &mut vmm, &mut boot_cmdline).map_err(Internal)?;
+    aarch64::attach_legacy_devices(event_manager, &mut vmm, &mut boot_cmdline).map_err(Internal)?;
 
     attach_vmgenid_device(&mut vmm)?;
 
@@ -982,6 +980,9 @@ pub fn setup_serial_device(
         ),
         input: Some(input),
     })));
+
+    // Make stdout non-blocking.
+    set_stdout_nonblocking();
 
     Ok(serial)
 }
