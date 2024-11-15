@@ -815,13 +815,13 @@ mod verification {
     use vm_memory::VolatileSlice;
 
     use super::IoVecBuffer;
+    use crate::arch::GUEST_PAGE_SIZE;
     use crate::devices::virtio::iov_deque::IovDeque;
     // Redefine `IoVecBufferMut` and `IovDeque` with specific length. Otherwise
     // Rust will not know what to do.
     type IoVecBufferMutDefault = super::IoVecBufferMut<FIRECRACKER_MAX_QUEUE_SIZE>;
     type IovDequeDefault = IovDeque<FIRECRACKER_MAX_QUEUE_SIZE>;
 
-    use crate::arch::PAGE_SIZE;
     use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 
     // Maximum memory size to use for our buffers. For the time being 1KB.
@@ -912,8 +912,8 @@ mod verification {
         // SAFETY: safe because the layout has non-zero size
         let mem = unsafe {
             std::alloc::alloc(std::alloc::Layout::from_size_align_unchecked(
-                2 * PAGE_SIZE,
-                PAGE_SIZE,
+                2 * GUEST_PAGE_SIZE,
+                GUEST_PAGE_SIZE,
             ))
         };
         IovDequeDefault {
