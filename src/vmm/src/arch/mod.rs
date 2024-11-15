@@ -52,8 +52,11 @@ pub struct InitrdConfig {
     pub size: usize,
 }
 
-/// Default (smallest) memory page size for the supported architectures.
-pub const PAGE_SIZE: usize = 4096;
+/// Default page size for the guest OS.
+pub const GUEST_PAGE_SIZE: usize = 4096;
+
+/// Default page size for the host OS.
+pub const HOST_PAGE_SIZE: usize = 4096;
 
 impl fmt::Display for DeviceType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
