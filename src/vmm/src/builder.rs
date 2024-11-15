@@ -1305,7 +1305,7 @@ pub(crate) mod tests {
         use crate::vstate::memory::GuestMemory;
         let image = make_test_bin();
 
-        let mem_size: usize = image.len() * 2 + crate::arch::PAGE_SIZE;
+        let mem_size: usize = image.len() * 2 + crate::arch::GUEST_PAGE_SIZE;
 
         let tempfile = TempFile::new().unwrap();
         let mut tempfile = tempfile.into_file();
@@ -1344,7 +1344,7 @@ pub(crate) mod tests {
         let tempfile = TempFile::new().unwrap();
         let mut tempfile = tempfile.into_file();
         tempfile.write_all(&image).unwrap();
-        let gm = single_region_mem_at(crate::arch::PAGE_SIZE as u64 + 1, image.len() * 2);
+        let gm = single_region_mem_at(crate::arch::GUEST_PAGE_SIZE as u64 + 1, image.len() * 2);
 
         let res = load_initrd(&gm, &mut tempfile);
         assert!(

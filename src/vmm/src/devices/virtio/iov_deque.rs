@@ -6,7 +6,7 @@ use std::os::fd::AsRawFd;
 use libc::{c_int, c_void, iovec, off_t, size_t};
 use memfd;
 
-use crate::arch::PAGE_SIZE;
+use crate::arch::HOST_PAGE_SIZE;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum IovDequeError {
@@ -79,8 +79,8 @@ pub enum IovDequeError {
 // ```
 //
 // This value must be a multiple of 256 because this is the maximum number of `iovec` can fit into
-// 1 memory page: 256 * sizeof(iovec) == 4096 == PAGE_SIZE. IovDeque only operates with `PAGE_SIZE`
-// granularity.
+// 1 memory page: 256 * sizeof(iovec) == 4096 == HOST_PAGE_SIZE. IovDeque only operates with
+// `HOST_PAGE_SIZE` granularity.
 #[derive(Debug)]
 pub struct IovDeque<const L: u16> {
     pub iov: *mut libc::iovec,
@@ -93,7 +93,7 @@ unsafe impl<const L: u16> Send for IovDeque<L> {}
 
 impl<const L: u16> IovDeque<L> {
     const BYTES: usize = L as usize * std::mem::size_of::<iovec>();
-    const _ASSERT: () = assert!(Self::BYTES % PAGE_SIZE == 0);
+    const _ASSERT: () = assert!(Self::BYTES % HOST_PAGE_SIZE == 0);
 
     /// Create a [`memfd`] object that represents a single physical page
     fn create_memfd() -> Result<memfd::Memfd, IovDequeError> {

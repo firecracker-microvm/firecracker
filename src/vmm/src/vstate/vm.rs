@@ -593,7 +593,7 @@ pub(crate) mod tests {
         let res = vm.set_kvm_memory_regions(&gm, false);
         res.unwrap();
 
-        // Trying to set a memory region with a size that is not a multiple of PAGE_SIZE
+        // Trying to set a memory region with a size that is not a multiple of GUEST_PAGE_SIZE
         // will result in error.
         let gm = single_region_mem(0x10);
         let res = vm.set_kvm_memory_regions(&gm, false);
