@@ -20,6 +20,7 @@ use seccomp::FilterError;
 use seccompiler::BpfThreadMap;
 use utils::arg_parser::{ArgParser, Argument};
 use utils::validators::validate_instance_id;
+use vmm::arch::host_page_size;
 use vmm::builder::StartMicrovmError;
 use vmm::logger::{
     debug, error, info, LoggerConfig, ProcessTimeReporter, StoreMetric, LOGGER, METRICS,
@@ -107,6 +108,10 @@ fn main() -> ExitCode {
 fn main_exec() -> Result<(), MainError> {
     // Initialize the logger.
     LOGGER.init().map_err(MainError::SetLogger)?;
+
+    // First call to this function updates the value to current
+    // host page size.
+    _ = host_page_size();
 
     // We need this so that we can reset terminal to canonical mode if panic occurs.
     let stdin = io::stdin();

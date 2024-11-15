@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt;
+use std::sync::Once;
 
+use log::warn;
 use serde::{Deserialize, Serialize};
 
 /// Module for aarch64 related functionality.
@@ -55,8 +57,25 @@ pub struct InitrdConfig {
 /// Default page size for the guest OS.
 pub const GUEST_PAGE_SIZE: usize = 4096;
 
-/// Default page size for the host OS.
-pub const HOST_PAGE_SIZE: usize = 4096;
+/// Get the size of the host page size.
+pub fn host_page_size() -> usize {
+    /// Default page size for the host OS.
+    static mut HOST_PAGE_SIZE: usize = 4096;
+    static ONCE: Once = Once::new();
+
+    // # Safety: Value always valid
+    unsafe {
+        ONCE.call_once(|| {
+            let r = libc::sysconf(libc::_SC_PAGESIZE);
+            if r < 0 {
+                warn!("Could not get host page size with sysconf, assuming default 4K host pages");
+            } else {
+                HOST_PAGE_SIZE = usize::try_from(r).unwrap();
+            }
+        });
+        HOST_PAGE_SIZE
+    }
+}
 
 impl fmt::Display for DeviceType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
