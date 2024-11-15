@@ -6,7 +6,7 @@ use std::os::fd::AsRawFd;
 use libc::{c_int, c_void, iovec, off_t, size_t};
 use memfd;
 
-use crate::arch::HOST_PAGE_SIZE;
+use crate::arch::host_page_size;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum IovDequeError {
@@ -93,7 +93,6 @@ unsafe impl<const L: u16> Send for IovDeque<L> {}
 
 impl<const L: u16> IovDeque<L> {
     const BYTES: usize = L as usize * std::mem::size_of::<iovec>();
-    const _ASSERT: () = assert!(Self::BYTES % HOST_PAGE_SIZE == 0);
 
     /// Create a [`memfd`] object that represents a single physical page
     fn create_memfd() -> Result<memfd::Memfd, IovDequeError> {
@@ -153,6 +152,8 @@ impl<const L: u16> IovDeque<L> {
 
     /// Create a new [`IovDeque`] that can hold memory described by a single VirtIO queue.
     pub fn new() -> Result<Self, IovDequeError> {
+        assert!(Self::BYTES % host_page_size() == 0);
+
         let memfd = Self::create_memfd()?;
         let raw_memfd = memfd.as_file().as_raw_fd();
         let buffer = Self::allocate_ring_buffer_memory()?;
