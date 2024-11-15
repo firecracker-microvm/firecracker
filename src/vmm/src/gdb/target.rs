@@ -33,7 +33,7 @@ use vm_memory::{Bytes, GuestAddress, GuestMemoryError};
 use super::arch;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::aarch64::vcpu::VcpuError as AarchVcpuError;
-use crate::arch::PAGE_SIZE;
+use crate::arch::GUEST_PAGE_SIZE;
 use crate::logger::{error, info};
 use crate::utils::u64_to_usize;
 use crate::vstate::vcpu::VcpuSendEventError;
@@ -396,7 +396,7 @@ impl MultiThreadBase for FirecrackerTarget {
             // Compute the amount space left in the page after the gpa
             let read_len = std::cmp::min(
                 data.len(),
-                PAGE_SIZE - (u64_to_usize(gpa) & (PAGE_SIZE - 1)),
+                GUEST_PAGE_SIZE - (u64_to_usize(gpa) & (GUEST_PAGE_SIZE - 1)),
             );
 
             vmm.guest_memory()
@@ -430,7 +430,7 @@ impl MultiThreadBase for FirecrackerTarget {
             // Compute the amount space left in the page after the gpa
             let write_len = std::cmp::min(
                 data.len(),
-                PAGE_SIZE - (u64_to_usize(gpa) & (PAGE_SIZE - 1)),
+                GUEST_PAGE_SIZE - (u64_to_usize(gpa) & (GUEST_PAGE_SIZE - 1)),
             );
 
             vmm.guest_memory()

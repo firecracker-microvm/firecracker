@@ -94,7 +94,8 @@ pub fn initrd_load_addr(
     guest_mem: &GuestMemoryMmap,
     initrd_size: usize,
 ) -> Result<u64, ConfigurationError> {
-    let round_to_pagesize = |size| (size + (super::PAGE_SIZE - 1)) & !(super::PAGE_SIZE - 1);
+    let round_to_pagesize =
+        |size| (size + (super::GUEST_PAGE_SIZE - 1)) & !(super::GUEST_PAGE_SIZE - 1);
     match GuestAddress(get_fdt_addr(guest_mem)).checked_sub(round_to_pagesize(initrd_size) as u64) {
         Some(offset) => {
             if guest_mem.address_in_range(offset) {
