@@ -64,7 +64,7 @@ impl From<&VmResources> for VmInfo {
             mem_size_mib: value.vm_config.mem_size_mib as u64,
             smt: value.vm_config.smt,
             cpu_template: StaticCpuTemplate::from(&value.vm_config.cpu_template),
-            boot_source: value.boot_source_config().clone(),
+            boot_source: value.boot_source.config.clone(),
             huge_pages: value.vm_config.huge_pages,
         }
     }
