@@ -81,8 +81,6 @@ impl MmdsNetworkStack {
         mac_addr: MacAddr,
         ipv4_addr: Ipv4Addr,
         tcp_port: u16,
-        max_connections: NonZeroUsize,
-        max_pending_resets: NonZeroUsize,
         mmds: Arc<Mutex<Mmds>>,
     ) -> Self {
         MmdsNetworkStack {
@@ -93,8 +91,8 @@ impl MmdsNetworkStack {
             tcp_handler: TcpIPv4Handler::new(
                 ipv4_addr,
                 tcp_port,
-                max_connections,
-                max_pending_resets,
+                NonZeroUsize::new(DEFAULT_MAX_CONNECTIONS).unwrap(),
+                NonZeroUsize::new(DEFAULT_MAX_PENDING_RESETS).unwrap(),
             ),
             mmds,
         }
@@ -105,14 +103,7 @@ impl MmdsNetworkStack {
         let ipv4_addr = mmds_ipv4_addr.unwrap_or_else(|| Ipv4Addr::from(DEFAULT_IPV4_ADDR));
 
         // The unwrap()s are safe because the given literals are greater than 0.
-        Self::new(
-            mac_addr,
-            ipv4_addr,
-            DEFAULT_TCP_PORT,
-            NonZeroUsize::new(DEFAULT_MAX_CONNECTIONS).unwrap(),
-            NonZeroUsize::new(DEFAULT_MAX_PENDING_RESETS).unwrap(),
-            mmds,
-        )
+        Self::new(mac_addr, ipv4_addr, DEFAULT_TCP_PORT, mmds)
     }
 
     pub fn set_ipv4_addr(&mut self, ipv4_addr: Ipv4Addr) {
@@ -562,14 +553,8 @@ mod tests {
         let ip = Ipv4Addr::from(DEFAULT_IPV4_ADDR);
         let other_ip = Ipv4Addr::new(5, 6, 7, 8);
         let mac = MacAddr::from_bytes_unchecked(&[0; 6]);
-        let mut ns = MmdsNetworkStack::new(
-            mac,
-            ip,
-            DEFAULT_TCP_PORT,
-            NonZeroUsize::new(DEFAULT_MAX_CONNECTIONS).unwrap(),
-            NonZeroUsize::new(DEFAULT_MAX_PENDING_RESETS).unwrap(),
-            Arc::new(Mutex::new(Mmds::default())),
-        );
+        let mut ns =
+            MmdsNetworkStack::new_with_defaults(Some(ip), Arc::new(Mutex::new(Mmds::default())));
 
         let mut eth =
             EthernetFrame::write_incomplete(buf.as_mut(), mac, mac, ETHERTYPE_ARP).unwrap();
@@ -589,14 +574,8 @@ mod tests {
         let ip = Ipv4Addr::from(DEFAULT_IPV4_ADDR);
         let other_ip = Ipv4Addr::new(5, 6, 7, 8);
         let mac = MacAddr::from_bytes_unchecked(&[0; 6]);
-        let ns = MmdsNetworkStack::new(
-            mac,
-            ip,
-            DEFAULT_TCP_PORT,
-            NonZeroUsize::new(DEFAULT_MAX_CONNECTIONS).unwrap(),
-            NonZeroUsize::new(DEFAULT_MAX_PENDING_RESETS).unwrap(),
-            Arc::new(Mutex::new(Mmds::default())),
-        );
+        let ns =
+            MmdsNetworkStack::new_with_defaults(Some(ip), Arc::new(Mutex::new(Mmds::default())));
 
         let mut eth =
             EthernetFrame::write_incomplete(buf.as_mut(), mac, mac, ETHERTYPE_IPV4).unwrap();
@@ -615,14 +594,8 @@ mod tests {
         let ip = Ipv4Addr::from(DEFAULT_IPV4_ADDR);
         let other_ip = Ipv4Addr::new(5, 6, 7, 8);
         let mac = MacAddr::from_bytes_unchecked(&[0; 6]);
-        let mut ns = MmdsNetworkStack::new(
-            mac,
-            ip,
-            DEFAULT_TCP_PORT,
-            NonZeroUsize::new(DEFAULT_MAX_CONNECTIONS).unwrap(),
-            NonZeroUsize::new(DEFAULT_MAX_PENDING_RESETS).unwrap(),
-            Arc::new(Mutex::new(Mmds::default())),
-        );
+        let mut ns =
+            MmdsNetworkStack::new_with_defaults(Some(ip), Arc::new(Mutex::new(Mmds::default())));
 
         // try IPv4 with detour_arp
         let mut eth =
