@@ -30,6 +30,10 @@ UNSUPPORTED_HOST_KERNEL = (
 )
 DATA_FILES = Path("./data/msr")
 
+pytestmark = pytest.mark.skipif(
+    global_props.cpu_architecture != "x86_64", reason="Only run in x86_64"
+)
+
 
 def read_msr_csv(fd):
     """Read a CSV of MSRs"""
@@ -105,7 +109,6 @@ def skip_test_based_on_artifacts(snapshot_artifacts_dir):
         pytest.skip(re.sub(" +", " ", reason))
 
 
-@pytest.mark.skipif(PLATFORM != "x86_64", reason="CPUID is only supported on x86_64.")
 @pytest.mark.parametrize(
     "num_vcpus",
     [1, 2, 16],
@@ -126,7 +129,6 @@ def test_cpuid(uvm_plain_any, num_vcpus, htt):
     _check_cpuid_x86(vm, num_vcpus, "true" if num_vcpus > 1 else "false")
 
 
-@pytest.mark.skipif(PLATFORM != "x86_64", reason="CPUID is only supported on x86_64.")
 @pytest.mark.skipif(
     cpuid_utils.get_cpu_vendor() != cpuid_utils.CpuVendor.AMD,
     reason="L3 cache info is only present in 0x80000006 for AMD",
@@ -143,9 +145,6 @@ def test_extended_cache_features(uvm_plain_any):
     _check_extended_cache_features(vm)
 
 
-@pytest.mark.skipif(
-    PLATFORM != "x86_64", reason="The CPU brand string is masked only on x86_64."
-)
 def test_brand_string(uvm_plain_any):
     """
     Ensure good formatting for the guest brand string.
@@ -204,10 +203,6 @@ def test_brand_string(uvm_plain_any):
         assert False
 
 
-@pytest.mark.skipif(
-    PLATFORM != "x86_64",
-    reason="This is x86_64 specific test.",
-)
 def test_host_vs_guest_cpu_features_x86_64(uvm_nano):
     """Check CPU features host vs guest"""
 
@@ -929,9 +924,6 @@ def test_cpu_cpuid_restore(microvm_factory, guest_kernel, msr_cpu_template):
     )
 
 
-@pytest.mark.skipif(
-    PLATFORM != "x86_64", reason="CPU features are masked only on x86_64."
-)
 @pytest.mark.parametrize("cpu_template", ["T2", "T2S", "C3"])
 def test_cpu_template(uvm_plain_any, cpu_template, microvm_factory):
     """
@@ -1249,7 +1241,6 @@ def check_enabled_features(test_microvm, cpu_template):
         )
 
 
-@pytest.mark.skipif(PLATFORM != "x86_64", reason="This test is specific to x86_64.")
 def test_c3_on_skylake_show_warning(uvm_plain, cpu_template):
     """
     This test verifies that the warning message about MMIO stale data mitigation
