@@ -75,7 +75,7 @@ RUN apt-get update \
         screen tmux \
         tzdata \
         tini \
-        squashfs-tools \
+        squashfs-tools zstd \
         # for aws-lc-rs
         cmake \
         # for Qemu vhost-user-blk backend
@@ -83,7 +83,7 @@ RUN apt-get update \
         # for crosvm (vhost-user-blk backend)
         libcap2 \
         # for debugging
-        gdb strace \
+        gdb strace trace-cmd \
     && rm -rf /var/lib/apt/lists/* \
     && pip3 install --upgrade poetry
 
@@ -107,7 +107,7 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-too
     && rustup target add x86_64-unknown-linux-musl \
     && rustup target add aarch64-unknown-linux-musl \
     && rustup component add llvm-tools-preview clippy rustfmt \
-    && cargo install --locked cargo-audit cargo-deny grcov cargo-sort cargo-afl \
+    && cargo install --locked cargo-audit cargo-deny@0.16.1 grcov cargo-sort cargo-afl \
     && cargo install --locked kani-verifier && cargo kani setup \
     \
     && apt-get update \

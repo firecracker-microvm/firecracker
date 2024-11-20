@@ -32,12 +32,12 @@ def select_supported_kernels():
     return supported_kernels
 
 
-def kernels(glob) -> Iterator:
+def kernels(glob, artifact_dir: Path = ARTIFACT_DIR) -> Iterator:
     """Return supported kernels as kernels supported by the current combination of kernel and
     instance type.
     """
     supported_kernels = select_supported_kernels()
-    for kernel in sorted(ARTIFACT_DIR.rglob(glob)):
+    for kernel in sorted(artifact_dir.glob(glob)):
         for kernel_regex in supported_kernels:
             if re.fullmatch(kernel_regex, kernel.name):
                 yield kernel
@@ -49,9 +49,11 @@ def disks(glob) -> Iterator:
     yield from sorted(ARTIFACT_DIR.glob(glob))
 
 
-def kernel_params(glob="vmlinux-*", select=kernels) -> Iterator:
+def kernel_params(
+    glob="vmlinux-*", select=kernels, artifact_dir=ARTIFACT_DIR
+) -> Iterator:
     """Return supported kernels"""
-    for kernel in select(glob):
+    for kernel in select(glob, artifact_dir):
         yield pytest.param(kernel, id=kernel.name)
 
 

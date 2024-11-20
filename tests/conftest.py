@@ -307,14 +307,20 @@ def custom_cpu_template(request, record_property):
 
 
 @pytest.fixture(
-    params=list(static_cpu_templates_params()) + list(custom_cpu_templates_params())
+    params=[
+        pytest.param(None, id="NO_CPU_TMPL"),
+        *static_cpu_templates_params(),
+        *custom_cpu_templates_params(),
+    ],
 )
 def cpu_template_any(request, record_property):
-    """This fixture combines static and custom CPU templates"""
-    if "name" in request.param:
-        record_property("custom_cpu_template", request.param["name"])
-    else:
-        record_property("static_cpu_template", request.param)
+    """This fixture combines no template, static and custom CPU templates"""
+    cpu_template_name = request.param
+    if request.param is None:
+        cpu_template_name = "None"
+    elif "name" in request.param:
+        cpu_template_name = request.param["name"]
+    record_property("cpu_template", cpu_template_name)
     return request.param
 
 
@@ -382,27 +388,24 @@ guest_kernel_linux_6_1 = pytest.fixture(
 )
 
 # Fixtures for all Ubuntu rootfs, and specific versions
-rootfs = pytest.fixture(rootfs_fxt, params=rootfs_params("*.squashfs"))
-rootfs_ubuntu_22 = pytest.fixture(
-    rootfs_fxt, params=rootfs_params("ubuntu-22*.squashfs")
-)
+rootfs = pytest.fixture(rootfs_fxt, params=rootfs_params("ubuntu-24*.squashfs"))
 rootfs_rw = pytest.fixture(rootfs_fxt, params=rootfs_params("*.ext4"))
 
 
 @pytest.fixture
-def uvm_plain(microvm_factory, guest_kernel_linux_5_10, rootfs_ubuntu_22):
+def uvm_plain(microvm_factory, guest_kernel_linux_5_10, rootfs):
     """Create a vanilla VM, non-parametrized
     kernel: 5.10
-    rootfs: Ubuntu 22.04
+    rootfs: Ubuntu 24.04
     """
-    return microvm_factory.build(guest_kernel_linux_5_10, rootfs_ubuntu_22)
+    return microvm_factory.build(guest_kernel_linux_5_10, rootfs)
 
 
 @pytest.fixture
 def uvm_plain_rw(microvm_factory, guest_kernel_linux_5_10, rootfs_rw):
     """Create a vanilla VM, non-parametrized
     kernel: 5.10
-    rootfs: Ubuntu 22.04
+    rootfs: Ubuntu 24.04
     """
     return microvm_factory.build(guest_kernel_linux_5_10, rootfs_rw)
 
@@ -424,12 +427,24 @@ def artifact_dir():
 
 
 @pytest.fixture
-def uvm_plain_any(microvm_factory, guest_kernel, rootfs_ubuntu_22):
+def uvm_plain_any(microvm_factory, guest_kernel, rootfs):
     """All guest kernels
     kernel: all
-    rootfs: Ubuntu 22.04
+    rootfs: Ubuntu 24.04
     """
-    return microvm_factory.build(guest_kernel, rootfs_ubuntu_22)
+    return microvm_factory.build(guest_kernel, rootfs)
+
+
+guest_kernel_6_1_debug = pytest.fixture(
+    guest_kernel_fxt,
+    params=kernel_params("vmlinux-6.1*", artifact_dir=defs.ARTIFACT_DIR / "debug"),
+)
+
+
+@pytest.fixture
+def uvm_plain_debug(microvm_factory, guest_kernel_6_1_debug, rootfs_rw):
+    """VM running a kernel with debug/trace Kconfig options"""
+    return microvm_factory.build(guest_kernel_6_1_debug, rootfs_rw)
 
 
 @pytest.fixture
