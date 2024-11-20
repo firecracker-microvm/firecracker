@@ -67,13 +67,13 @@ def configure_microvm(
 def build_microvm(
     microvm_factory,
     guest_kernel_linux_5_10,
-    rootfs_ubuntu_22,
+    rootfs,
 ):
     """Fixture returning a factory function for a normal microvm"""
     return lambda firecracker=None, jailer=None: configure_microvm(
         microvm_factory,
         guest_kernel_linux_5_10,
-        rootfs_ubuntu_22,
+        rootfs,
         firecracker=firecracker,
         jailer=jailer,
     )
@@ -81,13 +81,13 @@ def build_microvm(
 
 @pytest.fixture
 def build_microvm_with_template(
-    microvm_factory, guest_kernel_linux_5_10, rootfs_ubuntu_22, cpu_template
+    microvm_factory, guest_kernel_linux_5_10, rootfs, cpu_template
 ):
     """Fixture returning a factory function for microvms with our built-in template"""
     return lambda firecracker=None, jailer=None: configure_microvm(
         microvm_factory,
         guest_kernel_linux_5_10,
-        rootfs_ubuntu_22,
+        rootfs,
         firecracker=firecracker,
         jailer=jailer,
         cpu_template=cpu_template,
@@ -96,13 +96,13 @@ def build_microvm_with_template(
 
 @pytest.fixture
 def build_microvm_with_custom_template(
-    microvm_factory, guest_kernel_linux_5_10, rootfs_ubuntu_22, custom_cpu_template
+    microvm_factory, guest_kernel_linux_5_10, rootfs, custom_cpu_template
 ):
     """Fixture returning a factory function for microvms with custom cpu templates"""
     return lambda firecracker=None, jailer=None: configure_microvm(
         microvm_factory,
         guest_kernel_linux_5_10,
-        rootfs_ubuntu_22,
+        rootfs,
         firecracker=firecracker,
         jailer=jailer,
         custom_cpu_template=custom_cpu_template,

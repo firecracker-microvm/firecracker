@@ -21,10 +21,12 @@ if __name__ == "__main__":
     instances_x86_64 = ["c5n.metal", "m5n.metal", "m6i.metal", "m6a.metal"]
     instances_aarch64 = ["m7g.metal"]
     commands = [
-        "./tools/devtool -y sh ./tools/create_snapshot_artifact/main.py",
-        "mkdir -pv snapshots/{instance}_{kv}",
-        "sudo chown -Rc $USER: snapshot_artifacts",
-        "mv -v snapshot_artifacts/* snapshots/{instance}_{kv}",
+        "./tools/devtool -y test --no-build -- -m nonci -n4 integration_tests/functional/test_snapshot_phase1.py",
+        # punch holes in mem snapshot tiles and tar them so they are preserved in S3
+        "find test_results/test_snapshot_phase1 -type f -name mem |xargs -P4 -t -n1 fallocate -d",
+        "mv -v test_results/test_snapshot_phase1 snapshot_artifacts",
+        "mkdir -pv snapshots",
+        "tar cSvf snapshots/{instance}_{kv}.tar snapshot_artifacts",
     ]
     pipeline.build_group(
         "📸 create snapshots",
@@ -80,10 +82,10 @@ if __name__ == "__main__":
         k_val = pytest_keyword_for_instance.get(dst_instance, "")
         step = {
             "command": [
-                f"buildkite-agent artifact download snapshots/{src_instance}_{src_kv}/* .",
-                f"mv -v snapshots/{src_instance}_{src_kv} snapshot_artifacts",
+                f"buildkite-agent artifact download snapshots/{src_instance}_{src_kv}.tar .",
+                f"tar xSvf snapshots/{src_instance}_{src_kv}.tar",
                 *pipeline.devtool_test(
-                    pytest_opts=f"-m nonci {k_val} integration_tests/functional/test_snapshot_restore_cross_kernel.py",
+                    pytest_opts=f"-m nonci -n4 {k_val} integration_tests/functional/test_snapshot_restore_cross_kernel.py",
                 ),
             ],
             "label": f"🎬 {src_instance} {src_kv} ➡️ {dst_instance} {dst_kv}",

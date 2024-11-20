@@ -22,6 +22,7 @@ from framework import utils
 from framework.defs import SUPPORTED_HOST_KERNELS
 from framework.properties import global_props
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
+from framework.utils_cpuid import CPU_FEATURES_CMD, CpuModel
 
 PLATFORM = platform.machine()
 UNSUPPORTED_HOST_KERNEL = (
@@ -203,6 +204,293 @@ def test_brand_string(uvm_plain_any):
         assert False
 
 
+@pytest.mark.skipif(
+    PLATFORM != "x86_64",
+    reason="This is x86_64 specific test.",
+)
+def test_host_vs_guest_cpu_features_x86_64(uvm_nano):
+    """Check CPU features host vs guest"""
+
+    vm = uvm_nano
+    vm.add_net_iface()
+    vm.start()
+    host_feats = set(utils.check_output(CPU_FEATURES_CMD).stdout.strip().split(" "))
+    guest_feats = set(vm.ssh.check_output(CPU_FEATURES_CMD).stdout.strip().split(" "))
+
+    cpu_model = cpuid_utils.get_cpu_codename()
+    match cpu_model:
+        case CpuModel.AMD_MILAN:
+            host_guest_diff_5_10 = {
+                "amd_ppin",
+                "aperfmperf",
+                "bpext",
+                "cat_l3",
+                "cdp_l3",
+                "cpb",
+                "cqm",
+                "cqm_llc",
+                "cqm_mbm_local",
+                "cqm_mbm_total",
+                "cqm_occup_llc",
+                "decodeassists",
+                "extapic",
+                "extd_apicid",
+                "flushbyasid",
+                "hw_pstate",
+                "ibs",
+                "irperf",
+                "lbrv",
+                "mba",
+                "monitor",
+                "mwaitx",
+                "overflow_recov",
+                "pausefilter",
+                "perfctr_llc",
+                "perfctr_nb",
+                "pfthreshold",
+                "rdpru",
+                "rdt_a",
+                "sev",
+                "sev_es",
+                "skinit",
+                "smca",
+                "sme",
+                "succor",
+                "svm_lock",
+                "tce",
+                "tsc_scale",
+                "v_vmsave_vmload",
+                "vgif",
+                "vmcb_clean",
+                "wdt",
+            }
+
+            host_guest_diff_6_1 = host_guest_diff_5_10 - {
+                "lbrv",
+                "pausefilter",
+                "pfthreshold",
+                "sme",
+                "tsc_scale",
+                "v_vmsave_vmload",
+                "vgif",
+                "vmcb_clean",
+            } | {"brs", "rapl", "v_spec_ctrl"}
+
+            if global_props.host_linux_version_tpl < (6, 1):
+                assert host_feats - guest_feats == host_guest_diff_5_10
+            else:
+                assert host_feats - guest_feats == host_guest_diff_6_1
+
+            assert guest_feats - host_feats == {
+                "hypervisor",
+                "tsc_adjust",
+                "tsc_deadline_timer",
+                "tsc_known_freq",
+            }
+        case CpuModel.INTEL_SKYLAKE:
+            assert host_feats - guest_feats == {
+                "acpi",
+                "aperfmperf",
+                "arch_perfmon",
+                "art",
+                "bts",
+                "cat_l3",
+                "cdp_l3",
+                "cqm",
+                "cqm_llc",
+                "cqm_mbm_local",
+                "cqm_mbm_total",
+                "cqm_occup_llc",
+                "dca",
+                "ds_cpl",
+                "dtes64",
+                "dtherm",
+                "dts",
+                "epb",
+                "ept",
+                "ept_ad",
+                "est",
+                "flexpriority",
+                "flush_l1d",
+                "hwp",
+                "hwp_act_window",
+                "hwp_epp",
+                "hwp_pkg_req",
+                "ida",
+                "intel_ppin",
+                "intel_pt",
+                "mba",
+                "monitor",
+                "pbe",
+                "pdcm",
+                "pebs",
+                "pln",
+                "pts",
+                "rdt_a",
+                "sdbg",
+                "smx",
+                "tm",
+                "tm2",
+                "tpr_shadow",
+                "vmx",
+                "vnmi",
+                "vpid",
+                "xtpr",
+            }
+            assert guest_feats - host_feats == {
+                "hypervisor",
+                "tsc_known_freq",
+                "umip",
+            }
+        case CpuModel.INTEL_CASCADELAKE:
+            expected_host_minus_guest = {
+                "acpi",
+                "aperfmperf",
+                "arch_perfmon",
+                "art",
+                "bts",
+                "cat_l3",
+                "cdp_l3",
+                "cqm",
+                "cqm_llc",
+                "cqm_mbm_local",
+                "cqm_mbm_total",
+                "cqm_occup_llc",
+                "dca",
+                "ds_cpl",
+                "dtes64",
+                "dtherm",
+                "dts",
+                "epb",
+                "ept",
+                "ept_ad",
+                "est",
+                "flexpriority",
+                "flush_l1d",
+                "hwp",
+                "hwp_act_window",
+                "hwp_epp",
+                "hwp_pkg_req",
+                "ida",
+                "intel_ppin",
+                "intel_pt",
+                "mba",
+                "monitor",
+                "pbe",
+                "pdcm",
+                "pebs",
+                "pln",
+                "pts",
+                "rdt_a",
+                "sdbg",
+                "smx",
+                "tm",
+                "tm2",
+                "tpr_shadow",
+                "vmx",
+                "vnmi",
+                "vpid",
+                "xtpr",
+            }
+            expected_guest_minus_host = {
+                "hypervisor",
+                "tsc_known_freq",
+                "umip",
+            }
+
+            # Linux kernel v6.4+ passes through the CPUID bit for "flush_l1d" to guests.
+            # https://github.com/torvalds/linux/commit/45cf86f26148e549c5ba4a8ab32a390e4bde216e
+            #
+            # Our test ubuntu host kernel is v6.8 and has the commit.
+            if global_props.host_linux_version_tpl >= (6, 4):
+                expected_host_minus_guest -= {"flush_l1d"}
+
+            # Linux kernel v6.6+ drops the "invpcid_single" synthetic feature bit.
+            # https://github.com/torvalds/linux/commit/54e3d9434ef61b97fd3263c141b928dc5635e50d
+            #
+            # Our test ubuntu host kernel is v6.8 and has the commit.
+            host_has_invpcid_single = global_props.host_linux_version_tpl < (6, 6)
+            guest_has_invpcid_single = vm.guest_kernel_version < (6, 6)
+            if host_has_invpcid_single and not guest_has_invpcid_single:
+                expected_host_minus_guest |= {"invpcid_single"}
+            if not host_has_invpcid_single and guest_has_invpcid_single:
+                expected_guest_minus_host |= {"invpcid_single"}
+
+            assert host_feats - guest_feats == expected_host_minus_guest
+            assert guest_feats - host_feats == expected_guest_minus_host
+        case CpuModel.INTEL_ICELAKE:
+            host_guest_diff_5_10 = {
+                "dtes64",
+                "hwp_act_window",
+                "pdcm",
+                "acpi",
+                "aperfmperf",
+                "arch_perfmon",
+                "art",
+                "bts",
+                "cat_l3",
+                "cqm",
+                "cqm_llc",
+                "cqm_mbm_local",
+                "cqm_mbm_total",
+                "cqm_occup_llc",
+                "dca",
+                "ds_cpl",
+                "dtherm",
+                "dts",
+                "epb",
+                "ept",
+                "ept_ad",
+                "est",
+                "flexpriority",
+                "flush_l1d",
+                "hwp",
+                "hwp_epp",
+                "hwp_pkg_req",
+                "ida",
+                "intel_ppin",
+                "intel_pt",
+                "mba",
+                "monitor",
+                "pbe",
+                "pconfig",
+                "pebs",
+                "pln",
+                "pts",
+                "rdt_a",
+                "sdbg",
+                "smx",
+                "split_lock_detect",
+                "tm",
+                "tm2",
+                "tme",
+                "tpr_shadow",
+                "vmx",
+                "vnmi",
+                "vpid",
+                "xtpr",
+            }
+            host_guest_diff_6_1 = host_guest_diff_5_10 - {
+                "bts",
+                "dtes64",
+                "dts",
+                "pebs",
+            }
+
+            if global_props.host_linux_version_tpl < (6, 1):
+                assert host_feats - guest_feats == host_guest_diff_5_10
+            else:
+                assert host_feats - guest_feats == host_guest_diff_6_1
+
+            assert guest_feats - host_feats == {
+                "hypervisor",
+                "tsc_known_freq",
+            }
+        case _:
+            if os.environ.get("BUILDKITE") is not None:
+                assert False, f"Cpu model {cpu_model} is not supported"
+
+
 # From the `Intel® 64 Architecture x2APIC Specification`
 # (https://courses.cs.washington.edu/courses/cse451/24wi/documentation/x2apic.pdf):
 # > The X2APIC MSRs cannot to be loaded and stored on VMX transitions. A VMX transition fails
@@ -272,7 +560,7 @@ def msr_cpu_template_fxt(request):
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
 def test_cpu_rdmsr(
-    microvm_factory, msr_cpu_template, guest_kernel, rootfs_ubuntu_22, results_dir
+    microvm_factory, msr_cpu_template, guest_kernel, rootfs, results_dir
 ):
     """
     Test MSRs that are available to the guest.
@@ -307,7 +595,7 @@ def test_cpu_rdmsr(
     """
 
     vcpus, guest_mem_mib = 1, 1024
-    vm = microvm_factory.build(guest_kernel, rootfs_ubuntu_22, monitor_memory=False)
+    vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn()
     vm.add_net_iface()
     vm.basic_config(
@@ -376,9 +664,7 @@ def dump_msr_state_to_file(dump_fname, ssh_conn, shared_names):
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_wrmsr_snapshot(
-    microvm_factory, guest_kernel, rootfs_ubuntu_22, msr_cpu_template
-):
+def test_cpu_wrmsr_snapshot(microvm_factory, guest_kernel, rootfs, msr_cpu_template):
     """
     This is the first part of the test verifying
     that MSRs retain their values after restoring from a snapshot.
@@ -398,7 +684,7 @@ def test_cpu_wrmsr_snapshot(
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
 
     vcpus, guest_mem_mib = 1, 1024
-    vm = microvm_factory.build(guest_kernel, rootfs_ubuntu_22, monitor_memory=False)
+    vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn()
     vm.add_net_iface()
     vm.basic_config(
@@ -533,9 +819,7 @@ def dump_cpuid_to_file(dump_fname, ssh_conn):
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_cpuid_snapshot(
-    microvm_factory, guest_kernel, rootfs_ubuntu_22, msr_cpu_template
-):
+def test_cpu_cpuid_snapshot(microvm_factory, guest_kernel, rootfs, msr_cpu_template):
     """
     This is the first part of the test verifying
     that CPUID remains the same after restoring from a snapshot.
@@ -551,7 +835,7 @@ def test_cpu_cpuid_snapshot(
 
     vm = microvm_factory.build(
         kernel=guest_kernel,
-        rootfs=rootfs_ubuntu_22,
+        rootfs=rootfs,
     )
     vm.spawn()
     vm.add_net_iface()
@@ -927,9 +1211,9 @@ def check_enabled_features(test_microvm, cpu_template):
         "enhanced REP MOVSB/STOSB": "true",
         "SMAP: supervisor mode access prevention": "true",
         # xsave_0xd_0
-        "XCR0 supported: x87 state": "true",
-        "XCR0 supported: SSE state": "true",
-        "XCR0 supported: AVX state": "true",
+        "x87 state": "true",
+        "SSE state": "true",
+        "AVX state": "true",
         # xsave_0xd_1
         "XSAVEOPT instruction": "true",
         # extended_080000001_edx

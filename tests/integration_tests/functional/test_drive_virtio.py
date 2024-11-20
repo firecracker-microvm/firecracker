@@ -14,12 +14,12 @@ MB = 1024 * 1024
 
 
 @pytest.fixture
-def partuuid_and_disk_path_tmpfs(rootfs_ubuntu_22, tmp_path):
+def partuuid_and_disk_path_tmpfs(rootfs, tmp_path):
     """
     We create a new file in tmpfs, get its partuuid and use it as a rootfs.
     """
     disk_path = tmp_path / "disk.img"
-    yield partuuid_and_disk_path(rootfs_ubuntu_22, disk_path)
+    yield partuuid_and_disk_path(rootfs, disk_path)
     disk_path.unlink()
 
 

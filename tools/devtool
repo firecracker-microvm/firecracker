@@ -417,7 +417,7 @@ cmd_help() {
     echo "    build_ci_artifacts [all|rootfs|kernels]"
     echo "        Builds the rootfs and guest kernel artifacts we use for our CI."
     echo "        Run './tools/devtool build_ci_artifacts help' for more details about the available commands."
-    echo ""    
+    echo ""
 
     cat <<EOF
     test_debug [-- [<pytest args>]]
@@ -562,14 +562,12 @@ ensure_ci_artifacts() {
 
     # Fetch all the artifacts so they are local
     say "Fetching CI artifacts from S3"
-    S3_URL=s3://spec.ccfc.min/firecracker-ci/v1.10/$(uname -m)
+    S3_URL=s3://spec.ccfc.min/firecracker-ci/v1.11/$(uname -m)
     ARTIFACTS=$MICROVM_IMAGES_DIR/$(uname -m)
     if [ ! -d "$ARTIFACTS" ]; then
         mkdir -pv $ARTIFACTS
         aws s3 sync --no-sign-request "$S3_URL" "$ARTIFACTS"
-        # fix permissions
-        find "$ARTIFACTS" -type f -name "*.id_rsa" |xargs chmod -c 400
-        find "$ARTIFACTS/firecracker" -type f |xargs chmod -c 755
+        cmd_sh "./tools/setup-ci-artifacts.sh"
     fi
 }
 
