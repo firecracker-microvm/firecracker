@@ -9,6 +9,83 @@ container and function workloads.
 
 Read more about the Firecracker Charter [here](CHARTER.md).
 
+## PCI Proof-of-Concept
+
+### How to passthrough a PCI device
+
+In order to be able to use the device, you first need to attach it to the vfio
+driver:
+
+```
+# All commands below require root privileged
+# Load the vfio driver
+$ modprobe vfio-pci
+
+# Find the device vendor and id
+$ lspci -n -s 0000:18:00.0
+18:00.0 0302: 10de:1eb8 (rev a1)
+
+# Unbind from current driver (if no driver is attached, this will fail but it's ok)
+$ echo 0000:18:00.0 > /sys/bus/pci/devices/0000:18:00.0/driver/unbind
+
+# Bind to vfio driver
+echo 10de 1eb8 > /sys/bus/pci/drivers/vfio-pci/new_id
+```
+
+After that, you can start firecracker without jailer or seccomp using vmconfig
+json (no HTTP API is supported atm) as follows:
+
+```json
+{
+  "pci": { 
+    "enabled": true, 
+    "vfio_devices": [
+      { "path": "/sys/bus/pci/devices/0000:18:00.0/" } 
+    ] 
+  },
+  // [...]
+}
+```
+
+### How to use a NVIDIA GPU inside the Guest
+
+- build a kernel with loadable module support
+- copy kernel source and headers inside the rootfs
+- install nvidia dkms open source drivers inside the rootfs from
+  https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=22.04&target_type=deb_network
+- run dkms pointing it to the kernel source code inside the rootfs
+- load the nvidia driver with modprobe
+- test it with cuda samples
+
+### What works
+
+- multiple vfio devices (PF) can be passed through (no P2P)
+- virtio-pci devices are supported (only block and net have been tested)
+
+### Known issues
+
+- BARs get relocated if the VM memory is less than 4GB due to a (unknown)
+  conflict
+- no support for ARM. It should be pretty easy to add it with a new FDT entry.
+- no support for snapshot/resume (not even for virtio-pci devices).
+- no support for vhost-user-blk.
+- a legacy PCI bus is used instead of a PCIe root port. We should really go
+  straight for a PCIe layout in the production implementation as it will
+  simplify the passthrough of PCIe devices and device hotplugging.
+- the entire guest physical memory is pre-allocated on boot if a vfio device is
+  present (no plans to fix in PoC).
+- it's not possible to toggle PCI support through HTTP API (only vmconfig json
+  is supported at the moment).
+- unit tests are not working.
+- integration tests are not working, except
+  `performance/test_{block,network}_ab.py`.
+
+### Out of scope
+
+- virtual iommu to avoid allocating the entire guest physical memory on boot
+- PCI P2P between vfio devices
+- passthrough of virtual functions
+
 ## What is Firecracker?
 
 Firecracker is an open source virtualization technology that is purpose-built
@@ -130,14 +207,10 @@ The **API endpoint** can be used to:
 
 We test all combinations of:
 
-| Instance  | Host OS & Kernel  | Guest Rootfs | Guest Kernel |
-| :-------- | :---------------- | :----------- | :----------- |
-| c5n.metal | al2    linux_5.10 | ubuntu 24.04 | linux_5.10   |
-| m5n.metal | al2023 linux_6.1  |              | linux_6.1    |
-| m6i.metal |                   |              |              |
-| m6a.metal |                   |              |              |
-| m6g.metal |                   |              |              |
-| m7g.metal |                   |              |              |
+| Instance | Host OS & Kernel | Guest Rootfs | Guest Kernel | | :-------- |
+:---------------- | :----------- | :----------- | | c5n.metal | al2 linux_5.10 |
+ubuntu 24.04 | linux_5.10 | | m5n.metal | al2023 linux_6.1 | | linux_6.1 | |
+m6i.metal | | | | | m6a.metal | | | | | m6g.metal | | | | | m7g.metal | | | |
 
 ## Known issues and Limitations
 
