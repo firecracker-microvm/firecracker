@@ -760,7 +760,7 @@ cmd_test() {
     test_script="./tools/test.sh"
 
     if [ $do_ab_test -eq 1 ]; then
-      test_script="./tools/ab_test.py"
+      test_script="./tools/ab/ab_test.py"
     fi
 
     # Testing (running Firecracker via the jailer) needs root access,
