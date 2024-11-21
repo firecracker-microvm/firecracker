@@ -277,6 +277,7 @@ def analyze_data(
             )
 
     messages = []
+    fails = []
     for dimension_set, metric, result, unit in failures:
         # Sanity check as described above
         if abs(statistics.mean(relative_changes_by_metric[metric])) <= noise_threshold:
@@ -291,10 +292,19 @@ def analyze_data(
             old_mean = statistics.mean(processed_emf_a[dimension_set][metric][0])
             new_mean = statistics.mean(processed_emf_b[dimension_set][metric][0])
 
+            change_unit = format_with_reduced_unit(result.statistic, unit)
+            change_p = result.statistic / old_mean
+            old_unit = format_with_reduced_unit(old_mean, unit)
+            new_unit = format_with_reduced_unit(new_mean, unit)
+
+            fail = dict(dimension_set)
+            fail["diff"] = change_p
+            fails.append(fail)
+
             msg = (
                 f"\033[0;32m[Firecracker A/B-Test Runner]\033[0m A/B-testing shows a change of "
-                f"{format_with_reduced_unit(result.statistic, unit)}, or {result.statistic / old_mean:.2%}, "
-                f"(from {format_with_reduced_unit(old_mean, unit)} to {format_with_reduced_unit(new_mean, unit)}) "
+                f"{change_unit}, or {change_p:.2%}, "
+                f"(from {old_unit} to {new_unit}) "
                 f"for metric \033[1m{metric}\033[0m with \033[0;31m\033[1mp={result.pvalue}\033[0m. "
                 f"This means that observing a change of this magnitude or worse, assuming that performance "
                 f"characteristics did not change across the tested commits, has a probability of {result.pvalue:.2%}. "
@@ -302,7 +312,10 @@ def analyze_data(
             )
             messages.append(msg)
 
-    assert not messages, "\n" + "\n".join(messages)
+    if messages:
+        with open("test_results/ab.json", "w") as f:
+            json.dump({"fails": fails}, f, indent=2, sort_keys=True)
+        assert False, "\n" + "\n".join(messages)
     print("No regressions detected!")
 
 
