@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use vmm::builder::{build_microvm_for_boot, StartMicrovmError};
 use vmm::cpu_config::templates::{CustomCpuTemplate, Numeric};
 use vmm::resources::VmResources;
-use vmm::seccomp_filters::get_empty_filters;
+use vmm::seccomp::get_empty_filters;
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::{EventManager, Vmm, HTTP_MAX_PAYLOAD_SIZE};
 use vmm_sys_util::tempfile::TempFile;
