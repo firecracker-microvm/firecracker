@@ -99,7 +99,7 @@ def run_udp_offload_test(vm):
     # Start a UDP server in the guest
     # vm.ssh.check_output(f"nohup socat UDP-LISTEN:{port} - > {out_filename} &")
     vm.ssh.check_output(
-        f"nohup socat UDP-LISTEN:{port} OPEN:{out_filename},creat > /dev/null 2>&1 &"
+        f"nohup socat UDP4-LISTEN:{port} OPEN:{out_filename},creat > /dev/null 2>&1 &"
     )
 
     # Try to send a UDP message from host with UDP offload enabled
@@ -127,11 +127,11 @@ def test_tap_offload_booted(uvm_plain_any):
     run_udp_offload_test(vm)
 
 
-def test_tap_offload_restored(microvm_factory, guest_kernel, rootfs_ubuntu_22):
+def test_tap_offload_restored(microvm_factory, guest_kernel, rootfs):
     """
     Verify that tap offload features are configured for a restored VM.
     """
-    src = microvm_factory.build(guest_kernel, rootfs_ubuntu_22, monitor_memory=False)
+    src = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     src.spawn()
     src.basic_config()
     src.add_net_iface()

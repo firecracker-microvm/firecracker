@@ -13,19 +13,24 @@ import string
 import subprocess
 from pathlib import Path
 
-DEFAULT_INSTANCES = {
-    "c5n.metal": "x86_64",  # Intel Skylake
-    "m5n.metal": "x86_64",  # Intel Cascade Lake
-    "m6i.metal": "x86_64",  # Intel Icelake
-    "m6a.metal": "x86_64",  # AMD Milan
-    "m6g.metal": "aarch64",  # Graviton2
-    "m7g.metal": "aarch64",  # Graviton3
-}
+DEFAULT_INSTANCES = [
+    "c5n.metal",  # Intel Skylake
+    "m5n.metal",  # Intel Cascade Lake
+    "m6i.metal",  # Intel Icelake
+    "m6a.metal",  # AMD Milan
+    "m6g.metal",  # Graviton2
+    "m7g.metal",  # Graviton3
+]
 
 DEFAULT_PLATFORMS = [
     ("al2", "linux_5.10"),
     ("al2023", "linux_6.1"),
 ]
+
+
+def get_arch_for_instance(instance):
+    """Return instance architecture"""
+    return "x86_64" if instance[2] != "g" else "aarch64"
 
 
 def overlay_dict(base: dict, update: dict):
@@ -145,7 +150,7 @@ COMMON_PARSER.add_argument(
     "--instances",
     required=False,
     nargs="+",
-    default=DEFAULT_INSTANCES.keys(),
+    default=DEFAULT_INSTANCES,
 )
 COMMON_PARSER.add_argument(
     "--platforms",
@@ -288,7 +293,7 @@ class BKPipeline:
             step["command"] = prepend + step["command"]
             if self.shared_build is not None:
                 step["depends_on"] = self.build_key(
-                    DEFAULT_INSTANCES[step["agents"]["instance"]]
+                    get_arch_for_instance(step["agents"]["instance"])
                 )
         return group
 
@@ -323,7 +328,7 @@ class BKPipeline:
         if set_key:
             for step in grp["steps"]:
                 step["key"] = self.build_key(
-                    DEFAULT_INSTANCES[step["agents"]["instance"]]
+                    get_arch_for_instance(step["agents"]["instance"])
                 )
         return self.add_step(grp, depends_on_build=depends_on_build)
 
