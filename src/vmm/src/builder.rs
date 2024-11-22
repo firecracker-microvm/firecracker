@@ -19,7 +19,6 @@ use linux_loader::loader::elf::Elf as Loader;
 #[cfg(target_arch = "aarch64")]
 use linux_loader::loader::pe::PE as Loader;
 use linux_loader::loader::KernelLoader;
-use seccompiler::BpfThreadMap;
 use userfaultfd::Uffd;
 use utils::time::TimestampUs;
 use vm_memory::ReadVolatile;
@@ -63,6 +62,7 @@ use crate::gdb;
 use crate::logger::{debug, error};
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
+use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
 use crate::utils::u64_to_usize;
 use crate::vmm_config::boot_source::BootConfig;
@@ -372,7 +372,7 @@ pub fn build_microvm_for_boot(
     // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
     // altogether is the desired behaviour.
     // Keep this as the last step before resuming vcpus.
-    seccompiler::apply_filter(
+    crate::seccomp::apply_filter(
         seccomp_filters
             .get("vmm")
             .ok_or_else(|| MissingSeccompFilters("vmm".to_string()))?,
@@ -443,7 +443,7 @@ pub enum BuildMicrovmFromSnapshotError {
     /// Failed to apply VMM secccomp filter as none found.
     MissingVmmSeccompFilters,
     /// Failed to apply VMM secccomp filter: {0}
-    SeccompFiltersInternal(#[from] seccompiler::InstallationError),
+    SeccompFiltersInternal(#[from] crate::seccomp::InstallationError),
     /// Failed to restore ACPI device manager: {0}
     ACPIDeviManager(#[from] ACPIDeviceManagerRestoreError),
     /// VMGenID update failed: {0}
@@ -559,7 +559,7 @@ pub fn build_microvm_from_snapshot(
 
     // Load seccomp filters for the VMM thread.
     // Keep this as the last step of the building process.
-    seccompiler::apply_filter(
+    crate::seccomp::apply_filter(
         seccomp_filters
             .get("vmm")
             .ok_or(BuildMicrovmFromSnapshotError::MissingVmmSeccompFilters)?,
