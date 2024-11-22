@@ -607,7 +607,6 @@ dependencies = [
 name = "firecracker"
 version = "1.11.0-dev"
 dependencies = [
- "bincode",
  "cargo_toml",
  "displaydoc",
  "event-manager",
@@ -877,6 +876,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8355be11b20d696c8f18f6cc018c4e372165b1fa8126cef092399c9951984ffa"
 
 [[package]]
+name = "libseccomp"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "21c57fd8981a80019807b7b68118618d29a87177c63d704fc96e6ecd003ae5b3"
+dependencies = [
+ "bitflags 1.3.2",
+ "libc",
+ "libseccomp-sys",
+ "pkg-config",
+]
+
+[[package]]
+name = "libseccomp-sys"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a7cbbd4ad467251987c6e5b47d53b11a5a05add08f2447a9e2d70aef1e0d138"
+
+[[package]]
 name = "linux-loader"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1026,6 +1043,12 @@ name = "peeking_take_while"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19b17cddbe7ec3f8bc800887bab5e717348c95ea2ca0b1bf0837fb964dc67099"
+
+[[package]]
+name = "pkg-config"
+version = "0.3.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "953ec861398dccce10c670dfeaf3ec4911ca479e9c02154b3a215178c5f566f2"
 
 [[package]]
 name = "polyval"
@@ -1211,14 +1234,13 @@ name = "seccompiler"
 version = "1.11.0-dev"
 dependencies = [
  "bincode",
+ "clap",
  "displaydoc",
  "libc",
- "log-instrument",
+ "libseccomp",
  "serde",
  "serde_json",
  "thiserror 2.0.3",
- "utils",
- "vmm-sys-util",
 ]
 
 [[package]]
@@ -1608,7 +1630,6 @@ dependencies = [
  "memfd",
  "micro_http",
  "proptest",
- "seccompiler",
  "semver",
  "serde",
  "serde_json",
