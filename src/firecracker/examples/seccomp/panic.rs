@@ -3,7 +3,7 @@
 use std::env::args;
 use std::fs::File;
 
-use seccompiler::{apply_filter, deserialize_binary};
+use vmm::seccomp::{apply_filter, deserialize_binary};
 
 fn main() {
     let args: Vec<String> = args().collect();

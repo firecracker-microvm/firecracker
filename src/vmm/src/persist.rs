@@ -11,7 +11,6 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use seccompiler::BpfThreadMap;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
@@ -28,6 +27,7 @@ use crate::cpu_config::x86_64::cpuid::CpuidTrait;
 use crate::device_manager::persist::{ACPIDeviceManagerState, DevicePersistError, DeviceStates};
 use crate::logger::{info, warn};
 use crate::resources::VmResources;
+use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Snapshot;
 use crate::utils::u64_to_usize;
 use crate::vmm_config::boot_source::BootSourceConfig;

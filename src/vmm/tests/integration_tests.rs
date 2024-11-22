@@ -12,7 +12,7 @@ use vmm::resources::VmResources;
 use vmm::rpc_interface::{
     LoadSnapshotError, PrebootApiController, RuntimeApiController, VmmAction, VmmActionError,
 };
-use vmm::seccomp_filters::get_empty_filters;
+use vmm::seccomp::get_empty_filters;
 use vmm::snapshot::Snapshot;
 #[cfg(target_arch = "x86_64")]
 use vmm::test_utils::dirty_tracking_vmm;
