@@ -97,7 +97,7 @@ pub mod resources;
 /// microVM RPC API adapters.
 pub mod rpc_interface;
 /// Seccomp filter utilities.
-pub mod seccomp_filters;
+pub mod seccomp;
 /// Signal handling utilities.
 pub mod signal_handler;
 /// Serialization and deserialization facilities
@@ -122,7 +122,7 @@ use device_manager::acpi::ACPIDeviceManager;
 use device_manager::resources::ResourceAllocator;
 use devices::acpi::vmgenid::VmGenIdError;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
-use seccompiler::BpfProgram;
+use seccomp::BpfProgram;
 use userfaultfd::Uffd;
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;
@@ -225,7 +225,7 @@ pub enum VmmError {
     /// Cannot add a device to the MMIO Bus. {0}
     RegisterMMIODevice(device_manager::mmio::MmioError),
     /// Cannot install seccomp filters: {0}
-    SeccompFilters(seccompiler::InstallationError),
+    SeccompFilters(seccomp::InstallationError),
     /// Error writing to the serial console: {0}
     Serial(io::Error),
     /// Error creating timer fd: {0}
