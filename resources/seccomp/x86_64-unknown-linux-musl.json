@@ -43,10 +43,6 @@
                 "syscall": "close"
             },
             {
-                "syscall": "uname",
-                "comment": "Used for getting the kernel version, for validating io_uring support"
-            },
-            {
                 "syscall": "eventfd2",
                 "comment": "Used for creating io_uring completion event, on drive patch"
             },
@@ -111,8 +107,8 @@
                 "comment": "sigaltstack is used by Rust stdlib to remove alternative signal stack during thread teardown."
             },
             {
-              "syscall": "getrandom",
-              "comment": "getrandom is used by aws-lc library which we consume in virtio-rng" 
+                "syscall": "getrandom",
+                "comment": "getrandom is used by aws-lc library which we consume in virtio-rng"
             },
             {
                 "syscall": "accept4",
@@ -214,7 +210,7 @@
             },
             {
                 "syscall": "madvise",
-                "comment": "Used by the VirtIO balloon device and by musl for some customer workloads. It is also used by aws-lc during random number generation. They setup a memory page that mark with MADV_WIPEONFORK to be able to detect forks. They also call it with -1 to see if madvise is supported in certain platforms." 
+                "comment": "Used by the VirtIO balloon device and by musl for some customer workloads. It is also used by aws-lc during random number generation. They setup a memory page that mark with MADV_WIPEONFORK to be able to detect forks. They also call it with -1 to see if madvise is supported in certain platforms."
             },
             {
                 "syscall": "mmap",
@@ -985,32 +981,8 @@
                         "index": 1,
                         "type": "dword",
                         "op": "eq",
-                        "val": 1074048665,
-                        "comment": "KVM_SET_MP_STATE"
-                    }
-                ]
-            },
-            {
-                "syscall": "ioctl",
-                "args": [
-                    {
-                        "index": 1,
-                        "type": "dword",
-                        "op": "eq",
                         "val": 2151722655,
                         "comment": "KVM_GET_VCPU_EVENTS"
-                    }
-                ]
-            },
-            {
-                "syscall": "ioctl",
-                "args": [
-                    {
-                        "index": 1,
-                        "type": "dword",
-                        "op": "eq",
-                        "val": 1077980832,
-                        "comment": "KVM_SET_VCPU_EVENTS"
                     }
                 ]
             },
@@ -1035,78 +1007,6 @@
                         "op": "eq",
                         "val": 2167975555,
                         "comment": "KVM_GET_SREGS"
-                    }
-                ]
-            },
-            {
-                "syscall": "ioctl",
-                "args": [
-                    {
-                        "index": 1,
-                        "type": "dword",
-                        "op": "eq",
-                        "val": 1074310800,
-                        "comment": "KVM_SET_CPUID2"
-                    }
-                ]
-            },
-            {
-                "syscall": "ioctl",
-                "args": [
-                    {
-                        "index": 1,
-                        "type": "dword",
-                        "op": "eq",
-                        "val": 1140895375,
-                        "comment": "KVM_SET_LAPIC"
-                    }
-                ]
-            },
-            {
-                "syscall": "ioctl",
-                "args": [
-                    {
-                        "index": 1,
-                        "type": "dword",
-                        "op": "eq",
-                        "val": 1074310793,
-                        "comment": "KVM_SET_MSRS"
-                    }
-                ]
-            },
-            {
-                "syscall": "ioctl",
-                "args": [
-                    {
-                        "index": 1,
-                        "type": "dword",
-                        "op": "eq",
-                        "val": 1083223682,
-                        "comment": "KVM_SET_REGS"
-                    }
-                ]
-            },
-            {
-                "syscall": "ioctl",
-                "args": [
-                    {
-                        "index": 1,
-                        "type": "dword",
-                        "op": "eq",
-                        "val": 1094233732,
-                        "comment": "KVM_SET_SREGS"
-                    }
-                ]
-            },
-            {
-                "syscall": "ioctl",
-                "args": [
-                    {
-                        "index": 1,
-                        "type": "dword",
-                        "op": "eq",
-                        "val": 2154868383,
-                        "comment": "KVM_GET_PIT2"
                     }
                 ]
             },
@@ -1165,18 +1065,6 @@
                         "index": 1,
                         "type": "dword",
                         "op": "eq",
-                        "val": 1082175138,
-                        "comment": "KVM_SET_DEBUGREGS"
-                    }
-                ]
-            },
-            {
-                "syscall": "ioctl",
-                "args": [
-                    {
-                        "index": 1,
-                        "type": "dword",
-                        "op": "eq",
                         "val": 2415963812,
                         "comment": "KVM_GET_XSAVE"
                     }
@@ -1189,44 +1077,8 @@
                         "index": 1,
                         "type": "dword",
                         "op": "eq",
-                        "val": 1342221989,
-                        "comment": "KVM_SET_XSAVE"
-                    }
-                ]
-            },
-            {
-                "syscall": "ioctl",
-                "args": [
-                    {
-                        "index": 1,
-                        "type": "dword",
-                        "op": "eq",
                         "val": 2173218470,
                         "comment": "KVM_GET_XCRS"
-                    }
-                ]
-            },
-            {
-                "syscall": "ioctl",
-                "args": [
-                    {
-                        "index": 1,
-                        "type": "dword",
-                        "op": "eq",
-                        "val": 1099476647,
-                        "comment": "KVM_SET_XCRS"
-                    }
-                ]
-            },
-            {
-                "syscall": "ioctl",
-                "args": [
-                    {
-                        "index": 1,
-                        "type": "dword",
-                        "op": "eq",
-                        "val": 44706,
-                        "comment": "KVM_SET_TSC_KHZ"
                     }
                 ]
             },
