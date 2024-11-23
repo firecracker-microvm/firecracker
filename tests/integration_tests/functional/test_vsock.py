@@ -199,10 +199,7 @@ def test_vsock_transport_reset_h2g(
     test_vm.kill()
 
     # Load snapshot.
-
-    vm2 = microvm_factory.build()
-    vm2.spawn()
-    vm2.restore_from_snapshot(snapshot, resume=True)
+    vm2 = microvm_factory.build_from_snapshot(snapshot)
 
     # Check that vsock device still works.
     # Test guest-initiated connections.
@@ -231,9 +228,7 @@ def test_vsock_transport_reset_g2h(uvm_nano, microvm_factory):
 
     for _ in range(5):
         # Load snapshot.
-        new_vm = microvm_factory.build()
-        new_vm.spawn()
-        new_vm.restore_from_snapshot(snapshot, resume=True)
+        new_vm = microvm_factory.build_from_snapshot(snapshot)
 
         # After snap restore all vsock connections should be
         # dropped. This means guest socat should exit same way

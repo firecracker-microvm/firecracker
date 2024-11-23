@@ -68,6 +68,4 @@ def test_remove_regs(uvm_nano, microvm_factory):
     assert MIDR_EL1 not in stdout
 
     # test that we can restore from a snapshot
-    new_vm = microvm_factory.build()
-    new_vm.spawn()
-    new_vm.restore_from_snapshot(snapshot, resume=True)
+    _ = microvm_factory.build_from_snapshot(snapshot)
