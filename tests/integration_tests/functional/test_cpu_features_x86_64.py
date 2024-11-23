@@ -952,18 +952,16 @@ def check_enabled_features(test_microvm, cpu_template):
         )
 
 
-def test_c3_on_skylake_show_warning(uvm_plain, cpu_template):
+def test_c3_on_skylake_show_warning(uvm_plain, cpu_template_any):
     """
     This test verifies that the warning message about MMIO stale data mitigation
-    is displayed only on Intel Skylake with C3 template.
+    is displayed only on Intel Skylake with static C3 template.
     """
     uvm = uvm_plain
     uvm.spawn()
-    uvm.basic_config(
-        vcpu_count=2,
-        mem_size_mib=256,
-        cpu_template=cpu_template,
-    )
+    uvm.basic_config(vcpu_count=2, mem_size_mib=256)
+    uvm.add_net_iface()
+    uvm.set_cpu_template(cpu_template_any)
     uvm.start()
 
     message = (
@@ -972,7 +970,8 @@ def test_c3_on_skylake_show_warning(uvm_plain, cpu_template):
         "does not apply the mitigation against MMIO stale data "
         "vulnerability."
     )
-    if uvm.cpu_template_name == "c3" and global_props.cpu_codename == "INTEL_SKYLAKE":
+
+    if cpu_template_any == "C3" and global_props.cpu_codename == "INTEL_SKYLAKE":
         assert message in uvm.log_data
     else:
         assert message not in uvm.log_data
