@@ -96,9 +96,7 @@ def test_cli_metrics_if_resume_no_metrics(uvm_plain, microvm_factory):
     snapshot = uvm1.snapshot_full()
 
     # When: restoring from the snapshot
-    uvm2 = microvm_factory.build()
-    uvm2.spawn()
-    uvm2.restore_from_snapshot(snapshot)
+    uvm2 = microvm_factory.build_from_snapshot(snapshot)
 
     # Then: the old metrics configuration does not exist
     metrics2 = Path(uvm2.jailer.chroot_path()) / metrics_path.name

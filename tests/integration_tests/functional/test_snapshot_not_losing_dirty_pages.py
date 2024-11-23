@@ -63,9 +63,6 @@ def test_diff_snapshot_works_after_error(
 
     # Now there is enough space for it to work
     snap2 = uvm.snapshot_diff()
-
-    vm2 = microvm_factory.build()
-    vm2.spawn()
-    vm2.restore_from_snapshot(snap2, resume=True)
-
     uvm.kill()
+
+    _vm2 = microvm_factory.build_from_snapshot(snap2)
