@@ -292,13 +292,6 @@ def microvm_factory(request, record_property, results_dir):
     uvm_factory.kill()
 
 
-@pytest.fixture(params=static_cpu_templates_params())
-def cpu_template(request, record_property):
-    """Return all static CPU templates supported by the vendor."""
-    record_property("static_cpu_template", request.param)
-    return request.param
-
-
 @pytest.fixture(params=custom_cpu_templates_params())
 def custom_cpu_template(request, record_property):
     """Return all dummy custom CPU templates supported by the vendor."""
