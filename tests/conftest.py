@@ -477,9 +477,7 @@ def uvm_restored(microvm_factory, guest_kernel, rootfs, cpu_template):
     uvm = uvm_booted(microvm_factory, guest_kernel, rootfs, cpu_template)
     snapshot = uvm.snapshot_full()
     uvm.kill()
-    uvm2 = microvm_factory.build()
-    uvm2.spawn()
-    uvm2.restore_from_snapshot(snapshot, resume=True)
+    uvm2 = microvm_factory.build_from_snapshot(snapshot)
     uvm2.cpu_template_name = uvm.cpu_template_name
     return uvm2
 
