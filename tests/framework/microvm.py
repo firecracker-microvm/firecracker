@@ -1084,6 +1084,13 @@ class MicroVMFactory:
             vm.ssh_key = ssh_key
         return vm
 
+    def build_from_snapshot(self, snapshot: Snapshot):
+        """Build a microvm from a snapshot"""
+        vm = self.build()
+        vm.spawn()
+        vm.restore_from_snapshot(snapshot, resume=True)
+        return vm
+
     def kill(self):
         """Clean up all built VMs"""
         for vm in self.vms:
