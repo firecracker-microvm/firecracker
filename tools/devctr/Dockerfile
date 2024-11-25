@@ -76,6 +76,7 @@ RUN apt-get update \
         tzdata \
         tini \
         squashfs-tools zstd \
+        python3-seccomp \
         # for aws-lc-rs
         cmake \
         # for Qemu vhost-user-blk backend
@@ -98,8 +99,13 @@ RUN cd /tmp/poetry \
 ENV VIRTUAL_ENV=$VENV
 ENV PATH=$VENV/bin:$PATH
 
+# apt-get installs it globally, to manually copy it into the venv
+RUN cp /usr/lib/python3/dist-packages/seccomp.cpython-312-"$ARCH"-linux-gnu.so "$VENV"/lib/python3.12/site-packages/
+
 # Running the three as a single dockerfile command to avoid inflation of the image:
-# - Install the Rust toolchain. Kani only work on x86, so only try to install it there
+# - Install the Rust toolchain.
+# - Kani always installs _some_ nightly toolchain, we reuse it for the seccomp filter analysis test. Dynamically
+#   determine the exact toolchain name, and install more components into it.
 # - Build and install crosvm (used as vhost-user-blk backend)
 # - Clean up cargo compilation directories
 # - Always install both x86_64 and aarch64 musl targets, as our rust-toolchain.toml would force on-the-fly installation of both anyway
@@ -109,6 +115,10 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-too
     && rustup component add llvm-tools-preview clippy rustfmt \
     && cargo install --locked cargo-audit cargo-deny@0.16.1 grcov cargo-sort cargo-afl \
     && cargo install --locked kani-verifier && cargo kani setup \
+    \
+    && NIGHTLY_TOOLCHAIN=$(rustup toolchain list | grep nightly | tr -d '\n') \
+    && rustup component add rust-src --toolchain "$NIGHTLY_TOOLCHAIN" \
+    && rustup target add "$ARCH"-unknown-linux-musl --toolchain "$NIGHTLY_TOOLCHAIN" \
     \
     && apt-get update \
     && apt-get -y install --no-install-recommends \
