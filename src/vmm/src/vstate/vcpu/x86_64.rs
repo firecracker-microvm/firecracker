@@ -61,7 +61,7 @@ pub enum KvmVcpuError {
     VcpuGetLapic(kvm_ioctls::Error),
     /// Failed to get KVM vcpu mp state: {0}
     VcpuGetMpState(kvm_ioctls::Error),
-    /// Failed to get KVM vcpu msr: 0x{0:x}
+    /// Failed to get KVM vcpu msr: {0:#x}
     VcpuGetMsr(u32),
     /// Failed to get KVM vcpu msrs: {0}
     VcpuGetMsrs(kvm_ioctls::Error),
@@ -321,7 +321,7 @@ impl KvmVcpu {
                 .filter(|msr| msr.index == MSR_IA32_TSC_DEADLINE && msr.data == 0)
                 .for_each(|msr| {
                     warn!(
-                        "MSR_IA32_TSC_DEADLINE is 0, replacing with {:x}.",
+                        "MSR_IA32_TSC_DEADLINE is 0, replacing with {:#x}.",
                         tsc_value
                     );
                     msr.data = tsc_value;
