@@ -23,6 +23,9 @@ and this project adheres to
 
 ### Fixed
 
+- [#4921](https://github.com/firecracker-microvm/firecracker/pull/4921): Fixed
+  swagger `CpuConfig` definition to include missing aarch64-specific fields.
+
 ## \[1.10.1\]
 
 ### Changed

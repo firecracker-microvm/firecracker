@@ -840,7 +840,7 @@ definitions:
     default: "None"
 
   CpuConfig:
-    type: string
+    type: object
     description:
       The CPU configuration template defines a set of bit maps as modifiers of flags accessed by register
       to be disabled/enabled for the microvm.
@@ -854,6 +854,12 @@ definitions:
       reg_modifiers:
         type: object
         description: A collection of registers to be modified. (aarch64)
+      vcpu_features:
+        type: object
+        description: A collection of vcpu features to be modified. (aarch64)
+      kvm_capabilities:
+        type: object
+        description: A collection of kvm capabilities to be modified. (aarch64)
 
   Drive:
     type: object

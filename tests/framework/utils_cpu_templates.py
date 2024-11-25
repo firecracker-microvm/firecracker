@@ -29,7 +29,7 @@ def get_supported_cpu_templates():
     match get_cpu_vendor(), global_props.cpu_codename:
         # T2CL template is only supported on Cascade Lake and newer CPUs.
         case CpuVendor.INTEL, CpuModel.INTEL_SKYLAKE:
-            return sorted(set(INTEL_TEMPLATES) - set(["T2CL"]))
+            return sorted(set(INTEL_TEMPLATES) - {"T2CL"})
         case CpuVendor.INTEL, _:
             return INTEL_TEMPLATES
         case CpuVendor.AMD, _:
