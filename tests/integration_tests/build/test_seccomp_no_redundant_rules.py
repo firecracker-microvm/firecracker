@@ -22,6 +22,9 @@ def test_redundant_seccomp_rules():
     ).stdout.strip()
     target = f"{arch}-unknown-linux-musl"
 
+    utils.check_output(f"rustup component add rust-src --toolchain {nightly_toolchain}")
+    utils.check_output(f"rustup target add {target} --toolchain {nightly_toolchain}")
+
     utils.check_output(
         f'RUSTFLAGS="-C relocation-model=static -C link-args=-no-pie" cargo +{nightly_toolchain} -Zbuild-std=panic_abort,std build --release --target {target} -p firecracker'
     )
