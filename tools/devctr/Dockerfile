@@ -147,6 +147,22 @@ RUN cd /usr/include/$ARCH-linux-musl \
     && ln -s ../linux linux \
     && ln -s ../asm-generic asm-generic
 
+# Install static version of libseccomp
+#
+RUN apt-get update \
+    && apt-get -y install \
+        libtool gperf \
+    && git clone https://github.com/seccomp/libseccomp /tmp/libseccomp \
+    && cd /tmp/libseccomp \
+    && ./autogen.sh \
+    && CC="musl-gcc -static" ./configure --enable-static=yes --enable-shared=false \
+    && make install \
+    && cd \
+    && apt-get purge -y \
+        libtool gperf \
+    && apt-get autoremove -y \
+    && rm -rf /tmp/libseccomp
+
 # Build iperf3-vsock
 RUN mkdir "$TMP_BUILD_DIR" && cd "$TMP_BUILD_DIR" \
     && git clone https://github.com/stefano-garzarella/iperf-vsock \
