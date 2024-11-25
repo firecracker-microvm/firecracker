@@ -34,7 +34,7 @@ use crate::vstate::memory::{Address, GuestMemory, GuestMemoryMmap, GuestMemoryRe
 pub enum VmError {
     /// The host kernel reports an invalid KVM API version: {0}
     ApiVersion(i32),
-    /// Missing KVM capabilities: {0:x?}
+    /// Missing KVM capabilities: {0:#x?}
     Capabilities(u32),
     /**  Error creating KVM object: {0} Make sure the user launching the firecracker process is \
     configured on the /dev/kvm file's ACL. */
