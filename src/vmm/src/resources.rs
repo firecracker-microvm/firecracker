@@ -315,16 +315,6 @@ impl VmResources {
         mmds_config
     }
 
-    /// Gets a reference to the boot source configuration.
-    pub fn boot_source_config(&self) -> &BootSourceConfig {
-        &self.boot_source.config
-    }
-
-    /// Gets a reference to the boot source builder.
-    pub fn boot_source_builder(&self) -> Option<&BootConfig> {
-        self.boot_source.builder.as_ref()
-    }
-
     /// Sets a balloon device to be attached when the VM starts.
     pub fn set_balloon_device(
         &mut self,
@@ -354,14 +344,12 @@ impl VmResources {
             return Err(BootSourceConfigError::HugePagesAndInitRd);
         }
 
-        self.set_boot_source_config(boot_source_cfg);
-        self.boot_source.builder = Some(BootConfig::new(self.boot_source_config())?);
-        Ok(())
-    }
+        self.boot_source = BootSource {
+            builder: Some(BootConfig::new(&boot_source_cfg)?),
+            config: boot_source_cfg,
+        };
 
-    /// Set the boot source configuration (contains raw kernel config details).
-    pub fn set_boot_source_config(&mut self, boot_source_cfg: BootSourceConfig) {
-        self.boot_source.config = boot_source_cfg;
+        Ok(())
     }
 
     /// Inserts a block to be attached when the VM starts.
@@ -512,7 +500,7 @@ impl From<&VmResources> for VmmConfig {
         VmmConfig {
             balloon_device: resources.balloon.get_config().ok(),
             block_devices: resources.block.configs(),
-            boot_source: resources.boot_source_config().clone(),
+            boot_source: resources.boot_source.config.clone(),
             cpu_config: None,
             logger: None,
             machine_config: Some(MachineConfig::from(&resources.vm_config)),
@@ -1522,15 +1510,6 @@ mod tests {
     }
 
     #[test]
-    fn test_boot_config() {
-        let vm_resources = default_vm_resources();
-        let expected_boot_cfg = vm_resources.boot_source.builder.as_ref().unwrap();
-        let actual_boot_cfg = vm_resources.boot_source_builder().unwrap();
-
-        assert!(actual_boot_cfg == expected_boot_cfg);
-    }
-
-    #[test]
     fn test_set_boot_source() {
         let tmp_file = TempFile::new().unwrap();
         let cmdline = "reboot=k panic=1 pci=off nomodule 8250.nr_uarts=0";
@@ -1541,7 +1520,7 @@ mod tests {
         };
 
         let mut vm_resources = default_vm_resources();
-        let boot_builder = vm_resources.boot_source_builder().unwrap();
+        let boot_builder = vm_resources.boot_source.builder.as_ref().unwrap();
         let tmp_ino = tmp_file.as_file().metadata().unwrap().st_ino();
 
         assert_ne!(
@@ -1568,7 +1547,7 @@ mod tests {
         );
 
         vm_resources.build_boot_source(expected_boot_cfg).unwrap();
-        let boot_source_builder = vm_resources.boot_source_builder().unwrap();
+        let boot_source_builder = vm_resources.boot_source.builder.unwrap();
         assert_eq!(
             boot_source_builder
                 .cmdline

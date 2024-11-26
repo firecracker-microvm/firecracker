@@ -156,7 +156,7 @@ pub trait VirtioDevice: AsAny + Send {
         let avail_features = self.avail_features();
         let unrequested_features = v & !avail_features;
         if unrequested_features != 0 {
-            warn!("Received acknowledge request for unknown feature: {:x}", v);
+            warn!("Received acknowledge request for unknown feature: {:#x}", v);
             // Don't count these features as acked.
             v &= !unrequested_features;
         }
