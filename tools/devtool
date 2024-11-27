@@ -890,6 +890,7 @@ cmd_sh() {
 
 cmd_sandbox() {
     cmd_build --release
+    ensure_ci_artifacts
     cmd_sh "tmux new env PYTEST_ADDOPTS=--pdbcls=IPython.terminal.debugger:TerminalPdb PYTHONPATH=tests IPYTHONDIR=\$PWD/.ipython ipython -i ./tools/sandbox.py $@"
 }
 
