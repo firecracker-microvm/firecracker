@@ -414,8 +414,6 @@ pub mod x86_64 {
         vcpu_count: u8,
         exit_evt: &EventFd,
     ) -> Result<Vec<Vcpu>, VmmError> {
-        setup_interrupt_controller(vm)?;
-
         let mut vcpus = Vec::with_capacity(vcpu_count as usize);
         for cpu_idx in 0..vcpu_count {
             let exit_evt = exit_evt.try_clone().map_err(VmmError::EventFd)?;
@@ -479,12 +477,12 @@ fn build_vmm(
 
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
-    let vm = Vm::new(kvm_capabilities)
+    let mut vm = Vm::new(kvm_capabilities)
         .map_err(VmmError::Vm)
-        .map_err(StartMicrovmError::Internal)?;
+        .map_err(Internal)?;
     vm.memory_init(&guest_memory, vm_config.track_dirty_pages)
         .map_err(VmmError::Vm)
-        .map_err(StartMicrovmError::Internal)?;
+        .map_err(Internal)?;
 
     let vcpus_exit_evt = EventFd::new(libc::EFD_NONBLOCK)
         .map_err(VmmError::EventFd)
@@ -511,6 +509,8 @@ fn build_vmm(
             .try_clone()
             .map_err(VmmError::EventFd)
             .map_err(Internal)?;
+
+        x86_64::setup_interrupt_controller(&mut vm).map_err(Internal)?;
 
         // create pio dev manager with legacy devices
         let pio_device_manager = {
