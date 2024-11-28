@@ -16,9 +16,8 @@ pub(crate) fn parse_get_mmds() -> Result<ParsedRequest, RequestError> {
 }
 
 fn parse_put_mmds_config(body: &Body) -> Result<ParsedRequest, RequestError> {
-    let config: MmdsConfig = serde_json::from_slice(body.raw()).map_err(|err| {
+    let config: MmdsConfig = serde_json::from_slice(body.raw()).inspect_err(|_| {
         METRICS.put_api_requests.mmds_fails.inc();
-        err
     })?;
     // Construct the `ParsedRequest` object.
     let version = config.version;
@@ -42,9 +41,8 @@ pub(crate) fn parse_put_mmds(
     METRICS.put_api_requests.mmds_count.inc();
     match path_second_token {
         None => Ok(ParsedRequest::new_sync(VmmAction::PutMMDS(
-            serde_json::from_slice(body.raw()).map_err(|err| {
+            serde_json::from_slice(body.raw()).inspect_err(|_| {
                 METRICS.put_api_requests.mmds_fails.inc();
-                err
             })?,
         ))),
         Some("config") => parse_put_mmds_config(body),
@@ -61,9 +59,8 @@ pub(crate) fn parse_put_mmds(
 pub(crate) fn parse_patch_mmds(body: &Body) -> Result<ParsedRequest, RequestError> {
     METRICS.patch_api_requests.mmds_count.inc();
     Ok(ParsedRequest::new_sync(VmmAction::PatchMMDS(
-        serde_json::from_slice(body.raw()).map_err(|err| {
+        serde_json::from_slice(body.raw()).inspect_err(|_| {
             METRICS.patch_api_requests.mmds_fails.inc();
-            err
         })?,
     )))
 }

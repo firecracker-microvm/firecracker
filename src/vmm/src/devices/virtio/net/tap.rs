@@ -122,7 +122,7 @@ impl Tap {
         // string and verify the result.
         let fd = unsafe {
             libc::open(
-                b"/dev/net/tun\0".as_ptr().cast::<c_char>(),
+                c"/dev/net/tun".as_ptr(),
                 libc::O_RDWR | libc::O_NONBLOCK | libc::O_CLOEXEC,
             )
         };
