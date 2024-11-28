@@ -197,17 +197,16 @@ sudo ip link set dev "$TAP_DEV" up
 
 # Enable ip forwarding
 sudo sh -c "echo 1 > /proc/sys/net/ipv4/ip_forward"
+sudo iptables -P FORWARD ACCEPT
 
-HOST_IFACE="eth0"
+# This tries to determine the name of the host network interface to forward
+# VM's outbound network traffic through. If outbound traffic doesn't work,
+# double check this returns the correct interface!
+HOST_IFACE=$(ip -j route list default |jq -r '.[0].dev')
 
 # Set up microVM internet access
 sudo iptables -t nat -D POSTROUTING -o "$HOST_IFACE" -j MASQUERADE || true
-sudo iptables -D FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT \
-    || true
-sudo iptables -D FORWARD -i "$TAP_DEV" -o "$HOST_IFACE" -j ACCEPT || true
 sudo iptables -t nat -A POSTROUTING -o "$HOST_IFACE" -j MASQUERADE
-sudo iptables -I FORWARD 1 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-sudo iptables -I FORWARD 1 -i "$TAP_DEV" -o "$HOST_IFACE" -j ACCEPT
 
 API_SOCKET="/tmp/firecracker.socket"
 LOGFILE="./firecracker.log"
