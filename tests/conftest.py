@@ -35,7 +35,7 @@ import pytest
 
 import host_tools.cargo_build as build_tools
 from framework import defs, utils
-from framework.artifacts import kernel_params, rootfs_params
+from framework.artifacts import disks, kernel_params
 from framework.microvm import MicroVMFactory
 from framework.properties import global_props
 from framework.utils_cpu_templates import (
@@ -354,13 +354,6 @@ def guest_kernel_fxt(request, record_property):
     return kernel
 
 
-def rootfs_fxt(request, record_property):
-    """Return all supported rootfs."""
-    fs = request.param
-    record_property("rootfs", fs.name)
-    return fs
-
-
 # Fixtures for all guest kernels, and specific versions
 guest_kernel = pytest.fixture(guest_kernel_fxt, params=kernel_params("vmlinux-*"))
 guest_kernel_acpi = pytest.fixture(
@@ -380,9 +373,17 @@ guest_kernel_linux_6_1 = pytest.fixture(
     params=kernel_params("vmlinux-6.1*"),
 )
 
-# Fixtures for all Ubuntu rootfs, and specific versions
-rootfs = pytest.fixture(rootfs_fxt, params=rootfs_params("ubuntu-24*.squashfs"))
-rootfs_rw = pytest.fixture(rootfs_fxt, params=rootfs_params("*.ext4"))
+
+@pytest.fixture
+def rootfs():
+    """Return an Ubuntu 24.04 read-only rootfs"""
+    return disks("ubuntu-24.04.squashfs")[0]
+
+
+@pytest.fixture
+def rootfs_rw():
+    """Return an Ubuntu 24.04 ext4 rootfs"""
+    return disks("ubuntu-24.04.ext4")[0]
 
 
 @pytest.fixture
