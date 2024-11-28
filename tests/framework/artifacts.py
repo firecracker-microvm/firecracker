@@ -44,9 +44,9 @@ def kernels(glob, artifact_dir: Path = ARTIFACT_DIR) -> Iterator:
                 break
 
 
-def disks(glob) -> Iterator:
+def disks(glob) -> list:
     """Return supported rootfs"""
-    yield from sorted(ARTIFACT_DIR.glob(glob))
+    return sorted(ARTIFACT_DIR.glob(glob))
 
 
 def kernel_params(
@@ -55,12 +55,6 @@ def kernel_params(
     """Return supported kernels"""
     for kernel in select(glob, artifact_dir):
         yield pytest.param(kernel, id=kernel.name)
-
-
-def rootfs_params(glob="ubuntu-*.squashfs") -> Iterator:
-    """Return supported rootfs as pytest parameters"""
-    for rootfs in disks(glob=glob):
-        yield pytest.param(rootfs, id=rootfs.name)
 
 
 @dataclass(frozen=True, repr=True)
