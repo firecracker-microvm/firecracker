@@ -75,7 +75,8 @@
 //!
 //! The system implements 1 types of metrics:
 //! * Shared Incremental Metrics (SharedIncMetrics) - dedicated for the metrics which need a counter
-//! (i.e the number of times an API request failed). These metrics are reset upon flush.
+//!   (i.e the number of times an API request failed). These metrics are reset upon flush.
+//!
 //! We use net::metrics::METRICS instead of adding an entry of NetDeviceMetrics
 //! in Net so that metrics are accessible to be flushed even from signal handlers.
 

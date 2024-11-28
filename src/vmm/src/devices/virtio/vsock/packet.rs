@@ -7,6 +7,7 @@
 //! virtio queue:
 //! - the packet header; and
 //! - the packet data/buffer.
+//!
 //! There is a 1:1 relation between descriptor chains and packets: the first (chain head) holds
 //! the header, and an optional second descriptor holds the data. The second descriptor is only
 //! present for data packets (VSOCK_OP_RW).

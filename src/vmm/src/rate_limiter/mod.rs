@@ -328,15 +328,15 @@ impl RateLimiter {
     /// # Arguments
     ///
     /// * `bytes_total_capacity` - the total capacity of the `TokenType::Bytes` token bucket.
-    /// * `bytes_one_time_burst` - initial extra credit on top of `bytes_total_capacity`,
-    /// that does not replenish and which can be used for an initial burst of data.
-    /// * `bytes_complete_refill_time_ms` - number of milliseconds for the `TokenType::Bytes`
-    /// token bucket to go from zero Bytes to `bytes_total_capacity` Bytes.
+    /// * `bytes_one_time_burst` - initial extra credit on top of `bytes_total_capacity`, that does
+    ///   not replenish and which can be used for an initial burst of data.
+    /// * `bytes_complete_refill_time_ms` - number of milliseconds for the `TokenType::Bytes` token
+    ///   bucket to go from zero Bytes to `bytes_total_capacity` Bytes.
     /// * `ops_total_capacity` - the total capacity of the `TokenType::Ops` token bucket.
-    /// * `ops_one_time_burst` - initial extra credit on top of `ops_total_capacity`,
-    /// that does not replenish and which can be used for an initial burst of data.
+    /// * `ops_one_time_burst` - initial extra credit on top of `ops_total_capacity`, that does not
+    ///   replenish and which can be used for an initial burst of data.
     /// * `ops_complete_refill_time_ms` - number of milliseconds for the `TokenType::Ops` token
-    /// bucket to go from zero Ops to `ops_total_capacity` Ops.
+    ///   bucket to go from zero Ops to `ops_total_capacity` Ops.
     ///
     /// If either bytes/ops *size* or *refill_time* are **zero**, the limiter
     /// is **disabled** for that respective token type.
@@ -794,7 +794,7 @@ pub(crate) mod tests {
         }
 
         // After a restore, we cannot be certain that the last_update field has the same value.
-        pub fn partial_eq(&self, other: &TokenBucket) -> bool {
+        pub(crate) fn partial_eq(&self, other: &TokenBucket) -> bool {
             (other.capacity() == self.capacity())
                 && (other.one_time_burst() == self.one_time_burst())
                 && (other.refill_time_ms() == self.refill_time_ms())

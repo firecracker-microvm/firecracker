@@ -64,9 +64,10 @@
 //!
 //! The system implements 2 type of metrics:
 //! * Shared Incremental Metrics (SharedIncMetrics) - dedicated for the metrics which need a counter
-//! (i.e the number of times activating a device failed). These metrics are reset upon flush.
+//!   (i.e the number of times activating a device failed). These metrics are reset upon flush.
 //! * Shared Store Metrics (SharedStoreMetrics) - are targeted at keeping a persistent value, it is
 //!   `not` intended to act as a counter (i.e for measure the process start up time for example).
+//!
 //! We add VhostUserDeviceMetrics entries from vhost_user_metrics::METRICS into vhost_user device
 //! instead of vhost_user device having individual separate VhostUserDeviceMetrics entries because
 //! vhost_user device is not accessible from signal handlers to flush metrics and

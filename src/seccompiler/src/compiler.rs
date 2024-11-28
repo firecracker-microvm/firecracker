@@ -258,7 +258,7 @@ mod tests {
     };
 
     impl Filter {
-        pub fn new(
+        fn new(
             default_action: SeccompAction,
             filter_action: SeccompAction,
             filter: Vec<SyscallRule>,
@@ -272,7 +272,7 @@ mod tests {
     }
 
     impl SyscallRule {
-        pub fn new(syscall: String, conditions: Option<Vec<Cond>>) -> SyscallRule {
+        fn new(syscall: String, conditions: Option<Vec<Cond>>) -> SyscallRule {
             SyscallRule {
                 syscall,
                 conditions,
