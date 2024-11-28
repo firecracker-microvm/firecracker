@@ -467,7 +467,7 @@ mod tests {
         assert_eq!(RequestType::from(42), RequestType::Unsupported(42));
     }
 
-    impl<'a, 'b> RequestDescriptorChain<'a, 'b> {
+    impl RequestDescriptorChain<'_, '_> {
         fn check_parse_err(&self, _e: VirtioBlockError) {
             let mut q = self.driver_queue.create_queue();
             let memory = self.driver_queue.memory();

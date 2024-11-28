@@ -1,8 +1,6 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#![warn(clippy::pedantic)]
-
 //! A tool to add, remove and check for `tracing::instrument` in large projects where it is
 //! infeasible to manually add it to thousands of functions.
 

@@ -9,7 +9,7 @@ use std::fmt::Debug;
 
 /// The vsock object implements the runtime logic of our vsock device:
 /// 1. Respond to TX queue events by wrapping virtio buffers into `VsockPacket`s, then sending
-/// those    packets to the `VsockBackend`;
+///    those packets to the `VsockBackend`;
 /// 2. Forward backend FD event notifications to the `VsockBackend`;
 /// 3. Fetch incoming packets from the `VsockBackend` and place them into the virtio RX queue;
 /// 4. Whenever we have processed some virtio buffers (either TX or RX), let the driver know by

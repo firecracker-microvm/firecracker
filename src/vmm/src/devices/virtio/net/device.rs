@@ -514,10 +514,9 @@ impl Net {
                 NetError::VnetHeaderMissing
             })?;
 
-        let headers = frame_bytes_from_buf(&headers[..header_len]).map_err(|e| {
+        let headers = frame_bytes_from_buf(&headers[..header_len]).inspect_err(|_| {
             error!("VNET headers missing in TX frame");
             net_metrics.tx_malformed_frames.inc();
-            e
         })?;
 
         if let Some(ns) = mmds_ns {

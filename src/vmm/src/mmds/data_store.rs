@@ -281,7 +281,7 @@ mod tests {
     use super::*;
 
     impl Mmds {
-        pub fn get_data_str(&self) -> String {
+        fn get_data_str(&self) -> String {
             if self.data_store.is_null() {
                 return String::from("{}");
             }

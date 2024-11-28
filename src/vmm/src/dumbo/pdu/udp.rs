@@ -46,7 +46,7 @@ pub struct UdpDatagram<'a, T: 'a> {
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<'a, T: NetworkBytes + Debug> UdpDatagram<'a, T> {
+impl<T: NetworkBytes + Debug> UdpDatagram<'_, T> {
     /// Interprets `bytes` as a UDP datagram without any validity checks.
     ///
     /// # Panics
@@ -122,7 +122,7 @@ impl<'a, T: NetworkBytes + Debug> UdpDatagram<'a, T> {
     }
 }
 
-impl<'a, T: NetworkBytesMut + Debug> UdpDatagram<'a, T> {
+impl<T: NetworkBytesMut + Debug> UdpDatagram<'_, T> {
     /// Writes an incomplete UDP datagram, which is missing the `checksum`, `src_port` and
     /// `dst_port` fields.
     ///
