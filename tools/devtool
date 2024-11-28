@@ -509,12 +509,16 @@ cmd_build() {
     # We don't need any special privileges for the build phase, so we run the
     # container as the current user/group.
     run_devctr \
-        --user "$(id -u):$(id -g)" \
+        --privileged \
         --workdir "$workdir" \
         ${extra_args} \
         -- \
         ./tools/release.sh --libc $libc --profile $profile
     ret=$?
+
+    # Running as root would have created some root-owned files under the build
+    # dir. Let's fix that.
+    cmd_fix_perms
 
     if [ ! -z "$revision" ]; then
       popd
