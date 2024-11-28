@@ -9,6 +9,7 @@ resolver = "2"
 
 [workspace.lints.rust]
 missing_debug_implementations = "warn"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
 
 [workspace.lints.clippy]
 ptr_as_ptr = "warn"

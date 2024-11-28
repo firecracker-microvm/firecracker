@@ -15,4 +15,4 @@ pub mod x86_64;
 pub mod aarch64;
 
 #[cfg(test)]
-pub mod test_utils;
+pub(crate) mod test_utils;

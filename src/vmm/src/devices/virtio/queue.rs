@@ -172,9 +172,8 @@ impl Iterator for DescriptorIterator {
     type Item = DescriptorChain;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.take().map(|desc| {
+        self.0.take().inspect(|desc| {
             self.0 = desc.next_descriptor();
-            desc
         })
     }
 }
@@ -560,10 +559,9 @@ impl Queue {
         // index is bound by the queue size
         let desc_index = unsafe { self.avail_ring_ring_get(usize::from(idx)) };
 
-        DescriptorChain::checked_new(self.desc_table_ptr, self.actual_size(), desc_index).map(
-            |dc| {
+        DescriptorChain::checked_new(self.desc_table_ptr, self.actual_size(), desc_index).inspect(
+            |_| {
                 self.next_avail += Wrapping(1);
-                dc
             },
         )
     }
@@ -575,9 +573,8 @@ impl Queue {
     }
 
     /// Write used element into used_ring ring.
-    /// - [`ring_index_offset`] is an offset added to
-    /// the current [`self.next_used`] to obtain actual index
-    /// into used_ring.
+    /// - [`ring_index_offset`] is an offset added to the current [`self.next_used`] to obtain
+    ///   actual index into used_ring.
     pub fn write_used_element(
         &mut self,
         ring_index_offset: u16,

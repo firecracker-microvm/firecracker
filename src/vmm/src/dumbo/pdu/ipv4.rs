@@ -62,7 +62,7 @@ pub struct IPv4Packet<'a, T: 'a> {
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<'a, T: NetworkBytes + Debug> IPv4Packet<'a, T> {
+impl<T: NetworkBytes + Debug> IPv4Packet<'_, T> {
     /// Interpret `bytes` as an IPv4Packet without checking the validity of the header fields, and
     /// the length of the inner byte sequence.
     ///
@@ -250,7 +250,7 @@ impl<'a, T: NetworkBytes + Debug> IPv4Packet<'a, T> {
     }
 }
 
-impl<'a, T: NetworkBytesMut + Debug> IPv4Packet<'a, T> {
+impl<T: NetworkBytesMut + Debug> IPv4Packet<'_, T> {
     /// Attempts to write an IPv4 packet header to `buf`, making sure there is enough space.
     ///
     /// This method returns an incomplete packet, because the size of the payload might be unknown

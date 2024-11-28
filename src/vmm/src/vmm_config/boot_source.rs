@@ -119,7 +119,7 @@ pub(crate) mod tests {
         assert!(boot_cfg.initrd_file.is_none());
         assert_eq!(
             boot_cfg.cmdline.as_cstring().unwrap().as_bytes_with_nul(),
-            [DEFAULT_KERNEL_CMDLINE.as_bytes(), &[b'\0']].concat()
+            [DEFAULT_KERNEL_CMDLINE.as_bytes(), b"\0"].concat()
         );
     }
 

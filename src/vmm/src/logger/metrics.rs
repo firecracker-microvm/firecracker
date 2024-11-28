@@ -46,10 +46,9 @@
 //!
 //! The system implements 2 types of metrics:
 //! * Shared Incremental Metrics (SharedIncMetrics) - dedicated for the metrics which need a counter
-//! (i.e the number of times an API request failed). These metrics are reset upon flush.
+//!   (i.e the number of times an API request failed). These metrics are reset upon flush.
 //! * Shared Store Metrics (SharedStoreMetrics) - are targeted at keeping a persistent value, it is
-//!   not
-//! intended to act as a counter (i.e for measure the process start up time for example).
+//!   not intended to act as a counter (i.e for measure the process start up time for example).
 //!
 //! The current approach for the `SharedIncMetrics` type is to store two values (current and
 //! previous) and compute the delta between them each time we do a flush (i.e by serialization).
@@ -58,6 +57,7 @@
 //!   to actual writing, so less synchronization effort is required.
 //! * We don't have to worry at all that much about losing some data if writing fails for a while
 //!   (this could be a concern, I guess).
+//!
 //! If if turns out this approach is not really what we want, it's pretty easy to resort to
 //! something else, while working behind the same interface.
 
@@ -706,7 +706,7 @@ impl<'a> LatencyMetricsRecorder<'a> {
         }
     }
 }
-impl<'a> Drop for LatencyMetricsRecorder<'a> {
+impl Drop for LatencyMetricsRecorder<'_> {
     /// records aggregate (min/max/sum) for the given metric
     /// This captures delta between self.start_time and current time
     /// and updates min/max/sum metrics.

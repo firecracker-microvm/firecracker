@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-/// Magic addresses externally used to lay out x86_64 VMs.
+//! Magic addresses externally used to lay out x86_64 VMs.
 
 /// Initial stack for the boot CPU.
 pub const BOOT_STACK_POINTER: u64 = 0x8ff0;
