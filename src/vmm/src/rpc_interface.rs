@@ -572,20 +572,18 @@ impl<'a> PrebootApiController<'a> {
             load_params,
             self.vm_resources,
         )
-        .map_err(|err| {
+        .inspect_err(|_| {
             // If restore fails, we consider the process is too dirty to recover.
             self.fatal_error = Some(BuildMicrovmFromRequestsError::Restore);
-            err
         })?;
         // Resume VM
         if load_params.resume_vm {
             vmm.lock()
                 .expect("Poisoned lock")
                 .resume_vm()
-                .map_err(|err| {
+                .inspect_err(|_| {
                     // If resume fails, we consider the process is too dirty to recover.
                     self.fatal_error = Some(BuildMicrovmFromRequestsError::Resume);
-                    err
                 })?;
         }
         // Set the VM

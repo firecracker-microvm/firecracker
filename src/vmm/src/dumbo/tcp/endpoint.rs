@@ -281,9 +281,8 @@ impl Endpoint {
             tcp_payload_src,
             timestamp_cycles(),
         ) {
-            Ok(write_result) => write_result.map(|segment| {
+            Ok(write_result) => write_result.inspect(|segment| {
                 self.response_seq += Wrapping(u32::from(segment.inner().payload_len()));
-                segment
             }),
             Err(_) => {
                 METRICS.mmds.tx_errors.inc();

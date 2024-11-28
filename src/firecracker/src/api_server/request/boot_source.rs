@@ -11,9 +11,8 @@ use super::Body;
 pub(crate) fn parse_put_boot_source(body: &Body) -> Result<ParsedRequest, RequestError> {
     METRICS.put_api_requests.boot_source_count.inc();
     Ok(ParsedRequest::new_sync(VmmAction::ConfigureBootSource(
-        serde_json::from_slice::<BootSourceConfig>(body.raw()).map_err(|err| {
+        serde_json::from_slice::<BootSourceConfig>(body.raw()).inspect_err(|_| {
             METRICS.put_api_requests.boot_source_fails.inc();
-            err
         })?,
     )))
 }
