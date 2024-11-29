@@ -111,9 +111,10 @@ pub fn apply_filter(bpf_filter: BpfProgramRef) -> Result<(), InstallationError> 
         };
         let bpf_prog_ptr = &bpf_prog as *const SockFprog;
         {
-            let rc = libc::prctl(
-                libc::PR_SET_SECCOMP,
-                libc::SECCOMP_MODE_FILTER,
+            let rc = libc::syscall(
+                libc::SYS_seccomp,
+                libc::SECCOMP_SET_MODE_FILTER,
+                0,
                 bpf_prog_ptr,
             );
             if rc != 0 {
