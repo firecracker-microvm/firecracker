@@ -455,20 +455,34 @@ def uvm_with_initrd(
     yield uvm
 
 
-def uvm_booted(microvm_factory, guest_kernel, rootfs, cpu_template):
+@pytest.fixture
+def vcpu_count():
+    """Return default vcpu_count. Use indirect parametrization to override."""
+    return 2
+
+
+@pytest.fixture
+def mem_size_mib():
+    """Return memory size. Use indirect parametrization to override."""
+    return 256
+
+
+def uvm_booted(
+    microvm_factory, guest_kernel, rootfs, cpu_template, vcpu_count=2, mem_size_mib=256
+):
     """Return a booted uvm"""
     uvm = microvm_factory.build(guest_kernel, rootfs)
     uvm.spawn()
-    uvm.basic_config(vcpu_count=2, mem_size_mib=256)
+    uvm.basic_config(vcpu_count=vcpu_count, mem_size_mib=mem_size_mib)
     uvm.set_cpu_template(cpu_template)
     uvm.add_net_iface()
     uvm.start()
     return uvm
 
 
-def uvm_restored(microvm_factory, guest_kernel, rootfs, cpu_template):
+def uvm_restored(microvm_factory, guest_kernel, rootfs, cpu_template, **kwargs):
     """Return a restored uvm"""
-    uvm = uvm_booted(microvm_factory, guest_kernel, rootfs, cpu_template)
+    uvm = uvm_booted(microvm_factory, guest_kernel, rootfs, cpu_template, **kwargs)
     snapshot = uvm.snapshot_full()
     uvm.kill()
     uvm2 = microvm_factory.build_from_snapshot(snapshot)
@@ -483,12 +497,36 @@ def uvm_ctor(request):
 
 
 @pytest.fixture
-def uvm_any(microvm_factory, uvm_ctor, guest_kernel, rootfs, cpu_template_any):
+def uvm_any(
+    microvm_factory,
+    uvm_ctor,
+    guest_kernel,
+    rootfs,
+    cpu_template_any,
+    vcpu_count,
+    mem_size_mib,
+):
     """Return booted and restored uvms"""
-    return uvm_ctor(microvm_factory, guest_kernel, rootfs, cpu_template_any)
+    return uvm_ctor(
+        microvm_factory,
+        guest_kernel,
+        rootfs,
+        cpu_template_any,
+        vcpu_count=vcpu_count,
+        mem_size_mib=mem_size_mib,
+    )
 
 
 @pytest.fixture
-def uvm_any_booted(microvm_factory, guest_kernel, rootfs, cpu_template_any):
+def uvm_any_booted(
+    microvm_factory, guest_kernel, rootfs, cpu_template_any, vcpu_count, mem_size_mib
+):
     """Return booted uvms"""
-    return uvm_booted(microvm_factory, guest_kernel, rootfs, cpu_template_any)
+    return uvm_booted(
+        microvm_factory,
+        guest_kernel,
+        rootfs,
+        cpu_template_any,
+        vcpu_count=vcpu_count,
+        mem_size_mib=mem_size_mib,
+    )
