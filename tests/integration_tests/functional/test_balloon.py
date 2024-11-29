@@ -4,9 +4,9 @@
 
 import logging
 import time
-from subprocess import TimeoutExpired
 
 import pytest
+from invoke import CommandTimedOut
 from tenacity import retry, stop_after_attempt, wait_fixed
 
 from framework.utils import check_output, get_free_mem_ssh
@@ -74,7 +74,7 @@ def make_guest_dirty_memory(ssh_connection, amount_mib=32):
             logger.error("while running: %s", cmd)
             logger.error("stdout: %s", stdout)
             logger.error("stderr: %s", stderr)
-    except TimeoutExpired:
+    except CommandTimedOut:
         # It's ok if this expires. Sometimes the SSH connection
         # gets killed by the OOM killer *after* the fillmem program
         # started. As a result, we can ignore timeouts here.
