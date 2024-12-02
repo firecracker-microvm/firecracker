@@ -127,10 +127,6 @@ PRIV_KEY_PATH=/root/.ssh/id_rsa
 # Path to the linux kernel directory, as bind-mounted in the container.
 CTR_KERNEL_DIR="${CTR_FC_ROOT_DIR}/.kernel"
 
-# Global options received by $0
-# These options are not command-specific, so we store them as global vars
-OPT_UNATTENDED=false
-
 # Get the target prefix to avoid repeated calls to uname -m
 TARGET_PREFIX="$(uname -m)-unknown-linux-"
 
@@ -195,7 +191,6 @@ ensure_devctr() {
     # download it, if we don't.
     [[ $(docker images -q "$DEVCTR_IMAGE" | wc -l) -gt 0 ]] || {
         say "About to pull docker image $DEVCTR_IMAGE"
-        get_user_confirmation || die "Aborted."
 
         # Run docker pull 5 times in case it fails - sleep 3 seconds
         # between attempts
@@ -1235,7 +1230,8 @@ main() {
     while [ $# -gt 0 ]; do
         case "$1" in
             -h|--help)              { cmd_help; exit 1;     } ;;
-            -y|--unattended)        { OPT_UNATTENDED=true;  } ;;
+            -y|--unattended)        # purposefully ignored
+                ;;
             -*)
                 die "Unknown arg: $1. Please use \`$0 help\` for help."
             ;;
