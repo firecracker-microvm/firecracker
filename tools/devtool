@@ -878,7 +878,6 @@ cmd_shell() {
 
 cmd_sh() {
     ensure_build_dir
-    ensure_ci_artifacts
     run_devctr \
         --privileged \
         --ulimit nofile=4096:4096 \
@@ -916,6 +915,7 @@ cmd_sandbox_native() {
 }
 
 cmd_test_debug() {
+    ensure_ci_artifacts
     cmd_sh "tmux new ./tools/test.sh --pdb $@"
 }
 
