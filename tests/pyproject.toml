@@ -54,4 +54,5 @@ disable = [
     "broad-exception-raised",
     "duplicate-code",
     "too-many-positional-arguments",
+    "too-few-public-methods",
 ]
