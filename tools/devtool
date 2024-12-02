@@ -418,6 +418,10 @@ cmd_help() {
     echo "        Builds the rootfs and guest kernel artifacts we use for our CI."
     echo "        Run './tools/devtool build_ci_artifacts help' for more details about the available commands."
     echo ""
+    echo "    download_ci_artifacts [--force]"
+    echo "        Downloads the CI artifacts used for testing from our S3 bucket. If --force is passed, purges any existing"
+    echo "        artifacts first. Useful for refreshing local artifacts after an update, or if something got messed up."
+    echo ""
 
     cat <<EOF
     test_debug [-- [<pytest args>]]
@@ -553,6 +557,14 @@ cmd_distclean() {
         say "Removing $DEVCTR_IMAGE"
         docker rmi -f "$DEVCTR_IMAGE"
     fi
+}
+
+cmd_download_ci_artifacts() {
+    if [ "$1" = "--force" ]; then
+        rm -rf $FC_BUILD_DIR/img
+    fi
+
+    ensure_ci_artifacts
 }
 
 ensure_ci_artifacts() {
