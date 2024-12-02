@@ -477,6 +477,9 @@ fn build_vmm(
 
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
+    //
+    // allow unused_mut for the aarch64 platform.
+    #[allow(unused_mut)]
     let mut vm = Vm::new(kvm_capabilities)
         .map_err(VmmError::Vm)
         .map_err(Internal)?;
@@ -1263,7 +1266,7 @@ pub mod tests {
         {
             let exit_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
             let _vcpu = Vcpu::new(1, &vm, exit_evt).unwrap();
-            setup_interrupt_controller(&mut vm, 1).unwrap();
+            aarch64::setup_interrupt_controller(&mut vm, 1).unwrap();
         }
 
         Vmm {
@@ -1493,9 +1496,14 @@ pub mod tests {
         let evfd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
 
         #[cfg(target_arch = "x86_64")]
-        x86_64::setup_interrupt_controller(&mut vm).unwrap();
+        let vcpu_vec = {
+            x86_64::setup_interrupt_controller(&mut vm).unwrap();
+            x86_64::create_vcpus(&mut vm, vcpu_count, &evfd).unwrap()
+        };
 
-        let vcpu_vec = x86_64::create_vcpus(&mut vm, vcpu_count, &evfd).unwrap();
+        #[cfg(target_arch = "aarch64")]
+        let vcpu_vec = aarch64::create_vcpus(&mut vm, vcpu_count, &evfd).unwrap();
+
         assert_eq!(vcpu_vec.len(), vcpu_count as usize);
     }
 
