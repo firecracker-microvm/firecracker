@@ -562,7 +562,8 @@ ensure_ci_artifacts() {
 
     # Fetch all the artifacts so they are local
     say "Fetching CI artifacts from S3"
-    S3_URL=s3://spec.ccfc.min/firecracker-ci/v1.11/$(uname -m)
+    FC_VERSION=$(cmd_sh "cd src/firecracker/src; cargo pkgid | cut -d# -f2 | cut -d. -f1-2")
+    S3_URL=s3://spec.ccfc.min/firecracker-ci/v$FC_VERSION/$(uname -m)
     ARTIFACTS=$MICROVM_IMAGES_DIR/$(uname -m)
     if [ ! -d "$ARTIFACTS" ]; then
         mkdir -pv $ARTIFACTS
