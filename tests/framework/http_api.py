@@ -3,8 +3,6 @@
 
 """A simple HTTP client for the Firecracker API"""
 
-# pylint:disable=too-few-public-methods
-
 import urllib
 from http import HTTPStatus
 

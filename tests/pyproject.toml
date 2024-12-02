@@ -52,5 +52,6 @@ disable = [
     "line-too-long",
     "redefined-outer-name",
     "broad-exception-raised",
-    "duplicate-code"
+    "duplicate-code",
+    "too-few-public-methods",
 ]
