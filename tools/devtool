@@ -418,6 +418,10 @@ cmd_help() {
     echo "        Builds the rootfs and guest kernel artifacts we use for our CI."
     echo "        Run './tools/devtool build_ci_artifacts help' for more details about the available commands."
     echo ""
+    echo "    download_ci_artifacts [--force]"
+    echo "        Downloads the CI artifacts used for testing from our S3 bucket. If --force is passed, purges any existing"
+    echo "        artifacts first. Useful for refreshing local artifacts after an update, or if something got messed up."
+    echo ""
 
     cat <<EOF
     test_debug [-- [<pytest args>]]
@@ -555,6 +559,14 @@ cmd_distclean() {
     fi
 }
 
+cmd_download_ci_artifacts() {
+    if [ "$1" = "--force" ]; then
+        rm -rf $FC_BUILD_DIR/img
+    fi
+
+    ensure_ci_artifacts
+}
+
 ensure_ci_artifacts() {
     if ! command -v aws >/dev/null; then
       die "AWS CLI not installed, which is required for downloading artifacts for integration tests."
@@ -562,7 +574,8 @@ ensure_ci_artifacts() {
 
     # Fetch all the artifacts so they are local
     say "Fetching CI artifacts from S3"
-    S3_URL=s3://spec.ccfc.min/firecracker-ci/v1.11/$(uname -m)
+    FC_VERSION=$(cmd_sh "cd src/firecracker/src; cargo pkgid | cut -d# -f2 | cut -d. -f1-2")
+    S3_URL=s3://spec.ccfc.min/firecracker-ci/v$FC_VERSION/$(uname -m)
     ARTIFACTS=$MICROVM_IMAGES_DIR/$(uname -m)
     if [ ! -d "$ARTIFACTS" ]; then
         mkdir -pv $ARTIFACTS
@@ -878,7 +891,6 @@ cmd_shell() {
 
 cmd_sh() {
     ensure_build_dir
-    ensure_ci_artifacts
     run_devctr \
         --privileged \
         --ulimit nofile=4096:4096 \
@@ -916,6 +928,7 @@ cmd_sandbox_native() {
 }
 
 cmd_test_debug() {
+    ensure_ci_artifacts
     cmd_sh "tmux new ./tools/test.sh --pdb $@"
 }
 
