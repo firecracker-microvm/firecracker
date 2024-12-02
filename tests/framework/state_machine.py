@@ -3,8 +3,6 @@
 """Defines a stream based string matcher and a generic state object."""
 
 
-# Too few public methods (1/2) (too-few-public-methods)
-# pylint: disable=R0903
 class MatchStaticString:
     """Match a static string versus input."""
 
