@@ -11,7 +11,7 @@ bench = false
 [dependencies]
 derive_more = { version = "1.0.0", default-features = false, features = ["from"] }
 displaydoc = "0.2.5"
-libc = "0.2.164"
+libc = "0.2.167"
 log-instrument = { path = "../log-instrument", optional = true }
 serde = { version = "1.0.215", features = ["derive"] }
 thiserror = "2.0.3"
