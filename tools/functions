@@ -71,12 +71,7 @@ function SGR {
 #   exit code 0 for successful confirmation
 #   exit code != 0 if the user declined
 #
-OPT_UNATTENDED=false
 get_user_confirmation() {
-
-    # Pass if running unattended
-    [[ "$OPT_UNATTENDED" = true ]] && return 0
-
     # Fail if STDIN is not a terminal (there's no user to confirm anything)
     [[ -t 0 ]] || return 1
 
