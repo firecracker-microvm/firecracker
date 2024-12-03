@@ -5,6 +5,8 @@
 import platform
 from pathlib import Path
 
+import pytest
+
 from framework import utils
 from framework.static_analysis import (
     determine_unneeded_seccomp_rules,
@@ -13,6 +15,10 @@ from framework.static_analysis import (
 )
 
 
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="aarch64 nightly toolchain does not support flags needed to compile analyzable binary yet",
+)
 def test_redundant_seccomp_rules():
     """Test that fails if static analysis determines redundant seccomp rules"""
     arch = platform.processor()
