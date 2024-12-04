@@ -100,7 +100,7 @@ def start_guest_echo_server(vm):
     Returns a UDS path to connect to the server.
     """
     cmd = f"nohup socat VSOCK-LISTEN:{ECHO_SERVER_PORT},backlog=128,reuseaddr,fork EXEC:'/bin/cat' > /dev/null 2>&1 &"
-    vm.ssh.check_output(cmd)
+    vm.ssh.run(cmd)
 
     # Give the server time to initialise
     time.sleep(1)
@@ -214,8 +214,7 @@ def _copy_vsock_data_to_guest(ssh_connection, blob_path, vm_blob_path, vsock_hel
     # Copy the data file and a vsock helper to the guest.
 
     cmd = "mkdir -p /tmp/vsock"
-    ecode, _, _ = ssh_connection.run(cmd)
-    assert ecode == 0, "Failed to set up tmpfs drive on the guest."
+    ssh_connection.run(cmd)
 
     ssh_connection.scp_put(vsock_helper, "/tmp/vsock_helper")
     ssh_connection.scp_put(blob_path, vm_blob_path)

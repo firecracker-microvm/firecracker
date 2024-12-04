@@ -350,8 +350,7 @@ def get_free_mem_ssh(ssh_connection):
     :param ssh_connection: connection to the guest
     :return: available mem column output of 'free'
     """
-    _, stdout, stderr = ssh_connection.run("cat /proc/meminfo | grep MemAvailable")
-    assert stderr == ""
+    _, stdout, _ = ssh_connection.run("cat /proc/meminfo | grep MemAvailable")
 
     # Split "MemAvailable:   123456 kB" and validate it
     meminfo_data = stdout.split()
@@ -441,7 +440,7 @@ def assert_seccomp_level(pid, seccomp_level):
 
 def run_guest_cmd(ssh_connection, cmd, expected, use_json=False):
     """Runs a shell command at the remote accessible via SSH"""
-    _, stdout, stderr = ssh_connection.check_output(cmd)
+    _, stdout, stderr = ssh_connection.run(cmd)
     assert stderr == ""
     stdout = stdout if not use_json else json.loads(stdout)
     assert stdout == expected
@@ -625,20 +624,19 @@ def guest_run_fio_iteration(ssh_connection, iteration):
         --output /tmp/fio{} > /dev/null &""".format(
         iteration
     )
-    exit_code, _, stderr = ssh_connection.run(fio)
-    assert exit_code == 0, stderr
+    ssh_connection.run(fio)
 
 
 def check_filesystem(ssh_connection, disk_fmt, disk):
     """Check for filesystem corruption inside a microVM."""
     if disk_fmt == "squashfs":
         return
-    ssh_connection.check_output(f"fsck.{disk_fmt} -n {disk}")
+    ssh_connection.run(f"fsck.{disk_fmt} -n {disk}")
 
 
 def check_entropy(ssh_connection):
     """Check that we can get random numbers from /dev/hwrng"""
-    ssh_connection.check_output("dd if=/dev/hwrng of=/dev/null bs=4096 count=1")
+    ssh_connection.run("dd if=/dev/hwrng of=/dev/null bs=4096 count=1")
 
 
 @retry(wait=wait_fixed(0.5), stop=stop_after_attempt(5), reraise=True)

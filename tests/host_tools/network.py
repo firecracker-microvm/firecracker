@@ -79,7 +79,7 @@ class SSHConnection:
 
     def _scp(self, path1, path2, options):
         """Copy files to/from the VM using scp."""
-        self._exec(["scp", *options, path1, path2], check=True)
+        self._exec(["scp", *options, path1, path2])
 
     def scp_put(self, local_path, remote_path, recursive=False):
         """Copy files to the VM using scp."""
@@ -109,11 +109,12 @@ class SSHConnection:
         We'll keep trying to execute a remote command that can't fail
         (`/bin/true`), until we get a successful (0) exit code.
         """
-        self.check_output("true", timeout=100, debug=True)
+        self.run("true", timeout=100, debug=True)
 
-    def run(self, cmd_string, timeout=None, *, check=False, debug=False):
+    def run(self, cmd_string, timeout=None, *, check=True, debug=False):
         """
         Execute the command passed as a string in the ssh context.
+        By default raises an exception on non-zero return code of remote command.
 
         If `debug` is set, pass `-vvv` to `ssh`. Note that this will clobber stderr.
         """
@@ -124,11 +125,7 @@ class SSHConnection:
 
         return self._exec(command, timeout, check=check)
 
-    def check_output(self, cmd_string, timeout=None, *, debug=False):
-        """Same as `run`, but raises an exception on non-zero return code of remote command"""
-        return self.run(cmd_string, timeout, check=True, debug=debug)
-
-    def _exec(self, cmd, timeout=None, check=False):
+    def _exec(self, cmd, timeout=None, check=True):
         """Private function that handles the ssh client invocation."""
         if self.netns is not None:
             cmd = ["ip", "netns", "exec", self.netns] + cmd

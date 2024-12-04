@@ -41,39 +41,20 @@ def get_stable_rss_mem_by_pid(pid, percentage_delta=1):
 
 def lower_ssh_oom_chance(ssh_connection):
     """Lure OOM away from ssh process"""
-    logger = logging.getLogger("lower_ssh_oom_chance")
-
     cmd = "cat /run/sshd.pid"
-    exit_code, stdout, stderr = ssh_connection.run(cmd)
-    # add something to the logs for troubleshooting
-    if exit_code != 0:
-        logger.error("while running: %s", cmd)
-        logger.error("stdout: %s", stdout)
-        logger.error("stderr: %s", stderr)
-
+    _, stdout, _ = ssh_connection.run(cmd)
     for pid in stdout.split(" "):
         cmd = f"choom -n -1000 -p {pid}"
-        exit_code, stdout, stderr = ssh_connection.run(cmd)
-        if exit_code != 0:
-            logger.error("while running: %s", cmd)
-            logger.error("stdout: %s", stdout)
-            logger.error("stderr: %s", stderr)
+        ssh_connection.run(cmd)
 
 
 def make_guest_dirty_memory(ssh_connection, amount_mib=32):
     """Tell the guest, over ssh, to dirty `amount` pages of memory."""
-    logger = logging.getLogger("make_guest_dirty_memory")
-
     lower_ssh_oom_chance(ssh_connection)
 
     cmd = f"/usr/local/bin/fillmem {amount_mib}"
     try:
-        exit_code, stdout, stderr = ssh_connection.run(cmd, timeout=1.0)
-        # add something to the logs for troubleshooting
-        if exit_code != 0:
-            logger.error("while running: %s", cmd)
-            logger.error("stdout: %s", stdout)
-            logger.error("stderr: %s", stderr)
+        ssh_connection.run(cmd, timeout=1.0)
     except TimeoutExpired:
         # It's ok if this expires. Sometimes the SSH connection
         # gets killed by the OOM killer *after* the fillmem program
@@ -558,4 +539,4 @@ def test_memory_scrub(microvm_factory, guest_kernel, rootfs):
     # Wait for the deflate to complete.
     _ = get_stable_rss_mem_by_pid(firecracker_pid)
 
-    microvm.ssh.check_output("/usr/local/bin/readmem {} {}".format(60, 1))
+    microvm.ssh.run("/usr/local/bin/readmem {} {}".format(60, 1))

@@ -215,7 +215,7 @@ def test_host_vs_guest_cpu_features_x86_64(uvm_nano):
     vm.add_net_iface()
     vm.start()
     host_feats = set(utils.check_output(CPU_FEATURES_CMD).stdout.strip().split(" "))
-    guest_feats = set(vm.ssh.check_output(CPU_FEATURES_CMD).stdout.strip().split(" "))
+    guest_feats = set(vm.ssh.run(CPU_FEATURES_CMD).stdout.strip().split(" "))
 
     cpu_model = cpuid_utils.get_cpu_codename()
     match cpu_model:

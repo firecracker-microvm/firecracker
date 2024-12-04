@@ -51,7 +51,8 @@ def test_rescan_file(uvm_plain_any, io_engine):
     utils.check_output(f"truncate --size {truncated_size}M {fs.path}")
     block_copy_name = "/tmp/dev_vdb_copy"
     _, _, stderr = test_microvm.ssh.run(
-        f"dd if=/dev/vdb of={block_copy_name} bs=1M count={block_size}"
+        f"dd if=/dev/vdb of={block_copy_name} bs=1M count={block_size}",
+        check=False,
     )
     assert "dd: error reading '/dev/vdb': Input/output error" in stderr
     _check_file_size(test_microvm.ssh, f"{block_copy_name}", truncated_size * MB)
@@ -283,7 +284,7 @@ def test_patch_drive(uvm_plain_any, io_engine):
     # of the device, in bytes.
     blksize_cmd = "LSBLK_DEBUG=all lsblk -b /dev/vdb --output SIZE"
     size_bytes_str = "536870912"  # = 512 MiB
-    _, stdout, _ = test_microvm.ssh.check_output(blksize_cmd)
+    _, stdout, _ = test_microvm.ssh.run(blksize_cmd)
     lines = stdout.split("\n")
     # skip "SIZE"
     assert lines[1].strip() == size_bytes_str
@@ -354,14 +355,12 @@ def test_flush(uvm_plain_rw, io_engine):
 
 
 def _check_block_size(ssh_connection, dev_path, size):
-    _, stdout, stderr = ssh_connection.run("blockdev --getsize64 {}".format(dev_path))
-    assert stderr == ""
+    _, stdout, _ = ssh_connection.run("blockdev --getsize64 {}".format(dev_path))
     assert stdout.strip() == str(size)
 
 
 def _check_file_size(ssh_connection, dev_path, size):
-    _, stdout, stderr = ssh_connection.run("stat --format=%s {}".format(dev_path))
-    assert stderr == ""
+    _, stdout, _ = ssh_connection.run("stat --format=%s {}".format(dev_path))
     assert stdout.strip() == str(size)
 
 
@@ -379,7 +378,5 @@ def _check_drives(test_microvm, assert_dict, keys_array):
 
 
 def _check_mount(ssh_connection, dev_path):
-    _, _, stderr = ssh_connection.run(f"mount {dev_path} /tmp", timeout=30.0)
-    assert stderr == ""
-    _, _, stderr = ssh_connection.run("umount /tmp", timeout=30.0)
-    assert stderr == ""
+    ssh_connection.run(f"mount {dev_path} /tmp", timeout=30.0)
+    ssh_connection.run("umount /tmp", timeout=30.0)

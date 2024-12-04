@@ -75,7 +75,7 @@ def test_net_change_mac_address(uvm_plain_any, change_net_config_space_bin):
     cmd = f"chmod u+x {rmt_path} && {rmt_path} {net_addr_base} {mac_hex}"
 
     # This should be executed successfully.
-    _, stdout, _ = ssh_conn.check_output(cmd)
+    _, stdout, _ = ssh_conn.run(cmd)
     assert stdout == mac
 
     # Discard any parasite data exchange which might've been
@@ -154,7 +154,7 @@ def _send_data_g2h(ssh_connection, host_ip, host_port, iterations, data, retries
     )
 
     # Wait server to initialize.
-    _, _, stderr = ssh_connection.check_output(cmd)
+    _, _, stderr = ssh_connection.run(cmd)
     # If this assert fails, a connection refused happened.
     assert stderr == ""
 
@@ -219,8 +219,7 @@ def _find_iomem_range(ssh_connection, dev_name):
     # its contents and grep for the VirtIO device name, which
     # with ACPI is "LNRO0005:XY".
     cmd = f"cat /proc/iomem | grep -m 1 {dev_name}"
-    rc, stdout, stderr = ssh_connection.run(cmd)
-    assert rc == 0, stderr
+    _, stdout, _ = ssh_connection.run(cmd)
 
     # Take range in the form 'start-end' from line. The line looks like this:
     # d00002000-d0002fff : LNRO0005:02
@@ -237,7 +236,7 @@ def _get_net_mem_addr_base_x86_acpi(ssh_connection, if_name):
     # are identified as "LNRO0005" and appear under /sys/devices/platform
     sys_virtio_mmio_cmdline = "/sys/devices/platform/"
     cmd = "ls {}"
-    _, stdout, _ = ssh_connection.check_output(cmd.format(sys_virtio_mmio_cmdline))
+    _, stdout, _ = ssh_connection.run(cmd.format(sys_virtio_mmio_cmdline))
     virtio_devs = list(filter(lambda x: "LNRO0005" in x, stdout.strip().split()))
 
     # For virtio-net LNRO0005 devices, we should have a path like:
@@ -247,7 +246,8 @@ def _get_net_mem_addr_base_x86_acpi(ssh_connection, if_name):
     cmd = "ls {}/{}/virtio{}/net"
     for idx, dev in enumerate(virtio_devs):
         _, guest_if_name, _ = ssh_connection.run(
-            cmd.format(sys_virtio_mmio_cmdline, dev, idx)
+            cmd.format(sys_virtio_mmio_cmdline, dev, idx),
+            check=False
         )
         if guest_if_name.strip() == if_name:
             return _find_iomem_range(ssh_connection, dev)[0]
@@ -259,12 +259,11 @@ def _get_net_mem_addr_base_x86_cmdline(ssh_connection, if_name):
     """Check for net device memory start address via command line arguments"""
     sys_virtio_mmio_cmdline = "/sys/devices/virtio-mmio-cmdline/"
     cmd = "ls {} | grep virtio-mmio. | sed 's/virtio-mmio.//'"
-    exit_code, stdout, stderr = ssh_connection.run(cmd.format(sys_virtio_mmio_cmdline))
-    assert exit_code == 0, stderr
+    _, stdout, _ = ssh_connection.run(cmd.format(sys_virtio_mmio_cmdline))
     virtio_devs_idx = stdout.strip().split()
 
     cmd = "cat /proc/cmdline"
-    _, cmd_line, _ = ssh_connection.check_output(cmd)
+    _, cmd_line, _ = ssh_connection.run(cmd)
     pattern_dev = re.compile("(virtio_mmio.device=4K@0x[0-9a-f]+:[0-9]+)+")
     pattern_addr = re.compile("virtio_mmio.device=4K@(0x[0-9a-f]+):[0-9]+")
     devs_addr = []
@@ -279,7 +278,8 @@ def _get_net_mem_addr_base_x86_cmdline(ssh_connection, if_name):
     cmd = "ls {}/virtio-mmio.{}/virtio{}/net"
     for idx in virtio_devs_idx:
         _, guest_if_name, _ = ssh_connection.run(
-            cmd.format(sys_virtio_mmio_cmdline, idx, idx)
+            cmd.format(sys_virtio_mmio_cmdline, idx, idx),
+            check=False
         )
         if guest_if_name.strip() == if_name:
             return devs_addr[int(idx)]
@@ -299,8 +299,7 @@ def _get_net_mem_addr_base(ssh_connection, if_name):
     if platform.machine() == "aarch64":
         sys_virtio_mmio_cmdline = "/sys/devices/platform"
         cmd = "ls {} | grep .virtio_mmio".format(sys_virtio_mmio_cmdline)
-        rc, stdout, _ = ssh_connection.run(cmd)
-        assert rc == 0
+        _, stdout, _ = ssh_connection.run(cmd)
 
         virtio_devs = stdout.split()
         devs_addr = list(map(lambda dev: dev.split(".")[0], virtio_devs))

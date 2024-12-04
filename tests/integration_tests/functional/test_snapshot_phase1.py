@@ -93,7 +93,7 @@ def test_snapshot_phase1(
 
     # Validate MMDS.
     # Configure interface to route MMDS requests
-    vm.ssh.check_output(f"ip route add {IPV4_ADDRESS} dev {NET_IFACE_FOR_MMDS}")
+    vm.ssh.run(f"ip route add {IPV4_ADDRESS} dev {NET_IFACE_FOR_MMDS}")
 
     # Fetch metadata to ensure MMDS is accessible.
     token = generate_mmds_session_token(vm.ssh, IPV4_ADDRESS, token_ttl=60)

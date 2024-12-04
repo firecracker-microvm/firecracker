@@ -51,7 +51,7 @@ def _check_cpu_features_arm(test_microvm, guest_kv, template_name=None):
         case CpuModel.ARM_NEOVERSE_V1, _, None:
             expected_cpu_features = DEFAULT_G3_FEATURES_5_10
 
-    _, stdout, _ = test_microvm.ssh.check_output(CPU_FEATURES_CMD)
+    _, stdout, _ = test_microvm.ssh.run(CPU_FEATURES_CMD)
     flags = set(stdout.strip().split(" "))
     assert flags == expected_cpu_features
 
@@ -77,7 +77,7 @@ def test_host_vs_guest_cpu_features_aarch64(uvm_nano):
     vm.add_net_iface()
     vm.start()
     host_feats = set(utils.check_output(CPU_FEATURES_CMD).stdout.strip().split(" "))
-    guest_feats = set(vm.ssh.check_output(CPU_FEATURES_CMD).stdout.strip().split(" "))
+    guest_feats = set(vm.ssh.run(CPU_FEATURES_CMD).stdout.strip().split(" "))
 
     cpu_model = cpuid_utils.get_cpu_model_name()
     match cpu_model:

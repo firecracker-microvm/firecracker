@@ -188,15 +188,13 @@ def test_serial_block(uvm_plain_any):
     os.kill(test_microvm.screen_pid, signal.SIGSTOP)
 
     # Generate a random text file.
-    test_microvm.ssh.check_output(
-        "base64 /dev/urandom | head -c 100000 > /tmp/file.txt"
-    )
+    test_microvm.ssh.run("base64 /dev/urandom | head -c 100000 > /tmp/file.txt")
 
     # Dump output to terminal
-    test_microvm.ssh.check_output("cat /tmp/file.txt > /dev/ttyS0")
+    test_microvm.ssh.run("cat /tmp/file.txt > /dev/ttyS0")
 
     # Check that the vCPU isn't blocked.
-    test_microvm.ssh.check_output("cd /")
+    test_microvm.ssh.run("cd /")
 
     # Check the metrics to see if the serial missed bytes.
     fc_metrics = test_microvm.flush_metrics()

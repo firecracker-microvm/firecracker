@@ -15,8 +15,7 @@ def _check_block_size(ssh_connection, dev_path, size):
     """
     Checks the size of the block device.
     """
-    _, stdout, stderr = ssh_connection.run("blockdev --getsize64 {}".format(dev_path))
-    assert stderr == ""
+    _, stdout, _ = ssh_connection.run("blockdev --getsize64 {}".format(dev_path))
     assert stdout.strip() == str(size)
 
 
@@ -297,7 +296,7 @@ def test_config_change(microvm_factory, guest_kernel, rootfs):
     _check_block_size(vm.ssh, "/dev/vdb", orig_size * 1024 * 1024)
 
     # Check that we can create a filesystem and mount it
-    vm.ssh.check_output(mkfs_mount_cmd)
+    vm.ssh.run(mkfs_mount_cmd)
 
     for new_size in new_sizes:
         # Instruct the backend to resize the device.
@@ -312,4 +311,4 @@ def test_config_change(microvm_factory, guest_kernel, rootfs):
         _check_block_size(vm.ssh, "/dev/vdb", new_size * 1024 * 1024)
 
         # Check that we can create a filesystem and mount it
-        vm.ssh.check_output(mkfs_mount_cmd)
+        vm.ssh.run(mkfs_mount_cmd)

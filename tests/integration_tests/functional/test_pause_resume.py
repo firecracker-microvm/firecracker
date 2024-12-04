@@ -53,7 +53,7 @@ def test_pause_resume(uvm_nano):
 
     # Verify guest is no longer active.
     with pytest.raises(ChildProcessError):
-        microvm.ssh.check_output("true")
+        microvm.ssh.run("true")
 
     # Verify emulation was indeed paused and no events from either
     # guest or host side were handled.
@@ -61,7 +61,7 @@ def test_pause_resume(uvm_nano):
 
     # Verify guest is no longer active.
     with pytest.raises(ChildProcessError):
-        microvm.ssh.check_output("true")
+        microvm.ssh.run("true")
 
     # Pausing the microVM when it is already `Paused` is allowed
     # (microVM remains in `Paused` state).
@@ -152,7 +152,7 @@ def test_kvmclock_ctrl(uvm_plain_any):
     # console. This detail is important as it writing in the console seems to increase the probability
     # that we will pause the execution inside the kernel and cause a lock up. Setting KVM_CLOCK_CTRL
     # bit that informs the guest we're pausing the vCPUs, should avoid that lock up.
-    microvm.ssh.check_output(
+    microvm.ssh.run(
         "timeout 60 sh -c 'while true; do ls -R /; done' > /dev/ttyS0 2>&1 < /dev/null &"
     )
 
@@ -161,7 +161,7 @@ def test_kvmclock_ctrl(uvm_plain_any):
         time.sleep(5)
         microvm.api.vm.patch(state="Resumed")
 
-    dmesg = microvm.ssh.check_output("dmesg").stdout
+    _, dmesg, _ = microvm.ssh.run("dmesg")
     assert "rcu_sched self-detected stall on CPU" not in dmesg
     assert "rcu_preempt detected stalls on CPUs/tasks" not in dmesg
     assert "BUG: soft lockup -" not in dmesg

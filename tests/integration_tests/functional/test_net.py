@@ -37,7 +37,7 @@ def test_high_ingress_traffic(uvm_plain_any):
     test_microvm.start()
 
     # Start iperf3 server on the guest.
-    test_microvm.ssh.check_output("{} -sD\n".format(IPERF_BINARY_GUEST))
+    test_microvm.ssh.run("{} -sD\n".format(IPERF_BINARY_GUEST))
     time.sleep(1)
 
     # Start iperf3 client on the host. Send 1Gbps UDP traffic.
@@ -53,7 +53,7 @@ def test_high_ingress_traffic(uvm_plain_any):
     # Check if the high ingress traffic broke the net interface.
     # If the net interface still works we should be able to execute
     # ssh commands.
-    test_microvm.ssh.check_output("echo success\n")
+    test_microvm.ssh.run("echo success\n")
 
 
 def test_multi_queue_unsupported(uvm_plain):
@@ -97,8 +97,8 @@ def run_udp_offload_test(vm):
     message = "x"
 
     # Start a UDP server in the guest
-    # vm.ssh.check_output(f"nohup socat UDP-LISTEN:{port} - > {out_filename} &")
-    vm.ssh.check_output(
+    # vm.ssh.run(f"nohup socat UDP-LISTEN:{port} - > {out_filename} &")
+    vm.ssh.run(
         f"nohup socat UDP4-LISTEN:{port} OPEN:{out_filename},creat > /dev/null 2>&1 &"
     )
 
@@ -110,8 +110,8 @@ def run_udp_offload_test(vm):
     assert ret.returncode == 0, f"{ret.stdout=} {ret.stderr=}"
 
     # Check that the server received the message
-    ret = vm.ssh.run(f"cat {out_filename}")
-    assert ret.stdout == message, f"{ret.stdout=} {ret.stderr=}"
+    _, stdout, stderr = vm.ssh.run(f"cat {out_filename}")
+    assert stdout == message, f"{stdout=} {stderr=}"
 
 
 def test_tap_offload_booted(uvm_plain_any):

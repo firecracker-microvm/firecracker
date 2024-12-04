@@ -238,7 +238,7 @@ def test_vsock_transport_reset_g2h(uvm_nano, microvm_factory):
         # After snap restore all vsock connections should be
         # dropped. This means guest socat should exit same way
         # as it did after snapshot was taken.
-        code, _, _ = new_vm.ssh.run("pidof socat")
+        code, _, _ = new_vm.ssh.run("pidof socat", check=False)
         assert code == 1
 
         host_socket_path = os.path.join(
@@ -266,15 +266,14 @@ def test_vsock_transport_reset_g2h(uvm_nano, microvm_factory):
         new_vm.ssh.run(guest_socat_commmand)
 
         # socat should be running in the guest now
-        code, _, _ = new_vm.ssh.run("pidof socat")
-        assert code == 0
+        new_vm.ssh.run("pidof socat")
 
         # Create snapshot.
         snapshot = new_vm.snapshot_full()
         new_vm.resume()
 
         # After `create_snapshot` + 'restore' calls, connection should be dropped
-        code, _, _ = new_vm.ssh.run("pidof socat")
+        code, _, _ = new_vm.ssh.run("pidof socat", check=False)
         assert code == 1
 
         # Kill host socat as it is not useful anymore

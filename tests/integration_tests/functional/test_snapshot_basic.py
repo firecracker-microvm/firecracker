@@ -36,7 +36,7 @@ def check_vmgenid_update_count(vm, resume_count):
     Kernel will emit the DMESG_VMGENID_RESUME every time we resume
     from a snapshot
     """
-    _, stdout, _ = vm.ssh.check_output("dmesg")
+    _, stdout, _ = vm.ssh.run("dmesg")
     assert resume_count == stdout.count(DMESG_VMGENID_RESUME)
 
 
@@ -44,8 +44,7 @@ def _get_guest_drive_size(ssh_connection, guest_dev_name="/dev/vdb"):
     # `lsblk` command outputs 2 lines to STDOUT:
     # "SIZE" and the size of the device, in bytes.
     blksize_cmd = "LSBLK_DEBUG=all lsblk -b {} --output SIZE".format(guest_dev_name)
-    rc, stdout, stderr = ssh_connection.run(blksize_cmd)
-    assert rc == 0, stderr
+    _, stdout, _ = ssh_connection.run(blksize_cmd)
     lines = stdout.split("\n")
     return lines[1].strip()
 
@@ -473,7 +472,7 @@ def test_diff_snapshot_overlay(guest_kernel, rootfs, microvm_factory):
     basevm.resume()
 
     # Run some command to dirty some pages
-    basevm.ssh.check_output("true")
+    basevm.ssh.run("true")
 
     # First copy the base snapshot somewhere else, so we can make sure
     # it will actually get updated

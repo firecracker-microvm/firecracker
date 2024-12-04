@@ -25,18 +25,14 @@ def uvm_with_rng(uvm_plain, request):
 
 def list_rng_available(ssh_connection: SSHConnection) -> list[str]:
     """Returns a list of rng devices available in the VM"""
-    return (
-        ssh_connection.check_output("cat /sys/class/misc/hw_random/rng_available")
-        .stdout.strip()
-        .split()
-    )
+    _, stdout, _ = ssh_connection.run("cat /sys/class/misc/hw_random/rng_available")
+    return stdout.strip().split()
 
 
 def get_rng_current(ssh_connection: SSHConnection) -> str:
     """Returns the current rng device used by hwrng"""
-    return ssh_connection.check_output(
-        "cat /sys/class/misc/hw_random/rng_current"
-    ).stdout.strip()
+    _, stdout, _ = ssh_connection.run("cat /sys/class/misc/hw_random/rng_current")
+    return stdout.strip()
 
 
 def assert_virtio_rng_is_current_hwrng_device(ssh_connection: SSHConnection):
@@ -150,7 +146,7 @@ def _get_throughput(ssh, random_bytes):
     # Issue a `dd` command to request 100 times `random_bytes` from the device.
     # 100 here is used to get enough confidence on the achieved throughput.
     cmd = "dd if=/dev/hwrng of=/dev/null bs={} count=100".format(random_bytes)
-    _, _, stderr = ssh.check_output(cmd)
+    _, _, stderr = ssh.run(cmd)
 
     # dd gives its output on stderr
     return _process_dd_output(stderr)

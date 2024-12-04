@@ -194,7 +194,7 @@ def precompiled_ab_test_guest_command(
 
     def test_runner(bin_dir, _is_a: bool):
         microvm = microvm_factory(bin_dir / "firecracker", bin_dir / "jailer")
-        return microvm.ssh.run(command)
+        return microvm.ssh.run(command, check=False)
 
     (_, old_out, old_err), (_, new_out, new_err), the_same = binary_ab_test(
         test_runner,
