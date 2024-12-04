@@ -939,6 +939,7 @@ class Microvm:
             snapshot_type=snapshot_type,
             meta={
                 "kernel_file": str(self.kernel_file),
+                "vcpus_count": self.vcpus_count,
             },
         )
 
