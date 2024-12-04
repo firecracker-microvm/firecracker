@@ -20,3 +20,24 @@ def test_all_vcpus_online(uvm_any):
             ).stdout.strip()
             == "1"
         )
+
+
+def test_all_vcpus_have_same_features(uvm_any):
+    """
+    Check all vCPUs have the same features inside guest.
+
+    This test ensures Firecracker or CPU templates don't configure CPU features
+    differently between vCPUs.
+
+    Note that whether the shown CPU features are expected or not should be
+    tested in (arch-specific) test_cpu_features_*.py only for vCPU 0. Thus, we
+    only test the equivalence of all CPUs in the same guest.
+    """
+    vm = uvm_any
+
+    # Get features of all CPUs
+    features = vm.ssh.check_output(
+        "cat /proc/cpuinfo | grep Features"
+    ).stdout.splitlines()
+    for idx in range(1, vm.vcpus_count):
+        assert features[0] == features[idx]
