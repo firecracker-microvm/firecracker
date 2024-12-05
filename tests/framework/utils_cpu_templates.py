@@ -64,8 +64,17 @@ def get_supported_custom_cpu_templates():
 
 def custom_cpu_templates_params():
     """Return Custom CPU templates as pytest parameters"""
+    # Return custom CPU templates that are equivalent to the supported static CPU templates.
     for name in sorted(get_supported_custom_cpu_templates()):
         tmpl = Path(f"./data/static_cpu_templates/{name.lower()}.json")
+        yield pytest.param(
+            {"name": name, "template": json.loads(tmpl.read_text("utf-8"))},
+            id="custom_" + name,
+        )
+
+    # Return custom CPU templates for temporary testing purpose.
+    for tmpl in Path("./data/custom_cpu_templates").glob("*.json"):
+        name = tmpl.stem
         yield pytest.param(
             {"name": name, "template": json.loads(tmpl.read_text("utf-8"))},
             id="custom_" + name,
