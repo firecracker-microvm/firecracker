@@ -184,6 +184,14 @@ COMMON_PARSER.add_argument(
     default=[],
     type=str,
 )
+COMMON_PARSER.add_argument(
+    "-k",
+    "--keywords",
+    help="Keywords to filter pytest tests to run",
+    required=False,
+    default=None,
+    type=str,
+)
 
 
 def random_str(k: int):
@@ -360,6 +368,8 @@ class BKPipeline:
         parts.append("--")
         if self.binary_dir is not None:
             parts.append(f"--binary-dir=../{self.binary_dir}/$(uname -m)")
+        if self.args.keywords is not None:
+            parts.append(f"-k {self.args.keywords}")
         if pytest_opts:
             parts.append(pytest_opts)
         cmds.append(" ".join(parts))
