@@ -646,3 +646,49 @@ sudo env PYTHONPATH=tests HOME=$HOME ~/.local/bin/ipython3 -i tools/sandbox.py -
 > \[!WARNING\]
 >
 > **Notice this runs as root!**
+
+## How to run python tests with custom CPU templates
+
+By placing custom CPU templates under `tests/data/custom_cpu_templates/`
+directory, you can run the CI with them for testing / debugging purposes.
+
+Using the pytest keyword filtering option `-k`, you can run only python tests
+that use a specific CPU template. For example:
+
+```sh
+tools/devtool -y test -- integration_tests/functional -k unique_template_name
+```
+
+You can also do it from buildkite using the scripts under `.buildkite/`
+directory. The easiest way is to commit custom CPU template JSON files in
+question to your forked repo. Note that you should specify platforms on which
+the custom CPU templates are expected to work. For example:
+
+```yaml
+steps:
+- label: "Run test with custom CPU templates"
+  command: |
+    .buildkite/pipeline_pr.py \
+      --instances m6g.metal m7g.metal \
+      -k unique_template_name \
+      | buildkite-agent pipeline upload
+```
+
+Even without making any commit, you can inject the custom CPU template at
+runtime via `--additional-prepend` option of the buildkite step generation
+scripts. For example:
+
+```yaml
+steps:
+- label: "Run test with custom CPU templates"
+  command: |
+    .buildkite/pipeline_pr.py \
+      --instances m6g.metal m7g.metal \
+      -k unique_template_name \
+      --additional-prepend 'echo "{\"kvm_capabilities\": [\"170\", \"171\", \"172\"], \"vcpu_features\": [{\"index\": 0, \"bitmap\": \"0b111xxxx\"}]}" > tests/data/custom_cpu_templates/unique_template_name.json \
+      | buildkite-agent pipeline upload
+```
+
+In case that a CPU template written directly looks ugly or too lengthy, an
+alternative way is to download or copy it from somewhere at runtime also via the
+prepended command, although it is almost same as committing to your forked repo.
