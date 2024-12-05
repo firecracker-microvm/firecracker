@@ -176,6 +176,14 @@ COMMON_PARSER.add_argument(
     default=None,
     type=str,
 )
+COMMON_PARSER.add_argument(
+    "--additional-prepend",
+    help="Commands to be prepended additionally",
+    required=False,
+    nargs="+",
+    default=[],
+    type=str,
+)
 
 
 def random_str(k: int):
@@ -288,6 +296,7 @@ class BKPipeline:
                     f"chmod -v a+x {self.binary_dir}/**/*",
                 ]
             )
+        prepend.extend(self.args.additional_prepend)
 
         for step in group["steps"]:
             step["command"] = prepend + step["command"]
