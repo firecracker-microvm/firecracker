@@ -10,7 +10,7 @@ use vmm_sys_util::tempdir::TempDir;
 
 use crate::builder::build_microvm_for_boot;
 use crate::resources::VmResources;
-use crate::seccomp_filters::get_empty_filters;
+use crate::seccomp::get_empty_filters;
 use crate::test_utils::mock_resources::{MockBootSourceConfig, MockVmConfig, MockVmResources};
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;

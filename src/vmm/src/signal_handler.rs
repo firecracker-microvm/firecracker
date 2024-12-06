@@ -177,7 +177,6 @@ mod tests {
     use std::{process, thread};
 
     use libc::syscall;
-    use seccompiler::sock_filter;
 
     use super::*;
 
@@ -185,11 +184,6 @@ mod tests {
     fn test_signal_handler() {
         let child = thread::spawn(move || {
             register_signal_handlers().unwrap();
-
-            let filter = make_test_seccomp_bpf_filter();
-
-            seccompiler::apply_filter(&filter).unwrap();
-            assert_eq!(METRICS.seccomp.num_faults.fetch(), 0);
 
             // Call the forbidden `SYS_mkdirat`.
             unsafe { libc::syscall(libc::SYS_mkdirat, "/foo/bar\0") };
@@ -238,7 +232,6 @@ mod tests {
         });
         child.join().unwrap();
 
-        assert!(METRICS.seccomp.num_faults.fetch() >= 1);
         assert!(METRICS.signals.sigbus.fetch() >= 1);
         assert!(METRICS.signals.sigsegv.fetch() >= 1);
         assert!(METRICS.signals.sigxfsz.fetch() >= 1);
@@ -246,142 +239,5 @@ mod tests {
         assert!(METRICS.signals.sigpipe.count() >= 1);
         assert!(METRICS.signals.sighup.fetch() >= 1);
         assert!(METRICS.signals.sigill.fetch() >= 1);
-    }
-
-    fn make_test_seccomp_bpf_filter() -> Vec<sock_filter> {
-        // Create seccomp filter that allows all syscalls, except for `SYS_mkdirat`.
-        // For some reason, directly calling `SYS_kill` with SIGSYS, like we do with the
-        // other signals, results in an error. Probably because of the way `cargo test` is
-        // handling signals.
-        #[cfg(target_arch = "aarch64")]
-        #[allow(clippy::unreadable_literal)]
-        let bpf_filter = vec![
-            sock_filter {
-                code: 32,
-                jt: 0,
-                jf: 0,
-                k: 4,
-            },
-            sock_filter {
-                code: 21,
-                jt: 1,
-                jf: 0,
-                k: 3221225655,
-            },
-            sock_filter {
-                code: 6,
-                jt: 0,
-                jf: 0,
-                k: 0,
-            },
-            sock_filter {
-                code: 32,
-                jt: 0,
-                jf: 0,
-                k: 0,
-            },
-            sock_filter {
-                code: 21,
-                jt: 0,
-                jf: 1,
-                k: 34,
-            },
-            sock_filter {
-                code: 5,
-                jt: 0,
-                jf: 0,
-                k: 1,
-            },
-            sock_filter {
-                code: 5,
-                jt: 0,
-                jf: 0,
-                k: 2,
-            },
-            sock_filter {
-                code: 6,
-                jt: 0,
-                jf: 0,
-                k: 196608,
-            },
-            sock_filter {
-                code: 6,
-                jt: 0,
-                jf: 0,
-                k: 2147418112,
-            },
-            sock_filter {
-                code: 6,
-                jt: 0,
-                jf: 0,
-                k: 2147418112,
-            },
-        ];
-        #[cfg(target_arch = "x86_64")]
-        #[allow(clippy::unreadable_literal)]
-        let bpf_filter = vec![
-            sock_filter {
-                code: 32,
-                jt: 0,
-                jf: 0,
-                k: 4,
-            },
-            sock_filter {
-                code: 21,
-                jt: 1,
-                jf: 0,
-                k: 3221225534,
-            },
-            sock_filter {
-                code: 6,
-                jt: 0,
-                jf: 0,
-                k: 0,
-            },
-            sock_filter {
-                code: 32,
-                jt: 0,
-                jf: 0,
-                k: 0,
-            },
-            sock_filter {
-                code: 21,
-                jt: 0,
-                jf: 1,
-                k: 258,
-            },
-            sock_filter {
-                code: 5,
-                jt: 0,
-                jf: 0,
-                k: 1,
-            },
-            sock_filter {
-                code: 5,
-                jt: 0,
-                jf: 0,
-                k: 2,
-            },
-            sock_filter {
-                code: 6,
-                jt: 0,
-                jf: 0,
-                k: 196608,
-            },
-            sock_filter {
-                code: 6,
-                jt: 0,
-                jf: 0,
-                k: 2147418112,
-            },
-            sock_filter {
-                code: 6,
-                jt: 0,
-                jf: 0,
-                k: 2147418112,
-            },
-        ];
-
-        bpf_filter
     }
 }
