@@ -34,6 +34,9 @@ fi
 say "Copy CI artifacts to /srv, so hardlinks work"
 cp -ruvf build/img /srv
 
+apt-get update && apt-get install python3-seccomp
+cp /usr/lib/python3/dist-packages/seccomp.cpython-312-$(uname -m)-linux-gnu.so  /opt/venv/lib/python3.12/site-packages/
+
 cd tests
 export PYTEST_ADDOPTS="${PYTEST_ADDOPTS:-} --pdbcls=IPython.terminal.debugger:TerminalPdb"
 
