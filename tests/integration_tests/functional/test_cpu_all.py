@@ -9,7 +9,13 @@ CPU templates especially under multi-vCPU setup, by checking that all vCPUs
 are operating identically, except for the expected differences.
 """
 
+import pytest
 
+# Use the maximum number of vCPUs supported by Firecracker
+MAX_VCPUS = 32
+
+
+@pytest.mark.parametrize("vcpu_count", [MAX_VCPUS])
 def test_all_vcpus_online(uvm_any):
     """Check all vCPUs are online inside guest"""
     assert (
@@ -18,6 +24,7 @@ def test_all_vcpus_online(uvm_any):
     )
 
 
+@pytest.mark.parametrize("vcpu_count", [MAX_VCPUS])
 def test_all_vcpus_have_same_features(uvm_any):
     """
     Check all vCPUs have the same features inside guest.
