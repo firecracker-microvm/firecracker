@@ -937,6 +937,7 @@ class Microvm:
             ssh_key=self.ssh_key,
             snapshot_type=snapshot_type,
             meta={
+                "vcpus_count": self.vcpus_count,
                 "kernel_file": self.kernel_file,
             },
         )

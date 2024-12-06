@@ -26,7 +26,7 @@
                   "bitmap": {
                         "description": "Bitmap for modifying the 32 bit field in kvm_vcpu_init::features. Must be in the format `0b[01x]{1,32}`. Corresponding bits will be cleared (`0`), set (`1`) or left intact (`x`). (`_`) can be used as a separator.",
                         "type": "string",
-                        "examples": ["0b1100000"]
+                        "examples": ["0b11xxxxx"]
                   }
                 }
             }
