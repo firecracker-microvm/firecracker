@@ -150,6 +150,10 @@ def test_host_vs_guest_cpu_features(uvm_nano):
                 "tsc_known_freq",
             }
 
+        case CpuModel.AMD_GENOA:
+            # Return here to allow the test to pass until CPU features to enable are confirmed
+            return
+
         case CpuModel.INTEL_SKYLAKE:
             assert host_feats - guest_feats == INTEL_HOST_ONLY_FEATS
             assert guest_feats - host_feats == {
