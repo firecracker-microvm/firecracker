@@ -9,6 +9,7 @@ resolver = "2"
 
 [workspace.lints.rust]
 missing_debug_implementations = "warn"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
 
 [workspace.lints.clippy]
 ptr_as_ptr = "warn"
@@ -20,6 +21,14 @@ exit = "warn"
 tests_outside_test_module = "warn"
 assertions_on_result_states = "warn"
 error_impl_error = "warn"
+
+[profile.test]
+# Some unit tests create files from raw fds and
+# this triggers UB checks to panic. There is no
+# separate flag to disable those as of right now,
+# so we have to disable debug-assertions.
+# Tracking issue: https://github.com/rust-lang/rust/issues/123499
+debug-assertions = false
 
 [profile.dev]
 panic = "abort"

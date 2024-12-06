@@ -368,15 +368,13 @@ impl Vmm {
 
         if let Some(stdin) = self.events_observer.as_mut() {
             // Set raw mode for stdin.
-            stdin.lock().set_raw_mode().map_err(|err| {
+            stdin.lock().set_raw_mode().inspect_err(|&err| {
                 warn!("Cannot set raw mode for the terminal. {:?}", err);
-                err
             })?;
 
             // Set non blocking stdin.
-            stdin.lock().set_non_block(true).map_err(|err| {
+            stdin.lock().set_non_block(true).inspect_err(|&err| {
                 warn!("Cannot set non block for the terminal. {:?}", err);
-                err
             })?;
         }
 
@@ -906,9 +904,8 @@ impl Drop for Vmm {
         self.stop(self.shutdown_exit_code.unwrap_or(FcExitCode::Ok));
 
         if let Some(observer) = self.events_observer.as_mut() {
-            let res = observer.lock().set_canon_mode().map_err(|err| {
+            let res = observer.lock().set_canon_mode().inspect_err(|&err| {
                 warn!("Cannot set canonical mode for the terminal. {:?}", err);
-                err
             });
             if let Err(err) = res {
                 warn!("{}", VmmError::VmmObserverTeardown(err));

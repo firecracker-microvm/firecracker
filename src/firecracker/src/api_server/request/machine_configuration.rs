@@ -15,9 +15,8 @@ pub(crate) fn parse_get_machine_config() -> Result<ParsedRequest, RequestError> 
 
 pub(crate) fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, RequestError> {
     METRICS.put_api_requests.machine_cfg_count.inc();
-    let config = serde_json::from_slice::<MachineConfig>(body.raw()).map_err(|err| {
+    let config = serde_json::from_slice::<MachineConfig>(body.raw()).inspect_err(|_| {
         METRICS.put_api_requests.machine_cfg_fails.inc();
-        err
     })?;
 
     // Check for the presence of deprecated `cpu_template` field.
@@ -44,9 +43,8 @@ pub(crate) fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Req
 pub(crate) fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, RequestError> {
     METRICS.patch_api_requests.machine_cfg_count.inc();
     let config_update =
-        serde_json::from_slice::<MachineConfigUpdate>(body.raw()).map_err(|err| {
+        serde_json::from_slice::<MachineConfigUpdate>(body.raw()).inspect_err(|_| {
             METRICS.patch_api_requests.machine_cfg_fails.inc();
-            err
         })?;
 
     if config_update.is_empty() {
