@@ -24,6 +24,13 @@ and this project adheres to
 
 ### Deprecated
 
+- [#4948](https://github.com/firecracker-microvm/firecracker/pull/4948):
+  Deprecated the `page_size_kib` field in the
+  [UFFD handshake](docs/snapshotting/handling-page-faults-on-snapshot-resume.md#registering-memory-to-be-handled-via-userfault-file-descriptors),
+  and replaced it with a `page_size` field. The `page_size_kib` field is
+  misnamed, as the value Firecracker sets it to is actually the page size in
+  _bytes_, not KiB. It will be removed in Firecracker 2.0.
+
 ### Removed
 
 ### Fixed

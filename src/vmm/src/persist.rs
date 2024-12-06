@@ -108,6 +108,11 @@ pub struct GuestRegionUffdMapping {
     /// Offset in the backend file/buffer where the region contents are.
     pub offset: u64,
     /// The configured page size for this memory region.
+    pub page_size: usize,
+    /// The configured page size **in bytes** for this memory region. The name is
+    /// wrong but cannot be changed due to being API, so this field is deprecated,
+    /// to be removed in 2.0.
+    #[deprecated]
     pub page_size_kib: usize,
 }
 
@@ -593,11 +598,13 @@ fn create_guest_memory(
     let mut backend_mappings = Vec::with_capacity(guest_memory.num_regions());
     let mut offset = 0;
     for mem_region in guest_memory.iter() {
+        #[allow(deprecated)]
         backend_mappings.push(GuestRegionUffdMapping {
             base_host_virt_addr: mem_region.as_ptr() as u64,
             size: mem_region.size(),
             offset,
-            page_size_kib: huge_pages.page_size_kib(),
+            page_size: huge_pages.page_size(),
+            page_size_kib: huge_pages.page_size(),
         });
         offset += mem_region.size() as u64;
     }
@@ -788,26 +795,26 @@ mod tests {
         assert_eq!(uffd_regions.len(), 1);
         assert_eq!(uffd_regions[0].size, 0x20000);
         assert_eq!(uffd_regions[0].offset, 0);
-        assert_eq!(
-            uffd_regions[0].page_size_kib,
-            HugePageConfig::None.page_size_kib()
-        );
+        assert_eq!(uffd_regions[0].page_size, HugePageConfig::None.page_size());
     }
 
     #[test]
     fn test_send_uffd_handshake() {
+        #[allow(deprecated)]
         let uffd_regions = vec![
             GuestRegionUffdMapping {
                 base_host_virt_addr: 0,
                 size: 0x100000,
                 offset: 0,
-                page_size_kib: HugePageConfig::None.page_size_kib(),
+                page_size: HugePageConfig::None.page_size(),
+                page_size_kib: HugePageConfig::None.page_size(),
             },
             GuestRegionUffdMapping {
                 base_host_virt_addr: 0x100000,
                 size: 0x200000,
                 offset: 0,
-                page_size_kib: HugePageConfig::Hugetlbfs2M.page_size_kib(),
+                page_size: HugePageConfig::Hugetlbfs2M.page_size(),
+                page_size_kib: HugePageConfig::Hugetlbfs2M.page_size(),
             },
         ];
 
