@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # pylint: disable=too-many-statements
+# pylint: disable=too-many-branches
 
 """
 Check CPU features in the host vs the guest.
@@ -70,6 +71,91 @@ INTEL_HOST_ONLY_FEATS = {
     "xtpr",
 }
 
+INTEL_GUEST_ONLY_FEATS = {
+    "hypervisor",
+    "tsc_known_freq",
+    "umip",
+}
+
+AMD_MILAN_HOST_ONLY_FEATS = {
+    "amd_ppin",
+    "aperfmperf",
+    "bpext",
+    "cat_l3",
+    "cdp_l3",
+    "cpb",
+    "cqm",
+    "cqm_llc",
+    "cqm_mbm_local",
+    "cqm_mbm_total",
+    "cqm_occup_llc",
+    "decodeassists",
+    "extapic",
+    "extd_apicid",
+    "flushbyasid",
+    "hw_pstate",
+    "ibs",
+    "irperf",
+    "lbrv",
+    "mba",
+    "monitor",
+    "mwaitx",
+    "overflow_recov",
+    "pausefilter",
+    "perfctr_llc",
+    "perfctr_nb",
+    "pfthreshold",
+    "rdpru",
+    "rdt_a",
+    "sev",
+    "sev_es",
+    "skinit",
+    "smca",
+    "sme",
+    "succor",
+    "svm_lock",
+    "tce",
+    "tsc_scale",
+    "v_vmsave_vmload",
+    "vgif",
+    "vmcb_clean",
+    "wdt",
+}
+
+AMD_GUEST_ONLY_FEATS = {
+    "hypervisor",
+    "tsc_adjust",
+    "tsc_deadline_timer",
+    "tsc_known_freq",
+}
+
+AMD_MILAN_HOST_ONLY_FEATS_6_1 = AMD_MILAN_HOST_ONLY_FEATS - {
+    "lbrv",
+    "pausefilter",
+    "pfthreshold",
+    "sme",
+    "tsc_scale",
+    "v_vmsave_vmload",
+    "vgif",
+    "vmcb_clean",
+} | {"brs", "rapl", "v_spec_ctrl"}
+
+AMD_GENOA_HOST_ONLY_FEATS = AMD_MILAN_HOST_ONLY_FEATS | {
+    "avic",
+    "flush_l1d",
+    "ibrs_enhanced",
+}
+
+AMD_GENOA_HOST_ONLY_FEATS_6_1 = AMD_MILAN_HOST_ONLY_FEATS_6_1 - {"brs"} | {
+    "avic",
+    "amd_lbr_v2",
+    "cppc",
+    "flush_l1d",
+    "ibrs_enhanced",
+    "perfmon_v2",
+    "x2avic",
+}
+
 
 def test_host_vs_guest_cpu_features(uvm_nano):
     """Check CPU features host vs guest"""
@@ -82,93 +168,28 @@ def test_host_vs_guest_cpu_features(uvm_nano):
 
     match CPU_MODEL:
         case CpuModel.AMD_MILAN:
-            host_guest_diff_5_10 = {
-                "amd_ppin",
-                "aperfmperf",
-                "bpext",
-                "cat_l3",
-                "cdp_l3",
-                "cpb",
-                "cqm",
-                "cqm_llc",
-                "cqm_mbm_local",
-                "cqm_mbm_total",
-                "cqm_occup_llc",
-                "decodeassists",
-                "extapic",
-                "extd_apicid",
-                "flushbyasid",
-                "hw_pstate",
-                "ibs",
-                "irperf",
-                "lbrv",
-                "mba",
-                "monitor",
-                "mwaitx",
-                "overflow_recov",
-                "pausefilter",
-                "perfctr_llc",
-                "perfctr_nb",
-                "pfthreshold",
-                "rdpru",
-                "rdt_a",
-                "sev",
-                "sev_es",
-                "skinit",
-                "smca",
-                "sme",
-                "succor",
-                "svm_lock",
-                "tce",
-                "tsc_scale",
-                "v_vmsave_vmload",
-                "vgif",
-                "vmcb_clean",
-                "wdt",
-            }
-
-            host_guest_diff_6_1 = host_guest_diff_5_10 - {
-                "lbrv",
-                "pausefilter",
-                "pfthreshold",
-                "sme",
-                "tsc_scale",
-                "v_vmsave_vmload",
-                "vgif",
-                "vmcb_clean",
-            } | {"brs", "rapl", "v_spec_ctrl"}
-
             if global_props.host_linux_version_tpl < (6, 1):
-                assert host_feats - guest_feats == host_guest_diff_5_10
+                assert host_feats - guest_feats == AMD_MILAN_HOST_ONLY_FEATS
             else:
-                assert host_feats - guest_feats == host_guest_diff_6_1
+                assert host_feats - guest_feats == AMD_MILAN_HOST_ONLY_FEATS_6_1
 
-            assert guest_feats - host_feats == {
-                "hypervisor",
-                "tsc_adjust",
-                "tsc_deadline_timer",
-                "tsc_known_freq",
-            }
+            assert guest_feats - host_feats == AMD_GUEST_ONLY_FEATS
 
         case CpuModel.AMD_GENOA:
-            # Return here to allow the test to pass until CPU features to enable are confirmed
-            return
+            if global_props.host_linux_version_tpl < (6, 1):
+                assert host_feats - guest_feats == AMD_GENOA_HOST_ONLY_FEATS
+            else:
+                assert host_feats - guest_feats == AMD_GENOA_HOST_ONLY_FEATS_6_1
+
+            assert guest_feats - host_feats == AMD_GUEST_ONLY_FEATS
 
         case CpuModel.INTEL_SKYLAKE:
             assert host_feats - guest_feats == INTEL_HOST_ONLY_FEATS
-            assert guest_feats - host_feats == {
-                "hypervisor",
-                "tsc_known_freq",
-                "umip",
-            }
+            assert guest_feats - host_feats == INTEL_GUEST_ONLY_FEATS
 
         case CpuModel.INTEL_CASCADELAKE:
             expected_host_minus_guest = INTEL_HOST_ONLY_FEATS
-            expected_guest_minus_host = {
-                "hypervisor",
-                "tsc_known_freq",
-                "umip",
-            }
+            expected_guest_minus_host = INTEL_GUEST_ONLY_FEATS
 
             # Linux kernel v6.4+ passes through the CPUID bit for "flush_l1d" to guests.
             # https://github.com/torvalds/linux/commit/45cf86f26148e549c5ba4a8ab32a390e4bde216e
@@ -208,11 +229,7 @@ def test_host_vs_guest_cpu_features(uvm_nano):
                 assert host_feats - guest_feats == host_guest_diff_5_10
             else:
                 assert host_feats - guest_feats == host_guest_diff_6_1
-
-            assert guest_feats - host_feats == {
-                "hypervisor",
-                "tsc_known_freq",
-            }
+            assert guest_feats - host_feats == INTEL_GUEST_ONLY_FEATS - {"umip"}
 
         case CpuModel.ARM_NEOVERSE_N1:
             expected_guest_minus_host = set()
