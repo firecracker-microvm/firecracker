@@ -71,8 +71,8 @@ impl HugePageConfig {
         matches!(self, HugePageConfig::Hugetlbfs2M)
     }
 
-    /// Gets the page size in KiB of this [`HugePageConfig`].
-    pub fn page_size_kib(&self) -> usize {
+    /// Gets the page size in bytes of this [`HugePageConfig`].
+    pub fn page_size(&self) -> usize {
         match self {
             HugePageConfig::None => 4096,
             HugePageConfig::Hugetlbfs2M => 2 * 1024 * 1024,
