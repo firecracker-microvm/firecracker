@@ -484,9 +484,7 @@ def test_balloon_snapshot(microvm_factory, guest_kernel, rootfs):
     assert first_reading > second_reading
 
     snapshot = vm.snapshot_full()
-    microvm = microvm_factory.build()
-    microvm.spawn()
-    microvm.restore_from_snapshot(snapshot, resume=True)
+    microvm = microvm_factory.build_from_snapshot(snapshot)
 
     # Get the firecracker from snapshot pid, and open an ssh connection.
     firecracker_pid = microvm.firecracker_pid

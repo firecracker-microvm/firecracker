@@ -25,6 +25,7 @@ class CpuModel(str, Enum):
     """CPU models"""
 
     AMD_MILAN = "AMD_MILAN"
+    AMD_GENOA = "AMD_GENOA"
     ARM_NEOVERSE_N1 = "ARM_NEOVERSE_N1"
     ARM_NEOVERSE_V1 = "ARM_NEOVERSE_V1"
     INTEL_SKYLAKE = "INTEL_SKYLAKE"
@@ -39,9 +40,7 @@ CPU_DICT = {
         "Intel(R) Xeon(R) Platinum 8259CL CPU": "INTEL_CASCADELAKE",
         "Intel(R) Xeon(R) Platinum 8375C CPU": "INTEL_ICELAKE",
     },
-    CpuVendor.AMD: {
-        "AMD EPYC 7R13": "AMD_MILAN",
-    },
+    CpuVendor.AMD: {"AMD EPYC 7R13": "AMD_MILAN", "AMD EPYC 9R14": "AMD_GENOA"},
     CpuVendor.ARM: {"0xd0c": "ARM_NEOVERSE_N1", "0xd40": "ARM_NEOVERSE_V1"},
 }
 

@@ -75,6 +75,7 @@ class Snapshot:
     disks: dict
     ssh_key: Path
     snapshot_type: SnapshotType
+    meta: dict
 
     @property
     def is_diff(self) -> bool:
@@ -110,6 +111,7 @@ class Snapshot:
             disks=self.disks,
             ssh_key=self.ssh_key,
             snapshot_type=self.snapshot_type,
+            meta=self.meta,
         )
 
     @classmethod
@@ -125,6 +127,7 @@ class Snapshot:
             disks={dsk: src / p for dsk, p in obj["disks"].items()},
             ssh_key=src / obj["ssh_key"],
             snapshot_type=SnapshotType(obj["snapshot_type"]),
+            meta=obj["meta"],
         )
 
     def save_to(self, dst: Path):
@@ -241,6 +244,7 @@ class Microvm:
         self.disks_vhost_user = {}
         self.vcpus_count = None
         self.mem_size_bytes = None
+        self.cpu_template_name = None
 
         self._pre_cmd = []
         if numa_node:
@@ -732,11 +736,13 @@ class Microvm:
             smt=smt,
             mem_size_mib=mem_size_mib,
             track_dirty_pages=track_dirty_pages,
-            cpu_template=cpu_template,
             huge_pages=huge_pages,
         )
         self.vcpus_count = vcpu_count
         self.mem_size_bytes = mem_size_mib * 2**20
+
+        if cpu_template is not None:
+            self.set_cpu_template(cpu_template)
 
         if self.memory_monitor:
             self.memory_monitor.start()
@@ -769,6 +775,19 @@ class Microvm:
 
         if enable_entropy_device:
             self.enable_entropy_device()
+
+    def set_cpu_template(self, cpu_template):
+        """Set guest CPU template."""
+        if cpu_template is None:
+            return
+        # static CPU template
+        if isinstance(cpu_template, str):
+            self.api.machine_config.patch(cpu_template=cpu_template)
+            self.cpu_template_name = cpu_template.lower()
+        # custom CPU template
+        elif isinstance(cpu_template, dict):
+            self.api.cpu_config.put(**cpu_template["template"])
+            self.cpu_template_name = cpu_template["name"].lower()
 
     def add_drive(
         self,
@@ -917,6 +936,9 @@ class Microvm:
             net_ifaces=[x["iface"] for ifname, x in self.iface.items()],
             ssh_key=self.ssh_key,
             snapshot_type=snapshot_type,
+            meta={
+                "kernel_file": self.kernel_file,
+            },
         )
 
     def snapshot_diff(self, *, mem_path: str = "mem", vmstate_path="vmstate"):
@@ -953,6 +975,9 @@ class Microvm:
         mem_backend = {"backend_type": "File", "backend_path": str(jailed_mem)}
         if uffd_path is not None:
             mem_backend = {"backend_type": "Uffd", "backend_path": str(uffd_path)}
+
+        for key, value in snapshot.meta.items():
+            setattr(self, key, value)
 
         self.api.snapshot_load.put(
             mem_backend=mem_backend,
@@ -1057,6 +1082,13 @@ class MicroVMFactory:
                 shutil.copyfile(rootfs, rootfs_path)
             vm.rootfs_file = rootfs_path
             vm.ssh_key = ssh_key
+        return vm
+
+    def build_from_snapshot(self, snapshot: Snapshot):
+        """Build a microvm from a snapshot"""
+        vm = self.build()
+        vm.spawn()
+        vm.restore_from_snapshot(snapshot, resume=True)
         return vm
 
     def kill(self):

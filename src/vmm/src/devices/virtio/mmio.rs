@@ -138,7 +138,7 @@ impl MmioTransport {
             self.with_queue_mut(f);
         } else {
             warn!(
-                "update virtio queue in invalid state 0x{:x}",
+                "update virtio queue in invalid state {:#x}",
                 self.device_status
             );
         }
@@ -227,7 +227,7 @@ impl MmioTransport {
             }
             _ => {
                 warn!(
-                    "invalid virtio driver status transition: 0x{:x} -> 0x{:x}",
+                    "invalid virtio driver status transition: {:#x} -> {:#x}",
                     self.device_status, status
                 );
             }
@@ -282,7 +282,7 @@ impl MmioTransport {
                     0x70 => self.device_status,
                     0xfc => self.config_generation,
                     _ => {
-                        warn!("unknown virtio mmio register read: 0x{:x}", offset);
+                        warn!("unknown virtio mmio register read: {:#x}", offset);
                         return;
                     }
                 };
@@ -290,11 +290,7 @@ impl MmioTransport {
             }
             0x100..=0xfff => self.locked_device().read_config(offset - 0x100, data),
             _ => {
-                warn!(
-                    "invalid virtio mmio read: 0x{:x}:0x{:x}",
-                    offset,
-                    data.len()
-                );
+                warn!("invalid virtio mmio read: {:#x}:{:#x}", offset, data.len());
             }
         };
     }
@@ -324,7 +320,7 @@ impl MmioTransport {
                                 .ack_features_by_page(self.acked_features_select, v);
                         } else {
                             warn!(
-                                "ack virtio features in invalid state 0x{:x}",
+                                "ack virtio features in invalid state {:#x}",
                                 self.device_status
                             );
                         }
@@ -346,7 +342,7 @@ impl MmioTransport {
                     0xa0 => self.update_queue_field(|q| lo(&mut q.used_ring_address, v)),
                     0xa4 => self.update_queue_field(|q| hi(&mut q.used_ring_address, v)),
                     _ => {
-                        warn!("unknown virtio mmio register write: 0x{:x}", offset);
+                        warn!("unknown virtio mmio register write: {:#x}", offset);
                     }
                 }
             }
@@ -361,11 +357,7 @@ impl MmioTransport {
                 }
             }
             _ => {
-                warn!(
-                    "invalid virtio mmio write: 0x{:x}:0x{:x}",
-                    offset,
-                    data.len()
-                );
+                warn!("invalid virtio mmio write: {:#x}:{:#x}", offset, data.len());
             }
         }
     }

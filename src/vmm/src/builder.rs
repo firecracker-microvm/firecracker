@@ -259,7 +259,9 @@ pub fn build_microvm_for_boot(
     let request_ts = TimestampUs::default();
 
     let boot_config = vm_resources
-        .boot_source_builder()
+        .boot_source
+        .builder
+        .as_ref()
         .ok_or(MissingKernelConfig)?;
 
     let guest_memory = vm_resources
@@ -508,7 +510,7 @@ pub fn build_microvm_from_snapshot(
     vmm.vm.restore_state(&microvm_state.vm_state)?;
 
     // Restore the boot source config paths.
-    vm_resources.set_boot_source_config(microvm_state.vm_info.boot_source);
+    vm_resources.boot_source.config = microvm_state.vm_info.boot_source;
 
     // Restore devices states.
     let mmio_ctor_args = MMIODevManagerConstructorArgs {

@@ -127,10 +127,6 @@ PRIV_KEY_PATH=/root/.ssh/id_rsa
 # Path to the linux kernel directory, as bind-mounted in the container.
 CTR_KERNEL_DIR="${CTR_FC_ROOT_DIR}/.kernel"
 
-# Global options received by $0
-# These options are not command-specific, so we store them as global vars
-OPT_UNATTENDED=false
-
 # Get the target prefix to avoid repeated calls to uname -m
 TARGET_PREFIX="$(uname -m)-unknown-linux-"
 
@@ -195,7 +191,6 @@ ensure_devctr() {
     # download it, if we don't.
     [[ $(docker images -q "$DEVCTR_IMAGE" | wc -l) -gt 0 ]] || {
         say "About to pull docker image $DEVCTR_IMAGE"
-        get_user_confirmation || die "Aborted."
 
         # Run docker pull 5 times in case it fails - sleep 3 seconds
         # between attempts
@@ -418,6 +413,10 @@ cmd_help() {
     echo "        Builds the rootfs and guest kernel artifacts we use for our CI."
     echo "        Run './tools/devtool build_ci_artifacts help' for more details about the available commands."
     echo ""
+    echo "    download_ci_artifacts [--force]"
+    echo "        Downloads the CI artifacts used for testing from our S3 bucket. If --force is passed, purges any existing"
+    echo "        artifacts first. Useful for refreshing local artifacts after an update, or if something got messed up."
+    echo ""
 
     cat <<EOF
     test_debug [-- [<pytest args>]]
@@ -555,6 +554,14 @@ cmd_distclean() {
     fi
 }
 
+cmd_download_ci_artifacts() {
+    if [ "$1" = "--force" ]; then
+        rm -rf $FC_BUILD_DIR/img
+    fi
+
+    ensure_ci_artifacts
+}
+
 ensure_ci_artifacts() {
     if ! command -v aws >/dev/null; then
       die "AWS CLI not installed, which is required for downloading artifacts for integration tests."
@@ -562,7 +569,8 @@ ensure_ci_artifacts() {
 
     # Fetch all the artifacts so they are local
     say "Fetching CI artifacts from S3"
-    S3_URL=s3://spec.ccfc.min/firecracker-ci/v1.11/$(uname -m)
+    FC_VERSION=$(cmd_sh "cd src/firecracker/src; cargo pkgid | cut -d# -f2 | cut -d. -f1-2")
+    S3_URL=s3://spec.ccfc.min/firecracker-ci/v$FC_VERSION/$(uname -m)
     ARTIFACTS=$MICROVM_IMAGES_DIR/$(uname -m)
     if [ ! -d "$ARTIFACTS" ]; then
         mkdir -pv $ARTIFACTS
@@ -878,7 +886,6 @@ cmd_shell() {
 
 cmd_sh() {
     ensure_build_dir
-    ensure_ci_artifacts
     run_devctr \
         --privileged \
         --ulimit nofile=4096:4096 \
@@ -890,6 +897,7 @@ cmd_sh() {
 
 cmd_sandbox() {
     cmd_build --release
+    ensure_ci_artifacts
     cmd_sh "tmux new env PYTEST_ADDOPTS=--pdbcls=IPython.terminal.debugger:TerminalPdb PYTHONPATH=tests IPYTHONDIR=\$PWD/.ipython ipython -i ./tools/sandbox.py $@"
 }
 
@@ -915,6 +923,7 @@ cmd_sandbox_native() {
 }
 
 cmd_test_debug() {
+    ensure_ci_artifacts
     cmd_sh "tmux new ./tools/test.sh --pdb $@"
 }
 
@@ -1191,7 +1200,7 @@ cmd_install() {
     # Install the binaries
     for binary in "${binaries[@]}"; do
         say "Installing $binary in $install_path"
-        install -m 755 "$( build_bin_path "$target" "$profile" "$binary" )" "$install_path"
+        install -m 755 -D -t "$install_path" "$( build_bin_path "$target" "$profile" "$binary" )"
     done
 }
 
@@ -1221,7 +1230,8 @@ main() {
     while [ $# -gt 0 ]; do
         case "$1" in
             -h|--help)              { cmd_help; exit 1;     } ;;
-            -y|--unattended)        { OPT_UNATTENDED=true;  } ;;
+            -y|--unattended)        # purposefully ignored
+                ;;
             -*)
                 die "Unknown arg: $1. Please use \`$0 help\` for help."
             ;;

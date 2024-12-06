@@ -50,39 +50,25 @@ def _get_guest_drive_size(ssh_connection, guest_dev_name="/dev/vdb"):
     return lines[1].strip()
 
 
-def test_resume_after_restoration(uvm_nano, microvm_factory):
-    """Tests snapshot is resumable after restoration.
+@pytest.mark.parametrize("resume_at_restore", [True, False])
+def test_resume(uvm_nano, microvm_factory, resume_at_restore):
+    """Tests snapshot is resumable at or after restoration.
 
-    Check that a restored microVM is resumable by calling PATCH /vm with Resumed
-    after PUT /snapshot/load with `resume_vm=False`.
+    Check that a restored microVM is resumable by either
+    a. PUT /snapshot/load with `resume_vm=False`, then calling PATCH /vm resume=True
+    b. PUT /snapshot/load with `resume_vm=True`
     """
     vm = uvm_nano
     vm.add_net_iface()
     vm.start()
-
     snapshot = vm.snapshot_full()
-
     restored_vm = microvm_factory.build()
     restored_vm.spawn()
-    restored_vm.restore_from_snapshot(snapshot)
-    restored_vm.resume()
-
-
-def test_resume_at_restoration(uvm_nano, microvm_factory):
-    """Tests snapshot is resumable at restoration.
-
-    Check that a restored microVM is resumable by calling PUT /snapshot/load
-    with `resume_vm=True`.
-    """
-    vm = uvm_nano
-    vm.add_net_iface()
-    vm.start()
-
-    snapshot = vm.snapshot_full()
-
-    restored_vm = microvm_factory.build()
-    restored_vm.spawn()
-    restored_vm.restore_from_snapshot(snapshot, resume=True)
+    restored_vm.restore_from_snapshot(snapshot, resume=resume_at_restore)
+    if not resume_at_restore:
+        assert restored_vm.state == "Paused"
+        restored_vm.resume()
+    assert restored_vm.state == "Running"
 
 
 def test_snapshot_current_version(uvm_nano):
@@ -228,9 +214,7 @@ def test_patch_drive_snapshot(uvm_nano, microvm_factory):
 
     # Load snapshot in a new Firecracker microVM.
     logger.info("Load snapshot, mem %s", snapshot.mem)
-    vm = microvm_factory.build()
-    vm.spawn()
-    vm.restore_from_snapshot(snapshot, resume=True)
+    vm = microvm_factory.build_from_snapshot(snapshot)
 
     # Attempt to connect to resumed microvm and verify the new microVM has the
     # right scratch drive.
@@ -319,9 +303,7 @@ def test_negative_postload_api(uvm_plain, microvm_factory):
     basevm.kill()
 
     # Do not resume, just load, so we can still call APIs that work.
-    microvm = microvm_factory.build()
-    microvm.spawn()
-    microvm.restore_from_snapshot(snapshot, resume=True)
+    microvm = microvm_factory.build_from_snapshot(snapshot)
 
     fail_msg = "The requested operation is not supported after starting the microVM"
     with pytest.raises(RuntimeError, match=fail_msg):
@@ -486,9 +468,7 @@ def test_diff_snapshot_overlay(guest_kernel, rootfs, microvm_factory):
 
     assert not filecmp.cmp(merged_snapshot.mem, first_snapshot_backup, shallow=False)
 
-    new_vm = microvm_factory.build()
-    new_vm.spawn()
-    new_vm.restore_from_snapshot(merged_snapshot, resume=True)
+    _ = microvm_factory.build_from_snapshot(merged_snapshot)
 
     # Check that the restored VM works
 
@@ -510,9 +490,7 @@ def test_snapshot_overwrite_self(guest_kernel, rootfs, microvm_factory):
     snapshot = base_vm.snapshot_full()
     base_vm.kill()
 
-    vm = microvm_factory.build()
-    vm.spawn()
-    vm.restore_from_snapshot(snapshot, resume=True)
+    vm = microvm_factory.build_from_snapshot(snapshot)
 
     # When restoring a snapshot, vm.restore_from_snapshot first copies
     # the memory file (inside of the jailer) to /mem.src

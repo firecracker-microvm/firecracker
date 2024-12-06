@@ -5,21 +5,17 @@
 # script from the third party "Spectre & Meltdown Checker" project. This script is under the
 # GPL-3.0-only license.
 """Tests vulnerabilities mitigations."""
+
 import json
-import os
+from pathlib import Path
 
 import pytest
 import requests
 
 from framework import utils
-from framework.ab_test import (
-    is_pr,
-    precompiled_ab_test_guest_command,
-    precompiled_ab_test_guest_command_if_pr,
-    set_did_not_grow_comparator,
-)
+from framework.ab_test import git_clone
+from framework.microvm import MicroVMFactory
 from framework.properties import global_props
-from framework.utils import CommandReturn
 
 CHECKER_URL = "https://meltdown.ovh"
 CHECKER_FILENAME = "spectre-meltdown-checker.sh"
@@ -29,119 +25,71 @@ REMOTE_CHECKER_COMMAND = f"sh {REMOTE_CHECKER_PATH} --no-intel-db --batch json"
 VULN_DIR = "/sys/devices/system/cpu/vulnerabilities"
 
 
-def configure_microvm(
-    factory,
-    kernel,
-    rootfs,
-    *,
-    firecracker=None,
-    jailer=None,
-    cpu_template=None,
-    custom_cpu_template=None,
-):
-    """Build a microvm for vulnerability tests"""
-    assert not (cpu_template and custom_cpu_template)
-    # Either both or neither are specified
-    assert firecracker and jailer or not firecracker and not jailer
+class SpectreMeltdownChecker:
+    """Helper class to use Spectre & Meltdown Checker"""
 
-    if firecracker:
-        microvm = factory.build(
-            kernel, rootfs, fc_binary_path=firecracker, jailer_binary_path=jailer
-        )
-    else:
-        microvm = factory.build(kernel, rootfs)
+    def __init__(self, path):
+        self.path = path
 
-    microvm.spawn()
-    microvm.basic_config(vcpu_count=2, mem_size_mib=256, cpu_template=cpu_template)
-    if custom_cpu_template:
-        microvm.api.cpu_config.put(**custom_cpu_template["template"])
-    microvm.cpu_template = cpu_template
-    if cpu_template is None and custom_cpu_template is not None:
-        microvm.cpu_template = custom_cpu_template["name"]
-    microvm.add_net_iface()
-    microvm.start()
-    return microvm
+    def _parse_output(self, output):
+        return {
+            json.dumps(entry)  # dict is unhashable
+            for entry in json.loads(output)
+            if entry["VULNERABLE"]
+        }
 
+    def get_report_for_guest(self, vm) -> set:
+        """Parses the output of `spectre-meltdown-checker.sh --batch json`
+        and returns the set of issues for which it reported 'Vulnerable'.
 
-@pytest.fixture
-def build_microvm(
-    microvm_factory,
-    guest_kernel_linux_5_10,
-    rootfs,
-):
-    """Fixture returning a factory function for a normal microvm"""
-    return lambda firecracker=None, jailer=None: configure_microvm(
-        microvm_factory,
-        guest_kernel_linux_5_10,
-        rootfs,
-        firecracker=firecracker,
-        jailer=jailer,
-    )
+        Sample stdout:
+        ```
+        [
+          {
+            "NAME": "SPECTRE VARIANT 1",
+            "CVE": "CVE-2017-5753",
+            "VULNERABLE": false,
+            "INFOS": "Mitigation: usercopy/swapgs barriers and __user pointer sanitization"
+          },
+          { ... }
+        ]
+        ```
+        """
+        vm.ssh.scp_put(self.path, REMOTE_CHECKER_PATH)
+        res = vm.ssh.run(REMOTE_CHECKER_COMMAND)
+        return self._parse_output(res.stdout)
 
+    def get_report_for_host(self) -> set:
+        """Runs `spectre-meltdown-checker.sh` in the host and returns the set of
+        issues for which it reported 'Vulnerable'.
+        """
 
-@pytest.fixture
-def build_microvm_with_template(
-    microvm_factory, guest_kernel_linux_5_10, rootfs, cpu_template
-):
-    """Fixture returning a factory function for microvms with our built-in template"""
-    return lambda firecracker=None, jailer=None: configure_microvm(
-        microvm_factory,
-        guest_kernel_linux_5_10,
-        rootfs,
-        firecracker=firecracker,
-        jailer=jailer,
-        cpu_template=cpu_template,
-    )
+        res = utils.check_output(f"sh {self.path} --batch json")
+        return self._parse_output(res.stdout)
 
+    def expected_vulnerabilities(self, cpu_template_name):
+        """
+        There is a REPTAR exception reported on INTEL_ICELAKE when spectre-meltdown-checker.sh
+        script is run inside the guest from below the tests:
+            test_spectre_meltdown_checker_on_guest and
+            test_spectre_meltdown_checker_on_restored_guest
+        The same script when run on host doesn't report the
+        exception which means the instances are actually not vulnerable to REPTAR.
+        The only reason why the script cannot determine if the guest
+        is vulnerable or not because Firecracker does not expose the microcode
+        version to the guest.
 
-@pytest.fixture
-def build_microvm_with_custom_template(
-    microvm_factory, guest_kernel_linux_5_10, rootfs, custom_cpu_template
-):
-    """Fixture returning a factory function for microvms with custom cpu templates"""
-    return lambda firecracker=None, jailer=None: configure_microvm(
-        microvm_factory,
-        guest_kernel_linux_5_10,
-        rootfs,
-        firecracker=firecracker,
-        jailer=jailer,
-        custom_cpu_template=custom_cpu_template,
-    )
+        The check in spectre_meltdown_checker is here:
+            https://github.com/speed47/spectre-meltdown-checker/blob/0f2edb1a71733c1074550166c5e53abcfaa4d6ca/spectre-meltdown-checker.sh#L6635-L6637
 
-
-def with_restore(factory, microvm_factory):
-    """Turns the given microvm factory into one that makes the microvm go through a snapshot-restore cycle"""
-
-    def restore(firecracker=None, jailer=None):
-        microvm = factory(firecracker, jailer)
-
-        snapshot = microvm.snapshot_full()
-
-        if firecracker:
-            dst_vm = microvm_factory.build(
-                fc_binary_path=firecracker, jailer_binary_path=jailer
-            )
-        else:
-            dst_vm = microvm_factory.build()
-        dst_vm.spawn()
-        # Restore the destination VM from the snapshot
-        dst_vm.restore_from_snapshot(snapshot, resume=True)
-        dst_vm.cpu_template = microvm.cpu_template
-
-        return dst_vm
-
-    return restore
-
-
-def with_checker(factory, spectre_meltdown_checker):
-    """Turns the given microvm factory function into one that also contains the spectre-meltdown checker script"""
-
-    def download_checker(firecracker, jailer):
-        microvm = factory(firecracker, jailer)
-        microvm.ssh.scp_put(spectre_meltdown_checker, REMOTE_CHECKER_PATH)
-        return microvm
-
-    return download_checker
+        Since we have a test on host and the exception in guest is not valid,
+        we add a check to ignore this exception.
+        """
+        if global_props.cpu_codename == "INTEL_ICELAKE" and cpu_template_name is None:
+            return {
+                '{"NAME": "REPTAR", "CVE": "CVE-2023-23583", "VULNERABLE": true, "INFOS": "Your microcode is too old to mitigate the vulnerability"}'
+            }
+        return set()
 
 
 @pytest.fixture(scope="session", name="spectre_meltdown_checker")
@@ -149,189 +97,32 @@ def download_spectre_meltdown_checker(tmp_path_factory):
     """Download spectre / meltdown checker script."""
     resp = requests.get(CHECKER_URL, timeout=5)
     resp.raise_for_status()
-
     path = tmp_path_factory.mktemp("tmp", True) / CHECKER_FILENAME
     path.write_bytes(resp.content)
-
-    return path
-
-
-def spectre_meltdown_reported_vulnerablities(
-    spectre_meltdown_checker_output: CommandReturn,
-) -> set:
-    """
-    Parses the output of `spectre-meltdown-checker.sh --batch json` and returns the set of issues
-    for which it reported 'Vulnerable'.
-
-    Sample stdout:
-    ```
-    [
-        {
-            "NAME": "SPECTRE VARIANT 1",
-            "CVE": "CVE-2017-5753",
-            "VULNERABLE": false,
-            "INFOS": "Mitigation: usercopy/swapgs barriers and __user pointer sanitization"
-        },
-        {
-            ...
-        }
-    ]
-    ```
-    """
-    return {
-        json.dumps(entry)  # dict is unhashable
-        for entry in json.loads(spectre_meltdown_checker_output.stdout)
-        if entry["VULNERABLE"]
-    }
-
-
-def check_vulnerabilities_on_guest(status):
-    """
-    There is a REPTAR exception reported on INTEL_ICELAKE when spectre-meltdown-checker.sh
-    script is run inside the guest from below the tests:
-        test_spectre_meltdown_checker_on_guest and
-        test_spectre_meltdown_checker_on_restored_guest
-    The same script when run on host doesn't report the
-    exception which means the instances are actually not vulnerable to REPTAR.
-    The only reason why the script cannot determine if the guest
-    is vulnerable or not because Firecracker does not expose the microcode
-    version to the guest.
-
-    The check in spectre_meltdown_checker is here:
-        https://github.com/speed47/spectre-meltdown-checker/blob/0f2edb1a71733c1074550166c5e53abcfaa4d6ca/spectre-meltdown-checker.sh#L6635-L6637
-
-    Since we have a test on host and the exception in guest is not valid,
-    we add a check to ignore this exception.
-    """
-    report_guest_vulnerabilities = spectre_meltdown_reported_vulnerablities(status)
-    known_guest_vulnerabilities = set()
-    if global_props.cpu_codename == "INTEL_ICELAKE":
-        known_guest_vulnerabilities = {
-            '{"NAME": "REPTAR", "CVE": "CVE-2023-23583", "VULNERABLE": true, "INFOS": "Your microcode is too old to mitigate the vulnerability"}'
-        }
-    assert report_guest_vulnerabilities == known_guest_vulnerabilities
+    return SpectreMeltdownChecker(path)
 
 
 # Nothing can be sensibly tested in a PR context here
 @pytest.mark.skipif(
-    is_pr(), reason="Test depends solely on factors external to GitHub repository"
+    global_props.buildkite_pr,
+    reason="Test depends solely on factors external to GitHub repository",
 )
 def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
-    """
-    Test with the spectre / meltdown checker on host.
-    """
-    rc, output, _ = utils.run_cmd(f"sh {spectre_meltdown_checker} --batch json")
-
-    if output and rc != 0:
-        report = spectre_meltdown_reported_vulnerablities(output)
-        expected = {}
-        assert report == expected, f"Unexpected vulnerabilities: {report} vs {expected}"
+    """Test with the spectre / meltdown checker on host."""
+    report = spectre_meltdown_checker.get_report_for_host()
+    assert report == set(), f"Unexpected vulnerabilities: {report}"
 
 
-def test_spectre_meltdown_checker_on_guest(spectre_meltdown_checker, build_microvm):
-    """
-    Test with the spectre / meltdown checker on guest.
-    """
-
-    status = precompiled_ab_test_guest_command_if_pr(
-        with_checker(build_microvm, spectre_meltdown_checker),
-        REMOTE_CHECKER_COMMAND,
-        comparator=set_did_not_grow_comparator(
-            spectre_meltdown_reported_vulnerablities
-        ),
-        check_in_nonpr=False,
-    )
-    if status and status.returncode != 0:
-        check_vulnerabilities_on_guest(status)
-
-
-def test_spectre_meltdown_checker_on_restored_guest(
-    spectre_meltdown_checker, build_microvm, microvm_factory
-):
-    """
-    Test with the spectre / meltdown checker on a restored guest.
-    """
-    status = precompiled_ab_test_guest_command_if_pr(
-        with_checker(
-            with_restore(build_microvm, microvm_factory), spectre_meltdown_checker
-        ),
-        REMOTE_CHECKER_COMMAND,
-        comparator=set_did_not_grow_comparator(
-            spectre_meltdown_reported_vulnerablities
-        ),
-        check_in_nonpr=False,
-    )
-    if status and status.returncode != 0:
-        check_vulnerabilities_on_guest(status)
-
-
-def test_spectre_meltdown_checker_on_guest_with_template(
-    spectre_meltdown_checker, build_microvm_with_template
-):
-    """
-    Test with the spectre / meltdown checker on guest with CPU template.
-    """
-
-    precompiled_ab_test_guest_command_if_pr(
-        with_checker(build_microvm_with_template, spectre_meltdown_checker),
-        REMOTE_CHECKER_COMMAND,
-        comparator=set_did_not_grow_comparator(
-            spectre_meltdown_reported_vulnerablities
-        ),
-    )
-
-
-def test_spectre_meltdown_checker_on_guest_with_custom_template(
-    spectre_meltdown_checker, build_microvm_with_custom_template
-):
-    """
-    Test with the spectre / meltdown checker on guest with a custom CPU template.
-    """
-    precompiled_ab_test_guest_command_if_pr(
-        with_checker(build_microvm_with_custom_template, spectre_meltdown_checker),
-        REMOTE_CHECKER_COMMAND,
-        comparator=set_did_not_grow_comparator(
-            spectre_meltdown_reported_vulnerablities
-        ),
-    )
-
-
-def test_spectre_meltdown_checker_on_restored_guest_with_template(
-    spectre_meltdown_checker, build_microvm_with_template, microvm_factory
-):
-    """
-    Test with the spectre / meltdown checker on a restored guest with a CPU template.
-    """
-    precompiled_ab_test_guest_command_if_pr(
-        with_checker(
-            with_restore(build_microvm_with_template, microvm_factory),
-            spectre_meltdown_checker,
-        ),
-        REMOTE_CHECKER_COMMAND,
-        comparator=set_did_not_grow_comparator(
-            spectre_meltdown_reported_vulnerablities
-        ),
-    )
-
-
-def test_spectre_meltdown_checker_on_restored_guest_with_custom_template(
-    spectre_meltdown_checker,
-    build_microvm_with_custom_template,
-    microvm_factory,
-):
-    """
-    Test with the spectre / meltdown checker on a restored guest with a custom CPU template.
-    """
-    precompiled_ab_test_guest_command_if_pr(
-        with_checker(
-            with_restore(build_microvm_with_custom_template, microvm_factory),
-            spectre_meltdown_checker,
-        ),
-        REMOTE_CHECKER_COMMAND,
-        comparator=set_did_not_grow_comparator(
-            spectre_meltdown_reported_vulnerablities
-        ),
-    )
+# Nothing can be sensibly tested here in a PR context
+@pytest.mark.skipif(
+    global_props.buildkite_pr,
+    reason="Test depends solely on factors external to GitHub repository",
+)
+def test_vulnerabilities_on_host():
+    """Test vulnerability files on host."""
+    res = utils.run_cmd(f"grep -r Vulnerable {VULN_DIR}")
+    # if grep finds no matching lines, it exits with status 1
+    assert res.returncode == 1, res.stdout
 
 
 def get_vuln_files_exception_dict(template):
@@ -372,23 +163,12 @@ def get_vuln_files_exception_dict(template):
     # Since those bits are not set on Intel Skylake and C3 template makes guests pretend to be AWS
     # C3 instance (quite old processor now) by overwriting CPUID.1H:EAX, it is impossible to avoid
     # this "Unknown" state.
-    if global_props.cpu_codename == "INTEL_SKYLAKE" and template == "C3":
+    if global_props.cpu_codename == "INTEL_SKYLAKE" and template == "c3":
         exception_dict["mmio_stale_data"] = "Unknown: No mitigations"
-    elif global_props.cpu_codename == "INTEL_SKYLAKE" or template == "T2S":
+    elif global_props.cpu_codename == "INTEL_SKYLAKE" or template == "t2s":
         exception_dict["mmio_stale_data"] = "Clear CPU buffers"
 
     return exception_dict
-
-
-# Nothing can be sensibly tested here in a PR context
-@pytest.mark.skipif(
-    is_pr(), reason="Test depends solely on factors external to GitHub repository"
-)
-def test_vulnerabilities_on_host():
-    """
-    Test vulnerabilities files on host.
-    """
-    utils.check_output(f"! grep -r Vulnerable {VULN_DIR}")
 
 
 def check_vulnerabilities_files_on_guest(microvm):
@@ -400,88 +180,75 @@ def check_vulnerabilities_files_on_guest(microvm):
     # Retrieve a list of vulnerabilities files available inside guests.
     vuln_dir = "/sys/devices/system/cpu/vulnerabilities"
     _, stdout, _ = microvm.ssh.check_output(f"find -D all {vuln_dir} -type f")
-    vuln_files = stdout.split("\n")
+    vuln_files = stdout.splitlines()
 
     # Fixtures in this file (test_vulnerabilities.py) add this special field.
-    template = microvm.cpu_template
+    template = microvm.cpu_template_name
 
     # Check that vulnerabilities files in the exception dictionary have the expected values and
     # the others do not contain "Vulnerable".
     exceptions = get_vuln_files_exception_dict(template)
+    results = []
     for vuln_file in vuln_files:
-        filename = os.path.basename(vuln_file)
+        filename = Path(vuln_file).name
         if filename in exceptions:
-            _, stdout, _ = microvm.ssh.run(f"cat {vuln_file}")
+            _, stdout, _ = microvm.ssh.check_output(f"cat {vuln_file}")
             assert exceptions[filename] in stdout
         else:
             cmd = f"grep Vulnerable {vuln_file}"
-            ecode, stdout, stderr = microvm.ssh.run(cmd)
-            assert ecode == 1, f"{vuln_file}: stdout:\n{stdout}\nstderr:\n{stderr}\n"
+            _ecode, stdout, _stderr = microvm.ssh.run(cmd)
+            results.append({"file": vuln_file, "stdout": stdout})
+    return results
 
 
-def check_vulnerabilities_files_ab(builder):
-    """Does an A/B test on the contents of the /sys/devices/system/cpu/vulnerabilities files in the guest if
-    running in a PR pipeline, and otherwise calls `check_vulnerabilities_files_on_guest`
+@pytest.fixture
+def microvm_factory_a(record_property):
+    """MicroVMFactory using revision A binaries"""
+    revision_a = global_props.buildkite_revision_a
+    bin_dir = git_clone(Path("../build") / revision_a, revision_a).resolve()
+    fc_bin = bin_dir / "firecracker"
+    jailer_bin = bin_dir / "jailer"
+    record_property("firecracker_bin", str(fc_bin))
+    uvm_factory = MicroVMFactory(fc_bin, jailer_bin)
+    yield uvm_factory
+    uvm_factory.kill()
+
+
+@pytest.fixture
+def uvm_any_a(microvm_factory_a, uvm_ctor, guest_kernel, rootfs, cpu_template_any):
+    """Return uvm with revision A firecracker
+
+    Since pytest caches fixtures, this guarantees uvm_any_a will match a vm from uvm_any.
+    See https://docs.pytest.org/en/stable/how-to/fixtures.html#fixtures-can-be-requested-more-than-once-per-test-return-values-are-cached
     """
-    if is_pr():
-        precompiled_ab_test_guest_command(
-            builder,
-            f"! grep -r Vulnerable {VULN_DIR}",
-            comparator=set_did_not_grow_comparator(
-                lambda output: set(output.stdout.splitlines())
-            ),
-        )
+    return uvm_ctor(microvm_factory_a, guest_kernel, rootfs, cpu_template_any)
+
+
+def test_check_vulnerability_files_ab(request, uvm_any):
+    """Test vulnerability files on guests"""
+    res_b = check_vulnerabilities_files_on_guest(uvm_any)
+    if global_props.buildkite_pr:
+        # we only get the uvm_any_a fixtures if we need it
+        uvm_a = request.getfixturevalue("uvm_any_a")
+        res_a = check_vulnerabilities_files_on_guest(uvm_a)
+        assert res_b <= res_a
     else:
-        check_vulnerabilities_files_on_guest(builder())
+        assert not [x for x in res_b if "Vulnerable" in x["stdout"]]
 
 
-def test_vulnerabilities_files_on_guest(build_microvm):
-    """
-    Test vulnerabilities files on guest.
-    """
-    check_vulnerabilities_files_ab(build_microvm)
-
-
-def test_vulnerabilities_files_on_restored_guest(build_microvm, microvm_factory):
-    """
-    Test vulnerabilities files on a restored guest.
-    """
-    check_vulnerabilities_files_ab(with_restore(build_microvm, microvm_factory))
-
-
-def test_vulnerabilities_files_on_guest_with_template(build_microvm_with_template):
-    """
-    Test vulnerabilities files on guest with CPU template.
-    """
-    check_vulnerabilities_files_ab(build_microvm_with_template)
-
-
-def test_vulnerabilities_files_on_guest_with_custom_template(
-    build_microvm_with_custom_template,
+def test_spectre_meltdown_checker_on_guest(
+    request,
+    uvm_any,
+    spectre_meltdown_checker,
 ):
-    """
-    Test vulnerabilities files on guest with a custom CPU template.
-    """
-    check_vulnerabilities_files_ab(build_microvm_with_custom_template)
-
-
-def test_vulnerabilities_files_on_restored_guest_with_template(
-    build_microvm_with_template, microvm_factory
-):
-    """
-    Test vulnerabilities files on a restored guest with a CPU template.
-    """
-    check_vulnerabilities_files_ab(
-        with_restore(build_microvm_with_template, microvm_factory)
-    )
-
-
-def test_vulnerabilities_files_on_restored_guest_with_custom_template(
-    build_microvm_with_custom_template, microvm_factory
-):
-    """
-    Test vulnerabilities files on a restored guest with a custom CPU template.
-    """
-    check_vulnerabilities_files_ab(
-        with_restore(build_microvm_with_custom_template, microvm_factory)
-    )
+    """Test with the spectre / meltdown checker on any supported guest."""
+    res_b = spectre_meltdown_checker.get_report_for_guest(uvm_any)
+    if global_props.buildkite_pr:
+        # we only get the uvm_any_a fixtures if we need it
+        uvm_a = request.getfixturevalue("uvm_any_a")
+        res_a = spectre_meltdown_checker.get_report_for_guest(uvm_a)
+        assert res_b <= res_a
+    else:
+        assert res_b == spectre_meltdown_checker.expected_vulnerabilities(
+            uvm_any.cpu_template_name
+        )
