@@ -150,6 +150,7 @@ class Snapshot:
             "disks": new_disks,
             "ssh_key": self.ssh_key.name,
             "snapshot_type": self.snapshot_type.value,
+            "meta": self.meta,
         }
         snap_json = dst / "snapshot.json"
         snap_json.write_text(json.dumps(obj))
@@ -937,7 +938,7 @@ class Microvm:
             ssh_key=self.ssh_key,
             snapshot_type=snapshot_type,
             meta={
-                "kernel_file": self.kernel_file,
+                "kernel_file": str(self.kernel_file),
             },
         )
 
@@ -978,6 +979,8 @@ class Microvm:
 
         for key, value in snapshot.meta.items():
             setattr(self, key, value)
+        # Adjust things just in case
+        self.kernel_file = Path(self.kernel_file)
 
         self.api.snapshot_load.put(
             mem_backend=mem_backend,
