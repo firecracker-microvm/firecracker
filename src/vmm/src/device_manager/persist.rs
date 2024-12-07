@@ -423,6 +423,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             for state in &state.legacy_devices {
                 if state.type_ == DeviceType::Serial {
                     let serial = setup_serial_device(std::io::stdin(), std::io::stdout())?;
+                    constructor_args
+                        .event_manager
+                        .add_subscriber(serial.clone());
 
                     constructor_args
                         .resource_allocator

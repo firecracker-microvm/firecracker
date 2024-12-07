@@ -274,8 +274,6 @@ pub mod aarch64 {
             vcpus.push(vcpu);
         }
 
-        setup_interrupt_controller(vm, vcpu_count)?;
-
         Ok(vcpus)
     }
 
@@ -315,6 +313,9 @@ pub mod aarch64 {
         )?;
 
         let vcpus = create_vcpus(&mut vmm.vm, vm_config.vcpu_count, &vmm.vcpus_exit_evt)
+            .map_err(StartMicrovmError::Internal)?;
+
+        setup_interrupt_controller(&mut vmm.vm, vm_config.vcpu_count)
             .map_err(StartMicrovmError::Internal)?;
 
         Ok((vmm, vcpus))
@@ -459,6 +460,11 @@ pub mod x86_64 {
             kvm_capabilities,
         )?;
 
+        setup_interrupt_controller(&mut vmm.vm).map_err(StartMicrovmError::Internal)?;
+        vmm.pio_device_manager
+            .register_devices(vmm.vm.fd())
+            .unwrap();
+
         let vcpus = create_vcpus(&mut vmm.vm, vm_config.vcpu_count, &vmm.vcpus_exit_evt)
             .map_err(StartMicrovmError::Internal)?;
 
@@ -477,10 +483,7 @@ fn build_vmm(
 
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
-    //
-    // allow unused_mut for the aarch64 platform.
-    #[allow(unused_mut)]
-    let mut vm = Vm::new(kvm_capabilities)
+    let vm = Vm::new(kvm_capabilities)
         .map_err(VmmError::Vm)
         .map_err(Internal)?;
     vm.memory_init(&guest_memory, vm_config.track_dirty_pages)
@@ -499,8 +502,6 @@ fn build_vmm(
     // Instantiate ACPI device manager.
     let acpi_device_manager = ACPIDeviceManager::new();
 
-    // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
-    // while on aarch64 we need to do it the other way around.
     #[cfg(target_arch = "x86_64")]
     let pio_device_manager = {
         // Serial device setup.
@@ -513,17 +514,9 @@ fn build_vmm(
             .map_err(VmmError::EventFd)
             .map_err(Internal)?;
 
-        x86_64::setup_interrupt_controller(&mut vm).map_err(Internal)?;
-
         // create pio dev manager with legacy devices
-        let pio_device_manager = {
-            // TODO Remove these unwraps.
-            let mut pio_dev_mgr = PortIODeviceManager::new(serial_device, reset_evt).unwrap();
-            pio_dev_mgr.register_devices(vm.fd()).unwrap();
-            pio_dev_mgr
-        };
-
-        pio_device_manager
+        // TODO: remove this unwrap
+        PortIODeviceManager::new(serial_device, reset_evt).unwrap()
     };
 
     Ok(Vmm {
