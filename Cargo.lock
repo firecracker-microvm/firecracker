@@ -607,7 +607,6 @@ dependencies = [
 name = "firecracker"
 version = "1.11.0-dev"
 dependencies = [
- "bincode",
  "cargo_toml",
  "displaydoc",
  "event-manager",
@@ -1211,14 +1210,12 @@ name = "seccompiler"
 version = "1.11.0-dev"
 dependencies = [
  "bincode",
+ "clap",
  "displaydoc",
  "libc",
- "log-instrument",
  "serde",
  "serde_json",
  "thiserror 2.0.3",
- "utils",
- "vmm-sys-util",
 ]
 
 [[package]]
@@ -1608,7 +1605,6 @@ dependencies = [
  "memfd",
  "micro_http",
  "proptest",
- "seccompiler",
  "semver",
  "serde",
  "serde_json",

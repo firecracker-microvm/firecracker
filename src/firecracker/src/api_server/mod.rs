@@ -14,13 +14,13 @@ use std::sync::mpsc;
 
 pub use micro_http::{Body, HttpServer, Request, Response, ServerError, StatusCode, Version};
 use parsed_request::{ParsedRequest, RequestAction};
-use seccompiler::BpfProgramRef;
 use serde_json::json;
 use utils::time::{get_time_us, ClockType};
 use vmm::logger::{
     debug, error, info, update_metric_with_elapsed_time, warn, ProcessTimeReporter, METRICS,
 };
 use vmm::rpc_interface::{ApiRequest, ApiResponse, VmmAction};
+use vmm::seccomp::BpfProgramRef;
 use vmm::vmm_config::snapshot::SnapshotType;
 use vmm_sys_util::eventfd::EventFd;
 
@@ -78,7 +78,7 @@ impl ApiServer {
         // Load seccomp filters on the API thread.
         // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
         // altogether is the desired behaviour.
-        if let Err(err) = seccompiler::apply_filter(seccomp_filter) {
+        if let Err(err) = vmm::seccomp::apply_filter(seccomp_filter) {
             panic!(
                 "Failed to set the requested seccomp filters on the API thread: {}",
                 err
@@ -208,7 +208,7 @@ mod tests {
     use vmm::builder::StartMicrovmError;
     use vmm::logger::StoreMetric;
     use vmm::rpc_interface::{VmmActionError, VmmData};
-    use vmm::seccomp_filters::get_empty_filters;
+    use vmm::seccomp::get_empty_filters;
     use vmm::vmm_config::instance_info::InstanceInfo;
     use vmm::vmm_config::snapshot::CreateSnapshotParams;
     use vmm_sys_util::tempfile::TempFile;
