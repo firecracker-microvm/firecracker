@@ -3,14 +3,15 @@
 
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{Read, Seek};
-use std::os::fd::FromRawFd;
-use std::os::unix::fs::MetadataExt;
+use std::io::Read;
 
 use bincode::Error as BincodeError;
-use libseccomp::*;
+
+mod bindings;
+use bindings::*;
 
 pub mod types;
+use libc::c_void;
 pub use types::*;
 
 /// Binary filter compilation errors.
@@ -24,22 +25,16 @@ pub enum CompilationError {
     JsonDeserialize(serde_json::Error),
     /// Cannot parse arch: {0}
     ArchParse(String),
-    /// Cannot create libseccomp context: {0}
-    LibSeccompContext(libseccomp::error::SeccompError),
-    /// Cannot add libseccomp arch: {0}
-    LibSeccompArch(libseccomp::error::SeccompError),
-    /// Cannot add libseccomp syscall: {0}
-    LibSeccompSycall(libseccomp::error::SeccompError),
-    /// Cannot add libseccomp syscall rule: {0}
-    LibSeccompRule(libseccomp::error::SeccompError),
-    /// Cannot create memfd: {0}
-    MemfdCreate(i32),
-    /// Cannot resize memfd: {0}
-    MemfdResize(std::io::Error),
-    /// Cannot export libseccomp bpf: {0}
-    LibSeccompExport(libseccomp::error::SeccompError),
-    /// Cannot read from memfd: {0}
-    MemfdRead(std::io::Error),
+    /// Cannot create libseccomp context
+    LibSeccompContext,
+    /// Cannot add libseccomp arch
+    LibSeccompArch,
+    /// Cannot add libseccomp syscall
+    LibSeccompSycall,
+    /// Cannot add libseccomp syscall rule
+    LibSeccompRule,
+    /// Cannot export libseccomp bpf
+    LibSeccompExport,
     /// Cannot create output file: {0}
     OutputCreate(std::io::Error),
     /// Cannot serialize bfp: {0}
@@ -62,39 +57,47 @@ pub fn compile_bpf(
 
     let arch: TargetArch = arch.try_into().map_err(CompilationError::ArchParse)?;
 
-    // SAFETY: Safe because the parameters are valid.
-    let memfd_fd = unsafe { libc::memfd_create("bpf\0".as_ptr().cast(), 0) };
-    if memfd_fd < 0 {
-        return Err(CompilationError::MemfdCreate(
-            // SAFETY: Safe because there are no parameters.
-            unsafe { *libc::__errno_location() },
-        ));
-    }
-
-    // SAFETY: Safe because the parameters are valid.
-    let mut memfd = unsafe { File::from_raw_fd(memfd_fd) };
-
     let mut bpf_map: HashMap<String, Vec<BpfInstruction>> = HashMap::new();
     for (name, filter) in bpf_map_json.0.iter() {
         let default_action = filter.default_action.to_scmp_type();
         let filter_action = filter.filter_action.to_scmp_type();
 
-        let mut bpf_filter = ScmpFilterContext::new_filter(default_action)
-            .map_err(CompilationError::LibSeccompContext)?;
-        bpf_filter
-            .add_arch(arch.to_scmp_type())
-            .map_err(CompilationError::LibSeccompArch)?;
+        // SAFETY: Safe as all args are correect.
+        let bpf_filter = unsafe {
+            let r = seccomp_init(default_action);
+            if r.is_null() {
+                return Err(CompilationError::LibSeccompContext);
+            }
+            r
+        };
+
+        // SAFETY: Safe as all args are correect.
+        unsafe {
+            let r = seccomp_arch_add(bpf_filter, arch.to_scmp_type());
+            if r != 0 && r != MINUS_EEXIST {
+                return Err(CompilationError::LibSeccompArch);
+            }
+        }
 
         for rule in filter.filter.iter() {
-            let syscall = ScmpSyscall::from_name(&rule.syscall)
-                .map_err(CompilationError::LibSeccompSycall)?;
+            // SAFETY: Safe as all args are correect.
+            let syscall = unsafe {
+                let r = seccomp_syscall_resolve_name(rule.syscall.as_ptr());
+                if r == __NR_SCMP_ERROR {
+                    return Err(CompilationError::LibSeccompSycall);
+                }
+                r
+            };
 
             // TODO remove when we drop deprecated "basic" arg from cli.
             // "basic" bpf means it ignores condition checks.
             if basic {
-                bpf_filter
-                    .add_rule(filter_action, syscall)
-                    .map_err(CompilationError::LibSeccompRule)?;
+                // SAFETY: Safe as all args are correect.
+                unsafe {
+                    if seccomp_rule_add(bpf_filter, filter_action, syscall, 0) != 0 {
+                        return Err(CompilationError::LibSeccompRule);
+                    }
+                }
             } else if let Some(rules) = &rule.args {
                 let comparators = rules
                     .iter()
@@ -107,45 +110,110 @@ pub fn compile_bpf(
                         // For `ioctls` we need to mask upper bits as musl
                         // sets them to 1, but libseccomp expilictly checks that they are 0.
                         // with 0x00000000FFFFFFFF mask upper bits are always 0.
-                        let op = if syscall == IOCTL {
-                            let original_rule = rule.op.to_scmp_type();
-                            if original_rule == ScmpCompareOp::Equal {
-                                ScmpCompareOp::MaskedEqual(0x00000000FFFFFFFF)
-                            } else {
-                                original_rule
+                        match rule.op {
+                            SeccompCmpOp::Eq => {
+                                if syscall == IOCTL {
+                                    scmp_arg_cmp {
+                                        arg: rule.index as u32,
+                                        op: scmp_compare::SCMP_CMP_MASKED_EQ,
+                                        datum_a: 0x00000000FFFFFFFF,
+                                        datum_b: rule.val,
+                                    }
+                                } else {
+                                    scmp_arg_cmp {
+                                        arg: rule.index as u32,
+                                        op: scmp_compare::SCMP_CMP_EQ,
+                                        datum_a: rule.val,
+                                        datum_b: 0,
+                                    }
+                                }
                             }
-                        } else {
-                            rule.op.to_scmp_type()
-                        };
-                        ScmpArgCompare::new(rule.index as u32, op, rule.val)
+                            SeccompCmpOp::Ge => scmp_arg_cmp {
+                                arg: rule.index as u32,
+                                op: scmp_compare::SCMP_CMP_GE,
+                                datum_a: rule.val,
+                                datum_b: 0,
+                            },
+                            SeccompCmpOp::Gt => scmp_arg_cmp {
+                                arg: rule.index as u32,
+                                op: scmp_compare::SCMP_CMP_GT,
+                                datum_a: rule.val,
+                                datum_b: 0,
+                            },
+                            SeccompCmpOp::Le => scmp_arg_cmp {
+                                arg: rule.index as u32,
+                                op: scmp_compare::SCMP_CMP_LE,
+                                datum_a: rule.val,
+                                datum_b: 0,
+                            },
+                            SeccompCmpOp::Lt => scmp_arg_cmp {
+                                arg: rule.index as u32,
+                                op: scmp_compare::SCMP_CMP_LT,
+                                datum_a: rule.val,
+                                datum_b: 0,
+                            },
+                            SeccompCmpOp::Ne => scmp_arg_cmp {
+                                arg: rule.index as u32,
+                                op: scmp_compare::SCMP_CMP_NE,
+                                datum_a: rule.val,
+                                datum_b: 0,
+                            },
+
+                            SeccompCmpOp::MaskedEq(m) => scmp_arg_cmp {
+                                arg: rule.index as u32,
+                                op: scmp_compare::SCMP_CMP_MASKED_EQ,
+                                datum_a: m,
+                                datum_b: rule.val,
+                            },
+                        }
                     })
-                    .collect::<Vec<ScmpArgCompare>>();
-                bpf_filter
-                    .add_rule_conditional(filter_action, syscall, &comparators)
-                    .map_err(CompilationError::LibSeccompRule)?;
+                    .collect::<Vec<scmp_arg_cmp>>();
+
+                // SAFETY: Safe as all args are correect.
+                // We can assume noone will define u32::MAX
+                // filters for a syscall.
+                #[allow(clippy::cast_possible_truncation)]
+                unsafe {
+                    if seccomp_rule_add_array(
+                        bpf_filter,
+                        filter_action,
+                        syscall,
+                        comparators.len() as u32,
+                        comparators.as_ptr(),
+                    ) != 0
+                    {
+                        return Err(CompilationError::LibSeccompRule);
+                    }
+                }
             } else {
-                bpf_filter
-                    .add_rule(filter_action, syscall)
-                    .map_err(CompilationError::LibSeccompRule)?;
+                // SAFETY: Safe as all args are correect.
+                unsafe {
+                    if seccomp_rule_add(bpf_filter, filter_action, syscall, 0) != 0 {
+                        return Err(CompilationError::LibSeccompRule);
+                    }
+                }
             }
         }
 
-        memfd.rewind().unwrap();
-        bpf_filter
-            .export_bpf(&mut memfd)
-            .map_err(CompilationError::LibSeccompExport)?;
-        memfd.rewind().unwrap();
-
-        // Usize == u64
-        #[allow(clippy::cast_possible_truncation)]
-        let size = memfd.metadata().unwrap().size() as usize;
-        let instructions = size / std::mem::size_of::<BpfInstruction>();
-        let mut bpf = vec![0_u64; instructions];
-
+        // First we need to get a number of bytes we need to store the bpf.
+        let mut len: usize = 0;
+        // SAFETY: Safe as all args are correect.
+        unsafe {
+            if seccomp_export_bpf_mem(bpf_filter, std::ptr::null_mut::<c_void>(), &mut len) != 0 {
+                return Err(CompilationError::LibSeccompExport);
+            }
+        }
+        // Bpf consists of instructions each 8 bytes long and 4 bytes aligned.
+        // We will use Vec<u64> to store bpf program to safisfy all the needs.
+        let len_u64 = len / std::mem::size_of::<u64>();
+        let mut bpf = vec![0_u64; len_u64];
         // SAFETY: Safe as u64 has bigger alignment and size is correct.
-        let bpf_u8: &mut [u8] =
-            unsafe { std::slice::from_raw_parts_mut(bpf.as_mut_ptr().cast(), size) };
-        memfd.read_exact(bpf_u8).unwrap();
+        unsafe {
+            if seccomp_export_bpf_mem(bpf_filter, bpf.as_mut_ptr().cast(), &mut len) != 0 {
+                return Err(CompilationError::LibSeccompExport);
+            }
+        }
+
         bpf_map.insert(name.clone(), bpf);
     }
 
