@@ -34,7 +34,7 @@
 //!
 //! The system implements 1 type of metrics:
 //! * Shared Incremental Metrics (SharedIncMetrics) - dedicated for the metrics which need a counter
-//! (i.e the number of times an API request failed). These metrics are reset upon flush.
+//!   (i.e the number of times an API request failed). These metrics are reset upon flush.
 
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};

@@ -10,9 +10,8 @@ use super::Body;
 pub(crate) fn parse_put_logger(body: &Body) -> Result<ParsedRequest, RequestError> {
     METRICS.put_api_requests.logger_count.inc();
     let res = serde_json::from_slice::<vmm::logger::LoggerConfig>(body.raw());
-    let config = res.map_err(|err| {
+    let config = res.inspect_err(|_| {
         METRICS.put_api_requests.logger_fails.inc();
-        err
     })?;
     Ok(ParsedRequest::new_sync(VmmAction::ConfigureLogger(config)))
 }

@@ -48,7 +48,7 @@ struct AcpiTableWriter<'a> {
     resource_allocator: &'a mut ResourceAllocator,
 }
 
-impl<'a> AcpiTableWriter<'a> {
+impl AcpiTableWriter<'_> {
     /// Write a table in guest memory
     ///
     /// This will allocate enough space inside guest memory and write the table in the allocated
@@ -181,7 +181,7 @@ pub(crate) fn create_acpi_tables(
 }
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
     use acpi_tables::Sdt;
     use vm_memory::Bytes;
 

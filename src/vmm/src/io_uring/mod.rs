@@ -97,8 +97,8 @@ impl<T: Debug> IoUring<T> {
     ///
     /// # Arguments
     ///
-    /// * `num_entries` - Requested number of entries in the ring. Will be rounded up to the
-    /// nearest power of two.
+    /// * `num_entries` - Requested number of entries in the ring. Will be rounded up to the nearest
+    ///   power of two.
     /// * `files` - Files to be registered for IO.
     /// * `restrictions` - Vector of [`Restriction`](restriction/enum.Restriction.html)s
     /// * `eventfd` - Optional eventfd for receiving completion notifications.
@@ -175,10 +175,9 @@ impl<T: Debug> IoUring<T> {
                 }
                 self.squeue
                     .push(op.into_sqe(&mut self.slab))
-                    .map(|res| {
+                    .inspect(|_| {
                         // This is safe since self.num_ops < IORING_MAX_CQ_ENTRIES (65536)
                         self.num_ops += 1;
-                        res
                     })
                     .map_err(|(sqe_err, user_data_key)| -> (IoUringError, T) {
                         (
@@ -207,11 +206,10 @@ impl<T: Debug> IoUring<T> {
         self.cqueue
             .pop(&mut self.slab)
             .map(|maybe_cqe| {
-                maybe_cqe.map(|cqe| {
+                maybe_cqe.inspect(|_| {
                     // This is safe since the pop-ed CQEs have been previously pushed. However
                     // we use a saturating_sub for extra safety.
                     self.num_ops = self.num_ops.saturating_sub(1);
-                    cqe
                 })
             })
             .map_err(IoUringError::CQueue)

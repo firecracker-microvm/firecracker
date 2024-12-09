@@ -264,10 +264,11 @@ impl<const L: u16> IoVecBufferMut<L> {
             // We use get_slice instead of `get_host_address` here in order to have the whole
             // range of the descriptor chain checked, i.e. [addr, addr + len) is a valid memory
             // region in the GuestMemoryMmap.
-            let slice = mem.get_slice(desc.addr, desc.len as usize).map_err(|err| {
-                self.vecs.pop_back(nr_iovecs);
-                err
-            })?;
+            let slice = mem
+                .get_slice(desc.addr, desc.len as usize)
+                .inspect_err(|_| {
+                    self.vecs.pop_back(nr_iovecs);
+                })?;
             // We need to mark the area of guest memory that will be mutated through this
             // IoVecBufferMut as dirty ahead of time, as we loose access to all
             // vm-memory related information after converting down to iovecs.
@@ -288,9 +289,8 @@ impl<const L: u16> IoVecBufferMut<L> {
             length = length
                 .checked_add(desc.len)
                 .ok_or(IoVecError::OverflowedDescriptor)
-                .map_err(|err| {
+                .inspect_err(|_| {
                     self.vecs.pop_back(nr_iovecs);
-                    err
                 })?;
 
             next_descriptor = desc.next_descriptor();
