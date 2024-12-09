@@ -655,11 +655,11 @@ snapshots [are not supported](./versioning.md#cpu-model)
 The tables below reflect the snapshot compatibility observed on the AWS
 instances we support.
 
-**all** means all currently supported Intel/AMD/ARM metal instances (m6g, m7g,
+Working means all currently supported Intel/AMD/ARM metal instances (m6g, m7g,
 m5n, c5n, m6i, m6a). It does not mean cross-instance, i.e. a snapshot taken on
 m6i won't work on an m6g instance.
 
-| *CPU family* | *taken on host kernel* | *restored on host kernel* | *working?* |
+| *CPU family* | *Taken on host kernel* | *Restored on host kernel* | *Working?* |
 | ------------ | ---------------------- | ------------------------- | ---------- |
 | **x86_64**   | 5.10                   | 6.1                       | Y          |
 | **x86_64**   | 6.1                    | 5.10                      | N          |
