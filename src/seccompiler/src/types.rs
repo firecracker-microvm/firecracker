@@ -2,9 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::BTreeMap;
+use std::ffi::CString;
 
-use libseccomp::{ScmpAction, ScmpArch, ScmpCompareOp};
 use serde::*;
+
+// use libseccomp::{ScmpAction, ScmpArch, ScmpCompareOp};
+use crate::bindings::*;
 
 /// Comparison to perform when matching a condition.
 #[derive(Debug, Deserialize)]
@@ -17,20 +20,6 @@ pub enum SeccompCmpOp {
     Lt,
     MaskedEq(u64),
     Ne,
-}
-
-impl SeccompCmpOp {
-    pub fn to_scmp_type(&self) -> ScmpCompareOp {
-        match self {
-            SeccompCmpOp::Eq => ScmpCompareOp::Equal,
-            SeccompCmpOp::Ge => ScmpCompareOp::GreaterEqual,
-            SeccompCmpOp::Gt => ScmpCompareOp::Greater,
-            SeccompCmpOp::Le => ScmpCompareOp::LessOrEqual,
-            SeccompCmpOp::Lt => ScmpCompareOp::Less,
-            SeccompCmpOp::MaskedEq(me) => ScmpCompareOp::MaskedEqual(*me),
-            SeccompCmpOp::Ne => ScmpCompareOp::NotEqual,
-        }
-    }
 }
 
 /// Condition that syscall must match in order to satisfy a rule.
@@ -46,7 +35,7 @@ pub struct SeccompCondition {
 #[serde(rename_all = "snake_case")]
 pub enum SeccompAction {
     Allow,
-    Errno(i32),
+    Errno(u16),
     KillThread,
     KillProcess,
     Log,
@@ -55,15 +44,15 @@ pub enum SeccompAction {
 }
 
 impl SeccompAction {
-    pub fn to_scmp_type(&self) -> ScmpAction {
+    pub fn to_scmp_type(&self) -> u32 {
         match self {
-            SeccompAction::Allow => ScmpAction::Allow,
-            SeccompAction::Errno(e) => ScmpAction::Errno(*e),
-            SeccompAction::KillThread => ScmpAction::KillThread,
-            SeccompAction::KillProcess => ScmpAction::KillProcess,
-            SeccompAction::Log => ScmpAction::Log,
-            SeccompAction::Trace(t) => ScmpAction::Trace(*t),
-            SeccompAction::Trap => ScmpAction::Trap,
+            SeccompAction::Allow => SCMP_ACT_ALLOW,
+            SeccompAction::Errno(e) => SCMP_ACT_ERRNO(*e),
+            SeccompAction::KillThread => SCMP_ACT_KILL_THREAD,
+            SeccompAction::KillProcess => SCMP_ACT_KILL_PROCESS,
+            SeccompAction::Log => SCMP_ACT_LOG,
+            SeccompAction::Trace(t) => SCMP_ACT_TRACE(*t),
+            SeccompAction::Trap => SCMP_ACT_TRAP,
         }
     }
 }
@@ -75,7 +64,7 @@ impl SeccompAction {
 /// If no rule matches the default action is applied.
 #[derive(Debug, Deserialize)]
 pub struct SyscallRule {
-    pub syscall: String,
+    pub syscall: CString,
     pub args: Option<Vec<SeccompCondition>>,
 }
 
@@ -99,10 +88,10 @@ pub enum TargetArch {
 }
 
 impl TargetArch {
-    pub fn to_scmp_type(&self) -> ScmpArch {
+    pub fn to_scmp_type(&self) -> u32 {
         match self {
-            TargetArch::X86_64 => ScmpArch::X8664,
-            TargetArch::Aarch64 => ScmpArch::Aarch64,
+            TargetArch::X86_64 => SCMP_ARCH_X86_64,
+            TargetArch::Aarch64 => SCMP_ARCH_AARCH64,
         }
     }
 }
