@@ -815,7 +815,7 @@ impl Connection {
     /// * `mss_reserved` - How much (if anything) of the MSS value has been already used at the
     ///   lower layers (by IP options, for example). This will be zero most of the time.
     /// * `payload_src` - References a buffer which contains data to send, and also specifies the
-    ///   sequence number associated with the first byte from that that buffer.
+    ///   sequence number associated with the first byte from that buffer.
     /// * `now` - An opaque timestamp representing the current moment in time.
     ///
     /// [`MAX_WINDOW_SIZE`]: ../constant.MAX_WINDOW_SIZE.html
