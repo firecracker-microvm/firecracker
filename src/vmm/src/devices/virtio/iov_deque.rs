@@ -6,7 +6,7 @@ use std::os::fd::AsRawFd;
 use libc::{c_int, c_void, iovec, off_t, size_t};
 use memfd;
 
-use crate::arch::PAGE_SIZE;
+use crate::arch::host_page_size;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum IovDequeError {
@@ -77,10 +77,7 @@ pub enum IovDequeError {
 //    pub iov_len: ::size_t,
 // }
 // ```
-//
-// This value must be a multiple of 256 because this is the maximum number of `iovec` can fit into
-// 1 memory page: 256 * sizeof(iovec) == 4096 == PAGE_SIZE. IovDeque only operates with `PAGE_SIZE`
-// granularity.
+
 #[derive(Debug)]
 pub struct IovDeque<const L: u16> {
     pub iov: *mut libc::iovec,
@@ -92,18 +89,15 @@ pub struct IovDeque<const L: u16> {
 unsafe impl<const L: u16> Send for IovDeque<L> {}
 
 impl<const L: u16> IovDeque<L> {
-    const BYTES: usize = L as usize * std::mem::size_of::<iovec>();
-    const _ASSERT: () = assert!(Self::BYTES % PAGE_SIZE == 0);
-
     /// Create a [`memfd`] object that represents a single physical page
-    fn create_memfd() -> Result<memfd::Memfd, IovDequeError> {
+    fn create_memfd(pages_bytes: usize) -> Result<memfd::Memfd, IovDequeError> {
         // Create a sealable memfd.
         let opts = memfd::MemfdOptions::default().allow_sealing(true);
         let mfd = opts.create("iov_deque")?;
 
         // Resize to system page size.
         mfd.as_file()
-            .set_len(Self::BYTES.try_into().unwrap())
+            .set_len(pages_bytes.try_into().unwrap())
             .map_err(IovDequeError::MemfdResize)?;
 
         // Add seals to prevent further resizing.
@@ -136,13 +130,13 @@ impl<const L: u16> IovDeque<L> {
 
     /// Allocate memory for our ring buffer
     ///
-    /// This will allocate 2 * `Self::BYTES` bytes of virtual memory.
-    fn allocate_ring_buffer_memory() -> Result<*mut c_void, IovDequeError> {
+    /// This will allocate 2 * `pages_bytes` bytes of virtual memory.
+    fn allocate_ring_buffer_memory(pages_bytes: usize) -> Result<*mut c_void, IovDequeError> {
         // SAFETY: We are calling the system call with valid arguments
         unsafe {
             Self::mmap(
                 std::ptr::null_mut(),
-                Self::BYTES * 2,
+                pages_bytes * 2,
                 libc::PROT_NONE,
                 libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
                 -1,
@@ -151,18 +145,29 @@ impl<const L: u16> IovDeque<L> {
         }
     }
 
+    /// Calculate a number of bytes in full pages required for
+    /// the type to operate.
+    fn pages_bytes() -> usize {
+        let host_page_size = host_page_size();
+        let bytes = L as usize * std::mem::size_of::<iovec>();
+        let num_host_pages = bytes.div_ceil(host_page_size);
+        num_host_pages * host_page_size
+    }
+
     /// Create a new [`IovDeque`] that can hold memory described by a single VirtIO queue.
     pub fn new() -> Result<Self, IovDequeError> {
-        let memfd = Self::create_memfd()?;
+        let pages_bytes = Self::pages_bytes();
+
+        let memfd = Self::create_memfd(pages_bytes)?;
         let raw_memfd = memfd.as_file().as_raw_fd();
-        let buffer = Self::allocate_ring_buffer_memory()?;
+        let buffer = Self::allocate_ring_buffer_memory(pages_bytes)?;
 
         // Map the first page of virtual memory to the physical page described by the memfd object
         // SAFETY: We are calling the system call with valid arguments
         let _ = unsafe {
             Self::mmap(
                 buffer,
-                Self::BYTES,
+                pages_bytes,
                 libc::PROT_READ | libc::PROT_WRITE,
                 libc::MAP_SHARED | libc::MAP_FIXED,
                 raw_memfd,
@@ -173,17 +178,17 @@ impl<const L: u16> IovDeque<L> {
         // Map the second page of virtual memory to the physical page described by the memfd object
         //
         // SAFETY: This is safe because:
-        // * Both `buffer` and the result of `buffer.add(Self::BYTES)` are within bounds of the
+        // * Both `buffer` and the result of `buffer.add(pages_bytes)` are within bounds of the
         //   allocation we got from `Self::allocate_ring_buffer_memory`.
         // * The resulting pointer is the beginning of the second page of our allocation, so it
         //   doesn't wrap around the address space.
-        let next_page = unsafe { buffer.add(Self::BYTES) };
+        let next_page = unsafe { buffer.add(pages_bytes) };
 
         // SAFETY: We are calling the system call with valid arguments
         let _ = unsafe {
             Self::mmap(
                 next_page,
-                Self::BYTES,
+                pages_bytes,
                 libc::PROT_READ | libc::PROT_WRITE,
                 libc::MAP_SHARED | libc::MAP_FIXED,
                 raw_memfd,
@@ -311,9 +316,10 @@ impl<const L: u16> IovDeque<L> {
 
 impl<const L: u16> Drop for IovDeque<L> {
     fn drop(&mut self) {
+        let pages_bytes = Self::pages_bytes();
         // SAFETY: We are passing an address that we got from a previous allocation of `2 *
-        // Self::BYTES` bytes by calling mmap
-        let _ = unsafe { libc::munmap(self.iov.cast(), Self::BYTES * 2) };
+        // pages_bytes` by calling mmap
+        let _ = unsafe { libc::munmap(self.iov.cast(), 2 * pages_bytes) };
     }
 }
 
@@ -328,6 +334,18 @@ mod tests {
     #[test]
     fn test_new() {
         let deque = IovDeque::new().unwrap();
+        assert_eq!(deque.len(), 0);
+    }
+
+    #[test]
+    fn test_new_less_than_page() {
+        let deque = super::IovDeque::<128>::new().unwrap();
+        assert_eq!(deque.len(), 0);
+    }
+
+    #[test]
+    fn test_new_more_than_page() {
+        let deque = super::IovDeque::<512>::new().unwrap();
         assert_eq!(deque.len(), 0);
     }
 
