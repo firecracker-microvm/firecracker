@@ -120,5 +120,8 @@ mod tests {
             format!("{:?}", res.unwrap_err()),
             "DeviceAttribute(Error(9), false, 5)"
         );
+
+        // dropping gic_fd would double close the gic fd, so leak it
+        std::mem::forget(gic_fd);
     }
 }

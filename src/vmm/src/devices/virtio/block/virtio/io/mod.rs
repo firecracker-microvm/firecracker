@@ -187,7 +187,6 @@ impl<T: Debug> FileEngine<T> {
 pub mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::io::FromRawFd;
 
     use vmm_sys_util::tempfile::TempFile;
 
@@ -200,20 +199,6 @@ pub mod tests {
     const FILE_LEN: u32 = 1024;
     // 2 pages of memory should be enough to test read/write ops and also dirty tracking.
     const MEM_LEN: usize = 8192;
-
-    macro_rules! assert_err {
-        ($expression:expr, $($pattern:tt)+) => {
-            match $expression {
-                Err(UserDataError {
-                    user_data: _,
-                    error: $($pattern)+,
-                }) => (),
-                ref err => {
-                    panic!("expected `{}` but got `{:?}`", stringify!($($pattern)+), err);
-                }
-            }
-        };
-    }
 
     macro_rules! assert_sync_execution {
         ($expression:expr, $count:expr) => {
@@ -265,17 +250,7 @@ pub mod tests {
 
     #[test]
     fn test_sync() {
-        // Check invalid file
         let mem = create_mem();
-        let file = unsafe { File::from_raw_fd(-2) };
-        let mut engine = FileEngine::from_file(file, FileEngineType::Sync).unwrap();
-        let res = engine.read(0, &mem, GuestAddress(0), 0, ());
-        assert_err!(res, BlockIoError::Sync(sync_io::SyncIoError::Seek(_e)));
-        let res = engine.write(0, &mem, GuestAddress(0), 0, ());
-        assert_err!(res, BlockIoError::Sync(sync_io::SyncIoError::Seek(_e)));
-        let res = engine.flush(());
-        assert_err!(res, BlockIoError::Sync(sync_io::SyncIoError::SyncAll(_e)));
-
         // Create backing file.
         let file = TempFile::new().unwrap().into_file();
         let mut engine = FileEngine::from_file(file, FileEngineType::Sync).unwrap();
@@ -342,10 +317,6 @@ pub mod tests {
 
     #[test]
     fn test_async() {
-        // Check invalid file
-        let file = unsafe { File::from_raw_fd(-2) };
-        FileEngine::<()>::from_file(file, FileEngineType::Async).unwrap_err();
-
         // Create backing file.
         let file = TempFile::new().unwrap().into_file();
         let mut engine = FileEngine::<()>::from_file(file, FileEngineType::Async).unwrap();
