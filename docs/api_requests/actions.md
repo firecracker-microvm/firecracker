@@ -31,7 +31,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
     -d '{ "action_type": "FlushMetrics" }'
 ```
 
-## \[Intel and AMD only\] SendCtrlAltDel
+## [Intel and AMD only] SendCtrlAltDel
 
 This action will send the CTRL+ALT+DEL key sequence to the microVM. By
 convention, this sequence has been used to trigger a soft reboot and, as such,

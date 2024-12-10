@@ -37,7 +37,7 @@ workload at that particular point in time.
 
 ### Supported platforms
 
-> \[!WARNING\]
+> [!WARNING]
 >
 > The Firecracker snapshot feature is in
 > [developer preview](../RELEASE_POLICY.md) on all CPU micro-architectures

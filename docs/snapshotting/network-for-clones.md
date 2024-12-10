@@ -3,7 +3,7 @@
 This document presents a strategy to ensure continued network connectivity for
 multiple clones created from a single Firecracker microVM snapshot.
 
-> \[!CAUTION\]
+> [!CAUTION]
 >
 > This should be considered as just an example to get you started, and we don't
 > claim this is a performant or secure setup.
