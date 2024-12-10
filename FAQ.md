@@ -60,11 +60,10 @@ minimal required device model to the guest operating system while excluding
 non-essential functionality (only 6 emulated devices are available: virtio-net,
 virtio-balloon, virtio-block, virtio-vsock, serial console, and a minimal
 keyboard controller used only to stop the microVM). This, along with a
-streamlined kernel loading process enables a \< 125 ms startup time and a \< 5
-MiB memory footprint. The Firecracker process also provides a RESTful control
-API, handles resource rate limiting for microVMs, and provides a microVM
-metadata service to enable the sharing of configuration data between the host
-and guest.
+streamlined kernel loading process enables a < 125 ms startup time and a < 5 MiB
+memory footprint. The Firecracker process also provides a RESTful control API,
+handles resource rate limiting for microVMs, and provides a microVM metadata
+service to enable the sharing of configuration data between the host and guest.
 
 ### What operating systems are supported by Firecracker?
 
