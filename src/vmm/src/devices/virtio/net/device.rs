@@ -1808,6 +1808,9 @@ pub mod tests {
         assert_eq!(th.txq.used.idx.get(), 1);
         assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
         th.txq.check_used_elem(0, 0, 0);
+
+        // dropping th would double close the tap fd, so leak it
+        std::mem::forget(th);
     }
 
     #[test]
@@ -2041,6 +2044,9 @@ pub mod tests {
             1,
             th.simulate_event(NetEvent::Tap)
         );
+
+        // dropping th would double close the tap fd, so leak it
+        std::mem::forget(th);
     }
 
     #[test]
