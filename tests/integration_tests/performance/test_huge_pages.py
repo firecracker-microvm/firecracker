@@ -51,8 +51,8 @@ def check_hugetlbfs_in_use(pid: int, allocation_name: str):
     cmd = f"cat /proc/{pid}/smaps | grep {allocation_name} -A 23 | grep KernelPageSize"
     _, stdout, _ = utils.check_output(cmd)
 
-    kernel_page_size_kib = int(stdout.split()[1])
-    assert kernel_page_size_kib > 4
+    kernel_page_size = int(stdout.split()[1])
+    assert kernel_page_size > 4096
 
 
 def test_hugetlbfs_boot(uvm_plain):

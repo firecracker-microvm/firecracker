@@ -261,7 +261,7 @@ and this project adheres to
 
 - [#4449](https://github.com/firecracker-microvm/firecracker/pull/4449): Added
   information about page size to the payload Firecracker sends to the UFFD
-  handler. Each memory region object now contains a `page_size_kib` field. See
+  handler. Each memory region object now contains a `page_size` field. See
   also the [hugepages documentation](docs/hugepages.md).
 
 - [#4498](https://github.com/firecracker-microvm/firecracker/pull/4498): Only
