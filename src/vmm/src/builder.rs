@@ -1023,7 +1023,7 @@ pub(crate) fn set_stdout_nonblocking() {
 }
 
 #[cfg(test)]
-pub mod tests {
+pub(crate) mod tests {
     use std::io::Write;
 
     use linux_loader::cmdline::Cmdline;

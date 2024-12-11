@@ -43,10 +43,6 @@
                 "syscall": "close"
             },
             {
-                "syscall": "uname",
-                "comment": "Used for getting the kernel version, for validating io_uring support"
-            },
-            {
                 "syscall": "eventfd2",
                 "comment": "Used for creating io_uring completion event, on drive patch"
             },
@@ -977,56 +973,8 @@
                         "index": 1,
                         "type": "dword",
                         "op": "eq",
-                        "val": 1074048665,
-                        "comment": "KVM_SET_MP_STATE"
-                    }
-                ]
-            },
-            {
-                "syscall": "ioctl",
-                "args": [
-                    {
-                        "index": 1,
-                        "type": "dword",
-                        "op": "eq",
-                        "val": 2151722655,
-                        "comment": "KVM_GET_VCPU_EVENTS"
-                    }
-                ]
-            },
-            {
-                "syscall": "ioctl",
-                "args": [
-                    {
-                        "index": 1,
-                        "type": "dword",
-                        "op": "eq",
-                        "val": 1077980832,
-                        "comment": "KVM_SET_VCPU_EVENTS"
-                    }
-                ]
-            },
-            {
-                "syscall": "ioctl",
-                "args": [
-                    {
-                        "index": 1,
-                        "type": "dword",
-                        "op": "eq",
                         "val": 1074835115,
                         "comment": "KVM_GET_ONE_REG"
-                    }
-                ]
-            },
-            {
-                "syscall": "ioctl",
-                "args": [
-                    {
-                        "index": 1,
-                        "type": "dword",
-                        "op": "eq",
-                        "val": 1074835116,
-                        "comment": "KVM_SET_ONE_REG"
                     }
                 ]
             },

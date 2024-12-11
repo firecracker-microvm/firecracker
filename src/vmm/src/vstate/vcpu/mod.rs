@@ -759,7 +759,7 @@ pub enum VcpuEmulation {
 }
 
 #[cfg(test)]
-pub mod tests {
+pub(crate) mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
     #[cfg(target_arch = "x86_64")]

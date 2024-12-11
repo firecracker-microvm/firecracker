@@ -68,7 +68,7 @@
 DEVCTR_IMAGE_NO_TAG="public.ecr.aws/firecracker/fcuvm"
 
 # Development container tag
-DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v75}
+DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v76}
 
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
@@ -509,12 +509,16 @@ cmd_build() {
     # We don't need any special privileges for the build phase, so we run the
     # container as the current user/group.
     run_devctr \
-        --user "$(id -u):$(id -g)" \
+        --privileged \
         --workdir "$workdir" \
         ${extra_args} \
         -- \
         ./tools/release.sh --libc $libc --profile $profile
     ret=$?
+
+    # Running as root would have created some root-owned files under the build
+    # dir. Let's fix that.
+    cmd_fix_perms
 
     if [ ! -z "$revision" ]; then
       popd
