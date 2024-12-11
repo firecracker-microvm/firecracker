@@ -196,7 +196,6 @@ class UffdHandler:
             self.proc.kill()
 
 
-# pylint: disable=too-few-public-methods
 class CpuMap:
     """Cpu map from real cpu cores to containers visible cores.
 
