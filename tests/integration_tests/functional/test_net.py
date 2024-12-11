@@ -112,11 +112,8 @@ def test_tap_offload(uvm_any):
     )
 
     # Try to send a UDP message from host with UDP offload enabled
-    cmd = f"ip netns exec {vm.ssh_iface().netns} python3 ./host_tools/udp_offload.py {vm.ssh_iface().host} {port}"
-    ret = utils.run_cmd(cmd)
-
-    # Check that the transmission was successful
-    assert ret.returncode == 0, f"{ret.stdout=} {ret.stderr=}"
+    cmd = f"ip netns exec {vm.ssh.netns} python3 ./host_tools/udp_offload.py {vm.ssh.host} {port}"
+    utils.check_output(cmd)
 
     # Check that the server received the message
     ret = vm.ssh.run(f"cat {out_filename}")

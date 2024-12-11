@@ -4,6 +4,7 @@
 
 import platform
 import time
+from subprocess import TimeoutExpired
 
 import pytest
 
@@ -52,8 +53,8 @@ def test_pause_resume(uvm_nano):
     microvm.flush_metrics()
 
     # Verify guest is no longer active.
-    with pytest.raises(ChildProcessError):
-        microvm.ssh.check_output("true")
+    with pytest.raises(TimeoutExpired):
+        microvm.ssh.check_output("true", timeout=1)
 
     # Verify emulation was indeed paused and no events from either
     # guest or host side were handled.
