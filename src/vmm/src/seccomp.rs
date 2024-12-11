@@ -60,12 +60,12 @@ pub fn deserialize_binary<R: Read>(
 }
 
 /// Filter installation errors.
-#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum InstallationError {
     /// Filter length exceeds the maximum size of {BPF_MAX_LEN:} instructions
     FilterTooLarge,
     /// prctl` syscall failed with error code: {0}
-    Prctl(i32),
+    Prctl(std::io::Error),
 }
 
 /// The maximum seccomp-BPF program length allowed by the linux kernel.
@@ -101,7 +101,7 @@ pub fn apply_filter(bpf_filter: BpfProgramRef) -> Result<(), InstallationError> 
         {
             let rc = libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
             if rc != 0 {
-                return Err(InstallationError::Prctl(*libc::__errno_location()));
+                return Err(InstallationError::Prctl(std::io::Error::last_os_error()));
             }
         }
 
@@ -118,7 +118,7 @@ pub fn apply_filter(bpf_filter: BpfProgramRef) -> Result<(), InstallationError> 
                 bpf_prog_ptr,
             );
             if rc != 0 {
-                return Err(InstallationError::Prctl(*libc::__errno_location()));
+                return Err(InstallationError::Prctl(std::io::Error::last_os_error()));
             }
         }
     }
@@ -191,10 +191,10 @@ mod tests {
             let filter: BpfProgram = vec![0; 5000];
 
             // Apply seccomp filter.
-            assert_eq!(
+            assert!(matches!(
                 apply_filter(&filter).unwrap_err(),
                 InstallationError::FilterTooLarge
-            );
+            ));
         })
         .join()
         .unwrap();
@@ -224,10 +224,10 @@ mod tests {
             let seccomp_level = unsafe { libc::prctl(libc::PR_GET_SECCOMP) };
             assert_eq!(seccomp_level, 0);
 
-            assert_eq!(
+            assert!(matches!(
                 apply_filter(&filter).unwrap_err(),
-                InstallationError::Prctl(22)
-            );
+                InstallationError::Prctl(_)
+            ));
 
             // test that seccomp level remains 0 on failure.
             let seccomp_level = unsafe { libc::prctl(libc::PR_GET_SECCOMP) };
