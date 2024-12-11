@@ -109,9 +109,9 @@ class SSHConnection:
         We'll keep trying to execute a remote command that can't fail
         (`/bin/true`), until we get a successful (0) exit code.
         """
-        self.check_output("true", timeout=100, debug=True)
+        self.check_output("true", debug=True)
 
-    def run(self, cmd_string, timeout=None, *, check=False, debug=False):
+    def run(self, cmd_string, timeout=100, *, check=False, debug=False):
         """
         Execute the command passed as a string in the ssh context.
 
@@ -124,11 +124,11 @@ class SSHConnection:
 
         return self._exec(command, timeout, check=check)
 
-    def check_output(self, cmd_string, timeout=None, *, debug=False):
+    def check_output(self, cmd_string, timeout=100, *, debug=False):
         """Same as `run`, but raises an exception on non-zero return code of remote command"""
         return self.run(cmd_string, timeout, check=True, debug=debug)
 
-    def _exec(self, cmd, timeout=None, check=False):
+    def _exec(self, cmd, timeout=100, check=False):
         """Private function that handles the ssh client invocation."""
         if self.netns is not None:
             cmd = ["ip", "netns", "exec", self.netns] + cmd
