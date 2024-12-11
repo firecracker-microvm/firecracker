@@ -525,7 +525,7 @@ cmd_build() {
       git branch -D $branch_name
       mkdir -p build/"$revision"
       cp $tmp_dir/build/cargo_target/$(uname -m)-unknown-linux-$libc/$profile/* build/"$revision"
-      rm -rf $tmp_dir
+      cmd_sh "rm -rf $tmp_dir"
     fi
 
     return $ret
