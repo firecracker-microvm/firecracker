@@ -122,7 +122,7 @@ impl Tap {
         // string and verify the result.
         let fd = unsafe {
             libc::open(
-                b"/dev/net/tun\0".as_ptr().cast::<c_char>(),
+                c"/dev/net/tun".as_ptr(),
                 libc::O_RDWR | libc::O_NONBLOCK | libc::O_CLOEXEC,
             )
         };
@@ -277,19 +277,6 @@ pub mod tests {
         let tap = Tap::open_named("").unwrap();
         tap.set_vnet_hdr_size(16).unwrap();
         tap.set_offload(0).unwrap();
-
-        let faulty_tap = Tap {
-            tap_file: unsafe { File::from_raw_fd(-2) },
-            if_name: [0x01; 16],
-        };
-        assert_eq!(
-            faulty_tap.set_vnet_hdr_size(16).unwrap_err().to_string(),
-            TapError::SetSizeOfVnetHdr(IoError::from_raw_os_error(9)).to_string()
-        );
-        assert_eq!(
-            faulty_tap.set_offload(0).unwrap_err().to_string(),
-            TapError::SetOffloadFlags(IoError::from_raw_os_error(9)).to_string()
-        );
     }
 
     #[test]

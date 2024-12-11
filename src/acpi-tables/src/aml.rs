@@ -180,7 +180,7 @@ pub struct Package<'a> {
     children: Vec<&'a dyn Aml>,
 }
 
-impl<'a> Aml for Package<'a> {
+impl Aml for Package<'_> {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         let mut tmp = vec![self.children.len().try_into().unwrap()];
         for child in &self.children {
@@ -336,7 +336,7 @@ pub struct ResourceTemplate<'a> {
     children: Vec<&'a dyn Aml>,
 }
 
-impl<'a> Aml for ResourceTemplate<'a> {
+impl Aml for ResourceTemplate<'_> {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         let mut tmp = Vec::new();
         // Add buffer data
@@ -607,7 +607,7 @@ pub struct Device<'a> {
     children: Vec<&'a dyn Aml>,
 }
 
-impl<'a> Aml for Device<'a> {
+impl Aml for Device<'_> {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         let mut tmp = Vec::new();
         self.path.append_aml_bytes(&mut tmp)?;
@@ -637,7 +637,7 @@ pub struct Scope<'a> {
     children: Vec<&'a dyn Aml>,
 }
 
-impl<'a> Aml for Scope<'a> {
+impl Aml for Scope<'_> {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         let mut tmp = Vec::new();
         self.path.append_aml_bytes(&mut tmp)?;
@@ -678,7 +678,7 @@ impl<'a> Method<'a> {
     }
 }
 
-impl<'a> Aml for Method<'a> {
+impl Aml for Method<'_> {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         let mut tmp = Vec::new();
         self.path.append_aml_bytes(&mut tmp)?;
@@ -707,7 +707,7 @@ impl<'a> Return<'a> {
     }
 }
 
-impl<'a> Aml for Return<'a> {
+impl Aml for Return<'_> {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         bytes.push(0xa4); // ReturnOp
         self.value.append_aml_bytes(bytes)?;
@@ -850,7 +850,7 @@ impl<'a> If<'a> {
     }
 }
 
-impl<'a> Aml for If<'a> {
+impl Aml for If<'_> {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         let mut tmp = Vec::new();
         self.predicate.append_aml_bytes(&mut tmp)?;
@@ -878,7 +878,7 @@ impl<'a> Equal<'a> {
     }
 }
 
-impl<'a> Aml for Equal<'a> {
+impl Aml for Equal<'_> {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         bytes.push(0x93); // LEqualOp
         self.left.append_aml_bytes(bytes)?;
@@ -898,7 +898,7 @@ impl<'a> LessThan<'a> {
     }
 }
 
-impl<'a> Aml for LessThan<'a> {
+impl Aml for LessThan<'_> {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         bytes.push(0x95); // LLessOp
         self.left.append_aml_bytes(bytes)?;
@@ -942,7 +942,7 @@ impl<'a> Store<'a> {
     }
 }
 
-impl<'a> Aml for Store<'a> {
+impl Aml for Store<'_> {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         bytes.push(0x70); // StoreOp
         self.value.append_aml_bytes(bytes)?;
@@ -1023,7 +1023,7 @@ impl<'a> Notify<'a> {
     }
 }
 
-impl<'a> Aml for Notify<'a> {
+impl Aml for Notify<'_> {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         bytes.push(0x86); // NotifyOp
         self.object.append_aml_bytes(bytes)?;
@@ -1046,7 +1046,7 @@ impl<'a> While<'a> {
     }
 }
 
-impl<'a> Aml for While<'a> {
+impl Aml for While<'_> {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         let mut tmp = Vec::new();
         self.predicate.append_aml_bytes(&mut tmp)?;
@@ -1116,7 +1116,7 @@ impl<'a> MethodCall<'a> {
     }
 }
 
-impl<'a> Aml for MethodCall<'a> {
+impl Aml for MethodCall<'_> {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         self.name.append_aml_bytes(bytes)?;
         for arg in self.args.iter() {
@@ -1169,7 +1169,7 @@ impl<'a, T> CreateField<'a, T> {
     }
 }
 
-impl<'a> Aml for CreateField<'a, u64> {
+impl Aml for CreateField<'_, u64> {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         bytes.push(0x8f); // CreateQWordFieldOp
         self.buffer.append_aml_bytes(bytes)?;
@@ -1178,7 +1178,7 @@ impl<'a> Aml for CreateField<'a, u64> {
     }
 }
 
-impl<'a> Aml for CreateField<'a, u32> {
+impl Aml for CreateField<'_, u32> {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         bytes.push(0x8a); // CreateDWordFieldOp
         self.buffer.append_aml_bytes(bytes)?;

@@ -254,18 +254,18 @@ echo "swap partitions present (Recommendation: no swap)" \
 
 ### Mitigating hardware vulnerabilities
 
-> \[!CAUTION\]
+> [!CAUTION]
 >
 > Firecracker is not able to mitigate host's hardware vulnerabilities. Adequate
 > mitigations need to be put in place when configuring the host.
 
-> \[!CAUTION\]
+> [!CAUTION]
 >
 > Firecracker is designed to provide isolation boundaries between microVMs
 > running in different Firecracker processes. It is strongly recommended that
 > each Firecracker process corresponds to a workload of a single tenant.
 
-> \[!CAUTION\]
+> [!CAUTION]
 >
 > For security and stability reasons it is highly recommended to load updated
 > microcode as soon as possible. Aside from keeping the system firmware
@@ -328,7 +328,7 @@ For vendor-specific recommendations, please consult the resources below:
 - ARM:
   [Speculative Processor Vulnerability](https://developer.arm.com/support/arm-security-updates/speculative-processor-vulnerability)
 
-##### \[ARM only\] Physical counter directly passed through to the guest
+##### [ARM only] Physical counter directly passed through to the guest
 
 On ARM, the physical counter (i.e `CNTPCT`) it is returning the
 [actual EL1 physical counter value of the host][1]. From the discussions before

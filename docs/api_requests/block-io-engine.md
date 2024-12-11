@@ -6,7 +6,7 @@ system calls.
 
 Firecracker 1.0.0 adds support for an asynchronous block device IO engine.
 
-> \[!WARNING\]
+> [!WARNING]
 >
 > Support is currently in **developer preview**. See
 > [this section](#developer-preview-status) for more info.

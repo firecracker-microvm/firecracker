@@ -247,6 +247,8 @@ class Microvm:
         self.mem_size_bytes = None
         self.cpu_template_name = None
 
+        self._ssh_connections = []
+
         self._pre_cmd = []
         if numa_node:
             node_str = str(numa_node)
@@ -281,6 +283,10 @@ class Microvm:
         # Stop any registered monitors
         for monitor in self.monitors:
             monitor.stop()
+
+        # Cleanup all SSH connections
+        for conn in self._ssh_connections:
+            conn.close()
 
         # We start with vhost-user backends,
         # because if we stop Firecracker first, the backend will want
@@ -1007,13 +1013,15 @@ class Microvm:
         """Return a cached SSH connection on a given interface id."""
         guest_ip = list(self.iface.values())[iface_idx]["iface"].guest_ip
         self.ssh_key = Path(self.ssh_key)
-        return net_tools.SSHConnection(
-            netns=self.netns.id,
+        connection = net_tools.SSHConnection(
+            netns_=self.netns.id,
             ssh_key=self.ssh_key,
             user="root",
             host=guest_ip,
             on_error=self._dump_debug_information,
         )
+        self._ssh_connections.append(connection)
+        return connection
 
     @property
     def ssh(self):

@@ -40,7 +40,7 @@ pub struct EthernetFrame<'a, T: 'a> {
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<'a, T: NetworkBytes + Debug> EthernetFrame<'a, T> {
+impl<T: NetworkBytes + Debug> EthernetFrame<'_, T> {
     /// Interprets `bytes` as an Ethernet frame without any validity checks.
     ///
     /// # Panics
@@ -101,7 +101,7 @@ impl<'a, T: NetworkBytes + Debug> EthernetFrame<'a, T> {
     }
 }
 
-impl<'a, T: NetworkBytesMut + Debug> EthernetFrame<'a, T> {
+impl<T: NetworkBytesMut + Debug> EthernetFrame<'_, T> {
     /// Attempts to write an Ethernet frame using the given header fields to `buf`.
     fn new_with_header(
         buf: T,

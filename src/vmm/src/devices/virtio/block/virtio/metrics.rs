@@ -72,7 +72,8 @@
 //!
 //! The system implements 1 type of metrics:
 //! * Shared Incremental Metrics (SharedIncMetrics) - dedicated for the metrics which need a counter
-//! (i.e the number of times an API request failed). These metrics are reset upon flush.
+//!   (i.e the number of times an API request failed). These metrics are reset upon flush.
+//!
 //! We add BlockDeviceMetrics entries from block::metrics::METRICS into Block device instead of
 //! Block device having individual separate BlockDeviceMetrics entries because Block device is not
 //! accessible from signal handlers to flush metrics and block::metrics::METRICS is.

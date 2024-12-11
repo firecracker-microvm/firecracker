@@ -11,9 +11,8 @@ use super::Body;
 pub(crate) fn parse_put_metrics(body: &Body) -> Result<ParsedRequest, RequestError> {
     METRICS.put_api_requests.metrics_count.inc();
     Ok(ParsedRequest::new_sync(VmmAction::ConfigureMetrics(
-        serde_json::from_slice::<MetricsConfig>(body.raw()).map_err(|err| {
+        serde_json::from_slice::<MetricsConfig>(body.raw()).inspect_err(|_| {
             METRICS.put_api_requests.metrics_fails.inc();
-            err
         })?,
     )))
 }

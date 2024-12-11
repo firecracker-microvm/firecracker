@@ -1529,7 +1529,7 @@ mod tests {
                 .as_cstring()
                 .unwrap()
                 .as_bytes_with_nul(),
-            [cmdline.as_bytes(), &[b'\0']].concat()
+            [cmdline.as_bytes(), b"\0"].concat()
         );
         assert_ne!(
             boot_builder.kernel_file.metadata().unwrap().st_ino(),
@@ -1554,7 +1554,7 @@ mod tests {
                 .as_cstring()
                 .unwrap()
                 .as_bytes_with_nul(),
-            [cmdline.as_bytes(), &[b'\0']].concat()
+            [cmdline.as_bytes(), b"\0"].concat()
         );
         assert_eq!(
             boot_source_builder.kernel_file.metadata().unwrap().st_ino(),

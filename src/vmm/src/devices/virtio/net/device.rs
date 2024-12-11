@@ -514,10 +514,9 @@ impl Net {
                 NetError::VnetHeaderMissing
             })?;
 
-        let headers = frame_bytes_from_buf(&headers[..header_len]).map_err(|e| {
+        let headers = frame_bytes_from_buf(&headers[..header_len]).inspect_err(|_| {
             error!("VNET headers missing in TX frame");
             net_metrics.tx_malformed_frames.inc();
-            e
         })?;
 
         if let Some(ns) = mmds_ns {
@@ -1809,6 +1808,9 @@ pub mod tests {
         assert_eq!(th.txq.used.idx.get(), 1);
         assert!(&th.net().irq_trigger.has_pending_irq(IrqType::Vring));
         th.txq.check_used_elem(0, 0, 0);
+
+        // dropping th would double close the tap fd, so leak it
+        std::mem::forget(th);
     }
 
     #[test]
@@ -2042,6 +2044,9 @@ pub mod tests {
             1,
             th.simulate_event(NetEvent::Tap)
         );
+
+        // dropping th would double close the tap fd, so leak it
+        std::mem::forget(th);
     }
 
     #[test]

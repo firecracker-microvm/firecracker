@@ -868,7 +868,7 @@ mod tests {
     }
 
     impl SeccompCondition {
-        // Creates a new `SeccompCondition`.
+        /// Creates a new `SeccompCondition`.
         pub fn new(
             arg_number: u8,
             arg_len: SeccompCmpArgLen,

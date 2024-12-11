@@ -377,7 +377,7 @@ pub(crate) mod test {
         const QUEUE_SIZE: u16 = 16;
 
         // Helper function to create a set of Virtqueues for the device
-        fn create_virtqueues(mem: &'a GuestMemoryMmap, num_queues: usize) -> Vec<VirtQueue> {
+        fn create_virtqueues(mem: &'a GuestMemoryMmap, num_queues: usize) -> Vec<VirtQueue<'a>> {
             (0..num_queues)
                 .scan(GuestAddress(0), |next_addr, _| {
                     let vqueue = VirtQueue::new(*next_addr, mem, Self::QUEUE_SIZE);

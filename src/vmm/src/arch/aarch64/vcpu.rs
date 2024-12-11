@@ -299,5 +299,8 @@ mod tests {
 
         let res = set_mpstate(&vcpu, kvm_mp_state::default());
         assert!(matches!(res, Err(VcpuError::SetMp(_))), "{:?}", res);
+
+        // dropping vcpu would double close the fd, so leak it
+        std::mem::forget(vcpu);
     }
 }
