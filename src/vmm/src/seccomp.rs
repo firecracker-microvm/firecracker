@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::sync::Arc;
 
-use bincode::{DefaultOptions, Error as BincodeError, Options};
+use bincode::{DefaultOptions, Options};
 
 /// Each BPF instruction is 8 bytes long and 4 byte aligned.
 /// This alignment needs to be satisfied in order for a BPF code to be accepted
@@ -21,6 +21,9 @@ pub type BpfProgramRef<'a> = &'a [BpfInstruction];
 /// Type that associates a thread category to a BPF program.
 pub type BpfThreadMap = HashMap<String, Arc<BpfProgram>>;
 
+/// Binary filter deserialization errors.
+pub type DeserializationError = bincode::Error;
+
 /// Retrieve empty seccomp filters.
 pub fn get_empty_filters() -> BpfThreadMap {
     let mut map = BpfThreadMap::new();
@@ -28,13 +31,6 @@ pub fn get_empty_filters() -> BpfThreadMap {
     map.insert("api".to_string(), Arc::new(vec![]));
     map.insert("vcpu".to_string(), Arc::new(vec![]));
     map
-}
-
-/// Binary filter deserialization errors.
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum DeserializationError {
-    /// Bincode deserialization failed: {0}
-    Bincode(BincodeError),
 }
 
 /// Deserialize binary with bpf filters
@@ -50,8 +46,7 @@ pub fn deserialize_binary<R: Read>(
             .deserialize_from::<R, HashMap<String, BpfProgram>>(reader),
         // No limit is the default.
         None => bincode::deserialize_from::<R, HashMap<String, BpfProgram>>(reader),
-    }
-    .map_err(DeserializationError::Bincode)?;
+    }?;
 
     Ok(result
         .into_iter()
@@ -169,7 +164,7 @@ mod tests {
             // Binary limit too low.
             assert!(matches!(
                 deserialize_binary(&bytes[..], Some(20)).unwrap_err(),
-                DeserializationError::Bincode(error)
+                error
                     if error.to_string() == "the size limit has been reached"
             ));
 
