@@ -41,9 +41,9 @@ def test_high_ingress_traffic(uvm_plain_any):
     time.sleep(1)
 
     # Start iperf3 client on the host. Send 1Gbps UDP traffic.
-    # If the net device breaks, iperf will freeze. We have to use a timeout.
+    # If the net device breaks, iperf will freeze, and we'll hit the pytest timeout
     utils.check_output(
-        "timeout 31 {} {} -c {} -u -V -b 1000000000 -t 30".format(
+        "{} {} -c {} -u -V -b 1000000000 -t 30".format(
             test_microvm.netns.cmd_prefix(),
             IPERF_BINARY_HOST,
             guest_ip,
