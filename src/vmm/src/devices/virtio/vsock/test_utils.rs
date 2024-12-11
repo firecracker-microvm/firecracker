@@ -190,7 +190,7 @@ pub struct EventHandlerContext<'a> {
     pub guest_evvq: GuestQ<'a>,
 }
 
-impl<'a> EventHandlerContext<'a> {
+impl EventHandlerContext<'_> {
     pub fn mock_activate(&mut self, mem: GuestMemoryMmap) {
         // Artificially activate the device.
         self.device.activate(mem).unwrap();

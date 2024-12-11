@@ -715,8 +715,6 @@ impl Debug for VcpuState {
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
-    use std::os::unix::io::AsRawFd;
-
     use kvm_bindings::kvm_msr_entry;
     use kvm_ioctls::{Cap, Kvm};
 
@@ -874,7 +872,7 @@ mod tests {
         // Restore the state into the existing vcpu.
         let result1 = vcpu.restore_state(&state);
         assert!(result1.is_ok(), "{}", result1.unwrap_err());
-        unsafe { libc::close(vcpu.fd.as_raw_fd()) };
+        drop(vcpu);
 
         // Restore the state into a new vcpu.
         let (_vm, vcpu, _mem) = setup_vcpu(0x10000);

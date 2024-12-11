@@ -54,7 +54,7 @@ $FC_TOOLS_DIR/update-credits.sh
 
 # Update changelog.
 say "Updating changelog..."
-sed -i "s/\\\\\[Unreleased\\\\\]/\\\\\[$version\\\\\]/g" "$FC_ROOT_DIR/CHANGELOG.md"
+sed -i "s/\[Unreleased\]/\[$version\]/g" "$FC_ROOT_DIR/CHANGELOG.md"
 
 # Add all changed files
 git add -u

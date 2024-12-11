@@ -10,9 +10,8 @@ use super::Body;
 
 pub(crate) fn parse_put_vsock(body: &Body) -> Result<ParsedRequest, RequestError> {
     METRICS.put_api_requests.vsock_count.inc();
-    let vsock_cfg = serde_json::from_slice::<VsockDeviceConfig>(body.raw()).map_err(|err| {
+    let vsock_cfg = serde_json::from_slice::<VsockDeviceConfig>(body.raw()).inspect_err(|_| {
         METRICS.put_api_requests.vsock_fails.inc();
-        err
     })?;
 
     // Check for the presence of deprecated `vsock_id` field.

@@ -1,6 +1,6 @@
 # Vhost-user block device
 
-> \[!WARNING\]
+> [!WARNING]
 >
 > Support is currently in **developer preview**. See
 > [this section](../RELEASE_POLICY.md#developer-preview-features) for more info.
