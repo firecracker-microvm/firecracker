@@ -28,7 +28,6 @@ void install_bpf_filter(char *bpf_file) {
         exit(EXIT_FAILURE);
     }
     size_t size = sb.st_size;
-    size_t insn_len = size / sizeof(struct sock_filter);
     struct sock_filter *filterbuf = (struct sock_filter*)malloc(size);
     if (read(fd, filterbuf, size) == -1) {
         perror("read");
@@ -36,6 +35,7 @@ void install_bpf_filter(char *bpf_file) {
     }
 
     /* Install seccomp filter */
+    size_t insn_len = size / sizeof(struct sock_filter);
     struct sock_fprog prog = {
         .len = (unsigned short)(insn_len),
         .filter = filterbuf,
@@ -60,11 +60,11 @@ int main(int argc, char **argv) {
     char *bpf_file = argv[1];
     long syscall_id = atoi(argv[2]);
     long arg0, arg1, arg2, arg3;
-    arg0 = arg1 = arg2 = arg3 = 0;
-    if (argc > 3) arg0 = atoi(argv[3]);
-    if (argc > 4) arg1 = atoi(argv[4]);
-    if (argc > 5) arg2 = atoi(argv[5]);
-    if (argc > 6) arg3 = atoi(argv[6]);
+    arg0 = arg1 = arg2 = arg3 = 0L;
+    if (argc > 3) arg0 = atol(argv[3]);
+    if (argc > 4) arg1 = atol(argv[4]);
+    if (argc > 5) arg2 = atol(argv[5]);
+    if (argc > 6) arg3 = atol(argv[6]);
 
     /* read seccomp filter from file */
     if (strcmp(bpf_file, "/dev/null") != 0) {
@@ -72,6 +72,5 @@ int main(int argc, char **argv) {
     }
 
     long res = syscall(syscall_id, arg0, arg1, arg2, arg3);
-    printf("%ld\n", res);
     return EXIT_SUCCESS;
 }
