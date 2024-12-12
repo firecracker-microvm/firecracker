@@ -19,3 +19,5 @@ a future major Firecracker release, in accordance with our
 - \[[#4428](https://github.com/firecracker-microvm/firecracker/pull/4428)\]
   Booting microVMs using MPTable and command line parameters for VirtIO devices.
   The functionality is substituted with ACPI.
+- \[[#2628](https://github.com/firecracker-microvm/firecracker/pull/2628)\] The
+  `--basic` parameter of `seccompiler-bin`.

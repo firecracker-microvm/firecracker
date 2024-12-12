@@ -41,9 +41,9 @@ def test_high_ingress_traffic(uvm_plain_any):
     time.sleep(1)
 
     # Start iperf3 client on the host. Send 1Gbps UDP traffic.
-    # If the net device breaks, iperf will freeze. We have to use a timeout.
+    # If the net device breaks, iperf will freeze, and we'll hit the pytest timeout
     utils.check_output(
-        "timeout 31 {} {} -c {} -u -V -b 1000000000 -t 30".format(
+        "{} {} -c {} -u -V -b 1000000000 -t 30".format(
             test_microvm.netns.cmd_prefix(),
             IPERF_BINARY_HOST,
             guest_ip,
@@ -112,11 +112,8 @@ def test_tap_offload(uvm_any):
     )
 
     # Try to send a UDP message from host with UDP offload enabled
-    cmd = f"ip netns exec {vm.ssh_iface().netns} python3 ./host_tools/udp_offload.py {vm.ssh_iface().host} {port}"
-    ret = utils.run_cmd(cmd)
-
-    # Check that the transmission was successful
-    assert ret.returncode == 0, f"{ret.stdout=} {ret.stderr=}"
+    cmd = f"ip netns exec {vm.ssh.netns} python3 ./host_tools/udp_offload.py {vm.ssh.host} {port}"
+    utils.check_output(cmd)
 
     # Check that the server received the message
     ret = vm.ssh.run(f"cat {out_filename}")

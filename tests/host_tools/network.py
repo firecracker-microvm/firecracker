@@ -3,30 +3,35 @@
 """Utilities for test host microVM network setup."""
 
 import ipaddress
+import os
 import random
+import re
+import signal
 import string
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
+from tenacity import retry, stop_after_attempt, wait_fixed
 
 from framework import utils
+from framework.utils import Timeout
 
 
 class SSHConnection:
     """
     SSHConnection encapsulates functionality for microVM SSH interaction.
 
-    This class should be instantiated as part of the ssh fixture with the
+    This class should be instantiated as part of the ssh fixture with
     the hostname obtained from the MAC address, the username for logging into
     the image and the path of the ssh key.
 
-    This translates into an SSH connection as follows:
-    ssh -i ssh_key_path username@hostname
+    Establishes a ControlMaster upon construction, which is then re-used
+    for all subsequent SSH interactions.
     """
 
-    def __init__(self, netns, ssh_key: Path, host, user, *, on_error=None):
+    def __init__(
+        self, netns, ssh_key: Path, control_path: Path, host, user, *, on_error=None
+    ):
         """Instantiate a SSH client and connect to a microVM."""
         self.netns = netns
         self.ssh_key = ssh_key
@@ -37,22 +42,13 @@ class SSHConnection:
         assert (ssh_key.stat().st_mode & 0o777) == 0o400
         self.host = host
         self.user = user
+        self._control_path = control_path
 
         self._on_error = None
 
         self.options = [
             "-o",
-            "LogLevel=ERROR",
-            "-o",
-            "ConnectTimeout=1",
-            "-o",
-            "StrictHostKeyChecking=no",
-            "-o",
-            "UserKnownHostsFile=/dev/null",
-            "-o",
-            "PreferredAuthentications=publickey",
-            "-i",
-            str(self.ssh_key),
+            f"ControlPath={self._control_path}",
         ]
 
         # _init_connection loops until it can connect to the guest
@@ -96,27 +92,91 @@ class SSHConnection:
         self._scp(self.remote_path(remote_path), local_path, opts)
 
     @retry(
-        retry=retry_if_exception_type(ChildProcessError),
-        wait=wait_fixed(0.5),
+        wait=wait_fixed(1),
         stop=stop_after_attempt(20),
         reraise=True,
     )
     def _init_connection(self):
-        """Create an initial SSH client connection (retry until it works).
+        """Initialize the persistent background connection which will be used
+        to execute all commands sent via this `SSHConnection` object.
 
         Since we're connecting to a microVM we just started, we'll probably
         have to wait for it to boot up and start the SSH server.
         We'll keep trying to execute a remote command that can't fail
         (`/bin/true`), until we get a successful (0) exit code.
         """
-        self.check_output("true", timeout=100, debug=True)
+        assert not self._control_path.exists()
 
-    def run(self, cmd_string, timeout=None, *, check=False, debug=False):
+        # Sadly, we cannot get debug output from this command (e.g. `-vvv`),
+        # because passing -vvv causes the daemonized ssh to hold on to stderr,
+        # and inside utils.run_cmd we're using subprocess.communicate, which
+        # only returns once stderr gets closed (which would thus result in an
+        # indefinite hang).
+        establish_cmd = [
+            "ssh",
+            # Only need to pass the ssh key here, as all multiplexed
+            # connections won't have to re-authenticate
+            "-i",
+            str(self.ssh_key),
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "ConnectTimeout=2",
+            # Set up a persistent background connection
+            "-o",
+            "ControlMaster=auto",
+            "-o",
+            "ControlPersist=yes",
+            *self.options,
+            self.user_host,
+            "/usr/bin/true",
+        ]
+
+        # don't set a low timeout here, because otherwise we might get into a race condition
+        # where ssh already forked off the persisted connection daemon, but gets killed here
+        # before exiting itself. In that case, self._control_path will exist, and the retry
+        # will hit the assert at the start of this function.
+        self._exec(establish_cmd, check=True)
+
+    def _check_liveness(self) -> int:
+        """Checks whether the ControlPersist connection is still alive"""
+        check_cmd = ["ssh", "-O", "check", *self.options, self.user_host]
+
+        _, _, stderr = self._exec(check_cmd, check=True)
+
+        pid_match = re.match(r"Master running \(pid=(\d+)\)", stderr)
+
+        assert pid_match, f"SSH ControlMaster connection not alive anymore: {stderr}"
+
+        return int(pid_match.group(1))
+
+    def close(self):
+        """Closes the ControlPersist connection"""
+        master_pid = self._check_liveness()
+
+        stop_cmd = ["ssh", "-O", "stop", *self.options, self.user_host]
+
+        _, _, stderr = self._exec(stop_cmd, check=True)
+
+        assert "Stop listening request sent" in stderr
+
+        try:
+            with Timeout(5):
+                utils.wait_process_termination(master_pid)
+        except TimeoutError:
+            # for some reason it won't exit, let's force it...
+            # if this also fails, when during teardown we'll get an error about
+            # "found a process with supposedly dead Firecracker's jailer ID"
+            os.kill(master_pid, signal.SIGKILL)
+
+    def run(self, cmd_string, timeout=100, *, check=False, debug=False):
         """
         Execute the command passed as a string in the ssh context.
 
         If `debug` is set, pass `-vvv` to `ssh`. Note that this will clobber stderr.
         """
+        self._check_liveness()
+
         command = ["ssh", *self.options, self.user_host, cmd_string]
 
         if debug:
@@ -124,11 +184,11 @@ class SSHConnection:
 
         return self._exec(command, timeout, check=check)
 
-    def check_output(self, cmd_string, timeout=None, *, debug=False):
+    def check_output(self, cmd_string, timeout=100, *, debug=False):
         """Same as `run`, but raises an exception on non-zero return code of remote command"""
         return self.run(cmd_string, timeout, check=True, debug=debug)
 
-    def _exec(self, cmd, timeout=None, check=False):
+    def _exec(self, cmd, timeout=100, check=False):
         """Private function that handles the ssh client invocation."""
         if self.netns is not None:
             cmd = ["ip", "netns", "exec", self.netns] + cmd
@@ -140,27 +200,6 @@ class SSHConnection:
                 self._on_error(exc)
 
             raise
-
-    # pylint:disable=invalid-name
-    def Popen(
-        self,
-        cmd: str,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        **kwargs,
-    ) -> subprocess.Popen:
-        """Execute the command in the guest and return a Popen object.
-
-        pop = uvm.ssh.Popen("while true; do echo $(date -Is) $RANDOM; sleep 1; done")
-        pop.stdout.read(16)
-        """
-        cmd = ["ssh", *self.options, self.user_host, cmd]
-        if self.netns is not None:
-            cmd = ["ip", "netns", "exec", self.netns] + cmd
-        return subprocess.Popen(
-            cmd, stdin=stdin, stdout=stdout, stderr=stderr, **kwargs
-        )
 
 
 def mac_from_ip(ip_address):

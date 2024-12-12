@@ -196,7 +196,6 @@ class UffdHandler:
             self.proc.kill()
 
 
-# pylint: disable=too-few-public-methods
 class CpuMap:
     """Cpu map from real cpu cores to containers visible cores.
 
@@ -398,6 +397,12 @@ def run_cmd(cmd, check=False, shell=True, cwd=None, timeout=None) -> CommandRetu
         stdout, stderr = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
         proc.kill()
+
+        # Sometimes stdout/stderr are passed on to children, in which case killing
+        # the parent won't close them and communicate will still hang.
+        proc.stdout.close()
+        proc.stderr.close()
+
         stdout, stderr = proc.communicate()
 
         # Log the message with one call so that multiple statuses

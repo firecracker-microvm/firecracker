@@ -242,6 +242,6 @@ class MicrovmHelpers:
         print("guest> trace-cmd record")
         host_ip = self.vm.iface["eth0"]["iface"].host_ip
         _guest_ps = self.vm.ssh.run(
-            f"trace-cmd record -N {host_ip}:{port} -p function {" ".join(fns)} {cmd}"
+            f"trace-cmd record -N {host_ip}:{port} -p function {' '.join(fns)} {cmd}"
         )
         return list(Path(".").glob("trace.*.dat"))
