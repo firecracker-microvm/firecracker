@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # pylint:disable=broad-except
-# pylint:disable=too-few-public-methods
 
 """
 Metadata we want to attach to tests for further analysis and troubleshooting

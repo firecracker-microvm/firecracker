@@ -8,3 +8,51 @@ exclude = "/(\\.direnv|\\.eggs|\\.git|\\.hg|\\.mypy_cache|\\.nox|\\.tox|\\.venv|
 # https://pycqa.github.io/isort/docs/configuration/multi_line_output_modes.html
 multi_line_output = 3
 profile = "black"
+
+[tool.pylint.main]
+
+# Use multiple processes to speed up Pylint. Specifying 0 will auto-detect the
+# number of processors available to use, and will cap the count on Windows to
+# avoid hangs.
+jobs = 0
+
+score = false
+
+# Pickle collected data for later comparisons.
+persistent = false
+
+# Disable the message, report, category or checker with the given id(s). You can
+# either give multiple identifiers separated by comma (,) or put this option
+# multiple times (only on the command line, not in the configuration file where
+# it should appear only once). You can also use "--disable=all" to disable
+# everything first and then re-enable specific checks. For example, if you want
+# to run only the similarities checker, you can use "--disable=all
+# --enable=similarities". If you want to run only the classes checker, but have
+# no Warning level messages displayed, use "--disable=all --enable=classes
+# --disable=W".
+disable = [
+    "raw-checker-failed",
+    "bad-inline-option",
+    "locally-disabled",
+    "file-ignored",
+    "suppressed-message",
+    "useless-suppression",
+    "deprecated-pragma",
+    "use-implicit-booleaness-not-comparison-to-string",
+    "use-implicit-booleaness-not-comparison-to-zero",
+    "use-symbolic-message-instead",
+    "fixme",
+    "too-many-instance-attributes",
+    "import-error",
+    "too-many-locals",
+    "too-many-arguments",
+    "consider-using-f-string",
+    "consider-using-with",
+    "implicit-str-concat",
+    "line-too-long",
+    "redefined-outer-name",
+    "broad-exception-raised",
+    "duplicate-code",
+    "too-many-positional-arguments",
+    "too-few-public-methods",
+]
