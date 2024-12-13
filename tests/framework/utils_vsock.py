@@ -11,6 +11,8 @@ from socket import AF_UNIX, SOCK_STREAM, socket
 from subprocess import Popen
 from threading import Thread
 
+from tenacity import Retrying, stop_after_attempt, wait_fixed
+
 ECHO_SERVER_PORT = 5252
 SERVER_ACCEPT_BACKLOG = 128
 TEST_CONNECTION_COUNT = 50
@@ -143,13 +145,17 @@ def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
     )
 
     try:
+        # Give socat a bit of time to create the socket
+        for attempt in Retrying(
+            wait=wait_fixed(0.2),
+            stop=stop_after_attempt(3),
+            reraise=True,
+        ):
+            with attempt:
+                assert Path(server_port_path).exists()
+
         # Link the listening Unix socket into the VM's jail, so that
         # Firecracker can connect to it.
-        attempt = 0
-        # But 1st, give socat a bit of time to create the socket
-        while not Path(server_port_path).exists() and attempt < 3:
-            time.sleep(0.2)
-            attempt += 1
         vm.create_jailed_resource(server_port_path)
 
         # Increase maximum process count for the ssh service.
