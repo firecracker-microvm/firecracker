@@ -156,9 +156,9 @@ def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
         # Avoids: "bash: fork: retry: Resource temporarily unavailable"
         # Needed to execute the bash script that tests for concurrent
         # vsock guest initiated connections.
-        pids_max_file = "/sys/fs/cgroup/system.slice/ssh.service/pids.max"
-        ecode, _, _ = vm.ssh.run(f"echo 1024 > {pids_max_file}")
-        assert ecode == 0, "Unable to set max process count for guest ssh service."
+        vm.ssh.check_output(
+            "echo 1024 > /sys/fs/cgroup/system.slice/ssh.service/pids.max"
+        )
 
         # Build the guest worker sub-command.
         # `vsock_helper` will read the blob file from STDIN and send the echo
@@ -183,9 +183,7 @@ def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
         cmd += "done;"
         cmd += "for w in $workers; do wait $w || (wait; exit 1); done"
 
-        ecode, _, stderr = vm.ssh.run(cmd)
-
-        assert ecode == 0, stderr
+        vm.ssh.check_output(cmd)
     finally:
         echo_server.terminate()
         rc = echo_server.wait()
