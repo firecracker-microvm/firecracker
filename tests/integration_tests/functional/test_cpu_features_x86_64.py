@@ -314,7 +314,7 @@ def test_cpu_rdmsr(
     )
     vm.start()
     vm.ssh.scp_put(DATA_FILES / "msr_reader.sh", "/tmp/msr_reader.sh")
-    _, stdout, stderr = vm.ssh.run("/tmp/msr_reader.sh")
+    _, stdout, stderr = vm.ssh.run("/tmp/msr_reader.sh", timeout=None)
     assert stderr == ""
 
     # Load results read from the microvm
@@ -362,7 +362,9 @@ def dump_msr_state_to_file(dump_fname, ssh_conn, shared_names):
     ssh_conn.scp_put(
         shared_names["msr_reader_host_fname"], shared_names["msr_reader_guest_fname"]
     )
-    _, stdout, stderr = ssh_conn.run(shared_names["msr_reader_guest_fname"])
+    _, stdout, stderr = ssh_conn.run(
+        shared_names["msr_reader_guest_fname"], timeout=None
+    )
     assert stderr == ""
 
     with open(dump_fname, "w", encoding="UTF-8") as file:
@@ -416,7 +418,9 @@ def test_cpu_wrmsr_snapshot(microvm_factory, guest_kernel, rootfs, msr_cpu_templ
     wrmsr_input_guest_fname = "/tmp/wrmsr_input.txt"
     vm.ssh.scp_put(wrmsr_input_host_fname, wrmsr_input_guest_fname)
 
-    _, _, stderr = vm.ssh.run(f"{msr_writer_guest_fname} {wrmsr_input_guest_fname}")
+    _, _, stderr = vm.ssh.run(
+        f"{msr_writer_guest_fname} {wrmsr_input_guest_fname}", timeout=None
+    )
     assert stderr == ""
 
     # Dump MSR state to a file that will be published to S3 for the 2nd part of the test
