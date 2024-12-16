@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Tests for checking the rate limiter on /drives resources."""
-
+import json
 import os
 
 import host_tools.drive as drive_tools
@@ -12,28 +12,22 @@ MB = 2**20
 
 def check_iops_limit(ssh_connection, block_size, count, min_time, max_time):
     """Verify if the rate limiter throttles block iops using dd."""
-    obs = block_size
+
     byte_count = block_size * count
-    dd = "dd if=/dev/zero of=/dev/vdb ibs={} obs={} count={} oflag=direct".format(
-        block_size, obs, count
-    )
-    print("Running cmd {}".format(dd))
-    # Check write iops (writing with oflag=direct is more reliable).
-    _, _, stderr = ssh_connection.check_output(dd)
 
-    # "dd" writes to stderr by design. We drop first lines
-    lines = stderr.split("\n")
-    dd_result = lines[2].strip()
+    fio = f"fio --name=fixed-job --direct=1 --rw=write --blocksize={block_size} --size={byte_count} --filename=/dev/vdb --zero_buffers --output-format=json"
 
-    # Interesting output looks like this:
-    # 4194304 bytes (4.2 MB, 4.0 MiB) copied, 0.0528524 s, 79.4 MB/s
-    tokens = dd_result.split()
+    _, stdout, _ = ssh_connection.check_output(fio)
+
+    data = json.loads(stdout)
+    runtime_ms = data["jobs"][0]["write"]["runtime"]
+    io_bytes = data["jobs"][0]["write"]["io_bytes"]
 
     # Check total read bytes.
-    assert int(tokens[0]) == byte_count
+    assert io_bytes == byte_count
     # Check duration.
-    assert float(tokens[7]) > min_time
-    assert float(tokens[7]) < max_time
+    assert runtime_ms > min_time * 1000
+    assert runtime_ms < max_time * 1000
 
 
 def test_patch_drive_limiter(uvm_plain):
