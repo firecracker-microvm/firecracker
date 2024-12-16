@@ -129,14 +129,21 @@ class SSHConnection:
             "ControlPersist=yes",
             *self.options,
             self.user_host,
-            "/usr/bin/true",
+            "true",
         ]
 
-        # don't set a low timeout here, because otherwise we might get into a race condition
-        # where ssh already forked off the persisted connection daemon, but gets killed here
-        # before exiting itself. In that case, self._control_path will exist, and the retry
-        # will hit the assert at the start of this function.
-        self._exec(establish_cmd, check=True)
+        try:
+            # don't set a low timeout here, because otherwise we might get into a race condition
+            # where ssh already forked off the persisted connection daemon, but gets killed here
+            # before exiting itself. In that case, self._control_path will exist, and the retry
+            # will hit the assert at the start of this function.
+            self._exec(establish_cmd, check=True)
+        except Exception:
+            # if the control socket is present, then the daemon is running, and we should stop it
+            # before retrying again
+            if self._control_path.exists():
+                self.close()
+            raise
 
     def _check_liveness(self) -> int:
         """Checks whether the ControlPersist connection is still alive"""
