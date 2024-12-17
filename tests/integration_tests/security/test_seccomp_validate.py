@@ -13,18 +13,18 @@ import pytest
 import seccomp
 
 from framework import utils
-from host_tools import cargo_build
 
 ARCH = platform.machine()
 
 
-@pytest.fixture(scope="session")
-def bin_test_syscall(test_fc_session_root_path):
+@pytest.fixture
+def bin_test_syscall(tmp_path):
     """Build the test_syscall binary."""
-    test_syscall_bin = Path(test_fc_session_root_path) / "test_syscall"
-    cargo_build.gcc_compile("host_tools/test_syscalls.c", test_syscall_bin)
+    test_syscall_bin = tmp_path / "test_syscall"
+    compile_cmd = f"musl-gcc -static host_tools/test_syscalls.c -o {test_syscall_bin}"
+    utils.check_output(compile_cmd)
     assert test_syscall_bin.exists()
-    yield test_syscall_bin
+    yield test_syscall_bin.resolve()
 
 
 class BpfMapReader:
@@ -77,11 +77,11 @@ class BpfMapReader:
         for _ in range(map_len):
             # read key
             key_str_len = self.read_format("<Q")
-            key_str = self.read_format(f"{key_str_len}s")
+            key_str = self.read_format(f"{key_str_len}s").decode("ascii")
             # read value: vec of instructions
             insn_len = self.read_format("<Q")
             data = self.lookahead(insn_len * self.INSN_SIZEOF)
-            threads[key_str.decode("ascii")] = data
+            threads[key_str] = data
             self.offset += len(data)
 
         assert self.is_eof()

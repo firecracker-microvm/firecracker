@@ -105,6 +105,11 @@ def record_props(request, record_property):
 def pytest_runtest_logreport(report):
     """Send general test metrics to CloudWatch"""
 
+    # only publish metrics from the main process
+    worker_id = os.environ.get("PYTEST_XDIST_WORKER")
+    if worker_id is not None:
+        return
+
     # The pytest's test protocol has three phases for each test item: setup,
     # call and teardown. At the end of each phase, pytest_runtest_logreport()
     # is called.
@@ -135,6 +140,7 @@ def pytest_runtest_logreport(report):
         # and global
         {},
     )
+    METRICS.set_property("pytest_xdist_worker", worker_id)
     METRICS.set_property("result", report.outcome)
     METRICS.set_property("location", report.location)
     for prop_name, prop_val in report.user_properties:

@@ -14,6 +14,11 @@ DEFAULT_TARGET = f"{platform.machine()}-unknown-linux-musl"
 DEFAULT_TARGET_DIR = f"{DEFAULT_TARGET}/release/"
 
 
+def nightly_toolchain() -> str:
+    """Receives the name of the installed nightly toolchain"""
+    return utils.check_output("rustup toolchain list | grep nightly").stdout.strip()
+
+
 def cargo(
     subcommand,
     cargo_args: str = "",
@@ -21,11 +26,15 @@ def cargo(
     *,
     env: dict = None,
     cwd: str = None,
+    nightly: bool = False,
 ):
     """Executes the specified cargo subcommand"""
+    toolchain = f"+{nightly_toolchain()}" if nightly else ""
     env = env or {}
     env_string = " ".join(f'{key}="{str(value)}"' for key, value in env.items())
-    cmd = f"{env_string} cargo {subcommand} {cargo_args} -- {subcommand_args}"
+    cmd = (
+        f"{env_string} cargo {toolchain} {subcommand} {cargo_args} -- {subcommand_args}"
+    )
     return utils.check_output(cmd, cwd=cwd)
 
 
