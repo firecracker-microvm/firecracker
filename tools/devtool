@@ -742,7 +742,7 @@ cmd_test() {
     # If we got to here, we've got all we need to continue.
     say "Kernel version: $(uname -r)"
     say "$(sed '/^processor.*: 0$/,/^processor.*: 1$/!d; /^processor.*: 1$/d' /proc/cpuinfo)"
-    say "RPM microcode_ctl version: $(rpm -q microcode_ctl)"
+    say "RPM firmware versions: $(rpm -q microcode_ctl amd-ucode-firmware linux-firmware)"
 
     env |grep -P "^(AWS_EMF_|BUILDKITE|CODECOV_)" > env.list
     if [[ $performance_tweaks -eq 1 ]]; then
