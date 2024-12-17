@@ -472,6 +472,7 @@ def flush_fc_metrics_to_cw(fc_metrics, metrics):
         # See also https://github.com/stefano-garzarella/iperf-vsock/issues/4
         "fc_metrics.vsock.rx_read_fails",
         "fc_metrics.vsock.tx_write_fails",
+        "fc_metrics.vsock.tx_flush_fails",
     ]
 
     failure_metrics = {
