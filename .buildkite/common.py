@@ -6,6 +6,7 @@ Common helpers to create Buildkite pipelines
 """
 
 import argparse
+import ast
 import json
 import os
 import random
@@ -138,7 +139,7 @@ class DictAction(argparse.Action):
         res = getattr(namespace, self.dest, {})
         key_str, val = value.split("=", maxsplit=1)
         keys = key_str.split("/")
-        update = {keys[-1]: val}
+        update = {keys[-1]: ast.literal_eval(val)}
         for key in list(reversed(keys))[1:]:
             update = {key: update}
         res = overlay_dict(res, update)
