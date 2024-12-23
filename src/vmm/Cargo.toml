@@ -12,7 +12,7 @@ bench = false
 acpi_tables = { path = "../acpi-tables" } 
 aes-gcm =  { version = "0.10.1", default-features = false, features = ["aes"] }
 arrayvec = { version = "0.7.6", optional = true }
-aws-lc-rs = { version = "1.11.1", features = ["bindgen"] }
+aws-lc-rs = { version = "1.12.0", features = ["bindgen"] }
 base64 = "0.22.1"
 bincode = "1.2.1"
 bitflags = "2.6.0"
@@ -24,7 +24,7 @@ gdbstub = { version = "0.7.3", optional = true }
 gdbstub_arch = { version = "0.3.1", optional = true }
 kvm-bindings = { version = "0.10.0", features = ["fam-wrappers", "serde"] }
 kvm-ioctls = "0.19.1"
-libc = "0.2.168"
+libc = "0.2.169"
 linux-loader = "0.13.0"
 log = { version = "0.4.22", features = ["std", "serde"] }
 log-instrument = { path = "../log-instrument", optional = true }
@@ -34,9 +34,9 @@ micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 seccompiler = { path = "../seccompiler" }
 semver = { version = "1.0.24", features = ["serde"] }
 serde = { version = "1.0.216", features = ["derive", "rc"] }
-serde_json = "1.0.133"
+serde_json = "1.0.134"
 slab = "0.4.7"
-thiserror = "2.0.7"
+thiserror = "2.0.9"
 timerfd = "1.5.0"
 userfaultfd = "0.8.1"
 utils = { path = "../utils" }
