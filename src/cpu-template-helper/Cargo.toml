@@ -12,11 +12,11 @@ bench = false
 [dependencies]
 clap = { version = "4.5.23", features = ["derive", "string"] }
 displaydoc = "0.2.5"
-libc = "0.2.168"
+libc = "0.2.169"
 log-instrument = { path = "../log-instrument", optional = true }
 serde = { version = "1.0.216", features = ["derive"] }
-serde_json = "1.0.133"
-thiserror = "2.0.7"
+serde_json = "1.0.134"
+thiserror = "2.0.9"
 
 vmm = { path = "../vmm" }
 vmm-sys-util = "0.12.1"
