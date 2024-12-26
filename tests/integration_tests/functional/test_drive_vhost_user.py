@@ -2,9 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for vhost-user-block device."""
 
-import os
 import shutil
-from pathlib import Path
 
 import host_tools.drive as drive_tools
 from framework.utils_drive import partuuid_and_disk_path
@@ -142,14 +140,14 @@ def test_device_ordering(microvm_factory, guest_kernel, rootfs):
     vm.add_net_iface()
 
     # Adding first block device.
-    fs1 = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "scratch1"), size=128)
+    fs1 = drive_tools.FilesystemFile(vm.chroot / "scratch1", size=128)
     vm.add_drive("scratch1", fs1.path)
 
     # Adding second block device (rootfs)
     vm.add_vhost_user_drive("rootfs", rootfs, is_root_device=True, is_read_only=True)
 
     # Adding third block device.
-    fs2 = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "scratch2"), size=512)
+    fs2 = drive_tools.FilesystemFile(vm.chroot / "scratch2", size=512)
     vm.add_drive("scratch2", fs2.path)
 
     # Create a rw rootfs file that is unique to the microVM

@@ -114,14 +114,14 @@ def test_invalid_bpf(uvm_plain):
     test_microvm.create_jailed_resource(test_microvm.rootfs_file)
 
     vm_config_file = Path("framework/vm_config.json")
-    test_microvm.create_jailed_resource(vm_config_file)
-    test_microvm.jailer.extra_args = {"config-file": vm_config_file.name}
-    test_microvm.jailer.extra_args.update({"no-api": None})
+    vm_config_jailed_path = test_microvm.create_jailed_resource(vm_config_file)
+    test_microvm.jailer.extra_args = {"config-file": vm_config_jailed_path}
+    test_microvm.jailer.extra_args["no-api"] = None
 
-    bpf_path = Path(test_microvm.path) / "bpf.out"
+    bpf_path = test_microvm.chroot / "bpf.out"
     bpf_path.write_bytes(b"Invalid BPF!")
-    test_microvm.create_jailed_resource(bpf_path)
-    test_microvm.jailer.extra_args.update({"seccomp-filter": bpf_path.name})
+    bpf_jail_path = test_microvm.jail_path(bpf_path)
+    test_microvm.jailer.extra_args["seccomp-filter"] = bpf_jail_path
 
     test_microvm.spawn()
     # give time for the process to get killed

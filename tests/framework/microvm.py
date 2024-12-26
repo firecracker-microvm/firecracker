@@ -381,14 +381,6 @@ class Microvm:
         return re.match(r"^Firecracker v(.+)", stdout.partition("\n")[0]).group(1)
 
     @property
-    def path(self):
-        """Return the path on disk used that represents this microVM."""
-        return self.jailer.chroot_base_with_id()
-
-    # some functions use this
-    fsfiles = path
-
-    @property
     def id(self):
         """Return the unique identifier of this microVM."""
         return self._microvm_id
@@ -462,14 +454,16 @@ class Microvm:
         """Create a hard link to some resource inside this microvm."""
         return self.jailer.jailed_path(path, create=True)
 
-    def get_jailed_resource(self, path):
-        """Get the relative jailed path to a resource."""
+    def jail_path(self, path):
+        """Get the relative jailed path to a resource.
+
+        Also fix permissions if needed"""
         return self.jailer.jailed_path(path, create=False)
 
     @property
     def chroot(self):
         """Get the chroot of this microVM."""
-        return self.jailer.chroot_path()
+        return self.jailer.chroot
 
     def pin_vmm(self, cpu_id: int) -> bool:
         """Pin the firecracker process VMM thread to a cpu list."""
@@ -544,23 +538,24 @@ class Microvm:
         self.api = Api(self.jailer.api_socket_path())
 
         if log_file is not None:
-            self.log_file = Path(self.path) / log_file
+            self.log_file = self.chroot / log_file
             self.log_file.touch()
-            self.create_jailed_resource(self.log_file)
             # The default value for `level`, when configuring the logger via cmd
             # line, is `Info`. We set the level to `Debug` to also have the boot
             # time printed in the log.
-            self.jailer.extra_args.update({"log-path": log_file, "level": log_level})
+            self.jailer.extra_args["log-path"] = self.jail_path(log_file)
+            self.jailer.extra_args["level"] = log_level
             if log_show_level:
                 self.jailer.extra_args["show-level"] = None
             if log_show_origin:
                 self.jailer.extra_args["show-log-origin"] = None
 
         if metrics_path is not None:
-            self.metrics_file = Path(self.path) / metrics_path
+            self.metrics_file = self.chroot / metrics_path
             self.metrics_file.touch()
-            self.create_jailed_resource(self.metrics_file)
-            self.jailer.extra_args.update({"metrics-path": self.metrics_file.name})
+            self.jailer.extra_args["metrics-path"] = self.jail_path(
+                self.metrics_file.name
+            )
         else:
             assert not emit_metrics
 
@@ -784,9 +779,9 @@ class Microvm:
         if file:
             self.api.drive.patch(
                 drive_id=drive_id,
-                path_on_host=self.create_jailed_resource(file.path),
+                path_on_host=self.create_jailed_resource(file),
             )
-            self.disks[drive_id] = Path(file.path)
+            self.disks[drive_id] = Path(file)
         else:
             self.api.drive.patch(drive_id=drive_id)
 
@@ -942,7 +937,7 @@ class Microvm:
             ssh_key=self.ssh_key,
             user="root",
             host=guest_ip,
-            control_path=Path(self.chroot()) / f"ssh-{iface_idx}.sock",
+            control_path=self.chroot / f"ssh-{iface_idx}.sock",
             on_error=self._dump_debug_information,
         )
         self._connections.append(connection)
@@ -1031,7 +1026,7 @@ class MicroVMFactory:
             # copy only iff not a read-only rootfs
             rootfs_path = rootfs
             if rootfs_path.suffix != ".squashfs":
-                rootfs_path = Path(vm.path) / rootfs.name
+                rootfs_path = vm.chroot / rootfs.name
                 shutil.copyfile(rootfs, rootfs_path)
             vm.rootfs_file = rootfs_path
             vm.ssh_key = ssh_key
@@ -1049,9 +1044,9 @@ class MicroVMFactory:
         for vm in self.vms:
             vm.kill()
             vm.jailer.cleanup()
-            chroot_base_with_id = vm.jailer.chroot_base_with_id()
-            if len(vm.jailer.jailer_id) > 0 and chroot_base_with_id.exists():
-                shutil.rmtree(chroot_base_with_id)
+            chroot = vm.jailer.chroot
+            if len(vm.jailer.jailer_id) > 0 and chroot.exists():
+                shutil.rmtree(chroot)
             vm.netns.cleanup()
 
         self.vms.clear()

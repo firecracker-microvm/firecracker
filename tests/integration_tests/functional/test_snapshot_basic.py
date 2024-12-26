@@ -9,7 +9,6 @@ import platform
 import re
 import shutil
 import time
-from pathlib import Path
 
 import pytest
 
@@ -159,12 +158,10 @@ def test_5_snapshots(
         # related spurious test failures, although we do not know why this is the case.
         time.sleep(2)
         # Test vsock guest-initiated connections.
-        path = os.path.join(
-            microvm.path, make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
-        )
+        path = microvm.chroot / make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
         check_guest_connections(microvm, path, vm_blob_path, blob_hash)
         # Test vsock host-initiated connections.
-        path = os.path.join(microvm.jailer.chroot_path(), VSOCK_UDS_PATH)
+        path = microvm.chroot / VSOCK_UDS_PATH
         check_host_connections(path, blob_path, blob_hash)
 
         # Check that the root device is not corrupted.
@@ -199,8 +196,7 @@ def test_patch_drive_snapshot(uvm_nano, microvm_factory):
     basevm.add_net_iface()
 
     # Add a scratch 128MB RW non-root block device.
-    root = Path(basevm.path)
-    scratch_path1 = str(root / "scratch1")
+    scratch_path1 = basevm.chroot / "scratch1"
     scratch_disk1 = drive_tools.FilesystemFile(scratch_path1, size=128)
     basevm.add_drive("scratch", scratch_disk1.path)
     basevm.start()
@@ -208,9 +204,9 @@ def test_patch_drive_snapshot(uvm_nano, microvm_factory):
     # Update drive to have another backing file, double in size.
     new_file_size_mb = 2 * int(scratch_disk1.size() / (1024 * 1024))
     logger.info("Patch drive, new file: size %sMB.", new_file_size_mb)
-    scratch_path2 = str(root / "scratch2")
+    scratch_path2 = basevm.chroot / "scratch2"
     scratch_disk2 = drive_tools.FilesystemFile(scratch_path2, new_file_size_mb)
-    basevm.patch_drive("scratch", scratch_disk2)
+    basevm.patch_drive("scratch", scratch_disk2.path)
 
     # Create base snapshot.
     logger.info("Create FULL snapshot #0.")
@@ -234,14 +230,13 @@ def test_load_snapshot_failure_handling(uvm_plain):
     vm.spawn(log_level="Info")
 
     # Create two empty files for snapshot state and snapshot memory
-    chroot_path = vm.jailer.chroot_path()
-    snapshot_dir = os.path.join(chroot_path, "snapshot")
-    Path(snapshot_dir).mkdir(parents=True, exist_ok=True)
+    snapshot_dir = vm.chroot / "snapshot"
+    snapshot_dir.mkdir(parents=True, exist_ok=True)
 
-    snapshot_mem = os.path.join(snapshot_dir, "snapshot_mem")
-    open(snapshot_mem, "w+", encoding="utf-8").close()
-    snapshot_vmstate = os.path.join(snapshot_dir, "snapshot_vmstate")
-    open(snapshot_vmstate, "w+", encoding="utf-8").close()
+    snapshot_mem = snapshot_dir / "snapshot_mem"
+    snapshot_mem.touch()
+    snapshot_vmstate = snapshot_dir / "snapshot_vmstate"
+    snapshot_vmstate.touch()
 
     # Hardlink the snapshot files into the microvm jail.
     jailed_mem = vm.create_jailed_resource(snapshot_mem)
@@ -328,13 +323,13 @@ def test_negative_snapshot_permissions(uvm_plain_rw, microvm_factory):
     basevm.start()
 
     # Remove write permissions.
-    os.chmod(basevm.jailer.chroot_path(), 0o444)
+    basevm.chroot.chmod(0o444)
 
     with pytest.raises(RuntimeError, match="Permission denied"):
         basevm.snapshot_full()
 
     # Restore proper permissions.
-    os.chmod(basevm.jailer.chroot_path(), 0o744)
+    basevm.chroot.chmod(0o744)
 
     # Create base snapshot.
     snapshot = basevm.snapshot_full()

@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Test that the process startup time up to socket bind is within spec."""
 
-import os
 import time
 
 from host_tools.cargo_build import run_seccompiler_bin
@@ -79,9 +78,7 @@ def _test_startup_time(microvm, metrics, test_suffix: str):
 
 
 def _custom_filter_setup(test_microvm):
-    bpf_path = os.path.join(test_microvm.path, "bpf.out")
-
+    bpf_path = test_microvm.chroot / "bpf.out"
     run_seccompiler_bin(bpf_path)
-
     test_microvm.create_jailed_resource(bpf_path)
     test_microvm.jailer.extra_args.update({"seccomp-filter": "bpf.out"})

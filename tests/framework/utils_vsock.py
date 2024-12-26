@@ -107,7 +107,7 @@ def start_guest_echo_server(vm):
     # Give the server time to initialise
     time.sleep(1)
 
-    return os.path.join(vm.jailer.chroot_path(), VSOCK_UDS_PATH)
+    return vm.chroot / VSOCK_UDS_PATH
 
 
 def check_host_connections(uds_path, blob_path, blob_hash):
@@ -156,7 +156,7 @@ def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
 
         # Link the listening Unix socket into the VM's jail, so that
         # Firecracker can connect to it.
-        vm.create_jailed_resource(server_port_path)
+        vm.jail_path(server_port_path)
 
         # Increase maximum process count for the ssh service.
         # Avoids: "bash: fork: retry: Resource temporarily unavailable"
@@ -205,7 +205,7 @@ def make_host_port_path(uds_path, port):
 def _vsock_connect_to_guest(uds_path, port):
     """Return a Unix socket, connected to the guest vsock port `port`."""
     sock = socket(AF_UNIX, SOCK_STREAM)
-    sock.connect(uds_path)
+    sock.connect(str(uds_path))
 
     buf = bytearray("CONNECT {}\n".format(port).encode("utf-8"))
     sock.send(buf)
@@ -238,7 +238,7 @@ def check_vsock_device(vm, bin_vsock_path, test_fc_session_root_path, ssh_connec
     _copy_vsock_data_to_guest(ssh_connection, blob_path, vm_blob_path, bin_vsock_path)
 
     # Test vsock guest-initiated connections.
-    path = os.path.join(vm.path, make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT))
+    path = vm.chroot / make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
     check_guest_connections(vm, path, vm_blob_path, blob_hash)
 
     # Test vsock host-initiated connections.

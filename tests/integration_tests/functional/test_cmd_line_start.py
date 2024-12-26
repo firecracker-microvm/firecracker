@@ -3,7 +3,6 @@
 """Tests microvm start with configuration file as command line parameter."""
 
 import json
-import os
 import platform
 import re
 import shutil
@@ -49,7 +48,7 @@ def _add_metadata_file(test_microvm, metadata_file):
     Given a test metadata file this creates a copy of the file and
     uses the copy to configure the microvm.
     """
-    vm_metadata_path = os.path.join(test_microvm.path, os.path.basename(metadata_file))
+    vm_metadata_path = test_microvm.chroot / metadata_file.name
     shutil.copyfile(metadata_file, vm_metadata_path)
     test_microvm.metadata_file = vm_metadata_path
 
@@ -365,9 +364,8 @@ def test_start_with_missing_metadata(uvm_plain):
     Test if a microvm is configured with a missing metadata file.
     """
     test_microvm = uvm_plain
-    metadata_file = "../resources/tests/metadata_nonexisting.json"
-
-    vm_metadata_path = os.path.join(test_microvm.path, os.path.basename(metadata_file))
+    metadata_file = Path("../resources/tests/metadata_nonexisting.json")
+    vm_metadata_path = test_microvm.chroot / metadata_file.name
     test_microvm.metadata_file = vm_metadata_path
 
     try:
@@ -389,7 +387,7 @@ def test_start_with_invalid_metadata(uvm_plain):
     """
     test_microvm = uvm_plain
     metadata_file = DIR / "metadata_invalid.json"
-    vm_metadata_path = os.path.join(test_microvm.path, os.path.basename(metadata_file))
+    vm_metadata_path = test_microvm.chroot / metadata_file.name
     shutil.copy(metadata_file, vm_metadata_path)
     test_microvm.metadata_file = vm_metadata_path
 

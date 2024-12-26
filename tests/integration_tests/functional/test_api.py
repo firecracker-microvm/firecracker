@@ -100,10 +100,10 @@ def test_api_put_update_pre_boot(uvm_plain, io_engine):
     # a root file system with the rw permission.
     test_microvm.basic_config()
 
-    fs1 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "scratch"))
+    fs1 = drive_tools.FilesystemFile(test_microvm.chroot / "scratch")
     response = test_microvm.api.drive.put(
         drive_id="scratch",
-        path_on_host=test_microvm.create_jailed_resource(fs1.path),
+        path_on_host=test_microvm.jail_path(fs1.path),
         is_root_device=False,
         is_read_only=False,
         io_engine=io_engine,
@@ -118,7 +118,7 @@ def test_api_put_update_pre_boot(uvm_plain, io_engine):
 
     # Updates to `kernel_image_path` with a valid path are allowed.
     test_microvm.api.boot.put(
-        kernel_image_path=test_microvm.get_jailed_resource(test_microvm.kernel_file)
+        kernel_image_path=test_microvm.jail_path(test_microvm.kernel_file)
     )
 
     # Updates to `path_on_host` with an invalid path are not allowed.
@@ -136,17 +136,17 @@ def test_api_put_update_pre_boot(uvm_plain, io_engine):
     with pytest.raises(RuntimeError, match="A root block device already exists"):
         test_microvm.api.drive.put(
             drive_id="scratch",
-            path_on_host=test_microvm.get_jailed_resource(fs1.path),
+            path_on_host=test_microvm.jail_path(fs1.path),
             is_read_only=False,
             is_root_device=True,
             io_engine=io_engine,
         )
 
     # Valid updates to `path_on_host` and `is_read_only` are allowed.
-    fs2 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "otherscratch"))
+    fs2 = drive_tools.FilesystemFile(test_microvm.chroot / "otherscratch")
     test_microvm.api.drive.put(
         drive_id="scratch",
-        path_on_host=test_microvm.create_jailed_resource(fs2.path),
+        path_on_host=test_microvm.jail_path(fs2.path),
         is_read_only=True,
         is_root_device=False,
         io_engine=io_engine,
@@ -496,7 +496,7 @@ def test_api_put_update_post_boot(uvm_plain, io_engine):
     # Valid updates to `kernel_image_path` are not allowed after boot.
     with pytest.raises(RuntimeError, match=NOT_SUPPORTED_AFTER_START):
         test_microvm.api.boot.put(
-            kernel_image_path=test_microvm.get_jailed_resource(test_microvm.kernel_file)
+            kernel_image_path=test_microvm.jail_path(test_microvm.kernel_file)
         )
 
     # Valid updates to the machine configuration are not allowed after boot.
@@ -542,10 +542,10 @@ def test_rate_limiters_api_config(uvm_plain, io_engine):
     # Test the DRIVE rate limiting API.
 
     # Test drive with bw rate-limiting.
-    fs1 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "bw"))
+    fs1 = drive_tools.FilesystemFile(test_microvm.chroot / "bw")
     test_microvm.api.drive.put(
         drive_id="bw",
-        path_on_host=test_microvm.create_jailed_resource(fs1.path),
+        path_on_host=test_microvm.jail_path(fs1.path),
         is_read_only=False,
         is_root_device=False,
         rate_limiter={"bandwidth": {"size": 1000000, "refill_time": 100}},
@@ -553,10 +553,10 @@ def test_rate_limiters_api_config(uvm_plain, io_engine):
     )
 
     # Test drive with ops rate-limiting.
-    fs2 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "ops"))
+    fs2 = drive_tools.FilesystemFile(test_microvm.chroot / "ops")
     test_microvm.api.drive.put(
         drive_id="ops",
-        path_on_host=test_microvm.create_jailed_resource(fs2.path),
+        path_on_host=test_microvm.jail_path(fs2.path),
         is_read_only=False,
         is_root_device=False,
         rate_limiter={"ops": {"size": 1, "refill_time": 100}},
@@ -564,10 +564,10 @@ def test_rate_limiters_api_config(uvm_plain, io_engine):
     )
 
     # Test drive with bw and ops rate-limiting.
-    fs3 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "bwops"))
+    fs3 = drive_tools.FilesystemFile(test_microvm.chroot / "bwops")
     test_microvm.api.drive.put(
         drive_id="bwops",
-        path_on_host=test_microvm.create_jailed_resource(fs3.path),
+        path_on_host=test_microvm.jail_path(fs3.path),
         is_read_only=False,
         is_root_device=False,
         rate_limiter={
@@ -578,10 +578,10 @@ def test_rate_limiters_api_config(uvm_plain, io_engine):
     )
 
     # Test drive with 'empty' rate-limiting (same as not specifying the field)
-    fs4 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "nada"))
+    fs4 = drive_tools.FilesystemFile(test_microvm.chroot / "nada")
     test_microvm.api.drive.put(
         drive_id="nada",
-        path_on_host=test_microvm.create_jailed_resource(fs4.path),
+        path_on_host=test_microvm.jail_path(fs4.path),
         is_read_only=False,
         is_root_device=False,
         rate_limiter={},
@@ -651,11 +651,11 @@ def test_api_patch_pre_boot(uvm_plain, io_engine):
     # and a root file system with the rw permission.
     test_microvm.basic_config()
 
-    fs1 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "scratch"))
+    fs1 = drive_tools.FilesystemFile(test_microvm.chroot / "scratch")
     drive_id = "scratch"
     test_microvm.api.drive.put(
         drive_id=drive_id,
-        path_on_host=test_microvm.create_jailed_resource(fs1.path),
+        path_on_host=test_microvm.jail_path(fs1.path),
         is_root_device=False,
         is_read_only=False,
         io_engine=io_engine,
@@ -701,10 +701,10 @@ def test_negative_api_patch_post_boot(uvm_plain, io_engine):
     # a root file system with the rw permission.
     test_microvm.basic_config()
 
-    fs1 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "scratch"))
+    fs1 = drive_tools.FilesystemFile(test_microvm.chroot / "scratch")
     test_microvm.api.drive.put(
         drive_id="scratch",
-        path_on_host=test_microvm.create_jailed_resource(fs1.path),
+        path_on_host=test_microvm.jail_path(fs1.path),
         is_root_device=False,
         is_read_only=False,
         io_engine=io_engine,
@@ -743,7 +743,7 @@ def test_drive_patch(uvm_plain):
     # a root file system with the rw permission.
     test_microvm.basic_config(rootfs_io_engine="Sync")
 
-    fs = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "scratch"))
+    fs = drive_tools.FilesystemFile(test_microvm.chroot / "scratch")
     test_microvm.add_drive(
         drive_id="scratch",
         path_on_host=fs.path,
@@ -752,9 +752,7 @@ def test_drive_patch(uvm_plain):
         io_engine="Async" if is_io_uring_supported() else "Sync",
     )
 
-    fs_vub = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.fsfiles, "scratch_vub")
-    )
+    fs_vub = drive_tools.FilesystemFile(test_microvm.chroot / "scratch_vub")
     test_microvm.add_vhost_user_drive("scratch_vub", fs_vub.path)
 
     # Patching drive before boot is not allowed.
@@ -848,16 +846,16 @@ def _drive_patch(test_microvm):
     with pytest.raises(RuntimeError, match=re.escape(expected_msg)):
         test_microvm.api.drive.patch(drive_id="scratch", path_on_host=drive_path)
 
-    fs = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "scratch_new"))
+    fs = drive_tools.FilesystemFile(test_microvm.chroot / "scratch_new")
     # Updates to `path_on_host` with a valid path are allowed.
     test_microvm.api.drive.patch(
-        drive_id="scratch", path_on_host=test_microvm.create_jailed_resource(fs.path)
+        drive_id="scratch", path_on_host=test_microvm.jail_path(fs.path)
     )
 
     # Updates to valid `path_on_host` and `rate_limiter` are allowed.
     test_microvm.api.drive.patch(
         drive_id="scratch",
-        path_on_host=test_microvm.create_jailed_resource(fs.path),
+        path_on_host=test_microvm.jail_path(fs.path),
         rate_limiter={
             "bandwidth": {"size": 1000000, "refill_time": 100},
             "ops": {"size": 1, "refill_time": 100},
@@ -1169,7 +1167,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
 
     # We expect boot-source to be set with the following values
     expected_cfg["boot-source"] = {
-        "kernel_image_path": uvm_nano.get_jailed_resource(uvm_nano.kernel_file),
+        "kernel_image_path": uvm_nano.jail_path(uvm_nano.kernel_file),
         "initrd_path": None,
         "boot_args": None,
     }

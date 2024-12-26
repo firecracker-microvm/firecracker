@@ -31,7 +31,7 @@ class FilesystemFile:
         if fs_format not in self.KNOWN_FILEFS_FORMATS:
             raise ValueError("Format not in: + " + str(self.KNOWN_FILEFS_FORMATS))
         # Here we append the format as a
-        path = os.path.join(path + "." + fs_format)
+        path = os.path.join(str(path) + "." + fs_format)
 
         if os.path.isfile(path):
             raise FileExistsError("File already exists: " + path)

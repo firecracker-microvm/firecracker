@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for guest-side operations on /drives resources."""
 
-import os
-
 import pytest
 
 import host_tools.drive as drive_tools
@@ -36,9 +34,7 @@ def test_rescan_file(uvm_plain_any, io_engine):
 
     block_size = 2
     # Add a scratch block device.
-    fs = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.fsfiles, "scratch"), size=block_size
-    )
+    fs = drive_tools.FilesystemFile(test_microvm.chroot / "scratch", size=block_size)
     test_microvm.add_drive("scratch", fs.path, io_engine=io_engine)
 
     test_microvm.start()
@@ -75,9 +71,7 @@ def test_device_ordering(uvm_plain_any, io_engine):
     test_microvm.spawn()
 
     # Add first scratch block device.
-    fs1 = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.fsfiles, "scratch1"), size=128
-    )
+    fs1 = drive_tools.FilesystemFile(test_microvm.chroot / "scratch1", size=128)
     test_microvm.add_drive("scratch1", fs1.path, io_engine=io_engine)
 
     # Set up the microVM with 1 vCPUs, 256 MiB of RAM and a root file system
@@ -86,9 +80,7 @@ def test_device_ordering(uvm_plain_any, io_engine):
     test_microvm.add_net_iface()
 
     # Add the third block device.
-    fs2 = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.fsfiles, "scratch2"), size=512
-    )
+    fs2 = drive_tools.FilesystemFile(test_microvm.chroot / "scratch2", size=512)
     test_microvm.add_drive("scratch2", fs2.path, io_engine=io_engine)
 
     test_microvm.start()
@@ -123,16 +115,14 @@ def test_rescan_dev(uvm_plain_any, io_engine):
     test_microvm.add_net_iface()
 
     # Add a scratch block device.
-    fs1 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "fs1"))
+    fs1 = drive_tools.FilesystemFile(test_microvm.chroot / "fs1")
     test_microvm.add_drive("scratch", fs1.path, io_engine=io_engine)
 
     test_microvm.start()
 
     _check_block_size(test_microvm.ssh, "/dev/vdb", fs1.size())
 
-    fs2 = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.fsfiles, "fs2"), size=512
-    )
+    fs2 = drive_tools.FilesystemFile(test_microvm.chroot / "fs2", size=512)
 
     losetup = ["losetup", "--find", "--show", fs2.path]
     rc, stdout, _ = utils.check_output(losetup)
@@ -163,7 +153,7 @@ def test_non_partuuid_boot(uvm_plain_any, io_engine):
     test_microvm.add_net_iface()
 
     # Add another read-only block device.
-    fs = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "readonly"))
+    fs = drive_tools.FilesystemFile(test_microvm.chroot / "readonly")
     test_microvm.add_drive("scratch", fs.path, is_read_only=True, io_engine=io_engine)
 
     test_microvm.start()
@@ -262,7 +252,7 @@ def test_patch_drive(uvm_plain_any, io_engine):
     test_microvm.basic_config()
     test_microvm.add_net_iface()
 
-    fs1 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "scratch"))
+    fs1 = drive_tools.FilesystemFile(test_microvm.chroot / "scratch")
     test_microvm.add_drive("scratch", fs1.path, io_engine=io_engine)
 
     test_microvm.start()
@@ -270,9 +260,7 @@ def test_patch_drive(uvm_plain_any, io_engine):
     _check_mount(test_microvm.ssh, "/dev/vdb")
 
     # Updates to `path_on_host` with a valid path are allowed.
-    fs2 = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.fsfiles, "otherscratch"), size=512
-    )
+    fs2 = drive_tools.FilesystemFile(test_microvm.chroot / "otherscratch", size=512)
     test_microvm.api.drive.patch(
         drive_id="scratch", path_on_host=test_microvm.create_jailed_resource(fs2.path)
     )

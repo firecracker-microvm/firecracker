@@ -97,7 +97,7 @@ class Api:
 
     def __init__(self, api_usocket_full_name):
         self.socket = api_usocket_full_name
-        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        url_encoded_path = urllib.parse.quote_plus(str(self.socket))
         self.endpoint = DEFAULT_SCHEME + url_encoded_path
         self.session = Session()
 

@@ -8,7 +8,7 @@ import re
 import pytest
 import requests
 
-from framework.utils import Timeout, UffdHandler, check_output
+from framework.utils import Timeout, UffdHandler
 
 SOCKET_PATH = "/firecracker-uffd.sock"
 
@@ -82,9 +82,9 @@ def test_unbinded_socket(uvm_plain, snapshot):
     vm.spawn()
 
     jailed_vmstate = vm.create_jailed_resource(snapshot.vmstate)
-    socket_path = os.path.join(vm.path, "firecracker-uffd.sock")
-    check_output("touch {}".format(socket_path))
-    jailed_sock_path = vm.create_jailed_resource(socket_path)
+    socket_path = vm.chroot / "firecracker-uffd.sock"
+    socket_path.touch()
+    jailed_sock_path = vm.jail_path(socket_path)
 
     expected_msg = re.escape(
         "Load snapshot error: Failed to restore from snapshot: Failed to load guest "

@@ -203,11 +203,11 @@ def test_vsock_transport_reset_h2g(
 
     # Check that vsock device still works.
     # Test guest-initiated connections.
-    path = os.path.join(vm2.path, make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT))
+    path = vm2.chroot / make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
     check_guest_connections(vm2, path, vm_blob_path, blob_hash)
 
     # Test host-initiated connections.
-    path = os.path.join(vm2.jailer.chroot_path(), VSOCK_UDS_PATH)
+    path = vm2.chroot / VSOCK_UDS_PATH
     check_host_connections(path, blob_path, blob_hash)
     metrics = vm2.flush_metrics()
     validate_fc_metrics(metrics)
@@ -236,9 +236,7 @@ def test_vsock_transport_reset_g2h(uvm_nano, microvm_factory):
         code, _, _ = new_vm.ssh.run("pidof socat")
         assert code == 1
 
-        host_socket_path = os.path.join(
-            new_vm.path, f"{VSOCK_UDS_PATH}_{ECHO_SERVER_PORT}"
-        )
+        host_socket_path = new_vm.chroot / f"{VSOCK_UDS_PATH}_{ECHO_SERVER_PORT}"
         host_socat_commmand = [
             "socat",
             "-dddd",

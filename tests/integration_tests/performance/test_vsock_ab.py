@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests the VSOCK throughput of Firecracker uVMs."""
 
-import os
-
 import pytest
 
 from framework.utils_iperf import IPerf3Test, emit_iperf3_metrics
@@ -41,21 +39,20 @@ class VsockIPerf3Test(IPerf3Test):
         )
 
     def host_command(self, port_offset):
+        uds_path = self._microvm.chroot.joinpath(VSOCK_UDS_PATH)
         return (
             super()
             .host_command(port_offset)
             .with_arg("--vsock")
-            .with_arg("-B", os.path.join(self._microvm.path, VSOCK_UDS_PATH))
+            .with_arg("-B", str(uds_path))
         )
 
     def spawn_iperf3_client(self, client_idx, client_mode_flag):
         # Bind the UDS in the jailer's root.
-        self._microvm.create_jailed_resource(
-            os.path.join(
-                self._microvm.path,
-                make_host_port_path(VSOCK_UDS_PATH, self._base_port + client_idx),
-            )
+        uds_path = self._microvm.chroot / make_host_port_path(
+            VSOCK_UDS_PATH, self._base_port + client_idx
         )
+        self._microvm.create_jailed_resource(uds_path)
         # The rootfs does not have iperf3-vsock
         iperf3_guest = "/tmp/iperf3-vsock"
 
