@@ -250,7 +250,7 @@ def test_vsock_transport_reset_g2h(uvm_nano, microvm_factory):
         # Give some time for host socat to create socket
         time.sleep(0.5)
         assert Path(host_socket_path).exists()
-        new_vm.create_jailed_resource(host_socket_path)
+        new_vm.jail_path(host_socket_path)
 
         # Create a socat process in the guest which will connect to the host socat
         guest_socat_commmand = (

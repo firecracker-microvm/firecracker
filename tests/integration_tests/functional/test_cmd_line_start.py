@@ -27,8 +27,8 @@ def _configure_vm_from_json(test_microvm, vm_config_file):
     parameter to this helper function.
     """
     # since we don't use basic-config, we do it by hand
-    test_microvm.create_jailed_resource(test_microvm.kernel_file)
-    test_microvm.create_jailed_resource(test_microvm.rootfs_file)
+    test_microvm.jail_path(test_microvm.kernel_file)
+    test_microvm.jail_path(test_microvm.rootfs_file)
 
     vm_config_file = Path(vm_config_file)
     obj = json.load(vm_config_file.open(encoding="UTF-8"))

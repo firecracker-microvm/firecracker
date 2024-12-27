@@ -54,7 +54,7 @@ def test_rescan_file(uvm_plain_any, io_engine):
 
     test_microvm.api.drive.patch(
         drive_id="scratch",
-        path_on_host=test_microvm.create_jailed_resource(fs.path),
+        path_on_host=test_microvm.jail_path(fs.path),
     )
 
     _check_block_size(test_microvm.ssh, "/dev/vdb", fs.size())
@@ -132,7 +132,7 @@ def test_rescan_dev(uvm_plain_any, io_engine):
     try:
         test_microvm.api.drive.patch(
             drive_id="scratch",
-            path_on_host=test_microvm.create_jailed_resource(loopback_device),
+            path_on_host=test_microvm.jail_path(loopback_device),
         )
 
         _check_block_size(test_microvm.ssh, "/dev/vdb", fs2.size())
@@ -262,7 +262,7 @@ def test_patch_drive(uvm_plain_any, io_engine):
     # Updates to `path_on_host` with a valid path are allowed.
     fs2 = drive_tools.FilesystemFile(test_microvm.chroot / "otherscratch", size=512)
     test_microvm.api.drive.patch(
-        drive_id="scratch", path_on_host=test_microvm.create_jailed_resource(fs2.path)
+        drive_id="scratch", path_on_host=test_microvm.jail_path(fs2.path)
     )
 
     _check_mount(test_microvm.ssh, "/dev/vdb")

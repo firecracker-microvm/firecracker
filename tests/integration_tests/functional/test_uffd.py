@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Test UFFD related functionality when resuming from snapshot."""
 
-import os
 import re
+from pathlib import Path
 
 import pytest
 import requests
@@ -39,10 +39,10 @@ def snapshot_fxt(microvm_factory, guest_kernel_linux_5_10, rootfs):
 def spawn_pf_handler(vm, handler_path, mem_path):
     """Spawn page fault handler process."""
     # Copy snapshot memory file into chroot of microVM.
-    jailed_mem = vm.create_jailed_resource(mem_path)
+    jailed_mem = vm.jail_path(mem_path)
     # Copy the valid page fault binary into chroot of microVM.
-    jailed_handler = vm.create_jailed_resource(handler_path)
-    handler_name = os.path.basename(jailed_handler)
+    jailed_handler = Path(vm.jail_path(handler_path))
+    handler_name = jailed_handler.name
 
     uffd_handler = UffdHandler(
         handler_name, SOCKET_PATH, jailed_mem, vm.chroot, "uffd.log"
@@ -58,7 +58,7 @@ def test_bad_socket_path(uvm_plain, snapshot):
     """
     vm = uvm_plain
     vm.spawn()
-    jailed_vmstate = vm.create_jailed_resource(snapshot.vmstate)
+    jailed_vmstate = vm.jail_path(snapshot.vmstate)
 
     expected_msg = re.escape(
         "Load snapshot error: Failed to restore from snapshot: Failed to load guest "
@@ -81,7 +81,7 @@ def test_unbinded_socket(uvm_plain, snapshot):
     vm = uvm_plain
     vm.spawn()
 
-    jailed_vmstate = vm.create_jailed_resource(snapshot.vmstate)
+    jailed_vmstate = vm.jail_path(snapshot.vmstate)
     socket_path = vm.chroot / "firecracker-uffd.sock"
     socket_path.touch()
     jailed_sock_path = vm.jail_path(socket_path)

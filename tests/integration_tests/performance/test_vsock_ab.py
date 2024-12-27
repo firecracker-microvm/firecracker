@@ -52,7 +52,7 @@ class VsockIPerf3Test(IPerf3Test):
         uds_path = self._microvm.chroot / make_host_port_path(
             VSOCK_UDS_PATH, self._base_port + client_idx
         )
-        self._microvm.create_jailed_resource(uds_path)
+        self._microvm.jail_path(uds_path)
         # The rootfs does not have iperf3-vsock
         iperf3_guest = "/tmp/iperf3-vsock"
 

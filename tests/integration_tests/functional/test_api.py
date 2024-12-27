@@ -60,7 +60,7 @@ def test_drive_io_engine(uvm_plain):
 
     kwargs = {
         "drive_id": "rootfs",
-        "path_on_host": test_microvm.create_jailed_resource(test_microvm.rootfs_file),
+        "path_on_host": test_microvm.jail_path(test_microvm.rootfs_file),
         "is_root_device": True,
         "is_read_only": True,
     }

@@ -450,15 +450,12 @@ class Microvm:
         # get the latest metrics
         return self.get_all_metrics()[-1]
 
-    def create_jailed_resource(self, path):
-        """Create a hard link to some resource inside this microvm."""
-        return self.jailer.jailed_path(path, create=True)
-
     def jail_path(self, path):
-        """Get the relative jailed path to a resource.
+        """Return a path relative to the chroot
 
-        Also fix permissions if needed"""
-        return self.jailer.jailed_path(path, create=False)
+        Copies/hardlinks and fixes permissions as needed.
+        """
+        return self.jailer.jailed_path(path)
 
     @property
     def chroot(self):
@@ -562,7 +559,7 @@ class Microvm:
         if self.metadata_file:
             if os.path.exists(self.metadata_file):
                 LOG.debug("metadata file exists, adding as a jailed resource")
-                self.create_jailed_resource(self.metadata_file)
+                self.jail_path(self.metadata_file)
             self.jailer.extra_args.update(
                 {"metadata": os.path.basename(self.metadata_file)}
             )
@@ -676,14 +673,12 @@ class Microvm:
         if boot_args is not None:
             self.boot_args = boot_args
         boot_source_args = {
-            "kernel_image_path": self.create_jailed_resource(self.kernel_file),
+            "kernel_image_path": self.jail_path(self.kernel_file),
             "boot_args": self.boot_args,
         }
 
         if use_initrd and self.initrd_file is not None:
-            boot_source_args.update(
-                initrd_path=self.create_jailed_resource(self.initrd_file)
-            )
+            boot_source_args.update(initrd_path=self.jail_path(self.initrd_file))
 
         self.api.boot.put(**boot_source_args)
 
@@ -727,10 +722,9 @@ class Microvm:
     ):
         """Add a block device."""
 
-        path_on_jail = self.create_jailed_resource(path_on_host)
         self.api.drive.put(
             drive_id=drive_id,
-            path_on_host=path_on_jail,
+            path_on_host=self.jail_path(path_on_host),
             is_root_device=is_root_device,
             is_read_only=is_read_only,
             partuuid=partuuid,
@@ -779,7 +773,7 @@ class Microvm:
         if file:
             self.api.drive.patch(
                 drive_id=drive_id,
-                path_on_host=self.create_jailed_resource(file),
+                path_on_host=self.jail_path(file),
             )
             self.disks[drive_id] = Path(file)
         else:
@@ -891,7 +885,7 @@ class Microvm:
         assert len(snapshot_disks) > 0, "Snapshot requires at least one disk."
         jailed_disks = []
         for disk in snapshot_disks:
-            jailed_disks.append(self.create_jailed_resource(disk))
+            jailed_disks.append(self.jail_path(disk))
         self.disks = snapshot.disks
         self.ssh_key = snapshot.ssh_key
 

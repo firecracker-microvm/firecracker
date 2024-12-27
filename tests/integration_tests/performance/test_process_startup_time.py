@@ -80,5 +80,5 @@ def _test_startup_time(microvm, metrics, test_suffix: str):
 def _custom_filter_setup(test_microvm):
     bpf_path = test_microvm.chroot / "bpf.out"
     run_seccompiler_bin(bpf_path)
-    test_microvm.create_jailed_resource(bpf_path)
+    test_microvm.jail_path(bpf_path)
     test_microvm.jailer.extra_args.update({"seccomp-filter": "bpf.out"})

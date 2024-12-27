@@ -127,7 +127,7 @@ class JailerContext:
         """Return the MicroVM API socket path."""
         return self.chroot / self.api_socket_name
 
-    def jailed_path(self, file_path, create=False, subdir="."):
+    def jailed_path(self, file_path, subdir="."):
         """Create a hard link or block special device owned by uid:gid.
 
         Create a hard link or block special device from the specified file,
@@ -138,7 +138,7 @@ class JailerContext:
         global_p = self.chroot / subdir / file_path.name
         global_p.parent.mkdir(parents=True, exist_ok=True)
         jailed_p = Path("/") / subdir / file_path.name
-        if create and not global_p.exists():
+        if not global_p.exists():
             stat_src = file_path.stat()
             if file_path.is_block_device():
                 perms = stat.S_IRUSR | stat.S_IWUSR
@@ -160,7 +160,7 @@ class JailerContext:
         """Set up this jailer context."""
         os.makedirs(self.chroot, exist_ok=True)
         # Copy the /etc/localtime file in the jailer root
-        self.jailed_path("/etc/localtime", create=True, subdir="etc")
+        self.jailed_path("/etc/localtime", subdir="etc")
 
     def cleanup(self):
         """Clean up this jailer context."""

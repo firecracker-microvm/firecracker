@@ -239,8 +239,8 @@ def test_load_snapshot_failure_handling(uvm_plain):
     snapshot_vmstate.touch()
 
     # Hardlink the snapshot files into the microvm jail.
-    jailed_mem = vm.create_jailed_resource(snapshot_mem)
-    jailed_vmstate = vm.create_jailed_resource(snapshot_vmstate)
+    jailed_mem = vm.jail_path(snapshot_mem)
+    jailed_vmstate = vm.jail_path(snapshot_vmstate)
 
     # Load the snapshot
     expected_msg = (
