@@ -20,7 +20,7 @@ bincode = "1.2.1"
 displaydoc = "0.2.5"
 libc = "0.2.169"
 log-instrument = { path = "../log-instrument", optional = true }
-serde = { version = "1.0.216", features = ["derive"] }
+serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.134"
 thiserror = "2.0.9"
 
