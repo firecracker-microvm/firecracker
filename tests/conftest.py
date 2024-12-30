@@ -76,6 +76,11 @@ def pytest_addoption(parser):
     )
 
 
+def pytest_report_header():
+    """Pytest hook to print relevant metadata in the logs"""
+    return f"EC2 AMI: {global_props.ami}"
+
+
 @pytest.hookimpl(wrapper=True, tryfirst=True)
 def pytest_runtest_makereport(item, call):  # pylint:disable=unused-argument
     """Plugin to get test results in fixtures
