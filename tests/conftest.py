@@ -23,6 +23,7 @@ designed with the following goals in mind:
 """
 
 import inspect
+import json
 import os
 import re
 import shutil
@@ -64,6 +65,14 @@ def pytest_addoption(parser):
         "--binary-dir",
         action="store",
         help="use firecracker/jailer binaries from this directory instead of compiling from source",
+    )
+
+    parser.addoption(
+        "--custom-cpu-template",
+        action="store",
+        help="Path to custom CPU template to be applied unless overwritten by a test",
+        default=None,
+        type=Path,
     )
 
 
@@ -270,9 +279,22 @@ def microvm_factory(request, record_property, results_dir):
         fc_binary_path, jailer_binary_path = build_tools.get_firecracker_binaries()
     record_property("firecracker_bin", str(fc_binary_path))
 
+    # If `--custom-cpu-template` option is provided, the given CPU template will
+    # be applied afterwards unless overwritten.
+    custom_cpu_template_path = request.config.getoption("--custom-cpu-template")
+    custom_cpu_template = (
+        {
+            "name": custom_cpu_template_path.stem,
+            "template": json.loads(custom_cpu_template_path.read_text("utf-8")),
+        }
+        if custom_cpu_template_path
+        else None
+    )
     # We could override the chroot base like so
     # jailer_kwargs={"chroot_base": "/srv/jailo"}
-    uvm_factory = MicroVMFactory(fc_binary_path, jailer_binary_path)
+    uvm_factory = MicroVMFactory(
+        fc_binary_path, jailer_binary_path, custom_cpu_template=custom_cpu_template
+    )
     yield uvm_factory
 
     # if the test failed, save important files from the root of the uVM into `test_results` for troubleshooting
