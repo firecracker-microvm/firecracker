@@ -16,6 +16,9 @@ and this project adheres to
   unnecessary fields (`max_connections` and `max_pending_resets`) from the
   snapshot format, bumping the snapshot version to 5.0.0. Users need to
   regenerate snapshots.
+- [#4926](https://github.com/firecracker-microvm/firecracker/pull/4926): Replace
+  underlying implementation for seccompiler from in house one in favor of
+  `libseccomp` which produces smaller and more optimized BPF code.
 
 ### Deprecated
 

@@ -19,7 +19,6 @@ use kvm_ioctls::VcpuExit;
 use kvm_ioctls::VcpuFd;
 use libc::{c_int, c_void, siginfo_t};
 use log::{error, info, warn};
-use seccompiler::{BpfProgram, BpfProgramRef};
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
 
@@ -27,6 +26,7 @@ use crate::cpu_config::templates::{CpuConfiguration, GuestConfigError};
 #[cfg(feature = "gdb")]
 use crate::gdb::target::{get_raw_tid, GdbTargetError};
 use crate::logger::{IncMetric, METRICS};
+use crate::seccomp::{BpfProgram, BpfProgramRef};
 use crate::utils::signal::{register_signal_handler, sigrtmin, Killable};
 use crate::utils::sm::StateMachine;
 use crate::vstate::vm::Vm;
@@ -288,7 +288,7 @@ impl Vcpu {
         // Load seccomp filters for this vCPU thread.
         // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
         // altogether is the desired behaviour.
-        if let Err(err) = seccompiler::apply_filter(seccomp_filter) {
+        if let Err(err) = crate::seccomp::apply_filter(seccomp_filter) {
             panic!(
                 "Failed to set the requested seccomp filters on vCPU {}: Error: {}",
                 self.kvm_vcpu.index, err
@@ -773,7 +773,7 @@ pub(crate) mod tests {
     use crate::builder::StartMicrovmError;
     use crate::devices::bus::DummyDevice;
     use crate::devices::BusDevice;
-    use crate::seccomp_filters::get_empty_filters;
+    use crate::seccomp::get_empty_filters;
     use crate::utils::signal::validate_signal_num;
     use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
     use crate::vstate::vcpu::VcpuError as EmulationError;

@@ -17,7 +17,6 @@ use std::{io, panic};
 use api_server_adapter::ApiServerError;
 use event_manager::SubscriberOps;
 use seccomp::FilterError;
-use seccompiler::BpfThreadMap;
 use utils::arg_parser::{ArgParser, Argument};
 use utils::validators::validate_instance_id;
 use vmm::arch::host_page_size;
@@ -27,6 +26,7 @@ use vmm::logger::{
 };
 use vmm::persist::SNAPSHOT_VERSION;
 use vmm::resources::VmResources;
+use vmm::seccomp::BpfThreadMap;
 use vmm::signal_handler::register_signal_handlers;
 use vmm::snapshot::{Snapshot, SnapshotError};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};

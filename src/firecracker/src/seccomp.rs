@@ -5,8 +5,7 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
 
-use seccompiler::{deserialize_binary, BpfThreadMap, DeserializationError};
-use vmm::seccomp_filters::get_empty_filters;
+use vmm::seccomp::{deserialize_binary, get_empty_filters, BpfThreadMap, DeserializationError};
 
 const THREAD_CATEGORIES: [&str; 3] = ["vmm", "api", "vcpu"];
 
@@ -118,7 +117,7 @@ fn filter_thread_categories(map: BpfThreadMap) -> Result<BpfThreadMap, FilterErr
 mod tests {
     use std::sync::Arc;
 
-    use seccompiler::BpfThreadMap;
+    use vmm::seccomp::BpfThreadMap;
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;

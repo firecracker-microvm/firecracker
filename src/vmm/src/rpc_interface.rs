@@ -4,7 +4,6 @@
 use std::fmt::{self, Debug};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use seccompiler::BpfThreadMap;
 use serde_json::Value;
 use utils::time::{get_time_us, ClockType};
 
@@ -18,6 +17,7 @@ use crate::logger::{info, warn, LoggerConfig, *};
 use crate::mmds::data_store::{self, Mmds};
 use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
 use crate::resources::VmmConfig;
+use crate::seccomp::BpfThreadMap;
 use crate::vmm_config::balloon::{
     BalloonConfigError, BalloonDeviceConfig, BalloonStats, BalloonUpdateConfig,
     BalloonUpdateStatsConfig,
@@ -852,12 +852,11 @@ impl RuntimeApiController {
 mod tests {
     use std::path::PathBuf;
 
-    use seccompiler::BpfThreadMap;
-
     use super::*;
     use crate::builder::tests::default_vmm;
     use crate::devices::virtio::block::CacheType;
     use crate::mmds::data_store::MmdsVersion;
+    use crate::seccomp::BpfThreadMap;
     use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
     use crate::HTTP_MAX_PAYLOAD_SIZE;
 
