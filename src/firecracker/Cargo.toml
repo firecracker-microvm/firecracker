@@ -23,7 +23,7 @@ log-instrument = { path = "../log-instrument", optional = true }
 micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 
 seccompiler = { path = "../seccompiler" }
-serde = { version = "1.0.216", features = ["derive"] }
+serde = { version = "1.0.217", features = ["derive"] }
 serde_derive = "1.0.136"
 serde_json = "1.0.134"
 thiserror = "2.0.9"
@@ -38,13 +38,13 @@ libc = "0.2.169"
 regex = { version = "1.11.1", default-features = false, features = ["std", "unicode-perl"] }
 
 # Dev-Dependencies for uffd examples
-serde = { version = "1.0.216", features = ["derive"] }
+serde = { version = "1.0.217", features = ["derive"] }
 userfaultfd = "0.8.1"
 
 [build-dependencies]
 bincode = "1.2.1"
 seccompiler = { path = "../seccompiler" }
-serde = { version = "1.0.216" }
+serde = { version = "1.0.217" }
 serde_json = "1.0.134"
 
 [features]
