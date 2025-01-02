@@ -34,6 +34,8 @@ pub enum QueueError {
     DescIndexOutOfBounds(u16),
     /// Failed to write value into the virtio queue used ring: {0}
     MemoryError(#[from] vm_memory::GuestMemoryError),
+    /// Pointer is not aligned properly: {0:#x} not {1}-byte aligned.
+    PointerNotAligned(usize, u8),
 }
 
 /// A virtio descriptor constraints with C representative.
@@ -323,11 +325,36 @@ impl Queue {
             .get_slice_ptr(mem, self.used_ring_address, self.used_ring_size())?
             .cast();
 
-        // Disable it for kani tests, otherwise it will hit this assertion
-        // and fail.
-        #[cfg(not(kani))]
-        if self.actual_size() < self.len() {
-            return Err(QueueError::InvalidQueueSize(self.len(), self.actual_size()));
+        // All the above pointers are expected to be aligned properly; otherwise some methods (e.g.
+        // `read_volatile()`) will panic. Such an unalignment is possible when restored from a
+        // broken/fuzzed snapshot.
+        //
+        // Specification of those pointers' alignments
+        // https://docs.oasis-open.org/virtio/virtio/v1.2/csd01/virtio-v1.2-csd01.html#x1-350007
+        // > ================ ==========
+        // > Virtqueue Part    Alignment
+        // > ================ ==========
+        // > Descriptor Table 16
+        // > Available Ring   2
+        // > Used Ring        4
+        // > ================ ==========
+        if !self.desc_table_ptr.cast::<u128>().is_aligned() {
+            return Err(QueueError::PointerNotAligned(
+                self.desc_table_ptr as usize,
+                16,
+            ));
+        }
+        if !self.avail_ring_ptr.is_aligned() {
+            return Err(QueueError::PointerNotAligned(
+                self.avail_ring_ptr as usize,
+                2,
+            ));
+        }
+        if !self.used_ring_ptr.cast::<u32>().is_aligned() {
+            return Err(QueueError::PointerNotAligned(
+                self.used_ring_ptr as usize,
+                4,
+            ));
         }
 
         Ok(())
@@ -1234,7 +1261,6 @@ mod verification {
 
 #[cfg(test)]
 mod tests {
-
     use vm_memory::Bytes;
 
     pub use super::*;
@@ -1642,6 +1668,63 @@ mod tests {
         assert!(q.pop().is_some());
         assert!(q.try_enable_notification());
         assert_eq!(q.used_ring_avail_event_get(), 1);
+    }
+
+    #[test]
+    fn test_initialize_with_aligned_pointer() {
+        let mut q = Queue::new(0);
+
+        let random_addr = 0x321;
+        // Descriptor table must be 16-byte aligned.
+        q.desc_table_address = GuestAddress(random_addr / 16 * 16);
+        // Available ring must be 2-byte aligned.
+        q.avail_ring_address = GuestAddress(random_addr / 2 * 2);
+        // Used ring must be 4-byte aligned.
+        q.avail_ring_address = GuestAddress(random_addr / 4 * 4);
+
+        let mem = single_region_mem(0x1000);
+        q.initialize(&mem).unwrap();
+    }
+
+    #[test]
+    fn test_initialize_with_misaligned_pointer() {
+        let mut q = Queue::new(0);
+        let mem = single_region_mem(0x1000);
+
+        // Descriptor table must be 16-byte aligned.
+        q.desc_table_address = GuestAddress(0xb);
+        match q.initialize(&mem) {
+            Ok(_) => panic!("Unexpected success"),
+            Err(QueueError::PointerNotAligned(addr, alignment)) => {
+                assert_eq!(addr % 16, 0xb);
+                assert_eq!(alignment, 16);
+            }
+            Err(e) => panic!("Unexpected error {e:#?}"),
+        }
+        q.desc_table_address = GuestAddress(0x0);
+
+        // Available ring must be 2-byte aligned.
+        q.avail_ring_address = GuestAddress(0x1);
+        match q.initialize(&mem) {
+            Ok(_) => panic!("Unexpected success"),
+            Err(QueueError::PointerNotAligned(addr, alignment)) => {
+                assert_eq!(addr % 2, 0x1);
+                assert_eq!(alignment, 2);
+            }
+            Err(e) => panic!("Unexpected error {e:#?}"),
+        }
+        q.avail_ring_address = GuestAddress(0x0);
+
+        // Used ring must be 4-byte aligned.
+        q.used_ring_address = GuestAddress(0x3);
+        match q.initialize(&mem) {
+            Ok(_) => panic!("unexpected success"),
+            Err(QueueError::PointerNotAligned(addr, alignment)) => {
+                assert_eq!(addr % 4, 0x3);
+                assert_eq!(alignment, 4);
+            }
+            Err(e) => panic!("Unexpected error {e:#?}"),
+        }
     }
 
     #[test]
