@@ -31,7 +31,7 @@ pub struct GuestRegionUffdMapping {
     /// Offset in the backend file/buffer where the region contents are.
     pub offset: u64,
     /// The configured page size for this memory region.
-    pub page_size_kib: usize,
+    pub page_size: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -71,7 +71,7 @@ impl UffdHandler {
             .expect("Cannot deserialize memory mappings.");
         let memsize: usize = mappings.iter().map(|r| r.size).sum();
         // Page size is the same for all memory regions, so just grab the first one
-        let page_size = mappings.first().unwrap().page_size_kib;
+        let page_size = mappings.first().unwrap().page_size;
 
         // Make sure memory size matches backing data size.
         assert_eq!(memsize, size);
@@ -341,7 +341,7 @@ mod tests {
             base_host_virt_addr: 0,
             size: 0x1000,
             offset: 0,
-            page_size_kib: 4096,
+            page_size: 4096,
         }];
         let dummy_memory_region_json = serde_json::to_string(&dummy_memory_region).unwrap();
 
@@ -374,7 +374,7 @@ mod tests {
             base_host_virt_addr: 0,
             size: 0,
             offset: 0,
-            page_size_kib: 4096,
+            page_size: 4096,
         }];
         let error_memory_region_json = serde_json::to_string(&error_memory_region).unwrap();
         stream
