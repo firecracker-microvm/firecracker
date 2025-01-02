@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt;
+use std::sync::LazyLock;
 
+use log::warn;
 use serde::{Deserialize, Serialize};
 
 /// Module for aarch64 related functionality.
@@ -52,8 +54,23 @@ pub struct InitrdConfig {
     pub size: usize,
 }
 
-/// Default (smallest) memory page size for the supported architectures.
-pub const PAGE_SIZE: usize = 4096;
+/// Default page size for the guest OS.
+pub const GUEST_PAGE_SIZE: usize = 4096;
+
+/// Get the size of the host page size.
+pub fn host_page_size() -> usize {
+    /// Default page size for the host OS.
+    static PAGE_SIZE: LazyLock<usize> = LazyLock::new(|| {
+        // # Safety: Value always valid
+        let r = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+        usize::try_from(r).unwrap_or_else(|_| {
+            warn!("Could not get host page size with sysconf, assuming default 4K host pages");
+            4096
+        })
+    });
+
+    *PAGE_SIZE
+}
 
 impl fmt::Display for DeviceType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

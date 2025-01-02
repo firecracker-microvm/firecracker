@@ -97,7 +97,7 @@ pub fn initrd_load_addr(
         return Err(ConfigurationError::InitrdAddress);
     }
 
-    let align_to_pagesize = |address| address & !(super::PAGE_SIZE - 1);
+    let align_to_pagesize = |address| address & !(super::GUEST_PAGE_SIZE - 1);
     Ok(align_to_pagesize(lowmem_size - initrd_size) as u64)
 }
 
