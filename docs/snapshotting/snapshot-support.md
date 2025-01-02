@@ -266,7 +266,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
     -d '{
             "snapshot_type": "Full",
             "snapshot_path": "./snapshot_file",
-            "mem_file_path": "./mem_file",
+            "mem_file_path": "./mem_file"
     }'
 ```
 
