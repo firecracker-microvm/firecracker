@@ -251,15 +251,13 @@ class Tap:
         It also creates a new tap device, brings it up and moves the interface
         to the specified namespace.
         """
-        # Avoid a conflict if two tests want to create the same tap device tap0
-        # in the host before moving it into its own netns
-        temp_name = "tap" + random_str(k=8)
-        utils.check_output(f"ip tuntap add mode tap name {temp_name}")
-        utils.check_output(f"ip link set {temp_name} name {name} netns {netns}")
-        if ip:
-            utils.check_output(f"ip netns exec {netns} ifconfig {name} {ip} up")
         self._name = name
         self._netns = netns
+        # Create the tap device tap0 directly in the network namespace to avoid
+        # conflicts
+        self.netns.check_output(f"ip tuntap add mode tap name {name}")
+        if ip:
+            self.netns.check_output(f"ifconfig {name} {ip} up")
 
     @property
     def name(self):
@@ -273,14 +271,10 @@ class Tap:
 
     def set_tx_queue_len(self, tx_queue_len):
         """Set the length of the tap's TX queue."""
-        utils.check_output(
-            "ip netns exec {} ip link set {} txqueuelen {}".format(
-                self.netns, self.name, tx_queue_len
-            )
-        )
+        self.netns.check_output(f"ip link set {self.name} txqueuelen {tx_queue_len}")
 
     def __repr__(self):
-        return f"<Tap name={self.name} netns={self.netns}>"
+        return f"<Tap name={self.name} netns={self.netns.id}>"
 
 
 @dataclass(frozen=True, repr=True)
@@ -315,7 +309,7 @@ class NetIfaceConfig:
         )
 
 
-@dataclass(frozen=True, repr=True)
+@dataclass(repr=True)
 class NetNs:
     """Defines a network namespace."""
 
@@ -334,6 +328,10 @@ class NetNs:
         """Return the jailer context netns file prefix."""
         return f"ip netns exec {self.id}"
 
+    def check_output(self, cmd: str):
+        """Run a command inside the netns."""
+        return utils.check_output(f"{self.cmd_prefix()} {cmd}")
+
     def setup(self):
         """Set up this network namespace."""
         if not self.path.exists():
@@ -350,6 +348,19 @@ class NetNs:
         We assume that a Tap is always configured with the same IP.
         """
         if name not in self.taps:
-            tap = Tap(name, self.id, ip)
+            tap = Tap(name, self, ip)
             self.taps[name] = tap
         return self.taps[name]
+
+    def is_used(self):
+        """Are any of the TAPs still in use
+
+        Waits until there's no carrier signal.
+        Otherwise trying to reuse the TAP may return
+            `Resource busy (os error 16)`
+        """
+        for tap in self.taps:
+            _, stdout, _ = self.check_output(f"cat /sys/class/net/{tap}/carrier")
+            if stdout.strip() != "0":
+                return True
+        return False
