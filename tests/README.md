@@ -150,13 +150,13 @@ post-merge. Specific tests, such as our
 [snapshot restore latency tests](integration_tests/performance/test_snapshot_ab.py)
 contain no assertions themselves, but rather they emit data series using the
 `aws_embedded_metrics` library. When executed by the
-[`tools/ab_test.py`](../tools/ab_test.py) orchestration script, these data
+[`tools/ab/ab_test.py`](../tools/ab/ab_test.py) orchestration script, these data
 series are collected. The orchestration script executes each test twice with
 different Firecracker binaries, and then matches up corresponding data series
 from the _A_ and _B_ run. For each data series, it performs a non-parametric
 test. For each data series where the difference between the _A_ and _B_ run is
 considered statically significant, it will print out the associated metric.
-Please see `tools/ab_test.py --help` for information on how to configure what
+Please see `tools/ab/ab_test.py --help` for information on how to configure what
 the script considers significant.
 
 Writing your own A/B-Test is easy: Simply write a test that outputs a data
@@ -193,12 +193,12 @@ metric for which they wish to support A/B-testing**. This is because
 non-parametric tests operate on data series instead of individual data points.
 
 When emitting metrics with `aws_embedded_metrics`, each metric (data series) is
-associated with a set of dimensions. The `tools/ab_test.py` script uses these
+associated with a set of dimensions. The `tools/ab/ab_test.py` script uses these
 dimension to match up data series between two test runs. It only matches up two
 data series with the same name if their dimensions match.
 
 Special care needs to be taken when pytest expands the argument passed to
-`tools/ab_test.py`'s `--test` option into multiple individual test cases. If two
+`tools/ab/ab_test.py`'s `--test` option into multiple individual test cases. If two
 test cases use the same dimensions for different data series, the script will
 fail and print out the names of the violating data series. For this reason,
 **A/B-Compatible tests should include a `performance_test` key in their
@@ -208,14 +208,14 @@ In addition to the above, care should be taken that the dimensions of the data
 series emitted by some test case are unique to that test case. For example, if
 we have a boottime test parameterized by number of vcpus, but the emitted
 boottime data series' dimension set is just
-`{"performance_test": "test_boottime"}`, then `tools/ab_test.py` will not be
+`{"performance_test": "test_boottime"}`, then `tools/ab/ab_test.py` will not be
 able to tell apart data series belonging to different microVM sizes, and instead
 combine them (which is probably not desired). For this reason **A/B-Compatible
 tests should always include all pytest parameters in their dimension set.**
 
-Lastly, performance A/B-Testing through `tools/ab_test.py` can only detect
+Lastly, performance A/B-Testing through `tools/ab/ab_test.py` can only detect
 performance differences that are present in the Firecracker binary. The
-`tools/ab_test.py` script only checks out the revisions it is passed to execute
+`tools/ab/ab_test.py` script only checks out the revisions it is passed to execute
 `cargo build` to generate a Firecracker binary. It does not run integration
 tests in the context of the checked out revision. In particular, both the _A_
 and the _B_ run will be triggered from within the same docker container, and
@@ -223,7 +223,7 @@ using the same revision of the integration test code. This means it is not
 possible to use orchestrated A/B-Testing to assess the impact of, say, changing
 only python code (such as enabling logging). Only Rust code can be A/B-Tested.
 The exception to this are toolchain differences. If both specified revisions
-have `rust-toolchain.toml` files, then `tools/ab_test.py` will compile using the
+have `rust-toolchain.toml` files, then `tools/ab/ab_test.py` will compile using the
 toolchain specified by the revision, instead of the toolchain installed in the
 docker container from which the script is executed.
 
@@ -256,25 +256,25 @@ This instructs `aws_embedded_metrics` to dump all data series that our A/B-Test
 orchestration would analyze to `stdout`, and pytest will capture this output
 into a file stored at `./test_results/test-report.json`.
 
-The `tools/ab_test.py` script can consume these test reports, so next collect
+The `tools/ab/ab_test.py` script can consume these test reports, so next collect
 your two test report files to your local machine and run
 
 ```sh
-tools/ab_test.py analyze <first test-report.json> <second test-report.json>
+tools/ab/ab_test.py analyze <first test-report.json> <second test-report.json>
 ```
 
 This will then print the same analysis described in the previous sections.
 
 #### Troubleshooting
 
-If during `tools/ab_test.py analyze` you get an error like
+If during `tools/ab/ab_test.py analyze` you get an error like
 
 ```bash
-$ tools/ab_test.py analyze <first test-report.json> <second test-report.json>
+$ tools/ab/ab_test.py analyze <first test-report.json> <second test-report.json>
 Traceback (most recent call last):
-  File "/firecracker/tools/ab_test.py", line 412, in <module>
+  File "/firecracker/tools/ab/ab_test.py", line 412, in <module>
     data_a = load_data_series(args.report_a)
-  File "/firecracker/tools/ab_test.py", line 122, in load_data_series
+  File "/firecracker/tools/ab/ab_test.py", line 122, in load_data_series
     for line in test["teardown"]["stdout"].splitlines():
 KeyError: 'stdout'
 ```
