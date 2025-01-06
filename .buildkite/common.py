@@ -139,7 +139,8 @@ class DictAction(argparse.Action):
         res = getattr(namespace, self.dest, {})
         key_str, val = value.split("=", maxsplit=1)
         keys = key_str.split("/")
-        update = {keys[-1]: ast.literal_eval(val)}
+        # Interpret it as a literal iff it starts like one
+        update = {keys[-1]: ast.literal_eval(val) if val[0] in "[{'" else val}
         for key in list(reversed(keys))[1:]:
             update = {key: update}
         res = overlay_dict(res, update)
