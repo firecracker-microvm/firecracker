@@ -83,7 +83,7 @@ impl From<&CpuTemplateType> for StaticCpuTemplate {
     }
 }
 
-impl<'a> TryFrom<&'a [u8]> for CustomCpuTemplate {
+impl TryFrom<&[u8]> for CustomCpuTemplate {
     type Error = serde_json::Error;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {

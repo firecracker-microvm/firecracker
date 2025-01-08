@@ -14,10 +14,10 @@ SOCKET_PATH = "/firecracker-uffd.sock"
 
 
 @pytest.fixture(scope="function", name="snapshot")
-def snapshot_fxt(microvm_factory, guest_kernel_linux_5_10, rootfs_ubuntu_22):
+def snapshot_fxt(microvm_factory, guest_kernel_linux_5_10, rootfs):
     """Create a snapshot of a microVM."""
 
-    basevm = microvm_factory.build(guest_kernel_linux_5_10, rootfs_ubuntu_22)
+    basevm = microvm_factory.build(guest_kernel_linux_5_10, rootfs)
     basevm.spawn()
     basevm.basic_config(vcpu_count=2, mem_size_mib=256)
     basevm.add_net_iface()

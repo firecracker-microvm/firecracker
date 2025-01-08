@@ -180,7 +180,7 @@ curl --unix-socket /tmp/firecracker.socket -i  \
   -H 'Content-Type: application/json'      \
   -d '{
         "kvm_capabilities": ["171", "172"],
-        "vcpu_features": [{ "index": 0, "bitmap": "0b1100000" }]
+        "vcpu_features": [{ "index": 0, "bitmap": "0b11xxxxx" }]
         "reg_modifiers": [
           {
             "addr": "0x603000000013c020",

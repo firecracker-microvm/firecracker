@@ -119,9 +119,8 @@ impl Entropy {
         }
 
         let mut rand_bytes = vec![0; self.buffer.len() as usize];
-        rand::fill(&mut rand_bytes).map_err(|err| {
+        rand::fill(&mut rand_bytes).inspect_err(|_| {
             METRICS.host_rng_fails.inc();
-            err
         })?;
 
         // It is ok to unwrap here. We are writing `iovec.len()` bytes at offset 0.

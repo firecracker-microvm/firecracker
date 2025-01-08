@@ -23,6 +23,7 @@ designed with the following goals in mind:
 """
 
 import inspect
+import json
 import os
 import re
 import shutil
@@ -35,7 +36,7 @@ import pytest
 
 import host_tools.cargo_build as build_tools
 from framework import defs, utils
-from framework.artifacts import kernel_params, rootfs_params
+from framework.artifacts import disks, kernel_params
 from framework.microvm import MicroVMFactory
 from framework.properties import global_props
 from framework.utils_cpu_templates import (
@@ -65,6 +66,19 @@ def pytest_addoption(parser):
         action="store",
         help="use firecracker/jailer binaries from this directory instead of compiling from source",
     )
+
+    parser.addoption(
+        "--custom-cpu-template",
+        action="store",
+        help="Path to custom CPU template to be applied unless overwritten by a test",
+        default=None,
+        type=Path,
+    )
+
+
+def pytest_report_header():
+    """Pytest hook to print relevant metadata in the logs"""
+    return f"EC2 AMI: {global_props.ami}"
 
 
 @pytest.hookimpl(wrapper=True, tryfirst=True)
@@ -105,6 +119,11 @@ def record_props(request, record_property):
 def pytest_runtest_logreport(report):
     """Send general test metrics to CloudWatch"""
 
+    # only publish metrics from the main process
+    worker_id = os.environ.get("PYTEST_XDIST_WORKER")
+    if worker_id is not None:
+        return
+
     # The pytest's test protocol has three phases for each test item: setup,
     # call and teardown. At the end of each phase, pytest_runtest_logreport()
     # is called.
@@ -135,6 +154,7 @@ def pytest_runtest_logreport(report):
         # and global
         {},
     )
+    METRICS.set_property("pytest_xdist_worker", worker_id)
     METRICS.set_property("result", report.outcome)
     METRICS.set_property("location", report.location)
     for prop_name, prop_val in report.user_properties:
@@ -264,9 +284,22 @@ def microvm_factory(request, record_property, results_dir):
         fc_binary_path, jailer_binary_path = build_tools.get_firecracker_binaries()
     record_property("firecracker_bin", str(fc_binary_path))
 
+    # If `--custom-cpu-template` option is provided, the given CPU template will
+    # be applied afterwards unless overwritten.
+    custom_cpu_template_path = request.config.getoption("--custom-cpu-template")
+    custom_cpu_template = (
+        {
+            "name": custom_cpu_template_path.stem,
+            "template": json.loads(custom_cpu_template_path.read_text("utf-8")),
+        }
+        if custom_cpu_template_path
+        else None
+    )
     # We could override the chroot base like so
     # jailer_kwargs={"chroot_base": "/srv/jailo"}
-    uvm_factory = MicroVMFactory(fc_binary_path, jailer_binary_path)
+    uvm_factory = MicroVMFactory(
+        fc_binary_path, jailer_binary_path, custom_cpu_template=custom_cpu_template
+    )
     yield uvm_factory
 
     # if the test failed, save important files from the root of the uVM into `test_results` for troubleshooting
@@ -292,13 +325,6 @@ def microvm_factory(request, record_property, results_dir):
     uvm_factory.kill()
 
 
-@pytest.fixture(params=static_cpu_templates_params())
-def cpu_template(request, record_property):
-    """Return all static CPU templates supported by the vendor."""
-    record_property("static_cpu_template", request.param)
-    return request.param
-
-
 @pytest.fixture(params=custom_cpu_templates_params())
 def custom_cpu_template(request, record_property):
     """Return all dummy custom CPU templates supported by the vendor."""
@@ -307,14 +333,20 @@ def custom_cpu_template(request, record_property):
 
 
 @pytest.fixture(
-    params=list(static_cpu_templates_params()) + list(custom_cpu_templates_params())
+    params=[
+        pytest.param(None, id="NO_CPU_TMPL"),
+        *static_cpu_templates_params(),
+        *custom_cpu_templates_params(),
+    ],
 )
 def cpu_template_any(request, record_property):
-    """This fixture combines static and custom CPU templates"""
-    if "name" in request.param:
-        record_property("custom_cpu_template", request.param["name"])
-    else:
-        record_property("static_cpu_template", request.param)
+    """This fixture combines no template, static and custom CPU templates"""
+    cpu_template_name = request.param
+    if request.param is None:
+        cpu_template_name = "None"
+    elif "name" in request.param:
+        cpu_template_name = request.param["name"]
+    record_property("cpu_template", cpu_template_name)
     return request.param
 
 
@@ -355,13 +387,6 @@ def guest_kernel_fxt(request, record_property):
     return kernel
 
 
-def rootfs_fxt(request, record_property):
-    """Return all supported rootfs."""
-    fs = request.param
-    record_property("rootfs", fs.name)
-    return fs
-
-
 # Fixtures for all guest kernels, and specific versions
 guest_kernel = pytest.fixture(guest_kernel_fxt, params=kernel_params("vmlinux-*"))
 guest_kernel_acpi = pytest.fixture(
@@ -381,28 +406,33 @@ guest_kernel_linux_6_1 = pytest.fixture(
     params=kernel_params("vmlinux-6.1*"),
 )
 
-# Fixtures for all Ubuntu rootfs, and specific versions
-rootfs = pytest.fixture(rootfs_fxt, params=rootfs_params("*.squashfs"))
-rootfs_ubuntu_22 = pytest.fixture(
-    rootfs_fxt, params=rootfs_params("ubuntu-22*.squashfs")
-)
-rootfs_rw = pytest.fixture(rootfs_fxt, params=rootfs_params("*.ext4"))
+
+@pytest.fixture
+def rootfs():
+    """Return an Ubuntu 24.04 read-only rootfs"""
+    return disks("ubuntu-24.04.squashfs")[0]
 
 
 @pytest.fixture
-def uvm_plain(microvm_factory, guest_kernel_linux_5_10, rootfs_ubuntu_22):
+def rootfs_rw():
+    """Return an Ubuntu 24.04 ext4 rootfs"""
+    return disks("ubuntu-24.04.ext4")[0]
+
+
+@pytest.fixture
+def uvm_plain(microvm_factory, guest_kernel_linux_5_10, rootfs):
     """Create a vanilla VM, non-parametrized
     kernel: 5.10
-    rootfs: Ubuntu 22.04
+    rootfs: Ubuntu 24.04
     """
-    return microvm_factory.build(guest_kernel_linux_5_10, rootfs_ubuntu_22)
+    return microvm_factory.build(guest_kernel_linux_5_10, rootfs)
 
 
 @pytest.fixture
 def uvm_plain_rw(microvm_factory, guest_kernel_linux_5_10, rootfs_rw):
     """Create a vanilla VM, non-parametrized
     kernel: 5.10
-    rootfs: Ubuntu 22.04
+    rootfs: Ubuntu 24.04
     """
     return microvm_factory.build(guest_kernel_linux_5_10, rootfs_rw)
 
@@ -424,12 +454,24 @@ def artifact_dir():
 
 
 @pytest.fixture
-def uvm_plain_any(microvm_factory, guest_kernel, rootfs_ubuntu_22):
+def uvm_plain_any(microvm_factory, guest_kernel, rootfs):
     """All guest kernels
     kernel: all
-    rootfs: Ubuntu 22.04
+    rootfs: Ubuntu 24.04
     """
-    return microvm_factory.build(guest_kernel, rootfs_ubuntu_22)
+    return microvm_factory.build(guest_kernel, rootfs)
+
+
+guest_kernel_6_1_debug = pytest.fixture(
+    guest_kernel_fxt,
+    params=kernel_params("vmlinux-6.1*", artifact_dir=defs.ARTIFACT_DIR / "debug"),
+)
+
+
+@pytest.fixture
+def uvm_plain_debug(microvm_factory, guest_kernel_6_1_debug, rootfs_rw):
+    """VM running a kernel with debug/trace Kconfig options"""
+    return microvm_factory.build(guest_kernel_6_1_debug, rootfs_rw)
 
 
 @pytest.fixture
@@ -444,3 +486,80 @@ def uvm_with_initrd(
     uvm = microvm_factory.build(guest_kernel_linux_5_10)
     uvm.initrd_file = fs
     yield uvm
+
+
+@pytest.fixture
+def vcpu_count():
+    """Return default vcpu_count. Use indirect parametrization to override."""
+    return 2
+
+
+@pytest.fixture
+def mem_size_mib():
+    """Return memory size. Use indirect parametrization to override."""
+    return 256
+
+
+def uvm_booted(
+    microvm_factory, guest_kernel, rootfs, cpu_template, vcpu_count=2, mem_size_mib=256
+):
+    """Return a booted uvm"""
+    uvm = microvm_factory.build(guest_kernel, rootfs)
+    uvm.spawn()
+    uvm.basic_config(vcpu_count=vcpu_count, mem_size_mib=mem_size_mib)
+    uvm.set_cpu_template(cpu_template)
+    uvm.add_net_iface()
+    uvm.start()
+    return uvm
+
+
+def uvm_restored(microvm_factory, guest_kernel, rootfs, cpu_template, **kwargs):
+    """Return a restored uvm"""
+    uvm = uvm_booted(microvm_factory, guest_kernel, rootfs, cpu_template, **kwargs)
+    snapshot = uvm.snapshot_full()
+    uvm.kill()
+    uvm2 = microvm_factory.build_from_snapshot(snapshot)
+    uvm2.cpu_template_name = uvm.cpu_template_name
+    return uvm2
+
+
+@pytest.fixture(params=[uvm_booted, uvm_restored])
+def uvm_ctor(request):
+    """Fixture to return uvms with different constructors"""
+    return request.param
+
+
+@pytest.fixture
+def uvm_any(
+    microvm_factory,
+    uvm_ctor,
+    guest_kernel,
+    rootfs,
+    cpu_template_any,
+    vcpu_count,
+    mem_size_mib,
+):
+    """Return booted and restored uvms"""
+    return uvm_ctor(
+        microvm_factory,
+        guest_kernel,
+        rootfs,
+        cpu_template_any,
+        vcpu_count=vcpu_count,
+        mem_size_mib=mem_size_mib,
+    )
+
+
+@pytest.fixture
+def uvm_any_booted(
+    microvm_factory, guest_kernel, rootfs, cpu_template_any, vcpu_count, mem_size_mib
+):
+    """Return booted uvms"""
+    return uvm_booted(
+        microvm_factory,
+        guest_kernel,
+        rootfs,
+        cpu_template_any,
+        vcpu_count=vcpu_count,
+        mem_size_mib=mem_size_mib,
+    )

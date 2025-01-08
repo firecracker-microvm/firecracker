@@ -34,7 +34,7 @@ use crate::vstate::memory::{Address, GuestMemory, GuestMemoryMmap, GuestMemoryRe
 pub enum VmError {
     /// The host kernel reports an invalid KVM API version: {0}
     ApiVersion(i32),
-    /// Missing KVM capabilities: {0:x?}
+    /// Missing KVM capabilities: {0:#x?}
     Capabilities(u32),
     /**  Error creating KVM object: {0} Make sure the user launching the firecracker process is \
     configured on the /dev/kvm file's ACL. */
@@ -593,7 +593,7 @@ pub(crate) mod tests {
         let res = vm.set_kvm_memory_regions(&gm, false);
         res.unwrap();
 
-        // Trying to set a memory region with a size that is not a multiple of PAGE_SIZE
+        // Trying to set a memory region with a size that is not a multiple of GUEST_PAGE_SIZE
         // will result in error.
         let gm = single_region_mem(0x10);
         let res = vm.set_kvm_memory_regions(&gm, false);

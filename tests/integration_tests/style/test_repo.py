@@ -44,8 +44,8 @@ def test_repo_validate_changelog():
     errors = []
     for lineno, line in enumerate(changelog, start=1):
         if line.startswith("## "):
-            if not re.match(r"^## \\\[.+\\\]$", line):
-                msg = "Level 2 headings (versions) should be wrapped in \\[\\]"
+            if not re.match(r"^## \[.+\]$", line):
+                msg = "Level 2 headings (versions) should be wrapped in []"
                 errors.append((lineno, msg, line))
         if line.startswith("### "):
             if not re.match(r"^### (Added|Changed|Deprecated|Removed|Fixed)$", line):

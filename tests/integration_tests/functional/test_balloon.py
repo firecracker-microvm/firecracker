@@ -62,18 +62,10 @@ def lower_ssh_oom_chance(ssh_connection):
 
 def make_guest_dirty_memory(ssh_connection, amount_mib=32):
     """Tell the guest, over ssh, to dirty `amount` pages of memory."""
-    logger = logging.getLogger("make_guest_dirty_memory")
-
     lower_ssh_oom_chance(ssh_connection)
 
-    cmd = f"/usr/local/bin/fillmem {amount_mib}"
     try:
-        exit_code, stdout, stderr = ssh_connection.run(cmd, timeout=1.0)
-        # add something to the logs for troubleshooting
-        if exit_code != 0:
-            logger.error("while running: %s", cmd)
-            logger.error("stdout: %s", stdout)
-            logger.error("stderr: %s", stderr)
+        _ = ssh_connection.run(f"/usr/local/bin/fillmem {amount_mib}", timeout=1.0)
     except TimeoutExpired:
         # It's ok if this expires. Sometimes the SSH connection
         # gets killed by the OOM killer *after* the fillmem program
@@ -484,9 +476,7 @@ def test_balloon_snapshot(microvm_factory, guest_kernel, rootfs):
     assert first_reading > second_reading
 
     snapshot = vm.snapshot_full()
-    microvm = microvm_factory.build()
-    microvm.spawn()
-    microvm.restore_from_snapshot(snapshot, resume=True)
+    microvm = microvm_factory.build_from_snapshot(snapshot)
 
     # Get the firecracker from snapshot pid, and open an ssh connection.
     firecracker_pid = microvm.firecracker_pid

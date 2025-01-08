@@ -329,6 +329,9 @@ mod tests {
             err.err().unwrap().to_string(),
             "Error creating vcpu: Bad file descriptor (os error 9)".to_string()
         );
+
+        // dropping vm would double close the gic fd, so leak it
+        std::mem::forget(vm);
     }
 
     #[test]
@@ -361,6 +364,9 @@ mod tests {
                 kvm_ioctls::Error::new(9)
             ))
         );
+
+        // dropping vcpu would double close the gic fd, so leak it
+        std::mem::forget(vcpu);
     }
 
     #[test]

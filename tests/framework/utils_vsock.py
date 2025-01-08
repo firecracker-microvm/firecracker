@@ -11,6 +11,8 @@ from socket import AF_UNIX, SOCK_STREAM, socket
 from subprocess import Popen
 from threading import Thread
 
+from tenacity import Retrying, stop_after_attempt, wait_fixed
+
 ECHO_SERVER_PORT = 5252
 SERVER_ACCEPT_BACKLOG = 128
 TEST_CONNECTION_COUNT = 50
@@ -142,53 +144,57 @@ def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
         ["socat", f"UNIX-LISTEN:{server_port_path},fork,backlog=5", "exec:'/bin/cat'"]
     )
 
-    # Link the listening Unix socket into the VM's jail, so that
-    # Firecracker can connect to it.
-    attempt = 0
-    # But 1st, give socat a bit of time to create the socket
-    while not Path(server_port_path).exists() and attempt < 3:
-        time.sleep(0.2)
-        attempt += 1
-    vm.create_jailed_resource(server_port_path)
+    try:
+        # Give socat a bit of time to create the socket
+        for attempt in Retrying(
+            wait=wait_fixed(0.2),
+            stop=stop_after_attempt(3),
+            reraise=True,
+        ):
+            with attempt:
+                assert Path(server_port_path).exists()
 
-    # Increase maximum process count for the ssh service.
-    # Avoids: "bash: fork: retry: Resource temporarily unavailable"
-    # Needed to execute the bash script that tests for concurrent
-    # vsock guest initiated connections.
-    pids_max_file = "/sys/fs/cgroup/system.slice/ssh.service/pids.max"
-    ecode, _, _ = vm.ssh.run(f"echo 1024 > {pids_max_file}")
-    assert ecode == 0, "Unable to set max process count for guest ssh service."
+        # Link the listening Unix socket into the VM's jail, so that
+        # Firecracker can connect to it.
+        vm.create_jailed_resource(server_port_path)
 
-    # Build the guest worker sub-command.
-    # `vsock_helper` will read the blob file from STDIN and send the echo
-    # server response to STDOUT. This response is then hashed, and the
-    # hash is compared against `blob_hash` (computed on the host). This
-    # comparison sets the exit status of the worker command.
-    worker_cmd = "hash=$("
-    worker_cmd += "cat {}".format(blob_path)
-    worker_cmd += " | /tmp/vsock_helper echo 2 {}".format(ECHO_SERVER_PORT)
-    worker_cmd += " | md5sum | cut -f1 -d\\ "
-    worker_cmd += ")"
-    worker_cmd += ' && [[ "$hash" = "{}" ]]'.format(blob_hash)
+        # Increase maximum process count for the ssh service.
+        # Avoids: "bash: fork: retry: Resource temporarily unavailable"
+        # Needed to execute the bash script that tests for concurrent
+        # vsock guest initiated connections.
+        vm.ssh.check_output(
+            "echo 1024 > /sys/fs/cgroup/system.slice/ssh.service/pids.max"
+        )
 
-    # Run `TEST_CONNECTION_COUNT` concurrent workers, using the above
-    # worker sub-command.
-    # If any worker fails, this command will fail. If all worker sub-commands
-    # succeed, this will also succeed.
-    cmd = 'workers="";'
-    cmd += "for i in $(seq 1 {}); do".format(TEST_CONNECTION_COUNT)
-    cmd += "  ({})& ".format(worker_cmd)
-    cmd += '  workers="$workers $!";'
-    cmd += "done;"
-    cmd += "for w in $workers; do wait $w || (wait; exit 1); done"
+        # Build the guest worker sub-command.
+        # `vsock_helper` will read the blob file from STDIN and send the echo
+        # server response to STDOUT. This response is then hashed, and the
+        # hash is compared against `blob_hash` (computed on the host). This
+        # comparison sets the exit status of the worker command.
+        worker_cmd = "hash=$("
+        worker_cmd += "cat {}".format(blob_path)
+        worker_cmd += " | /tmp/vsock_helper echo 2 {}".format(ECHO_SERVER_PORT)
+        worker_cmd += " | md5sum | cut -f1 -d\\ "
+        worker_cmd += ")"
+        worker_cmd += ' && [[ "$hash" = "{}" ]]'.format(blob_hash)
 
-    ecode, _, stderr = vm.ssh.run(cmd)
-    echo_server.terminate()
-    rc = echo_server.wait()
-    # socat exits with 128 + 15 (SIGTERM)
-    assert rc == 143
+        # Run `TEST_CONNECTION_COUNT` concurrent workers, using the above
+        # worker sub-command.
+        # If any worker fails, this command will fail. If all worker sub-commands
+        # succeed, this will also succeed.
+        cmd = 'workers="";'
+        cmd += "for i in $(seq 1 {}); do".format(TEST_CONNECTION_COUNT)
+        cmd += "  ({})& ".format(worker_cmd)
+        cmd += '  workers="$workers $!";'
+        cmd += "done;"
+        cmd += "for w in $workers; do wait $w || (wait; exit 1); done"
 
-    assert ecode == 0, stderr
+        vm.ssh.check_output(cmd)
+    finally:
+        echo_server.terminate()
+        rc = echo_server.wait()
+        # socat exits with 128 + 15 (SIGTERM)
+        assert rc == 143
 
 
 def make_host_port_path(uds_path, port):

@@ -259,7 +259,9 @@ pub fn build_microvm_for_boot(
     let request_ts = TimestampUs::default();
 
     let boot_config = vm_resources
-        .boot_source_builder()
+        .boot_source
+        .builder
+        .as_ref()
         .ok_or(MissingKernelConfig)?;
 
     let guest_memory = vm_resources
@@ -508,7 +510,7 @@ pub fn build_microvm_from_snapshot(
     vmm.vm.restore_state(&microvm_state.vm_state)?;
 
     // Restore the boot source config paths.
-    vm_resources.set_boot_source_config(microvm_state.vm_info.boot_source);
+    vm_resources.boot_source.config = microvm_state.vm_info.boot_source;
 
     // Restore devices states.
     let mmio_ctor_args = MMIODevManagerConstructorArgs {
@@ -1021,7 +1023,7 @@ pub(crate) fn set_stdout_nonblocking() {
 }
 
 #[cfg(test)]
-pub mod tests {
+pub(crate) mod tests {
     use std::io::Write;
 
     use linux_loader::cmdline::Cmdline;
@@ -1303,7 +1305,7 @@ pub mod tests {
         use crate::vstate::memory::GuestMemory;
         let image = make_test_bin();
 
-        let mem_size: usize = image.len() * 2 + crate::arch::PAGE_SIZE;
+        let mem_size: usize = image.len() * 2 + crate::arch::GUEST_PAGE_SIZE;
 
         let tempfile = TempFile::new().unwrap();
         let mut tempfile = tempfile.into_file();
@@ -1342,7 +1344,7 @@ pub mod tests {
         let tempfile = TempFile::new().unwrap();
         let mut tempfile = tempfile.into_file();
         tempfile.write_all(&image).unwrap();
-        let gm = single_region_mem_at(crate::arch::PAGE_SIZE as u64 + 1, image.len() * 2);
+        let gm = single_region_mem_at(crate::arch::GUEST_PAGE_SIZE as u64 + 1, image.len() * 2);
 
         let res = load_initrd(&gm, &mut tempfile);
         assert!(

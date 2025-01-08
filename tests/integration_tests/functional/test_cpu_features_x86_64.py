@@ -22,13 +22,16 @@ from framework import utils
 from framework.defs import SUPPORTED_HOST_KERNELS
 from framework.properties import global_props
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
-from framework.utils_cpuid import CPU_FEATURES_CMD, CpuModel
 
 PLATFORM = platform.machine()
 UNSUPPORTED_HOST_KERNEL = (
     utils.get_kernel_version(level=1) not in SUPPORTED_HOST_KERNELS
 )
 DATA_FILES = Path("./data/msr")
+
+pytestmark = pytest.mark.skipif(
+    global_props.cpu_architecture != "x86_64", reason="Only run in x86_64"
+)
 
 
 def read_msr_csv(fd):
@@ -105,7 +108,6 @@ def skip_test_based_on_artifacts(snapshot_artifacts_dir):
         pytest.skip(re.sub(" +", " ", reason))
 
 
-@pytest.mark.skipif(PLATFORM != "x86_64", reason="CPUID is only supported on x86_64.")
 @pytest.mark.parametrize(
     "num_vcpus",
     [1, 2, 16],
@@ -126,7 +128,6 @@ def test_cpuid(uvm_plain_any, num_vcpus, htt):
     _check_cpuid_x86(vm, num_vcpus, "true" if num_vcpus > 1 else "false")
 
 
-@pytest.mark.skipif(PLATFORM != "x86_64", reason="CPUID is only supported on x86_64.")
 @pytest.mark.skipif(
     cpuid_utils.get_cpu_vendor() != cpuid_utils.CpuVendor.AMD,
     reason="L3 cache info is only present in 0x80000006 for AMD",
@@ -143,9 +144,6 @@ def test_extended_cache_features(uvm_plain_any):
     _check_extended_cache_features(vm)
 
 
-@pytest.mark.skipif(
-    PLATFORM != "x86_64", reason="The CPU brand string is masked only on x86_64."
-)
 def test_brand_string(uvm_plain_any):
     """
     Ensure good formatting for the guest brand string.
@@ -202,272 +200,6 @@ def test_brand_string(uvm_plain_any):
         assert host_frequency == guest_frequency
     else:
         assert False
-
-
-@pytest.mark.skipif(
-    PLATFORM != "x86_64",
-    reason="This is x86_64 specific test.",
-)
-def test_host_vs_guest_cpu_features_x86_64(uvm_nano):
-    """Check CPU features host vs guest"""
-
-    vm = uvm_nano
-    vm.add_net_iface()
-    vm.start()
-    host_feats = set(utils.check_output(CPU_FEATURES_CMD).stdout.strip().split(" "))
-    guest_feats = set(vm.ssh.check_output(CPU_FEATURES_CMD).stdout.strip().split(" "))
-
-    cpu_model = cpuid_utils.get_cpu_codename()
-    match cpu_model:
-        case CpuModel.AMD_MILAN:
-            host_guest_diff_5_10 = {
-                "amd_ppin",
-                "aperfmperf",
-                "bpext",
-                "cat_l3",
-                "cdp_l3",
-                "cpb",
-                "cqm",
-                "cqm_llc",
-                "cqm_mbm_local",
-                "cqm_mbm_total",
-                "cqm_occup_llc",
-                "decodeassists",
-                "extapic",
-                "extd_apicid",
-                "flushbyasid",
-                "hw_pstate",
-                "ibs",
-                "irperf",
-                "lbrv",
-                "mba",
-                "monitor",
-                "mwaitx",
-                "overflow_recov",
-                "pausefilter",
-                "perfctr_llc",
-                "perfctr_nb",
-                "pfthreshold",
-                "rdpru",
-                "rdt_a",
-                "sev",
-                "sev_es",
-                "skinit",
-                "smca",
-                "sme",
-                "succor",
-                "svm_lock",
-                "tce",
-                "tsc_scale",
-                "v_vmsave_vmload",
-                "vgif",
-                "vmcb_clean",
-                "wdt",
-            }
-
-            host_guest_diff_6_1 = host_guest_diff_5_10 - {
-                "lbrv",
-                "pausefilter",
-                "pfthreshold",
-                "sme",
-                "tsc_scale",
-                "v_vmsave_vmload",
-                "vgif",
-                "vmcb_clean",
-            } | {"brs", "rapl", "v_spec_ctrl"}
-
-            if global_props.host_linux_version_tpl < (6, 1):
-                assert host_feats - guest_feats == host_guest_diff_5_10
-            else:
-                assert host_feats - guest_feats == host_guest_diff_6_1
-
-            assert guest_feats - host_feats == {
-                "hypervisor",
-                "tsc_adjust",
-                "tsc_deadline_timer",
-                "tsc_known_freq",
-            }
-        case CpuModel.INTEL_SKYLAKE:
-            assert host_feats - guest_feats == {
-                "acpi",
-                "aperfmperf",
-                "arch_perfmon",
-                "art",
-                "bts",
-                "cat_l3",
-                "cdp_l3",
-                "cqm",
-                "cqm_llc",
-                "cqm_mbm_local",
-                "cqm_mbm_total",
-                "cqm_occup_llc",
-                "dca",
-                "ds_cpl",
-                "dtes64",
-                "dtherm",
-                "dts",
-                "epb",
-                "ept",
-                "ept_ad",
-                "est",
-                "flexpriority",
-                "flush_l1d",
-                "hwp",
-                "hwp_act_window",
-                "hwp_epp",
-                "hwp_pkg_req",
-                "ida",
-                "intel_ppin",
-                "intel_pt",
-                "mba",
-                "monitor",
-                "pbe",
-                "pdcm",
-                "pebs",
-                "pln",
-                "pts",
-                "rdt_a",
-                "sdbg",
-                "smx",
-                "tm",
-                "tm2",
-                "tpr_shadow",
-                "vmx",
-                "vnmi",
-                "vpid",
-                "xtpr",
-            }
-            assert guest_feats - host_feats == {
-                "hypervisor",
-                "tsc_known_freq",
-                "umip",
-            }
-        case CpuModel.INTEL_CASCADELAKE:
-            assert host_feats - guest_feats == {
-                "acpi",
-                "aperfmperf",
-                "arch_perfmon",
-                "art",
-                "bts",
-                "cat_l3",
-                "cdp_l3",
-                "cqm",
-                "cqm_llc",
-                "cqm_mbm_local",
-                "cqm_mbm_total",
-                "cqm_occup_llc",
-                "dca",
-                "ds_cpl",
-                "dtes64",
-                "dtherm",
-                "dts",
-                "epb",
-                "ept",
-                "ept_ad",
-                "est",
-                "flexpriority",
-                "flush_l1d",
-                "hwp",
-                "hwp_act_window",
-                "hwp_epp",
-                "hwp_pkg_req",
-                "ida",
-                "intel_ppin",
-                "intel_pt",
-                "mba",
-                "monitor",
-                "pbe",
-                "pdcm",
-                "pebs",
-                "pln",
-                "pts",
-                "rdt_a",
-                "sdbg",
-                "smx",
-                "tm",
-                "tm2",
-                "tpr_shadow",
-                "vmx",
-                "vnmi",
-                "vpid",
-                "xtpr",
-            }
-            assert guest_feats - host_feats == {
-                "hypervisor",
-                "tsc_known_freq",
-                "umip",
-            }
-        case CpuModel.INTEL_ICELAKE:
-            host_guest_diff_5_10 = {
-                "dtes64",
-                "hwp_act_window",
-                "pdcm",
-                "acpi",
-                "aperfmperf",
-                "arch_perfmon",
-                "art",
-                "bts",
-                "cat_l3",
-                "cqm",
-                "cqm_llc",
-                "cqm_mbm_local",
-                "cqm_mbm_total",
-                "cqm_occup_llc",
-                "dca",
-                "ds_cpl",
-                "dtherm",
-                "dts",
-                "epb",
-                "ept",
-                "ept_ad",
-                "est",
-                "flexpriority",
-                "flush_l1d",
-                "hwp",
-                "hwp_epp",
-                "hwp_pkg_req",
-                "ida",
-                "intel_ppin",
-                "intel_pt",
-                "mba",
-                "monitor",
-                "pbe",
-                "pconfig",
-                "pebs",
-                "pln",
-                "pts",
-                "rdt_a",
-                "sdbg",
-                "smx",
-                "split_lock_detect",
-                "tm",
-                "tm2",
-                "tme",
-                "tpr_shadow",
-                "vmx",
-                "vnmi",
-                "vpid",
-                "xtpr",
-            }
-            host_guest_diff_6_1 = host_guest_diff_5_10 - {
-                "bts",
-                "dtes64",
-                "dts",
-                "pebs",
-            }
-
-            if global_props.host_linux_version_tpl < (6, 1):
-                assert host_feats - guest_feats == host_guest_diff_5_10
-            else:
-                assert host_feats - guest_feats == host_guest_diff_6_1
-
-            assert guest_feats - host_feats == {
-                "hypervisor",
-                "tsc_known_freq",
-            }
-        case _:
-            if os.environ.get("BUILDKITE") is not None:
-                assert False, f"Cpu model {cpu_model} is not supported"
 
 
 # From the `Intel® 64 Architecture x2APIC Specification`
@@ -539,7 +271,7 @@ def msr_cpu_template_fxt(request):
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
 def test_cpu_rdmsr(
-    microvm_factory, msr_cpu_template, guest_kernel, rootfs_ubuntu_22, results_dir
+    microvm_factory, msr_cpu_template, guest_kernel, rootfs, results_dir
 ):
     """
     Test MSRs that are available to the guest.
@@ -574,7 +306,7 @@ def test_cpu_rdmsr(
     """
 
     vcpus, guest_mem_mib = 1, 1024
-    vm = microvm_factory.build(guest_kernel, rootfs_ubuntu_22, monitor_memory=False)
+    vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn()
     vm.add_net_iface()
     vm.basic_config(
@@ -582,7 +314,7 @@ def test_cpu_rdmsr(
     )
     vm.start()
     vm.ssh.scp_put(DATA_FILES / "msr_reader.sh", "/tmp/msr_reader.sh")
-    _, stdout, stderr = vm.ssh.run("/tmp/msr_reader.sh")
+    _, stdout, stderr = vm.ssh.run("/tmp/msr_reader.sh", timeout=None)
     assert stderr == ""
 
     # Load results read from the microvm
@@ -630,7 +362,9 @@ def dump_msr_state_to_file(dump_fname, ssh_conn, shared_names):
     ssh_conn.scp_put(
         shared_names["msr_reader_host_fname"], shared_names["msr_reader_guest_fname"]
     )
-    _, stdout, stderr = ssh_conn.run(shared_names["msr_reader_guest_fname"])
+    _, stdout, stderr = ssh_conn.run(
+        shared_names["msr_reader_guest_fname"], timeout=None
+    )
     assert stderr == ""
 
     with open(dump_fname, "w", encoding="UTF-8") as file:
@@ -643,9 +377,7 @@ def dump_msr_state_to_file(dump_fname, ssh_conn, shared_names):
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_wrmsr_snapshot(
-    microvm_factory, guest_kernel, rootfs_ubuntu_22, msr_cpu_template
-):
+def test_cpu_wrmsr_snapshot(microvm_factory, guest_kernel, rootfs, msr_cpu_template):
     """
     This is the first part of the test verifying
     that MSRs retain their values after restoring from a snapshot.
@@ -665,7 +397,7 @@ def test_cpu_wrmsr_snapshot(
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
 
     vcpus, guest_mem_mib = 1, 1024
-    vm = microvm_factory.build(guest_kernel, rootfs_ubuntu_22, monitor_memory=False)
+    vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn()
     vm.add_net_iface()
     vm.basic_config(
@@ -686,7 +418,9 @@ def test_cpu_wrmsr_snapshot(
     wrmsr_input_guest_fname = "/tmp/wrmsr_input.txt"
     vm.ssh.scp_put(wrmsr_input_host_fname, wrmsr_input_guest_fname)
 
-    _, _, stderr = vm.ssh.run(f"{msr_writer_guest_fname} {wrmsr_input_guest_fname}")
+    _, _, stderr = vm.ssh.run(
+        f"{msr_writer_guest_fname} {wrmsr_input_guest_fname}", timeout=None
+    )
     assert stderr == ""
 
     # Dump MSR state to a file that will be published to S3 for the 2nd part of the test
@@ -800,9 +534,7 @@ def dump_cpuid_to_file(dump_fname, ssh_conn):
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_cpuid_snapshot(
-    microvm_factory, guest_kernel, rootfs_ubuntu_22, msr_cpu_template
-):
+def test_cpu_cpuid_snapshot(microvm_factory, guest_kernel, rootfs, msr_cpu_template):
     """
     This is the first part of the test verifying
     that CPUID remains the same after restoring from a snapshot.
@@ -818,7 +550,7 @@ def test_cpu_cpuid_snapshot(
 
     vm = microvm_factory.build(
         kernel=guest_kernel,
-        rootfs=rootfs_ubuntu_22,
+        rootfs=rootfs,
     )
     vm.spawn()
     vm.add_net_iface()
@@ -907,9 +639,6 @@ def test_cpu_cpuid_restore(microvm_factory, guest_kernel, msr_cpu_template):
     )
 
 
-@pytest.mark.skipif(
-    PLATFORM != "x86_64", reason="CPU features are masked only on x86_64."
-)
 @pytest.mark.parametrize("cpu_template", ["T2", "T2S", "C3"])
 def test_cpu_template(uvm_plain_any, cpu_template, microvm_factory):
     """
@@ -1194,9 +923,9 @@ def check_enabled_features(test_microvm, cpu_template):
         "enhanced REP MOVSB/STOSB": "true",
         "SMAP: supervisor mode access prevention": "true",
         # xsave_0xd_0
-        "XCR0 supported: x87 state": "true",
-        "XCR0 supported: SSE state": "true",
-        "XCR0 supported: AVX state": "true",
+        "x87 state": "true",
+        "SSE state": "true",
+        "AVX state": "true",
         # xsave_0xd_1
         "XSAVEOPT instruction": "true",
         # extended_080000001_edx
@@ -1227,19 +956,16 @@ def check_enabled_features(test_microvm, cpu_template):
         )
 
 
-@pytest.mark.skipif(PLATFORM != "x86_64", reason="This test is specific to x86_64.")
-def test_c3_on_skylake_show_warning(uvm_plain, cpu_template):
+def test_c3_on_skylake_show_warning(uvm_plain, cpu_template_any):
     """
     This test verifies that the warning message about MMIO stale data mitigation
-    is displayed only on Intel Skylake with C3 template.
+    is displayed only on Intel Skylake with static C3 template.
     """
     uvm = uvm_plain
     uvm.spawn()
-    uvm.basic_config(
-        vcpu_count=2,
-        mem_size_mib=256,
-        cpu_template=cpu_template,
-    )
+    uvm.basic_config(vcpu_count=2, mem_size_mib=256)
+    uvm.add_net_iface()
+    uvm.set_cpu_template(cpu_template_any)
     uvm.start()
 
     message = (
@@ -1248,7 +974,8 @@ def test_c3_on_skylake_show_warning(uvm_plain, cpu_template):
         "does not apply the mitigation against MMIO stale data "
         "vulnerability."
     )
-    if cpu_template == "C3" and global_props.cpu_codename == "INTEL_SKYLAKE":
+
+    if cpu_template_any == "C3" and global_props.cpu_codename == "INTEL_SKYLAKE":
         assert message in uvm.log_data
     else:
         assert message not in uvm.log_data

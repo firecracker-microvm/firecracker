@@ -68,11 +68,12 @@ if args.binary_dir:
 else:
     bins = get_firecracker_binaries()
 
-print("This step may take a while to compile Firecracker ...")
 cpu_template = None
 if args.cpu_template_path is not None:
     cpu_template = json.loads(args.cpu_template_path.read_text())
 vmfcty = MicroVMFactory(*bins)
+
+print(f"uvm with kernel {args.kernel} ...")
 uvm = vmfcty.build(args.kernel, args.rootfs)
 uvm.help.enable_console()
 uvm.help.resize_disk(uvm.rootfs_file, args.rootfs_size)
@@ -85,3 +86,15 @@ if cpu_template is not None:
     print(cpu_template)
 uvm.start()
 uvm.get_all_metrics()
+
+kernel_dbg_dir = args.kernel.parent / "debug"
+kernel_dbg = kernel_dbg_dir / args.kernel.name
+print(f"uvm2 with kernel {kernel_dbg} ...")
+uvm2 = vmfcty.build(kernel_dbg, args.rootfs)
+uvm2.spawn()
+uvm2.add_net_iface()
+uvm2.basic_config(vcpu_count=args.vcpus, mem_size_mib=args.guest_mem_size // 2**20)
+uvm2.start()
+# trace-cmd needs this (DNS resolution?)
+uvm2.help.enable_ip_forwarding()
+files = uvm2.help.trace_cmd_guest(["-l", "read_msr"], cmd="sleep 5")

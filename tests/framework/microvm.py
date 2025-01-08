@@ -75,6 +75,7 @@ class Snapshot:
     disks: dict
     ssh_key: Path
     snapshot_type: SnapshotType
+    meta: dict
 
     @property
     def is_diff(self) -> bool:
@@ -110,6 +111,7 @@ class Snapshot:
             disks=self.disks,
             ssh_key=self.ssh_key,
             snapshot_type=self.snapshot_type,
+            meta=self.meta,
         )
 
     @classmethod
@@ -125,6 +127,7 @@ class Snapshot:
             disks={dsk: src / p for dsk, p in obj["disks"].items()},
             ssh_key=src / obj["ssh_key"],
             snapshot_type=SnapshotType(obj["snapshot_type"]),
+            meta=obj["meta"],
         )
 
     def save_to(self, dst: Path):
@@ -147,6 +150,7 @@ class Snapshot:
             "disks": new_disks,
             "ssh_key": self.ssh_key.name,
             "snapshot_type": self.snapshot_type.value,
+            "meta": self.meta,
         }
         snap_json = dst / "snapshot.json"
         snap_json.write_text(json.dumps(obj))
@@ -184,6 +188,7 @@ class Microvm:
         monitor_memory: bool = True,
         jailer_kwargs: Optional[dict] = None,
         numa_node=None,
+        custom_cpu_template: Path = None,
     ):
         """Set up microVM attributes, paths, and data structures."""
         # pylint: disable=too-many-statements
@@ -241,6 +246,12 @@ class Microvm:
         self.disks_vhost_user = {}
         self.vcpus_count = None
         self.mem_size_bytes = None
+        self.cpu_template_name = None
+        # The given custom CPU template will be set in basic_config() but could
+        # be overwritten via set_cpu_template().
+        self.custom_cpu_template = custom_cpu_template
+
+        self._connections = []
 
         self._pre_cmd = []
         if numa_node:
@@ -276,6 +287,10 @@ class Microvm:
         # Stop any registered monitors
         for monitor in self.monitors:
             monitor.stop()
+
+        # Kill all background SSH connections
+        for connection in self._connections:
+            connection.close()
 
         # We start with vhost-user backends,
         # because if we stop Firecracker first, the backend will want
@@ -732,11 +747,16 @@ class Microvm:
             smt=smt,
             mem_size_mib=mem_size_mib,
             track_dirty_pages=track_dirty_pages,
-            cpu_template=cpu_template,
             huge_pages=huge_pages,
         )
         self.vcpus_count = vcpu_count
         self.mem_size_bytes = mem_size_mib * 2**20
+
+        if self.custom_cpu_template is not None:
+            self.set_cpu_template(self.custom_cpu_template)
+
+        if cpu_template is not None:
+            self.set_cpu_template(cpu_template)
 
         if self.memory_monitor:
             self.memory_monitor.start()
@@ -769,6 +789,19 @@ class Microvm:
 
         if enable_entropy_device:
             self.enable_entropy_device()
+
+    def set_cpu_template(self, cpu_template):
+        """Set guest CPU template."""
+        if cpu_template is None:
+            return
+        # static CPU template
+        if isinstance(cpu_template, str):
+            self.api.machine_config.patch(cpu_template=cpu_template)
+            self.cpu_template_name = cpu_template.lower()
+        # custom CPU template
+        elif isinstance(cpu_template, dict):
+            self.api.cpu_config.put(**cpu_template["template"])
+            self.cpu_template_name = cpu_template["name"].lower()
 
     def add_drive(
         self,
@@ -917,6 +950,10 @@ class Microvm:
             net_ifaces=[x["iface"] for ifname, x in self.iface.items()],
             ssh_key=self.ssh_key,
             snapshot_type=snapshot_type,
+            meta={
+                "kernel_file": str(self.kernel_file),
+                "vcpus_count": self.vcpus_count,
+            },
         )
 
     def snapshot_diff(self, *, mem_path: str = "mem", vmstate_path="vmstate"):
@@ -954,6 +991,11 @@ class Microvm:
         if uffd_path is not None:
             mem_backend = {"backend_type": "Uffd", "backend_path": str(uffd_path)}
 
+        for key, value in snapshot.meta.items():
+            setattr(self, key, value)
+        # Adjust things just in case
+        self.kernel_file = Path(self.kernel_file)
+
         self.api.snapshot_load.put(
             mem_backend=mem_backend,
             snapshot_path=str(jailed_vmstate),
@@ -978,13 +1020,16 @@ class Microvm:
         """Return a cached SSH connection on a given interface id."""
         guest_ip = list(self.iface.values())[iface_idx]["iface"].guest_ip
         self.ssh_key = Path(self.ssh_key)
-        return net_tools.SSHConnection(
+        connection = net_tools.SSHConnection(
             netns=self.netns.id,
             ssh_key=self.ssh_key,
             user="root",
             host=guest_ip,
+            control_path=Path(self.chroot()) / f"ssh-{iface_idx}.sock",
             on_error=self._dump_debug_information,
         )
+        self._connections.append(connection)
+        return connection
 
     @property
     def ssh(self):
@@ -1057,6 +1102,13 @@ class MicroVMFactory:
                 shutil.copyfile(rootfs, rootfs_path)
             vm.rootfs_file = rootfs_path
             vm.ssh_key = ssh_key
+        return vm
+
+    def build_from_snapshot(self, snapshot: Snapshot):
+        """Build a microvm from a snapshot"""
+        vm = self.build()
+        vm.spawn()
+        vm.restore_from_snapshot(snapshot, resume=True)
         return vm
 
     def kill(self):

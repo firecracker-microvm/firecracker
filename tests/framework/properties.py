@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # pylint:disable=broad-except
-# pylint:disable=too-few-public-methods
 
 """
 Metadata we want to attach to tests for further analysis and troubleshooting
@@ -72,11 +71,14 @@ class GlobalProps:
         # major.minor.patch
         self.host_linux_patch = get_kernel_version(2)
         self.os = get_os_version()
-        self.host_os = get_host_os()
+        self.host_os = get_host_os() or "NA"
         self.libc_ver = "-".join(platform.libc_ver())
         self.rust_version = run_cmd("rustc --version |awk '{print $2}'")
+        # Buildkite/PR information
         self.buildkite_pipeline_slug = os.environ.get("BUILDKITE_PIPELINE_SLUG")
         self.buildkite_build_number = os.environ.get("BUILDKITE_BUILD_NUMBER")
+        self.buildkite_pr = os.environ.get("BUILDKITE_PULL_REQUEST", "false") != "false"
+        self.buildkite_revision_a = os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH")
 
         if self._in_git_repo():
             self.git_commit_id = run_cmd("git rev-parse HEAD")

@@ -3,6 +3,8 @@
 
 """Utilities for CPU template related functionality."""
 
+# pylint:disable=too-many-return-statements
+
 import json
 from pathlib import Path
 
@@ -20,16 +22,12 @@ ARM_TEMPLATES = ["V1N1"]
 
 
 def get_supported_cpu_templates():
-    """
-    Return the list of CPU templates supported by the platform.
-    """
-    # pylint:disable=too-many-return-statements
+    """Return the list of static CPU templates supported by the platform."""
     host_linux = global_props.host_linux_version_tpl
-
     match get_cpu_vendor(), global_props.cpu_codename:
         # T2CL template is only supported on Cascade Lake and newer CPUs.
         case CpuVendor.INTEL, CpuModel.INTEL_SKYLAKE:
-            return sorted(set(INTEL_TEMPLATES) - set(["T2CL"]))
+            return sorted(set(INTEL_TEMPLATES) - {"T2CL"})
         case CpuVendor.INTEL, _:
             return INTEL_TEMPLATES
         case CpuVendor.AMD, _:
@@ -42,20 +40,10 @@ def get_supported_cpu_templates():
 
 SUPPORTED_CPU_TEMPLATES = get_supported_cpu_templates()
 
-# Custom CPU templates for Aarch64 for testing
-AARCH64_CUSTOM_CPU_TEMPLATES_G2 = ["v1n1"]
-AARCH64_CUSTOM_CPU_TEMPLATES_G3 = [
-    "aarch64_with_sve_and_pac",
-    "v1n1",
-]
-
 
 def get_supported_custom_cpu_templates():
-    """
-    Return the list of custom CPU templates supported by the platform.
-    """
+    """Return the list of custom CPU templates supported by the platform."""
     host_linux = global_props.host_linux_version_tpl
-
     match get_cpu_vendor(), global_props.cpu_codename:
         # T2CL template is only supported on Cascade Lake and newer CPUs.
         case CpuVendor.INTEL, CpuModel.INTEL_SKYLAKE:
@@ -65,9 +53,11 @@ def get_supported_custom_cpu_templates():
         case CpuVendor.AMD, _:
             return AMD_TEMPLATES
         case CpuVendor.ARM, CpuModel.ARM_NEOVERSE_N1 if host_linux >= (6, 1):
-            return AARCH64_CUSTOM_CPU_TEMPLATES_G2
+            return ["v1n1"]
         case CpuVendor.ARM, CpuModel.ARM_NEOVERSE_V1 if host_linux >= (6, 1):
-            return AARCH64_CUSTOM_CPU_TEMPLATES_G3
+            return ["v1n1", "aarch64_with_sve_and_pac"]
+        case CpuVendor.ARM, CpuModel.ARM_NEOVERSE_V1:
+            return ["aarch64_with_sve_and_pac"]
         case _:
             return []
 

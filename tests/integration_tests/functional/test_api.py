@@ -895,7 +895,7 @@ def _drive_patch(test_microvm):
             "is_root_device": True,
             "cache_type": "Unsafe",
             "is_read_only": True,
-            "path_on_host": "/ubuntu-22.04.squashfs",
+            "path_on_host": "/" + test_microvm.rootfs_file.name,
             "rate_limiter": None,
             "io_engine": "Sync",
             "socket": None,
@@ -1166,10 +1166,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
     ]
 
     snapshot = uvm_nano.snapshot_full()
-    uvm2 = microvm_factory.build()
-    uvm2.spawn()
-    uvm2.restore_from_snapshot(snapshot, resume=True)
-
+    uvm2 = microvm_factory.build_from_snapshot(snapshot)
     expected_cfg = setup_cfg.copy()
 
     # We expect boot-source to be set with the following values
@@ -1226,7 +1223,7 @@ def test_get_full_config(uvm_plain):
             "is_root_device": True,
             "cache_type": "Unsafe",
             "is_read_only": True,
-            "path_on_host": "/ubuntu-22.04.squashfs",
+            "path_on_host": "/" + test_microvm.rootfs_file.name,
             "rate_limiter": None,
             "io_engine": "Sync",
             "socket": None,

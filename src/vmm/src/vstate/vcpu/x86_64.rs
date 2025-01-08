@@ -61,7 +61,7 @@ pub enum KvmVcpuError {
     VcpuGetLapic(kvm_ioctls::Error),
     /// Failed to get KVM vcpu mp state: {0}
     VcpuGetMpState(kvm_ioctls::Error),
-    /// Failed to get KVM vcpu msr: 0x{0:x}
+    /// Failed to get KVM vcpu msr: {0:#x}
     VcpuGetMsr(u32),
     /// Failed to get KVM vcpu msrs: {0}
     VcpuGetMsrs(kvm_ioctls::Error),
@@ -321,7 +321,7 @@ impl KvmVcpu {
                 .filter(|msr| msr.index == MSR_IA32_TSC_DEADLINE && msr.data == 0)
                 .for_each(|msr| {
                     warn!(
-                        "MSR_IA32_TSC_DEADLINE is 0, replacing with {:x}.",
+                        "MSR_IA32_TSC_DEADLINE is 0, replacing with {:#x}.",
                         tsc_value
                     );
                     msr.data = tsc_value;
@@ -715,8 +715,6 @@ impl Debug for VcpuState {
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
-    use std::os::unix::io::AsRawFd;
-
     use kvm_bindings::kvm_msr_entry;
     use kvm_ioctls::{Cap, Kvm};
 
@@ -874,7 +872,7 @@ mod tests {
         // Restore the state into the existing vcpu.
         let result1 = vcpu.restore_state(&state);
         assert!(result1.is_ok(), "{}", result1.unwrap_err());
-        unsafe { libc::close(vcpu.fd.as_raw_fd()) };
+        drop(vcpu);
 
         // Restore the state into a new vcpu.
         let (_vm, vcpu, _mem) = setup_vcpu(0x10000);

@@ -21,7 +21,6 @@ while still preventing the latter: We run cargo audit twice, once on main HEAD, 
 of both invocations is the same, the test passes (with us being alerted to this situtation via a special pipeline that
 does not block PRs). If not, it fails, preventing PRs from introducing new vulnerable dependencies.
 """
-import os
 import statistics
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -31,14 +30,14 @@ import scipy
 
 from framework import utils
 from framework.defs import FC_WORKSPACE_DIR
-from framework.microvm import Microvm
+from framework.properties import global_props
 from framework.utils import CommandReturn
 from framework.with_filelock import with_filelock
-from host_tools.cargo_build import DEFAULT_TARGET_DIR, get_firecracker_binaries
+from host_tools.cargo_build import DEFAULT_TARGET_DIR
 
 # Locally, this will always compare against main, even if we try to merge into, say, a feature branch.
 # We might want to do a more sophisticated way to determine a "parent" branch here.
-DEFAULT_A_REVISION = os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH") or "main"
+DEFAULT_A_REVISION = global_props.buildkite_revision_a or "main"
 
 
 T = TypeVar("T")
@@ -120,11 +119,6 @@ def binary_ab_test(
     return result_a, result_b, comparator(result_a, result_b)
 
 
-def is_pr() -> bool:
-    """Returns `True` iff we are executing in the context of a build kite run on a pull request"""
-    return os.environ.get("BUILDKITE_PULL_REQUEST", "false") != "false"
-
-
 def git_ab_test_host_command_if_pr(
     command: str,
     *,
@@ -134,7 +128,7 @@ def git_ab_test_host_command_if_pr(
     """Runs the given bash command as an A/B-Test if we're in a pull request context (asserting that its stdout and
     stderr did not change across the PR). Otherwise runs the command, asserting it returns a zero exit code
     """
-    if is_pr():
+    if global_props.buildkite_pr:
         git_ab_test_host_command(command, comparator=comparator)
         return None
 
@@ -174,56 +168,6 @@ def set_did_not_grow_comparator(
     return lambda output_a, output_b: set_generator(output_b).issubset(
         set_generator(output_a)
     )
-
-
-def precompiled_ab_test_guest_command(
-    microvm_factory: Callable[[Path, Path], Microvm],
-    command: str,
-    *,
-    comparator: Callable[[CommandReturn, CommandReturn], bool] = default_comparator,
-    a_revision: str = DEFAULT_A_REVISION,
-    b_revision: Optional[str] = None,
-):
-    """The same as git_ab_test_command, but via SSH. The closure argument should setup a microvm using the passed
-    paths to firecracker and jailer binaries."""
-    b_directory = (
-        DEFAULT_B_DIRECTORY
-        if b_revision is None
-        else FC_WORKSPACE_DIR / "build" / b_revision
-    )
-
-    def test_runner(bin_dir, _is_a: bool):
-        microvm = microvm_factory(bin_dir / "firecracker", bin_dir / "jailer")
-        return microvm.ssh.run(command)
-
-    (_, old_out, old_err), (_, new_out, new_err), the_same = binary_ab_test(
-        test_runner,
-        comparator,
-        a_directory=FC_WORKSPACE_DIR / "build" / a_revision,
-        b_directory=b_directory,
-    )
-
-    assert (
-        the_same
-    ), f"The output of running command `{command}` changed:\nOld:\nstdout:\n{old_out}\nstderr\n{old_err}\n\nNew:\nstdout:\n{new_out}\nstderr:\n{new_err}"
-
-
-def precompiled_ab_test_guest_command_if_pr(
-    microvm_factory: Callable[[Path, Path], Microvm],
-    command: str,
-    *,
-    comparator=default_comparator,
-    check_in_nonpr=True,
-):
-    """The same as git_ab_test_command_if_pr, but via SSH"""
-    if is_pr():
-        precompiled_ab_test_guest_command(
-            microvm_factory, command, comparator=comparator
-        )
-        return None
-
-    microvm = microvm_factory(*get_firecracker_binaries())
-    return microvm.ssh.run(command, check=check_in_nonpr)
 
 
 def check_regression(
