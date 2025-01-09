@@ -191,15 +191,15 @@ def test_net_api_put_update_pre_boot(uvm_plain):
     test_microvm = uvm_plain
     test_microvm.spawn()
 
-    first_if_name = "first_tap"
-    tap1 = net_tools.Tap(first_if_name, test_microvm.netns.id)
+    tap1name = test_microvm.id[:8] + "tap1"
+    tap1 = net_tools.Tap(tap1name, test_microvm.netns)
     test_microvm.api.network.put(
         iface_id="1", guest_mac="06:00:00:00:00:01", host_dev_name=tap1.name
     )
 
     # Adding new network interfaces is allowed.
-    second_if_name = "second_tap"
-    tap2 = net_tools.Tap(second_if_name, test_microvm.netns.id)
+    tap2name = test_microvm.id[:8] + "tap2"
+    tap2 = net_tools.Tap(tap2name, test_microvm.netns)
     test_microvm.api.network.put(
         iface_id="2", guest_mac="07:00:00:00:00:01", host_dev_name=tap2.name
     )
@@ -209,28 +209,26 @@ def test_net_api_put_update_pre_boot(uvm_plain):
     expected_msg = f"The MAC address is already in use: {guest_mac}"
     with pytest.raises(RuntimeError, match=expected_msg):
         test_microvm.api.network.put(
-            iface_id="2", host_dev_name=second_if_name, guest_mac=guest_mac
+            iface_id="2", host_dev_name=tap2name, guest_mac=guest_mac
         )
 
     # Updates to a network interface with an available MAC are allowed.
     test_microvm.api.network.put(
-        iface_id="2", host_dev_name=second_if_name, guest_mac="08:00:00:00:00:01"
+        iface_id="2", host_dev_name=tap2name, guest_mac="08:00:00:00:00:01"
     )
 
     # Updates to a network interface with an unavailable name are not allowed.
     expected_msg = "Could not create the network device"
     with pytest.raises(RuntimeError, match=expected_msg):
         test_microvm.api.network.put(
-            iface_id="1", host_dev_name=second_if_name, guest_mac="06:00:00:00:00:01"
+            iface_id="1", host_dev_name=tap2name, guest_mac="06:00:00:00:00:01"
         )
 
     # Updates to a network interface with an available name are allowed.
-    iface_id = "1"
-    tapname = test_microvm.id[:8] + "tap" + iface_id
-
-    tap3 = net_tools.Tap(tapname, test_microvm.netns.id)
+    tap3name = test_microvm.id[:8] + "tap3"
+    tap3 = net_tools.Tap(tap3name, test_microvm.netns)
     test_microvm.api.network.put(
-        iface_id=iface_id, host_dev_name=tap3.name, guest_mac="06:00:00:00:00:01"
+        iface_id="3", host_dev_name=tap3.name, guest_mac="06:00:00:00:00:01"
     )
 
 
@@ -266,7 +264,7 @@ def test_api_mmds_config(uvm_plain):
         test_microvm.api.mmds_config.put(network_interfaces=["foo"])
 
     # Attach network interface.
-    tap = net_tools.Tap("tap1", test_microvm.netns.id)
+    tap = net_tools.Tap(f"tap1-{test_microvm.id[:6]}", test_microvm.netns)
     test_microvm.api.network.put(
         iface_id="1", guest_mac="06:00:00:00:00:01", host_dev_name=tap.name
     )
@@ -487,7 +485,7 @@ def test_api_put_update_post_boot(uvm_plain, io_engine):
 
     iface_id = "1"
     tapname = test_microvm.id[:8] + "tap" + iface_id
-    tap1 = net_tools.Tap(tapname, test_microvm.netns.id)
+    tap1 = net_tools.Tap(tapname, test_microvm.netns)
 
     test_microvm.api.network.put(
         iface_id=iface_id, host_dev_name=tap1.name, guest_mac="06:00:00:00:00:01"
@@ -595,7 +593,7 @@ def test_rate_limiters_api_config(uvm_plain, io_engine):
     # Test network with tx bw rate-limiting.
     iface_id = "1"
     tapname = test_microvm.id[:8] + "tap" + iface_id
-    tap1 = net_tools.Tap(tapname, test_microvm.netns.id)
+    tap1 = net_tools.Tap(tapname, test_microvm.netns)
 
     test_microvm.api.network.put(
         iface_id=iface_id,
@@ -607,7 +605,7 @@ def test_rate_limiters_api_config(uvm_plain, io_engine):
     # Test network with rx bw rate-limiting.
     iface_id = "2"
     tapname = test_microvm.id[:8] + "tap" + iface_id
-    tap2 = net_tools.Tap(tapname, test_microvm.netns.id)
+    tap2 = net_tools.Tap(tapname, test_microvm.netns)
     test_microvm.api.network.put(
         iface_id=iface_id,
         guest_mac="06:00:00:00:00:02",
@@ -618,7 +616,7 @@ def test_rate_limiters_api_config(uvm_plain, io_engine):
     # Test network with tx and rx bw and ops rate-limiting.
     iface_id = "3"
     tapname = test_microvm.id[:8] + "tap" + iface_id
-    tap3 = net_tools.Tap(tapname, test_microvm.netns.id)
+    tap3 = net_tools.Tap(tapname, test_microvm.netns)
     test_microvm.api.network.put(
         iface_id=iface_id,
         guest_mac="06:00:00:00:00:03",
@@ -665,7 +663,7 @@ def test_api_patch_pre_boot(uvm_plain, io_engine):
 
     iface_id = "1"
     tapname = test_microvm.id[:8] + "tap" + iface_id
-    tap1 = net_tools.Tap(tapname, test_microvm.netns.id)
+    tap1 = net_tools.Tap(tapname, test_microvm.netns)
     test_microvm.api.network.put(
         iface_id=iface_id, host_dev_name=tap1.name, guest_mac="06:00:00:00:00:01"
     )
@@ -714,7 +712,7 @@ def test_negative_api_patch_post_boot(uvm_plain, io_engine):
 
     iface_id = "1"
     tapname = test_microvm.id[:8] + "tap" + iface_id
-    tap1 = net_tools.Tap(tapname, test_microvm.netns.id)
+    tap1 = net_tools.Tap(tapname, test_microvm.netns)
     test_microvm.api.network.put(
         iface_id=iface_id, host_dev_name=tap1.name, guest_mac="06:00:00:00:00:01"
     )
@@ -1245,7 +1243,7 @@ def test_get_full_config(uvm_plain):
     # Add a net device.
     iface_id = "1"
     tapname = test_microvm.id[:8] + "tap" + iface_id
-    tap1 = net_tools.Tap(tapname, test_microvm.netns.id)
+    tap1 = net_tools.Tap(tapname, test_microvm.netns)
     guest_mac = "06:00:00:00:00:01"
     tx_rl = {
         "bandwidth": {"size": 1000000, "refill_time": 100, "one_time_burst": None},

@@ -1074,6 +1074,7 @@ class MicroVMFactory:
         self.vms = []
         self.fc_binary_path = Path(fc_binary_path)
         self.jailer_binary_path = Path(jailer_binary_path)
+        self.netns_factory = kwargs.pop("netns_factory", net_tools.NetNs)
         self.kwargs = kwargs
 
     def build(self, kernel=None, rootfs=None, **kwargs):
@@ -1086,7 +1087,7 @@ class MicroVMFactory:
             jailer_binary_path=kwargs.pop(
                 "jailer_binary_path", self.jailer_binary_path
             ),
-            netns=kwargs.pop("netns", net_tools.NetNs(microvm_id)),
+            netns=kwargs.pop("netns", self.netns_factory(microvm_id)),
             **kwargs,
         )
         vm.netns.setup()
