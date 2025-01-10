@@ -67,7 +67,7 @@ use crate::snapshot::Persist;
 use crate::utils::u64_to_usize;
 use crate::vmm_config::boot_source::BootConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{VmConfig, VmConfigError};
+use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError};
 use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
 use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuError};
 use crate::vstate::vm::Vm;
@@ -124,7 +124,7 @@ pub enum StartMicrovmError {
     /// Cannot restore microvm state: {0}
     RestoreMicrovmState(MicrovmStateError),
     /// Cannot set vm resources: {0}
-    SetVmResources(VmConfigError),
+    SetVmResources(MachineConfigError),
     /// Cannot create the entropy device: {0}
     CreateEntropyDevice(crate::devices::virtio::rng::EntropyError),
     /// Failed to allocate guest resource: {0}
@@ -274,15 +274,18 @@ pub fn build_microvm_for_boot(
     #[allow(unused_mut)]
     let mut boot_cmdline = boot_config.cmdline.clone();
 
-    let cpu_template = vm_resources.vm_config.cpu_template.get_cpu_template()?;
+    let cpu_template = vm_resources
+        .machine_config
+        .cpu_template
+        .get_cpu_template()?;
 
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
         event_manager,
         guest_memory,
         None,
-        vm_resources.vm_config.track_dirty_pages,
-        vm_resources.vm_config.vcpu_count,
+        vm_resources.machine_config.track_dirty_pages,
+        vm_resources.machine_config.vcpu_count,
         cpu_template.kvm_capabilities.clone(),
     )?;
 
@@ -338,7 +341,7 @@ pub fn build_microvm_for_boot(
     configure_system_for_boot(
         &mut vmm,
         vcpus.as_mut(),
-        &vm_resources.vm_config,
+        &vm_resources.machine_config,
         &cpu_template,
         entry_addr,
         &initrd,
@@ -348,7 +351,7 @@ pub fn build_microvm_for_boot(
     let vmm = Arc::new(Mutex::new(vmm));
 
     #[cfg(feature = "gdb")]
-    if let Some(gdb_socket_path) = &vm_resources.vm_config.gdb_socket_path {
+    if let Some(gdb_socket_path) = &vm_resources.machine_config.gdb_socket_path {
         gdb::gdb_thread(vmm.clone(), vcpu_fds, gdb_rx, entry_addr, gdb_socket_path)
             .map_err(GdbServer)?;
     } else {
@@ -429,7 +432,7 @@ pub enum BuildMicrovmFromSnapshotError {
     /// Failed to restore microVM state: {0}
     RestoreState(#[from] crate::vstate::vm::RestoreStateError),
     /// Failed to update microVM configuration: {0}
-    VmUpdateConfig(#[from] VmConfigError),
+    VmUpdateConfig(#[from] MachineConfigError),
     /// Failed to restore MMIO device: {0}
     RestoreMmioDevice(#[from] MicrovmStateError),
     /// Failed to emulate MMIO serial: {0}
@@ -471,8 +474,8 @@ pub fn build_microvm_from_snapshot(
         event_manager,
         guest_memory.clone(),
         uffd,
-        vm_resources.vm_config.track_dirty_pages,
-        vm_resources.vm_config.vcpu_count,
+        vm_resources.machine_config.track_dirty_pages,
+        vm_resources.machine_config.vcpu_count,
         microvm_state.vm_state.kvm_cap_modifiers.clone(),
     )?;
 
@@ -750,7 +753,7 @@ fn create_vcpus(vm: &Vm, vcpu_count: u8, exit_evt: &EventFd) -> Result<Vec<Vcpu>
 pub fn configure_system_for_boot(
     vmm: &mut Vmm,
     vcpus: &mut [Vcpu],
-    vm_config: &VmConfig,
+    machine_config: &MachineConfig,
     cpu_template: &CustomCpuTemplate,
     entry_addr: GuestAddress,
     initrd: &Option<InitrdConfig>,
@@ -793,8 +796,8 @@ pub fn configure_system_for_boot(
     let cpu_config = CpuConfiguration::apply_template(cpu_config, cpu_template)?;
 
     let vcpu_config = VcpuConfig {
-        vcpu_count: vm_config.vcpu_count,
-        smt: vm_config.smt,
+        vcpu_count: machine_config.vcpu_count,
+        smt: machine_config.smt,
         cpu_config,
     };
 
