@@ -165,6 +165,7 @@ pub struct Balloon {
 
     // Implementation specific fields.
     pub(crate) restored: bool,
+    pub(crate) restored_with_uffd: bool,
     pub(crate) stats_polling_interval_s: u16,
     pub(crate) stats_timer: TimerFd,
     // The index of the previous stats descriptor is saved because
@@ -190,6 +191,7 @@ impl fmt::Debug for Balloon {
             .field("device_state", &self.device_state)
             .field("irq_trigger", &self.irq_trigger)
             .field("restored", &self.restored)
+            .field("restored_with_uffd", &self.restored_with_uffd)
             .field("stats_polling_interval_s", &self.stats_polling_interval_s)
             .field("stats_desc_index", &self.stats_desc_index)
             .field("latest_stats", &self.latest_stats)
@@ -205,6 +207,7 @@ impl Balloon {
         deflate_on_oom: bool,
         stats_polling_interval_s: u16,
         restored: bool,
+        restored_with_uffd: bool,
     ) -> Result<Balloon, BalloonError> {
         let mut avail_features = 1u64 << VIRTIO_F_VERSION_1;
 
@@ -246,6 +249,7 @@ impl Balloon {
             device_state: DeviceState::Inactive,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(BalloonError::EventFd)?,
             restored,
+            restored_with_uffd,
             stats_polling_interval_s,
             stats_timer,
             stats_desc_index: None,
@@ -356,6 +360,7 @@ impl Balloon {
                     mem,
                     (guest_addr, u64::from(range_len) << VIRTIO_BALLOON_PFN_SHIFT),
                     self.restored,
+                    self.restored_with_uffd,
                 ) {
                     error!("Error removing memory range: {:?}", err);
                 }

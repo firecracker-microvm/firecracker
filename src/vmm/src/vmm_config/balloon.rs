@@ -99,6 +99,9 @@ impl BalloonBuilder {
             // `restored` flag is false because this code path
             // is never called by snapshot restore functionality.
             false,
+            // `uffd` flag is false because uffd is only used
+            // with snapshot restores, which never hits this code path.
+            false,
         )?)));
 
         Ok(())

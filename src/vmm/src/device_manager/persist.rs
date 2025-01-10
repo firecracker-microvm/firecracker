@@ -214,6 +214,7 @@ pub struct MMIODevManagerConstructorArgs<'a> {
     pub resource_allocator: &'a mut ResourceAllocator,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
+    pub restored_with_uffd: &'a bool,
 }
 impl fmt::Debug for MMIODevManagerConstructorArgs<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -224,6 +225,7 @@ impl fmt::Debug for MMIODevManagerConstructorArgs<'_> {
             .field("for_each_restored_device", &"?")
             .field("vm_resources", &self.vm_resources)
             .field("instance_id", &self.instance_id)
+            .field("restored_with_uffd", &self.restored_with_uffd)
             .finish()
     }
 }
@@ -512,7 +514,10 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
         if let Some(balloon_state) = &state.balloon_device {
             let device = Arc::new(Mutex::new(Balloon::restore(
-                BalloonConstructorArgs { mem: mem.clone() },
+                BalloonConstructorArgs {
+                    mem: mem.clone(),
+                    restored_with_uffd: *constructor_args.restored_with_uffd,
+                },
                 &balloon_state.device_state,
             )?));
 

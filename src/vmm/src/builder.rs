@@ -464,6 +464,7 @@ pub fn build_microvm_from_snapshot(
 ) -> Result<Arc<Mutex<Vmm>>, BuildMicrovmFromSnapshotError> {
     // Build Vmm.
     debug!("event_start: build microvm from snapshot");
+    let restored_with_uffd = uffd.as_ref().is_some();
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
         event_manager,
@@ -518,6 +519,7 @@ pub fn build_microvm_from_snapshot(
         resource_allocator: &mut vmm.resource_allocator,
         vm_resources,
         instance_id: &instance_info.id,
+        restored_with_uffd: &restored_with_uffd,
     };
 
     vmm.mmio_device_manager =

@@ -95,6 +95,7 @@ pub struct BalloonState {
 pub struct BalloonConstructorArgs {
     /// Pointer to guest memory.
     pub mem: GuestMemoryMmap,
+    pub restored_with_uffd: bool,
 }
 
 impl Persist<'_> for Balloon {
@@ -121,7 +122,13 @@ impl Persist<'_> for Balloon {
     ) -> Result<Self, Self::Error> {
         // We can safely create the balloon with arbitrary flags and
         // num_pages because we will overwrite them after.
-        let mut balloon = Balloon::new(0, false, state.stats_polling_interval_s, true)?;
+        let mut balloon = Balloon::new(
+            0,
+            false,
+            state.stats_polling_interval_s,
+            true,
+            constructor_args.restored_with_uffd,
+        )?;
 
         let mut num_queues = BALLOON_NUM_QUEUES;
         // As per the virtio 1.1 specification, the statistics queue
@@ -186,7 +193,7 @@ mod tests {
         let mut mem = vec![0; 4096];
 
         // Create and save the balloon device.
-        let balloon = Balloon::new(0x42, false, 2, false).unwrap();
+        let balloon = Balloon::new(0x42, false, 2, false, false).unwrap();
 
         Snapshot::serialize(&mut mem.as_mut_slice(), &balloon.save()).unwrap();
 
