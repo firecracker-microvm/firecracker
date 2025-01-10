@@ -129,30 +129,28 @@ impl Default for MachineConfig {
 /// All fields are optional, but at least one needs to be specified.
 /// If a field is `Some(value)` then we assume an update is requested
 /// for that field.
-#[derive(Clone, Default, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MachineConfigUpdate {
     /// Number of vcpu to start.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub vcpu_count: Option<u8>,
     /// The memory size in MiB.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub mem_size_mib: Option<usize>,
     /// Enables or disabled SMT.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub smt: Option<bool>,
     /// A CPU template that it is used to filter the CPU features exposed to the guest.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub cpu_template: Option<StaticCpuTemplate>,
     /// Enables or disables dirty page tracking. Enabling allows incremental snapshots.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub track_dirty_pages: Option<bool>,
     /// Configures what page size Firecracker should use to back guest memory.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub huge_pages: Option<HugePageConfig>,
     /// GDB socket address.
     #[cfg(feature = "gdb")]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub gdb_socket_path: Option<String>,
 }
 
