@@ -24,6 +24,7 @@ fn main() {
     let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
 
     let mut runtime = Runtime::new(stream, file);
+    runtime.install_panic_hook();
     runtime.run(|uffd_handler: &mut UffdHandler| {
         // Read an event from the userfaultfd.
         let event = uffd_handler
