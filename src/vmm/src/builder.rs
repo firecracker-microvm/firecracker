@@ -472,7 +472,7 @@ pub fn build_microvm_from_snapshot(
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
         event_manager,
-        guest_memory.clone(),
+        guest_memory,
         uffd,
         vm_resources.machine_config.track_dirty_pages,
         vm_resources.machine_config.vcpu_count,
@@ -517,7 +517,7 @@ pub fn build_microvm_from_snapshot(
 
     // Restore devices states.
     let mmio_ctor_args = MMIODevManagerConstructorArgs {
-        mem: &guest_memory,
+        mem: &vmm.guest_memory,
         vm: vmm.vm.fd(),
         event_manager,
         resource_allocator: &mut vmm.resource_allocator,
@@ -532,7 +532,7 @@ pub fn build_microvm_from_snapshot(
 
     {
         let acpi_ctor_args = ACPIDeviceManagerConstructorArgs {
-            mem: &guest_memory,
+            mem: &vmm.guest_memory,
             resource_allocator: &mut vmm.resource_allocator,
             vm: vmm.vm.fd(),
         };
