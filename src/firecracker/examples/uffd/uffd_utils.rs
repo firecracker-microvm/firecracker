@@ -121,6 +121,9 @@ impl UffdHandler {
                 //    memory from the host (through balloon device)
                 Some(MemPageState::Uninitialized) | Some(MemPageState::FromFile) => {
                     let (start, end) = self.populate_from_file(region, fault_page_addr, len);
+                    if start == 0 && end == 0 {
+                        return;
+                    }
                     self.update_mem_state_mappings(start, end, MemPageState::FromFile);
                     return;
                 }
@@ -144,9 +147,17 @@ impl UffdHandler {
         let src = self.backing_buffer as u64 + region.mapping.offset + offset;
 
         let ret = unsafe {
-            self.uffd
-                .copy(src as *const _, dst as *mut _, len, true)
-                .expect("Uffd copy failed")
+            match self.uffd.copy(src as *const _, dst as *mut _, len, true) {
+                Ok(value) => value,
+                // Catch EAGAIN errors, which occur when there is a simultaneous copy with a EVENT_REMOVE.
+                // Ignore in this case.
+                Err(Error::PartiallyCopied(bytes_copied)) => {
+                    return (0, 0);
+                }
+                Err(e) => {
+                    panic!("Uffd copy failed");
+                }
+            }
         };
 
         // Make sure the UFFD copied some bytes.
