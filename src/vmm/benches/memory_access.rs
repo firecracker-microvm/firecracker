@@ -4,7 +4,7 @@
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use vm_memory::GuestMemory;
 use vmm::resources::VmResources;
-use vmm::vmm_config::machine_config::{HugePageConfig, VmConfig};
+use vmm::vmm_config::machine_config::{HugePageConfig, MachineConfig};
 
 fn bench_single_page_fault(c: &mut Criterion, configuration: VmResources) {
     c.bench_function("page_fault", |b| {
@@ -33,7 +33,7 @@ pub fn bench_4k_page_fault(c: &mut Criterion) {
     bench_single_page_fault(
         c,
         VmResources {
-            vm_config: VmConfig {
+            machine_config: MachineConfig {
                 vcpu_count: 1,
                 mem_size_mib: 2,
                 ..Default::default()
@@ -47,7 +47,7 @@ pub fn bench_2m_page_fault(c: &mut Criterion) {
     bench_single_page_fault(
         c,
         VmResources {
-            vm_config: VmConfig {
+            machine_config: MachineConfig {
                 vcpu_count: 1,
                 mem_size_mib: 2,
                 huge_pages: HugePageConfig::Hugetlbfs2M,

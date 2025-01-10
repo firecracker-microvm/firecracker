@@ -81,12 +81,12 @@ impl MockVmResources {
 
     pub fn with_vm_config(mut self, vm_config: MachineConfig) -> Self {
         let machine_config = MachineConfigUpdate::from(vm_config);
-        self.0.update_vm_config(&machine_config).unwrap();
+        self.0.update_machine_config(&machine_config).unwrap();
         self
     }
 
     pub fn set_cpu_template(&mut self, cpu_template: CustomCpuTemplate) {
-        self.0.vm_config.set_custom_cpu_template(cpu_template);
+        self.0.machine_config.set_custom_cpu_template(cpu_template);
     }
 }
 

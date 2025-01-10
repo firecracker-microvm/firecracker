@@ -22,7 +22,7 @@ use crate::vmm_config::drive::*;
 use crate::vmm_config::entropy::*;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{
-    HugePageConfig, MachineConfig, MachineConfigUpdate, VmConfig, VmConfigError,
+    HugePageConfig, MachineConfig, MachineConfigError, MachineConfigUpdate,
 };
 use crate::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
@@ -54,7 +54,7 @@ pub enum ResourcesError {
     /// Network device error: {0}
     NetDevice(#[from] NetworkInterfaceError),
     /// VM config error: {0}
-    VmConfig(#[from] VmConfigError),
+    MachineConfig(#[from] MachineConfigError),
     /// Vsock device error: {0}
     VsockDevice(#[from] VsockConfigError),
     /// Entropy device error: {0}
@@ -93,7 +93,7 @@ pub struct VmmConfig {
 #[derive(Debug, Default)]
 pub struct VmResources {
     /// The vCpu and memory configuration for this microVM.
-    pub vm_config: VmConfig,
+    pub machine_config: MachineConfig,
     /// The boot source spec (contains both config and builder) for this microVM.
     pub boot_source: BootSource,
     /// The block devices.
@@ -140,7 +140,7 @@ impl VmResources {
         };
         if let Some(machine_config) = vmm_config.machine_config {
             let machine_config = MachineConfigUpdate::from(machine_config);
-            resources.update_vm_config(&machine_config)?;
+            resources.update_machine_config(&machine_config)?;
         }
 
         if let Some(cpu_config) = vmm_config.cpu_config {
@@ -219,7 +219,7 @@ impl VmResources {
             SharedDeviceType::Balloon(balloon) => {
                 self.balloon.set_device(balloon);
 
-                if self.vm_config.huge_pages != HugePageConfig::None {
+                if self.machine_config.huge_pages != HugePageConfig::None {
                     return Err(ResourcesError::BalloonDevice(BalloonConfigError::HugePages));
                 }
             }
@@ -238,16 +238,19 @@ impl VmResources {
     /// Add a custom CPU template to the VM resources
     /// to configure vCPUs.
     pub fn set_custom_cpu_template(&mut self, cpu_template: CustomCpuTemplate) {
-        self.vm_config.set_custom_cpu_template(cpu_template);
+        self.machine_config.set_custom_cpu_template(cpu_template);
     }
 
     /// Updates the configuration of the microVM.
-    pub fn update_vm_config(&mut self, update: &MachineConfigUpdate) -> Result<(), VmConfigError> {
+    pub fn update_machine_config(
+        &mut self,
+        update: &MachineConfigUpdate,
+    ) -> Result<(), MachineConfigError> {
         if update.huge_pages.is_some() && update.huge_pages != Some(HugePageConfig::None) {
             log_dev_preview_warning("Huge pages support", None);
         }
 
-        let updated = self.vm_config.update(update)?;
+        let updated = self.machine_config.update(update)?;
 
         // The VM cannot have a memory size smaller than the target size
         // of the balloon device, if present.
@@ -256,23 +259,23 @@ impl VmResources {
                 < self
                     .balloon
                     .get_config()
-                    .map_err(|_| VmConfigError::InvalidVmState)?
+                    .map_err(|_| MachineConfigError::InvalidVmState)?
                     .amount_mib as usize
         {
-            return Err(VmConfigError::IncompatibleBalloonSize);
+            return Err(MachineConfigError::IncompatibleBalloonSize);
         }
 
         if self.balloon.get().is_some() && updated.huge_pages != HugePageConfig::None {
-            return Err(VmConfigError::BalloonAndHugePages);
+            return Err(MachineConfigError::BalloonAndHugePages);
         }
 
         if self.boot_source.config.initrd_path.is_some()
             && updated.huge_pages != HugePageConfig::None
         {
-            return Err(VmConfigError::InitrdAndHugePages);
+            return Err(MachineConfigError::InitrdAndHugePages);
         }
 
-        self.vm_config = updated;
+        self.machine_config = updated;
 
         Ok(())
     }
@@ -322,11 +325,11 @@ impl VmResources {
     ) -> Result<(), BalloonConfigError> {
         // The balloon cannot have a target size greater than the size of
         // the guest memory.
-        if config.amount_mib as usize > self.vm_config.mem_size_mib {
+        if config.amount_mib as usize > self.machine_config.mem_size_mib {
             return Err(BalloonConfigError::TooManyPagesRequested);
         }
 
-        if self.vm_config.huge_pages != HugePageConfig::None {
+        if self.machine_config.huge_pages != HugePageConfig::None {
             return Err(BalloonConfigError::HugePages);
         }
 
@@ -339,7 +342,7 @@ impl VmResources {
         boot_source_cfg: BootSourceConfig,
     ) -> Result<(), BootSourceConfigError> {
         if boot_source_cfg.initrd_path.is_some()
-            && self.vm_config.huge_pages != HugePageConfig::None
+            && self.machine_config.huge_pages != HugePageConfig::None
         {
             return Err(BootSourceConfigError::HugePagesAndInitRd);
         }
@@ -480,16 +483,16 @@ impl VmResources {
         // that would not be worth the effort.
         if vhost_user_device_used {
             GuestMemoryMmap::memfd_backed(
-                self.vm_config.mem_size_mib,
-                self.vm_config.track_dirty_pages,
-                self.vm_config.huge_pages,
+                self.machine_config.mem_size_mib,
+                self.machine_config.track_dirty_pages,
+                self.machine_config.huge_pages,
             )
         } else {
-            let regions = crate::arch::arch_memory_regions(self.vm_config.mem_size_mib << 20);
+            let regions = crate::arch::arch_memory_regions(self.machine_config.mem_size_mib << 20);
             GuestMemoryMmap::from_raw_regions(
                 &regions,
-                self.vm_config.track_dirty_pages,
-                self.vm_config.huge_pages,
+                self.machine_config.track_dirty_pages,
+                self.machine_config.huge_pages,
             )
         }
     }
@@ -503,7 +506,7 @@ impl From<&VmResources> for VmmConfig {
             boot_source: resources.boot_source.config.clone(),
             cpu_config: None,
             logger: None,
-            machine_config: Some(MachineConfig::from(&resources.vm_config)),
+            machine_config: Some(resources.machine_config.clone()),
             metrics: None,
             mmds_config: resources.mmds_config(),
             net_devices: resources.net_builder.configs(),
@@ -535,7 +538,7 @@ mod tests {
         BootConfig, BootSource, BootSourceConfig, DEFAULT_KERNEL_CMDLINE,
     };
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
-    use crate::vmm_config::machine_config::{HugePageConfig, MachineConfig, VmConfigError};
+    use crate::vmm_config::machine_config::{HugePageConfig, MachineConfig, MachineConfigError};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::RateLimiterConfig;
@@ -608,7 +611,7 @@ mod tests {
 
     fn default_vm_resources() -> VmResources {
         VmResources {
-            vm_config: VmConfig::default(),
+            machine_config: MachineConfig::default(),
             boot_source: default_boot_cfg(),
             block: default_blocks(),
             vsock: Default::default(),
@@ -821,7 +824,7 @@ mod tests {
         assert!(
             matches!(
                 error,
-                ResourcesError::VmConfig(VmConfigError::InvalidMemorySize)
+                ResourcesError::MachineConfig(MachineConfigError::InvalidMemorySize)
             ),
             "{:?}",
             error
@@ -1135,7 +1138,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            vm_resources.vm_config.cpu_template,
+            vm_resources.machine_config.cpu_template,
             Some(CpuTemplateType::Custom(CustomCpuTemplate::default()))
         );
     }
@@ -1339,7 +1342,7 @@ mod tests {
     }
 
     #[test]
-    fn test_update_vm_config() {
+    fn test_update_machine_config() {
         let mut vm_resources = default_vm_resources();
         let mut aux_vm_config = MachineConfigUpdate {
             vcpu_count: Some(32),
@@ -1354,25 +1357,25 @@ mod tests {
         };
 
         assert_ne!(
-            MachineConfigUpdate::from(MachineConfig::from(&vm_resources.vm_config)),
+            MachineConfigUpdate::from(vm_resources.machine_config.clone()),
             aux_vm_config
         );
-        vm_resources.update_vm_config(&aux_vm_config).unwrap();
+        vm_resources.update_machine_config(&aux_vm_config).unwrap();
         assert_eq!(
-            MachineConfigUpdate::from(MachineConfig::from(&vm_resources.vm_config)),
+            MachineConfigUpdate::from(vm_resources.machine_config.clone()),
             aux_vm_config
         );
 
         // Invalid vcpu count.
         aux_vm_config.vcpu_count = Some(0);
         assert_eq!(
-            vm_resources.update_vm_config(&aux_vm_config),
-            Err(VmConfigError::InvalidVcpuCount)
+            vm_resources.update_machine_config(&aux_vm_config),
+            Err(MachineConfigError::InvalidVcpuCount)
         );
         aux_vm_config.vcpu_count = Some(33);
         assert_eq!(
-            vm_resources.update_vm_config(&aux_vm_config),
-            Err(VmConfigError::InvalidVcpuCount)
+            vm_resources.update_machine_config(&aux_vm_config),
+            Err(MachineConfigError::InvalidVcpuCount)
         );
 
         // Check that SMT is not supported on aarch64, and that on x86_64 enabling it requires vcpu
@@ -1380,29 +1383,29 @@ mod tests {
         aux_vm_config.smt = Some(true);
         #[cfg(target_arch = "aarch64")]
         assert_eq!(
-            vm_resources.update_vm_config(&aux_vm_config),
-            Err(VmConfigError::SmtNotSupported)
+            vm_resources.update_machine_config(&aux_vm_config),
+            Err(MachineConfigError::SmtNotSupported)
         );
         aux_vm_config.vcpu_count = Some(3);
         #[cfg(target_arch = "x86_64")]
         assert_eq!(
-            vm_resources.update_vm_config(&aux_vm_config),
-            Err(VmConfigError::InvalidVcpuCount)
+            vm_resources.update_machine_config(&aux_vm_config),
+            Err(MachineConfigError::InvalidVcpuCount)
         );
         aux_vm_config.vcpu_count = Some(32);
         #[cfg(target_arch = "x86_64")]
-        vm_resources.update_vm_config(&aux_vm_config).unwrap();
+        vm_resources.update_machine_config(&aux_vm_config).unwrap();
         aux_vm_config.smt = Some(false);
 
         // Invalid mem_size_mib.
         aux_vm_config.mem_size_mib = Some(0);
         assert_eq!(
-            vm_resources.update_vm_config(&aux_vm_config),
-            Err(VmConfigError::InvalidMemorySize)
+            vm_resources.update_machine_config(&aux_vm_config),
+            Err(MachineConfigError::InvalidMemorySize)
         );
 
         // Incompatible mem_size_mib with balloon size.
-        vm_resources.vm_config.mem_size_mib = 128;
+        vm_resources.machine_config.mem_size_mib = 128;
         vm_resources
             .set_balloon_device(BalloonDeviceConfig {
                 amount_mib: 100,
@@ -1412,20 +1415,22 @@ mod tests {
             .unwrap();
         aux_vm_config.mem_size_mib = Some(90);
         assert_eq!(
-            vm_resources.update_vm_config(&aux_vm_config),
-            Err(VmConfigError::IncompatibleBalloonSize)
+            vm_resources.update_machine_config(&aux_vm_config),
+            Err(MachineConfigError::IncompatibleBalloonSize)
         );
 
         // mem_size_mib compatible with balloon size.
         aux_vm_config.mem_size_mib = Some(256);
-        vm_resources.update_vm_config(&aux_vm_config).unwrap();
+        vm_resources.update_machine_config(&aux_vm_config).unwrap();
 
         // mem_size_mib incompatible with huge pages configuration
         aux_vm_config.mem_size_mib = Some(129);
         aux_vm_config.huge_pages = Some(HugePageConfig::Hugetlbfs2M);
         assert_eq!(
-            vm_resources.update_vm_config(&aux_vm_config).unwrap_err(),
-            VmConfigError::InvalidMemorySize
+            vm_resources
+                .update_machine_config(&aux_vm_config)
+                .unwrap_err(),
+            MachineConfigError::InvalidMemorySize
         );
 
         // mem_size_mib compatible with huge page configuration
@@ -1433,7 +1438,7 @@ mod tests {
         // Remove the balloon device config that's added by `default_vm_resources` as it would
         // trigger the "ballooning incompatible with huge pages" check.
         vm_resources.balloon = BalloonBuilder::new();
-        vm_resources.update_vm_config(&aux_vm_config).unwrap();
+        vm_resources.update_machine_config(&aux_vm_config).unwrap();
     }
 
     #[test]
@@ -1474,7 +1479,7 @@ mod tests {
         let mut vm_resources = default_vm_resources();
         vm_resources.balloon = BalloonBuilder::new();
         vm_resources
-            .update_vm_config(&MachineConfigUpdate {
+            .update_machine_config(&MachineConfigUpdate {
                 huge_pages: Some(HugePageConfig::Hugetlbfs2M),
                 ..Default::default()
             })

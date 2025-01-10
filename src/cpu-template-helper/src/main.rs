@@ -161,7 +161,7 @@ fn run(cli: Cli) -> Result<(), HelperError> {
                 let (vmm, vm_resources) = utils::build_microvm_from_config(config, template)?;
 
                 let cpu_template = vm_resources
-                    .vm_config
+                    .machine_config
                     .cpu_template
                     .get_cpu_template()?
                     .into_owned();
