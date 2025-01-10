@@ -13,6 +13,7 @@ use kvm_ioctls::VcpuFd;
 
 use super::get_fdt_addr;
 use super::regs::*;
+use crate::vstate::kvm::OptionalCapabilities;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// Errors thrown while setting aarch64 registers.
@@ -78,6 +79,7 @@ pub fn setup_boot_regs(
     cpu_id: u8,
     boot_ip: u64,
     mem: &GuestMemoryMmap,
+    optional_capabilities: &OptionalCapabilities,
 ) -> Result<(), VcpuError> {
     let kreg_off = offset_of!(kvm_regs, regs);
 
@@ -106,6 +108,23 @@ pub fn setup_boot_regs(
         vcpufd
             .set_one_reg(id, &get_fdt_addr(mem).to_le_bytes())
             .map_err(|err| VcpuError::SetOneReg(id, err))?;
+
+        // Reset the physical counter for the guest. This way we avoid guest reading
+        // host physical counter.
+        // Resetting KVM_REG_ARM_PTIMER_CNT for single vcpu is enough because there is only
+        // one timer struct with offsets per VM.
+        // Because the access to KVM_REG_ARM_PTIMER_CNT is only present starting 6.4 kernel,
+        // we only do the reset if KVM_CAP_COUNTER_OFFSET is present as it was added
+        // in the same patch series as the ability to set the KVM_REG_ARM_PTIMER_CNT register.
+        // Path series which introduced the needed changes:
+        // https://lore.kernel.org/all/20230330174800.2677007-1-maz@kernel.org/
+        // Note: the value observed by the guest will still be above 0, because there is a delta
+        // time between this resetting and first call to KVM_RUN.
+        if optional_capabilities.counter_offset {
+            vcpufd
+                .set_one_reg(KVM_REG_ARM_PTIMER_CNT, &[0; 8])
+                .map_err(|err| VcpuError::SetOneReg(id, err))?;
+        }
     }
     Ok(())
 }
@@ -226,8 +245,9 @@ mod tests {
         let vm = kvm.fd.create_vm().unwrap();
         let vcpu = vm.create_vcpu(0).unwrap();
         let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
+        let optional_capabilities = kvm.optional_capabilities();
 
-        let res = setup_boot_regs(&vcpu, 0, 0x0, &mem);
+        let res = setup_boot_regs(&vcpu, 0, 0x0, &mem, &optional_capabilities);
         assert!(matches!(
             res.unwrap_err(),
             VcpuError::SetOneReg(0x6030000000100042, _)
@@ -237,7 +257,25 @@ mod tests {
         vm.get_preferred_target(&mut kvi).unwrap();
         vcpu.vcpu_init(&kvi).unwrap();
 
-        setup_boot_regs(&vcpu, 0, 0x0, &mem).unwrap();
+        setup_boot_regs(&vcpu, 0, 0x0, &mem, &optional_capabilities).unwrap();
+
+        // Check that the register is reset on compatible kernels.
+        // Because there is a delta in time between we reset the register and time we
+        // read it, we cannot compare with 0. Instead we compare it with meaningfully
+        // small value.
+        if optional_capabilities.counter_offset {
+            let mut reg_bytes = [0_u8; 8];
+            vcpu.get_one_reg(SYS_CNTPCT_EL0, &mut reg_bytes).unwrap();
+            let counter_value = u64::from_le_bytes(reg_bytes);
+
+            // We are reading the SYS_CNTPCT_EL0 right after resetting it.
+            // If reset did happen successfully, the value should be quite small when we read it.
+            // If the reset did not happen, the value will be same as on the host and it surely
+            // will be more that MAX_VALUE.
+            let max_value = 1000;
+
+            assert!(counter_value < max_value);
+        }
     }
 
     #[test]

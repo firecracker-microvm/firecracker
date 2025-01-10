@@ -22,7 +22,7 @@ use crate::cpu_config::aarch64::custom_cpu_template::VcpuFeatures;
 use crate::cpu_config::templates::CpuConfiguration;
 use crate::logger::{error, IncMetric, METRICS};
 use crate::vcpu::{VcpuConfig, VcpuError};
-use crate::vstate::kvm::Kvm;
+use crate::vstate::kvm::{Kvm, OptionalCapabilities};
 use crate::vstate::memory::{Address, GuestAddress, GuestMemoryMmap};
 use crate::vstate::vcpu::VcpuEmulation;
 use crate::vstate::vm::Vm;
@@ -116,6 +116,7 @@ impl KvmVcpu {
         guest_mem: &GuestMemoryMmap,
         kernel_load_addr: GuestAddress,
         vcpu_config: &VcpuConfig,
+        optional_capabilities: &OptionalCapabilities,
     ) -> Result<(), KvmVcpuError> {
         for reg in vcpu_config.cpu_config.regs.iter() {
             self.fd
@@ -128,6 +129,7 @@ impl KvmVcpu {
             self.index,
             kernel_load_addr.raw_value(),
             guest_mem,
+            optional_capabilities,
         )
         .map_err(KvmVcpuError::ConfigureRegisters)?;
 
@@ -338,7 +340,8 @@ mod tests {
 
     #[test]
     fn test_configure_vcpu() {
-        let (_, _, mut vcpu, vm_mem) = setup_vcpu(0x10000);
+        let (kvm, _, mut vcpu, vm_mem) = setup_vcpu(0x10000);
+        let optional_capabilities = kvm.optional_capabilities();
 
         let vcpu_config = VcpuConfig {
             vcpu_count: 1,
@@ -349,6 +352,7 @@ mod tests {
             &vm_mem,
             GuestAddress(crate::arch::get_kernel_start()),
             &vcpu_config,
+            &optional_capabilities,
         )
         .unwrap();
 
@@ -358,6 +362,7 @@ mod tests {
             &vm_mem,
             GuestAddress(crate::arch::get_kernel_start()),
             &vcpu_config,
+            &optional_capabilities,
         );
         assert_eq!(
             err.unwrap_err(),

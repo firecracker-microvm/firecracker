@@ -814,16 +814,16 @@ pub fn configure_system_for_boot(
         cpu_config,
     };
 
-    // Configure vCPUs with normalizing and setting the generated CPU configuration.
-    for vcpu in vcpus.iter_mut() {
-        vcpu.kvm_vcpu
-            .configure(vmm.guest_memory(), entry_addr, &vcpu_config)
-            .map_err(VmmError::VcpuConfigure)
-            .map_err(Internal)?;
-    }
-
     #[cfg(target_arch = "x86_64")]
     {
+        // Configure vCPUs with normalizing and setting the generated CPU configuration.
+        for vcpu in vcpus.iter_mut() {
+            vcpu.kvm_vcpu
+                .configure(vmm.guest_memory(), entry_addr, &vcpu_config)
+                .map_err(VmmError::VcpuConfigure)
+                .map_err(Internal)?;
+        }
+
         // Write the kernel command line to guest memory. This is x86_64 specific, since on
         // aarch64 the command line will be specified through the FDT.
         let cmdline_size = boot_cmdline
@@ -858,6 +858,19 @@ pub fn configure_system_for_boot(
     }
     #[cfg(target_arch = "aarch64")]
     {
+        let optional_capabilities = vmm.kvm.optional_capabilities();
+        // Configure vCPUs with normalizing and setting the generated CPU configuration.
+        for vcpu in vcpus.iter_mut() {
+            vcpu.kvm_vcpu
+                .configure(
+                    vmm.guest_memory(),
+                    entry_addr,
+                    &vcpu_config,
+                    &optional_capabilities,
+                )
+                .map_err(VmmError::VcpuConfigure)
+                .map_err(Internal)?;
+        }
         let vcpu_mpidr = vcpus
             .iter_mut()
             .map(|cpu| cpu.kvm_vcpu.get_mpidr())
