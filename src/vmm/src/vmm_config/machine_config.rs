@@ -136,6 +136,7 @@ pub struct MachineConfigUpdate {
     #[serde(default)]
     pub vcpu_count: Option<u8>,
     /// The memory size in MiB.
+    #[serde(default)]
     pub mem_size_mib: Option<usize>,
     /// Enables or disabled SMT.
     #[serde(default)]
@@ -144,6 +145,7 @@ pub struct MachineConfigUpdate {
     #[serde(default)]
     pub cpu_template: Option<StaticCpuTemplate>,
     /// Enables or disables dirty page tracking. Enabling allows incremental snapshots.
+    #[serde(default)]
     pub track_dirty_pages: Option<bool>,
     /// Configures what page size Firecracker should use to back guest memory.
     #[serde(default)]
