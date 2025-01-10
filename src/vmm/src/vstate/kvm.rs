@@ -140,7 +140,13 @@ impl Kvm {
         }
     }
 }
-
+#[cfg(target_arch = "aarch64")]
+/// Optional capabilities.
+#[derive(Debug, Default)]
+pub struct OptionalCapabilities {
+    /// KVM_CAP_COUNTER_OFFSET
+    pub counter_offset: bool,
+}
 #[cfg(target_arch = "aarch64")]
 impl Kvm {
     const DEFAULT_CAPABILITIES: [u32; 7] = [
@@ -152,6 +158,16 @@ impl Kvm {
         kvm_bindings::KVM_CAP_MP_STATE,
         kvm_bindings::KVM_CAP_ONE_REG,
     ];
+
+    /// Returns struct with optional capabilities statuses.
+    pub fn optional_capabilities(&self) -> OptionalCapabilities {
+        OptionalCapabilities {
+            counter_offset: self
+                .fd
+                .check_extension_raw(kvm_bindings::KVM_CAP_COUNTER_OFFSET.into())
+                != 0,
+        }
+    }
 }
 
 #[cfg(target_arch = "x86_64")]
