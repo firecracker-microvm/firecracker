@@ -328,13 +328,16 @@ For vendor-specific recommendations, please consult the resources below:
 - ARM:
   [Speculative Processor Vulnerability](https://developer.arm.com/support/arm-security-updates/speculative-processor-vulnerability)
 
-##### [ARM only] Physical counter directly passed through to the guest
+##### [ARM only] VM Physical counter behaviour
 
-On ARM, the physical counter (i.e `CNTPCT`) it is returning the
-[actual EL1 physical counter value of the host][1]. From the discussions before
-merging this change [upstream][2], this seems like a conscious design decision
-of the ARM code contributors, giving precedence to performance over the ability
-to trap and control this in the hypervisor.
+On ARM, Firecracker tries to reset the `CNTPCT` physical counter on VM boot.
+This is done in order to prevent VM from reading host physical counter value.
+Firecracker will only try to reset the counter if the host KVM contains
+`KVM_CAP_COUNTER_OFFSET` capability. This capability is only present in kernels
+containing
+[this](https://lore.kernel.org/all/20230330174800.2677007-1-maz@kernel.org/)
+patch series (starting from 6.4 and newer). For older kernels the counter value
+will be passed through from the host.
 
 ##### Verification
 
@@ -428,6 +431,3 @@ To validate that the change took effect, the file
 [^1]: Look for `GRUB_CMDLINE_LINUX` in file `/etc/default/grub` in RPM-based
     systems, and
     [this doc for Ubuntu](https://wiki.ubuntu.com/Kernel/KernelBootParameters).
-
-[1]: https://elixir.free-electrons.com/linux/v4.14.203/source/virt/kvm/arm/hyp/timer-sr.c#L63
-[2]: https://lists.cs.columbia.edu/pipermail/kvmarm/2017-January/023323.html
