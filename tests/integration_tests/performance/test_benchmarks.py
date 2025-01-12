@@ -32,7 +32,7 @@ def get_executables():
     )
 
     executables = []
-    for line in stdout.split("\n"):
+    for line in stdout.splitlines():
         if line:
             msg = json.loads(line)
             executable = msg.get("executable")
