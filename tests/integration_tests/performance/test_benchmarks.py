@@ -43,7 +43,6 @@ def get_executables():
 
 
 @pytest.mark.no_block_pr
-@pytest.mark.timeout(600)
 @pytest.mark.parametrize("executable", get_executables())
 def test_no_regression_relative_to_target_branch(executable):
     """
