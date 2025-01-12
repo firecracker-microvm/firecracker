@@ -10,9 +10,9 @@ bench = false
 
 [dependencies]
 displaydoc = "0.2.5"
-libc = "0.2.168"
+libc = "0.2.169"
 log-instrument = { path = "../log-instrument", optional = true }
-thiserror = "2.0.7"
+thiserror = "2.0.9"
 
 [features]
 tracing = ["log-instrument"]

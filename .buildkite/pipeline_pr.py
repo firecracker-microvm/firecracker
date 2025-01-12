@@ -76,7 +76,7 @@ if run_all_tests(changed_files):
     pipeline.build_group(
         "⚙ Functional and security 🔒",
         pipeline.devtool_test(
-            pytest_opts="-n 8 --dist worksteal integration_tests/{{functional,security}}",
+            pytest_opts="-n 16 --dist worksteal integration_tests/{{functional,security}}",
         ),
     )
 

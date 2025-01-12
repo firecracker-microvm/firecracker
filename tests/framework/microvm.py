@@ -188,6 +188,7 @@ class Microvm:
         monitor_memory: bool = True,
         jailer_kwargs: Optional[dict] = None,
         numa_node=None,
+        custom_cpu_template: Path = None,
     ):
         """Set up microVM attributes, paths, and data structures."""
         # pylint: disable=too-many-statements
@@ -246,6 +247,9 @@ class Microvm:
         self.vcpus_count = None
         self.mem_size_bytes = None
         self.cpu_template_name = None
+        # The given custom CPU template will be set in basic_config() but could
+        # be overwritten via set_cpu_template().
+        self.custom_cpu_template = custom_cpu_template
 
         self._connections = []
 
@@ -748,6 +752,9 @@ class Microvm:
         self.vcpus_count = vcpu_count
         self.mem_size_bytes = mem_size_mib * 2**20
 
+        if self.custom_cpu_template is not None:
+            self.set_cpu_template(self.custom_cpu_template)
+
         if cpu_template is not None:
             self.set_cpu_template(cpu_template)
 
@@ -1067,6 +1074,7 @@ class MicroVMFactory:
         self.vms = []
         self.fc_binary_path = Path(fc_binary_path)
         self.jailer_binary_path = Path(jailer_binary_path)
+        self.netns_factory = kwargs.pop("netns_factory", net_tools.NetNs)
         self.kwargs = kwargs
 
     def build(self, kernel=None, rootfs=None, **kwargs):
@@ -1079,7 +1087,7 @@ class MicroVMFactory:
             jailer_binary_path=kwargs.pop(
                 "jailer_binary_path", self.jailer_binary_path
             ),
-            netns=kwargs.pop("netns", net_tools.NetNs(microvm_id)),
+            netns=kwargs.pop("netns", self.netns_factory(microvm_id)),
             **kwargs,
         )
         vm.netns.setup()

@@ -113,7 +113,7 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-too
     && rustup target add x86_64-unknown-linux-musl \
     && rustup target add aarch64-unknown-linux-musl \
     && rustup component add llvm-tools-preview clippy rustfmt \
-    && cargo install --locked cargo-audit cargo-deny@0.16.1 grcov cargo-sort cargo-afl \
+    && cargo install --locked cargo-audit cargo-deny grcov cargo-sort cargo-afl \
     && cargo install --locked kani-verifier && cargo kani setup \
     \
     && NIGHTLY_TOOLCHAIN=$(rustup toolchain list | grep nightly | tr -d '\n') \
@@ -149,12 +149,18 @@ RUN cd /usr/include/$ARCH-linux-musl \
     && ln -s ../asm-generic asm-generic
 
 # Install static version of libseccomp
-#
+# We need to compile from source because 
+# libseccomp provided by the distribution is not
+# compiled with musl-gcc and we need this
+# for our musl builds.
+# We specify the tag in order to have a fixed version
+# of the library.
 RUN apt-get update \
     && apt-get -y install \
         libtool gperf \
     && git clone https://github.com/seccomp/libseccomp /tmp/libseccomp \
     && cd /tmp/libseccomp \
+    && git checkout tags/v2.5.5 \
     && ./autogen.sh \
     && CC="musl-gcc -static" ./configure --enable-static=yes --enable-shared=false \
     && make install \

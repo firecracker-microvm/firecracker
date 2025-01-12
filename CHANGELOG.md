@@ -25,6 +25,9 @@ and this project adheres to
 
 - [#4921](https://github.com/firecracker-microvm/firecracker/pull/4921): Fixed
   swagger `CpuConfig` definition to include missing aarch64-specific fields.
+- [#4916](https://github.com/firecracker-microvm/firecracker/pull/4916): Fixed
+  `IovDeque` implementation to work with any host page size. This fixes
+  virtio-net device on non 4K host kernels.
 
 ## [1.10.1]
 
