@@ -15,7 +15,7 @@ bench = false
 libc = "0.2.169"
 log-instrument = { path = "../log-instrument", optional = true }
 regex = { version = "1.11.1", default-features = false, features = ["std"] }
-thiserror = "2.0.9"
+thiserror = "2.0.11"
 vmm-sys-util = "0.12.1"
 
 utils = { path = "../utils" }
