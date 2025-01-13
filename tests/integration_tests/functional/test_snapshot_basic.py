@@ -5,6 +5,7 @@
 import filecmp
 import logging
 import os
+import platform
 import re
 import shutil
 import time
@@ -12,8 +13,11 @@ from pathlib import Path
 
 import pytest
 
+import host_tools.cargo_build as host
 import host_tools.drive as drive_tools
+from framework import utils
 from framework.microvm import SnapshotType
+from framework.properties import global_props
 from framework.utils import check_filesystem, check_output
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
@@ -540,3 +544,56 @@ def test_vmgenid(guest_kernel_linux_6_1, rootfs, microvm_factory, snapshot_type)
 
         # Update the base for next iteration
         base_snapshot = snapshot
+
+
+# TODO add `global_props.host_os == "amzn2"` condition
+# once amazon linux kernels have patches.
+@pytest.mark.skipif(
+    platform.machine() != "aarch64" or global_props.host_linux_version_tpl < (6, 4),
+    reason="This is aarch64 specific test and should only be run on 6.4 and later kernels",
+)
+def test_physical_couter_reset_aarch64(uvm_nano):
+    """
+    Test that the CNTPCT_EL0 register is reset on VM boot.
+    We assume the smallest VM will not consume more than
+    some MAX_VALUE cycles to be created and snapshotted.
+    The MAX_VALUE is selected by doing a manual run of this test and
+    seeing what the actual counter value is. The assumption here is that
+    if resetting will not occur the guest counter value will be huge as it
+    will be a copy of host value. The host value in its turn will be huge because
+    it will include host OS boot + CI prep + other CI tests ...
+    """
+    vm = uvm_nano
+    vm.add_net_iface()
+    vm.start()
+
+    snapshot = vm.snapshot_full()
+    vm.kill()
+    snap_editor = host.get_binary("snapshot-editor")
+
+    cntpct_el0 = hex(0x603000000013DF01)
+    # If a CPU runs at 3GHz, it will have a counter value of 1_000_000_000
+    # in 1/3 of a second. The host surely will run for more than 1/3 second before
+    # executing this test.
+    max_value = 800_000_000
+
+    cmd = [
+        str(snap_editor),
+        "info-vmstate",
+        "vcpu-states",
+        "--vmstate-path",
+        str(snapshot.vmstate),
+    ]
+    _, stdout, _ = utils.check_output(cmd)
+
+    # The output will look like this:
+    # kvm_mp_state: 0x0
+    # mpidr: 0x80000000
+    # 0x6030000000100000 0x0000000e0
+    # 0x6030000000100002 0xffff00fe33c0
+    for line in stdout.splitlines():
+        parts = line.split()
+        if len(parts) == 2:
+            reg_id, reg_value = parts
+            if reg_id == cntpct_el0:
+                assert int(reg_value, 16) < max_value
