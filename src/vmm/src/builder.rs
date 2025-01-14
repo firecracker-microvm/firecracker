@@ -68,6 +68,7 @@ use crate::utils::u64_to_usize;
 use crate::vmm_config::boot_source::BootConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError};
+use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
 use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuError};
 use crate::vstate::vm::Vm;
@@ -160,10 +161,16 @@ fn create_vmm_and_vcpus(
 ) -> Result<(Vmm, Vec<Vcpu>), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
+    let kvm = Kvm::new(kvm_capabilities)
+        .map_err(VmmError::Kvm)
+        .map_err(StartMicrovmError::Internal)?;
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
-    let mut vm = Vm::new(kvm_capabilities)
+    let mut vm = Vm::new(&kvm)
         .map_err(VmmError::Vm)
+        .map_err(StartMicrovmError::Internal)?;
+    kvm.check_memory(&guest_memory)
+        .map_err(VmmError::Kvm)
         .map_err(StartMicrovmError::Internal)?;
     vm.memory_init(&guest_memory, track_dirty_pages)
         .map_err(VmmError::Vm)
@@ -186,7 +193,7 @@ fn create_vmm_and_vcpus(
     #[cfg(target_arch = "x86_64")]
     let (vcpus, pio_device_manager) = {
         setup_interrupt_controller(&mut vm)?;
-        let vcpus = create_vcpus(&vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
+        let vcpus = create_vcpus(&kvm, &vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
 
         // Make stdout non blocking.
         set_stdout_nonblocking();
@@ -218,7 +225,7 @@ fn create_vmm_and_vcpus(
     // Search for `kvm_arch_vcpu_create` in arch/arm/kvm/arm.c.
     #[cfg(target_arch = "aarch64")]
     let vcpus = {
-        let vcpus = create_vcpus(&vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
+        let vcpus = create_vcpus(&kvm, &vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
         setup_interrupt_controller(&mut vm, vcpu_count)?;
         vcpus
     };
@@ -227,6 +234,7 @@ fn create_vmm_and_vcpus(
         events_observer: Some(std::io::stdin()),
         instance_info: instance_info.clone(),
         shutdown_exit_code: None,
+        kvm,
         vm,
         guest_memory,
         uffd,
@@ -476,7 +484,7 @@ pub fn build_microvm_from_snapshot(
         uffd,
         vm_resources.machine_config.track_dirty_pages,
         vm_resources.machine_config.vcpu_count,
-        microvm_state.vm_state.kvm_cap_modifiers.clone(),
+        microvm_state.kvm_state.kvm_cap_modifiers.clone(),
     )?;
 
     #[cfg(target_arch = "x86_64")]
@@ -738,11 +746,16 @@ fn attach_legacy_devices_aarch64(
         .map_err(VmmError::RegisterMMIODevice)
 }
 
-fn create_vcpus(vm: &Vm, vcpu_count: u8, exit_evt: &EventFd) -> Result<Vec<Vcpu>, VmmError> {
+fn create_vcpus(
+    kvm: &Kvm,
+    vm: &Vm,
+    vcpu_count: u8,
+    exit_evt: &EventFd,
+) -> Result<Vec<Vcpu>, VmmError> {
     let mut vcpus = Vec::with_capacity(vcpu_count as usize);
     for cpu_idx in 0..vcpu_count {
         let exit_evt = exit_evt.try_clone().map_err(VmmError::EventFd)?;
-        let vcpu = Vcpu::new(cpu_idx, vm, exit_evt).map_err(VmmError::VcpuCreate)?;
+        let vcpu = Vcpu::new(cpu_idx, vm, kvm, exit_evt).map_err(VmmError::VcpuCreate)?;
         vcpus.push(vcpu);
     }
     Ok(vcpus)
@@ -765,7 +778,7 @@ pub fn configure_system_for_boot(
     #[cfg(target_arch = "x86_64")]
     let cpu_config = {
         use crate::cpu_config::x86_64::cpuid;
-        let cpuid = cpuid::Cpuid::try_from(vmm.vm.supported_cpuid().clone())
+        let cpuid = cpuid::Cpuid::try_from(vmm.kvm.supported_cpuid.clone())
             .map_err(GuestConfigError::CpuidFromKvmCpuid)?;
         let msrs = vcpus[0]
             .kvm_vcpu
@@ -1111,7 +1124,8 @@ pub(crate) mod tests {
             .map_err(StartMicrovmError::Internal)
             .unwrap();
 
-        let mut vm = Vm::new(vec![]).unwrap();
+        let kvm = Kvm::new(vec![]).unwrap();
+        let mut vm = Vm::new(&kvm).unwrap();
         vm.memory_init(&guest_memory, false).unwrap();
         let mmio_device_manager = MMIODeviceManager::new();
         let acpi_device_manager = ACPIDeviceManager::new();
@@ -1137,7 +1151,7 @@ pub(crate) mod tests {
         #[cfg(target_arch = "aarch64")]
         {
             let exit_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-            let _vcpu = Vcpu::new(1, &vm, exit_evt).unwrap();
+            let _vcpu = Vcpu::new(1, &vm, &kvm, exit_evt).unwrap();
             setup_interrupt_controller(&mut vm, 1).unwrap();
         }
 
@@ -1145,6 +1159,7 @@ pub(crate) mod tests {
             events_observer: Some(std::io::stdin()),
             instance_info: InstanceInfo::default(),
             shutdown_exit_code: None,
+            kvm,
             vm,
             guest_memory,
             uffd: None,
@@ -1362,15 +1377,16 @@ pub(crate) mod tests {
         let vcpu_count = 2;
         let guest_memory = arch_mem(128 << 20);
 
+        let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
         #[allow(unused_mut)]
-        let mut vm = Vm::new(vec![]).unwrap();
+        let mut vm = Vm::new(&kvm).unwrap();
         vm.memory_init(&guest_memory, false).unwrap();
         let evfd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
 
         #[cfg(target_arch = "x86_64")]
         setup_interrupt_controller(&mut vm).unwrap();
 
-        let vcpu_vec = create_vcpus(&vm, vcpu_count, &evfd).unwrap();
+        let vcpu_vec = create_vcpus(&kvm, &vm, vcpu_count, &evfd).unwrap();
         assert_eq!(vcpu_vec.len(), vcpu_count as usize);
     }
 

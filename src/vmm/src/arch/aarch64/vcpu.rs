@@ -214,16 +214,16 @@ pub fn set_mpstate(vcpufd: &VcpuFd, state: kvm_mp_state) -> Result<(), VcpuError
 #[cfg(test)]
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
-    use kvm_ioctls::Kvm;
 
     use super::*;
     use crate::arch::aarch64::layout;
     use crate::test_utils::arch_mem;
+    use crate::vstate::kvm::Kvm;
 
     #[test]
     fn test_setup_regs() {
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
+        let kvm = Kvm::new(vec![]).unwrap();
+        let vm = kvm.fd.create_vm().unwrap();
         let vcpu = vm.create_vcpu(0).unwrap();
         let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
 
@@ -242,8 +242,8 @@ mod tests {
 
     #[test]
     fn test_read_mpidr() {
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
+        let kvm = Kvm::new(vec![]).unwrap();
+        let vm = kvm.fd.create_vm().unwrap();
         let vcpu = vm.create_vcpu(0).unwrap();
         let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
         vm.get_preferred_target(&mut kvi).unwrap();
@@ -261,8 +261,8 @@ mod tests {
 
     #[test]
     fn test_get_set_regs() {
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
+        let kvm = Kvm::new(vec![]).unwrap();
+        let vm = kvm.fd.create_vm().unwrap();
         let vcpu = vm.create_vcpu(0).unwrap();
         let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
         vm.get_preferred_target(&mut kvi).unwrap();
@@ -283,8 +283,8 @@ mod tests {
     fn test_mpstate() {
         use std::os::unix::io::AsRawFd;
 
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
+        let kvm = Kvm::new(vec![]).unwrap();
+        let vm = kvm.fd.create_vm().unwrap();
         let vcpu = vm.create_vcpu(0).unwrap();
         let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
         vm.get_preferred_target(&mut kvi).unwrap();

@@ -44,6 +44,8 @@ pub use aarch64::{KvmVcpuError, *};
 #[cfg(target_arch = "x86_64")]
 pub use x86_64::{KvmVcpuError, *};
 
+use super::kvm::Kvm;
+
 /// Signal number (SIGRTMIN) used to kick Vcpus.
 pub const VCPU_RTSIG_OFFSET: i32 = 0;
 
@@ -212,10 +214,10 @@ impl Vcpu {
     /// * `index` - Represents the 0-based CPU index between [0, max vcpus).
     /// * `vm` - The vm to which this vcpu will get attached.
     /// * `exit_evt` - An `EventFd` that will be written into when this vcpu exits.
-    pub fn new(index: u8, vm: &Vm, exit_evt: EventFd) -> Result<Self, VcpuError> {
+    pub fn new(index: u8, vm: &Vm, kvm: &Kvm, exit_evt: EventFd) -> Result<Self, VcpuError> {
         let (event_sender, event_receiver) = channel();
         let (response_sender, response_receiver) = channel();
-        let kvm_vcpu = KvmVcpu::new(index, vm).unwrap();
+        let kvm_vcpu = KvmVcpu::new(index, vm, kvm).unwrap();
 
         Ok(Vcpu {
             exit_evt,
@@ -777,13 +779,13 @@ pub(crate) mod tests {
     use crate::utils::signal::validate_signal_num;
     use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
     use crate::vstate::vcpu::VcpuError as EmulationError;
-    use crate::vstate::vm::tests::setup_vm;
+    use crate::vstate::vm::tests::setup_vm_with_memory;
     use crate::vstate::vm::Vm;
     use crate::RECV_TIMEOUT_SEC;
 
     #[test]
     fn test_handle_kvm_exit() {
-        let (_vm, mut vcpu, _vm_mem) = setup_vcpu(0x1000);
+        let (_, _, mut vcpu, _vm_mem) = setup_vcpu(0x1000);
         let res = handle_kvm_exit(&mut vcpu.kvm_vcpu.peripherals, Ok(VcpuExit::Hlt));
         assert_eq!(res.unwrap(), VcpuEmulation::Stopped);
 
@@ -918,14 +920,14 @@ pub(crate) mod tests {
 
     // Auxiliary function being used throughout the tests.
     #[allow(unused_mut)]
-    pub(crate) fn setup_vcpu(mem_size: usize) -> (Vm, Vcpu, GuestMemoryMmap) {
-        let (mut vm, gm) = setup_vm(mem_size);
+    pub(crate) fn setup_vcpu(mem_size: usize) -> (Kvm, Vm, Vcpu, GuestMemoryMmap) {
+        let (kvm, mut vm, gm) = setup_vm_with_memory(mem_size);
 
         let exit_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
 
         #[cfg(target_arch = "aarch64")]
         let vcpu = {
-            let mut vcpu = Vcpu::new(1, &vm, exit_evt).unwrap();
+            let mut vcpu = Vcpu::new(1, &vm, &kvm, exit_evt).unwrap();
             vcpu.kvm_vcpu.init(&[]).unwrap();
             vm.setup_irqchip(1).unwrap();
             vcpu
@@ -933,9 +935,9 @@ pub(crate) mod tests {
         #[cfg(target_arch = "x86_64")]
         let vcpu = {
             vm.setup_irqchip().unwrap();
-            Vcpu::new(1, &vm, exit_evt).unwrap()
+            Vcpu::new(1, &vm, &kvm, exit_evt).unwrap()
         };
-        (vm, vcpu, gm)
+        (kvm, vm, vcpu, gm)
     }
 
     fn load_good_kernel(vm_memory: &GuestMemoryMmap) -> GuestAddress {
@@ -970,7 +972,7 @@ pub(crate) mod tests {
         Vcpu::register_kick_signal_handler();
         // Need enough mem to boot linux.
         let mem_size = 64 << 20;
-        let (_vm, mut vcpu, vm_mem) = setup_vcpu(mem_size);
+        let (kvm, _, mut vcpu, vm_mem) = setup_vcpu(mem_size);
 
         let vcpu_exit_evt = vcpu.exit_evt.try_clone().unwrap();
 
@@ -988,7 +990,7 @@ pub(crate) mod tests {
                         vcpu_count: 1,
                         smt: false,
                         cpu_config: CpuConfiguration {
-                            cpuid: Cpuid::try_from(_vm.supported_cpuid().clone()).unwrap(),
+                            cpuid: Cpuid::try_from(kvm.supported_cpuid.clone()).unwrap(),
                             msrs: BTreeMap::new(),
                         },
                     },
@@ -1022,7 +1024,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_set_mmio_bus() {
-        let (_, mut vcpu, _) = setup_vcpu(0x1000);
+        let (_, _, mut vcpu, _) = setup_vcpu(0x1000);
         assert!(vcpu.kvm_vcpu.peripherals.mmio_bus.is_none());
         vcpu.set_mmio_bus(crate::devices::Bus::new());
         assert!(vcpu.kvm_vcpu.peripherals.mmio_bus.is_some());
@@ -1030,7 +1032,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_vcpu_tls() {
-        let (_, mut vcpu, _) = setup_vcpu(0x1000);
+        let (_, _, mut vcpu, _) = setup_vcpu(0x1000);
 
         // Running on the TLS vcpu should fail before we actually initialize it.
         unsafe {
@@ -1061,7 +1063,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_invalid_tls() {
-        let (_, mut vcpu, _) = setup_vcpu(0x1000);
+        let (_, _, mut vcpu, _) = setup_vcpu(0x1000);
         // Initialize vcpu TLS.
         vcpu.init_thread_local_data().unwrap();
         // Trying to initialize non-empty TLS should error.
@@ -1071,7 +1073,7 @@ pub(crate) mod tests {
     #[test]
     fn test_vcpu_kick() {
         Vcpu::register_kick_signal_handler();
-        let (vm, mut vcpu, _) = setup_vcpu(0x1000);
+        let (_, vm, mut vcpu, _) = setup_vcpu(0x1000);
 
         let mut kvm_run =
             kvm_ioctls::KvmRunWrapper::mmap_from_fd(&vcpu.kvm_vcpu.fd, vm.fd().run_size())
@@ -1126,7 +1128,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_immediate_exit_shortcircuits_execution() {
-        let (_vm, mut vcpu, _) = setup_vcpu(0x1000);
+        let (_, _, mut vcpu, _) = setup_vcpu(0x1000);
 
         vcpu.kvm_vcpu.fd.set_kvm_immediate_exit(1);
         // Set a dummy value to be returned by the emulate call
