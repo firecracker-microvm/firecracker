@@ -104,7 +104,6 @@ impl super::AmdCpuid {
     ) -> Result<(), NormalizeCpuidError> {
         self.passthrough_cache_topology()?;
         self.update_structured_extended_entry()?;
-        self.update_largest_extended_fn_entry()?;
         self.update_extended_feature_fn_entry()?;
         self.update_amd_feature_entry(cpu_count)?;
         self.update_extended_cache_topology_entry(cpu_count, cpus_per_core)?;
@@ -178,23 +177,6 @@ impl super::AmdCpuid {
                 );
             }
         }
-        Ok(())
-    }
-
-    /// Update largest extended fn entry.
-    #[allow(clippy::unwrap_used, clippy::unwrap_in_result)]
-    fn update_largest_extended_fn_entry(&mut self) -> Result<(), NormalizeCpuidError> {
-        // KVM sets the largest extended function to 0x80000000. Change it to 0x8000001f
-        // Since we also use the leaf 0x8000001d (Extended Cache Topology).
-        let leaf_80000000 = self
-            .get_mut(&CpuidKey::leaf(0x80000000))
-            .ok_or(NormalizeCpuidError::MissingLeaf0x80000000)?;
-
-        // Largest extended function. The largest CPUID extended function input value supported by
-        // the processor implementation.
-        //
-        // l_func_ext: 0..32,
-        set_range(&mut leaf_80000000.result.eax, 0..32, 0x8000_001f).unwrap();
         Ok(())
     }
 
