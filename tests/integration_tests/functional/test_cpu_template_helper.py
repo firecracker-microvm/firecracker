@@ -146,13 +146,14 @@ UNAVAILABLE_CPUID_ON_DUMP_LIST = [
     # https://github.com/torvalds/linux/commit/8765d75329a386dd7742f94a1ea5fdcdea8d93d0
     (0x8000001B, 0x0),
     (0x8000001C, 0x0),
-    (0x8000001F, 0x0),
     # CPUID.80860000h is a Transmeta-specific leaf.
     (0x80860000, 0x0),
     # CPUID.C0000000h is a Centaur-specific leaf.
     (0xC0000000, 0x0),
 ]
 
+# An upper range of CPUID leaves which are not supported by our kernels
+UNAVAILABLE_CPUID_UPPER_RANGE = range(0x8000001F, 0x80000029)
 
 # Dictionary of CPUID bitmasks that should not be tested due to its mutability.
 CPUID_EXCEPTION_LIST = {
@@ -280,6 +281,8 @@ def test_cpu_config_dump_vs_actual(
     keys_not_in_dump = {}
     for key, actual in actual_cpu_config["cpuid"].items():
         if (key[0], key[1]) in UNAVAILABLE_CPUID_ON_DUMP_LIST:
+            continue
+        if key[0] in UNAVAILABLE_CPUID_UPPER_RANGE:
             continue
         if key not in dump_cpu_config["cpuid"]:
             keys_not_in_dump[key] = actual_cpu_config["cpuid"][key]
