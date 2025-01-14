@@ -544,6 +544,7 @@ mod tests {
     use crate::devices::virtio::queue::Queue;
     use crate::devices::virtio::ActivateError;
     use crate::test_utils::multi_region_mem;
+    use crate::vstate::kvm::Kvm;
     use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
     use crate::{builder, Vm};
 
@@ -661,7 +662,8 @@ mod tests {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem = multi_region_mem(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
-        let mut vm = Vm::new(vec![]).unwrap();
+        let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
+        let mut vm = Vm::new(&kvm).unwrap();
         vm.memory_init(&guest_mem, false).unwrap();
         let mut device_manager = MMIODeviceManager::new();
         let mut resource_allocator = ResourceAllocator::new().unwrap();
@@ -690,7 +692,8 @@ mod tests {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem = multi_region_mem(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
-        let mut vm = Vm::new(vec![]).unwrap();
+        let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
+        let mut vm = Vm::new(&kvm).unwrap();
         vm.memory_init(&guest_mem, false).unwrap();
         let mut device_manager = MMIODeviceManager::new();
         let mut resource_allocator = ResourceAllocator::new().unwrap();
@@ -744,7 +747,8 @@ mod tests {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem = multi_region_mem(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
-        let mut vm = Vm::new(vec![]).unwrap();
+        let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
+        let mut vm = Vm::new(&kvm).unwrap();
         vm.memory_init(&guest_mem, false).unwrap();
 
         let mem_clone = guest_mem.clone();
