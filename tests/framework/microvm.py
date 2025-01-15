@@ -1007,12 +1007,20 @@ class Microvm:
                 for k, v in rename_interfaces.items()
             ]
 
+        optional_kwargs = {}
+        if iface_overrides:
+            # For backwards compatibility ab testing we want to avoid adding
+            # new parameters until we have a release baseline with the new
+            # parameter. Once the release baseline has moved, this assignment
+            # can be inline in the snapshot_load command below
+            optional_kwargs["network_overrides"] = iface_overrides
+
         self.api.snapshot_load.put(
             mem_backend=mem_backend,
             snapshot_path=str(jailed_vmstate),
             enable_diff_snapshots=snapshot.is_diff,
             resume_vm=resume,
-            network_overrides=iface_overrides,
+            **optional_kwargs,
         )
         # This is not a "wait for boot", but rather a "VM still works after restoration"
         if snapshot.net_ifaces and resume:

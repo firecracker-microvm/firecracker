@@ -631,3 +631,4 @@ def test_snapshot_rename_interface(uvm_nano, microvm_factory):
         snapshot, rename_interfaces={base_iface.dev_name: "tap2"}
     )
     restored_vm.resume()
+    restored_vm.wait_for_ssh_up()
