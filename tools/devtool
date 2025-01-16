@@ -722,7 +722,12 @@ cmd_test() {
     ensure_devctr
     ensure_build_dir
     ensure_ci_artifacts
-    [ $do_build != 0 ] && cmd_build --release
+    if [ $do_build != 0 ]; then
+      cmd_build --release
+      if [ -n "$BUILDKITE_PULL_REQUEST_BASE_BRANCH" ]; then
+        cmd_build --release --rev "$BUILDKITE_PULL_REQUEST_BASE_BRANCH"
+      fi
+    fi
 
     apply_linux_61_tweaks
 
