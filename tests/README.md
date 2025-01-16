@@ -142,6 +142,21 @@ above when run on a PR will fail iff a newly added dependency has a known open
 RustSec advisory. If run outside a PR, it will fail if any existing dependency
 has an open RustSec advisory).
 
+### Functional A/B-Tests
+
+Firecracker has some functional A/B-tests (for example, in
+`test_vulnerabilities.py`), which generally compare the state of the pull
+request target branch (e.g. `main`), with the PR head. However, when running
+these locally, pytest does not know anything about potential PRs that the commit
+the tests are being run on are contained in, and as such cannot do this
+A/B-Test. To run functional A/B-Tests locally, you need to create a "fake" PR
+environment by setting the `BUILDKITE_PULL_REQUEST` and
+`BUILDKITE_PULL_REQUEST_BASE_BRANCH` environment variables:
+
+```
+BUILDKITE_PULL_REQUEST=true BUILDKITE_PULL_REQUEST_BASE_BRANCH=main ./tools/devtool test -- integration_tests/security/test_vulnerabilities.py
+```
+
 ### Performance A/B-Tests
 
 Firecracker has a special framework for orchestrating long-running A/B-tests
