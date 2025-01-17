@@ -31,7 +31,8 @@ pub(crate) fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Req
     let config_update = MachineConfigUpdate::from(config);
 
     // Construct the `ParsedRequest` object.
-    let mut parsed_req = ParsedRequest::new_sync(VmmAction::UpdateVmConfiguration(config_update));
+    let mut parsed_req =
+        ParsedRequest::new_sync(VmmAction::UpdateMachineConfiguration(config_update));
     // If `cpu_template` was present, set the deprecation message in `parsing_info`.
     if let Some(msg) = deprecation_message {
         parsed_req.parsing_info().append_deprecation_message(msg);
@@ -60,7 +61,8 @@ pub(crate) fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, R
     }
 
     // Construct the `ParsedRequest` object.
-    let mut parsed_req = ParsedRequest::new_sync(VmmAction::UpdateVmConfiguration(config_update));
+    let mut parsed_req =
+        ParsedRequest::new_sync(VmmAction::UpdateMachineConfiguration(config_update));
     // If `cpu_template` was present, set the deprecation message in `parsing_info`.
     if let Some(msg) = deprecation_message {
         parsed_req.parsing_info().append_deprecation_message(msg);
@@ -124,7 +126,7 @@ mod tests {
             };
             assert_eq!(
                 vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()),
-                VmmAction::UpdateVmConfiguration(expected_config)
+                VmmAction::UpdateMachineConfiguration(expected_config)
             );
         }
 
@@ -143,7 +145,7 @@ mod tests {
         };
         assert_eq!(
             vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()),
-            VmmAction::UpdateVmConfiguration(expected_config)
+            VmmAction::UpdateMachineConfiguration(expected_config)
         );
 
         let body = r#"{
@@ -162,7 +164,7 @@ mod tests {
         };
         assert_eq!(
             vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()),
-            VmmAction::UpdateVmConfiguration(expected_config)
+            VmmAction::UpdateMachineConfiguration(expected_config)
         );
 
         // 4. Test that applying a CPU template is successful on x86_64 while on aarch64, it is not.
@@ -185,7 +187,7 @@ mod tests {
             };
             assert_eq!(
                 vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()),
-                VmmAction::UpdateVmConfiguration(expected_config)
+                VmmAction::UpdateMachineConfiguration(expected_config)
             );
         }
         #[cfg(target_arch = "aarch64")]
@@ -210,7 +212,7 @@ mod tests {
         };
         assert_eq!(
             vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()),
-            VmmAction::UpdateVmConfiguration(expected_config)
+            VmmAction::UpdateMachineConfiguration(expected_config)
         );
 
         // 6. Test nonsense values for huge page size

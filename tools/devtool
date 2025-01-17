@@ -375,12 +375,6 @@ cmd_help() {
     echo "        This should be used as the last step in every commit, to ensure that the"
     echo "        Rust style tests pass."
     echo ""
-    echo "    generate_syscall_tables <version>"
-    echo "        Generates the syscall tables for seccompiler, according to a given kernel version."
-    echo "        Release candidate (rc) linux versions are not allowed."
-    echo "        Outputs a rust file for each supported arch: src/seccompiler/src/syscall_table/{arch}.rs"
-    echo "        Supported architectures: x86_64 and aarch64."
-    echo ""
     echo "    install [-p|--path] [--debug|--release]"
     echo "      Install firecracker, jailer and seccomp binaries to /usr/local/bin or a given path."
     echo "      Only the musl linked binaries are supported."
@@ -722,7 +716,12 @@ cmd_test() {
     ensure_devctr
     ensure_build_dir
     ensure_ci_artifacts
-    [ $do_build != 0 ] && cmd_build --release
+    if [ $do_build != 0 ]; then
+      cmd_build --release
+      if [ -n "$BUILDKITE_PULL_REQUEST_BASE_BRANCH" ]; then
+        cmd_build --release --rev "$BUILDKITE_PULL_REQUEST_BASE_BRANCH"
+      fi
+    fi
 
     apply_linux_61_tweaks
 
@@ -1022,137 +1021,6 @@ cmd_checkenv() {
     check_swap
     check_EPT
     check_vulns
-}
-
-generate_syscall_table_x86_64() {
-    path_to_rust_file="$FC_ROOT_DIR/src/seccompiler/src/syscall_table/x86_64.rs"
-
-    echo "$header" > $path_to_rust_file
-
-    # the table for x86_64 is nicely formatted here: linux/arch/x86/entry/syscalls/syscall_64.tbl
-    cat linux/arch/x86/entry/syscalls/syscall_64.tbl | grep -v "^#" | grep -v -e '^$' |\
-        awk '{print $2,$3,$1}' | grep -v "^x32" |\
-        awk '{print "    map.insert(\""$2"\".to_string(), "$3");"}' | sort >> $path_to_rust_file
-
-    echo "$footer" >> $path_to_rust_file
-
-    say "Generated at: $path_to_rust_file"
-}
-
-generate_syscall_table_aarch64() {
-    path_to_rust_file="$FC_ROOT_DIR/src/seccompiler/src/syscall_table/aarch64.rs"
-
-    # filter for substituting `#define`s that point to other macros;
-    # values taken from linux/include/uapi/asm-generic/unistd.h
-    replace+='s/__NR3264_fadvise64/223/;'
-    replace+='s/__NR3264_fcntl/25/;'
-    replace+='s/__NR3264_fstatat/79/;'
-    replace+='s/__NR3264_fstatfs/44/;'
-    replace+='s/__NR3264_fstat/80/;'
-    replace+='s/__NR3264_ftruncate/46/;'
-    replace+='s/__NR3264_lseek/62/;'
-    replace+='s/__NR3264_sendfile/71/;'
-    replace+='s/__NR3264_statfs/43/;'
-    replace+='s/__NR3264_truncate/45/;'
-    replace+='s/__NR3264_mmap/222/;'
-
-    echo "$header" > $path_to_rust_file
-
-    # run the gcc command in the Docker container (to make sure that we have gcc installed)
-    # the aarch64 syscall table is not located in a .tbl file, like x86; we run gcc's
-    # pre-processor to extract the numeric constants from header files.
-    run_devctr \
-        --user "$(id -u):$(id -g)" \
-        --workdir "$CTR_KERNEL_DIR" \
-        -- \
-            gcc -Ilinux/include/uapi -E -dM -D__ARCH_WANT_RENAMEAT\
-                -D__BITS_PER_LONG=64\
-                linux/arch/arm64/include/uapi/asm/unistd.h |\
-                grep "#define __NR_" | grep -v "__NR_syscalls" |\
-                grep -v "__NR_arch_specific_syscall" |\
-                awk -F '__NR_' '{print $2}' |\
-                sed $replace |\
-                awk '{ print "    map.insert(\""$1"\".to_string(), "$2");" }' |\
-                sort -d >> $path_to_rust_file
-    ret=$?
-
-    [ $ret -ne 0 ] && return $ret
-
-    echo "$footer" >> $path_to_rust_file
-
-    say "Generated at: $path_to_rust_file"
-}
-
-cmd_generate_syscall_tables() {
-    # Parse any command line args.
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            "-h"|"--help")      { cmd_help; exit 1;    } ;;
-            *)                  { kernel_version="$1"; break; } ;;
-        esac
-        shift
-    done
-
-    validate_kernel_version "$kernel_version"
-
-    kernel_major=v$(echo ${kernel_version} | cut -d . -f 1).x
-    kernel_baseurl=https://www.kernel.org/pub/linux/kernel/${kernel_major}
-    kernel_archive=linux-${kernel_version}.tar.xz
-
-    ensure_devctr
-
-    # Create the kernel clone directory
-    rm -rf "$KERNEL_DIR"
-    create_dir "$KERNEL_DIR"
-    cd "$KERNEL_DIR"
-
-    say "Fetching linux kernel..."
-
-    # Get sha256 checksum.
-    curl -fsSLO ${kernel_baseurl}/sha256sums.asc && \
-    kernel_sha256=$(grep ${kernel_archive} sha256sums.asc | cut -d ' ' -f 1)
-    # Get kernel archive.
-    curl -fsSLO "$kernel_baseurl/$kernel_archive" && \
-    # Verify checksum.
-    echo "${kernel_sha256}  ${kernel_archive}" | sha256sum -c - && \
-    # Decompress the kernel source.
-    xz -d "${kernel_archive}" && \
-    cat linux-${kernel_version}.tar | tar -x && mv linux-${kernel_version} linux
-
-    ret=$?
-    [ $ret -ne 0 ] && return $ret
-
-    # rust file header
-    read -r -d '' header << EOM
-// Copyright $(date +"%Y") Amazon.com, Inc. or its affiliates. All Rights Reserved.
-// SPDX-License-Identifier: Apache-2.0
-
-// This file is auto-generated by \`tools/devtool generate_syscall_tables\`.
-// Do NOT manually edit!
-// Generated at: $(date)
-// Kernel version: $kernel_version
-
-use std::collections::HashMap;
-
-pub(crate) fn make_syscall_table(map: &mut HashMap<String, i64>) {
-EOM
-
-    # rust file footer
-    read -r -d '' footer << EOM
-}
-
-EOM
-
-    # generate syscall table for x86_64
-    say "Generating table for x86_64..."
-    generate_syscall_table_x86_64 $header $footer
-
-    # generate syscall table for aarch64
-    say "Generating table for aarch64..."
-    generate_syscall_table_aarch64 $header $footer
-
-    ret=$?
-    [ $ret -ne 0 ] && return $ret
 }
 
 cmd_install() {

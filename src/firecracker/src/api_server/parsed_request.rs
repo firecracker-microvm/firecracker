@@ -163,8 +163,8 @@ impl ParsedRequest {
                     info!("The request was executed successfully. Status code: 204 No Content.");
                     Response::new(Version::Http11, StatusCode::NoContent)
                 }
-                VmmData::MachineConfiguration(vm_config) => {
-                    Self::success_response_with_data(vm_config)
+                VmmData::MachineConfiguration(machine_config) => {
+                    Self::success_response_with_data(machine_config)
                 }
                 VmmData::MmdsValue(value) => Self::success_response_with_mmds_value(value),
                 VmmData::BalloonConfig(balloon_config) => {

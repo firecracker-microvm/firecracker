@@ -11,7 +11,6 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use seccompiler::BpfThreadMap;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
@@ -28,11 +27,12 @@ use crate::cpu_config::x86_64::cpuid::CpuidTrait;
 use crate::device_manager::persist::{ACPIDeviceManagerState, DevicePersistError, DeviceStates};
 use crate::logger::{info, warn};
 use crate::resources::VmResources;
+use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Snapshot;
 use crate::utils::u64_to_usize;
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{HugePageConfig, MachineConfigUpdate, VmConfigError};
+use crate::vmm_config::machine_config::{HugePageConfig, MachineConfigError, MachineConfigUpdate};
 use crate::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
 };
@@ -61,11 +61,11 @@ pub struct VmInfo {
 impl From<&VmResources> for VmInfo {
     fn from(value: &VmResources) -> Self {
         Self {
-            mem_size_mib: value.vm_config.mem_size_mib as u64,
-            smt: value.vm_config.smt,
-            cpu_template: StaticCpuTemplate::from(&value.vm_config.cpu_template),
+            mem_size_mib: value.machine_config.mem_size_mib as u64,
+            smt: value.machine_config.smt,
+            cpu_template: StaticCpuTemplate::from(&value.machine_config.cpu_template),
             boot_source: value.boot_source.config.clone(),
-            huge_pages: value.vm_config.huge_pages,
+            huge_pages: value.machine_config.huge_pages,
         }
     }
 }
@@ -422,11 +422,11 @@ pub fn restore_from_snapshot(
         .vcpu_states
         .len()
         .try_into()
-        .map_err(|_| VmConfigError::InvalidVcpuCount)
+        .map_err(|_| MachineConfigError::InvalidVcpuCount)
         .map_err(BuildMicrovmFromSnapshotError::VmUpdateConfig)?;
 
     vm_resources
-        .update_vm_config(&MachineConfigUpdate {
+        .update_machine_config(&MachineConfigUpdate {
             vcpu_count: Some(vcpu_count),
             mem_size_mib: Some(u64_to_usize(microvm_state.vm_info.mem_size_mib)),
             smt: Some(microvm_state.vm_info.smt),
@@ -450,7 +450,7 @@ pub fn restore_from_snapshot(
                 mem_backend_path,
                 mem_state,
                 track_dirty_pages,
-                vm_resources.vm_config.huge_pages,
+                vm_resources.machine_config.huge_pages,
             )
             .map_err(RestoreFromSnapshotGuestMemoryError::File)?,
             None,
@@ -462,7 +462,7 @@ pub fn restore_from_snapshot(
             // We enable the UFFD_FEATURE_EVENT_REMOVE feature only if a balloon device
             // is present in the microVM state.
             microvm_state.device_states.balloon_device.is_some(),
-            vm_resources.vm_config.huge_pages,
+            vm_resources.machine_config.huge_pages,
         )
         .map_err(RestoreFromSnapshotGuestMemoryError::Uffd)?,
     };

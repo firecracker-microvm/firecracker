@@ -208,6 +208,43 @@ impl Runtime {
         }
     }
 
+    fn peer_process_credentials(&self) -> libc::ucred {
+        let mut creds: libc::ucred = libc::ucred {
+            pid: 0,
+            gid: 0,
+            uid: 0,
+        };
+        let mut creds_size = size_of::<libc::ucred>() as u32;
+        let ret = unsafe {
+            libc::getsockopt(
+                self.stream.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_PEERCRED,
+                &mut creds as *mut _ as *mut _,
+                &mut creds_size as *mut libc::socklen_t,
+            )
+        };
+        if ret != 0 {
+            panic!("Failed to get peer process credentials");
+        }
+        creds
+    }
+
+    pub fn install_panic_hook(&self) {
+        let peer_creds = self.peer_process_credentials();
+
+        let default_panic_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |panic_info| {
+            let r = unsafe { libc::kill(peer_creds.pid, libc::SIGKILL) };
+
+            if r != 0 {
+                eprintln!("Failed to kill Firecracker process from panic hook");
+            }
+
+            default_panic_hook(panic_info);
+        }));
+    }
+
     /// Polls the `UnixStream` and UFFD fds in a loop.
     /// When stream is polled, new uffd is retrieved.
     /// When uffd is polled, page fault is handled by

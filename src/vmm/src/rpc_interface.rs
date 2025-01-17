@@ -4,7 +4,6 @@
 use std::fmt::{self, Debug};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use seccompiler::BpfThreadMap;
 use serde_json::Value;
 use utils::time::{get_time_us, ClockType};
 
@@ -18,6 +17,7 @@ use crate::logger::{info, warn, LoggerConfig, *};
 use crate::mmds::data_store::{self, Mmds};
 use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
 use crate::resources::VmmConfig;
+use crate::seccomp::BpfThreadMap;
 use crate::vmm_config::balloon::{
     BalloonConfigError, BalloonDeviceConfig, BalloonStats, BalloonUpdateConfig,
     BalloonUpdateStatsConfig,
@@ -26,7 +26,7 @@ use crate::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use crate::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig, DriveError};
 use crate::vmm_config::entropy::{EntropyDeviceConfig, EntropyDeviceError};
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{MachineConfig, MachineConfigUpdate, VmConfigError};
+use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError, MachineConfigUpdate};
 use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::{
@@ -120,7 +120,7 @@ pub enum VmmAction {
     UpdateNetworkInterface(NetworkInterfaceUpdateConfig),
     /// Update the microVM configuration (memory & vcpu) using `VmUpdateConfig` as input. This
     /// action can only be called before the microVM has booted.
-    UpdateVmConfiguration(MachineConfigUpdate),
+    UpdateMachineConfiguration(MachineConfigUpdate),
 }
 
 /// Wrapper for all errors associated with VMM actions.
@@ -145,7 +145,7 @@ pub enum VmmActionError {
     /// Logger error: {0}
     Logger(#[from] crate::logger::LoggerUpdateError),
     /// Machine config error: {0}
-    MachineConfig(#[from] VmConfigError),
+    MachineConfig(#[from] MachineConfigError),
     /// Metrics error: {0}
     Metrics(#[from] MetricsConfigError),
     #[from(ignore)]
@@ -415,9 +415,9 @@ impl<'a> PrebootApiController<'a> {
                 Ok(VmmData::FullVmConfig((&*self.vm_resources).into()))
             }
             GetMMDS => self.get_mmds(),
-            GetVmMachineConfig => Ok(VmmData::MachineConfiguration(MachineConfig::from(
-                &self.vm_resources.vm_config,
-            ))),
+            GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
+                self.vm_resources.machine_config.clone(),
+            )),
             GetVmInstanceInfo => Ok(VmmData::InstanceInformation(self.instance_info.clone())),
             GetVmmVersion => Ok(VmmData::VmmVersion(self.instance_info.vmm_version.clone())),
             InsertBlockDevice(config) => self.insert_block_device(config),
@@ -434,7 +434,7 @@ impl<'a> PrebootApiController<'a> {
             SetVsockDevice(config) => self.set_vsock_device(config),
             SetMmdsConfiguration(config) => self.set_mmds_config(config),
             StartMicroVm => self.start_microvm(),
-            UpdateVmConfiguration(config) => self.update_vm_config(config),
+            UpdateMachineConfiguration(config) => self.update_machine_config(config),
             SetEntropyDevice(config) => self.set_entropy_device(config),
             // Operations not allowed pre-boot.
             CreateSnapshot(_)
@@ -502,10 +502,13 @@ impl<'a> PrebootApiController<'a> {
             .map_err(VmmActionError::MmdsConfig)
     }
 
-    fn update_vm_config(&mut self, cfg: MachineConfigUpdate) -> Result<VmmData, VmmActionError> {
+    fn update_machine_config(
+        &mut self,
+        cfg: MachineConfigUpdate,
+    ) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
         self.vm_resources
-            .update_vm_config(&cfg)
+            .update_machine_config(&cfg)
             .map(|()| VmmData::Empty)
             .map_err(VmmActionError::MachineConfig)
     }
@@ -641,9 +644,9 @@ impl RuntimeApiController {
                 .map_err(|err| VmmActionError::BalloonConfig(BalloonConfigError::from(err))),
             GetFullVmConfig => Ok(VmmData::FullVmConfig((&self.vm_resources).into())),
             GetMMDS => self.get_mmds(),
-            GetVmMachineConfig => Ok(VmmData::MachineConfiguration(MachineConfig::from(
-                &self.vm_resources.vm_config,
-            ))),
+            GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
+                self.vm_resources.machine_config.clone(),
+            )),
             GetVmInstanceInfo => Ok(VmmData::InstanceInformation(
                 self.vmm.lock().expect("Poisoned lock").instance_info(),
             )),
@@ -686,7 +689,7 @@ impl RuntimeApiController {
             | SetMmdsConfiguration(_)
             | SetEntropyDevice(_)
             | StartMicroVm
-            | UpdateVmConfiguration(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
+            | UpdateMachineConfiguration(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
         }
     }
 
@@ -753,7 +756,7 @@ impl RuntimeApiController {
         log_dev_preview_warning("Virtual machine snapshots", None);
 
         if create_params.snapshot_type == SnapshotType::Diff
-            && !self.vm_resources.vm_config.track_dirty_pages
+            && !self.vm_resources.machine_config.track_dirty_pages
         {
             return Err(VmmActionError::NotSupported(
                 "Diff snapshots are not allowed on uVMs with dirty page tracking disabled."
@@ -852,12 +855,11 @@ impl RuntimeApiController {
 mod tests {
     use std::path::PathBuf;
 
-    use seccompiler::BpfThreadMap;
-
     use super::*;
     use crate::builder::tests::default_vmm;
     use crate::devices::virtio::block::CacheType;
     use crate::mmds::data_store::MmdsVersion;
+    use crate::seccomp::BpfThreadMap;
     use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
     use crate::HTTP_MAX_PAYLOAD_SIZE;
 
@@ -1255,7 +1257,7 @@ mod tests {
                 network_interfaces: Vec::new(),
             },
         )));
-        check_unsupported(runtime_request(VmmAction::UpdateVmConfiguration(
+        check_unsupported(runtime_request(VmmAction::UpdateMachineConfiguration(
             MachineConfigUpdate::from(MachineConfig::default()),
         )));
         check_unsupported(runtime_request(VmmAction::LoadSnapshot(

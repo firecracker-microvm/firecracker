@@ -16,6 +16,9 @@ and this project adheres to
   unnecessary fields (`max_connections` and `max_pending_resets`) from the
   snapshot format, bumping the snapshot version to 5.0.0. Users need to
   regenerate snapshots.
+- [#4926](https://github.com/firecracker-microvm/firecracker/pull/4926): Replace
+  underlying implementation for seccompiler from in house one in favor of
+  `libseccomp` which produces smaller and more optimized BPF code.
 
 ### Deprecated
 
@@ -28,6 +31,10 @@ and this project adheres to
 - [#4916](https://github.com/firecracker-microvm/firecracker/pull/4916): Fixed
   `IovDeque` implementation to work with any host page size. This fixes
   virtio-net device on non 4K host kernels.
+- [#4991](https://github.com/firecracker-microvm/firecracker/pull/4991): Fixed
+  `mem_size_mib` and `track_dirty_pages` being mandatory for all
+  `PATCH /machine-config` requests. Now, they can be omitted which leaves these
+  parts of the machine configuration unchanged.
 
 ## [1.10.1]
 
