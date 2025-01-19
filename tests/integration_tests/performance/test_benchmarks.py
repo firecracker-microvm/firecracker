@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """Optional benchmarks-do-not-regress test"""
 import contextlib
-import json
 import logging
 import platform
 import re
 import shutil
 from pathlib import Path
+from typing import Callable, List
 
 import pytest
 
@@ -18,43 +18,40 @@ from host_tools.cargo_build import cargo
 LOGGER = logging.getLogger(__name__)
 
 
-def get_executables():
+def get_benchmark_names() -> List[str]:
     """
-    Get a list of binaries for benchmarking
+    Get a list of benchmark test names
     """
 
-    # Passing --message-format json to cargo tells it to print its log in a json format. At the end, instead of the
-    # usual "placed executable <...> at <...>" we'll get a json object with an 'executable' key, from which we
-    # extract the path to the compiled benchmark binary.
     _, stdout, _ = cargo(
         "bench",
-        f"--all --quiet --target {platform.machine()}-unknown-linux-musl --message-format json --no-run",
+        f"--workspace --quiet --target {platform.machine()}-unknown-linux-musl",
+        "--list",
     )
 
-    executables = []
-    for line in stdout.splitlines():
-        if line:
-            msg = json.loads(line)
-            executable = msg.get("executable")
-            if executable:
-                executables.append(executable)
+    # Format a string like `page_fault #2: benchmark` to a string like `page_fault`.
+    benchmark_names = [
+        re.sub(r"\s#([0-9]*)", "", i.split(":")[0])
+        for i in stdout.split("\n")
+        if i.endswith(": benchmark")
+    ]
 
-    return executables
+    return list(set(benchmark_names))
 
 
 @pytest.mark.no_block_pr
-@pytest.mark.parametrize("executable", get_executables())
-def test_no_regression_relative_to_target_branch(executable):
+@pytest.mark.parametrize("benchname", get_benchmark_names())
+def test_no_regression_relative_to_target_branch(benchname):
     """
     Run the microbenchmarks in this repository, comparing results from pull
     request target branch against what's achieved on HEAD
     """
-    run_criterion = get_run_criterion(executable)
-    compare_results = get_compare_results(executable)
+    run_criterion = get_run_criterion(benchname)
+    compare_results = get_compare_results(benchname)
     git_ab_test(run_criterion, compare_results)
 
 
-def get_run_criterion(executable):
+def get_run_criterion(benchmark_name) -> Callable[[Path, bool], Path]:
     """
     Get function that executes specified benchmarks, and running them pinned to some CPU
     """
@@ -64,7 +61,7 @@ def get_run_criterion(executable):
 
         with contextlib.chdir(firecracker_checkout):
             utils.check_output(
-                f"CARGO_TARGET_DIR=build/cargo_target taskset -c 1 {executable} --bench --save-baseline {baseline_name}"
+                f"taskset -c 1 cargo bench --workspace --quiet -- {benchmark_name} --exact --save-baseline {baseline_name}"
             )
 
         return firecracker_checkout / "build" / "cargo_target" / "criterion"
@@ -72,54 +69,45 @@ def get_run_criterion(executable):
     return _run_criterion
 
 
-def get_compare_results(executable):
+def get_compare_results(benchmark_name) -> Callable[[Path, Path], None]:
     """
     Get function that compares the two recorded criterion baselines for regressions, assuming that "A" is the baseline from main
     """
 
     def _compare_results(location_a_baselines: Path, location_b_baselines: Path):
 
-        list_result = utils.check_output(
-            f"CARGO_TARGET_DIR=build/cargo_target {executable} --bench --list"
+        _, stdout, _ = cargo(
+            "bench",
+            f"--workspace --target {platform.machine()}-unknown-linux-musl --quiet",
+            f"--exact {benchmark_name} --list",
         )
 
         # Format a string like `page_fault #2: benchmark` to a string like `page_fault_2`.
         # Because under `cargo_target/criterion/`, a directory like `page_fault_2` will create.
-        bench_marks = [
-            re.sub(r"\s#(?P<sub_id>[1-9]+)", r"_\g<sub_id>", i.split(":")[0])
-            for i in list_result.stdout.split("\n")
+        bench_mark_targets = [
+            re.sub(r"\s#(?P<sub_id>[0-9]*)", r"_\g<sub_id>", i.split(":")[0])
+            for i in stdout.split("\n")
             if i.endswith(": benchmark")
         ]
 
-        for benchmark in bench_marks:
-            data = json.loads(
-                (
-                    location_b_baselines / benchmark / "b_baseline" / "estimates.json"
-                ).read_text("utf-8")
-            )
-
-            average_ns = data["mean"]["point_estimate"]
-
-            LOGGER.info("%s mean: %iµs", benchmark, average_ns / 1000)
-
-        # Assumption: location_b_baseline = cargo_target of current working directory. So just copy the a_baselines here
-        # to do the comparison
-
-        for benchmark in bench_marks:
+        # If benchmark test has multiple targets, the results of a single benchmark test will be output to multiple directories.
+        # For example, `page_fault` and `page_fault_2`.
+        # We need copy benchmark results each directories.
+        for bench_mark_target in bench_mark_targets:
             shutil.copytree(
-                location_a_baselines / benchmark / "a_baseline",
-                location_b_baselines / benchmark / "a_baseline",
+                location_a_baselines / bench_mark_target / "a_baseline",
+                location_b_baselines / bench_mark_target / "a_baseline",
             )
 
-        bench_result = utils.check_output(
-            f"CARGO_TARGET_DIR=build/cargo_target {executable} --bench --baseline a_baseline --load-baseline b_baseline",
-            True,
-            Path.cwd().parent,
+        _, stdout, _ = cargo(
+            "bench",
+            f"--workspace --target {platform.machine()}-unknown-linux-musl",
+            f"{benchmark_name} --baseline a_baseline --load-baseline b_baseline",
         )
 
         regressions_only = "\n\n".join(
             result
-            for result in bench_result.stdout.split("\n\n")
+            for result in stdout.split("\n\n")
             if "Performance has regressed." in result
         )
 
