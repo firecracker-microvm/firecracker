@@ -22,9 +22,9 @@ of both invocations is the same, the test passes (with us being alerted to this 
 does not block PRs). If not, it fails, preventing PRs from introducing new vulnerable dependencies.
 """
 import statistics
-from pathlib import Path
+from pathlib import Path, PosixPath
 from tempfile import TemporaryDirectory
-from typing import Callable, List, Optional, TypeVar
+from typing import Callable, Generator, List, Optional, Tuple, TypeVar
 
 import scipy
 
@@ -96,6 +96,32 @@ def git_ab_test(
 
         comparison = comparator(result_a, result_b)
         return result_a, result_b, comparison
+
+
+def git_clone_ab_dirs(
+    a_revision: str = DEFAULT_A_REVISION,
+    b_revision: Optional[str] = None,
+) -> Generator[Tuple[PosixPath, PosixPath], None, None]:
+    """
+    Prepare cloned Git repository to run A/B tests.
+
+    :param a_revision: The revision to checkout for the "A" part of the test. Defaults to the pull request target branch
+                       if run in CI, and "main" otherwise.
+    :param b_revision: The git revision to check out for "B" part of the test. Defaults to whatever is currently checked
+                       out (in which case no temporary directory will be created).
+    """
+
+    with TemporaryDirectory() as tmp_dir:
+        dir_a = git_clone(Path(tmp_dir) / a_revision, a_revision)
+
+        if b_revision:
+            dir_b = git_clone(Path(tmp_dir) / b_revision, b_revision)
+        else:
+            # By default, pytest execution happens inside the `tests` subdirectory. Pass the repository root, as
+            # documented.
+            dir_b = Path.cwd().parent
+
+        yield (dir_a, dir_b)
 
 
 DEFAULT_A_DIRECTORY = FC_WORKSPACE_DIR / "build" / "main"

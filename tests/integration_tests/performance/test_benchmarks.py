@@ -12,10 +12,11 @@ from typing import Callable, List
 import pytest
 
 from framework import utils
-from framework.ab_test import git_ab_test
+from framework.ab_test import binary_ab_test, git_clone_ab_dirs
 from host_tools.cargo_build import cargo
 
 LOGGER = logging.getLogger(__name__)
+git_clone_ab_dirs_one_time = pytest.fixture(git_clone_ab_dirs, scope="class")
 
 
 def get_benchmark_names() -> List[str]:
@@ -39,16 +40,33 @@ def get_benchmark_names() -> List[str]:
     return list(set(benchmark_names))
 
 
-@pytest.mark.no_block_pr
-@pytest.mark.parametrize("benchname", get_benchmark_names())
-def test_no_regression_relative_to_target_branch(benchname):
+class TestBenchMarks:
     """
-    Run the microbenchmarks in this repository, comparing results from pull
-    request target branch against what's achieved on HEAD
+    This class is used to prevent fixtures from being executed for each parameter in
+    a parametrize test.
     """
-    run_criterion = get_run_criterion(benchname)
-    compare_results = get_compare_results(benchname)
-    git_ab_test(run_criterion, compare_results)
+
+    @pytest.mark.no_block_pr
+    @pytest.mark.parametrize("benchname", get_benchmark_names())
+    def test_no_regression_relative_to_target_branch(
+        self, benchname, git_clone_ab_dirs_one_time
+    ):
+        """
+        Run the microbenchmarks in this repository, comparing results from pull
+        request target branch against what's achieved on HEAD
+        """
+
+        dir_a = git_clone_ab_dirs_one_time[0]
+        dir_b = git_clone_ab_dirs_one_time[1]
+        run_criterion = get_run_criterion(benchname)
+        compare_results = get_compare_results(benchname)
+
+        binary_ab_test(
+            test_runner=run_criterion,
+            comparator=compare_results,
+            a_directory=dir_a,
+            b_directory=dir_b,
+        )
 
 
 def get_run_criterion(benchmark_name) -> Callable[[Path, bool], Path]:
