@@ -264,13 +264,6 @@ impl VmResources {
         if self.balloon.get().is_some() && updated.huge_pages != HugePageConfig::None {
             return Err(MachineConfigError::BalloonAndHugePages);
         }
-
-        if self.boot_source.config.initrd_path.is_some()
-            && updated.huge_pages != HugePageConfig::None
-        {
-            return Err(MachineConfigError::InitrdAndHugePages);
-        }
-
         self.machine_config = updated;
 
         Ok(())
@@ -337,12 +330,6 @@ impl VmResources {
         &mut self,
         boot_source_cfg: BootSourceConfig,
     ) -> Result<(), BootSourceConfigError> {
-        if boot_source_cfg.initrd_path.is_some()
-            && self.machine_config.huge_pages != HugePageConfig::None
-        {
-            return Err(BootSourceConfigError::HugePagesAndInitRd);
-        }
-
         self.boot_source = BootSource {
             builder: Some(BootConfig::new(&boot_source_cfg)?),
             config: boot_source_cfg,
