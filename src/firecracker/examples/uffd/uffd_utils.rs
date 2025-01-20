@@ -61,17 +61,30 @@ impl UffdHandler {
         let mut message_buf = vec![0u8; 1024];
         let (bytes_read, file) = stream
             .recv_with_fd(&mut message_buf[..])
-            .expect("Cannot recv_with_fd");
+            .expect("Cannot read from a stream");
         message_buf.resize(bytes_read, 0);
 
-        let body = String::from_utf8(message_buf).unwrap();
-        let file = file.expect("Uffd not passed through UDS!");
+        let body = String::from_utf8(message_buf.clone()).unwrap_or_else(|_| {
+            panic!(
+                "Received body is not a utf-8 valid string. Raw bytes received: {message_buf:#?}"
+            )
+        });
+        let file =
+            file.unwrap_or_else(|| panic!("Did not receive Uffd from UDS. Received body: {body}"));
 
-        let mappings = serde_json::from_str::<Vec<GuestRegionUffdMapping>>(&body)
-            .expect("Cannot deserialize memory mappings.");
+        let mappings =
+            serde_json::from_str::<Vec<GuestRegionUffdMapping>>(&body).unwrap_or_else(|_| {
+                panic!("Cannot deserialize memory mappings. Received body: {body}")
+            });
         let memsize: usize = mappings.iter().map(|r| r.size).sum();
         // Page size is the same for all memory regions, so just grab the first one
-        let page_size = mappings.first().unwrap().page_size_kib;
+        let first_mapping = mappings.first().unwrap_or_else(|| {
+            panic!(
+                "Cannot get the first mapping. Mappings size is {}. Received body: {body}",
+                mappings.len()
+            )
+        });
+        let page_size = first_mapping.page_size_kib;
 
         // Make sure memory size matches backing data size.
         assert_eq!(memsize, size);
