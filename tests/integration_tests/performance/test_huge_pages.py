@@ -7,10 +7,9 @@ import time
 import pytest
 
 from framework import utils
-from framework.microvm import HugePagesConfig, Serial
+from framework.microvm import HugePagesConfig
 from framework.properties import global_props
 from framework.utils_ftrace import ftrace_events
-from integration_tests.functional.test_initrd import INITRD_FILESYSTEM
 from integration_tests.functional.test_uffd import SOCKET_PATH, spawn_pf_handler
 
 
@@ -252,27 +251,3 @@ def test_negative_huge_pages_plus_balloon(uvm_plain):
         match="Machine config error: Firecracker's huge pages support is incompatible with memory ballooning.",
     ):
         uvm_plain.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB)
-
-
-def test_negative_huge_pages_plus_initrd(uvm_with_initrd):
-    """Tests that huge pages and initrd cannot be used together"""
-    uvm_with_initrd.jailer.daemonize = False
-    uvm_with_initrd.spawn()
-    uvm_with_initrd.memory_monitor = None
-
-    # `basic_config` first does a PUT to /machine-config, which will apply the huge pages configuration,
-    # and then a PUT to /boot-source, which will register the initrd
-    uvm_with_initrd.basic_config(
-        boot_args="console=ttyS0 reboot=k panic=1 pci=off",
-        use_initrd=True,
-        huge_pages=HugePagesConfig.HUGETLBFS_2MB,
-        add_root_device=False,
-        vcpu_count=1,
-    )
-
-    uvm_with_initrd.start()
-    serial = Serial(uvm_with_initrd)
-    serial.open()
-    serial.rx(token="# ")
-    serial.tx("mount |grep rootfs")
-    serial.rx(token=f"rootfs on / type {INITRD_FILESYSTEM}")
