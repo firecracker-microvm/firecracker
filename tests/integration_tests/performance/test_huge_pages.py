@@ -7,9 +7,10 @@ import time
 import pytest
 
 from framework import utils
-from framework.microvm import HugePagesConfig
+from framework.microvm import HugePagesConfig, Serial
 from framework.properties import global_props
 from framework.utils_ftrace import ftrace_events
+from integration_tests.functional.test_initrd import INITRD_FILESYSTEM
 from integration_tests.functional.test_uffd import SOCKET_PATH, spawn_pf_handler
 
 
@@ -259,33 +260,19 @@ def test_negative_huge_pages_plus_initrd(uvm_with_initrd):
     uvm_with_initrd.spawn()
     uvm_with_initrd.memory_monitor = None
 
-    # Ensure setting huge pages and then telling FC to boot an initrd does not work
-    with pytest.raises(
-        RuntimeError,
-        match="Boot source error: Firecracker's huge pages support is incompatible with initrds.",
-    ):
-        # `basic_config` first does a PUT to /machine-config, which will apply the huge pages configuration,
-        # and then a PUT to /boot-source, which will register the initrd
-        uvm_with_initrd.basic_config(
-            boot_args="console=ttyS0 reboot=k panic=1 pci=off",
-            use_initrd=True,
-            huge_pages=HugePagesConfig.HUGETLBFS_2MB,
-            add_root_device=False,
-            vcpu_count=1,
-        )
-
-    # Ensure telling FC about the initrd first and then setting huge pages doesn't work
-    # This first does a PUT to /machine-config to reset the huge pages configuration, before doing a
-    # PUT to /boot-source to register the initrd
+    # `basic_config` first does a PUT to /machine-config, which will apply the huge pages configuration,
+    # and then a PUT to /boot-source, which will register the initrd
     uvm_with_initrd.basic_config(
-        huge_pages=HugePagesConfig.NONE,
         boot_args="console=ttyS0 reboot=k panic=1 pci=off",
         use_initrd=True,
+        huge_pages=HugePagesConfig.HUGETLBFS_2MB,
+        add_root_device=False,
+        vcpu_count=1,
     )
-    with pytest.raises(
-        RuntimeError,
-        match="Machine config error: Firecracker's huge pages support is incompatible with initrds.",
-    ):
-        uvm_with_initrd.api.machine_config.patch(
-            huge_pages=HugePagesConfig.HUGETLBFS_2MB
-        )
+
+    uvm_with_initrd.start()
+    serial = Serial(uvm_with_initrd)
+    serial.open()
+    serial.rx(token="# ")
+    serial.tx("mount |grep rootfs")
+    serial.rx(token=f"rootfs on / type {INITRD_FILESYSTEM}")

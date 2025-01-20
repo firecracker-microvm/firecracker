@@ -39,7 +39,6 @@ Currently, hugetlbfs support is mutually exclusive with the following
 Firecracker features:
 
 - Memory Ballooning via the [Balloon Device](./ballooning.md)
-- Initrd
 
 ## FAQ
 
