@@ -24,7 +24,7 @@ micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 
 serde = { version = "1.0.217", features = ["derive"] }
 serde_derive = "1.0.136"
-serde_json = "1.0.135"
+serde_json = "1.0.137"
 thiserror = "2.0.11"
 timerfd = "1.6.0"
 utils = { path = "../utils" }
@@ -43,7 +43,7 @@ userfaultfd = "0.8.1"
 [build-dependencies]
 seccompiler = { path = "../seccompiler" }
 serde = { version = "1.0.217" }
-serde_json = "1.0.135"
+serde_json = "1.0.137"
 
 [features]
 tracing = ["log-instrument", "utils/tracing", "vmm/tracing"]
