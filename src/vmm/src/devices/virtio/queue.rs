@@ -803,10 +803,11 @@ mod verification {
     const GUEST_MEMORY_BASE: u64 = 512;
 
     // We size our guest memory to fit a properly aligned queue, plus some wiggles bytes
-    // to make sure we not only test queues where all segments are consecutively aligned.
+    // to make sure we not only test queues where all segments are consecutively aligned (at least
+    // for those proofs that use a completely arbitrary queue structure).
     // We need to give at least 16 bytes of buffer space for the descriptor table to be
     // able to change its address, as it is 16-byte aligned.
-    const GUEST_MEMORY_SIZE: usize = QUEUE_END as usize + 30;
+    const GUEST_MEMORY_SIZE: usize = (QUEUE_END - QUEUE_BASE_ADDRESS) as usize + 30;
 
     fn guest_memory(memory: *mut u8) -> ProofGuestMemory {
         // Ideally, we'd want to do
@@ -876,8 +877,7 @@ mod verification {
     const USED_RING_BASE_ADDRESS: u64 =
         AVAIL_RING_BASE_ADDRESS + 6 + 2 * FIRECRACKER_MAX_QUEUE_SIZE as u64 + 2;
 
-    /// The address of the first byte after the queue. Since our queue starts at guest physical
-    /// address 0, this is also the size of the memory area occupied by the queue.
+    /// The address of the first byte after the queue (which starts at QUEUE_BASE_ADDRESS).
     /// Note that the used ring structure has size 6 + 8 * FIRECRACKER_MAX_QUEUE_SIZE
     const QUEUE_END: u64 = USED_RING_BASE_ADDRESS + 6 + 8 * FIRECRACKER_MAX_QUEUE_SIZE as u64;
 
