@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::device_manager::persist::SharedDeviceType;
-use crate::logger::{info, log_dev_preview_warning};
+use crate::logger::info;
 use crate::mmds;
 use crate::mmds::data_store::{Mmds, MmdsVersion};
 use crate::mmds::ns::MmdsNetworkStack;
@@ -246,10 +246,6 @@ impl VmResources {
         &mut self,
         update: &MachineConfigUpdate,
     ) -> Result<(), MachineConfigError> {
-        if update.huge_pages.is_some() && update.huge_pages != Some(HugePageConfig::None) {
-            log_dev_preview_warning("Huge pages support", None);
-        }
-
         let updated = self.machine_config.update(update)?;
 
         // The VM cannot have a memory size smaller than the target size
