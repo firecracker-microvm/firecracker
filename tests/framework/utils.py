@@ -660,8 +660,8 @@ class Timeout:
     """
     A Context Manager to timeout sections of code.
 
-    >>> with Timeout(30):
-    >>>     time.sleep(35)
+    >>> with Timeout(30):     # doctest: +SKIP
+    ...    time.sleep(35)     # doctest: +SKIP
     """
 
     def __init__(self, seconds, msg="Timed out"):
