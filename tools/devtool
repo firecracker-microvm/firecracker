@@ -528,10 +528,11 @@ cmd_build() {
 function cmd_make_release {
     ensure_build_dir
     run_devctr \
-        --user "$(id -u):$(id -g)" \
+        --privileged \
         --workdir "$CTR_FC_ROOT_DIR" \
         -- \
         ./tools/release.sh --libc musl --profile release --make-release
+    sudo chown -Rc $USER: release*
 }
 
 cmd_distclean() {
