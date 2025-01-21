@@ -606,10 +606,11 @@ def test_snapshot_rename_interface(uvm_nano, microvm_factory):
     Test that we can restore a snapshot and point its interface to a
     different host interface.
     """
-    base_iface = net_tools.NetIfaceConfig.with_id(0)
+    # We start at an unused tap index to avoid conflicts with other tests.
+    base_iface = net_tools.NetIfaceConfig.with_id(7)
 
     vm = uvm_nano
-    iface1 = dataclasses.replace(base_iface, tap_name="tap1")
+    iface1 = dataclasses.replace(base_iface, tap_name="tap8")
     vm.add_net_iface(iface=iface1)
     # Create an interface but don't attach it to the device
     vm.start()
