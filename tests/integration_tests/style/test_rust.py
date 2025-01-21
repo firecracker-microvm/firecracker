@@ -6,11 +6,7 @@ from framework import utils
 
 
 def test_rust_order():
-    """
-    Tests that `Cargo.toml` dependencies are alphabetically ordered.
-
-    @type: style
-    """
+    """Tests that `Cargo.toml` dependencies are alphabetically ordered."""
 
     # Runs `cargo-sort` with the current working directory (`cwd`) as the repository root.
     _, _, _ = utils.check_output(
@@ -19,9 +15,7 @@ def test_rust_order():
 
 
 def test_rust_style():
-    """
-    Test that rust code passes style checks.
-    """
+    """Test that rust code passes style checks."""
 
     #  ../src/io_uring/src/bindings.rs
     config = open("fmt.toml", encoding="utf-8").read().replace("\n", ",")

@@ -263,3 +263,20 @@ cannot be enabled later by providing a `polling_interval` non-zero value.
 Furthermore, if the balloon was configured with statistics pre-boot through a
 non-zero `stats_polling_interval_s` value, the statistics cannot be disabled
 through a `polling_interval` value of zero post-boot.
+
+## Balloon Caveats
+
+- Firecracker has no control over the speed of inflation or deflation; this is
+  dictated by the guest kernel driver.
+
+- The balloon will continually attempt to reach its target size, which can be a
+  CPU-intensive process. It is therefore recommended to set realistic targets
+  or, after a period of stagnation in the inflation, update the target size to
+  be close to the inflated size.
+
+- The `deflate_on_oom` flag is a mechanism to prevent the guest from crashing or
+  terminating processes; it is not meant to be used continually to free memory.
+  Doing this will be a CPU-intensive process, as the balloon driver is designed
+  to deflate and release memory slowly. This is also compounded if the balloon
+  has yet to reach its target size, as it will attempt to inflate while also
+  deflating.

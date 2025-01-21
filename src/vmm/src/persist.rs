@@ -36,6 +36,7 @@ use crate::vmm_config::machine_config::{HugePageConfig, MachineConfigError, Mach
 use crate::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
 };
+use crate::vstate::kvm::KvmState;
 use crate::vstate::memory::{
     GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryState, MemoryError,
 };
@@ -77,6 +78,8 @@ pub struct MicrovmState {
     pub vm_info: VmInfo,
     /// Memory state.
     pub memory_state: GuestMemoryState,
+    /// KVM KVM state.
+    pub kvm_state: KvmState,
     /// VM KVM state.
     pub vm_state: VmState,
     /// Vcpu states.
@@ -736,6 +739,7 @@ mod tests {
             device_states: states,
             memory_state,
             vcpu_states,
+            kvm_state: Default::default(),
             vm_info: VmInfo {
                 mem_size_mib: 1u64,
                 ..Default::default()

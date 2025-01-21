@@ -127,6 +127,7 @@ use userfaultfd::Uffd;
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::terminal::Terminal;
+use vstate::kvm::Kvm;
 use vstate::vcpu::{self, KvmVcpuConfigureError, StartThreadedError, VcpuSendEventError};
 
 use crate::arch::DeviceType;
@@ -255,6 +256,8 @@ pub enum VmmError {
     VcpuSpawn(io::Error),
     /// Vm error: {0}
     Vm(vstate::vm::VmError),
+    /// Kvm error: {0}
+    Kvm(vstate::kvm::KvmError),
     /// Error thrown by observer object on Vmm initialization: {0}
     VmmObserverInit(vmm_sys_util::errno::Error),
     /// Error thrown by observer object on Vmm teardown: {0}
@@ -307,6 +310,7 @@ pub struct Vmm {
     shutdown_exit_code: Option<FcExitCode>,
 
     // Guest VM core resources.
+    kvm: Kvm,
     vm: Vm,
     guest_memory: GuestMemoryMmap,
     // Save UFFD in order to keep it open in the Firecracker process, as well.
@@ -511,6 +515,7 @@ impl Vmm {
     pub fn save_state(&mut self, vm_info: &VmInfo) -> Result<MicrovmState, MicrovmStateError> {
         use self::MicrovmStateError::SaveVmState;
         let vcpu_states = self.save_vcpu_states()?;
+        let kvm_state = self.kvm.save_state();
         let vm_state = {
             #[cfg(target_arch = "x86_64")]
             {
@@ -531,6 +536,7 @@ impl Vmm {
         Ok(MicrovmState {
             vm_info: vm_info.clone(),
             memory_state,
+            kvm_state,
             vm_state,
             vcpu_states,
             device_states,

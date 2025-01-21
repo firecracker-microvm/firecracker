@@ -22,6 +22,7 @@ use crate::cpu_config::aarch64::custom_cpu_template::VcpuFeatures;
 use crate::cpu_config::templates::CpuConfiguration;
 use crate::logger::{error, IncMetric, METRICS};
 use crate::vcpu::{VcpuConfig, VcpuError};
+use crate::vstate::kvm::{Kvm, OptionalCapabilities};
 use crate::vstate::memory::{Address, GuestAddress, GuestMemoryMmap};
 use crate::vstate::vcpu::VcpuEmulation;
 use crate::vstate::vm::Vm;
@@ -77,7 +78,7 @@ impl KvmVcpu {
     ///
     /// * `index` - Represents the 0-based CPU index between [0, max vcpus).
     /// * `vm` - The vm to which this vcpu will get attached.
-    pub fn new(index: u8, vm: &Vm) -> Result<Self, KvmVcpuError> {
+    pub fn new(index: u8, vm: &Vm, _: &Kvm) -> Result<Self, KvmVcpuError> {
         let kvm_vcpu = vm
             .fd()
             .create_vcpu(index.into())
@@ -115,6 +116,7 @@ impl KvmVcpu {
         guest_mem: &GuestMemoryMmap,
         kernel_load_addr: GuestAddress,
         vcpu_config: &VcpuConfig,
+        optional_capabilities: &OptionalCapabilities,
     ) -> Result<(), KvmVcpuError> {
         for reg in vcpu_config.cpu_config.regs.iter() {
             self.fd
@@ -127,6 +129,7 @@ impl KvmVcpu {
             self.index,
             kernel_load_addr.raw_value(),
             guest_mem,
+            optional_capabilities,
         )
         .map_err(KvmVcpuError::ConfigureRegisters)?;
 
@@ -305,26 +308,27 @@ mod tests {
     use crate::cpu_config::aarch64::CpuConfiguration;
     use crate::cpu_config::templates::RegisterValueFilter;
     use crate::vcpu::VcpuConfig;
+    use crate::vstate::kvm::Kvm;
     use crate::vstate::memory::GuestMemoryMmap;
-    use crate::vstate::vm::tests::setup_vm;
+    use crate::vstate::vm::tests::setup_vm_with_memory;
     use crate::vstate::vm::Vm;
 
-    fn setup_vcpu(mem_size: usize) -> (Vm, KvmVcpu, GuestMemoryMmap) {
-        let (mut vm, vm_mem) = setup_vm(mem_size);
-        let mut vcpu = KvmVcpu::new(0, &vm).unwrap();
+    fn setup_vcpu(mem_size: usize) -> (Kvm, Vm, KvmVcpu, GuestMemoryMmap) {
+        let (kvm, mut vm, vm_mem) = setup_vm_with_memory(mem_size);
+        let mut vcpu = KvmVcpu::new(0, &vm, &kvm).unwrap();
         vcpu.init(&[]).unwrap();
         vm.setup_irqchip(1).unwrap();
 
-        (vm, vcpu, vm_mem)
+        (kvm, vm, vcpu, vm_mem)
     }
 
     #[test]
     fn test_create_vcpu() {
-        let (vm, _) = setup_vm(0x1000);
+        let (kvm, vm, _) = setup_vm_with_memory(0x1000);
 
         unsafe { libc::close(vm.fd().as_raw_fd()) };
 
-        let err = KvmVcpu::new(0, &vm);
+        let err = KvmVcpu::new(0, &vm, &kvm);
         assert_eq!(
             err.err().unwrap().to_string(),
             "Error creating vcpu: Bad file descriptor (os error 9)".to_string()
@@ -336,7 +340,8 @@ mod tests {
 
     #[test]
     fn test_configure_vcpu() {
-        let (_vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
+        let (kvm, _, mut vcpu, vm_mem) = setup_vcpu(0x10000);
+        let optional_capabilities = kvm.optional_capabilities();
 
         let vcpu_config = VcpuConfig {
             vcpu_count: 1,
@@ -347,6 +352,7 @@ mod tests {
             &vm_mem,
             GuestAddress(crate::arch::get_kernel_start()),
             &vcpu_config,
+            &optional_capabilities,
         )
         .unwrap();
 
@@ -356,6 +362,7 @@ mod tests {
             &vm_mem,
             GuestAddress(crate::arch::get_kernel_start()),
             &vcpu_config,
+            &optional_capabilities,
         );
         assert_eq!(
             err.unwrap_err(),
@@ -371,8 +378,8 @@ mod tests {
 
     #[test]
     fn test_init_vcpu() {
-        let (mut vm, _vm_mem) = setup_vm(0x1000);
-        let mut vcpu = KvmVcpu::new(0, &vm).unwrap();
+        let (kvm, mut vm, _) = setup_vm_with_memory(0x1000);
+        let mut vcpu = KvmVcpu::new(0, &vm, &kvm).unwrap();
         vm.setup_irqchip(1).unwrap();
 
         // KVM_ARM_VCPU_PSCI_0_2 is set by default.
@@ -390,8 +397,8 @@ mod tests {
 
     #[test]
     fn test_vcpu_save_restore_state() {
-        let (mut vm, _vm_mem) = setup_vm(0x1000);
-        let mut vcpu = KvmVcpu::new(0, &vm).unwrap();
+        let (kvm, mut vm, _) = setup_vm_with_memory(0x1000);
+        let mut vcpu = KvmVcpu::new(0, &vm, &kvm).unwrap();
         vm.setup_irqchip(1).unwrap();
 
         // Calling KVM_GET_REGLIST before KVM_VCPU_INIT will result in error.
@@ -434,8 +441,8 @@ mod tests {
         //
         // This should fail with ENOEXEC.
         // https://elixir.bootlin.com/linux/v5.10.176/source/arch/arm64/kvm/arm.c#L1165
-        let (mut vm, _vm_mem) = setup_vm(0x1000);
-        let vcpu = KvmVcpu::new(0, &vm).unwrap();
+        let (kvm, mut vm, _) = setup_vm_with_memory(0x1000);
+        let vcpu = KvmVcpu::new(0, &vm, &kvm).unwrap();
         vm.setup_irqchip(1).unwrap();
 
         vcpu.dump_cpu_config().unwrap_err();
@@ -444,8 +451,8 @@ mod tests {
     #[test]
     fn test_dump_cpu_config_after_init() {
         // Test `dump_cpu_config()` after `KVM_VCPU_INIT`.
-        let (mut vm, _vm_mem) = setup_vm(0x1000);
-        let mut vcpu = KvmVcpu::new(0, &vm).unwrap();
+        let (kvm, mut vm, _) = setup_vm_with_memory(0x1000);
+        let mut vcpu = KvmVcpu::new(0, &vm, &kvm).unwrap();
         vm.setup_irqchip(1).unwrap();
         vcpu.init(&[]).unwrap();
 
@@ -454,10 +461,10 @@ mod tests {
 
     #[test]
     fn test_setup_non_boot_vcpu() {
-        let (vm, _) = setup_vm(0x1000);
-        let mut vcpu1 = KvmVcpu::new(0, &vm).unwrap();
+        let (kvm, vm, _) = setup_vm_with_memory(0x1000);
+        let mut vcpu1 = KvmVcpu::new(0, &vm, &kvm).unwrap();
         vcpu1.init(&[]).unwrap();
-        let mut vcpu2 = KvmVcpu::new(1, &vm).unwrap();
+        let mut vcpu2 = KvmVcpu::new(1, &vm, &kvm).unwrap();
         vcpu2.init(&[]).unwrap();
     }
 
@@ -466,7 +473,7 @@ mod tests {
         // Test `get_regs()` with valid register IDs.
         // - X0: 0x6030 0000 0010 0000
         // - X1: 0x6030 0000 0010 0002
-        let (_, vcpu, _) = setup_vcpu(0x10000);
+        let (_, _, vcpu, _) = setup_vcpu(0x10000);
         let reg_list = Vec::<u64>::from([0x6030000000100000, 0x6030000000100002]);
         get_registers(&vcpu.fd, &reg_list, &mut Aarch64RegisterVec::default()).unwrap();
     }
@@ -474,7 +481,7 @@ mod tests {
     #[test]
     fn test_get_invalid_regs() {
         // Test `get_regs()` with invalid register IDs.
-        let (_, vcpu, _) = setup_vcpu(0x10000);
+        let (_, _, vcpu, _) = setup_vcpu(0x10000);
         let reg_list = Vec::<u64>::from([0x6030000000100001, 0x6030000000100003]);
         get_registers(&vcpu.fd, &reg_list, &mut Aarch64RegisterVec::default()).unwrap_err();
     }

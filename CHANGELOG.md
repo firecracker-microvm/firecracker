@@ -10,6 +10,13 @@ and this project adheres to
 
 ### Added
 
+- [#4987](https://github.com/firecracker-microvm/firecracker/pull/4987): Reset
+  physical counter register (`CNTPCT_EL0`) on VM startup. This avoids VM reading
+  the host physical counter value. This is only possible on 6.4 and newer
+  kernels. For older kernels physical counter will still be passed to the guest
+  unmodified. See more info
+  [here](https://github.com/firecracker-microvm/firecracker/blob/main/docs/prod-host-setup.md#arm-only-vm-physical-counter-behaviour)
+
 ### Changed
 
 - [#4913](https://github.com/firecracker-microvm/firecracker/pull/4913): Removed
