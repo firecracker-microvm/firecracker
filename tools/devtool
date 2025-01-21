@@ -934,7 +934,8 @@ cmd_mkdocs() {
 }
 
 cmd_checkstyle() {
-    cmd_test --no-build --no-kvm-check -- integration_tests/style -n 4 --dist worksteal
+    cmd_test --no-build --no-kvm-check -- -n 4 --dist worksteal integration_tests/style
+    cmd_test --no-build --no-kvm-check -- -n 4 --doctest-modules framework
 }
 
 # Check if able to run firecracker.
