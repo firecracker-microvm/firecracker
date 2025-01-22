@@ -99,6 +99,9 @@ EOF
 done
 
 
+# workaround until we rebuild devctr
+git config --global --replace-all safe.directory '*'
+
 ARCH=$(uname -m)
 VERSION=$(get-firecracker-version)
 PROFILE_DIR=$(get-profile-dir "$PROFILE")
