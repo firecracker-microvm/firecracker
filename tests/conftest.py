@@ -499,20 +499,6 @@ def uvm_plain_debug(microvm_factory, guest_kernel_6_1_debug, rootfs_rw):
 
 
 @pytest.fixture
-def uvm_with_initrd(
-    microvm_factory, guest_kernel_linux_5_10, record_property, artifact_dir
-):
-    """
-    See file:../docs/initrd.md
-    """
-    fs = artifact_dir / "initramfs.cpio"
-    record_property("rootfs", fs.name)
-    uvm = microvm_factory.build(guest_kernel_linux_5_10)
-    uvm.initrd_file = fs
-    yield uvm
-
-
-@pytest.fixture
 def vcpu_count():
     """Return default vcpu_count. Use indirect parametrization to override."""
     return 2
