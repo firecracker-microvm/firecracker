@@ -17,7 +17,7 @@ bench = false
 
 [dependencies]
 bincode = "1.2.1"
-clap = { version = "4.5.23", features = ["derive", "string"] }
+clap = { version = "4.5.27", features = ["derive", "string"] }
 displaydoc = "0.2.5"
 libc = "0.2.169"
 serde = { version = "1.0.217", features = ["derive"] }
