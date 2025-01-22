@@ -6,5 +6,4 @@
 # https://github.blog/2022-04-12-git-security-vulnerability-announced/
 
 [safe]
- directory = /firecracker
- directory = /firecracker/.git
+        directory = *

@@ -12,28 +12,28 @@ bench = false
 acpi_tables = { path = "../acpi-tables" } 
 aes-gcm =  { version = "0.10.1", default-features = false, features = ["aes"] }
 arrayvec = { version = "0.7.6", optional = true }
-aws-lc-rs = { version = "1.12.0", features = ["bindgen"] }
+aws-lc-rs = { version = "1.12.2", features = ["bindgen"] }
 base64 = "0.22.1"
 bincode = "1.2.1"
-bitflags = "2.7.0"
+bitflags = "2.8.0"
 crc64 = "2.0.0"
 derive_more = { version = "1.0.0", default-features = false, features = ["from", "display"] }
 displaydoc = "0.2.5"
 event-manager = "0.4.0"
 gdbstub = { version = "0.7.3", optional = true }
 gdbstub_arch = { version = "0.3.1", optional = true }
-kvm-bindings = { version = "0.10.0", features = ["fam-wrappers", "serde"] }
-kvm-ioctls = "0.19.1"
+kvm-bindings = { version = "0.11.0", features = ["fam-wrappers", "serde"] }
+kvm-ioctls = "0.20.0"
 libc = "0.2.169"
 linux-loader = "0.13.0"
-log = { version = "0.4.22", features = ["std", "serde"] }
+log = { version = "0.4.25", features = ["std", "serde"] }
 log-instrument = { path = "../log-instrument", optional = true }
 memfd = "0.6.3"
 micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 
-semver = { version = "1.0.24", features = ["serde"] }
+semver = { version = "1.0.25", features = ["serde"] }
 serde = { version = "1.0.217", features = ["derive", "rc"] }
-serde_json = "1.0.135"
+serde_json = "1.0.137"
 slab = "0.4.7"
 thiserror = "2.0.11"
 timerfd = "1.5.0"

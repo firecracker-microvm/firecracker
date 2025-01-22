@@ -528,10 +528,11 @@ cmd_build() {
 function cmd_make_release {
     ensure_build_dir
     run_devctr \
-        --user "$(id -u):$(id -g)" \
+        --privileged \
         --workdir "$CTR_FC_ROOT_DIR" \
         -- \
         ./tools/release.sh --libc musl --profile release --make-release
+    sudo chown -Rc $USER: release*
 }
 
 cmd_distclean() {
@@ -934,7 +935,8 @@ cmd_mkdocs() {
 }
 
 cmd_checkstyle() {
-    cmd_test --no-build --no-kvm-check -- integration_tests/style -n 4 --dist worksteal
+    cmd_test --no-build --no-kvm-check -- -n 4 --dist worksteal integration_tests/style || exit 1
+    cmd_test --no-build --no-kvm-check -- -n 4 --doctest-modules framework || exit 1
 }
 
 # Check if able to run firecracker.
