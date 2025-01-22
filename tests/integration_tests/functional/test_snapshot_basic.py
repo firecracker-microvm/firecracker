@@ -607,7 +607,7 @@ def test_snapshot_rename_interface(uvm_nano, microvm_factory):
     different host interface.
     """
     # We start at an unused tap index to avoid conflicts with other tests.
-    base_iface = net_tools.NetIfaceConfig.with_id(7)
+    base_iface = net_tools.NetIfaceConfig.with_id(102)
 
     vm = uvm_nano
     iface1 = dataclasses.replace(base_iface, tap_name="tap8")
