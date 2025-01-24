@@ -1,10 +1,5 @@
 # Backing Guest Memory by Huge Pages
 
-> [!WARNING]
->
-> Support is currently in **developer preview**. See
-> [this section](RELEASE_POLICY.md#developer-preview-features) for more info.
-
 Firecracker supports backing the guest memory of a VM by 2MB hugetlbfs pages.
 This can be enabled by setting the `huge_pages` field of `PUT` or `PATCH`
 requests to the `/machine-config` endpoint to `2M`.
@@ -44,7 +39,6 @@ Currently, hugetlbfs support is mutually exclusive with the following
 Firecracker features:
 
 - Memory Ballooning via the [Balloon Device](./ballooning.md)
-- Initrd
 
 ## FAQ
 

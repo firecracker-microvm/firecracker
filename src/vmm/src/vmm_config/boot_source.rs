@@ -42,8 +42,6 @@ pub enum BootSourceConfigError {
     InvalidInitrdPath(io::Error),
     /// The kernel command line is invalid: {0}
     InvalidKernelCommandLine(String),
-    /// Firecracker's huge pages support is incompatible with initrds.
-    HugePagesAndInitRd,
 }
 
 /// Holds the kernel specification (both configuration as well as runtime details).

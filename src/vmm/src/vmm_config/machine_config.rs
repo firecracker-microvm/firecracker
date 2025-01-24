@@ -31,8 +31,6 @@ pub enum MachineConfigError {
     KernelVersion,
     /// Firecracker's huge pages support is incompatible with memory ballooning.
     BalloonAndHugePages,
-    /// Firecracker's huge pages support is incompatible with initrds.
-    InitrdAndHugePages,
 }
 
 /// Describes the possible (huge)page configurations for a microVM's memory.
