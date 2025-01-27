@@ -616,20 +616,25 @@ def test_snapshot_rename_interface(uvm_nano, microvm_factory):
     vm.start()
 
     snapshot = vm.snapshot_full()
-
-    restored_vm = microvm_factory.build()
-    restored_vm.spawn()
-    iface2 = dataclasses.replace(base_iface, tap_name="tap2")
-
     # The snapshot.net_faces is used by the test framework to create the
     # appropriate tap devices on the host; we replace those here with the new
-    # name, otherwise the framework would create `tap1` when restoring the
-    # snapshot
+    # name.
+    iface2 = dataclasses.replace(base_iface, tap_name="tap-restore")
     snapshot.net_ifaces.clear()
     snapshot.net_ifaces.append(iface2)
 
+    # Verify that the vm will not restore with the default interface name
+    restored_vm_bad = microvm_factory.build()
+    restored_vm_bad.spawn()
+    with pytest.raises(RuntimeError):
+        restored_vm_bad.restore_from_snapshot(snapshot, resume=True)
+    restored_vm_bad.mark_killed()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
     restored_vm.restore_from_snapshot(
-        snapshot, rename_interfaces={base_iface.dev_name: "tap2"}
+        snapshot,
+        rename_interfaces={base_iface.dev_name: "tap-restore"},
+        resume=True
     )
-    restored_vm.resume()
     restored_vm.wait_for_ssh_up()
