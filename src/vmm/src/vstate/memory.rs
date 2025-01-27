@@ -122,8 +122,6 @@ pub struct GuestMemoryRegionState {
     pub base_address: u64,
     /// Region size.
     pub size: usize,
-    /// Offset in file/buffer where the region is saved.
-    pub offset: u64,
 }
 
 /// Describes guest memory regions and their snapshot file mappings.
@@ -232,6 +230,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
         track_dirty_pages: bool,
         huge_pages: HugePageConfig,
     ) -> Result<Self, MemoryError> {
+        let mut offset = 0;
         match file {
             Some(f) => {
                 if huge_pages.is_hugetlbfs() {
@@ -242,10 +241,12 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                     .regions
                     .iter()
                     .map(|r| {
-                        f.try_clone().map(|file_clone| {
-                            let offset = FileOffset::new(file_clone, r.offset);
+                        let fo = f.try_clone().map(|file_clone| {
+                            let offset = FileOffset::new(file_clone, offset);
                             (offset, GuestAddress(r.base_address), r.size)
-                        })
+                        });
+                        offset += r.size as u64;
+                        fo
                     })
                     .collect::<Result<Vec<_>, std::io::Error>>()
                     .map_err(MemoryError::FileError)?;
@@ -266,15 +267,11 @@ impl GuestMemoryExtension for GuestMemoryMmap {
     /// Describes GuestMemoryMmap through a GuestMemoryState struct.
     fn describe(&self) -> GuestMemoryState {
         let mut guest_memory_state = GuestMemoryState::default();
-        let mut offset = 0;
         self.iter().for_each(|region| {
             guest_memory_state.regions.push(GuestMemoryRegionState {
                 base_address: region.start_addr().0,
                 size: u64_to_usize(region.len()),
-                offset,
             });
-
-            offset += region.len();
         });
         guest_memory_state
     }
@@ -536,7 +533,6 @@ mod tests {
             regions: vec![GuestMemoryRegionState {
                 base_address: 0,
                 size: 4096,
-                offset: 0,
             }],
         };
         let file = TempFile::new().unwrap().into_file();
@@ -652,12 +648,10 @@ mod tests {
                 GuestMemoryRegionState {
                     base_address: 0,
                     size: page_size,
-                    offset: 0,
                 },
                 GuestMemoryRegionState {
                     base_address: page_size as u64 * 2,
                     size: page_size,
-                    offset: page_size as u64,
                 },
             ],
         };
@@ -679,12 +673,10 @@ mod tests {
                 GuestMemoryRegionState {
                     base_address: 0,
                     size: page_size * 3,
-                    offset: 0,
                 },
                 GuestMemoryRegionState {
                     base_address: page_size as u64 * 4,
                     size: page_size * 3,
-                    offset: page_size as u64 * 3,
                 },
             ],
         };
