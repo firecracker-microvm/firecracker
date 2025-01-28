@@ -95,7 +95,9 @@ def test_coverage(monkeypatch):
         if not branch:
             branch = utils.check_output("git rev-parse --abbrev-ref HEAD").stdout
 
-        codecov_cmd = f"codecov -f {lcov_file} -F {global_props.host_linux_version}-{global_props.instance}"
+        # -Z flag means "fail on error". There's supposed to be a more descriptive long form in
+        # --fail-on-error, but it doesnt work.
+        codecov_cmd = f"codecov -Z -f {lcov_file} -F {global_props.host_linux_version}-{global_props.instance}"
 
         if pr_number and pr_number != "false":
             codecov_cmd += f" -P {pr_number}"
