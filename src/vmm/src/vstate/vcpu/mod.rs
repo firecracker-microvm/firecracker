@@ -319,6 +319,16 @@ impl Vcpu {
                 // If the emulation requests a pause lets do this
                 #[cfg(feature = "gdb")]
                 Ok(VcpuEmulation::Paused) => {
+                    // Calling `KVM_KVMCLOCK_CTRL` to make sure the guest softlockup watchdog
+                    // does not panic on resume, see https://docs.kernel.org/virt/kvm/api.html .
+                    // We do not want to fail if the call is not successful, because depending
+                    // that may be acceptable depending on the workload.
+                    #[cfg(target_arch = "x86_64")]
+                    if let Err(err) = self.kvm_vcpu.fd.kvmclock_ctrl() {
+                        METRICS.vcpu.kvmclock_ctrl_fails.inc();
+                        warn!("KVM_KVMCLOCK_CTRL call failed {}", err);
+                    }
+
                     return StateMachine::next(Self::paused);
                 }
                 // Emulation errors lead to vCPU exit.

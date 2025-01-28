@@ -42,6 +42,9 @@ and this project adheres to
   `mem_size_mib` and `track_dirty_pages` being mandatory for all
   `PATCH /machine-config` requests. Now, they can be omitted which leaves these
   parts of the machine configuration unchanged.
+- [#5007](https://github.com/firecracker-microvm/firecracker/pull/5007): Fixed
+  watchdog softlockup warning on x86_64 guests when a vCPU is paused during GDB
+  debugging.
 
 ## [1.10.1]
 
