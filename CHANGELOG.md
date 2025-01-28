@@ -122,7 +122,8 @@ and this project adheres to
   VMGenID support for microVMs running on ARM hosts with 6.1 guest kernels.
   Support for VMGenID via DeviceTree bindings exists only on mainline 6.10 Linux
   onwards. Users of Firecracker will need to backport the relevant patches on
-  top of their 6.1 kernels to make use of the feature.
+  top of their 6.1 kernels to make use of the feature. As a result, Firecracker
+  snapshot version is now 3.0.0
 - [#4732](https://github.com/firecracker-microvm/firecracker/pull/4732),
   [#4733](https://github.com/firecracker-microvm/firecracker/pull/4733),
   [#4741](https://github.com/firecracker-microvm/firecracker/pull/4741),
