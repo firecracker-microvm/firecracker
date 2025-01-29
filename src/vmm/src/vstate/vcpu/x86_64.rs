@@ -23,7 +23,6 @@ use crate::arch::x86_64::msr::{create_boot_msr_entries, MsrError};
 use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use crate::cpu_config::x86_64::{cpuid, CpuConfiguration};
 use crate::logger::{IncMetric, METRICS};
-use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::{Address, GuestAddress, GuestMemoryMmap};
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
 use crate::vstate::vm::Vm;
@@ -165,7 +164,7 @@ impl KvmVcpu {
     ///
     /// * `index` - Represents the 0-based CPU index between [0, max vcpus).
     /// * `vm` - The vm to which this vcpu will get attached.
-    pub fn new(index: u8, vm: &Vm, kvm: &Kvm) -> Result<Self, KvmVcpuError> {
+    pub fn new(index: u8, vm: &Vm) -> Result<Self, KvmVcpuError> {
         let kvm_vcpu = vm
             .fd()
             .create_vcpu(index.into())
@@ -175,7 +174,7 @@ impl KvmVcpu {
             index,
             fd: kvm_vcpu,
             peripherals: Default::default(),
-            msrs_to_save: kvm.msrs_to_save.as_slice().to_vec(),
+            msrs_to_save: vm.msrs_to_save().to_vec(),
         })
     }
 
@@ -726,6 +725,7 @@ mod tests {
         StaticCpuTemplate,
     };
     use crate::cpu_config::x86_64::cpuid::{Cpuid, CpuidEntry, CpuidKey};
+    use crate::vstate::kvm::Kvm;
     use crate::vstate::vm::tests::{setup_vm, setup_vm_with_memory};
     use crate::vstate::vm::Vm;
 
@@ -750,7 +750,7 @@ mod tests {
     fn setup_vcpu(mem_size: usize) -> (Kvm, Vm, KvmVcpu, GuestMemoryMmap) {
         let (kvm, vm, vm_mem) = setup_vm_with_memory(mem_size);
         vm.setup_irqchip().unwrap();
-        let vcpu = KvmVcpu::new(0, &vm, &kvm).unwrap();
+        let vcpu = KvmVcpu::new(0, &vm).unwrap();
         (kvm, vm, vcpu, vm_mem)
     }
 
@@ -1168,11 +1168,11 @@ mod tests {
     #[test]
     fn test_get_msr_chunks_preserved_order() {
         // Regression test for #4666
-        let (kvm, vm) = setup_vm();
-        let vcpu = KvmVcpu::new(0, &vm, &kvm).unwrap();
+        let (_, vm) = setup_vm();
+        let vcpu = KvmVcpu::new(0, &vm).unwrap();
 
         // The list of supported MSR indices, in the order they were returned by KVM
-        let msrs_to_save = kvm.msrs_to_save;
+        let msrs_to_save = vm.msrs_to_save();
         // The MSRs after processing. The order should be identical to the one returned by KVM, with
         // the exception of deferred MSRs, which should be moved to the end (but show up in the same
         // order as they are listed in [`DEFERRED_MSRS`].
@@ -1185,7 +1185,6 @@ mod tests {
             .flat_map(|chunk| chunk.as_slice().iter())
             .zip(
                 msrs_to_save
-                    .as_slice()
                     .iter()
                     .filter(|&idx| !DEFERRED_MSRS.contains(idx))
                     .chain(DEFERRED_MSRS.iter()),

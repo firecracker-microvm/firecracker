@@ -192,7 +192,7 @@ fn create_vmm_and_vcpus(
     #[cfg(target_arch = "x86_64")]
     let (vcpus, pio_device_manager) = {
         setup_interrupt_controller(&mut vm)?;
-        let vcpus = create_vcpus(&kvm, &vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
+        let vcpus = create_vcpus(&vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
 
         // Make stdout non blocking.
         set_stdout_nonblocking();
@@ -224,7 +224,7 @@ fn create_vmm_and_vcpus(
     // Search for `kvm_arch_vcpu_create` in arch/arm/kvm/arm.c.
     #[cfg(target_arch = "aarch64")]
     let vcpus = {
-        let vcpus = create_vcpus(&kvm, &vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
+        let vcpus = create_vcpus(&vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
         setup_interrupt_controller(&mut vm, vcpu_count)?;
         vcpus
     };
@@ -746,16 +746,11 @@ fn attach_legacy_devices_aarch64(
         .map_err(VmmError::RegisterMMIODevice)
 }
 
-fn create_vcpus(
-    kvm: &Kvm,
-    vm: &Vm,
-    vcpu_count: u8,
-    exit_evt: &EventFd,
-) -> Result<Vec<Vcpu>, VmmError> {
+fn create_vcpus(vm: &Vm, vcpu_count: u8, exit_evt: &EventFd) -> Result<Vec<Vcpu>, VmmError> {
     let mut vcpus = Vec::with_capacity(vcpu_count as usize);
     for cpu_idx in 0..vcpu_count {
         let exit_evt = exit_evt.try_clone().map_err(VmmError::EventFd)?;
-        let vcpu = Vcpu::new(cpu_idx, vm, kvm, exit_evt).map_err(VmmError::VcpuCreate)?;
+        let vcpu = Vcpu::new(cpu_idx, vm, exit_evt).map_err(VmmError::VcpuCreate)?;
         vcpus.push(vcpu);
     }
     Ok(vcpus)
@@ -1164,7 +1159,7 @@ pub(crate) mod tests {
         #[cfg(target_arch = "aarch64")]
         {
             let exit_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-            let _vcpu = Vcpu::new(1, &vm, &kvm, exit_evt).unwrap();
+            let _vcpu = Vcpu::new(1, &vm, exit_evt).unwrap();
             setup_interrupt_controller(&mut vm, 1).unwrap();
         }
 
@@ -1399,7 +1394,7 @@ pub(crate) mod tests {
         #[cfg(target_arch = "x86_64")]
         setup_interrupt_controller(&mut vm).unwrap();
 
-        let vcpu_vec = create_vcpus(&kvm, &vm, vcpu_count, &evfd).unwrap();
+        let vcpu_vec = create_vcpus(&vm, vcpu_count, &evfd).unwrap();
         assert_eq!(vcpu_vec.len(), vcpu_count as usize);
     }
 

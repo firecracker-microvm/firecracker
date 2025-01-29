@@ -44,8 +44,6 @@ pub use aarch64::{KvmVcpuError, *};
 #[cfg(target_arch = "x86_64")]
 pub use x86_64::{KvmVcpuError, *};
 
-use super::kvm::Kvm;
-
 /// Signal number (SIGRTMIN) used to kick Vcpus.
 pub const VCPU_RTSIG_OFFSET: i32 = 0;
 
@@ -214,10 +212,10 @@ impl Vcpu {
     /// * `index` - Represents the 0-based CPU index between [0, max vcpus).
     /// * `vm` - The vm to which this vcpu will get attached.
     /// * `exit_evt` - An `EventFd` that will be written into when this vcpu exits.
-    pub fn new(index: u8, vm: &Vm, kvm: &Kvm, exit_evt: EventFd) -> Result<Self, VcpuError> {
+    pub fn new(index: u8, vm: &Vm, exit_evt: EventFd) -> Result<Self, VcpuError> {
         let (event_sender, event_receiver) = channel();
         let (response_sender, response_receiver) = channel();
-        let kvm_vcpu = KvmVcpu::new(index, vm, kvm).unwrap();
+        let kvm_vcpu = KvmVcpu::new(index, vm).unwrap();
 
         Ok(Vcpu {
             exit_evt,
@@ -787,6 +785,7 @@ pub(crate) mod tests {
     use crate::devices::BusDevice;
     use crate::seccomp::get_empty_filters;
     use crate::utils::signal::validate_signal_num;
+    use crate::vstate::kvm::Kvm;
     use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
     use crate::vstate::vcpu::VcpuError as EmulationError;
     use crate::vstate::vm::tests::setup_vm_with_memory;
@@ -937,7 +936,7 @@ pub(crate) mod tests {
 
         #[cfg(target_arch = "aarch64")]
         let vcpu = {
-            let mut vcpu = Vcpu::new(1, &vm, &kvm, exit_evt).unwrap();
+            let mut vcpu = Vcpu::new(1, &vm, exit_evt).unwrap();
             vcpu.kvm_vcpu.init(&[]).unwrap();
             vm.setup_irqchip(1).unwrap();
             vcpu
@@ -945,7 +944,7 @@ pub(crate) mod tests {
         #[cfg(target_arch = "x86_64")]
         let vcpu = {
             vm.setup_irqchip().unwrap();
-            Vcpu::new(1, &vm, &kvm, exit_evt).unwrap()
+            Vcpu::new(1, &vm, exit_evt).unwrap()
         };
         (kvm, vm, vcpu, gm)
     }

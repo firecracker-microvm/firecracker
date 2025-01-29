@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::VmError;
 use crate::arch::aarch64::gic::GicState;
-use crate::vstate::kvm::Kvm;
+use crate::Kvm;
 
 /// Structure representing the current architecture's understand of what a "virtual machine" is.
 #[derive(Debug)]
