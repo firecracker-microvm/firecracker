@@ -1,10 +1,20 @@
 // Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use kvm_ioctls::VmFd;
 use serde::{Deserialize, Serialize};
 
+use super::VmError;
 use crate::arch::aarch64::gic::GicState;
-use crate::Vm;
+use crate::vstate::kvm::Kvm;
+
+/// Structure representing the current architecture's understand of what a "virtual machine" is.
+#[derive(Debug)]
+pub struct ArchVm {
+    pub(super) fd: VmFd,
+    // On aarch64 we need to keep around the fd obtained by creating the VGIC device.
+    irqchip_handle: Option<crate::arch::aarch64::gic::GICDevice>,
+}
 
 /// Error type for [`Vm::restore_state`]
 #[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
@@ -17,7 +27,16 @@ pub enum ArchVmError {
     RestoreGic(crate::arch::aarch64::gic::GicError),
 }
 
-impl Vm {
+impl ArchVm {
+    /// Create a new `Vm` struct.
+    pub fn new(kvm: &Kvm) -> Result<ArchVm, VmError> {
+        let fd = kvm.fd.create_vm().map_err(VmError::VmFd)?;
+        Ok(ArchVm {
+            fd,
+            irqchip_handle: None,
+        })
+    }
+
     /// Creates the GIC (Global Interrupt Controller).
     pub fn setup_irqchip(&mut self, vcpu_count: u8) -> Result<(), ArchVmError> {
         self.irqchip_handle = Some(
