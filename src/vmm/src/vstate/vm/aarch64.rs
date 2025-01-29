@@ -37,6 +37,18 @@ impl ArchVm {
         })
     }
 
+    pub(super) fn arch_pre_create_vcpus(&mut self, _: u8) -> Result<(), ArchVmError> {
+        Ok(())
+    }
+
+    pub(super) fn arch_post_create_vcpus(&mut self, nr_vcpus: u8) -> Result<(), ArchVmError> {
+        // On aarch64, the vCPUs need to be created (i.e call KVM_CREATE_VCPU) before setting up the
+        // IRQ chip because the `KVM_CREATE_VCPU` ioctl will return error if the IRQCHIP
+        // was already initialized.
+        // Search for `kvm_arch_vcpu_create` in arch/arm/kvm/arm.c.
+        self.setup_irqchip(nr_vcpus)
+    }
+
     /// Creates the GIC (Global Interrupt Controller).
     pub fn setup_irqchip(&mut self, vcpu_count: u8) -> Result<(), ArchVmError> {
         self.irqchip_handle = Some(
