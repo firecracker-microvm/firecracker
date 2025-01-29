@@ -129,7 +129,7 @@ pub enum MicrovmStateError {
     /// Cannot save Vcpu state: {0}
     SaveVcpuState(vstate::vcpu::VcpuError),
     /// Cannot save Vm state: {0}
-    SaveVmState(vstate::vm::VmError),
+    SaveVmState(vstate::vm::ArchVmError),
     /// Cannot signal Vcpu: {0}
     SignalVcpu(VcpuSendEventError),
     /// Vcpu is in unexpected state.

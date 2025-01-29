@@ -22,7 +22,7 @@ mod arch;
 #[path = "aarch64.rs"]
 mod arch;
 
-pub use arch::{RestoreStateError, VmState};
+pub use arch::{ArchVmError, VmState};
 
 /// Errors associated with the wrappers over KVM ioctls.
 /// Needs `rustfmt::skip` to make multiline comments work
@@ -31,37 +31,12 @@ pub use arch::{RestoreStateError, VmState};
 pub enum VmError {
     /// Cannot set the memory regions: {0}
     SetUserMemoryRegion(kvm_ioctls::Error),
-    #[cfg(target_arch = "aarch64")]
-    /// Error creating the global interrupt controller: {0}
-    VmCreateGIC(crate::arch::aarch64::gic::GicError),
     /// Cannot open the VM file descriptor: {0}
     VmFd(kvm_ioctls::Error),
-    #[cfg(target_arch = "x86_64")]
-    /// Failed to get KVM vm pit state: {0}
-    VmGetPit2(kvm_ioctls::Error),
-    #[cfg(target_arch = "x86_64")]
-    /// Failed to get KVM vm clock: {0}
-    VmGetClock(kvm_ioctls::Error),
-    #[cfg(target_arch = "x86_64")]
-    /// Failed to get KVM vm irqchip: {0}
-    VmGetIrqChip(kvm_ioctls::Error),
-    #[cfg(target_arch = "x86_64")]
-    /// Failed to set KVM vm pit state: {0}
-    VmSetPit2(kvm_ioctls::Error),
-    #[cfg(target_arch = "x86_64")]
-    /// Failed to set KVM vm clock: {0}
-    VmSetClock(kvm_ioctls::Error),
-    #[cfg(target_arch = "x86_64")]
-    /// Failed to set KVM vm irqchip: {0}
-    VmSetIrqChip(kvm_ioctls::Error),
     /// Cannot configure the microvm: {0}
     VmSetup(kvm_ioctls::Error),
-    #[cfg(target_arch = "aarch64")]
-    /// Failed to save the VM's GIC state: {0}
-    SaveGic(crate::arch::aarch64::gic::GicError),
-    #[cfg(target_arch = "aarch64")]
-    /// Failed to restore the VM's GIC state: {0}
-    RestoreGic(crate::arch::aarch64::gic::GicError),
+    /// {0}
+    Arch(#[from] ArchVmError),
 }
 
 /// A wrapper around creating and using a VM.

@@ -71,7 +71,7 @@ use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError};
 use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
 use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuError};
-use crate::vstate::vm::Vm;
+use crate::vstate::vm::{Vm, VmError};
 use crate::{device_manager, EventManager, Vmm, VmmError};
 
 /// Errors associated with starting the instance.
@@ -436,7 +436,7 @@ pub enum BuildMicrovmFromSnapshotError {
     /// Could not set TSC scaling within the snapshot: {0}
     SetTsc(#[from] crate::vstate::vcpu::SetTscError),
     /// Failed to restore microVM state: {0}
-    RestoreState(#[from] crate::vstate::vm::RestoreStateError),
+    RestoreState(#[from] crate::vstate::vm::ArchVmError),
     /// Failed to update microVM configuration: {0}
     VmUpdateConfig(#[from] MachineConfigError),
     /// Failed to restore MMIO device: {0}
@@ -675,6 +675,7 @@ where
 #[cfg(target_arch = "x86_64")]
 pub fn setup_interrupt_controller(vm: &mut Vm) -> Result<(), StartMicrovmError> {
     vm.setup_irqchip()
+        .map_err(VmError::Arch)
         .map_err(VmmError::Vm)
         .map_err(StartMicrovmError::Internal)
 }
@@ -683,6 +684,7 @@ pub fn setup_interrupt_controller(vm: &mut Vm) -> Result<(), StartMicrovmError> 
 #[cfg(target_arch = "aarch64")]
 pub fn setup_interrupt_controller(vm: &mut Vm, vcpu_count: u8) -> Result<(), StartMicrovmError> {
     vm.setup_irqchip(vcpu_count)
+        .map_err(VmError::Arch)
         .map_err(VmmError::Vm)
         .map_err(StartMicrovmError::Internal)
 }
