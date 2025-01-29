@@ -59,6 +59,15 @@ impl ArchVm {
         Ok(ArchVm { fd, msrs_to_save })
     }
 
+    pub(super) fn arch_pre_create_vcpus(&mut self, _: u8) -> Result<(), ArchVmError> {
+        // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
+        self.setup_irqchip()
+    }
+
+    pub(super) fn arch_post_create_vcpus(&mut self, _: u8) -> Result<(), ArchVmError> {
+        Ok(())
+    }
+
     /// Restores the KVM VM state.
     ///
     /// # Errors

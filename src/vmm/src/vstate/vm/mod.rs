@@ -7,6 +7,7 @@
 
 use kvm_bindings::{kvm_userspace_memory_region, KVM_MEM_LOG_DIRTY_PAGES};
 use kvm_ioctls::VmFd;
+use vmm_sys_util::eventfd::EventFd;
 
 #[cfg(target_arch = "x86_64")]
 use crate::utils::u64_to_usize;
@@ -21,10 +22,13 @@ mod arch;
 
 pub use arch::{ArchVm as Vm, ArchVmError, VmState};
 
+use crate::vstate::vcpu::VcpuError;
+use crate::Vcpu;
+
 /// Errors associated with the wrappers over KVM ioctls.
 /// Needs `rustfmt::skip` to make multiline comments work
 #[rustfmt::skip]
-#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum VmError {
     /// Cannot set the memory regions: {0}
     SetUserMemoryRegion(kvm_ioctls::Error),
@@ -34,10 +38,34 @@ pub enum VmError {
     VmSetup(kvm_ioctls::Error),
     /// {0}
     Arch(#[from] ArchVmError),
+    /// Error during eventfd operations: {0}
+    EventFd(std::io::Error),
+    /// Failed to create vcpu: {0}
+    CreateVcpu(VcpuError),
 }
 
 /// Contains Vm functions that are usable across CPU architectures
 impl Vm {
+    /// Creates the specified number of [`Vcpu`]s.
+    ///
+    /// The returned [`EventFd`] is written to whenever any of the vcpus exit.
+    pub fn create_vcpus(&mut self, vcpu_count: u8) -> Result<(Vec<Vcpu>, EventFd), VmError> {
+        self.arch_pre_create_vcpus(vcpu_count)?;
+
+        let exit_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(VmError::EventFd)?;
+
+        let mut vcpus = Vec::with_capacity(vcpu_count as usize);
+        for cpu_idx in 0..vcpu_count {
+            let exit_evt = exit_evt.try_clone().map_err(VmError::EventFd)?;
+            let vcpu = Vcpu::new(cpu_idx, self, exit_evt).map_err(VmError::CreateVcpu)?;
+            vcpus.push(vcpu);
+        }
+
+        self.arch_post_create_vcpus(vcpu_count)?;
+
+        Ok((vcpus, exit_evt))
+    }
+
     /// Initializes the guest memory.
     pub fn memory_init(&self, guest_mem: &GuestMemoryMmap) -> Result<(), VmError> {
         self.set_kvm_memory_regions(guest_mem)?;
@@ -88,7 +116,7 @@ impl Vm {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::test_utils::single_region_mem;
+    use crate::test_utils::{arch_mem, single_region_mem};
     use crate::vstate::kvm::Kvm;
     use crate::vstate::memory::GuestMemoryMmap;
 
@@ -138,5 +166,20 @@ pub(crate) mod tests {
             res.unwrap_err().to_string(),
             "Cannot set the memory regions: Invalid argument (os error 22)"
         );
+    }
+
+    #[test]
+    fn test_create_vcpus() {
+        let vcpu_count = 2;
+        let guest_memory = arch_mem(128 << 20);
+
+        let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
+        #[allow(unused_mut)]
+        let mut vm = Vm::new(&kvm).unwrap();
+        vm.memory_init(&guest_memory).unwrap();
+
+        let (vcpu_vec, _) = vm.create_vcpus(vcpu_count).unwrap();
+
+        assert_eq!(vcpu_vec.len(), vcpu_count as usize);
     }
 }

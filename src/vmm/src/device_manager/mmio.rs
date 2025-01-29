@@ -549,7 +549,7 @@ mod tests {
     use crate::test_utils::multi_region_mem;
     use crate::vstate::kvm::Kvm;
     use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
-    use crate::{builder, Vm};
+    use crate::Vm;
 
     const QUEUE_SIZES: &[u16] = &[64];
 
@@ -673,9 +673,9 @@ mod tests {
         let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
         #[cfg(target_arch = "x86_64")]
-        builder::setup_interrupt_controller(&mut vm).unwrap();
+        vm.setup_irqchip().unwrap();
         #[cfg(target_arch = "aarch64")]
-        builder::setup_interrupt_controller(&mut vm, 1).unwrap();
+        vm.setup_irqchip(1).unwrap();
 
         device_manager
             .register_virtio_test_device(
@@ -702,9 +702,9 @@ mod tests {
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         #[cfg(target_arch = "x86_64")]
-        builder::setup_interrupt_controller(&mut vm).unwrap();
+        vm.setup_irqchip().unwrap();
         #[cfg(target_arch = "aarch64")]
-        builder::setup_interrupt_controller(&mut vm, 1).unwrap();
+        vm.setup_irqchip(1).unwrap();
 
         for _i in crate::arch::IRQ_BASE..=crate::arch::IRQ_MAX {
             device_manager
@@ -756,9 +756,9 @@ mod tests {
         let mem_clone = guest_mem.clone();
 
         #[cfg(target_arch = "x86_64")]
-        builder::setup_interrupt_controller(&mut vm).unwrap();
+        vm.setup_irqchip().unwrap();
         #[cfg(target_arch = "aarch64")]
-        builder::setup_interrupt_controller(&mut vm, 1).unwrap();
+        vm.setup_irqchip(1).unwrap();
 
         let mut device_manager = MMIODeviceManager::new();
         let mut resource_allocator = ResourceAllocator::new().unwrap();
