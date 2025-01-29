@@ -32,7 +32,7 @@ use crate::utils::{align_up, usize_to_u64};
 use crate::vmm_config::machine_config::MachineConfig;
 use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 use crate::vstate::vcpu::KvmVcpuError;
-use crate::{Vcpu, VcpuConfig, Vmm};
+use crate::{Vcpu, VcpuConfig, Vmm, logger};
 
 /// Errors thrown while configuring aarch64 system.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -58,9 +58,35 @@ pub const MMIO_MEM_SIZE: u64 = layout::DRAM_MEM_START - layout::MAPPED_IO_START;
 
 /// Returns a Vec of the valid memory addresses for aarch64.
 /// See [`layout`](layout) module for a drawing of the specific memory model for this platform.
-pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
-    let dram_size = min(size, layout::DRAM_MEM_MAX_SIZE);
-    vec![(GuestAddress(layout::DRAM_MEM_START), dram_size)]
+///
+/// The `offset` parameter specified the offset from [`layout::DRAM_MEM_START`].
+pub fn arch_memory_regions(offset: usize, size: usize) -> Vec<(GuestAddress, usize)> {
+    assert!(size > 0, "Attempt to allocate guest memory of length 0");
+    assert!(
+        offset.checked_add(size).is_some(),
+        "Attempt to allocate guest memory such that the address space would wrap around"
+    );
+    assert!(
+        offset < layout::DRAM_MEM_MAX_SIZE,
+        "offset outside allowed DRAM range"
+    );
+
+    let dram_size = min(size, layout::DRAM_MEM_MAX_SIZE - offset);
+
+    if dram_size != size {
+        logger::warn!(
+            "Requested offset/memory size {}/{} exceeds architectural maximum (1022GiB). Size has \
+             been truncated to {}",
+            offset,
+            size,
+            dram_size
+        );
+    }
+
+    vec![(
+        GuestAddress(layout::DRAM_MEM_START + offset as u64),
+        dram_size,
+    )]
 }
 
 /// Configures the system for booting Linux.
@@ -184,6 +210,45 @@ pub fn load_kernel(
     })
 }
 
+#[cfg(kani)]
+mod verification {
+    use vm_memory::GuestAddress;
+
+    use crate::arch::aarch64::layout;
+    use crate::arch::arch_memory_regions;
+
+    #[kani::proof]
+    #[kani::unwind(3)]
+    fn verify_arch_memory_regions() {
+        let offset: u64 = kani::any::<u64>();
+        let len: u64 = kani::any::<u64>();
+
+        kani::assume(len > 0);
+        kani::assume(offset.checked_add(len).is_some());
+        kani::assume(offset < layout::DRAM_MEM_MAX_SIZE as u64);
+
+        let regions = arch_memory_regions(offset as usize, len as usize);
+
+        // No MMIO gap on ARM
+        assert_eq!(regions.len(), 1);
+
+        let (GuestAddress(start), actual_len) = regions[0];
+        let actual_len = actual_len as u64;
+
+        assert_eq!(start, layout::DRAM_MEM_START + offset);
+        assert!(actual_len <= layout::DRAM_MEM_MAX_SIZE as u64);
+        assert!(actual_len <= len);
+
+        if actual_len < len {
+            assert_eq!(
+                start + actual_len,
+                layout::DRAM_MEM_START + layout::DRAM_MEM_MAX_SIZE as u64
+            );
+            assert!(offset + len >= layout::DRAM_MEM_MAX_SIZE as u64);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,7 +256,7 @@ mod tests {
 
     #[test]
     fn test_regions_lt_1024gb() {
-        let regions = arch_memory_regions(1usize << 29);
+        let regions = arch_memory_regions(0, 1usize << 29);
         assert_eq!(1, regions.len());
         assert_eq!(GuestAddress(super::layout::DRAM_MEM_START), regions[0].0);
         assert_eq!(1usize << 29, regions[0].1);
@@ -199,7 +264,7 @@ mod tests {
 
     #[test]
     fn test_regions_gt_1024gb() {
-        let regions = arch_memory_regions(1usize << 41);
+        let regions = arch_memory_regions(0, 1usize << 41);
         assert_eq!(1, regions.len());
         assert_eq!(GuestAddress(super::layout::DRAM_MEM_START), regions[0].0);
         assert_eq!(super::layout::DRAM_MEM_MAX_SIZE, regions[0].1);
