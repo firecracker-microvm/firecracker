@@ -45,6 +45,10 @@ and this project adheres to
 - [#5007](https://github.com/firecracker-microvm/firecracker/pull/5007): Fixed
   watchdog softlockup warning on x86_64 guests when a vCPU is paused during GDB
   debugging.
+- [#5021](https://github.com/firecracker-microvm/firecracker/pull/5021) If a
+  balloon device is inflated post UFFD-backed snapshot restore, Firecracker now
+  causes `remove` UFFD messages to be sent to the UFFD handler. Previously, no
+  such message would be sent.
 
 ## [1.10.1]
 
