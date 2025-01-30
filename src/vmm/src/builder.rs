@@ -155,7 +155,6 @@ fn create_vmm_and_vcpus(
     event_manager: &mut EventManager,
     guest_memory: GuestMemoryMmap,
     uffd: Option<Uffd>,
-    track_dirty_pages: bool,
     vcpu_count: u8,
     kvm_capabilities: Vec<KvmCapability>,
 ) -> Result<(Vmm, Vec<Vcpu>), StartMicrovmError> {
@@ -172,7 +171,7 @@ fn create_vmm_and_vcpus(
     kvm.check_memory(&guest_memory)
         .map_err(VmmError::Kvm)
         .map_err(StartMicrovmError::Internal)?;
-    vm.memory_init(&guest_memory, track_dirty_pages)
+    vm.memory_init(&guest_memory)
         .map_err(VmmError::Vm)
         .map_err(StartMicrovmError::Internal)?;
 
@@ -292,7 +291,6 @@ pub fn build_microvm_for_boot(
         event_manager,
         guest_memory,
         None,
-        vm_resources.machine_config.track_dirty_pages,
         vm_resources.machine_config.vcpu_count,
         cpu_template.kvm_capabilities.clone(),
     )?;
@@ -482,7 +480,6 @@ pub fn build_microvm_from_snapshot(
         event_manager,
         guest_memory,
         uffd,
-        vm_resources.machine_config.track_dirty_pages,
         vm_resources.machine_config.vcpu_count,
         microvm_state.kvm_state.kvm_cap_modifiers.clone(),
     )?;
@@ -1140,7 +1137,7 @@ pub(crate) mod tests {
 
         let kvm = Kvm::new(vec![]).unwrap();
         let mut vm = Vm::new(&kvm).unwrap();
-        vm.memory_init(&guest_memory, false).unwrap();
+        vm.memory_init(&guest_memory).unwrap();
         let mmio_device_manager = MMIODeviceManager::new();
         let acpi_device_manager = ACPIDeviceManager::new();
         #[cfg(target_arch = "x86_64")]
@@ -1394,7 +1391,7 @@ pub(crate) mod tests {
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
         #[allow(unused_mut)]
         let mut vm = Vm::new(&kvm).unwrap();
-        vm.memory_init(&guest_memory, false).unwrap();
+        vm.memory_init(&guest_memory).unwrap();
         let evfd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
 
         #[cfg(target_arch = "x86_64")]

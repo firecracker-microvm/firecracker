@@ -129,12 +129,8 @@ impl Vm {
     }
 
     /// Initializes the guest memory.
-    pub fn memory_init(
-        &self,
-        guest_mem: &GuestMemoryMmap,
-        track_dirty_pages: bool,
-    ) -> Result<(), VmError> {
-        self.set_kvm_memory_regions(guest_mem, track_dirty_pages)?;
+    pub fn memory_init(&self, guest_mem: &GuestMemoryMmap) -> Result<(), VmError> {
+        self.set_kvm_memory_regions(guest_mem)?;
         #[cfg(target_arch = "x86_64")]
         self.fd
             .set_tss_address(u64_to_usize(crate::arch::x86_64::layout::KVM_TSS_ADDRESS))
@@ -146,16 +142,17 @@ impl Vm {
     pub(crate) fn set_kvm_memory_regions(
         &self,
         guest_mem: &GuestMemoryMmap,
-        track_dirty_pages: bool,
     ) -> Result<(), VmError> {
-        let mut flags = 0u32;
-        if track_dirty_pages {
-            flags |= KVM_MEM_LOG_DIRTY_PAGES;
-        }
         guest_mem
             .iter()
             .zip(0u32..)
             .try_for_each(|(region, slot)| {
+                let flags = if region.bitmap().is_some() {
+                    KVM_MEM_LOG_DIRTY_PAGES
+                } else {
+                    0
+                };
+
                 let memory_region = kvm_userspace_memory_region {
                     slot,
                     guest_phys_addr: region.start_addr().raw_value(),
@@ -359,7 +356,7 @@ pub(crate) mod tests {
     pub(crate) fn setup_vm_with_memory(mem_size: usize) -> (Kvm, Vm, GuestMemoryMmap) {
         let (kvm, vm) = setup_vm();
         let gm = single_region_mem(mem_size);
-        vm.memory_init(&gm, false).unwrap();
+        vm.memory_init(&gm).unwrap();
         (kvm, vm, gm)
     }
 
@@ -375,7 +372,7 @@ pub(crate) mod tests {
         let (_, vm) = setup_vm();
         // Create valid memory region and test that the initialization is successful.
         let gm = single_region_mem(0x1000);
-        vm.memory_init(&gm, true).unwrap();
+        vm.memory_init(&gm).unwrap();
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -452,13 +449,13 @@ pub(crate) mod tests {
         let (_, vm) = setup_vm();
 
         let gm = single_region_mem(0x1000);
-        let res = vm.set_kvm_memory_regions(&gm, false);
+        let res = vm.set_kvm_memory_regions(&gm);
         res.unwrap();
 
         // Trying to set a memory region with a size that is not a multiple of GUEST_PAGE_SIZE
         // will result in error.
         let gm = single_region_mem(0x10);
-        let res = vm.set_kvm_memory_regions(&gm, false);
+        let res = vm.set_kvm_memory_regions(&gm);
         assert_eq!(
             res.unwrap_err().to_string(),
             "Cannot set the memory regions: Invalid argument (os error 22)"
