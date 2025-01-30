@@ -230,8 +230,12 @@ pub mod tests {
     }
 
     fn create_mem() -> GuestMemoryMmap {
-        GuestMemoryMmap::from_raw_regions(&[(GuestAddress(0), MEM_LEN)], true, HugePageConfig::None)
-            .unwrap()
+        GuestMemoryMmap::anonymous(
+            [(GuestAddress(0), MEM_LEN)].into_iter(),
+            true,
+            HugePageConfig::None,
+        )
+        .unwrap()
     }
 
     fn check_dirty_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: u32) {
