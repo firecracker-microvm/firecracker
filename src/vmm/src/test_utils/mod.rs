@@ -34,7 +34,7 @@ pub fn single_region_mem_at(at: u64, size: usize) -> GuestMemoryMmap {
 
 /// Creates a [`GuestMemoryMmap`] with multiple regions and without dirty page tracking.
 pub fn multi_region_mem(regions: &[(GuestAddress, usize)]) -> GuestMemoryMmap {
-    GuestMemoryMmap::from_raw_regions(regions, false, HugePageConfig::None)
+    GuestMemoryMmap::anonymous(regions.iter().copied(), false, HugePageConfig::None)
         .expect("Cannot initialize memory")
 }
 

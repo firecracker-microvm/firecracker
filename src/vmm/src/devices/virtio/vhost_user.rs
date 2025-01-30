@@ -466,7 +466,7 @@ mod tests {
 
     use super::*;
     use crate::test_utils::create_tmp_socket;
-    use crate::vstate::memory::{FileOffset, GuestAddress, GuestMemoryExtension};
+    use crate::vstate::memory::{GuestAddress, GuestMemoryExtension};
 
     #[test]
     fn test_new() {
@@ -759,19 +759,13 @@ mod tests {
         let file_size = 2 * region_size;
         file.set_len(file_size as u64).unwrap();
         let regions = vec![
-            (
-                FileOffset::new(file.try_clone().unwrap(), 0x0),
-                GuestAddress(0x0),
-                region_size,
-            ),
-            (
-                FileOffset::new(file.try_clone().unwrap(), 0x10000),
-                GuestAddress(0x10000),
-                region_size,
-            ),
+            (GuestAddress(0x0), region_size),
+            (GuestAddress(0x10000), region_size),
         ];
 
-        let guest_memory = GuestMemoryMmap::from_raw_regions_file(regions, false, false).unwrap();
+        let guest_memory =
+            GuestMemoryMmap::create(regions.into_iter(), libc::MAP_PRIVATE, Some(file), false)
+                .unwrap();
 
         vuh.update_mem_table(&guest_memory).unwrap();
 
@@ -883,13 +877,11 @@ mod tests {
         let region_size = 0x10000;
         let file = TempFile::new().unwrap().into_file();
         file.set_len(region_size as u64).unwrap();
-        let regions = vec![(
-            FileOffset::new(file.try_clone().unwrap(), 0x0),
-            GuestAddress(0x0),
-            region_size,
-        )];
+        let regions = vec![(GuestAddress(0x0), region_size)];
 
-        let guest_memory = GuestMemoryMmap::from_raw_regions_file(regions, false, false).unwrap();
+        let guest_memory =
+            GuestMemoryMmap::create(regions.into_iter(), libc::MAP_PRIVATE, Some(file), false)
+                .unwrap();
 
         let mut queue = Queue::new(69);
         queue.initialize(&guest_memory).unwrap();
