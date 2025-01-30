@@ -431,8 +431,7 @@ mod tests {
 
     #[test]
     fn test_from_raw_regions() {
-        // Check dirty page tracking is off.
-        {
+        for dirty_page_tracking in [true, false] {
             let region_size = 0x10000;
             let regions = vec![
                 (GuestAddress(0x0), region_size),
@@ -441,27 +440,14 @@ mod tests {
                 (GuestAddress(0x30000), region_size),
             ];
 
-            let guest_memory =
-                GuestMemoryMmap::from_raw_regions(&regions, false, HugePageConfig::None).unwrap();
+            let guest_memory = GuestMemoryMmap::from_raw_regions(
+                &regions,
+                dirty_page_tracking,
+                HugePageConfig::None,
+            )
+            .unwrap();
             guest_memory.iter().for_each(|region| {
-                assert!(region.bitmap().is_none());
-            });
-        }
-
-        // Check dirty page tracking is on.
-        {
-            let region_size = 0x10000;
-            let regions = vec![
-                (GuestAddress(0x0), region_size),
-                (GuestAddress(0x10000), region_size),
-                (GuestAddress(0x20000), region_size),
-                (GuestAddress(0x30000), region_size),
-            ];
-
-            let guest_memory =
-                GuestMemoryMmap::from_raw_regions(&regions, true, HugePageConfig::None).unwrap();
-            guest_memory.iter().for_each(|region| {
-                assert!(region.bitmap().is_some());
+                assert_eq!(region.bitmap().is_some(), dirty_page_tracking);
             });
         }
     }
@@ -497,32 +483,13 @@ mod tests {
             ),
         ];
 
-        // Test that all regions are guarded.
-        {
+        for dirty_page_tracking in [true, false] {
             let guest_memory =
                 GuestMemoryMmap::from_raw_regions_file(regions.clone(), false, false).unwrap();
             guest_memory.iter().for_each(|region| {
                 assert_eq!(region.size(), region_size);
                 assert!(region.file_offset().is_some());
-                assert!(region.bitmap().is_none());
-            });
-        }
-
-        // Check dirty page tracking is off.
-        {
-            let guest_memory =
-                GuestMemoryMmap::from_raw_regions_file(regions.clone(), false, false).unwrap();
-            guest_memory.iter().for_each(|region| {
-                assert!(region.bitmap().is_none());
-            });
-        }
-
-        // Check dirty page tracking is on.
-        {
-            let guest_memory =
-                GuestMemoryMmap::from_raw_regions_file(regions, true, false).unwrap();
-            guest_memory.iter().for_each(|region| {
-                assert!(region.bitmap().is_some());
+                assert_eq!(region.bitmap().is_some(), dirty_page_tracking);
             });
         }
     }
