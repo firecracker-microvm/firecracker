@@ -118,10 +118,14 @@ def test_valid_handler(uvm_plain, snapshot, uffd_handler_paths):
     # Inflate balloon.
     vm.api.balloon.patch(amount_mib=200)
 
+    # Verify if the restored guest works.
+    vm.ssh.check_output("true")
+
     # Deflate balloon.
     vm.api.balloon.patch(amount_mib=0)
 
     # Verify if the restored guest works.
+    vm.ssh.check_output("true")
 
 
 def test_malicious_handler(uvm_plain, snapshot, uffd_handler_paths):
