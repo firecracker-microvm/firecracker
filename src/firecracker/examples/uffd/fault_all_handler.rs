@@ -36,7 +36,7 @@ fn main() {
             userfaultfd::Event::Pagefault { .. } => {
                 for region in uffd_handler.mem_regions.clone() {
                     uffd_handler
-                        .serve_pf(region.mapping.base_host_virt_addr as _, region.mapping.size)
+                        .serve_pf(region.mapping.base_host_virt_addr as _, region.mapping.size);
                 }
             }
             _ => panic!("Unexpected event on userfaultfd"),
