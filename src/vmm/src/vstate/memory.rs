@@ -22,8 +22,7 @@ use vm_memory::{Error as VmMemoryError, GuestMemoryError, WriteVolatile};
 use vmm_sys_util::errno;
 
 use crate::DirtyBitmap;
-use crate::arch::arch_memory_regions;
-use crate::utils::{get_page_size, mib_to_bytes, u64_to_usize};
+use crate::utils::{get_page_size, u64_to_usize};
 use crate::vmm_config::machine_config::HugePageConfig;
 
 /// Type of GuestMemoryMmap.
@@ -67,15 +66,15 @@ where
 
     /// Creates a GuestMemoryMmap with `size` in MiB backed by a memfd.
     fn memfd_backed(
-        mem_size_mib: usize,
+        regions: &[(GuestAddress, usize)],
         track_dirty_pages: bool,
         huge_pages: HugePageConfig,
     ) -> Result<Self, MemoryError> {
-        let memfd_file = create_memfd(mem_size_mib, huge_pages.into())?.into_file();
-        let regions = arch_memory_regions(mib_to_bytes(mem_size_mib)).into_iter();
+        let size = regions.iter().map(|&(_, size)| size as u64).sum();
+        let memfd_file = create_memfd(size, huge_pages.into())?.into_file();
 
         Self::create(
-            regions,
+            regions.iter().copied(),
             libc::MAP_SHARED | huge_pages.mmap_flags(),
             Some(memfd_file),
             track_dirty_pages,
@@ -100,15 +99,10 @@ where
     /// and a `state` containing mapping information.
     fn snapshot_file(
         file: File,
-        state: &GuestMemoryState,
+        regions: impl Iterator<Item = (GuestAddress, usize)>,
         track_dirty_pages: bool,
     ) -> Result<Self, MemoryError> {
-        Self::create(
-            state.regions(),
-            libc::MAP_PRIVATE,
-            Some(file),
-            track_dirty_pages,
-        )
+        Self::create(regions, libc::MAP_PRIVATE, Some(file), track_dirty_pages)
     }
 
     /// Describes GuestMemoryMmap through a GuestMemoryState struct.
@@ -327,10 +321,9 @@ impl GuestMemoryExtension for GuestMemoryMmap {
 }
 
 fn create_memfd(
-    size: usize,
+    mem_size: u64,
     hugetlb_size: Option<memfd::HugetlbSize>,
 ) -> Result<memfd::Memfd, MemoryError> {
-    let mem_size = mib_to_bytes(size);
     // Create a memfd.
     let opts = memfd::MemfdOptions::default()
         .hugetlb(hugetlb_size)
@@ -340,7 +333,7 @@ fn create_memfd(
     // Resize to guest mem size.
     mem_file
         .as_file()
-        .set_len(mem_size as u64)
+        .set_len(mem_size)
         .map_err(MemoryError::MemfdSetLen)?;
 
     // Add seals to prevent further resizing.
@@ -368,7 +361,7 @@ mod tests {
 
     use super::*;
     use crate::snapshot::Snapshot;
-    use crate::utils::get_page_size;
+    use crate::utils::{get_page_size, mib_to_bytes};
 
     #[test]
     fn test_anonymous() {
@@ -570,7 +563,7 @@ mod tests {
         guest_memory.dump(&mut memory_file).unwrap();
 
         let restored_guest_memory =
-            GuestMemoryMmap::snapshot_file(memory_file, &memory_state, false).unwrap();
+            GuestMemoryMmap::snapshot_file(memory_file, memory_state.regions(), false).unwrap();
 
         // Check that the region contents are the same.
         let mut restored_region = vec![0u8; page_size * 2];
@@ -629,7 +622,7 @@ mod tests {
 
         // We can restore from this because this is the first dirty dump.
         let restored_guest_memory =
-            GuestMemoryMmap::snapshot_file(file, &memory_state, false).unwrap();
+            GuestMemoryMmap::snapshot_file(file, memory_state.regions(), false).unwrap();
 
         // Check that the region contents are the same.
         let mut restored_region = vec![0u8; region_size];
@@ -712,12 +705,11 @@ mod tests {
 
     #[test]
     fn test_create_memfd() {
-        let size = 1;
-        let size_mb = mib_to_bytes(1) as u64;
+        let size_bytes = mib_to_bytes(1) as u64;
 
-        let memfd = create_memfd(size, None).unwrap();
+        let memfd = create_memfd(size_bytes, None).unwrap();
 
-        assert_eq!(memfd.as_file().metadata().unwrap().len(), size_mb);
+        assert_eq!(memfd.as_file().metadata().unwrap().len(), size_bytes);
         memfd.as_file().set_len(0x69).unwrap_err();
 
         let mut seals = memfd::SealsHashSet::new();

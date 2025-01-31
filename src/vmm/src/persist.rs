@@ -535,7 +535,8 @@ fn guest_memory_from_file(
     track_dirty_pages: bool,
 ) -> Result<GuestMemoryMmap, GuestMemoryFromFileError> {
     let mem_file = File::open(mem_file_path)?;
-    let guest_mem = GuestMemoryMmap::snapshot_file(mem_file, mem_state, track_dirty_pages)?;
+    let guest_mem =
+        GuestMemoryMmap::snapshot_file(mem_file, mem_state.regions(), track_dirty_pages)?;
     Ok(guest_mem)
 }
 
