@@ -660,6 +660,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(target_arch = "x86_64", allow(unused_mut))]
     fn test_register_virtio_device() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
@@ -690,6 +691,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(target_arch = "x86_64", allow(unused_mut))]
     fn test_register_too_many_devices() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
@@ -745,6 +747,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(target_arch = "x86_64", allow(unused_mut))]
     fn test_device_info() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
