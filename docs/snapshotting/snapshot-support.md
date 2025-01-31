@@ -25,6 +25,8 @@
   - [Secure and insecure usage examples](#usage-examples)
   - [Reusing snapshotted states securely](#reusing-snapshotted-states-securely)
 - [Vsock device limitation](#vsock-device-limitation)
+- [VMGenID device limitation](#vmgenid-device-limitation)
+- [Where can I resume my snapshots?](#where-can-i-resume-my-snapshots)
 
 ## About microVM snapshotting
 
@@ -638,28 +640,19 @@ might not be able to handle the injected notification and crash. We suggest to
 users that they take snapshots only after the guest kernel has completed
 booting, to avoid this issue.
 
-## Snapshot compatibility across kernel versions
+## Where can I resume my snapshots?
 
-We have a mechanism in place to experiment with snapshot compatibility across
-supported host kernel versions by generating snapshot artifacts through
-[this test](../../tests/integration_tests/functional/test_snapshot_phase1.py)
-and checking devices' functionality using
-[this test](../../tests/integration_tests/functional/test_snapshot_restore_cross_kernel.py).
-The test restores the snapshot and ensures that all the devices set-up (network
-devices, disk, vsock, balloon and MMDS) are operational post-load.
+Snapshots must be resumed on an software and hardware configuration which is
+identical to what they were generated on. However, in limited cases, snapshots
+can be resumed on identical hardware instances where they were taken on, but
+using newer host kernel versions. While we do not provide any guarantees on this
+setup (and do not recommend doing this in production), we are currently aware of
+the compatibility table reported below:
 
-In those tests the instance is fixed, except some combinations where we also
-test across the same CPU family (Intel x86, Gravitons). In general cross-CPU
-snapshots [are not supported](./versioning.md#cpu-model)
+| .metal instance type | taken on host kernel | restored on host kernel |
+| -------------------- | -------------------- | ----------------------- |
+| {c5n,m5n,m6i,m6a}    | 5.10                 | 6.1                     |
 
-The tables below reflect the snapshot compatibility observed on the AWS
-instances we support.
-
-**all** means all currently supported Intel/AMD/ARM metal instances (m6g, m7g,
-m5n, c5n, m6i, m6a). It does not mean cross-instance, i.e. a snapshot taken on
-m6i won't work on an m6g instance.
-
-| *CPU family* | *taken on host kernel* | *restored on host kernel* | *working?* |
-| ------------ | ---------------------- | ------------------------- | ---------- |
-| **x86_64**   | 5.10                   | 6.1                       | Y          |
-| **x86_64**   | 6.1                    | 5.10                      | N          |
+For example, a snapshot taken on a m6i.metal host running a 5.10 host kernel can
+be restored on a different m6i.metal host running a 6.1 host kernel (but not
+vice versa), but could not be restored on a c5n.metal host.
