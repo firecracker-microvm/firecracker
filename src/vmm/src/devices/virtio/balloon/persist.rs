@@ -95,6 +95,7 @@ pub struct BalloonState {
 pub struct BalloonConstructorArgs {
     /// Pointer to guest memory.
     pub mem: GuestMemoryMmap,
+    pub restored_from_file: bool,
 }
 
 impl Persist<'_> for Balloon {
@@ -121,7 +122,12 @@ impl Persist<'_> for Balloon {
     ) -> Result<Self, Self::Error> {
         // We can safely create the balloon with arbitrary flags and
         // num_pages because we will overwrite them after.
-        let mut balloon = Balloon::new(0, false, state.stats_polling_interval_s, true)?;
+        let mut balloon = Balloon::new(
+            0,
+            false,
+            state.stats_polling_interval_s,
+            constructor_args.restored_from_file,
+        )?;
 
         let mut num_queues = BALLOON_NUM_QUEUES;
         // As per the virtio 1.1 specification, the statistics queue
@@ -192,13 +198,16 @@ mod tests {
 
         // Deserialize and restore the balloon device.
         let restored_balloon = Balloon::restore(
-            BalloonConstructorArgs { mem: guest_mem },
+            BalloonConstructorArgs {
+                mem: guest_mem,
+                restored_from_file: true,
+            },
             &Snapshot::deserialize(&mut mem.as_slice()).unwrap(),
         )
         .unwrap();
 
         assert_eq!(restored_balloon.device_type(), TYPE_BALLOON);
-        assert!(restored_balloon.restored);
+        assert!(restored_balloon.restored_from_file);
 
         assert_eq!(restored_balloon.acked_features, balloon.acked_features);
         assert_eq!(restored_balloon.avail_features, balloon.avail_features);
