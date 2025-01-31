@@ -1015,7 +1015,7 @@ pub(crate) mod tests {
     use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_RNG};
     use crate::mmds::data_store::{Mmds, MmdsVersion};
     use crate::mmds::ns::MmdsNetworkStack;
-    use crate::test_utils::{arch_mem, single_region_mem, single_region_mem_at};
+    use crate::test_utils::{single_region_mem, single_region_mem_at};
     use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
     use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
@@ -1023,6 +1023,7 @@ pub(crate) mod tests {
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
+    use crate::vstate::vm::tests::setup_vm_with_memory;
 
     #[derive(Debug)]
     pub(crate) struct CustomBlockConfig {
@@ -1078,11 +1079,8 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn default_vmm() -> Vmm {
-        let guest_memory = arch_mem(128 << 20);
+        let (kvm, mut vm, guest_memory) = setup_vm_with_memory(128 << 20);
 
-        let kvm = Kvm::new(vec![]).unwrap();
-        let mut vm = Vm::new(&kvm).unwrap();
-        vm.memory_init(&guest_memory).unwrap();
         let mmio_device_manager = MMIODeviceManager::new();
         let acpi_device_manager = ACPIDeviceManager::new();
         #[cfg(target_arch = "x86_64")]
