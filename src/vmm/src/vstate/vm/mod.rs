@@ -116,7 +116,7 @@ impl Vm {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::test_utils::{arch_mem, single_region_mem};
+    use crate::test_utils::single_region_mem;
     use crate::vstate::kvm::Kvm;
     use crate::vstate::memory::GuestMemoryMmap;
 
@@ -171,12 +171,7 @@ pub(crate) mod tests {
     #[test]
     fn test_create_vcpus() {
         let vcpu_count = 2;
-        let guest_memory = arch_mem(128 << 20);
-
-        let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
-        #[allow(unused_mut)]
-        let mut vm = Vm::new(&kvm).unwrap();
-        vm.memory_init(&guest_memory).unwrap();
+        let (_, mut vm, _) = setup_vm_with_memory(128 << 20);
 
         let (vcpu_vec, _) = vm.create_vcpus(vcpu_count).unwrap();
 
