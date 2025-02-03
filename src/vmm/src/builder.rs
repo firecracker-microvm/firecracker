@@ -531,6 +531,7 @@ pub fn build_microvm_from_snapshot(
         resource_allocator: &mut vmm.resource_allocator,
         vm_resources,
         instance_id: &instance_info.id,
+        restored_from_file: vmm.uffd.is_none(),
     };
 
     vmm.mmio_device_manager =

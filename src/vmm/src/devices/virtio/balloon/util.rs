@@ -68,7 +68,7 @@ pub(crate) fn compact_page_frame_numbers(v: &mut [u32]) -> Vec<(u32, u32)> {
 pub(crate) fn remove_range(
     guest_memory: &GuestMemoryMmap,
     range: (GuestAddress, u64),
-    restored: bool,
+    restored_from_file: bool,
 ) -> Result<(), RemoveRegionError> {
     let (guest_address, range_len) = range;
 
@@ -83,7 +83,7 @@ pub(crate) fn remove_range(
         // Mmap a new anonymous region over the present one in order to create a hole.
         // This workaround is (only) needed after resuming from a snapshot because the guest memory
         // is mmaped from file as private and there is no `madvise` flag that works for this case.
-        if restored {
+        if restored_from_file {
             // SAFETY: The address and length are known to be valid.
             let ret = unsafe {
                 libc::mmap(
