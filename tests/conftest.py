@@ -22,6 +22,7 @@ designed with the following goals in mind:
 import inspect
 import json
 import os
+import platform
 import shutil
 import sys
 import tempfile
@@ -340,6 +341,7 @@ def microvm_factory(request, record_property, results_dir, netns_factory):
             uvm_data = results_dir / uvm.id
             uvm_data.mkdir()
             uvm_data.joinpath("host-dmesg.log").write_text(dmesg.stdout)
+            shutil.copy(f"/firecracker/build/img/{platform.machine()}/id_rsa", uvm_data)
 
             uvm_root = Path(uvm.chroot())
             for item in os.listdir(uvm_root):
