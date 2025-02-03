@@ -18,6 +18,7 @@ import re
 import select
 import shutil
 import signal
+import subprocess
 import time
 import uuid
 from collections import namedtuple
@@ -1115,6 +1116,25 @@ class MicroVMFactory:
         vm.restore_from_snapshot(snapshot, resume=True)
         return vm
 
+    def unmount(self, path: str) -> None:
+        """Unmounts a path with `umount` in a subprocess"""
+        try:
+            subprocess.run(["umount", path], check=True)
+        except subprocess.CalledProcessError:
+            print(f"Failed to unmount {path}")
+
+    def get_mounts_at_path(self, path: str) -> list:
+        """Get all mounts for a given path. Returns a list of mount points."""
+        try:
+            with open("/proc/mounts", "r", encoding="utf-8") as f:
+                return [
+                    line.split()[1]
+                    for line in f
+                    if line.split()[1].startswith(os.path.abspath(path))
+                ]
+        except FileNotFoundError:
+            return False  # /proc/mounts may not exist on some systems
+
     def kill(self):
         """Clean up all built VMs"""
         for vm in self.vms:
@@ -1122,6 +1142,10 @@ class MicroVMFactory:
             vm.jailer.cleanup()
             chroot_base_with_id = vm.jailer.chroot_base_with_id()
             if len(vm.jailer.jailer_id) > 0 and chroot_base_with_id.exists():
+                mounts = self.get_mounts_at_path(chroot_base_with_id)
+                if mounts:
+                    for mounted_path in mounts:
+                        self.unmount(mounted_path)
                 shutil.rmtree(chroot_base_with_id)
             vm.netns.cleanup()
 

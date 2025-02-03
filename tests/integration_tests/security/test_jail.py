@@ -664,3 +664,68 @@ def test_cgroupsv2_written_only_once(uvm_plain, cgroups_info):
     assert len(write_lines) == 1
     assert len(mkdir_lines) != len(cgroups), "mkdir equal to number of cgroups"
     assert len(mkdir_lines) == 1
+
+
+def test_jail_mount(uvm_plain):
+    """
+    Test that the jailer mounts are propagated to the root mount namespace.
+    """
+    # setup the microvm
+    test_microvm = uvm_plain
+
+    chroot_base = test_microvm.jailer.chroot_base
+    # make a directory to hold the original content
+    original_content_dir = chroot_base / "original_content"
+    original_content_dir.mkdir(parents=True, exist_ok=True)
+
+    # make a directory to hold the jailed content
+    jailed_content_dir = Path(test_microvm.jailer.chroot_path())
+    jailed_content_dir.mkdir(parents=True, exist_ok=True)
+
+    # assert that the directory was created
+    assert original_content_dir.exists()
+    assert jailed_content_dir.exists()
+
+    # create the files that will be mounted
+    test_data = original_content_dir / "test_data"
+    test_data.touch()
+    assert test_data.exists()
+    test_data.write_text("test_data")
+    assert test_data.read_text() == "test_data"
+
+    jailed_test_data = jailed_content_dir / "test_data"
+    jailed_test_data.touch()
+    assert jailed_test_data.exists()
+    assert jailed_test_data.read_text() == ""
+
+    # mount the data
+    subprocess.run(["mount", "--bind", test_data, jailed_test_data], check=True)
+
+    # spawn the microvm
+    test_microvm.spawn()
+    test_microvm.basic_config()
+
+    # set params for the microvm
+    test_microvm.jailer.gid = 0
+    test_microvm.jailer.uid = 0
+    test_microvm.jailer.daemonize = True
+    test_microvm.extra_args = {"seccomp-level": 0}
+    test_microvm.add_net_iface()
+    test_microvm.start()
+
+    # mock jailer
+    for cmd in [
+        "unshare --mount --propagation unchanged",
+        "mount --make-rslave /",
+        f"mount --rbind {jailed_content_dir} {jailed_content_dir}",
+    ]:
+        subprocess.run(cmd.split(), check=True, capture_output=True)
+
+    # check that the file output is there
+    output = subprocess.run(
+        f"cat {jailed_content_dir}/test_data",
+        shell=True,
+        check=True,
+        capture_output=True,
+    )
+    assert output.stdout.decode() == "test_data"
