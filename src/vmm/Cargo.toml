@@ -33,7 +33,7 @@ micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 
 semver = { version = "1.0.25", features = ["serde"] }
 serde = { version = "1.0.217", features = ["derive", "rc"] }
-serde_json = "1.0.137"
+serde_json = "1.0.138"
 slab = "0.4.7"
 thiserror = "2.0.11"
 timerfd = "1.5.0"
