@@ -1216,6 +1216,24 @@ definitions:
           Type of snapshot to create. It is optional and by default, a full
           snapshot is created.
 
+  NetworkOverride:
+    type: object
+    description:
+      Allows for changing the backing TAP device of a network interface
+      during snapshot restore.
+    required:
+      - iface_id
+      - host_dev_name
+    properties:
+      iface_id:
+        type: string
+        description:
+          The name of the interface to modify
+      host_dev_name:
+        type: string
+        description:
+          The new host device of the interface
+
   SnapshotLoadParams:
     type: object
     description:
@@ -1247,6 +1265,12 @@ definitions:
         type: boolean
         description:
           When set to true, the vm is also resumed if the snapshot load is successful.
+      network_overrides:
+        type: array
+        description: Network host device names to override
+        items:
+          $ref: "#/definitions/NetworkOverride"
+
 
   TokenBucket:
     type: object

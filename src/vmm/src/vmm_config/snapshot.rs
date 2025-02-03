@@ -47,6 +47,16 @@ pub struct CreateSnapshotParams {
     pub mem_file_path: PathBuf,
 }
 
+/// Allows for changing the mapping between tap devices and host devices
+/// during snapshot restore
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+pub struct NetworkOverride {
+    /// The index of the interface to modify
+    pub iface_id: String,
+    /// The new name of the interface to be assigned
+    pub host_dev_name: String,
+}
+
 /// Stores the configuration that will be used for loading a snapshot.
 #[derive(Debug, PartialEq, Eq)]
 pub struct LoadSnapshotParams {
@@ -60,6 +70,8 @@ pub struct LoadSnapshotParams {
     /// When set to true, the vm is also resumed if the snapshot load
     /// is successful.
     pub resume_vm: bool,
+    /// The network devices to override on load.
+    pub network_overrides: Vec<NetworkOverride>,
 }
 
 /// Stores the configuration for loading a snapshot that is provided by the user.
@@ -82,6 +94,9 @@ pub struct LoadSnapshotConfig {
     /// Whether or not to resume the vm post snapshot load.
     #[serde(default)]
     pub resume_vm: bool,
+    /// The network devices to override on load.
+    #[serde(default)]
+    pub network_overrides: Vec<NetworkOverride>,
 }
 
 /// Stores the configuration used for managing snapshot memory.

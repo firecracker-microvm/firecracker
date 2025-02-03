@@ -123,14 +123,19 @@ and this project adheres to
   Support for VMGenID via DeviceTree bindings exists only on mainline 6.10 Linux
   onwards. Users of Firecracker will need to backport the relevant patches on
   top of their 6.1 kernels to make use of the feature.
+
 - [#4732](https://github.com/firecracker-microvm/firecracker/pull/4732),
   [#4733](https://github.com/firecracker-microvm/firecracker/pull/4733),
   [#4741](https://github.com/firecracker-microvm/firecracker/pull/4741),
   [#4746](https://github.com/firecracker-microvm/firecracker/pull/4746): Added
   official support for 6.1 microVM guest kernels.
+
 - [#4743](https://github.com/firecracker-microvm/firecracker/pull/4743): Added
   support for `-h` help flag to the Jailer. The Jailer will now print the help
   message with either `--help` or `-h`.
+
+- [#4731](https://github.com/firecracker-microvm/firecracker/pull/4731): Added
+  support for modifying the host TAP device name during snapshot restore.
 
 ### Changed
 
