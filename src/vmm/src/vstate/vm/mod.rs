@@ -9,8 +9,6 @@ use kvm_bindings::{kvm_userspace_memory_region, KVM_MEM_LOG_DIRTY_PAGES};
 use kvm_ioctls::VmFd;
 use vmm_sys_util::eventfd::EventFd;
 
-#[cfg(target_arch = "x86_64")]
-use crate::utils::u64_to_usize;
 use crate::vstate::memory::{Address, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 #[cfg(target_arch = "x86_64")]
@@ -68,13 +66,7 @@ impl Vm {
 
     /// Initializes the guest memory.
     pub fn memory_init(&self, guest_mem: &GuestMemoryMmap) -> Result<(), VmError> {
-        self.set_kvm_memory_regions(guest_mem)?;
-        #[cfg(target_arch = "x86_64")]
-        self.fd
-            .set_tss_address(u64_to_usize(crate::arch::x86_64::layout::KVM_TSS_ADDRESS))
-            .map_err(VmError::VmSetup)?;
-
-        Ok(())
+        self.set_kvm_memory_regions(guest_mem)
     }
 
     pub(crate) fn set_kvm_memory_regions(

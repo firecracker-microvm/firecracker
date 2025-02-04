@@ -11,6 +11,7 @@ use kvm_ioctls::VmFd;
 use serde::{Deserialize, Serialize};
 
 use crate::arch::x86_64::msr::MsrError;
+use crate::utils::u64_to_usize;
 use crate::vstate::vm::VmError;
 
 /// Error type for [`Vm::restore_state`]
@@ -42,6 +43,8 @@ pub enum ArchVmError {
     VmSetIrqChip(kvm_ioctls::Error),
     /// Failed to get MSR index list to save into snapshots: {0}
     GetMsrsToSave(MsrError),
+    /// Failed during KVM_SET_TSS_ADDRESS: {0}
+    SetTssAddress(kvm_ioctls::Error),
 }
 
 /// Structure representing the current architecture's understand of what a "virtual machine" is.
@@ -56,6 +59,10 @@ impl ArchVm {
     pub fn new(kvm: &crate::vstate::kvm::Kvm) -> Result<ArchVm, VmError> {
         let fd = kvm.fd.create_vm().map_err(VmError::VmFd)?;
         let msrs_to_save = kvm.msrs_to_save().map_err(ArchVmError::GetMsrsToSave)?;
+
+        fd.set_tss_address(u64_to_usize(crate::arch::x86_64::layout::KVM_TSS_ADDRESS))
+            .map_err(ArchVmError::SetTssAddress)?;
+
         Ok(ArchVm { fd, msrs_to_save })
     }
 
