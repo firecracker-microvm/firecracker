@@ -95,8 +95,7 @@ impl Vm {
                     slot,
                     guest_phys_addr: region.start_addr().raw_value(),
                     memory_size: region.len(),
-                    // It's safe to unwrap because the guest address is valid.
-                    userspace_addr: guest_mem.get_host_address(region.start_addr()).unwrap() as u64,
+                    userspace_addr: region.as_ptr() as u64,
                     flags,
                 };
 
