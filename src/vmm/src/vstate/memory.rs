@@ -7,6 +7,7 @@
 
 use std::fs::File;
 use std::io::SeekFrom;
+use std::sync::Arc;
 
 use libc::c_int;
 use serde::{Deserialize, Serialize};
@@ -35,8 +36,6 @@ pub type GuestMmapRegion = vm_memory::MmapRegion<Option<AtomicBitmap>>;
 /// Errors associated with dumping guest memory to file.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum MemoryError {
-    /// Cannot access file: {0}
-    FileError(std::io::Error),
     /// Cannot create memory: {0}
     CreateMemory(VmMemoryError),
     /// Cannot create memory region: {0}
@@ -173,6 +172,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
         track_dirty_pages: bool,
     ) -> Result<Self, MemoryError> {
         let mut offset = 0;
+        let file = file.map(Arc::new);
         let regions = regions
             .map(|(start, size)| {
                 let mut builder = MmapRegionBuilder::new_with_bitmap(
@@ -183,8 +183,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                 .with_mmap_flags(libc::MAP_NORESERVE | mmap_flags);
 
                 if let Some(ref file) = file {
-                    let file_offset =
-                        FileOffset::new(file.try_clone().map_err(MemoryError::FileError)?, offset);
+                    let file_offset = FileOffset::from_arc(Arc::clone(file), offset);
 
                     builder = builder.with_file_offset(file_offset);
                 }
