@@ -629,18 +629,6 @@ impl Vmm {
         Ok(bitmap)
     }
 
-    /// Enables or disables KVM dirty page tracking.
-    pub fn set_dirty_page_tracking(&mut self, enable: bool) -> Result<(), VmmError> {
-        // This function _always_ results in an ioctl update. The VMM is stateless in the sense
-        // that it's unaware of the current dirty page tracking setting.
-        // The VMM's consumer will need to cache the dirty tracking setting internally. For
-        // example, if this function were to be exposed through the VMM controller, the VMM
-        // resources should cache the flag.
-        self.vm
-            .set_kvm_memory_regions(&self.guest_memory, enable)
-            .map_err(VmmError::Vm)
-    }
-
     /// Updates the path of the host file backing the emulated block device with id `drive_id`.
     /// We update the disk image on the device and its virtio configuration.
     pub fn update_block_device_path(

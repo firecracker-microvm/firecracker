@@ -472,8 +472,8 @@ impl VmResources {
             )
         } else {
             let regions = crate::arch::arch_memory_regions(self.machine_config.mem_size_mib << 20);
-            GuestMemoryMmap::from_raw_regions(
-                &regions,
+            GuestMemoryMmap::anonymous(
+                regions.into_iter(),
                 self.machine_config.track_dirty_pages,
                 self.machine_config.huge_pages,
             )
