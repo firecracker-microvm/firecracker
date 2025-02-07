@@ -63,29 +63,20 @@ pub enum ResourcesError {
 
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
 #[derive(Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct VmmConfig {
-    #[serde(rename = "balloon")]
-    balloon_device: Option<BalloonDeviceConfig>,
-    #[serde(rename = "drives")]
-    block_devices: Vec<BlockDeviceConfig>,
-    #[serde(rename = "boot-source")]
+    balloon: Option<BalloonDeviceConfig>,
+    drives: Vec<BlockDeviceConfig>,
     boot_source: BootSourceConfig,
-    #[serde(rename = "cpu-config")]
     cpu_config: Option<PathBuf>,
-    #[serde(rename = "logger")]
     logger: Option<crate::logger::LoggerConfig>,
-    #[serde(rename = "machine-config")]
     machine_config: Option<MachineConfig>,
-    #[serde(rename = "metrics")]
     metrics: Option<MetricsConfig>,
-    #[serde(rename = "mmds-config")]
     mmds_config: Option<MmdsConfig>,
-    #[serde(rename = "network-interfaces", default)]
-    net_devices: Vec<NetworkInterfaceConfig>,
-    #[serde(rename = "vsock")]
-    vsock_device: Option<VsockDeviceConfig>,
-    #[serde(rename = "entropy")]
-    entropy_device: Option<EntropyDeviceConfig>,
+    #[serde(default)]
+    network_interfaces: Vec<NetworkInterfaceConfig>,
+    vsock: Option<VsockDeviceConfig>,
+    entropy: Option<EntropyDeviceConfig>,
 }
 
 /// A data structure that encapsulates the device configurations
@@ -152,19 +143,19 @@ impl VmResources {
 
         resources.build_boot_source(vmm_config.boot_source)?;
 
-        for drive_config in vmm_config.block_devices.into_iter() {
+        for drive_config in vmm_config.drives.into_iter() {
             resources.set_block_device(drive_config)?;
         }
 
-        for net_config in vmm_config.net_devices.into_iter() {
+        for net_config in vmm_config.network_interfaces.into_iter() {
             resources.build_net_device(net_config)?;
         }
 
-        if let Some(vsock_config) = vmm_config.vsock_device {
+        if let Some(vsock_config) = vmm_config.vsock {
             resources.set_vsock_device(vsock_config)?;
         }
 
-        if let Some(balloon_config) = vmm_config.balloon_device {
+        if let Some(balloon_config) = vmm_config.balloon {
             resources.set_balloon_device(balloon_config)?;
         }
 
@@ -180,7 +171,7 @@ impl VmResources {
             resources.set_mmds_config(mmds_config, &instance_info.id)?;
         }
 
-        if let Some(entropy_device_config) = vmm_config.entropy_device {
+        if let Some(entropy_device_config) = vmm_config.entropy {
             resources.build_entropy_device(entropy_device_config)?;
         }
 
@@ -484,17 +475,17 @@ impl VmResources {
 impl From<&VmResources> for VmmConfig {
     fn from(resources: &VmResources) -> Self {
         VmmConfig {
-            balloon_device: resources.balloon.get_config().ok(),
-            block_devices: resources.block.configs(),
+            balloon: resources.balloon.get_config().ok(),
+            drives: resources.block.configs(),
             boot_source: resources.boot_source.config.clone(),
             cpu_config: None,
             logger: None,
             machine_config: Some(resources.machine_config.clone()),
             metrics: None,
             mmds_config: resources.mmds_config(),
-            net_devices: resources.net_builder.configs(),
-            vsock_device: resources.vsock.config(),
-            entropy_device: resources.entropy.config(),
+            network_interfaces: resources.net_builder.configs(),
+            vsock: resources.vsock.config(),
+            entropy: resources.entropy.config(),
         }
     }
 }
