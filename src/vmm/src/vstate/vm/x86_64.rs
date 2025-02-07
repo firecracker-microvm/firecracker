@@ -35,10 +35,6 @@ pub enum ArchVmError {
     VmGetClock(kvm_ioctls::Error),
     /// Failed to get KVM vm irqchip: {0}
     VmGetIrqChip(kvm_ioctls::Error),
-    /// Failed to set KVM vm pit state: {0}
-    VmSetPit2(kvm_ioctls::Error),
-    /// Failed to set KVM vm clock: {0}
-    VmSetClock(kvm_ioctls::Error),
     /// Failed to set KVM vm irqchip: {0}
     VmSetIrqChip(kvm_ioctls::Error),
     /// Failed to get MSR index list to save into snapshots: {0}
