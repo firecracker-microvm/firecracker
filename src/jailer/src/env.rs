@@ -696,7 +696,8 @@ impl Env {
         }
 
         // Compute jailer's total CPU time up to the current time.
-        self.jailer_cpu_time_us += get_time_us(ClockType::ProcessCpu) - self.start_time_cpu_us;
+        self.jailer_cpu_time_us += get_time_us(ClockType::ProcessCpu);
+        self.jailer_cpu_time_us -= self.start_time_cpu_us;
         // Reset process start time.
         self.start_time_cpu_us = 0;
 
