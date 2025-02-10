@@ -7,6 +7,7 @@ pub mod data_store;
 pub mod ns;
 /// Defines the structures needed for saving/restoring MmdsNetworkStack.
 pub mod persist;
+pub mod server;
 mod token;
 /// MMDS token headers
 pub mod token_headers;
@@ -22,6 +23,9 @@ use token_headers::TokenHeaders;
 use crate::mmds::data_store::{Mmds, MmdsDatastoreError as MmdsError, MmdsVersion, OutputFormat};
 use crate::mmds::token::PATH_TO_TOKEN;
 use crate::mmds::token_headers::REJECTED_HEADER;
+
+pub(crate) const DEFAULT_MMDS_SOCK_PATH: &str = "./mmds.socket";
+pub(crate) const DEFAULT_MMDS_SOCK_PORT: u32 = 80;
 
 #[rustfmt::skip]
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -99,7 +103,7 @@ fn sanitize_uri(mut uri: String) -> String {
 }
 
 /// Build a response for `request` and return response based on MMDS version
-pub fn convert_to_response(mmds: Arc<Mutex<Mmds>>, request: Request) -> Response {
+pub fn convert_to_response(mmds: Arc<Mutex<Mmds>>, request: &Request) -> Response {
     let uri = request.uri().get_abs_path();
     if uri.is_empty() {
         return build_response(
@@ -117,7 +121,7 @@ pub fn convert_to_response(mmds: Arc<Mutex<Mmds>>, request: Request) -> Response
     }
 }
 
-fn respond_to_request_mmdsv1(mmds: &Mmds, request: Request) -> Response {
+fn respond_to_request_mmdsv1(mmds: &Mmds, request: &Request) -> Response {
     // Allow only GET requests.
     match request.method() {
         Method::Get => respond_to_get_request_unchecked(mmds, request),
@@ -133,7 +137,7 @@ fn respond_to_request_mmdsv1(mmds: &Mmds, request: Request) -> Response {
     }
 }
 
-fn respond_to_request_mmdsv2(mmds: &mut Mmds, request: Request) -> Response {
+fn respond_to_request_mmdsv2(mmds: &mut Mmds, request: &Request) -> Response {
     // Fetch custom headers from request.
     let token_headers = match TokenHeaders::try_from(request.headers.custom_entries()) {
         Ok(token_headers) => token_headers,
@@ -165,7 +169,7 @@ fn respond_to_request_mmdsv2(mmds: &mut Mmds, request: Request) -> Response {
 
 fn respond_to_get_request_checked(
     mmds: &Mmds,
-    request: Request,
+    request: &Request,
     token_headers: TokenHeaders,
 ) -> Response {
     // Get MMDS token from custom headers.
@@ -193,7 +197,7 @@ fn respond_to_get_request_checked(
     }
 }
 
-fn respond_to_get_request_unchecked(mmds: &Mmds, request: Request) -> Response {
+fn respond_to_get_request_unchecked(mmds: &Mmds, request: &Request) -> Response {
     let uri = request.uri().get_abs_path();
 
     // The data store expects a strict json path, so we need to
@@ -232,7 +236,7 @@ fn respond_to_get_request_unchecked(mmds: &Mmds, request: Request) -> Response {
 
 fn respond_to_put_request(
     mmds: &mut Mmds,
-    request: Request,
+    request: &Request,
     token_headers: TokenHeaders,
 ) -> Response {
     // Reject `PUT` requests that contain `X-Forwarded-For` header.
@@ -384,7 +388,7 @@ mod tests {
         expected_response.set_body(Body::new(
             VmmMmdsError::ResourceNotFound(String::from("/invalid")).to_string(),
         ));
-        let actual_response = convert_to_response(mmds.clone(), request);
+        let actual_response = convert_to_response(mmds.clone(), &request);
         assert_eq!(actual_response, expected_response);
 
         // Test NotImplemented.
@@ -393,7 +397,7 @@ mod tests {
         let mut expected_response = Response::new(Version::Http11, StatusCode::NotImplemented);
         let body = "Cannot retrieve value. The value has an unsupported type.".to_string();
         expected_response.set_body(Body::new(body));
-        let actual_response = convert_to_response(mmds.clone(), request);
+        let actual_response = convert_to_response(mmds.clone(), &request);
         assert_eq!(actual_response, expected_response);
 
         // Test not allowed HTTP Method.
@@ -405,7 +409,7 @@ mod tests {
                 Response::new(Version::Http10, StatusCode::MethodNotAllowed);
             expected_response.set_body(Body::new(VmmMmdsError::MethodNotAllowed.to_string()));
             expected_response.allow_method(Method::Get);
-            let actual_response = convert_to_response(mmds.clone(), request);
+            let actual_response = convert_to_response(mmds.clone(), &request);
             assert_eq!(actual_response, expected_response);
         }
 
@@ -414,7 +418,7 @@ mod tests {
         let request = Request::try_from(request_bytes, None).unwrap();
         let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
         expected_response.set_body(Body::new(VmmMmdsError::InvalidURI.to_string()));
-        let actual_response = convert_to_response(mmds.clone(), request);
+        let actual_response = convert_to_response(mmds.clone(), &request);
         assert_eq!(actual_response, expected_response);
 
         // Test invalid custom header value is ignored when V1 is configured.
@@ -424,7 +428,7 @@ mod tests {
         let request = Request::try_from(request_bytes, None).unwrap();
         let mut expected_response = Response::new(Version::Http10, StatusCode::OK);
         expected_response.set_body(Body::new("\"John\""));
-        let actual_response = convert_to_response(mmds.clone(), request);
+        let actual_response = convert_to_response(mmds.clone(), &request);
         assert_eq!(actual_response, expected_response);
 
         // Test Ok path.
@@ -435,7 +439,7 @@ mod tests {
         let mut body = get_json_data().to_string();
         body.retain(|c| !c.is_whitespace());
         expected_response.set_body(Body::new(body));
-        let actual_response = convert_to_response(mmds, request);
+        let actual_response = convert_to_response(mmds, &request);
         assert_eq!(actual_response, expected_response);
     }
 
@@ -461,7 +465,7 @@ mod tests {
         expected_response.set_body(Body::new(VmmMmdsError::MethodNotAllowed.to_string()));
         expected_response.allow_method(Method::Get);
         expected_response.allow_method(Method::Put);
-        let actual_response = convert_to_response(mmds.clone(), request);
+        let actual_response = convert_to_response(mmds.clone(), &request);
         assert_eq!(actual_response, expected_response);
 
         // Test invalid value for custom header.
@@ -475,7 +479,7 @@ mod tests {
              Value:application/json"
                 .to_string(),
         ));
-        let actual_response = convert_to_response(mmds.clone(), request);
+        let actual_response = convert_to_response(mmds.clone(), &request);
         assert_eq!(actual_response, expected_response);
 
         // Test PUT requests.
@@ -487,7 +491,7 @@ mod tests {
         expected_response.set_body(Body::new(
             "Invalid header. Reason: Unsupported header name. Key: X-Forwarded-For".to_string(),
         ));
-        let actual_response = convert_to_response(mmds.clone(), request);
+        let actual_response = convert_to_response(mmds.clone(), &request);
         assert_eq!(actual_response, expected_response);
 
         // Test invalid path.
@@ -498,7 +502,7 @@ mod tests {
         expected_response.set_body(Body::new(
             VmmMmdsError::ResourceNotFound(String::from("/token")).to_string(),
         ));
-        let actual_response = convert_to_response(mmds.clone(), request);
+        let actual_response = convert_to_response(mmds.clone(), &request);
         assert_eq!(actual_response, expected_response);
 
         // Test invalid lifetime values for token.
@@ -517,7 +521,7 @@ mod tests {
                 invalid_value, MIN_TOKEN_TTL_SECONDS, MAX_TOKEN_TTL_SECONDS
             );
             expected_response.set_body(Body::new(error_msg));
-            let actual_response = convert_to_response(mmds.clone(), request);
+            let actual_response = convert_to_response(mmds.clone(), &request);
             assert_eq!(actual_response, expected_response);
         }
 
@@ -526,14 +530,14 @@ mod tests {
         let request = Request::try_from(request_bytes, None).unwrap();
         let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
         expected_response.set_body(Body::new(VmmMmdsError::NoTtlProvided.to_string()));
-        let actual_response = convert_to_response(mmds.clone(), request);
+        let actual_response = convert_to_response(mmds.clone(), &request);
         assert_eq!(actual_response, expected_response);
 
         // Test valid PUT.
         let request_bytes = b"PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\
                                     X-metadata-token-ttl-seconds: 60\r\n\r\n";
         let request = Request::try_from(request_bytes, None).unwrap();
-        let actual_response = convert_to_response(mmds.clone(), request);
+        let actual_response = convert_to_response(mmds.clone(), &request);
         assert_eq!(actual_response.status(), StatusCode::OK);
         assert_eq!(actual_response.content_type(), MediaType::PlainText);
 
@@ -549,7 +553,7 @@ mod tests {
         let mut body = get_json_data().to_string();
         body.retain(|c| !c.is_whitespace());
         expected_response.set_body(Body::new(body));
-        let actual_response = convert_to_response(mmds.clone(), request);
+        let actual_response = convert_to_response(mmds.clone(), &request);
         assert_eq!(actual_response, expected_response);
 
         // Test GET request towards unsupported value type.
@@ -561,7 +565,7 @@ mod tests {
         let mut expected_response = Response::new(Version::Http11, StatusCode::NotImplemented);
         let body = "Cannot retrieve value. The value has an unsupported type.".to_string();
         expected_response.set_body(Body::new(body));
-        let actual_response = convert_to_response(mmds.clone(), request);
+        let actual_response = convert_to_response(mmds.clone(), &request);
         assert_eq!(actual_response, expected_response);
 
         // Test GET request towards invalid resource.
@@ -574,7 +578,7 @@ mod tests {
         expected_response.set_body(Body::new(
             VmmMmdsError::ResourceNotFound(String::from("/invalid")).to_string(),
         ));
-        let actual_response = convert_to_response(mmds.clone(), request);
+        let actual_response = convert_to_response(mmds.clone(), &request);
         assert_eq!(actual_response, expected_response);
 
         // Test GET request without token should return Unauthorized status code.
@@ -582,7 +586,7 @@ mod tests {
         let request = Request::try_from(request_bytes, None).unwrap();
         let mut expected_response = Response::new(Version::Http10, StatusCode::Unauthorized);
         expected_response.set_body(Body::new(VmmMmdsError::NoTokenProvided.to_string()));
-        let actual_response = convert_to_response(mmds.clone(), request);
+        let actual_response = convert_to_response(mmds.clone(), &request);
         assert_eq!(actual_response, expected_response);
 
         // Test GET request with invalid token should return Unauthorized status code.
@@ -591,14 +595,14 @@ mod tests {
         let request = Request::try_from(request_bytes, None).unwrap();
         let mut expected_response = Response::new(Version::Http10, StatusCode::Unauthorized);
         expected_response.set_body(Body::new(VmmMmdsError::InvalidToken.to_string()));
-        let actual_response = convert_to_response(mmds.clone(), request);
+        let actual_response = convert_to_response(mmds.clone(), &request);
         assert_eq!(actual_response, expected_response);
 
         // Create a new MMDS token that expires in one second.
         let request_bytes = b"PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\
                                     X-metadata-token-ttl-seconds: 1\r\n\r\n";
         let request = Request::try_from(request_bytes, None).unwrap();
-        let actual_response = convert_to_response(mmds.clone(), request);
+        let actual_response = convert_to_response(mmds.clone(), &request);
         assert_eq!(actual_response.status(), StatusCode::OK);
         assert_eq!(actual_response.content_type(), MediaType::PlainText);
 
@@ -615,7 +619,7 @@ mod tests {
             let request = Request::try_from(request_bytes.as_bytes(), None).unwrap();
             let mut expected_response = Response::new(Version::Http10, StatusCode::Unauthorized);
             expected_response.set_body(Body::new(VmmMmdsError::InvalidToken.to_string()));
-            let actual_response = convert_to_response(mmds.clone(), request);
+            let actual_response = convert_to_response(mmds.clone(), &request);
             assert_eq!(actual_response, expected_response);
 
             // Wait for the second token to expire.

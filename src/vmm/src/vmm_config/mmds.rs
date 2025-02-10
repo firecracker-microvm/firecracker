@@ -51,3 +51,26 @@ pub enum MmdsConfigError {
     /// The MMDS could not be configured to version {0}: {1}
     MmdsVersion(MmdsVersion, data_store::MmdsDatastoreError),
 }
+
+/// MMDS server configuration.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MmdsServerConfig {
+    /// MMDS version.
+    #[serde(default)]
+    pub version: MmdsVersion,
+    /// MMDS server's vsock path
+    pub vsock_address: Option<String>,
+    /// MMDS server's vsock port
+    pub port: Option<u32>,
+}
+
+/// MMDS configuration related errors.
+#[rustfmt::skip]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum MmdsServerConfigError {
+    /// The MMDS vsock address is not available.
+    InvalidVsockAddr,
+    /// The MMDS could not be configured to version {0}: {1}
+    MmdsVersion(MmdsVersion, data_store::MmdsDatastoreError),
+}

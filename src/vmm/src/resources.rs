@@ -11,7 +11,7 @@ use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::device_manager::persist::SharedDeviceType;
 use crate::logger::info;
 use crate::mmds;
-use crate::mmds::data_store::{Mmds, MmdsVersion};
+use crate::mmds::data_store::{Mmds, MmdsDatastoreError, MmdsVersion};
 use crate::mmds::ns::MmdsNetworkStack;
 use crate::utils::net::ipv4addr::is_link_local_valid;
 use crate::vmm_config::balloon::*;
@@ -25,7 +25,9 @@ use crate::vmm_config::machine_config::{
     HugePageConfig, MachineConfig, MachineConfigError, MachineConfigUpdate,
 };
 use crate::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
-use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
+use crate::vmm_config::mmds::{
+    MmdsConfig, MmdsConfigError, MmdsServerConfig, MmdsServerConfigError,
+};
 use crate::vmm_config::net::*;
 use crate::vmm_config::vsock::*;
 use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap, MemoryError};
@@ -51,6 +53,8 @@ pub enum ResourcesError {
     Mmds(#[from] mmds::data_store::MmdsDatastoreError),
     /// MMDS config error: {0}
     MmdsConfig(#[from] MmdsConfigError),
+    /// MMDS Server config error: {0}
+    MmdsServerConfig(#[from] MmdsServerConfigError),
     /// Network device error: {0}
     NetDevice(#[from] NetworkInterfaceError),
     /// VM config error: {0}
@@ -73,6 +77,7 @@ pub struct VmmConfig {
     machine_config: Option<MachineConfig>,
     metrics: Option<MetricsConfig>,
     mmds_config: Option<MmdsConfig>,
+    mmds_server_config: Option<MmdsServerConfig>,
     #[serde(default)]
     network_interfaces: Vec<NetworkInterfaceConfig>,
     vsock: Option<VsockDeviceConfig>,
@@ -169,6 +174,10 @@ impl VmResources {
 
         if let Some(mmds_config) = vmm_config.mmds_config {
             resources.set_mmds_config(mmds_config, &instance_info.id)?;
+        }
+
+        if let Some(mmds_server_config) = vmm_config.mmds_server_config {
+            resources.set_mmds_server_config(mmds_server_config, &instance_info.id)?;
         }
 
         if let Some(entropy_device_config) = vmm_config.entropy {
@@ -368,7 +377,27 @@ impl VmResources {
         instance_id: &str,
     ) -> Result<(), MmdsConfigError> {
         self.set_mmds_network_stack_config(&config)?;
-        self.set_mmds_version(config.version, instance_id)?;
+        self.set_mmds_version(config.version, instance_id)
+            .map_err(|err| MmdsConfigError::MmdsVersion(config.version, err))?;
+
+        Ok(())
+    }
+
+    pub fn set_mmds_server_config(
+        &mut self,
+        config: MmdsServerConfig,
+        instance_id: &str,
+    ) -> Result<(), MmdsServerConfigError> {
+        let mmds = self.mmds_or_default().clone();
+        let vsock_address = config
+            .vsock_address
+            .unwrap_or(mmds::DEFAULT_MMDS_SOCK_PATH.to_owned());
+        let port = config.port.unwrap_or(mmds::DEFAULT_MMDS_SOCK_PORT);
+
+        mmds::server::run(mmds, format!("{}_{}", vsock_address, port).into())?;
+
+        self.set_mmds_version(config.version, instance_id)
+            .map_err(|err| MmdsServerConfigError::MmdsVersion(config.version, err))?;
 
         Ok(())
     }
@@ -378,11 +407,9 @@ impl VmResources {
         &mut self,
         version: MmdsVersion,
         instance_id: &str,
-    ) -> Result<(), MmdsConfigError> {
+    ) -> Result<(), MmdsDatastoreError> {
         let mut mmds_guard = self.locked_mmds_or_default();
-        mmds_guard
-            .set_version(version)
-            .map_err(|err| MmdsConfigError::MmdsVersion(version, err))?;
+        mmds_guard.set_version(version)?;
         mmds_guard.set_aad(instance_id);
 
         Ok(())
@@ -483,6 +510,7 @@ impl From<&VmResources> for VmmConfig {
             machine_config: Some(resources.machine_config.clone()),
             metrics: None,
             mmds_config: resources.mmds_config(),
+            mmds_server_config: None,
             network_interfaces: resources.net_builder.configs(),
             vsock: resources.vsock.config(),
             entropy: resources.entropy.config(),

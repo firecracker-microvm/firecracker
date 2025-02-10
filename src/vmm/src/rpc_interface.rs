@@ -28,7 +28,9 @@ use crate::vmm_config::entropy::{EntropyDeviceConfig, EntropyDeviceError};
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError, MachineConfigUpdate};
 use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError};
-use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
+use crate::vmm_config::mmds::{
+    MmdsConfig, MmdsConfigError, MmdsServerConfig, MmdsServerConfigError,
+};
 use crate::vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
 };
@@ -96,6 +98,8 @@ pub enum VmmAction {
     SetBalloonDevice(BalloonDeviceConfig),
     /// Set the MMDS configuration.
     SetMmdsConfiguration(MmdsConfig),
+    /// Set the MMDS Server configuration.
+    SetMmdsServerConfiguration(MmdsServerConfig),
     /// Set the vsock device or update the one that already exists using the
     /// `VsockDeviceConfig` as input. This action can only be called before the microVM has
     /// booted.
@@ -153,6 +157,8 @@ pub enum VmmActionError {
     Mmds(#[from] data_store::MmdsDatastoreError),
     /// MMMDS config error: {0}
     MmdsConfig(#[from] MmdsConfigError),
+    /// MMDS server config error: {0}
+    MmdsServerConfig(#[from] MmdsServerConfigError),
     #[from(ignore)]
     /// MMDS limit exceeded error: {0}
     MmdsLimitExceeded(data_store::MmdsDatastoreError),
@@ -433,6 +439,7 @@ impl<'a> PrebootApiController<'a> {
             SetBalloonDevice(config) => self.set_balloon_device(config),
             SetVsockDevice(config) => self.set_vsock_device(config),
             SetMmdsConfiguration(config) => self.set_mmds_config(config),
+            SetMmdsServerConfiguration(config) => self.set_mmds_server_config(config),
             StartMicroVm => self.start_microvm(),
             UpdateMachineConfiguration(config) => self.update_machine_config(config),
             SetEntropyDevice(config) => self.set_entropy_device(config),
@@ -500,6 +507,14 @@ impl<'a> PrebootApiController<'a> {
             .set_mmds_config(cfg, &self.instance_info.id)
             .map(|()| VmmData::Empty)
             .map_err(VmmActionError::MmdsConfig)
+    }
+
+    fn set_mmds_server_config(&mut self, cfg: MmdsServerConfig) -> Result<VmmData, VmmActionError> {
+        self.boot_path = true;
+        self.vm_resources
+            .set_mmds_server_config(cfg, &self.instance_info.id)
+            .map(|()| VmmData::Empty)
+            .map_err(VmmActionError::MmdsServerConfig)
     }
 
     fn update_machine_config(
@@ -687,6 +702,7 @@ impl RuntimeApiController {
             | SetBalloonDevice(_)
             | SetVsockDevice(_)
             | SetMmdsConfiguration(_)
+            | SetMmdsServerConfiguration(_)
             | SetEntropyDevice(_)
             | StartMicroVm
             | UpdateMachineConfiguration(_) => Err(VmmActionError::OperationNotSupportedPostBoot),

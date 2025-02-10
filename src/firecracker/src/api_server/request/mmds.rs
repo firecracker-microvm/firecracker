@@ -5,7 +5,7 @@ use micro_http::StatusCode;
 use vmm::logger::{IncMetric, METRICS};
 use vmm::mmds::data_store::MmdsVersion;
 use vmm::rpc_interface::VmmAction;
-use vmm::vmm_config::mmds::MmdsConfig;
+use vmm::vmm_config::mmds::{MmdsConfig, MmdsServerConfig};
 
 use super::super::parsed_request::{ParsedRequest, RequestError};
 use super::Body;
@@ -32,6 +32,13 @@ fn parse_put_mmds_config(body: &Body) -> Result<ParsedRequest, RequestError> {
     }
 
     Ok(parsed_request)
+}
+
+pub(crate) fn parse_put_mmds_server_config(body: &Body) -> Result<ParsedRequest, RequestError> {
+    let config: MmdsServerConfig = serde_json::from_slice(body.raw())?;
+    Ok(ParsedRequest::new_sync(
+        VmmAction::SetMmdsServerConfiguration(config),
+    ))
 }
 
 pub(crate) fn parse_put_mmds(
