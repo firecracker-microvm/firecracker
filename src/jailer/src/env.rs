@@ -645,11 +645,10 @@ impl Env {
             self.mknod_and_own_dev(DEV_UFFD_PATH, DEV_UFFD_MAJOR, minor)?;
         }
 
+        self.jailer_cpu_time_us = get_time_us(ClockType::ProcessCpu) - self.start_time_cpu_us;
+
         // Daemonize before exec, if so required (when the dev_null variable != None).
         if let Some(dev_null) = dev_null {
-            // Meter CPU usage before fork()
-            self.jailer_cpu_time_us = get_time_us(ClockType::ProcessCpu);
-
             // We follow the double fork method to daemonize the jailer referring to
             // https://0xjet.github.io/3OHA/2022/04/11/post.html
             // setsid() will fail if the calling process is a process group leader.
@@ -672,7 +671,7 @@ impl Env {
                 .into_empty_result()
                 .map_err(JailerError::SetSid)?;
 
-            // Meter CPU usage before fork()
+            // Meter CPU usage after first fork()
             self.jailer_cpu_time_us += get_time_us(ClockType::ProcessCpu);
 
             // Daemons should not have controlling terminals.
@@ -696,11 +695,10 @@ impl Env {
             dup2(dev_null.as_raw_fd(), STDIN_FILENO)?;
             dup2(dev_null.as_raw_fd(), STDOUT_FILENO)?;
             dup2(dev_null.as_raw_fd(), STDERR_FILENO)?;
-        }
 
-        // Compute jailer's total CPU time up to the current time.
-        self.jailer_cpu_time_us += get_time_us(ClockType::ProcessCpu);
-        self.jailer_cpu_time_us -= self.start_time_cpu_us;
+            // Meter CPU usage after second fork()
+            self.jailer_cpu_time_us += get_time_us(ClockType::ProcessCpu);
+        }
 
         // If specified, exec the provided binary into a new PID namespace.
         if self.new_pid_ns {
