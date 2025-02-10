@@ -3,13 +3,13 @@
 
 use std::ffi::{CString, OsString};
 use std::fs::{self, canonicalize, read_to_string, File, OpenOptions, Permissions};
+use std::io;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{exit, id, Command, Stdio};
-use std::{fmt, io};
 
 use utils::arg_parser::UtilsArgParserError::MissingValue;
 use utils::time::{get_time_us, ClockType};
@@ -114,6 +114,7 @@ enum UserfaultfdParseError {
     NotFound,
 }
 
+#[derive(Debug)]
 pub struct Env {
     id: String,
     chroot_dir: PathBuf,
@@ -130,26 +131,6 @@ pub struct Env {
     cgroup_conf: Option<CgroupConfiguration>,
     resource_limits: ResourceLimits,
     uffd_dev_minor: Option<u32>,
-}
-
-impl fmt::Debug for Env {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Env")
-            .field("id", &self.id)
-            .field("chroot_dir", &self.chroot_dir)
-            .field("exec_file_path", &self.exec_file_path)
-            .field("uid", &self.uid)
-            .field("gid", &self.gid)
-            .field("netns", &self.netns)
-            .field("daemonize", &self.daemonize)
-            .field("new_pid_ns", &self.new_pid_ns)
-            .field("start_time_us", &self.start_time_us)
-            .field("jailer_cpu_time_us", &self.jailer_cpu_time_us)
-            .field("extra_args", &self.extra_args)
-            .field("cgroups", &self.cgroup_conf)
-            .field("resource_limits", &self.resource_limits)
-            .finish()
-    }
 }
 
 impl Env {
