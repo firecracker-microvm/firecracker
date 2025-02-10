@@ -476,7 +476,10 @@ impl Env {
         Command::new(chroot_exec_file)
             .args(["--id", &self.id])
             .args(["--start-time-us", &self.start_time_us.to_string()])
-            .args(["--start-time-cpu-us", &self.start_time_cpu_us.to_string()])
+            .args([
+                "--start-time-cpu-us",
+                &get_time_us(ClockType::ProcessCpu).to_string(),
+            ])
             .args(["--parent-cpu-time-us", &self.jailer_cpu_time_us.to_string()])
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
@@ -698,8 +701,6 @@ impl Env {
         // Compute jailer's total CPU time up to the current time.
         self.jailer_cpu_time_us += get_time_us(ClockType::ProcessCpu);
         self.jailer_cpu_time_us -= self.start_time_cpu_us;
-        // Reset process start time.
-        self.start_time_cpu_us = 0;
 
         // If specified, exec the provided binary into a new PID namespace.
         if self.new_pid_ns {
