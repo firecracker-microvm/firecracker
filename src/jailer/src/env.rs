@@ -3,13 +3,13 @@
 
 use std::ffi::{CString, OsString};
 use std::fs::{self, canonicalize, read_to_string, File, OpenOptions, Permissions};
+use std::io;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{exit, id, Command, Stdio};
-use std::{fmt, io};
 
 use utils::arg_parser::UtilsArgParserError::MissingValue;
 use utils::time::{get_time_us, ClockType};
@@ -114,6 +114,7 @@ enum UserfaultfdParseError {
     NotFound,
 }
 
+#[derive(Debug)]
 pub struct Env {
     id: String,
     chroot_dir: PathBuf,
@@ -130,26 +131,6 @@ pub struct Env {
     cgroup_conf: Option<CgroupConfiguration>,
     resource_limits: ResourceLimits,
     uffd_dev_minor: Option<u32>,
-}
-
-impl fmt::Debug for Env {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Env")
-            .field("id", &self.id)
-            .field("chroot_dir", &self.chroot_dir)
-            .field("exec_file_path", &self.exec_file_path)
-            .field("uid", &self.uid)
-            .field("gid", &self.gid)
-            .field("netns", &self.netns)
-            .field("daemonize", &self.daemonize)
-            .field("new_pid_ns", &self.new_pid_ns)
-            .field("start_time_us", &self.start_time_us)
-            .field("jailer_cpu_time_us", &self.jailer_cpu_time_us)
-            .field("extra_args", &self.extra_args)
-            .field("cgroups", &self.cgroup_conf)
-            .field("resource_limits", &self.resource_limits)
-            .finish()
-    }
 }
 
 impl Env {
@@ -495,7 +476,10 @@ impl Env {
         Command::new(chroot_exec_file)
             .args(["--id", &self.id])
             .args(["--start-time-us", &self.start_time_us.to_string()])
-            .args(["--start-time-cpu-us", &self.start_time_cpu_us.to_string()])
+            .args([
+                "--start-time-cpu-us",
+                &get_time_us(ClockType::ProcessCpu).to_string(),
+            ])
             .args(["--parent-cpu-time-us", &self.jailer_cpu_time_us.to_string()])
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
@@ -661,11 +645,10 @@ impl Env {
             self.mknod_and_own_dev(DEV_UFFD_PATH, DEV_UFFD_MAJOR, minor)?;
         }
 
+        self.jailer_cpu_time_us = get_time_us(ClockType::ProcessCpu) - self.start_time_cpu_us;
+
         // Daemonize before exec, if so required (when the dev_null variable != None).
         if let Some(dev_null) = dev_null {
-            // Meter CPU usage before fork()
-            self.jailer_cpu_time_us = get_time_us(ClockType::ProcessCpu);
-
             // We follow the double fork method to daemonize the jailer referring to
             // https://0xjet.github.io/3OHA/2022/04/11/post.html
             // setsid() will fail if the calling process is a process group leader.
@@ -688,7 +671,7 @@ impl Env {
                 .into_empty_result()
                 .map_err(JailerError::SetSid)?;
 
-            // Meter CPU usage before fork()
+            // Meter CPU usage after first fork()
             self.jailer_cpu_time_us += get_time_us(ClockType::ProcessCpu);
 
             // Daemons should not have controlling terminals.
@@ -712,12 +695,10 @@ impl Env {
             dup2(dev_null.as_raw_fd(), STDIN_FILENO)?;
             dup2(dev_null.as_raw_fd(), STDOUT_FILENO)?;
             dup2(dev_null.as_raw_fd(), STDERR_FILENO)?;
-        }
 
-        // Compute jailer's total CPU time up to the current time.
-        self.jailer_cpu_time_us += get_time_us(ClockType::ProcessCpu) - self.start_time_cpu_us;
-        // Reset process start time.
-        self.start_time_cpu_us = 0;
+            // Meter CPU usage after second fork()
+            self.jailer_cpu_time_us += get_time_us(ClockType::ProcessCpu);
+        }
 
         // If specified, exec the provided binary into a new PID namespace.
         if self.new_pid_ns {
