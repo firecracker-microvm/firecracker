@@ -452,6 +452,10 @@
             {
                 "syscall": "recvmsg",
                 "comment": "Used by vhost-user frontend to read response from the backend"
+            },
+            {
+                "syscall": "restart_syscall",
+                "comment": "automatically issued by the kernel when specific timing-related syscalls (e.g. nanosleep) get interrupted by SIGSTOP"
             }
         ]
     },
@@ -734,6 +738,10 @@
             {
                 "syscall": "sched_yield",
                 "comment": "Used by the rust standard library in std::sync::mpmc. Firecracker uses mpsc channels from this module for inter-thread communication"
+            },
+            {
+                "syscall": "restart_syscall",
+                "comment": "automatically issued by the kernel when specific timing-related syscalls (e.g. nanosleep) get interrupted by SIGSTOP"
             }
         ]
     },
@@ -1125,6 +1133,10 @@
             {
                 "syscall": "sendmsg",
                 "comment": "Used by vhost-user frontend to communicate with the backend"
+            },
+            {
+                "syscall": "restart_syscall",
+                "comment": "automatically issued by the kernel when specific timing-related syscalls (e.g. nanosleep) get interrupted by SIGSTOP"
             }
         ]
     }
