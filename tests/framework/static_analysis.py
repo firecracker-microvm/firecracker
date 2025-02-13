@@ -584,6 +584,12 @@ def load_seccomp_rules(seccomp_path: Path):
     return allowlist
 
 
+KNOWN_SUPERFLUOUS_RULES = {
+    # This syscall is inserted at runtime by the linux kernel, and thus not actually present in our binary.
+    "restart_syscall": [{}]
+}
+
+
 def determine_unneeded_seccomp_rules(seccomp_rules, found_syscalls):
     """Based on the given list of syscall determined through static analysis, compute which of the
     given seccomp rules are redundant. By 'redundant' we here mean that no syscall that would match
@@ -596,6 +602,12 @@ def determine_unneeded_seccomp_rules(seccomp_rules, found_syscalls):
 
     for syscall, rules in seccomp_rules.items():
         for allowed_arguments in rules:
+            if (
+                syscall in KNOWN_SUPERFLUOUS_RULES
+                and allowed_arguments in KNOWN_SUPERFLUOUS_RULES[syscall]
+            ):
+                continue
+
             # A rule is not needed if for all actual invocation of the syscall the rule governs,
             # the rule does not match.
             # Here, we determine "does not match" as "the rule specifies some value for an argument of the syscall to be
