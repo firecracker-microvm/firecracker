@@ -207,12 +207,20 @@ def test_deflate_on_oom(uvm_plain_any, deflate_on_oom):
     balloon_size_before = test_microvm.api.balloon_stats.get().json()["actual_mib"]
     make_guest_dirty_memory(test_microvm.ssh, 128)
 
-    balloon_size_after = test_microvm.api.balloon_stats.get().json()["actual_mib"]
-    print(f"size before: {balloon_size_before} size after: {balloon_size_after}")
-    if deflate_on_oom:
-        assert balloon_size_after < balloon_size_before, "Balloon did not deflate"
+    try:
+        balloon_size_after = test_microvm.api.balloon_stats.get().json()["actual_mib"]
+    except ConnectionError:
+        assert (
+            not deflate_on_oom
+        ), "Guest died even though it should have deflated balloon to alleviate memory pressure"
+
+        test_microvm.mark_killed()
     else:
-        assert balloon_size_after >= balloon_size_before, "Balloon deflated"
+        print(f"size before: {balloon_size_before} size after: {balloon_size_after}")
+        if deflate_on_oom:
+            assert balloon_size_after < balloon_size_before, "Balloon did not deflate"
+        else:
+            assert balloon_size_after >= balloon_size_before, "Balloon deflated"
 
 
 # pylint: disable=C0103
