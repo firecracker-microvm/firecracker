@@ -62,7 +62,7 @@ class MemoryMonitor(Thread):
         guest_mem_bytes = self._vm.mem_size_bytes
         try:
             ps = psutil.Process(self._vm.firecracker_pid)
-        except psutil.NoSuchProcess:
+        except (psutil.NoSuchProcess, FileNotFoundError):
             return
         while not self._should_stop:
             try:
