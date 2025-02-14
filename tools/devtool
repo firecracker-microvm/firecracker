@@ -228,7 +228,7 @@ cmd_fix_perms() {
     run_devctr \
         --workdir "$CTR_FC_ROOT_DIR" \
         -- \
-        chown -f -R "$(id -u):$(id -g)" "$CTR_FC_BUILD_DIR" "$CTR_TEST_RESULTS_DIR" "$CTR_CI_ARTIFACTS_PATH"
+        chown -f -R "$(id -u):$(id -g)" "$CTR_FC_BUILD_DIR" "$CTR_TEST_RESULTS_DIR" "$CTR_CI_ARTIFACTS_PATH" $@
 }
 
 # Builds the development container from its Dockerfile.
@@ -890,6 +890,7 @@ cmd_sandbox() {
     cmd_build --release
     ensure_ci_artifacts
     cmd_sh "tmux new env PYTEST_ADDOPTS=--pdbcls=IPython.terminal.debugger:TerminalPdb PYTHONPATH=tests IPYTHONDIR=\$PWD/.ipython ipython -i ./tools/sandbox.py $@"
+    cmd_fix_perms ".ipython"
 }
 
 cmd_sandbox_native() {
