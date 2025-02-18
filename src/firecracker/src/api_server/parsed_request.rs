@@ -21,7 +21,9 @@ use super::request::machine_configuration::{
     parse_get_machine_config, parse_patch_machine_config, parse_put_machine_config,
 };
 use super::request::metrics::parse_put_metrics;
-use super::request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
+use super::request::mmds::{
+    parse_get_mmds, parse_patch_mmds, parse_put_mmds, parse_put_mmds_server_config,
+};
 use super::request::net::{parse_patch_net, parse_put_net};
 use super::request::snapshot::{parse_patch_vm_state, parse_put_snapshot};
 use super::request::version::parse_get_version;
@@ -93,6 +95,7 @@ impl TryFrom<&Request> for ParsedRequest {
             (Method::Put, "machine-config", Some(body)) => parse_put_machine_config(body),
             (Method::Put, "metrics", Some(body)) => parse_put_metrics(body),
             (Method::Put, "mmds", Some(body)) => parse_put_mmds(body, path_tokens.next()),
+            (Method::Put, "mmds-server", Some(body)) => parse_put_mmds_server_config(body),
             (Method::Put, "network-interfaces", Some(body)) => {
                 parse_put_net(body, path_tokens.next())
             }
