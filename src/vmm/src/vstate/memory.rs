@@ -52,6 +52,8 @@ pub enum MemoryError {
     Memfd(memfd::Error),
     /// Cannot resize memfd file: {0}
     MemfdSetLen(std::io::Error),
+    /// Total sum of memory regions exceeds largest possible file offset
+    OffsetTooLarge,
 }
 
 /// Defines the interface for snapshotting memory.
@@ -188,7 +190,13 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                     builder = builder.with_file_offset(file_offset);
                 }
 
-                offset += size as u64;
+                offset = match offset.checked_add(size as u64) {
+                    None => return Err(MemoryError::OffsetTooLarge),
+                    Some(new_off) if new_off >= i64::MAX as u64 => {
+                        return Err(MemoryError::OffsetTooLarge)
+                    }
+                    Some(new_off) => new_off,
+                };
 
                 GuestRegionMmap::new(
                     builder.build().map_err(MemoryError::MmapRegionError)?,
