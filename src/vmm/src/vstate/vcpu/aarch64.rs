@@ -22,7 +22,7 @@ use crate::cpu_config::aarch64::custom_cpu_template::VcpuFeatures;
 use crate::cpu_config::templates::CpuConfiguration;
 use crate::logger::{error, IncMetric, METRICS};
 use crate::vcpu::{VcpuConfig, VcpuError};
-use crate::vstate::kvm::{Kvm, OptionalCapabilities};
+use crate::vstate::kvm::OptionalCapabilities;
 use crate::vstate::memory::{Address, GuestAddress, GuestMemoryMmap};
 use crate::vstate::vcpu::VcpuEmulation;
 use crate::vstate::vm::Vm;
@@ -78,7 +78,7 @@ impl KvmVcpu {
     ///
     /// * `index` - Represents the 0-based CPU index between [0, max vcpus).
     /// * `vm` - The vm to which this vcpu will get attached.
-    pub fn new(index: u8, vm: &Vm, _: &Kvm) -> Result<Self, KvmVcpuError> {
+    pub fn new(index: u8, vm: &Vm) -> Result<Self, KvmVcpuError> {
         let kvm_vcpu = vm
             .fd()
             .create_vcpu(index.into())
@@ -315,7 +315,7 @@ mod tests {
 
     fn setup_vcpu(mem_size: usize) -> (Kvm, Vm, KvmVcpu, GuestMemoryMmap) {
         let (kvm, mut vm, vm_mem) = setup_vm_with_memory(mem_size);
-        let mut vcpu = KvmVcpu::new(0, &vm, &kvm).unwrap();
+        let mut vcpu = KvmVcpu::new(0, &vm).unwrap();
         vcpu.init(&[]).unwrap();
         vm.setup_irqchip(1).unwrap();
 
@@ -324,11 +324,11 @@ mod tests {
 
     #[test]
     fn test_create_vcpu() {
-        let (kvm, vm, _) = setup_vm_with_memory(0x1000);
+        let (_, vm, _) = setup_vm_with_memory(0x1000);
 
         unsafe { libc::close(vm.fd().as_raw_fd()) };
 
-        let err = KvmVcpu::new(0, &vm, &kvm);
+        let err = KvmVcpu::new(0, &vm);
         assert_eq!(
             err.err().unwrap().to_string(),
             "Error creating vcpu: Bad file descriptor (os error 9)".to_string()
@@ -378,8 +378,8 @@ mod tests {
 
     #[test]
     fn test_init_vcpu() {
-        let (kvm, mut vm, _) = setup_vm_with_memory(0x1000);
-        let mut vcpu = KvmVcpu::new(0, &vm, &kvm).unwrap();
+        let (_, mut vm, _) = setup_vm_with_memory(0x1000);
+        let mut vcpu = KvmVcpu::new(0, &vm).unwrap();
         vm.setup_irqchip(1).unwrap();
 
         // KVM_ARM_VCPU_PSCI_0_2 is set by default.
@@ -397,8 +397,8 @@ mod tests {
 
     #[test]
     fn test_vcpu_save_restore_state() {
-        let (kvm, mut vm, _) = setup_vm_with_memory(0x1000);
-        let mut vcpu = KvmVcpu::new(0, &vm, &kvm).unwrap();
+        let (_, mut vm, _) = setup_vm_with_memory(0x1000);
+        let mut vcpu = KvmVcpu::new(0, &vm).unwrap();
         vm.setup_irqchip(1).unwrap();
 
         // Calling KVM_GET_REGLIST before KVM_VCPU_INIT will result in error.
@@ -441,8 +441,8 @@ mod tests {
         //
         // This should fail with ENOEXEC.
         // https://elixir.bootlin.com/linux/v5.10.176/source/arch/arm64/kvm/arm.c#L1165
-        let (kvm, mut vm, _) = setup_vm_with_memory(0x1000);
-        let vcpu = KvmVcpu::new(0, &vm, &kvm).unwrap();
+        let (_, mut vm, _) = setup_vm_with_memory(0x1000);
+        let vcpu = KvmVcpu::new(0, &vm).unwrap();
         vm.setup_irqchip(1).unwrap();
 
         vcpu.dump_cpu_config().unwrap_err();
@@ -451,8 +451,8 @@ mod tests {
     #[test]
     fn test_dump_cpu_config_after_init() {
         // Test `dump_cpu_config()` after `KVM_VCPU_INIT`.
-        let (kvm, mut vm, _) = setup_vm_with_memory(0x1000);
-        let mut vcpu = KvmVcpu::new(0, &vm, &kvm).unwrap();
+        let (_, mut vm, _) = setup_vm_with_memory(0x1000);
+        let mut vcpu = KvmVcpu::new(0, &vm).unwrap();
         vm.setup_irqchip(1).unwrap();
         vcpu.init(&[]).unwrap();
 
@@ -461,10 +461,10 @@ mod tests {
 
     #[test]
     fn test_setup_non_boot_vcpu() {
-        let (kvm, vm, _) = setup_vm_with_memory(0x1000);
-        let mut vcpu1 = KvmVcpu::new(0, &vm, &kvm).unwrap();
+        let (_, vm, _) = setup_vm_with_memory(0x1000);
+        let mut vcpu1 = KvmVcpu::new(0, &vm).unwrap();
         vcpu1.init(&[]).unwrap();
-        let mut vcpu2 = KvmVcpu::new(1, &vm, &kvm).unwrap();
+        let mut vcpu2 = KvmVcpu::new(1, &vm).unwrap();
         vcpu2.init(&[]).unwrap();
     }
 

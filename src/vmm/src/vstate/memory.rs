@@ -36,10 +36,6 @@ pub type GuestMmapRegion = vm_memory::MmapRegion<Option<AtomicBitmap>>;
 /// Errors associated with dumping guest memory to file.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum MemoryError {
-    /// Cannot create memory: {0}
-    CreateMemory(VmMemoryError),
-    /// Cannot create memory region: {0}
-    CreateRegion(MmapRegionError),
     /// Cannot fetch system's page size: {0}
     PageSize(errno::Error),
     /// Cannot dump memory: {0}

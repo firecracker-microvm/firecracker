@@ -44,8 +44,6 @@ pub use aarch64::{KvmVcpuError, *};
 #[cfg(target_arch = "x86_64")]
 pub use x86_64::{KvmVcpuError, *};
 
-use super::kvm::Kvm;
-
 /// Signal number (SIGRTMIN) used to kick Vcpus.
 pub const VCPU_RTSIG_OFFSET: i32 = 0;
 
@@ -214,10 +212,10 @@ impl Vcpu {
     /// * `index` - Represents the 0-based CPU index between [0, max vcpus).
     /// * `vm` - The vm to which this vcpu will get attached.
     /// * `exit_evt` - An `EventFd` that will be written into when this vcpu exits.
-    pub fn new(index: u8, vm: &Vm, kvm: &Kvm, exit_evt: EventFd) -> Result<Self, VcpuError> {
+    pub fn new(index: u8, vm: &Vm, exit_evt: EventFd) -> Result<Self, VcpuError> {
         let (event_sender, event_receiver) = channel();
         let (response_sender, response_receiver) = channel();
-        let kvm_vcpu = KvmVcpu::new(index, vm, kvm).unwrap();
+        let kvm_vcpu = KvmVcpu::new(index, vm).unwrap();
 
         Ok(Vcpu {
             exit_evt,
@@ -787,6 +785,7 @@ pub(crate) mod tests {
     use crate::devices::BusDevice;
     use crate::seccomp::get_empty_filters;
     use crate::utils::signal::validate_signal_num;
+    use crate::vstate::kvm::Kvm;
     use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
     use crate::vstate::vcpu::VcpuError as EmulationError;
     use crate::vstate::vm::tests::setup_vm_with_memory;
@@ -933,20 +932,12 @@ pub(crate) mod tests {
     pub(crate) fn setup_vcpu(mem_size: usize) -> (Kvm, Vm, Vcpu, GuestMemoryMmap) {
         let (kvm, mut vm, gm) = setup_vm_with_memory(mem_size);
 
-        let exit_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        let (mut vcpus, _) = vm.create_vcpus(1).unwrap();
+        let mut vcpu = vcpus.remove(0);
 
         #[cfg(target_arch = "aarch64")]
-        let vcpu = {
-            let mut vcpu = Vcpu::new(1, &vm, &kvm, exit_evt).unwrap();
-            vcpu.kvm_vcpu.init(&[]).unwrap();
-            vm.setup_irqchip(1).unwrap();
-            vcpu
-        };
-        #[cfg(target_arch = "x86_64")]
-        let vcpu = {
-            vm.setup_irqchip().unwrap();
-            Vcpu::new(1, &vm, &kvm, exit_evt).unwrap()
-        };
+        vcpu.kvm_vcpu.init(&[]).unwrap();
+
         (kvm, vm, vcpu, gm)
     }
 
@@ -978,7 +969,7 @@ pub(crate) mod tests {
         entry_addr.unwrap().kernel_load
     }
 
-    fn vcpu_configured_for_boot() -> (VcpuHandle, vmm_sys_util::eventfd::EventFd) {
+    fn vcpu_configured_for_boot() -> (VcpuHandle, EventFd, GuestMemoryMmap) {
         Vcpu::register_kick_signal_handler();
         // Need enough mem to boot linux.
         let mem_size = 64 << 20;
@@ -1030,7 +1021,7 @@ pub(crate) mod tests {
         // Wait for vCPUs to initialize their TLS before moving forward.
         barrier.wait();
 
-        (vcpu_handle, vcpu_exit_evt)
+        (vcpu_handle, vcpu_exit_evt, vm_mem)
     }
 
     #[test]
@@ -1043,7 +1034,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_vcpu_tls() {
-        let (_, _, mut vcpu, _) = setup_vcpu(0x1000);
+        let (_, _, mut vcpu, _mem) = setup_vcpu(0x1000);
 
         // Running on the TLS vcpu should fail before we actually initialize it.
         unsafe {
@@ -1084,7 +1075,7 @@ pub(crate) mod tests {
     #[test]
     fn test_vcpu_kick() {
         Vcpu::register_kick_signal_handler();
-        let (_, vm, mut vcpu, _) = setup_vcpu(0x1000);
+        let (_, vm, mut vcpu, _mem) = setup_vcpu(0x1000);
 
         let mut kvm_run =
             kvm_ioctls::KvmRunWrapper::mmap_from_fd(&vcpu.kvm_vcpu.fd, vm.fd().run_size())
@@ -1139,7 +1130,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_immediate_exit_shortcircuits_execution() {
-        let (_, _, mut vcpu, _) = setup_vcpu(0x1000);
+        let (_, _, mut vcpu, _mem) = setup_vcpu(0x1000);
 
         vcpu.kvm_vcpu.fd.set_kvm_immediate_exit(1);
         // Set a dummy value to be returned by the emulate call
@@ -1164,7 +1155,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_vcpu_pause_resume() {
-        let (vcpu_handle, vcpu_exit_evt) = vcpu_configured_for_boot();
+        let (vcpu_handle, vcpu_exit_evt, _mem) = vcpu_configured_for_boot();
 
         // Queue a Resume event, expect a response.
         queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
@@ -1196,7 +1187,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_vcpu_save_state_events() {
-        let (vcpu_handle, _vcpu_exit_evt) = vcpu_configured_for_boot();
+        let (vcpu_handle, _vcpu_exit_evt, _mem) = vcpu_configured_for_boot();
 
         // Queue a Resume event, expect a response.
         queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
@@ -1229,7 +1220,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_vcpu_dump_cpu_config() {
-        let (vcpu_handle, _) = vcpu_configured_for_boot();
+        let (vcpu_handle, _, _mem) = vcpu_configured_for_boot();
 
         // Queue a DumpCpuConfig event, expect a DumpedCpuConfig response.
         vcpu_handle

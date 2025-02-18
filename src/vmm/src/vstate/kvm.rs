@@ -23,9 +23,6 @@ pub enum KvmError {
     configured on the /dev/kvm file's ACL. */
     Kvm(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
-    /// Failed to get MSR index list to save into snapshots: {0}
-    GetMsrsToSave(crate::arch::x86_64::msr::MsrError),
-    #[cfg(target_arch = "x86_64")]
     /// Failed to get supported cpuid: {0}
     GetSupportedCpuId(kvm_ioctls::Error),
     /// The number of configured slots is bigger than the maximum reported by KVM
@@ -45,9 +42,6 @@ pub struct Kvm {
     #[cfg(target_arch = "x86_64")]
     /// Supported CpuIds.
     pub supported_cpuid: CpuId,
-    #[cfg(target_arch = "x86_64")]
-    /// Msrs needed to be saved on snapshot creation.
-    pub msrs_to_save: MsrList,
 }
 
 impl Kvm {
@@ -82,17 +76,20 @@ impl Kvm {
             let supported_cpuid = kvm_fd
                 .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
                 .map_err(KvmError::GetSupportedCpuId)?;
-            let msrs_to_save = crate::arch::x86_64::msr::get_msrs_to_save(&kvm_fd)
-                .map_err(KvmError::GetMsrsToSave)?;
 
             Ok(Kvm {
                 fd: kvm_fd,
                 max_memslots,
                 kvm_cap_modifiers,
                 supported_cpuid,
-                msrs_to_save,
             })
         }
+    }
+
+    /// Msrs needed to be saved on snapshot creation.
+    #[cfg(target_arch = "x86_64")]
+    pub fn msrs_to_save(&self) -> Result<MsrList, crate::arch::x86_64::msr::MsrError> {
+        crate::arch::x86_64::msr::get_msrs_to_save(&self.fd)
     }
 
     /// Check guest memory does not have more regions than kvm allows.

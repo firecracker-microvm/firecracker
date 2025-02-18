@@ -114,22 +114,14 @@ pub struct GuestRegionUffdMapping {
 /// Errors related to saving and restoring Microvm state.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum MicrovmStateError {
-    /// Compatibility checks failed: {0}
-    IncompatibleState(String),
-    /// Provided MicroVM state is invalid.
-    InvalidInput,
     /// Operation not allowed: {0}
     NotAllowed(String),
     /// Cannot restore devices: {0}
     RestoreDevices(DevicePersistError),
-    /// Cannot restore Vcpu state: {0}
-    RestoreVcpuState(vstate::vcpu::VcpuError),
-    /// Cannot restore Vm state: {0}
-    RestoreVmState(vstate::vm::VmError),
     /// Cannot save Vcpu state: {0}
     SaveVcpuState(vstate::vcpu::VcpuError),
     /// Cannot save Vm state: {0}
-    SaveVmState(vstate::vm::VmError),
+    SaveVmState(vstate::vm::ArchVmError),
     /// Cannot signal Vcpu: {0}
     SignalVcpu(VcpuSendEventError),
     /// Vcpu is in unexpected state.
@@ -142,9 +134,6 @@ pub enum MicrovmStateError {
 pub enum CreateSnapshotError {
     /// Cannot get dirty bitmap: {0}
     DirtyBitmap(VmmError),
-    #[rustfmt::skip]
-    /// Cannot translate microVM version to snapshot data version
-    UnsupportedVersion,
     /// Cannot write memory file: {0}
     Memory(MemoryError),
     /// Cannot perform {0} on the memory backing file: {1}
@@ -155,8 +144,6 @@ pub enum CreateSnapshotError {
     SerializeMicrovmState(crate::snapshot::SnapshotError),
     /// Cannot perform {0} on the snapshot backing file: {1}
     SnapshotBackingFile(&'static str, io::Error),
-    /// Size mismatch when writing diff snapshot on top of base layer: base layer size is {0} but diff layer is size {1}.
-    SnapshotBackingFileLengthMismatch(u64, u64),
 }
 
 /// Snapshot version

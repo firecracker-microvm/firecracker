@@ -175,10 +175,6 @@ fn create_vmm_and_vcpus(
         .map_err(VmmError::Vm)
         .map_err(StartMicrovmError::Internal)?;
 
-    let vcpus_exit_evt = EventFd::new(libc::EFD_NONBLOCK)
-        .map_err(VmmError::EventFd)
-        .map_err(Internal)?;
-
     let resource_allocator = ResourceAllocator::new()?;
 
     // Instantiate the MMIO device manager.
@@ -187,13 +183,13 @@ fn create_vmm_and_vcpus(
     // Instantiate ACPI device manager.
     let acpi_device_manager = ACPIDeviceManager::new();
 
-    // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
-    // while on aarch64 we need to do it the other way around.
-    #[cfg(target_arch = "x86_64")]
-    let (vcpus, pio_device_manager) = {
-        setup_interrupt_controller(&mut vm)?;
-        let vcpus = create_vcpus(&kvm, &vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
+    let (vcpus, vcpus_exit_evt) = vm
+        .create_vcpus(vcpu_count)
+        .map_err(VmmError::Vm)
+        .map_err(Internal)?;
 
+    #[cfg(target_arch = "x86_64")]
+    let pio_device_manager = {
         // Make stdout non blocking.
         set_stdout_nonblocking();
 
@@ -208,25 +204,10 @@ fn create_vmm_and_vcpus(
             .map_err(Internal)?;
 
         // create pio dev manager with legacy devices
-        let pio_device_manager = {
-            // TODO Remove these unwraps.
-            let mut pio_dev_mgr = PortIODeviceManager::new(serial_device, reset_evt).unwrap();
-            pio_dev_mgr.register_devices(vm.fd()).unwrap();
-            pio_dev_mgr
-        };
-
-        (vcpus, pio_device_manager)
-    };
-
-    // On aarch64, the vCPUs need to be created (i.e call KVM_CREATE_VCPU) before setting up the
-    // IRQ chip because the `KVM_CREATE_VCPU` ioctl will return error if the IRQCHIP
-    // was already initialized.
-    // Search for `kvm_arch_vcpu_create` in arch/arm/kvm/arm.c.
-    #[cfg(target_arch = "aarch64")]
-    let vcpus = {
-        let vcpus = create_vcpus(&kvm, &vm, vcpu_count, &vcpus_exit_evt).map_err(Internal)?;
-        setup_interrupt_controller(&mut vm, vcpu_count)?;
-        vcpus
+        // TODO Remove these unwraps.
+        let mut pio_dev_mgr = PortIODeviceManager::new(serial_device, reset_evt).unwrap();
+        pio_dev_mgr.register_devices(vm.fd()).unwrap();
+        pio_dev_mgr
     };
 
     let vmm = Vmm {
@@ -436,7 +417,7 @@ pub enum BuildMicrovmFromSnapshotError {
     /// Could not set TSC scaling within the snapshot: {0}
     SetTsc(#[from] crate::vstate::vcpu::SetTscError),
     /// Failed to restore microVM state: {0}
-    RestoreState(#[from] crate::vstate::vm::RestoreStateError),
+    RestoreState(#[from] crate::vstate::vm::ArchVmError),
     /// Failed to update microVM configuration: {0}
     VmUpdateConfig(#[from] MachineConfigError),
     /// Failed to restore MMIO device: {0}
@@ -671,22 +652,6 @@ where
     })
 }
 
-/// Sets up the irqchip for a x86_64 microVM.
-#[cfg(target_arch = "x86_64")]
-pub fn setup_interrupt_controller(vm: &mut Vm) -> Result<(), StartMicrovmError> {
-    vm.setup_irqchip()
-        .map_err(VmmError::Vm)
-        .map_err(StartMicrovmError::Internal)
-}
-
-/// Sets up the irqchip for a aarch64 microVM.
-#[cfg(target_arch = "aarch64")]
-pub fn setup_interrupt_controller(vm: &mut Vm, vcpu_count: u8) -> Result<(), StartMicrovmError> {
-    vm.setup_irqchip(vcpu_count)
-        .map_err(VmmError::Vm)
-        .map_err(StartMicrovmError::Internal)
-}
-
 /// Sets up the serial device.
 pub fn setup_serial_device(
     event_manager: &mut EventManager,
@@ -742,21 +707,6 @@ fn attach_legacy_devices_aarch64(
     vmm.mmio_device_manager
         .register_mmio_rtc(&mut vmm.resource_allocator, rtc, None)
         .map_err(VmmError::RegisterMMIODevice)
-}
-
-fn create_vcpus(
-    kvm: &Kvm,
-    vm: &Vm,
-    vcpu_count: u8,
-    exit_evt: &EventFd,
-) -> Result<Vec<Vcpu>, VmmError> {
-    let mut vcpus = Vec::with_capacity(vcpu_count as usize);
-    for cpu_idx in 0..vcpu_count {
-        let exit_evt = exit_evt.try_clone().map_err(VmmError::EventFd)?;
-        let vcpu = Vcpu::new(cpu_idx, vm, kvm, exit_evt).map_err(VmmError::VcpuCreate)?;
-        vcpus.push(vcpu);
-    }
-    Ok(vcpus)
 }
 
 /// Configures the system for booting Linux.
@@ -1065,7 +1015,7 @@ pub(crate) mod tests {
     use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_RNG};
     use crate::mmds::data_store::{Mmds, MmdsVersion};
     use crate::mmds::ns::MmdsNetworkStack;
-    use crate::test_utils::{arch_mem, single_region_mem, single_region_mem_at};
+    use crate::test_utils::{single_region_mem, single_region_mem_at};
     use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
     use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
@@ -1073,6 +1023,7 @@ pub(crate) mod tests {
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
+    use crate::vstate::vm::tests::setup_vm_with_memory;
 
     #[derive(Debug)]
     pub(crate) struct CustomBlockConfig {
@@ -1128,16 +1079,8 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn default_vmm() -> Vmm {
-        let guest_memory = arch_mem(128 << 20);
+        let (kvm, mut vm, guest_memory) = setup_vm_with_memory(128 << 20);
 
-        let vcpus_exit_evt = EventFd::new(libc::EFD_NONBLOCK)
-            .map_err(VmmError::EventFd)
-            .map_err(StartMicrovmError::Internal)
-            .unwrap();
-
-        let kvm = Kvm::new(vec![]).unwrap();
-        let mut vm = Vm::new(&kvm).unwrap();
-        vm.memory_init(&guest_memory).unwrap();
         let mmio_device_manager = MMIODeviceManager::new();
         let acpi_device_manager = ACPIDeviceManager::new();
         #[cfg(target_arch = "x86_64")]
@@ -1156,15 +1099,7 @@ pub(crate) mod tests {
         )
         .unwrap();
 
-        #[cfg(target_arch = "x86_64")]
-        setup_interrupt_controller(&mut vm).unwrap();
-
-        #[cfg(target_arch = "aarch64")]
-        {
-            let exit_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-            let _vcpu = Vcpu::new(1, &vm, &kvm, exit_evt).unwrap();
-            setup_interrupt_controller(&mut vm, 1).unwrap();
-        }
+        let (_, vcpus_exit_evt) = vm.create_vcpus(1).unwrap();
 
         Vmm {
             events_observer: Some(std::io::stdin()),
@@ -1381,24 +1316,6 @@ pub(crate) mod tests {
             "{:?}",
             res
         );
-    }
-
-    #[test]
-    fn test_create_vcpus() {
-        let vcpu_count = 2;
-        let guest_memory = arch_mem(128 << 20);
-
-        let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
-        #[allow(unused_mut)]
-        let mut vm = Vm::new(&kvm).unwrap();
-        vm.memory_init(&guest_memory).unwrap();
-        let evfd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-
-        #[cfg(target_arch = "x86_64")]
-        setup_interrupt_controller(&mut vm).unwrap();
-
-        let vcpu_vec = create_vcpus(&kvm, &vm, vcpu_count, &evfd).unwrap();
-        assert_eq!(vcpu_vec.len(), vcpu_count as usize);
     }
 
     #[test]
