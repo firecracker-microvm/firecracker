@@ -4,6 +4,7 @@
 
 import os
 import shutil
+import signal
 import stat
 from pathlib import Path
 
@@ -24,24 +25,10 @@ class JailerContext:
     Each microvm will have a jailer configuration associated with it.
     """
 
-    # Keep in sync with parameters from code base.
-    jailer_id = None
-    exec_file = None
-    uid = None
-    gid = None
-    chroot_base = None
-    daemonize = None
-    new_pid_ns = None
-    extra_args = None
-    api_socket_name = None
-    cgroups = None
-    resource_limits = None
-    cgroup_ver = None
-    parent_cgroup = None
-
     def __init__(
         self,
         jailer_id,
+        jailer_binary_path,
         exec_file,
         uid=1234,
         gid=1234,
@@ -62,10 +49,12 @@ class JailerContext:
         further adjusted by each test even with None values.
         """
         self.jailer_id = jailer_id
-        assert jailer_id is not None
+        assert jailer_id
+        self.jailer_bin_path = jailer_binary_path
         self.exec_file = exec_file
         self.uid = uid
         self.gid = gid
+        assert chroot_base is not None
         self.chroot_base = Path(chroot_base)
         self.netns = netns
         self.daemonize = daemonize
@@ -76,7 +65,6 @@ class JailerContext:
         self.resource_limits = resource_limits
         self.cgroup_ver = cgroup_ver
         self.parent_cgroup = parent_cgroup
-        assert chroot_base is not None
 
     # Disabling 'too-many-branches' warning for this function as it needs to
     # check every argument, so the number of branches will increase
@@ -89,11 +77,10 @@ class JailerContext:
         might want to add integration tests that validate the enforcement of
         mandatory arguments.
         """
-        jailer_param_list = []
+        jailer_param_list = [str(self.jailer_bin_path)]
 
         # Pretty please, try to keep the same order as in the code base.
-        if self.jailer_id is not None:
-            jailer_param_list.extend(["--id", str(self.jailer_id)])
+        jailer_param_list.extend(["--id", str(self.jailer_id)])
         if self.exec_file is not None:
             jailer_param_list.extend(["--exec-file", str(self.exec_file)])
         if self.uid is not None:
@@ -131,19 +118,16 @@ class JailerContext:
 
     # pylint: enable=too-many-branches
 
-    def chroot_base_with_id(self):
-        """Return the MicroVM chroot base + MicroVM ID."""
-        return self.chroot_base / Path(self.exec_file).name / self.jailer_id
+    @property
+    def chroot(self):
+        """Return where the jailer will place the chroot"""
+        return self.chroot_base / self.exec_file.name / self.jailer_id / "root"
 
     def api_socket_path(self):
         """Return the MicroVM API socket path."""
-        return os.path.join(self.chroot_path(), self.api_socket_name)
+        return self.chroot / self.api_socket_name
 
-    def chroot_path(self):
-        """Return the MicroVM chroot path."""
-        return os.path.join(self.chroot_base_with_id(), "root")
-
-    def jailed_path(self, file_path, create=False, subdir="."):
+    def jailed_path(self, file_path, subdir="."):
         """Create a hard link or block special device owned by uid:gid.
 
         Create a hard link or block special device from the specified file,
@@ -151,17 +135,16 @@ class JailerContext:
         valid within the jail.
         """
         file_path = Path(file_path)
-        chroot_path = Path(self.chroot_path())
-        global_p = chroot_path / subdir / file_path.name
+        global_p = self.chroot / subdir / file_path.name
         global_p.parent.mkdir(parents=True, exist_ok=True)
         jailed_p = Path("/") / subdir / file_path.name
-        if create:
+        if not global_p.exists():
             stat_src = file_path.stat()
             if file_path.is_block_device():
                 perms = stat.S_IRUSR | stat.S_IWUSR
                 os.mknod(global_p, mode=stat.S_IFBLK | perms, device=stat_src.st_rdev)
             else:
-                stat_dst = chroot_path.stat()
+                stat_dst = self.chroot.stat()
                 if stat_src.st_dev == stat_dst.st_dev:
                     # if they are in the same device, hardlink
                     global_p.unlink(missing_ok=True)
@@ -170,12 +153,14 @@ class JailerContext:
                     # otherwise, copy
                     shutil.copyfile(file_path, global_p)
 
-            os.chown(global_p, self.uid, self.gid)
+        os.chown(global_p, self.uid, self.gid)
         return str(jailed_p)
 
     def setup(self):
         """Set up this jailer context."""
-        os.makedirs(self.chroot_base, exist_ok=True)
+        os.makedirs(self.chroot, exist_ok=True)
+        # Copy the /etc/localtime file in the jailer root
+        self.jailed_path("/etc/localtime", subdir="etc")
 
     def cleanup(self):
         """Clean up this jailer context."""
@@ -223,26 +208,38 @@ class JailerContext:
         disappears. The retry function that calls this code makes
         sure we do not timeout.
         """
-        # pylint: disable=subprocess-run-check
-        tasks_file = "/sys/fs/cgroup/{}/{}/{}/tasks".format(
-            controller, FC_BINARY_NAME, self.jailer_id
+        tasks_file = Path(
+            f"/sys/fs/cgroup/{controller}/{FC_BINARY_NAME}/{self.jailer_id}/tasks"
         )
 
         # If tests do not call start on machines, the cgroups will not be
         # created.
-        if not os.path.exists(tasks_file):
+        if not tasks_file.exists():
             return True
 
-        cmd = "cat {}".format(tasks_file)
-        result = utils.check_output(cmd)
-
-        tasks_split = result.stdout.splitlines()
-        for task in tasks_split:
-            if os.path.exists("/proc/{}".format(task)):
+        for task in tasks_file.read_text(encoding="ascii").splitlines():
+            if Path(f"/proc/{task}").exists():
                 raise TimeoutError
         return True
 
     @property
-    def pid_file(self):
-        """Return the PID file of the jailed process"""
-        return Path(self.chroot_path()) / (self.exec_file.name + ".pid")
+    def pid(self):
+        """Return the PID of the jailed process"""
+        # Read the PID stored inside the file.
+        pid_file = self.chroot / (self.exec_file.name + ".pid")
+        if not pid_file.exists():
+            return None
+        return int(pid_file.read_text(encoding="ascii"))
+
+    def spawn(self, pre_cmd):
+        """Spawn Firecracker and daemonize via the Jailer"""
+        cmd = pre_cmd or []
+        cmd += self.construct_param_list()
+        if not self.daemonize:
+            raise RuntimeError("Use a different jailer")
+        return utils.check_output(cmd, shell=False)
+
+    def kill(self):
+        """Kill the Firecracker process"""
+        if self.pid is not None:
+            os.kill(self.pid, signal.SIGKILL)

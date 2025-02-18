@@ -1,6 +1,6 @@
 # Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Check the well functioning af the RTC device on aarch64 platforms."""
+"""Check the well functioning of the RTC device on aarch64 platforms."""
 import platform
 import re
 

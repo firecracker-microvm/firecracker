@@ -349,25 +349,6 @@ pass for the PR to be merged.
 Add a new function annotated with `#[test]` in
 [`integration_tests.rs`](../src/vmm/tests/integration_tests.rs).
 
-## Working With Guest Files
-
-There are helper methods for writing to and reading from a guest filesystem. For
-example, to overwrite the guest init process and later extract a log:
-
-```python
-def test_with_any_microvm_and_my_init(test_microvm_any):
-    # [...]
-    test_microvm_any.slot.fsfiles['mounted_root_fs'].copy_to(my_init, 'sbin/')
-    # [...]
-    test_microvm_any.slot.fsfiles['mounted_root_fs'].copy_from('logs/', 'log')
-```
-
-`copy_to()` source paths are relative to the host root and destination paths are
-relative to the `mounted_root_fs` root. Vice versa for `copy_from()`.
-
-Copying files to/from a guest file system while the guest is running results in
-undefined behavior.
-
 ## Example Manual Testrun
 
 Running on an EC2 `.metal` instance with an `Amazon Linux 2` AMI:

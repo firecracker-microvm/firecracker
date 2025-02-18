@@ -3,7 +3,6 @@
 
 """Tests for checking the rate limiter on /drives resources."""
 import json
-import os
 
 import host_tools.drive as drive_tools
 
@@ -41,12 +40,10 @@ def test_patch_drive_limiter(uvm_plain):
     test_microvm.basic_config(vcpu_count=2, mem_size_mib=512)
     test_microvm.add_net_iface()
 
-    fs1 = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.fsfiles, "scratch"), size=512
-    )
+    fs1 = drive_tools.FilesystemFile(test_microvm.chroot / "scratch", size=512)
     test_microvm.api.drive.put(
         drive_id="scratch",
-        path_on_host=test_microvm.create_jailed_resource(fs1.path),
+        path_on_host=test_microvm.jail_path(fs1.path),
         is_root_device=False,
         is_read_only=False,
         rate_limiter={

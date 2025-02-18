@@ -7,7 +7,6 @@ up in the configured logging file.
 """
 
 import re
-from pathlib import Path
 from time import strptime
 
 import pytest
@@ -101,10 +100,10 @@ def test_api_requests_logs(uvm_plain):
     microvm.basic_config()
 
     # Configure logging.
-    log_path = Path(microvm.path) / "log"
+    log_path = microvm.chroot / "log"
     log_path.touch()
     microvm.api.logger.put(
-        log_path=microvm.create_jailed_resource(log_path),
+        log_path=microvm.jail_path(log_path),
         level="Info",
         show_level=True,
         show_log_origin=True,
@@ -135,10 +134,10 @@ def test_api_requests_logs(uvm_plain):
     )
 
     # Re-configure logging.
-    log_path = Path(microvm.path) / "new_log"
+    log_path = microvm.chroot / "new_log"
     log_path.touch()
     microvm.api.logger.put(
-        log_path=microvm.create_jailed_resource(log_path),
+        log_path=microvm.jail_path(log_path),
         level="Info",
         show_level=True,
         show_log_origin=True,

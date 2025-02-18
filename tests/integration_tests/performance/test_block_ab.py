@@ -3,7 +3,6 @@
 """Performance benchmark for block device emulation."""
 
 import concurrent
-import os
 import shutil
 from pathlib import Path
 
@@ -73,11 +72,9 @@ def run_fio(microvm, mode, block_size):
         .build()
     )
 
-    logs_path = Path(microvm.jailer.chroot_base_with_id()) / "fio_output"
-
+    logs_path = microvm.chroot / "fio_output"
     if logs_path.is_dir():
         shutil.rmtree(logs_path)
-
     logs_path.mkdir()
 
     prepare_microvm_for_test(microvm)
@@ -158,11 +155,10 @@ def test_block_performance(
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
     vm.add_net_iface()
     # Add a secondary block device for benchmark tests.
-    fs = drive_tools.FilesystemFile(
-        os.path.join(vm.fsfiles, "scratch"), BLOCK_DEVICE_SIZE_MB
-    )
+    fs = drive_tools.FilesystemFile(vm.chroot / "scratch", BLOCK_DEVICE_SIZE_MB)
     vm.add_drive("scratch", fs.path, io_engine=io_engine)
     vm.start()
+    vm.pin_threads(0)
 
     metrics.set_dimensions(
         {
@@ -174,10 +170,7 @@ def test_block_performance(
         }
     )
 
-    vm.pin_threads(0)
-
     logs_dir, cpu_util = run_fio(vm, fio_mode, fio_block_size)
-
     process_fio_logs(vm, fio_mode, logs_dir, metrics)
 
     for thread_name, values in cpu_util.items():

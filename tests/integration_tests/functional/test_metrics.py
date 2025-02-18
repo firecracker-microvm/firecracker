@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests the metrics system."""
 
-import os
-
 import host_tools.drive as drive_tools
 from host_tools.fcmetrics import FcDeviceMetrics, validate_fc_metrics
 
@@ -63,9 +61,7 @@ def test_block_metrics(uvm_plain):
     test_microvm.spawn()
 
     # Add first scratch block device.
-    fs1 = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.fsfiles, "scratch1"), size=128
-    )
+    fs1 = drive_tools.FilesystemFile(test_microvm.chroot / "scratch1", size=128)
     test_microvm.add_drive("scratch1", fs1.path)
 
     # Set up a basic microVM.
@@ -73,9 +69,7 @@ def test_block_metrics(uvm_plain):
     test_microvm.basic_config()
 
     # Add the third block device.
-    fs2 = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.fsfiles, "scratch2"), size=512
-    )
+    fs2 = drive_tools.FilesystemFile(test_microvm.chroot / "scratch2", size=512)
     test_microvm.add_drive("scratch2", fs2.path)
 
     num_block_devices = 3

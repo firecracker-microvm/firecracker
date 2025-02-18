@@ -21,17 +21,9 @@ from typing import Dict
 
 import packaging.version
 import psutil
-from tenacity import (
-    Retrying,
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_fixed,
-)
 
 from framework.defs import MIN_KERNEL_VERSION_FOR_IO_URING
 
-FLUSH_CMD = 'screen -S {session} -X colon "logfile flush 0^M"'
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
 CMDLOG = logging.getLogger("commands")
 GET_CPU_LOAD = "top -bn1 -H -p {} -w512 | tail -n+8"
@@ -582,46 +574,6 @@ def populate_data_store(test_microvm, data_store):
     assert response.json() == data_store
 
 
-def start_screen_process(screen_log, session_name, binary_path, binary_params):
-    """Start binary process into a screen session."""
-    start_cmd = "screen -L -Logfile {logfile} -dmS {session} {binary} {params}"
-    start_cmd = start_cmd.format(
-        logfile=screen_log,
-        session=session_name,
-        binary=binary_path,
-        params=" ".join(binary_params),
-    )
-
-    check_output(start_cmd)
-
-    # Build a regex object to match (number).session_name
-    regex_object = re.compile(r"([0-9]+)\.{}".format(session_name))
-
-    # Run 'screen -ls' in a retry loop, 30 times with a 1s delay between calls.
-    # If the output of 'screen -ls' matches the regex object, it will return the
-    # PID. Otherwise, a RuntimeError will be raised.
-    for attempt in Retrying(
-        retry=retry_if_exception_type(RuntimeError),
-        stop=stop_after_attempt(30),
-        wait=wait_fixed(1),
-        reraise=True,
-    ):
-        with attempt:
-            screen_pid = search_output_from_cmd(
-                cmd="screen -ls", find_regex=regex_object
-            ).group(1)
-
-    # Make sure the screen process launched successfully
-    # As the parent process for the binary.
-    screen_ps = psutil.Process(int(screen_pid))
-    wait_process_running(screen_ps)
-
-    # Configure screen to flush stdout to file.
-    check_output(FLUSH_CMD.format(session=session_name))
-
-    return screen_pid
-
-
 def guest_run_fio_iteration(ssh_connection, iteration):
     """Start FIO workload into a microVM."""
     fio = """fio --filename=/dev/vda --direct=1 --rw=randread --bs=4k \
@@ -644,16 +596,6 @@ def check_filesystem(ssh_connection, disk_fmt, disk):
 def check_entropy(ssh_connection):
     """Check that we can get random numbers from /dev/hwrng"""
     ssh_connection.check_output("dd if=/dev/hwrng of=/dev/null bs=4096 count=1")
-
-
-@retry(wait=wait_fixed(0.5), stop=stop_after_attempt(5), reraise=True)
-def wait_process_running(process):
-    """Wait for a process to run.
-
-    Will return successfully if the process is in
-    a running state and will otherwise raise an exception.
-    """
-    assert process.is_running()
 
 
 class Timeout:

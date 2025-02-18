@@ -2,9 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for vhost-user-block device."""
 
-import os
 import shutil
-from pathlib import Path
 
 import host_tools.drive as drive_tools
 from framework.utils_drive import partuuid_and_disk_path
@@ -82,7 +80,7 @@ def test_vhost_user_block_read_write(microvm_factory, guest_kernel, rootfs):
     vm.basic_config(add_root_device=False)
 
     # Create a rw rootfs file that is unique to the microVM
-    rootfs_rw = Path(vm.chroot()) / "rootfs"
+    rootfs_rw = vm.chroot / "rootfs"
     shutil.copy(rootfs, rootfs_rw)
 
     vm.add_vhost_user_drive("rootfs", rootfs_rw, is_root_device=True)
@@ -142,18 +140,18 @@ def test_device_ordering(microvm_factory, guest_kernel, rootfs):
     vm.add_net_iface()
 
     # Adding first block device.
-    fs1 = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "scratch1"), size=128)
+    fs1 = drive_tools.FilesystemFile(vm.chroot / "scratch1", size=128)
     vm.add_drive("scratch1", fs1.path)
 
     # Adding second block device (rootfs)
     vm.add_vhost_user_drive("rootfs", rootfs, is_root_device=True, is_read_only=True)
 
     # Adding third block device.
-    fs2 = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "scratch2"), size=512)
+    fs2 = drive_tools.FilesystemFile(vm.chroot / "scratch2", size=512)
     vm.add_drive("scratch2", fs2.path)
 
     # Create a rw rootfs file that is unique to the microVM
-    rootfs_rw = Path(vm.chroot()) / "rootfs"
+    rootfs_rw = vm.chroot / "rootfs"
     shutil.copy(rootfs, rootfs_rw)
 
     # Adding forth block device.
@@ -213,7 +211,7 @@ def test_partuuid_boot(
     vm.basic_config(add_root_device=False)
 
     # Create a rootfs with partuuid unique to this microVM
-    partuuid, disk_path = partuuid_and_disk_path(rootfs, Path(vm.chroot()) / "disk.img")
+    partuuid, disk_path = partuuid_and_disk_path(rootfs, vm.chroot / "disk.img")
 
     vm.add_vhost_user_drive(
         "1", disk_path, is_root_device=True, partuuid=partuuid, is_read_only=True

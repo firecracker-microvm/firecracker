@@ -13,7 +13,7 @@ from framework import utils
 
 def install_filter(microvm, bpf_path):
     """Install seccomp filter in microvm."""
-    microvm.create_jailed_resource(bpf_path)
+    microvm.jail_path(bpf_path)
     microvm.jailer.extra_args.update({"seccomp-filter": bpf_path.name})
 
 
@@ -110,18 +110,18 @@ def test_invalid_bpf(uvm_plain):
 
     # Configure VM from JSON. Otherwise, the test will error because
     # the process will be killed before configuring the API socket.
-    test_microvm.create_jailed_resource(test_microvm.kernel_file)
-    test_microvm.create_jailed_resource(test_microvm.rootfs_file)
+    test_microvm.jail_path(test_microvm.kernel_file)
+    test_microvm.jail_path(test_microvm.rootfs_file)
 
     vm_config_file = Path("framework/vm_config.json")
-    test_microvm.create_jailed_resource(vm_config_file)
-    test_microvm.jailer.extra_args = {"config-file": vm_config_file.name}
-    test_microvm.jailer.extra_args.update({"no-api": None})
+    vm_config_jailed_path = test_microvm.jail_path(vm_config_file)
+    test_microvm.jailer.extra_args = {"config-file": vm_config_jailed_path}
+    test_microvm.jailer.extra_args["no-api"] = None
 
-    bpf_path = Path(test_microvm.path) / "bpf.out"
+    bpf_path = test_microvm.chroot / "bpf.out"
     bpf_path.write_bytes(b"Invalid BPF!")
-    test_microvm.create_jailed_resource(bpf_path)
-    test_microvm.jailer.extra_args.update({"seccomp-filter": bpf_path.name})
+    bpf_jail_path = test_microvm.jail_path(bpf_path)
+    test_microvm.jailer.extra_args["seccomp-filter"] = bpf_jail_path
 
     test_microvm.spawn()
     # give time for the process to get killed

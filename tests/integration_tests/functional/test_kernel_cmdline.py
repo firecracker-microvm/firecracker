@@ -3,8 +3,6 @@
 
 """Test kernel commandline behavior."""
 
-from framework.microvm import Serial
-
 
 def test_init_params(uvm_plain):
     """Correct propagation of boot args to the kernel's command line.
@@ -26,7 +24,7 @@ def test_init_params(uvm_plain):
     )
 
     vm.start()
-    serial = Serial(vm)
+    serial = vm.jailer.serial()
     serial.open()
     # If the string does not show up, the test will fail.
     serial.rx(token="Ubuntu 24.04")

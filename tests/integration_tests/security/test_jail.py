@@ -5,17 +5,20 @@
 import http.client as http_client
 import os
 import resource
+import signal
 import stat
 import subprocess
 import time
 from pathlib import Path
 
+import psutil
 import pytest
 import requests
 import urllib3
 
 from framework.defs import FC_BINARY_NAME
 from framework.jailer import JailerContext
+from framework.jailer_screen import JailerScreen
 
 # These are the permissions that all files/dirs inside the jailer have.
 REG_PERMS = (
@@ -53,25 +56,24 @@ def check_stats(filepath, stats, uid, gid):
 
 
 def test_empty_jailer_id(uvm_plain):
-    """
-    Test that the jailer ID cannot be empty.
-    """
-    test_microvm = uvm_plain
+    """Test that the jailer ID cannot be empty."""
 
-    # Set the jailer ID to None.
-    test_microvm.jailer = JailerContext(
-        jailer_id="",
-        exec_file=test_microvm.fc_binary_path,
+    jailer_bin = uvm_plain.jailer.jailer_bin_path
+    res = subprocess.run(
+        # Set the jailer ID to empty string.
+        f"{jailer_bin} --id '' --exec-file {uvm_plain.jailer.exec_file} --gid 1 --uid 1",
+        capture_output=True,
+        shell=True,
+        check=False,
     )
-
-    # If the exception is not thrown, it means that Firecracker was
-    # started successfully, hence there's a bug in the code due to which
-    # we can set an empty ID.
-    with pytest.raises(
-        ChildProcessError,
-        match=r"Jailer error: Invalid instance ID: Invalid len \(0\);  the length must be between 1 and 64",
-    ):
-        test_microvm.spawn()
+    # If this does not error, it means that Firecracker was started
+    # successfully, and there's a bug in the code due to which we can set an
+    # empty ID.
+    assert res.returncode == 134
+    assert (
+        b"Jailer error: Invalid instance ID: Invalid len (0);  the length must be between 1 and 64"
+        in res.stderr
+    )
 
 
 def test_exec_file_not_exist(uvm_plain, tmp_path):
@@ -79,39 +81,47 @@ def test_exec_file_not_exist(uvm_plain, tmp_path):
     Test the jailer option `--exec-file`
     """
     test_microvm = uvm_plain
+    jailer = test_microvm.jailer
+    jailer_kwargs = {
+        "jailer_id": jailer.jailer_id,
+        "jailer_binary_path": jailer.jailer_bin_path,
+        "netns": jailer.netns,
+        "new_pid_ns": True,
+    }
 
     # Error case 1: No such file exists
-    pseudo_exec_file_path = tmp_path / "pseudo_firecracker_exec_file"
-    fc_dir = Path("/srv/jailer") / pseudo_exec_file_path.name / test_microvm.id
-    fc_dir.mkdir(parents=True, exist_ok=True)
-    test_microvm.jailer.exec_file = pseudo_exec_file_path
+    bad_exec_file_path = tmp_path / "pseudo_firecracker_exec_file"
+    test_microvm.jailer = JailerContext(**jailer_kwargs, exec_file=bad_exec_file_path)
+    test_microvm.jailer.setup()
 
     with pytest.raises(
         Exception,
-        match=rf"Jailer error: Failed to canonicalize path {pseudo_exec_file_path}:"
+        match=rf"Jailer error: Failed to canonicalize path {bad_exec_file_path}:"
         rf" No such file or directory \(os error 2\)",
     ):
         test_microvm.spawn()
 
     # Error case 2: Not a file
-    pseudo_exec_dir_path = tmp_path / "firecracker_test_dir"
-    pseudo_exec_dir_path.mkdir()
-    fc_dir = Path("/srv/jailer") / pseudo_exec_dir_path.name / test_microvm.id
+    bad_exec_dir_path = tmp_path / "firecracker_test_dir"
+    bad_exec_dir_path.mkdir()
+    test_microvm.jailer = JailerContext(**jailer_kwargs, exec_file=bad_exec_dir_path)
+    test_microvm.jailer.setup()
+
+    fc_dir = Path("/srv/jailer") / bad_exec_dir_path.name / test_microvm.id
     fc_dir.mkdir(parents=True, exist_ok=True)
-    test_microvm.jailer.exec_file = pseudo_exec_dir_path
+    test_microvm.jailer.exec_file = bad_exec_dir_path
 
     with pytest.raises(
         Exception,
-        match=rf"Jailer error: {pseudo_exec_dir_path} is not a file",
+        match=rf"Jailer error: {bad_exec_dir_path} is not a file",
     ):
         test_microvm.spawn()
 
     # Error case 3: Filename without "firecracker"
-    pseudo_exec_file_path = tmp_path / "foobarbaz"
-    pseudo_exec_file_path.touch()
-    fc_dir = Path("/srv/jailer") / pseudo_exec_file_path.name / test_microvm.id
-    fc_dir.mkdir(parents=True, exist_ok=True)
-    test_microvm.jailer.exec_file = pseudo_exec_file_path
+    bad_exec_file_path = tmp_path / "foobarbaz"
+    bad_exec_file_path.touch()
+    test_microvm.jailer = JailerContext(**jailer_kwargs, exec_file=bad_exec_file_path)
+    test_microvm.jailer.setup()
 
     with pytest.raises(
         Exception,
@@ -132,43 +142,43 @@ def test_default_chroot_hierarchy(uvm_plain):
     # We do checks for all the things inside the chroot that the jailer crates
     # by default.
     check_stats(
-        test_microvm.jailer.chroot_path(),
+        test_microvm.jailer.chroot,
         DIR_STATS,
         test_microvm.jailer.uid,
         test_microvm.jailer.gid,
     )
     check_stats(
-        os.path.join(test_microvm.jailer.chroot_path(), "dev"),
+        os.path.join(test_microvm.jailer.chroot, "dev"),
         DIR_STATS,
         test_microvm.jailer.uid,
         test_microvm.jailer.gid,
     )
     check_stats(
-        os.path.join(test_microvm.jailer.chroot_path(), "dev/net"),
+        os.path.join(test_microvm.jailer.chroot, "dev/net"),
         DIR_STATS,
         test_microvm.jailer.uid,
         test_microvm.jailer.gid,
     )
     check_stats(
-        os.path.join(test_microvm.jailer.chroot_path(), "run"),
+        os.path.join(test_microvm.jailer.chroot, "run"),
         DIR_STATS,
         test_microvm.jailer.uid,
         test_microvm.jailer.gid,
     )
     check_stats(
-        os.path.join(test_microvm.jailer.chroot_path(), "dev/net/tun"),
+        os.path.join(test_microvm.jailer.chroot, "dev/net/tun"),
         CHAR_STATS,
         test_microvm.jailer.uid,
         test_microvm.jailer.gid,
     )
     check_stats(
-        os.path.join(test_microvm.jailer.chroot_path(), "dev/kvm"),
+        os.path.join(test_microvm.jailer.chroot, "dev/kvm"),
         CHAR_STATS,
         test_microvm.jailer.uid,
         test_microvm.jailer.gid,
     )
     check_stats(
-        os.path.join(test_microvm.jailer.chroot_path(), "firecracker"), FILE_STATS, 0, 0
+        os.path.join(test_microvm.jailer.chroot, "firecracker"), FILE_STATS, 0, 0
     )
 
 
@@ -182,7 +192,7 @@ def test_arbitrary_usocket_location(uvm_plain):
     test_microvm.spawn()
 
     check_stats(
-        os.path.join(test_microvm.jailer.chroot_path(), "api.socket"),
+        os.path.join(test_microvm.jailer.chroot, "api.socket"),
         SOCK_STATS,
         test_microvm.jailer.uid,
         test_microvm.jailer.gid,
@@ -580,32 +590,47 @@ def test_new_pid_namespace(uvm_plain):
     assert int(nstgid_list[0]) == fc_pid
 
 
-@pytest.mark.parametrize(
-    "daemonize",
-    [True, False],
-)
-@pytest.mark.parametrize(
-    "new_pid_ns",
-    [True, False],
-)
+@pytest.mark.parametrize("daemonize", [True, False])
+@pytest.mark.parametrize("new_pid_ns", [True, False])
 def test_firecracker_kill_by_pid(uvm_plain, daemonize, new_pid_ns):
     """
     Test that Firecracker is spawned in a new PID namespace if requested.
     """
     microvm = uvm_plain
-    microvm.jailer.daemonize = daemonize
-    microvm.jailer.new_pid_ns = new_pid_ns
+    jailer_cls = JailerContext
+    if not daemonize:
+        jailer_cls = JailerScreen
+    microvm.jailer = jailer_cls(
+        microvm.id,
+        microvm.jailer.jailer_bin_path,
+        microvm.jailer.exec_file,
+        netns=microvm.netns,
+        new_pid_ns=new_pid_ns,
+        daemonize=daemonize,
+    )
     microvm.spawn()
     microvm.basic_config()
     microvm.add_net_iface()
     microvm.start()
+
+    firecracker_ps = psutil.Process(microvm.firecracker_pid)
 
     # before killing microvm make sure the Jailer config is what we set it to be.
     assert (
         microvm.jailer.daemonize == daemonize
         and microvm.jailer.new_pid_ns == new_pid_ns
     )
-    microvm.kill()
+    if not daemonize and new_pid_ns:
+        # this combination makes little sense: the screen process dissappears so
+        # we have to avoid calling jailer.kill() and instead kill the FC process
+        # directly
+        firecracker_ps.send_signal(signal.SIGKILL)
+        microvm.mark_killed()
+    else:
+        microvm.kill()
+
+    firecracker_ps.wait(5)
+    assert not firecracker_ps.is_running()
 
 
 def test_cgroupsv2_written_only_once(uvm_plain, cgroups_info):
@@ -619,7 +644,7 @@ def test_cgroupsv2_written_only_once(uvm_plain, cgroups_info):
         pytest.skip(reason="Requires system with cgroup-v2 enabled.")
 
     uvm = uvm_plain
-    strace_output_path = Path(uvm.path, "strace.out")
+    strace_output_path = uvm.chroot / "strace.out"
     strace_cmd = [
         "strace",
         "-tt",
@@ -628,7 +653,7 @@ def test_cgroupsv2_written_only_once(uvm_plain, cgroups_info):
         "-e",
         "write,mkdir,mkdirat",
         "-o",
-        strace_output_path,
+        str(strace_output_path),
     ]
     uvm.add_pre_cmd(strace_cmd)
 
