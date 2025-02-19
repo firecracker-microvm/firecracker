@@ -26,6 +26,9 @@ and this project adheres to
 - [#4926](https://github.com/firecracker-microvm/firecracker/pull/4926): Replace
   underlying implementation for seccompiler from in house one in favor of
   `libseccomp` which produces smaller and more optimized BPF code.
+- [#4995](https://github.com/firecracker-microvm/firecracker/pull/4995): Removed
+  the extended function range normalisation applied on AMD. Now the range
+  provided by KVM will be used or can be be configured using a CPU template.
 
 ### Deprecated
 
