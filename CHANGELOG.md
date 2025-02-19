@@ -57,6 +57,10 @@ and this project adheres to
 - [#5045](https://github.com/firecracker-microvm/firecracker/pull/5045): Fixed
   an issue where firecracker intermittently receives SIGHUP when using jailer
   with `--new-pid-ns` but without `--daemonize`.
+- [#4995](https://github.com/firecracker-microvm/firecracker/pull/4995):
+  Firecracker no longer overwrites CPUID leaf 0x80000000 when running AMD
+  hardware, meaning the guest can now discover a greater range of CPUID leaves
+  in the extended function range (this range is host kernel dependent).
 
 ## [1.10.1]
 
