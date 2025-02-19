@@ -42,13 +42,12 @@ See also: [boot protocol settings](boot-protocol.md)
 
 ## AMD-specifc CPUID normalization
 
-| Description                                          |                Leaf                | Subleaf |      Register      | Bits  |
-| ---------------------------------------------------- | :--------------------------------: | :-----: | :----------------: | :---: |
-| Set IA32_ARCH_CAPABILITIES MSR as not present        |                0x7                 |    -    |        EDX         |  29   |
-| Update largest extended function entry to 0x8000001f |             0x80000000             |    -    |        EAX         | 31:0  |
-| Set topology extension bit                           |             0x80000001             |    -    |        ECX         |  22   |
-| Update brand string with a default AMD value         | 0x80000002, 0x80000003, 0x80000004 |    -    | EAX, EBX, ECX, EDX |  all  |
-| Update number of physical threads                    |             0x80000008             |    -    |        ECX         |  7:0  |
-| Update APIC ID size                                  |             0x80000008             |    -    |        ECX         | 15:12 |
-| Update cache topology information                    |             0x8000001d             |   all   |        all         |  all  |
-| Update extended APIC ID                              |             0x8000001e             |    -    |   EAX, EBX, ECX    |  all  |
+| Description                                   |                Leaf                | Subleaf |      Register      | Bits  |
+| --------------------------------------------- | :--------------------------------: | :-----: | :----------------: | :---: |
+| Set IA32_ARCH_CAPABILITIES MSR as not present |                0x7                 |    -    |        EDX         |  29   |
+| Set topology extension bit                    |             0x80000001             |    -    |        ECX         |  22   |
+| Update brand string with a default AMD value  | 0x80000002, 0x80000003, 0x80000004 |    -    | EAX, EBX, ECX, EDX |  all  |
+| Update number of physical threads             |             0x80000008             |    -    |        ECX         |  7:0  |
+| Update APIC ID size                           |             0x80000008             |    -    |        ECX         | 15:12 |
+| Update cache topology information             |             0x8000001d             |   all   |        all         |  all  |
+| Update extended APIC ID                       |             0x8000001e             |    -    |   EAX, EBX, ECX    |  all  |
