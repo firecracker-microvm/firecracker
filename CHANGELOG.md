@@ -54,6 +54,9 @@ and this project adheres to
   Firecracker's `--parent-cpu-time-us` values, which caused development builds
   of Firecracker to crash (but production builds were unaffected as underflows
   do not panic in release mode).
+- [#5045](https://github.com/firecracker-microvm/firecracker/pull/5045): Fixed
+  an issue where firecracker intermittently receives SIGHUP when using jailer
+  with `--new-pid-ns` but without `--daemonize`.
 
 ## [1.10.1]
 

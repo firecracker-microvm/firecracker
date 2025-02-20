@@ -330,12 +330,52 @@ impl Env {
     }
 
     fn exec_into_new_pid_ns(&mut self, chroot_exec_file: PathBuf) -> Result<(), JailerError> {
+        // https://man7.org/linux/man-pages/man7/pid_namespaces.7.html
+        // > a process in an ancestor namespace can send signals to the "init" process of a child
+        // > PID namespace only if the "init" process has established a handler for that signal.
+        //
+        // Firecracker (i.e. the "init" process of the new PID namespace) sets up handlers for some
+        // signals including SIGHUP and jailer exits soon after spawning firecracker into a new PID
+        // namespace. If the jailer process is a session leader and its exit happens after
+        // firecracker configures the signal handlers, SIGHUP will be sent to firecracker and be
+        // caught by the handler unexpectedly.
+        //
+        // In order to avoid the above issue, if jailer is a session leader, creates a new session
+        // and makes the child process (i.e. firecracker) become the leader of the new session to
+        // not get SIGHUP on the exit of jailer.
+
+        // Check whether jailer is a session leader or not before clone().
+        // Note that, if `--daemonize` is passed, jailer is always not a session leader. This is
+        // because we use the double fork method, making itself not a session leader.
+        let is_session_leader = match self.daemonize {
+            true => false,
+            false => {
+                // SAFETY: Safe because it doesn't take any input parameters.
+                let sid = SyscallReturnCode(unsafe { libc::getsid(0) })
+                    .into_result()
+                    .map_err(JailerError::GetSid)?;
+                // SAFETY: Safe because it doesn't take any input parameters.
+                let ppid = SyscallReturnCode(unsafe { libc::getpid() })
+                    .into_result()
+                    .map_err(JailerError::GetPid)?;
+                sid == ppid
+            }
+        };
+
         // Duplicate the current process. The child process will belong to the previously created
         // PID namespace. The current process will not be moved into the newly created namespace,
         // but its first child will assume the role of init(1) in the new namespace.
         let pid = clone(std::ptr::null_mut(), libc::CLONE_NEWPID)?;
         match pid {
-            0 => Err(JailerError::Exec(self.exec_command(chroot_exec_file))),
+            0 => {
+                if is_session_leader {
+                    // SAFETY: Safe bacause it doesn't take any input parameters.
+                    SyscallReturnCode(unsafe { libc::setsid() })
+                        .into_empty_result()
+                        .map_err(JailerError::SetSid)?;
+                }
+                Err(JailerError::Exec(self.exec_command(chroot_exec_file)))
+            }
             child_pid => {
                 // Save the PID of the process running the exec file provided
                 // inside <chroot_exec_file>.pid file.
