@@ -85,6 +85,10 @@ pub enum JailerError {
     FromBytesWithNul(std::ffi::FromBytesWithNulError),
     #[error("Failed to get flags from fd: {0}")]
     GetOldFdFlags(io::Error),
+    #[error("Failed to get PID (getpid): {0}")]
+    GetPid(io::Error),
+    #[error("Failed to get SID (getsid): {0}")]
+    GetSid(io::Error),
     #[error("Invalid gid: {0}")]
     Gid(String),
     #[error("Invalid instance ID: {0}")]
