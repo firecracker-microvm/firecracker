@@ -30,7 +30,7 @@ pub enum ArchVmError {
 impl ArchVm {
     /// Create a new `Vm` struct.
     pub fn new(kvm: &Kvm) -> Result<ArchVm, VmError> {
-        let fd = kvm.fd.create_vm().map_err(VmError::CreateVm)?;
+        let fd = Self::create_vm(kvm)?;
         Ok(ArchVm {
             fd,
             irqchip_handle: None,
