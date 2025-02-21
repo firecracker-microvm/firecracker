@@ -30,8 +30,8 @@ use crate::Vcpu;
 pub enum VmError {
     /// Cannot set the memory regions: {0}
     SetUserMemoryRegion(kvm_ioctls::Error),
-    /// Cannot open the VM file descriptor: {0}
-    VmFd(kvm_ioctls::Error),
+    /// Failed to create VM: {0}
+    CreateVm(kvm_ioctls::Error),
     /// {0}
     Arch(#[from] ArchVmError),
     /// Error during eventfd operations: {0}
