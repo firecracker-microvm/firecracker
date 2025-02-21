@@ -9,6 +9,7 @@ use kvm_bindings::{kvm_userspace_memory_region, KVM_MEM_LOG_DIRTY_PAGES};
 use kvm_ioctls::VmFd;
 use vmm_sys_util::eventfd::EventFd;
 
+use crate::logger::info;
 use crate::vstate::memory::{Address, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 #[cfg(target_arch = "x86_64")]
@@ -42,6 +43,42 @@ pub enum VmError {
 
 /// Contains Vm functions that are usable across CPU architectures
 impl Vm {
+    fn create_vm(kvm: &crate::vstate::kvm::Kvm) -> Result<VmFd, VmError> {
+        // It is known that KVM_CREATE_VM occasionally fails with EINTR on heavily loaded machines
+        // with many VMs.
+        //
+        // The behavior itself that KVM_CREATE_VM can return EINTR is intentional. This is because
+        // the KVM_CREATE_VM path includes mm_take_all_locks() that is CPU intensive and all CPU
+        // intensive syscalls should check for pending signals and return EINTR immediately to allow
+        // userland to remain interactive.
+        // https://lists.nongnu.org/archive/html/qemu-devel/2014-01/msg01740.html
+        //
+        // However, it is empirically confirmed that, even though there is no pending signal,
+        // KVM_CREATE_VM returns EINTR.
+        // https://lore.kernel.org/qemu-devel/8735e0s1zw.wl-maz@kernel.org/
+        //
+        // To mitigate it, QEMU does an inifinite retry on EINTR that greatly improves reliabiliy:
+        // - https://github.com/qemu/qemu/commit/94ccff133820552a859c0fb95e33a539e0b90a75
+        // - https://github.com/qemu/qemu/commit/bbde13cd14ad4eec18529ce0bf5876058464e124
+        //
+        // Similarly, we do retries up to 5 times. Although Firecracker clients are also able to
+        // retry, they have to start Firecracker from scratch. Doing retries in Firecracker makes
+        // recovery faster and improves reliability.
+        const MAX_ATTEMPTS: u32 = 5;
+        for attempt in 1..=MAX_ATTEMPTS {
+            match kvm.fd.create_vm() {
+                Ok(fd) => return Ok(fd),
+                Err(e) if e.errno() == libc::EINTR && attempt < MAX_ATTEMPTS => {
+                    info!("Attempt #{attempt} of KVM_CREATE_VM returned EINTR");
+                    // Exponential backoff (1us, 2us, 4us, and 8us => 15us in total)
+                    std::thread::sleep(std::time::Duration::from_micros(2u64.pow(attempt - 1)));
+                }
+                Err(e) => return Err(VmError::CreateVm(e)),
+            }
+        }
+        unreachable!();
+    }
+
     /// Creates the specified number of [`Vcpu`]s.
     ///
     /// The returned [`EventFd`] is written to whenever any of the vcpus exit.

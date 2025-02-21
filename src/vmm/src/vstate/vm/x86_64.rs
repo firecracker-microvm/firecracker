@@ -53,7 +53,8 @@ pub struct ArchVm {
 impl ArchVm {
     /// Create a new `Vm` struct.
     pub fn new(kvm: &crate::vstate::kvm::Kvm) -> Result<ArchVm, VmError> {
-        let fd = kvm.fd.create_vm().map_err(VmError::CreateVm)?;
+        let fd = Self::create_vm(kvm)?;
+
         let msrs_to_save = kvm.msrs_to_save().map_err(ArchVmError::GetMsrsToSave)?;
 
         fd.set_tss_address(u64_to_usize(crate::arch::x86_64::layout::KVM_TSS_ADDRESS))
