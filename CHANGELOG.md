@@ -61,6 +61,9 @@ and this project adheres to
   Firecracker no longer overwrites CPUID leaf 0x80000000 when running AMD
   hardware, meaning the guest can now discover a greater range of CPUID leaves
   in the extended function range (this range is host kernel dependent).
+- [#5046](https://github.com/firecracker-microvm/firecracker/pull/5046): Retry
+  KVM_CREATE_VM on EINTR that occasionally happen on heavily loaded hosts to
+  improve reliability of microVM creation.
 
 ## [1.10.1]
 
