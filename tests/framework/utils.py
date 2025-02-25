@@ -28,8 +28,6 @@ from tenacity import (
     wait_fixed,
 )
 
-from framework.defs import MIN_KERNEL_VERSION_FOR_IO_URING
-
 FLUSH_CMD = 'screen -S {session} -X colon "logfile flush 0^M"'
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
 CMDLOG = logging.getLogger("commands")
@@ -453,17 +451,6 @@ def get_kernel_version(level=2):
             linux_version = linux_version[0:idx]
             break
     return linux_version
-
-
-def is_io_uring_supported():
-    """
-    Return whether Firecracker supports io_uring for the running kernel ...
-
-    ...version.
-    """
-    kv = packaging.version.parse(get_kernel_version())
-    min_kv = packaging.version.parse(MIN_KERNEL_VERSION_FOR_IO_URING)
-    return kv >= min_kv
 
 
 def generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl):

@@ -373,8 +373,6 @@ def cpu_template_any(request, record_property):
 @pytest.fixture(params=["Sync", "Async"])
 def io_engine(request):
     """All supported io_engines"""
-    if request.param == "Async" and not utils.is_io_uring_supported():
-        pytest.skip("io_uring not supported in this kernel")
     return request.param
 
 
