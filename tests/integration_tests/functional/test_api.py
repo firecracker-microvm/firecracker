@@ -253,7 +253,7 @@ def test_api_mmds_config(uvm_plain):
         "The list of network interface IDs that allow "
         "forwarding MMDS requests is empty."
     )
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match=err_msg):
         test_microvm.api.mmds_config.put(network_interfaces=[])
 
     # Setting MMDS config when no network device has been attached
