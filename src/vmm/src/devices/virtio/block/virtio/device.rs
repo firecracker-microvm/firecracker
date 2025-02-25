@@ -8,21 +8,19 @@
 use std::cmp;
 use std::convert::From;
 use std::fs::{File, OpenOptions};
-use std::io::{Seek, SeekFrom, Write};
+use std::io::{Seek, SeekFrom};
 use std::os::linux::fs::MetadataExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use block_io::FileEngine;
 use serde::{Deserialize, Serialize};
+use vm_memory::ByteValued;
 use vmm_sys_util::eventfd::EventFd;
 
 use super::io::async_io;
 use super::request::*;
-use super::{
-    io as block_io, VirtioBlockError, BLOCK_CONFIG_SPACE_SIZE, BLOCK_QUEUE_SIZES, SECTOR_SHIFT,
-    SECTOR_SIZE,
-};
+use super::{io as block_io, VirtioBlockError, BLOCK_QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE};
 use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
 use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
@@ -155,19 +153,16 @@ impl DiskProperties {
         }
         default_id
     }
-
-    /// Provides vec containing the virtio block configuration space
-    /// buffer. The config space is populated with the disk size based
-    /// on the backing file size.
-    pub fn virtio_block_config_space(&self) -> Vec<u8> {
-        // The config space is little endian.
-        let mut config = Vec::with_capacity(BLOCK_CONFIG_SPACE_SIZE);
-        for i in 0..BLOCK_CONFIG_SPACE_SIZE {
-            config.push(((self.nsectors >> (8 * i)) & 0xff) as u8);
-        }
-        config
-    }
 }
+
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
+#[repr(C)]
+pub struct ConfigSpace {
+    pub capacity: u64,
+}
+
+// SAFETY: `ConfigSpace` contains only PODs in `repr(C)` or `repr(transparent)`, without padding.
+unsafe impl ByteValued for ConfigSpace {}
 
 /// Use this structure to set up the Block Device before booting the kernel.
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -246,7 +241,7 @@ pub struct VirtioBlock {
     // Virtio fields.
     pub avail_features: u64,
     pub acked_features: u64,
-    pub config_space: Vec<u8>,
+    pub config_space: ConfigSpace,
     pub activate_evt: EventFd,
 
     // Transport related fields.
@@ -313,10 +308,14 @@ impl VirtioBlock {
 
         let queues = BLOCK_QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect();
 
+        let config_space = ConfigSpace {
+            capacity: disk_properties.nsectors.to_le(),
+        };
+
         Ok(VirtioBlock {
             avail_features,
             acked_features: 0u64,
-            config_space: disk_properties.virtio_block_config_space(),
+            config_space,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?,
 
             queues,
@@ -524,7 +523,7 @@ impl VirtioBlock {
     /// Update the backing file and the config space of the block device.
     pub fn update_disk_image(&mut self, disk_image_path: String) -> Result<(), VirtioBlockError> {
         self.disk.update(disk_image_path, self.read_only)?;
-        self.config_space = self.disk.virtio_block_config_space();
+        self.config_space.capacity = self.disk.nsectors.to_le(); // virtio_block_config_space();
 
         // Kick the driver to pick up the changes.
         self.irq_trigger.trigger_irq(IrqType::Config).unwrap();
@@ -598,28 +597,23 @@ impl VirtioDevice for VirtioBlock {
         &self.irq_trigger
     }
 
-    fn read_config(&self, offset: u64, mut data: &mut [u8]) {
-        let config_len = self.config_space.len() as u64;
-        if offset >= config_len {
+    fn read_config(&self, offset: u64, data: &mut [u8]) {
+        if let Some(config_space_bytes) = self.config_space.as_slice().get(u64_to_usize(offset)..) {
+            let len = config_space_bytes.len().min(data.len());
+            data[..len].copy_from_slice(&config_space_bytes[..len]);
+        } else {
             error!("Failed to read config space");
             self.metrics.cfg_fails.inc();
-            return;
-        }
-        if let Some(end) = offset.checked_add(data.len() as u64) {
-            // This write can't fail, offset and end are checked against config_len.
-            data.write_all(
-                &self.config_space[u64_to_usize(offset)..u64_to_usize(cmp::min(end, config_len))],
-            )
-            .unwrap();
         }
     }
 
     fn write_config(&mut self, offset: u64, data: &[u8]) {
+        let config_space_bytes = self.config_space.as_mut_slice();
         let start = usize::try_from(offset).ok();
         let end = start.and_then(|s| s.checked_add(data.len()));
         let Some(dst) = start
             .zip(end)
-            .and_then(|(start, end)| self.config_space.get_mut(start..end))
+            .and_then(|(start, end)| config_space_bytes.get_mut(start..end))
         else {
             error!("Failed to write config space");
             self.metrics.cfg_fails.inc();
@@ -673,7 +667,7 @@ impl Drop for VirtioBlock {
 #[cfg(test)]
 mod tests {
     use std::fs::metadata;
-    use std::io::Read;
+    use std::io::{Read, Write};
     use std::os::unix::ffi::OsStrExt;
     use std::thread;
     use std::time::Duration;
@@ -755,11 +749,6 @@ mod tests {
 
             assert_eq!(size, u64::from(SECTOR_SIZE) * num_sectors);
             assert_eq!(disk_properties.nsectors, num_sectors);
-            let cfg = disk_properties.virtio_block_config_space();
-            assert_eq!(cfg.len(), BLOCK_CONFIG_SPACE_SIZE);
-            for (i, byte) in cfg.iter().enumerate() {
-                assert_eq!(*byte, ((num_sectors >> (8 * i)) & 0xff) as u8);
-            }
             // Testing `backing_file.virtio_block_disk_image_id()` implies
             // duplicating that logic in tests, so skipping it.
 
@@ -803,20 +792,21 @@ mod tests {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let block = default_block(engine);
 
-            let mut actual_config_space = [0u8; BLOCK_CONFIG_SPACE_SIZE];
-            block.read_config(0, &mut actual_config_space);
+            let mut actual_config_space = ConfigSpace::default();
+            block.read_config(0, actual_config_space.as_mut_slice());
             // This will read the number of sectors.
             // The block's backing file size is 0x1000, so there are 8 (4096/512) sectors.
             // The config space is little endian.
-            let expected_config_space: [u8; BLOCK_CONFIG_SPACE_SIZE] =
-                [0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+            let expected_config_space = ConfigSpace { capacity: 8 };
             assert_eq!(actual_config_space, expected_config_space);
 
             // Invalid read.
-            let expected_config_space: [u8; BLOCK_CONFIG_SPACE_SIZE] =
-                [0xd, 0xe, 0xa, 0xd, 0xb, 0xe, 0xe, 0xf];
+            let expected_config_space = ConfigSpace { capacity: 696969 };
             actual_config_space = expected_config_space;
-            block.read_config(BLOCK_CONFIG_SPACE_SIZE as u64 + 1, &mut actual_config_space);
+            block.read_config(
+                std::mem::size_of::<ConfigSpace>() as u64 + 1,
+                actual_config_space.as_mut_slice(),
+            );
 
             // Validate read failed (the config space was not updated).
             assert_eq!(actual_config_space, expected_config_space);
@@ -828,33 +818,37 @@ mod tests {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
 
-            let expected_config_space: [u8; BLOCK_CONFIG_SPACE_SIZE] =
-                [0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
-            block.write_config(0, &expected_config_space);
+            let expected_config_space = ConfigSpace { capacity: 696969 };
+            block.write_config(0, expected_config_space.as_slice());
 
-            let mut actual_config_space = [0u8; BLOCK_CONFIG_SPACE_SIZE];
-            block.read_config(0, &mut actual_config_space);
+            let mut actual_config_space = ConfigSpace::default();
+            block.read_config(0, actual_config_space.as_mut_slice());
             assert_eq!(actual_config_space, expected_config_space);
 
             // If priviledged user writes to `/dev/mem`, in block config space - byte by byte.
-            let expected_config_space = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x00, 0x11];
-            for i in 0..expected_config_space.len() {
-                block.write_config(i as u64, &expected_config_space[i..=i]);
+            let expected_config_space = ConfigSpace {
+                capacity: 0x1122334455667788,
+            };
+            let expected_config_space_slice = expected_config_space.as_slice();
+            for (i, b) in expected_config_space_slice.iter().enumerate() {
+                block.write_config(i as u64, &[*b]);
             }
-            block.read_config(0, &mut actual_config_space);
+            block.read_config(0, actual_config_space.as_mut_slice());
             assert_eq!(actual_config_space, expected_config_space);
 
             // Invalid write.
-            let new_config_space = [0xd, 0xe, 0xa, 0xd, 0xb, 0xe, 0xe, 0xf];
-            block.write_config(5, &new_config_space);
+            let new_config_space = ConfigSpace {
+                capacity: 0xDEADBEEF,
+            };
+            block.write_config(5, new_config_space.as_slice());
             // Make sure nothing got written.
-            block.read_config(0, &mut actual_config_space);
+            block.read_config(0, actual_config_space.as_mut_slice());
             assert_eq!(actual_config_space, expected_config_space);
 
             // Large offset that may cause an overflow.
-            block.write_config(u64::MAX, &new_config_space);
+            block.write_config(u64::MAX, new_config_space.as_slice());
             // Make sure nothing got written.
-            block.read_config(0, &mut actual_config_space);
+            block.read_config(0, actual_config_space.as_mut_slice());
             assert_eq!(actual_config_space, expected_config_space);
         }
     }

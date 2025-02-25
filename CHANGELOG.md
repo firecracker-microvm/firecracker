@@ -42,6 +42,28 @@ and this project adheres to
   `mem_size_mib` and `track_dirty_pages` being mandatory for all
   `PATCH /machine-config` requests. Now, they can be omitted which leaves these
   parts of the machine configuration unchanged.
+- [#5007](https://github.com/firecracker-microvm/firecracker/pull/5007): Fixed
+  watchdog softlockup warning on x86_64 guests when a vCPU is paused during GDB
+  debugging.
+- [#5021](https://github.com/firecracker-microvm/firecracker/pull/5021) If a
+  balloon device is inflated post UFFD-backed snapshot restore, Firecracker now
+  causes `remove` UFFD messages to be sent to the UFFD handler. Previously, no
+  such message would be sent.
+- [#5034](https://github.com/firecracker-microvm/firecracker/pull/5034): Fix an
+  integer underflow in the jailer when computing the value it passes to
+  Firecracker's `--parent-cpu-time-us` values, which caused development builds
+  of Firecracker to crash (but production builds were unaffected as underflows
+  do not panic in release mode).
+- [#5045](https://github.com/firecracker-microvm/firecracker/pull/5045): Fixed
+  an issue where firecracker intermittently receives SIGHUP when using jailer
+  with `--new-pid-ns` but without `--daemonize`.
+- [#4995](https://github.com/firecracker-microvm/firecracker/pull/4995):
+  Firecracker no longer overwrites CPUID leaf 0x80000000 when running AMD
+  hardware, meaning the guest can now discover a greater range of CPUID leaves
+  in the extended function range (this range is host kernel dependent).
+- [#5046](https://github.com/firecracker-microvm/firecracker/pull/5046): Retry
+  KVM_CREATE_VM on EINTR that occasionally happen on heavily loaded hosts to
+  improve reliability of microVM creation.
 
 ## [1.10.1]
 
@@ -115,7 +137,8 @@ and this project adheres to
   VMGenID support for microVMs running on ARM hosts with 6.1 guest kernels.
   Support for VMGenID via DeviceTree bindings exists only on mainline 6.10 Linux
   onwards. Users of Firecracker will need to backport the relevant patches on
-  top of their 6.1 kernels to make use of the feature.
+  top of their 6.1 kernels to make use of the feature. As a result, Firecracker
+  snapshot version is now 3.0.0
 - [#4732](https://github.com/firecracker-microvm/firecracker/pull/4732),
   [#4733](https://github.com/firecracker-microvm/firecracker/pull/4733),
   [#4741](https://github.com/firecracker-microvm/firecracker/pull/4741),

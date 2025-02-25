@@ -6,6 +6,7 @@
 use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
+use device::ConfigSpace;
 use serde::{Deserialize, Serialize};
 use vmm_sys_util::eventfd::EventFd;
 
@@ -122,10 +123,14 @@ impl Persist<'_> for VirtioBlock {
             DeviceState::Inactive
         };
 
+        let config_space = ConfigSpace {
+            capacity: disk_properties.nsectors.to_le(),
+        };
+
         Ok(VirtioBlock {
             avail_features,
             acked_features,
-            config_space: disk_properties.virtio_block_config_space(),
+            config_space,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?,
 
             queues,

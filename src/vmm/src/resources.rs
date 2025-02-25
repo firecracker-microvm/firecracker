@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::device_manager::persist::SharedDeviceType;
-use crate::logger::{info, log_dev_preview_warning};
+use crate::logger::info;
 use crate::mmds;
 use crate::mmds::data_store::{Mmds, MmdsVersion};
 use crate::mmds::ns::MmdsNetworkStack;
@@ -63,29 +63,20 @@ pub enum ResourcesError {
 
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
 #[derive(Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct VmmConfig {
-    #[serde(rename = "balloon")]
-    balloon_device: Option<BalloonDeviceConfig>,
-    #[serde(rename = "drives")]
-    block_devices: Vec<BlockDeviceConfig>,
-    #[serde(rename = "boot-source")]
+    balloon: Option<BalloonDeviceConfig>,
+    drives: Vec<BlockDeviceConfig>,
     boot_source: BootSourceConfig,
-    #[serde(rename = "cpu-config")]
     cpu_config: Option<PathBuf>,
-    #[serde(rename = "logger")]
     logger: Option<crate::logger::LoggerConfig>,
-    #[serde(rename = "machine-config")]
     machine_config: Option<MachineConfig>,
-    #[serde(rename = "metrics")]
     metrics: Option<MetricsConfig>,
-    #[serde(rename = "mmds-config")]
     mmds_config: Option<MmdsConfig>,
-    #[serde(rename = "network-interfaces", default)]
-    net_devices: Vec<NetworkInterfaceConfig>,
-    #[serde(rename = "vsock")]
-    vsock_device: Option<VsockDeviceConfig>,
-    #[serde(rename = "entropy")]
-    entropy_device: Option<EntropyDeviceConfig>,
+    #[serde(default)]
+    network_interfaces: Vec<NetworkInterfaceConfig>,
+    vsock: Option<VsockDeviceConfig>,
+    entropy: Option<EntropyDeviceConfig>,
 }
 
 /// A data structure that encapsulates the device configurations
@@ -152,19 +143,19 @@ impl VmResources {
 
         resources.build_boot_source(vmm_config.boot_source)?;
 
-        for drive_config in vmm_config.block_devices.into_iter() {
+        for drive_config in vmm_config.drives.into_iter() {
             resources.set_block_device(drive_config)?;
         }
 
-        for net_config in vmm_config.net_devices.into_iter() {
+        for net_config in vmm_config.network_interfaces.into_iter() {
             resources.build_net_device(net_config)?;
         }
 
-        if let Some(vsock_config) = vmm_config.vsock_device {
+        if let Some(vsock_config) = vmm_config.vsock {
             resources.set_vsock_device(vsock_config)?;
         }
 
-        if let Some(balloon_config) = vmm_config.balloon_device {
+        if let Some(balloon_config) = vmm_config.balloon {
             resources.set_balloon_device(balloon_config)?;
         }
 
@@ -180,7 +171,7 @@ impl VmResources {
             resources.set_mmds_config(mmds_config, &instance_info.id)?;
         }
 
-        if let Some(entropy_device_config) = vmm_config.entropy_device {
+        if let Some(entropy_device_config) = vmm_config.entropy {
             resources.build_entropy_device(entropy_device_config)?;
         }
 
@@ -246,10 +237,6 @@ impl VmResources {
         &mut self,
         update: &MachineConfigUpdate,
     ) -> Result<(), MachineConfigError> {
-        if update.huge_pages.is_some() && update.huge_pages != Some(HugePageConfig::None) {
-            log_dev_preview_warning("Huge pages support", None);
-        }
-
         let updated = self.machine_config.update(update)?;
 
         // The VM cannot have a memory size smaller than the target size
@@ -268,13 +255,6 @@ impl VmResources {
         if self.balloon.get().is_some() && updated.huge_pages != HugePageConfig::None {
             return Err(MachineConfigError::BalloonAndHugePages);
         }
-
-        if self.boot_source.config.initrd_path.is_some()
-            && updated.huge_pages != HugePageConfig::None
-        {
-            return Err(MachineConfigError::InitrdAndHugePages);
-        }
-
         self.machine_config = updated;
 
         Ok(())
@@ -341,12 +321,6 @@ impl VmResources {
         &mut self,
         boot_source_cfg: BootSourceConfig,
     ) -> Result<(), BootSourceConfigError> {
-        if boot_source_cfg.initrd_path.is_some()
-            && self.machine_config.huge_pages != HugePageConfig::None
-        {
-            return Err(BootSourceConfigError::HugePagesAndInitRd);
-        }
-
         self.boot_source = BootSource {
             builder: Some(BootConfig::new(&boot_source_cfg)?),
             config: boot_source_cfg,
@@ -489,8 +463,8 @@ impl VmResources {
             )
         } else {
             let regions = crate::arch::arch_memory_regions(self.machine_config.mem_size_mib << 20);
-            GuestMemoryMmap::from_raw_regions(
-                &regions,
+            GuestMemoryMmap::anonymous(
+                regions.into_iter(),
                 self.machine_config.track_dirty_pages,
                 self.machine_config.huge_pages,
             )
@@ -501,17 +475,17 @@ impl VmResources {
 impl From<&VmResources> for VmmConfig {
     fn from(resources: &VmResources) -> Self {
         VmmConfig {
-            balloon_device: resources.balloon.get_config().ok(),
-            block_devices: resources.block.configs(),
+            balloon: resources.balloon.get_config().ok(),
+            drives: resources.block.configs(),
             boot_source: resources.boot_source.config.clone(),
             cpu_config: None,
             logger: None,
             machine_config: Some(resources.machine_config.clone()),
             metrics: None,
             mmds_config: resources.mmds_config(),
-            net_devices: resources.net_builder.configs(),
-            vsock_device: resources.vsock.config(),
-            entropy_device: resources.entropy.config(),
+            network_interfaces: resources.net_builder.configs(),
+            vsock: resources.vsock.config(),
+            entropy: resources.entropy.config(),
         }
     }
 }

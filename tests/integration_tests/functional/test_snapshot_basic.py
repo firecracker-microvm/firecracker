@@ -552,7 +552,7 @@ def test_vmgenid(guest_kernel_linux_6_1, rootfs, microvm_factory, snapshot_type)
     platform.machine() != "aarch64" or global_props.host_linux_version_tpl < (6, 4),
     reason="This is aarch64 specific test and should only be run on 6.4 and later kernels",
 )
-def test_physical_couter_reset_aarch64(uvm_nano):
+def test_physical_counter_reset_aarch64(uvm_nano):
     """
     Test that the CNTPCT_EL0 register is reset on VM boot.
     We assume the smallest VM will not consume more than
@@ -597,3 +597,6 @@ def test_physical_couter_reset_aarch64(uvm_nano):
             reg_id, reg_value = parts
             if reg_id == cntpct_el0:
                 assert int(reg_value, 16) < max_value
+                break
+    else:
+        raise RuntimeError("Did not find CNTPCT_EL0 register in snapshot")

@@ -3,13 +3,13 @@
 
 use std::ffi::{CString, OsString};
 use std::fs::{self, canonicalize, read_to_string, File, OpenOptions, Permissions};
+use std::io;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{exit, id, Command, Stdio};
-use std::{fmt, io};
 
 use utils::arg_parser::UtilsArgParserError::MissingValue;
 use utils::time::{get_time_us, ClockType};
@@ -114,6 +114,7 @@ enum UserfaultfdParseError {
     NotFound,
 }
 
+#[derive(Debug)]
 pub struct Env {
     id: String,
     chroot_dir: PathBuf,
@@ -130,26 +131,6 @@ pub struct Env {
     cgroup_conf: Option<CgroupConfiguration>,
     resource_limits: ResourceLimits,
     uffd_dev_minor: Option<u32>,
-}
-
-impl fmt::Debug for Env {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Env")
-            .field("id", &self.id)
-            .field("chroot_dir", &self.chroot_dir)
-            .field("exec_file_path", &self.exec_file_path)
-            .field("uid", &self.uid)
-            .field("gid", &self.gid)
-            .field("netns", &self.netns)
-            .field("daemonize", &self.daemonize)
-            .field("new_pid_ns", &self.new_pid_ns)
-            .field("start_time_us", &self.start_time_us)
-            .field("jailer_cpu_time_us", &self.jailer_cpu_time_us)
-            .field("extra_args", &self.extra_args)
-            .field("cgroups", &self.cgroup_conf)
-            .field("resource_limits", &self.resource_limits)
-            .finish()
-    }
 }
 
 impl Env {
@@ -349,12 +330,52 @@ impl Env {
     }
 
     fn exec_into_new_pid_ns(&mut self, chroot_exec_file: PathBuf) -> Result<(), JailerError> {
+        // https://man7.org/linux/man-pages/man7/pid_namespaces.7.html
+        // > a process in an ancestor namespace can send signals to the "init" process of a child
+        // > PID namespace only if the "init" process has established a handler for that signal.
+        //
+        // Firecracker (i.e. the "init" process of the new PID namespace) sets up handlers for some
+        // signals including SIGHUP and jailer exits soon after spawning firecracker into a new PID
+        // namespace. If the jailer process is a session leader and its exit happens after
+        // firecracker configures the signal handlers, SIGHUP will be sent to firecracker and be
+        // caught by the handler unexpectedly.
+        //
+        // In order to avoid the above issue, if jailer is a session leader, creates a new session
+        // and makes the child process (i.e. firecracker) become the leader of the new session to
+        // not get SIGHUP on the exit of jailer.
+
+        // Check whether jailer is a session leader or not before clone().
+        // Note that, if `--daemonize` is passed, jailer is always not a session leader. This is
+        // because we use the double fork method, making itself not a session leader.
+        let is_session_leader = match self.daemonize {
+            true => false,
+            false => {
+                // SAFETY: Safe because it doesn't take any input parameters.
+                let sid = SyscallReturnCode(unsafe { libc::getsid(0) })
+                    .into_result()
+                    .map_err(JailerError::GetSid)?;
+                // SAFETY: Safe because it doesn't take any input parameters.
+                let ppid = SyscallReturnCode(unsafe { libc::getpid() })
+                    .into_result()
+                    .map_err(JailerError::GetPid)?;
+                sid == ppid
+            }
+        };
+
         // Duplicate the current process. The child process will belong to the previously created
         // PID namespace. The current process will not be moved into the newly created namespace,
         // but its first child will assume the role of init(1) in the new namespace.
         let pid = clone(std::ptr::null_mut(), libc::CLONE_NEWPID)?;
         match pid {
-            0 => Err(JailerError::Exec(self.exec_command(chroot_exec_file))),
+            0 => {
+                if is_session_leader {
+                    // SAFETY: Safe bacause it doesn't take any input parameters.
+                    SyscallReturnCode(unsafe { libc::setsid() })
+                        .into_empty_result()
+                        .map_err(JailerError::SetSid)?;
+                }
+                Err(JailerError::Exec(self.exec_command(chroot_exec_file)))
+            }
             child_pid => {
                 // Save the PID of the process running the exec file provided
                 // inside <chroot_exec_file>.pid file.
@@ -495,7 +516,10 @@ impl Env {
         Command::new(chroot_exec_file)
             .args(["--id", &self.id])
             .args(["--start-time-us", &self.start_time_us.to_string()])
-            .args(["--start-time-cpu-us", &self.start_time_cpu_us.to_string()])
+            .args([
+                "--start-time-cpu-us",
+                &get_time_us(ClockType::ProcessCpu).to_string(),
+            ])
             .args(["--parent-cpu-time-us", &self.jailer_cpu_time_us.to_string()])
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
@@ -661,11 +685,10 @@ impl Env {
             self.mknod_and_own_dev(DEV_UFFD_PATH, DEV_UFFD_MAJOR, minor)?;
         }
 
+        self.jailer_cpu_time_us = get_time_us(ClockType::ProcessCpu) - self.start_time_cpu_us;
+
         // Daemonize before exec, if so required (when the dev_null variable != None).
         if let Some(dev_null) = dev_null {
-            // Meter CPU usage before fork()
-            self.jailer_cpu_time_us = get_time_us(ClockType::ProcessCpu);
-
             // We follow the double fork method to daemonize the jailer referring to
             // https://0xjet.github.io/3OHA/2022/04/11/post.html
             // setsid() will fail if the calling process is a process group leader.
@@ -688,7 +711,7 @@ impl Env {
                 .into_empty_result()
                 .map_err(JailerError::SetSid)?;
 
-            // Meter CPU usage before fork()
+            // Meter CPU usage after first fork()
             self.jailer_cpu_time_us += get_time_us(ClockType::ProcessCpu);
 
             // Daemons should not have controlling terminals.
@@ -712,12 +735,10 @@ impl Env {
             dup2(dev_null.as_raw_fd(), STDIN_FILENO)?;
             dup2(dev_null.as_raw_fd(), STDOUT_FILENO)?;
             dup2(dev_null.as_raw_fd(), STDERR_FILENO)?;
-        }
 
-        // Compute jailer's total CPU time up to the current time.
-        self.jailer_cpu_time_us += get_time_us(ClockType::ProcessCpu) - self.start_time_cpu_us;
-        // Reset process start time.
-        self.start_time_cpu_us = 0;
+            // Meter CPU usage after second fork()
+            self.jailer_cpu_time_us += get_time_us(ClockType::ProcessCpu);
+        }
 
         // If specified, exec the provided binary into a new PID namespace.
         if self.new_pid_ns {

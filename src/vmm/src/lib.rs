@@ -314,8 +314,6 @@ pub struct Vmm {
     vm: Vm,
     guest_memory: GuestMemoryMmap,
     // Save UFFD in order to keep it open in the Firecracker process, as well.
-    // Since this field is never read again, we need to allow `dead_code`.
-    #[allow(dead_code)]
     uffd: Option<Uffd>,
     vcpus_handles: Vec<VcpuHandle>,
     // Used by Vcpus and devices to initiate teardown; Vmm should never write here.
@@ -629,18 +627,6 @@ impl Vmm {
             })
             .map_err(VmmError::DirtyBitmap)?;
         Ok(bitmap)
-    }
-
-    /// Enables or disables KVM dirty page tracking.
-    pub fn set_dirty_page_tracking(&mut self, enable: bool) -> Result<(), VmmError> {
-        // This function _always_ results in an ioctl update. The VMM is stateless in the sense
-        // that it's unaware of the current dirty page tracking setting.
-        // The VMM's consumer will need to cache the dirty tracking setting internally. For
-        // example, if this function were to be exposed through the VMM controller, the VMM
-        // resources should cache the flag.
-        self.vm
-            .set_kvm_memory_regions(&self.guest_memory, enable)
-            .map_err(VmmError::Vm)
     }
 
     /// Updates the path of the host file backing the emulated block device with id `drive_id`.

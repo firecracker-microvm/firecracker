@@ -141,7 +141,12 @@ def test_kvmclock_ctrl(uvm_plain_any):
     microvm = uvm_plain_any
     microvm.help.enable_console()
     microvm.spawn()
-    microvm.basic_config()
+
+    # With 2 vCPUs under certain conditions soft lockup warnings can rarely be in dmesg causing this test to fail.
+    # Example of the warning: `watchdog: BUG: soft lockup - CPU#0 stuck for (x)s! [(udev-worker):758]`
+    # With 1 vCPU this intermittent issue doesn't occur. If the KVM_CLOCK_CTRL IOCTL is not made
+    # the test will fail with 1 vCPU, so we can assert the call to the IOCTL is made.
+    microvm.basic_config(vcpu_count=1)
     microvm.add_net_iface()
     microvm.start()
 

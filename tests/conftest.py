@@ -22,6 +22,7 @@ designed with the following goals in mind:
 import inspect
 import json
 import os
+import platform
 import shutil
 import sys
 import tempfile
@@ -335,11 +336,13 @@ def microvm_factory(request, record_property, results_dir, netns_factory):
     # if the test failed, save important files from the root of the uVM into `test_results` for troubleshooting
     report = request.node.stash[PHASE_REPORT_KEY]
     if "call" in report and report["call"].failed:
-        dmesg = utils.run_cmd(["dmesg", "-dPx"])
         for uvm in uvm_factory.vms:
             uvm_data = results_dir / uvm.id
             uvm_data.mkdir()
-            uvm_data.joinpath("host-dmesg.log").write_text(dmesg.stdout)
+            uvm_data.joinpath("host-dmesg.log").write_text(
+                utils.run_cmd(["dmesg", "-dPx"]).stdout
+            )
+            shutil.copy(f"/firecracker/build/img/{platform.machine()}/id_rsa", uvm_data)
 
             uvm_root = Path(uvm.chroot())
             for item in os.listdir(uvm_root):
@@ -496,20 +499,6 @@ guest_kernel_6_1_debug = pytest.fixture(
 def uvm_plain_debug(microvm_factory, guest_kernel_6_1_debug, rootfs_rw):
     """VM running a kernel with debug/trace Kconfig options"""
     return microvm_factory.build(guest_kernel_6_1_debug, rootfs_rw)
-
-
-@pytest.fixture
-def uvm_with_initrd(
-    microvm_factory, guest_kernel_linux_5_10, record_property, artifact_dir
-):
-    """
-    See file:../docs/initrd.md
-    """
-    fs = artifact_dir / "initramfs.cpio"
-    record_property("rootfs", fs.name)
-    uvm = microvm_factory.build(guest_kernel_linux_5_10)
-    uvm.initrd_file = fs
-    yield uvm
 
 
 @pytest.fixture
