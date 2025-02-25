@@ -104,7 +104,7 @@ def test_api_put_update_pre_boot(uvm_plain, io_engine):
     test_microvm.basic_config()
 
     fs1 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "scratch"))
-    response = test_microvm.api.drive.put(
+    test_microvm.api.drive.put(
         drive_id="scratch",
         path_on_host=test_microvm.create_jailed_resource(fs1.path),
         is_root_device=False,
