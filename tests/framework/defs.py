@@ -26,10 +26,6 @@ LOCAL_BUILD_PATH = FC_WORKSPACE_DIR / "build/"
 # Absolute path to the test results folder
 TEST_RESULTS_DIR = FC_WORKSPACE_DIR / "test_results"
 
-# The minimum required host kernel version for which io_uring is supported in
-# Firecracker.
-MIN_KERNEL_VERSION_FOR_IO_URING = "5.10.51"
-
 SUPPORTED_HOST_KERNELS = ["5.10", "6.1"]
 
 IMG_DIR = Path(DEFAULT_TEST_SESSION_ROOT_PATH) / "img"
