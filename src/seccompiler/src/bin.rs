@@ -27,6 +27,13 @@ struct Cli {
                 and rule-level actions. Not recommended."
     )]
     basic: bool,
+    #[arg(
+        short,
+        long,
+        help = "Builds also rules marked as debug=true. To be used for debug builds of \
+                firecracker."
+    )]
+    debug: bool,
 }
 
 fn main() -> Result<(), CompilationError> {
@@ -36,5 +43,6 @@ fn main() -> Result<(), CompilationError> {
         &cli.target_arch,
         &cli.output_file,
         cli.basic,
+        cli.debug,
     )
 }

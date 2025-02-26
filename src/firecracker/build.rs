@@ -14,6 +14,10 @@ const SECCOMPILER_SRC_DIR: &str = "../seccompiler/src";
 fn main() {
     // Target triple
     let target = std::env::var("TARGET").expect("Missing target.");
+    let debug: bool = std::env::var("DEBUG")
+        .expect("Missing debug.")
+        .parse()
+        .expect("Invalid env variable DEBUG");
     let out_dir = std::env::var("OUT_DIR").expect("Missing build-level OUT_DIR.");
     // Target arch (x86_64 / aarch64)
     let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").expect("Missing target arch.");
@@ -40,6 +44,6 @@ fn main() {
     println!("cargo:rerun-if-changed={}", SECCOMPILER_SRC_DIR);
 
     let out_path = format!("{}/{}", out_dir, ADVANCED_BINARY_FILTER_FILE_NAME);
-    seccompiler::compile_bpf(&seccomp_json_path, &target_arch, &out_path, false)
+    seccompiler::compile_bpf(&seccomp_json_path, &target_arch, &out_path, false, debug)
         .expect("Cannot compile seccomp filters");
 }

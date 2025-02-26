@@ -55,6 +55,7 @@ pub fn compile_bpf(
     arch: &str,
     out_path: &str,
     basic: bool,
+    debug: bool,
 ) -> Result<(), CompilationError> {
     let mut file_content = String::new();
     File::open(input_path)
@@ -100,6 +101,11 @@ pub fn compile_bpf(
         }
 
         for rule in filter.filter.iter() {
+            // do not build rules marked for debug-only if not building for a debug binary
+            if rule.debug && !debug {
+                continue;
+            }
+
             // SAFETY: Safe as all args are correct.
             let syscall = unsafe {
                 let r = seccomp_syscall_resolve_name(rule.syscall.as_ptr());
