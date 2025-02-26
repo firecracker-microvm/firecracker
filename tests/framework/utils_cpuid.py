@@ -28,6 +28,7 @@ class CpuModel(str, Enum):
     AMD_GENOA = "AMD_GENOA"
     ARM_NEOVERSE_N1 = "ARM_NEOVERSE_N1"
     ARM_NEOVERSE_V1 = "ARM_NEOVERSE_V1"
+    ARM_NEOVERSE_V2 = "ARM_NEOVERSE_V2"
     INTEL_SKYLAKE = "INTEL_SKYLAKE"
     INTEL_CASCADELAKE = "INTEL_CASCADELAKE"
     INTEL_ICELAKE = "INTEL_ICELAKE"
@@ -41,7 +42,11 @@ CPU_DICT = {
         "Intel(R) Xeon(R) Platinum 8375C CPU": "INTEL_ICELAKE",
     },
     CpuVendor.AMD: {"AMD EPYC 7R13": "AMD_MILAN", "AMD EPYC 9R14": "AMD_GENOA"},
-    CpuVendor.ARM: {"0xd0c": "ARM_NEOVERSE_N1", "0xd40": "ARM_NEOVERSE_V1"},
+    CpuVendor.ARM: {
+        "0xd0c": "ARM_NEOVERSE_N1",
+        "0xd40": "ARM_NEOVERSE_V1",
+        "0xd4f": "ARM_NEOVERSE_V2",
+    },
 }
 
 
