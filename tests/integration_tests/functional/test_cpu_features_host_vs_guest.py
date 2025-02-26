@@ -257,11 +257,20 @@ def test_host_vs_guest_cpu_features(uvm_nano):
             assert host_feats - guest_feats == expected_host_minus_guest
             assert guest_feats - host_feats == expected_guest_minus_host
 
-        case CpuModel.ARM_NEOVERSE_V1:
+        case CpuModel.ARM_NEOVERSE_V1 | CpuModel.ARM_NEOVERSE_V2:
             expected_guest_minus_host = set()
             # KVM does not enable PAC or SVE features by default
             # and Firecracker does not enable them either.
             expected_host_minus_guest = {"paca", "pacg", "sve", "svebf16", "svei8mm"}
+
+            if CPU_MODEL == CpuModel.ARM_NEOVERSE_V2:
+                expected_host_minus_guest |= {
+                    "svebitperm",
+                    "svesha3",
+                    "sveaes",
+                    "sve2",
+                    "svepmull",
+                }
 
             # Upstream kernel v6.11+ hides "ssbs" from "lscpu" on Neoverse-N1 and Neoverse-V1 since
             # they have an errata whereby an MSR to the SSBS special-purpose register does not
