@@ -11,7 +11,7 @@ from framework.defs import FC_WORKSPACE_DIR
 from framework.with_filelock import with_filelock
 
 DEFAULT_TARGET = f"{platform.machine()}-unknown-linux-musl"
-DEFAULT_TARGET_DIR = f"{DEFAULT_TARGET}/release/"
+DEFAULT_TARGET_DIR = f"{DEFAULT_TARGET}/debug/"
 
 
 def nightly_toolchain() -> str:

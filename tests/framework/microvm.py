@@ -1091,6 +1091,7 @@ class MicroVMFactory:
                 "jailer_binary_path", self.jailer_binary_path
             ),
             netns=kwargs.pop("netns", self.netns_factory(microvm_id)),
+            monitor_memory=False,
             **kwargs,
         )
         vm.netns.setup()
