@@ -30,12 +30,12 @@ int main(int argc, char *const argv[]) {
 
     ptr = mmap(NULL, MEM_SIZE_MIB, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 
-    memset(ptr, 1, MEM_SIZE_MIB);
-
     if (MAP_FAILED == ptr) {
         perror("mmap");
         return -1;
     }
+
+    memset(ptr, 1, MEM_SIZE_MIB);
 
     sigwait(&set, &signal);
 
