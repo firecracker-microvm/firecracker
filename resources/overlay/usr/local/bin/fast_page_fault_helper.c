@@ -27,6 +27,10 @@ int main(int argc, char *const argv[]) {
         perror("sigaddset");
         return 1;
     }
+    if (sigprocmask(SIG_BLOCK, &set, NULL) == -1)  {
+        perror("sigprocmask");
+        return 1;
+    }
 
     ptr = mmap(NULL, MEM_SIZE_MIB, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 
