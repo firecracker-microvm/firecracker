@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 from framework.utils import chroot
+from host_tools import cargo_build
 
 SOCKET_PATH = "/firecracker-uffd.sock"
 
@@ -90,3 +91,8 @@ def spawn_pf_handler(vm, handler_path, mem_path):
     uffd_handler.spawn(vm.jailer.uid, vm.jailer.gid)
 
     return uffd_handler
+
+
+def uffd_handler(handler_name):
+    """Retrieves the uffd handler with the given name"""
+    return cargo_build.get_example(f"uffd_{handler_name}_handler")

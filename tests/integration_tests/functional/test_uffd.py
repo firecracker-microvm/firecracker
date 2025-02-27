@@ -9,7 +9,7 @@ import pytest
 import requests
 
 from framework.utils import Timeout, check_output
-from framework.utils_uffd import SOCKET_PATH, spawn_pf_handler
+from framework.utils_uffd import SOCKET_PATH, spawn_pf_handler, uffd_handler
 
 
 @pytest.fixture(scope="function", name="snapshot")
@@ -83,7 +83,7 @@ def test_unbinded_socket(uvm_plain, snapshot):
     vm.mark_killed()
 
 
-def test_valid_handler(uvm_plain, snapshot, uffd_handler_paths):
+def test_valid_handler(uvm_plain, snapshot):
     """
     Test valid uffd handler scenario.
     """
@@ -92,9 +92,7 @@ def test_valid_handler(uvm_plain, snapshot, uffd_handler_paths):
     vm.spawn()
 
     # Spawn page fault handler process.
-    _pf_handler = spawn_pf_handler(
-        vm, uffd_handler_paths["valid_handler"], snapshot.mem
-    )
+    _pf_handler = spawn_pf_handler(vm, uffd_handler("valid"), snapshot.mem)
 
     vm.restore_from_snapshot(snapshot, resume=True, uffd_path=SOCKET_PATH)
 
@@ -111,7 +109,7 @@ def test_valid_handler(uvm_plain, snapshot, uffd_handler_paths):
     vm.ssh.check_output("true")
 
 
-def test_malicious_handler(uvm_plain, snapshot, uffd_handler_paths):
+def test_malicious_handler(uvm_plain, snapshot):
     """
     Test malicious uffd handler scenario.
 
@@ -127,9 +125,7 @@ def test_malicious_handler(uvm_plain, snapshot, uffd_handler_paths):
     vm.spawn()
 
     # Spawn page fault handler process.
-    _pf_handler = spawn_pf_handler(
-        vm, uffd_handler_paths["malicious_handler"], snapshot.mem
-    )
+    _pf_handler = spawn_pf_handler(vm, uffd_handler("malicious"), snapshot.mem)
 
     # We expect Firecracker to freeze while resuming from a snapshot
     # due to the malicious handler's unavailability.
