@@ -614,3 +614,8 @@ class Timeout:
 
     def __exit__(self, _type, _value, _traceback):
         signal.alarm(0)
+
+
+def pvh_supported() -> bool:
+    """Checks if PVH boot is supported"""
+    return platform.architecture() == "x86_64"
