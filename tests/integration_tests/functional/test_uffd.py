@@ -8,9 +8,8 @@ import re
 import pytest
 import requests
 
-from framework.utils import Timeout, UffdHandler, check_output
-
-SOCKET_PATH = "/firecracker-uffd.sock"
+from framework.utils import Timeout, check_output
+from framework.utils_uffd import SOCKET_PATH, spawn_pf_handler
 
 
 @pytest.fixture(scope="function", name="snapshot")
@@ -34,22 +33,6 @@ def snapshot_fxt(microvm_factory, guest_kernel_linux_5_10, rootfs):
     basevm.kill()
 
     yield snapshot
-
-
-def spawn_pf_handler(vm, handler_path, mem_path):
-    """Spawn page fault handler process."""
-    # Copy snapshot memory file into chroot of microVM.
-    jailed_mem = vm.create_jailed_resource(mem_path)
-    # Copy the valid page fault binary into chroot of microVM.
-    jailed_handler = vm.create_jailed_resource(handler_path)
-    handler_name = os.path.basename(jailed_handler)
-
-    uffd_handler = UffdHandler(
-        handler_name, SOCKET_PATH, jailed_mem, vm.chroot(), "uffd.log"
-    )
-    uffd_handler.spawn(vm.jailer.uid, vm.jailer.gid)
-
-    return uffd_handler
 
 
 def test_bad_socket_path(uvm_plain, snapshot):

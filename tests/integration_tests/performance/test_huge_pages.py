@@ -10,7 +10,7 @@ from framework import utils
 from framework.microvm import HugePagesConfig
 from framework.properties import global_props
 from framework.utils_ftrace import ftrace_events
-from integration_tests.functional.test_uffd import SOCKET_PATH, spawn_pf_handler
+from framework.utils_uffd import SOCKET_PATH, spawn_pf_handler
 
 
 def check_hugetlbfs_in_use(pid: int, allocation_name: str):
