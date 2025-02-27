@@ -25,14 +25,14 @@ int main(int argc, char *const argv[]) {
     sigemptyset(&set);
     if (sigaddset(&set, SIGUSR1) == -1) {
         perror("sigaddset");
-        return -1;
+        return 1;
     }
 
     ptr = mmap(NULL, MEM_SIZE_MIB, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 
     if (MAP_FAILED == ptr) {
         perror("mmap");
-        return -1;
+        return 1;
     }
 
     memset(ptr, 1, MEM_SIZE_MIB);
