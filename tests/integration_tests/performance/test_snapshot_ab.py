@@ -1,7 +1,9 @@
 # Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Performance benchmark for snapshot restore."""
+import signal
 import tempfile
+import time
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -11,6 +13,7 @@ import host_tools.drive as drive_tools
 from framework.microvm import Microvm
 
 USEC_IN_MSEC = 1000
+NS_IN_MSEC = 1_000_000
 ITERATIONS = 30
 
 
@@ -113,7 +116,9 @@ def test_restore_latency(
     snapshot = vm.snapshot_full()
     vm.kill()
 
-    metrics.put_dimensions({"performance_test": "test_restore_latency"})
+    metrics.put_dimensions(
+        {"performance_test": "test_restore_latency", "uffd_handler": "None"}
+    )
 
     for microvm in microvm_factory.build_n_from_snapshot(snapshot, ITERATIONS):
         value = 0
@@ -126,3 +131,46 @@ def test_restore_latency(
                 break
         assert value > 0
         metrics.put_metric("latency", value, "Milliseconds")
+
+
+# When using the fault-all handler, all guest memory will be faulted in way before the helper tool
+# wakes up, because it gets faulted in on the first page fault. In this scenario, we are not measuring UFFD
+# latencies, but KVM latencies of setting up missing EPT entries.
+@pytest.mark.nonci
+@pytest.mark.parametrize("uffd_handler", [None, "valid", "fault_all"])
+def test_post_restore_latency(
+    microvm_factory, rootfs, guest_kernel_linux_5_10, metrics, uffd_handler
+):
+    """Collects latency metric of post-restore memory accesses done inside the guest"""
+    test_setup = SnapshotRestoreTest(mem=1024, vcpus=2)
+    vm = test_setup.boot_vm(microvm_factory, guest_kernel_linux_5_10, rootfs, metrics)
+
+    vm.ssh.check_output(
+        "nohup /usr/local/bin/fast_page_fault_helper >/dev/null 2>&1 </dev/null &"
+    )
+
+    # Give helper time to initialize
+    time.sleep(5)
+
+    snapshot = vm.snapshot_full()
+    vm.kill()
+
+    metrics.put_dimensions(
+        {
+            "performance_test": "test_post_restore_latency",
+            "uffd_handler": str(uffd_handler),
+        }
+    )
+
+    for microvm in microvm_factory.build_n_from_snapshot(
+        snapshot, ITERATIONS, uffd_handler_name=uffd_handler
+    ):
+        _, pid, _ = microvm.ssh.check_output("pidof fast_page_fault_helper")
+
+        microvm.ssh.check_output(f"kill -s {signal.SIGUSR1} {pid}")
+
+        _, duration, _ = microvm.ssh.check_output(
+            "while [ ! -f /tmp/fast_page_fault_helper.out ]; do sleep 1; done; cat /tmp/fast_page_fault_helper.out"
+        )
+
+        metrics.put_metric("fault_latency", int(duration) / NS_IN_MSEC, "Milliseconds")
