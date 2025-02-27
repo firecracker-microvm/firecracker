@@ -150,6 +150,11 @@ impl SeccompAction {
 pub struct SyscallRule {
     pub syscall: CString,
     pub args: Option<Vec<SeccompCondition>>,
+
+    /// Only build the rule in debug builds
+    /// Defaults to false (always include)
+    #[serde(default)]
+    pub debug: bool,
 }
 
 /// Filter containing rules assigned to syscall numbers.

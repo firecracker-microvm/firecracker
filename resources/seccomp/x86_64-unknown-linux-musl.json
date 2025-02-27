@@ -125,6 +125,20 @@
             },
             {
                 "syscall": "fcntl",
+                "comment": "Introduced by debug assertions when a fd is closed to check it is still valid.",
+                "debug": true,
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "FCNTL_F_GETFD"
+                    }
+                ]
+            },
+            {
+                "syscall": "fcntl",
                 "comment": "Used by snapshotting, drive patching and rescanning",
                 "args": [
                     {
@@ -537,6 +551,20 @@
                         "op": "eq",
                         "val": 524288,
                         "comment": "libc::SOCK_CLOEXEC"
+                    }
+                ]
+            },
+            {
+                "syscall": "fcntl",
+                "comment": "Introduced by debug assertions in micro-http when a socket is closed to check fd is still valid.",
+                "debug": true,
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "FCNTL_F_GETFD"
                     }
                 ]
             },

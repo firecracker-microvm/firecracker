@@ -209,9 +209,9 @@ def shared_build():
     elif os.environ.get("BUILDKITE_PULL_REQUEST", "false") != "false":
         build_cmds = ab_revision_build(
             os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH", "main")
-        ) + ["./tools/devtool -y build --release"]
+        ) + ["./tools/devtool -y build --debug"]
     else:
-        build_cmds = ["./tools/devtool -y build --release"]
+        build_cmds = ["./tools/devtool -y build --debug"]
     binary_dir = f"build_$(uname -m)_{random_str(k=8)}.tar.gz"
     build_cmds += [
         "du -sh build/*",
