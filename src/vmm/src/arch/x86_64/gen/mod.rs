@@ -5,9 +5,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+pub mod arch_prctl;
 pub mod hyperv;
 pub mod hyperv_tlfs;
 pub mod mpspec;
-
 pub mod msr_index;
 pub mod perf_event;

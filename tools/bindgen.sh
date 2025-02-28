@@ -154,6 +154,15 @@ fc-bindgen \
     "amazonlinux-v5.10.y/include/uapi/linux/io_uring.h" \
     >src/vmm/src/io_uring/gen.rs
 
+# Latest upstream kernel
+KERNEL_SRC_DIR="linux"
+[ -d ${KERNEL_SRC_DIR} ] || git clone --depth 1 https://github.com/amazonlinux/linux ${KERNEL_SRC_DIR}
+
+info "BINDGEN asm/prctl.h"
+fc-bindgen \
+    --allowlist-var "ARCH_.*" \
+    "${KERNEL_SRC_DIR}/arch/x86/include/uapi/asm/prctl.h" >src/vmm/src/arch/x86_64/gen/arch_prctl.rs
+
 # Apply any patches
 info "Apply patches"
 for PATCH in $(dirname $0)/bindgen-patches/*.patch; do
