@@ -13,7 +13,7 @@ use crate::vstate::memory::{GuestMemory, GuestMemoryMmap};
 /// Errors associated with the wrappers over KVM ioctls.
 /// Needs `rustfmt::skip` to make multiline comments work
 #[rustfmt::skip]
-#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum KvmError {
     /// The host kernel reports an invalid KVM API version: {0}
     ApiVersion(i32),
