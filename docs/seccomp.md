@@ -11,8 +11,10 @@ follows:
 - API - right before launching the HTTP server;
 - VCPUs - right before executing guest code.
 
-**Note**: On experimental GNU targets, there are no default seccomp filters
-installed, since they are not intended for production use.
+> [!WARNING]
+>
+> On debug binaries and experimental GNU targets, there are no default seccomp
+> filters installed, since they are not intended for production use.
 
 Firecracker uses JSON files for expressing the filter rules and relies on the
 [seccompiler](seccompiler.md) tool for all the seccomp functionality.
@@ -58,6 +60,12 @@ Potential use cases:
 - Users of experimentally-supported targets (like GNU libc builds) may be able
   to use this feature to implement seccomp filters without needing to have a
   custom build of Firecracker.
+- Users of debug binaries who need to use a seccomp filter for any reason will
+  be able to use this feature to implement seccomp filters without needing to
+  have a custom build of Firecracker. Note: there may be some differences in
+  syscalls between `debug` and `release` builds. A non-comprehensive list is:
+  - `fcntl(F_GETFD)` is used by debug assertions to verify a dropped `fd` is
+    valid.
 - Faced with a _theoretical_ production issue, due to a syscall that was issued
   by the Firecracker process, but not allowed by the seccomp policy, one may use
   a custom filter in order to quickly mitigate the issue. This can speed up the
