@@ -40,12 +40,7 @@ class SnapshotRestoreTest:
         """Computes a unique id for this test instance"""
         return "all_dev" if self.all_devices else f"{self.vcpus}vcpu_{self.mem}mb"
 
-    def configure_vm(
-        self,
-        microvm_factory,
-        guest_kernel,
-        rootfs,
-    ) -> Microvm:
+    def configure_vm(self, microvm_factory, guest_kernel, rootfs, metrics) -> Microvm:
         """Creates the initial snapshot that will be loaded repeatedly to sample latencies"""
         vm = microvm_factory.build(
             guest_kernel,
@@ -73,6 +68,16 @@ class SnapshotRestoreTest:
                 amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1
             )
             vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/v.sock")
+
+        metrics.set_dimensions(
+            {
+                "net_devices": str(self.nets),
+                "block_devices": str(self.blocks),
+                "vsock_devices": str(int(self.all_devices)),
+                "balloon_devices": str(int(self.all_devices)),
+                **vm.dimensions,
+            }
+        )
 
         return vm
 
@@ -122,22 +127,15 @@ def test_restore_latency(
 
     We only test a single guest kernel, as the guest kernel does not "participate" in snapshot restore.
     """
-    vm = test_setup.configure_vm(microvm_factory, guest_kernel_linux_5_10, rootfs)
-    vm.start()
-
-    metrics.set_dimensions(
-        {
-            "performance_test": "test_restore_latency",
-            "net_devices": str(test_setup.nets),
-            "block_devices": str(test_setup.blocks),
-            "vsock_devices": str(int(test_setup.all_devices)),
-            "balloon_devices": str(int(test_setup.all_devices)),
-            **vm.dimensions,
-        }
+    vm = test_setup.configure_vm(
+        microvm_factory, guest_kernel_linux_5_10, rootfs, metrics
     )
+    vm.start()
 
     snapshot = vm.snapshot_full()
     vm.kill()
+
+    metrics.put_dimensions({"performance_test": "test_restore_latency"})
 
     samples = test_setup.sample_latency(
         microvm_factory,
