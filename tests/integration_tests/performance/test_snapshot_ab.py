@@ -40,7 +40,7 @@ class SnapshotRestoreTest:
         """Computes a unique id for this test instance"""
         return "all_dev" if self.all_devices else f"{self.vcpus}vcpu_{self.mem}mb"
 
-    def configure_vm(self, microvm_factory, guest_kernel, rootfs, metrics) -> Microvm:
+    def boot_vm(self, microvm_factory, guest_kernel, rootfs, metrics) -> Microvm:
         """Creates the initial snapshot that will be loaded repeatedly to sample latencies"""
         vm = microvm_factory.build(
             guest_kernel,
@@ -78,6 +78,7 @@ class SnapshotRestoreTest:
                 **vm.dimensions,
             }
         )
+        vm.start()
 
         return vm
 
@@ -127,10 +128,7 @@ def test_restore_latency(
 
     We only test a single guest kernel, as the guest kernel does not "participate" in snapshot restore.
     """
-    vm = test_setup.configure_vm(
-        microvm_factory, guest_kernel_linux_5_10, rootfs, metrics
-    )
-    vm.start()
+    vm = test_setup.boot_vm(microvm_factory, guest_kernel_linux_5_10, rootfs, metrics)
 
     snapshot = vm.snapshot_full()
     vm.kill()
