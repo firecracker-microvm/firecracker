@@ -7,6 +7,8 @@ use kvm_bindings::{CpuId, MsrList, KVM_MAX_CPUID_ENTRIES};
 use kvm_ioctls::Kvm as KvmFd;
 use serde::{Deserialize, Serialize};
 
+#[cfg(target_arch = "x86_64")]
+use crate::arch::x86_64::xstate::{request_dynamic_xstate_features, XstateError};
 use crate::cpu_config::templates::KvmCapability;
 use crate::vstate::memory::{GuestMemory, GuestMemoryMmap};
 
@@ -27,6 +29,9 @@ pub enum KvmError {
     GetSupportedCpuId(kvm_ioctls::Error),
     /// The number of configured slots is bigger than the maximum reported by KVM
     NotEnoughMemorySlots,
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to request permission for dynamic XSTATE features: {0}
+    XstateFeatures(XstateError),
 }
 
 /// Struct with kvm fd and kvm associated paramenters.
@@ -73,6 +78,8 @@ impl Kvm {
 
         #[cfg(target_arch = "x86_64")]
         {
+            request_dynamic_xstate_features().map_err(KvmError::XstateFeatures)?;
+
             let supported_cpuid = kvm_fd
                 .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
                 .map_err(KvmError::GetSupportedCpuId)?;

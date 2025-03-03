@@ -19,6 +19,8 @@ mod mptable;
 pub mod msr;
 /// Logic for configuring x86_64 registers.
 pub mod regs;
+/// Logic for configuring XSTATE features.
+pub mod xstate;
 
 #[allow(missing_docs)]
 pub mod gen;
