@@ -17,7 +17,7 @@ import pytest
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
 from framework import utils_cpuid
-from framework.utils import get_firecracker_version_from_toml, is_io_uring_supported
+from framework.utils import get_firecracker_version_from_toml
 
 MEM_LIMIT = 1000000000
 
@@ -43,7 +43,7 @@ def test_api_happy_start(uvm_plain):
     test_microvm.start()
 
 
-def test_drive_io_engine(uvm_plain):
+def test_drive_io_engine(uvm_plain, io_engine):
     """
     Test io_engine configuration.
 
@@ -56,8 +56,6 @@ def test_drive_io_engine(uvm_plain):
     test_microvm.basic_config(add_root_device=False)
     test_microvm.add_net_iface()
 
-    supports_io_uring = is_io_uring_supported()
-
     kwargs = {
         "drive_id": "rootfs",
         "path_on_host": test_microvm.create_jailed_resource(test_microvm.rootfs_file),
@@ -65,26 +63,13 @@ def test_drive_io_engine(uvm_plain):
         "is_read_only": True,
     }
 
-    # Test the opposite of the default backend type.
-    if supports_io_uring:
-        test_microvm.api.drive.put(io_engine="Sync", **kwargs)
-
-    if not supports_io_uring:
-        with pytest.raises(RuntimeError):
-            test_microvm.api.drive.put(io_engine="Async", **kwargs)
-        # The Async engine is not supported for older kernels.
-        test_microvm.check_log_message(
-            "Received Error. Status code: 400 Bad Request. Message: Drive config error: "
-            "Unable to create the virtio block device: Virtio backend error: "
-            "Error coming from the IO engine: Unsupported engine type: Async"
-        )
-
-        # Now configure the default engine type and check that it works.
-        test_microvm.api.drive.put(**kwargs)
+    test_microvm.api.drive.put(io_engine=io_engine, **kwargs)
 
     test_microvm.start()
 
-    assert test_microvm.api.vm_config.get().json()["drives"][0]["io_engine"] == "Sync"
+    assert (
+        test_microvm.api.vm_config.get().json()["drives"][0]["io_engine"] == io_engine
+    )
 
 
 def test_api_put_update_pre_boot(uvm_plain, io_engine):
@@ -101,7 +86,7 @@ def test_api_put_update_pre_boot(uvm_plain, io_engine):
     test_microvm.basic_config()
 
     fs1 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "scratch"))
-    response = test_microvm.api.drive.put(
+    test_microvm.api.drive.put(
         drive_id="scratch",
         path_on_host=test_microvm.create_jailed_resource(fs1.path),
         is_root_device=False,
@@ -250,7 +235,7 @@ def test_api_mmds_config(uvm_plain):
         "The list of network interface IDs that allow "
         "forwarding MMDS requests is empty."
     )
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match=err_msg):
         test_microvm.api.mmds_config.put(network_interfaces=[])
 
     # Setting MMDS config when no network device has been attached
@@ -732,7 +717,7 @@ def test_negative_api_patch_post_boot(uvm_plain, io_engine):
         test_microvm.api.logger.patch(level="Error")
 
 
-def test_drive_patch(uvm_plain):
+def test_drive_patch(uvm_plain, io_engine):
     """
     Extensively test drive PATCH scenarios before and after boot.
     """
@@ -749,7 +734,7 @@ def test_drive_patch(uvm_plain):
         path_on_host=fs.path,
         is_root_device=False,
         is_read_only=False,
-        io_engine="Async" if is_io_uring_supported() else "Sync",
+        io_engine=io_engine,
     )
 
     fs_vub = drive_tools.FilesystemFile(
@@ -763,7 +748,7 @@ def test_drive_patch(uvm_plain):
 
     test_microvm.start()
 
-    _drive_patch(test_microvm)
+    _drive_patch(test_microvm, io_engine)
 
 
 @pytest.mark.skipif(
@@ -779,27 +764,17 @@ def test_send_ctrl_alt_del(uvm_plain):
     test_microvm.spawn()
 
     test_microvm.basic_config()
+    test_microvm.add_net_iface()
     test_microvm.start()
-
-    # Wait around for the guest to boot up and initialize the user space
-    time.sleep(2)
 
     test_microvm.api.actions.put(action_type="SendCtrlAltDel")
 
-    firecracker_pid = test_microvm.firecracker_pid
-
     # If everything goes as expected, the guest OS will issue a reboot,
     # causing Firecracker to exit.
-    # waitpid should block until the Firecracker process has exited. If
-    # it has already exited by the time we call waitpid, WNOHANG causes
-    # waitpid to raise a ChildProcessError exception.
-    try:
-        os.waitpid(firecracker_pid, os.WNOHANG)
-    except ChildProcessError:
-        pass
+    test_microvm.mark_killed()
 
 
-def _drive_patch(test_microvm):
+def _drive_patch(test_microvm, io_engine):
     """Exercise drive patch test scenarios."""
     # Patches without mandatory fields for virtio block are not allowed.
     expected_msg = "Unable to patch the block device: Device manager error: Running method expected different backend. Please verify the request arguments"
@@ -909,7 +884,7 @@ def _drive_patch(test_microvm):
                 "bandwidth": {"size": 5000, "one_time_burst": None, "refill_time": 100},
                 "ops": {"size": 500, "one_time_burst": None, "refill_time": 100},
             },
-            "io_engine": "Async" if is_io_uring_supported() else "Sync",
+            "io_engine": io_engine,
             "socket": None,
         },
         {
