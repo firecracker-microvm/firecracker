@@ -4,7 +4,6 @@
 import tempfile
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import List
 
 import pytest
 
@@ -82,25 +81,6 @@ class SnapshotRestoreTest:
 
         return vm
 
-    def sample_latency(self, microvm_factory, snapshot) -> List[float]:
-        """Collects latency samples for the microvm configuration specified by this instance"""
-        values = []
-
-        for microvm in microvm_factory.build_n_from_snapshot(snapshot, ITERATIONS):
-            value = 0
-            # Parse all metric data points in search of load_snapshot time.
-            microvm.flush_metrics()
-            metrics = microvm.get_all_metrics()
-            for data_point in metrics:
-                cur_value = data_point["latencies_us"]["load_snapshot"]
-                if cur_value > 0:
-                    value = cur_value / USEC_IN_MSEC
-                    break
-            assert value > 0
-            values.append(value)
-
-        return values
-
 
 @pytest.mark.nonci
 @pytest.mark.parametrize(
@@ -135,10 +115,14 @@ def test_restore_latency(
 
     metrics.put_dimensions({"performance_test": "test_restore_latency"})
 
-    samples = test_setup.sample_latency(
-        microvm_factory,
-        snapshot,
-    )
-
-    for sample in samples:
-        metrics.put_metric("latency", sample, "Milliseconds")
+    for microvm in microvm_factory.build_n_from_snapshot(snapshot, ITERATIONS):
+        value = 0
+        # Parse all metric data points in search of load_snapshot time.
+        microvm.flush_metrics()
+        for data_point in microvm.get_all_metrics():
+            cur_value = data_point["latencies_us"]["load_snapshot"]
+            if cur_value > 0:
+                value = cur_value / USEC_IN_MSEC
+                break
+        assert value > 0
+        metrics.put_metric("latency", value, "Milliseconds")
