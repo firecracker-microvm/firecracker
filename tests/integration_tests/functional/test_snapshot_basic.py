@@ -149,12 +149,9 @@ def test_5_snapshots(
     snapshot = vm.make_snapshot(snapshot_type)
     vm.kill()
 
-    for i in range(seq_len):
-        logger.info("Load snapshot #%s, mem %s", i, snapshot.mem)
-        microvm = microvm_factory.build()
-        microvm.spawn()
-        copied_snapshot = microvm.restore_from_snapshot(snapshot, resume=True)
-
+    for microvm in microvm_factory.build_n_from_snapshot(
+        snapshot, seq_len, incremental=True, use_snapshot_editor=use_snapshot_editor
+    ):
         # FIXME: This and the sleep below reduce the rate of vsock/ssh connection
         # related spurious test failures, although we do not know why this is the case.
         time.sleep(2)
@@ -171,21 +168,6 @@ def test_5_snapshots(
         check_filesystem(microvm.ssh, "squashfs", "/dev/vda")
 
         time.sleep(2)
-        logger.info("Create snapshot %s #%d.", snapshot_type, i + 1)
-        new_snapshot = microvm.make_snapshot(snapshot_type)
-
-        # If we are testing incremental snapshots we must merge the base with
-        # current layer.
-        if snapshot.is_diff:
-            logger.info("Base: %s, Layer: %s", snapshot.mem, new_snapshot.mem)
-            new_snapshot = new_snapshot.rebase_snapshot(
-                snapshot, use_snapshot_editor=use_snapshot_editor
-            )
-
-        microvm.kill()
-        copied_snapshot.delete()
-        # Update the base for next iteration.
-        snapshot = new_snapshot
 
 
 def test_patch_drive_snapshot(uvm_nano, microvm_factory):
@@ -524,26 +506,12 @@ def test_vmgenid(guest_kernel_linux_6_1, rootfs, microvm_factory, snapshot_type)
     base_snapshot = snapshot
     base_vm.kill()
 
-    for i in range(5):
-        vm = microvm_factory.build()
-        vm.spawn()
-        copied_snapshot = vm.restore_from_snapshot(snapshot, resume=True)
-
+    for i, vm in enumerate(
+        microvm_factory.build_n_from_snapshot(base_snapshot, 5, incremental=True)
+    ):
         # We should have as DMESG_VMGENID_RESUME messages as
         # snapshots we have resumed
         check_vmgenid_update_count(vm, i + 1)
-
-        snapshot = vm.make_snapshot(snapshot_type)
-        vm.kill()
-        copied_snapshot.delete()
-
-        # If we are testing incremental snapshots we ust merge the base with
-        # current layer.
-        if snapshot.is_diff:
-            snapshot = snapshot.rebase_snapshot(base_snapshot)
-
-        # Update the base for next iteration
-        base_snapshot = snapshot
 
 
 # TODO add `global_props.host_os == "amzn2"` condition

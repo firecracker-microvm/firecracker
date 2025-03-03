@@ -80,13 +80,7 @@ class SnapshotRestoreTest:
         """Collects latency samples for the microvm configuration specified by this instance"""
         values = []
 
-        for _ in range(ITERATIONS):
-            microvm = microvm_factory.build(
-                monitor_memory=False,
-            )
-            microvm.spawn(emit_metrics=True)
-            snapshot_copy = microvm.restore_from_snapshot(snapshot, resume=True)
-
+        for microvm in microvm_factory.build_n_from_snapshot(snapshot, ITERATIONS):
             value = 0
             # Parse all metric data points in search of load_snapshot time.
             microvm.flush_metrics()
@@ -98,10 +92,7 @@ class SnapshotRestoreTest:
                     break
             assert value > 0
             values.append(value)
-            microvm.kill()
-            snapshot_copy.delete()
 
-        snapshot.delete()
         return values
 
 
