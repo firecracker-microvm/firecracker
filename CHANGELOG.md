@@ -64,6 +64,9 @@ and this project adheres to
 - [#5046](https://github.com/firecracker-microvm/firecracker/pull/5046): Retry
   KVM_CREATE_VM on EINTR that occasionally happen on heavily loaded hosts to
   improve reliability of microVM creation.
+- [#5052](https://github.com/firecracker-microvm/firecracker/pull/5052): Build
+  the empty seccomp policy as default for debug builds to avoid crashes on
+  syscalls introduced by debug assertions from Rust 1.80.0.
 
 ## [1.10.1]
 
