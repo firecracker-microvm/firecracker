@@ -1,6 +1,6 @@
 [package]
 name = "seccompiler"
-version = "1.11.0-dev"
+version = "1.12.0-dev"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2021"
 description = "Program that compiles multi-threaded seccomp-bpf filters expressed as JSON into raw BPF programs, serializing them and outputting them to a file."
