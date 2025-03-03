@@ -21,7 +21,7 @@ class UffdHandler:
         """Instantiate the handler process with arguments."""
         self._proc = None
         self._handler_name = name
-        self._socket_path = socket_path
+        self.socket_path = socket_path
         self._mem_file = mem_file
         self._chroot = chroot_path
         self._log_file = log_file_name
@@ -35,7 +35,7 @@ class UffdHandler:
 
             chroot_log_file = Path("/") / self._log_file
             with open(chroot_log_file, "w", encoding="utf-8") as logfile:
-                args = [f"/{self._handler_name}", self._socket_path, self._mem_file]
+                args = [f"/{self._handler_name}", self.socket_path, self._mem_file]
                 self._proc = subprocess.Popen(
                     args, stdout=logfile, stderr=subprocess.STDOUT
                 )
@@ -48,7 +48,7 @@ class UffdHandler:
 
             # The page fault handler will create the socket path with root rights.
             # Change rights to the jailer's.
-            os.chown(self._socket_path, uid, gid)
+            os.chown(self.socket_path, uid, gid)
 
     @property
     def proc(self):
