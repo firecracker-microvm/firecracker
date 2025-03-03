@@ -76,15 +76,12 @@ class SnapshotRestoreTest:
 
         return vm
 
-    def sample_latency(
-        self, microvm_factory, snapshot, guest_kernel_linux_5_10
-    ) -> List[float]:
+    def sample_latency(self, microvm_factory, snapshot) -> List[float]:
         """Collects latency samples for the microvm configuration specified by this instance"""
         values = []
 
         for _ in range(ITERATIONS):
             microvm = microvm_factory.build(
-                kernel=guest_kernel_linux_5_10,
                 monitor_memory=False,
             )
             microvm.spawn(emit_metrics=True)
@@ -154,7 +151,6 @@ def test_restore_latency(
     samples = test_setup.sample_latency(
         microvm_factory,
         snapshot,
-        guest_kernel_linux_5_10,
     )
 
     for sample in samples:
