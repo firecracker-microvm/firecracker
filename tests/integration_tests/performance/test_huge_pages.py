@@ -10,7 +10,7 @@ from framework import utils
 from framework.microvm import HugePagesConfig
 from framework.properties import global_props
 from framework.utils_ftrace import ftrace_events
-from integration_tests.functional.test_uffd import SOCKET_PATH, spawn_pf_handler
+from framework.utils_uffd import SOCKET_PATH, spawn_pf_handler, uffd_handler
 
 
 def check_hugetlbfs_in_use(pid: int, allocation_name: str):
@@ -69,9 +69,7 @@ def test_hugetlbfs_boot(uvm_plain):
     )
 
 
-def test_hugetlbfs_snapshot(
-    microvm_factory, guest_kernel_linux_5_10, rootfs, uffd_handler_paths
-):
+def test_hugetlbfs_snapshot(microvm_factory, guest_kernel_linux_5_10, rootfs):
     """
     Test hugetlbfs snapshot restore via uffd
     """
@@ -95,16 +93,14 @@ def test_hugetlbfs_snapshot(
     vm.spawn()
 
     # Spawn page fault handler process.
-    _pf_handler = spawn_pf_handler(
-        vm, uffd_handler_paths["valid_handler"], snapshot.mem
-    )
+    _pf_handler = spawn_pf_handler(vm, uffd_handler("valid"), snapshot.mem)
 
     vm.restore_from_snapshot(snapshot, resume=True, uffd_path=SOCKET_PATH)
 
     check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
 
 
-def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain, uffd_handler_paths):
+def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain):
     """
     Test hugetlbfs differential snapshot support.
 
@@ -139,9 +135,7 @@ def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain, uffd_handler_paths)
     vm.spawn()
 
     # Spawn page fault handler process.
-    _pf_handler = spawn_pf_handler(
-        vm, uffd_handler_paths["valid_handler"], snapshot_merged.mem
-    )
+    _pf_handler = spawn_pf_handler(vm, uffd_handler("valid"), snapshot_merged.mem)
 
     vm.restore_from_snapshot(snapshot_merged, resume=True, uffd_path=SOCKET_PATH)
 
@@ -153,7 +147,6 @@ def test_ept_violation_count(
     microvm_factory,
     guest_kernel_linux_5_10,
     rootfs,
-    uffd_handler_paths,
     metrics,
     huge_pages,
 ):
@@ -200,9 +193,7 @@ def test_ept_violation_count(
     vm.spawn()
 
     # Spawn page fault handler process.
-    _pf_handler = spawn_pf_handler(
-        vm, uffd_handler_paths["fault_all_handler"], snapshot.mem
-    )
+    _pf_handler = spawn_pf_handler(vm, uffd_handler("fault_all"), snapshot.mem)
 
     with ftrace_events("kvm:*"):
         vm.restore_from_snapshot(snapshot, resume=True, uffd_path=SOCKET_PATH)
