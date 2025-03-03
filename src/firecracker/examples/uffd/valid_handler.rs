@@ -10,7 +10,7 @@ mod uffd_utils;
 use std::fs::File;
 use std::os::unix::net::UnixListener;
 
-use uffd_utils::{MemPageState, Runtime, UffdHandler};
+use uffd_utils::{Runtime, UffdHandler};
 
 fn main() {
     let mut args = std::env::args();
@@ -86,8 +86,9 @@ fn main() {
                             deferred_events.push(event);
                         }
                     }
-                    userfaultfd::Event::Remove { start, end } => uffd_handler
-                        .update_mem_state_mappings(start as u64, end as u64, MemPageState::Removed),
+                    userfaultfd::Event::Remove { start, end } => {
+                        uffd_handler.mark_range_removed(start as u64, end as u64)
+                    }
                     _ => panic!("Unexpected event on userfaultfd"),
                 }
             }
