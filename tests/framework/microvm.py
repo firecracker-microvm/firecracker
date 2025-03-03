@@ -38,6 +38,7 @@ from framework.jailer import JailerContext
 from framework.microvm_helpers import MicrovmHelpers
 from framework.properties import global_props
 from framework.utils_drive import VhostUserBlkBackend, VhostUserBlkBackendType
+from framework.utils_uffd import spawn_pf_handler, uffd_handler
 from host_tools.fcmetrics import FCMetricsMonitor
 from host_tools.memory import MemoryMonitor
 
@@ -1127,6 +1128,52 @@ class MicroVMFactory:
         vm.spawn()
         vm.restore_from_snapshot(snapshot, resume=True)
         return vm
+
+    def build_n_from_snapshot(
+        self,
+        snapshot,
+        nr_vms,
+        *,
+        uffd_handler_name=None,
+        incremental=False,
+        use_snapshot_editor=True,
+    ):
+        """A generator of `n` microvms restored, either all restored from the same given snapshot
+        (incremental=False), or created by taking successive snapshots of restored VMs
+        """
+        for _ in range(nr_vms):
+            microvm = self.build()
+            microvm.spawn()
+
+            uffd_path = None
+            if uffd_handler_name is not None:
+                pf_handler = spawn_pf_handler(
+                    microvm,
+                    uffd_handler(uffd_handler_name, binary_dir=self.binary_path),
+                    snapshot.mem,
+                )
+                uffd_path = pf_handler.socket_path
+
+            snapshot_copy = microvm.restore_from_snapshot(
+                snapshot, resume=True, uffd_path=uffd_path
+            )
+
+            yield microvm
+
+            if incremental:
+                new_snapshot = microvm.make_snapshot(snapshot.snapshot_type)
+
+                if snapshot.is_diff:
+                    new_snapshot = new_snapshot.rebase_snapshot(
+                        snapshot, use_snapshot_editor
+                    )
+
+                snapshot = new_snapshot
+
+            microvm.kill()
+            snapshot_copy.delete()
+
+        snapshot.delete()
 
     def kill(self):
         """Clean up all built VMs"""
