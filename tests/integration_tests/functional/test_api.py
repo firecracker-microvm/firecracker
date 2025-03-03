@@ -16,7 +16,7 @@ import pytest
 
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
-from framework import utils_cpuid
+from framework import utils, utils_cpuid
 from framework.utils import get_firecracker_version_from_toml, is_io_uring_supported
 
 MEM_LIMIT = 1000000000
@@ -41,6 +41,9 @@ def test_api_happy_start(uvm_plain):
     test_microvm.basic_config()
 
     test_microvm.start()
+
+    if utils.pvh_supported():
+        assert "Kernel loaded using PVH boot protocol" in test_microvm.log_data
 
 
 def test_drive_io_engine(uvm_plain):
