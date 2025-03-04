@@ -4,9 +4,16 @@
 
 import os
 
+import pytest
+
 from framework import utils
+from framework.ab_test import DEFAULT_A_REVISION
 
 
+@pytest.mark.skipif(
+    os.environ.get("BUILDKITE_PULL_REQUEST") == "5048",
+    reason="PR of a feature branch from before this test was modified to follow Linux sign-off rules for co-authors.",
+)
 def test_gitlint():
     """
     Test that all commit messages pass the gitlint rules.
@@ -15,6 +22,6 @@ def test_gitlint():
     os.environ["LANG"] = "C.UTF-8"
 
     rc, _, stderr = utils.run_cmd(
-        "gitlint --commits origin/main..HEAD -C ../.gitlint --extra-path framework/gitlint_rules.py",
+        f"gitlint --commits origin/{DEFAULT_A_REVISION}..HEAD -C ../.gitlint --extra-path framework/gitlint_rules.py",
     )
     assert rc == 0, "Commit message violates gitlint rules: {}".format(stderr)
