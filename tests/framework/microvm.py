@@ -1073,12 +1073,24 @@ class Microvm:
 class MicroVMFactory:
     """MicroVM factory"""
 
-    def __init__(self, fc_binary_path: Path, jailer_binary_path: Path, **kwargs):
+    def __init__(self, binary_path: Path, **kwargs):
         self.vms = []
-        self.fc_binary_path = Path(fc_binary_path)
-        self.jailer_binary_path = Path(jailer_binary_path)
+        self.binary_path = binary_path
         self.netns_factory = kwargs.pop("netns_factory", net_tools.NetNs)
         self.kwargs = kwargs
+
+        assert self.fc_binary_path.exists(), "missing firecracker binary"
+        assert self.jailer_binary_path.exists(), "missing jailer binary"
+
+    @property
+    def fc_binary_path(self):
+        """The path to the firecracker binary from which this factory will build VMs"""
+        return self.binary_path / "firecracker"
+
+    @property
+    def jailer_binary_path(self):
+        """The path to the jailer binary using which this factory will build VMs"""
+        return self.binary_path / "jailer"
 
     def build(self, kernel=None, rootfs=None, **kwargs):
         """Build a microvm"""
