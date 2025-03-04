@@ -93,6 +93,6 @@ def spawn_pf_handler(vm, handler_path, mem_path):
     return uffd_handler
 
 
-def uffd_handler(handler_name):
+def uffd_handler(handler_name, **kwargs):
     """Retrieves the uffd handler with the given name"""
-    return cargo_build.get_example(f"uffd_{handler_name}_handler")
+    return cargo_build.get_example(f"uffd_{handler_name}_handler", **kwargs)
