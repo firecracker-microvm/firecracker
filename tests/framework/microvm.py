@@ -38,6 +38,7 @@ from framework.jailer import JailerContext
 from framework.microvm_helpers import MicrovmHelpers
 from framework.properties import global_props
 from framework.utils_drive import VhostUserBlkBackend, VhostUserBlkBackendType
+from framework.utils_uffd import spawn_pf_handler, uffd_handler
 from host_tools.fcmetrics import FCMetricsMonitor
 from host_tools.memory import MemoryMonitor
 
@@ -201,6 +202,7 @@ class Microvm:
         self.ssh_key = None
         self.initrd_file = None
         self.boot_args = None
+        self.uffd_handler = None
 
         self.fc_binary_path = Path(fc_binary_path)
         assert fc_binary_path.exists()
@@ -1073,12 +1075,24 @@ class Microvm:
 class MicroVMFactory:
     """MicroVM factory"""
 
-    def __init__(self, fc_binary_path: Path, jailer_binary_path: Path, **kwargs):
+    def __init__(self, binary_path: Path, **kwargs):
         self.vms = []
-        self.fc_binary_path = Path(fc_binary_path)
-        self.jailer_binary_path = Path(jailer_binary_path)
+        self.binary_path = binary_path
         self.netns_factory = kwargs.pop("netns_factory", net_tools.NetNs)
         self.kwargs = kwargs
+
+        assert self.fc_binary_path.exists(), "missing firecracker binary"
+        assert self.jailer_binary_path.exists(), "missing jailer binary"
+
+    @property
+    def fc_binary_path(self):
+        """The path to the firecracker binary from which this factory will build VMs"""
+        return self.binary_path / "firecracker"
+
+    @property
+    def jailer_binary_path(self):
+        """The path to the jailer binary using which this factory will build VMs"""
+        return self.binary_path / "jailer"
 
     def build(self, kernel=None, rootfs=None, **kwargs):
         """Build a microvm"""
@@ -1114,6 +1128,52 @@ class MicroVMFactory:
         vm.spawn()
         vm.restore_from_snapshot(snapshot, resume=True)
         return vm
+
+    def build_n_from_snapshot(
+        self,
+        snapshot,
+        nr_vms,
+        *,
+        uffd_handler_name=None,
+        incremental=False,
+        use_snapshot_editor=True,
+    ):
+        """A generator of `n` microvms restored, either all restored from the same given snapshot
+        (incremental=False), or created by taking successive snapshots of restored VMs
+        """
+        for _ in range(nr_vms):
+            microvm = self.build()
+            microvm.spawn()
+
+            uffd_path = None
+            if uffd_handler_name is not None:
+                pf_handler = spawn_pf_handler(
+                    microvm,
+                    uffd_handler(uffd_handler_name, binary_dir=self.binary_path),
+                    snapshot.mem,
+                )
+                uffd_path = pf_handler.socket_path
+
+            snapshot_copy = microvm.restore_from_snapshot(
+                snapshot, resume=True, uffd_path=uffd_path
+            )
+
+            yield microvm
+
+            if incremental:
+                new_snapshot = microvm.make_snapshot(snapshot.snapshot_type)
+
+                if snapshot.is_diff:
+                    new_snapshot = new_snapshot.rebase_snapshot(
+                        snapshot, use_snapshot_editor
+                    )
+
+                snapshot = new_snapshot
+
+            microvm.kill()
+            snapshot_copy.delete()
+
+        snapshot.delete()
 
     def kill(self):
         """Clean up all built VMs"""

@@ -517,8 +517,9 @@ cmd_build() {
     if [ ! -z "$revision" ]; then
       popd
       git branch -D $branch_name
-      mkdir -p build/"$revision"
+      mkdir -p build/"$revision"/examples
       cp $tmp_dir/build/cargo_target/$(uname -m)-unknown-linux-$libc/$profile/* build/"$revision"
+      cp $tmp_dir/build/cargo_target/$(uname -m)-unknown-linux-$libc/$profile/examples/* build/"$revision"/examples
       cmd_sh "rm -rf $tmp_dir"
     fi
 

@@ -64,7 +64,11 @@ def extract_dimensions(emf):
         # Skipped tests emit a duration metric, but have no dimensions set
         return {}
 
-    dimension_list = emf["_aws"]["CloudWatchMetrics"][0]["Dimensions"][0]
+    dimension_list = [
+        dim
+        for dimensions in emf["_aws"]["CloudWatchMetrics"][0]["Dimensions"]
+        for dim in dimensions
+    ]
     return {key: emf[key] for key in emf if key in dimension_list}
 
 
@@ -136,7 +140,7 @@ def load_data_series(report_path: Path, tag=None, *, reemit: bool = False):
                     # multiple EMF log messages. We need to reassemble :(
                     assert (
                         processed_emf[dimension_set].keys() == result.keys()
-                    ), f"Found incompatible metrics associated with dimension set {dimension_set}: {processed_emf[dimension_set].key()} in one EMF message, but {result.keys()} in another."
+                    ), f"Found incompatible metrics associated with dimension set {dimension_set}: {processed_emf[dimension_set].keys()} in one EMF message, but {result.keys()} in another."
 
                     for metric, (values, unit) in processed_emf[dimension_set].items():
                         assert result[metric][1] == unit

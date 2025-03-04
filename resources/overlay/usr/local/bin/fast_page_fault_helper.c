@@ -10,17 +10,23 @@
 // This way, the `memset` will trigger a fast page fault for every page in
 // the memory region.
 
-#include <stdio.h>    // perror
+#include <stdio.h>    // perror, fopen, fprintf
 #include <signal.h>   // sigwait and friends
 #include <string.h>   // memset
 #include <sys/mman.h> // mmap
+#include <time.h>     // clock_gettime
+#include <fcntl.h>    // open
 
 #define MEM_SIZE_MIB (128 * 1024 * 1024)
+#define NANOS_PER_SEC 1000000000
 
-int main(int argc, char *const argv[]) {
+int main() {
     sigset_t set;
     int signal;
     void *ptr;
+    struct timespec start, end;
+    long duration_nanos;
+    FILE *out_file;
 
     sigemptyset(&set);
     if (sigaddset(&set, SIGUSR1) == -1) {
@@ -43,7 +49,23 @@ int main(int argc, char *const argv[]) {
 
     sigwait(&set, &signal);
 
+    clock_gettime(CLOCK_BOOTTIME, &start);
     memset(ptr, 2, MEM_SIZE_MIB);
+    clock_gettime(CLOCK_BOOTTIME, &end);
+
+    duration_nanos = (end.tv_sec - start.tv_sec) * NANOS_PER_SEC + end.tv_nsec - start.tv_nsec;
+
+    out_file = fopen("/tmp/fast_page_fault_helper.out", "w");
+    if (out_file == NULL) {
+        perror("fopen");
+        return 1;
+    }
+
+    fprintf(out_file, "%ld", duration_nanos);
+    if (fclose(out_file)) {
+        perror("fclose");
+        return 1;
+    }
 
     return 0;
 }
