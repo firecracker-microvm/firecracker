@@ -558,9 +558,11 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
         // If the snapshot has the mmds version persisted, initialise the data store with it.
         if let Some(mmds_version) = &state.mmds_version {
+            let version = mmds_version.clone().into();
             constructor_args
                 .vm_resources
-                .set_mmds_version(mmds_version.clone().into(), constructor_args.instance_id)?;
+                .set_mmds_version(version, constructor_args.instance_id)
+                .map_err(|err| MmdsConfigError::MmdsVersion(version, err))?;
         } else if state
             .net_devices
             .iter()

@@ -180,7 +180,7 @@ impl MmdsNetworkStack {
                 self.remote_mac_addr = eth.src_mac();
                 let mmds_instance = self.mmds.clone();
                 match &mut self.tcp_handler.receive_packet(&ip, move |request| {
-                    super::convert_to_response(mmds_instance, request)
+                    super::convert_to_response(mmds_instance, &request)
                 }) {
                     Ok(event) => {
                         METRICS.mmds.rx_count.inc();
