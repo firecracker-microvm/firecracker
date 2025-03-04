@@ -206,10 +206,8 @@ def microvm_factory_a(record_property):
     """MicroVMFactory using revision A binaries"""
     revision_a = global_props.buildkite_revision_a
     bin_dir = git_clone(Path("../build") / revision_a, revision_a).resolve()
-    fc_bin = bin_dir / "firecracker"
-    jailer_bin = bin_dir / "jailer"
-    record_property("firecracker_bin", str(fc_bin))
-    uvm_factory = MicroVMFactory(fc_bin, jailer_bin)
+    record_property("firecracker_bin", str(bin_dir / "firecracker"))
+    uvm_factory = MicroVMFactory(bin_dir)
     yield uvm_factory
     uvm_factory.kill()
 

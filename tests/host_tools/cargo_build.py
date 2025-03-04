@@ -65,17 +65,6 @@ def get_binary(name, *, workspace_dir=FC_WORKSPACE_DIR, example=None):
     return bin_path
 
 
-def get_firecracker_binaries(*, workspace_dir=FC_WORKSPACE_DIR):
-    """Build the Firecracker and Jailer binaries if they don't exist.
-
-    Returns the location of the firecracker related binaries eventually after
-    building them in case they do not exist at the specified root_path.
-    """
-    return get_binary("firecracker", workspace_dir=workspace_dir), get_binary(
-        "jailer", workspace_dir=workspace_dir
-    )
-
-
 def get_example(name, *args, package="firecracker", **kwargs):
     """Build an example binary"""
     return get_binary(package, *args, **kwargs, example=name)

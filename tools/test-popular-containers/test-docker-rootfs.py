@@ -17,8 +17,8 @@ sys.path.append(os.path.join(os.getcwd(), "tests"))
 
 # pylint: disable=wrong-import-position
 from framework.artifacts import kernels
+from framework.defs import DEFAULT_BINARY_DIR
 from framework.microvm import MicroVMFactory
-from host_tools.cargo_build import get_firecracker_binaries
 
 # pylint: enable=wrong-import-position
 
@@ -26,7 +26,7 @@ kernels = list(kernels("vmlinux-*"))
 # Use the latest guest kernel
 kernel = kernels[-1]
 
-vmfcty = MicroVMFactory(*get_firecracker_binaries())
+vmfcty = MicroVMFactory(DEFAULT_BINARY_DIR)
 # (may take a while to compile Firecracker...)
 
 for rootfs in Path(".").glob("*.ext4"):
