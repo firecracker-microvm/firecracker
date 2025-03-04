@@ -10,7 +10,7 @@ from functools import lru_cache
 import pytest
 
 import host_tools.drive as drive_tools
-from framework.microvm import Microvm
+from framework.microvm import HugePagesConfig, Microvm
 
 USEC_IN_MSEC = 1000
 NS_IN_MSEC = 1_000_000
@@ -36,6 +36,7 @@ class SnapshotRestoreTest:
     nets: int = 3
     blocks: int = 3
     all_devices: bool = False
+    huge_pages: HugePagesConfig = HugePagesConfig.NONE
 
     @property
     def id(self):
@@ -55,6 +56,7 @@ class SnapshotRestoreTest:
             vcpu_count=self.vcpus,
             mem_size_mib=self.mem,
             rootfs_io_engine="Sync",
+            huge_pages=self.huge_pages,
         )
 
         for _ in range(self.nets):
@@ -77,6 +79,7 @@ class SnapshotRestoreTest:
                 "block_devices": str(self.blocks),
                 "vsock_devices": str(int(self.all_devices)),
                 "balloon_devices": str(int(self.all_devices)),
+                "huge_pages_config": str(self.huge_pages),
                 **vm.dimensions,
             }
         )
@@ -138,11 +141,15 @@ def test_restore_latency(
 # latencies, but KVM latencies of setting up missing EPT entries.
 @pytest.mark.nonci
 @pytest.mark.parametrize("uffd_handler", [None, "valid", "fault_all"])
+@pytest.mark.parametrize("huge_pages", HugePagesConfig)
 def test_post_restore_latency(
-    microvm_factory, rootfs, guest_kernel_linux_5_10, metrics, uffd_handler
+    microvm_factory, rootfs, guest_kernel_linux_5_10, metrics, uffd_handler, huge_pages
 ):
     """Collects latency metric of post-restore memory accesses done inside the guest"""
-    test_setup = SnapshotRestoreTest(mem=1024, vcpus=2)
+    if huge_pages != HugePagesConfig.NONE and uffd_handler is None:
+        pytest.skip("huge page snapshots can only be restored using uffd")
+
+    test_setup = SnapshotRestoreTest(mem=1024, vcpus=2, huge_pages=huge_pages)
     vm = test_setup.boot_vm(microvm_factory, guest_kernel_linux_5_10, rootfs, metrics)
 
     vm.ssh.check_output(
