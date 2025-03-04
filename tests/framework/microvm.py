@@ -201,6 +201,7 @@ class Microvm:
         self.ssh_key = None
         self.initrd_file = None
         self.boot_args = None
+        self.uffd_handler = None
 
         self.fc_binary_path = Path(fc_binary_path)
         assert fc_binary_path.exists()

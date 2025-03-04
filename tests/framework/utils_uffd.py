@@ -89,6 +89,7 @@ def spawn_pf_handler(vm, handler_path, mem_path):
         handler_name, SOCKET_PATH, jailed_mem, vm.chroot(), "uffd.log"
     )
     uffd_handler.spawn(vm.jailer.uid, vm.jailer.gid)
+    vm.uffd_handler = uffd_handler
 
     return uffd_handler
 
