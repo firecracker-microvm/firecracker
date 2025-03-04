@@ -1,6 +1,7 @@
 # Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Performance benchmark for snapshot restore."""
+import re
 import signal
 import tempfile
 import time
@@ -181,3 +182,42 @@ def test_post_restore_latency(
         )
 
         metrics.put_metric("fault_latency", int(duration) / NS_IN_MSEC, "Milliseconds")
+
+
+@pytest.mark.nonci
+@pytest.mark.parametrize("huge_pages", HugePagesConfig)
+def test_population_latency(
+    microvm_factory, rootfs, guest_kernel_linux_5_10, metrics, huge_pages
+):
+    """Collects population latency metrics (e.g. how long it takes UFFD handler to fault in all memory)"""
+    test_setup = SnapshotRestoreTest(mem=128, vcpus=1, huge_pages=huge_pages)
+    vm = test_setup.boot_vm(microvm_factory, guest_kernel_linux_5_10, rootfs, metrics)
+    snapshot = vm.snapshot_full()
+    vm.kill()
+
+    metrics.put_dimensions(
+        {"performance_test": "test_population_latency", "uffd_handler": "fault_all"}
+    )
+
+    for microvm in microvm_factory.build_n_from_snapshot(
+        snapshot, ITERATIONS, uffd_handler_name="fault_all"
+    ):
+        # do _something_ to trigger a pagefault, which will then cause the UFFD handler to fault in _everything_
+        microvm.ssh.check_output("true")
+
+        for _ in range(5):
+            time.sleep(1)
+
+            match = re.match(
+                r"Finished Faulting All: (\d+)us", microvm.uffd_handler.log_data
+            )
+
+            if match:
+                latency_us = int(match.group(1))
+
+                metrics.put_metric(
+                    "populate_latency", latency_us / 1000, "Milliseconds"
+                )
+                break
+        else:
+            raise RuntimeError("UFFD handler did not print population latency after 5s")
