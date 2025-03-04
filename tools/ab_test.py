@@ -64,7 +64,11 @@ def extract_dimensions(emf):
         # Skipped tests emit a duration metric, but have no dimensions set
         return {}
 
-    dimension_list = emf["_aws"]["CloudWatchMetrics"][0]["Dimensions"][0]
+    dimension_list = [
+        dim
+        for dimensions in emf["_aws"]["CloudWatchMetrics"][0]["Dimensions"]
+        for dim in dimensions
+    ]
     return {key: emf[key] for key in emf if key in dimension_list}
 
 
