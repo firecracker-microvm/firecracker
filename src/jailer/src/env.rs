@@ -574,17 +574,20 @@ impl Env {
                 let host_cache_file = host_path.join(entry);
                 let jailer_cache_file = jailer_path.join(entry);
 
-                let line = readln_special(&host_cache_file)?;
-                writeln_special(&jailer_cache_file, line)?;
+                if let Ok(line) = readln_special(&host_cache_file) {
+                    writeln_special(&jailer_cache_file, line)?;
 
-                // We now change the permissions.
-                let dest_path_cstr = to_cstring(&jailer_cache_file)?;
-                // SAFETY: Safe because dest_path_cstr is null-terminated.
-                SyscallReturnCode(unsafe {
-                    libc::chown(dest_path_cstr.as_ptr(), self.uid(), self.gid())
-                })
-                .into_empty_result()
-                .map_err(|err| JailerError::ChangeFileOwner(jailer_cache_file.to_owned(), err))?;
+                    // We now change the permissions.
+                    let dest_path_cstr = to_cstring(&jailer_cache_file)?;
+                    // SAFETY: Safe because dest_path_cstr is null-terminated.
+                    SyscallReturnCode(unsafe {
+                        libc::chown(dest_path_cstr.as_ptr(), self.uid(), self.gid())
+                    })
+                    .into_empty_result()
+                    .map_err(|err| {
+                        JailerError::ChangeFileOwner(jailer_cache_file.to_owned(), err)
+                    })?;
+                }
             }
         }
         Ok(())
