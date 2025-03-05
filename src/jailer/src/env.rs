@@ -1,7 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::ffi::{CString, OsString};
+use std::ffi::{CStr, CString, OsString};
 use std::fs::{self, canonicalize, read_to_string, File, OpenOptions, Permissions};
 use std::io;
 use std::io::Write;
@@ -30,19 +30,19 @@ const STDERR_FILENO: libc::c_int = 2;
 // Kernel-based virtual machine (hardware virtualization extensions)
 // minor/major numbers are taken from
 // https://www.kernel.org/doc/html/latest/admin-guide/devices.html
-const DEV_KVM_WITH_NUL: &str = "/dev/kvm";
+const DEV_KVM: &CStr = c"/dev/kvm";
 const DEV_KVM_MAJOR: u32 = 10;
 const DEV_KVM_MINOR: u32 = 232;
 
 // TUN/TAP device minor/major numbers are taken from
 // www.kernel.org/doc/Documentation/networking/tuntap.txt
-const DEV_NET_TUN_WITH_NUL: &str = "/dev/net/tun";
+const DEV_NET_TUN: &CStr = c"/dev/net/tun";
 const DEV_NET_TUN_MAJOR: u32 = 10;
 const DEV_NET_TUN_MINOR: u32 = 200;
 
 // Random number generator device minor/major numbers are taken from
 // https://www.kernel.org/doc/Documentation/admin-guide/devices.txt
-const DEV_URANDOM_WITH_NUL: &str = "/dev/urandom";
+const DEV_URANDOM: &CStr = c"/dev/urandom";
 const DEV_URANDOM_MAJOR: u32 = 1;
 const DEV_URANDOM_MINOR: u32 = 9;
 
@@ -54,7 +54,7 @@ const DEV_URANDOM_MINOR: u32 = 9;
 // so we will have to find it at initialization time parsing /proc/misc.
 // What we do know is the major number for misc devices:
 // https://elixir.bootlin.com/linux/v6.1.51/source/Documentation/admin-guide/devices.txt
-const DEV_UFFD_PATH: &str = "/dev/userfaultfd";
+const DEV_UFFD_PATH: &CStr = c"/dev/userfaultfd";
 const DEV_UFFD_MAJOR: u32 = 10;
 
 // Relevant folders inside the jail that we create or/and for which we change ownership.
@@ -425,18 +425,17 @@ impl Env {
 
     fn mknod_and_own_dev(
         &self,
-        dev_path_str: &'static str,
+        dev_path: &CStr,
         dev_major: u32,
         dev_minor: u32,
     ) -> Result<(), JailerError> {
-        let dev_path = CString::new(dev_path_str).unwrap();
         // As per sysstat.h:
         // S_IFCHR -> character special device
         // S_IRUSR -> read permission, owner
         // S_IWUSR -> write permission, owner
         // See www.kernel.org/doc/Documentation/networking/tuntap.txt, 'Configuration' chapter for
         // more clarity.
-        // SAFETY: This is safe because dev_path is CString, and hence null-terminated.
+        // SAFETY: This is safe because dev_path is CStr, and hence null-terminated.
         SyscallReturnCode(unsafe {
             libc::mknod(
                 dev_path.as_ptr(),
@@ -445,7 +444,7 @@ impl Env {
             )
         })
         .into_empty_result()
-        .map_err(|err| JailerError::MknodDev(err, dev_path_str.to_owned()))?;
+        .map_err(|err| JailerError::MknodDev(err, dev_path.to_str().unwrap().to_owned()))?;
 
         // SAFETY: This is safe because dev_path is CStr, and hence null-terminated.
         SyscallReturnCode(unsafe { libc::chown(dev_path.as_ptr(), self.uid(), self.gid()) })
@@ -663,14 +662,14 @@ impl Env {
         // $: mknod $dev_net_tun_path c 10 200
         // www.kernel.org/doc/Documentation/networking/tuntap.txt specifies 10 and 200 as the major
         // and minor for the /dev/net/tun device.
-        self.mknod_and_own_dev(DEV_NET_TUN_WITH_NUL, DEV_NET_TUN_MAJOR, DEV_NET_TUN_MINOR)?;
+        self.mknod_and_own_dev(DEV_NET_TUN, DEV_NET_TUN_MAJOR, DEV_NET_TUN_MINOR)?;
         // Do the same for /dev/kvm with (major, minor) = (10, 232).
-        self.mknod_and_own_dev(DEV_KVM_WITH_NUL, DEV_KVM_MAJOR, DEV_KVM_MINOR)?;
+        self.mknod_and_own_dev(DEV_KVM, DEV_KVM_MAJOR, DEV_KVM_MINOR)?;
         // And for /dev/urandom with (major, minor) = (1, 9).
         // If the device is not accessible on the host, output a warning to inform user that MMDS
         // version 2 will not be available to use.
         let _ = self
-            .mknod_and_own_dev(DEV_URANDOM_WITH_NUL, DEV_URANDOM_MAJOR, DEV_URANDOM_MINOR)
+            .mknod_and_own_dev(DEV_URANDOM, DEV_URANDOM_MAJOR, DEV_URANDOM_MINOR)
             .map_err(|err| {
                 println!(
                     "Warning! Could not create /dev/urandom device inside jailer: {}.",
@@ -1116,14 +1115,14 @@ mod tests {
         // process management; it can't be isolated from side effects.
     }
 
-    fn ensure_mknod_and_own_dev(env: &Env, dev_path: &'static str, major: u32, minor: u32) {
+    fn ensure_mknod_and_own_dev(env: &Env, dev_path: &CStr, major: u32, minor: u32) {
         use std::os::unix::fs::FileTypeExt;
 
         // Create a new device node.
         env.mknod_and_own_dev(dev_path, major, minor).unwrap();
 
         // Ensure device's properties.
-        let metadata = fs::metadata(dev_path).unwrap();
+        let metadata = fs::metadata(dev_path.to_str().unwrap()).unwrap();
         assert!(metadata.file_type().is_char_device());
         assert_eq!(get_major(metadata.st_rdev()), major);
         assert_eq!(get_minor(metadata.st_rdev()), minor);
@@ -1140,7 +1139,7 @@ mod tests {
             ),
             format!(
                 "Failed to create {} via mknod inside the jail: File exists (os error 17)",
-                dev_path
+                dev_path.to_str().unwrap()
             )
         );
     }
@@ -1152,25 +1151,25 @@ mod tests {
         let env = create_env(mock_cgroups.proc_mounts_path.as_str());
 
         // Ensure device nodes are created with correct major/minor numbers and permissions.
-        let mut dev_infos: Vec<(&str, u32, u32)> = vec![
-            ("/dev/net/tun-test", DEV_NET_TUN_MAJOR, DEV_NET_TUN_MINOR),
-            ("/dev/kvm-test", DEV_KVM_MAJOR, DEV_KVM_MINOR),
+        let mut dev_infos: Vec<(&CStr, u32, u32)> = vec![
+            (c"/dev/net/tun-test", DEV_NET_TUN_MAJOR, DEV_NET_TUN_MINOR),
+            (c"/dev/kvm-test", DEV_KVM_MAJOR, DEV_KVM_MINOR),
         ];
 
         if let Some(uffd_dev_minor) = env.uffd_dev_minor {
-            dev_infos.push(("/dev/userfaultfd-test", DEV_UFFD_MAJOR, uffd_dev_minor));
+            dev_infos.push((c"/dev/userfaultfd-test", DEV_UFFD_MAJOR, uffd_dev_minor));
         }
 
         for (dev, major, minor) in dev_infos {
             // Checking this just to be super sure there's no file at `dev_str` path (though
             // it shouldn't be as we deleted it at the end of the previous test run).
-            if Path::new(dev).exists() {
-                fs::remove_file(dev).unwrap();
+            if Path::new(dev.to_str().unwrap()).exists() {
+                fs::remove_file(dev.to_str().unwrap()).unwrap();
             }
 
             ensure_mknod_and_own_dev(&env, dev, major, minor);
             // Remove the device node.
-            fs::remove_file(dev).expect("Could not remove file.");
+            fs::remove_file(dev.to_str().unwrap()).expect("Could not remove file.");
         }
     }
 
@@ -1180,7 +1179,7 @@ mod tests {
         mock_cgroups.add_v1_mounts().unwrap();
         let env = create_env(mock_cgroups.proc_mounts_path.as_str());
 
-        if !Path::new(DEV_UFFD_PATH).exists() {
+        if !Path::new(DEV_UFFD_PATH.to_str().unwrap()).exists() {
             assert_eq!(env.uffd_dev_minor, None);
         } else {
             assert!(env.uffd_dev_minor.is_some());
