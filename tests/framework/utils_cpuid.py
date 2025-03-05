@@ -32,6 +32,7 @@ class CpuModel(str, Enum):
     INTEL_SKYLAKE = "INTEL_SKYLAKE"
     INTEL_CASCADELAKE = "INTEL_CASCADELAKE"
     INTEL_ICELAKE = "INTEL_ICELAKE"
+    INTEL_SAPPHIRE_RAPIDS = "INTEL_SAPPHIRE_RAPIDS"
 
 
 CPU_DICT = {
@@ -40,6 +41,7 @@ CPU_DICT = {
         "Intel(R) Xeon(R) Platinum 8124M CPU": "INTEL_SKYLAKE",
         "Intel(R) Xeon(R) Platinum 8259CL CPU": "INTEL_CASCADELAKE",
         "Intel(R) Xeon(R) Platinum 8375C CPU": "INTEL_ICELAKE",
+        "Intel(R) Xeon(R) Platinum 8488C": "INTEL_SAPPHIRE_RAPIDS",
     },
     CpuVendor.AMD: {"AMD EPYC 7R13": "AMD_MILAN", "AMD EPYC 9R14": "AMD_GENOA"},
     CpuVendor.ARM: {
@@ -83,6 +85,8 @@ def get_cpu_codename(default="Unknown"):
         result = re.match(r"^(.*) @.*$", cpu_model)
         if result:
             return CPU_DICT[CpuVendor.INTEL].get(result.group(1), default)
+        # Some Intel CPUs (e.g. Intel Sapphire Rapids) don't include "@ <frequency>".
+        return CPU_DICT[CpuVendor.INTEL].get(cpu_model, default)
     if vendor == CpuVendor.AMD:
         result = re.match(r"^(.*) [0-9]*-Core Processor$", cpu_model)
         if result:
