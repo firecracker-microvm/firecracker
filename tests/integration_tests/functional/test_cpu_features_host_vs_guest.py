@@ -233,6 +233,10 @@ def test_host_vs_guest_cpu_features(uvm_plain_any):
                 assert host_feats - guest_feats == host_guest_diff_6_1
             assert guest_feats - host_feats == INTEL_GUEST_ONLY_FEATS - {"umip"}
 
+        case CpuModel.INTEL_SAPPHIRE_RAPIDS:
+            assert host_feats - guest_feats == INTEL_HOST_ONLY_FEATS
+            assert guest_feats - host_feats == INTEL_GUEST_ONLY_FEATS
+
         case CpuModel.ARM_NEOVERSE_N1:
             expected_guest_minus_host = set()
             expected_host_minus_guest = set()
