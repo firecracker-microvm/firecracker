@@ -57,7 +57,10 @@ creation process).
 
 Both network and vsock packet loss can be expected on guests that are resumed
 from snapshots in another Firecracker process. It is also not guaranteed that
-the state of the network connections survives the process.
+the state of the network connections survives the process. Furthermore, vsock
+connections that are open when the snapshot is taken are closed, but existing
+vsock listen sockets in the guest still remain active and can accept new
+connections after resume (see [Vsock device reset](#vsock-device-reset)).
 
 In order to make restoring possible, Firecracker snapshots save the full state
 of the following resources:
@@ -141,8 +144,6 @@ The snapshot functionality is still in developer preview due to the following:
 - Guest network connectivity is not guaranteed to be preserved after resume. For
   recommendations related to guest network connectivity for clones please see
   [Network connectivity for clones](network-for-clones.md).
-- Vsock device does not have full snapshotting support. Please see
-  [Vsock device limitation](#vsock-device-limitation).
 - Snapshotting on arm64 works for both GICv2 and GICv3 enabled guests. However,
   restoring between different GIC version is not possible.
 - If a [CPU template](../cpu_templates/cpu-templates.md) is not used on x86_64,
@@ -606,29 +607,19 @@ identifiers, cached random numbers, cryptographic tokens, etc **will** still be
 replicated across multiple microVMs resumed from the same snapshot. Users need
 to implement mechanisms for ensuring de-duplication of such state, where needed.
 
-## Vsock device limitation
+## Vsock device reset
 
-Vsock must be inactive during snapshot. Vsock device can break if snapshotted
-while having active connections. Firecracker snapshots do not capture any
-inflight network or vsock (through the linux unix domain socket backend) traffic
-that has left or not yet entered Firecracker.
-
-The above, coupled with the fact that Vsock control protocol is not resilient to
-vsock packet loss, leads to Vsock device breakage when doing a snapshot while
-there are active Vsock connections.
-
-As a solution to the above issue, active Vsock connections prior to snapshotting
-the VM are forcibly closed by sending a specific event called
-`VIRTIO_VSOCK_EVENT_TRANSPORT_RESET`. The event is sent on `SnapshotCreate`. On
+The vsock device is reset across snapshot/restore to avoid inconsistent state
+between device and driver leading to breakage
+([#2218](https://github.com/firecracker-microvm/firecracker/issues/2218)). This
+is done by sending a `VIRTIO_VSOCK_EVENT_TRANSPORT_RESET` event to the guest
+driver during `SnapshotCreate`
+([#2562](https://github.com/firecracker-microvm/firecracker/pull/2562)). On
 `SnapshotResume`, when the VM becomes active again, the vsock driver closes all
-existing connections. Listen sockets still remain active. Users wanting to build
-vsock applications that use the snapshot capability have to take this into
-consideration. More details about this event can be found in the official Virtio
-document [here](https://docs.oasis-open.org/virtio/virtio/v1.1/virtio-v1.1.pdf),
-section 5.10.6.6 Device Events.
-
-Firecracker handles sending the `reset` event to the vsock driver, thus the
-customers are no longer responsible for closing active connections.
+existing connections. Existing listen sockets still remain active, but their CID
+is updated to reflect the current `guest_cid`. More details about this event can
+be found in the official Virtio document
+[here](https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html#x1-4080006).
 
 ## VMGenID device limitation
 
