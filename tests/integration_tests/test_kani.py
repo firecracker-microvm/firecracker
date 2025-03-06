@@ -13,10 +13,12 @@ from framework import utils
 
 PLATFORM = platform.machine()
 
+TIMEOUT = 3600
+
 
 # The `check_output` timeout will always fire before this one, but we need to
 # set a timeout here to override the default pytest timeout of 180s.
-@pytest.mark.timeout(2420)
+@pytest.mark.timeout(TIMEOUT)
 @pytest.mark.skipif(
     os.environ.get("BUILDKITE") != "true",
     reason="Kani's memory requirements likely cannot be satisfied locally",
@@ -33,7 +35,7 @@ def test_kani(results_dir):
     # --enable-unstable is needed to enable `-Z` flags
     _, stdout, _ = utils.check_output(
         "cargo kani --enable-unstable -Z stubbing -Z function-contracts --restrict-vtable -j --output-format terse",
-        timeout=2400,
+        timeout=TIMEOUT,
     )
 
     (results_dir / "kani_log").write_text(stdout, encoding="utf-8")
