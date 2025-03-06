@@ -92,7 +92,7 @@ def test_valid_handler(uvm_plain, snapshot):
     vm.spawn()
 
     # Spawn page fault handler process.
-    pf_handler = spawn_pf_handler(vm, uffd_handler("valid"), snapshot.mem)
+    pf_handler = spawn_pf_handler(vm, uffd_handler("on_demand"), snapshot.mem)
 
     vm.restore_from_snapshot(snapshot, resume=True, uffd_path=pf_handler.socket_path)
 

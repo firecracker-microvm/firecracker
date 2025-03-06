@@ -141,7 +141,7 @@ def test_restore_latency(
 # wakes up, because it gets faulted in on the first page fault. In this scenario, we are not measuring UFFD
 # latencies, but KVM latencies of setting up missing EPT entries.
 @pytest.mark.nonci
-@pytest.mark.parametrize("uffd_handler", [None, "valid", "fault_all"])
+@pytest.mark.parametrize("uffd_handler", [None, "on_demand", "fault_all"])
 @pytest.mark.parametrize("huge_pages", HugePagesConfig)
 def test_post_restore_latency(
     microvm_factory, rootfs, guest_kernel_linux_5_10, metrics, uffd_handler, huge_pages
