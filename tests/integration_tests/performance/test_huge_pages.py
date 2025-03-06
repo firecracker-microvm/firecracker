@@ -93,7 +93,7 @@ def test_hugetlbfs_snapshot(microvm_factory, guest_kernel_linux_5_10, rootfs):
     vm.spawn()
 
     # Spawn page fault handler process.
-    pf_handler = spawn_pf_handler(vm, uffd_handler("valid"), snapshot.mem)
+    pf_handler = spawn_pf_handler(vm, uffd_handler("on_demand"), snapshot.mem)
 
     vm.restore_from_snapshot(snapshot, resume=True, uffd_path=pf_handler.socket_path)
 
@@ -135,7 +135,7 @@ def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain):
     vm.spawn()
 
     # Spawn page fault handler process.
-    pf_handler = spawn_pf_handler(vm, uffd_handler("valid"), snapshot_merged.mem)
+    pf_handler = spawn_pf_handler(vm, uffd_handler("on_demand"), snapshot_merged.mem)
 
     vm.restore_from_snapshot(
         snapshot_merged, resume=True, uffd_path=pf_handler.socket_path
