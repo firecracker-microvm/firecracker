@@ -19,6 +19,14 @@
 
 #define MEM_SIZE_MIB (128 * 1024 * 1024)
 #define NANOS_PER_SEC 1000000000
+#define PAGE_SIZE 4096
+
+void touch_memory(void *mem, size_t size, char val) {
+    void *end = mem + size;
+    for (; mem < end; mem += PAGE_SIZE) {
+        *((char *)mem) = val;
+    }
+}
 
 int main() {
     sigset_t set;
@@ -45,12 +53,12 @@ int main() {
         return 1;
     }
 
-    memset(ptr, 1, MEM_SIZE_MIB);
+    touch_memory(ptr, MEM_SIZE_MIB, 1);
 
     sigwait(&set, &signal);
 
     clock_gettime(CLOCK_BOOTTIME, &start);
-    memset(ptr, 2, MEM_SIZE_MIB);
+    touch_memory(ptr, MEM_SIZE_MIB, 2);
     clock_gettime(CLOCK_BOOTTIME, &end);
 
     duration_nanos = (end.tv_sec - start.tv_sec) * NANOS_PER_SEC + end.tv_nsec - start.tv_nsec;
