@@ -48,8 +48,9 @@ if any(
         "./tools/devtool -y make_release",
     )
 
-if not changed_files or any(
-    x.suffix in [".rs", ".toml", ".lock"] for x in changed_files
+if not pipeline.args.no_kani and (
+    not changed_files
+    or any(x.suffix in [".rs", ".toml", ".lock"] for x in changed_files)
 ):
     kani_grp = pipeline.build_group(
         "🔍 Kani",

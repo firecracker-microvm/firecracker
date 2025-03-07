@@ -178,6 +178,12 @@ COMMON_PARSER.add_argument(
     default=None,
     type=str,
 )
+COMMON_PARSER.add_argument(
+    "--no-kani",
+    help="Don't add kani step",
+    action="store_true",
+    default=False,
+)
 
 
 def random_str(k: int):
