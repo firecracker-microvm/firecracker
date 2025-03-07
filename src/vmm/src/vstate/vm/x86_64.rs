@@ -7,7 +7,7 @@ use kvm_bindings::{
     kvm_clock_data, kvm_irqchip, kvm_pit_config, kvm_pit_state2, MsrList, KVM_CLOCK_TSC_STABLE,
     KVM_IRQCHIP_IOAPIC, KVM_IRQCHIP_PIC_MASTER, KVM_IRQCHIP_PIC_SLAVE, KVM_PIT_SPEAKER_DUMMY,
 };
-use kvm_ioctls::VmFd;
+use kvm_ioctls::{Cap, VmFd};
 use serde::{Deserialize, Serialize};
 
 use crate::arch::x86_64::msr::MsrError;
@@ -19,6 +19,8 @@ use crate::vstate::vm::VmError;
 #[cfg(target_arch = "x86_64")]
 #[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
 pub enum ArchVmError {
+    /// Failed to check KVM capability (0): {1}
+    CheckCapability(Cap, kvm_ioctls::Error),
     /// Set PIT2 error: {0}
     SetPit2(kvm_ioctls::Error),
     /// Set clock error: {0}
@@ -48,6 +50,10 @@ pub enum ArchVmError {
 pub struct ArchVm {
     pub(super) fd: VmFd,
     msrs_to_save: MsrList,
+    /// Size in bytes requiring to hold the dynamically-sized `kvm_xsave` struct.
+    ///
+    /// `None` if `KVM_CAP_XSAVE2` not supported.
+    xsave2_size: Option<usize>,
 }
 
 impl ArchVm {
@@ -57,10 +63,34 @@ impl ArchVm {
 
         let msrs_to_save = kvm.msrs_to_save().map_err(ArchVmError::GetMsrsToSave)?;
 
+        // `KVM_CAP_XSAVE2` was introduced to support dynamically-sized XSTATE buffer in kernel
+        // v5.17. `KVM_GET_EXTENSION(KVM_CAP_XSAVE2)` returns the required size in byte if
+        // supported; otherwise returns 0.
+        // https://github.com/torvalds/linux/commit/be50b2065dfa3d88428fdfdc340d154d96bf6848
+        //
+        // Cache the value in order not to call it at each vCPU creation.
+        let xsave2_size = match fd.check_extension_int(Cap::Xsave2) {
+            // Catch all negative values just in case although the possible negative return value
+            // of ioctl() is only -1.
+            ..=-1 => {
+                return Err(VmError::Arch(ArchVmError::CheckCapability(
+                    Cap::Xsave2,
+                    vmm_sys_util::errno::Error::last(),
+                )));
+            }
+            0 => None,
+            // SAFETY: Safe because negative values are handled above.
+            ret => Some(usize::try_from(ret).unwrap()),
+        };
+
         fd.set_tss_address(u64_to_usize(crate::arch::x86_64::layout::KVM_TSS_ADDRESS))
             .map_err(ArchVmError::SetTssAddress)?;
 
-        Ok(ArchVm { fd, msrs_to_save })
+        Ok(ArchVm {
+            fd,
+            msrs_to_save,
+            xsave2_size,
+        })
     }
 
     pub(super) fn arch_pre_create_vcpus(&mut self, _: u8) -> Result<(), ArchVmError> {
@@ -161,6 +191,11 @@ impl ArchVm {
     /// Gets the list of MSRs to save when creating snapshots
     pub fn msrs_to_save(&self) -> &[u32] {
         self.msrs_to_save.as_slice()
+    }
+
+    /// Gets the size (in bytes) of the `kvm_xsave` struct.
+    pub fn xsave2_size(&self) -> Option<usize> {
+        self.xsave2_size
     }
 }
 
