@@ -7,7 +7,7 @@ import platform
 from pathlib import Path
 
 from framework import defs, utils
-from framework.defs import FC_WORKSPACE_DIR
+from framework.defs import DEFAULT_BINARY_DIR
 from framework.with_filelock import with_filelock
 
 DEFAULT_TARGET = f"{platform.machine()}-unknown-linux-musl"
@@ -56,24 +56,12 @@ def cargo_test(path, extra_args=""):
     cargo("test", extra_args + " --all --no-fail-fast", env=env)
 
 
-def get_binary(name, *, workspace_dir=FC_WORKSPACE_DIR, example=None):
+def get_binary(name, *, binary_dir=DEFAULT_BINARY_DIR, example=None):
     """Get a binary. The binaries are built before starting a testrun."""
-    target_dir = workspace_dir / "build" / "cargo_target" / DEFAULT_TARGET_DIR
-    bin_path = target_dir / name
+    bin_path = binary_dir / name
     if example:
-        bin_path = target_dir / "examples" / example
+        bin_path = binary_dir / "examples" / example
     return bin_path
-
-
-def get_firecracker_binaries(*, workspace_dir=FC_WORKSPACE_DIR):
-    """Build the Firecracker and Jailer binaries if they don't exist.
-
-    Returns the location of the firecracker related binaries eventually after
-    building them in case they do not exist at the specified root_path.
-    """
-    return get_binary("firecracker", workspace_dir=workspace_dir), get_binary(
-        "jailer", workspace_dir=workspace_dir
-    )
 
 
 def get_example(name, *args, package="firecracker", **kwargs):

@@ -57,8 +57,8 @@ name = "uffd_malicious_handler"
 path = "examples/uffd/malicious_handler.rs"
 
 [[example]]
-name = "uffd_valid_handler"
-path = "examples/uffd/valid_handler.rs"
+name = "uffd_on_demand_handler"
+path = "examples/uffd/on_demand_handler.rs"
 
 [[example]]
 name = "uffd_fault_all_handler"

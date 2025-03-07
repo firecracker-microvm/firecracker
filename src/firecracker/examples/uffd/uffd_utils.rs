@@ -4,7 +4,7 @@
 // Not everything is used by both binaries
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::net::UnixStream;
@@ -34,26 +34,20 @@ pub struct GuestRegionUffdMapping {
     pub page_size_kib: usize,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum MemPageState {
-    Uninitialized,
-    FromFile,
-    Removed,
-    Anonymous,
-}
-
-#[derive(Debug, Clone)]
-pub struct MemRegion {
-    pub mapping: GuestRegionUffdMapping,
-    page_states: HashMap<u64, MemPageState>,
+impl GuestRegionUffdMapping {
+    fn contains(&self, fault_page_addr: u64) -> bool {
+        fault_page_addr >= self.base_host_virt_addr
+            && fault_page_addr < self.base_host_virt_addr + self.size as u64
+    }
 }
 
 #[derive(Debug)]
 pub struct UffdHandler {
-    pub mem_regions: Vec<MemRegion>,
+    pub mem_regions: Vec<GuestRegionUffdMapping>,
     pub page_size: usize,
     backing_buffer: *const u8,
     uffd: Uffd,
+    removed_pages: HashSet<u64>,
 }
 
 impl UffdHandler {
@@ -92,13 +86,12 @@ impl UffdHandler {
 
         let uffd = unsafe { Uffd::from_raw_fd(file.into_raw_fd()) };
 
-        let mem_regions = create_mem_regions(&mappings, page_size);
-
         Self {
-            mem_regions,
+            mem_regions: mappings,
             page_size,
             backing_buffer,
             uffd,
+            removed_pages: HashSet::new(),
         }
     }
 
@@ -106,13 +99,12 @@ impl UffdHandler {
         self.uffd.read_event()
     }
 
-    pub fn update_mem_state_mappings(&mut self, start: u64, end: u64, state: MemPageState) {
-        for region in self.mem_regions.iter_mut() {
-            for (key, value) in region.page_states.iter_mut() {
-                if key >= &start && key < &end {
-                    *value = state;
-                }
-            }
+    pub fn mark_range_removed(&mut self, start: u64, end: u64) {
+        let pfn_start = start / self.page_size as u64;
+        let pfn_end = end / self.page_size as u64;
+
+        for pfn in pfn_start..pfn_end {
+            self.removed_pages.insert(pfn);
         }
     }
 
@@ -120,33 +112,16 @@ impl UffdHandler {
         // Find the start of the page that the current faulting address belongs to.
         let dst = (addr as usize & !(self.page_size - 1)) as *mut libc::c_void;
         let fault_page_addr = dst as u64;
+        let fault_pfn = fault_page_addr / self.page_size as u64;
 
-        // Get the state of the current faulting page.
-        for region in self.mem_regions.iter() {
-            match region.page_states.get(&fault_page_addr) {
-                // Our simple PF handler has a simple strategy:
-                // There exist 4 states in which a memory page can be in:
-                // 1. Uninitialized - page was never touched
-                // 2. FromFile - the page is populated with content from snapshotted memory file
-                // 3. Removed - MADV_DONTNEED was called due to balloon inflation
-                // 4. Anonymous - page was zeroed out -> this implies that more than one page fault
-                //    event was received. This can be a consequence of guest reclaiming back its
-                //    memory from the host (through balloon device)
-                Some(MemPageState::Uninitialized) | Some(MemPageState::FromFile) => {
-                    match self.populate_from_file(region, fault_page_addr, len) {
-                        Some((start, end)) => {
-                            self.update_mem_state_mappings(start, end, MemPageState::FromFile)
-                        }
-                        None => return false,
-                    }
-                    return true;
+        if self.removed_pages.contains(&fault_pfn) {
+            self.zero_out(fault_page_addr);
+            return true;
+        } else {
+            for region in self.mem_regions.iter() {
+                if region.contains(fault_page_addr) {
+                    return self.populate_from_file(region, fault_page_addr, len);
                 }
-                Some(MemPageState::Removed) | Some(MemPageState::Anonymous) => {
-                    let (start, end) = self.zero_out(fault_page_addr);
-                    self.update_mem_state_mappings(start, end, MemPageState::Anonymous);
-                    return true;
-                }
-                None => {}
             }
         }
 
@@ -156,13 +131,14 @@ impl UffdHandler {
         );
     }
 
-    fn populate_from_file(&self, region: &MemRegion, dst: u64, len: usize) -> Option<(u64, u64)> {
-        let offset = dst - region.mapping.base_host_virt_addr;
-        let src = self.backing_buffer as u64 + region.mapping.offset + offset;
+    fn populate_from_file(&self, region: &GuestRegionUffdMapping, dst: u64, len: usize) -> bool {
+        let offset = dst - region.base_host_virt_addr;
+        let src = self.backing_buffer as u64 + region.offset + offset;
 
-        let ret = unsafe {
+        unsafe {
             match self.uffd.copy(src as *const _, dst as *mut _, len, true) {
-                Ok(value) => value,
+                // Make sure the UFFD copied some bytes.
+                Ok(value) => assert!(value > 0),
                 // Catch EAGAIN errors, which occur when a `remove` event lands in the UFFD
                 // queue while we're processing `pagefault` events.
                 // The weird cast is because the `bytes_copied` field is based on the
@@ -172,12 +148,12 @@ impl UffdHandler {
                 Err(Error::PartiallyCopied(bytes_copied))
                     if bytes_copied == 0 || bytes_copied == (-libc::EAGAIN) as usize =>
                 {
-                    return None
+                    return false
                 }
                 Err(Error::CopyFailed(errno))
                     if std::io::Error::from(errno).raw_os_error().unwrap() == libc::EEXIST =>
                 {
-                    len
+                    ()
                 }
                 Err(e) => {
                     panic!("Uffd copy failed: {e:?}");
@@ -185,13 +161,10 @@ impl UffdHandler {
             }
         };
 
-        // Make sure the UFFD copied some bytes.
-        assert!(ret > 0);
-
-        Some((dst, dst + len as u64))
+        true
     }
 
-    fn zero_out(&mut self, addr: u64) -> (u64, u64) {
+    fn zero_out(&mut self, addr: u64) {
         let ret = unsafe {
             self.uffd
                 .zeropage(addr as *mut _, self.page_size, true)
@@ -199,8 +172,6 @@ impl UffdHandler {
         };
         // Make sure the UFFD zeroed out some bytes.
         assert!(ret > 0);
-
-        (addr, addr + self.page_size as u64)
     }
 }
 
@@ -343,28 +314,6 @@ impl Runtime {
             }
         }
     }
-}
-
-fn create_mem_regions(mappings: &Vec<GuestRegionUffdMapping>, page_size: usize) -> Vec<MemRegion> {
-    let mut mem_regions: Vec<MemRegion> = Vec::with_capacity(mappings.len());
-
-    for r in mappings.iter() {
-        let mapping = r.clone();
-        let mut addr = r.base_host_virt_addr;
-        let end_addr = r.base_host_virt_addr + r.size as u64;
-        let mut page_states = HashMap::new();
-
-        while addr < end_addr {
-            page_states.insert(addr, MemPageState::Uninitialized);
-            addr += page_size as u64;
-        }
-        mem_regions.push(MemRegion {
-            mapping,
-            page_states,
-        });
-    }
-
-    mem_regions
 }
 
 #[cfg(test)]

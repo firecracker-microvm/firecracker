@@ -517,8 +517,9 @@ cmd_build() {
     if [ ! -z "$revision" ]; then
       popd
       git branch -D $branch_name
-      mkdir -p build/"$revision"
+      mkdir -p build/"$revision"/examples
       cp $tmp_dir/build/cargo_target/$(uname -m)-unknown-linux-$libc/$profile/* build/"$revision"
+      cp $tmp_dir/build/cargo_target/$(uname -m)-unknown-linux-$libc/$profile/examples/* build/"$revision"/examples
       cmd_sh "rm -rf $tmp_dir"
     fi
 
@@ -742,9 +743,9 @@ cmd_test() {
       # It seems that even if the tests using huge pages run sequentially on ag=1 agents, right-sizing the huge pages
       # pool to the total number of huge pages used across all tests results in spurious failures with pool depletion
       # anyway (something else on the host seems to be stealing our huge pages, and we cannot "ear mark" them for
-      # Firecracker processes). Thus, just allocate 4GB of them and call it a day.
+      # Firecracker processes). Thus, just allocate 8GB of them and call it a day.
       say "Setting up huge pages pool"
-      num_hugetlbfs_pages=2048
+      num_hugetlbfs_pages=4096
 
       huge_pages_old=$(cat /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages)
       huge_pages_new=$(echo $num_hugetlbfs_pages |sudo tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages)

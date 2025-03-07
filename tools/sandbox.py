@@ -14,8 +14,8 @@ import re
 from pathlib import Path
 
 from framework.artifacts import disks, kernels
+from framework.defs import DEFAULT_BINARY_DIR
 from framework.microvm import MicroVMFactory
-from host_tools.cargo_build import get_firecracker_binaries
 
 kernels = list(kernels("vmlinux-*"))
 rootfs = list(disks("ubuntu*ext4"))
@@ -61,17 +61,16 @@ parser.add_argument("--cpu-template-path", help="CPU template to use", type=Path
 args = parser.parse_args()
 print(args)
 
-bins = None
+binary_dir = None
 if args.binary_dir:
     binary_dir = Path(args.binary_dir).resolve()
-    bins = binary_dir / "firecracker", binary_dir / "jailer"
 else:
-    bins = get_firecracker_binaries()
+    binary_dir = DEFAULT_BINARY_DIR
 
 cpu_template = None
 if args.cpu_template_path is not None:
     cpu_template = json.loads(args.cpu_template_path.read_text())
-vmfcty = MicroVMFactory(*bins)
+vmfcty = MicroVMFactory(binary_dir)
 
 print(f"uvm with kernel {args.kernel} ...")
 uvm = vmfcty.build(args.kernel, args.rootfs)
