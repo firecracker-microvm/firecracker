@@ -757,13 +757,13 @@ def test_drive_patch(uvm_plain, io_engine):
 @pytest.mark.skipif(
     platform.machine() != "x86_64", reason="not yet implemented on aarch64"
 )
-def test_send_ctrl_alt_del(uvm_plain):
+def test_send_ctrl_alt_del(uvm_plain_any):
     """
     Test shutting down the microVM gracefully on x86, by sending CTRL+ALT+DEL.
     """
     # This relies on the i8042 device and AT Keyboard support being present in
     # the guest kernel.
-    test_microvm = uvm_plain
+    test_microvm = uvm_plain_any
     test_microvm.spawn()
 
     test_microvm.basic_config()
