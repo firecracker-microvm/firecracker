@@ -10,6 +10,7 @@ import pytest
 
 import host_tools.drive as drive_tools
 from framework.microvm import Microvm
+from framework.properties import global_props
 
 USEC_IN_MSEC = 1000
 ITERATIONS = 30
@@ -123,6 +124,10 @@ class SnapshotRestoreTest:
         SnapshotRestoreTest(all_devices=True),
     ],
     ids=lambda x: x.id,
+)
+@pytest.mark.skipif(
+    global_props.cpu_codename == "INTEL_SAPPHIRE_RAPIDS",
+    reason="Intel Sapphire Rapids to be supported soon in upcoming change",
 )
 def test_restore_latency(
     microvm_factory, rootfs, guest_kernel_linux_5_10, test_setup, metrics
