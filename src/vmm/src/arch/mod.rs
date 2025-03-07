@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 
 use log::warn;
 use serde::{Deserialize, Serialize};
+use vm_memory::GuestAddress;
 
 /// Module for aarch64 related functionality.
 #[cfg(target_arch = "aarch64")]
@@ -76,4 +77,35 @@ impl fmt::Display for DeviceType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self)
     }
+}
+
+/// Suported boot protocols for
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum BootProtocol {
+    /// Linux 64-bit boot protocol
+    LinuxBoot,
+    #[cfg(target_arch = "x86_64")]
+    /// PVH boot protocol (x86/HVM direct boot ABI)
+    PvhBoot,
+}
+
+impl fmt::Display for BootProtocol {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        match self {
+            BootProtocol::LinuxBoot => write!(f, "Linux 64-bit boot protocol"),
+            #[cfg(target_arch = "x86_64")]
+            BootProtocol::PvhBoot => write!(f, "PVH boot protocol"),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+/// Specifies the entry point address where the guest must start
+/// executing code, as well as which boot protocol is to be used
+/// to configure the guest initial state.
+pub struct EntryPoint {
+    /// Address in guest memory where the guest must start execution
+    pub entry_addr: GuestAddress,
+    /// Specifies which boot protocol to use
+    pub protocol: BootProtocol,
 }

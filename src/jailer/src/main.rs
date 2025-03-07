@@ -305,6 +305,7 @@ pub fn to_cstring<T: AsRef<Path> + Debug>(path: T) -> Result<CString, JailerErro
     CString::new(path_str).map_err(JailerError::CStringParsing)
 }
 
+/// We wrap the actual main in order to pretty print an error with Display trait.
 fn main() -> Result<(), JailerError> {
     let result = main_exec();
     if let Err(e) = result {
