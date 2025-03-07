@@ -463,12 +463,8 @@ impl Env {
             .map_err(|err| JailerError::Chmod(folder_path.to_owned(), err))?;
 
         let c_path = CString::new(folder_path.to_str().unwrap()).unwrap();
-        #[cfg(target_arch = "x86_64")]
-        let folder_bytes_ptr = c_path.as_ptr().cast::<i8>();
-        #[cfg(target_arch = "aarch64")]
-        let folder_bytes_ptr = c_path.as_ptr();
         // SAFETY: This is safe because folder was checked for a null-terminator.
-        SyscallReturnCode(unsafe { libc::chown(folder_bytes_ptr, self.uid(), self.gid()) })
+        SyscallReturnCode(unsafe { libc::chown(c_path.as_ptr(), self.uid(), self.gid()) })
             .into_empty_result()
             .map_err(|err| JailerError::ChangeFileOwner(folder_path.to_owned(), err))
     }
