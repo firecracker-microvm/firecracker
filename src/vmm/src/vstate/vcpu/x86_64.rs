@@ -10,12 +10,12 @@ use std::fmt::Debug;
 
 use kvm_bindings::{
     kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
-    kvm_xsave, CpuId, Msrs, KVM_MAX_CPUID_ENTRIES, KVM_MAX_MSR_ENTRIES,
+    kvm_xsave, kvm_xsave2, CpuId, Msrs, Xsave, KVM_MAX_CPUID_ENTRIES, KVM_MAX_MSR_ENTRIES,
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
 use log::{error, warn};
 use serde::{Deserialize, Serialize};
-use vmm_sys_util::fam;
+use vmm_sys_util::fam::{self, FamStruct};
 
 use crate::arch::x86_64::gen::msr_index::{MSR_IA32_TSC, MSR_IA32_TSC_DEADLINE};
 use crate::arch::x86_64::interrupts;
@@ -74,8 +74,10 @@ pub enum KvmVcpuError {
     VcpuGetVcpuEvents(kvm_ioctls::Error),
     /// Failed to get KVM vcpu xcrs: {0}
     VcpuGetXcrs(kvm_ioctls::Error),
-    /// Failed to get KVM vcpu xsave: {0}
+    /// Failed to get KVM vcpu xsave via KVM_GET_XSAVE: {0}
     VcpuGetXsave(kvm_ioctls::Error),
+    /// Failed to get KVM vcpu xsave via KVM_GET_XSAVE2: {0}
+    VcpuGetXsave2(kvm_ioctls::Error),
     /// Failed to get KVM vcpu cpuid: {0}
     VcpuGetCpuid(kvm_ioctls::Error),
     /// Failed to get KVM TSC frequency: {0}
@@ -147,6 +149,10 @@ pub struct KvmVcpu {
     /// The list of MSRs to include in a VM snapshot, in the same order as KVM returned them
     /// from KVM_GET_MSR_INDEX_LIST
     msrs_to_save: Vec<u32>,
+    /// Size in bytes requiring to hold the dynamically-sized `kvm_xsave` struct.
+    ///
+    /// `None` if `KVM_CAP_XSAVE2` not supported.
+    xsave2_size: Option<usize>,
 }
 
 /// Vcpu peripherals
@@ -176,6 +182,7 @@ impl KvmVcpu {
             fd: kvm_vcpu,
             peripherals: Default::default(),
             msrs_to_save: vm.msrs_to_save().to_vec(),
+            xsave2_size: vm.xsave2_size(),
         })
     }
 
@@ -261,6 +268,66 @@ impl KvmVcpu {
     /// Sets a Port Mapped IO bus for this vcpu.
     pub fn set_pio_bus(&mut self, pio_bus: crate::devices::Bus) {
         self.peripherals.pio_bus = Some(pio_bus);
+    }
+
+    /// Get the current XSAVE state for this vCPU.
+    ///
+    /// The C `kvm_xsave` struct was extended by adding a flexible array member (FAM) in the end
+    /// to support variable-sized XSTATE buffer.
+    ///
+    /// https://elixir.bootlin.com/linux/v6.13.6/source/arch/x86/include/uapi/asm/kvm.h#L381
+    /// ```c
+    /// struct kvm_xsave {
+    ///         __u32 region[1024];
+    ///         __u32 extra[];
+    /// };
+    /// ```
+    ///
+    /// As shown above, the C `kvm_xsave` struct does not have any field for the size of itself or
+    /// the length of its FAM. The required size (in bytes) of `kvm_xsave` struct can be retrieved
+    /// via `KVM_CHECK_EXTENSION(KVM_CAP_XSAVE2)`.
+    ///
+    /// kvm-bindings defines `kvm_xsave2` struct that wraps the `kvm_xsave` struct to have `len`
+    /// field that indicates the number of FAM entries (i.e. `extra`), it also defines `Xsave` as
+    /// a `FamStructWrapper` of `kvm_xsave2`.
+    ///
+    /// https://github.com/rust-vmm/kvm/blob/68fff5491703bf32bd35656f7ba994a4cae9ea7d/kvm-bindings/src/x86_64/fam_wrappers.rs#L106
+    /// ```rs
+    /// pub struct kvm_xsave2 {
+    ///     pub len: usize,
+    ///     pub xsave: kvm_xsave,
+    /// }
+    /// ```
+    fn get_xsave(&self) -> Result<Xsave, KvmVcpuError> {
+        match self.xsave2_size {
+            // if `KVM_CAP_XSAVE2` supported
+            Some(xsave2_size) => {
+                // Convert the `kvm_xsave` size in bytes to the length of FAM (i.e. `extra`).
+                let fam_len =
+                    // Calculate the size of FAM (`extra`) area in bytes. Note that the subtraction
+                    // never underflows because `KVM_CHECK_EXTENSION(KVM_CAP_XSAVE2)` always returns
+                    // at least 4096 bytes that is the size of `kvm_xsave` without FAM area.
+                    (xsave2_size - std::mem::size_of::<kvm_xsave>())
+                    // Divide by the size of FAM (`extra`) entry (i.e. `__u32`).
+                    .div_ceil(std::mem::size_of::<<kvm_xsave2 as FamStruct>::Entry>());
+                let mut xsave = Xsave::new(fam_len).map_err(KvmVcpuError::Fam)?;
+                // SAFETY: Safe because `xsave` is allocated with enough size to save XSTATE.
+                unsafe { self.fd.get_xsave2(&mut xsave) }.map_err(KvmVcpuError::VcpuGetXsave2)?;
+                Ok(xsave)
+            }
+            // if `KVM_CAP_XSAVE2` not supported
+            None => Ok(
+                // SAFETY: The content is correctly laid out.
+                unsafe {
+                    Xsave::from_raw(vec![kvm_xsave2 {
+                        // Note that `len` is the number of FAM (`extra`) entries that didn't exist
+                        // on older kernels not supporting `KVM_CAP_XSAVE2`. Thus, it's always zero.
+                        len: 0,
+                        xsave: self.fd.get_xsave().map_err(KvmVcpuError::VcpuGetXsave)?,
+                    }])
+                },
+            ),
+        }
     }
 
     /// Get the current TSC frequency for this vCPU.
@@ -496,7 +563,7 @@ impl KvmVcpu {
             .map_err(KvmVcpuError::VcpuGetMpState)?;
         let regs = self.fd.get_regs().map_err(KvmVcpuError::VcpuGetRegs)?;
         let sregs = self.fd.get_sregs().map_err(KvmVcpuError::VcpuGetSregs)?;
-        let xsave = self.fd.get_xsave().map_err(KvmVcpuError::VcpuGetXsave)?;
+        let xsave = self.get_xsave()?;
         let xcrs = self.fd.get_xcrs().map_err(KvmVcpuError::VcpuGetXcrs)?;
         let debug_regs = self
             .fd
@@ -601,9 +668,17 @@ impl KvmVcpu {
         self.fd
             .set_sregs(&state.sregs)
             .map_err(KvmVcpuError::VcpuSetSregs)?;
-        self.fd
-            .set_xsave(&state.xsave)
-            .map_err(KvmVcpuError::VcpuSetXsave)?;
+        // SAFETY: Safe unless the snapshot is corrupted.
+        unsafe {
+            // kvm-ioctl's `set_xsave2()` can be called even on kernel versions not supporting
+            // `KVM_CAP_XSAVE2`, because it internally calls `KVM_SET_XSAVE` API that was extended
+            // by Linux kernel. Thus, `KVM_SET_XSAVE2` API does not exist as a KVM interface.
+            // However, kvm-ioctl added `set_xsave2()` to allow users to pass `Xsave` instead of the
+            // older `kvm_xsave`.
+            self.fd
+                .set_xsave2(&state.xsave)
+                .map_err(KvmVcpuError::VcpuSetXsave)?;
+        }
         self.fd
             .set_xcrs(&state.xcrs)
             .map_err(KvmVcpuError::VcpuSetXcrs)?;
@@ -684,7 +759,7 @@ pub struct VcpuState {
     /// Xcrs.
     pub xcrs: kvm_xcrs,
     /// Xsave.
-    pub xsave: kvm_xsave,
+    pub xsave: Xsave,
     /// Tsc khz.
     pub tsc_khz: Option<u32>,
 }
@@ -744,7 +819,7 @@ mod tests {
                 sregs: Default::default(),
                 vcpu_events: Default::default(),
                 xcrs: Default::default(),
-                xsave: Default::default(),
+                xsave: Xsave::new(0).unwrap(),
                 tsc_khz: Some(0),
             }
         }
