@@ -574,10 +574,10 @@ def test_physical_counter_reset_aarch64(uvm_nano):
     snap_editor = host.get_binary("snapshot-editor")
 
     cntpct_el0 = hex(0x603000000013DF01)
-    # If a CPU runs at 3GHz, it will have a counter value of 1_000_000_000
-    # in 1/3 of a second. The host surely will run for more than 1/3 second before
+    # If a CPU runs at 3GHz, it will have a counter value of 8_000_000_000
+    # in 2.66 seconds. The host surely will run for more than 2.66 seconds before
     # executing this test.
-    max_value = 800_000_000
+    max_value = 8_000_000_000
 
     cmd = [
         str(snap_editor),
