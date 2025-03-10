@@ -979,3 +979,37 @@ def test_c3_on_skylake_show_warning(uvm_plain, cpu_template_any):
         assert message in uvm.log_data
     else:
         assert message not in uvm.log_data
+
+
+@pytest.mark.skipif(
+    global_props.cpu_codename != "INTEL_SAPPHIRE_RAPIDS"
+    or global_props.host_linux_version_tpl < (5, 17),
+    reason="Intel AMX is only supported on Intel Sapphire Rapids and kernel v5.17+",
+)
+def test_intel_amx_reported_on_sapphire_rapids(
+    microvm_factory, guest_kernel_linux_6_1, rootfs
+):
+    """
+    Verifies that Intel AMX is reported on guest (v5.17+)
+    """
+    uvm = microvm_factory.build(guest_kernel_linux_6_1, rootfs)
+    uvm.spawn()
+    uvm.basic_config()
+    uvm.add_net_iface()
+    uvm.start()
+
+    expected_dict = {
+        "AMX-BF16: tile bfloat16 support": "true",  # CPUID.(EAX=07H,ECX=0):EDX[22]
+        "AMX-TILE: tile architecture support": "true",  # CPUID.(EAX=07H,ECX=0):EDX[24]
+        "AMX-INT8: tile 8-bit integer support": "true",  # CPUID.(EAX=07H,ECX=0):EDX[25]
+        "AMX-FP16: FP16 tile operations": "false",  # CPUID.(EAX=07H,ECX=1):EAX[21], not supported on host as well
+        "XTILECFG state": "true",  # CPUID.(EAX=0DH,ECX=0):EAX[17]
+        "XTILEDATA state": "true",  # CPUID.(EAX=0DH,ECX=0):EAX[17]
+    }
+    cpuid_utils.check_guest_cpuid_output(
+        uvm,
+        "cpuid -1",
+        None,
+        "=",
+        expected_dict,
+    )
