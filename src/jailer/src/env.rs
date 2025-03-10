@@ -463,12 +463,8 @@ impl Env {
             .map_err(|err| JailerError::Chmod(folder_path.to_owned(), err))?;
 
         let c_path = CString::new(folder_path.to_str().unwrap()).unwrap();
-        #[cfg(target_arch = "x86_64")]
-        let folder_bytes_ptr = c_path.as_ptr().cast::<i8>();
-        #[cfg(target_arch = "aarch64")]
-        let folder_bytes_ptr = c_path.as_ptr();
         // SAFETY: This is safe because folder was checked for a null-terminator.
-        SyscallReturnCode(unsafe { libc::chown(folder_bytes_ptr, self.uid(), self.gid()) })
+        SyscallReturnCode(unsafe { libc::chown(c_path.as_ptr(), self.uid(), self.gid()) })
             .into_empty_result()
             .map_err(|err| JailerError::ChangeFileOwner(folder_path.to_owned(), err))
     }
@@ -478,12 +474,7 @@ impl Env {
             .exec_file_path
             .file_name()
             .ok_or_else(|| JailerError::ExtractFileName(self.exec_file_path.clone()))?;
-        // We do a quick push here to get the global path of the executable inside the chroot,
-        // without having to create a new PathBuf. We'll then do a pop to revert to the actual
-        // chroot_dir right after the copy.
-        // TODO: just now wondering ... is doing a push()/pop() thing better than just creating
-        // a new PathBuf, with something like chroot_dir.join(exec_file_name) ?!
-        self.chroot_dir.push(exec_file_name);
+        let jailer_exec_file_path = self.chroot_dir.join(exec_file_name);
 
         // We do a copy instead of a hard-link for 2 reasons
         // 1. hard-linking is not possible if the file is in another device
@@ -491,13 +482,15 @@ impl Env {
         //    Firecracker binary (like the executable .text section), this latter part is not
         //    desirable in Firecracker's threat model. Copying prevents 2 Firecracker processes from
         //    sharing memory.
-        fs::copy(&self.exec_file_path, &self.chroot_dir).map_err(|err| {
-            JailerError::Copy(self.exec_file_path.clone(), self.chroot_dir.clone(), err)
+        fs::copy(&self.exec_file_path, &jailer_exec_file_path).map_err(|err| {
+            JailerError::Copy(
+                self.exec_file_path.clone(),
+                jailer_exec_file_path.clone(),
+                err,
+            )
         })?;
 
-        // Pop exec_file_name.
-        self.chroot_dir.pop();
-        Ok(exec_file_name.to_os_string())
+        Ok(exec_file_name.to_owned())
     }
 
     fn join_netns(path: &str) -> Result<(), JailerError> {
