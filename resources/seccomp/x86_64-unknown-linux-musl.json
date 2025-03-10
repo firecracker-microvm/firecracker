@@ -1085,6 +1085,18 @@
                         "index": 1,
                         "type": "dword",
                         "op": "eq",
+                        "val": 2415963855,
+                        "comment": "KVM_GET_XSAVE2"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
                         "val": 2173218470,
                         "comment": "KVM_GET_XCRS"
                     }
