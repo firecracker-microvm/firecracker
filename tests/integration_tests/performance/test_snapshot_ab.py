@@ -44,7 +44,7 @@ class SnapshotRestoreTest:
         """Computes a unique id for this test instance"""
         return "all_dev" if self.all_devices else f"{self.vcpus}vcpu_{self.mem}mb"
 
-    def boot_vm(self, microvm_factory, guest_kernel, rootfs, metrics) -> Microvm:
+    def boot_vm(self, microvm_factory, guest_kernel, rootfs) -> Microvm:
         """Creates the initial snapshot that will be loaded repeatedly to sample latencies"""
         vm = microvm_factory.build(
             guest_kernel,
@@ -74,16 +74,6 @@ class SnapshotRestoreTest:
             )
             vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/v.sock")
 
-        metrics.set_dimensions(
-            {
-                "net_devices": str(self.nets),
-                "block_devices": str(self.blocks),
-                "vsock_devices": str(int(self.all_devices)),
-                "balloon_devices": str(int(self.all_devices)),
-                "huge_pages_config": str(self.huge_pages),
-                **vm.dimensions,
-            }
-        )
         vm.start()
 
         return vm
@@ -115,15 +105,23 @@ def test_restore_latency(
 
     We only test a single guest kernel, as the guest kernel does not "participate" in snapshot restore.
     """
-    vm = test_setup.boot_vm(microvm_factory, guest_kernel_linux_5_10, rootfs, metrics)
+    vm = test_setup.boot_vm(microvm_factory, guest_kernel_linux_5_10, rootfs)
+
+    metrics.set_dimensions(
+        {
+            "net_devices": str(test_setup.nets),
+            "block_devices": str(test_setup.blocks),
+            "vsock_devices": str(int(test_setup.all_devices)),
+            "balloon_devices": str(int(test_setup.all_devices)),
+            "huge_pages_config": str(test_setup.huge_pages),
+            "performance_test": "test_restore_latency",
+            "uffd_handler": "None",
+            **vm.dimensions,
+        }
+    )
 
     snapshot = vm.snapshot_full()
     vm.kill()
-
-    metrics.put_dimensions(
-        {"performance_test": "test_restore_latency", "uffd_handler": "None"}
-    )
-
     for microvm in microvm_factory.build_n_from_snapshot(snapshot, ITERATIONS):
         value = 0
         # Parse all metric data points in search of load_snapshot time.
@@ -151,7 +149,20 @@ def test_post_restore_latency(
         pytest.skip("huge page snapshots can only be restored using uffd")
 
     test_setup = SnapshotRestoreTest(mem=1024, vcpus=2, huge_pages=huge_pages)
-    vm = test_setup.boot_vm(microvm_factory, guest_kernel_linux_5_10, rootfs, metrics)
+    vm = test_setup.boot_vm(microvm_factory, guest_kernel_linux_5_10, rootfs)
+
+    metrics.set_dimensions(
+        {
+            "net_devices": str(test_setup.nets),
+            "block_devices": str(test_setup.blocks),
+            "vsock_devices": str(int(test_setup.all_devices)),
+            "balloon_devices": str(int(test_setup.all_devices)),
+            "huge_pages_config": str(test_setup.huge_pages),
+            "performance_test": "test_post_restore_latency",
+            "uffd_handler": str(uffd_handler),
+            **vm.dimensions,
+        }
+    )
 
     vm.ssh.check_output(
         "nohup /usr/local/bin/fast_page_fault_helper >/dev/null 2>&1 </dev/null &"
@@ -162,13 +173,6 @@ def test_post_restore_latency(
 
     snapshot = vm.snapshot_full()
     vm.kill()
-
-    metrics.put_dimensions(
-        {
-            "performance_test": "test_post_restore_latency",
-            "uffd_handler": str(uffd_handler),
-        }
-    )
 
     for microvm in microvm_factory.build_n_from_snapshot(
         snapshot, ITERATIONS, uffd_handler_name=uffd_handler
@@ -191,13 +195,23 @@ def test_population_latency(
 ):
     """Collects population latency metrics (e.g. how long it takes UFFD handler to fault in all memory)"""
     test_setup = SnapshotRestoreTest(mem=128, vcpus=1, huge_pages=huge_pages)
-    vm = test_setup.boot_vm(microvm_factory, guest_kernel_linux_5_10, rootfs, metrics)
+    vm = test_setup.boot_vm(microvm_factory, guest_kernel_linux_5_10, rootfs)
+
+    metrics.set_dimensions(
+        {
+            "net_devices": str(test_setup.nets),
+            "block_devices": str(test_setup.blocks),
+            "vsock_devices": str(int(test_setup.all_devices)),
+            "balloon_devices": str(int(test_setup.all_devices)),
+            "huge_pages_config": str(test_setup.huge_pages),
+            "performance_test": "test_population_latency",
+            "uffd_handler": "fault_all",
+            **vm.dimensions,
+        }
+    )
+
     snapshot = vm.snapshot_full()
     vm.kill()
-
-    metrics.put_dimensions(
-        {"performance_test": "test_population_latency", "uffd_handler": "fault_all"}
-    )
 
     for microvm in microvm_factory.build_n_from_snapshot(
         snapshot, ITERATIONS, uffd_handler_name="fault_all"
