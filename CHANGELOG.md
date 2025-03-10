@@ -10,6 +10,9 @@ and this project adheres to
 
 ### Added
 
+- [#5065](https://github.com/firecracker-microvm/firecracker/pull/5065) Added
+  support for Intel AMX (Advanced Matrix Extensions).
+
 ### Changed
 
 ### Deprecated
