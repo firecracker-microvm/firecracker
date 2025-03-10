@@ -546,11 +546,13 @@ def test_vmgenid(guest_kernel_linux_6_1, rootfs, microvm_factory, snapshot_type)
         base_snapshot = snapshot
 
 
-# TODO add `global_props.host_os == "amzn2"` condition
-# once amazon linux kernels have patches.
 @pytest.mark.skipif(
-    platform.machine() != "aarch64" or global_props.host_linux_version_tpl < (6, 4),
-    reason="This is aarch64 specific test and should only be run on 6.4 and later kernels",
+    platform.machine() != "aarch64"
+    or (
+        global_props.host_linux_version_tpl < (6, 4)
+        and global_props.host_os not in ("amzn2", "amzn2023")
+    ),
+    reason="This test requires aarch64 and either kernel 6.4+ or Amazon Linux",
 )
 def test_physical_counter_reset_aarch64(uvm_nano):
     """
