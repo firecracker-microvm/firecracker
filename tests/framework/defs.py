@@ -33,10 +33,6 @@ DEFAULT_BINARY_DIR = (
     / "release"
 )
 
-# The minimum required host kernel version for which io_uring is supported in
-# Firecracker.
-MIN_KERNEL_VERSION_FOR_IO_URING = "5.10.51"
-
 SUPPORTED_HOST_KERNELS = ["5.10", "6.1"]
 
 IMG_DIR = Path(DEFAULT_TEST_SESSION_ROOT_PATH) / "img"

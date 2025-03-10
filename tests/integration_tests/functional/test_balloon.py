@@ -7,6 +7,7 @@ import time
 from subprocess import TimeoutExpired
 
 import pytest
+import requests
 from tenacity import retry, stop_after_attempt, wait_fixed
 
 from framework.utils import check_output, get_free_mem_ssh
@@ -209,7 +210,7 @@ def test_deflate_on_oom(uvm_plain_any, deflate_on_oom):
 
     try:
         balloon_size_after = test_microvm.api.balloon_stats.get().json()["actual_mib"]
-    except ConnectionError:
+    except requests.exceptions.ConnectionError:
         assert (
             not deflate_on_oom
         ), "Guest died even though it should have deflated balloon to alleviate memory pressure"
