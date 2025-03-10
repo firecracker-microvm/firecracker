@@ -271,8 +271,9 @@ mod tests {
             // We are reading the SYS_CNTPCT_EL0 right after resetting it.
             // If reset did happen successfully, the value should be quite small when we read it.
             // If the reset did not happen, the value will be same as on the host and it surely
-            // will be more that MAX_VALUE.
-            let max_value = 1000;
+            // will be more that `max_value`. Measurements show that usually value is close
+            // to 1000. Use bigger `max_value` just in case.
+            let max_value = 10_000;
 
             assert!(counter_value < max_value);
         }
