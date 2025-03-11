@@ -157,10 +157,12 @@ AMD_GENOA_HOST_ONLY_FEATS_6_1 = AMD_MILAN_HOST_ONLY_FEATS_6_1 - {"brs"} | {
 }
 
 
-def test_host_vs_guest_cpu_features(uvm_nano):
+def test_host_vs_guest_cpu_features(uvm_plain_any):
     """Check CPU features host vs guest"""
 
-    vm = uvm_nano
+    vm = uvm_plain_any
+    vm.spawn()
+    vm.basic_config()
     vm.add_net_iface()
     vm.start()
     host_feats = set(utils.check_output(CPU_FEATURES_CMD).stdout.split())
