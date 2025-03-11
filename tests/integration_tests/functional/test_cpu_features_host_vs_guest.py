@@ -233,6 +233,102 @@ def test_host_vs_guest_cpu_features(uvm_plain_any):
                 assert host_feats - guest_feats == host_guest_diff_6_1
             assert guest_feats - host_feats == INTEL_GUEST_ONLY_FEATS - {"umip"}
 
+        case CpuModel.INTEL_SAPPHIRE_RAPIDS:
+            expected_host_minus_guest = INTEL_HOST_ONLY_FEATS.copy()
+            expected_guest_minus_host = INTEL_GUEST_ONLY_FEATS.copy()
+
+            host_version = global_props.host_linux_version_tpl
+            guest_version = vm.guest_kernel_version
+
+            # KVM does not support virtualization of the following hardware features yet for several
+            # reasons (e.g. security, simply difficulty of implementation).
+            expected_host_minus_guest |= {
+                # Intel Total Memory Encryption (TME) is the capability to encrypt the entirety of
+                # physical memory of a system. TME is enabled by system BIOS/hardware and applies to
+                # the phyiscal memory as a whole.
+                "tme",
+                # PCONFIG instruction allows software to configure certain platform features. It
+                # supports these features with multiple leaf functions, selecting a leaf function
+                # using the value in EAX. As of this writing, the only defined PCONFIG leaf function
+                # is for key programming for total memory encryption-multi-key (TME-MK).
+                "pconfig",
+                # Architectural Last Branch Record (Arch LBR) that is a feature that logs the most
+                # recently executed branch instructions (e.g. source and destination addresses).
+                # Traditional LBR implementations have existed in Intel CPUs for years and the MSR
+                # interface varied by CPU model. Arch LBR is a standardized version. There is a
+                # kernel patch created in 2022 but didn't get merged due to a mess.
+                # https://lore.kernel.org/all/20221125040604.5051-1-weijiang.yang@intel.com/
+                "arch_lbr",
+                # ENQCMD/ENQCMDS are instructions that allow software to atomically write 64-byte
+                # commands to enqueue registers, which are special device registers accessed using
+                # memory-mapped I/O.
+                "enqcmd",
+                # Intel Resource Director Technology (RDT) feature set provides a set of allocation
+                # (resource control) capabilities including Cache Allocation Technology (CAT) and
+                # Code and Data Prioritization (CDP).
+                # L3 variants are listed in INTEL_HOST_ONLY_FEATS.
+                "cat_l2",
+                "cdp_l2",
+                # This is a synthesized bit for split lock detection that raise an Alignment Check
+                # (#AC) exception if an operand of an atomic operation crosses two cache lines. It
+                # is not enumerated on CPUID, instead detected by actually attempting to read from
+                # MSR address 0x33 (MSR_MEMORY_CTRL in Intel SDM, MSR_TEST_CTRL in Linux kernel).
+                "split_lock_detect",
+            }
+
+            # The following features are also not virtualized by KVM yet but are only supported on
+            # newer kernel versions.
+            if host_version >= (5, 18):
+                expected_host_minus_guest |= {
+                    # Hardware Feedback Interface (HFI) is a feature that gives OSes a performance
+                    # and energy efficiency capability data for each CPU that can be used to
+                    # influence task placement decisions.
+                    # https://github.com/torvalds/linux/commit/7b8f40b3de75c971a4e5f9308b06deb59118dbac
+                    "hfi",
+                    # Indirect Brach Tracking (IBT) is a feature where the CPU ensures that indirect
+                    # branch targets start with ENDBRANCH instruction (`endbr32` or `endbr64`),
+                    # which executes as a no-op; if anything else is found, a control-protection
+                    # (#CP) fault will be raised.
+                    # https://github.com/torvalds/linux/commit/991625f3dd2cbc4b787deb0213e2bcf8fa264b21
+                    "ibt",
+                }
+
+            # AVX512 FP16 is supported and passed through on v5.11+.
+            # https://github.com/torvalds/linux/commit/e1b35da5e624f8b09d2e98845c2e4c84b179d9a4
+            # https://github.com/torvalds/linux/commit/2224fc9efb2d6593fbfb57287e39ba4958b188ba
+            if host_version >= (5, 11) and guest_version < (5, 11):
+                expected_host_minus_guest |= {"avx512_fp16"}
+
+            # AVX VNNI support is supported and passed through on v5.12+.
+            # https://github.com/torvalds/linux/commit/b85a0425d8056f3bd8d0a94ecdddf2a39d32a801
+            # https://github.com/torvalds/linux/commit/1085a6b585d7d1c441cd10fdb4c7a4d96a22eba7
+            if host_version >= (5, 12) and guest_version < (5, 12):
+                expected_host_minus_guest |= {"avx_vnni"}
+
+            # Bus lock detection is supported on v5.12+ and passed through on v5.13+.
+            # https://github.com/torvalds/linux/commit/f21d4d3b97a8603567e5d4250bd75e8ebbd520af
+            # https://github.com/torvalds/linux/commit/76ea438b4afcd9ee8da3387e9af4625eaccff58f
+            if host_version >= (5, 13) and guest_version < (5, 12):
+                expected_host_minus_guest |= {"bus_lock_detect"}
+
+            # Intel AMX is supported and passed through on v5.17+.
+            # https://github.com/torvalds/linux/commit/690a757d610e50c2c3acd2e4bc3992cfc63feff2
+            if host_version >= (5, 17) and guest_version < (5, 17):
+                expected_host_minus_guest |= {"amx_bf16", "amx_int8", "amx_tile"}
+
+            expected_guest_minus_host -= {
+                # UMIP can be emulated by KVM on Intel processors, but is supported in hardware on
+                # Intel Sapphire Rapids and passed through.
+                "umip",
+                # This is a synthesized bit and it is always set on guest thanks to kvm-clock. But
+                # Intel Sapphire Rapids reports TSC frequency on CPUID leaf 0x15, so the bit is also
+                # set on host.
+                "tsc_known_freq",
+            }
+
+            assert host_feats - guest_feats == expected_host_minus_guest
+            assert guest_feats - host_feats == expected_guest_minus_host
+
         case CpuModel.ARM_NEOVERSE_N1:
             expected_guest_minus_host = set()
             expected_host_minus_guest = set()
