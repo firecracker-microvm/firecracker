@@ -854,14 +854,6 @@ mod tests {
         arg_vec
     }
 
-    fn get_major(dev: u64) -> u32 {
-        unsafe { libc::major(dev) }
-    }
-
-    fn get_minor(dev: u64) -> u32 {
-        unsafe { libc::minor(dev) }
-    }
-
     fn create_env(mock_proc_mounts: &str) -> Env {
         // Create a standard environment.
         let arg_parser = build_arg_parser();
@@ -1120,8 +1112,8 @@ mod tests {
         // Ensure device's properties.
         let metadata = fs::metadata(dev_path.to_str().unwrap()).unwrap();
         assert!(metadata.file_type().is_char_device());
-        assert_eq!(get_major(metadata.st_rdev()), major);
-        assert_eq!(get_minor(metadata.st_rdev()), minor);
+        assert_eq!(libc::major(metadata.st_rdev()), major);
+        assert_eq!(libc::minor(metadata.st_rdev()), minor);
         assert_eq!(
             metadata.permissions().mode(),
             libc::S_IFCHR | libc::S_IRUSR | libc::S_IWUSR
