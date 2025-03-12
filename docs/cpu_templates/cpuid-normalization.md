@@ -22,9 +22,7 @@ See also: [boot protocol settings](boot-protocol.md)
 | Enable HYPERVISOR                                                                    |    0x1     |    -    |      ECX      |  31   |
 | Set HTT value if the microVM's CPU count is greater than 1                           |    0x1     |    -    |      EDX      |  28   |
 | Insert leaf 0xb, subleaf 0x1 if not present                                          |    0xb     |   0x1   |      all      |  all  |
-| Update extended topology enumeration                                                 |    0xb     |   all   |      EAX      |  4:0  |
-| Update extended topology enumeration                                                 |    0xb     |   all   |      EBX      | 15:0  |
-| Update extended topology enumeration                                                 |    0xb     |   all   |      ECX      | 15:8  |
+| Fill extended topology enumeration leaf                                              |    0xb     |   all   |      all      |  all  |
 | Pass through L1 cache and TLB information from host                                  | 0x80000005 |    -    |      all      |  all  |
 | Pass through L2 cache and TLB and L3 cache information from host                     | 0x80000006 |    -    |      all      |  all  |
 
