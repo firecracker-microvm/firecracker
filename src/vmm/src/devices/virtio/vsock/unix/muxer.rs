@@ -44,7 +44,7 @@ use super::super::defs::uapi;
 use super::super::{VsockBackend, VsockChannel, VsockEpollListener, VsockError};
 use super::muxer_killq::MuxerKillQ;
 use super::muxer_rxq::MuxerRxQ;
-use super::{defs, MuxerConnection, VsockUnixBackendError};
+use super::{MuxerConnection, VsockUnixBackendError, defs};
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::devices::virtio::vsock::packet::{VsockPacketRx, VsockPacketTx};
 use crate::logger::IncMetric;

@@ -6,14 +6,14 @@
 // found in the THIRD-PARTY file.
 
 use std::fmt;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use vmm_sys_util::eventfd::EventFd;
 
+use super::ActivateError;
 use super::mmio::{VIRTIO_MMIO_INT_CONFIG, VIRTIO_MMIO_INT_VRING};
 use super::queue::{Queue, QueueError};
-use super::ActivateError;
 use crate::devices::virtio::AsAny;
 use crate::logger::{error, warn};
 use crate::vstate::memory::GuestMemoryMmap;

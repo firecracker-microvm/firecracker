@@ -10,7 +10,7 @@ use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
 use acpi_tables::aml::AmlError;
-use acpi_tables::{aml, Aml};
+use acpi_tables::{Aml, aml};
 use kvm_ioctls::VmFd;
 use libc::EFD_NONBLOCK;
 use vm_superio::Serial;

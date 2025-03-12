@@ -11,20 +11,20 @@ use std::sync::Arc;
 
 use libc::c_int;
 use serde::{Deserialize, Serialize};
-pub use vm_memory::bitmap::{AtomicBitmap, Bitmap, BitmapSlice, BS};
+pub use vm_memory::bitmap::{AtomicBitmap, BS, Bitmap, BitmapSlice};
 pub use vm_memory::mmap::MmapRegionBuilder;
 use vm_memory::mmap::{MmapRegionError, NewBitmap};
 pub use vm_memory::{
-    address, Address, ByteValued, Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion,
-    GuestUsize, MemoryRegionAddress, MmapRegion,
+    Address, ByteValued, Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion,
+    GuestUsize, MemoryRegionAddress, MmapRegion, address,
 };
 use vm_memory::{Error as VmMemoryError, GuestMemoryError, WriteVolatile};
 use vmm_sys_util::errno;
 
+use crate::DirtyBitmap;
 use crate::arch::arch_memory_regions;
 use crate::utils::{get_page_size, u64_to_usize};
 use crate::vmm_config::machine_config::HugePageConfig;
-use crate::DirtyBitmap;
 
 /// Type of GuestMemoryMmap.
 pub type GuestMemoryMmap = vm_memory::GuestMemoryMmap<Option<AtomicBitmap>>;
@@ -189,7 +189,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                 offset = match offset.checked_add(size as u64) {
                     None => return Err(MemoryError::OffsetTooLarge),
                     Some(new_off) if new_off >= i64::MAX as u64 => {
-                        return Err(MemoryError::OffsetTooLarge)
+                        return Err(MemoryError::OffsetTooLarge);
                     }
                     Some(new_off) => new_off,
                 };

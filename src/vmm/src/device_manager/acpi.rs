@@ -1,7 +1,7 @@
 // Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use acpi_tables::{aml, Aml};
+use acpi_tables::{Aml, aml};
 use kvm_ioctls::VmFd;
 
 use crate::devices::acpi::vmgenid::VmGenId;

@@ -8,7 +8,7 @@
 
 use std::num::Wrapping;
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use vm_memory::GuestAddress;
 use vmm::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 use vmm::devices::virtio::test_utils::VirtQueue;

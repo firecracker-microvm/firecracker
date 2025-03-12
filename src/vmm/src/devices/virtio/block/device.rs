@@ -4,10 +4,10 @@
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use vmm_sys_util::eventfd::EventFd;
 
+use super::BlockError;
 use super::persist::{BlockConstructorArgs, BlockState};
 use super::vhost_user::device::{VhostUserBlock, VhostUserBlockConfig};
 use super::virtio::device::{VirtioBlock, VirtioBlockConfig};
-use super::BlockError;
 use crate::devices::virtio::device::{IrqTrigger, VirtioDevice};
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};

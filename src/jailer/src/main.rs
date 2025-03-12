@@ -8,7 +8,7 @@ use std::{env as p_env, fs, io};
 
 use env::PROC_MOUNTS;
 use utils::arg_parser::{ArgParser, Argument, UtilsArgParserError as ParsingError};
-use utils::time::{get_time_us, ClockType};
+use utils::time::{ClockType, get_time_us};
 use utils::validators;
 use vmm_sys_util::syscall::SyscallReturnCode;
 

@@ -15,7 +15,7 @@ use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
 use generated::io_uring_params;
 use operation::{Cqe, FixedFd, OpCode, Operation};
-use probe::{ProbeWrapper, PROBE_LEN};
+use probe::{PROBE_LEN, ProbeWrapper};
 pub use queue::completion::CQueueError;
 use queue::completion::CompletionQueue;
 pub use queue::submission::SQueueError;

@@ -6,7 +6,7 @@
 //   * `Queue.add_used`
 //   * `DescriptorChain.next_descriptor`
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use vm_memory::GuestAddress;
 use vmm::devices::virtio::block::virtio::test_utils::RequestDescriptorChain;
 use vmm::devices::virtio::block::virtio::{Request, RequestHeader, VIRTIO_BLK_T_IN};

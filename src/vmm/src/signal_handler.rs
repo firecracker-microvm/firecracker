@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use libc::{
-    c_int, c_void, siginfo_t, SIGBUS, SIGHUP, SIGILL, SIGPIPE, SIGSEGV, SIGSYS, SIGXCPU, SIGXFSZ,
+    SIGBUS, SIGHUP, SIGILL, SIGPIPE, SIGSEGV, SIGSYS, SIGXCPU, SIGXFSZ, c_int, c_void, siginfo_t,
 };
 use log::error;
 
-use crate::logger::{IncMetric, StoreMetric, METRICS};
-use crate::utils::signal::register_signal_handler;
 use crate::FcExitCode;
+use crate::logger::{IncMetric, METRICS, StoreMetric};
+use crate::utils::signal::register_signal_handler;
 
 // The offset of `si_syscall` (offending syscall identifier) within the siginfo structure
 // expressed as an `(u)int*`.

@@ -3,7 +3,7 @@
 
 /// Model Specific Registers (MSRs) related functionality.
 use bitflags::bitflags;
-use kvm_bindings::{kvm_msr_entry, MsrList, Msrs};
+use kvm_bindings::{MsrList, Msrs, kvm_msr_entry};
 use kvm_ioctls::{Kvm, VcpuFd};
 
 use crate::arch::x86_64::generated::hyperv::*;

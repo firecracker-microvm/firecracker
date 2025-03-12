@@ -5,7 +5,7 @@ use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
 use vmm::vmm_config::machine_config::{MachineConfig, MachineConfigUpdate};
 
-use super::super::parsed_request::{method_to_error, ParsedRequest, RequestError};
+use super::super::parsed_request::{ParsedRequest, RequestError, method_to_error};
 use super::{Body, Method};
 
 pub(crate) fn parse_get_machine_config() -> Result<ParsedRequest, RequestError> {

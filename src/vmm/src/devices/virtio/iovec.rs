@@ -197,7 +197,7 @@ impl IoVecBuffer {
                     Err(VolatileMemoryError::IOError(err))
                         if err.kind() == ErrorKind::Interrupted =>
                     {
-                        continue
+                        continue;
                     }
                     Ok(bytes_read) => break bytes_read,
                     Err(volatile_memory_error) => return Err(volatile_memory_error),
@@ -462,7 +462,7 @@ impl<const L: u16> IoVecBufferMut<L> {
                     Err(VolatileMemoryError::IOError(err))
                         if err.kind() == ErrorKind::Interrupted =>
                     {
-                        continue
+                        continue;
                     }
                     Ok(bytes_read) => break bytes_read,
                     Err(volatile_memory_error) => return Err(volatile_memory_error),
@@ -493,7 +493,7 @@ mod tests {
 
     use crate::devices::virtio::iov_deque::IovDeque;
     use crate::devices::virtio::queue::{
-        Queue, FIRECRACKER_MAX_QUEUE_SIZE, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE,
+        FIRECRACKER_MAX_QUEUE_SIZE, Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE,
     };
     use crate::devices::virtio::test_utils::VirtQueue;
     use crate::test_utils::multi_region_mem;
@@ -818,8 +818,8 @@ mod verification {
     use std::mem::ManuallyDrop;
 
     use libc::{c_void, iovec};
-    use vm_memory::bitmap::BitmapSlice;
     use vm_memory::VolatileSlice;
+    use vm_memory::bitmap::BitmapSlice;
 
     use super::IoVecBuffer;
     use crate::arch::GUEST_PAGE_SIZE;

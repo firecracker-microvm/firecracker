@@ -14,9 +14,9 @@ use gdbstub::target::Target;
 use kvm_ioctls::VcpuFd;
 use vm_memory::GuestAddress;
 
-use super::target::{vcpuid_to_tid, FirecrackerTarget, GdbTargetError};
-use crate::logger::{error, trace};
+use super::target::{FirecrackerTarget, GdbTargetError, vcpuid_to_tid};
 use crate::Vmm;
+use crate::logger::{error, trace};
 
 /// Starts the GDB event loop which acts as a proxy between the Vcpus and GDB
 pub fn event_loop(

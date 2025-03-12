@@ -8,8 +8,8 @@
 use std::cell::Cell;
 #[cfg(feature = "gdb")]
 use std::os::fd::AsRawFd;
-use std::sync::atomic::{fence, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
+use std::sync::atomic::{Ordering, fence};
+use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::sync::{Arc, Barrier};
 use std::{fmt, io, thread};
 
@@ -22,15 +22,15 @@ use log::{error, info, warn};
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
 
+use crate::FcExitCode;
 use crate::cpu_config::templates::{CpuConfiguration, GuestConfigError};
 #[cfg(feature = "gdb")]
-use crate::gdb::target::{get_raw_tid, GdbTargetError};
+use crate::gdb::target::{GdbTargetError, get_raw_tid};
 use crate::logger::{IncMetric, METRICS};
 use crate::seccomp::{BpfProgram, BpfProgramRef};
-use crate::utils::signal::{register_signal_handler, sigrtmin, Killable};
+use crate::utils::signal::{Killable, register_signal_handler, sigrtmin};
 use crate::utils::sm::StateMachine;
 use crate::vstate::vm::Vm;
-use crate::FcExitCode;
 
 /// Module with aarch64 vCPU implementation.
 #[cfg(target_arch = "aarch64")]
@@ -780,18 +780,18 @@ pub(crate) mod tests {
     use vmm_sys_util::errno;
 
     use super::*;
+    use crate::RECV_TIMEOUT_SEC;
     use crate::arch::{BootProtocol, EntryPoint};
     use crate::builder::StartMicrovmError;
-    use crate::devices::bus::DummyDevice;
     use crate::devices::BusDevice;
+    use crate::devices::bus::DummyDevice;
     use crate::seccomp::get_empty_filters;
     use crate::utils::signal::validate_signal_num;
     use crate::vstate::kvm::Kvm;
     use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
     use crate::vstate::vcpu::VcpuError as EmulationError;
-    use crate::vstate::vm::tests::setup_vm_with_memory;
     use crate::vstate::vm::Vm;
-    use crate::RECV_TIMEOUT_SEC;
+    use crate::vstate::vm::tests::setup_vm_with_memory;
 
     #[test]
     fn test_handle_kvm_exit() {

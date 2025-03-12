@@ -4,8 +4,8 @@
 use kvm_bindings::*;
 use kvm_ioctls::DeviceFd;
 
-use crate::arch::aarch64::gic::regs::{SimpleReg, VgicRegEngine, VgicSysRegsState};
 use crate::arch::aarch64::gic::GicError;
+use crate::arch::aarch64::gic::regs::{SimpleReg, VgicRegEngine, VgicSysRegsState};
 
 const ICC_CTLR_EL1_PRIBITS_SHIFT: u64 = 8;
 const ICC_CTLR_EL1_PRIBITS_MASK: u64 = 7 << ICC_CTLR_EL1_PRIBITS_SHIFT;
@@ -170,7 +170,7 @@ mod tests {
     use kvm_ioctls::Kvm;
 
     use super::*;
-    use crate::arch::aarch64::gic::{create_gic, GICVersion};
+    use crate::arch::aarch64::gic::{GICVersion, create_gic};
 
     #[test]
     fn test_access_icc_regs() {

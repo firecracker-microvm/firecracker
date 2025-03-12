@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use clap::Parser;
-use seccompiler::{compile_bpf, CompilationError};
+use seccompiler::{CompilationError, compile_bpf};
 
 const DEFAULT_OUTPUT_FILENAME: &str = "seccomp_binary_filter.out";
 

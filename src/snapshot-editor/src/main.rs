@@ -9,10 +9,10 @@ mod edit_vmstate;
 mod info;
 mod utils;
 
-use edit_memory::{edit_memory_command, EditMemoryError, EditMemorySubCommand};
+use edit_memory::{EditMemoryError, EditMemorySubCommand, edit_memory_command};
 #[cfg(target_arch = "aarch64")]
-use edit_vmstate::{edit_vmstate_command, EditVmStateError, EditVmStateSubCommand};
-use info::{info_vmstate_command, InfoVmStateError, InfoVmStateSubCommand};
+use edit_vmstate::{EditVmStateError, EditVmStateSubCommand, edit_vmstate_command};
+use info::{InfoVmStateError, InfoVmStateSubCommand, info_vmstate_command};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 enum SnapEditorError {

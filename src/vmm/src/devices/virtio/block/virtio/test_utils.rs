@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use vmm_sys_util::tempfile::TempFile;
 
-use super::device::VirtioBlockConfig;
 use super::RequestHeader;
+use super::device::VirtioBlockConfig;
 use crate::devices::virtio::block::virtio::device::FileEngineType;
 #[cfg(test)]
 use crate::devices::virtio::block::virtio::io::FileEngine;

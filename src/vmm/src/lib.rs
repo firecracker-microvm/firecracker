@@ -137,12 +137,12 @@ use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET};
 use crate::devices::virtio::balloon::{
-    Balloon, BalloonConfig, BalloonError, BalloonStats, BALLOON_DEV_ID,
+    BALLOON_DEV_ID, Balloon, BalloonConfig, BalloonError, BalloonStats,
 };
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET};
-use crate::logger::{error, info, warn, MetricsError, METRICS};
+use crate::logger::{METRICS, MetricsError, error, info, warn};
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
 use crate::snapshot::Persist;

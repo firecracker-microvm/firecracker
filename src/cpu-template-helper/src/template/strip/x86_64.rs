@@ -4,7 +4,7 @@
 use vmm::cpu_config::templates::CustomCpuTemplate;
 use vmm::cpu_config::x86_64::custom_cpu_template::{CpuidLeafModifier, RegisterModifier};
 
-use crate::template::strip::{strip_common, StripError};
+use crate::template::strip::{StripError, strip_common};
 use crate::utils::x86_64::{CpuidModifierMap, MsrModifierMap};
 
 #[allow(dead_code)]

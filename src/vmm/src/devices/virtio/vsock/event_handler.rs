@@ -30,8 +30,8 @@ use event_manager::{EventOps, Events, MutEventSubscriber};
 use log::{error, warn};
 use vmm_sys_util::epoll::EventSet;
 
-use super::device::{Vsock, EVQ_INDEX, RXQ_INDEX, TXQ_INDEX};
 use super::VsockBackend;
+use super::device::{EVQ_INDEX, RXQ_INDEX, TXQ_INDEX, Vsock};
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::logger::IncMetric;

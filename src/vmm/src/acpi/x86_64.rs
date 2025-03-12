@@ -8,7 +8,7 @@ use acpi_tables::fadt::{
     IAPC_BOOT_ARG_FLAGS_VGA_NOT_PRESENT,
 };
 use acpi_tables::madt::{IoAPIC, LocalAPIC};
-use acpi_tables::{aml, Fadt};
+use acpi_tables::{Fadt, aml};
 use vm_memory::GuestAddress;
 use zerocopy::IntoBytes;
 

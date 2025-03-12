@@ -3,12 +3,12 @@
 
 use std::os::unix::io::AsRawFd;
 use std::path::PathBuf;
-use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
-use vmm::logger::{error, warn, ProcessTimeReporter};
+use vmm::logger::{ProcessTimeReporter, error, warn};
 use vmm::resources::VmResources;
 use vmm::rpc_interface::{
     ApiRequest, ApiResponse, BuildMicrovmFromRequestsError, PrebootApiController,

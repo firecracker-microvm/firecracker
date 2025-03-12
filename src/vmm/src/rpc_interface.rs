@@ -5,15 +5,16 @@ use std::fmt::{self, Debug};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde_json::Value;
-use utils::time::{get_time_us, ClockType};
+use utils::time::{ClockType, get_time_us};
 
 use super::builder::build_and_boot_microvm;
 use super::persist::{create_snapshot, restore_from_snapshot};
 use super::resources::VmResources;
 use super::{Vmm, VmmError};
+use crate::EventManager;
 use crate::builder::StartMicrovmError;
 use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
-use crate::logger::{info, warn, LoggerConfig, *};
+use crate::logger::{LoggerConfig, info, warn, *};
 use crate::mmds::data_store::{self, Mmds};
 use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
 use crate::resources::VmmConfig;
@@ -35,7 +36,6 @@ use crate::vmm_config::net::{
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use crate::vmm_config::{self, RateLimiterUpdate};
-use crate::EventManager;
 
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.).
@@ -856,12 +856,12 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    use crate::HTTP_MAX_PAYLOAD_SIZE;
     use crate::builder::tests::default_vmm;
     use crate::devices::virtio::block::CacheType;
     use crate::mmds::data_store::MmdsVersion;
     use crate::seccomp::BpfThreadMap;
     use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
-    use crate::HTTP_MAX_PAYLOAD_SIZE;
 
     fn default_preboot<'a>(
         vm_resources: &'a mut VmResources,

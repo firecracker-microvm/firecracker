@@ -12,7 +12,7 @@ use aes_gcm::{AeadInPlace, Aes256Gcm, Key, KeyInit, Nonce};
 use base64::Engine;
 use bincode::{DefaultOptions, Error as BincodeError, Options};
 use serde::{Deserialize, Serialize};
-use utils::time::{get_time_ms, ClockType};
+use utils::time::{ClockType, get_time_ms};
 
 /// Length of initialization vector.
 pub const IV_LEN: usize = 12;

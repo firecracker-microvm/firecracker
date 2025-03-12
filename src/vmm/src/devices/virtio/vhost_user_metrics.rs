@@ -144,7 +144,7 @@ pub struct VhostUserDeviceMetrics {
 
 #[cfg(test)]
 pub mod tests {
-    use utils::time::{get_time_us, ClockType};
+    use utils::time::{ClockType, get_time_us};
 
     use super::*;
     use crate::logger::{IncMetric, StoreMetric};

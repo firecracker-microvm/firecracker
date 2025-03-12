@@ -62,7 +62,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::tests::{mock_modifier, MockModifierMapKey};
+    use crate::utils::tests::{MockModifierMapKey, mock_modifier};
 
     #[test]
     fn test_verify_modifier_map_with_non_existing_key() {

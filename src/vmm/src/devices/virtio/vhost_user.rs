@@ -373,7 +373,7 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
                 None => {
                     return Err(VhostUserError::VhostUserMemoryRegion(
                         MmapError::NoMemoryRegion,
-                    ))
+                    ));
                 }
             };
 

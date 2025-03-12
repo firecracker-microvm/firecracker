@@ -12,7 +12,7 @@ use std::fmt::{self, Debug};
 pub use cqe::Cqe;
 pub(crate) use sqe::Sqe;
 
-use crate::io_uring::generated::{self, io_uring_sqe, IOSQE_FIXED_FILE_BIT};
+use crate::io_uring::generated::{self, IOSQE_FIXED_FILE_BIT, io_uring_sqe};
 
 /// The index of a registered fd.
 pub type FixedFd = u32;

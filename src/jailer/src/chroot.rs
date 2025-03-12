@@ -8,7 +8,7 @@ use std::ptr::null;
 
 use vmm_sys_util::syscall::SyscallReturnCode;
 
-use super::{to_cstring, JailerError};
+use super::{JailerError, to_cstring};
 
 const OLD_ROOT_DIR: &CStr = c"old_root";
 const ROOT_DIR: &CStr = c"/";

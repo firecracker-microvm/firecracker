@@ -136,7 +136,10 @@ impl Tap {
         let terminated_if_name = build_terminated_if_name(if_name)?;
         let ifreq = IfReqBuilder::new()
             .if_name(&terminated_if_name)
-            .flags(i16::try_from(generated::IFF_TAP | generated::IFF_NO_PI | generated::IFF_VNET_HDR).unwrap())
+            .flags(
+                i16::try_from(generated::IFF_TAP | generated::IFF_NO_PI | generated::IFF_VNET_HDR)
+                    .unwrap(),
+            )
             .execute(&tuntap, TUNSETIFF())
             .map_err(|io_error| TapError::IfreqExecuteError(io_error, if_name.to_owned()))?;
 
@@ -220,7 +223,7 @@ pub mod tests {
 
     use super::*;
     use crate::devices::virtio::net::generated;
-    use crate::devices::virtio::net::test_utils::{enable, if_index, TapTrafficSimulator};
+    use crate::devices::virtio::net::test_utils::{TapTrafficSimulator, enable, if_index};
 
     // Redefine `IoVecBufferMut` with specific length. Otherwise
     // Rust will not know what to do.

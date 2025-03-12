@@ -7,16 +7,16 @@
 mod logging;
 mod metrics;
 
-pub use log::{debug, error, info, log_enabled, trace, warn, Level};
+pub use log::{Level, debug, error, info, log_enabled, trace, warn};
 pub use logging::{
-    LevelFilter, LevelFilterFromStrError, LoggerConfig, LoggerInitError, LoggerUpdateError,
-    DEFAULT_INSTANCE_ID, DEFAULT_LEVEL, INSTANCE_ID, LOGGER,
+    DEFAULT_INSTANCE_ID, DEFAULT_LEVEL, INSTANCE_ID, LOGGER, LevelFilter, LevelFilterFromStrError,
+    LoggerConfig, LoggerInitError, LoggerUpdateError,
 };
 pub use metrics::{
-    IncMetric, LatencyAggregateMetrics, MetricsError, ProcessTimeReporter, SharedIncMetric,
-    SharedStoreMetric, StoreMetric, METRICS,
+    IncMetric, LatencyAggregateMetrics, METRICS, MetricsError, ProcessTimeReporter,
+    SharedIncMetric, SharedStoreMetric, StoreMetric,
 };
-use utils::time::{get_time_us, ClockType};
+use utils::time::{ClockType, get_time_us};
 
 /// Alias for `std::io::LineWriter<std::fs::File>`.
 pub type FcLineWriter = std::io::LineWriter<std::fs::File>;

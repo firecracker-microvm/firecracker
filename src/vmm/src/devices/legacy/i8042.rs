@@ -12,7 +12,7 @@ use log::warn;
 use serde::Serialize;
 use vmm_sys_util::eventfd::EventFd;
 
-use crate::logger::{error, IncMetric, SharedIncMetric};
+use crate::logger::{IncMetric, SharedIncMetric, error};
 
 /// Errors thrown by the i8042 device.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]

@@ -9,31 +9,31 @@ use arrayvec::ArrayVec;
 use gdbstub::arch::Arch;
 use gdbstub::common::{Signal, Tid};
 use gdbstub::stub::{BaseStopReason, MultiThreadStopReason};
+use gdbstub::target::ext::base::BaseOps;
 use gdbstub::target::ext::base::multithread::{
     MultiThreadBase, MultiThreadResume, MultiThreadResumeOps, MultiThreadSingleStep,
     MultiThreadSingleStepOps,
 };
-use gdbstub::target::ext::base::BaseOps;
 use gdbstub::target::ext::breakpoints::{
     Breakpoints, BreakpointsOps, HwBreakpoint, HwBreakpointOps, SwBreakpoint, SwBreakpointOps,
 };
 use gdbstub::target::ext::thread_extra_info::{ThreadExtraInfo, ThreadExtraInfoOps};
 use gdbstub::target::{Target, TargetError, TargetResult};
 #[cfg(target_arch = "aarch64")]
-use gdbstub_arch::aarch64::reg::AArch64CoreRegs as CoreRegs;
-#[cfg(target_arch = "aarch64")]
 use gdbstub_arch::aarch64::AArch64 as GdbArch;
-#[cfg(target_arch = "x86_64")]
-use gdbstub_arch::x86::reg::X86_64CoreRegs as CoreRegs;
+#[cfg(target_arch = "aarch64")]
+use gdbstub_arch::aarch64::reg::AArch64CoreRegs as CoreRegs;
 #[cfg(target_arch = "x86_64")]
 use gdbstub_arch::x86::X86_64_SSE as GdbArch;
+#[cfg(target_arch = "x86_64")]
+use gdbstub_arch::x86::reg::X86_64CoreRegs as CoreRegs;
 use kvm_ioctls::VcpuFd;
 use vm_memory::{Bytes, GuestAddress, GuestMemoryError};
 
 use super::arch;
+use crate::arch::GUEST_PAGE_SIZE;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::aarch64::vcpu::VcpuError as AarchVcpuError;
-use crate::arch::GUEST_PAGE_SIZE;
 use crate::logger::{error, info};
 use crate::utils::u64_to_usize;
 use crate::vstate::vcpu::VcpuSendEventError;

@@ -149,7 +149,7 @@ impl UffdHandler {
                 Err(Error::PartiallyCopied(bytes_copied))
                     if bytes_copied == 0 || bytes_copied == (-libc::EAGAIN) as usize =>
                 {
-                    return false
+                    return false;
                 }
                 Err(Error::CopyFailed(errno))
                     if std::io::Error::from(errno).raw_os_error().unwrap() == libc::EEXIST =>

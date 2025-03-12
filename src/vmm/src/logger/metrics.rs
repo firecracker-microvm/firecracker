@@ -68,7 +68,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use serde::{Serialize, Serializer};
-use utils::time::{get_time_ns, get_time_us, ClockType};
+use utils::time::{ClockType, get_time_ns, get_time_us};
 
 use super::FcLineWriter;
 use crate::devices::legacy;
@@ -951,8 +951,8 @@ impl FirecrackerMetrics {
 #[cfg(test)]
 mod tests {
     use std::io::{ErrorKind, LineWriter};
-    use std::sync::atomic::fence;
     use std::sync::Arc;
+    use std::sync::atomic::fence;
     use std::thread;
 
     use vmm_sys_util::tempfile::TempFile;

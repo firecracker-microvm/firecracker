@@ -11,7 +11,7 @@ use std::sync::atomic::Ordering;
 use vm_memory::{VolatileMemory, VolatileMemoryError};
 use vmm_sys_util::syscall::SyscallReturnCode;
 
-use super::mmap::{mmap, MmapError};
+use super::mmap::{MmapError, mmap};
 use crate::io_uring::generated;
 use crate::io_uring::operation::Sqe;
 use crate::vstate::memory::{Bytes, MmapRegion};
@@ -99,11 +99,10 @@ impl SubmissionQueue {
         }
 
         // retrieve and populate the sqe
-        if let Err(err) = self
-            .sqes
-            .as_volatile_slice()
-            .write_obj(sqe.0, (tail as usize) * mem::size_of::<generated::io_uring_sqe>())
-        {
+        if let Err(err) = self.sqes.as_volatile_slice().write_obj(
+            sqe.0,
+            (tail as usize) * mem::size_of::<generated::io_uring_sqe>(),
+        ) {
             return Err((SQueueError::VolatileMemory(err), sqe.user_data()));
         }
 
@@ -162,12 +161,21 @@ impl SubmissionQueue {
         let sqe_ring_size =
             (params.sq_off.array as usize) + (params.sq_entries as usize) * mem::size_of::<u32>();
 
-        let sqe_ring = mmap(sqe_ring_size, io_uring_fd, generated::IORING_OFF_SQ_RING.into())?;
+        let sqe_ring = mmap(
+            sqe_ring_size,
+            io_uring_fd,
+            generated::IORING_OFF_SQ_RING.into(),
+        )?;
 
         // map the SQEs.
-        let sqes_array_size = (params.sq_entries as usize) * mem::size_of::<generated::io_uring_sqe>();
+        let sqes_array_size =
+            (params.sq_entries as usize) * mem::size_of::<generated::io_uring_sqe>();
 
-        let sqes = mmap(sqes_array_size, io_uring_fd, generated::IORING_OFF_SQES.into())?;
+        let sqes = mmap(
+            sqes_array_size,
+            io_uring_fd,
+            generated::IORING_OFF_SQES.into(),
+        )?;
 
         Ok((sqe_ring, sqes))
     }

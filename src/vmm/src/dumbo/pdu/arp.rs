@@ -14,7 +14,7 @@ use std::result::Result;
 
 use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
 use super::ethernet::{self, ETHERTYPE_IPV4};
-use crate::utils::net::mac::{MacAddr, MAC_ADDR_LEN};
+use crate::utils::net::mac::{MAC_ADDR_LEN, MacAddr};
 
 /// ARP Request operation
 pub const OPER_REQUEST: u16 = 0x0001;

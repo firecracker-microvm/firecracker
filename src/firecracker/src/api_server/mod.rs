@@ -15,9 +15,9 @@ use std::sync::mpsc;
 pub use micro_http::{Body, HttpServer, Request, Response, ServerError, StatusCode, Version};
 use parsed_request::{ParsedRequest, RequestAction};
 use serde_json::json;
-use utils::time::{get_time_us, ClockType};
+use utils::time::{ClockType, get_time_us};
 use vmm::logger::{
-    debug, error, info, update_metric_with_elapsed_time, warn, ProcessTimeReporter, METRICS,
+    METRICS, ProcessTimeReporter, debug, error, info, update_metric_with_elapsed_time, warn,
 };
 use vmm::rpc_interface::{ApiRequest, ApiResponse, VmmAction};
 use vmm::seccomp::BpfProgramRef;

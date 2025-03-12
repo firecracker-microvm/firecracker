@@ -3,7 +3,7 @@
 
 use std::io;
 
-use super::{RemoveRegionError, MAX_PAGE_COMPACT_BUFFER};
+use super::{MAX_PAGE_COMPACT_BUFFER, RemoveRegionError};
 use crate::logger::error;
 use crate::utils::u64_to_usize;
 use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
@@ -125,9 +125,7 @@ mod tests {
 
     /// This asserts that $lhs matches $rhs.
     macro_rules! assert_match {
-        ($lhs:expr, $rhs:pat) => {{
-            assert!(matches!($lhs, $rhs))
-        }};
+        ($lhs:expr, $rhs:pat) => {{ assert!(matches!($lhs, $rhs)) }};
     }
 
     #[test]
