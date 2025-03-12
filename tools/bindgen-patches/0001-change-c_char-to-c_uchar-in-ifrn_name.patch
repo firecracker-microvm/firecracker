@@ -1,16 +1,16 @@
-diff --git a/src/vmm/src/devices/virtio/net/gen/iff.rs b/src/vmm/src/devices/virtio/net/gen/iff.rs
+diff --git a/src/vmm/src/devices/virtio/net/generated/iff.rs b/src/vmm/src/devices/virtio/net/generated/iff.rs
 index 04e38396..54111c6b 100644
---- a/src/vmm/src/devices/virtio/net/gen/iff.rs
-+++ b/src/vmm/src/devices/virtio/net/gen/iff.rs
-@@ -836,7 +836,7 @@ pub struct ifreq {
+--- a/src/vmm/src/devices/virtio/net/generated/iff.rs
++++ b/src/vmm/src/devices/virtio/net/generated/iff.rs
+@@ -325,7 +325,7 @@
  #[repr(C)]
  #[derive(Copy, Clone)]
  pub union ifreq__bindgen_ty_1 {
 -    pub ifrn_name: [::std::os::raw::c_char; 16usize],
 +    pub ifrn_name: [::std::os::raw::c_uchar; 16usize],
  }
- #[test]
- fn bindgen_test_layout_ifreq__bindgen_ty_1() {
+ #[allow(clippy::unnecessary_operation, clippy::identity_op)]
+ const _: () = {
 -- 
 2.40.1
 
