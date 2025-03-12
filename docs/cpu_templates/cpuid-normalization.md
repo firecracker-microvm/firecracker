@@ -21,7 +21,7 @@ See also: [boot protocol settings](boot-protocol.md)
 | Enable TSC_DEADLINE                                                                  |    0x1     |    -    |      ECX      |  24   |
 | Enable HYPERVISOR                                                                    |    0x1     |    -    |      ECX      |  31   |
 | Set HTT value if the microVM's CPU count is greater than 1                           |    0x1     |    -    |      EDX      |  28   |
-| Insert leaf 0xb, subleaf 0x1 filled with `0` if it is not already present            |    0xb     |   0x1   |      all      |  all  |
+| Insert leaf 0xb, subleaf 0x1 if not present                                          |    0xb     |   0x1   |      all      |  all  |
 | Update extended topology enumeration                                                 |    0xb     |   all   |      EAX      |  4:0  |
 | Update extended topology enumeration                                                 |    0xb     |   all   |      EBX      | 15:0  |
 | Update extended topology enumeration                                                 |    0xb     |   all   |      ECX      | 15:8  |
