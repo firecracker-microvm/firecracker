@@ -85,7 +85,10 @@ class SpectreMeltdownChecker:
         Since we have a test on host and the exception in guest is not valid,
         we add a check to ignore this exception.
         """
-        if global_props.cpu_codename == "INTEL_ICELAKE" and cpu_template_name is None:
+        if (
+            global_props.cpu_codename in ["INTEL_ICELAKE", "INTEL_SAPPHIRE_RAPIDS"]
+            and cpu_template_name is None
+        ):
             return {
                 '{"NAME": "REPTAR", "CVE": "CVE-2023-23583", "VULNERABLE": true, "INFOS": "Your microcode is too old to mitigate the vulnerability"}'
             }
