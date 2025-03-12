@@ -18,7 +18,7 @@ fn main() {
     // Loads filters.
     apply_filter(map.get("main").unwrap()).unwrap();
 
-    Command::new(exec_file)
+    let _ = Command::new(exec_file)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
