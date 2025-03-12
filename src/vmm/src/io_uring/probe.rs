@@ -4,7 +4,7 @@
 use vmm_sys_util::fam::{FamStruct, FamStructWrapper};
 use vmm_sys_util::generate_fam_struct_impl;
 
-use crate::io_uring::gen::{io_uring_probe, io_uring_probe_op};
+use crate::io_uring::generated::{io_uring_probe, io_uring_probe_op};
 
 // There is no max for the number of operations returned by probing. So we fallback to using the
 // number of values representable in a u8;

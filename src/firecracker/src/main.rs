@@ -3,7 +3,7 @@
 
 mod api_server;
 mod api_server_adapter;
-mod gen;
+mod generated;
 mod metrics;
 mod seccomp;
 
@@ -501,9 +501,9 @@ pub fn enable_ssbd_mitigation() {
     // to leave the latter 2 as zero.
     let ret = unsafe {
         libc::prctl(
-            gen::prctl::PR_SET_SPECULATION_CTRL,
-            gen::prctl::PR_SPEC_STORE_BYPASS,
-            gen::prctl::PR_SPEC_FORCE_DISABLE,
+            generated::prctl::PR_SET_SPECULATION_CTRL,
+            generated::prctl::PR_SPEC_STORE_BYPASS,
+            generated::prctl::PR_SPEC_FORCE_DISABLE,
             0,
             0,
         )

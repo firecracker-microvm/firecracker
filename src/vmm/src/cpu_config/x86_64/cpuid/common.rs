@@ -98,7 +98,7 @@ pub(crate) fn msrs_to_save_by_cpuid(cpuid: &kvm_bindings::CpuId) -> Vec<u32> {
         0,
         ebx,
         MPX_BITINDEX,
-        [crate::arch::x86_64::gen::msr_index::MSR_IA32_BNDCFGS]
+        [crate::arch::x86_64::generated::msr_index::MSR_IA32_BNDCFGS]
     );
 
     // IA32_MTRR_PHYSBASEn, IA32_MTRR_PHYSMASKn

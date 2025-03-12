@@ -11,7 +11,8 @@
     clippy::ptr_as_ptr,
     clippy::undocumented_unsafe_blocks,
     missing_debug_implementations,
-    clippy::tests_outside_test_module
+    clippy::tests_outside_test_module,
+    unsafe_op_in_unsafe_fn
 )]
 
 pub const ARCH_SET_GS: u32 = 4097;

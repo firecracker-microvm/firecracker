@@ -211,7 +211,7 @@ pub fn if_index(tap: &Tap) -> i32 {
     let sock = create_socket();
     let ifreq = IfReqBuilder::new()
         .if_name(&tap.if_name)
-        .execute(&sock, c_ulong::from(super::gen::sockios::SIOCGIFINDEX))
+        .execute(&sock, c_ulong::from(super::generated::sockios::SIOCGIFINDEX))
         .unwrap();
 
     // SAFETY: Using this union variant is safe since `SIOCGIFINDEX` returns an integer.
@@ -234,13 +234,13 @@ pub fn enable(tap: &Tap) {
     IfReqBuilder::new()
         .if_name(&tap.if_name)
         .flags(
-            (crate::devices::virtio::net::gen::net_device_flags_IFF_UP
-                | crate::devices::virtio::net::gen::net_device_flags_IFF_RUNNING
-                | crate::devices::virtio::net::gen::net_device_flags_IFF_NOARP)
+            (crate::devices::virtio::net::generated::net_device_flags_IFF_UP
+                | crate::devices::virtio::net::generated::net_device_flags_IFF_RUNNING
+                | crate::devices::virtio::net::generated::net_device_flags_IFF_NOARP)
                 .try_into()
                 .unwrap(),
         )
-        .execute(&sock, c_ulong::from(super::gen::sockios::SIOCSIFFLAGS))
+        .execute(&sock, c_ulong::from(super::generated::sockios::SIOCSIFFLAGS))
         .unwrap();
 }
 
@@ -307,7 +307,7 @@ pub mod test {
     use crate::check_metric_after_block;
     use crate::devices::virtio::device::{IrqType, VirtioDevice};
     use crate::devices::virtio::net::device::vnet_hdr_len;
-    use crate::devices::virtio::net::gen::ETH_HLEN;
+    use crate::devices::virtio::net::generated::ETH_HLEN;
     use crate::devices::virtio::net::test_utils::{
         assign_queues, default_net, inject_tap_tx_frame, NetEvent, NetQueue,
     };

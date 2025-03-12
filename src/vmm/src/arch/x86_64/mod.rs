@@ -23,7 +23,7 @@ pub mod regs;
 pub mod xstate;
 
 #[allow(missing_docs)]
-pub mod gen;
+pub mod generated;
 
 use linux_loader::configurator::linux::LinuxBootConfigurator;
 use linux_loader::configurator::pvh::PvhBootConfigurator;

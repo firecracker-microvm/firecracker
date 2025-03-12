@@ -46,7 +46,7 @@ clippy-tracing \
   --action fix \
   --path ./src \
   --exclude benches \
-  --exclude virtio/gen,bindings.rs,net/gen \
+  --exclude virtio/generated,bindings.rs,net/generated \
   --exclude log-instrument-macros/,log-instrument/,clippy-tracing/ \
   --exclude vmm_config/logger.rs,logger/,signal_handler.rs,time.rs
 ```

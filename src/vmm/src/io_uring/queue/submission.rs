@@ -12,7 +12,7 @@ use vm_memory::{VolatileMemory, VolatileMemoryError};
 use vmm_sys_util::syscall::SyscallReturnCode;
 
 use super::mmap::{mmap, MmapError};
-use crate::io_uring::gen;
+use crate::io_uring::generated;
 use crate::io_uring::operation::Sqe;
 use crate::vstate::memory::{Bytes, MmapRegion};
 
@@ -54,7 +54,7 @@ pub(crate) struct SubmissionQueue {
 impl SubmissionQueue {
     pub(crate) fn new(
         io_uring_fd: RawFd,
-        params: &gen::io_uring_params,
+        params: &generated::io_uring_params,
     ) -> Result<Self, SQueueError> {
         let (ring, sqes) = Self::mmap(io_uring_fd, params)?;
         let ring_slice = ring.as_volatile_slice();
@@ -102,7 +102,7 @@ impl SubmissionQueue {
         if let Err(err) = self
             .sqes
             .as_volatile_slice()
-            .write_obj(sqe.0, (tail as usize) * mem::size_of::<gen::io_uring_sqe>())
+            .write_obj(sqe.0, (tail as usize) * mem::size_of::<generated::io_uring_sqe>())
         {
             return Err((SQueueError::VolatileMemory(err), sqe.user_data()));
         }
@@ -129,7 +129,7 @@ impl SubmissionQueue {
         let mut flags = 0;
 
         if min_complete > 0 {
-            flags |= gen::IORING_ENTER_GETEVENTS;
+            flags |= generated::IORING_ENTER_GETEVENTS;
         }
         // SAFETY: Safe because values are valid and we check the return value.
         let submitted = SyscallReturnCode(unsafe {
@@ -155,19 +155,19 @@ impl SubmissionQueue {
 
     fn mmap(
         io_uring_fd: RawFd,
-        params: &gen::io_uring_params,
+        params: &generated::io_uring_params,
     ) -> Result<(MmapRegion, MmapRegion), SQueueError> {
         // map the SQ_ring. The actual size of the ring is `num_entries * size_of(entry_type)`.
         // To this we add an offset as per the io_uring specifications.
         let sqe_ring_size =
             (params.sq_off.array as usize) + (params.sq_entries as usize) * mem::size_of::<u32>();
 
-        let sqe_ring = mmap(sqe_ring_size, io_uring_fd, gen::IORING_OFF_SQ_RING.into())?;
+        let sqe_ring = mmap(sqe_ring_size, io_uring_fd, generated::IORING_OFF_SQ_RING.into())?;
 
         // map the SQEs.
-        let sqes_array_size = (params.sq_entries as usize) * mem::size_of::<gen::io_uring_sqe>();
+        let sqes_array_size = (params.sq_entries as usize) * mem::size_of::<generated::io_uring_sqe>();
 
-        let sqes = mmap(sqes_array_size, io_uring_fd, gen::IORING_OFF_SQES.into())?;
+        let sqes = mmap(sqes_array_size, io_uring_fd, generated::IORING_OFF_SQES.into())?;
 
         Ok((sqe_ring, sqes))
     }

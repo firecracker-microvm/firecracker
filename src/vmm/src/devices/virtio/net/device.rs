@@ -16,20 +16,20 @@ use vmm_sys_util::eventfd::EventFd;
 
 use super::NET_QUEUE_MAX_SIZE;
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
-use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
-use crate::devices::virtio::gen::virtio_net::{
+use crate::devices::virtio::generated::virtio_blk::VIRTIO_F_VERSION_1;
+use crate::devices::virtio::generated::virtio_net::{
     virtio_net_hdr_v1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM, VIRTIO_NET_F_GUEST_TSO4,
     VIRTIO_NET_F_GUEST_TSO6, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4,
     VIRTIO_NET_F_HOST_TSO6, VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC, VIRTIO_NET_F_MRG_RXBUF,
 };
-use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
+use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::iovec::{
     IoVecBuffer, IoVecBufferMut, IoVecError, ParsedDescriptorChain,
 };
 use crate::devices::virtio::net::metrics::{NetDeviceMetrics, NetMetricsPerDevice};
 use crate::devices::virtio::net::tap::Tap;
 use crate::devices::virtio::net::{
-    gen, NetError, NetQueue, MAX_BUFFER_SIZE, NET_QUEUE_SIZES, RX_INDEX, TX_INDEX,
+    generated, NetError, NetQueue, MAX_BUFFER_SIZE, NET_QUEUE_SIZES, RX_INDEX, TX_INDEX,
 };
 use crate::devices::virtio::queue::{DescriptorChain, Queue};
 use crate::devices::virtio::{ActivateError, TYPE_NET};
@@ -778,25 +778,25 @@ impl Net {
         add_if_supported(
             &mut tap_features,
             guest_supported_features,
-            gen::TUN_F_CSUM,
+            generated::TUN_F_CSUM,
             VIRTIO_NET_F_GUEST_CSUM,
         );
         add_if_supported(
             &mut tap_features,
             guest_supported_features,
-            gen::TUN_F_UFO,
+            generated::TUN_F_UFO,
             VIRTIO_NET_F_GUEST_UFO,
         );
         add_if_supported(
             &mut tap_features,
             guest_supported_features,
-            gen::TUN_F_TSO4,
+            generated::TUN_F_TSO4,
             VIRTIO_NET_F_GUEST_TSO4,
         );
         add_if_supported(
             &mut tap_features,
             guest_supported_features,
-            gen::TUN_F_TSO6,
+            generated::TUN_F_TSO6,
             VIRTIO_NET_F_GUEST_TSO6,
         );
 
@@ -1040,7 +1040,7 @@ pub mod tests {
 
     use super::*;
     use crate::check_metric_after_block;
-    use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
+    use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
     use crate::devices::virtio::iovec::IoVecBuffer;
     use crate::devices::virtio::net::device::{
         frame_bytes_from_buf, frame_bytes_from_buf_mut, frame_hdr_len, init_vnet_hdr, vnet_hdr_len,
@@ -1154,7 +1154,7 @@ pub mod tests {
             | (1 << VIRTIO_NET_F_GUEST_TSO4)
             | (1 << VIRTIO_NET_F_GUEST_TSO6);
         let expected_tap_features =
-            gen::TUN_F_CSUM | gen::TUN_F_UFO | gen::TUN_F_TSO4 | gen::TUN_F_TSO6;
+            generated::TUN_F_CSUM | generated::TUN_F_UFO | generated::TUN_F_TSO4 | generated::TUN_F_TSO6;
         let supported_flags = Net::build_tap_offload_features(supported_features);
 
         assert_eq!(supported_flags, expected_tap_features);
@@ -1164,9 +1164,9 @@ pub mod tests {
     // Same as before, however, using each supported feature one by one.
     fn test_build_tap_offload_features_one_by_one() {
         let features = [
-            (1 << VIRTIO_NET_F_GUEST_CSUM, gen::TUN_F_CSUM),
-            (1 << VIRTIO_NET_F_GUEST_UFO, gen::TUN_F_UFO),
-            (1 << VIRTIO_NET_F_GUEST_TSO4, gen::TUN_F_TSO4),
+            (1 << VIRTIO_NET_F_GUEST_CSUM, generated::TUN_F_CSUM),
+            (1 << VIRTIO_NET_F_GUEST_UFO, generated::TUN_F_UFO),
+            (1 << VIRTIO_NET_F_GUEST_TSO4, generated::TUN_F_TSO4),
         ];
         for (virtio_flag, tap_flag) in features {
             let supported_flags = Net::build_tap_offload_features(virtio_flag);
