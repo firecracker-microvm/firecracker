@@ -21,7 +21,7 @@ use std::fmt::Debug;
 use vm_memory::volatile_memory::Error;
 use vm_memory::{GuestMemoryError, ReadVolatile, WriteVolatile};
 
-use super::{defs, VsockError};
+use super::{VsockError, defs};
 use crate::devices::virtio::iovec::{IoVecBuffer, IoVecBufferMut};
 use crate::devices::virtio::queue::DescriptorChain;
 use crate::vstate::memory::{ByteValued, GuestMemoryMmap};
@@ -223,7 +223,7 @@ impl VsockPacketTx {
         match self.buffer.read_exact_volatile_at(hdr.as_mut_slice(), 0) {
             Ok(()) => (),
             Err(Error::PartialBuffer { completed, .. }) => {
-                return Err(VsockError::DescChainTooShortForHeader(completed))
+                return Err(VsockError::DescChainTooShortForHeader(completed));
             }
             Err(err) => return Err(VsockError::GuestMemoryMmap(err.into())),
         }

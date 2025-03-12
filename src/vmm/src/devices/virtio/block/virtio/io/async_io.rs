@@ -9,8 +9,8 @@ use std::os::unix::io::AsRawFd;
 use vm_memory::GuestMemoryError;
 use vmm_sys_util::eventfd::EventFd;
 
-use crate::devices::virtio::block::virtio::io::UserDataError;
 use crate::devices::virtio::block::virtio::IO_URING_NUM_ENTRIES;
+use crate::devices::virtio::block::virtio::io::UserDataError;
 use crate::io_uring::operation::{Cqe, OpCode, Operation};
 use crate::io_uring::restriction::Restriction;
 use crate::io_uring::{self, IoUring, IoUringError};

@@ -66,13 +66,13 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, RequestError> {
         (Some(_), Some(_)) => {
             return Err(RequestError::SerdeJson(serde_json::Error::custom(
                 TOO_MANY_FIELDS,
-            )))
+            )));
         }
         // Ensure that one of `mem_file_path` or `mem_backend` fields is always specified.
         (None, None) => {
             return Err(RequestError::SerdeJson(serde_json::Error::custom(
                 MISSING_FIELD,
-            )))
+            )));
         }
         _ => {}
     }
@@ -183,10 +183,12 @@ mod tests {
             resume_vm: false,
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
-        assert!(parsed_request
-            .parsing_info()
-            .take_deprecation_message()
-            .is_none());
+        assert!(
+            parsed_request
+                .parsing_info()
+                .take_deprecation_message()
+                .is_none()
+        );
         assert_eq!(
             vmm_action_from_request(parsed_request),
             VmmAction::LoadSnapshot(expected_config)
@@ -210,10 +212,12 @@ mod tests {
             resume_vm: false,
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
-        assert!(parsed_request
-            .parsing_info()
-            .take_deprecation_message()
-            .is_none());
+        assert!(
+            parsed_request
+                .parsing_info()
+                .take_deprecation_message()
+                .is_none()
+        );
         assert_eq!(
             vmm_action_from_request(parsed_request),
             VmmAction::LoadSnapshot(expected_config)
@@ -237,10 +241,12 @@ mod tests {
             resume_vm: true,
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
-        assert!(parsed_request
-            .parsing_info()
-            .take_deprecation_message()
-            .is_none());
+        assert!(
+            parsed_request
+                .parsing_info()
+                .take_deprecation_message()
+                .is_none()
+        );
         assert_eq!(
             vmm_action_from_request(parsed_request),
             VmmAction::LoadSnapshot(expected_config)
@@ -348,16 +354,20 @@ mod tests {
         let body = r#"{
             "state": "Paused"
         }"#;
-        assert!(parse_patch_vm_state(&Body::new(body))
-            .unwrap()
-            .eq(&ParsedRequest::new_sync(VmmAction::Pause)));
+        assert!(
+            parse_patch_vm_state(&Body::new(body))
+                .unwrap()
+                .eq(&ParsedRequest::new_sync(VmmAction::Pause))
+        );
 
         let body = r#"{
             "state": "Resumed"
         }"#;
-        assert!(parse_patch_vm_state(&Body::new(body))
-            .unwrap()
-            .eq(&ParsedRequest::new_sync(VmmAction::Resume)));
+        assert!(
+            parse_patch_vm_state(&Body::new(body))
+                .unwrap()
+                .eq(&ParsedRequest::new_sync(VmmAction::Resume))
+        );
 
         let invalid_body = r#"{
             "invalid": "Paused"

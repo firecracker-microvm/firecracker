@@ -8,7 +8,7 @@ use std::sync::atomic::Ordering;
 
 use vm_memory::{Bytes, VolatileMemory, VolatileMemoryError};
 
-use super::mmap::{mmap, MmapError};
+use super::mmap::{MmapError, mmap};
 use crate::io_uring::generated;
 use crate::io_uring::operation::Cqe;
 use crate::vstate::memory::MmapRegion;

@@ -15,7 +15,7 @@ use crate::cpu_config::templates::{
 use crate::cpu_config::templates_serde::*;
 use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
 use crate::cpu_config::x86_64::cpuid::{KvmCpuidFlags, VENDOR_ID_AMD, VENDOR_ID_INTEL};
-use crate::cpu_config::x86_64::static_cpu_templates::{c3, t2, t2a, t2cl, t2s, StaticCpuTemplate};
+use crate::cpu_config::x86_64::static_cpu_templates::{StaticCpuTemplate, c3, t2, t2a, t2cl, t2s};
 use crate::logger::warn;
 
 impl GetCpuTemplate for Option<CpuTemplateType> {
@@ -192,7 +192,7 @@ where
         _ => {
             return Err(D::Error::custom(
                 "Invalid CPUID register. Must be one of [eax, ebx, ecx, edx]",
-            ))
+            ));
         }
     })
 }
@@ -214,7 +214,7 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
-    use crate::cpu_config::x86_64::test_utils::{build_test_template, TEST_TEMPLATE_JSON};
+    use crate::cpu_config::x86_64::test_utils::{TEST_TEMPLATE_JSON, build_test_template};
 
     #[test]
     fn test_get_cpu_template_with_no_template() {
@@ -386,10 +386,12 @@ mod tests {
                     ],
                 }"#,
         );
-        assert!(cpu_template_result
-            .unwrap_err()
-            .to_string()
-            .contains("Invalid CPUID register. Must be one of [eax, ebx, ecx, edx]"));
+        assert!(
+            cpu_template_result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid CPUID register. Must be one of [eax, ebx, ecx, edx]")
+        );
 
         // Malformed MSR register address
         let cpu_template_result = serde_json::from_str::<CustomCpuTemplate>(
@@ -460,10 +462,11 @@ mod tests {
                     ]
                 }"#,
         );
-        assert!(cpu_template_result
-            .unwrap_err()
-            .to_string()
-            .contains("Failed to parse string [0bx00100x0x1xxxx05xxx1xxxxxxxxxxx1] as a bitmap"));
+        assert!(
+            cpu_template_result.unwrap_err().to_string().contains(
+                "Failed to parse string [0bx00100x0x1xxxx05xxx1xxxxxxxxxxx1] as a bitmap"
+            )
+        );
     }
 
     #[test]

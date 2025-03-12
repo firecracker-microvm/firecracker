@@ -7,8 +7,8 @@ mod redist_regs;
 
 use kvm_ioctls::DeviceFd;
 
-use crate::arch::aarch64::gic::regs::{GicState, GicVcpuState};
 use crate::arch::aarch64::gic::GicError;
+use crate::arch::aarch64::gic::regs::{GicState, GicVcpuState};
 
 /// Save the state of the GIC device.
 pub fn save_state(fd: &DeviceFd, mpidrs: &[u64]) -> Result<GicState, GicError> {
@@ -51,7 +51,7 @@ mod tests {
     use kvm_ioctls::Kvm;
 
     use super::*;
-    use crate::arch::aarch64::gic::{create_gic, GICVersion};
+    use crate::arch::aarch64::gic::{GICVersion, create_gic};
 
     #[test]
     fn test_vm_save_restore_state() {

@@ -3,12 +3,12 @@
 
 use kvm_bindings::KVM_API_VERSION;
 #[cfg(target_arch = "x86_64")]
-use kvm_bindings::{CpuId, MsrList, KVM_MAX_CPUID_ENTRIES};
+use kvm_bindings::{CpuId, KVM_MAX_CPUID_ENTRIES, MsrList};
 use kvm_ioctls::Kvm as KvmFd;
 use serde::{Deserialize, Serialize};
 
 #[cfg(target_arch = "x86_64")]
-use crate::arch::x86_64::xstate::{request_dynamic_xstate_features, XstateError};
+use crate::arch::x86_64::xstate::{XstateError, request_dynamic_xstate_features};
 use crate::cpu_config::templates::KvmCapability;
 use crate::vstate::memory::{GuestMemory, GuestMemoryMmap};
 
@@ -215,11 +215,15 @@ pub(crate) mod tests {
         ];
 
         let combined_caps = Kvm::combine_capabilities(&additional_capabilities);
-        assert!(combined_caps
-            .iter()
-            .any(|c| *c == kvm_bindings::KVM_CAP_IOMMU));
-        assert!(!combined_caps
-            .iter()
-            .any(|c| *c == kvm_bindings::KVM_CAP_IOEVENTFD));
+        assert!(
+            combined_caps
+                .iter()
+                .any(|c| *c == kvm_bindings::KVM_CAP_IOMMU)
+        );
+        assert!(
+            !combined_caps
+                .iter()
+                .any(|c| *c == kvm_bindings::KVM_CAP_IOEVENTFD)
+        );
     }
 }

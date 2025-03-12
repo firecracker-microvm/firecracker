@@ -9,7 +9,7 @@ use vm_memory::{Address, Bytes, GuestAddress, GuestMemory};
 use zerocopy::little_endian::U32;
 use zerocopy::{Immutable, IntoBytes};
 
-use crate::{checksum, AcpiError, Result, Sdt, SdtHeader};
+use crate::{AcpiError, Result, Sdt, SdtHeader, checksum};
 
 const MADT_CPU_ENABLE_FLAG: u32 = 0;
 

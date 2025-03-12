@@ -4,7 +4,7 @@
 use vmm::cpu_config::aarch64::custom_cpu_template::RegisterModifier;
 use vmm::cpu_config::templates::CustomCpuTemplate;
 
-use crate::template::strip::{strip_common, StripError};
+use crate::template::strip::{StripError, strip_common};
 use crate::utils::aarch64::RegModifierMap;
 
 #[allow(dead_code)]

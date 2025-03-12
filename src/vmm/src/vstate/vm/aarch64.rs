@@ -5,8 +5,8 @@ use kvm_ioctls::VmFd;
 use serde::{Deserialize, Serialize};
 
 use super::VmError;
-use crate::arch::aarch64::gic::GicState;
 use crate::Kvm;
+use crate::arch::aarch64::gic::GicState;
 
 /// Structure representing the current architecture's understand of what a "virtual machine" is.
 #[derive(Debug)]

@@ -27,13 +27,13 @@ use vmm_sys_util::eventfd::EventFd;
 
 use super::super::super::DeviceError;
 use super::defs::uapi;
-use super::packet::{VsockPacketRx, VsockPacketTx, VSOCK_PKT_HDR_SIZE};
-use super::{defs, VsockBackend};
+use super::packet::{VSOCK_PKT_HDR_SIZE, VsockPacketRx, VsockPacketTx};
+use super::{VsockBackend, defs};
+use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::devices::virtio::queue::Queue as VirtQueue;
-use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::devices::virtio::vsock::VsockError;
-use crate::devices::virtio::ActivateError;
+use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::logger::IncMetric;
 use crate::utils::byte_order;
 use crate::vstate::memory::{Bytes, GuestMemoryMmap};

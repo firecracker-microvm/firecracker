@@ -8,7 +8,7 @@ use clap_num::maybe_hex;
 use vmm::arch::aarch64::regs::Aarch64RegisterVec;
 use vmm::persist::MicrovmState;
 
-use crate::utils::{open_vmstate, save_vmstate, UtilsError};
+use crate::utils::{UtilsError, open_vmstate, save_vmstate};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum EditVmStateError {

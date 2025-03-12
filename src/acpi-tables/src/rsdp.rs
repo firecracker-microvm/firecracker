@@ -8,7 +8,7 @@ use vm_memory::{Bytes, GuestAddress, GuestMemory};
 use zerocopy::little_endian::{U32, U64};
 use zerocopy::{Immutable, IntoBytes};
 
-use crate::{checksum, Result, Sdt};
+use crate::{Result, Sdt, checksum};
 
 // clippy doesn't understand that we actually "use" the fields of this struct when we serialize
 // them as bytes in guest memory, so here we just ignore dead code to avoid having to name

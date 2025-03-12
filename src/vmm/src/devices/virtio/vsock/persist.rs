@@ -4,8 +4,8 @@
 //! Defines state and support structures for persisting Vsock devices and backends.
 
 use std::fmt::Debug;
-use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU32;
 
 use serde::{Deserialize, Serialize};
 

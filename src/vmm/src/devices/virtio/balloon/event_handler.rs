@@ -4,7 +4,7 @@
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use vmm_sys_util::epoll::EventSet;
 
-use super::{report_balloon_event_fail, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX};
+use super::{DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX, report_balloon_event_fail};
 use crate::devices::virtio::balloon::device::Balloon;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::logger::{error, warn};
@@ -136,7 +136,7 @@ pub mod tests {
 
     use super::*;
     use crate::devices::virtio::balloon::test_utils::set_request;
-    use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
+    use crate::devices::virtio::test_utils::{VirtQueue, default_mem};
     use crate::vstate::memory::GuestAddress;
 
     #[test]

@@ -8,20 +8,20 @@
 use std::fmt::{Debug, Write};
 
 use kvm_bindings::{
-    kvm_mp_state, kvm_vcpu_init, KVM_ARM_VCPU_POWER_OFF, KVM_ARM_VCPU_PSCI_0_2, KVM_ARM_VCPU_SVE,
+    KVM_ARM_VCPU_POWER_OFF, KVM_ARM_VCPU_PSCI_0_2, KVM_ARM_VCPU_SVE, kvm_mp_state, kvm_vcpu_init,
 };
 use kvm_ioctls::*;
 use serde::{Deserialize, Serialize};
 
+use crate::arch::EntryPoint;
 use crate::arch::aarch64::regs::{Aarch64RegisterVec, KVM_REG_ARM64_SVE_VLS};
 use crate::arch::aarch64::vcpu::{
-    get_all_registers, get_all_registers_ids, get_mpidr, get_mpstate, get_registers, set_mpstate,
-    set_register, setup_boot_regs, VcpuError as ArchError,
+    VcpuError as ArchError, get_all_registers, get_all_registers_ids, get_mpidr, get_mpstate,
+    get_registers, set_mpstate, set_register, setup_boot_regs,
 };
-use crate::arch::EntryPoint;
 use crate::cpu_config::aarch64::custom_cpu_template::VcpuFeatures;
 use crate::cpu_config::templates::CpuConfiguration;
-use crate::logger::{error, IncMetric, METRICS};
+use crate::logger::{IncMetric, METRICS, error};
 use crate::vcpu::{VcpuConfig, VcpuError};
 use crate::vstate::kvm::OptionalCapabilities;
 use crate::vstate::memory::{Address, GuestMemoryMmap};
@@ -307,15 +307,15 @@ mod tests {
     use vm_memory::GuestAddress;
 
     use super::*;
-    use crate::arch::aarch64::regs::Aarch64RegisterRef;
     use crate::arch::BootProtocol;
+    use crate::arch::aarch64::regs::Aarch64RegisterRef;
     use crate::cpu_config::aarch64::CpuConfiguration;
     use crate::cpu_config::templates::RegisterValueFilter;
     use crate::vcpu::VcpuConfig;
     use crate::vstate::kvm::Kvm;
     use crate::vstate::memory::GuestMemoryMmap;
-    use crate::vstate::vm::tests::setup_vm_with_memory;
     use crate::vstate::vm::Vm;
+    use crate::vstate::vm::tests::setup_vm_with_memory;
 
     fn setup_vcpu(mem_size: usize) -> (Kvm, Vm, KvmVcpu, GuestMemoryMmap) {
         let (kvm, mut vm, vm_mem) = setup_vm_with_memory(mem_size);

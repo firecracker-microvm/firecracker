@@ -132,14 +132,18 @@ mod tests {
         let restored_rate_limiter =
             RateLimiter::restore((), &rate_limiter.save()).expect("Unable to restore rate limiter");
 
-        assert!(rate_limiter
-            .ops()
-            .unwrap()
-            .partial_eq(restored_rate_limiter.ops().unwrap()));
-        assert!(rate_limiter
-            .bandwidth()
-            .unwrap()
-            .partial_eq(restored_rate_limiter.bandwidth().unwrap()));
+        assert!(
+            rate_limiter
+                .ops()
+                .unwrap()
+                .partial_eq(restored_rate_limiter.ops().unwrap())
+        );
+        assert!(
+            rate_limiter
+                .bandwidth()
+                .unwrap()
+                .partial_eq(restored_rate_limiter.bandwidth().unwrap())
+        );
         assert_eq!(
             restored_rate_limiter.timer_fd.get_state(),
             TimerState::Disarmed
@@ -151,14 +155,18 @@ mod tests {
         let restored_rate_limiter =
             RateLimiter::restore((), &rate_limiter.save()).expect("Unable to restore rate limiter");
 
-        assert!(rate_limiter
-            .ops()
-            .unwrap()
-            .partial_eq(restored_rate_limiter.ops().unwrap()));
-        assert!(rate_limiter
-            .bandwidth()
-            .unwrap()
-            .partial_eq(restored_rate_limiter.bandwidth().unwrap()));
+        assert!(
+            rate_limiter
+                .ops()
+                .unwrap()
+                .partial_eq(restored_rate_limiter.ops().unwrap())
+        );
+        assert!(
+            rate_limiter
+                .bandwidth()
+                .unwrap()
+                .partial_eq(restored_rate_limiter.bandwidth().unwrap())
+        );
         assert_eq!(
             restored_rate_limiter.timer_fd.get_state(),
             TimerState::Disarmed
@@ -169,14 +177,18 @@ mod tests {
         let restored_rate_limiter =
             RateLimiter::restore((), &rate_limiter.save()).expect("Unable to restore rate limiter");
 
-        assert!(rate_limiter
-            .ops()
-            .unwrap()
-            .partial_eq(restored_rate_limiter.ops().unwrap()));
-        assert!(rate_limiter
-            .bandwidth()
-            .unwrap()
-            .partial_eq(restored_rate_limiter.bandwidth().unwrap()));
+        assert!(
+            rate_limiter
+                .ops()
+                .unwrap()
+                .partial_eq(restored_rate_limiter.ops().unwrap())
+        );
+        assert!(
+            rate_limiter
+                .bandwidth()
+                .unwrap()
+                .partial_eq(restored_rate_limiter.bandwidth().unwrap())
+        );
 
         // Test serialization.
         let mut mem = vec![0; 4096];
@@ -184,13 +196,17 @@ mod tests {
         let restored_rate_limiter =
             RateLimiter::restore((), &Snapshot::deserialize(&mut mem.as_slice()).unwrap()).unwrap();
 
-        assert!(rate_limiter
-            .ops()
-            .unwrap()
-            .partial_eq(restored_rate_limiter.ops().unwrap()));
-        assert!(rate_limiter
-            .bandwidth()
-            .unwrap()
-            .partial_eq(restored_rate_limiter.bandwidth().unwrap()));
+        assert!(
+            rate_limiter
+                .ops()
+                .unwrap()
+                .partial_eq(restored_rate_limiter.ops().unwrap())
+        );
+        assert!(
+            rate_limiter
+                .bandwidth()
+                .unwrap()
+                .partial_eq(restored_rate_limiter.bandwidth().unwrap())
+        );
     }
 }

@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use vmm::builder::build_and_boot_microvm;
 use vmm::devices::virtio::block::CacheType;
-use vmm::persist::{snapshot_state_sanity_check, MicrovmState, MicrovmStateError, VmInfo};
+use vmm::persist::{MicrovmState, MicrovmStateError, VmInfo, snapshot_state_sanity_check};
 use vmm::resources::VmResources;
 use vmm::rpc_interface::{
     LoadSnapshotError, PrebootApiController, RuntimeApiController, VmmAction, VmmActionError,

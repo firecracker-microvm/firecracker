@@ -438,7 +438,7 @@ impl<'a> Arguments<'a> {
                         _ => {
                             return Err(UtilsArgParserError::UnexpectedArgument(
                                 argument.name.to_string(),
-                            ))
+                            ));
                         }
                     }
                 } else {

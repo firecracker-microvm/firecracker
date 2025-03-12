@@ -24,7 +24,7 @@ use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{
     HugePageConfig, MachineConfig, MachineConfigError, MachineConfigUpdate,
 };
-use crate::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
+use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError, init_metrics};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::vsock::*;
@@ -501,6 +501,7 @@ mod tests {
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
+    use crate::HTTP_MAX_PAYLOAD_SIZE;
     use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
     use crate::devices::virtio::balloon::Balloon;
     use crate::devices::virtio::block::virtio::VirtioBlockError;
@@ -508,6 +509,7 @@ mod tests {
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
     use crate::resources::VmResources;
     use crate::utils::net::mac::MacAddr;
+    use crate::vmm_config::RateLimiterConfig;
     use crate::vmm_config::boot_source::{
         BootConfig, BootSource, BootSourceConfig, DEFAULT_KERNEL_CMDLINE,
     };
@@ -515,8 +517,6 @@ mod tests {
     use crate::vmm_config::machine_config::{HugePageConfig, MachineConfig, MachineConfigError};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
-    use crate::vmm_config::RateLimiterConfig;
-    use crate::HTTP_MAX_PAYLOAD_SIZE;
 
     fn default_net_cfg() -> NetworkInterfaceConfig {
         NetworkInterfaceConfig {

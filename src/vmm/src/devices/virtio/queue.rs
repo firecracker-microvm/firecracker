@@ -7,7 +7,7 @@
 
 use std::cmp::min;
 use std::num::Wrapping;
-use std::sync::atomic::{fence, Ordering};
+use std::sync::atomic::{Ordering, fence};
 
 use crate::logger::error;
 use crate::vstate::memory::{Address, Bitmap, ByteValued, GuestAddress, GuestMemory};
@@ -116,11 +116,7 @@ impl DescriptorChain {
             next: desc.next,
         };
 
-        if chain.is_valid() {
-            Some(chain)
-        } else {
-            None
-        }
+        if chain.is_valid() { Some(chain) } else { None }
     }
 
     fn is_valid(&self) -> bool {
@@ -955,8 +951,8 @@ mod verification {
 
     #[kani::proof]
     #[kani::unwind(0)] // There are no loops anywhere, but kani really enjoys getting stuck in std::ptr::drop_in_place.
-                       // This is a compiler intrinsic that has a "dummy" implementation in stdlib that just
-                       // recursively calls itself. Kani will generally unwind this recursion infinitely
+    // This is a compiler intrinsic that has a "dummy" implementation in stdlib that just
+    // recursively calls itself. Kani will generally unwind this recursion infinitely
     fn verify_spec_2_6_7_2() {
         // Section 2.6.7.2 deals with device-to-driver notification suppression.
         // It describes a mechanism by which the driver can tell the device that it does not
@@ -1091,11 +1087,7 @@ mod verification {
             // Section 2.6: Alignment of descriptor table, available ring and used ring; size of
             // queue
             fn alignment_of(val: u64) -> u64 {
-                if val == 0 {
-                    u64::MAX
-                } else {
-                    val & (!val + 1)
-                }
+                if val == 0 { u64::MAX } else { val & (!val + 1) }
             }
 
             assert!(alignment_of(queue.desc_table_address.0) >= 16);
@@ -1265,7 +1257,7 @@ mod tests {
 
     pub use super::*;
     use crate::devices::virtio::queue::QueueError::DescIndexOutOfBounds;
-    use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
+    use crate::devices::virtio::test_utils::{VirtQueue, default_mem};
     use crate::test_utils::{multi_region_mem, single_region_mem};
     use crate::vstate::memory::GuestAddress;
 

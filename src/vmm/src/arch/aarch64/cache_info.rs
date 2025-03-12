@@ -320,7 +320,7 @@ mod tests {
 
     use super::*;
     use crate::arch::aarch64::cache_info::{
-        read_cache_config, CacheEngine, CacheEntry, CacheStore,
+        CacheEngine, CacheEntry, CacheStore, read_cache_config,
     };
 
     #[derive(Debug)]

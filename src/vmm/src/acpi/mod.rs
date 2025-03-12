@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use acpi_tables::fadt::{FADT_F_HW_REDUCED_ACPI, FADT_F_PWR_BUTTON, FADT_F_SLP_BUTTON};
-use acpi_tables::{aml, Aml, Dsdt, Fadt, Madt, Rsdp, Sdt, Xsdt};
+use acpi_tables::{Aml, Dsdt, Fadt, Madt, Rsdp, Sdt, Xsdt, aml};
 use log::{debug, error};
 use vm_allocator::AllocPolicy;
 
+use crate::Vcpu;
 use crate::acpi::x86_64::{
     apic_addr, rsdp_addr, setup_arch_dsdt, setup_arch_fadt, setup_interrupt_controllers,
 };
@@ -13,7 +14,6 @@ use crate::device_manager::acpi::ACPIDeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::resources::ResourceAllocator;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
-use crate::Vcpu;
 
 mod x86_64;
 

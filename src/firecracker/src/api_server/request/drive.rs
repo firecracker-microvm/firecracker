@@ -5,7 +5,7 @@ use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
 use vmm::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig};
 
-use super::super::parsed_request::{checked_id, ParsedRequest, RequestError};
+use super::super::parsed_request::{ParsedRequest, RequestError, checked_id};
 use super::{Body, StatusCode};
 
 pub(crate) fn parse_put_drive(

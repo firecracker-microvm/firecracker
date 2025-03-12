@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::cpu_config::x86_64::cpuid::normalize::{
-    get_range, set_bit, set_range, CheckedAssignError,
+    CheckedAssignError, get_range, set_bit, set_range,
 };
 use crate::cpu_config::x86_64::cpuid::{
-    host_brand_string, CpuidKey, CpuidRegisters, CpuidTrait, MissingBrandStringLeaves,
-    BRAND_STRING_LENGTH,
+    BRAND_STRING_LENGTH, CpuidKey, CpuidRegisters, CpuidTrait, MissingBrandStringLeaves,
+    host_brand_string,
 };
 
 /// Error type for [`super::IntelCpuid::normalize`].

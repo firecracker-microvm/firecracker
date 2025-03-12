@@ -8,7 +8,7 @@ use std::borrow::Cow;
 use serde::de::Error;
 use serde::{Deserialize, Serialize};
 
-use crate::arch::aarch64::regs::{reg_size, RegSize};
+use crate::arch::aarch64::regs::{RegSize, reg_size};
 use crate::cpu_config::aarch64::static_cpu_templates::v1n1;
 use crate::cpu_config::templates::{
     CpuTemplateType, GetCpuTemplate, GetCpuTemplateError, KvmCapability, RegisterValueFilter,
@@ -79,7 +79,7 @@ impl CustomCpuTemplate {
                         "Invalid aarch64 register address: {:#x} - Only 32, 64 and 128 bit wide \
                          registers are supported",
                         modifier.addr
-                    )))
+                    )));
                 }
             }
         }
@@ -116,7 +116,7 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
-    use crate::cpu_config::templates::test_utils::{build_test_template, TEST_TEMPLATE_JSON};
+    use crate::cpu_config::templates::test_utils::{TEST_TEMPLATE_JSON, build_test_template};
 
     #[test]
     fn test_get_cpu_template_with_no_template() {
@@ -231,10 +231,12 @@ mod tests {
                     ]
                 }"#,
         );
-        assert!(cpu_config_result
-            .unwrap_err()
-            .to_string()
-            .contains("Failed to parse string [0bK] as a number for CPU template"));
+        assert!(
+            cpu_config_result
+                .unwrap_err()
+                .to_string()
+                .contains("Failed to parse string [0bK] as a number for CPU template")
+        );
 
         // Malformed 64-bit bitmap - filter failed
         let cpu_config_result = serde_json::from_str::<CustomCpuTemplate>(
@@ -262,10 +264,11 @@ mod tests {
                     ]
                 }"#,
         );
-        assert!(cpu_config_result
-            .unwrap_err()
-            .to_string()
-            .contains("Failed to parse string [0bx00100x0x1xxxx05xxx1xxxxxxxxxxx1] as a bitmap"));
+        assert!(
+            cpu_config_result.unwrap_err().to_string().contains(
+                "Failed to parse string [0bx00100x0x1xxxx05xxx1xxxxxxxxxxx1] as a bitmap"
+            )
+        );
     }
 
     #[test]

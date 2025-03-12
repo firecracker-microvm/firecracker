@@ -1263,15 +1263,17 @@ mod tests {
         assert_eq!(
             Scope::new(
                 "_SB_.MBRD".try_into().unwrap(),
-                vec![&Name::new(
-                    "_CRS".try_into().unwrap(),
-                    &ResourceTemplate::new(vec![&Memory32Fixed::new(
-                        true,
-                        0xE800_0000,
-                        0x1000_0000
-                    )])
-                )
-                .unwrap()]
+                vec![
+                    &Name::new(
+                        "_CRS".try_into().unwrap(),
+                        &ResourceTemplate::new(vec![&Memory32Fixed::new(
+                            true,
+                            0xE800_0000,
+                            0x1000_0000
+                        )])
+                    )
+                    .unwrap()
+                ]
             )
             .to_aml_bytes()
             .unwrap(),
@@ -1438,13 +1440,15 @@ mod tests {
         assert_eq!(
             Name::new(
                 "_CRS".try_into().unwrap(),
-                &ResourceTemplate::new(vec![&AddressSpace::new_memory(
-                    AddressSpaceCacheable::Cacheable,
-                    true,
-                    0x8_0000_0000u64,
-                    0xf_ffff_ffffu64
-                )
-                .unwrap()])
+                &ResourceTemplate::new(vec![
+                    &AddressSpace::new_memory(
+                        AddressSpaceCacheable::Cacheable,
+                        true,
+                        0x8_0000_0000u64,
+                        0xf_ffff_ffffu64
+                    )
+                    .unwrap()
+                ])
             )
             .unwrap()
             .to_aml_bytes()
@@ -1553,7 +1557,9 @@ mod tests {
             (&"_SB_.PCI0._HID".try_into().unwrap() as &Path)
                 .to_aml_bytes()
                 .unwrap(),
-            [0x2F, 0x03, 0x5F, 0x53, 0x42, 0x5F, 0x50, 0x43, 0x49, 0x30, 0x5F, 0x48, 0x49, 0x44]
+            [
+                0x2F, 0x03, 0x5F, 0x53, 0x42, 0x5F, 0x50, 0x43, 0x49, 0x30, 0x5F, 0x48, 0x49, 0x44
+            ]
         );
     }
 
@@ -2007,13 +2013,15 @@ mod tests {
                 vec![
                     &Name::new(
                         "MR64".try_into().unwrap(),
-                        &ResourceTemplate::new(vec![&AddressSpace::new_memory(
-                            AddressSpaceCacheable::Cacheable,
-                            true,
-                            0x0000_0000_0000_0000u64,
-                            0xFFFF_FFFF_FFFF_FFFEu64
-                        )
-                        .unwrap()])
+                        &ResourceTemplate::new(vec![
+                            &AddressSpace::new_memory(
+                                AddressSpaceCacheable::Cacheable,
+                                true,
+                                0x0000_0000_0000_0000u64,
+                                0xFFFF_FFFF_FFFF_FFFEu64
+                            )
+                            .unwrap()
+                        ])
                     )
                     .unwrap(),
                     &CreateField::<u64>::new(

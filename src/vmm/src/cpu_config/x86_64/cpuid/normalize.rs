@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::cpu_config::x86_64::cpuid::{
-    cpuid, CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags,
+    CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags, cpuid,
 };
 
 /// Error type for [`super::Cpuid::normalize`].
