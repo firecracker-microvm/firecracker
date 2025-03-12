@@ -100,7 +100,10 @@ impl IoVecBuffer {
         head: DescriptorChain,
     ) -> Result<Self, IoVecError> {
         let mut new_buffer = Self::default();
-        new_buffer.load_descriptor_chain(mem, head)?;
+        // SAFETY: descriptor chain cannot be referencing the same memory location as another chain
+        unsafe {
+            new_buffer.load_descriptor_chain(mem, head)?;
+        }
         Ok(new_buffer)
     }
 
@@ -328,7 +331,8 @@ impl<const L: u16> IoVecBufferMut<L> {
         head: DescriptorChain,
     ) -> Result<(), IoVecError> {
         self.clear();
-        let _ = self.append_descriptor_chain(mem, head)?;
+        // SAFETY: descriptor chain cannot be referencing the same memory location as another chain
+        let _ = unsafe { self.append_descriptor_chain(mem, head)? };
         Ok(())
     }
 
@@ -358,7 +362,10 @@ impl<const L: u16> IoVecBufferMut<L> {
         head: DescriptorChain,
     ) -> Result<Self, IoVecError> {
         let mut new_buffer = Self::new()?;
-        new_buffer.load_descriptor_chain(mem, head)?;
+        // SAFETY: descriptor chain cannot be referencing the same memory location as another chain
+        unsafe {
+            new_buffer.load_descriptor_chain(mem, head)?;
+        }
         Ok(new_buffer)
     }
 

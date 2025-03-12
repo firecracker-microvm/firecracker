@@ -135,7 +135,8 @@ impl RxBuffers {
         mem: &GuestMemoryMmap,
         head: DescriptorChain,
     ) -> Result<(), AddRxBufferError> {
-        let parsed_dc = self.iovec.append_descriptor_chain(mem, head)?;
+        // SAFETY: descriptor chain cannot be referencing the same memory location as another chain
+        let parsed_dc = unsafe { self.iovec.append_descriptor_chain(mem, head)? };
         if parsed_dc.length < self.min_buffer_size {
             self.iovec.drop_chain_back(&parsed_dc);
             return Err(AddRxBufferError::BufferTooSmall);
