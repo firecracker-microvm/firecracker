@@ -16,7 +16,7 @@ use crate::devices::virtio::block::persist::BlockConstructorArgs;
 use crate::devices::virtio::block::virtio::device::FileEngineType;
 use crate::devices::virtio::block::virtio::metrics::BlockMetricsPerDevice;
 use crate::devices::virtio::device::{DeviceState, IrqTrigger};
-use crate::devices::virtio::gen::virtio_blk::VIRTIO_BLK_F_RO;
+use crate::devices::virtio::generated::virtio_blk::VIRTIO_BLK_F_RO;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::TYPE_BLOCK;
 use crate::rate_limiter::persist::RateLimiterState;

@@ -24,7 +24,7 @@ pub mod persist;
 mod tap;
 pub mod test_utils;
 
-mod gen;
+mod generated;
 
 pub use tap::{Tap, TapError};
 use vm_memory::VolatileMemoryError;

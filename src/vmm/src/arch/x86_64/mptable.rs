@@ -13,7 +13,7 @@ use libc::c_char;
 use log::debug;
 use vm_allocator::AllocPolicy;
 
-use crate::arch::x86_64::gen::mpspec;
+use crate::arch::x86_64::generated::mpspec;
 use crate::arch::IRQ_MAX;
 use crate::device_manager::resources::ResourceAllocator;
 use crate::vstate::memory::{

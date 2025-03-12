@@ -12,7 +12,7 @@ use vmm_sys_util::eventfd::EventFd;
 use super::metrics::METRICS;
 use super::{RNG_NUM_QUEUES, RNG_QUEUE};
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
-use crate::devices::virtio::gen::virtio_rng::VIRTIO_F_VERSION_1;
+use crate::devices::virtio::generated::virtio_rng::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::iov_deque::IovDequeError;
 use crate::devices::virtio::iovec::IoVecBufferMut;
 use crate::devices::virtio::queue::{Queue, FIRECRACKER_MAX_QUEUE_SIZE};

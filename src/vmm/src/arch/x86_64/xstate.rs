@@ -3,7 +3,7 @@
 
 use vmm_sys_util::syscall::SyscallReturnCode;
 
-use crate::arch::x86_64::gen::arch_prctl;
+use crate::arch::x86_64::generated::arch_prctl;
 
 const INTEL_AMX_MASK: u64 = 1u64 << arch_prctl::ARCH_XCOMP_TILEDATA;
 
