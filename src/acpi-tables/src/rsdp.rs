@@ -21,7 +21,7 @@ use crate::{checksum, Result, Sdt};
 /// a pointer to XSDT
 /// More information about this structure can be found in the ACPI specification:
 /// https://uefi.org/specs/ACPI/6.5/05_ACPI_Software_Programming_Model.html#root-system-description-pointer-rsdp
-#[repr(packed)]
+#[repr(C, packed)]
 #[derive(Clone, Copy, Debug, Default, IntoBytes, Immutable)]
 pub struct Rsdp {
     signature: [u8; 8],
