@@ -45,7 +45,7 @@ use crate::vstate::memory::{ByteValued, GuestMemoryMmap};
 // The mirroring struct is only used privately by `VsockPacket`, that offers getter and setter
 // methods, for each struct field, that will also handle the correct endianess.
 
-#[repr(packed)]
+#[repr(C, packed)]
 #[derive(Copy, Clone, Debug, Default)]
 pub struct VsockPacketHeader {
     // Source CID.

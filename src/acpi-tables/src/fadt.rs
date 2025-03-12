@@ -41,7 +41,7 @@ pub const FADT_F_HW_REDUCED_ACPI: u8 = 20;
 /// the pointer to the DSDT table.
 /// More information about this table can be found in the ACPI specification:
 /// https://uefi.org/specs/ACPI/6.5/05_ACPI_Software_Programming_Model.html#fixed-acpi-description-table-fadt
-#[repr(packed)]
+#[repr(C, packed)]
 #[derive(Debug, Copy, Clone, Default, IntoBytes, Immutable)]
 pub struct Fadt {
     header: SdtHeader,
