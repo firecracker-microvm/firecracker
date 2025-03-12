@@ -336,7 +336,7 @@ pub mod tests {
             }
 
             match (&self.action, &other.action) {
-                (RequestAction::Sync(ref sync_req), RequestAction::Sync(ref other_sync_req)) => {
+                (RequestAction::Sync(sync_req), RequestAction::Sync(other_sync_req)) => {
                     sync_req == other_sync_req
                 }
             }

@@ -38,7 +38,7 @@ impl DeviceState {
     /// Gets the memory attached to the device if it is activated.
     pub fn mem(&self) -> Option<&GuestMemoryMmap> {
         match self {
-            DeviceState::Activated(ref mem) => Some(mem),
+            DeviceState::Activated(mem) => Some(mem),
             DeviceState::Inactive => None,
         }
     }
