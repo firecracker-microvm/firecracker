@@ -105,7 +105,7 @@ impl AcpiTableWriter<'_> {
         fadt.set_hypervisor_vendor_id(HYPERVISOR_VENDOR_ID);
         fadt.set_x_dsdt(dsdt_addr);
         fadt.set_flags(
-            1 << FADT_F_HW_REDUCED_ACPI | 1 << FADT_F_PWR_BUTTON | 1 << FADT_F_SLP_BUTTON,
+            (1 << FADT_F_HW_REDUCED_ACPI) | (1 << FADT_F_PWR_BUTTON) | (1 << FADT_F_SLP_BUTTON),
         );
         setup_arch_fadt(&mut fadt);
         self.write_acpi_table(&mut fadt)
