@@ -75,10 +75,6 @@
                 "comment": "Used for drive patching & rescanning, for reading the local timezone from /etc/localtime"
             },
             {
-                "syscall": "faccessat",
-                "comment": "Used by aws-lc-sys"
-            },
-            {
                 "syscall": "ftruncate",
                 "comment": "Used for snapshotting"
             },
