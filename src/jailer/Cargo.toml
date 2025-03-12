@@ -2,7 +2,7 @@
 name = "jailer"
 version = "1.12.0-dev"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
-edition = "2021"
+edition = "2024"
 description = "Process for starting Firecracker in production scenarios; applies a cgroup/namespace isolation barrier and then drops privileges."
 homepage = "https://firecracker-microvm.github.io/"
 license = "Apache-2.0"
