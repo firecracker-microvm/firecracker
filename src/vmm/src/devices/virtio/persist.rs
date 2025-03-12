@@ -160,7 +160,7 @@ impl VirtioDeviceState {
             return Err(PersistError::InvalidInput);
         }
 
-        let uses_notif_suppression = (self.acked_features & 1u64 << VIRTIO_RING_F_EVENT_IDX) != 0;
+        let uses_notif_suppression = (self.acked_features & (1u64 << VIRTIO_RING_F_EVENT_IDX)) != 0;
         let queue_construction_args = QueueConstructorArgs {
             mem: mem.clone(),
             is_activated: self.activated,

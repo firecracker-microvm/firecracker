@@ -104,7 +104,7 @@ pub trait VirtioDevice: AsAny + Send {
 
     /// Check if virtio device has negotiated given feature.
     fn has_feature(&self, feature: u64) -> bool {
-        (self.acked_features() & 1 << feature) != 0
+        (self.acked_features() & (1 << feature)) != 0
     }
 
     /// The virtio device type.

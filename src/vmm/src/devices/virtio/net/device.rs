@@ -274,17 +274,17 @@ impl Net {
         rx_rate_limiter: RateLimiter,
         tx_rate_limiter: RateLimiter,
     ) -> Result<Self, NetError> {
-        let mut avail_features = 1 << VIRTIO_NET_F_GUEST_CSUM
-            | 1 << VIRTIO_NET_F_CSUM
-            | 1 << VIRTIO_NET_F_GUEST_TSO4
-            | 1 << VIRTIO_NET_F_GUEST_TSO6
-            | 1 << VIRTIO_NET_F_GUEST_UFO
-            | 1 << VIRTIO_NET_F_HOST_TSO4
-            | 1 << VIRTIO_NET_F_HOST_TSO6
-            | 1 << VIRTIO_NET_F_HOST_UFO
-            | 1 << VIRTIO_F_VERSION_1
-            | 1 << VIRTIO_NET_F_MRG_RXBUF
-            | 1 << VIRTIO_RING_F_EVENT_IDX;
+        let mut avail_features = (1 << VIRTIO_NET_F_GUEST_CSUM)
+            | (1 << VIRTIO_NET_F_CSUM)
+            | (1 << VIRTIO_NET_F_GUEST_TSO4)
+            | (1 << VIRTIO_NET_F_GUEST_TSO6)
+            | (1 << VIRTIO_NET_F_GUEST_UFO)
+            | (1 << VIRTIO_NET_F_HOST_TSO4)
+            | (1 << VIRTIO_NET_F_HOST_TSO6)
+            | (1 << VIRTIO_NET_F_HOST_UFO)
+            | (1 << VIRTIO_F_VERSION_1)
+            | (1 << VIRTIO_NET_F_MRG_RXBUF)
+            | (1 << VIRTIO_RING_F_EVENT_IDX);
 
         let mut config_space = ConfigSpace::default();
         if let Some(mac) = guest_mac {
@@ -1115,18 +1115,18 @@ pub mod tests {
         set_mac(&mut net, MacAddr::from_str("11:22:33:44:55:66").unwrap());
 
         // Test `features()` and `ack_features()`.
-        let features = 1 << VIRTIO_NET_F_GUEST_CSUM
-            | 1 << VIRTIO_NET_F_CSUM
-            | 1 << VIRTIO_NET_F_GUEST_TSO4
-            | 1 << VIRTIO_NET_F_GUEST_TSO6
-            | 1 << VIRTIO_NET_F_MAC
-            | 1 << VIRTIO_NET_F_GUEST_UFO
-            | 1 << VIRTIO_NET_F_HOST_TSO4
-            | 1 << VIRTIO_NET_F_HOST_TSO6
-            | 1 << VIRTIO_NET_F_HOST_UFO
-            | 1 << VIRTIO_F_VERSION_1
-            | 1 << VIRTIO_NET_F_MRG_RXBUF
-            | 1 << VIRTIO_RING_F_EVENT_IDX;
+        let features = (1 << VIRTIO_NET_F_GUEST_CSUM)
+            | (1 << VIRTIO_NET_F_CSUM)
+            | (1 << VIRTIO_NET_F_GUEST_TSO4)
+            | (1 << VIRTIO_NET_F_GUEST_TSO6)
+            | (1 << VIRTIO_NET_F_MAC)
+            | (1 << VIRTIO_NET_F_GUEST_UFO)
+            | (1 << VIRTIO_NET_F_HOST_TSO4)
+            | (1 << VIRTIO_NET_F_HOST_TSO6)
+            | (1 << VIRTIO_NET_F_HOST_UFO)
+            | (1 << VIRTIO_F_VERSION_1)
+            | (1 << VIRTIO_NET_F_MRG_RXBUF)
+            | (1 << VIRTIO_RING_F_EVENT_IDX);
 
         assert_eq!(
             net.avail_features_by_page(0),
@@ -1148,10 +1148,10 @@ pub mod tests {
     // Test that `Net::build_tap_offload_features` creates the TAP offload features that we expect
     // it to do, based on the available guest features
     fn test_build_tap_offload_features_all() {
-        let supported_features = 1 << VIRTIO_NET_F_GUEST_CSUM
-            | 1 << VIRTIO_NET_F_GUEST_UFO
-            | 1 << VIRTIO_NET_F_GUEST_TSO4
-            | 1 << VIRTIO_NET_F_GUEST_TSO6;
+        let supported_features = (1 << VIRTIO_NET_F_GUEST_CSUM)
+            | (1 << VIRTIO_NET_F_GUEST_UFO)
+            | (1 << VIRTIO_NET_F_GUEST_TSO4)
+            | (1 << VIRTIO_NET_F_GUEST_TSO6);
         let expected_tap_features =
             gen::TUN_F_CSUM | gen::TUN_F_UFO | gen::TUN_F_TSO4 | gen::TUN_F_TSO6;
         let supported_flags = Net::build_tap_offload_features(supported_features);
