@@ -176,9 +176,9 @@ impl Vcpu {
     {
         Self::TLS_VCPU_PTR.with(|cell: &VcpuCell| {
             if let Some(vcpu_ptr) = cell.get() {
-                // Dereferencing here is safe since `TLS_VCPU_PTR` is populated/non-empty,
+                // SAFETY: Dereferencing here is safe since `TLS_VCPU_PTR` is populated/non-empty,
                 // and it is being cleared on `Vcpu::drop` so there is no dangling pointer.
-                let vcpu_ref = &mut *vcpu_ptr;
+                let vcpu_ref = unsafe { &mut *vcpu_ptr };
                 func(vcpu_ref);
                 Ok(())
             } else {
