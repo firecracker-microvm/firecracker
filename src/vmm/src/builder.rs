@@ -961,7 +961,7 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
             let locked = block.lock().expect("Poisoned lock");
             if locked.root_device() {
                 match locked.partuuid() {
-                    Some(ref partuuid) => {
+                    Some(partuuid) => {
                         cmdline.insert_str(format!("root=PARTUUID={}", partuuid))?
                     }
                     None => cmdline.insert_str("root=/dev/vda")?,

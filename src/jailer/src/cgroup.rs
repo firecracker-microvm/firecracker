@@ -234,8 +234,8 @@ pub enum CgroupConfiguration {
 impl CgroupConfiguration {
     pub fn setup(&self) -> Result<(), JailerError> {
         match self {
-            Self::V1(ref conf) => setup_cgroup_conf(conf),
-            Self::V2(ref conf) => setup_cgroup_conf(conf),
+            Self::V1(conf) => setup_cgroup_conf(conf),
+            Self::V2(conf) => setup_cgroup_conf(conf),
         }
     }
 }

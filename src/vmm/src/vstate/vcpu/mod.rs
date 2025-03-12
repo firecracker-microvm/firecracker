@@ -675,8 +675,8 @@ impl fmt::Debug for VcpuResponse {
             Resumed => write!(f, "VcpuResponse::Resumed"),
             Exited(code) => write!(f, "VcpuResponse::Exited({:?})", code),
             SavedState(_) => write!(f, "VcpuResponse::SavedState"),
-            Error(ref err) => write!(f, "VcpuResponse::Error({:?})", err),
-            NotAllowed(ref reason) => write!(f, "VcpuResponse::NotAllowed({})", reason),
+            Error(err) => write!(f, "VcpuResponse::Error({:?})", err),
+            NotAllowed(reason) => write!(f, "VcpuResponse::NotAllowed({})", reason),
             DumpedCpuConfig(_) => write!(f, "VcpuResponse::DumpedCpuConfig"),
         }
     }
@@ -920,7 +920,7 @@ pub(crate) mod tests {
                 (NotAllowed(_), NotAllowed(_))
                 | (SavedState(_), SavedState(_))
                 | (DumpedCpuConfig(_), DumpedCpuConfig(_)) => true,
-                (Error(ref err), Error(ref other_err)) => {
+                (Error(err), Error(other_err)) => {
                     format!("{:?}", err) == format!("{:?}", other_err)
                 }
                 _ => false,

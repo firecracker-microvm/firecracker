@@ -223,7 +223,7 @@ pub mod tests {
     }
 
     fn assert_async_execution(mem: &GuestMemoryMmap, engine: &mut FileEngine<()>, count: u32) {
-        if let FileEngine::Async(ref mut engine) = engine {
+        if let FileEngine::Async(engine) = engine {
             engine.drain(false).unwrap();
             assert_eq!(engine.pop(mem).unwrap().unwrap().result().unwrap(), count);
         }
