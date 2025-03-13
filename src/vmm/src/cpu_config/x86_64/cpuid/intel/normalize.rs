@@ -398,22 +398,21 @@ mod tests {
 
     #[test]
     fn test_update_extended_feature_flags_entry() {
-        let mut cpuid =
-            crate::cpu_config::x86_64::cpuid::IntelCpuid(std::collections::BTreeMap::from([(
-                crate::cpu_config::x86_64::cpuid::CpuidKey {
-                    leaf: 0x7,
-                    subleaf: 0,
-                },
-                crate::cpu_config::x86_64::cpuid::CpuidEntry {
-                    flags: crate::cpu_config::x86_64::cpuid::KvmCpuidFlags::SIGNIFICANT_INDEX,
-                    ..Default::default()
-                },
-            )]));
+        let mut cpuid = IntelCpuid(BTreeMap::from([(
+            CpuidKey {
+                leaf: 0x7,
+                subleaf: 0,
+            },
+            CpuidEntry {
+                flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
+                ..Default::default()
+            },
+        )]));
 
         cpuid.update_extended_feature_flags_entry().unwrap();
 
         let leaf_7_0 = cpuid
-            .get(&crate::cpu_config::x86_64::cpuid::CpuidKey {
+            .get(&CpuidKey {
                 leaf: 0x7,
                 subleaf: 0,
             })
