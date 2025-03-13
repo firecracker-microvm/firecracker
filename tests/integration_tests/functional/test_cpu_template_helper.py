@@ -188,6 +188,9 @@ MSR_EXCEPTION_LIST = [
     0x48,
     # MSR_IA32_SMBASE is not accessible outside of System Management Mode.
     0x9E,
+    # MSR_IA32_UMWAIT_CONTROL is R/W MSR that guest OS modifies after boot to
+    # control UMWAIT feature.
+    0xE1,
     # MSR_IA32_TSX_CTRL is R/W MSR to disable Intel TSX feature as a mitigation
     # against TAA vulnerability.
     0x122,
