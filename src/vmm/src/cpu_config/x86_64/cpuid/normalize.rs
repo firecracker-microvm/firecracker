@@ -237,20 +237,17 @@ impl super::Cpuid {
             .get_mut(&CpuidKey::leaf(0x1))
             .ok_or(FeatureInformationError::MissingLeaf1)?;
 
-        // CLFLUSH line size (Value ∗ 8 = cache line size in bytes; used also by CLFLUSHOPT).
-        //
-        // clflush: 8..16,
+        // CPUID.01H:EBX[15:08]
+        // CLFLUSH line size (Value * 8 = cache line size in bytes; used also by CLFLUSHOPT).
         set_range(&mut leaf_1.result.ebx, 8..16, EBX_CLFLUSH_CACHELINE)
             .map_err(FeatureInformationError::Clflush)?;
 
+        // CPUID.01H:EBX[23:16]
         // Maximum number of addressable IDs for logical processors in this physical package.
         //
         // The nearest power-of-2 integer that is not smaller than EBX[23:16] is the number of
-        // unique initial APIC IDs reserved for addressing different logical
-        // processors in a physical package. This field is only valid if
-        // CPUID.1.EDX.HTT[bit 28]= 1.
-        //
-        // max_addressable_logical_processor_ids: 16..24,
+        // unique initial APIC IDs reserved for addressing different logical processors in a
+        // physical package. This field is only valid if CPUID.1.EDX.HTT[bit 28]= 1.
         let max_cpus_per_package = u32::from(
             get_max_cpus_per_package(cpu_count)
                 .map_err(FeatureInformationError::GetMaxCpusPerPackage)?,
@@ -258,41 +255,33 @@ impl super::Cpuid {
         set_range(&mut leaf_1.result.ebx, 16..24, max_cpus_per_package)
             .map_err(FeatureInformationError::SetMaxCpusPerPackage)?;
 
+        // CPUID.01H:EBX[31:24]
         // Initial APIC ID.
         //
-        // The 8-bit initial APIC ID in EBX[31:24] is replaced by the 32-bit x2APIC ID,
-        // available in Leaf 0BH and Leaf 1FH.
-        //
-        // initial_apic_id: 24..32,
+        // The 8-bit initial APIC ID in EBX[31:24] is replaced by the 32-bit x2APIC ID, available
+        // in Leaf 0BH and Leaf 1FH.
         set_range(&mut leaf_1.result.ebx, 24..32, u32::from(cpu_index))
             .map_err(FeatureInformationError::InitialApicId)?;
 
-        // A value of 1 indicates the processor supports the performance and debug feature
-        // indication MSR IA32_PERF_CAPABILITIES.
-        //
-        // pdcm: 15,
+        // CPUID.01H:ECX[15] (Mnemonic: PDCM)
+        // Performance and Debug Capability: A value of 1 indicates the processor supports the
+        // performance and debug feature indication MSR IA32_PERF_CAPABILITIES.
         set_bit(&mut leaf_1.result.ecx, ECX_PDCM_BITINDEX, false);
 
-        // A value of 1 indicates that the processor’s local APIC timer supports one-shot
-        // operation using a TSC deadline value.
-        //
-        // tsc_deadline: 24,
+        // CPUID.01H:ECX[24] (Mnemonic: TSC-Deadline)
+        // A value of 1 indicates that the processor’s local APIC timer supports one-shot operation
+        // using a TSC deadline value.
         set_bit(&mut leaf_1.result.ecx, ECX_TSC_DEADLINE_BITINDEX, true);
 
-        // Hypervisor bit
+        // CPUID.01H:ECX[31] (Mnemonic: Hypervisor)
         set_bit(&mut leaf_1.result.ecx, ECX_HYPERVISOR_BITINDEX, true);
 
+        // CPUID.01H:EDX[28] (Mnemonic: HTT)
         // Max APIC IDs reserved field is Valid. A value of 0 for HTT indicates there is only a
-        // single logical processor in the package and software should assume only a
-        // single APIC ID is reserved. A value of 1 for HTT indicates the value in
-        // CPUID.1.EBX[23:16] (the Maximum number of addressable IDs for logical
-        // processors in this package) is valid for the package.
-        //
-        // htt: 28,
-
-        // A value of 1 for HTT indicates the value in CPUID.1.EBX[23:16]
-        // (the Maximum number of addressable IDs for logical processors in this package)
-        // is valid for the package
+        // single logical processor in the package and software should assume only a single APIC ID
+        // is reserved. A value of 1 for HTT indicates the value in CPUID.1.EBX[23:16] (the Maximum
+        // number of addressable IDs for logical processors in this package) is valid for the
+        // package.
         set_bit(&mut leaf_1.result.edx, 28, cpu_count > 1);
 
         Ok(())
@@ -316,7 +305,7 @@ impl super::Cpuid {
         const LEAFBH_INDEX1_APICID: u32 = 7;
 
         // The following commit changed the behavior of KVM_GET_SUPPORTED_CPUID to no longer
-        // include leaf 0xB / sub-leaf 1.
+        // include CPUID.(EAX=0BH,ECX=1).
         // https://lore.kernel.org/all/20221027092036.2698180-1-pbonzini@redhat.com/
         self.inner_mut()
             .entry(CpuidKey::subleaf(0xB, 0x1))
@@ -336,8 +325,8 @@ impl super::Cpuid {
                 subleaf.result.eax = 0;
                 subleaf.result.ebx = 0;
                 subleaf.result.ecx = 0;
-                // EDX bits 31..0 contain x2APIC ID of current logical processor
-                // x2APIC increases the size of the APIC ID from 8 bits to 32 bits
+                // CPUID.(EAX=0BH,ECX=N).EDX[31:0]
+                // x2APIC ID of the current logical processor.
                 subleaf.result.edx = u32::from(cpu_index);
                 subleaf.flags = KvmCpuidFlags::SIGNIFICANT_INDEX;
 
@@ -347,15 +336,15 @@ impl super::Cpuid {
                 // reported at level type = 2." (Intel® 64 Architecture x2APIC
                 // Specification, Ch. 2.8)
                 match index {
+                    // CPUID.(EAX=0BH,ECX=N):EAX[4:0]
                     // Number of bits to shift right on x2APIC ID to get a unique topology ID of the
                     // next level type*. All logical processors with the same
                     // next level ID share current level.
                     //
                     // *Software should use this field (EAX[4:0]) to enumerate processor topology of
                     // the system.
-                    //
-                    // bit_shifts_right_2x_apic_id_unique_topology_id: 0..5
 
+                    // CPUID.(EAX=0BH,ECX=N):EBX[15:0]
                     // Number of logical processors at this level type. The number reflects
                     // configuration as shipped by Intel**.
                     //
@@ -365,13 +354,11 @@ impl super::Cpuid {
                     // number of  logical processors available to BIOS/OS/Applications may be
                     // different from the value of  EBX[15:0], depending on
                     // software and platform hardware configurations.
-                    //
-                    // logical_processors: 0..16
 
+                    // CPUID.(EAX=0BH,ECX=N):ECX[7:0]
                     // Level number. Same value in ECX input.
-                    //
-                    // level_number: 0..8,
 
+                    // CPUID.(EAX=0BH,ECX=N):ECX[15:8]
                     // Level type***
                     //
                     // If an input value n in ECX returns the invalid level-type of 0 in ECX[15:8],
@@ -384,8 +371,6 @@ impl super::Cpuid {
                     // - 1: SMT.
                     // - 2: Core.
                     // - 3-255: Reserved.
-                    //
-                    // level_type: 8..16
 
                     // Thread Level Topology; index = 0
                     0 => {
