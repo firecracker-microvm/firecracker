@@ -99,7 +99,7 @@ impl super::IntelCpuid {
 
                 // CPUID.04H:EAX[7:5]
                 // Cache Level (Starts at 1)
-                let cache_level = get_range(subleaf.result.eax, 5..8);
+                let cache_level = get_range(subleaf.result.eax, 5..=7);
 
                 // CPUID.04H:EAX[25:14]
                 // Maximum number of addressable IDs for logical processors sharing this cache.
@@ -116,7 +116,7 @@ impl super::IntelCpuid {
                     // The L1 & L2 cache is shared by at most 2 hyperthreads
                     1 | 2 => {
                         let sub = u32::from(cpus_per_core.checked_sub(1).unwrap());
-                        set_range(&mut subleaf.result.eax, 14..26, sub)
+                        set_range(&mut subleaf.result.eax, 14..=25, sub)
                             .map_err(DeterministicCacheError::MaxCpusPerCore)?;
                     }
                     // L3 Cache
@@ -127,7 +127,7 @@ impl super::IntelCpuid {
                                 .checked_sub(1)
                                 .ok_or(DeterministicCacheError::MaxCpusPerCoreUnderflow)?,
                         );
-                        set_range(&mut subleaf.result.eax, 14..26, sub)
+                        set_range(&mut subleaf.result.eax, 14..=25, sub)
                             .map_err(DeterministicCacheError::MaxCpusPerCore)?;
                     }
                     _ => (),
@@ -150,7 +150,7 @@ impl super::IntelCpuid {
                 let sub = u32::from(cores)
                     .checked_sub(1)
                     .ok_or(DeterministicCacheError::MaxCorePerPackageUnderflow)?;
-                set_range(&mut subleaf.result.eax, 26..32, sub)
+                set_range(&mut subleaf.result.eax, 26..=31, sub)
                     .map_err(DeterministicCacheError::MaxCorePerPackage)?;
             } else {
                 break;
