@@ -317,47 +317,37 @@ impl super::Cpuid {
                 subleaf.result.edx = u32::from(cpu_index);
                 subleaf.flags = KvmCpuidFlags::SIGNIFICANT_INDEX;
 
-                // "If SMT is not present in a processor implementation but CPUID leaf 0BH is
-                // supported, CPUID.EAX=0BH, ECX=0 will return EAX = 0, EBX = 1 and
-                // level type = 1. Number of logical processors at the core level is
-                // reported at level type = 2." (Intel® 64 Architecture x2APIC
-                // Specification, Ch. 2.8)
                 match index {
                     // CPUID.(EAX=0BH,ECX=N):EAX[4:0]
-                    // Number of bits to shift right on x2APIC ID to get a unique topology ID of the
-                    // next level type*. All logical processors with the same
-                    // next level ID share current level.
-                    //
-                    // *Software should use this field (EAX[4:0]) to enumerate processor topology of
-                    // the system.
+                    // The number of bits that the x2APIC ID must be shifted to the right to address
+                    // instances of the next higher-scoped domain. When logical processor is not
+                    // supported by the processor, the value of this field at the Logical Processor
+                    // domain sub-leaf may be returned as either 0 (no allocated bits in the x2APIC
+                    // ID) or 1 (one allocated bit in the x2APIC ID); software should plan
+                    // accordingly.
 
                     // CPUID.(EAX=0BH,ECX=N):EBX[15:0]
-                    // Number of logical processors at this level type. The number reflects
-                    // configuration as shipped by Intel**.
-                    //
-                    // **Software must not use EBX[15:0] to enumerate processor topology of the
-                    // system. This value in this field (EBX[15:0]) is only
-                    // intended for display/diagnostic purposes. The actual
-                    // number of  logical processors available to BIOS/OS/Applications may be
-                    // different from the value of  EBX[15:0], depending on
-                    // software and platform hardware configurations.
+                    // The number of logical processors across all instances of this domain within
+                    // the next-higher scoped domain. (For example, in a processor socket/package
+                    // comprising "M" dies of "N" cores each, where each core has "L" logical
+                    // processors, the "die" domain sub-leaf value of this field would be M*N*L.)
+                    // This number reflects configuration as shipped by Intel. Note, software must
+                    // not use this field to enumerate processor topology.
 
                     // CPUID.(EAX=0BH,ECX=N):ECX[7:0]
-                    // Level number. Same value in ECX input.
+                    // The input ECX sub-leaf index.
 
                     // CPUID.(EAX=0BH,ECX=N):ECX[15:8]
-                    // Level type***
+                    // Domain Type. This field provides an identification value which indicates the
+                    // domain as shown below. Although domains are ordered, their assigned
+                    // identification values are not and software should not depend on it.
                     //
-                    // If an input value n in ECX returns the invalid level-type of 0 in ECX[15:8],
-                    // other input values with ECX>n also return 0 in ECX[15:8].
+                    // Hierarchy    Domain              Domain Type Identification Value
+                    // -----------------------------------------------------------------
+                    // Lowest       Logical Processor   1
+                    // Highest      Core                2
                     //
-                    // ***The value of the “level type” field is not related to level numbers in any
-                    // way, higher “level type” values do not mean higher
-                    // levels. Level type field has the following encoding:
-                    // - 0: Invalid.
-                    // - 1: SMT.
-                    // - 2: Core.
-                    // - 3-255: Reserved.
+                    // (Note that enumeration values of 0 and 3-255 are reserved.)
 
                     // Thread Level Topology; index = 0
                     0 => {
