@@ -70,6 +70,8 @@ pub enum ExtendedTopologyError {
     InputEcx(CheckedAssignError),
     /// Failed to set all leaves, as more than `u32::MAX` sub-leaves are present: {0}
     Overflow(<u32 as TryFrom<usize>>::Error),
+    /// Unexpected subleaf: {0}
+    UnexpectedSubleaf(u32)
 }
 
 /// Error type for setting leaf 0x80000006 of Cpuid::normalize().
@@ -382,9 +384,11 @@ impl super::Cpuid {
                             .map_err(ExtendedTopologyError::DomainType)?;
                     }
                     _ => {
-                        // We expect here as this is an extremely rare case that is unlikely to ever
-                        // occur.
-                        subleaf.result.ecx = index;
+                        // KVM no longer returns any subleaf numbers greater than 0. The patch was
+                        // merged in v6.2 and backported to v5.10. Subleaves >= 2 should not be
+                        // included.
+                        // https://github.com/torvalds/linux/commit/45e966fcca03ecdcccac7cb236e16eea38cc18af
+                        return Err(ExtendedTopologyError::UnexpectedSubleaf(index));
                     }
                 }
             } else {
