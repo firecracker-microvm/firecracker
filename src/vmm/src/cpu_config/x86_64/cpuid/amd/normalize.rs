@@ -153,6 +153,7 @@ impl super::AmdCpuid {
                 // On non-AMD hosts this condition may never be true thus this loop may be
                 // indefinite.
 
+                // CPUID Fn8000_0001D_EAX_x[4:0] (Field Name: CacheType)
                 // Cache type. Identifies the type of cache.
                 // ```text
                 // Bits Description
@@ -162,8 +163,6 @@ impl super::AmdCpuid {
                 // 03h Unified cache
                 // 1Fh-04h Reserved.
                 // ```
-                //
-                // cache_type: 0..4,
                 let cache_type = result.eax & 15;
                 if cache_type == 0 {
                     break;
@@ -186,10 +185,9 @@ impl super::AmdCpuid {
         let leaf_80000001 = self
             .get_mut(&CpuidKey::leaf(0x80000001))
             .ok_or(NormalizeCpuidError::MissingLeaf0x80000001)?;
+        // CPUID Fn8000_0001_ECX[22] (Field Name: TopologyExtensions)
         // Topology extensions support. Indicates support for CPUID Fn8000_001D_EAX_x[N:0]-CPUID
         // Fn8000_001E_EDX.
-        //
-        // topology_extensions: 22,
         set_bit(&mut leaf_80000001.result.ecx, 22, true);
         Ok(())
     }
@@ -220,6 +218,7 @@ impl super::AmdCpuid {
             .get_mut(&CpuidKey::leaf(0x80000008))
             .ok_or(FeatureEntryError::MissingLeaf0x80000008)?;
 
+        // CPUID Fn8000_0008_ECX[15:12] (Field Name: ApicIdSize)
         // APIC ID size. The number of bits in the initial APIC20[ApicId] value that indicate
         // logical processor ID within a package. The size of this field determines the
         // maximum number of logical processors (MNLP) that the package could
@@ -228,15 +227,11 @@ impl super::AmdCpuid {
         // Fn8000_0008_ECX[NC]. A value of zero indicates that legacy methods must be
         // used to determine the maximum number of logical processors, as indicated by
         // CPUID Fn8000_0008_ECX[NC].
-        //
-        // apic_id_size: 12..16,
         set_range(&mut leaf_80000008.result.ecx, 12..16, THREAD_ID_MAX_SIZE).unwrap();
 
+        // CPUID Fn8000_0008_ECX[7:0] (Field Name: NC)
         // Number of physical threads - 1. The number of threads in the processor is NT+1
         // (e.g., if NT = 0, then there is one thread). See “Legacy Method” on page 633.
-        //
-        // nt: 0..8,
-        //
         let sub = cpu_count
             .checked_sub(1)
             .ok_or(FeatureEntryError::NumberOfPhysicalThreadsOverflow)?;
@@ -255,6 +250,7 @@ impl super::AmdCpuid {
     ) -> Result<(), ExtendedCacheTopologyError> {
         for i in 0.. {
             if let Some(subleaf) = self.get_mut(&CpuidKey::subleaf(0x8000001d, i)) {
+                // CPUID Fn8000_001D_EAX_x[7:5] (Field Name: CacheLevel)
                 // Cache level. Identifies the level of this cache. Note that the enumeration value
                 // is not necessarily equal to the cache level.
                 // ```text
@@ -265,10 +261,9 @@ impl super::AmdCpuid {
                 // 011b Level 3
                 // 111b-100b Reserved.
                 // ```
-                //
-                // cache_level: 5..8
                 let cache_level = get_range(subleaf.result.eax, 5..8);
 
+                // CPUID Fn8000_001D_EAX_x[25:14] (Field Name: NumSharingCache)
                 // Specifies the number of logical processors sharing the cache enumerated by N,
                 // the value passed to the instruction in ECX. The number of logical processors
                 // sharing this cache is the value of this field incremented by 1. To determine
@@ -279,8 +274,6 @@ impl super::AmdCpuid {
                 //
                 // Logical processors with the same ShareId then share a cache. If
                 // NumSharingCache+1 is not a power of two, round it up to the next power of two.
-                //
-                // num_sharing_cache: 14..26,
 
                 match cache_level {
                     // L1 & L2 Cache
@@ -334,16 +327,18 @@ impl super::AmdCpuid {
             .get_mut(&CpuidKey::leaf(0x8000001e))
             .ok_or(ExtendedApicIdError::MissingLeaf0x8000001e)?;
 
+        // CPUID Fn8000_001E_EAX[31:0] (Field Name: ExtendedApicId)
         // Extended APIC ID. If MSR0000_001B[ApicEn] = 0, this field is reserved.
-        //
-        // extended_apic_id: 0..32,
         set_range(&mut leaf_8000001e.result.eax, 0..32, u32::from(cpu_index))
             .map_err(ExtendedApicIdError::ExtendedApicId)?;
 
-        // compute_unit_id: 0..8,
+        // CPUID Fn8000_001E_EBX[7:0] (Field Name: ComputeUnitId)
+        // Compute unit ID. Identifies a Compute Unit, which may be one or more physical cores that
+        // each implement one or more logical processors.
         set_range(&mut leaf_8000001e.result.ebx, 0..8, core_id)
             .map_err(ExtendedApicIdError::ComputeUnitId)?;
 
+        // CPUID Fn8000_001E_EBX[15:8] (Field Name: ThreadsPerComputeUnit)
         // Threads per compute unit (zero-based count). The actual number of threads
         // per compute unit is the value of this field + 1. To determine which logical
         // processors (threads) belong to a given Compute Unit, determine a ShareId
@@ -355,27 +350,23 @@ impl super::AmdCpuid {
         // Unit. (If ThreadsPerComputeUnit+1 is not a power of two, round it up to the
         // next power of two).
         //
-        // threads_per_compute_unit: 8..16,
-        //
         // SAFETY: We know `cpus_per_core > 0` therefore this is always safe.
         let sub = u32::from(cpus_per_core.checked_sub(1).unwrap());
         set_range(&mut leaf_8000001e.result.ebx, 8..16, sub)
             .map_err(ExtendedApicIdError::ThreadPerComputeUnit)?;
 
+        // CPUID Fn8000_001E_ECX[10:8] (Field Name: NodesPerProcessor)
         // Specifies the number of nodes in the package/socket in which this logical
         // processor resides. Node in this context corresponds to a processor die.
         // Encoding is N-1, where N is the number of nodes present in the socket.
-        //
-        // nodes_per_processor: 8..11,
         //
         // SAFETY: We know the value always fits within the range and thus is always safe.
         // Set nodes per processor.
         set_range(&mut leaf_8000001e.result.ecx, 8..11, NODES_PER_PROCESSOR).unwrap();
 
+        // CPUID Fn8000_001E_ECX[7:0] (Field Name: NodeId)
         // Specifies the ID of the node containing the current logical processor. NodeId
         // values are unique across the system.
-        //
-        // node_id: 0..8,
         //
         // Put all the cpus in the same node.
         set_range(&mut leaf_8000001e.result.ecx, 0..8, 0).unwrap();
