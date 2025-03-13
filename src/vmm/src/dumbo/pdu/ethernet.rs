@@ -255,16 +255,6 @@ mod kani_proofs {
         }
     }
 
-    mod stubs {
-        // The current implementation of read_be_u16 function leads to a significant
-        // performance degradation given a necessary loop unrolling. Using this stub,
-        // we read the same information from the buffer while avoiding the loop, thus,
-        // notably improving performance.
-        pub fn read_be_u16(input: &[u8]) -> u16 {
-            u16::from_be_bytes([input[0], input[1]])
-        }
-    }
-
     // We consider the MMDS Network Stack spec for all postconditions in the harnesses.
     // See https://github.com/firecracker-microvm/firecracker/blob/main/docs/mmds/mmds-design.md#mmds-network-stack
 
@@ -519,7 +509,6 @@ mod kani_proofs {
 
     #[kani::proof]
     #[kani::solver(cadical)]
-    #[kani::stub(crate::utils::byte_order::read_be_u16, stubs::read_be_u16)]
     fn verify_with_payload_len_unchecked() {
         // Create non-deterministic stream of bytes up to MAX_FRAME_SIZE
         let mut bytes: [u8; MAX_FRAME_SIZE] = kani::Arbitrary::any_array::<MAX_FRAME_SIZE>();
