@@ -4,6 +4,7 @@
 use crate::cpu_config::x86_64::cpuid::{
     CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags, cpuid,
 };
+use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
 
 /// Error type for [`super::Cpuid::normalize`].
 #[allow(clippy::module_name_repetitions)]
@@ -284,11 +285,6 @@ impl super::Cpuid {
         cpu_bits: u8,
         cpus_per_core: u8,
     ) -> Result<(), ExtendedTopologyError> {
-        /// The APIC ID shift in leaf 0xBh specifies the number of bits to shit the x2APIC ID to
-        /// get a unique topology of the next level. This allows 128 logical
-        /// processors/package.
-        const LEAFBH_INDEX1_APICID: u32 = 7;
-
         // The following commit changed the behavior of KVM_GET_SUPPORTED_CPUID to no longer
         // include CPUID.(EAX=0BH,ECX=1).
         // https://lore.kernel.org/all/20221027092036.2698180-1-pbonzini@redhat.com/
@@ -367,11 +363,17 @@ impl super::Cpuid {
                     }
                     // Core domain
                     1 => {
-                        set_range(&mut subleaf.result.eax, 0..5, LEAFBH_INDEX1_APICID)
-                            .map_err(ExtendedTopologyError::ApicId)?;
-
                         // Configure such that the next higher-scoped domain (i.e. socket) include
                         // all logical processors.
+                        //
+                        // The CPUID.(EAX=0BH,ECX=1).EAX[4:0] value must be an integer N such that
+                        // 2^N is greater than or equal to the maximum number of vCPUs.
+                        set_range(
+                            &mut subleaf.result.eax,
+                            0..5,
+                            MAX_SUPPORTED_VCPUS.next_power_of_two().ilog2(),
+                        )
+                        .map_err(ExtendedTopologyError::ApicId)?;
                         set_range(&mut subleaf.result.ebx, 0..16, u32::from(cpu_count))
                             .map_err(ExtendedTopologyError::LogicalProcessors)?;
 
