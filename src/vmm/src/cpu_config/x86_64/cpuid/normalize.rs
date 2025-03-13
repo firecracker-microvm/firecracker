@@ -61,16 +61,14 @@ pub enum GetMaxCpusPerPackageError {
 #[rustfmt::skip]
 #[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
 pub enum ExtendedTopologyError {
-    /// Failed to set `Number of bits to shift right on x2APIC ID to get a unique topology ID of the next level type`: {0}
-    ApicId(CheckedAssignError),
-    /// Failed to set `Number of logical processors at this level type`: {0}
-    LogicalProcessors(CheckedAssignError),
-    /// Failed to set `Domain Type`: {0}
-    DomainType(CheckedAssignError),
-    /// Failed to set `Input ECX`: {0}
-    InputEcx(CheckedAssignError),
-    /// Failed to set all leaves, as more than `u32::MAX` sub-leaves are present: {0}
-    Overflow(<u32 as TryFrom<usize>>::Error),
+    /// Failed to set domain type (CPUID.(EAX=0xB,ECX={0}):ECX[15:8]): {1}
+    DomainType(u32, CheckedAssignError),
+    /// Failed to set input ECX (CPUID.(EAX=0xB,ECX={0}):ECX[7:0]): {1}
+    InputEcx(u32, CheckedAssignError),
+    /// Failed to set number of logical processors (CPUID.(EAX=0xB,ECX={0}):EBX[15:0]): {1}
+    NumLogicalProcs(u32, CheckedAssignError),
+    /// Failed to set right-shift bits (CPUID.(EAX=0xB,ECX={0}):EAX[4:0]): {1}
+    RightShiftBits(u32, CheckedAssignError),
     /// Unexpected subleaf: {0}
     UnexpectedSubleaf(u32)
 }
@@ -348,18 +346,18 @@ impl super::Cpuid {
                         // To get the next level APIC ID, shift right with at most 1 because we have
                         // maximum 2 logical procerssors per core that can be represented by 1 bit.
                         set_range(&mut subleaf.result.eax, 0..5, u32::from(cpu_bits))
-                            .map_err(ExtendedTopologyError::ApicId)?;
+                            .map_err(|err| ExtendedTopologyError::RightShiftBits(index, err))?;
 
                         // When cpu_count == 1 or HT is disabled, there is 1 logical core at this
                         // domain; otherwise there are 2
                         set_range(&mut subleaf.result.ebx, 0..16, u32::from(cpus_per_core))
-                            .map_err(ExtendedTopologyError::LogicalProcessors)?;
+                            .map_err(|err| ExtendedTopologyError::NumLogicalProcs(index, err))?;
 
                         // Skip setting 0 to ECX[7:0] since it's already reset to 0.
 
                         // Set the domain type identification value for logical processor,
                         set_range(&mut subleaf.result.ecx, 8..16, 1)
-                            .map_err(ExtendedTopologyError::DomainType)?;
+                            .map_err(|err| ExtendedTopologyError::DomainType(index, err))?;
                     }
                     // Core domain
                     1 => {
@@ -373,17 +371,17 @@ impl super::Cpuid {
                             0..5,
                             MAX_SUPPORTED_VCPUS.next_power_of_two().ilog2(),
                         )
-                        .map_err(ExtendedTopologyError::ApicId)?;
+                        .map_err(|err| ExtendedTopologyError::RightShiftBits(index, err))?;
                         set_range(&mut subleaf.result.ebx, 0..16, u32::from(cpu_count))
-                            .map_err(ExtendedTopologyError::LogicalProcessors)?;
+                            .map_err(|err| ExtendedTopologyError::NumLogicalProcs(index, err))?;
 
                         // Setting the input ECX value (i.e. `index`)
                         set_range(&mut subleaf.result.ecx, 0..8, index)
-                            .map_err(ExtendedTopologyError::InputEcx)?;
+                            .map_err(|err| ExtendedTopologyError::InputEcx(index, err))?;
 
                         // Set the domain type identification value for core.
                         set_range(&mut subleaf.result.ecx, 8..16, 2)
-                            .map_err(ExtendedTopologyError::DomainType)?;
+                            .map_err(|err| ExtendedTopologyError::DomainType(index, err))?;
                     }
                     _ => {
                         // KVM no longer returns any subleaf numbers greater than 0. The patch was

@@ -34,14 +34,14 @@ pub enum NormalizeCpuidError {
 #[allow(clippy::enum_variant_names)]
 #[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
 pub enum DeterministicCacheError {
-    /// Failed to set `Maximum number of addressable IDs for logical processors sharing this cache` due to underflow in cpu count.
-    MaxCpusPerCoreUnderflow,
-    /// Failed to set `Maximum number of addressable IDs for logical processors sharing this cache`: {0}.
-    MaxCpusPerCore(CheckedAssignError),
-    /// Failed to set `Maximum number of addressable IDs for processor cores in the physical package` due to underflow in cores.
-    MaxCorePerPackageUnderflow,
-    /// Failed to set `Maximum number of addressable IDs for processor cores in the physical package`: {0}.
+    /// Failed to set max addressable core ID in physical package (CPUID.04H:EAX[31:26]): {0}.
     MaxCorePerPackage(CheckedAssignError),
+    /// Failed to set max addressable core ID in physical package (CPUID.04H:EAX[31:26]) due to underflow in cores.
+    MaxCorePerPackageUnderflow,
+    /// Failed to set max addressable processor ID sharing cache (CPUID.04H:EAX[25:14]): {0}.
+    MaxCpusPerCore(CheckedAssignError),
+    /// Failed to set max addressable processor ID sharing cache (CPUID.04H:EAX[25:14]) due to underflow in cpu count.
+    MaxCpusPerCoreUnderflow,
 }
 
 /// We always use this brand string.
