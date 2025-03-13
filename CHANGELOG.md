@@ -21,6 +21,11 @@ and this project adheres to
 
 ### Fixed
 
+- #\[[5074](https://github.com/firecracker-microvm/firecracker/pull/5074)\] Fix
+  the `SendCtrlAltDel` command not working for ACPI-enabled guest kernels, by
+  dropping the i8042.nopnp argument from the default kernel command line
+  Firecracker constructs.
+
 ## [1.11.0]
 
 ### Added
