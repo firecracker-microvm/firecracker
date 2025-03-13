@@ -767,24 +767,14 @@ def test_send_ctrl_alt_del(uvm_plain_any):
     test_microvm.spawn()
 
     test_microvm.basic_config()
+    test_microvm.add_net_iface()
     test_microvm.start()
-
-    # Wait around for the guest to boot up and initialize the user space
-    time.sleep(2)
 
     test_microvm.api.actions.put(action_type="SendCtrlAltDel")
 
-    firecracker_pid = test_microvm.firecracker_pid
-
     # If everything goes as expected, the guest OS will issue a reboot,
     # causing Firecracker to exit.
-    # waitpid should block until the Firecracker process has exited. If
-    # it has already exited by the time we call waitpid, WNOHANG causes
-    # waitpid to raise a ChildProcessError exception.
-    try:
-        os.waitpid(firecracker_pid, os.WNOHANG)
-    except ChildProcessError:
-        pass
+    test_microvm.mark_killed()
 
 
 def _drive_patch(test_microvm, io_engine):
