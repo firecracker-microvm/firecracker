@@ -221,26 +221,13 @@ impl super::Cpuid {
         cpu_index: u8,
         cpu_count: u8,
     ) -> Result<(), FeatureInformationError> {
-        // Flush a cache line size.
-        const EBX_CLFLUSH_CACHELINE: u32 = 8;
-
-        // PDCM: Perfmon and Debug Capability.
-        const ECX_PDCM_BITINDEX: u8 = 15;
-
-        // TSC-Deadline.
-        const ECX_TSC_DEADLINE_BITINDEX: u8 = 24;
-
-        // CPU is running on a hypervisor.
-        const ECX_HYPERVISOR_BITINDEX: u8 = 31;
-
         let leaf_1 = self
             .get_mut(&CpuidKey::leaf(0x1))
             .ok_or(FeatureInformationError::MissingLeaf1)?;
 
         // CPUID.01H:EBX[15:08]
         // CLFLUSH line size (Value * 8 = cache line size in bytes; used also by CLFLUSHOPT).
-        set_range(&mut leaf_1.result.ebx, 8..16, EBX_CLFLUSH_CACHELINE)
-            .map_err(FeatureInformationError::Clflush)?;
+        set_range(&mut leaf_1.result.ebx, 8..16, 8).map_err(FeatureInformationError::Clflush)?;
 
         // CPUID.01H:EBX[23:16]
         // Maximum number of addressable IDs for logical processors in this physical package.
@@ -266,15 +253,15 @@ impl super::Cpuid {
         // CPUID.01H:ECX[15] (Mnemonic: PDCM)
         // Performance and Debug Capability: A value of 1 indicates the processor supports the
         // performance and debug feature indication MSR IA32_PERF_CAPABILITIES.
-        set_bit(&mut leaf_1.result.ecx, ECX_PDCM_BITINDEX, false);
+        set_bit(&mut leaf_1.result.ecx, 15, false);
 
         // CPUID.01H:ECX[24] (Mnemonic: TSC-Deadline)
         // A value of 1 indicates that the processor’s local APIC timer supports one-shot operation
         // using a TSC deadline value.
-        set_bit(&mut leaf_1.result.ecx, ECX_TSC_DEADLINE_BITINDEX, true);
+        set_bit(&mut leaf_1.result.ecx, 24, true);
 
         // CPUID.01H:ECX[31] (Mnemonic: Hypervisor)
-        set_bit(&mut leaf_1.result.ecx, ECX_HYPERVISOR_BITINDEX, true);
+        set_bit(&mut leaf_1.result.ecx, 31, true);
 
         // CPUID.01H:EDX[28] (Mnemonic: HTT)
         // Max APIC IDs reserved field is Valid. A value of 0 for HTT indicates there is only a
