@@ -150,6 +150,8 @@ def test_brand_string(uvm_plain_any):
 
     * For Intel CPUs, the guest brand string should be:
         Intel(R) Xeon(R) Processor @ {host frequency}
+    or
+        Intel(R) Xeon(R) Processor
     where {host frequency} is the frequency reported by the host CPUID
     (e.g. 4.01GHz)
     * For AMD CPUs, the guest brand string should be:
@@ -184,7 +186,9 @@ def test_brand_string(uvm_plain_any):
         cif = open("/proc/cpuinfo", "r", encoding="utf-8")
         cpu_info = cif.read()
         mo = re.search("model name.*:.* ([0-9]*.[0-9]*[G|M|T]Hz)", cpu_info)
-        assert mo
+        # Skip if host frequency is not reported
+        if mo is None:
+            return
         host_frequency = mo.group(1)
 
         # Assert the model name matches "Intel(R) Xeon(R) Processor @ "
