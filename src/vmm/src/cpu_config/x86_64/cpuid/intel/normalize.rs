@@ -73,6 +73,7 @@ impl super::IntelCpuid {
         self.update_power_management_entry()?;
         self.update_extended_feature_flags_entry()?;
         self.update_performance_monitoring_entry()?;
+        self.update_extended_topology_v2_entry();
         self.update_brand_string_entry()?;
 
         Ok(())
@@ -210,6 +211,29 @@ impl super::IntelCpuid {
         Ok(())
     }
 
+    /// Update extended topology v2 entry
+    ///
+    /// CPUID leaf 1FH is a preferred superset to leaf 0xB. Intel recommends using leaf 0x1F when
+    /// available rather than leaf 0xB.
+    ///
+    /// Since we don't use any domains than ones supported in leaf 0xB, we just copy contents of
+    /// leaf 0xB to leaf 0x1F.
+    fn update_extended_topology_v2_entry(&mut self) {
+        // Skip if leaf 0x1F does not exist.
+        if self.get(&CpuidKey::leaf(0x1F)).is_none() {
+            return;
+        }
+
+        for index in 0.. {
+            if let Some(subleaf) = self.get(&CpuidKey::subleaf(0xB, index)) {
+                self.0
+                    .insert(CpuidKey::subleaf(0x1F, index), subleaf.clone());
+            } else {
+                break;
+            }
+        }
+    }
+
     fn update_brand_string_entry(&mut self) -> Result<(), NormalizeCpuidError> {
         // Get host brand string.
         let host_brand_string: [u8; BRAND_STRING_LENGTH] = host_brand_string();
@@ -331,9 +355,12 @@ mod tests {
         clippy::as_conversions
     )]
 
+    use std::collections::BTreeMap;
     use std::ffi::CStr;
 
     use super::*;
+    use crate::cpu_config::x86_64::cpuid::{CpuidEntry, IntelCpuid, KvmCpuidFlags};
+
     #[test]
     fn default_brand_string_test() {
         let brand_string = b"Intel(R) Xeon(R) Platinum 8275CL CPU @ 3.00GHz\0\0";
@@ -393,5 +420,107 @@ mod tests {
             .unwrap();
         assert!((leaf_7_0.result.ebx & (1 << 6)) > 0);
         assert!((leaf_7_0.result.ebx & (1 << 13)) > 0);
+    }
+
+    #[test]
+    fn test_update_extended_topology_v2_entry_no_leaf_0x1f() {
+        let mut cpuid = IntelCpuid(BTreeMap::from([(
+            CpuidKey {
+                leaf: 0xB,
+                subleaf: 0,
+            },
+            CpuidEntry {
+                flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
+                ..Default::default()
+            },
+        )]));
+
+        cpuid.update_extended_topology_v2_entry();
+
+        assert!(
+            cpuid
+                .get(&CpuidKey {
+                    leaf: 0x1F,
+                    subleaf: 0,
+                })
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn test_update_extended_topology_v2_entry() {
+        let mut cpuid = IntelCpuid(BTreeMap::from([
+            (
+                CpuidKey {
+                    leaf: 0xB,
+                    subleaf: 0,
+                },
+                CpuidEntry {
+                    flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
+                    result: CpuidRegisters {
+                        eax: 0x1,
+                        ebx: 0x2,
+                        ecx: 0x3,
+                        edx: 0x4,
+                    },
+                },
+            ),
+            (
+                CpuidKey {
+                    leaf: 0xB,
+                    subleaf: 1,
+                },
+                CpuidEntry {
+                    flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
+                    result: CpuidRegisters {
+                        eax: 0xa,
+                        ebx: 0xb,
+                        ecx: 0xc,
+                        edx: 0xd,
+                    },
+                },
+            ),
+            (
+                CpuidKey {
+                    leaf: 0x1F,
+                    subleaf: 0,
+                },
+                CpuidEntry {
+                    flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
+                    result: CpuidRegisters {
+                        eax: 0xFFFFFFFF,
+                        ebx: 0xFFFFFFFF,
+                        ecx: 0xFFFFFFFF,
+                        edx: 0xFFFFFFFF,
+                    },
+                },
+            ),
+        ]));
+
+        cpuid.update_extended_topology_v2_entry();
+
+        // Check leaf 0x1F, subleaf 0 is updated.
+        let leaf_1f_0 = cpuid
+            .get(&CpuidKey {
+                leaf: 0x1F,
+                subleaf: 0,
+            })
+            .unwrap();
+        assert_eq!(leaf_1f_0.result.eax, 0x1);
+        assert_eq!(leaf_1f_0.result.ebx, 0x2);
+        assert_eq!(leaf_1f_0.result.ecx, 0x3);
+        assert_eq!(leaf_1f_0.result.edx, 0x4);
+
+        // Check lefa 0x1F, subleaf 1 is inserted.
+        let leaf_1f_1 = cpuid
+            .get(&CpuidKey {
+                leaf: 0x1F,
+                subleaf: 1,
+            })
+            .unwrap();
+        assert_eq!(leaf_1f_1.result.eax, 0xa);
+        assert_eq!(leaf_1f_1.result.ebx, 0xb);
+        assert_eq!(leaf_1f_1.result.ecx, 0xc);
+        assert_eq!(leaf_1f_1.result.edx, 0xd);
     }
 }
