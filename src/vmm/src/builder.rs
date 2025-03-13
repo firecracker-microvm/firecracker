@@ -655,9 +655,8 @@ where
 {
     use self::StartMicrovmError::{InitrdLoad, InitrdRead};
 
-    let size: usize;
     // Get the image size
-    match image.seek(SeekFrom::End(0)) {
+    let size = match image.seek(SeekFrom::End(0)) {
         Err(err) => return Err(InitrdRead(err)),
         Ok(0) => {
             return Err(InitrdRead(io::Error::new(
@@ -665,7 +664,7 @@ where
                 "Initrd image seek returned a size of zero",
             )));
         }
-        Ok(s) => size = u64_to_usize(s),
+        Ok(s) => u64_to_usize(s),
     };
     // Go back to the image start
     image.seek(SeekFrom::Start(0)).map_err(InitrdRead)?;
