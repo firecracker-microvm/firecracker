@@ -229,7 +229,7 @@ impl super::AmdCpuid {
         // Fn8000_0008_ECX[NC]. A value of zero indicates that legacy methods must be
         // used to determine the maximum number of logical processors, as indicated by
         // CPUID Fn8000_0008_ECX[NC].
-        set_range(&mut leaf_80000008.result.ecx, 12..16, THREAD_ID_MAX_SIZE).unwrap();
+        set_range(&mut leaf_80000008.result.ecx, 12..=15, THREAD_ID_MAX_SIZE).unwrap();
 
         // CPUID Fn8000_0008_ECX[7:0] (Field Name: NC)
         // Number of physical threads - 1. The number of threads in the processor is NT+1
@@ -237,7 +237,7 @@ impl super::AmdCpuid {
         let sub = cpu_count
             .checked_sub(1)
             .ok_or(FeatureEntryError::NumberOfPhysicalThreadsOverflow)?;
-        set_range(&mut leaf_80000008.result.ecx, 0..8, u32::from(sub))
+        set_range(&mut leaf_80000008.result.ecx, 0..=7, u32::from(sub))
             .map_err(FeatureEntryError::NumberOfPhysicalThreads)?;
 
         Ok(())
@@ -263,7 +263,7 @@ impl super::AmdCpuid {
                 // 011b Level 3
                 // 111b-100b Reserved.
                 // ```
-                let cache_level = get_range(subleaf.result.eax, 5..8);
+                let cache_level = get_range(subleaf.result.eax, 5..=7);
 
                 // CPUID Fn8000_001D_EAX_x[25:14] (Field Name: NumSharingCache)
                 // Specifies the number of logical processors sharing the cache enumerated by N,
@@ -283,7 +283,7 @@ impl super::AmdCpuid {
                     1 | 2 => {
                         // SAFETY: We know `cpus_per_core > 0` therefore this is always safe.
                         let sub = u32::from(cpus_per_core.checked_sub(1).unwrap());
-                        set_range(&mut subleaf.result.eax, 14..26, sub)
+                        set_range(&mut subleaf.result.eax, 14..=25, sub)
                             .map_err(|err| ExtendedCacheTopologyError::NumSharingCache(i, err))?;
                     }
                     // L3 Cache
@@ -292,7 +292,7 @@ impl super::AmdCpuid {
                         let sub = cpu_count
                             .checked_sub(1)
                             .ok_or(ExtendedCacheTopologyError::NumSharingCacheOverflow(i))?;
-                        set_range(&mut subleaf.result.eax, 14..26, u32::from(sub))
+                        set_range(&mut subleaf.result.eax, 14..=25, u32::from(sub))
                             .map_err(|err| ExtendedCacheTopologyError::NumSharingCache(i, err))?;
                     }
                     _ => (),
@@ -331,13 +331,13 @@ impl super::AmdCpuid {
 
         // CPUID Fn8000_001E_EAX[31:0] (Field Name: ExtendedApicId)
         // Extended APIC ID. If MSR0000_001B[ApicEn] = 0, this field is reserved.
-        set_range(&mut leaf_8000001e.result.eax, 0..32, u32::from(cpu_index))
+        set_range(&mut leaf_8000001e.result.eax, 0..=31, u32::from(cpu_index))
             .map_err(ExtendedApicIdError::ExtendedApicId)?;
 
         // CPUID Fn8000_001E_EBX[7:0] (Field Name: ComputeUnitId)
         // Compute unit ID. Identifies a Compute Unit, which may be one or more physical cores that
         // each implement one or more logical processors.
-        set_range(&mut leaf_8000001e.result.ebx, 0..8, core_id)
+        set_range(&mut leaf_8000001e.result.ebx, 0..=7, core_id)
             .map_err(ExtendedApicIdError::ComputeUnitId)?;
 
         // CPUID Fn8000_001E_EBX[15:8] (Field Name: ThreadsPerComputeUnit)
@@ -354,7 +354,7 @@ impl super::AmdCpuid {
         //
         // SAFETY: We know `cpus_per_core > 0` therefore this is always safe.
         let sub = u32::from(cpus_per_core.checked_sub(1).unwrap());
-        set_range(&mut leaf_8000001e.result.ebx, 8..16, sub)
+        set_range(&mut leaf_8000001e.result.ebx, 8..=15, sub)
             .map_err(ExtendedApicIdError::ThreadPerComputeUnit)?;
 
         // CPUID Fn8000_001E_ECX[10:8] (Field Name: NodesPerProcessor)
@@ -364,14 +364,14 @@ impl super::AmdCpuid {
         //
         // SAFETY: We know the value always fits within the range and thus is always safe.
         // Set nodes per processor.
-        set_range(&mut leaf_8000001e.result.ecx, 8..11, NODES_PER_PROCESSOR).unwrap();
+        set_range(&mut leaf_8000001e.result.ecx, 8..=10, NODES_PER_PROCESSOR).unwrap();
 
         // CPUID Fn8000_001E_ECX[7:0] (Field Name: NodeId)
         // Specifies the ID of the node containing the current logical processor. NodeId
         // values are unique across the system.
         //
         // Put all the cpus in the same node.
-        set_range(&mut leaf_8000001e.result.ecx, 0..8, 0).unwrap();
+        set_range(&mut leaf_8000001e.result.ecx, 0..=7, 0).unwrap();
 
         Ok(())
     }

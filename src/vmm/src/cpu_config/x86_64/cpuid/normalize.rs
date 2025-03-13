@@ -95,66 +95,54 @@ pub fn set_bit(x: &mut u32, bit: u8, y: bool) {
 }
 
 /// Sets a given range to a given value.
-#[allow(clippy::arithmetic_side_effects)]
 pub fn set_range(
     x: &mut u32,
-    range: std::ops::Range<u8>,
+    range: std::ops::RangeInclusive<u8>,
     y: u32,
 ) -> Result<(), CheckedAssignError> {
-    debug_assert!(range.end >= range.start);
-    match range.end - range.start {
-        z @ 0..=31 => {
-            if y >= 2u32.pow(u32::from(z)) {
-                Err(CheckedAssignError)
-            } else {
-                let shift = y << range.start;
-                *x = shift | (*x & !mask(range));
-                Ok(())
-            }
-        }
-        32 => {
-            let shift = y << range.start;
-            *x = shift | (*x & !mask(range));
-            Ok(())
-        }
-        33.. => Err(CheckedAssignError),
+    let start = *range.start();
+    let end = *range.end();
+
+    debug_assert!(end >= start);
+    debug_assert!(end < 32);
+
+    // Ensure `y` fits within the number of bits in the specified range.
+    // Note that
+    // - 1 <= `num_bits` <= 32 from the above assertion
+    // - if `num_bits` equals to 32, `y` always fits within it since `y` is `u32`.
+    let num_bits = end - start + 1;
+    if num_bits < 32 && y >= (1u32 << num_bits) {
+        return Err(CheckedAssignError);
     }
+
+    let mask = get_mask(range);
+    *x = (*x & !mask) | (y << start);
+
+    Ok(())
 }
+
 /// Gets a given range within a given value.
-#[allow(clippy::arithmetic_side_effects)]
-pub fn get_range(x: u32, range: std::ops::Range<u8>) -> u32 {
-    debug_assert!(range.end >= range.start);
-    (x & mask(range.clone())) >> range.start
+pub fn get_range(x: u32, range: std::ops::RangeInclusive<u8>) -> u32 {
+    let start = *range.start();
+    let end = *range.end();
+
+    debug_assert!(end >= start);
+    debug_assert!(end < 32);
+
+    let mask = get_mask(range);
+    (x & mask) >> start
 }
 
 /// Returns a mask where the given range is ones.
-#[allow(
-    clippy::as_conversions,
-    clippy::arithmetic_side_effects,
-    clippy::cast_possible_truncation
-)]
-const fn mask(range: std::ops::Range<u8>) -> u32 {
-    /// Returns a value where in the binary representation all bits to the right of the x'th bit
-    /// from the left are 1.
-    #[allow(clippy::unreachable)]
-    const fn shift(x: u8) -> u32 {
-        if x == 0 {
-            0
-        } else if x < u32::BITS as u8 {
-            (1 << x) - 1
-        } else if x == u32::BITS as u8 {
-            u32::MAX
-        } else {
-            unreachable!()
-        }
+const fn get_mask(range: std::ops::RangeInclusive<u8>) -> u32 {
+    let num_bits = *range.end() - *range.start() + 1;
+    let shift = *range.start();
+
+    if num_bits == 32 {
+        u32::MAX
+    } else {
+        ((1u32 << num_bits) - 1) << shift
     }
-
-    debug_assert!(range.end >= range.start);
-    debug_assert!(range.end <= u32::BITS as u8);
-
-    let front = shift(range.start);
-    let back = shift(range.end);
-    !front & back
 }
 
 // We use this 2nd implementation so we can conveniently define functions only used within
@@ -228,7 +216,7 @@ impl super::Cpuid {
 
         // CPUID.01H:EBX[15:08]
         // CLFLUSH line size (Value * 8 = cache line size in bytes; used also by CLFLUSHOPT).
-        set_range(&mut leaf_1.result.ebx, 8..16, 8).map_err(FeatureInformationError::Clflush)?;
+        set_range(&mut leaf_1.result.ebx, 8..=15, 8).map_err(FeatureInformationError::Clflush)?;
 
         // CPUID.01H:EBX[23:16]
         // Maximum number of addressable IDs for logical processors in this physical package.
@@ -240,7 +228,7 @@ impl super::Cpuid {
             get_max_cpus_per_package(cpu_count)
                 .map_err(FeatureInformationError::GetMaxCpusPerPackage)?,
         );
-        set_range(&mut leaf_1.result.ebx, 16..24, max_cpus_per_package)
+        set_range(&mut leaf_1.result.ebx, 16..=23, max_cpus_per_package)
             .map_err(FeatureInformationError::SetMaxCpusPerPackage)?;
 
         // CPUID.01H:EBX[31:24]
@@ -248,7 +236,7 @@ impl super::Cpuid {
         //
         // The 8-bit initial APIC ID in EBX[31:24] is replaced by the 32-bit x2APIC ID, available
         // in Leaf 0BH and Leaf 1FH.
-        set_range(&mut leaf_1.result.ebx, 24..32, u32::from(cpu_index))
+        set_range(&mut leaf_1.result.ebx, 24..=31, u32::from(cpu_index))
             .map_err(FeatureInformationError::InitialApicId)?;
 
         // CPUID.01H:ECX[15] (Mnemonic: PDCM)
@@ -345,18 +333,18 @@ impl super::Cpuid {
                     0 => {
                         // To get the next level APIC ID, shift right with at most 1 because we have
                         // maximum 2 logical procerssors per core that can be represented by 1 bit.
-                        set_range(&mut subleaf.result.eax, 0..5, u32::from(cpu_bits))
+                        set_range(&mut subleaf.result.eax, 0..=4, u32::from(cpu_bits))
                             .map_err(|err| ExtendedTopologyError::RightShiftBits(index, err))?;
 
                         // When cpu_count == 1 or HT is disabled, there is 1 logical core at this
                         // domain; otherwise there are 2
-                        set_range(&mut subleaf.result.ebx, 0..16, u32::from(cpus_per_core))
+                        set_range(&mut subleaf.result.ebx, 0..=15, u32::from(cpus_per_core))
                             .map_err(|err| ExtendedTopologyError::NumLogicalProcs(index, err))?;
 
                         // Skip setting 0 to ECX[7:0] since it's already reset to 0.
 
                         // Set the domain type identification value for logical processor,
-                        set_range(&mut subleaf.result.ecx, 8..16, 1)
+                        set_range(&mut subleaf.result.ecx, 8..=15, 1)
                             .map_err(|err| ExtendedTopologyError::DomainType(index, err))?;
                     }
                     // Core domain
@@ -368,19 +356,19 @@ impl super::Cpuid {
                         // 2^N is greater than or equal to the maximum number of vCPUs.
                         set_range(
                             &mut subleaf.result.eax,
-                            0..5,
+                            0..=4,
                             MAX_SUPPORTED_VCPUS.next_power_of_two().ilog2(),
                         )
                         .map_err(|err| ExtendedTopologyError::RightShiftBits(index, err))?;
-                        set_range(&mut subleaf.result.ebx, 0..16, u32::from(cpu_count))
+                        set_range(&mut subleaf.result.ebx, 0..=15, u32::from(cpu_count))
                             .map_err(|err| ExtendedTopologyError::NumLogicalProcs(index, err))?;
 
                         // Setting the input ECX value (i.e. `index`)
-                        set_range(&mut subleaf.result.ecx, 0..8, index)
+                        set_range(&mut subleaf.result.ecx, 0..=7, index)
                             .map_err(|err| ExtendedTopologyError::InputEcx(index, err))?;
 
                         // Set the domain type identification value for core.
-                        set_range(&mut subleaf.result.ecx, 8..16, 2)
+                        set_range(&mut subleaf.result.ecx, 8..=15, 2)
                             .map_err(|err| ExtendedTopologyError::DomainType(index, err))?;
                     }
                     _ => {
