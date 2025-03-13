@@ -200,6 +200,10 @@ MSR_EXCEPTION_LIST = [
     0x174,
     0x175,
     0x176,
+    # MSR_IA32_XFD is R/W MSR for guest OS to control which XSAVE-enabled
+    # features are temporarily disabled. Guest OS disables TILEDATA by default
+    # using the MSR.
+    0x1C4,
     # MSR_IA32_TSC_DEADLINE specifies the time at which a timer interrupt
     # should occur and depends on the elapsed time.
     0x6E0,
