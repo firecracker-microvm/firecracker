@@ -133,6 +133,10 @@ UNAVAILABLE_CPUID_ON_DUMP_LIST = [
     # support it, the userspace cpuid command in ubuntu 22 reports not only
     # the subleaf 0 but also the subleaf 1.
     (0x1B, 0x1),
+    # CPUID.1Fh is a preferred superset to CPUID.0Bh. For the same reason as
+    # CPUID.Bh, the subleaf 2 should be skipped when the guest userspace cpuid
+    # enumerates it.
+    (0x1F, 0x2),
     # CPUID.20000000h is not documented in Intel SDM and AMD APM. KVM doesn't
     # report it, but the userspace cpuid command in ubuntu 22 does.
     (0x20000000, 0x0),
