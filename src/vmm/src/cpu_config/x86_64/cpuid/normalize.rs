@@ -237,6 +237,36 @@ impl super::Cpuid {
             .get_mut(&CpuidKey::leaf(0x1))
             .ok_or(FeatureInformationError::MissingLeaf1)?;
 
+        // CLFLUSH line size (Value ∗ 8 = cache line size in bytes; used also by CLFLUSHOPT).
+        //
+        // clflush: 8..16,
+        set_range(&mut leaf_1.result.ebx, 8..16, EBX_CLFLUSH_CACHELINE)
+            .map_err(FeatureInformationError::Clflush)?;
+
+        // Maximum number of addressable IDs for logical processors in this physical package.
+        //
+        // The nearest power-of-2 integer that is not smaller than EBX[23:16] is the number of
+        // unique initial APIC IDs reserved for addressing different logical
+        // processors in a physical package. This field is only valid if
+        // CPUID.1.EDX.HTT[bit 28]= 1.
+        //
+        // max_addressable_logical_processor_ids: 16..24,
+        let max_cpus_per_package = u32::from(
+            get_max_cpus_per_package(cpu_count)
+                .map_err(FeatureInformationError::GetMaxCpusPerPackage)?,
+        );
+        set_range(&mut leaf_1.result.ebx, 16..24, max_cpus_per_package)
+            .map_err(FeatureInformationError::SetMaxCpusPerPackage)?;
+
+        // Initial APIC ID.
+        //
+        // The 8-bit initial APIC ID in EBX[31:24] is replaced by the 32-bit x2APIC ID,
+        // available in Leaf 0BH and Leaf 1FH.
+        //
+        // initial_apic_id: 24..32,
+        set_range(&mut leaf_1.result.ebx, 24..32, u32::from(cpu_index))
+            .map_err(FeatureInformationError::InitialApicId)?;
+
         // A value of 1 indicates the processor supports the performance and debug feature
         // indication MSR IA32_PERF_CAPABILITIES.
         //
@@ -251,37 +281,6 @@ impl super::Cpuid {
 
         // Hypervisor bit
         set_bit(&mut leaf_1.result.ecx, ECX_HYPERVISOR_BITINDEX, true);
-
-        // Initial APIC ID.
-        //
-        // The 8-bit initial APIC ID in EBX[31:24] is replaced by the 32-bit x2APIC ID,
-        // available in Leaf 0BH and Leaf 1FH.
-        //
-        // initial_apic_id: 24..32,
-        set_range(&mut leaf_1.result.ebx, 24..32, u32::from(cpu_index))
-            .map_err(FeatureInformationError::InitialApicId)?;
-
-        // CLFLUSH line size (Value ∗ 8 = cache line size in bytes; used also by CLFLUSHOPT).
-        //
-        // clflush: 8..16,
-        set_range(&mut leaf_1.result.ebx, 8..16, EBX_CLFLUSH_CACHELINE)
-            .map_err(FeatureInformationError::Clflush)?;
-
-        let max_cpus_per_package = u32::from(
-            get_max_cpus_per_package(cpu_count)
-                .map_err(FeatureInformationError::GetMaxCpusPerPackage)?,
-        );
-
-        // Maximum number of addressable IDs for logical processors in this physical package.
-        //
-        // The nearest power-of-2 integer that is not smaller than EBX[23:16] is the number of
-        // unique initial APIC IDs reserved for addressing different logical
-        // processors in a physical package. This field is only valid if
-        // CPUID.1.EDX.HTT[bit 28]= 1.
-        //
-        // max_addressable_logical_processor_ids: 16..24,
-        set_range(&mut leaf_1.result.ebx, 16..24, max_cpus_per_package)
-            .map_err(FeatureInformationError::SetMaxCpusPerPackage)?;
 
         // Max APIC IDs reserved field is Valid. A value of 0 for HTT indicates there is only a
         // single logical processor in the package and software should assume only a
