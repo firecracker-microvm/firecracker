@@ -8,7 +8,7 @@ use std::mem::size_of;
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemory};
 use zerocopy::IntoBytes;
 
-use crate::{checksum, AcpiError, Result, Sdt, SdtHeader};
+use crate::{AcpiError, Result, Sdt, SdtHeader, checksum};
 
 /// Extended System Description Table (XSDT)
 ///

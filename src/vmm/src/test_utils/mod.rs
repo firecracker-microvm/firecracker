@@ -117,7 +117,7 @@ pub fn create_tmp_socket() -> (TempDir, String) {
         std::ptr::copy(
             tmp_socket_path.as_ptr().cast(),
             socket_addr.sun_path.as_mut_ptr(),
-            tmp_socket_path.as_bytes().len(),
+            tmp_socket_path.len(),
         );
 
         let bind = libc::bind(

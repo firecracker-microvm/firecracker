@@ -4,8 +4,8 @@
 use std::fmt;
 
 use kvm_bindings::{
-    kvm_clock_data, kvm_irqchip, kvm_pit_config, kvm_pit_state2, MsrList, KVM_CLOCK_TSC_STABLE,
-    KVM_IRQCHIP_IOAPIC, KVM_IRQCHIP_PIC_MASTER, KVM_IRQCHIP_PIC_SLAVE, KVM_PIT_SPEAKER_DUMMY,
+    KVM_CLOCK_TSC_STABLE, KVM_IRQCHIP_IOAPIC, KVM_IRQCHIP_PIC_MASTER, KVM_IRQCHIP_PIC_SLAVE,
+    KVM_PIT_SPEAKER_DUMMY, MsrList, kvm_clock_data, kvm_irqchip, kvm_pit_config, kvm_pit_state2,
 };
 use kvm_ioctls::{Cap, VmFd};
 use serde::{Deserialize, Serialize};
@@ -231,8 +231,8 @@ mod tests {
     };
 
     use crate::snapshot::Snapshot;
-    use crate::vstate::vm::tests::{setup_vm, setup_vm_with_memory};
     use crate::vstate::vm::VmState;
+    use crate::vstate::vm::tests::{setup_vm, setup_vm_with_memory};
 
     #[cfg(target_arch = "x86_64")]
     #[test]

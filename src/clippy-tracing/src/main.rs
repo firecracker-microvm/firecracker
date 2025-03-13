@@ -271,7 +271,7 @@ fn exec() -> Result<Option<(PathBuf, usize, usize)>, ExecError> {
         // The file must not be a `build.rs` file.
         let not_build_file = !entry_path.ends_with("build.rs");
         // The file must be a `.rs` file.
-        let is_rs_file = entry_path.extension().map_or(false, |ext| ext == "rs");
+        let is_rs_file = entry_path.extension().is_some_and(|ext| ext == "rs");
 
         if no_excluded_strings && not_build_file && is_rs_file {
             let file = OpenOptions::new()

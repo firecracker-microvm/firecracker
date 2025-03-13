@@ -1,7 +1,7 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use vmm::arch::aarch64::regs::{RegSize, PC, SYS_CNTPCT_EL0, SYS_CNTV_CVAL_EL0};
+use vmm::arch::aarch64::regs::{PC, RegSize, SYS_CNTPCT_EL0, SYS_CNTV_CVAL_EL0};
 use vmm::cpu_config::aarch64::custom_cpu_template::RegisterModifier;
 use vmm::cpu_config::templates::{CpuConfiguration, CustomCpuTemplate, RegisterValueFilter};
 use vmm::logger::warn;
@@ -50,7 +50,7 @@ const REG_EXCLUSION_LIST: [u64; 3] = [
 
 #[cfg(test)]
 mod tests {
-    use vmm::arch::aarch64::regs::{reg_size, Aarch64RegisterRef, Aarch64RegisterVec};
+    use vmm::arch::aarch64::regs::{Aarch64RegisterRef, Aarch64RegisterVec, reg_size};
 
     use super::*;
 

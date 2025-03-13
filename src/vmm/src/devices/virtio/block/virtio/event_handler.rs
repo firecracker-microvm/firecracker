@@ -124,7 +124,7 @@ mod tests {
     };
     use crate::devices::virtio::block::virtio::{VIRTIO_BLK_S_OK, VIRTIO_BLK_T_OUT};
     use crate::devices::virtio::queue::VIRTQ_DESC_F_NEXT;
-    use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
+    use crate::devices::virtio::test_utils::{VirtQueue, default_mem};
     use crate::vstate::memory::{Bytes, GuestAddress};
 
     #[test]

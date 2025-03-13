@@ -15,10 +15,10 @@ use std::result::Result;
 
 use bitflags::bitflags;
 
-use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
 use super::Incomplete;
-use crate::dumbo::pdu::ChecksumProto;
+use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
 use crate::dumbo::ByteBuffer;
+use crate::dumbo::pdu::ChecksumProto;
 
 const SOURCE_PORT_OFFSET: usize = 0;
 const DESTINATION_PORT_OFFSET: usize = 2;

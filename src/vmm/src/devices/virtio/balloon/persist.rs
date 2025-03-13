@@ -3,19 +3,19 @@
 
 //! Defines the structures needed for saving/restoring balloon devices.
 
-use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU32;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use timerfd::{SetTimeFlags, TimerState};
 
 use super::*;
+use crate::devices::virtio::TYPE_BALLOON;
 use crate::devices::virtio::balloon::device::{BalloonStats, ConfigSpace};
 use crate::devices::virtio::device::DeviceState;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
-use crate::devices::virtio::TYPE_BALLOON;
 use crate::snapshot::Persist;
 use crate::vstate::memory::GuestMemoryMmap;
 
@@ -181,9 +181,9 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use super::*;
+    use crate::devices::virtio::TYPE_BALLOON;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::test_utils::default_mem;
-    use crate::devices::virtio::TYPE_BALLOON;
     use crate::snapshot::Snapshot;
 
     #[test]

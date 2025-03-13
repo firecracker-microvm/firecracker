@@ -9,15 +9,15 @@ use std::convert::From;
 
 use vm_memory::GuestMemoryError;
 
-use super::{io as block_io, VirtioBlockError, SECTOR_SHIFT, SECTOR_SIZE};
+use super::{SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError, io as block_io};
 use crate::devices::virtio::block::virtio::device::DiskProperties;
 use crate::devices::virtio::block::virtio::metrics::BlockDeviceMetrics;
-pub use crate::devices::virtio::gen::virtio_blk::{
+pub use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK, VIRTIO_BLK_S_UNSUPP,
     VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT,
 };
 use crate::devices::virtio::queue::DescriptorChain;
-use crate::logger::{error, IncMetric};
+use crate::logger::{IncMetric, error};
 use crate::rate_limiter::{RateLimiter, TokenType};
 use crate::vstate::memory::{ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
@@ -421,7 +421,7 @@ mod tests {
 
     use super::*;
     use crate::devices::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
-    use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
+    use crate::devices::virtio::test_utils::{VirtQueue, default_mem};
     use crate::vstate::memory::{Address, GuestAddress, GuestMemory};
 
     const NUM_DISK_SECTORS: u64 = 1024;
@@ -736,8 +736,8 @@ mod tests {
     }
 
     #[allow(clippy::let_with_type_underscore)]
-    fn random_request_parse(
-    ) -> impl Strategy<Value = (Result<Request, VirtioBlockError>, GuestMemoryMmap, Queue)> {
+    fn random_request_parse()
+    -> impl Strategy<Value = (Result<Request, VirtioBlockError>, GuestMemoryMmap, Queue)> {
         // In this strategy we are going to generate random Requests/Errors and map them
         // to an input descriptor chain.
         //

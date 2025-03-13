@@ -3,7 +3,7 @@
 
 use std::fmt::{self};
 
-use crate::io_uring::gen::io_uring_sqe;
+use crate::io_uring::generated::io_uring_sqe;
 use crate::vstate::memory::ByteValued;
 
 // SAFETY: Struct is POD and contains no references or niches.

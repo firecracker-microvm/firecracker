@@ -8,7 +8,7 @@ use std::{env as p_env, fs, io};
 
 use env::PROC_MOUNTS;
 use utils::arg_parser::{ArgParser, Argument, UtilsArgParserError as ParsingError};
-use utils::time::{get_time_us, ClockType};
+use utils::time::{ClockType, get_time_us};
 use utils::validators;
 use vmm_sys_util::syscall::SyscallReturnCode;
 
@@ -288,7 +288,10 @@ fn clean_env_vars() {
     // the parent process so there are no leaks
     // inside the jailer environment
     for (key, _) in p_env::vars() {
-        p_env::remove_var(key);
+        // SAFETY: the function is safe to call in a single-threaded program
+        unsafe {
+            p_env::remove_var(key);
+        }
     }
 }
 
@@ -423,7 +426,10 @@ mod tests {
 
         // Set environment variables
         for env_var in env_vars.iter() {
-            env::set_var(env_var, "0");
+            // SAFETY: the function is safe to call in a single-threaded program
+            unsafe {
+                env::set_var(env_var, "0");
+            }
         }
 
         // Cleanup the environment

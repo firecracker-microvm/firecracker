@@ -5,18 +5,18 @@ use std::mem::offset_of;
 
 use gdbstub_arch::aarch64::reg::AArch64CoreRegs as CoreRegs;
 use kvm_bindings::{
-    kvm_guest_debug, kvm_regs, user_pt_regs, KVM_GUESTDBG_ENABLE, KVM_GUESTDBG_SINGLESTEP,
-    KVM_GUESTDBG_USE_HW, KVM_GUESTDBG_USE_SW_BP, KVM_REG_ARM64, KVM_REG_ARM_CORE, KVM_REG_SIZE_U64,
+    KVM_GUESTDBG_ENABLE, KVM_GUESTDBG_SINGLESTEP, KVM_GUESTDBG_USE_HW, KVM_GUESTDBG_USE_SW_BP,
+    KVM_REG_ARM_CORE, KVM_REG_ARM64, KVM_REG_SIZE_U64, kvm_guest_debug, kvm_regs, user_pt_regs,
 };
 use kvm_ioctls::VcpuFd;
 use vm_memory::{Bytes, GuestAddress};
 
+use crate::Vmm;
 use crate::arch::aarch64::regs::{
-    arm64_core_reg_id, Aarch64RegisterVec, ID_AA64MMFR0_EL1, TCR_EL1, TTBR1_EL1,
+    Aarch64RegisterVec, ID_AA64MMFR0_EL1, TCR_EL1, TTBR1_EL1, arm64_core_reg_id,
 };
 use crate::arch::aarch64::vcpu::get_registers;
 use crate::gdb::target::GdbTargetError;
-use crate::Vmm;
 
 /// Configures the number of bytes required for a software breakpoint.
 ///

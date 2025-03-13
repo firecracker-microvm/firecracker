@@ -14,13 +14,13 @@ use std::sync::{Arc, Mutex};
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use libc::EFD_NONBLOCK;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
+use linux_loader::loader::KernelLoader;
 #[cfg(target_arch = "x86_64")]
 use linux_loader::loader::elf::Elf as Loader;
 #[cfg(target_arch = "x86_64")]
 use linux_loader::loader::elf::PvhBootCapability;
 #[cfg(target_arch = "aarch64")]
 use linux_loader::loader::pe::PE as Loader;
-use linux_loader::loader::KernelLoader;
 use userfaultfd::Uffd;
 use utils::time::TimestampUs;
 use vm_memory::ReadVolatile;
@@ -46,10 +46,11 @@ use crate::device_manager::persist::{
     ACPIDeviceManagerConstructorArgs, ACPIDeviceManagerRestoreError, MMIODevManagerConstructorArgs,
 };
 use crate::device_manager::resources::ResourceAllocator;
+use crate::devices::BusDevice;
 use crate::devices::acpi::vmgenid::{VmGenId, VmGenIdError};
-use crate::devices::legacy::serial::SerialOut;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
+use crate::devices::legacy::serial::SerialOut;
 use crate::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
@@ -58,7 +59,6 @@ use crate::devices::virtio::mmio::MmioTransport;
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
-use crate::devices::BusDevice;
 #[cfg(feature = "gdb")]
 use crate::gdb;
 use crate::logger::{debug, error};
@@ -74,7 +74,7 @@ use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
 use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuError};
 use crate::vstate::vm::Vm;
-use crate::{device_manager, EventManager, Vmm, VmmError};
+use crate::{EventManager, Vmm, VmmError, device_manager};
 
 /// Errors associated with starting the instance.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -655,17 +655,16 @@ where
 {
     use self::StartMicrovmError::{InitrdLoad, InitrdRead};
 
-    let size: usize;
     // Get the image size
-    match image.seek(SeekFrom::End(0)) {
+    let size = match image.seek(SeekFrom::End(0)) {
         Err(err) => return Err(InitrdRead(err)),
         Ok(0) => {
             return Err(InitrdRead(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Initrd image seek returned a size of zero",
-            )))
+            )));
         }
-        Ok(s) => size = u64_to_usize(s),
+        Ok(s) => u64_to_usize(s),
     };
     // Go back to the image start
     image.seek(SeekFrom::Start(0)).map_err(InitrdRead)?;
@@ -961,9 +960,7 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
             let locked = block.lock().expect("Poisoned lock");
             if locked.root_device() {
                 match locked.partuuid() {
-                    Some(ref partuuid) => {
-                        cmdline.insert_str(format!("root=PARTUUID={}", partuuid))?
-                    }
+                    Some(partuuid) => cmdline.insert_str(format!("root=PARTUUID={}", partuuid))?,
                     None => cmdline.insert_str("root=/dev/vda")?,
                 }
                 match locked.read_only() {
@@ -1053,7 +1050,7 @@ pub(crate) mod tests {
     use crate::mmds::data_store::{Mmds, MmdsVersion};
     use crate::mmds::ns::MmdsNetworkStack;
     use crate::test_utils::{single_region_mem, single_region_mem_at};
-    use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
+    use crate::vmm_config::balloon::{BALLOON_DEV_ID, BalloonBuilder, BalloonDeviceConfig};
     use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
     use crate::vmm_config::entropy::{EntropyDeviceBuilder, EntropyDeviceConfig};
@@ -1247,10 +1244,11 @@ pub(crate) mod tests {
 
         attach_unixsock_vsock_device(vmm, cmdline, &vsock, event_manager).unwrap();
 
-        assert!(vmm
-            .mmio_device_manager
-            .get_device(DeviceType::Virtio(TYPE_VSOCK), &vsock_dev_id)
-            .is_some());
+        assert!(
+            vmm.mmio_device_manager
+                .get_device(DeviceType::Virtio(TYPE_VSOCK), &vsock_dev_id)
+                .is_some()
+        );
     }
 
     pub(crate) fn insert_entropy_device(
@@ -1264,10 +1262,11 @@ pub(crate) mod tests {
 
         attach_entropy_device(vmm, cmdline, &entropy, event_manager).unwrap();
 
-        assert!(vmm
-            .mmio_device_manager
-            .get_device(DeviceType::Virtio(TYPE_RNG), ENTROPY_DEV_ID)
-            .is_some());
+        assert!(
+            vmm.mmio_device_manager
+                .get_device(DeviceType::Virtio(TYPE_RNG), ENTROPY_DEV_ID)
+                .is_some()
+        );
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -1288,10 +1287,11 @@ pub(crate) mod tests {
 
         attach_balloon_device(vmm, cmdline, balloon, event_manager).unwrap();
 
-        assert!(vmm
-            .mmio_device_manager
-            .get_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
-            .is_some());
+        assert!(
+            vmm.mmio_device_manager
+                .get_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
+                .is_some()
+        );
     }
 
     fn make_test_bin() -> Vec<u8> {
@@ -1399,10 +1399,11 @@ pub(crate) mod tests {
             let mut cmdline = default_kernel_cmdline();
             insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
             assert!(cmdline_contains(&cmdline, "root=/dev/vda ro"));
-            assert!(vmm
-                .mmio_device_manager
-                .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
-                .is_some());
+            assert!(
+                vmm.mmio_device_manager
+                    .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
+                    .is_some()
+            );
         }
 
         // Use case 2: root block device is specified through PARTUUID.
@@ -1419,10 +1420,11 @@ pub(crate) mod tests {
             let mut cmdline = default_kernel_cmdline();
             insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
             assert!(cmdline_contains(&cmdline, "root=PARTUUID=0eaa91a0-01 rw"));
-            assert!(vmm
-                .mmio_device_manager
-                .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
-                .is_some());
+            assert!(
+                vmm.mmio_device_manager
+                    .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
+                    .is_some()
+            );
         }
 
         // Use case 3: root block device is not added at all.
@@ -1440,10 +1442,11 @@ pub(crate) mod tests {
             insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
             assert!(!cmdline_contains(&cmdline, "root=PARTUUID="));
             assert!(!cmdline_contains(&cmdline, "root=/dev/vda"));
-            assert!(vmm
-                .mmio_device_manager
-                .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
-                .is_some());
+            assert!(
+                vmm.mmio_device_manager
+                    .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
+                    .is_some()
+            );
         }
 
         // Use case 4: rw root block device and other rw and ro drives.
@@ -1476,18 +1479,21 @@ pub(crate) mod tests {
             insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
 
             assert!(cmdline_contains(&cmdline, "root=PARTUUID=0eaa91a0-01 rw"));
-            assert!(vmm
-                .mmio_device_manager
-                .get_device(DeviceType::Virtio(TYPE_BLOCK), "root")
-                .is_some());
-            assert!(vmm
-                .mmio_device_manager
-                .get_device(DeviceType::Virtio(TYPE_BLOCK), "secondary")
-                .is_some());
-            assert!(vmm
-                .mmio_device_manager
-                .get_device(DeviceType::Virtio(TYPE_BLOCK), "third")
-                .is_some());
+            assert!(
+                vmm.mmio_device_manager
+                    .get_device(DeviceType::Virtio(TYPE_BLOCK), "root")
+                    .is_some()
+            );
+            assert!(
+                vmm.mmio_device_manager
+                    .get_device(DeviceType::Virtio(TYPE_BLOCK), "secondary")
+                    .is_some()
+            );
+            assert!(
+                vmm.mmio_device_manager
+                    .get_device(DeviceType::Virtio(TYPE_BLOCK), "third")
+                    .is_some()
+            );
 
             // Check if these three block devices are inserted in kernel_cmdline.
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -1512,10 +1518,11 @@ pub(crate) mod tests {
             let mut cmdline = default_kernel_cmdline();
             insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
             assert!(cmdline_contains(&cmdline, "root=/dev/vda rw"));
-            assert!(vmm
-                .mmio_device_manager
-                .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
-                .is_some());
+            assert!(
+                vmm.mmio_device_manager
+                    .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
+                    .is_some()
+            );
         }
 
         // Use case 6: root block device is ro, with PARTUUID.
@@ -1532,10 +1539,11 @@ pub(crate) mod tests {
             let mut cmdline = default_kernel_cmdline();
             insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
             assert!(cmdline_contains(&cmdline, "root=PARTUUID=0eaa91a0-01 ro"));
-            assert!(vmm
-                .mmio_device_manager
-                .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
-                .is_some());
+            assert!(
+                vmm.mmio_device_manager
+                    .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
+                    .is_some()
+            );
         }
 
         // Use case 7: root block device is rw with flush enabled
@@ -1552,10 +1560,11 @@ pub(crate) mod tests {
             let mut cmdline = default_kernel_cmdline();
             insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
             assert!(cmdline_contains(&cmdline, "root=/dev/vda rw"));
-            assert!(vmm
-                .mmio_device_manager
-                .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
-                .is_some());
+            assert!(
+                vmm.mmio_device_manager
+                    .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
+                    .is_some()
+            );
         }
     }
 
@@ -1566,10 +1575,11 @@ pub(crate) mod tests {
 
         let res = attach_boot_timer_device(&mut vmm, request_ts);
         res.unwrap();
-        assert!(vmm
-            .mmio_device_manager
-            .get_device(DeviceType::BootTimer, &DeviceType::BootTimer.to_string())
-            .is_some());
+        assert!(
+            vmm.mmio_device_manager
+                .get_device(DeviceType::BootTimer, &DeviceType::BootTimer.to_string())
+                .is_some()
+        );
     }
 
     #[test]

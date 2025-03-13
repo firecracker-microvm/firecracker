@@ -21,9 +21,9 @@ use crate::arch::aarch64::vcpu::{get_manufacturer_id_from_host, get_manufacturer
 use crate::builder::{self, BuildMicrovmFromSnapshotError};
 use crate::cpu_config::templates::StaticCpuTemplate;
 #[cfg(target_arch = "x86_64")]
-use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
-#[cfg(target_arch = "x86_64")]
 use crate::cpu_config::x86_64::cpuid::CpuidTrait;
+#[cfg(target_arch = "x86_64")]
+use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
 use crate::device_manager::persist::{ACPIDeviceManagerState, DevicePersistError, DeviceStates};
 use crate::logger::{info, warn};
 use crate::resources::VmResources;
@@ -42,7 +42,7 @@ use crate::vstate::memory::{
 };
 use crate::vstate::vcpu::{VcpuSendEventError, VcpuState};
 use crate::vstate::vm::VmState;
-use crate::{mem_size_mib, vstate, EventManager, Vmm, VmmError};
+use crate::{EventManager, Vmm, VmmError, mem_size_mib, vstate};
 
 /// Holds information related to the VM that is not part of VmState.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
@@ -644,11 +644,12 @@ mod tests {
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
+    use crate::Vmm;
     #[cfg(target_arch = "x86_64")]
     use crate::builder::tests::insert_vmgenid_device;
     use crate::builder::tests::{
-        default_kernel_cmdline, default_vmm, insert_balloon_device, insert_block_devices,
-        insert_net_device, insert_vsock_device, CustomBlockConfig,
+        CustomBlockConfig, default_kernel_cmdline, default_vmm, insert_balloon_device,
+        insert_block_devices, insert_net_device, insert_vsock_device,
     };
     #[cfg(target_arch = "aarch64")]
     use crate::construct_kvm_mpidrs;
@@ -658,7 +659,6 @@ mod tests {
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vstate::memory::GuestMemoryRegionState;
-    use crate::Vmm;
 
     fn default_vmm_with_devices() -> Vmm {
         let mut event_manager = EventManager::new().expect("Cannot create EventManager");

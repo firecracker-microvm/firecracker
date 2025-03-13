@@ -8,12 +8,12 @@ pub mod tcp;
 
 use std::ops::Index;
 
-pub use crate::dumbo::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
+pub use crate::dumbo::pdu::arp::{ETH_IPV4_FRAME_LEN, EthIPv4ArpFrame};
 pub use crate::dumbo::pdu::ethernet::{
-    EthernetFrame, ETHERTYPE_ARP, ETHERTYPE_IPV4, PAYLOAD_OFFSET as ETHERNET_PAYLOAD_OFFSET,
+    ETHERTYPE_ARP, ETHERTYPE_IPV4, EthernetFrame, PAYLOAD_OFFSET as ETHERNET_PAYLOAD_OFFSET,
 };
 pub use crate::dumbo::pdu::ipv4::{IPv4Packet, PROTOCOL_TCP, PROTOCOL_UDP};
-pub use crate::dumbo::pdu::udp::{UdpDatagram, UDP_HEADER_SIZE};
+pub use crate::dumbo::pdu::udp::{UDP_HEADER_SIZE, UdpDatagram};
 use crate::utils::net::mac::MacAddr;
 
 /// Represents a generalization of a borrowed `[u8]` slice.

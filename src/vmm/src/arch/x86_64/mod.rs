@@ -23,7 +23,7 @@ pub mod regs;
 pub mod xstate;
 
 #[allow(missing_docs)]
-pub mod gen;
+pub mod generated;
 
 use linux_loader::configurator::linux::LinuxBootConfigurator;
 use linux_loader::configurator::pvh::PvhBootConfigurator;
@@ -502,12 +502,14 @@ mod tests {
         // Exercise the scenario where the field storing the length of the e820 entry table is
         // is bigger than the allocated memory.
         params.e820_entries = u8::try_from(params.e820_table.len()).unwrap() + 1;
-        assert!(add_e820_entry(
-            &mut params,
-            e820_map[0].addr,
-            e820_map[0].size,
-            e820_map[0].type_
-        )
-        .is_err());
+        assert!(
+            add_e820_entry(
+                &mut params,
+                e820_map[0].addr,
+                e820_map[0].size,
+                e820_map[0].type_
+            )
+            .is_err()
+        );
     }
 }

@@ -19,8 +19,8 @@ use kvm_ioctls::VcpuFd;
 use target::GdbTargetError;
 use vm_memory::GuestAddress;
 
-use crate::logger::trace;
 use crate::Vmm;
+use crate::logger::trace;
 
 /// Kickstarts the GDB debugging process, it takes in the VMM object, a slice of
 /// the paused Vcpu's, the GDB event queue which is used as a mechanism for the Vcpu's to notify

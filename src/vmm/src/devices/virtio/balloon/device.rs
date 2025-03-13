@@ -16,7 +16,7 @@ use super::metrics::METRICS;
 use super::util::{compact_page_frame_numbers, remove_range};
 use super::{
     BALLOON_DEV_ID, BALLOON_NUM_QUEUES, BALLOON_QUEUE_SIZES, DEFLATE_INDEX, INFLATE_INDEX,
-    MAX_PAGES_IN_DESC, MAX_PAGE_COMPACT_BUFFER, MIB_TO_4K_PAGES, STATS_INDEX,
+    MAX_PAGE_COMPACT_BUFFER, MAX_PAGES_IN_DESC, MIB_TO_4K_PAGES, STATS_INDEX,
     VIRTIO_BALLOON_F_DEFLATE_ON_OOM, VIRTIO_BALLOON_F_STATS_VQ, VIRTIO_BALLOON_PFN_SHIFT,
     VIRTIO_BALLOON_S_AVAIL, VIRTIO_BALLOON_S_CACHES, VIRTIO_BALLOON_S_HTLB_PGALLOC,
     VIRTIO_BALLOON_S_HTLB_PGFAIL, VIRTIO_BALLOON_S_MAJFLT, VIRTIO_BALLOON_S_MEMFREE,
@@ -25,7 +25,7 @@ use super::{
 };
 use crate::devices::virtio::balloon::BalloonError;
 use crate::devices::virtio::device::{IrqTrigger, IrqType};
-use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
+use crate::devices::virtio::generated::virtio_blk::VIRTIO_F_VERSION_1;
 use crate::logger::IncMetric;
 use crate::utils::u64_to_usize;
 use crate::vstate::memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
@@ -636,7 +636,7 @@ pub(crate) mod tests {
         check_request_completion, invoke_handler_for_queue_event, set_request,
     };
     use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
-    use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
+    use crate::devices::virtio::test_utils::{VirtQueue, default_mem};
     use crate::test_utils::single_region_mem;
     use crate::vstate::memory::GuestAddress;
 

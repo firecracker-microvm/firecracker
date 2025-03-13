@@ -1,7 +1,7 @@
 // Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use vm_memory::GuestMemory;
 use vmm::resources::VmResources;
 use vmm::vmm_config::machine_config::{HugePageConfig, MachineConfig};

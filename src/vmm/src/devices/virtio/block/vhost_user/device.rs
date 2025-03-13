@@ -7,25 +7,25 @@
 use std::sync::Arc;
 
 use log::error;
-use utils::time::{get_time_us, ClockType};
-use vhost::vhost_user::message::*;
+use utils::time::{ClockType, get_time_us};
 use vhost::vhost_user::Frontend;
+use vhost::vhost_user::message::*;
 use vmm_sys_util::eventfd::EventFd;
 
-use super::{VhostUserBlockError, NUM_QUEUES, QUEUE_SIZE};
+use super::{NUM_QUEUES, QUEUE_SIZE, VhostUserBlockError};
 use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
-use crate::devices::virtio::gen::virtio_blk::{
+use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_F_VERSION_1,
 };
-use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
+use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::vhost_user::{VhostUserHandleBackend, VhostUserHandleImpl};
 use crate::devices::virtio::vhost_user_metrics::{
     VhostUserDeviceMetrics, VhostUserMetricsPerDevice,
 };
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
-use crate::logger::{log_dev_preview_warning, IncMetric, StoreMetric};
+use crate::logger::{IncMetric, StoreMetric, log_dev_preview_warning};
 use crate::utils::u64_to_usize;
 use crate::vmm_config::drive::BlockDeviceConfig;
 use crate::vstate::memory::GuestMemoryMmap;

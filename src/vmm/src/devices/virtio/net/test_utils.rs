@@ -12,13 +12,13 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::devices::DeviceError;
+use crate::devices::virtio::net::Net;
 #[cfg(test)]
 use crate::devices::virtio::net::device::vnet_hdr_len;
 use crate::devices::virtio::net::tap::{IfReqBuilder, Tap};
-use crate::devices::virtio::net::Net;
 use crate::devices::virtio::queue::{Queue, QueueError};
 use crate::devices::virtio::test_utils::VirtQueue;
-use crate::devices::DeviceError;
 use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
 use crate::rate_limiter::RateLimiter;
@@ -211,7 +211,10 @@ pub fn if_index(tap: &Tap) -> i32 {
     let sock = create_socket();
     let ifreq = IfReqBuilder::new()
         .if_name(&tap.if_name)
-        .execute(&sock, c_ulong::from(super::gen::sockios::SIOCGIFINDEX))
+        .execute(
+            &sock,
+            c_ulong::from(super::generated::sockios::SIOCGIFINDEX),
+        )
         .unwrap();
 
     // SAFETY: Using this union variant is safe since `SIOCGIFINDEX` returns an integer.
@@ -234,13 +237,16 @@ pub fn enable(tap: &Tap) {
     IfReqBuilder::new()
         .if_name(&tap.if_name)
         .flags(
-            (crate::devices::virtio::net::gen::net_device_flags_IFF_UP
-                | crate::devices::virtio::net::gen::net_device_flags_IFF_RUNNING
-                | crate::devices::virtio::net::gen::net_device_flags_IFF_NOARP)
+            (crate::devices::virtio::net::generated::net_device_flags_IFF_UP
+                | crate::devices::virtio::net::generated::net_device_flags_IFF_RUNNING
+                | crate::devices::virtio::net::generated::net_device_flags_IFF_NOARP)
                 .try_into()
                 .unwrap(),
         )
-        .execute(&sock, c_ulong::from(super::gen::sockios::SIOCSIFFLAGS))
+        .execute(
+            &sock,
+            c_ulong::from(super::generated::sockios::SIOCSIFFLAGS),
+        )
         .unwrap();
 }
 
@@ -307,11 +313,11 @@ pub mod test {
     use crate::check_metric_after_block;
     use crate::devices::virtio::device::{IrqType, VirtioDevice};
     use crate::devices::virtio::net::device::vnet_hdr_len;
-    use crate::devices::virtio::net::gen::ETH_HLEN;
+    use crate::devices::virtio::net::generated::ETH_HLEN;
     use crate::devices::virtio::net::test_utils::{
-        assign_queues, default_net, inject_tap_tx_frame, NetEvent, NetQueue,
+        NetEvent, NetQueue, assign_queues, default_net, inject_tap_tx_frame,
     };
-    use crate::devices::virtio::net::{Net, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX};
+    use crate::devices::virtio::net::{MAX_BUFFER_SIZE, Net, RX_INDEX, TX_INDEX};
     use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
     use crate::logger::IncMetric;

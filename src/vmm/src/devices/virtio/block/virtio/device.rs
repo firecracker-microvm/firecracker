@@ -20,21 +20,21 @@ use vmm_sys_util::eventfd::EventFd;
 
 use super::io::async_io;
 use super::request::*;
-use super::{io as block_io, VirtioBlockError, BLOCK_QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE};
-use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
+use super::{BLOCK_QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError, io as block_io};
 use crate::devices::virtio::block::CacheType;
+use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
-use crate::devices::virtio::gen::virtio_blk::{
+use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES, VIRTIO_F_VERSION_1,
 };
-use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
+use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
-use crate::logger::{error, warn, IncMetric};
+use crate::logger::{IncMetric, error, warn};
 use crate::rate_limiter::{BucketUpdate, RateLimiter};
 use crate::utils::u64_to_usize;
-use crate::vmm_config::drive::BlockDeviceConfig;
 use crate::vmm_config::RateLimiterConfig;
+use crate::vmm_config::drive::BlockDeviceConfig;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// The engine file type, either Sync or Async (through io_uring).
@@ -676,14 +676,14 @@ mod tests {
 
     use super::*;
     use crate::check_metric_after_block;
+    use crate::devices::virtio::block::virtio::IO_URING_NUM_ENTRIES;
     use crate::devices::virtio::block::virtio::test_utils::{
         default_block, read_blk_req_descriptors, set_queue, set_rate_limiter,
         simulate_async_completion_event, simulate_queue_and_async_completion_events,
         simulate_queue_event,
     };
-    use crate::devices::virtio::block::virtio::IO_URING_NUM_ENTRIES;
     use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
-    use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
+    use crate::devices::virtio::test_utils::{VirtQueue, default_mem};
     use crate::rate_limiter::TokenType;
     use crate::vstate::memory::{Address, Bytes, GuestAddress};
 

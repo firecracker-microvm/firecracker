@@ -5,6 +5,7 @@
 #![allow(dead_code)]
 
 use std::collections::{HashMap, HashSet};
+use std::ffi::c_void;
 use std::fs::File;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::net::UnixStream;
@@ -148,7 +149,7 @@ impl UffdHandler {
                 Err(Error::PartiallyCopied(bytes_copied))
                     if bytes_copied == 0 || bytes_copied == (-libc::EAGAIN) as usize =>
                 {
-                    return false
+                    return false;
                 }
                 Err(Error::CopyFailed(errno))
                     if std::io::Error::from(errno).raw_os_error().unwrap() == libc::EEXIST =>
@@ -227,8 +228,8 @@ impl Runtime {
                 self.stream.as_raw_fd(),
                 libc::SOL_SOCKET,
                 libc::SO_PEERCRED,
-                &mut creds as *mut _ as *mut _,
-                &mut creds_size as *mut libc::socklen_t,
+                (&raw mut creds).cast::<c_void>(),
+                &raw mut creds_size,
             )
         };
         if ret != 0 {

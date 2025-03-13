@@ -12,7 +12,7 @@ use std::fmt::{self, Debug};
 pub use cqe::Cqe;
 pub(crate) use sqe::Sqe;
 
-use crate::io_uring::gen::{self, io_uring_sqe, IOSQE_FIXED_FILE_BIT};
+use crate::io_uring::generated::{self, IOSQE_FIXED_FILE_BIT, io_uring_sqe};
 
 /// The index of a registered fd.
 pub type FixedFd = u32;
@@ -24,11 +24,11 @@ pub type FixedFd = u32;
 /// Supported operation types.
 pub enum OpCode {
     /// Read operation.
-    Read = gen::IORING_OP_READ as u8,
+    Read = generated::IORING_OP_READ as u8,
     /// Write operation.
-    Write = gen::IORING_OP_WRITE as u8,
+    Write = generated::IORING_OP_WRITE as u8,
     /// Fsync operation.
-    Fsync = gen::IORING_OP_FSYNC as u8,
+    Fsync = generated::IORING_OP_FSYNC as u8,
 }
 
 // Useful for outputting errors.
@@ -120,7 +120,7 @@ impl<T: Debug> Operation<T> {
     // Needed for proptesting.
     #[cfg(test)]
     pub(crate) fn set_linked(&mut self) {
-        self.flags |= 1 << gen::IOSQE_IO_LINK_BIT;
+        self.flags |= 1 << generated::IOSQE_IO_LINK_BIT;
     }
 
     /// Transform the operation into an `Sqe`.

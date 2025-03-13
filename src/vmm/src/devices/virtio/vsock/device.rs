@@ -27,13 +27,13 @@ use vmm_sys_util::eventfd::EventFd;
 
 use super::super::super::DeviceError;
 use super::defs::uapi;
-use super::packet::{VsockPacketRx, VsockPacketTx, VSOCK_PKT_HDR_SIZE};
-use super::{defs, VsockBackend};
+use super::packet::{VSOCK_PKT_HDR_SIZE, VsockPacketRx, VsockPacketTx};
+use super::{VsockBackend, defs};
+use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::devices::virtio::queue::Queue as VirtQueue;
-use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::devices::virtio::vsock::VsockError;
-use crate::devices::virtio::ActivateError;
+use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::logger::IncMetric;
 use crate::utils::byte_order;
 use crate::vstate::memory::{Bytes, GuestMemoryMmap};
@@ -49,7 +49,7 @@ pub(crate) const VIRTIO_VSOCK_EVENT_TRANSPORT_RESET: u32 = 0;
 /// - VIRTIO_F_IN_ORDER: the device returns used buffers in the same order that the driver makes
 ///   them available.
 pub(crate) const AVAIL_FEATURES: u64 =
-    1 << uapi::VIRTIO_F_VERSION_1 as u64 | 1 << uapi::VIRTIO_F_IN_ORDER as u64;
+    (1 << uapi::VIRTIO_F_VERSION_1 as u64) | (1 << uapi::VIRTIO_F_IN_ORDER as u64);
 
 /// Structure representing the vsock device.
 #[derive(Debug)]

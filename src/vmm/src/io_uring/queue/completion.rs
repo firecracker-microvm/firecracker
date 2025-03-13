@@ -8,8 +8,8 @@ use std::sync::atomic::Ordering;
 
 use vm_memory::{Bytes, VolatileMemory, VolatileMemoryError};
 
-use super::mmap::{mmap, MmapError};
-use crate::io_uring::gen;
+use super::mmap::{MmapError, mmap};
+use crate::io_uring::generated;
 use crate::io_uring::operation::Cqe;
 use crate::vstate::memory::MmapRegion;
 
@@ -43,15 +43,15 @@ pub(crate) struct CompletionQueue {
 impl CompletionQueue {
     pub(crate) fn new(
         io_uring_fd: RawFd,
-        params: &gen::io_uring_params,
+        params: &generated::io_uring_params,
     ) -> Result<Self, CQueueError> {
         let offsets = params.cq_off;
 
         // Map the CQ_ring. The actual size of the ring is `num_entries * size_of(entry_type)`.
         // To this we add an offset as per the io_uring specifications.
         let ring_size = (params.cq_off.cqes as usize)
-            + (params.cq_entries as usize) * std::mem::size_of::<gen::io_uring_cqe>();
-        let cqes = mmap(ring_size, io_uring_fd, gen::IORING_OFF_CQ_RING.into())?;
+            + (params.cq_entries as usize) * std::mem::size_of::<generated::io_uring_cqe>();
+        let cqes = mmap(ring_size, io_uring_fd, generated::IORING_OFF_CQ_RING.into())?;
 
         let ring = cqes.as_volatile_slice();
         let ring_mask = ring.read_obj(offsets.ring_mask as usize)?;
@@ -86,8 +86,8 @@ impl CompletionQueue {
 
         // validate that we have smth to fetch
         if Wrapping(unmasked_tail) - self.unmasked_head > Wrapping(0) {
-            let cqe: gen::io_uring_cqe = ring.read_obj(
-                self.cqes_off + (head as usize) * std::mem::size_of::<gen::io_uring_cqe>(),
+            let cqe: generated::io_uring_cqe = ring.read_obj(
+                self.cqes_off + (head as usize) * std::mem::size_of::<generated::io_uring_cqe>(),
             )?;
 
             // increase the head

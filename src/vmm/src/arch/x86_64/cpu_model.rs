@@ -56,10 +56,10 @@ impl From<&u32> for CpuModel {
 
 impl From<&CpuModel> for u32 {
     fn from(cpu_model: &CpuModel) -> Self {
-        u32::from(cpu_model.extended_family) << 20
-            | u32::from(cpu_model.extended_model) << 16
-            | u32::from(cpu_model.family) << 8
-            | u32::from(cpu_model.model) << 4
+        (u32::from(cpu_model.extended_family) << 20)
+            | (u32::from(cpu_model.extended_model) << 16)
+            | (u32::from(cpu_model.family) << 8)
+            | (u32::from(cpu_model.model) << 4)
             | u32::from(cpu_model.stepping)
     }
 }

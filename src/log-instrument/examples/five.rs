@@ -3,7 +3,7 @@
 
 #![warn(clippy::pedantic)]
 
-use log::{debug, info, warn, LevelFilter};
+use log::{LevelFilter, debug, info, warn};
 
 fn main() {
     env_logger::builder()

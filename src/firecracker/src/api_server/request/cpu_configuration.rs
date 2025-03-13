@@ -23,7 +23,7 @@ pub(crate) fn parse_put_cpu_config(body: &Body) -> Result<ParsedRequest, Request
 #[cfg(test)]
 mod tests {
     use micro_http::Body;
-    use vmm::cpu_config::templates::test_utils::{build_test_template, TEST_INVALID_TEMPLATE_JSON};
+    use vmm::cpu_config::templates::test_utils::{TEST_INVALID_TEMPLATE_JSON, build_test_template};
     use vmm::logger::{IncMetric, METRICS};
     use vmm::rpc_interface::VmmAction;
 

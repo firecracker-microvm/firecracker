@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
 
-use vmm::seccomp::{deserialize_binary, get_empty_filters, BpfThreadMap, DeserializationError};
+use vmm::seccomp::{BpfThreadMap, DeserializationError, deserialize_binary, get_empty_filters};
 
 const THREAD_CATEGORIES: [&str; 3] = ["vmm", "api", "vcpu"];
 

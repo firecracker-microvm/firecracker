@@ -11,7 +11,7 @@ use std::fs::File;
 use std::os::unix::net::UnixListener;
 
 use uffd_utils::{Runtime, UffdHandler};
-use utils::time::{get_time_us, ClockType};
+use utils::time::{ClockType, get_time_us};
 
 fn main() {
     let mut args = std::env::args();

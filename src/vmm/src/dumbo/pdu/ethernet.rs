@@ -7,8 +7,8 @@
 use std::fmt::Debug;
 use std::result::Result;
 
-use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
 use super::Incomplete;
+use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
 use crate::dumbo::MacAddr;
 
 const DST_MAC_OFFSET: usize = 0;

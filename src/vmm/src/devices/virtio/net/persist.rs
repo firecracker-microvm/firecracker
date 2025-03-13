@@ -10,15 +10,15 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use super::device::{Net, RxBuffers};
-use super::{TapError, NET_NUM_QUEUES, NET_QUEUE_MAX_SIZE, RX_INDEX};
+use super::{NET_NUM_QUEUES, NET_QUEUE_MAX_SIZE, RX_INDEX, TapError};
+use crate::devices::virtio::TYPE_NET;
 use crate::devices::virtio::device::DeviceState;
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
-use crate::devices::virtio::TYPE_NET;
 use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
 use crate::mmds::persist::MmdsNetworkStackState;
-use crate::rate_limiter::persist::RateLimiterState;
 use crate::rate_limiter::RateLimiter;
+use crate::rate_limiter::persist::RateLimiterState;
 use crate::snapshot::Persist;
 use crate::utils::net::mac::MacAddr;
 use crate::vstate::memory::GuestMemoryMmap;

@@ -6,9 +6,9 @@ use kvm_bindings::*;
 use kvm_ioctls::VcpuFd;
 use vm_memory::GuestAddress;
 
+use crate::Vmm;
 use crate::gdb::target::GdbTargetError;
 use crate::logger::error;
-use crate::Vmm;
 
 /// Sets the 9th (Global Exact Breakpoint enable) and the 10th (always 1) bits for the DR7 debug
 /// control register

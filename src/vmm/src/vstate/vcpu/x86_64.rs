@@ -9,20 +9,20 @@ use std::collections::BTreeMap;
 use std::fmt::Debug;
 
 use kvm_bindings::{
-    kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
-    kvm_xsave, kvm_xsave2, CpuId, Msrs, Xsave, KVM_MAX_CPUID_ENTRIES, KVM_MAX_MSR_ENTRIES,
+    CpuId, KVM_MAX_CPUID_ENTRIES, KVM_MAX_MSR_ENTRIES, Msrs, Xsave, kvm_debugregs, kvm_lapic_state,
+    kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs, kvm_xsave, kvm_xsave2,
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
 use log::{error, warn};
 use serde::{Deserialize, Serialize};
 use vmm_sys_util::fam::{self, FamStruct};
 
-use crate::arch::x86_64::gen::msr_index::{MSR_IA32_TSC, MSR_IA32_TSC_DEADLINE};
-use crate::arch::x86_64::interrupts;
-use crate::arch::x86_64::msr::{create_boot_msr_entries, MsrError};
-use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use crate::arch::EntryPoint;
-use crate::cpu_config::x86_64::{cpuid, CpuConfiguration};
+use crate::arch::x86_64::generated::msr_index::{MSR_IA32_TSC, MSR_IA32_TSC_DEADLINE};
+use crate::arch::x86_64::interrupts;
+use crate::arch::x86_64::msr::{MsrError, create_boot_msr_entries};
+use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
+use crate::cpu_config::x86_64::{CpuConfiguration, cpuid};
 use crate::logger::{IncMetric, METRICS};
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
@@ -796,16 +796,16 @@ mod tests {
     use vm_memory::GuestAddress;
 
     use super::*;
-    use crate::arch::x86_64::cpu_model::CpuModel;
     use crate::arch::BootProtocol;
+    use crate::arch::x86_64::cpu_model::CpuModel;
     use crate::cpu_config::templates::{
         CpuConfiguration, CpuTemplateType, CustomCpuTemplate, GetCpuTemplate, GuestConfigError,
         StaticCpuTemplate,
     };
     use crate::cpu_config::x86_64::cpuid::{Cpuid, CpuidEntry, CpuidKey};
     use crate::vstate::kvm::Kvm;
-    use crate::vstate::vm::tests::{setup_vm, setup_vm_with_memory};
     use crate::vstate::vm::Vm;
+    use crate::vstate::vm::tests::{setup_vm, setup_vm_with_memory};
 
     impl Default for VcpuState {
         fn default() -> Self {
@@ -1091,9 +1091,11 @@ mod tests {
                         / u32::try_from(TSC_KHZ_TOL_DENOMINATOR).unwrap()
                         / 2,
             );
-            assert!(!vcpu
-                .is_tsc_scaling_required(state.tsc_khz.unwrap())
-                .unwrap());
+            assert!(
+                !vcpu
+                    .is_tsc_scaling_required(state.tsc_khz.unwrap())
+                    .unwrap()
+            );
         }
 
         {
@@ -1105,9 +1107,10 @@ mod tests {
                         / u32::try_from(TSC_KHZ_TOL_DENOMINATOR).unwrap()
                         * 2,
             );
-            assert!(vcpu
-                .is_tsc_scaling_required(state.tsc_khz.unwrap())
-                .unwrap());
+            assert!(
+                vcpu.is_tsc_scaling_required(state.tsc_khz.unwrap())
+                    .unwrap()
+            );
         }
 
         {

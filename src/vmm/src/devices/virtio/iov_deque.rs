@@ -120,7 +120,8 @@ impl<const L: u16> IovDeque<L> {
         fd: c_int,
         offset: off_t,
     ) -> Result<*mut c_void, IovDequeError> {
-        let ptr = libc::mmap(addr, len, prot, flags, fd, offset);
+        // SAFETY: caller should ensure the parameters are valid
+        let ptr = unsafe { libc::mmap(addr, len, prot, flags, fd, offset) };
         if ptr == libc::MAP_FAILED {
             return Err(IovDequeError::Mmap(std::io::Error::last_os_error()));
         }

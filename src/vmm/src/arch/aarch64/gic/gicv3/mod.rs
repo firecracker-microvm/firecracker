@@ -202,7 +202,7 @@ mod tests {
     use kvm_ioctls::Kvm;
 
     use super::*;
-    use crate::arch::aarch64::gic::{create_gic, GICVersion};
+    use crate::arch::aarch64::gic::{GICVersion, create_gic};
 
     #[test]
     fn test_save_pending_tables() {

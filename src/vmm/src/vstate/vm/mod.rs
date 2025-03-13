@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use kvm_bindings::{kvm_userspace_memory_region, KVM_MEM_LOG_DIRTY_PAGES};
+use kvm_bindings::{KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region};
 use kvm_ioctls::VmFd;
 use vmm_sys_util::eventfd::EventFd;
 
@@ -21,8 +21,8 @@ mod arch;
 
 pub use arch::{ArchVm as Vm, ArchVmError, VmState};
 
-use crate::vstate::vcpu::VcpuError;
 use crate::Vcpu;
+use crate::vstate::vcpu::VcpuError;
 
 /// Errors associated with the wrappers over KVM ioctls.
 /// Needs `rustfmt::skip` to make multiline comments work
