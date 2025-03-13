@@ -51,6 +51,7 @@ if any(
 if not pipeline.args.no_kani and (
     not changed_files
     or any(x.suffix in [".rs", ".toml", ".lock"] for x in changed_files)
+    or any(x.parent.name == "devctr" for x in changed_files)
 ):
     kani_grp = pipeline.build_group(
         "🔍 Kani",

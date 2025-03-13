@@ -5,13 +5,9 @@ macro_rules! generate_read_fn {
     ($fn_name: ident, $data_type: ty, $byte_type: ty, $type_size: expr, $endian_type: ident) => {
         /// Read bytes from the slice
         pub fn $fn_name(input: &[$byte_type]) -> $data_type {
-            assert!($type_size == std::mem::size_of::<$data_type>());
-            let mut array = [0u8; $type_size];
-            #[allow(clippy::cast_sign_loss)]
-            #[allow(clippy::cast_possible_wrap)]
-            for (byte, read) in array.iter_mut().zip(input.iter().cloned()) {
-                *byte = read as u8;
-            }
+            let mut array = [0u8; std::mem::size_of::<$data_type>()];
+            let how_many = input.len().min(std::mem::size_of::<$data_type>());
+            array[..how_many].copy_from_slice(&input[..how_many]);
             <$data_type>::$endian_type(array)
         }
     };
@@ -21,32 +17,21 @@ macro_rules! generate_write_fn {
     ($fn_name: ident, $data_type: ty, $byte_type: ty, $endian_type: ident) => {
         /// Write bytes to the slice
         pub fn $fn_name(buf: &mut [$byte_type], n: $data_type) {
-            #[allow(clippy::cast_sign_loss)]
-            #[allow(clippy::cast_possible_wrap)]
-            for (byte, read) in buf
-                .iter_mut()
-                .zip(<$data_type>::$endian_type(n).iter().cloned())
-            {
-                *byte = read as $byte_type;
-            }
+            let bytes = n.$endian_type();
+            let how_much = buf.len().min(bytes.len());
+            buf[..how_much].copy_from_slice(&bytes[..how_much]);
         }
     };
 }
 
-generate_read_fn!(read_le_u16, u16, u8, 2, from_le_bytes);
 generate_read_fn!(read_le_u32, u32, u8, 4, from_le_bytes);
-generate_read_fn!(read_le_u32_from_i8, u32, i8, 4, from_le_bytes);
 generate_read_fn!(read_le_u64, u64, u8, 8, from_le_bytes);
-generate_read_fn!(read_le_i32, i32, i8, 4, from_le_bytes);
 
 generate_read_fn!(read_be_u16, u16, u8, 2, from_be_bytes);
 generate_read_fn!(read_be_u32, u32, u8, 4, from_be_bytes);
 
-generate_write_fn!(write_le_u16, u16, u8, to_le_bytes);
 generate_write_fn!(write_le_u32, u32, u8, to_le_bytes);
-generate_write_fn!(write_le_u32_to_i8, u32, i8, to_le_bytes);
 generate_write_fn!(write_le_u64, u64, u8, to_le_bytes);
-generate_write_fn!(write_le_i32, i32, i8, to_le_bytes);
 
 generate_write_fn!(write_be_u16, u16, u8, to_be_bytes);
 generate_write_fn!(write_be_u32, u32, u8, to_be_bytes);
@@ -110,10 +95,8 @@ mod tests {
         };
     }
 
-    byte_order_test_read_write!(test_le_u16, write_le_u16, read_le_u16, false, u16);
     byte_order_test_read_write!(test_le_u32, write_le_u32, read_le_u32, false, u32);
     byte_order_test_read_write!(test_le_u64, write_le_u64, read_le_u64, false, u64);
-    byte_order_test_read_write!(test_le_i32, write_le_i32, read_le_i32, false, i32);
     byte_order_test_read_write!(test_be_u16, write_be_u16, read_be_u16, true, u16);
     byte_order_test_read_write!(test_be_u32, write_be_u32, read_be_u32, true, u32);
 }
