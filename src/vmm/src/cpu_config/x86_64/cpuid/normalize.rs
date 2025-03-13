@@ -64,10 +64,10 @@ pub enum ExtendedTopologyError {
     ApicId(CheckedAssignError),
     /// Failed to set `Number of logical processors at this level type`: {0}
     LogicalProcessors(CheckedAssignError),
-    /// Failed to set `Level Type`: {0}
-    LevelType(CheckedAssignError),
-    /// Failed to set `Level Number`: {0}
-    LevelNumber(CheckedAssignError),
+    /// Failed to set `Domain Type`: {0}
+    DomainType(CheckedAssignError),
+    /// Failed to set `Input ECX`: {0}
+    InputEcx(CheckedAssignError),
     /// Failed to set all leaves, as more than `u32::MAX` sub-leaves are present: {0}
     Overflow(<u32 as TryFrom<usize>>::Error),
 }
@@ -282,10 +282,6 @@ impl super::Cpuid {
         cpu_bits: u8,
         cpus_per_core: u8,
     ) -> Result<(), ExtendedTopologyError> {
-        /// Level type used for setting thread level processor topology.
-        const LEVEL_TYPE_THREAD: u32 = 1;
-        /// Level type used for setting core level processor topology.
-        const LEVEL_TYPE_CORE: u32 = 2;
         /// The APIC ID shift in leaf 0xBh specifies the number of bits to shit the x2APIC ID to
         /// get a unique topology of the next level. This allows 128 logical
         /// processors/package.
@@ -308,7 +304,7 @@ impl super::Cpuid {
 
         for index in 0.. {
             if let Some(subleaf) = self.get_mut(&CpuidKey::subleaf(0xB, index)) {
-                // reset eax, ebx, ecx
+                // Reset eax, ebx, ecx
                 subleaf.result.eax = 0;
                 subleaf.result.ebx = 0;
                 subleaf.result.ecx = 0;
@@ -349,47 +345,45 @@ impl super::Cpuid {
                     //
                     // (Note that enumeration values of 0 and 3-255 are reserved.)
 
-                    // Thread Level Topology; index = 0
+                    // Logical processor domain
                     0 => {
                         // To get the next level APIC ID, shift right with at most 1 because we have
-                        // maximum 2 hyperthreads per core that can be represented by 1 bit.
+                        // maximum 2 logical procerssors per core that can be represented by 1 bit.
                         set_range(&mut subleaf.result.eax, 0..5, u32::from(cpu_bits))
                             .map_err(ExtendedTopologyError::ApicId)?;
 
                         // When cpu_count == 1 or HT is disabled, there is 1 logical core at this
-                        // level Otherwise there are 2
+                        // domain; otherwise there are 2
                         set_range(&mut subleaf.result.ebx, 0..16, u32::from(cpus_per_core))
                             .map_err(ExtendedTopologyError::LogicalProcessors)?;
 
-                        set_range(&mut subleaf.result.ecx, 8..16, LEVEL_TYPE_THREAD)
-                            .map_err(ExtendedTopologyError::LevelType)?;
+                        // Skip setting 0 to ECX[7:0] since it's already reset to 0.
+
+                        // Set the domain type identification value for logical processor,
+                        set_range(&mut subleaf.result.ecx, 8..16, 1)
+                            .map_err(ExtendedTopologyError::DomainType)?;
                     }
-                    // Core Level Processor Topology; index = 1
+                    // Core domain
                     1 => {
                         set_range(&mut subleaf.result.eax, 0..5, LEAFBH_INDEX1_APICID)
                             .map_err(ExtendedTopologyError::ApicId)?;
 
+                        // Configure such that the next higher-scoped domain (i.e. socket) include
+                        // all logical processors.
                         set_range(&mut subleaf.result.ebx, 0..16, u32::from(cpu_count))
                             .map_err(ExtendedTopologyError::LogicalProcessors)?;
 
-                        // We expect here as this is an extremely rare case that is unlikely to ever
-                        // occur. It would require manual editing of the CPUID structure to push
-                        // more than 2^32 subleaves.
-                        let sub = index;
-                        set_range(&mut subleaf.result.ecx, 0..8, sub)
-                            .map_err(ExtendedTopologyError::LevelNumber)?;
+                        // Setting the input ECX value (i.e. `index`)
+                        set_range(&mut subleaf.result.ecx, 0..8, index)
+                            .map_err(ExtendedTopologyError::InputEcx)?;
 
-                        set_range(&mut subleaf.result.ecx, 8..16, LEVEL_TYPE_CORE)
-                            .map_err(ExtendedTopologyError::LevelType)?;
+                        // Set the domain type identification value for core.
+                        set_range(&mut subleaf.result.ecx, 8..16, 2)
+                            .map_err(ExtendedTopologyError::DomainType)?;
                     }
-                    // Core Level Processor Topology; index >=2
-                    // No other levels available; This should already be set correctly,
-                    // and it is added here as a "re-enforcement" in case we run on
-                    // different hardware
                     _ => {
                         // We expect here as this is an extremely rare case that is unlikely to ever
-                        // occur. It would require manual editing of the CPUID structure to push
-                        // more than 2^32 subleaves.
+                        // occur.
                         subleaf.result.ecx = index;
                     }
                 }
