@@ -55,8 +55,8 @@ impl RxBufferState {
 /// at snapshot.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetState {
-    id: String,
-    tap_if_name: String,
+    pub id: String,
+    pub tap_if_name: String,
     rx_rate_limiter_state: RateLimiterState,
     tx_rate_limiter_state: RateLimiterState,
     /// The associated MMDS network stack.

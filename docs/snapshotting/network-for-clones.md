@@ -142,6 +142,65 @@ Otherwise, packets originating from the guest might be using old Link Layer
 Address for up to arp cache timeout seconds. After said timeout period,
 connectivity will work both ways even without an explicit flush.
 
+### Renaming host device names
+
+In some environments where the jailer is not being used, restoring a snapshot
+may be tricky because the tap device on the host will not be the same as the tap
+device that the original VM was mapped to when it was snapshotted, as when the
+tap device come from a pool of such devices.
+
+In this case you can use the `network_overrides` parameter to snapshot restore
+to specify which guest network device maps to which host tap device.
+
+For example, if we have a network interface named `eth0` in the snapshotted
+microVM. We can override it to point to the host device `vmtap01` during
+snapshot resume, like this:
+
+```bash
+curl --unix-socket /tmp/firecracker.socket -i \
+    -X PUT 'http://localhost/snapshot/load' \
+    -H  'Accept: application/json' \
+    -H  'Content-Type: application/json' \
+    -d '{
+            "snapshot_path": "./snapshot_file",
+            "mem_backend": {
+                "backend_path": "./mem_file",
+                "backend_type": "File"
+            },
+            "enable_diff_snapshots": true,
+            "resume_vm": false,
+            "network_overrides": [
+                 {
+                     iface_id: "eth0",
+                     host_dev_name": "vmtap01"
+                 }
+            ]
+    }'
+```
+
+This may require reconfiguration of the networking inside the VM so that it is
+still routable externally. The
+[network setup documentation](../network-setup.md) in the "In The Guest" section
+describes what the typical setup is. If you are not using network namespaces or
+the jailer, then the guest will have to be made aware (via vsock or other
+channel) that it needs to reconfigure its network to match the network
+configured on the tap device.
+
+If the new TAP device, say `vmtap3` has been configured to use a guest address
+of `172.16.3.2` then after snapshot restore you would run something like:
+
+```bash
+# In the guest
+
+# Clear out the previous addr and route
+ip addr flush dev eth0
+ip route flush dev eth0
+
+# Configure the new address
+ip addr add 172.16.3.2/30 dev eth0
+ip route add defaul via 172.16.3.1/30 dev eth0
+```
+
 # Ingress connectivity
 
 The above setup only provides egress connectivity. If in addition we also want

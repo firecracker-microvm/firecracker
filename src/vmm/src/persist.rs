@@ -405,7 +405,21 @@ pub fn restore_from_snapshot(
     params: &LoadSnapshotParams,
     vm_resources: &mut VmResources,
 ) -> Result<Arc<Mutex<Vmm>>, RestoreFromSnapshotError> {
-    let microvm_state = snapshot_state_from_file(&params.snapshot_path)?;
+    let mut microvm_state = snapshot_state_from_file(&params.snapshot_path)?;
+    for entry in &params.network_overrides {
+        let net_devices = &mut microvm_state.device_states.net_devices;
+        if let Some(device) = net_devices
+            .iter_mut()
+            .find(|x| x.device_state.id == entry.iface_id)
+        {
+            device
+                .device_state
+                .tap_if_name
+                .clone_from(&entry.host_dev_name);
+        } else {
+            return Err(SnapshotStateFromFileError::UnknownNetworkDevice.into());
+        }
+    }
     let track_dirty_pages = params.enable_diff_snapshots;
 
     let vcpu_count = microvm_state
@@ -480,6 +494,8 @@ pub enum SnapshotStateFromFileError {
     Meta(std::io::Error),
     /// Failed to load snapshot state from file: {0}
     Load(#[from] crate::snapshot::SnapshotError),
+    /// Unknown Network Device.
+    UnknownNetworkDevice,
 }
 
 fn snapshot_state_from_file(

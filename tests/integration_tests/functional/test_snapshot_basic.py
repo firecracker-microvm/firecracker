@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Basic tests scenarios for snapshot save/restore."""
 
+import dataclasses
 import filecmp
 import logging
 import os
@@ -9,12 +10,14 @@ import platform
 import re
 import shutil
 import time
+import uuid
 from pathlib import Path
 
 import pytest
 
 import host_tools.cargo_build as host
 import host_tools.drive as drive_tools
+import host_tools.network as net_tools
 from framework import utils
 from framework.microvm import SnapshotType
 from framework.properties import global_props
@@ -570,3 +573,30 @@ def test_physical_counter_reset_aarch64(uvm_nano):
                 break
     else:
         raise RuntimeError("Did not find CNTPCT_EL0 register in snapshot")
+
+
+def test_snapshot_rename_interface(uvm_nano, microvm_factory):
+    """
+    Test that we can restore a snapshot and point its interface to a
+    different host interface.
+    """
+    vm = uvm_nano
+    base_iface = vm.add_net_iface()
+    vm.start()
+    snapshot = vm.snapshot_full()
+
+    # We don't reuse the network namespace as it may conflict with
+    # previous/future devices
+    restored_vm = microvm_factory.build(netns=net_tools.NetNs(str(uuid.uuid4())))
+    # Override the tap name, but keep the same IP configuration
+    iface_override = dataclasses.replace(base_iface, tap_name="tap_override")
+
+    restored_vm.spawn()
+    snapshot.net_ifaces.clear()
+    snapshot.net_ifaces.append(iface_override)
+    restored_vm.restore_from_snapshot(
+        snapshot,
+        rename_interfaces={iface_override.dev_name: iface_override.tap_name},
+        resume=True,
+    )
+    restored_vm.wait_for_ssh_up()
