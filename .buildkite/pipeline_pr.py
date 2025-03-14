@@ -59,7 +59,7 @@ if not pipeline.args.no_kani and (
         # Kani step default
         # Kani runs fastest on m6a.metal
         instances=["m6a.metal", "m7g.metal"],
-        platforms=[("al2", "linux_5.10")],
+        platforms=[("al2023", "linux_6.1")],
         timeout_in_minutes=300,
         **DEFAULTS_PERF,
         depends_on_build=False,
