@@ -6,7 +6,7 @@
 
 from enum import Enum
 
-from common import DEFAULT_INSTANCES, DEFAULT_PLATFORMS, BKPipeline, group
+from common import DEFAULT_PLATFORMS, BKPipeline, group
 
 
 class BkStep(str, Enum):
@@ -34,7 +34,6 @@ cpu_template_test = {
             "tools/devtool -y test --no-build -- -m no_block_pr integration_tests/functional/test_cpu_template_helper.py -k test_guest_cpu_config_change",
         ],
         BkStep.LABEL: "🖐️ fingerprint",
-        "instances": DEFAULT_INSTANCES,
         "platforms": DEFAULT_PLATFORMS,
     },
     "cpuid_wrmsr": {
