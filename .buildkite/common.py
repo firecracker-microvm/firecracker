@@ -19,6 +19,7 @@ DEFAULT_INSTANCES = [
     "m5n.metal",  # Intel Cascade Lake
     "m6i.metal",  # Intel Icelake
     "m6a.metal",  # AMD Milan
+    "m7a.metal-48xl",  # AMD Genoa
     "m6g.metal",  # Graviton2
     "m7g.metal",  # Graviton3
 ]
