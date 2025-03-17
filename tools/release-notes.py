@@ -21,14 +21,14 @@ if __name__ == "__main__":
     iterator = iter(changelog_lines)
 
     for line in iterator:
-        if line.startswith(f"## \\[{cur_version}\\]"):
+        if line.startswith(f"## [{cur_version}]"):
             break
     else:
         print(f"Could not find changelog entry for version {cur_version}!")
         sys.exit(1)
 
     for line in iterator:
-        if line.startswith("## \\["):
+        if line.startswith("## ["):
             break
 
         if line.startswith("#"):
