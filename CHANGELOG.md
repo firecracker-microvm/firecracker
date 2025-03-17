@@ -28,6 +28,8 @@ and this project adheres to
   kernels. For older kernels physical counter will still be passed to the guest
   unmodified. See more info
   [here](https://github.com/firecracker-microvm/firecracker/blob/main/docs/prod-host-setup.md#arm-only-vm-physical-counter-behaviour)
+- [#5088](https://github.com/firecracker-microvm/firecracker/pull/5088): Added
+  AMD Genoa as a supported and tested platform for Firecracker.
 
 ### Changed
 
