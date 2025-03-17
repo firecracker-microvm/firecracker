@@ -26,7 +26,13 @@ cpu_template_test = {
             "tools/devtool -y test --no-build -- -m nonci -n4 --dist worksteal integration_tests/functional/test_cpu_features_x86_64.py -k 'test_cpu_rdmsr' "
         ],
         BkStep.LABEL: "📖 rdmsr",
-        "instances": ["c5n.metal", "m5n.metal", "m6a.metal", "m6i.metal"],
+        "instances": [
+            "c5n.metal",
+            "m5n.metal",
+            "m6i.metal",
+            "m6a.metal",
+            "m7a.metal-48xl",
+        ],
     },
     "fingerprint": {
         BkStep.COMMAND: [
@@ -59,7 +65,13 @@ cpu_template_test = {
             "c5n.metal": ["m5n.metal", "m6i.metal"],
             "m6i.metal": ["m5n.metal", "c5n.metal"],
         },
-        "instances": ["c5n.metal", "m5n.metal", "m6i.metal", "m6a.metal"],
+        "instances": [
+            "c5n.metal",
+            "m5n.metal",
+            "m6i.metal",
+            "m6a.metal",
+            "m7a.metal-48xl",
+        ],
     },
 }
 
