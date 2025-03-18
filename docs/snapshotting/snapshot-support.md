@@ -126,17 +126,6 @@ The snapshot functionality is still in developer preview due to the following:
 
 ### Limitations
 
-- Currently on aarch64 platforms only lower 128 bits of any register are saved
-  due to the limitations of `get/set_one_reg` from `kvm-ioctls` crate that
-  Firecracker uses to interact with KVM. This creates an issue with newer
-  aarch64 CPUs with support for registers with width greater than 128 bits,
-  because these registers will be truncated before being stored in the snapshot.
-  This can lead to uVM failure if restored from such snapshot. Because registers
-  wider than 128 bits are usually used in SVE instructions, the best way to
-  mitigate this issue is to ensure that the software run in uVM does not use SVE
-  instructions during snapshot creation. An alternative way is to use
-  [CPU templates](../cpu_templates/cpu-templates.md) to disable SVE related
-  features in uVM.
 - High snapshot latency on 5.4+ host kernels due to cgroups V1. We strongly
   recommend to deploy snapshots on cgroups V2 enabled hosts for the implied
   kernel versions -
