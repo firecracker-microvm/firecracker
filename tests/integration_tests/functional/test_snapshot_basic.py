@@ -121,6 +121,7 @@ def test_5_snapshots(
     rootfs,
     snapshot_type,
     use_snapshot_editor,
+    cpu_template_any,
 ):
     """
     Create and load 5 snapshots.
@@ -136,6 +137,7 @@ def test_5_snapshots(
         mem_size_mib=512,
         track_dirty_pages=diff_snapshots,
     )
+    vm.set_cpu_template(cpu_template_any)
     vm.add_net_iface()
     vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=VSOCK_UDS_PATH)
     vm.start()
