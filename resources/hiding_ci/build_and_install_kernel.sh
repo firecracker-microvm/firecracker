@@ -2,26 +2,49 @@
 # Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# We need sudo privilleges to install the kernel
-if [ "$(id -u)" -ne 0 ]; then
-  echo "This script must be run as root or with sudo privileges"
-  exit 1
-fi
+# fail if we encounter an error, uninitialized variable or a pipe breaks
+set -eu -o pipefail
 
-# Currently this script only works on Ubuntu instances
-if ! grep -qi 'ubuntu' /etc/os-release; then
-  echo "This script currently only works on Ubuntu."
-  exit 1
-fi
+check_root() {
+  # We need sudo privilleges to install the kernel
+  if [ "$(id -u)" -ne 0 ]; then
+    echo "To install, this script must be run as root or with sudo privileges"
+    exit 1
+  fi
+}
+
+check_ubuntu() {
+  # Currently this script only works on Ubuntu instances
+  if ! grep -qi 'ubuntu' /etc/os-release; then
+    echo "This script currently only works on Ubuntu."
+    exit 1
+  fi
+}
+
+tidy_up() {
+  # Some cleanup after we are done
+  echo "Cleaning up.."
+  popd
+  rm -rf $TMP_BUILD_DIR
+}
 
 confirm() {
-  if [[ "$*" == *"-y"* ]]; then
+  if [[ "$*" == *"--no-install"* ]]; then
+    echo "Not installing new kernel."
+
+    if [[ "$*" == *"--tidy"* ]]; then
+      tidy_up
+    fi
+
+    exit 0
+  fi
+
+  if [[ "$*" == *"--install"* ]]; then
     return 0
   fi
 
   while true; do
-    echo "This script will build and install a new kernel. Run this script at your own risk"
-    read -p "Do you want to continue? (y/n) " yn
+    read -p "Do you want to install the new kernel? (y/n) " yn
     case $yn in
     [Yy]*) return 0 ;;
     [Nn]*)
@@ -33,12 +56,48 @@ confirm() {
   done
 }
 
-# Make sure a user really wants to run this script
-confirm "$@"
+apply_patch_file() {
+  git apply $1
+}
+
+apply_series_mbox() {
+  git am $1 --empty=drop
+}
+
+apply_series_link() {
+  patch_url=$(cat $1)
+  echo "Fetching mbox from:" $patch_url
+  wget -O lore.mbox.gz "$patch_url/t.mbox.gz"
+  gunzip lore.mbox
+  apply_series_mbox lore.mbox
+  rm lore.mbox
+}
+
+apply_patch_or_series() {
+  case "$1" in
+  *.patch) apply_patch_file $1 ;;
+  *.mbox) apply_series_mbox $1 ;;
+  *.lore) apply_series_link $1 ;;
+  *)
+    echo "Uknown patch file: "$1
+    exit 1
+    ;;
+  esac
+}
+
+check_override_presence() {
+  while IFS= read -r line; do
+    if ! grep -Fq "$line" .config; then
+      echo "Missing config: $line"
+      exit 1
+    fi
+  done <"$KERNEL_CONFIG_OVERRIDES"
+
+  echo "All overrides correctly applied.."
+}
 
 KERNEL_URL=$(cat kernel_url)
 KERNEL_COMMIT_HASH=$(cat kernel_commit_hash)
-KERNEL_VERSION=$(cat kernel_version)
 KERNEL_PATCHES_DIR=$(pwd)/patches
 KERNEL_CONFIG_OVERRIDES=$(pwd)/kernel_config_overrides
 
@@ -57,9 +116,9 @@ git fetch --depth 1 origin $KERNEL_COMMIT_HASH
 git checkout FETCH_HEAD
 
 # Apply our patches on top
-for PATCH in $KERNEL_PATCHES_DIR/*.patch; do
+for PATCH in $KERNEL_PATCHES_DIR/*.*; do
   echo "Applying patch:" $(basename $PATCH)
-  git apply $PATCH
+  apply_patch_or_series $PATCH
 done
 
 echo "Making kernel config ready for build"
@@ -72,18 +131,30 @@ make olddefconfig
 scripts/config --disable SYSTEM_TRUSTED_KEYS
 scripts/config --disable SYSTEM_REVOCATION_KEYS
 
-# Apply our config overrides on top of the config
-scripts/kconfig/merge_config.sh .config $KERNEL_CONFIG_OVERRIDES
-
-# Finally run olddefconfig again to make sure any
-# new options are configured before build
+# We run this again to default options now changed by
+# the disabling of the ubuntu keys
 make olddefconfig
 
+# Apply our config overrides on top of the config
+scripts/kconfig/merge_config.sh -m .config $KERNEL_CONFIG_OVERRIDES
+
+check_override_presence
+
 echo "Building kernel this may take a while"
-make -j $(nproc)
+make -s -j $(nproc)
 echo "Building kernel modules"
-make modules -j $(nproc)
+make modules -s -j $(nproc)
 echo "Kernel build complete!"
+
+KERNEL_VERSION=$(KERNELVERSION=$(make -s kernelversion) ./scripts/setlocalversion)
+
+echo "New kernel version:" $KERNEL_VERSION
+
+# Make sure a user really wants to install this kernel
+confirm "$@"
+
+check_root
+check_ubuntu
 
 echo "Installing kernel modules..."
 make INSTALL_MOD_STRIP=1 modules_install
@@ -96,6 +167,4 @@ update-grub
 
 echo "Kernel built and installed successfully!"
 
-# Some cleanup after we are done
-popd
-rm -rf $TMP_BUILD_DIR
+tidy_up
