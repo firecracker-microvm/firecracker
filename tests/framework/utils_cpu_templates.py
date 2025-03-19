@@ -58,6 +58,8 @@ def get_supported_custom_cpu_templates():
             return ["v1n1", "aarch64_with_sve_and_pac"]
         case CpuVendor.ARM, CpuModel.ARM_NEOVERSE_V1:
             return ["aarch64_with_sve_and_pac"]
+        case CpuVendor.ARM, CpuModel.ARM_NEOVERSE_V2:
+            return ["aarch64_with_sve_and_pac"]
         case _:
             return []
 
