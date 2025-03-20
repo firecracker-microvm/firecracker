@@ -33,7 +33,9 @@ use crate::snapshot::Snapshot;
 use crate::utils::u64_to_usize;
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{HugePageConfig, MachineConfigError, MachineConfigUpdate};
+use crate::vmm_config::machine_config::{
+    HugePageConfig, MachineConfigError, MachineConfigUpdate, MemoryConfig,
+};
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, MemBackendType};
 use crate::vstate::kvm::KvmState;
 use crate::vstate::memory;
@@ -47,6 +49,8 @@ use crate::{EventManager, Vmm, vstate};
 pub struct VmInfo {
     /// Guest memory size.
     pub mem_size_mib: u64,
+    /// Memory config
+    pub mem_config: MemoryConfig,
     /// smt information
     pub smt: bool,
     /// CPU template type
@@ -61,6 +65,7 @@ impl From<&VmResources> for VmInfo {
     fn from(value: &VmResources) -> Self {
         Self {
             mem_size_mib: value.machine_config.mem_size_mib as u64,
+            mem_config: value.machine_config.mem_config,
             smt: value.machine_config.smt,
             cpu_template: StaticCpuTemplate::from(&value.machine_config.cpu_template),
             boot_source: value.boot_source.config.clone(),
@@ -360,6 +365,7 @@ pub fn restore_from_snapshot(
         .update_machine_config(&MachineConfigUpdate {
             vcpu_count: Some(vcpu_count),
             mem_size_mib: Some(u64_to_usize(microvm_state.vm_info.mem_size_mib)),
+            mem_config: Some(microvm_state.vm_info.mem_config),
             smt: Some(microvm_state.vm_info.smt),
             cpu_template: Some(microvm_state.vm_info.cpu_template),
             track_dirty_pages: Some(track_dirty_pages),

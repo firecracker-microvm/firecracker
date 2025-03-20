@@ -1044,6 +1044,8 @@ definitions:
       mem_size_mib:
         type: integer
         description: Memory size of VM
+      mem_config:
+        $ref: "#/definitions/MemoryConfig"
       track_dirty_pages:
         type: boolean
         description:
@@ -1063,6 +1065,17 @@ definitions:
           - None
           - 2M
         description: Which huge pages configuration (if any) should be used to back guest memory.
+
+  MemoryConfig:
+    type: object
+    description:
+      Describes special configuration options for guest memory, such as swiotlb
+    properties:
+      initial_swiotlb_size:
+        type: integer
+        description:
+          Aarch64 only. If non-zero, causes Firecracker to allocate a specific memory area of this size (in MiB)
+          which the guest will use as swiotlb region for all I/O.
 
   MemoryBackend:
     type: object
