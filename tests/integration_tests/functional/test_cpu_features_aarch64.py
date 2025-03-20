@@ -26,6 +26,10 @@ G3_SVE_AND_PAC = set("paca pacg sve svebf16 svei8mm".split())
 
 G4_FEATS = (G3_FEATS | set("bti flagm2 frint sb".split())) - set("sm3 sm4".split())
 
+G4_SVE_AND_PAC = set(
+    "paca pacg sve sve2 sveaes svebitperm svepmull svesha3 svebf16 svei8mm".split()
+)
+
 
 def test_guest_cpu_features(uvm_any):
     """Check the CPU features for a microvm with different CPU templates"""
@@ -47,6 +51,8 @@ def test_guest_cpu_features(uvm_any):
             expected_cpu_features = G3_FEATS
         case CpuModel.ARM_NEOVERSE_V2, None:
             expected_cpu_features = G4_FEATS
+        case CpuModel.ARM_NEOVERSE_V2, "aarch64_with_sve_and_pac":
+            expected_cpu_features = G4_FEATS | G4_SVE_AND_PAC
 
     guest_feats = set(vm.ssh.check_output(CPU_FEATURES_CMD).stdout.split())
     assert guest_feats == expected_cpu_features
