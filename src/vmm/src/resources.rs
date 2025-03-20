@@ -1328,6 +1328,8 @@ mod tests {
             cpu_template: Some(StaticCpuTemplate::V1N1),
             track_dirty_pages: Some(false),
             huge_pages: Some(HugePageConfig::None),
+            #[cfg(feature = "gdb")]
+            gdb_socket_path: None,
         };
 
         assert_ne!(
