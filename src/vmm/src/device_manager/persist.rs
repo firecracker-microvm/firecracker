@@ -846,6 +846,7 @@ mod tests {
   "machine-config": {{
     "vcpu_count": 1,
     "mem_size_mib": 128,
+    "secret_free": false,
     "smt": false,
     "track_dirty_pages": false,
     "huge_pages": "None"
