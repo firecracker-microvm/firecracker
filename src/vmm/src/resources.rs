@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use vm_memory::GuestAddress;
 
 use crate::cpu_config::templates::CustomCpuTemplate;
+use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::logger::{LoggerConfig, info};
 use crate::mmds;
@@ -287,6 +288,27 @@ impl VmResources {
             return Err(MachineConfigError::IncompatibleBalloonSize);
         }
 
+        if self.balloon.get().is_some() && updated.secret_free {
+            return Err(MachineConfigError::Incompatible(
+                "balloon device",
+                "secret freedom",
+            ));
+        }
+        if updated.secret_free {
+            if self.vhost_user_devices_used() {
+                return Err(MachineConfigError::Incompatible(
+                    "vhost-user devices",
+                    "userspace bounce buffers",
+                ));
+            }
+
+            if self.async_block_engine_used() {
+                return Err(MachineConfigError::Incompatible(
+                    "async block engine",
+                    "userspace bounce buffers",
+                ));
+            }
+        }
         self.machine_config = updated;
 
         Ok(())
@@ -345,6 +367,10 @@ impl VmResources {
             return Err(BalloonConfigError::TooManyPagesRequested);
         }
 
+        if self.machine_config.secret_free {
+            return Err(BalloonConfigError::IncompatibleWith("secret freedom"));
+        }
+
         self.balloon.set(config)
     }
 
@@ -368,6 +394,17 @@ impl VmResources {
         &mut self,
         block_device_config: BlockDeviceConfig,
     ) -> Result<(), DriveError> {
+        if self.machine_config.secret_free {
+            if block_device_config.file_engine_type == Some(FileEngineType::Async) {
+                return Err(DriveError::IncompatibleWithSecretFreedom(
+                    "async file engine",
+                ));
+            }
+
+            if block_device_config.socket.is_some() {
+                return Err(DriveError::IncompatibleWithSecretFreedom("vhost-user-blk"));
+            }
+        }
         let has_pmem_root = self.pmem.has_root_device();
         self.block.insert(block_device_config, has_pmem_root)
     }
@@ -483,16 +520,31 @@ impl VmResources {
         Ok(())
     }
 
+    /// Returns true if any vhost user devices are configured in this [`VmResources`] object
+    pub fn vhost_user_devices_used(&self) -> bool {
+        self.block
+            .devices
+            .iter()
+            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user())
+    }
+
+    fn async_block_engine_used(&self) -> bool {
+        self.block
+            .devices
+            .iter()
+            .any(|b| match &*b.lock().unwrap() {
+                Block::Virtio(b) => b.file_engine_type() == FileEngineType::Async,
+                Block::VhostUser(_) => false,
+            })
+    }
+
     /// Whether guest memory has to be backed by a memfd rather than anonymous memory.
     ///
     /// Page faults are more expensive for shared memory mappings, including memfd. For this
     /// reason, guest memory is only backed by a memfd when something outside of Firecracker
     /// has to see it, which today means a vhost-user-blk device.
     fn memfd_required(&self) -> bool {
-        self.block
-            .devices
-            .iter()
-            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user())
+        self.vhost_user_devices_used()
     }
 
     /// Total size in bytes of guest memory: the given DRAM regions plus the virtio-mem
@@ -1584,6 +1636,7 @@ mod tests {
         let mut aux_vm_config = MachineConfigUpdate {
             vcpu_count: Some(32),
             mem_size_mib: Some(512),
+            secret_free: Some(false),
             smt: Some(false),
             #[cfg(target_arch = "x86_64")]
             cpu_template: Some(StaticCpuTemplate::T2),

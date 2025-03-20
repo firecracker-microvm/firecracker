@@ -37,6 +37,8 @@ pub enum MachineConfigError {
     InvalidPcieHotplugPorts,
     /// PCIe hot-plug ports require `--enable-pci`.
     PcieHotplugPortsRequirePci,
+    /// '{0}' and '{1}' are mutually exclusive and cannot be used together.
+    Incompatible(&'static str, &'static str),
 }
 
 /// Describes the possible (huge)page configurations for a microVM's memory.
@@ -118,6 +120,11 @@ pub struct MachineConfig {
     pub vcpu_count: u8,
     /// The memory size in MiB.
     pub mem_size_mib: usize,
+    /// Whether guest_memfd should be used to back normal guest memory. If this is enabled
+    /// and any devices are attached to the VM, userspace bounce buffers will be used
+    /// as I/O into secret free memory is not possible.
+    #[serde(default)]
+    pub secret_free: bool,
     /// Enables or disabled SMT.
     #[serde(default)]
     pub smt: bool,
@@ -177,6 +184,7 @@ impl Default for MachineConfig {
         Self {
             vcpu_count: 1,
             mem_size_mib: DEFAULT_MEM_SIZE_MIB,
+            secret_free: false,
             smt: false,
             cpu_template: None,
             track_dirty_pages: false,
@@ -203,6 +211,9 @@ pub struct MachineConfigUpdate {
     /// The memory size in MiB.
     #[serde(default)]
     pub mem_size_mib: Option<usize>,
+    /// Whether secret freedom should be enabled
+    #[serde(default)]
+    pub secret_free: Option<bool>,
     /// Enables or disabled SMT.
     #[serde(default)]
     pub smt: Option<bool>,
@@ -238,6 +249,7 @@ impl From<MachineConfig> for MachineConfigUpdate {
         MachineConfigUpdate {
             vcpu_count: Some(cfg.vcpu_count),
             mem_size_mib: Some(cfg.mem_size_mib),
+            secret_free: Some(cfg.secret_free),
             smt: Some(cfg.smt),
             cpu_template: cfg.static_template(),
             track_dirty_pages: Some(cfg.track_dirty_pages),
@@ -292,9 +304,25 @@ impl MachineConfig {
 
         let mem_size_mib = update.mem_size_mib.unwrap_or(self.mem_size_mib);
         let page_config = update.huge_pages.unwrap_or(self.huge_pages);
+        let secret_free = update.secret_free.unwrap_or(self.secret_free);
+        let track_dirty_pages = update.track_dirty_pages.unwrap_or(self.track_dirty_pages);
 
         if mem_size_mib == 0 || !page_config.is_valid_mem_size(mem_size_mib) {
             return Err(MachineConfigError::InvalidMemorySize);
+        }
+
+        if secret_free && page_config != HugePageConfig::None {
+            return Err(MachineConfigError::Incompatible(
+                "secret freedom",
+                "huge pages",
+            ));
+        }
+
+        if secret_free && track_dirty_pages {
+            return Err(MachineConfigError::Incompatible(
+                "secret freedom",
+                "diff snapshots",
+            ));
         }
 
         let pcie_hotplug_ports = update.pcie_hotplug_ports.unwrap_or(self.pcie_hotplug_ports);
@@ -311,9 +339,10 @@ impl MachineConfig {
         Ok(MachineConfig {
             vcpu_count,
             mem_size_mib,
+            secret_free,
             smt,
             cpu_template,
-            track_dirty_pages: update.track_dirty_pages.unwrap_or(self.track_dirty_pages),
+            track_dirty_pages,
             huge_pages: page_config,
             pcie_hotplug_ports,
             #[cfg(feature = "gdb")]
@@ -406,6 +435,32 @@ mod tests {
             .unwrap();
         assert_eq!(updated.huge_pages, HugePageConfig::Hugetlbfs2M);
         assert_eq!(updated.mem_size_mib, 32);
+
+        let res = mconf.update(&MachineConfigUpdate {
+            huge_pages: Some(HugePageConfig::Hugetlbfs2M),
+            secret_free: Some(true),
+            ..Default::default()
+        });
+        assert_eq!(
+            res,
+            Err(MachineConfigError::Incompatible(
+                "secret freedom",
+                "huge pages"
+            ))
+        );
+
+        let res = mconf.update(&MachineConfigUpdate {
+            track_dirty_pages: Some(true),
+            secret_free: Some(true),
+            ..Default::default()
+        });
+        assert_eq!(
+            res,
+            Err(MachineConfigError::Incompatible(
+                "secret freedom",
+                "diff snapshots"
+            ))
+        );
     }
 
     #[test]
