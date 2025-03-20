@@ -1056,6 +1056,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
     setup_cfg["machine-config"] = {
         "vcpu_count": 2,
         "mem_size_mib": 256,
+        "secret_free": False,
         "smt": True,
         "track_dirty_pages": False,
         "huge_pages": "None",
@@ -1169,6 +1170,7 @@ def test_get_full_config(uvm_plain):
     expected_cfg["machine-config"] = {
         "vcpu_count": 2,
         "mem_size_mib": 256,
+        "secret_free": False,
         "smt": False,
         "track_dirty_pages": False,
         "huge_pages": "None",
