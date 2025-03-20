@@ -48,6 +48,8 @@ use crate::{EventManager, Vmm, vstate};
 pub struct VmInfo {
     /// Guest memory size.
     pub mem_size_mib: u64,
+    /// Memory config
+    pub secret_free: bool,
     /// smt information
     pub smt: bool,
     /// CPU template type
@@ -62,6 +64,7 @@ impl From<&VmResources> for VmInfo {
     fn from(value: &VmResources) -> Self {
         Self {
             mem_size_mib: value.machine_config.mem_size_mib as u64,
+            secret_free: value.machine_config.secret_free,
             smt: value.machine_config.smt,
             cpu_template: StaticCpuTemplate::from(&value.machine_config.cpu_template),
             boot_source: value.boot_source.config.clone(),
@@ -382,6 +385,7 @@ pub fn restore_from_snapshot(
         .update_machine_config(&MachineConfigUpdate {
             vcpu_count: Some(vcpu_count),
             mem_size_mib: Some(u64_to_usize(microvm_state.vm_info.mem_size_mib)),
+            secret_free: Some(microvm_state.vm_info.secret_free),
             smt: Some(microvm_state.vm_info.smt),
             cpu_template: Some(microvm_state.vm_info.cpu_template),
             track_dirty_pages: Some(track_dirty_pages),

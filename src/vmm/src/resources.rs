@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use vm_memory::GuestAddress;
 
 use crate::cpu_config::templates::CustomCpuTemplate;
+use crate::devices::virtio::block::device::Block;
 use crate::logger::info;
 use crate::mmds;
 use crate::mmds::data_store::{Mmds, MmdsVersion};
@@ -263,6 +264,27 @@ impl VmResources {
             return Err(MachineConfigError::IncompatibleBalloonSize);
         }
 
+        if self.balloon.get().is_some() && updated.secret_free {
+            return Err(MachineConfigError::Incompatible(
+                "balloon device",
+                "secret freedom",
+            ));
+        }
+        if updated.secret_free {
+            if self.vhost_user_devices_used() {
+                return Err(MachineConfigError::Incompatible(
+                    "vhost-user devices",
+                    "userspace bounce buffers",
+                ));
+            }
+
+            if self.async_block_engine_used() {
+                return Err(MachineConfigError::Incompatible(
+                    "async block engine",
+                    "userspace bounce buffers",
+                ));
+            }
+        }
         self.machine_config = updated;
 
         Ok(())
@@ -319,6 +341,10 @@ impl VmResources {
             return Err(BalloonConfigError::TooManyPagesRequested);
         }
 
+        if self.machine_config.secret_free {
+            return Err(BalloonConfigError::IncompatibleWith("secret freedom"));
+        }
+
         self.balloon.set(config)
     }
 
@@ -342,6 +368,17 @@ impl VmResources {
         &mut self,
         block_device_config: BlockDeviceConfig,
     ) -> Result<(), DriveError> {
+        if self.machine_config.secret_free {
+            if block_device_config.file_engine_type == Some(FileEngineType::Async) {
+                return Err(DriveError::IncompatibleWithSecretFreedom(
+                    "async file engine",
+                ));
+            }
+
+            if block_device_config.socket.is_some() {
+                return Err(DriveError::IncompatibleWithSecretFreedom("vhost-user-blk"));
+            }
+        }
         let has_pmem_root = self.pmem.has_root_device();
         self.block.insert(block_device_config, has_pmem_root)
     }
@@ -458,6 +495,24 @@ impl VmResources {
         Ok(())
     }
 
+    /// Returns true if any vhost user devices are configured int his [`VmResources`] object
+    pub fn vhost_user_devices_used(&self) -> bool {
+        self.block
+            .devices
+            .iter()
+            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user())
+    }
+
+    fn async_block_engine_used(&self) -> bool {
+        self.block
+            .devices
+            .iter()
+            .any(|b| match &*b.lock().unwrap() {
+                Block::Virtio(b) => b.file_engine_type() == FileEngineType::Async,
+                Block::VhostUser(_) => false,
+            })
+    }
+
     /// Allocates the given guest memory regions.
     ///
     /// If vhost-user-blk devices are in use, allocates memfd-backed shared memory, otherwise
@@ -466,12 +521,6 @@ impl VmResources {
         &self,
         regions: &[(GuestAddress, usize)],
     ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-        let vhost_user_device_used = self
-            .block
-            .devices
-            .iter()
-            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user());
-
         // Page faults are more expensive for shared memory mapping, including  memfd.
         // For this reason, we only back guest memory with a memfd
         // if a vhost-user-blk device is configured in the VM, otherwise we fall back to
@@ -481,7 +530,7 @@ impl VmResources {
         // because that would require running a backend process. If in the future we converge to
         // a single way of backing guest memory for vhost-user and non-vhost-user cases,
         // that would not be worth the effort.
-        if vhost_user_device_used {
+        if self.vhost_user_devices_used() {
             memory::memfd_backed(
                 regions,
                 self.machine_config.track_dirty_pages,
@@ -1399,6 +1448,7 @@ mod tests {
         let mut aux_vm_config = MachineConfigUpdate {
             vcpu_count: Some(32),
             mem_size_mib: Some(512),
+            secret_free: Some(false),
             smt: Some(false),
             #[cfg(target_arch = "x86_64")]
             cpu_template: Some(StaticCpuTemplate::T2),
