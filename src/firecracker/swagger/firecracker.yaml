@@ -1044,6 +1044,11 @@ definitions:
       mem_size_mib:
         type: integer
         description: Memory size of VM
+      secret_free:
+        type: boolean
+        description:
+          If enabled, guest memory will be unmapped from the host kernel's address space, providing additional
+          protection against transitive execution issues. All I/O then goes through a bounce buffer.
       track_dirty_pages:
         type: boolean
         description:
