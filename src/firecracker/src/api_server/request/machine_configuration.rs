@@ -120,6 +120,7 @@ mod tests {
             let expected_config = MachineConfigUpdate {
                 vcpu_count: Some(8),
                 mem_size_mib: Some(1024),
+                secret_free: Some(false),
                 smt: Some(false),
                 cpu_template: None,
                 track_dirty_pages: Some(false),
@@ -141,6 +142,7 @@ mod tests {
         let expected_config = MachineConfigUpdate {
             vcpu_count: Some(8),
             mem_size_mib: Some(1024),
+            secret_free: Some(false),
             smt: Some(false),
             cpu_template: Some(StaticCpuTemplate::None),
             track_dirty_pages: Some(false),
@@ -162,6 +164,7 @@ mod tests {
         let expected_config = MachineConfigUpdate {
             vcpu_count: Some(8),
             mem_size_mib: Some(1024),
+            secret_free: Some(false),
             smt: Some(false),
             cpu_template: None,
             track_dirty_pages: Some(true),
@@ -187,6 +190,7 @@ mod tests {
             let expected_config = MachineConfigUpdate {
                 vcpu_count: Some(8),
                 mem_size_mib: Some(1024),
+                secret_free: Some(false),
                 smt: Some(false),
                 cpu_template: Some(StaticCpuTemplate::T2),
                 track_dirty_pages: Some(true),
@@ -214,6 +218,7 @@ mod tests {
         let expected_config = MachineConfigUpdate {
             vcpu_count: Some(8),
             mem_size_mib: Some(1024),
+            secret_free: Some(false),
             smt: Some(true),
             cpu_template: None,
             track_dirty_pages: Some(true),
