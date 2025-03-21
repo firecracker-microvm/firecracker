@@ -37,6 +37,19 @@ The guest kernel configs used in our validation pipelines can be found
 [here](../resources/guest_configs/) while a breakdown of the relevant guest
 kernel modules can be found in the next section.
 
+We use these configurations to build microVM-specific kernels vended by Amazon
+Linux. microVM kernel source code is published in the Amazon Linux
+[linux repo](https://github.com/amazonlinux/linux) under tags in the form of
+`microvm-kernel-*`, e.g. 6.1.128-3.201.amazn2023 kernel can be found
+[here](https://github.com/amazonlinux/linux/tree/microvm-kernel-6.1.128-3.201.amzn2023).
+These kernels may have diverged from the equivalent mainline versions, as we
+often backport patches that we require for supporting Firecracker features not
+present in the kernel versions we officially support. As a result, kernel
+configurations found in this repo should be used to build exclusively the
+aforementioned Amazon Linux kernels. We do not guarantee that using these
+configurations to build upstream kernels, will work or produce usable kernel
+images.
+
 ## Guest kernel configuration items
 
 The configuration items that may be relevant for Firecracker are:
