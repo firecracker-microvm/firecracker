@@ -477,9 +477,10 @@ mod tests {
         use crate::arch::x86_64::{FIRST_ADDR_PAST_32BITS, MEM_32BIT_GAP_SIZE};
         use crate::devices::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
         use crate::test_utils::multi_region_mem;
+        use crate::utils::mib_to_bytes;
         use crate::vstate::memory::GuestAddress;
 
-        const MIB: usize = 1 << 20;
+        const MIB: usize = mib_to_bytes(1);
 
         let mut test_ctx = TestContext::new();
         test_ctx.mem = multi_region_mem(&[

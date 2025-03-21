@@ -1050,6 +1050,7 @@ pub(crate) mod tests {
     use crate::mmds::data_store::{Mmds, MmdsVersion};
     use crate::mmds::ns::MmdsNetworkStack;
     use crate::test_utils::{single_region_mem, single_region_mem_at};
+    use crate::utils::mib_to_bytes;
     use crate::vmm_config::balloon::{BALLOON_DEV_ID, BalloonBuilder, BalloonDeviceConfig};
     use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
@@ -1113,7 +1114,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn default_vmm() -> Vmm {
-        let (kvm, mut vm, guest_memory) = setup_vm_with_memory(128 << 20);
+        let (kvm, mut vm, guest_memory) = setup_vm_with_memory(mib_to_bytes(128));
 
         let mmio_device_manager = MMIODeviceManager::new();
         let acpi_device_manager = ACPIDeviceManager::new();

@@ -135,6 +135,7 @@ impl Vm {
 pub(crate) mod tests {
     use super::*;
     use crate::test_utils::single_region_mem;
+    use crate::utils::mib_to_bytes;
     use crate::vstate::kvm::Kvm;
     use crate::vstate::memory::GuestMemoryMmap;
 
@@ -189,7 +190,7 @@ pub(crate) mod tests {
     #[test]
     fn test_create_vcpus() {
         let vcpu_count = 2;
-        let (_, mut vm, _) = setup_vm_with_memory(128 << 20);
+        let (_, mut vm, _) = setup_vm_with_memory(mib_to_bytes(128));
 
         let (vcpu_vec, _) = vm.create_vcpus(vcpu_count).unwrap();
 
