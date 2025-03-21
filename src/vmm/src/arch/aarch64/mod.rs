@@ -66,6 +66,14 @@ pub fn arch_memory_regions(offset: usize, size: usize) -> Vec<(GuestAddress, usi
     )]
 }
 
+/// How many bytes of physical guest memory are addressible before the final gap in
+/// the address space on this architecture.
+///
+/// There are no architectural gaps in the physical address space on aarch64, so this is 0
+pub fn bytes_before_last_gap() -> usize {
+    0
+}
+
 /// Configures the system for booting Linux.
 pub fn configure_system_for_boot(
     vmm: &mut Vmm,
