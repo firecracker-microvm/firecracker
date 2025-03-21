@@ -5,6 +5,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::sync::Arc;
+
 use kvm_bindings::{KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region};
 use kvm_ioctls::VmFd;
 use vmm_sys_util::eventfd::EventFd;
@@ -12,7 +14,9 @@ use vmm_sys_util::eventfd::EventFd;
 use crate::Vcpu;
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
 use crate::logger::info;
-use crate::vstate::memory::{Address, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
+use crate::vstate::memory::{
+    Address, GuestMemory, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap,
+};
 use crate::vstate::vcpu::VcpuError;
 
 /// Architecture independent parts of a VM.
@@ -21,7 +25,7 @@ pub struct VmCommon {
     /// The KVM file descriptor used to access this Vm.
     pub fd: VmFd,
     max_memslots: usize,
-    guest_memory: Option<GuestMemoryMmap>,
+    guest_memory: GuestMemoryMmap,
 }
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -41,6 +45,8 @@ pub enum VmError {
     CreateVcpu(VcpuError),
     /// The number of configured slots is bigger than the maximum reported by KVM
     NotEnoughMemorySlots,
+    /// Memory Error: {0}
+    VmMemory(#[from] vm_memory::Error),
 }
 
 /// Contains Vm functions that are usable across CPU architectures
@@ -86,7 +92,7 @@ impl Vm {
         Ok(VmCommon {
             fd,
             max_memslots: kvm.max_nr_memslots(),
-            guest_memory: None,
+            guest_memory: GuestMemoryMmap::default(),
         })
     }
 
@@ -110,44 +116,54 @@ impl Vm {
         Ok((vcpus, exit_evt))
     }
 
-    /// Initializes the guest memory.
-    pub fn memory_init(&mut self, guest_mem: GuestMemoryMmap) -> Result<(), VmError> {
-        if guest_mem.num_regions() > self.common.max_memslots {
-            return Err(VmError::NotEnoughMemorySlots);
+    /// Register a list of new memory regions to this [`Vm`].
+    pub fn register_memory_regions(
+        &mut self,
+        regions: Vec<GuestRegionMmap>,
+    ) -> Result<(), VmError> {
+        for region in regions {
+            self.register_memory_region(region)?
         }
-
-        self.set_kvm_memory_regions(&guest_mem)?;
-        self.common.guest_memory = Some(guest_mem);
 
         Ok(())
     }
 
-    pub(crate) fn set_kvm_memory_regions(
-        &self,
-        guest_mem: &GuestMemoryMmap,
-    ) -> Result<(), VmError> {
-        guest_mem
-            .iter()
-            .zip(0u32..)
-            .try_for_each(|(region, slot)| {
-                let flags = if region.bitmap().is_some() {
-                    KVM_MEM_LOG_DIRTY_PAGES
-                } else {
-                    0
-                };
+    /// Register a new memory region to this [`Vm`].
+    pub fn register_memory_region(&mut self, region: GuestRegionMmap) -> Result<(), VmError> {
+        let next_slot = self
+            .guest_memory()
+            .num_regions()
+            .try_into()
+            .map_err(|_| VmError::NotEnoughMemorySlots)?;
+        if next_slot as usize >= self.common.max_memslots {
+            return Err(VmError::NotEnoughMemorySlots);
+        }
 
-                let memory_region = kvm_userspace_memory_region {
-                    slot,
-                    guest_phys_addr: region.start_addr().raw_value(),
-                    memory_size: region.len(),
-                    userspace_addr: region.as_ptr() as u64,
-                    flags,
-                };
+        let flags = if region.bitmap().is_some() {
+            KVM_MEM_LOG_DIRTY_PAGES
+        } else {
+            0
+        };
 
-                // SAFETY: Safe because the fd is a valid KVM file descriptor.
-                unsafe { self.fd().set_user_memory_region(memory_region) }
-            })
-            .map_err(VmError::SetUserMemoryRegion)?;
+        let memory_region = kvm_userspace_memory_region {
+            slot: next_slot,
+            guest_phys_addr: region.start_addr().raw_value(),
+            memory_size: region.len(),
+            userspace_addr: region.as_ptr() as u64,
+            flags,
+        };
+
+        let new_guest_memory = self.common.guest_memory.insert_region(Arc::new(region))?;
+
+        // SAFETY: Safe because the fd is a valid KVM file descriptor.
+        unsafe {
+            self.fd()
+                .set_user_memory_region(memory_region)
+                .map_err(VmError::SetUserMemoryRegion)?;
+        }
+
+        self.common.guest_memory = new_guest_memory;
+
         Ok(())
     }
 
@@ -158,22 +174,17 @@ impl Vm {
 
     /// Gets a reference to this [`Vm`]'s [`GuestMemoryMmap`] object
     pub fn guest_memory(&self) -> &GuestMemoryMmap {
-        self.common
-            .guest_memory
-            .as_ref()
-            .expect("attempt to access guest memory before calling Vm::memory_init()")
+        &self.common.guest_memory
     }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::sync::Arc;
-
     use vm_memory::GuestAddress;
     use vm_memory::mmap::MmapRegionBuilder;
 
     use super::*;
-    use crate::test_utils::single_region_mem;
+    use crate::test_utils::single_region_mem_raw;
     use crate::utils::mib_to_bytes;
     use crate::vstate::kvm::Kvm;
     use crate::vstate::memory::GuestRegionMmap;
@@ -188,8 +199,8 @@ pub(crate) mod tests {
     // Auxiliary function being used throughout the tests.
     pub(crate) fn setup_vm_with_memory(mem_size: usize) -> (Kvm, Vm) {
         let (kvm, mut vm) = setup_vm();
-        let gm = single_region_mem(mem_size);
-        vm.memory_init(gm).unwrap();
+        let gm = single_region_mem_raw(mem_size);
+        vm.register_memory_regions(gm).unwrap();
         (kvm, vm)
     }
 
@@ -201,29 +212,21 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_vm_memory_init() {
+    fn test_register_memory_regions() {
         let (_, mut vm) = setup_vm();
-        // Create valid memory region and test that the initialization is successful.
-        let gm = single_region_mem(0x1000);
-        vm.memory_init(gm).unwrap();
-    }
-
-    #[test]
-    fn test_set_kvm_memory_regions() {
-        let (_, vm) = setup_vm();
-
-        let gm = single_region_mem(0x1000);
-        let res = vm.set_kvm_memory_regions(&gm);
-        res.unwrap();
 
         // Trying to set a memory region with a size that is not a multiple of GUEST_PAGE_SIZE
         // will result in error.
-        let gm = single_region_mem(0x10);
-        let res = vm.set_kvm_memory_regions(&gm);
+        let gm = single_region_mem_raw(0x10);
+        let res = vm.register_memory_regions(gm);
         assert_eq!(
             res.unwrap_err().to_string(),
             "Cannot set the memory regions: Invalid argument (os error 22)"
         );
+
+        let gm = single_region_mem_raw(0x1000);
+        let res = vm.register_memory_regions(gm);
+        res.unwrap();
     }
 
     #[test]
@@ -231,7 +234,6 @@ pub(crate) mod tests {
         let (kvm, mut vm) = setup_vm();
         let max_nr_regions = kvm.max_nr_memslots();
 
-        let mut gm = GuestMemoryMmap::default();
         // SAFETY: valid mmap parameters
         let ptr = unsafe {
             libc::mmap(
@@ -246,7 +248,7 @@ pub(crate) mod tests {
 
         assert_ne!(ptr, libc::MAP_FAILED);
 
-        for i in 0..max_nr_regions {
+        for i in 0..=max_nr_regions {
             // SAFETY: we assert above that the ptr is valid, and the size matches what we passed to
             // mmap
             let region = unsafe {
@@ -258,30 +260,26 @@ pub(crate) mod tests {
 
             let region = GuestRegionMmap::new(region, GuestAddress(i as u64 * 0x1000)).unwrap();
 
-            gm = gm.insert_region(Arc::new(region)).unwrap();
+            let res = vm.register_memory_region(region);
+
+            if i >= max_nr_regions {
+                assert!(
+                    matches!(res, Err(VmError::NotEnoughMemorySlots)),
+                    "{:?} at iteration {} - max_nr_memslots: {}",
+                    res,
+                    i,
+                    max_nr_regions
+                );
+            } else {
+                res.unwrap_or_else(|_| {
+                    panic!(
+                        "to be able to insert more regions in iteration {i} - max_nr_memslots: \
+                         {max_nr_regions} - num_regions: {}",
+                        vm.guest_memory().num_regions()
+                    )
+                });
+            }
         }
-
-        vm.memory_init(gm.clone()).unwrap();
-
-        let mut vm = Vm::new(&kvm).unwrap();
-
-        // SAFETY: we assert above that the ptr is valid, and the size matches what we passed to
-        // mmap
-        let region = unsafe {
-            MmapRegionBuilder::new(0x1000)
-                .with_raw_mmap_pointer(ptr.cast())
-                .build()
-                .unwrap()
-        };
-
-        let region =
-            GuestRegionMmap::new(region, GuestAddress(max_nr_regions as u64 * 0x1000)).unwrap();
-
-        let err = vm
-            .memory_init(gm.insert_region(Arc::new(region)).unwrap())
-            .unwrap_err();
-
-        assert!(matches!(err, VmError::NotEnoughMemorySlots), "{:?}", err);
     }
 
     #[test]

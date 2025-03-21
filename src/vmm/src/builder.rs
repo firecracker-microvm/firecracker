@@ -57,7 +57,7 @@ use crate::snapshot::Persist;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::MachineConfigError;
 use crate::vstate::kvm::Kvm;
-use crate::vstate::memory::GuestMemoryMmap;
+use crate::vstate::memory::GuestRegionMmap;
 use crate::vstate::vcpu::{Vcpu, VcpuError};
 use crate::vstate::vm::Vm;
 use crate::{EventManager, Vmm, VmmError, device_manager};
@@ -134,7 +134,6 @@ impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
 fn create_vmm_and_vcpus(
     instance_info: &InstanceInfo,
     event_manager: &mut EventManager,
-    guest_memory: GuestMemoryMmap,
     uffd: Option<Uffd>,
     vcpu_count: u8,
     kvm_capabilities: Vec<KvmCapability>,
@@ -143,7 +142,6 @@ fn create_vmm_and_vcpus(
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
     let mut vm = Vm::new(&kvm)?;
-    vm.memory_init(guest_memory)?;
 
     let resource_allocator = ResourceAllocator::new()?;
 
@@ -230,11 +228,14 @@ pub fn build_microvm_for_boot(
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
         event_manager,
-        guest_memory,
         None,
         vm_resources.machine_config.vcpu_count,
         cpu_template.kvm_capabilities.clone(),
     )?;
+
+    vmm.vm
+        .register_memory_regions(guest_memory)
+        .map_err(VmmError::Vm)?;
 
     let entry_point = load_kernel(&boot_config.kernel_file, vmm.vm.guest_memory())?;
     let initrd = InitrdConfig::from_config(boot_config, vmm.vm.guest_memory())?;
@@ -413,7 +414,7 @@ pub fn build_microvm_from_snapshot(
     instance_info: &InstanceInfo,
     event_manager: &mut EventManager,
     microvm_state: MicrovmState,
-    guest_memory: GuestMemoryMmap,
+    guest_memory: Vec<GuestRegionMmap>,
     uffd: Option<Uffd>,
     seccomp_filters: &BpfThreadMap,
     vm_resources: &mut VmResources,
@@ -423,12 +424,16 @@ pub fn build_microvm_from_snapshot(
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
         event_manager,
-        guest_memory,
         uffd,
         vm_resources.machine_config.vcpu_count,
         microvm_state.kvm_state.kvm_cap_modifiers.clone(),
     )
     .map_err(StartMicrovmError::Internal)?;
+
+    vmm.vm
+        .register_memory_regions(guest_memory)
+        .map_err(VmmError::Vm)
+        .map_err(StartMicrovmError::Internal)?;
 
     #[cfg(target_arch = "x86_64")]
     {
