@@ -399,7 +399,8 @@ impl MultiThreadBase for FirecrackerTarget {
                 GUEST_PAGE_SIZE - (u64_to_usize(gpa) & (GUEST_PAGE_SIZE - 1)),
             );
 
-            vmm.guest_memory
+            vmm.vm
+                .guest_memory()
                 .read(&mut data[..read_len], GuestAddress(gpa as u64))
                 .map_err(|e| {
                     error!("Error reading memory {e:?} gpa is {gpa}");
@@ -433,7 +434,8 @@ impl MultiThreadBase for FirecrackerTarget {
                 GUEST_PAGE_SIZE - (u64_to_usize(gpa) & (GUEST_PAGE_SIZE - 1)),
             );
 
-            vmm.guest_memory
+            vmm.vm
+                .guest_memory()
                 .write(&data[..write_len], GuestAddress(gpa))
                 .map_err(|e| {
                     error!("Error {e:?} writing memory at {gpa:#X}");
