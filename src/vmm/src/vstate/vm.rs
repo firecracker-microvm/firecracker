@@ -21,6 +21,7 @@ pub struct VmCommon {
     /// The KVM file descriptor used to access this Vm.
     pub fd: VmFd,
     max_memslots: usize,
+    guest_memory: Option<GuestMemoryMmap>,
 }
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -85,6 +86,7 @@ impl Vm {
         Ok(VmCommon {
             fd,
             max_memslots: kvm.max_nr_memslots(),
+            guest_memory: None,
         })
     }
 
@@ -109,12 +111,15 @@ impl Vm {
     }
 
     /// Initializes the guest memory.
-    pub fn memory_init(&self, guest_mem: &GuestMemoryMmap) -> Result<(), VmError> {
+    pub fn memory_init(&mut self, guest_mem: GuestMemoryMmap) -> Result<(), VmError> {
         if guest_mem.num_regions() > self.common.max_memslots {
             return Err(VmError::NotEnoughMemorySlots);
         }
 
-        self.set_kvm_memory_regions(guest_mem)
+        self.set_kvm_memory_regions(&guest_mem)?;
+        self.common.guest_memory = Some(guest_mem);
+
+        Ok(())
     }
 
     pub(crate) fn set_kvm_memory_regions(
@@ -150,6 +155,14 @@ impl Vm {
     pub fn fd(&self) -> &VmFd {
         &self.common.fd
     }
+
+    /// Gets a reference to this [`Vm`]'s [`GuestMemoryMmap`] object
+    pub fn guest_memory(&self) -> &GuestMemoryMmap {
+        self.common
+            .guest_memory
+            .as_ref()
+            .expect("attempt to access guest memory before calling Vm::memory_init()")
+    }
 }
 
 #[cfg(test)]
@@ -163,7 +176,7 @@ pub(crate) mod tests {
     use crate::test_utils::single_region_mem;
     use crate::utils::mib_to_bytes;
     use crate::vstate::kvm::Kvm;
-    use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmap};
+    use crate::vstate::memory::GuestRegionMmap;
 
     // Auxiliary function being used throughout the tests.
     pub(crate) fn setup_vm() -> (Kvm, Vm) {
@@ -173,11 +186,11 @@ pub(crate) mod tests {
     }
 
     // Auxiliary function being used throughout the tests.
-    pub(crate) fn setup_vm_with_memory(mem_size: usize) -> (Kvm, Vm, GuestMemoryMmap) {
-        let (kvm, vm) = setup_vm();
+    pub(crate) fn setup_vm_with_memory(mem_size: usize) -> (Kvm, Vm) {
+        let (kvm, mut vm) = setup_vm();
         let gm = single_region_mem(mem_size);
-        vm.memory_init(&gm).unwrap();
-        (kvm, vm, gm)
+        vm.memory_init(gm).unwrap();
+        (kvm, vm)
     }
 
     #[test]
@@ -189,10 +202,10 @@ pub(crate) mod tests {
 
     #[test]
     fn test_vm_memory_init() {
-        let (_, vm) = setup_vm();
+        let (_, mut vm) = setup_vm();
         // Create valid memory region and test that the initialization is successful.
         let gm = single_region_mem(0x1000);
-        vm.memory_init(&gm).unwrap();
+        vm.memory_init(gm).unwrap();
     }
 
     #[test]
@@ -215,7 +228,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_too_many_regions() {
-        let (kvm, vm) = setup_vm();
+        let (kvm, mut vm) = setup_vm();
         let max_nr_regions = kvm.max_nr_memslots();
 
         let mut gm = GuestMemoryMmap::default();
@@ -248,9 +261,9 @@ pub(crate) mod tests {
             gm = gm.insert_region(Arc::new(region)).unwrap();
         }
 
-        vm.memory_init(&gm).unwrap();
+        vm.memory_init(gm.clone()).unwrap();
 
-        let vm = Vm::new(&kvm).unwrap();
+        let mut vm = Vm::new(&kvm).unwrap();
 
         // SAFETY: we assert above that the ptr is valid, and the size matches what we passed to
         // mmap
@@ -265,7 +278,7 @@ pub(crate) mod tests {
             GuestRegionMmap::new(region, GuestAddress(max_nr_regions as u64 * 0x1000)).unwrap();
 
         let err = vm
-            .memory_init(&gm.insert_region(Arc::new(region)).unwrap())
+            .memory_init(gm.insert_region(Arc::new(region)).unwrap())
             .unwrap_err();
 
         assert!(matches!(err, VmError::NotEnoughMemorySlots), "{:?}", err);
@@ -274,7 +287,7 @@ pub(crate) mod tests {
     #[test]
     fn test_create_vcpus() {
         let vcpu_count = 2;
-        let (_, mut vm, _) = setup_vm_with_memory(mib_to_bytes(128));
+        let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
 
         let (vcpu_vec, _) = vm.create_vcpus(vcpu_count).unwrap();
 

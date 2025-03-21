@@ -246,7 +246,7 @@ mod tests {
         // Irqchips, clock and pitstate are not configured so trying to save state should fail.
         vm.save_state().unwrap_err();
 
-        let (_, vm, _mem) = setup_vm_with_memory(0x1000);
+        let (_, vm) = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
 
         let vm_state = vm.save_state().unwrap();
@@ -259,7 +259,7 @@ mod tests {
         assert_eq!(vm_state.pic_slave.chip_id, KVM_IRQCHIP_PIC_SLAVE);
         assert_eq!(vm_state.ioapic.chip_id, KVM_IRQCHIP_IOAPIC);
 
-        let (_, mut vm, _mem) = setup_vm_with_memory(0x1000);
+        let (_, mut vm) = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
 
         vm.restore_state(&vm_state).unwrap();
@@ -270,11 +270,11 @@ mod tests {
     fn test_vm_save_restore_state_bad_irqchip() {
         use kvm_bindings::KVM_NR_IRQCHIPS;
 
-        let (_, vm, _mem) = setup_vm_with_memory(0x1000);
+        let (_, vm) = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
         let mut vm_state = vm.save_state().unwrap();
 
-        let (_, mut vm, _mem) = setup_vm_with_memory(0x1000);
+        let (_, mut vm) = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
 
         // Try to restore an invalid PIC Master chip ID
@@ -299,7 +299,7 @@ mod tests {
     fn test_vmstate_serde() {
         let mut snapshot_data = vec![0u8; 10000];
 
-        let (_, mut vm, _) = setup_vm_with_memory(0x1000);
+        let (_, mut vm) = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
         let state = vm.save_state().unwrap();
         Snapshot::serialize(&mut snapshot_data.as_mut_slice(), &state).unwrap();

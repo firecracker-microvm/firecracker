@@ -310,7 +310,6 @@ pub struct Vmm {
     // Guest VM core resources.
     kvm: Kvm,
     vm: Vm,
-    guest_memory: GuestMemoryMmap,
     // Save UFFD in order to keep it open in the Firecracker process, as well.
     uffd: Option<Uffd>,
     vcpus_handles: Vec<VcpuHandle>,
@@ -521,7 +520,7 @@ impl Vmm {
         };
         let device_states = self.mmio_device_manager.save();
 
-        let memory_state = self.guest_memory.describe();
+        let memory_state = self.vm.guest_memory().describe();
         let acpi_dev_state = self.acpi_device_manager.save();
 
         Ok(MicrovmState {
@@ -593,7 +592,8 @@ impl Vmm {
 
     /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
     pub fn reset_dirty_bitmap(&self) {
-        self.guest_memory
+        self.vm
+            .guest_memory()
             .iter()
             .enumerate()
             .for_each(|(slot, region)| {
@@ -607,7 +607,8 @@ impl Vmm {
     /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
     pub fn get_dirty_bitmap(&self) -> Result<DirtyBitmap, VmmError> {
         let mut bitmap: DirtyBitmap = HashMap::new();
-        self.guest_memory
+        self.vm
+            .guest_memory()
             .iter()
             .enumerate()
             .try_for_each(|(slot, region)| {
@@ -736,7 +737,7 @@ impl Vmm {
     pub fn update_balloon_config(&mut self, amount_mib: u32) -> Result<(), BalloonError> {
         // The balloon cannot have a target size greater than the size of
         // the guest memory.
-        if u64::from(amount_mib) > mem_size_mib(&self.guest_memory) {
+        if u64::from(amount_mib) > mem_size_mib(self.vm.guest_memory()) {
             return Err(BalloonError::TooManyPagesRequested);
         }
 

@@ -169,7 +169,7 @@ pub fn configure_system_for_boot(
     // Configure vCPUs with normalizing and setting the generated CPU configuration.
     for vcpu in vcpus.iter_mut() {
         vcpu.kvm_vcpu
-            .configure(&vmm.guest_memory, entry_point, &vcpu_config)?;
+            .configure(vmm.vm.guest_memory(), entry_point, &vcpu_config)?;
     }
 
     // Write the kernel command line to guest memory. This is x86_64 specific, since on
@@ -180,7 +180,7 @@ pub fn configure_system_for_boot(
         .expect("Cannot create cstring from cmdline string");
 
     load_cmdline(
-        &vmm.guest_memory,
+        vmm.vm.guest_memory(),
         GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
         &boot_cmdline,
     )
@@ -188,7 +188,7 @@ pub fn configure_system_for_boot(
 
     // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
     mptable::setup_mptable(
-        &vmm.guest_memory,
+        vmm.vm.guest_memory(),
         &mut vmm.resource_allocator,
         vcpu_config.vcpu_count,
     )
@@ -196,11 +196,11 @@ pub fn configure_system_for_boot(
 
     match entry_point.protocol {
         BootProtocol::PvhBoot => {
-            configure_pvh(&vmm.guest_memory, GuestAddress(CMDLINE_START), initrd)?;
+            configure_pvh(vmm.vm.guest_memory(), GuestAddress(CMDLINE_START), initrd)?;
         }
         BootProtocol::LinuxBoot => {
             configure_64bit_boot(
-                &vmm.guest_memory,
+                vmm.vm.guest_memory(),
                 GuestAddress(CMDLINE_START),
                 cmdline_size,
                 initrd,
@@ -211,7 +211,7 @@ pub fn configure_system_for_boot(
     // Create ACPI tables and write them in guest memory
     // For the time being we only support ACPI in x86_64
     create_acpi_tables(
-        &vmm.guest_memory,
+        vmm.vm.guest_memory(),
         &mut vmm.resource_allocator,
         &vmm.mmio_device_manager,
         &vmm.acpi_device_manager,
