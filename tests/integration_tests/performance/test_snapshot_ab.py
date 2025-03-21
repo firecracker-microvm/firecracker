@@ -142,7 +142,12 @@ def test_restore_latency(
 @pytest.mark.parametrize("uffd_handler", [None, "on_demand", "fault_all"])
 @pytest.mark.parametrize("huge_pages", HugePagesConfig)
 def test_post_restore_latency(
-    microvm_factory, rootfs, guest_kernel_linux_5_10, metrics, uffd_handler, huge_pages
+    microvm_factory,
+    rootfs,
+    guest_kernel_linux_5_10,
+    metrics,
+    uffd_handler,
+    huge_pages,
 ):
     """Collects latency metric of post-restore memory accesses done inside the guest"""
     if huge_pages != HugePagesConfig.NONE and uffd_handler is None:
@@ -190,11 +195,20 @@ def test_post_restore_latency(
 
 @pytest.mark.nonci
 @pytest.mark.parametrize("huge_pages", HugePagesConfig)
+@pytest.mark.parametrize(
+    ("vcpus", "mem"), [(1, 128), (1, 1024), (2, 2048), (3, 4096), (4, 6144)]
+)
 def test_population_latency(
-    microvm_factory, rootfs, guest_kernel_linux_5_10, metrics, huge_pages
+    microvm_factory,
+    rootfs,
+    guest_kernel_linux_5_10,
+    metrics,
+    huge_pages,
+    vcpus,
+    mem,
 ):
     """Collects population latency metrics (e.g. how long it takes UFFD handler to fault in all memory)"""
-    test_setup = SnapshotRestoreTest(mem=128, vcpus=1, huge_pages=huge_pages)
+    test_setup = SnapshotRestoreTest(mem=mem, vcpus=vcpus, huge_pages=huge_pages)
     vm = test_setup.boot_vm(microvm_factory, guest_kernel_linux_5_10, rootfs)
 
     metrics.set_dimensions(
