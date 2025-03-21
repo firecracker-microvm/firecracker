@@ -38,9 +38,8 @@ use crate::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
 };
 use crate::vstate::kvm::KvmState;
-use crate::vstate::memory::{
-    GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryState, MemoryError,
-};
+use crate::vstate::memory;
+use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryState, GuestRegionMmap, MemoryError};
 use crate::vstate::vcpu::{VcpuSendEventError, VcpuState};
 use crate::vstate::vm::VmState;
 use crate::{EventManager, Vmm, VmmError, mem_size_mib, vstate};
@@ -534,10 +533,9 @@ fn guest_memory_from_file(
     mem_file_path: &Path,
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
-) -> Result<GuestMemoryMmap, GuestMemoryFromFileError> {
+) -> Result<Vec<GuestRegionMmap>, GuestMemoryFromFileError> {
     let mem_file = File::open(mem_file_path)?;
-    let guest_mem =
-        GuestMemoryMmap::snapshot_file(mem_file, mem_state.regions(), track_dirty_pages)?;
+    let guest_mem = memory::snapshot_file(mem_file, mem_state.regions(), track_dirty_pages)?;
     Ok(guest_mem)
 }
 
@@ -562,7 +560,7 @@ fn guest_memory_from_uffd(
     track_dirty_pages: bool,
     enable_balloon: bool,
     huge_pages: HugePageConfig,
-) -> Result<(GuestMemoryMmap, Option<Uffd>), GuestMemoryFromUffdError> {
+) -> Result<(Vec<GuestRegionMmap>, Option<Uffd>), GuestMemoryFromUffdError> {
     let (guest_memory, backend_mappings) =
         create_guest_memory(mem_state, track_dirty_pages, huge_pages)?;
 
@@ -595,10 +593,9 @@ fn create_guest_memory(
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
-) -> Result<(GuestMemoryMmap, Vec<GuestRegionUffdMapping>), GuestMemoryFromUffdError> {
-    let guest_memory =
-        GuestMemoryMmap::anonymous(mem_state.regions(), track_dirty_pages, huge_pages)?;
-    let mut backend_mappings = Vec::with_capacity(guest_memory.num_regions());
+) -> Result<(Vec<GuestRegionMmap>, Vec<GuestRegionUffdMapping>), GuestMemoryFromUffdError> {
+    let guest_memory = memory::anonymous(mem_state.regions(), track_dirty_pages, huge_pages)?;
+    let mut backend_mappings = Vec::with_capacity(guest_memory.len());
     let mut offset = 0;
     for mem_region in guest_memory.iter() {
         #[allow(deprecated)]
