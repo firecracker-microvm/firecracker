@@ -10,6 +10,7 @@ use std::fs::File;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::net::UnixStream;
 use std::ptr;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use userfaultfd::{Error, Event, Uffd};
@@ -52,38 +53,41 @@ pub struct UffdHandler {
 }
 
 impl UffdHandler {
+    fn try_get_mappings_and_file(
+        stream: &UnixStream,
+    ) -> Result<(String, Option<File>), std::io::Error> {
+        let mut message_buf = vec![0u8; 1024];
+        let (bytes_read, file) = stream.recv_with_fd(&mut message_buf[..])?;
+        message_buf.resize(bytes_read, 0);
+
+        // We do not expect to receive non-UTF-8 data from Firecracker, so this is probably
+        // an error we can't recover from. Just immediately abort
+        let body = String::from_utf8(message_buf.clone()).unwrap_or_else(|_| {
+            panic!(
+                "Received body is not a utf-8 valid string. Raw bytes received: {message_buf:#?}"
+            )
+        });
+        Ok((body, file))
+    }
+
     fn get_mappings_and_file(stream: &UnixStream) -> (String, File) {
         // Sometimes, reading from the stream succeeds but we don't receive any
         // UFFD descriptor. We don't really have a good understanding why this is
         // happening, but let's try to be a bit more robust and retry a few times
         // before we declare defeat.
         for _ in 1..=5 {
-            let mut message_buf = vec![0u8; 1024];
-            let (bytes_read, file) = match stream.recv_with_fd(&mut message_buf[..]) {
-                Ok(res) => res,
+            match Self::try_get_mappings_and_file(stream) {
+                Ok((body, Some(file))) => {
+                    return (body, file);
+                }
+                Ok((body, None)) => {
+                    println!("Didn't receive UFFD over socket. We received: '{body}'. Retrying...");
+                }
                 Err(err) => {
-                    println!("Could not receive message from stream: {err}");
-                    continue;
+                    println!("Could not get UFFD and mapping from Firecracker: {err}. Retrying...");
                 }
-            };
-            message_buf.resize(bytes_read, 0);
-
-            // We do not expect to receive non-UTF-8 data from Firecracker, so this is probably
-            // an error we can't recover from. Just immediately abort
-            let body = String::from_utf8(message_buf.clone()).unwrap_or_else(|_| {
-                panic!(
-                    "Received body is not a utf-8 valid string. Raw bytes received: \
-                     {message_buf:#?}"
-                )
-            });
-            let file = match file {
-                Some(file) => file,
-                None => {
-                    println!("Did not receive Uffd from UDS. Received body: {body}");
-                    continue;
-                }
-            };
-            return (body, file);
+            }
+            std::thread::sleep(Duration::from_millis(100));
         }
 
         panic!("Could not get UFFD and mappings after 5 retries");
