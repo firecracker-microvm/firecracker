@@ -468,14 +468,18 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::test_utils::create_tmp_socket;
-    use crate::vstate::memory::{GuestAddress, GuestMemoryExtension};
+    use crate::vstate::memory;
+    use crate::vstate::memory::GuestAddress;
 
     pub(crate) fn create_mem(file: File, regions: &[(GuestAddress, usize)]) -> GuestMemoryMmap {
-        GuestMemoryMmap::create(
-            regions.iter().copied(),
-            libc::MAP_PRIVATE,
-            Some(file),
-            false,
+        GuestMemoryMmap::from_regions(
+            memory::create(
+                regions.iter().copied(),
+                libc::MAP_PRIVATE,
+                Some(file),
+                false,
+            )
+            .unwrap(),
         )
         .unwrap()
     }

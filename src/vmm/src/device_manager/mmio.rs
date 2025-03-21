@@ -532,7 +532,7 @@ mod tests {
     use crate::devices::virtio::ActivateError;
     use crate::devices::virtio::device::{IrqTrigger, VirtioDevice};
     use crate::devices::virtio::queue::Queue;
-    use crate::test_utils::multi_region_mem;
+    use crate::test_utils::multi_region_mem_raw;
     use crate::vstate::kvm::Kvm;
     use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
@@ -649,10 +649,10 @@ mod tests {
     fn test_register_virtio_device() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem = multi_region_mem(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
+        let guest_mem = multi_region_mem_raw(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
         let mut vm = Vm::new(&kvm).unwrap();
-        vm.memory_init(guest_mem).unwrap();
+        vm.register_memory_regions(guest_mem).unwrap();
         let mut device_manager = MMIODeviceManager::new();
         let mut resource_allocator = ResourceAllocator::new().unwrap();
 
@@ -680,10 +680,10 @@ mod tests {
     fn test_register_too_many_devices() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem = multi_region_mem(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
+        let guest_mem = multi_region_mem_raw(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
         let mut vm = Vm::new(&kvm).unwrap();
-        vm.memory_init(guest_mem).unwrap();
+        vm.register_memory_regions(guest_mem).unwrap();
         let mut device_manager = MMIODeviceManager::new();
         let mut resource_allocator = ResourceAllocator::new().unwrap();
 
@@ -736,10 +736,10 @@ mod tests {
     fn test_device_info() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem = multi_region_mem(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
+        let guest_mem = multi_region_mem_raw(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
         let mut vm = Vm::new(&kvm).unwrap();
-        vm.memory_init(guest_mem).unwrap();
+        vm.register_memory_regions(guest_mem).unwrap();
 
         #[cfg(target_arch = "x86_64")]
         vm.setup_irqchip().unwrap();
