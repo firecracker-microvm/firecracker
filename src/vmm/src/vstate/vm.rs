@@ -20,6 +20,7 @@ use crate::vstate::vcpu::VcpuError;
 pub struct VmCommon {
     /// The KVM file descriptor used to access this Vm.
     pub fd: VmFd,
+    max_memslots: usize,
 }
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -37,6 +38,8 @@ pub enum VmError {
     EventFd(std::io::Error),
     /// Failed to create vcpu: {0}
     CreateVcpu(VcpuError),
+    /// The number of configured slots is bigger than the maximum reported by KVM
+    NotEnoughMemorySlots,
 }
 
 /// Contains Vm functions that are usable across CPU architectures
@@ -79,7 +82,10 @@ impl Vm {
             attempt += 1;
         };
 
-        Ok(VmCommon { fd })
+        Ok(VmCommon {
+            fd,
+            max_memslots: kvm.max_nr_memslots(),
+        })
     }
 
     /// Creates the specified number of [`Vcpu`]s.
@@ -104,6 +110,10 @@ impl Vm {
 
     /// Initializes the guest memory.
     pub fn memory_init(&self, guest_mem: &GuestMemoryMmap) -> Result<(), VmError> {
+        if guest_mem.num_regions() > self.common.max_memslots {
+            return Err(VmError::NotEnoughMemorySlots);
+        }
+
         self.set_kvm_memory_regions(guest_mem)
     }
 
@@ -144,11 +154,16 @@ impl Vm {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use std::sync::Arc;
+
+    use vm_memory::GuestAddress;
+    use vm_memory::mmap::MmapRegionBuilder;
+
     use super::*;
     use crate::test_utils::single_region_mem;
     use crate::utils::mib_to_bytes;
     use crate::vstate::kvm::Kvm;
-    use crate::vstate::memory::GuestMemoryMmap;
+    use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmap};
 
     // Auxiliary function being used throughout the tests.
     pub(crate) fn setup_vm() -> (Kvm, Vm) {
@@ -196,6 +211,64 @@ pub(crate) mod tests {
             res.unwrap_err().to_string(),
             "Cannot set the memory regions: Invalid argument (os error 22)"
         );
+    }
+
+    #[test]
+    fn test_too_many_regions() {
+        let (kvm, vm) = setup_vm();
+        let max_nr_regions = kvm.max_nr_memslots();
+
+        let mut gm = GuestMemoryMmap::default();
+        // SAFETY: valid mmap parameters
+        let ptr = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                0x1000,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
+                -1,
+                0,
+            )
+        };
+
+        assert_ne!(ptr, libc::MAP_FAILED);
+
+        for i in 0..max_nr_regions {
+            // SAFETY: we assert above that the ptr is valid, and the size matches what we passed to
+            // mmap
+            let region = unsafe {
+                MmapRegionBuilder::new(0x1000)
+                    .with_raw_mmap_pointer(ptr.cast())
+                    .build()
+                    .unwrap()
+            };
+
+            let region = GuestRegionMmap::new(region, GuestAddress(i as u64 * 0x1000)).unwrap();
+
+            gm = gm.insert_region(Arc::new(region)).unwrap();
+        }
+
+        vm.memory_init(&gm).unwrap();
+
+        let vm = Vm::new(&kvm).unwrap();
+
+        // SAFETY: we assert above that the ptr is valid, and the size matches what we passed to
+        // mmap
+        let region = unsafe {
+            MmapRegionBuilder::new(0x1000)
+                .with_raw_mmap_pointer(ptr.cast())
+                .build()
+                .unwrap()
+        };
+
+        let region =
+            GuestRegionMmap::new(region, GuestAddress(max_nr_regions as u64 * 0x1000)).unwrap();
+
+        let err = vm
+            .memory_init(&gm.insert_region(Arc::new(region)).unwrap())
+            .unwrap_err();
+
+        assert!(matches!(err, VmError::NotEnoughMemorySlots), "{:?}", err);
     }
 
     #[test]

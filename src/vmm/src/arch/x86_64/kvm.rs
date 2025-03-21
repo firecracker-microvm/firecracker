@@ -21,8 +21,6 @@ pub enum KvmArchError {
 pub struct Kvm {
     /// KVM fd.
     pub fd: KvmFd,
-    /// Maximum number of memory slots allowed by KVM.
-    pub max_memslots: usize,
     /// Additional capabilities that were specified in cpu template.
     pub kvm_cap_modifiers: Vec<KvmCapability>,
     /// Supported CpuIds.
@@ -50,7 +48,6 @@ impl Kvm {
     /// Initialize [`Kvm`] type for x86_64 architecture
     pub fn init_arch(
         fd: KvmFd,
-        max_memslots: usize,
         kvm_cap_modifiers: Vec<KvmCapability>,
     ) -> Result<Self, KvmArchError> {
         request_dynamic_xstate_features().map_err(KvmArchError::XstateFeatures)?;
@@ -61,7 +58,6 @@ impl Kvm {
 
         Ok(Kvm {
             fd,
-            max_memslots,
             kvm_cap_modifiers,
             supported_cpuid,
         })

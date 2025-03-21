@@ -143,7 +143,6 @@ fn create_vmm_and_vcpus(
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
     let mut vm = Vm::new(&kvm)?;
-    kvm.check_memory(&guest_memory)?;
     vm.memory_init(&guest_memory)?;
 
     let resource_allocator = ResourceAllocator::new()?;

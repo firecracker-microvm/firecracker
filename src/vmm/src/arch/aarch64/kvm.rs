@@ -22,8 +22,6 @@ pub struct OptionalCapabilities {
 pub struct Kvm {
     /// KVM fd.
     pub fd: KvmFd,
-    /// Maximum number of memory slots allowed by KVM.
-    pub max_memslots: usize,
     /// Additional capabilities that were specified in cpu template.
     pub kvm_cap_modifiers: Vec<KvmCapability>,
 }
@@ -42,12 +40,10 @@ impl Kvm {
     /// Initialize [`Kvm`] type for Aarch64 architecture
     pub fn init_arch(
         fd: KvmFd,
-        max_memslots: usize,
         kvm_cap_modifiers: Vec<KvmCapability>,
     ) -> Result<Self, KvmArchError> {
         Ok(Self {
             fd,
-            max_memslots,
             kvm_cap_modifiers,
         })
     }
