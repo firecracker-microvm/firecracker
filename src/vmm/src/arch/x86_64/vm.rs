@@ -187,6 +187,7 @@ impl ArchVm {
 
         Ok(VmState {
             memory: self.common.guest_memory.describe(),
+            io_memory: self.common.swiotlb_regions.describe(),
             pitstate,
             clock,
             pic_master,
@@ -211,6 +212,8 @@ impl ArchVm {
 pub struct VmState {
     /// guest memory state
     pub memory: GuestMemoryState,
+    /// io memory state
+    pub io_memory: GuestMemoryState,
     pitstate: kvm_pit_state2,
     clock: kvm_clock_data,
     // TODO: rename this field to adopt inclusive language once Linux updates it, too.

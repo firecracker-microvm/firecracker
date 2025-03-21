@@ -180,7 +180,7 @@ pub fn create_snapshot(
         .for_each_virtio_device(|_, _, _, dev| {
             let d = dev.lock().unwrap();
             if d.is_activated() {
-                d.mark_queue_memory_dirty(vmm.vm.guest_memory())
+                d.mark_queue_memory_dirty(vmm.vm.io_memory())
             } else {
                 Ok(())
             }

@@ -70,6 +70,7 @@ impl ArchVm {
     pub fn save_state(&self, mpidrs: &[u64]) -> Result<VmState, ArchVmError> {
         Ok(VmState {
             memory: self.common.guest_memory.describe(),
+            io_memory: self.common.swiotlb_regions.describe(),
             gic: self
                 .get_irqchip()
                 .save_device(mpidrs)
@@ -96,6 +97,8 @@ impl ArchVm {
 pub struct VmState {
     /// Guest memory state
     pub memory: GuestMemoryState,
+    /// io memory state
+    pub io_memory: GuestMemoryState,
     /// GIC state.
     pub gic: GicState,
 }
