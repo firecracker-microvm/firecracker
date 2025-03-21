@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 
 pub use crate::arch::{Kvm, KvmArchError};
 use crate::cpu_config::templates::KvmCapability;
-use crate::vstate::memory::{GuestMemory, GuestMemoryMmap};
 
 /// Errors associated with the wrappers over KVM ioctls.
 /// Needs `rustfmt::skip` to make multiline comments work
@@ -21,8 +20,6 @@ pub enum KvmError {
     /**  Error creating KVM object: {0} Make sure the user launching the firecracker process is \
     configured on the /dev/kvm file's ACL. */
     Kvm(kvm_ioctls::Error),
-    /// The number of configured slots is bigger than the maximum reported by KVM
-    NotEnoughMemorySlots,
     /// Architecture specific error: {0}
     ArchError(#[from] KvmArchError)
 }
@@ -43,18 +40,7 @@ impl Kvm {
         // Check that all desired capabilities are supported.
         Self::check_capabilities(&kvm_fd, &total_caps).map_err(KvmError::Capabilities)?;
 
-        let max_memslots = kvm_fd.get_nr_memslots();
-
-        Ok(Kvm::init_arch(kvm_fd, max_memslots, kvm_cap_modifiers)?)
-    }
-
-    /// Check guest memory does not have more regions than kvm allows.
-    pub fn check_memory(&self, guest_mem: &GuestMemoryMmap) -> Result<(), KvmError> {
-        if guest_mem.num_regions() > self.max_memslots {
-            Err(KvmError::NotEnoughMemorySlots)
-        } else {
-            Ok(())
-        }
+        Ok(Kvm::init_arch(kvm_fd, kvm_cap_modifiers)?)
     }
 
     fn combine_capabilities(kvm_cap_modifiers: &[KvmCapability]) -> Vec<u32> {
@@ -91,6 +77,11 @@ impl Kvm {
         KvmState {
             kvm_cap_modifiers: self.kvm_cap_modifiers.clone(),
         }
+    }
+
+    /// Returns the maximal number of memslots allowed in a [`Vm`]
+    pub fn max_nr_memslots(&self) -> usize {
+        self.fd.get_nr_memslots()
     }
 }
 
