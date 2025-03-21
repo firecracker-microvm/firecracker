@@ -652,7 +652,7 @@ mod tests {
         let guest_mem = multi_region_mem(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
         let mut vm = Vm::new(&kvm).unwrap();
-        vm.memory_init(&guest_mem).unwrap();
+        vm.memory_init(guest_mem).unwrap();
         let mut device_manager = MMIODeviceManager::new();
         let mut resource_allocator = ResourceAllocator::new().unwrap();
 
@@ -666,7 +666,7 @@ mod tests {
         device_manager
             .register_virtio_test_device(
                 vm.fd(),
-                guest_mem,
+                vm.guest_memory().clone(),
                 &mut resource_allocator,
                 dummy,
                 &mut cmdline,
@@ -683,7 +683,7 @@ mod tests {
         let guest_mem = multi_region_mem(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
         let mut vm = Vm::new(&kvm).unwrap();
-        vm.memory_init(&guest_mem).unwrap();
+        vm.memory_init(guest_mem).unwrap();
         let mut device_manager = MMIODeviceManager::new();
         let mut resource_allocator = ResourceAllocator::new().unwrap();
 
@@ -697,7 +697,7 @@ mod tests {
             device_manager
                 .register_virtio_test_device(
                     vm.fd(),
-                    guest_mem.clone(),
+                    vm.guest_memory().clone(),
                     &mut resource_allocator,
                     Arc::new(Mutex::new(DummyDevice::new())),
                     &mut cmdline,
@@ -711,7 +711,7 @@ mod tests {
                 device_manager
                     .register_virtio_test_device(
                         vm.fd(),
-                        guest_mem,
+                        vm.guest_memory().clone(),
                         &mut resource_allocator,
                         Arc::new(Mutex::new(DummyDevice::new())),
                         &mut cmdline,
@@ -739,9 +739,7 @@ mod tests {
         let guest_mem = multi_region_mem(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
         let mut vm = Vm::new(&kvm).unwrap();
-        vm.memory_init(&guest_mem).unwrap();
-
-        let mem_clone = guest_mem.clone();
+        vm.memory_init(guest_mem).unwrap();
 
         #[cfg(target_arch = "x86_64")]
         vm.setup_irqchip().unwrap();
@@ -758,7 +756,7 @@ mod tests {
         let addr = device_manager
             .register_virtio_test_device(
                 vm.fd(),
-                guest_mem,
+                vm.guest_memory().clone(),
                 &mut resource_allocator,
                 dummy,
                 &mut cmdline,
@@ -794,7 +792,7 @@ mod tests {
         device_manager
             .register_virtio_test_device(
                 vm.fd(),
-                mem_clone,
+                vm.guest_memory().clone(),
                 &mut resource_allocator,
                 dummy2,
                 &mut cmdline,

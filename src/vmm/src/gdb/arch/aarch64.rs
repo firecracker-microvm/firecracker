@@ -63,7 +63,9 @@ const PTE_ADDRESS_MASK: u64 = !0b111u64;
 /// Read a u64 value from a guest memory address
 fn read_address(vmm: &Vmm, address: u64) -> Result<u64, GdbTargetError> {
     let mut buf = [0; 8];
-    vmm.guest_memory.read(&mut buf, GuestAddress(address))?;
+    vmm.vm
+        .guest_memory()
+        .read(&mut buf, GuestAddress(address))?;
 
     Ok(u64::from_le_bytes(buf))
 }

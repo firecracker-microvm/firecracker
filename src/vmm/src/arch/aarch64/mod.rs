@@ -89,7 +89,7 @@ pub fn configure_system_for_boot(
     // Configure vCPUs with normalizing and setting the generated CPU configuration.
     for vcpu in vcpus.iter_mut() {
         vcpu.kvm_vcpu.configure(
-            &vmm.guest_memory,
+            vmm.vm.guest_memory(),
             entry_point,
             &vcpu_config,
             &optional_capabilities,
@@ -105,7 +105,7 @@ pub fn configure_system_for_boot(
         .expect("Cannot create cstring from cmdline string");
 
     let fdt = fdt::create_fdt(
-        &vmm.guest_memory,
+        vmm.vm.guest_memory(),
         vcpu_mpidr,
         cmdline,
         vmm.mmio_device_manager.get_device_info(),
@@ -114,8 +114,10 @@ pub fn configure_system_for_boot(
         initrd,
     )?;
 
-    let fdt_address = GuestAddress(get_fdt_addr(&vmm.guest_memory));
-    vmm.guest_memory.write_slice(fdt.as_slice(), fdt_address)?;
+    let fdt_address = GuestAddress(get_fdt_addr(vmm.vm.guest_memory()));
+    vmm.vm
+        .guest_memory()
+        .write_slice(fdt.as_slice(), fdt_address)?;
 
     Ok(())
 }

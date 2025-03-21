@@ -143,7 +143,7 @@ fn create_vmm_and_vcpus(
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
     let mut vm = Vm::new(&kvm)?;
-    vm.memory_init(&guest_memory)?;
+    vm.memory_init(guest_memory)?;
 
     let resource_allocator = ResourceAllocator::new()?;
 
@@ -179,7 +179,6 @@ fn create_vmm_and_vcpus(
         shutdown_exit_code: None,
         kvm,
         vm,
-        guest_memory,
         uffd,
         vcpus_handles: Vec::new(),
         vcpus_exit_evt,
@@ -468,7 +467,7 @@ pub fn build_microvm_from_snapshot(
 
     // Restore devices states.
     let mmio_ctor_args = MMIODevManagerConstructorArgs {
-        mem: &vmm.guest_memory,
+        mem: vmm.vm.guest_memory(),
         vm: vmm.vm.fd(),
         event_manager,
         resource_allocator: &mut vmm.resource_allocator,
@@ -484,7 +483,7 @@ pub fn build_microvm_from_snapshot(
 
     {
         let acpi_ctor_args = ACPIDeviceManagerConstructorArgs {
-            mem: &vmm.guest_memory,
+            mem: vmm.vm.guest_memory(),
             resource_allocator: &mut vmm.resource_allocator,
             vm: vmm.vm.fd(),
         };
@@ -593,7 +592,7 @@ fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
     event_manager.add_subscriber(device.clone());
 
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    let device = MmioTransport::new(vmm.guest_memory.clone(), device, is_vhost_user);
+    let device = MmioTransport::new(vmm.vm.guest_memory().clone(), device, is_vhost_user);
     vmm.mmio_device_manager
         .register_mmio_virtio_for_boot(
             vmm.vm.fd(),
@@ -618,7 +617,7 @@ pub(crate) fn attach_boot_timer_device(
 }
 
 fn attach_vmgenid_device(vmm: &mut Vmm) -> Result<(), StartMicrovmError> {
-    let vmgenid = VmGenId::new(&vmm.guest_memory, &mut vmm.resource_allocator)
+    let vmgenid = VmGenId::new(vmm.vm.guest_memory(), &mut vmm.resource_allocator)
         .map_err(StartMicrovmError::CreateVMGenID)?;
 
     vmm.acpi_device_manager
@@ -813,7 +812,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn default_vmm() -> Vmm {
-        let (kvm, mut vm, guest_memory) = setup_vm_with_memory(mib_to_bytes(128));
+        let (kvm, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
 
         let mmio_device_manager = MMIODeviceManager::new();
         let acpi_device_manager = ACPIDeviceManager::new();
@@ -841,7 +840,6 @@ pub(crate) mod tests {
             shutdown_exit_code: None,
             kvm,
             vm,
-            guest_memory,
             uffd: None,
             vcpus_handles: Vec::new(),
             vcpus_exit_evt,
