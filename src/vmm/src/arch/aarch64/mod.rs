@@ -89,6 +89,15 @@ pub fn arch_memory_regions(offset: usize, size: usize) -> Vec<(GuestAddress, usi
     )]
 }
 
+/// The minimal offset that needs to be passed to `arch_memory_region` to ensure
+/// the function returned a single contiguous memory region placed after
+/// all gaps in guest physical address space.
+///
+/// There are no architectural gaps in the physical address space on aarch64, so this is 0
+pub fn offset_after_last_gap() -> usize {
+    0
+}
+
 /// Configures the system for booting Linux.
 pub fn configure_system_for_boot(
     vmm: &mut Vmm,

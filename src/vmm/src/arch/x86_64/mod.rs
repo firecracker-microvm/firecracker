@@ -140,6 +140,15 @@ pub fn arch_memory_regions(offset: usize, size: usize) -> Vec<(GuestAddress, usi
     }
 }
 
+/// The minimal offset that needs to be passed to `arch_memory_region` to ensure
+/// the function returned a single contiguous memory region placed after
+/// all gaps in guest physical address space.
+///
+/// On x86_64, this is the offset needed to place memory after the MMIO gap
+pub fn offset_after_last_gap() -> usize {
+    u64_to_usize(FIRST_ADDR_PAST_32BITS)
+}
+
 /// Returns the memory address where the kernel could be loaded.
 pub fn get_kernel_start() -> u64 {
     layout::HIMEM_START

@@ -437,29 +437,45 @@ impl VmResources {
         Ok(())
     }
 
-    /// Allocates guest memory in a configuration most appropriate for these [`VmResources`].
-    ///
-    /// If vhost-user-blk devices are in use, allocates memfd-backed shared memory, otherwise
-    /// prefers anonymous memory for performance reasons.
-    pub fn allocate_guest_memory(&self) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-        let vhost_user_device_used = self
-            .block
+    /// Returns true if any vhost user devices are configured int his [`VmResources`] object
+    pub fn vhost_user_devices_used(&self) -> bool {
+        self.block
             .devices
             .iter()
-            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user());
+            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user())
+    }
 
-        // Page faults are more expensive for shared memory mapping, including  memfd.
-        // For this reason, we only back guest memory with a memfd
-        // if a vhost-user-blk device is configured in the VM, otherwise we fall back to
-        // an anonymous private memory.
-        //
-        // The vhost-user-blk branch is not currently covered by integration tests in Rust,
-        // because that would require running a backend process. If in the future we converge to
-        // a single way of backing guest memory for vhost-user and non-vhost-user cases,
-        // that would not be worth the effort.
-        let regions =
-            crate::arch::arch_memory_regions(0, mib_to_bytes(self.machine_config.mem_size_mib));
-        if vhost_user_device_used {
+    /// The size of the swiotlb region requested, in MiB
+    #[cfg(target_arch = "aarch64")]
+    pub fn swiotlb_size(&self) -> usize {
+        mib_to_bytes(self.machine_config.mem_config.initial_swiotlb_size)
+    }
+
+    /// The size of the swiotlb region requested, in MiB
+    #[cfg(target_arch = "x86_64")]
+    pub fn swiotlb_size(&self) -> usize {
+        0
+    }
+
+    /// Whether the use of swiotlb was requested
+    pub fn swiotlb_used(&self) -> bool {
+        self.swiotlb_size() > 0
+    }
+
+    /// Gets the size of the "traditional" memory region, e.g. total memory excluidng the
+    /// swiotlb region.
+    pub fn memory_size(&self) -> usize {
+        mib_to_bytes(self.machine_config.mem_size_mib) - self.swiotlb_size()
+    }
+
+    fn allocate_memory(
+        &self,
+        offset: usize,
+        size: usize,
+        vhost_accessible: bool,
+    ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
+        let regions = crate::arch::arch_memory_regions(offset, size);
+        if vhost_accessible {
             memory::memfd_backed(
                 regions.as_ref(),
                 self.machine_config.track_dirty_pages,
@@ -472,6 +488,47 @@ impl VmResources {
                 self.machine_config.huge_pages,
             )
         }
+    }
+
+    /// Allocates guest memory in a configuration most appropriate for these [`VmResources`].
+    ///
+    /// If vhost-user-blk devices are in use, allocates memfd-backed shared memory, otherwise
+    /// prefers anonymous memory for performance reasons.
+    pub fn allocate_guest_memory(&self) -> Result<Vec<GuestRegionMmap>, MemoryError> {
+        // Page faults are more expensive for shared memory mapping, including  memfd.
+        // For this reason, we only back guest memory with a memfd
+        // if a vhost-user-blk device is configured in the VM, otherwise we fall back to
+        // an anonymous private memory.
+        //
+        // Note that if a swiotlb region is used, no I/O will go through the "regular"
+        // memory regions, and we can back them with anon memory regardless.
+        //
+        // The vhost-user-blk branch is not currently covered by integration tests in Rust,
+        // because that would require running a backend process. If in the future we converge to
+        // a single way of backing guest memory for vhost-user and non-vhost-user cases,
+        // that would not be worth the effort.
+        self.allocate_memory(
+            0,
+            self.memory_size(),
+            self.vhost_user_devices_used() && !self.swiotlb_used(),
+        )
+    }
+
+    /// Allocates the dedicated I/O region for swiotlb use, if one was requested.
+    pub fn allocate_swiotlb_region(&self) -> Result<Option<GuestRegionMmap>, MemoryError> {
+        if !self.swiotlb_used() {
+            return Ok(None);
+        }
+
+        let start = self.memory_size();
+        let start = start.max(crate::arch::offset_after_last_gap());
+
+        let mut mem =
+            self.allocate_memory(start, self.swiotlb_size(), self.vhost_user_devices_used())?;
+
+        assert_eq!(mem.len(), 1);
+
+        Ok(Some(mem.remove(0)))
     }
 }
 
@@ -1517,5 +1574,37 @@ mod tests {
 
         vm_resources.build_net_device(new_net_device_cfg).unwrap();
         assert_eq!(vm_resources.net_builder.len(), 2);
+    }
+
+    #[test]
+    #[cfg(target_arch = "aarch64")]
+    fn test_allocate_swiotlb() {
+        use vm_memory::VolatileMemory;
+
+        use crate::vmm_config::machine_config::MemoryConfig;
+
+        let resources = VmResources {
+            machine_config: MachineConfig {
+                mem_config: MemoryConfig {
+                    initial_swiotlb_size: 16,
+                    ..Default::default()
+                },
+                mem_size_mib: 32,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let normal_mem = resources.allocate_guest_memory().unwrap();
+        assert_eq!(
+            normal_mem.iter().map(|r| r.len()).sum::<usize>(),
+            mib_to_bytes(16)
+        );
+
+        let swiotlb_mem = resources.allocate_swiotlb_region().unwrap();
+        assert_eq!(
+            swiotlb_mem.iter().map(|r| r.len()).sum::<usize>(),
+            mib_to_bytes(16)
+        );
     }
 }
