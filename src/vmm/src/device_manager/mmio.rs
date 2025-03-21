@@ -23,8 +23,6 @@ use vm_allocator::AllocPolicy;
 use super::resources::ResourceAllocator;
 use crate::arch::DeviceType;
 use crate::arch::DeviceType::Virtio;
-#[cfg(target_arch = "aarch64")]
-use crate::arch::aarch64::DeviceInfoForFDT;
 use crate::devices::BusDevice;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
@@ -519,19 +517,6 @@ impl MMIODeviceManager {
                 }
                 Ok(())
             });
-    }
-}
-
-#[cfg(target_arch = "aarch64")]
-impl DeviceInfoForFDT for MMIODeviceInfo {
-    fn addr(&self) -> u64 {
-        self.addr
-    }
-    fn irq(&self) -> u32 {
-        self.irq.unwrap().into()
-    }
-    fn length(&self) -> u64 {
-        self.len
     }
 }
 
