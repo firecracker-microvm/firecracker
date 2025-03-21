@@ -67,7 +67,7 @@ apply_series_mbox() {
 apply_series_link() {
   patch_url=$(cat $1)
   echo "Fetching mbox from:" $patch_url
-  wget -O lore.mbox.gz "$patch_url/t.mbox.gz"
+  curl --output lore.mbox.gz "$patch_url/t.mbox.gz"
   gunzip lore.mbox
   apply_series_mbox lore.mbox
   rm lore.mbox
