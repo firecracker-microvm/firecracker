@@ -1,18 +1,17 @@
 // Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use kvm_ioctls::VmFd;
 use serde::{Deserialize, Serialize};
 
 use crate::Kvm;
 use crate::arch::aarch64::gic::GicState;
-use crate::vstate::vm::VmError;
+use crate::vstate::vm::{VmCommon, VmError};
 
 /// Structure representing the current architecture's understand of what a "virtual machine" is.
 #[derive(Debug)]
 pub struct ArchVm {
-    /// KVM file descriptor of microVM
-    pub fd: VmFd,
+    /// Architecture independent parts of a vm.
+    pub common: VmCommon,
     // On aarch64 we need to keep around the fd obtained by creating the VGIC device.
     irqchip_handle: Option<crate::arch::aarch64::gic::GICDevice>,
 }
@@ -31,9 +30,9 @@ pub enum ArchVmError {
 impl ArchVm {
     /// Create a new `Vm` struct.
     pub fn new(kvm: &Kvm) -> Result<ArchVm, VmError> {
-        let fd = Self::create_vm(kvm)?;
+        let common = Self::create_common(kvm)?;
         Ok(ArchVm {
-            fd,
+            common,
             irqchip_handle: None,
         })
     }
@@ -55,7 +54,7 @@ impl ArchVm {
     /// Creates the GIC (Global Interrupt Controller).
     pub fn setup_irqchip(&mut self, vcpu_count: u8) -> Result<(), ArchVmError> {
         self.irqchip_handle = Some(
-            crate::arch::aarch64::gic::create_gic(&self.fd, vcpu_count.into(), None)
+            crate::arch::aarch64::gic::create_gic(self.fd(), vcpu_count.into(), None)
                 .map_err(ArchVmError::VmCreateGIC)?,
         );
         Ok(())

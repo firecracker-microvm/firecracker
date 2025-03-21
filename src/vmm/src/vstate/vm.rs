@@ -15,6 +15,13 @@ use crate::logger::info;
 use crate::vstate::memory::{Address, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use crate::vstate::vcpu::VcpuError;
 
+/// Architecture independent parts of a VM.
+#[derive(Debug)]
+pub struct VmCommon {
+    /// The KVM file descriptor used to access this Vm.
+    pub fd: VmFd,
+}
+
 /// Errors associated with the wrappers over KVM ioctls.
 /// Needs `rustfmt::skip` to make multiline comments work
 #[rustfmt::skip]
@@ -35,7 +42,7 @@ pub enum VmError {
 /// Contains Vm functions that are usable across CPU architectures
 impl Vm {
     /// Create a KVM VM
-    pub fn create_vm(kvm: &crate::vstate::kvm::Kvm) -> Result<VmFd, VmError> {
+    pub fn create_common(kvm: &crate::vstate::kvm::Kvm) -> Result<VmCommon, VmError> {
         // It is known that KVM_CREATE_VM occasionally fails with EINTR on heavily loaded machines
         // with many VMs.
         //
@@ -57,9 +64,10 @@ impl Vm {
         // retry, they have to start Firecracker from scratch. Doing retries in Firecracker makes
         // recovery faster and improves reliability.
         const MAX_ATTEMPTS: u32 = 5;
-        for attempt in 1..=MAX_ATTEMPTS {
+        let mut attempt = 1;
+        let fd = loop {
             match kvm.fd.create_vm() {
-                Ok(fd) => return Ok(fd),
+                Ok(fd) => break fd,
                 Err(e) if e.errno() == libc::EINTR && attempt < MAX_ATTEMPTS => {
                     info!("Attempt #{attempt} of KVM_CREATE_VM returned EINTR");
                     // Exponential backoff (1us, 2us, 4us, and 8us => 15us in total)
@@ -67,8 +75,11 @@ impl Vm {
                 }
                 Err(e) => return Err(VmError::CreateVm(e)),
             }
-        }
-        unreachable!();
+
+            attempt += 1;
+        };
+
+        Ok(VmCommon { fd })
     }
 
     /// Creates the specified number of [`Vcpu`]s.
@@ -119,7 +130,7 @@ impl Vm {
                 };
 
                 // SAFETY: Safe because the fd is a valid KVM file descriptor.
-                unsafe { self.fd.set_user_memory_region(memory_region) }
+                unsafe { self.fd().set_user_memory_region(memory_region) }
             })
             .map_err(VmError::SetUserMemoryRegion)?;
         Ok(())
@@ -127,7 +138,7 @@ impl Vm {
 
     /// Gets a reference to the kvm file descriptor owned by this VM.
     pub fn fd(&self) -> &VmFd {
-        &self.fd
+        &self.common.fd
     }
 }
 
