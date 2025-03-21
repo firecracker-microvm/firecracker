@@ -34,6 +34,8 @@ pub struct VmCommon {
     max_memslots: usize,
     /// The guest memory of this Vm.
     pub guest_memory: GuestMemoryMmap,
+    /// The swiotlb regions of this Vm.
+    pub swiotlb_regions: GuestMemoryMmap,
 }
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -101,6 +103,7 @@ impl Vm {
             fd,
             max_memslots: kvm.max_nr_memslots(),
             guest_memory: GuestMemoryMmap::default(),
+            swiotlb_regions: GuestMemoryMmap::default(),
         })
     }
 
@@ -140,6 +143,8 @@ impl Vm {
         let next_slot = self
             .guest_memory()
             .num_regions()
+            .checked_add(self.swiotlb_regions().num_regions())
+            .ok_or(VmError::NotEnoughMemorySlots)?
             .try_into()
             .map_err(|_| VmError::NotEnoughMemorySlots)?;
 
@@ -175,19 +180,59 @@ impl Vm {
         Ok(())
     }
 
+    /// Registers a new io memory region to this [`Vm`].
+    pub fn register_swiotlb_region(&mut self, region: GuestRegionMmap) -> Result<(), VmError> {
+        let arcd_region = Arc::new(self.kvmify_region(region)?);
+        let new_collection = self
+            .common
+            .swiotlb_regions
+            .insert_region(Arc::clone(&arcd_region))?;
+
+        self.register_kvm_region(arcd_region.as_ref())?;
+
+        self.common.swiotlb_regions = new_collection;
+        Ok(())
+    }
+
     /// Gets a reference to the kvm file descriptor owned by this VM.
     pub fn fd(&self) -> &VmFd {
         &self.common.fd
     }
 
-    /// Gets a reference to this [`Vm`]'s [`GuestMemoryMmap`] object
+    /// Gets a reference to this [`Vm`]'s [`GuestMemoryMmap`] object, which
+    /// contains all non-swiotlb guest memory regions.
     pub fn guest_memory(&self) -> &GuestMemoryMmap {
         &self.common.guest_memory
     }
 
+    /// Returns a reference to the [`GuestMemoryMmap`] that I/O devices attached to this [`Vm`]
+    /// have access to. If no I/O regions were registered, return the same as [`Vm::guest_memory`],
+    /// otherwise returns the [`GuestMemoryMmap`] describing a specific swiotlb region.
+    pub fn io_memory(&self) -> &GuestMemoryMmap {
+        if self.common.swiotlb_regions.num_regions() > 0 {
+            &self.common.swiotlb_regions
+        } else {
+            &self.common.guest_memory
+        }
+    }
+
+    /// Gets a reference to the [`GuestMemoryMmap`] holding the swiotlb regions registered to
+    /// this [`Vm`]. Unlike [`Vm::io_memory`], does not fall back to returning the
+    /// [`GuestMemoryMmap`] of normal memory when no swiotlb regions were registered.
+    pub fn swiotlb_regions(&self) -> &GuestMemoryMmap {
+        &self.common.swiotlb_regions
+    }
+
+    /// Returns an iterator over all regions, normal and swiotlb.
+    fn all_regions(&self) -> impl Iterator<Item = &KvmRegion> {
+        self.guest_memory()
+            .iter()
+            .chain(self.common.swiotlb_regions.iter())
+    }
+
     /// Resets the KVM dirty bitmap for each of the guest's memory regions.
     pub fn reset_dirty_bitmap(&self) {
-        self.guest_memory().iter().for_each(|region| {
+        self.all_regions().for_each(|region| {
             let _ = self
                 .fd()
                 .get_dirty_log(region.inner().slot, u64_to_usize(region.len()));
@@ -197,7 +242,7 @@ impl Vm {
     /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
     pub fn get_dirty_bitmap(&self) -> Result<DirtyBitmap, vmm_sys_util::errno::Error> {
         let mut bitmap: DirtyBitmap = HashMap::new();
-        self.guest_memory().iter().try_for_each(|region| {
+        self.all_regions().try_for_each(|region| {
             self.fd()
                 .get_dirty_log(region.inner().slot, u64_to_usize(region.len()))
                 .map(|bitmap_region| _ = bitmap.insert(region.inner().slot, bitmap_region))
@@ -258,10 +303,14 @@ impl Vm {
         match snapshot_type {
             SnapshotType::Diff => {
                 let dirty_bitmap = self.get_dirty_bitmap().map_err(DirtyBitmap)?;
-                self.guest_memory().dump_dirty(&mut file, &dirty_bitmap)?;
+                self.guest_memory()
+                    .dump_dirty(&mut file, &dirty_bitmap)
+                    .and_then(|_| self.swiotlb_regions().dump_dirty(&mut file, &dirty_bitmap))?;
             }
             SnapshotType::Full => {
-                self.guest_memory().dump(&mut file)?;
+                self.guest_memory()
+                    .dump(&mut file)
+                    .and_then(|_| self.swiotlb_regions().dump(&mut file))?;
                 self.reset_dirty_bitmap();
             }
         };
