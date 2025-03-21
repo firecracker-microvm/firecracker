@@ -218,8 +218,6 @@ pub fn build_microvm_for_boot(
         .allocate_guest_memory()
         .map_err(StartMicrovmError::GuestMemory)?;
 
-    let entry_point = load_kernel(&boot_config.kernel_file, &guest_memory)?;
-    let initrd = InitrdConfig::from_config(boot_config, &guest_memory)?;
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
     let mut boot_cmdline = boot_config.cmdline.clone();
@@ -237,6 +235,9 @@ pub fn build_microvm_for_boot(
         vm_resources.machine_config.vcpu_count,
         cpu_template.kvm_capabilities.clone(),
     )?;
+
+    let entry_point = load_kernel(&boot_config.kernel_file, vmm.vm.guest_memory())?;
+    let initrd = InitrdConfig::from_config(boot_config, vmm.vm.guest_memory())?;
 
     #[cfg(feature = "gdb")]
     let (gdb_tx, gdb_rx) = mpsc::channel();
