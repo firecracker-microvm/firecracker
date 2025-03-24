@@ -23,6 +23,7 @@ use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
 
 use crate::FcExitCode;
+pub use crate::arch::{KvmVcpu, KvmVcpuConfigureError, KvmVcpuError, Peripherals, VcpuState};
 use crate::cpu_config::templates::{CpuConfiguration, GuestConfigError};
 #[cfg(feature = "gdb")]
 use crate::gdb::target::{GdbTargetError, get_raw_tid};
@@ -31,18 +32,6 @@ use crate::seccomp::{BpfProgram, BpfProgramRef};
 use crate::utils::signal::{Killable, register_signal_handler, sigrtmin};
 use crate::utils::sm::StateMachine;
 use crate::vstate::vm::Vm;
-
-/// Module with aarch64 vCPU implementation.
-#[cfg(target_arch = "aarch64")]
-pub mod aarch64;
-/// Module with x86_64 vCPU implementation.
-#[cfg(target_arch = "x86_64")]
-pub mod x86_64;
-
-#[cfg(target_arch = "aarch64")]
-pub use aarch64::{KvmVcpuError, *};
-#[cfg(target_arch = "x86_64")]
-pub use x86_64::{KvmVcpuError, *};
 
 /// Signal number (SIGRTMIN) used to kick Vcpus.
 pub const VCPU_RTSIG_OFFSET: i32 = 0;

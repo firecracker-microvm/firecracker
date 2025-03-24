@@ -13,7 +13,11 @@ use vm_memory::GuestAddress;
 pub mod aarch64;
 
 #[cfg(target_arch = "aarch64")]
-pub use aarch64::vstate::kvm::{Kvm, KvmArchError, OptionalCapabilities};
+pub use aarch64::kvm::{Kvm, KvmArchError, OptionalCapabilities};
+#[cfg(target_arch = "aarch64")]
+pub use aarch64::vcpu::*;
+#[cfg(target_arch = "aarch64")]
+pub use aarch64::vm::{ArchVm, ArchVmError, VmState};
 #[cfg(target_arch = "aarch64")]
 pub use aarch64::{
     ConfigurationError, MMIO_MEM_SIZE, MMIO_MEM_START, arch_memory_regions, configure_system,
@@ -26,14 +30,18 @@ pub use aarch64::{
 pub mod x86_64;
 
 #[cfg(target_arch = "x86_64")]
-pub use crate::arch::x86_64::{
+pub use x86_64::kvm::{Kvm, KvmArchError};
+#[cfg(target_arch = "x86_64")]
+pub use x86_64::vcpu::*;
+#[cfg(target_arch = "x86_64")]
+pub use x86_64::vm::{ArchVm, ArchVmError, VmState};
+#[cfg(target_arch = "x86_64")]
+pub use x86_64::{
     ConfigurationError, MMIO_MEM_SIZE, MMIO_MEM_START, arch_memory_regions, configure_system,
     get_kernel_start, initrd_load_addr, layout::APIC_ADDR, layout::CMDLINE_MAX_SIZE,
     layout::IOAPIC_ADDR, layout::IRQ_BASE, layout::IRQ_MAX, layout::SYSTEM_MEM_SIZE,
     layout::SYSTEM_MEM_START,
 };
-#[cfg(target_arch = "x86_64")]
-pub use x86_64::vstate::kvm::{Kvm, KvmArchError};
 
 /// Types of devices that can get attached to this platform.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Copy, Serialize, Deserialize)]
@@ -83,7 +91,7 @@ impl fmt::Display for DeviceType {
     }
 }
 
-/// Suported boot protocols for
+/// Supported boot protocols for
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum BootProtocol {
     /// Linux 64-bit boot protocol

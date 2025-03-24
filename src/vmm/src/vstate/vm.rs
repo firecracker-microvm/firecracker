@@ -9,19 +9,10 @@ use kvm_bindings::{KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region};
 use kvm_ioctls::VmFd;
 use vmm_sys_util::eventfd::EventFd;
 
+use crate::Vcpu;
+pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
 use crate::logger::info;
 use crate::vstate::memory::{Address, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
-
-#[cfg(target_arch = "x86_64")]
-#[path = "x86_64.rs"]
-mod arch;
-#[cfg(target_arch = "aarch64")]
-#[path = "aarch64.rs"]
-mod arch;
-
-pub use arch::{ArchVm as Vm, ArchVmError, VmState};
-
-use crate::Vcpu;
 use crate::vstate::vcpu::VcpuError;
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -43,7 +34,8 @@ pub enum VmError {
 
 /// Contains Vm functions that are usable across CPU architectures
 impl Vm {
-    fn create_vm(kvm: &crate::vstate::kvm::Kvm) -> Result<VmFd, VmError> {
+    /// Create a KVM VM
+    pub fn create_vm(kvm: &crate::vstate::kvm::Kvm) -> Result<VmFd, VmError> {
         // It is known that KVM_CREATE_VM occasionally fails with EINTR on heavily loaded machines
         // with many VMs.
         //
@@ -57,7 +49,7 @@ impl Vm {
         // KVM_CREATE_VM returns EINTR.
         // https://lore.kernel.org/qemu-devel/8735e0s1zw.wl-maz@kernel.org/
         //
-        // To mitigate it, QEMU does an inifinite retry on EINTR that greatly improves reliabiliy:
+        // To mitigate it, QEMU does an infinite retry on EINTR that greatly improves reliabiliy:
         // - https://github.com/qemu/qemu/commit/94ccff133820552a859c0fb95e33a539e0b90a75
         // - https://github.com/qemu/qemu/commit/bbde13cd14ad4eec18529ce0bf5876058464e124
         //

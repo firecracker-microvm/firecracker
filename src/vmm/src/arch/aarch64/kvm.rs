@@ -10,8 +10,6 @@ use crate::cpu_config::templates::KvmCapability;
 /// ['Kvm'] initialization can't fail for Aarch64
 pub type KvmArchError = Infallible;
 
-/// Errors associated with the wrappers over KVM ioctls.
-/// Needs `rustfmt::skip` to make multiline comments work
 /// Optional capabilities.
 #[derive(Debug, Default)]
 pub struct OptionalCapabilities {

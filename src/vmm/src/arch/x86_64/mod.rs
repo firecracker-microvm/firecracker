@@ -12,6 +12,8 @@ pub mod cpu_model;
 mod gdt;
 /// Contains logic for setting up Advanced Programmable Interrupt Controller (local version).
 pub mod interrupts;
+/// Architecture specific KVM-related code
+pub mod kvm;
 /// Layout for the x86_64 system.
 pub mod layout;
 mod mptable;
@@ -19,8 +21,10 @@ mod mptable;
 pub mod msr;
 /// Logic for configuring x86_64 registers.
 pub mod regs;
-/// Architecture specific microVM state.
-pub mod vstate;
+/// Architecture specific vCPU code
+pub mod vcpu;
+/// Architecture specific VM state code
+pub mod vm;
 /// Logic for configuring XSTATE features.
 pub mod xstate;
 
