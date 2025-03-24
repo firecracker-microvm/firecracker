@@ -49,6 +49,7 @@ def kvm_basic_config(
     rootfs_io_engine=None,
     cpu_template=None,
     enable_entropy_device=False,
+    secret_free=None,
 ):
     """Shortcut for quickly configuring a microVM.
 
@@ -66,16 +67,21 @@ def kvm_basic_config(
     which differs from Firecracker's default only in the enabling of the serial console.
     Reference: file:../../src/vmm/src/vmm_config/boot_source.rs::DEFAULT_KERNEL_CMDLINE
     """
+    # Omit the field for A/B revisions that predate secret-free support.
+    # TODO: Remove this workaround once all A/B baseline revisions support secret_free.
+    kwargs = {"secret_free": True} if secret_free else {}
     vm.api.machine_config.put(
         vcpu_count=vcpu_count,
         smt=smt,
         mem_size_mib=mem_size_mib,
         track_dirty_pages=track_dirty_pages,
         huge_pages=huge_pages,
+        **kwargs,
     )
     vm.huge_pages = huge_pages
     vm.vcpus_count = vcpu_count
     vm.mem_size_bytes = mem_size_mib * 2**20
+    vm.secret_free = secret_free or False
 
     if vm.custom_cpu_template is not None:
         vm.set_cpu_template(vm.custom_cpu_template)

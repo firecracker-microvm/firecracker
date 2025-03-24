@@ -281,6 +281,7 @@ class Microvm:
         self.huge_pages = HugePagesConfig.NONE
         self.vcpus_count = None
         self.mem_size_bytes = None
+        self.secret_free = False
         self.cpu_template_name = "None"
         # The given custom CPU template will be set in basic_config() but could
         # be overwritten via set_cpu_template().
@@ -528,6 +529,7 @@ class Microvm:
             "vcpus": str(self.vcpus_count),
             "guest_memory": f"{self.mem_size_bytes / (1024 * 1024)}MB",
             "pci": f"{self.pci_enabled}",
+            "secret_free": str(self.secret_free or False),
         }
 
     @property
