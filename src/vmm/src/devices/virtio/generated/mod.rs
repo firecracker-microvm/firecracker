@@ -11,6 +11,6 @@
 #![allow(non_snake_case)]
 
 pub mod virtio_blk;
+pub mod virtio_config;
 pub mod virtio_net;
 pub mod virtio_ring;
-pub mod virtio_rng;
