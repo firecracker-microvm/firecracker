@@ -5,18 +5,9 @@ use kvm_bindings::KVM_API_VERSION;
 use kvm_ioctls::Kvm as KvmFd;
 use serde::{Deserialize, Serialize};
 
+pub use crate::arch::{Kvm, KvmArchError};
 use crate::cpu_config::templates::KvmCapability;
 use crate::vstate::memory::{GuestMemory, GuestMemoryMmap};
-
-#[cfg(target_arch = "aarch64")]
-mod aarch64;
-#[cfg(target_arch = "x86_64")]
-mod x86_64;
-
-#[cfg(target_arch = "aarch64")]
-pub use aarch64::{Kvm, KvmArchError, OptionalCapabilities};
-#[cfg(target_arch = "x86_64")]
-pub use x86_64::{Kvm, KvmArchError};
 
 /// Errors associated with the wrappers over KVM ioctls.
 /// Needs `rustfmt::skip` to make multiline comments work

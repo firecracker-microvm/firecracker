@@ -11,6 +11,8 @@ pub mod layout;
 pub mod regs;
 /// Helper methods for VcpuFd.
 pub mod vcpu;
+/// Architecture specific microVM state.
+pub mod vstate;
 
 use std::cmp::min;
 use std::collections::HashMap;
