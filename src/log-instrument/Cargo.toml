@@ -28,7 +28,7 @@ name = "five"
 name = "six"
 
 [dependencies]
-log = "0.4.26"
+log = "0.4.27"
 log-instrument-macros = { path = "../log-instrument-macros" }
 
 [dev-dependencies]
