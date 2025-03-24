@@ -32,6 +32,7 @@ use vmm_sys_util::eventfd::EventFd;
 #[cfg(target_arch = "x86_64")]
 use crate::acpi;
 use crate::arch::{BootProtocol, EntryPoint, InitrdConfig};
+use crate::builder::StartMicrovmError::Internal;
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
 use crate::cpu_config::templates::{
@@ -157,27 +158,15 @@ fn create_vmm_and_vcpus(
     uffd: Option<Uffd>,
     vcpu_count: u8,
     kvm_capabilities: Vec<KvmCapability>,
-) -> Result<(Vmm, Vec<Vcpu>), StartMicrovmError> {
-    use self::StartMicrovmError::*;
-
-    let kvm = Kvm::new(kvm_capabilities)
-        .map_err(VmmError::Kvm)
-        .map_err(StartMicrovmError::Internal)?;
+) -> Result<(Vmm, Vec<Vcpu>), VmmError> {
+    let kvm = Kvm::new(kvm_capabilities).map_err(VmmError::Kvm)?;
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
-    let mut vm = Vm::new(&kvm)
-        .map_err(VmmError::Vm)
-        .map_err(StartMicrovmError::Internal)?;
-    kvm.check_memory(&guest_memory)
-        .map_err(VmmError::Kvm)
-        .map_err(StartMicrovmError::Internal)?;
-    vm.memory_init(&guest_memory)
-        .map_err(VmmError::Vm)
-        .map_err(StartMicrovmError::Internal)?;
+    let mut vm = Vm::new(&kvm).map_err(VmmError::Vm)?;
+    kvm.check_memory(&guest_memory).map_err(VmmError::Kvm)?;
+    vm.memory_init(&guest_memory).map_err(VmmError::Vm)?;
 
-    let resource_allocator = ResourceAllocator::new()
-        .map_err(VmmError::AllocateResources)
-        .map_err(StartMicrovmError::Internal)?;
+    let resource_allocator = ResourceAllocator::new().map_err(VmmError::AllocateResources)?;
 
     // Instantiate the MMIO device manager.
     let mmio_device_manager = MMIODeviceManager::new();
@@ -185,10 +174,7 @@ fn create_vmm_and_vcpus(
     // Instantiate ACPI device manager.
     let acpi_device_manager = ACPIDeviceManager::new();
 
-    let (vcpus, vcpus_exit_evt) = vm
-        .create_vcpus(vcpu_count)
-        .map_err(VmmError::Vm)
-        .map_err(Internal)?;
+    let (vcpus, vcpus_exit_evt) = vm.create_vcpus(vcpu_count).map_err(VmmError::Vm)?;
 
     #[cfg(target_arch = "x86_64")]
     let pio_device_manager = {
@@ -196,14 +182,10 @@ fn create_vmm_and_vcpus(
         set_stdout_nonblocking();
 
         // Serial device setup.
-        let serial_device =
-            setup_serial_device(event_manager, std::io::stdin(), io::stdout()).map_err(Internal)?;
+        let serial_device = setup_serial_device(event_manager, std::io::stdin(), io::stdout())?;
 
         // x86_64 uses the i8042 reset event as the Vmm exit event.
-        let reset_evt = vcpus_exit_evt
-            .try_clone()
-            .map_err(VmmError::EventFd)
-            .map_err(Internal)?;
+        let reset_evt = vcpus_exit_evt.try_clone().map_err(VmmError::EventFd)?;
 
         // create pio dev manager with legacy devices
         // TODO Remove these unwraps.
@@ -276,7 +258,8 @@ pub fn build_microvm_for_boot(
         None,
         vm_resources.machine_config.vcpu_count,
         cpu_template.kvm_capabilities.clone(),
-    )?;
+    )
+    .map_err(Internal)?;
 
     #[cfg(feature = "gdb")]
     let (gdb_tx, gdb_rx) = mpsc::channel();
@@ -471,7 +454,8 @@ pub fn build_microvm_from_snapshot(
         uffd,
         vm_resources.machine_config.vcpu_count,
         microvm_state.kvm_state.kvm_cap_modifiers.clone(),
-    )?;
+    )
+    .map_err(Internal)?;
 
     #[cfg(target_arch = "x86_64")]
     {
