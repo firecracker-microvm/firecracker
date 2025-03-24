@@ -19,6 +19,8 @@ mod mptable;
 pub mod msr;
 /// Logic for configuring x86_64 registers.
 pub mod regs;
+/// Architecture specific microVM state.
+pub mod vstate;
 /// Logic for configuring XSTATE features.
 pub mod xstate;
 
@@ -221,7 +223,7 @@ fn configure_pvh(
     // boot_params.  This will be stored at PVH_INFO_START address, and %rbx
     // will be initialized to contain PVH_INFO_START prior to starting the
     // guest, as required by the PVH ABI.
-    #[allow(clippy::cast_possible_truncation)] // the vec lenghts are single digit integers
+    #[allow(clippy::cast_possible_truncation)] // the vec lengths are single digit integers
     let mut start_info = hvm_start_info {
         magic: XEN_HVM_START_MAGIC_VALUE,
         version: 1,
