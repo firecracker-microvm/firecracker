@@ -73,7 +73,8 @@ pub enum ConfigurationError {
     StartInfoSetup,
 }
 
-const FIRST_ADDR_PAST_32BITS: u64 = 1 << 32;
+/// First address that cannot be addressed using 32 bit anymore.
+pub const FIRST_ADDR_PAST_32BITS: u64 = 1 << 32;
 
 /// Size of MMIO gap at top of 32-bit address space.
 pub const MEM_32BIT_GAP_SIZE: u64 = 768 << 20;
