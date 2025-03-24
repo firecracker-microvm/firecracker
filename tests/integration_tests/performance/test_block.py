@@ -111,15 +111,22 @@ def test_block_performance(
     fio_block_size,
     fio_engine,
     io_engine,
+    secret_free,
     metrics,
     results_dir,
 ):
     """
     Execute block device emulation benchmarking scenarios.
     """
+    if secret_free and io_engine == "Async":
+        pytest.skip("userspace bounce buffers not supported with async block engine")
+
     vm = uvm_plain_acpi
+    vm.memory_monitor = None
     vm.spawn(log_level="Info", emit_metrics=True)
-    vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
+    vm.basic_config(
+        vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB, secret_free=secret_free
+    )
     vm.add_net_iface()
     # Add a secondary block device for benchmark tests.
     fs = drive_tools.FilesystemFile(
