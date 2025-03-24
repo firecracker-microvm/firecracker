@@ -130,8 +130,6 @@ pub enum StartMicrovmError {
     SetVmResources(MachineConfigError),
     /// Cannot create the entropy device: {0}
     CreateEntropyDevice(crate::devices::virtio::rng::EntropyError),
-    /// Failed to allocate guest resource: {0}
-    AllocateResources(#[from] vm_allocator::Error),
     /// Error configuring ACPI: {0}
     #[cfg(target_arch = "x86_64")]
     Acpi(#[from] crate::acpi::AcpiError),
@@ -177,7 +175,9 @@ fn create_vmm_and_vcpus(
         .map_err(VmmError::Vm)
         .map_err(StartMicrovmError::Internal)?;
 
-    let resource_allocator = ResourceAllocator::new()?;
+    let resource_allocator = ResourceAllocator::new()
+        .map_err(VmmError::AllocateResources)
+        .map_err(StartMicrovmError::Internal)?;
 
     // Instantiate the MMIO device manager.
     let mmio_device_manager = MMIODeviceManager::new();
