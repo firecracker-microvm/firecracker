@@ -100,7 +100,13 @@ def get_systemd_analyze_times(microvm):
 )
 @pytest.mark.nonci
 def test_boottime(
-    microvm_factory, guest_kernel_acpi, rootfs_rw, vcpu_count, mem_size_mib, metrics
+    microvm_factory,
+    guest_kernel_acpi,
+    rootfs_rw,
+    vcpu_count,
+    mem_size_mib,
+    secret_free,
+    metrics,
 ):
     """Test boot time with different guest configurations"""
 
@@ -113,6 +119,7 @@ def test_boottime(
             mem_size_mib=mem_size_mib,
             boot_args=DEFAULT_BOOT_ARGS + " init=/usr/local/bin/init",
             enable_entropy_device=True,
+            secret_free=secret_free,
         )
         vm.add_net_iface()
         vm.start()
