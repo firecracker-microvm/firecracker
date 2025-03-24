@@ -107,6 +107,7 @@ def launch_vm_with_boot_timer(
     mem_size_mib,
     pci_enabled,
     boot_from_pmem,
+    secret_free,
     huge_pages=HugePagesConfig.NONE,
 ):
     """Launches a microVM with guest-timer and returns the reported metrics for it"""
@@ -122,6 +123,7 @@ def launch_vm_with_boot_timer(
             boot_args=DEFAULT_BOOT_ARGS + " init=/usr/local/bin/init",
             enable_entropy_device=True,
             huge_pages=huge_pages,
+            secret_free=secret_free,
         )
     else:
         vm.basic_config(
@@ -131,6 +133,7 @@ def launch_vm_with_boot_timer(
             boot_args=DEFAULT_BOOT_ARGS + " init=/usr/local/bin/init rootflags=dax",
             enable_entropy_device=True,
             huge_pages=huge_pages,
+            secret_free=secret_free,
         )
         vm.add_pmem("pmem", rootfs, True, True)
 
@@ -143,10 +146,17 @@ def launch_vm_with_boot_timer(
     return (vm, boot_time_us, cpu_boot_time_us)
 
 
-def test_boot_timer(microvm_factory, guest_kernel, rootfs, pci_enabled):
+def test_boot_timer(microvm_factory, guest_kernel, rootfs, pci_enabled, secret_free):
     """Tests that the boot timer device works"""
     launch_vm_with_boot_timer(
-        microvm_factory, guest_kernel, rootfs, 1, 128, pci_enabled, False
+        microvm_factory,
+        guest_kernel,
+        rootfs,
+        1,
+        128,
+        pci_enabled,
+        False,
+        secret_free,
     )
 
 
@@ -168,10 +178,17 @@ def test_boottime(
     mem_size_mib,
     boot_from_pmem,
     pci_enabled,
+    secret_free,
     huge_pages,
     metrics,
 ):
     """Test boot time with different guest configurations"""
+
+    # Secret free VMs are backed by guest_memfd, which cannot be combined with huge
+    # pages, so /machine-config rejects the combination. The two parameters are
+    # independent, so their product includes pairs that are invalid by construction.
+    if secret_free and huge_pages != HugePagesConfig.NONE:
+        pytest.skip("secret freedom and huge pages are mutually exclusive")
 
     for i in range(10):
         vm, boot_time_us, cpu_boot_time_us = launch_vm_with_boot_timer(
@@ -182,6 +199,7 @@ def test_boottime(
             mem_size_mib,
             pci_enabled,
             boot_from_pmem,
+            secret_free,
             huge_pages,
         )
 
