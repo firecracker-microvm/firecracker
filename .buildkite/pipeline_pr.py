@@ -70,6 +70,15 @@ if not pipeline.args.no_kani and (
     for step in kani_grp["steps"]:
         step["label"] = "🔍 Kani"
 
+if any(x.parent.name == "hiding_ci" for x in changed_files):
+    pipeline.build_group_per_arch(
+        "🕵️ Build Secret Hiding Kernel",
+        pipeline.devtool_test(
+            pytest_opts="-m secret_hiding integration_tests/build/test_hiding_kernel.py",
+        ),
+        depends_on_build=False,
+    )
+
 if run_all_tests(changed_files):
     pipeline.build_group(
         "📦 Build",
