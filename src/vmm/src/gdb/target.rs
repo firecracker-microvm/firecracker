@@ -33,7 +33,7 @@ use vm_memory::{Bytes, GuestAddress, GuestMemoryError};
 use super::arch;
 use crate::arch::GUEST_PAGE_SIZE;
 #[cfg(target_arch = "aarch64")]
-use crate::arch::aarch64::vcpu::VcpuError as AarchVcpuError;
+use crate::arch::aarch64::vcpu::VcpuArchError as AarchVcpuError;
 use crate::logger::{error, info};
 use crate::utils::u64_to_usize;
 use crate::vstate::vcpu::VcpuSendEventError;

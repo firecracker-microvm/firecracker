@@ -99,7 +99,7 @@ mod tests {
         const KVM_REG_SIZE_U32: u64 = 0x20000000000000;
 
         use vmm::arch::aarch64::regs::Aarch64RegisterRef;
-        use vmm::vstate::vcpu::aarch64::VcpuState;
+        use vmm::arch::aarch64::vcpu::VcpuState;
 
         let vcpu_state = VcpuState {
             regs: {
@@ -158,7 +158,7 @@ mod tests {
         const KVM_REG_SIZE_U32: u64 = 0x20000000000000;
 
         use vmm::arch::aarch64::regs::Aarch64RegisterRef;
-        use vmm::vstate::vcpu::aarch64::VcpuState;
+        use vmm::arch::aarch64::vcpu::VcpuState;
 
         let vcpu_state = VcpuState {
             regs: {
