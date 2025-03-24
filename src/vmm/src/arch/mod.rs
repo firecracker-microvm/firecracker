@@ -58,15 +58,6 @@ pub enum DeviceType {
     BootTimer,
 }
 
-/// Type for passing information about the initrd in the guest memory.
-#[derive(Debug)]
-pub struct InitrdConfig {
-    /// Load address of initrd in guest memory
-    pub address: crate::vstate::memory::GuestAddress,
-    /// Size of initrd in guest memory
-    pub size: usize,
-}
-
 /// Default page size for the guest OS.
 pub const GUEST_PAGE_SIZE: usize = 4096;
 

@@ -27,6 +27,7 @@ use self::gic::GICDevice;
 use crate::arch::DeviceType;
 use crate::device_manager::mmio::MMIODeviceInfo;
 use crate::devices::acpi::vmgenid::VmGenId;
+use crate::initrd::InitrdConfig;
 use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 /// Errors thrown while configuring aarch64 system.
@@ -34,8 +35,6 @@ use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemo
 pub enum ConfigurationError {
     /// Failed to create a Flattened Device Tree for this aarch64 microVM: {0}
     SetupFDT(#[from] fdt::FdtError),
-    /// Failed to compute the initrd address.
-    InitrdAddress,
     /// Failed to write to guest memory.
     MemoryError(GuestMemoryError),
 }
@@ -70,7 +69,7 @@ pub fn configure_system(
     device_info: &HashMap<(DeviceType, String), MMIODeviceInfo>,
     gic_device: &GICDevice,
     vmgenid: &Option<VmGenId>,
-    initrd: &Option<super::InitrdConfig>,
+    initrd: &Option<InitrdConfig>,
 ) -> Result<(), ConfigurationError> {
     let fdt = fdt::create_fdt(
         guest_mem,
@@ -94,21 +93,18 @@ pub fn get_kernel_start() -> u64 {
 }
 
 /// Returns the memory address where the initrd could be loaded.
-pub fn initrd_load_addr(
-    guest_mem: &GuestMemoryMmap,
-    initrd_size: usize,
-) -> Result<u64, ConfigurationError> {
+pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> Option<u64> {
     let round_to_pagesize =
         |size| (size + (super::GUEST_PAGE_SIZE - 1)) & !(super::GUEST_PAGE_SIZE - 1);
     match GuestAddress(get_fdt_addr(guest_mem)).checked_sub(round_to_pagesize(initrd_size) as u64) {
         Some(offset) => {
             if guest_mem.address_in_range(offset) {
-                Ok(offset.raw_value())
+                Some(offset.raw_value())
             } else {
-                Err(ConfigurationError::InitrdAddress)
+                None
             }
         }
-        None => Err(ConfigurationError::InitrdAddress),
+        None => None,
     }
 }
 

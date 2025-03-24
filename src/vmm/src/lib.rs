@@ -111,6 +111,9 @@ pub mod vmm_config;
 /// Module with virtual state structs.
 pub mod vstate;
 
+/// Module with initrd.
+pub mod initrd;
+
 use std::collections::HashMap;
 use std::io;
 use std::os::unix::io::AsRawFd;

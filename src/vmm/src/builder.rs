@@ -6,7 +6,7 @@
 #[cfg(target_arch = "x86_64")]
 use std::convert::TryFrom;
 use std::fmt::Debug;
-use std::io::{self, Seek, SeekFrom};
+use std::io;
 #[cfg(feature = "gdb")]
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -23,7 +23,6 @@ use linux_loader::loader::elf::PvhBootCapability;
 use linux_loader::loader::pe::PE as Loader;
 use userfaultfd::Uffd;
 use utils::time::TimestampUs;
-use vm_memory::ReadVolatile;
 #[cfg(target_arch = "aarch64")]
 use vm_superio::Rtc;
 use vm_superio::Serial;
@@ -31,8 +30,7 @@ use vmm_sys_util::eventfd::EventFd;
 
 #[cfg(target_arch = "x86_64")]
 use crate::acpi;
-use crate::arch::{BootProtocol, EntryPoint, InitrdConfig};
-use crate::builder::StartMicrovmError::Internal;
+use crate::arch::{BootProtocol, EntryPoint};
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
 use crate::cpu_config::templates::{
@@ -62,17 +60,17 @@ use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 #[cfg(feature = "gdb")]
 use crate::gdb;
+use crate::initrd::{InitrdConfig, InitrdError};
 use crate::logger::{debug, error};
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
-use crate::utils::u64_to_usize;
 use crate::vmm_config::boot_source::BootConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError};
 use crate::vstate::kvm::Kvm;
-use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
+use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuError};
 use crate::vstate::vm::Vm;
 use crate::{EventManager, Vmm, VmmError, device_manager};
@@ -99,10 +97,8 @@ pub enum StartMicrovmError {
     CreateVMGenID(VmGenIdError),
     /// Invalid Memory Configuration: {0}
     GuestMemory(crate::vstate::memory::MemoryError),
-    /// Cannot load initrd due to an invalid memory configuration.
-    InitrdLoad,
-    /// Cannot load initrd due to an invalid image: {0}
-    InitrdRead(io::Error),
+    /// Error with initrd initialization: {0}.
+    Initrd(#[from] InitrdError),
     /// Internal error while starting microVM: {0}
     Internal(#[from] VmmError),
     /// Failed to get CPU template: {0}
@@ -241,7 +237,7 @@ pub fn build_microvm_for_boot(
         .map_err(StartMicrovmError::GuestMemory)?;
 
     let entry_point = load_kernel(boot_config, &guest_memory)?;
-    let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
+    let initrd = InitrdConfig::from_config(boot_config, &guest_memory)?;
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
     let mut boot_cmdline = boot_config.cmdline.clone();
@@ -449,7 +445,7 @@ pub fn build_microvm_from_snapshot(
         vm_resources.machine_config.vcpu_count,
         microvm_state.kvm_state.kvm_cap_modifiers.clone(),
     )
-    .map_err(Internal)?;
+    .map_err(StartMicrovmError::Internal)?;
 
     #[cfg(target_arch = "x86_64")]
     {
@@ -600,68 +596,6 @@ fn load_kernel(
     Ok(EntryPoint {
         entry_addr: entry_addr.kernel_load,
         protocol: BootProtocol::LinuxBoot,
-    })
-}
-
-fn load_initrd_from_config(
-    boot_cfg: &BootConfig,
-    vm_memory: &GuestMemoryMmap,
-) -> Result<Option<InitrdConfig>, StartMicrovmError> {
-    use self::StartMicrovmError::InitrdRead;
-
-    Ok(match &boot_cfg.initrd_file {
-        Some(f) => Some(load_initrd(
-            vm_memory,
-            &mut f.try_clone().map_err(InitrdRead)?,
-        )?),
-        None => None,
-    })
-}
-
-/// Loads the initrd from a file into the given memory slice.
-///
-/// * `vm_memory` - The guest memory the initrd is written to.
-/// * `image` - The initrd image.
-///
-/// Returns the result of initrd loading
-fn load_initrd<F>(
-    vm_memory: &GuestMemoryMmap,
-    image: &mut F,
-) -> Result<InitrdConfig, StartMicrovmError>
-where
-    F: ReadVolatile + Seek + Debug,
-{
-    use self::StartMicrovmError::{InitrdLoad, InitrdRead};
-
-    // Get the image size
-    let size = match image.seek(SeekFrom::End(0)) {
-        Err(err) => return Err(InitrdRead(err)),
-        Ok(0) => {
-            return Err(InitrdRead(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Initrd image seek returned a size of zero",
-            )));
-        }
-        Ok(s) => u64_to_usize(s),
-    };
-    // Go back to the image start
-    image.seek(SeekFrom::Start(0)).map_err(InitrdRead)?;
-
-    // Get the target address
-    let address = crate::arch::initrd_load_addr(vm_memory, size).map_err(|_| InitrdLoad)?;
-
-    // Load the image into memory
-    let mut slice = vm_memory
-        .get_slice(GuestAddress(address), size)
-        .map_err(|_| InitrdLoad)?;
-
-    image
-        .read_exact_volatile(&mut slice)
-        .map_err(|_| InitrdLoad)?;
-
-    Ok(InitrdConfig {
-        address: GuestAddress(address),
-        size,
     })
 }
 
@@ -1010,7 +944,6 @@ pub(crate) fn set_stdout_nonblocking() {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::io::Write;
 
     use linux_loader::cmdline::Cmdline;
     use vmm_sys_util::tempfile::TempFile;
@@ -1024,7 +957,6 @@ pub(crate) mod tests {
     use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_RNG};
     use crate::mmds::data_store::{Mmds, MmdsVersion};
     use crate::mmds::ns::MmdsNetworkStack;
-    use crate::test_utils::{single_region_mem, single_region_mem_at};
     use crate::utils::mib_to_bytes;
     use crate::vmm_config::balloon::{BALLOON_DEV_ID, BalloonBuilder, BalloonDeviceConfig};
     use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
@@ -1267,67 +1199,6 @@ pub(crate) mod tests {
             vmm.mmio_device_manager
                 .get_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
                 .is_some()
-        );
-    }
-
-    fn make_test_bin() -> Vec<u8> {
-        let mut fake_bin = Vec::new();
-        fake_bin.resize(1_000_000, 0xAA);
-        fake_bin
-    }
-
-    #[test]
-    // Test that loading the initrd is successful on different archs.
-    fn test_load_initrd() {
-        use crate::vstate::memory::GuestMemory;
-        let image = make_test_bin();
-
-        let mem_size: usize = image.len() * 2 + crate::arch::GUEST_PAGE_SIZE;
-
-        let tempfile = TempFile::new().unwrap();
-        let mut tempfile = tempfile.into_file();
-        tempfile.write_all(&image).unwrap();
-
-        #[cfg(target_arch = "x86_64")]
-        let gm = single_region_mem(mem_size);
-
-        #[cfg(target_arch = "aarch64")]
-        let gm = single_region_mem(mem_size + crate::arch::aarch64::layout::FDT_MAX_SIZE);
-
-        let res = load_initrd(&gm, &mut tempfile);
-        let initrd = res.unwrap();
-        assert!(gm.address_in_range(initrd.address));
-        assert_eq!(initrd.size, image.len());
-    }
-
-    #[test]
-    fn test_load_initrd_no_memory() {
-        let gm = single_region_mem(79);
-        let image = make_test_bin();
-        let tempfile = TempFile::new().unwrap();
-        let mut tempfile = tempfile.into_file();
-        tempfile.write_all(&image).unwrap();
-        let res = load_initrd(&gm, &mut tempfile);
-        assert!(
-            matches!(res, Err(StartMicrovmError::InitrdLoad)),
-            "{:?}",
-            res
-        );
-    }
-
-    #[test]
-    fn test_load_initrd_unaligned() {
-        let image = vec![1, 2, 3, 4];
-        let tempfile = TempFile::new().unwrap();
-        let mut tempfile = tempfile.into_file();
-        tempfile.write_all(&image).unwrap();
-        let gm = single_region_mem_at(crate::arch::GUEST_PAGE_SIZE as u64 + 1, image.len() * 2);
-
-        let res = load_initrd(&gm, &mut tempfile);
-        assert!(
-            matches!(res, Err(StartMicrovmError::InitrdLoad)),
-            "{:?}",
-            res
         );
     }
 
