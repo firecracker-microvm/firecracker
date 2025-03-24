@@ -10,7 +10,7 @@ license = "Apache-2.0"
 displaydoc = "0.2.5"
 thiserror = "2.0.12"
 vm-memory = { version = "0.16.1", features = ["backend-mmap", "backend-bitmap"] }
-zerocopy = { version = "0.8.23", features = ["derive"] }
+zerocopy = { version = "0.8.24", features = ["derive"] }
 
 [lib]
 bench = false
