@@ -257,9 +257,9 @@ pub enum VmmError {
     /// Cannot spawn Vcpu thread: {0}
     VcpuSpawn(io::Error),
     /// Vm error: {0}
-    Vm(vstate::vm::VmError),
+    Vm(#[from] vstate::vm::VmError),
     /// Kvm error: {0}
-    Kvm(vstate::kvm::KvmError),
+    Kvm(#[from] vstate::kvm::KvmError),
     /// Error thrown by observer object on Vmm initialization: {0}
     VmmObserverInit(vmm_sys_util::errno::Error),
     /// Error thrown by observer object on Vmm teardown: {0}

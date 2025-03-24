@@ -159,14 +159,14 @@ fn create_vmm_and_vcpus(
     vcpu_count: u8,
     kvm_capabilities: Vec<KvmCapability>,
 ) -> Result<(Vmm, Vec<Vcpu>), VmmError> {
-    let kvm = Kvm::new(kvm_capabilities).map_err(VmmError::Kvm)?;
+    let kvm = Kvm::new(kvm_capabilities)?;
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
-    let mut vm = Vm::new(&kvm).map_err(VmmError::Vm)?;
-    kvm.check_memory(&guest_memory).map_err(VmmError::Kvm)?;
-    vm.memory_init(&guest_memory).map_err(VmmError::Vm)?;
+    let mut vm = Vm::new(&kvm)?;
+    kvm.check_memory(&guest_memory)?;
+    vm.memory_init(&guest_memory)?;
 
-    let resource_allocator = ResourceAllocator::new().map_err(VmmError::AllocateResources)?;
+    let resource_allocator = ResourceAllocator::new()?;
 
     // Instantiate the MMIO device manager.
     let mmio_device_manager = MMIODeviceManager::new();
@@ -174,7 +174,7 @@ fn create_vmm_and_vcpus(
     // Instantiate ACPI device manager.
     let acpi_device_manager = ACPIDeviceManager::new();
 
-    let (vcpus, vcpus_exit_evt) = vm.create_vcpus(vcpu_count).map_err(VmmError::Vm)?;
+    let (vcpus, vcpus_exit_evt) = vm.create_vcpus(vcpu_count)?;
 
     #[cfg(target_arch = "x86_64")]
     let pio_device_manager = {
