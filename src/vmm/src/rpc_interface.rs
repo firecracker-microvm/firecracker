@@ -808,14 +808,12 @@ impl RuntimeApiController {
         // vhost-user-block updates
         if new_cfg.path_on_host.is_none() && new_cfg.rate_limiter.is_none() {
             vmm.update_vhost_user_block_config(&new_cfg.drive_id)
-                .map(|()| VmmData::Empty)
                 .map_err(DriveError::DeviceUpdate)?;
         }
 
         // virtio-block updates
         if let Some(new_path) = new_cfg.path_on_host {
             vmm.update_block_device_path(&new_cfg.drive_id, new_path)
-                .map(|()| VmmData::Empty)
                 .map_err(DriveError::DeviceUpdate)?;
         }
         if new_cfg.rate_limiter.is_some() {
@@ -824,7 +822,6 @@ impl RuntimeApiController {
                 RateLimiterUpdate::from(new_cfg.rate_limiter).bandwidth,
                 RateLimiterUpdate::from(new_cfg.rate_limiter).ops,
             )
-            .map(|()| VmmData::Empty)
             .map_err(DriveError::DeviceUpdate)?;
         }
         Ok(VmmData::Empty)
