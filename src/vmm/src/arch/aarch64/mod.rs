@@ -139,8 +139,16 @@ pub fn configure_system_for_boot(
         .as_cstring()
         .expect("Cannot create cstring from cmdline string");
 
+    let swiotlb_region = match vmm.vm.swiotlb_regions().num_regions() {
+        0 | 1 => vmm.vm.swiotlb_regions().iter().next(),
+        _ => panic!(
+            "Firecracker tried to configure more than one swiotlb region. This is a logic bug."
+        ),
+    };
+
     let fdt = fdt::create_fdt(
         vmm.vm.guest_memory(),
+        swiotlb_region,
         vcpu_mpidr,
         cmdline,
         vmm.mmio_device_manager.get_device_info(),

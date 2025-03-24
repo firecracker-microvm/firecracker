@@ -10,7 +10,7 @@ use std::ffi::CString;
 use std::fmt::Debug;
 
 use vm_fdt::{Error as VmFdtError, FdtWriter, FdtWriterNode};
-use vm_memory::GuestMemoryError;
+use vm_memory::{GuestMemoryError, GuestMemoryRegion};
 
 use super::super::DeviceType;
 use super::cache_info::{CacheEntry, read_cache_config};
@@ -18,12 +18,15 @@ use super::gic::GICDevice;
 use crate::device_manager::mmio::MMIODeviceInfo;
 use crate::devices::acpi::vmgenid::{VMGENID_MEM_SIZE, VmGenId};
 use crate::initrd::InitrdConfig;
-use crate::vstate::memory::{Address, GuestMemory, GuestMemoryMmap};
+use crate::vstate::memory::{Address, GuestMemory, GuestMemoryMmap, KvmRegion};
 
 // This is a value for uniquely identifying the FDT node declaring the interrupt controller.
 const GIC_PHANDLE: u32 = 1;
 // This is a value for uniquely identifying the FDT node containing the clock definition.
 const CLOCK_PHANDLE: u32 = 2;
+/// Unique identifier for the /reserved-memory node describing the memory region the guest
+/// is allowed to use for swiotlb
+const IO_MEM_PHANDLE: u32 = 3;
 // You may be wondering why this big value?
 // This phandle is used to uniquely identify the FDT nodes containing cache information. Each cpu
 // can have a variable number of caches, some of these caches may be shared with other cpus.
@@ -56,8 +59,10 @@ pub enum FdtError {
 }
 
 /// Creates the flattened device tree for this aarch64 microVM.
+#[allow(clippy::too_many_arguments)]
 pub fn create_fdt(
     guest_mem: &GuestMemoryMmap,
+    swiotlb_region: Option<&KvmRegion>,
     vcpu_mpidr: Vec<u64>,
     cmdline: CString,
     device_info: &HashMap<(DeviceType, String), MMIODeviceInfo>,
@@ -83,7 +88,7 @@ pub fn create_fdt(
     // containing description of the interrupt controller for this VM.
     fdt_writer.property_u32("interrupt-parent", GIC_PHANDLE)?;
     create_cpu_nodes(&mut fdt_writer, &vcpu_mpidr)?;
-    create_memory_node(&mut fdt_writer, guest_mem)?;
+    create_memory_node(&mut fdt_writer, guest_mem, swiotlb_region)?;
     create_chosen_node(&mut fdt_writer, cmdline, initrd)?;
     create_gic_node(&mut fdt_writer, gic_device)?;
     create_timer_node(&mut fdt_writer)?;
@@ -208,7 +213,11 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<(), FdtEr
     Ok(())
 }
 
-fn create_memory_node(fdt: &mut FdtWriter, guest_mem: &GuestMemoryMmap) -> Result<(), FdtError> {
+fn create_memory_node(
+    fdt: &mut FdtWriter,
+    guest_mem: &GuestMemoryMmap,
+    swiotlb_region: Option<&KvmRegion>,
+) -> Result<(), FdtError> {
     // See https://github.com/torvalds/linux/blob/master/Documentation/devicetree/booting-without-of.txt#L960
     // for an explanation of this.
 
@@ -220,9 +229,13 @@ fn create_memory_node(fdt: &mut FdtWriter, guest_mem: &GuestMemoryMmap) -> Resul
     // The reason we do this is that Linux does not allow remapping system memory. However, without
     // remap, kernel drivers cannot get virtual addresses to read data from device memory. Leaving
     // this memory region out allows Linux kernel modules to remap and thus read this region.
+    //
+    // The generic memory description must include the range that we later declare as a reserved
+    // carve out.
     let mem_size = guest_mem.last_addr().raw_value()
         - super::layout::DRAM_MEM_START
         - super::layout::SYSTEM_MEM_SIZE
+        + swiotlb_region.map(|r| r.len()).unwrap_or(0)
         + 1;
     let mem_reg_prop = &[
         super::layout::DRAM_MEM_START + super::layout::SYSTEM_MEM_SIZE,
@@ -232,6 +245,20 @@ fn create_memory_node(fdt: &mut FdtWriter, guest_mem: &GuestMemoryMmap) -> Resul
     fdt.property_string("device_type", "memory")?;
     fdt.property_array_u64("reg", mem_reg_prop)?;
     fdt.end_node(mem)?;
+
+    if let Some(region) = swiotlb_region {
+        // See https://github.com/devicetree-org/dt-schema/blob/dd3e3dce83607661f2831a8fac9112fae5ebe6cd/dtschema/schemas/reserved-memory/reserved-memory.yaml#L4
+        let rmem = fdt.begin_node("reserved-memory")?;
+        fdt.property_u32("#address-cells", ADDRESS_CELLS)?;
+        fdt.property_u32("#size-cells", SIZE_CELLS)?;
+        fdt.property_null("ranges")?;
+        let dma = fdt.begin_node("bouncy_boi")?;
+        fdt.property_string("compatible", "restricted-dma-pool")?;
+        fdt.property_phandle(IO_MEM_PHANDLE)?;
+        fdt.property_array_u64("reg", &[region.start_addr().0, region.len()])?;
+        fdt.end_node(dma)?;
+        fdt.end_node(rmem)?;
+    }
 
     Ok(())
 }
@@ -358,6 +385,9 @@ fn create_virtio_node(fdt: &mut FdtWriter, dev_info: &MMIODeviceInfo) -> Result<
 
     fdt.property_string("compatible", "virtio,mmio")?;
     fdt.property_array_u64("reg", &[dev_info.addr, dev_info.len])?;
+    // Force all virtio device to place their vrings and buffer into the dedicated I/O memory region
+    // that is backed by traditional memory (e.g. not secret-free).
+    fdt.property_u32("memory-region", IO_MEM_PHANDLE)?;
     fdt.property_array_u32(
         "interrupts",
         &[
@@ -499,6 +529,7 @@ mod tests {
         let gic = create_gic(&vm, 1, None).unwrap();
         create_fdt(
             &mem,
+            None,
             vec![0],
             CString::new("console=tty0").unwrap(),
             &dev_info,
@@ -519,6 +550,7 @@ mod tests {
         let gic = create_gic(&vm, 1, None).unwrap();
         create_fdt(
             &mem,
+            None,
             vec![0],
             CString::new("console=tty0").unwrap(),
             &HashMap::<(DeviceType, std::string::String), MMIODeviceInfo>::new(),
@@ -544,6 +576,7 @@ mod tests {
 
         let current_dtb_bytes = create_fdt(
             &mem,
+            None,
             vec![0],
             CString::new("console=tty0").unwrap(),
             &HashMap::<(DeviceType, std::string::String), MMIODeviceInfo>::new(),
@@ -606,6 +639,7 @@ mod tests {
 
         let current_dtb_bytes = create_fdt(
             &mem,
+            None,
             vec![0],
             CString::new("console=tty0").unwrap(),
             &HashMap::<(DeviceType, std::string::String), MMIODeviceInfo>::new(),
