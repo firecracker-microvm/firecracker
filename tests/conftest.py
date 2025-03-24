@@ -442,6 +442,20 @@ def snapshot_type(request):
     return request.param
 
 
+secret_free_test_cases = [False]
+if (
+    global_props.host_linux_version_metrics == "next"
+    and global_props.instance != "m6g.metal"
+):
+    secret_free_test_cases.append(True)
+
+
+@pytest.fixture(params=secret_free_test_cases)
+def secret_free(request):
+    """Supported secret hiding configuration, based on hardware"""
+    return request.param
+
+
 @pytest.fixture
 def results_dir(request, pytestconfig):
     """
