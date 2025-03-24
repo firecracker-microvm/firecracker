@@ -73,7 +73,14 @@ class VsockIPerf3Test(IPerf3Test):
 @pytest.mark.parametrize("payload_length", ["64K", "1024K"], ids=["p64K", "p1024K"])
 @pytest.mark.parametrize("mode", ["g2h", "h2g", "bd"])
 def test_vsock_throughput(
-    microvm_factory, guest_kernel_acpi, rootfs, vcpus, payload_length, mode, metrics
+    microvm_factory,
+    guest_kernel_acpi,
+    rootfs,
+    vcpus,
+    payload_length,
+    mode,
+    metrics,
+    memory_config,
 ):
     """
     Test vsock throughput for multiple vm configurations.
@@ -84,10 +91,15 @@ def test_vsock_throughput(
     if mode == "bd" and vcpus < 2:
         pytest.skip("bidrectional test only done with at least 2 vcpus")
 
+    if memory_config is not None and "6.1" not in guest_kernel_acpi.name:
+        pytest.skip("swiotlb only supported on aarch64/6.1")
+
     mem_size_mib = 1024
     vm = microvm_factory.build(guest_kernel_acpi, rootfs, monitor_memory=False)
     vm.spawn(log_level="Info", emit_metrics=True)
-    vm.basic_config(vcpu_count=vcpus, mem_size_mib=mem_size_mib)
+    vm.basic_config(
+        vcpu_count=vcpus, mem_size_mib=mem_size_mib, memory_config=memory_config
+    )
     vm.add_net_iface()
     # Create a vsock device
     vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/" + VSOCK_UDS_PATH)

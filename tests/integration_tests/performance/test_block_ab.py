@@ -148,14 +148,20 @@ def test_block_performance(
     fio_mode,
     fio_block_size,
     io_engine,
+    memory_config,
     metrics,
 ):
     """
     Execute block device emulation benchmarking scenarios.
     """
+    if memory_config is not None and "6.1" not in guest_kernel_acpi.name:
+        pytest.skip("swiotlb only supported on aarch64/6.1")
+
     vm = microvm_factory.build(guest_kernel_acpi, rootfs, monitor_memory=False)
     vm.spawn(log_level="Info", emit_metrics=True)
-    vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
+    vm.basic_config(
+        vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB, memory_config=memory_config
+    )
     vm.add_net_iface()
     # Add a secondary block device for benchmark tests.
     fs = drive_tools.FilesystemFile(

@@ -8,8 +8,6 @@ import time
 
 import pytest
 
-from framework.properties import global_props
-
 # Regex for obtaining boot time from some string.
 TIMESTAMP_LOG_REGEX = r"Guest-boot-time\s+\=\s+(\d+)\s+us"
 
@@ -17,14 +15,6 @@ DEFAULT_BOOT_ARGS = (
     "reboot=k panic=1 pci=off nomodule 8250.nr_uarts=0"
     " i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd"
 )
-
-
-DIMENSIONS = {
-    "instance": global_props.instance,
-    "cpu_model": global_props.cpu_model,
-    "host_os": global_props.host_os,
-    "host_kernel": "linux-" + global_props.host_linux_version_metrics,
-}
 
 
 def _get_microvm_boottime(vm):
@@ -75,19 +65,18 @@ def find_events(log_data):
 )
 @pytest.mark.nonci
 def test_boottime(
-    microvm_factory, guest_kernel_acpi, rootfs_rw, vcpu_count, mem_size_mib, metrics
+    microvm_factory,
+    guest_kernel_acpi,
+    rootfs_rw,
+    vcpu_count,
+    mem_size_mib,
+    memory_config,
+    metrics,
 ):
     """Test boot time with different guest configurations"""
 
-    metrics.set_dimensions(
-        {
-            **DIMENSIONS,
-            "performance_test": "test_boottime",
-            "guest_kernel": guest_kernel_acpi.name,
-            "vcpus": str(vcpu_count),
-            "mem_size_mib": str(mem_size_mib),
-        }
-    )
+    if memory_config is not None and "6.1" not in guest_kernel_acpi.name:
+        pytest.skip("swiotlb only supported on aarch64/6.1")
 
     for _ in range(10):
         vm = microvm_factory.build(guest_kernel_acpi, rootfs_rw)
@@ -98,10 +87,14 @@ def test_boottime(
             mem_size_mib=mem_size_mib,
             boot_args=DEFAULT_BOOT_ARGS + " init=/usr/local/bin/init",
             enable_entropy_device=True,
+            memory_config=memory_config,
         )
         vm.add_net_iface()
         vm.start()
         vm.pin_threads(0)
+
+        metrics.set_dimensions({"performance_test": "test_boottime", **vm.dimensions})
+
         boottime_us = _get_microvm_boottime(vm)
         metrics.put_metric("boot_time", boottime_us, unit="Microseconds")
         timestamps = find_events(vm.log_data)
