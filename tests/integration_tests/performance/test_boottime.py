@@ -95,7 +95,13 @@ def get_systemd_analyze_times(microvm):
 
 
 def launch_vm_with_boot_timer(
-    microvm_factory, guest_kernel_acpi, rootfs_rw, vcpu_count, mem_size_mib, pci_enabled
+    microvm_factory,
+    guest_kernel_acpi,
+    rootfs_rw,
+    vcpu_count,
+    mem_size_mib,
+    pci_enabled,
+    secret_free,
 ):
     """Launches a microVM with guest-timer and returns the reported metrics for it"""
     vm = microvm_factory.build(guest_kernel_acpi, rootfs_rw, pci=pci_enabled)
@@ -106,6 +112,7 @@ def launch_vm_with_boot_timer(
         mem_size_mib=mem_size_mib,
         boot_args=DEFAULT_BOOT_ARGS + " init=/usr/local/bin/init",
         enable_entropy_device=True,
+        secret_free=secret_free,
     )
     vm.add_net_iface()
     vm.start()
@@ -119,7 +126,7 @@ def launch_vm_with_boot_timer(
 def test_boot_timer(microvm_factory, guest_kernel_acpi, rootfs, pci_enabled):
     """Tests that the boot timer device works"""
     launch_vm_with_boot_timer(
-        microvm_factory, guest_kernel_acpi, rootfs, 1, 128, pci_enabled
+        microvm_factory, guest_kernel_acpi, rootfs, 1, 128, pci_enabled, False
     )
 
 
@@ -135,6 +142,7 @@ def test_boottime(
     vcpu_count,
     mem_size_mib,
     pci_enabled,
+    secret_free,
     metrics,
 ):
     """Test boot time with different guest configurations"""
@@ -147,6 +155,7 @@ def test_boottime(
             vcpu_count,
             mem_size_mib,
             pci_enabled,
+            secret_free,
         )
 
         if i == 0:
