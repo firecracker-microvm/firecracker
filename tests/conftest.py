@@ -376,6 +376,19 @@ def io_engine(request):
     return request.param
 
 
+# 4MiB is the smallest swiotlb size that seems to generally work for all
+# perf tests. 2MiB makes the vsock throughput test consistently fail, and 1MiB makes
+# the network throughput test occasionally fail (both due to connection issues).
+# The block test passes even with the minimum of 1MiB. We pick 8 to have enough
+# buffer to the failing cases.
+@pytest.fixture(params=[None, 8] if platform.machine() == "aarch64" else [None])
+def memory_config(request):
+    """Differently configured swiotlb regions. Only supported on aarch64"""
+    if request.param is None:
+        return None
+    return {"initial_swiotlb_size": request.param}
+
+
 @pytest.fixture
 def results_dir(request):
     """
