@@ -83,6 +83,7 @@ def test_vsock_throughput(
     mode,
     metrics,
     results_dir,
+    secret_free,
 ):
     """
     Test vsock throughput for multiple vm configurations.
@@ -96,7 +97,9 @@ def test_vsock_throughput(
     mem_size_mib = 1024
     vm = microvm_factory.build(guest_kernel_acpi, rootfs, monitor_memory=False)
     vm.spawn(log_level="Info", emit_metrics=True)
-    vm.basic_config(vcpu_count=vcpus, mem_size_mib=mem_size_mib)
+    vm.basic_config(
+        vcpu_count=vcpus, mem_size_mib=mem_size_mib, secret_free=secret_free
+    )
     vm.add_net_iface()
     # Create a vsock device
     vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/" + VSOCK_UDS_PATH)
