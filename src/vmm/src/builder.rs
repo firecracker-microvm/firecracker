@@ -248,6 +248,12 @@ pub fn build_microvm_for_boot(
             .map_err(VmmError::Vm)?;
     }
 
+    if let Some(swiotlb) = swiotlb {
+        vmm.vm
+            .register_swiotlb_region(swiotlb)
+            .map_err(VmmError::Vm)?;
+    }
+
     let entry_point = load_kernel(&boot_config.kernel_file, vmm.vm.guest_memory())?;
     let initrd = InitrdConfig::from_config(boot_config, vmm.vm.guest_memory())?;
 
