@@ -8,22 +8,12 @@ import time
 
 import pytest
 
-from framework.properties import global_props
-
 # Regex for obtaining boot time from some string.
 
 DEFAULT_BOOT_ARGS = (
     "reboot=k panic=1 pci=off nomodule 8250.nr_uarts=0"
     " i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd"
 )
-
-
-DIMENSIONS = {
-    "instance": global_props.instance,
-    "cpu_model": global_props.cpu_model,
-    "host_os": global_props.host_os,
-    "host_kernel": "linux-" + global_props.host_linux_version_metrics,
-}
 
 
 def get_boottime_device_info(vm):
@@ -110,19 +100,15 @@ def get_systemd_analyze_times(microvm):
 )
 @pytest.mark.nonci
 def test_boottime(
-    microvm_factory, guest_kernel_acpi, rootfs_rw, vcpu_count, mem_size_mib, metrics
+    microvm_factory,
+    guest_kernel_acpi,
+    rootfs_rw,
+    vcpu_count,
+    mem_size_mib,
+    secret_free,
+    metrics,
 ):
     """Test boot time with different guest configurations"""
-
-    metrics.set_dimensions(
-        {
-            **DIMENSIONS,
-            "performance_test": "test_boottime",
-            "guest_kernel": guest_kernel_acpi.name,
-            "vcpus": str(vcpu_count),
-            "mem_size_mib": str(mem_size_mib),
-        }
-    )
 
     for _ in range(10):
         vm = microvm_factory.build(guest_kernel_acpi, rootfs_rw)
@@ -133,10 +119,13 @@ def test_boottime(
             mem_size_mib=mem_size_mib,
             boot_args=DEFAULT_BOOT_ARGS + " init=/usr/local/bin/init",
             enable_entropy_device=True,
+            secret_free=secret_free,
         )
         vm.add_net_iface()
         vm.start()
         vm.pin_threads(0)
+
+        metrics.set_dimensions({"performance_test": "test_boottime", **vm.dimensions})
 
         boot_time_us, cpu_boot_time_us = get_boottime_device_info(vm)
         metrics.put_metric(

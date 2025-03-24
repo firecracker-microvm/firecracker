@@ -36,7 +36,7 @@ def consume_ping_output(ping_putput, request_per_round):
 
 
 @pytest.fixture
-def network_microvm(request, microvm_factory, guest_kernel_acpi, rootfs):
+def network_microvm(request, microvm_factory, guest_kernel_acpi, rootfs, secret_free):
     """Creates a microvm with the networking setup used by the performance tests in this file.
     This fixture receives its vcpu count via indirect parameterization"""
 
@@ -45,7 +45,9 @@ def network_microvm(request, microvm_factory, guest_kernel_acpi, rootfs):
 
     vm = microvm_factory.build(guest_kernel_acpi, rootfs, monitor_memory=False)
     vm.spawn(log_level="Info", emit_metrics=True)
-    vm.basic_config(vcpu_count=guest_vcpus, mem_size_mib=guest_mem_mib)
+    vm.basic_config(
+        vcpu_count=guest_vcpus, mem_size_mib=guest_mem_mib, secret_free=secret_free
+    )
     vm.add_net_iface()
     vm.start()
     vm.pin_threads(0)
