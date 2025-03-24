@@ -390,7 +390,7 @@ class Microvm:
                         "Got API call duration log entry before request entry"
                     )
 
-                if current_call.url != "/snapshot/create":
+                if current_call.url not in ["/snapshot/create", "/snapshot/load"]:
                     exec_time = float(match.group("execution_time")) / 1000.0
 
                     assert (
