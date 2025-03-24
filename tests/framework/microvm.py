@@ -271,6 +271,7 @@ class Microvm:
         self.disks_vhost_user = {}
         self.vcpus_count = None
         self.mem_size_bytes = None
+        self.secret_free = False
         self.cpu_template_name = "None"
         # The given custom CPU template will be set in basic_config() but could
         # be overwritten via set_cpu_template().
@@ -511,6 +512,7 @@ class Microvm:
             "vcpus": str(self.vcpus_count),
             "guest_memory": f"{self.mem_size_bytes / (1024 * 1024)}MB",
             "pci": f"{self.pci_enabled}",
+            "secret_free": str(self.secret_free or False),
         }
 
     @property
@@ -808,6 +810,7 @@ class Microvm:
         rootfs_io_engine=None,
         cpu_template: Optional[str] = None,
         enable_entropy_device=False,
+        secret_free=None,
     ):
         """Shortcut for quickly configuring a microVM.
 
@@ -825,15 +828,23 @@ class Microvm:
         which differs from Firecracker's default only in the enabling of the serial console.
         Reference: file:../../src/vmm/src/vmm_config/boot_source.rs::DEFAULT_KERNEL_CMDLINE
         """
+        # Have to do it this way as otherwise A/B-tests fail if the 'A' revision
+        # of Firecracker doesn't know about the secret_free parameter.
+        kwargs = {}
+        if secret_free:
+            kwargs["secret_free"] = True
+
         self.api.machine_config.put(
             vcpu_count=vcpu_count,
             smt=smt,
             mem_size_mib=mem_size_mib,
             track_dirty_pages=track_dirty_pages,
             huge_pages=huge_pages,
+            **kwargs,
         )
         self.vcpus_count = vcpu_count
         self.mem_size_bytes = mem_size_mib * 2**20
+        self.secret_free = secret_free or False
 
         if self.custom_cpu_template is not None:
             self.set_cpu_template(self.custom_cpu_template)
