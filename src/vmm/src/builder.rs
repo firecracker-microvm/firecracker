@@ -215,6 +215,10 @@ pub fn build_microvm_for_boot(
         .allocate_guest_memory()
         .map_err(StartMicrovmError::GuestMemory)?;
 
+    let swiotlb = vm_resources
+        .allocate_swiotlb_region()
+        .map_err(StartMicrovmError::GuestMemory)?;
+
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
     let mut boot_cmdline = boot_config.cmdline.clone();
@@ -234,6 +238,12 @@ pub fn build_microvm_for_boot(
     vmm.vm
         .register_memory_regions(guest_memory)
         .map_err(VmmError::Vm)?;
+
+    if let Some(swiotlb) = swiotlb {
+        vmm.vm
+            .register_swiotlb_region(swiotlb)
+            .map_err(VmmError::Vm)?;
+    }
 
     let entry_point = load_kernel(&boot_config.kernel_file, vmm.vm.guest_memory())?;
     let initrd = InitrdConfig::from_config(boot_config, vmm.vm.guest_memory())?;
