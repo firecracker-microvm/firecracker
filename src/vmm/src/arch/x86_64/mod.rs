@@ -39,8 +39,9 @@ use linux_loader::loader::elf::start_info::{
     hvm_memmap_table_entry, hvm_modlist_entry, hvm_start_info,
 };
 
-use crate::arch::{BootProtocol, InitrdConfig, SYSTEM_MEM_SIZE, SYSTEM_MEM_START};
+use crate::arch::{BootProtocol, SYSTEM_MEM_SIZE, SYSTEM_MEM_START};
 use crate::device_manager::resources::ResourceAllocator;
+use crate::initrd::InitrdConfig;
 use crate::utils::{mib_to_bytes, u64_to_usize};
 use crate::vstate::memory::{
     Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion,
@@ -63,8 +64,6 @@ pub enum ConfigurationError {
     MpTableSetup(#[from] mptable::MptableError),
     /// Error writing the zero page of guest memory.
     ZeroPageSetup,
-    /// Failed to compute initrd address.
-    InitrdAddress,
     /// Error writing module entry to guest memory.
     ModlistSetup,
     /// Error writing memory map table to guest memory.
@@ -107,21 +106,16 @@ pub fn get_kernel_start() -> u64 {
 }
 
 /// Returns the memory address where the initrd could be loaded.
-pub fn initrd_load_addr(
-    guest_mem: &GuestMemoryMmap,
-    initrd_size: usize,
-) -> Result<u64, ConfigurationError> {
-    let first_region = guest_mem
-        .find_region(GuestAddress::new(0))
-        .ok_or(ConfigurationError::InitrdAddress)?;
+pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> Option<u64> {
+    let first_region = guest_mem.find_region(GuestAddress::new(0))?;
     let lowmem_size = u64_to_usize(first_region.len());
 
     if lowmem_size < initrd_size {
-        return Err(ConfigurationError::InitrdAddress);
+        return None;
     }
 
     let align_to_pagesize = |address| address & !(super::GUEST_PAGE_SIZE - 1);
-    Ok(align_to_pagesize(lowmem_size - initrd_size) as u64)
+    Some(align_to_pagesize(lowmem_size - initrd_size) as u64)
 }
 
 /// Configures the system and should be called once per vm before starting vcpu threads.

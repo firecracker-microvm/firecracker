@@ -12,11 +12,12 @@ use std::fmt::Debug;
 use vm_fdt::{Error as VmFdtError, FdtWriter, FdtWriterNode};
 use vm_memory::GuestMemoryError;
 
-use super::super::{DeviceType, InitrdConfig};
+use super::super::DeviceType;
 use super::cache_info::{CacheEntry, read_cache_config};
 use super::gic::GICDevice;
 use crate::device_manager::mmio::MMIODeviceInfo;
 use crate::devices::acpi::vmgenid::{VMGENID_MEM_SIZE, VmGenId};
+use crate::initrd::InitrdConfig;
 use crate::vstate::memory::{Address, GuestMemory, GuestMemoryMmap};
 
 // This is a value for uniquely identifying the FDT node declaring the interrupt controller.
