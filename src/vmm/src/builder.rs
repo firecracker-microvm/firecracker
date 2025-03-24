@@ -104,7 +104,7 @@ pub enum StartMicrovmError {
     /// Cannot load initrd due to an invalid image: {0}
     InitrdRead(io::Error),
     /// Internal error while starting microVM: {0}
-    Internal(VmmError),
+    Internal(#[from] VmmError),
     /// Failed to get CPU template: {0}
     GetCpuTemplate(#[from] GetCpuTemplateError),
     /// Invalid kernel command line: {0}
@@ -258,8 +258,7 @@ pub fn build_microvm_for_boot(
         None,
         vm_resources.machine_config.vcpu_count,
         cpu_template.kvm_capabilities.clone(),
-    )
-    .map_err(Internal)?;
+    )?;
 
     #[cfg(feature = "gdb")]
     let (gdb_tx, gdb_rx) = mpsc::channel();
@@ -306,7 +305,7 @@ pub fn build_microvm_for_boot(
     }
 
     #[cfg(target_arch = "aarch64")]
-    attach_legacy_devices_aarch64(event_manager, &mut vmm, &mut boot_cmdline).map_err(Internal)?;
+    attach_legacy_devices_aarch64(event_manager, &mut vmm, &mut boot_cmdline)?;
 
     attach_vmgenid_device(&mut vmm)?;
 
@@ -346,8 +345,7 @@ pub fn build_microvm_for_boot(
                 .ok_or_else(|| MissingSeccompFilters("vcpu".to_string()))?
                 .clone(),
         )
-        .map_err(VmmError::VcpuStart)
-        .map_err(Internal)?;
+        .map_err(VmmError::VcpuStart)?;
 
     // Load seccomp filters for the VMM thread.
     // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
@@ -358,8 +356,7 @@ pub fn build_microvm_for_boot(
             .get("vmm")
             .ok_or_else(|| MissingSeccompFilters("vmm".to_string()))?,
     )
-    .map_err(VmmError::SeccompFilters)
-    .map_err(Internal)?;
+    .map_err(VmmError::SeccompFilters)?;
 
     event_manager.add_subscriber(vmm.clone());
 
@@ -384,10 +381,7 @@ pub fn build_and_boot_microvm(
     debug!("event_end: build microvm for boot");
     // The vcpus start off in the `Paused` state, let them run.
     debug!("event_start: boot microvm");
-    vmm.lock()
-        .unwrap()
-        .resume_vm()
-        .map_err(StartMicrovmError::Internal)?;
+    vmm.lock().unwrap().resume_vm()?;
     debug!("event_end: boot microvm");
     Ok(vmm)
 }
@@ -559,7 +553,7 @@ fn load_kernel(
     let mut kernel_file = boot_config
         .kernel_file
         .try_clone()
-        .map_err(|err| StartMicrovmError::Internal(VmmError::KernelFile(err)))?;
+        .map_err(VmmError::KernelFile)?;
 
     let entry_addr = Loader::load::<std::fs::File, GuestMemoryMmap>(
         guest_memory,
@@ -593,7 +587,7 @@ fn load_kernel(
     let mut kernel_file = boot_config
         .kernel_file
         .try_clone()
-        .map_err(|err| StartMicrovmError::Internal(VmmError::KernelFile(err)))?;
+        .map_err(VmmError::KernelFile)?;
 
     let entry_addr = Loader::load::<std::fs::File, GuestMemoryMmap>(
         guest_memory,
@@ -762,8 +756,7 @@ pub fn configure_system_for_boot(
         for vcpu in vcpus.iter_mut() {
             vcpu.kvm_vcpu
                 .init(&cpu_template.vcpu_features)
-                .map_err(VmmError::VcpuInit)
-                .map_err(Internal)?;
+                .map_err(VmmError::VcpuInit)?;
         }
 
         let mut regs = Aarch64RegisterVec::default();
@@ -787,8 +780,7 @@ pub fn configure_system_for_boot(
         for vcpu in vcpus.iter_mut() {
             vcpu.kvm_vcpu
                 .configure(vmm.guest_memory(), entry_point, &vcpu_config)
-                .map_err(VmmError::VcpuConfigure)
-                .map_err(Internal)?;
+                .map_err(VmmError::VcpuConfigure)?;
         }
 
         // Write the kernel command line to guest memory. This is x86_64 specific, since on
@@ -836,8 +828,7 @@ pub fn configure_system_for_boot(
                     &vcpu_config,
                     &optional_capabilities,
                 )
-                .map_err(VmmError::VcpuConfigure)
-                .map_err(Internal)?;
+                .map_err(VmmError::VcpuConfigure)?;
         }
         let vcpu_mpidr = vcpus
             .iter_mut()
