@@ -805,7 +805,7 @@ mod tests {
         let device_states: DeviceStates = Snapshot::deserialize(&mut buf.as_slice()).unwrap();
         let vm_resources = &mut VmResources::default();
         let restore_args = MMIODevManagerConstructorArgs {
-            mem: vmm.guest_memory(),
+            mem: &vmm.guest_memory,
             vm: vmm.vm.fd(),
             event_manager: &mut event_manager,
             resource_allocator: &mut resource_allocator,

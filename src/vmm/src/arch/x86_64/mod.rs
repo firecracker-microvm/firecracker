@@ -175,7 +175,7 @@ pub fn configure_system_for_boot(
     // Configure vCPUs with normalizing and setting the generated CPU configuration.
     for vcpu in vcpus.iter_mut() {
         vcpu.kvm_vcpu
-            .configure(vmm.guest_memory(), entry_point, &vcpu_config)?;
+            .configure(&vmm.guest_memory, entry_point, &vcpu_config)?;
     }
 
     // Write the kernel command line to guest memory. This is x86_64 specific, since on
@@ -186,7 +186,7 @@ pub fn configure_system_for_boot(
         .expect("Cannot create cstring from cmdline string");
 
     load_cmdline(
-        vmm.guest_memory(),
+        &vmm.guest_memory,
         GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
         &boot_cmdline,
     )
