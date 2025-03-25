@@ -25,7 +25,8 @@ pub struct VmCommon {
     /// The KVM file descriptor used to access this Vm.
     pub fd: VmFd,
     max_memslots: usize,
-    guest_memory: GuestMemoryMmap,
+    /// The guest memory of this Vm.
+    pub guest_memory: GuestMemoryMmap,
 }
 
 /// Errors associated with the wrappers over KVM ioctls.

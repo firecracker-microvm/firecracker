@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::Kvm;
 use crate::arch::aarch64::gic::GicState;
+use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryState};
 use crate::vstate::vm::{VmCommon, VmError};
 
 /// Structure representing the current architecture's understand of what a "virtual machine" is.
@@ -68,6 +69,7 @@ impl ArchVm {
     /// Saves and returns the Kvm Vm state.
     pub fn save_state(&self, mpidrs: &[u64]) -> Result<VmState, ArchVmError> {
         Ok(VmState {
+            memory: self.common.guest_memory.describe(),
             gic: self
                 .get_irqchip()
                 .save_device(mpidrs)
@@ -84,6 +86,7 @@ impl ArchVm {
         self.get_irqchip()
             .restore_device(mpidrs, &state.gic)
             .map_err(ArchVmError::RestoreGic)?;
+
         Ok(())
     }
 }
@@ -91,6 +94,8 @@ impl ArchVm {
 /// Structure holding an general specific VM state.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct VmState {
+    /// Guest memory state
+    pub memory: GuestMemoryState,
     /// GIC state.
     pub gic: GicState,
 }

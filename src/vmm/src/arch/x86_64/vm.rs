@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::arch::x86_64::msr::MsrError;
 use crate::utils::u64_to_usize;
+use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryState};
 use crate::vstate::vm::{VmCommon, VmError};
 
 /// Error type for [`Vm::restore_state`]
@@ -185,6 +186,7 @@ impl ArchVm {
             .map_err(ArchVmError::VmGetIrqChip)?;
 
         Ok(VmState {
+            memory: self.common.guest_memory.describe(),
             pitstate,
             clock,
             pic_master,
@@ -207,6 +209,8 @@ impl ArchVm {
 #[derive(Default, Deserialize, Serialize)]
 /// Structure holding VM kvm state.
 pub struct VmState {
+    /// guest memory state
+    pub memory: GuestMemoryState,
     pitstate: kvm_pit_state2,
     clock: kvm_clock_data,
     // TODO: rename this field to adopt inclusive language once Linux updates it, too.
