@@ -48,7 +48,7 @@ use super::EntryPoint;
 use crate::acpi::create_acpi_tables;
 use crate::arch::{BootProtocol, SYSTEM_MEM_SIZE, SYSTEM_MEM_START};
 use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
-use crate::cpu_config::x86_64::{CpuConfiguration, cpuid};
+use crate::cpu_config::x86_64::CpuConfiguration;
 use crate::device_manager::resources::ResourceAllocator;
 use crate::initrd::InitrdConfig;
 use crate::utils::{mib_to_bytes, u64_to_usize};
@@ -153,16 +153,8 @@ pub fn configure_system_for_boot(
     boot_cmdline: Cmdline,
 ) -> Result<(), ConfigurationError> {
     // Construct the base CpuConfiguration to apply CPU template onto.
-    let cpu_config = {
-        let cpuid = cpuid::Cpuid::try_from(vmm.kvm.supported_cpuid.clone())
-            .map_err(GuestConfigError::CpuidFromKvmCpuid)?;
-        let msrs = vcpus[0]
-            .kvm_vcpu
-            .get_msrs(cpu_template.msr_index_iter())
-            .map_err(GuestConfigError::VcpuIoctl)?;
-        CpuConfiguration { cpuid, msrs }
-    };
-
+    let cpu_config =
+        CpuConfiguration::new(vmm.kvm.supported_cpuid.clone(), cpu_template, &vcpus[0])?;
     // Apply CPU template to the base CpuConfiguration.
     let cpu_config = CpuConfiguration::apply_template(cpu_config, cpu_template)?;
 

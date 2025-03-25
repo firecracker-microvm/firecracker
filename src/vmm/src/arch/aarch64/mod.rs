@@ -27,8 +27,6 @@ use linux_loader::loader::{Cmdline, KernelLoader};
 use vm_memory::GuestMemoryError;
 
 use self::gic::GICDevice;
-use crate::arch::aarch64::regs::Aarch64RegisterVec;
-use crate::arch::aarch64::vcpu::{VcpuArchError, get_registers};
 use crate::arch::{BootProtocol, DeviceType, EntryPoint};
 use crate::cpu_config::aarch64::{CpuConfiguration, CpuConfigurationError};
 use crate::cpu_config::templates::CustomCpuTemplate;
@@ -51,14 +49,12 @@ pub enum ConfigurationError {
     KernelFile,
     /// Cannot load kernel due to invalid memory configuration or invalid kernel image: {0}
     KernelLoader(#[from] linux_loader::loader::Error),
-    /// Error initializing the vcpu: {0}
-    VcpuInit(KvmVcpuError),
-    /// Error configuring the vcpu: {0}
-    VcpuConfigure(KvmVcpuError),
-    /// Error reading vcpu registers: {0}
-    VcpuGetRegs(VcpuArchError),
+    /// Error creating vcpu configuration: {0}
+    VcpuConfig(CpuConfigurationError),
     /// Error applying vcpu template: {0}
     VcpuApplyTemplate(CpuConfigurationError),
+    /// Error configuring the vcpu: {0}
+    VcpuConfigure(KvmVcpuError),
 }
 
 /// The start of the memory area reserved for MMIO devices.
@@ -84,18 +80,8 @@ pub fn configure_system_for_boot(
     boot_cmdline: Cmdline,
 ) -> Result<(), ConfigurationError> {
     // Construct the base CpuConfiguration to apply CPU template onto.
-    let cpu_config = {
-        for vcpu in vcpus.iter_mut() {
-            vcpu.kvm_vcpu
-                .init(&cpu_template.vcpu_features)
-                .map_err(ConfigurationError::VcpuInit)?;
-        }
-
-        let mut regs = Aarch64RegisterVec::default();
-        get_registers(&vcpus[0].kvm_vcpu.fd, &cpu_template.reg_list(), &mut regs)
-            .map_err(ConfigurationError::VcpuGetRegs)?;
-        CpuConfiguration { regs }
-    };
+    let cpu_config =
+        CpuConfiguration::new(cpu_template, vcpus).map_err(ConfigurationError::VcpuConfig)?;
 
     // Apply CPU template to the base CpuConfiguration.
     let cpu_config = CpuConfiguration::apply_template(cpu_config, cpu_template)
