@@ -35,6 +35,7 @@ DEFAULT_PLATFORMS = [
     ("al2", "linux_5.10"),
     ("al2023", "linux_6.1"),
     ("al2023", "linux_6.18"),
+    ("ubuntu24", "secret_hiding"),
 ]
 
 
