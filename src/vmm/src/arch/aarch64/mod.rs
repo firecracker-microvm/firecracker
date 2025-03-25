@@ -20,11 +20,14 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fmt::Debug;
+use std::fs::File;
 
+use linux_loader::loader::KernelLoader;
+use linux_loader::loader::pe::PE as Loader;
 use vm_memory::GuestMemoryError;
 
 use self::gic::GICDevice;
-use crate::arch::DeviceType;
+use crate::arch::{BootProtocol, DeviceType, EntryPoint};
 use crate::device_manager::mmio::MMIODeviceInfo;
 use crate::devices::acpi::vmgenid::VmGenId;
 use crate::initrd::InitrdConfig;
@@ -37,6 +40,10 @@ pub enum ConfigurationError {
     SetupFDT(#[from] fdt::FdtError),
     /// Failed to write to guest memory.
     MemoryError(GuestMemoryError),
+    /// Cannot copy kernel file fd
+    KernelFile,
+    /// Cannot load kernel due to invalid memory configuration or invalid kernel image: {0}
+    KernelLoader(#[from] linux_loader::loader::Error),
 }
 
 /// The start of the memory area reserved for MMIO devices.
@@ -121,6 +128,30 @@ fn get_fdt_addr(mem: &GuestMemoryMmap) -> u64 {
     }
 
     layout::DRAM_MEM_START
+}
+
+/// Load linux kernel into guest memory.
+pub fn load_kernel(
+    kernel: &File,
+    guest_memory: &GuestMemoryMmap,
+) -> Result<EntryPoint, ConfigurationError> {
+    // Need to clone the File because reading from it
+    // mutates it.
+    let mut kernel_file = kernel
+        .try_clone()
+        .map_err(|_| ConfigurationError::KernelFile)?;
+
+    let entry_addr = Loader::load(
+        guest_memory,
+        Some(GuestAddress(get_kernel_start())),
+        &mut kernel_file,
+        None,
+    )?;
+
+    Ok(EntryPoint {
+        entry_addr: entry_addr.kernel_load,
+        protocol: BootProtocol::LinuxBoot,
+    })
 }
 
 #[cfg(test)]

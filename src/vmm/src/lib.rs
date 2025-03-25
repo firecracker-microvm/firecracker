@@ -221,8 +221,6 @@ pub enum VmmError {
     EventFd(io::Error),
     /// I8042 error: {0}
     I8042Error(devices::legacy::I8042DeviceError),
-    /// Cannot access kernel file: {0}
-    KernelFile(io::Error),
     #[cfg(target_arch = "x86_64")]
     /// Cannot add devices to the legacy I/O Bus. {0}
     LegacyIOBus(device_manager::legacy::LegacyDeviceError),

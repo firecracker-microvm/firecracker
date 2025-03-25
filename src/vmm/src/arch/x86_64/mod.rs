@@ -31,14 +31,20 @@ pub mod xstate;
 #[allow(missing_docs)]
 pub mod generated;
 
+use std::fs::File;
+
 use linux_loader::configurator::linux::LinuxBootConfigurator;
 use linux_loader::configurator::pvh::PvhBootConfigurator;
 use linux_loader::configurator::{BootConfigurator, BootParams};
 use linux_loader::loader::bootparam::boot_params;
+use linux_loader::loader::elf::Elf as Loader;
 use linux_loader::loader::elf::start_info::{
     hvm_memmap_table_entry, hvm_modlist_entry, hvm_start_info,
 };
+use linux_loader::loader::{KernelLoader, PvhBootCapability};
+use log::debug;
 
+use super::EntryPoint;
 use crate::arch::{BootProtocol, SYSTEM_MEM_SIZE, SYSTEM_MEM_START};
 use crate::device_manager::resources::ResourceAllocator;
 use crate::initrd::InitrdConfig;
@@ -70,6 +76,10 @@ pub enum ConfigurationError {
     MemmapTableSetup,
     /// Error writing hvm_start_info to guest memory.
     StartInfoSetup,
+    /// Cannot copy kernel file fd
+    KernelFile,
+    /// Cannot load kernel due to invalid memory configuration or invalid kernel image: {0}
+    KernelLoader(#[from] linux_loader::loader::Error),
 }
 
 /// First address that cannot be addressed using 32 bit anymore.
@@ -352,6 +362,40 @@ fn add_e820_entry(
     params.e820_entries += 1;
 
     Ok(())
+}
+
+/// Load linux kernel into guest memory.
+pub fn load_kernel(
+    kernel: &File,
+    guest_memory: &GuestMemoryMmap,
+) -> Result<EntryPoint, ConfigurationError> {
+    // Need to clone the File because reading from it
+    // mutates it.
+    let mut kernel_file = kernel
+        .try_clone()
+        .map_err(|_| ConfigurationError::KernelFile)?;
+
+    let entry_addr = Loader::load(
+        guest_memory,
+        None,
+        &mut kernel_file,
+        Some(GuestAddress(get_kernel_start())),
+    )?;
+
+    let mut entry_point_addr: GuestAddress = entry_addr.kernel_load;
+    let mut boot_prot: BootProtocol = BootProtocol::LinuxBoot;
+    if let PvhBootCapability::PvhEntryPresent(pvh_entry_addr) = entry_addr.pvh_boot_cap {
+        // Use the PVH kernel entry point to boot the guest
+        entry_point_addr = pvh_entry_addr;
+        boot_prot = BootProtocol::PvhBoot;
+    }
+
+    debug!("Kernel loaded using {boot_prot}");
+
+    Ok(EntryPoint {
+        entry_addr: entry_point_addr,
+        protocol: boot_prot,
+    })
 }
 
 #[cfg(test)]

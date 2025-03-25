@@ -771,7 +771,6 @@ pub(crate) mod tests {
     use super::*;
     use crate::RECV_TIMEOUT_SEC;
     use crate::arch::{BootProtocol, EntryPoint};
-    use crate::builder::StartMicrovmError;
     use crate::devices::BusDevice;
     use crate::devices::bus::DummyDevice;
     use crate::seccomp::get_empty_filters;
@@ -952,12 +951,11 @@ pub(crate) mod tests {
             &mut kernel_file,
             Some(GuestAddress(crate::arch::get_kernel_start())),
         )
-        .map_err(StartMicrovmError::KernelLoader);
+        .unwrap();
         #[cfg(target_arch = "aarch64")]
         let entry_addr =
-            linux_loader::loader::pe::PE::load(vm_memory, None, &mut kernel_file, None)
-                .map_err(StartMicrovmError::KernelLoader);
-        entry_addr.unwrap().kernel_load
+            linux_loader::loader::pe::PE::load(vm_memory, None, &mut kernel_file, None).unwrap();
+        entry_addr.kernel_load
     }
 
     fn vcpu_configured_for_boot() -> (VcpuHandle, EventFd, GuestMemoryMmap) {
