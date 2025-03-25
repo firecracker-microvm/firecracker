@@ -15,6 +15,8 @@ For that, check test_feat_parity.py
 
 import os
 
+import pytest
+
 from framework import utils
 from framework.properties import global_props
 from framework.utils_cpuid import CPU_FEATURES_CMD, CpuModel
@@ -152,6 +154,10 @@ AMD_GENOA_HOST_ONLY_FEATS_6_1 = AMD_MILAN_HOST_ONLY_FEATS_6_1 - {"brs"} | {
 }
 
 
+@pytest.mark.skipif(
+    global_props.host_linux_version_tpl > (6, 1),
+    reason="We don't currently track features for host kernels above 6.1.",
+)
 def test_host_vs_guest_cpu_features(uvm_plain_any):
     """Check CPU features host vs guest"""
 
