@@ -23,7 +23,7 @@ use vmm_sys_util::errno;
 
 use crate::DirtyBitmap;
 use crate::arch::arch_memory_regions;
-use crate::utils::{get_page_size, u64_to_usize};
+use crate::utils::{get_page_size, mib_to_bytes, u64_to_usize};
 use crate::vmm_config::machine_config::HugePageConfig;
 
 /// Type of GuestMemoryMmap.
@@ -72,7 +72,7 @@ where
         huge_pages: HugePageConfig,
     ) -> Result<Self, MemoryError> {
         let memfd_file = create_memfd(mem_size_mib, huge_pages.into())?.into_file();
-        let regions = arch_memory_regions(mem_size_mib << 20).into_iter();
+        let regions = arch_memory_regions(mib_to_bytes(mem_size_mib)).into_iter();
 
         Self::create(
             regions,
@@ -330,7 +330,7 @@ fn create_memfd(
     size: usize,
     hugetlb_size: Option<memfd::HugetlbSize>,
 ) -> Result<memfd::Memfd, MemoryError> {
-    let mem_size = size << 20;
+    let mem_size = mib_to_bytes(size);
     // Create a memfd.
     let opts = memfd::MemfdOptions::default()
         .hugetlb(hugetlb_size)
@@ -713,7 +713,7 @@ mod tests {
     #[test]
     fn test_create_memfd() {
         let size = 1;
-        let size_mb = 1 << 20;
+        let size_mb = mib_to_bytes(1) as u64;
 
         let memfd = create_memfd(size, None).unwrap();
 

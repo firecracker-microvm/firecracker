@@ -223,10 +223,7 @@ mod tests {
 
     use super::super::*;
     use super::*;
-    use crate::devices::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
     use crate::devices::virtio::vsock::test_utils::{EventHandlerContext, TestContext};
-    use crate::test_utils::multi_region_mem;
-    use crate::vstate::memory::Bytes;
 
     #[test]
     fn test_txq_event() {
@@ -427,8 +424,9 @@ mod tests {
     // function for testing error cases, so the asserts always expect is_err() to be true. When
     // desc_idx = 0 we are altering the header (first descriptor in the chain), and when
     // desc_idx = 1 we are altering the packet buffer.
+    #[cfg(target_arch = "x86_64")]
     fn vsock_bof_helper(test_ctx: &mut TestContext, desc_idx: usize, addr: u64, len: u32) {
-        use crate::vstate::memory::GuestAddress;
+        use crate::vstate::memory::{Bytes, GuestAddress};
 
         assert!(desc_idx <= 1);
 
@@ -472,19 +470,23 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
+    #[allow(clippy::cast_possible_truncation)] /* casting of constants we know fit into u32 */
     fn test_vsock_bof() {
+        use crate::arch::MMIO_MEM_START;
+        use crate::arch::x86_64::{FIRST_ADDR_PAST_32BITS, MEM_32BIT_GAP_SIZE};
+        use crate::devices::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
+        use crate::test_utils::multi_region_mem;
+        use crate::utils::mib_to_bytes;
         use crate::vstate::memory::GuestAddress;
 
-        const GAP_SIZE: u32 = 768 << 20;
-        const FIRST_AFTER_GAP: usize = 1 << 32;
-        const GAP_START_ADDR: usize = FIRST_AFTER_GAP - GAP_SIZE as usize;
-        const MIB: usize = 1 << 20;
+        const MIB: usize = mib_to_bytes(1);
 
         let mut test_ctx = TestContext::new();
         test_ctx.mem = multi_region_mem(&[
             (GuestAddress(0), 8 * MIB),
-            (GuestAddress((GAP_START_ADDR - MIB) as u64), MIB),
-            (GuestAddress(FIRST_AFTER_GAP as u64), MIB),
+            (GuestAddress(MMIO_MEM_START - MIB as u64), MIB),
+            (GuestAddress(FIRST_ADDR_PAST_32BITS), MIB),
         ]);
 
         // The default configured descriptor chains are valid.
@@ -506,20 +508,25 @@ mod tests {
         }
 
         // Let's check what happens when the header descriptor is right before the gap.
-        vsock_bof_helper(
-            &mut test_ctx,
-            0,
-            GAP_START_ADDR as u64 - 1,
-            VSOCK_PKT_HDR_SIZE,
-        );
+        vsock_bof_helper(&mut test_ctx, 0, MMIO_MEM_START - 1, VSOCK_PKT_HDR_SIZE);
 
         // Let's check what happens when the buffer descriptor crosses into the gap, but does
         // not go past its right edge.
-        vsock_bof_helper(&mut test_ctx, 1, GAP_START_ADDR as u64 - 4, GAP_SIZE + 4);
+        vsock_bof_helper(
+            &mut test_ctx,
+            1,
+            MMIO_MEM_START - 4,
+            MEM_32BIT_GAP_SIZE as u32 + 4,
+        );
 
         // Let's modify the buffer descriptor addr and len such that it crosses over the MMIO gap,
         // and check we cannot assemble the VsockPkts.
-        vsock_bof_helper(&mut test_ctx, 1, GAP_START_ADDR as u64 - 4, GAP_SIZE + 100);
+        vsock_bof_helper(
+            &mut test_ctx,
+            1,
+            MMIO_MEM_START - 4,
+            MEM_32BIT_GAP_SIZE as u32 + 100,
+        );
     }
 
     #[test]
