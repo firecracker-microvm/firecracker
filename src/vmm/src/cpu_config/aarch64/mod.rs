@@ -46,10 +46,7 @@ impl CpuConfiguration {
     }
 
     /// Creates new guest CPU config based on the provided template
-    pub fn apply_template(
-        mut self,
-        template: &CustomCpuTemplate,
-    ) -> Result<Self, CpuConfigurationError> {
+    pub fn apply_template(mut self, template: &CustomCpuTemplate) -> Self {
         for (modifier, mut reg) in template.reg_modifiers.iter().zip(self.regs.iter_mut()) {
             match reg.size() {
                 RegSize::U32 => {
@@ -70,7 +67,7 @@ impl CpuConfiguration {
                 _ => unreachable!("Only 32, 64 and 128 bit wide registers are supported"),
             }
         }
-        Ok(self)
+        self
     }
 
     /// Returns ids of registers that are changed
