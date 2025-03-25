@@ -33,6 +33,7 @@ pub mod generated;
 
 use std::fs::File;
 
+use layout::CMDLINE_START;
 use linux_loader::configurator::linux::LinuxBootConfigurator;
 use linux_loader::configurator::pvh::PvhBootConfigurator;
 use linux_loader::configurator::{BootConfigurator, BootParams};
@@ -49,7 +50,6 @@ use crate::acpi::create_acpi_tables;
 use crate::arch::{BootProtocol, SYSTEM_MEM_SIZE, SYSTEM_MEM_START};
 use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
 use crate::cpu_config::x86_64::CpuConfiguration;
-use crate::device_manager::resources::ResourceAllocator;
 use crate::initrd::InitrdConfig;
 use crate::utils::{mib_to_bytes, u64_to_usize};
 use crate::vmm_config::machine_config::MachineConfig;
@@ -183,15 +183,28 @@ pub fn configure_system_for_boot(
         &boot_cmdline,
     )
     .map_err(ConfigurationError::LoadCommandline)?;
-    configure_system(
+
+    // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
+    mptable::setup_mptable(
         &vmm.guest_memory,
         &mut vmm.resource_allocator,
-        GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
-        cmdline_size,
-        initrd,
         vcpu_config.vcpu_count,
-        entry_point.protocol,
-    )?;
+    )
+    .map_err(ConfigurationError::MpTableSetup)?;
+
+    match entry_point.protocol {
+        BootProtocol::PvhBoot => {
+            configure_pvh(&vmm.guest_memory, GuestAddress(CMDLINE_START), initrd)?;
+        }
+        BootProtocol::LinuxBoot => {
+            configure_64bit_boot(
+                &vmm.guest_memory,
+                GuestAddress(CMDLINE_START),
+                cmdline_size,
+                initrd,
+            )?;
+        }
+    }
 
     // Create ACPI tables and write them in guest memory
     // For the time being we only support ACPI in x86_64
@@ -202,32 +215,6 @@ pub fn configure_system_for_boot(
         &vmm.acpi_device_manager,
         vcpus,
     )?;
-    Ok(())
-}
-
-/// Configures the system and should be called once per vm before starting vcpu threads.
-fn configure_system(
-    guest_mem: &GuestMemoryMmap,
-    resource_allocator: &mut ResourceAllocator,
-    cmdline_addr: GuestAddress,
-    cmdline_size: usize,
-    initrd: &Option<InitrdConfig>,
-    num_cpus: u8,
-    boot_prot: BootProtocol,
-) -> Result<(), ConfigurationError> {
-    // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
-    mptable::setup_mptable(guest_mem, resource_allocator, num_cpus)
-        .map_err(ConfigurationError::MpTableSetup)?;
-
-    match boot_prot {
-        BootProtocol::PvhBoot => {
-            configure_pvh(guest_mem, cmdline_addr, initrd)?;
-        }
-        BootProtocol::LinuxBoot => {
-            configure_64bit_boot(guest_mem, cmdline_addr, cmdline_size, initrd)?;
-        }
-    }
-
     Ok(())
 }
 
@@ -472,6 +459,7 @@ mod tests {
     use linux_loader::loader::bootparam::boot_e820_entry;
 
     use super::*;
+    use crate::device_manager::resources::ResourceAllocator;
     use crate::test_utils::{arch_mem, single_region_mem};
 
     #[test]
@@ -495,94 +483,35 @@ mod tests {
         let no_vcpus = 4;
         let gm = single_region_mem(0x10000);
         let mut resource_allocator = ResourceAllocator::new().unwrap();
-        let config_err = configure_system(
-            &gm,
-            &mut resource_allocator,
-            GuestAddress(0),
-            0,
-            &None,
-            1,
-            BootProtocol::LinuxBoot,
-        );
+        let err = mptable::setup_mptable(&gm, &mut resource_allocator, 1);
         assert!(matches!(
-            config_err.unwrap_err(),
-            super::ConfigurationError::MpTableSetup(mptable::MptableError::NotEnoughMemory)
+            err.unwrap_err(),
+            mptable::MptableError::NotEnoughMemory
         ));
 
         // Now assigning some memory that falls before the 32bit memory hole.
         let mem_size = mib_to_bytes(128);
         let gm = arch_mem(mem_size);
         let mut resource_allocator = ResourceAllocator::new().unwrap();
-        configure_system(
-            &gm,
-            &mut resource_allocator,
-            GuestAddress(0),
-            0,
-            &None,
-            no_vcpus,
-            BootProtocol::LinuxBoot,
-        )
-        .unwrap();
-        configure_system(
-            &gm,
-            &mut resource_allocator,
-            GuestAddress(0),
-            0,
-            &None,
-            no_vcpus,
-            BootProtocol::PvhBoot,
-        )
-        .unwrap();
+        mptable::setup_mptable(&gm, &mut resource_allocator, no_vcpus).unwrap();
+        configure_64bit_boot(&gm, GuestAddress(0), 0, &None).unwrap();
+        configure_pvh(&gm, GuestAddress(0), &None).unwrap();
 
         // Now assigning some memory that is equal to the start of the 32bit memory hole.
         let mem_size = mib_to_bytes(3328);
         let gm = arch_mem(mem_size);
         let mut resource_allocator = ResourceAllocator::new().unwrap();
-        configure_system(
-            &gm,
-            &mut resource_allocator,
-            GuestAddress(0),
-            0,
-            &None,
-            no_vcpus,
-            BootProtocol::LinuxBoot,
-        )
-        .unwrap();
-        configure_system(
-            &gm,
-            &mut resource_allocator,
-            GuestAddress(0),
-            0,
-            &None,
-            no_vcpus,
-            BootProtocol::PvhBoot,
-        )
-        .unwrap();
+        mptable::setup_mptable(&gm, &mut resource_allocator, no_vcpus).unwrap();
+        configure_64bit_boot(&gm, GuestAddress(0), 0, &None).unwrap();
+        configure_pvh(&gm, GuestAddress(0), &None).unwrap();
 
         // Now assigning some memory that falls after the 32bit memory hole.
         let mem_size = mib_to_bytes(3330);
         let gm = arch_mem(mem_size);
         let mut resource_allocator = ResourceAllocator::new().unwrap();
-        configure_system(
-            &gm,
-            &mut resource_allocator,
-            GuestAddress(0),
-            0,
-            &None,
-            no_vcpus,
-            BootProtocol::LinuxBoot,
-        )
-        .unwrap();
-        configure_system(
-            &gm,
-            &mut resource_allocator,
-            GuestAddress(0),
-            0,
-            &None,
-            no_vcpus,
-            BootProtocol::PvhBoot,
-        )
-        .unwrap();
+        mptable::setup_mptable(&gm, &mut resource_allocator, no_vcpus).unwrap();
+        configure_64bit_boot(&gm, GuestAddress(0), 0, &None).unwrap();
+        configure_pvh(&gm, GuestAddress(0), &None).unwrap();
     }
 
     #[test]
