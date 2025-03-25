@@ -14,13 +14,6 @@ use std::sync::{Arc, Mutex};
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use libc::EFD_NONBLOCK;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
-use linux_loader::loader::KernelLoader;
-#[cfg(target_arch = "x86_64")]
-use linux_loader::loader::elf::Elf as Loader;
-#[cfg(target_arch = "x86_64")]
-use linux_loader::loader::elf::PvhBootCapability;
-#[cfg(target_arch = "aarch64")]
-use linux_loader::loader::pe::PE as Loader;
 use userfaultfd::Uffd;
 use utils::time::TimestampUs;
 #[cfg(target_arch = "aarch64")]
@@ -30,7 +23,7 @@ use vmm_sys_util::eventfd::EventFd;
 
 #[cfg(target_arch = "x86_64")]
 use crate::acpi;
-use crate::arch::{BootProtocol, EntryPoint};
+use crate::arch::{ConfigurationError, EntryPoint, load_kernel};
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
 use crate::cpu_config::templates::{
@@ -66,11 +59,10 @@ use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
-use crate::vmm_config::boot_source::BootConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError};
 use crate::vstate::kvm::Kvm;
-use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
+use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuError};
 use crate::vstate::vm::Vm;
 use crate::{EventManager, Vmm, VmmError, device_manager};
@@ -83,7 +75,7 @@ pub enum StartMicrovmError {
     /// Unable to attach the VMGenID device: {0}
     AttachVmgenidDevice(kvm_ioctls::Error),
     /// System configuration error: {0}
-    ConfigureSystem(crate::arch::ConfigurationError),
+    ConfigureSystem(#[from] ConfigurationError),
     /// Failed to create guest config: {0}
     CreateGuestConfig(#[from] GuestConfigError),
     /// Cannot create network device: {0}
@@ -105,8 +97,6 @@ pub enum StartMicrovmError {
     GetCpuTemplate(#[from] GetCpuTemplateError),
     /// Invalid kernel command line: {0}
     KernelCmdline(String),
-    /// Cannot load kernel due to invalid memory configuration or invalid kernel image: {0}
-    KernelLoader(linux_loader::loader::Error),
     /// Cannot load command line string: {0}
     LoadCommandline(linux_loader::loader::Error),
     /// Cannot start microvm without kernel configuration.
@@ -236,7 +226,7 @@ pub fn build_microvm_for_boot(
         .allocate_guest_memory()
         .map_err(StartMicrovmError::GuestMemory)?;
 
-    let entry_point = load_kernel(boot_config, &guest_memory)?;
+    let entry_point = load_kernel(&boot_config.kernel_file, &guest_memory)?;
     let initrd = InitrdConfig::from_config(boot_config, &guest_memory)?;
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
@@ -541,64 +531,6 @@ pub fn build_microvm_from_snapshot(
     Ok(vmm)
 }
 
-#[cfg(target_arch = "x86_64")]
-fn load_kernel(
-    boot_config: &BootConfig,
-    guest_memory: &GuestMemoryMmap,
-) -> Result<EntryPoint, StartMicrovmError> {
-    let mut kernel_file = boot_config
-        .kernel_file
-        .try_clone()
-        .map_err(VmmError::KernelFile)?;
-
-    let entry_addr = Loader::load::<std::fs::File, GuestMemoryMmap>(
-        guest_memory,
-        None,
-        &mut kernel_file,
-        Some(GuestAddress(crate::arch::get_kernel_start())),
-    )
-    .map_err(StartMicrovmError::KernelLoader)?;
-
-    let mut entry_point_addr: GuestAddress = entry_addr.kernel_load;
-    let mut boot_prot: BootProtocol = BootProtocol::LinuxBoot;
-    if let PvhBootCapability::PvhEntryPresent(pvh_entry_addr) = entry_addr.pvh_boot_cap {
-        // Use the PVH kernel entry point to boot the guest
-        entry_point_addr = pvh_entry_addr;
-        boot_prot = BootProtocol::PvhBoot;
-    }
-
-    debug!("Kernel loaded using {boot_prot}");
-
-    Ok(EntryPoint {
-        entry_addr: entry_point_addr,
-        protocol: boot_prot,
-    })
-}
-
-#[cfg(target_arch = "aarch64")]
-fn load_kernel(
-    boot_config: &BootConfig,
-    guest_memory: &GuestMemoryMmap,
-) -> Result<EntryPoint, StartMicrovmError> {
-    let mut kernel_file = boot_config
-        .kernel_file
-        .try_clone()
-        .map_err(VmmError::KernelFile)?;
-
-    let entry_addr = Loader::load::<std::fs::File, GuestMemoryMmap>(
-        guest_memory,
-        Some(GuestAddress(crate::arch::get_kernel_start())),
-        &mut kernel_file,
-        None,
-    )
-    .map_err(StartMicrovmError::KernelLoader)?;
-
-    Ok(EntryPoint {
-        entry_addr: entry_addr.kernel_load,
-        protocol: BootProtocol::LinuxBoot,
-    })
-}
-
 /// Sets up the serial device.
 pub fn setup_serial_device(
     event_manager: &mut EventManager,
@@ -725,7 +657,7 @@ pub fn configure_system_for_boot(
 
         linux_loader::loader::load_cmdline::<crate::vstate::memory::GuestMemoryMmap>(
             vmm.guest_memory(),
-            GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
+            crate::vstate::memory::GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
             &boot_cmdline,
         )
         .map_err(LoadCommandline)?;
@@ -737,8 +669,7 @@ pub fn configure_system_for_boot(
             initrd,
             vcpu_config.vcpu_count,
             entry_point.protocol,
-        )
-        .map_err(ConfigureSystem)?;
+        )?;
 
         // Create ACPI tables and write them in guest memory
         // For the time being we only support ACPI in x86_64
@@ -777,8 +708,7 @@ pub fn configure_system_for_boot(
             vmm.vm.get_irqchip(),
             &vmm.acpi_device_manager.vmgenid,
             initrd,
-        )
-        .map_err(ConfigureSystem)?;
+        )?;
     }
     Ok(())
 }
