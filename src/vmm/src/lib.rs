@@ -444,11 +444,6 @@ impl Vmm {
         Ok(())
     }
 
-    /// Returns a reference to the inner `GuestMemoryMmap` object.
-    pub fn guest_memory(&self) -> &GuestMemoryMmap {
-        &self.guest_memory
-    }
-
     /// Sets RDA bit in serial console
     pub fn emulate_serial_init(&self) -> Result<(), EmulateSerialInitError> {
         // When restoring from a previously saved state, there is no serial
@@ -526,7 +521,7 @@ impl Vmm {
         };
         let device_states = self.mmio_device_manager.save();
 
-        let memory_state = self.guest_memory().describe();
+        let memory_state = self.guest_memory.describe();
         let acpi_dev_state = self.acpi_device_manager.save();
 
         Ok(MicrovmState {
@@ -741,7 +736,7 @@ impl Vmm {
     pub fn update_balloon_config(&mut self, amount_mib: u32) -> Result<(), BalloonError> {
         // The balloon cannot have a target size greater than the size of
         // the guest memory.
-        if u64::from(amount_mib) > mem_size_mib(self.guest_memory()) {
+        if u64::from(amount_mib) > mem_size_mib(&self.guest_memory) {
             return Err(BalloonError::TooManyPagesRequested);
         }
 

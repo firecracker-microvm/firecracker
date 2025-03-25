@@ -219,7 +219,7 @@ fn snapshot_memory_to_file(
         .map_err(|err| MemoryBackingFile("open", err))?;
 
     // Determine what size our total memory area is.
-    let mem_size_mib = mem_size_mib(vmm.guest_memory());
+    let mem_size_mib = mem_size_mib(&vmm.guest_memory);
     let expected_size = mem_size_mib * 1024 * 1024;
 
     if file_existed {
@@ -248,15 +248,15 @@ fn snapshot_memory_to_file(
     match snapshot_type {
         SnapshotType::Diff => {
             let dirty_bitmap = vmm.get_dirty_bitmap().map_err(DirtyBitmap)?;
-            vmm.guest_memory()
+            vmm.guest_memory
                 .dump_dirty(&mut file, &dirty_bitmap)
                 .map_err(Memory)
         }
         SnapshotType::Full => {
-            let dump_res = vmm.guest_memory().dump(&mut file).map_err(Memory);
+            let dump_res = vmm.guest_memory.dump(&mut file).map_err(Memory);
             if dump_res.is_ok() {
                 vmm.reset_dirty_bitmap();
-                vmm.guest_memory().reset_dirty();
+                vmm.guest_memory.reset_dirty();
             }
 
             dump_res
@@ -272,7 +272,7 @@ fn snapshot_memory_to_file(
         .for_each_virtio_device(|_, _, _, dev| {
             let d = dev.lock().unwrap();
             if d.is_activated() {
-                d.mark_queue_memory_dirty(vmm.guest_memory())
+                d.mark_queue_memory_dirty(&vmm.guest_memory)
             } else {
                 Ok(())
             }
@@ -747,7 +747,7 @@ mod tests {
         assert!(states.vsock_device.is_some());
         assert!(states.balloon_device.is_some());
 
-        let memory_state = vmm.guest_memory().describe();
+        let memory_state = vmm.guest_memory.describe();
         let vcpu_states = vec![VcpuState::default()];
         #[cfg(target_arch = "aarch64")]
         let mpidrs = construct_kvm_mpidrs(&vcpu_states);

@@ -112,7 +112,7 @@ pub fn configure_system_for_boot(
     for vcpu in vcpus.iter_mut() {
         vcpu.kvm_vcpu
             .configure(
-                vmm.guest_memory(),
+                &vmm.guest_memory,
                 entry_point,
                 &vcpu_config,
                 &optional_capabilities,
