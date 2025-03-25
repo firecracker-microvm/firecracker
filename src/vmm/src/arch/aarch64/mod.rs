@@ -50,9 +50,7 @@ pub enum ConfigurationError {
     /// Cannot load kernel due to invalid memory configuration or invalid kernel image: {0}
     KernelLoader(#[from] linux_loader::loader::Error),
     /// Error creating vcpu configuration: {0}
-    VcpuConfig(CpuConfigurationError),
-    /// Error applying vcpu template: {0}
-    VcpuApplyTemplate(CpuConfigurationError),
+    VcpuConfig(#[from] CpuConfigurationError),
     /// Error configuring the vcpu: {0}
     VcpuConfigure(KvmVcpuError),
 }
@@ -80,12 +78,10 @@ pub fn configure_system_for_boot(
     boot_cmdline: Cmdline,
 ) -> Result<(), ConfigurationError> {
     // Construct the base CpuConfiguration to apply CPU template onto.
-    let cpu_config =
-        CpuConfiguration::new(cpu_template, vcpus).map_err(ConfigurationError::VcpuConfig)?;
+    let cpu_config = CpuConfiguration::new(cpu_template, vcpus)?;
 
     // Apply CPU template to the base CpuConfiguration.
-    let cpu_config = CpuConfiguration::apply_template(cpu_config, cpu_template)
-        .map_err(ConfigurationError::VcpuApplyTemplate)?;
+    let cpu_config = CpuConfiguration::apply_template(cpu_config, cpu_template);
 
     let vcpu_config = VcpuConfig {
         vcpu_count: machine_config.vcpu_count,
