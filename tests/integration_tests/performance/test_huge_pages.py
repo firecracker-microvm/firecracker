@@ -58,6 +58,11 @@ def check_hugetlbfs_in_use(pid: int, allocation_name: str):
     assert kernel_page_size_kib > 4
 
 
+@pytest.mark.skipif(
+    global_props.host_linux_version_tpl > (6, 1)
+    and global_props.cpu_architecture == "aarch64",
+    reason="Huge page tests with secret hidden kernels on ARM currently fail",
+)
 def test_hugetlbfs_boot(uvm):
     """Tests booting a microvm with guest memory backed by 2MB hugetlbfs pages"""
 
@@ -106,6 +111,11 @@ def test_hugetlbfs_snapshot(microvm_factory, uvm, snapshot_type):
     check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
 
 
+@pytest.mark.skipif(
+    global_props.host_linux_version_tpl > (6, 1)
+    and global_props.cpu_architecture == "aarch64",
+    reason="Huge page tests with secret hidden kernels on ARM currently fail",
+    )
 @pytest.mark.parametrize("huge_pages", HugePagesConfig)
 def test_ept_violation_count(
     microvm_factory,
