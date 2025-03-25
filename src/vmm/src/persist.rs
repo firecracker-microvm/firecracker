@@ -392,9 +392,6 @@ pub fn restore_from_snapshot(
             mem_backend_path,
             mem_state,
             track_dirty_pages,
-            // We enable the UFFD_FEATURE_EVENT_REMOVE feature only if a balloon device
-            // is present in the microVM state.
-            microvm_state.device_states.balloon_device.is_some(),
             vm_resources.machine_config.huge_pages,
         )
         .map_err(RestoreFromSnapshotGuestMemoryError::Uffd)?,
@@ -478,7 +475,6 @@ fn guest_memory_from_uffd(
     mem_uds_path: &Path,
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
-    enable_balloon: bool,
     huge_pages: HugePageConfig,
 ) -> Result<(Vec<GuestRegionMmap>, Option<Uffd>), GuestMemoryFromUffdError> {
     let (guest_memory, backend_mappings) =
@@ -486,11 +482,7 @@ fn guest_memory_from_uffd(
 
     let mut uffd_builder = UffdBuilder::new();
 
-    if enable_balloon {
-        // We enable this so that the page fault handler can add logic
-        // for treating madvise(MADV_DONTNEED) events triggerd by balloon inflation.
-        uffd_builder.require_features(FeatureFlags::EVENT_REMOVE);
-    }
+    uffd_builder.require_features(FeatureFlags::EVENT_REMOVE);
 
     let uffd = uffd_builder
         .close_on_exec(true)
