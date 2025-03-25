@@ -5,12 +5,16 @@ pub(crate) mod cache_info;
 mod fdt;
 /// Module for the global interrupt controller configuration.
 pub mod gic;
+/// Architecture specific KVM-related code
+pub mod kvm;
 /// Layout for this aarch64 system.
 pub mod layout;
 /// Logic for configuring aarch64 registers.
 pub mod regs;
-/// Helper methods for VcpuFd.
+/// Architecture specific vCPU code
 pub mod vcpu;
+/// Architecture specific VM state code
+pub mod vm;
 
 use std::cmp::min;
 use std::collections::HashMap;
