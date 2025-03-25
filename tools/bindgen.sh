@@ -71,24 +71,21 @@ fc-bindgen \
     --allowlist-var "VIRTIO_RING_F_EVENT_IDX" \
     "$KERNEL_HEADERS_HOME/include/linux/virtio_ring.h" >src/vmm/src/devices/virtio/generated/virtio_ring.rs
 
+info "BINDGEN virtio_config.h"
+fc-bindgen \
+    --allowlist-var "VIRTIO_F_.*" \
+    "$KERNEL_HEADERS_HOME/include/linux/virtio_config.h" >src/vmm/src/devices/virtio/generated/virtio_config.rs
+
 info "BINDGEN virtio_blk.h"
 fc-bindgen \
     --allowlist-var "VIRTIO_BLK_.*" \
-    --allowlist-var "VIRTIO_F_.*" \
     "$KERNEL_HEADERS_HOME/include/linux/virtio_blk.h" >src/vmm/src/devices/virtio/generated/virtio_blk.rs
 
 info "BINDGEN virtio_net.h"
 fc-bindgen \
     --allowlist-var "VIRTIO_NET_F_.*" \
-    --allowlist-var "VIRTIO_F_.*" \
     --allowlist-type "virtio_net_hdr_v1" \
     "$KERNEL_HEADERS_HOME/include/linux/virtio_net.h" >src/vmm/src/devices/virtio/generated/virtio_net.rs
-
-info "BINDGEN virtio_rng.h"
-fc-bindgen \
-    --allowlist-var "VIRTIO_RNG_.*" \
-    --allowlist-var "VIRTIO_F_.*" \
-    "$KERNEL_HEADERS_HOME/include/linux/virtio_rng.h" >src/vmm/src/devices/virtio/generated/virtio_rng.rs
 
 info "BINDGEN prctl.h"
 fc-bindgen \
