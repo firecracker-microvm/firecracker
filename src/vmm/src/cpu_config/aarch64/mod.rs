@@ -10,12 +10,12 @@ pub mod test_utils;
 
 use super::templates::CustomCpuTemplate;
 use crate::arch::aarch64::regs::{Aarch64RegisterVec, RegSize};
-use crate::arch::aarch64::vcpu::VcpuError as ArchError;
+use crate::arch::aarch64::vcpu::VcpuArchError;
 
 /// Errors thrown while configuring templates.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 #[error("Failed to create a guest cpu configuration: {0}")]
-pub struct CpuConfigurationError(#[from] pub ArchError);
+pub struct CpuConfigurationError(#[from] pub VcpuArchError);
 
 /// CPU configuration for aarch64
 #[derive(Debug, Default, Clone, PartialEq, Eq)]

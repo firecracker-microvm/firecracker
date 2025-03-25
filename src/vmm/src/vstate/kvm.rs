@@ -2,13 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use kvm_bindings::KVM_API_VERSION;
-#[cfg(target_arch = "x86_64")]
-use kvm_bindings::{CpuId, KVM_MAX_CPUID_ENTRIES, MsrList};
 use kvm_ioctls::Kvm as KvmFd;
 use serde::{Deserialize, Serialize};
 
-#[cfg(target_arch = "x86_64")]
-use crate::arch::x86_64::xstate::{XstateError, request_dynamic_xstate_features};
+pub use crate::arch::{Kvm, KvmArchError};
 use crate::cpu_config::templates::KvmCapability;
 use crate::vstate::memory::{GuestMemory, GuestMemoryMmap};
 
@@ -24,29 +21,10 @@ pub enum KvmError {
     /**  Error creating KVM object: {0} Make sure the user launching the firecracker process is \
     configured on the /dev/kvm file's ACL. */
     Kvm(kvm_ioctls::Error),
-    #[cfg(target_arch = "x86_64")]
-    /// Failed to get supported cpuid: {0}
-    GetSupportedCpuId(kvm_ioctls::Error),
     /// The number of configured slots is bigger than the maximum reported by KVM
     NotEnoughMemorySlots,
-    #[cfg(target_arch = "x86_64")]
-    /// Failed to request permission for dynamic XSTATE features: {0}
-    XstateFeatures(XstateError),
-}
-
-/// Struct with kvm fd and kvm associated paramenters.
-#[derive(Debug)]
-pub struct Kvm {
-    /// KVM fd.
-    pub fd: KvmFd,
-    /// Maximum number of memory slots allowed by KVM.
-    pub max_memslots: usize,
-    /// Additional capabilities that were specified in cpu template.
-    pub kvm_cap_modifiers: Vec<KvmCapability>,
-
-    #[cfg(target_arch = "x86_64")]
-    /// Supported CpuIds.
-    pub supported_cpuid: CpuId,
+    /// Architecture specific error: {0}
+    ArchError(#[from] KvmArchError)
 }
 
 impl Kvm {
@@ -67,36 +45,7 @@ impl Kvm {
 
         let max_memslots = kvm_fd.get_nr_memslots();
 
-        #[cfg(target_arch = "aarch64")]
-        {
-            Ok(Self {
-                fd: kvm_fd,
-                max_memslots,
-                kvm_cap_modifiers,
-            })
-        }
-
-        #[cfg(target_arch = "x86_64")]
-        {
-            request_dynamic_xstate_features().map_err(KvmError::XstateFeatures)?;
-
-            let supported_cpuid = kvm_fd
-                .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
-                .map_err(KvmError::GetSupportedCpuId)?;
-
-            Ok(Kvm {
-                fd: kvm_fd,
-                max_memslots,
-                kvm_cap_modifiers,
-                supported_cpuid,
-            })
-        }
-    }
-
-    /// Msrs needed to be saved on snapshot creation.
-    #[cfg(target_arch = "x86_64")]
-    pub fn msrs_to_save(&self) -> Result<MsrList, crate::arch::x86_64::msr::MsrError> {
-        crate::arch::x86_64::msr::get_msrs_to_save(&self.fd)
+        Ok(Kvm::init_arch(kvm_fd, max_memslots, kvm_cap_modifiers)?)
     }
 
     /// Check guest memory does not have more regions than kvm allows.
@@ -143,55 +92,6 @@ impl Kvm {
             kvm_cap_modifiers: self.kvm_cap_modifiers.clone(),
         }
     }
-}
-#[cfg(target_arch = "aarch64")]
-/// Optional capabilities.
-#[derive(Debug, Default)]
-pub struct OptionalCapabilities {
-    /// KVM_CAP_COUNTER_OFFSET
-    pub counter_offset: bool,
-}
-#[cfg(target_arch = "aarch64")]
-impl Kvm {
-    const DEFAULT_CAPABILITIES: [u32; 7] = [
-        kvm_bindings::KVM_CAP_IOEVENTFD,
-        kvm_bindings::KVM_CAP_IRQFD,
-        kvm_bindings::KVM_CAP_USER_MEMORY,
-        kvm_bindings::KVM_CAP_ARM_PSCI_0_2,
-        kvm_bindings::KVM_CAP_DEVICE_CTRL,
-        kvm_bindings::KVM_CAP_MP_STATE,
-        kvm_bindings::KVM_CAP_ONE_REG,
-    ];
-
-    /// Returns struct with optional capabilities statuses.
-    pub fn optional_capabilities(&self) -> OptionalCapabilities {
-        OptionalCapabilities {
-            counter_offset: self
-                .fd
-                .check_extension_raw(kvm_bindings::KVM_CAP_COUNTER_OFFSET.into())
-                != 0,
-        }
-    }
-}
-
-#[cfg(target_arch = "x86_64")]
-impl Kvm {
-    const DEFAULT_CAPABILITIES: [u32; 14] = [
-        kvm_bindings::KVM_CAP_IRQCHIP,
-        kvm_bindings::KVM_CAP_IOEVENTFD,
-        kvm_bindings::KVM_CAP_IRQFD,
-        kvm_bindings::KVM_CAP_USER_MEMORY,
-        kvm_bindings::KVM_CAP_SET_TSS_ADDR,
-        kvm_bindings::KVM_CAP_PIT2,
-        kvm_bindings::KVM_CAP_PIT_STATE2,
-        kvm_bindings::KVM_CAP_ADJUST_CLOCK,
-        kvm_bindings::KVM_CAP_DEBUGREGS,
-        kvm_bindings::KVM_CAP_MP_STATE,
-        kvm_bindings::KVM_CAP_VCPU_EVENTS,
-        kvm_bindings::KVM_CAP_XCRS,
-        kvm_bindings::KVM_CAP_XSAVE,
-        kvm_bindings::KVM_CAP_EXT_CPUID,
-    ];
 }
 
 /// Structure holding an general specific VM state.
