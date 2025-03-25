@@ -299,7 +299,7 @@ fn test_snapshot_load_sanity_checks() {
     snapshot_state_sanity_check(&microvm_state).unwrap();
 
     // Remove memory regions.
-    microvm_state.memory_state.regions.clear();
+    microvm_state.vm_state.memory.regions.clear();
 
     // Validate sanity checks fail because there is no mem region in state.
     assert_eq!(

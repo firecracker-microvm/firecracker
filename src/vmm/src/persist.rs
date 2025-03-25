@@ -76,8 +76,6 @@ impl From<&VmResources> for VmInfo {
 pub struct MicrovmState {
     /// Miscellaneous VM info.
     pub vm_info: VmInfo,
-    /// Memory state.
-    pub memory_state: GuestMemoryState,
     /// KVM KVM state.
     pub kvm_state: KvmState,
     /// VM KVM state.
@@ -369,7 +367,7 @@ pub fn snapshot_state_sanity_check(
     // Check if the snapshot contains at least 1 mem region.
     // Upper bound check will be done when creating guest memory by comparing against
     // KVM max supported value kvm_context.max_memslots().
-    if microvm_state.memory_state.regions.is_empty() {
+    if microvm_state.vm_state.memory.regions.is_empty() {
         return Err(SnapShotStateSanityCheckError::NoMemory);
     }
 
@@ -452,7 +450,7 @@ pub fn restore_from_snapshot(
     snapshot_state_sanity_check(&microvm_state)?;
 
     let mem_backend_path = &params.mem_backend.backend_path;
-    let mem_state = &microvm_state.memory_state;
+    let mem_state = &microvm_state.vm_state.memory;
 
     let (guest_memory, uffd) = match params.mem_backend.backend_type {
         MemBackendType::File => {
@@ -752,13 +750,11 @@ mod tests {
         assert!(states.vsock_device.is_some());
         assert!(states.balloon_device.is_some());
 
-        let memory_state = vmm.vm.guest_memory().describe();
         let vcpu_states = vec![VcpuState::default()];
         #[cfg(target_arch = "aarch64")]
         let mpidrs = construct_kvm_mpidrs(&vcpu_states);
         let microvm_state = MicrovmState {
             device_states: states,
-            memory_state,
             vcpu_states,
             kvm_state: Default::default(),
             vm_info: VmInfo {
