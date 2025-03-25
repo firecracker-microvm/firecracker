@@ -17,8 +17,6 @@ pub mod vcpu;
 pub mod vm;
 
 use std::cmp::min;
-use std::collections::HashMap;
-use std::ffi::CString;
 use std::fmt::Debug;
 use std::fs::File;
 
@@ -26,12 +24,9 @@ use linux_loader::loader::pe::PE as Loader;
 use linux_loader::loader::{Cmdline, KernelLoader};
 use vm_memory::GuestMemoryError;
 
-use self::gic::GICDevice;
-use crate::arch::{BootProtocol, DeviceType, EntryPoint};
+use crate::arch::{BootProtocol, EntryPoint};
 use crate::cpu_config::aarch64::{CpuConfiguration, CpuConfigurationError};
 use crate::cpu_config::templates::CustomCpuTemplate;
-use crate::device_manager::mmio::MMIODeviceInfo;
-use crate::devices::acpi::vmgenid::VmGenId;
 use crate::initrd::InitrdConfig;
 use crate::vmm_config::machine_config::MachineConfig;
 use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
@@ -108,41 +103,22 @@ pub fn configure_system_for_boot(
     let cmdline = boot_cmdline
         .as_cstring()
         .expect("Cannot create cstring from cmdline string");
-    configure_system(
+
+    let fdt = fdt::create_fdt(
         &vmm.guest_memory,
-        cmdline,
         vcpu_mpidr,
+        cmdline,
         vmm.mmio_device_manager.get_device_info(),
         vmm.vm.get_irqchip(),
         &vmm.acpi_device_manager.vmgenid,
         initrd,
     )?;
-    Ok(())
-}
 
-/// Configures the system and should be called once per vm before starting vcpu threads.
-fn configure_system(
-    guest_mem: &GuestMemoryMmap,
-    cmdline_cstring: CString,
-    vcpu_mpidr: Vec<u64>,
-    device_info: &HashMap<(DeviceType, String), MMIODeviceInfo>,
-    gic_device: &GICDevice,
-    vmgenid: &Option<VmGenId>,
-    initrd: &Option<InitrdConfig>,
-) -> Result<(), ConfigurationError> {
-    let fdt = fdt::create_fdt(
-        guest_mem,
-        vcpu_mpidr,
-        cmdline_cstring,
-        device_info,
-        gic_device,
-        vmgenid,
-        initrd,
-    )?;
-    let fdt_address = GuestAddress(get_fdt_addr(guest_mem));
-    guest_mem
+    let fdt_address = GuestAddress(get_fdt_addr(&vmm.guest_memory));
+    vmm.guest_memory
         .write_slice(fdt.as_slice(), fdt_address)
         .map_err(ConfigurationError::MemoryError)?;
+
     Ok(())
 }
 
