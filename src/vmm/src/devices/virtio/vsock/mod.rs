@@ -57,15 +57,6 @@ mod defs {
 
     pub mod uapi {
 
-        /// Virtio feature flags.
-        /// Defined in `/include/uapi/linux/virtio_config.h`.
-        ///
-        /// The device processes available buffers in the same order in which the device
-        /// offers them.
-        pub const VIRTIO_F_IN_ORDER: usize = 35;
-        /// The device conforms to the virtio spec version 1.0.
-        pub const VIRTIO_F_VERSION_1: u32 = 32;
-
         /// Virtio vsock device ID.
         /// Defined in `include/uapi/linux/virtio_ids.h`.
         pub const VIRTIO_ID_VSOCK: u32 = 19;
