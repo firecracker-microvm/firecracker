@@ -4,6 +4,7 @@
 import pytest
 
 from framework.microvm import HugePagesConfig, Serial
+from framework.properties import global_props
 
 INITRD_FILESYSTEM = "rootfs"
 
@@ -22,6 +23,11 @@ def uvm_with_initrd(
     yield uvm
 
 
+@pytest.mark.skipif(
+    global_props.host_linux_version_tpl > (6, 1)
+    and global_props.cpu_architecture == "aarch64",
+    reason="Huge page tests with secret hidden kernels on ARM currently fail",
+)
 @pytest.mark.parametrize("huge_pages", HugePagesConfig)
 def test_microvm_initrd_with_serial(uvm_with_initrd, huge_pages):
     """
