@@ -600,28 +600,6 @@ mod tests {
         }
     }
 
-    impl PartialEq for BootConfig {
-        fn eq(&self, other: &Self) -> bool {
-            self.cmdline.eq(&other.cmdline)
-                && self.kernel_file.metadata().unwrap().st_ino()
-                    == other.kernel_file.metadata().unwrap().st_ino()
-                && self
-                    .initrd_file
-                    .as_ref()
-                    .unwrap()
-                    .metadata()
-                    .unwrap()
-                    .st_ino()
-                    == other
-                        .initrd_file
-                        .as_ref()
-                        .unwrap()
-                        .metadata()
-                        .unwrap()
-                        .st_ino()
-        }
-    }
-
     #[test]
     fn test_from_json() {
         let kernel_file = TempFile::new().unwrap();
