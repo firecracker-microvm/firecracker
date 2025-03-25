@@ -41,17 +41,23 @@ use linux_loader::loader::elf::Elf as Loader;
 use linux_loader::loader::elf::start_info::{
     hvm_memmap_table_entry, hvm_modlist_entry, hvm_start_info,
 };
-use linux_loader::loader::{KernelLoader, PvhBootCapability};
+use linux_loader::loader::{Cmdline, KernelLoader, PvhBootCapability, load_cmdline};
 use log::debug;
 
 use super::EntryPoint;
+use crate::acpi::create_acpi_tables;
 use crate::arch::{BootProtocol, SYSTEM_MEM_SIZE, SYSTEM_MEM_START};
+use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
+use crate::cpu_config::x86_64::{CpuConfiguration, cpuid};
 use crate::device_manager::resources::ResourceAllocator;
 use crate::initrd::InitrdConfig;
 use crate::utils::{mib_to_bytes, u64_to_usize};
+use crate::vmm_config::machine_config::MachineConfig;
 use crate::vstate::memory::{
     Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion,
 };
+use crate::vstate::vcpu::KvmVcpuConfigureError;
+use crate::{Vcpu, VcpuConfig, Vmm};
 
 // Value taken from https://elixir.bootlin.com/linux/v5.10.68/source/arch/x86/include/uapi/asm/e820.h#L31
 // Usable normal RAM
@@ -62,7 +68,7 @@ const E820_RESERVED: u32 = 2;
 const MEMMAP_TYPE_RAM: u32 = 1;
 
 /// Errors thrown while configuring x86_64 system.
-#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum ConfigurationError {
     /// Invalid e820 setup params.
     E820Configuration,
@@ -79,7 +85,15 @@ pub enum ConfigurationError {
     /// Cannot copy kernel file fd
     KernelFile,
     /// Cannot load kernel due to invalid memory configuration or invalid kernel image: {0}
-    KernelLoader(#[from] linux_loader::loader::Error),
+    KernelLoader(linux_loader::loader::Error),
+    /// Cannot load command line string: {0}
+    LoadCommandline(linux_loader::loader::Error),
+    /// Failed to create guest config: {0}
+    CreateGuestConfig(#[from] GuestConfigError),
+    /// Error configuring the vcpu for boot: {0}
+    VcpuConfigure(#[from] KvmVcpuConfigureError),
+    /// Error configuring ACPI: {0}
+    Acpi(#[from] crate::acpi::AcpiError),
 }
 
 /// First address that cannot be addressed using 32 bit anymore.
@@ -128,17 +142,79 @@ pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> Opti
     Some(align_to_pagesize(lowmem_size - initrd_size) as u64)
 }
 
+/// Configures the system for booting Linux.
+pub fn configure_system_for_boot(
+    vmm: &mut Vmm,
+    vcpus: &mut [Vcpu],
+    machine_config: &MachineConfig,
+    cpu_template: &CustomCpuTemplate,
+    entry_point: EntryPoint,
+    initrd: &Option<InitrdConfig>,
+    boot_cmdline: Cmdline,
+) -> Result<(), ConfigurationError> {
+    // Construct the base CpuConfiguration to apply CPU template onto.
+    let cpu_config = {
+        let cpuid = cpuid::Cpuid::try_from(vmm.kvm.supported_cpuid.clone())
+            .map_err(GuestConfigError::CpuidFromKvmCpuid)?;
+        let msrs = vcpus[0]
+            .kvm_vcpu
+            .get_msrs(cpu_template.msr_index_iter())
+            .map_err(GuestConfigError::VcpuIoctl)?;
+        CpuConfiguration { cpuid, msrs }
+    };
+
+    // Apply CPU template to the base CpuConfiguration.
+    let cpu_config = CpuConfiguration::apply_template(cpu_config, cpu_template)?;
+
+    let vcpu_config = VcpuConfig {
+        vcpu_count: machine_config.vcpu_count,
+        smt: machine_config.smt,
+        cpu_config,
+    };
+
+    // Configure vCPUs with normalizing and setting the generated CPU configuration.
+    for vcpu in vcpus.iter_mut() {
+        vcpu.kvm_vcpu
+            .configure(vmm.guest_memory(), entry_point, &vcpu_config)?;
+    }
+
+    // Write the kernel command line to guest memory. This is x86_64 specific, since on
+    // aarch64 the command line will be specified through the FDT.
+    let cmdline_size = boot_cmdline
+        .as_cstring()
+        .map(|cmdline_cstring| cmdline_cstring.as_bytes_with_nul().len())
+        .expect("Cannot create cstring from cmdline string");
+
+    load_cmdline(
+        vmm.guest_memory(),
+        GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
+        &boot_cmdline,
+    )
+    .map_err(ConfigurationError::LoadCommandline)?;
+    configure_system(
+        &vmm.guest_memory,
+        &mut vmm.resource_allocator,
+        GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
+        cmdline_size,
+        initrd,
+        vcpu_config.vcpu_count,
+        entry_point.protocol,
+    )?;
+
+    // Create ACPI tables and write them in guest memory
+    // For the time being we only support ACPI in x86_64
+    create_acpi_tables(
+        &vmm.guest_memory,
+        &mut vmm.resource_allocator,
+        &vmm.mmio_device_manager,
+        &vmm.acpi_device_manager,
+        vcpus,
+    )?;
+    Ok(())
+}
+
 /// Configures the system and should be called once per vm before starting vcpu threads.
-///
-/// # Arguments
-///
-/// * `guest_mem` - The memory to be used by the guest.
-/// * `cmdline_addr` - Address in `guest_mem` where the kernel command line was loaded.
-/// * `cmdline_size` - Size of the kernel command line in bytes including the null terminator.
-/// * `initrd` - Information about where the ramdisk image was loaded in the `guest_mem`.
-/// * `num_cpus` - Number of virtual CPUs the guest will have.
-/// * `boot_prot` - Boot protocol that will be used to boot the guest.
-pub fn configure_system(
+fn configure_system(
     guest_mem: &GuestMemoryMmap,
     resource_allocator: &mut ResourceAllocator,
     cmdline_addr: GuestAddress,
@@ -380,7 +456,8 @@ pub fn load_kernel(
         None,
         &mut kernel_file,
         Some(GuestAddress(get_kernel_start())),
-    )?;
+    )
+    .map_err(ConfigurationError::KernelLoader)?;
 
     let mut entry_point_addr: GuestAddress = entry_addr.kernel_load;
     let mut boot_prot: BootProtocol = BootProtocol::LinuxBoot;
@@ -435,10 +512,10 @@ mod tests {
             1,
             BootProtocol::LinuxBoot,
         );
-        assert_eq!(
+        assert!(matches!(
             config_err.unwrap_err(),
             super::ConfigurationError::MpTableSetup(mptable::MptableError::NotEnoughMemory)
-        );
+        ));
 
         // Now assigning some memory that falls before the 32bit memory hole.
         let mem_size = mib_to_bytes(128);

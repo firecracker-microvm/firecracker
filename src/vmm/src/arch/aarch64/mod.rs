@@ -22,16 +22,23 @@ use std::ffi::CString;
 use std::fmt::Debug;
 use std::fs::File;
 
-use linux_loader::loader::KernelLoader;
 use linux_loader::loader::pe::PE as Loader;
+use linux_loader::loader::{Cmdline, KernelLoader};
 use vm_memory::GuestMemoryError;
 
 use self::gic::GICDevice;
+use crate::arch::aarch64::regs::Aarch64RegisterVec;
+use crate::arch::aarch64::vcpu::{VcpuArchError, get_registers};
 use crate::arch::{BootProtocol, DeviceType, EntryPoint};
+use crate::cpu_config::aarch64::{CpuConfiguration, CpuConfigurationError};
+use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::device_manager::mmio::MMIODeviceInfo;
 use crate::devices::acpi::vmgenid::VmGenId;
 use crate::initrd::InitrdConfig;
+use crate::vmm_config::machine_config::MachineConfig;
 use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
+use crate::vstate::vcpu::KvmVcpuError;
+use crate::{Vcpu, VcpuConfig, Vmm};
 
 /// Errors thrown while configuring aarch64 system.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -44,6 +51,14 @@ pub enum ConfigurationError {
     KernelFile,
     /// Cannot load kernel due to invalid memory configuration or invalid kernel image: {0}
     KernelLoader(#[from] linux_loader::loader::Error),
+    /// Error initializing the vcpu: {0}
+    VcpuInit(KvmVcpuError),
+    /// Error configuring the vcpu: {0}
+    VcpuConfigure(KvmVcpuError),
+    /// Error reading vcpu registers: {0}
+    VcpuGetRegs(VcpuArchError),
+    /// Error applying vcpu template: {0}
+    VcpuApplyTemplate(CpuConfigurationError),
 }
 
 /// The start of the memory area reserved for MMIO devices.
@@ -58,18 +73,73 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
     vec![(GuestAddress(layout::DRAM_MEM_START), dram_size)]
 }
 
+/// Configures the system for booting Linux.
+pub fn configure_system_for_boot(
+    vmm: &mut Vmm,
+    vcpus: &mut [Vcpu],
+    machine_config: &MachineConfig,
+    cpu_template: &CustomCpuTemplate,
+    entry_point: EntryPoint,
+    initrd: &Option<InitrdConfig>,
+    boot_cmdline: Cmdline,
+) -> Result<(), ConfigurationError> {
+    // Construct the base CpuConfiguration to apply CPU template onto.
+    let cpu_config = {
+        for vcpu in vcpus.iter_mut() {
+            vcpu.kvm_vcpu
+                .init(&cpu_template.vcpu_features)
+                .map_err(ConfigurationError::VcpuInit)?;
+        }
+
+        let mut regs = Aarch64RegisterVec::default();
+        get_registers(&vcpus[0].kvm_vcpu.fd, &cpu_template.reg_list(), &mut regs)
+            .map_err(ConfigurationError::VcpuGetRegs)?;
+        CpuConfiguration { regs }
+    };
+
+    // Apply CPU template to the base CpuConfiguration.
+    let cpu_config = CpuConfiguration::apply_template(cpu_config, cpu_template)
+        .map_err(ConfigurationError::VcpuApplyTemplate)?;
+
+    let vcpu_config = VcpuConfig {
+        vcpu_count: machine_config.vcpu_count,
+        smt: machine_config.smt,
+        cpu_config,
+    };
+
+    let optional_capabilities = vmm.kvm.optional_capabilities();
+    // Configure vCPUs with normalizing and setting the generated CPU configuration.
+    for vcpu in vcpus.iter_mut() {
+        vcpu.kvm_vcpu
+            .configure(
+                vmm.guest_memory(),
+                entry_point,
+                &vcpu_config,
+                &optional_capabilities,
+            )
+            .map_err(ConfigurationError::VcpuConfigure)?;
+    }
+    let vcpu_mpidr = vcpus
+        .iter_mut()
+        .map(|cpu| cpu.kvm_vcpu.get_mpidr())
+        .collect();
+    let cmdline = boot_cmdline
+        .as_cstring()
+        .expect("Cannot create cstring from cmdline string");
+    configure_system(
+        &vmm.guest_memory,
+        cmdline,
+        vcpu_mpidr,
+        vmm.mmio_device_manager.get_device_info(),
+        vmm.vm.get_irqchip(),
+        &vmm.acpi_device_manager.vmgenid,
+        initrd,
+    )?;
+    Ok(())
+}
+
 /// Configures the system and should be called once per vm before starting vcpu threads.
-/// For aarch64, we only setup the FDT.
-///
-/// # Arguments
-///
-/// * `guest_mem` - The memory to be used by the guest.
-/// * `cmdline_cstring` - The kernel commandline.
-/// * `vcpu_mpidr` - Array of MPIDR register values per vcpu.
-/// * `device_info` - A hashmap containing the attached devices for building FDT device nodes.
-/// * `gic_device` - The GIC device.
-/// * `initrd` - Information about an optional initrd.
-pub fn configure_system(
+fn configure_system(
     guest_mem: &GuestMemoryMmap,
     cmdline_cstring: CString,
     vcpu_mpidr: Vec<u64>,

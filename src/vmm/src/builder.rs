@@ -3,8 +3,6 @@
 
 //! Enables pre-boot setup, instantiation and booting of a Firecracker VMM.
 
-#[cfg(target_arch = "x86_64")]
-use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::io;
 #[cfg(feature = "gdb")]
@@ -21,14 +19,11 @@ use vm_superio::Rtc;
 use vm_superio::Serial;
 use vmm_sys_util::eventfd::EventFd;
 
-#[cfg(target_arch = "x86_64")]
-use crate::acpi;
-use crate::arch::{ConfigurationError, EntryPoint, load_kernel};
+use crate::arch::{ConfigurationError, configure_system_for_boot, load_kernel};
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
 use crate::cpu_config::templates::{
-    CpuConfiguration, CustomCpuTemplate, GetCpuTemplate, GetCpuTemplateError, GuestConfigError,
-    KvmCapability,
+    GetCpuTemplate, GetCpuTemplateError, GuestConfigError, KvmCapability,
 };
 use crate::device_manager::acpi::ACPIDeviceManager;
 #[cfg(target_arch = "x86_64")]
@@ -60,10 +55,10 @@ use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError};
+use crate::vmm_config::machine_config::MachineConfigError;
 use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::GuestMemoryMmap;
-use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuError};
+use crate::vstate::vcpu::{Vcpu, VcpuError};
 use crate::vstate::vm::Vm;
 use crate::{EventManager, Vmm, VmmError, device_manager};
 
@@ -117,9 +112,8 @@ pub enum StartMicrovmError {
     SetVmResources(MachineConfigError),
     /// Cannot create the entropy device: {0}
     CreateEntropyDevice(crate::devices::virtio::rng::EntropyError),
-    /// Error configuring ACPI: {0}
-    #[cfg(target_arch = "x86_64")]
-    Acpi(#[from] crate::acpi::AcpiError),
+    /// Failed to allocate guest resource: {0}
+    AllocateResources(#[from] vm_allocator::Error),
     /// Error starting GDB debug session
     #[cfg(feature = "gdb")]
     GdbServer(gdb::target::GdbTargetError),
@@ -586,131 +580,6 @@ fn attach_legacy_devices_aarch64(
     vmm.mmio_device_manager
         .register_mmio_rtc(&mut vmm.resource_allocator, rtc, None)
         .map_err(VmmError::RegisterMMIODevice)
-}
-
-/// Configures the system for booting Linux.
-#[cfg_attr(target_arch = "aarch64", allow(unused))]
-pub fn configure_system_for_boot(
-    vmm: &mut Vmm,
-    vcpus: &mut [Vcpu],
-    machine_config: &MachineConfig,
-    cpu_template: &CustomCpuTemplate,
-    entry_point: EntryPoint,
-    initrd: &Option<InitrdConfig>,
-    boot_cmdline: LoaderKernelCmdline,
-) -> Result<(), StartMicrovmError> {
-    use self::StartMicrovmError::*;
-
-    // Construct the base CpuConfiguration to apply CPU template onto.
-    #[cfg(target_arch = "x86_64")]
-    let cpu_config = {
-        use crate::cpu_config::x86_64::cpuid;
-        let cpuid = cpuid::Cpuid::try_from(vmm.kvm.supported_cpuid.clone())
-            .map_err(GuestConfigError::CpuidFromKvmCpuid)?;
-        let msrs = vcpus[0]
-            .kvm_vcpu
-            .get_msrs(cpu_template.msr_index_iter())
-            .map_err(GuestConfigError::VcpuIoctl)?;
-        CpuConfiguration { cpuid, msrs }
-    };
-
-    #[cfg(target_arch = "aarch64")]
-    let cpu_config = {
-        use crate::arch::aarch64::regs::Aarch64RegisterVec;
-        use crate::arch::aarch64::vcpu::get_registers;
-
-        for vcpu in vcpus.iter_mut() {
-            vcpu.kvm_vcpu
-                .init(&cpu_template.vcpu_features)
-                .map_err(VmmError::VcpuInit)?;
-        }
-
-        let mut regs = Aarch64RegisterVec::default();
-        get_registers(&vcpus[0].kvm_vcpu.fd, &cpu_template.reg_list(), &mut regs)
-            .map_err(GuestConfigError)?;
-        CpuConfiguration { regs }
-    };
-
-    // Apply CPU template to the base CpuConfiguration.
-    let cpu_config = CpuConfiguration::apply_template(cpu_config, cpu_template)?;
-
-    let vcpu_config = VcpuConfig {
-        vcpu_count: machine_config.vcpu_count,
-        smt: machine_config.smt,
-        cpu_config,
-    };
-
-    #[cfg(target_arch = "x86_64")]
-    {
-        // Configure vCPUs with normalizing and setting the generated CPU configuration.
-        for vcpu in vcpus.iter_mut() {
-            vcpu.kvm_vcpu
-                .configure(vmm.guest_memory(), entry_point, &vcpu_config)
-                .map_err(VmmError::VcpuConfigure)?;
-        }
-
-        // Write the kernel command line to guest memory. This is x86_64 specific, since on
-        // aarch64 the command line will be specified through the FDT.
-        let cmdline_size = boot_cmdline
-            .as_cstring()
-            .map(|cmdline_cstring| cmdline_cstring.as_bytes_with_nul().len())?;
-
-        linux_loader::loader::load_cmdline::<crate::vstate::memory::GuestMemoryMmap>(
-            vmm.guest_memory(),
-            crate::vstate::memory::GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
-            &boot_cmdline,
-        )
-        .map_err(LoadCommandline)?;
-        crate::arch::x86_64::configure_system(
-            &vmm.guest_memory,
-            &mut vmm.resource_allocator,
-            crate::vstate::memory::GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
-            cmdline_size,
-            initrd,
-            vcpu_config.vcpu_count,
-            entry_point.protocol,
-        )?;
-
-        // Create ACPI tables and write them in guest memory
-        // For the time being we only support ACPI in x86_64
-        acpi::create_acpi_tables(
-            &vmm.guest_memory,
-            &mut vmm.resource_allocator,
-            &vmm.mmio_device_manager,
-            &vmm.acpi_device_manager,
-            vcpus,
-        )?;
-    }
-    #[cfg(target_arch = "aarch64")]
-    {
-        let optional_capabilities = vmm.kvm.optional_capabilities();
-        // Configure vCPUs with normalizing and setting the generated CPU configuration.
-        for vcpu in vcpus.iter_mut() {
-            vcpu.kvm_vcpu
-                .configure(
-                    vmm.guest_memory(),
-                    entry_point,
-                    &vcpu_config,
-                    &optional_capabilities,
-                )
-                .map_err(VmmError::VcpuConfigure)?;
-        }
-        let vcpu_mpidr = vcpus
-            .iter_mut()
-            .map(|cpu| cpu.kvm_vcpu.get_mpidr())
-            .collect();
-        let cmdline = boot_cmdline.as_cstring()?;
-        crate::arch::aarch64::configure_system(
-            &vmm.guest_memory,
-            cmdline,
-            vcpu_mpidr,
-            vmm.mmio_device_manager.get_device_info(),
-            vmm.vm.get_irqchip(),
-            &vmm.acpi_device_manager.vmgenid,
-            initrd,
-        )?;
-    }
-    Ok(())
 }
 
 /// Attaches a VirtioDevice device to the device manager and event manager.

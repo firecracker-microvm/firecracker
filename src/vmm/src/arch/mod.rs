@@ -20,9 +20,10 @@ pub use aarch64::vcpu::*;
 pub use aarch64::vm::{ArchVm, ArchVmError, VmState};
 #[cfg(target_arch = "aarch64")]
 pub use aarch64::{
-    ConfigurationError, MMIO_MEM_SIZE, MMIO_MEM_START, arch_memory_regions, configure_system,
-    get_kernel_start, initrd_load_addr, layout::CMDLINE_MAX_SIZE, layout::IRQ_BASE,
-    layout::IRQ_MAX, layout::SYSTEM_MEM_SIZE, layout::SYSTEM_MEM_START, load_kernel,
+    ConfigurationError, MMIO_MEM_SIZE, MMIO_MEM_START, arch_memory_regions,
+    configure_system_for_boot, get_kernel_start, initrd_load_addr, layout::CMDLINE_MAX_SIZE,
+    layout::IRQ_BASE, layout::IRQ_MAX, layout::SYSTEM_MEM_SIZE, layout::SYSTEM_MEM_START,
+    load_kernel,
 };
 
 /// Module for x86_64 related functionality.
@@ -35,12 +36,13 @@ pub use x86_64::kvm::{Kvm, KvmArchError};
 pub use x86_64::vcpu::*;
 #[cfg(target_arch = "x86_64")]
 pub use x86_64::vm::{ArchVm, ArchVmError, VmState};
+
 #[cfg(target_arch = "x86_64")]
-pub use x86_64::{
-    ConfigurationError, MMIO_MEM_SIZE, MMIO_MEM_START, arch_memory_regions, configure_system,
-    get_kernel_start, initrd_load_addr, layout::APIC_ADDR, layout::CMDLINE_MAX_SIZE,
-    layout::IOAPIC_ADDR, layout::IRQ_BASE, layout::IRQ_MAX, layout::SYSTEM_MEM_SIZE,
-    layout::SYSTEM_MEM_START, load_kernel,
+pub use crate::arch::x86_64::{
+    ConfigurationError, MMIO_MEM_SIZE, MMIO_MEM_START, arch_memory_regions,
+    configure_system_for_boot, get_kernel_start, initrd_load_addr, layout::APIC_ADDR,
+    layout::CMDLINE_MAX_SIZE, layout::IOAPIC_ADDR, layout::IRQ_BASE, layout::IRQ_MAX,
+    layout::SYSTEM_MEM_SIZE, layout::SYSTEM_MEM_START, load_kernel,
 };
 
 /// Types of devices that can get attached to this platform.

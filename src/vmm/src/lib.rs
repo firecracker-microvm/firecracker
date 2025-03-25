@@ -131,7 +131,7 @@ use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::terminal::Terminal;
 use vstate::kvm::Kvm;
-use vstate::vcpu::{self, KvmVcpuConfigureError, StartThreadedError, VcpuSendEventError};
+use vstate::vcpu::{self, StartThreadedError, VcpuSendEventError};
 
 use crate::arch::DeviceType;
 use crate::cpu_config::templates::CpuConfiguration;
@@ -234,17 +234,12 @@ pub enum VmmError {
     Serial(io::Error),
     /// Error creating timer fd: {0}
     TimerFd(io::Error),
-    /// Error configuring the vcpu for boot: {0}
-    VcpuConfigure(KvmVcpuConfigureError),
     /// Error creating the vcpu: {0}
     VcpuCreate(vstate::vcpu::VcpuError),
     /// Cannot send event to vCPU. {0}
     VcpuEvent(vstate::vcpu::VcpuError),
     /// Cannot create a vCPU handle. {0}
     VcpuHandle(vstate::vcpu::VcpuError),
-    #[cfg(target_arch = "aarch64")]
-    /// Error initializing the vcpu: {0}
-    VcpuInit(vstate::vcpu::KvmVcpuError),
     /// Failed to start vCPUs
     VcpuStart(StartVcpusError),
     /// Failed to pause the vCPUs.
