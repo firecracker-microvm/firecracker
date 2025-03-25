@@ -13,6 +13,7 @@ use crate::logger::info;
 use crate::mmds;
 use crate::mmds::data_store::{Mmds, MmdsVersion};
 use crate::mmds::ns::MmdsNetworkStack;
+use crate::utils::mib_to_bytes;
 use crate::utils::net::ipv4addr::is_link_local_valid;
 use crate::vmm_config::balloon::*;
 use crate::vmm_config::boot_source::{
@@ -462,7 +463,8 @@ impl VmResources {
                 self.machine_config.huge_pages,
             )
         } else {
-            let regions = crate::arch::arch_memory_regions(self.machine_config.mem_size_mib << 20);
+            let regions =
+                crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib));
             GuestMemoryMmap::anonymous(
                 regions.into_iter(),
                 self.machine_config.track_dirty_pages,
@@ -1328,6 +1330,8 @@ mod tests {
             cpu_template: Some(StaticCpuTemplate::V1N1),
             track_dirty_pages: Some(false),
             huge_pages: Some(HugePageConfig::None),
+            #[cfg(feature = "gdb")]
+            gdb_socket_path: None,
         };
 
         assert_ne!(

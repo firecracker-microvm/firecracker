@@ -775,6 +775,7 @@ pub(crate) mod tests {
     use crate::devices::BusDevice;
     use crate::devices::bus::DummyDevice;
     use crate::seccomp::get_empty_filters;
+    use crate::utils::mib_to_bytes;
     use crate::utils::signal::validate_signal_num;
     use crate::vstate::kvm::Kvm;
     use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
@@ -962,7 +963,7 @@ pub(crate) mod tests {
     fn vcpu_configured_for_boot() -> (VcpuHandle, EventFd, GuestMemoryMmap) {
         Vcpu::register_kick_signal_handler();
         // Need enough mem to boot linux.
-        let mem_size = 64 << 20;
+        let mem_size = mib_to_bytes(64);
         let (kvm, _, mut vcpu, vm_mem) = setup_vcpu(mem_size);
 
         let vcpu_exit_evt = vcpu.exit_evt.try_clone().unwrap();
