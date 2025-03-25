@@ -420,10 +420,10 @@ pub enum BuildMicrovmFromSnapshotError {
     TscFrequencyNotPresent,
     #[cfg(target_arch = "x86_64")]
     /// Could not get TSC to check if TSC scaling was required with the snapshot: {0}
-    GetTsc(#[from] crate::vstate::vcpu::GetTscError),
+    GetTsc(#[from] crate::arch::GetTscError),
     #[cfg(target_arch = "x86_64")]
     /// Could not set TSC scaling within the snapshot: {0}
-    SetTsc(#[from] crate::vstate::vcpu::SetTscError),
+    SetTsc(#[from] crate::arch::SetTscError),
     /// Failed to restore microVM state: {0}
     RestoreState(#[from] crate::vstate::vm::ArchVmError),
     /// Failed to update microVM configuration: {0}

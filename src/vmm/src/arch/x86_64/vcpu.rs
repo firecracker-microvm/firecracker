@@ -25,7 +25,7 @@ use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecial
 use crate::cpu_config::x86_64::{CpuConfiguration, cpuid};
 use crate::logger::{IncMetric, METRICS};
 use crate::vstate::memory::GuestMemoryMmap;
-use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation};
+use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation, VcpuError};
 use crate::vstate::vm::Vm;
 
 // Tolerance for TSC frequency expected variation.
@@ -145,7 +145,7 @@ pub struct KvmVcpu {
     /// KVM vcpu fd.
     pub fd: VcpuFd,
     /// Vcpu peripherals, such as buses
-    pub(super) peripherals: Peripherals,
+    pub peripherals: Peripherals,
     /// The list of MSRs to include in a VM snapshot, in the same order as KVM returned them
     /// from KVM_GET_MSR_INDEX_LIST
     msrs_to_save: Vec<u32>,
@@ -157,7 +157,7 @@ pub struct KvmVcpu {
 
 /// Vcpu peripherals
 #[derive(Default, Debug)]
-pub(super) struct Peripherals {
+pub struct Peripherals {
     /// Pio bus.
     pub pio_bus: Option<crate::devices::Bus>,
     /// Mmio bus.
@@ -334,7 +334,7 @@ impl KvmVcpu {
     ///
     /// # Errors
     ///
-    /// When [`kvm_ioctls::VcpuFd::get_tsc_khz`] errrors.
+    /// When [`kvm_ioctls::VcpuFd::get_tsc_khz`] errors.
     pub fn get_tsc_khz(&self) -> Result<u32, GetTscError> {
         let res = self.fd.get_tsc_khz()?;
         Ok(res)
@@ -477,7 +477,7 @@ impl KvmVcpu {
     /// # Arguments
     ///
     /// * `msr_index_iter`: Iterator over MSR indices.
-    /// * `chunk_size`: Lenght of a chunk.
+    /// * `chunk_size`: Length of a chunk.
     ///
     /// # Errors
     ///
@@ -504,7 +504,7 @@ impl KvmVcpu {
             .map_err(KvmVcpuError::VcpuGetMsrs)?;
         // GET_MSRS returns a number of successfully set msrs.
         // If number of set msrs is not equal to the length of
-        // `msrs`, then the value retuned by GET_MSRS can act
+        // `msrs`, then the value returned by GET_MSRS can act
         // as an index to the problematic msr.
         if nmsrs != chunk_size {
             Err(KvmVcpuError::VcpuGetMsr(msrs.as_slice()[nmsrs].index))
@@ -621,7 +621,7 @@ impl KvmVcpu {
         // in the state. If they are different, we need to
         // scale the TSC to the freq found in the state.
         // We accept values within a tolerance of 250 parts
-        // per million beacuse it is common for TSC frequency
+        // per million because it is common for TSC frequency
         // to differ due to calibration at boot time.
         let diff = (i64::from(self.get_tsc_khz()?) - i64::from(state_tsc_freq)).abs();
         // Cannot overflow since u32::MAX * 250 < i64::MAX
@@ -705,7 +705,7 @@ impl Peripherals {
     /// Runs the vCPU in KVM context and handles the kvm exit reason.
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.
-    pub fn run_arch_emulation(&self, exit: VcpuExit) -> Result<VcpuEmulation, super::VcpuError> {
+    pub fn run_arch_emulation(&self, exit: VcpuExit) -> Result<VcpuEmulation, VcpuError> {
         match exit {
             VcpuExit::IoIn(addr, data) => {
                 if let Some(pio_bus) = &self.pio_bus {
@@ -728,7 +728,7 @@ impl Peripherals {
                 // TODO: Are we sure we want to finish running a vcpu upon
                 // receiving a vm exit that is not necessarily an error?
                 error!("Unexpected exit reason on vcpu run: {:?}", unexpected_exit);
-                Err(super::VcpuError::UnhandledKvmExit(format!(
+                Err(VcpuError::UnhandledKvmExit(format!(
                     "{:?}",
                     unexpected_exit
                 )))

@@ -48,7 +48,8 @@ pub enum ArchVmError {
 /// Structure representing the current architecture's understand of what a "virtual machine" is.
 #[derive(Debug)]
 pub struct ArchVm {
-    pub(super) fd: VmFd,
+    /// KVM file descriptor of microVM
+    pub fd: VmFd,
     msrs_to_save: MsrList,
     /// Size in bytes requiring to hold the dynamically-sized `kvm_xsave` struct.
     ///
@@ -93,12 +94,14 @@ impl ArchVm {
         })
     }
 
-    pub(super) fn arch_pre_create_vcpus(&mut self, _: u8) -> Result<(), ArchVmError> {
+    /// Pre-vCPU creation setup.
+    pub fn arch_pre_create_vcpus(&mut self, _: u8) -> Result<(), ArchVmError> {
         // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
         self.setup_irqchip()
     }
 
-    pub(super) fn arch_post_create_vcpus(&mut self, _: u8) -> Result<(), ArchVmError> {
+    /// Post-vCPU creation setup.
+    pub fn arch_post_create_vcpus(&mut self, _: u8) -> Result<(), ArchVmError> {
         Ok(())
     }
 

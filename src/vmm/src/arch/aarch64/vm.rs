@@ -4,14 +4,15 @@
 use kvm_ioctls::VmFd;
 use serde::{Deserialize, Serialize};
 
-use super::VmError;
 use crate::Kvm;
 use crate::arch::aarch64::gic::GicState;
+use crate::vstate::vm::VmError;
 
 /// Structure representing the current architecture's understand of what a "virtual machine" is.
 #[derive(Debug)]
 pub struct ArchVm {
-    pub(super) fd: VmFd,
+    /// KVM file descriptor of microVM
+    pub fd: VmFd,
     // On aarch64 we need to keep around the fd obtained by creating the VGIC device.
     irqchip_handle: Option<crate::arch::aarch64::gic::GICDevice>,
 }
@@ -37,11 +38,13 @@ impl ArchVm {
         })
     }
 
-    pub(super) fn arch_pre_create_vcpus(&mut self, _: u8) -> Result<(), ArchVmError> {
+    /// Pre-vCPU creation setup.
+    pub fn arch_pre_create_vcpus(&mut self, _: u8) -> Result<(), ArchVmError> {
         Ok(())
     }
 
-    pub(super) fn arch_post_create_vcpus(&mut self, nr_vcpus: u8) -> Result<(), ArchVmError> {
+    /// Post-vCPU creation setup.
+    pub fn arch_post_create_vcpus(&mut self, nr_vcpus: u8) -> Result<(), ArchVmError> {
         // On aarch64, the vCPUs need to be created (i.e call KVM_CREATE_VCPU) before setting up the
         // IRQ chip because the `KVM_CREATE_VCPU` ioctl will return error if the IRQCHIP
         // was already initialized.
