@@ -12,8 +12,11 @@ pub mod test_utils;
 
 use std::collections::BTreeMap;
 
+use kvm_bindings::CpuId;
+
 use self::custom_cpu_template::CpuidRegister;
 use super::templates::CustomCpuTemplate;
+use crate::Vcpu;
 use crate::cpu_config::x86_64::cpuid::{Cpuid, CpuidKey};
 
 /// Errors thrown while configuring templates.
@@ -24,9 +27,9 @@ pub enum CpuConfigurationError {
     /// Template changes an MSR entry not supported by KVM: Register Address: {0:0x}
     MsrNotSupported(u32),
     /// Can create cpuid from raw: {0}
-    CpuidFromKvmCpuid(crate::cpu_config::x86_64::cpuid::CpuidTryFromKvmCpuid),
+    CpuidFromKvmCpuid(#[from] crate::cpu_config::x86_64::cpuid::CpuidTryFromKvmCpuid),
     /// KVM vcpu ioctl failed: {0}
-    VcpuIoctl(crate::vstate::vcpu::KvmVcpuError),
+    VcpuIoctl(#[from] crate::vstate::vcpu::KvmVcpuError),
 }
 
 /// CPU configuration for x86_64 CPUs
@@ -41,6 +44,19 @@ pub struct CpuConfiguration {
 }
 
 impl CpuConfiguration {
+    /// Create new CpuConfiguration.
+    pub fn new(
+        supported_cpuid: CpuId,
+        cpu_template: &CustomCpuTemplate,
+        first_vcpu: &Vcpu,
+    ) -> Result<Self, CpuConfigurationError> {
+        let cpuid = cpuid::Cpuid::try_from(supported_cpuid)?;
+        let msrs = first_vcpu
+            .kvm_vcpu
+            .get_msrs(cpu_template.msr_index_iter())?;
+        Ok(CpuConfiguration { cpuid, msrs })
+    }
+
     /// Modifies provided config with changes from template
     pub fn apply_template(
         self,
