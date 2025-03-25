@@ -134,7 +134,6 @@ impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
 fn create_vmm_and_vcpus(
     instance_info: &InstanceInfo,
     event_manager: &mut EventManager,
-    uffd: Option<Uffd>,
     vcpu_count: u8,
     kvm_capabilities: Vec<KvmCapability>,
 ) -> Result<(Vmm, Vec<Vcpu>), VmmError> {
@@ -177,7 +176,7 @@ fn create_vmm_and_vcpus(
         shutdown_exit_code: None,
         kvm,
         vm,
-        uffd,
+        uffd: None,
         vcpus_handles: Vec::new(),
         vcpus_exit_evt,
         resource_allocator,
@@ -228,7 +227,6 @@ pub fn build_microvm_for_boot(
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
         event_manager,
-        None,
         vm_resources.machine_config.vcpu_count,
         cpu_template.kvm_capabilities.clone(),
     )?;
@@ -424,7 +422,6 @@ pub fn build_microvm_from_snapshot(
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
         event_manager,
-        uffd,
         vm_resources.machine_config.vcpu_count,
         microvm_state.kvm_state.kvm_cap_modifiers.clone(),
     )
@@ -434,6 +431,7 @@ pub fn build_microvm_from_snapshot(
         .register_memory_regions(guest_memory)
         .map_err(VmmError::Vm)
         .map_err(StartMicrovmError::Internal)?;
+    vmm.uffd = uffd;
 
     #[cfg(target_arch = "x86_64")]
     {
