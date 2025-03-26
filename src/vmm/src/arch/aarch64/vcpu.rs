@@ -62,80 +62,6 @@ pub fn get_manufacturer_id_from_host() -> Result<u32, VcpuArchError> {
     Ok(manufacturer_id >> 24)
 }
 
-/// Configure relevant boot registers for a given vCPU.
-///
-/// # Arguments
-///
-/// * `cpu_id` - Index of current vcpu.
-/// * `boot_ip` - Starting instruction pointer.
-/// * `mem` - Reserved DRAM for current VM.
-pub fn setup_boot_regs(
-    vcpufd: &VcpuFd,
-    cpu_id: u8,
-    boot_ip: u64,
-    mem: &GuestMemoryMmap,
-    optional_capabilities: &OptionalCapabilities,
-) -> Result<(), VcpuArchError> {
-    let kreg_off = offset_of!(kvm_regs, regs);
-
-    // Get the register index of the PSTATE (Processor State) register.
-    let pstate = offset_of!(user_pt_regs, pstate) + kreg_off;
-    let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, pstate);
-    vcpufd
-        .set_one_reg(id, &PSTATE_FAULT_BITS_64.to_le_bytes())
-        .map_err(|err| VcpuArchError::SetOneReg(id, err))?;
-
-    // Other vCPUs are powered off initially awaiting PSCI wakeup.
-    if cpu_id == 0 {
-        // Setting the PC (Processor Counter) to the current program address (kernel address).
-        let pc = offset_of!(user_pt_regs, pc) + kreg_off;
-        let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, pc);
-        vcpufd
-            .set_one_reg(id, &boot_ip.to_le_bytes())
-            .map_err(|err| VcpuArchError::SetOneReg(id, err))?;
-
-        // Last mandatory thing to set -> the address pointing to the FDT (also called DTB).
-        // "The device tree blob (dtb) must be placed on an 8-byte boundary and must
-        // not exceed 2 megabytes in size." -> https://www.kernel.org/doc/Documentation/arm64/booting.txt.
-        // We are choosing to place it the end of DRAM. See `get_fdt_addr`.
-        let regs0 = offset_of!(user_pt_regs, regs) + kreg_off;
-        let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, regs0);
-        vcpufd
-            .set_one_reg(id, &get_fdt_addr(mem).to_le_bytes())
-            .map_err(|err| VcpuArchError::SetOneReg(id, err))?;
-
-        // Reset the physical counter for the guest. This way we avoid guest reading
-        // host physical counter.
-        // Resetting KVM_REG_ARM_PTIMER_CNT for single vcpu is enough because there is only
-        // one timer struct with offsets per VM.
-        // Because the access to KVM_REG_ARM_PTIMER_CNT is only present starting 6.4 kernel,
-        // we only do the reset if KVM_CAP_COUNTER_OFFSET is present as it was added
-        // in the same patch series as the ability to set the KVM_REG_ARM_PTIMER_CNT register.
-        // Path series which introduced the needed changes:
-        // https://lore.kernel.org/all/20230330174800.2677007-1-maz@kernel.org/
-        // Note: the value observed by the guest will still be above 0, because there is a delta
-        // time between this resetting and first call to KVM_RUN.
-        if optional_capabilities.counter_offset {
-            vcpufd
-                .set_one_reg(KVM_REG_ARM_PTIMER_CNT, &[0; 8])
-                .map_err(|err| VcpuArchError::SetOneReg(id, err))?;
-        }
-    }
-    Ok(())
-}
-
-/// Saves the states of the system registers into `state`.
-///
-/// # Arguments
-///
-/// * `regs` - Input/Output vector of registers.
-pub fn get_all_registers(
-    vcpufd: &VcpuFd,
-    state: &mut Aarch64RegisterVec,
-) -> Result<(), VcpuArchError> {
-    get_registers(vcpufd, &get_all_registers_ids(vcpufd)?, state)
-}
-
 /// Saves states of registers into `state`.
 ///
 /// # Arguments
@@ -143,79 +69,19 @@ pub fn get_all_registers(
 /// * `ids` - Slice of registers ids to save.
 /// * `regs` - Input/Output vector of registers.
 pub fn get_registers(
-    vcpufd: &VcpuFd,
+    vcpu_fd: &VcpuFd,
     ids: &[u64],
     regs: &mut Aarch64RegisterVec,
 ) -> Result<(), VcpuArchError> {
     let mut big_reg = [0_u8; 256];
     for id in ids.iter() {
-        let reg_size = vcpufd
+        let reg_size = vcpu_fd
             .get_one_reg(*id, &mut big_reg)
             .map_err(|e| VcpuArchError::GetOneReg(*id, e))?;
         let reg_ref = Aarch64RegisterRef::new(*id, &big_reg[0..reg_size]);
         regs.push(reg_ref);
     }
     Ok(())
-}
-
-/// Returns all registers ids, including core and system
-pub fn get_all_registers_ids(vcpufd: &VcpuFd) -> Result<Vec<u64>, VcpuArchError> {
-    // Call KVM_GET_REG_LIST to get all registers available to the guest. For ArmV8 there are
-    // less than 500 registers expected, resize to the reported size when necessary.
-    let mut reg_list = RegList::new(500).map_err(VcpuArchError::Fam)?;
-
-    match vcpufd.get_reg_list(&mut reg_list) {
-        Ok(_) => Ok(reg_list.as_slice().to_vec()),
-        Err(e) => match e.errno() {
-            libc::E2BIG => {
-                // resize and retry.
-                let size: usize = reg_list
-                    .as_fam_struct_ref()
-                    .n
-                    .try_into()
-                    // Safe to unwrap as Firecracker only targets 64-bit machines.
-                    .unwrap();
-                reg_list = RegList::new(size).map_err(VcpuArchError::Fam)?;
-                vcpufd
-                    .get_reg_list(&mut reg_list)
-                    .map_err(VcpuArchError::GetRegList)?;
-
-                Ok(reg_list.as_slice().to_vec())
-            }
-            _ => Err(VcpuArchError::GetRegList(e)),
-        },
-    }
-}
-
-/// Set the state of one system register.
-///
-/// # Arguments
-///
-/// * `reg` - Register to be set.
-pub fn set_register(vcpufd: &VcpuFd, reg: Aarch64RegisterRef) -> Result<(), VcpuArchError> {
-    vcpufd
-        .set_one_reg(reg.id, reg.as_slice())
-        .map_err(|e| VcpuArchError::SetOneReg(reg.id, e))?;
-    Ok(())
-}
-
-/// Get the multistate processor.
-///
-/// # Arguments
-///
-/// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
-pub fn get_mpstate(vcpufd: &VcpuFd) -> Result<kvm_mp_state, VcpuArchError> {
-    vcpufd.get_mp_state().map_err(VcpuArchError::GetMp)
-}
-
-/// Set the state of the system registers.
-///
-/// # Arguments
-///
-/// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
-/// * `state` - Structure for returning the state of the system registers.
-pub fn set_mpstate(vcpufd: &VcpuFd, state: kvm_mp_state) -> Result<(), VcpuArchError> {
-    vcpufd.set_mp_state(state).map_err(VcpuArchError::SetMp)
 }
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -319,9 +185,7 @@ impl KvmVcpu {
             })?;
         }
 
-        setup_boot_regs(
-            &self.fd,
-            self.index,
+        self.setup_boot_regs(
             kernel_entry_point.entry_addr.raw_value(),
             guest_mem,
             optional_capabilities,
@@ -364,10 +228,11 @@ impl KvmVcpu {
     /// Save the KVM internal state.
     pub fn save_state(&self) -> Result<VcpuState, KvmVcpuError> {
         let mut state = VcpuState {
-            mp_state: get_mpstate(&self.fd).map_err(KvmVcpuError::SaveState)?,
+            mp_state: self.get_mpstate().map_err(KvmVcpuError::SaveState)?,
             ..Default::default()
         };
-        get_all_registers(&self.fd, &mut state.regs).map_err(KvmVcpuError::SaveState)?;
+        self.get_all_registers(&mut state.regs)
+            .map_err(KvmVcpuError::SaveState)?;
         state.mpidr = self.get_mpidr().map_err(KvmVcpuError::SaveState)?;
 
         state.kvi = self.kvi;
@@ -393,7 +258,8 @@ impl KvmVcpu {
             .iter()
             .find(|reg| reg.id == KVM_REG_ARM64_SVE_VLS)
         {
-            set_register(&self.fd, sve_vls_reg).map_err(KvmVcpuError::RestoreState)?;
+            self.set_register(sve_vls_reg)
+                .map_err(KvmVcpuError::RestoreState)?;
         }
 
         self.finalize_vcpu()?;
@@ -405,21 +271,21 @@ impl KvmVcpu {
             .iter()
             .filter(|reg| reg.id != KVM_REG_ARM64_SVE_VLS)
         {
-            set_register(&self.fd, reg).map_err(KvmVcpuError::RestoreState)?;
+            self.set_register(reg).map_err(KvmVcpuError::RestoreState)?;
         }
-        set_mpstate(&self.fd, state.mp_state).map_err(KvmVcpuError::RestoreState)?;
+        self.set_mpstate(state.mp_state)
+            .map_err(KvmVcpuError::RestoreState)?;
         Ok(())
     }
 
     /// Dumps CPU configuration.
     pub fn dump_cpu_config(&self) -> Result<CpuConfiguration, KvmVcpuError> {
-        let reg_list = get_all_registers_ids(&self.fd).map_err(KvmVcpuError::DumpCpuConfig)?;
-
         let mut regs = Aarch64RegisterVec::default();
-        get_registers(&self.fd, &reg_list, &mut regs).map_err(KvmVcpuError::DumpCpuConfig)?;
-
+        self.get_all_registers(&mut regs)
+            .map_err(KvmVcpuError::DumpCpuConfig)?;
         Ok(CpuConfiguration { regs })
     }
+
     /// Initializes internal vcpufd.
     fn init_vcpu(&self) -> Result<(), KvmVcpuError> {
         self.fd.vcpu_init(&self.kvi).map_err(KvmVcpuError::Init)?;
@@ -436,6 +302,136 @@ impl KvmVcpu {
             self.fd.vcpu_finalize(&feature).unwrap();
         }
         Ok(())
+    }
+
+    /// Configure relevant boot registers for a given vCPU.
+    ///
+    /// # Arguments
+    ///
+    /// * `boot_ip` - Starting instruction pointer.
+    /// * `mem` - Reserved DRAM for current VM.
+    /// + `optional_capabilities` - which optional capabilities are enabled that might influence
+    ///   vcpu configuration
+    pub fn setup_boot_regs(
+        &self,
+        boot_ip: u64,
+        mem: &GuestMemoryMmap,
+        optional_capabilities: &OptionalCapabilities,
+    ) -> Result<(), VcpuArchError> {
+        let kreg_off = offset_of!(kvm_regs, regs);
+
+        // Get the register index of the PSTATE (Processor State) register.
+        let pstate = offset_of!(user_pt_regs, pstate) + kreg_off;
+        let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, pstate);
+        self.fd
+            .set_one_reg(id, &PSTATE_FAULT_BITS_64.to_le_bytes())
+            .map_err(|err| VcpuArchError::SetOneReg(id, err))?;
+
+        // Other vCPUs are powered off initially awaiting PSCI wakeup.
+        if self.index == 0 {
+            // Setting the PC (Processor Counter) to the current program address (kernel address).
+            let pc = offset_of!(user_pt_regs, pc) + kreg_off;
+            let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, pc);
+            self.fd
+                .set_one_reg(id, &boot_ip.to_le_bytes())
+                .map_err(|err| VcpuArchError::SetOneReg(id, err))?;
+
+            // Last mandatory thing to set -> the address pointing to the FDT (also called DTB).
+            // "The device tree blob (dtb) must be placed on an 8-byte boundary and must
+            // not exceed 2 megabytes in size." -> https://www.kernel.org/doc/Documentation/arm64/booting.txt.
+            // We are choosing to place it the end of DRAM. See `get_fdt_addr`.
+            let regs0 = offset_of!(user_pt_regs, regs) + kreg_off;
+            let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, regs0);
+            self.fd
+                .set_one_reg(id, &get_fdt_addr(mem).to_le_bytes())
+                .map_err(|err| VcpuArchError::SetOneReg(id, err))?;
+
+            // Reset the physical counter for the guest. This way we avoid guest reading
+            // host physical counter.
+            // Resetting KVM_REG_ARM_PTIMER_CNT for single vcpu is enough because there is only
+            // one timer struct with offsets per VM.
+            // Because the access to KVM_REG_ARM_PTIMER_CNT is only present starting 6.4 kernel,
+            // we only do the reset if KVM_CAP_COUNTER_OFFSET is present as it was added
+            // in the same patch series as the ability to set the KVM_REG_ARM_PTIMER_CNT register.
+            // Path series which introduced the needed changes:
+            // https://lore.kernel.org/all/20230330174800.2677007-1-maz@kernel.org/
+            // Note: the value observed by the guest will still be above 0, because there is a delta
+            // time between this resetting and first call to KVM_RUN.
+            if optional_capabilities.counter_offset {
+                self.fd
+                    .set_one_reg(KVM_REG_ARM_PTIMER_CNT, &[0; 8])
+                    .map_err(|err| VcpuArchError::SetOneReg(id, err))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Saves the states of the system registers into `state`.
+    ///
+    /// # Arguments
+    ///
+    /// * `regs` - Input/Output vector of registers.
+    pub fn get_all_registers(&self, state: &mut Aarch64RegisterVec) -> Result<(), VcpuArchError> {
+        get_registers(&self.fd, &self.get_all_registers_ids()?, state)
+    }
+
+    /// Returns all registers ids, including core and system
+    pub fn get_all_registers_ids(&self) -> Result<Vec<u64>, VcpuArchError> {
+        // Call KVM_GET_REG_LIST to get all registers available to the guest. For ArmV8 there are
+        // less than 500 registers expected, resize to the reported size when necessary.
+        let mut reg_list = RegList::new(500).map_err(VcpuArchError::Fam)?;
+
+        match self.fd.get_reg_list(&mut reg_list) {
+            Ok(_) => Ok(reg_list.as_slice().to_vec()),
+            Err(e) => match e.errno() {
+                libc::E2BIG => {
+                    // resize and retry.
+                    let size: usize = reg_list
+                        .as_fam_struct_ref()
+                        .n
+                        .try_into()
+                        // Safe to unwrap as Firecracker only targets 64-bit machines.
+                        .unwrap();
+                    reg_list = RegList::new(size).map_err(VcpuArchError::Fam)?;
+                    self.fd
+                        .get_reg_list(&mut reg_list)
+                        .map_err(VcpuArchError::GetRegList)?;
+
+                    Ok(reg_list.as_slice().to_vec())
+                }
+                _ => Err(VcpuArchError::GetRegList(e)),
+            },
+        }
+    }
+
+    /// Set the state of one system register.
+    ///
+    /// # Arguments
+    ///
+    /// * `reg` - Register to be set.
+    pub fn set_register(&self, reg: Aarch64RegisterRef) -> Result<(), VcpuArchError> {
+        self.fd
+            .set_one_reg(reg.id, reg.as_slice())
+            .map_err(|e| VcpuArchError::SetOneReg(reg.id, e))?;
+        Ok(())
+    }
+
+    /// Get the multistate processor.
+    ///
+    /// # Arguments
+    ///
+    /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
+    pub fn get_mpstate(&self) -> Result<kvm_mp_state, VcpuArchError> {
+        self.fd.get_mp_state().map_err(VcpuArchError::GetMp)
+    }
+
+    /// Set the state of the system registers.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - Structure for returning the state of the system registers.
+    pub fn set_mpstate(&self, state: kvm_mp_state) -> Result<(), VcpuArchError> {
+        self.fd.set_mp_state(state).map_err(VcpuArchError::SetMp)
     }
 }
 
@@ -511,10 +507,15 @@ mod tests {
     use crate::vstate::vm::tests::setup_vm_with_memory;
 
     fn setup_vcpu(mem_size: usize) -> (Kvm, Vm, KvmVcpu, GuestMemoryMmap) {
-        let (kvm, mut vm, vm_mem) = setup_vm_with_memory(mem_size);
-        let mut vcpu = KvmVcpu::new(0, &vm).unwrap();
+        let (kvm, mut vm, mut vcpu, vm_mem) = setup_vcpu_no_init(mem_size);
         vcpu.init(&[]).unwrap();
         vm.setup_irqchip(1).unwrap();
+        (kvm, vm, vcpu, vm_mem)
+    }
+
+    fn setup_vcpu_no_init(mem_size: usize) -> (Kvm, Vm, KvmVcpu, GuestMemoryMmap) {
+        let (kvm, vm, vm_mem) = setup_vm_with_memory(mem_size);
+        let vcpu = KvmVcpu::new(0, &vm).unwrap();
 
         (kvm, vm, vcpu, vm_mem)
     }
@@ -692,23 +693,20 @@ mod tests {
 
     #[test]
     fn test_setup_regs() {
-        let kvm = Kvm::new(vec![]).unwrap();
-        let vm = kvm.fd.create_vm().unwrap();
-        let vcpu = vm.create_vcpu(0).unwrap();
+        let (kvm, _, vcpu, _) = setup_vcpu_no_init(0x10000);
         let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
         let optional_capabilities = kvm.optional_capabilities();
 
-        let res = setup_boot_regs(&vcpu, 0, 0x0, &mem, &optional_capabilities);
+        let res = vcpu.setup_boot_regs(0x0, &mem, &optional_capabilities);
         assert!(matches!(
             res.unwrap_err(),
             VcpuArchError::SetOneReg(0x6030000000100042, _)
         ));
 
-        let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
-        vm.get_preferred_target(&mut kvi).unwrap();
-        vcpu.vcpu_init(&kvi).unwrap();
+        vcpu.init_vcpu().unwrap();
 
-        setup_boot_regs(&vcpu, 0, 0x0, &mem, &optional_capabilities).unwrap();
+        vcpu.setup_boot_regs(0x0, &mem, &optional_capabilities)
+            .unwrap();
 
         // Check that the register is reset on compatible kernels.
         // Because there is a delta in time between we reset the register and time we
@@ -716,7 +714,7 @@ mod tests {
         // small value.
         if optional_capabilities.counter_offset {
             let mut reg_bytes = [0_u8; 8];
-            vcpu.get_one_reg(SYS_CNTPCT_EL0, &mut reg_bytes).unwrap();
+            vcpu.fd.get_one_reg(SYS_CNTPCT_EL0, &mut reg_bytes).unwrap();
             let counter_value = u64::from_le_bytes(reg_bytes);
 
             // We are reading the SYS_CNTPCT_EL0 right after resetting it.
@@ -732,7 +730,7 @@ mod tests {
 
     #[test]
     fn test_read_mpidr() {
-        let (_, _, vcpu, _) = setup_vcpu(0x10000);
+        let (_, _, vcpu, _) = setup_vcpu_no_init(0x10000);
 
         // Must fail when vcpu is not initialized yet.
         let res = vcpu.get_mpidr();
@@ -740,28 +738,24 @@ mod tests {
             res.unwrap_err(),
             VcpuArchError::GetOneReg(MPIDR_EL1, _)
         ));
-
         vcpu.init_vcpu().unwrap();
+
         assert_eq!(vcpu.get_mpidr().unwrap(), 0x8000_0000);
     }
 
     #[test]
     fn test_get_set_regs() {
-        let kvm = Kvm::new(vec![]).unwrap();
-        let vm = kvm.fd.create_vm().unwrap();
-        let vcpu = vm.create_vcpu(0).unwrap();
-        let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
-        vm.get_preferred_target(&mut kvi).unwrap();
+        let (_, _, vcpu, _) = setup_vcpu_no_init(0x10000);
 
         // Must fail when vcpu is not initialized yet.
         let mut regs = Aarch64RegisterVec::default();
-        let res = get_all_registers(&vcpu, &mut regs);
+        let res = vcpu.get_all_registers(&mut regs);
         assert!(matches!(res.unwrap_err(), VcpuArchError::GetRegList(_)));
+        vcpu.init_vcpu().unwrap();
 
-        vcpu.vcpu_init(&kvi).unwrap();
-        get_all_registers(&vcpu, &mut regs).unwrap();
+        vcpu.get_all_registers(&mut regs).unwrap();
         for reg in regs.iter() {
-            set_register(&vcpu, reg).unwrap();
+            vcpu.set_register(reg).unwrap();
         }
     }
 
@@ -769,21 +763,17 @@ mod tests {
     fn test_mpstate() {
         use std::os::unix::io::AsRawFd;
 
-        let kvm = Kvm::new(vec![]).unwrap();
-        let vm = kvm.fd.create_vm().unwrap();
-        let vcpu = vm.create_vcpu(0).unwrap();
-        let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
-        vm.get_preferred_target(&mut kvi).unwrap();
+        let (_, _, vcpu, _) = setup_vcpu(0x10000);
 
-        let res = get_mpstate(&vcpu);
-        set_mpstate(&vcpu, res.unwrap()).unwrap();
+        let res = vcpu.get_mpstate();
+        vcpu.set_mpstate(res.unwrap()).unwrap();
 
-        unsafe { libc::close(vcpu.as_raw_fd()) };
+        unsafe { libc::close(vcpu.fd.as_raw_fd()) };
 
-        let res = get_mpstate(&vcpu);
+        let res = vcpu.get_mpstate();
         assert!(matches!(res, Err(VcpuArchError::GetMp(_))), "{:?}", res);
 
-        let res = set_mpstate(&vcpu, kvm_mp_state::default());
+        let res = vcpu.set_mpstate(kvm_mp_state::default());
         assert!(matches!(res, Err(VcpuArchError::SetMp(_))), "{:?}", res);
 
         // dropping vcpu would double close the fd, so leak it
