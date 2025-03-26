@@ -475,7 +475,7 @@ class Microvm:
         return {
             "instance": global_props.instance,
             "cpu_model": global_props.cpu_model,
-            "host_kernel": f"linux-{global_props.host_linux_version}",
+            "host_kernel": f"linux-{global_props.host_linux_version_metrics}",
             "guest_kernel": self.kernel_file.stem[2:],
             "rootfs": self.rootfs_file.name,
             "vcpus": str(self.vcpus_count),
