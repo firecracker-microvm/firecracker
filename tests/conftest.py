@@ -134,7 +134,7 @@ def pytest_runtest_logreport(report):
             "test": report.nodeid,
             "instance": global_props.instance,
             "cpu_model": global_props.cpu_model,
-            "host_kernel": "linux-" + global_props.host_linux_version,
+            "host_kernel": "linux-" + global_props.host_linux_version_metrics,
             "phase": report.when,
         },
         # per test
@@ -142,12 +142,12 @@ def pytest_runtest_logreport(report):
             "test": report.nodeid,
             "instance": global_props.instance,
             "cpu_model": global_props.cpu_model,
-            "host_kernel": "linux-" + global_props.host_linux_version,
+            "host_kernel": "linux-" + global_props.host_linux_version_metrics,
         },
         # per phase
         {"phase": report.when},
         # per host kernel
-        {"host_kernel": "linux-" + global_props.host_linux_version},
+        {"host_kernel": "linux-" + global_props.host_linux_version_metrics},
         # per CPU
         {"cpu_model": global_props.cpu_model},
         # and global
