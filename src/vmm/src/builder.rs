@@ -28,7 +28,7 @@ use crate::cpu_config::templates::{
 use crate::device_manager::acpi::ACPIDeviceManager;
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager::legacy::PortIODeviceManager;
-use crate::device_manager::mmio::MMIODeviceManager;
+use crate::device_manager::mmio::{MMIODeviceManager, MmioError};
 use crate::device_manager::persist::{
     ACPIDeviceManagerConstructorArgs, ACPIDeviceManagerRestoreError, MMIODevManagerConstructorArgs,
 };
@@ -590,9 +590,7 @@ fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
     device: Arc<Mutex<T>>,
     cmdline: &mut LoaderKernelCmdline,
     is_vhost_user: bool,
-) -> Result<(), StartMicrovmError> {
-    use self::StartMicrovmError::*;
-
+) -> Result<(), MmioError> {
     event_manager.add_subscriber(device.clone());
 
     // The device mutex mustn't be locked here otherwise it will deadlock.
@@ -605,21 +603,17 @@ fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
             device,
             cmdline,
         )
-        .map_err(RegisterMmioDevice)
         .map(|_| ())
 }
 
 pub(crate) fn attach_boot_timer_device(
     vmm: &mut Vmm,
     request_ts: TimestampUs,
-) -> Result<(), StartMicrovmError> {
-    use self::StartMicrovmError::*;
-
+) -> Result<(), MmioError> {
     let boot_timer = crate::devices::pseudo::BootTimer::new(request_ts);
 
     vmm.mmio_device_manager
-        .register_mmio_boot_timer(&mut vmm.resource_allocator, boot_timer)
-        .map_err(RegisterMmioDevice)?;
+        .register_mmio_boot_timer(&mut vmm.resource_allocator, boot_timer)?;
 
     Ok(())
 }
@@ -640,7 +634,7 @@ fn attach_entropy_device(
     cmdline: &mut LoaderKernelCmdline,
     entropy_device: &Arc<Mutex<Entropy>>,
     event_manager: &mut EventManager,
-) -> Result<(), StartMicrovmError> {
+) -> Result<(), MmioError> {
     let id = entropy_device
         .lock()
         .expect("Poisoned lock")
@@ -710,7 +704,7 @@ fn attach_unixsock_vsock_device(
     cmdline: &mut LoaderKernelCmdline,
     unix_vsock: &Arc<Mutex<Vsock<VsockUnixBackend>>>,
     event_manager: &mut EventManager,
-) -> Result<(), StartMicrovmError> {
+) -> Result<(), MmioError> {
     let id = String::from(unix_vsock.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
     attach_virtio_device(event_manager, vmm, id, unix_vsock.clone(), cmdline, false)
@@ -721,7 +715,7 @@ fn attach_balloon_device(
     cmdline: &mut LoaderKernelCmdline,
     balloon: &Arc<Mutex<Balloon>>,
     event_manager: &mut EventManager,
-) -> Result<(), StartMicrovmError> {
+) -> Result<(), MmioError> {
     let id = String::from(balloon.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
     attach_virtio_device(event_manager, vmm, id, balloon.clone(), cmdline, false)
