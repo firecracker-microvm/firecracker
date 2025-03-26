@@ -260,6 +260,14 @@ impl Aarch64RegisterVec {
             data: &mut self.data,
         }
     }
+
+    /// Extract the Manufacturer ID from a VCPU state's registers.
+    /// The ID is found between bits 24-31 of MIDR_EL1 register.
+    pub fn manifacturer_id(&self) -> Option<u32> {
+        self.iter()
+            .find(|reg| reg.id == MIDR_EL1)
+            .map(|reg| ((reg.value::<u64, 8>() >> 24) & 0xFF) as u32)
+    }
 }
 
 impl Serialize for Aarch64RegisterVec {

@@ -45,22 +45,6 @@ pub enum VcpuArchError {
     GetMidrEl1(String),
 }
 
-/// Extract the Manufacturer ID from a VCPU state's registers.
-/// The ID is found between bits 24-31 of MIDR_EL1 register.
-///
-/// # Arguments
-///
-/// * `regs` - reference [`Aarch64RegisterVec`] structure with all registers of a VCPU.
-pub fn get_manufacturer_id_from_state(regs: &Aarch64RegisterVec) -> Result<u32, VcpuArchError> {
-    let midr_el1 = regs.iter().find(|reg| reg.id == MIDR_EL1);
-    match midr_el1 {
-        Some(register) => Ok(((register.value::<u64, 8>() >> 24) & 0xFF) as u32),
-        None => Err(VcpuArchError::GetMidrEl1(
-            "Failed to find MIDR_EL1 in vCPU state!".to_string(),
-        )),
-    }
-}
-
 /// Extract the Manufacturer ID from the host.
 /// The ID is found between bits 24-31 of MIDR_EL1 register.
 pub fn get_manufacturer_id_from_host() -> Result<u32, VcpuArchError> {

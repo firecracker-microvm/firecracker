@@ -17,7 +17,7 @@ use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use vmm_sys_util::sock_ctrl_msg::ScmSocket;
 
 #[cfg(target_arch = "aarch64")]
-use crate::arch::aarch64::vcpu::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
+use crate::arch::aarch64::vcpu::get_manufacturer_id_from_host;
 use crate::builder::{self, BuildMicrovmFromSnapshotError};
 use crate::cpu_config::templates::StaticCpuTemplate;
 #[cfg(target_arch = "x86_64")]
@@ -331,24 +331,24 @@ pub fn validate_cpu_vendor(microvm_state: &MicrovmState) {
 #[cfg(target_arch = "aarch64")]
 pub fn validate_cpu_manufacturer_id(microvm_state: &MicrovmState) {
     let host_cpu_id = get_manufacturer_id_from_host();
-    let snapshot_cpu_id = get_manufacturer_id_from_state(&microvm_state.vcpu_states[0].regs);
+    let snapshot_cpu_id = microvm_state.vcpu_states[0].regs.manifacturer_id();
     match (host_cpu_id, snapshot_cpu_id) {
-        (Ok(host_id), Ok(snapshot_id)) => {
+        (Ok(host_id), Some(snapshot_id)) => {
             info!("Host CPU manufacturer ID: {host_id:?}");
             info!("Snapshot CPU manufacturer ID: {snapshot_id:?}");
             if host_id != snapshot_id {
                 warn!("Host CPU manufacturer ID differs from the snapshotted one",);
             }
         }
-        (Ok(host_id), Err(_)) => {
+        (Ok(host_id), None) => {
             info!("Host CPU manufacturer ID: {host_id:?}");
             warn!("Snapshot CPU manufacturer ID: couldn't get from the snapshot");
         }
-        (Err(_), Ok(snapshot_id)) => {
+        (Err(_), Some(snapshot_id)) => {
             warn!("Host CPU manufacturer ID: couldn't get from the host");
             info!("Snapshot CPU manufacturer ID: {snapshot_id:?}");
         }
-        (Err(_), Err(_)) => {
+        (Err(_), None) => {
             warn!("Host CPU manufacturer ID: couldn't get from the host");
             warn!("Snapshot CPU manufacturer ID: couldn't get from the snapshot");
         }
