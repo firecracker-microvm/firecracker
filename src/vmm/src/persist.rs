@@ -244,7 +244,7 @@ fn snapshot_memory_to_file(
 
     match snapshot_type {
         SnapshotType::Diff => {
-            let dirty_bitmap = vmm.get_dirty_bitmap().map_err(DirtyBitmap)?;
+            let dirty_bitmap = vmm.vm.get_dirty_bitmap().map_err(DirtyBitmap)?;
             vmm.vm
                 .guest_memory()
                 .dump_dirty(&mut file, &dirty_bitmap)
@@ -253,7 +253,7 @@ fn snapshot_memory_to_file(
         SnapshotType::Full => {
             let dump_res = vmm.vm.guest_memory().dump(&mut file).map_err(Memory);
             if dump_res.is_ok() {
-                vmm.reset_dirty_bitmap();
+                vmm.vm.reset_dirty_bitmap();
                 vmm.vm.guest_memory().reset_dirty();
             }
 
