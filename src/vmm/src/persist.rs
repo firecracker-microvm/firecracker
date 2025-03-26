@@ -34,15 +34,13 @@ use crate::utils::u64_to_usize;
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{HugePageConfig, MachineConfigError, MachineConfigUpdate};
-use crate::vmm_config::snapshot::{
-    CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
-};
+use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, MemBackendType};
 use crate::vstate::kvm::KvmState;
 use crate::vstate::memory;
-use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryState, GuestRegionMmap, MemoryError};
+use crate::vstate::memory::{GuestMemoryState, GuestRegionMmap, MemoryError};
 use crate::vstate::vcpu::{VcpuSendEventError, VcpuState};
 use crate::vstate::vm::VmState;
-use crate::{EventManager, Vmm, mem_size_mib, vstate};
+use crate::{EventManager, Vmm, vstate};
 
 /// Holds information related to the VM that is not part of VmState.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
@@ -164,7 +162,8 @@ pub fn create_snapshot(
 
     snapshot_state_to_file(&microvm_state, &params.snapshot_path)?;
 
-    snapshot_memory_to_file(vmm, &params.mem_file_path, params.snapshot_type)?;
+    vmm.vm
+        .snapshot_memory_to_file(&params.mem_file_path, params.snapshot_type)?;
 
     // We need to mark queues as dirty again for all activated devices. The reason we
     // do it here is because we don't mark pages as dirty during runtime
@@ -208,81 +207,6 @@ fn snapshot_state_to_file(
     snapshot_file
         .sync_all()
         .map_err(|err| SnapshotBackingFile("sync_all", err))
-}
-
-/// Takes a snapshot of the virtual machine running inside the given [`Vmm`] and saves it to
-/// `mem_file_path`.
-///
-/// If `snapshot_type` is [`SnapshotType::Diff`], and `mem_file_path` exists and is a snapshot file
-/// of matching size, then the diff snapshot will be directly merged into the existing snapshot.
-/// Otherwise, existing files are simply overwritten.
-fn snapshot_memory_to_file(
-    vmm: &Vmm,
-    mem_file_path: &Path,
-    snapshot_type: SnapshotType,
-) -> Result<(), CreateSnapshotError> {
-    use self::CreateSnapshotError::*;
-
-    // Need to check this here, as we create the file in the line below
-    let file_existed = mem_file_path.exists();
-
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(mem_file_path)
-        .map_err(|err| MemoryBackingFile("open", err))?;
-
-    // Determine what size our total memory area is.
-    let mem_size_mib = mem_size_mib(vmm.vm.guest_memory());
-    let expected_size = mem_size_mib * 1024 * 1024;
-
-    if file_existed {
-        let file_size = file
-            .metadata()
-            .map_err(|e| MemoryBackingFile("get_metadata", e))?
-            .len();
-
-        // Here we only truncate the file if the size mismatches.
-        // - For full snapshots, the entire file's contents will be overwritten anyway. We have to
-        //   avoid truncating here to deal with the edge case where it represents the snapshot file
-        //   from which this very microVM was loaded (as modifying the memory file would be
-        //   reflected in the mmap of the file, meaning a truncate operation would zero out guest
-        //   memory, and thus corrupt the VM).
-        // - For diff snapshots, we want to merge the diff layer directly into the file.
-        if file_size != expected_size {
-            file.set_len(0)
-                .map_err(|err| MemoryBackingFile("truncate", err))?;
-        }
-    }
-
-    // Set the length of the file to the full size of the memory area.
-    file.set_len(expected_size)
-        .map_err(|e| MemoryBackingFile("set_length", e))?;
-
-    match snapshot_type {
-        SnapshotType::Diff => {
-            let dirty_bitmap = vmm.vm.get_dirty_bitmap().map_err(DirtyBitmap)?;
-            vmm.vm
-                .guest_memory()
-                .dump_dirty(&mut file, &dirty_bitmap)
-                .map_err(Memory)
-        }
-        SnapshotType::Full => {
-            let dump_res = vmm.vm.guest_memory().dump(&mut file).map_err(Memory);
-            if dump_res.is_ok() {
-                vmm.vm.reset_dirty_bitmap();
-                vmm.vm.guest_memory().reset_dirty();
-            }
-
-            dump_res
-        }
-    }?;
-
-    file.flush()
-        .map_err(|err| MemoryBackingFile("flush", err))?;
-    file.sync_all()
-        .map_err(|err| MemoryBackingFile("sync_all", err))
 }
 
 /// Validates that snapshot CPU vendor matches the host CPU vendor.
