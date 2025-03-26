@@ -511,7 +511,7 @@ class FCMetricsMonitor(Thread):
         self.metrics_logger.set_dimensions(
             {
                 "instance": global_props.instance,
-                "host_kernel": "linux-" + global_props.host_linux_version,
+                "host_kernel": "linux-" + global_props.host_linux_version_metrics,
                 "guest_kernel": vm.kernel_file.stem[2:],
             }
         )
