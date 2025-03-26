@@ -6,6 +6,9 @@
 // found in the THIRD-PARTY file.
 
 use std::collections::HashMap;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::Path;
 use std::sync::Arc;
 
 use kvm_bindings::{KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region};
@@ -14,12 +17,14 @@ use vmm_sys_util::eventfd::EventFd;
 
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
 use crate::logger::info;
+use crate::persist::CreateSnapshotError;
 use crate::utils::u64_to_usize;
+use crate::vmm_config::snapshot::SnapshotType;
 use crate::vstate::memory::{
-    Address, GuestMemory, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap,
+    Address, GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap,
 };
 use crate::vstate::vcpu::VcpuError;
-use crate::{DirtyBitmap, Vcpu};
+use crate::{DirtyBitmap, Vcpu, mem_size_mib};
 
 /// Architecture independent parts of a VM.
 #[derive(Debug)]
@@ -202,6 +207,80 @@ impl Vm {
                     .map(|bitmap_region| _ = bitmap.insert(slot, bitmap_region))
             })?;
         Ok(bitmap)
+    }
+
+    /// Takes a snapshot of the virtual machine running inside the given [`Vmm`] and saves it to
+    /// `mem_file_path`.
+    ///
+    /// If `snapshot_type` is [`SnapshotType::Diff`], and `mem_file_path` exists and is a snapshot
+    /// file of matching size, then the diff snapshot will be directly merged into the existing
+    /// snapshot. Otherwise, existing files are simply overwritten.
+    pub(crate) fn snapshot_memory_to_file(
+        &self,
+        mem_file_path: &Path,
+        snapshot_type: SnapshotType,
+    ) -> Result<(), CreateSnapshotError> {
+        use self::CreateSnapshotError::*;
+
+        // Need to check this here, as we create the file in the line below
+        let file_existed = mem_file_path.exists();
+
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(mem_file_path)
+            .map_err(|err| MemoryBackingFile("open", err))?;
+
+        // Determine what size our total memory area is.
+        let mem_size_mib = mem_size_mib(self.guest_memory());
+        let expected_size = mem_size_mib * 1024 * 1024;
+
+        if file_existed {
+            let file_size = file
+                .metadata()
+                .map_err(|e| MemoryBackingFile("get_metadata", e))?
+                .len();
+
+            // Here we only truncate the file if the size mismatches.
+            // - For full snapshots, the entire file's contents will be overwritten anyway. We have
+            //   to avoid truncating here to deal with the edge case where it represents the
+            //   snapshot file from which this very microVM was loaded (as modifying the memory file
+            //   would be reflected in the mmap of the file, meaning a truncate operation would zero
+            //   out guest memory, and thus corrupt the VM).
+            // - For diff snapshots, we want to merge the diff layer directly into the file.
+            if file_size != expected_size {
+                file.set_len(0)
+                    .map_err(|err| MemoryBackingFile("truncate", err))?;
+            }
+        }
+
+        // Set the length of the file to the full size of the memory area.
+        file.set_len(expected_size)
+            .map_err(|e| MemoryBackingFile("set_length", e))?;
+
+        match snapshot_type {
+            SnapshotType::Diff => {
+                let dirty_bitmap = self.get_dirty_bitmap().map_err(DirtyBitmap)?;
+                self.guest_memory()
+                    .dump_dirty(&mut file, &dirty_bitmap)
+                    .map_err(Memory)
+            }
+            SnapshotType::Full => {
+                let dump_res = self.guest_memory().dump(&mut file).map_err(Memory);
+                if dump_res.is_ok() {
+                    self.reset_dirty_bitmap();
+                    self.guest_memory().reset_dirty();
+                }
+
+                dump_res
+            }
+        }?;
+
+        file.flush()
+            .map_err(|err| MemoryBackingFile("flush", err))?;
+        file.sync_all()
+            .map_err(|err| MemoryBackingFile("sync_all", err))
     }
 }
 
