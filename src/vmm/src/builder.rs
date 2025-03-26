@@ -605,6 +605,13 @@ fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
 ) -> Result<(), MmioError> {
     event_manager.add_subscriber(device.clone());
 
+    // We have to enable swiotlb as part of the boot process, because the device objects
+    // themselves are created when the corresponding PUT API calls are made, and at that
+    // point we don't know yet whether swiotlb should be enabled or not.
+    if vmm.vm.has_swiotlb() {
+        device.lock().unwrap().force_swiotlb();
+    }
+
     // The device mutex mustn't be locked here otherwise it will deadlock.
     let device = MmioTransport::new(vmm.vm.io_memory().clone(), device, is_vhost_user);
     vmm.mmio_device_manager
