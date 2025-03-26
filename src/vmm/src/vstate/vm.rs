@@ -12,11 +12,12 @@ use std::path::Path;
 use std::sync::Arc;
 
 use kvm_ioctls::VmFd;
+use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use vmm_sys_util::eventfd::EventFd;
 
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
 use crate::logger::info;
-use crate::persist::CreateSnapshotError;
+use crate::persist::{CreateSnapshotError, GuestRegionUffdMapping};
 use crate::utils::u64_to_usize;
 use crate::vmm_config::snapshot::SnapshotType;
 use crate::vstate::memory::{
@@ -233,6 +234,45 @@ impl Vm {
         self.guest_memory()
             .iter()
             .chain(self.common.swiotlb_regions.iter())
+    }
+
+    pub(crate) fn create_uffd(
+        &self,
+    ) -> Result<(Uffd, Vec<GuestRegionUffdMapping>), userfaultfd::Error> {
+        let mut uffd_builder = UffdBuilder::new();
+        let mut mappings = Vec::new();
+
+        // We only make use of this if balloon devices are present, but we can enable it
+        // unconditionally because the only place the kernel checks this is in a hook from
+        // madvise, e.g. it doesn't actively change the behavior of UFFD, only passively.
+        // Without balloon devices we never call madvise anyway, so no need to put this into
+        // a conditional.
+        uffd_builder.require_features(FeatureFlags::EVENT_REMOVE);
+
+        let uffd = uffd_builder
+            .close_on_exec(true)
+            .non_blocking(true)
+            .user_mode_only(false)
+            .create()?;
+
+        let mut offset = 0;
+
+        for mem_region in self.common.guest_memory.iter() {
+            uffd.register(
+                mem_region.inner().userspace_addr as *mut libc::c_void,
+                u64_to_usize(mem_region.len()),
+            )?;
+            mappings.push(GuestRegionUffdMapping {
+                base_host_virt_addr: mem_region.inner().userspace_addr,
+                size: u64_to_usize(mem_region.len()),
+                offset,
+                ..Default::default()
+            });
+
+            offset += mem_region.len();
+        }
+
+        Ok((uffd, mappings))
     }
 
     /// Resets the KVM dirty bitmap for each of the guest's memory regions.
