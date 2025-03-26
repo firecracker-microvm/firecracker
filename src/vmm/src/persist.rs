@@ -41,7 +41,7 @@ use crate::vstate::memory;
 use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryState, GuestRegionMmap, MemoryError};
 use crate::vstate::vcpu::{VcpuSendEventError, VcpuState};
 use crate::vstate::vm::VmState;
-use crate::{EventManager, Vmm, VmmError, mem_size_mib, vstate};
+use crate::{EventManager, Vmm, mem_size_mib, vstate};
 
 /// Holds information related to the VM that is not part of VmState.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
@@ -135,7 +135,7 @@ pub enum MicrovmStateError {
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum CreateSnapshotError {
     /// Cannot get dirty bitmap: {0}
-    DirtyBitmap(VmmError),
+    DirtyBitmap(kvm_ioctls::Error),
     /// Cannot write memory file: {0}
     Memory(MemoryError),
     /// Cannot perform {0} on the memory backing file: {1}
@@ -164,6 +164,23 @@ pub fn create_snapshot(
     snapshot_state_to_file(&microvm_state, &params.snapshot_path)?;
 
     snapshot_memory_to_file(vmm, &params.mem_file_path, params.snapshot_type)?;
+
+    // We need to mark queues as dirty again for all activated devices. The reason we
+    // do it here is because we don't mark pages as dirty during runtime
+    // for queue objects.
+    // SAFETY:
+    // This should never fail as we only mark pages only if device has already been activated,
+    // and the address validation was already performed on device activation.
+    vmm.mmio_device_manager
+        .for_each_virtio_device(|_, _, _, dev| {
+            let d = dev.lock().unwrap();
+            if d.is_activated() {
+                d.mark_queue_memory_dirty(vmm.vm.guest_memory())
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap();
 
     Ok(())
 }
@@ -260,22 +277,6 @@ fn snapshot_memory_to_file(
             dump_res
         }
     }?;
-    // We need to mark queues as dirty again for all activated devices. The reason we
-    // do it here is because we don't mark pages as dirty during runtime
-    // for queue objects.
-    // SAFETY:
-    // This should never fail as we only mark pages only if device has already been activated,
-    // and the address validation was already performed on device activation.
-    vmm.mmio_device_manager
-        .for_each_virtio_device(|_, _, _, dev| {
-            let d = dev.lock().unwrap();
-            if d.is_activated() {
-                d.mark_queue_memory_dirty(vmm.vm.guest_memory())
-            } else {
-                Ok(())
-            }
-        })
-        .unwrap();
 
     file.flush()
         .map_err(|err| MemoryBackingFile("flush", err))?;

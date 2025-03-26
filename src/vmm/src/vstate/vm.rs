@@ -19,7 +19,7 @@ use crate::vstate::memory::{
     Address, GuestMemory, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap,
 };
 use crate::vstate::vcpu::VcpuError;
-use crate::{DirtyBitmap, Vcpu, VmmError};
+use crate::{DirtyBitmap, Vcpu};
 
 /// Architecture independent parts of a VM.
 #[derive(Debug)]
@@ -191,17 +191,16 @@ impl Vm {
     }
 
     /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
-    pub fn get_dirty_bitmap(&self) -> Result<DirtyBitmap, VmmError> {
+    pub fn get_dirty_bitmap(&self) -> Result<DirtyBitmap, vmm_sys_util::errno::Error> {
         let mut bitmap: DirtyBitmap = HashMap::new();
         self.guest_memory()
             .iter()
             .zip(0u32..)
             .try_for_each(|(region, slot)| {
-                let bitmap_region = self.fd().get_dirty_log(slot, u64_to_usize(region.len()))?;
-                bitmap.insert(slot, bitmap_region);
-                Ok(())
-            })
-            .map_err(VmmError::DirtyBitmap)?;
+                self.fd()
+                    .get_dirty_log(slot, u64_to_usize(region.len()))
+                    .map(|bitmap_region| _ = bitmap.insert(slot, bitmap_region))
+            })?;
         Ok(bitmap)
     }
 }

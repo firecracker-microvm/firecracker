@@ -110,8 +110,13 @@ fn test_dirty_bitmap_error() {
     // with errno 2 (ENOENT) because KVM can't find any guest memory regions with dirty
     // page tracking enabled.
     assert_eq!(
-        format!("{:?}", vmm.lock().unwrap().vm.get_dirty_bitmap().err()),
-        "Some(DirtyBitmap(Error(2)))"
+        vmm.lock()
+            .unwrap()
+            .vm
+            .get_dirty_bitmap()
+            .unwrap_err()
+            .errno(),
+        2
     );
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 }
