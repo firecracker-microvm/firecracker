@@ -51,7 +51,7 @@ use crate::arch::{BootProtocol, SYSTEM_MEM_SIZE, SYSTEM_MEM_START};
 use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
 use crate::cpu_config::x86_64::CpuConfiguration;
 use crate::initrd::InitrdConfig;
-use crate::utils::{mib_to_bytes, u64_to_usize};
+use crate::utils::{align_down, mib_to_bytes, u64_to_usize, usize_to_u64};
 use crate::vmm_config::machine_config::MachineConfig;
 use crate::vstate::memory::{
     Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion,
@@ -138,8 +138,10 @@ pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> Opti
         return None;
     }
 
-    let align_to_pagesize = |address| address & !(super::GUEST_PAGE_SIZE - 1);
-    Some(align_to_pagesize(lowmem_size - initrd_size) as u64)
+    Some(align_down(
+        usize_to_u64(lowmem_size - initrd_size),
+        usize_to_u64(super::GUEST_PAGE_SIZE),
+    ))
 }
 
 /// Configures the system for booting Linux.
