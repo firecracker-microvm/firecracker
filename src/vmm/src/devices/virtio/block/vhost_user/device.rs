@@ -16,7 +16,9 @@ use super::{NUM_QUEUES, QUEUE_SIZE, VhostUserBlockError};
 use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::devices::virtio::generated::virtio_blk::{VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO};
-use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
+use crate::devices::virtio::generated::virtio_config::{
+    VIRTIO_F_ACCESS_PLATFORM, VIRTIO_F_VERSION_1,
+};
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::vhost_user::{VhostUserHandleBackend, VhostUserHandleImpl};
@@ -292,6 +294,10 @@ impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlock
 
     fn set_acked_features(&mut self, acked_features: u64) {
         self.acked_features = acked_features;
+    }
+
+    fn force_swiotlb(&mut self) {
+        self.avail_features |= 1 << VIRTIO_F_ACCESS_PLATFORM;
     }
 
     fn device_type(&self) -> u32 {
