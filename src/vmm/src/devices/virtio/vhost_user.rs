@@ -478,6 +478,7 @@ pub(crate) mod tests {
                 libc::MAP_PRIVATE,
                 Some(file),
                 false,
+                0,
             )
             .unwrap()
             .into_iter()

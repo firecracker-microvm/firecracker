@@ -175,8 +175,8 @@ pub fn create(
     mmap_flags: libc::c_int,
     file: Option<File>,
     track_dirty_pages: bool,
+    mut offset: u64,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-    let mut offset = 0;
     let file = file.map(Arc::new);
     regions
         .map(|(start, size)| {
@@ -224,6 +224,7 @@ pub fn memfd_backed(
         libc::MAP_SHARED | huge_pages.mmap_flags(),
         Some(memfd_file),
         track_dirty_pages,
+        0,
     )
 }
 
@@ -238,6 +239,7 @@ pub fn anonymous(
         libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | huge_pages.mmap_flags(),
         None,
         track_dirty_pages,
+        0,
     )
 }
 
@@ -247,8 +249,15 @@ pub fn snapshot_file(
     file: File,
     regions: impl Iterator<Item = (GuestAddress, usize)>,
     track_dirty_pages: bool,
+    offset: u64,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-    create(regions, libc::MAP_PRIVATE, Some(file), track_dirty_pages)
+    create(
+        regions,
+        libc::MAP_PRIVATE,
+        Some(file),
+        track_dirty_pages,
+        offset,
+    )
 }
 
 /// Defines the interface for snapshotting memory.
@@ -682,7 +691,7 @@ mod tests {
         guest_memory.dump(&mut memory_file).unwrap();
 
         let restored_guest_memory =
-            kvmify(snapshot_file(memory_file, memory_state.regions(), false).unwrap());
+            kvmify(snapshot_file(memory_file, memory_state.regions(), false, 0).unwrap());
 
         // Check that the region contents are the same.
         let mut restored_region = vec![0u8; page_size * 2];
@@ -740,7 +749,7 @@ mod tests {
 
         // We can restore from this because this is the first dirty dump.
         let restored_guest_memory =
-            kvmify(snapshot_file(file, memory_state.regions(), false).unwrap());
+            kvmify(snapshot_file(file, memory_state.regions(), false, 0).unwrap());
 
         // Check that the region contents are the same.
         let mut restored_region = vec![0u8; region_size];
