@@ -40,7 +40,7 @@ pub enum ConfigurationError {
     /// Failed to create a Flattened Device Tree for this aarch64 microVM: {0}
     SetupFDT(#[from] fdt::FdtError),
     /// Failed to write to guest memory.
-    MemoryError(GuestMemoryError),
+    MemoryError(#[from] GuestMemoryError),
     /// Cannot copy kernel file fd
     KernelFile,
     /// Cannot load kernel due to invalid memory configuration or invalid kernel image: {0}
@@ -48,7 +48,7 @@ pub enum ConfigurationError {
     /// Error creating vcpu configuration: {0}
     VcpuConfig(#[from] CpuConfigurationError),
     /// Error configuring the vcpu: {0}
-    VcpuConfigure(KvmVcpuError),
+    VcpuConfigure(#[from] KvmVcpuError),
 }
 
 /// The start of the memory area reserved for MMIO devices.
@@ -88,14 +88,12 @@ pub fn configure_system_for_boot(
     let optional_capabilities = vmm.kvm.optional_capabilities();
     // Configure vCPUs with normalizing and setting the generated CPU configuration.
     for vcpu in vcpus.iter_mut() {
-        vcpu.kvm_vcpu
-            .configure(
-                &vmm.guest_memory,
-                entry_point,
-                &vcpu_config,
-                &optional_capabilities,
-            )
-            .map_err(ConfigurationError::VcpuConfigure)?;
+        vcpu.kvm_vcpu.configure(
+            &vmm.guest_memory,
+            entry_point,
+            &vcpu_config,
+            &optional_capabilities,
+        )?;
     }
     let vcpu_mpidr = vcpus
         .iter_mut()
@@ -116,9 +114,7 @@ pub fn configure_system_for_boot(
     )?;
 
     let fdt_address = GuestAddress(get_fdt_addr(&vmm.guest_memory));
-    vmm.guest_memory
-        .write_slice(fdt.as_slice(), fdt_address)
-        .map_err(ConfigurationError::MemoryError)?;
+    vmm.guest_memory.write_slice(fdt.as_slice(), fdt_address)?;
 
     Ok(())
 }
