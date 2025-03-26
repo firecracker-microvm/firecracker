@@ -312,6 +312,14 @@ impl Runtime {
                 if nready == 0 {
                     break;
                 }
+                if pollfds[i].revents & libc::POLLHUP != 0 {
+                    let sock_type = if pollfds[i].fd == self.stream.as_raw_fd() {
+                        "listening"
+                    } else {
+                        "connected"
+                    };
+                    panic!("Received POLLHUP on {sock_type} socket");
+                }
                 if pollfds[i].revents & libc::POLLIN != 0 {
                     nready -= 1;
                     if pollfds[i].fd == self.stream.as_raw_fd() {
