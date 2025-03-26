@@ -5,19 +5,21 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use kvm_bindings::{KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region};
 use kvm_ioctls::VmFd;
 use vmm_sys_util::eventfd::EventFd;
 
-use crate::Vcpu;
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
 use crate::logger::info;
+use crate::utils::u64_to_usize;
 use crate::vstate::memory::{
     Address, GuestMemory, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap,
 };
 use crate::vstate::vcpu::VcpuError;
+use crate::{DirtyBitmap, Vcpu};
 
 /// Architecture independent parts of a VM.
 #[derive(Debug)]
@@ -176,6 +178,30 @@ impl Vm {
     /// Gets a reference to this [`Vm`]'s [`GuestMemoryMmap`] object
     pub fn guest_memory(&self) -> &GuestMemoryMmap {
         &self.common.guest_memory
+    }
+
+    /// Resets the KVM dirty bitmap for each of the guest's memory regions.
+    pub fn reset_dirty_bitmap(&self) {
+        self.guest_memory()
+            .iter()
+            .zip(0u32..)
+            .for_each(|(region, slot)| {
+                let _ = self.fd().get_dirty_log(slot, u64_to_usize(region.len()));
+            });
+    }
+
+    /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
+    pub fn get_dirty_bitmap(&self) -> Result<DirtyBitmap, vmm_sys_util::errno::Error> {
+        let mut bitmap: DirtyBitmap = HashMap::new();
+        self.guest_memory()
+            .iter()
+            .zip(0u32..)
+            .try_for_each(|(region, slot)| {
+                self.fd()
+                    .get_dirty_log(slot, u64_to_usize(region.len()))
+                    .map(|bitmap_region| _ = bitmap.insert(slot, bitmap_region))
+            })?;
+        Ok(bitmap)
     }
 }
 
