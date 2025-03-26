@@ -227,7 +227,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
         let mut writer_offset = 0;
         let page_size = get_page_size().map_err(MemoryError::PageSize)?;
 
-        let write_result = self.iter().enumerate().try_for_each(|(slot, region)| {
+        let write_result = self.iter().zip(0..).try_for_each(|(region, slot)| {
             let kvm_bitmap = dirty_bitmap.get(&slot).unwrap();
             let firecracker_bitmap = region.bitmap();
             let mut write_size = 0;
@@ -291,7 +291,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
 
     /// Stores the dirty bitmap inside into the internal bitmap
     fn store_dirty_bitmap(&self, dirty_bitmap: &DirtyBitmap, page_size: usize) {
-        self.iter().enumerate().for_each(|(slot, region)| {
+        self.iter().zip(0..).for_each(|(region, slot)| {
             let kvm_bitmap = dirty_bitmap.get(&slot).unwrap();
             let firecracker_bitmap = region.bitmap();
 

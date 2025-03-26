@@ -42,7 +42,7 @@ use crate::vstate::memory;
 use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryState, GuestRegionMmap, MemoryError};
 use crate::vstate::vcpu::{VcpuSendEventError, VcpuState};
 use crate::vstate::vm::VmState;
-use crate::{EventManager, Vmm, VmmError, mem_size_mib, vstate};
+use crate::{EventManager, Vmm, mem_size_mib, vstate};
 
 /// Holds information related to the VM that is not part of VmState.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
@@ -136,7 +136,7 @@ pub enum MicrovmStateError {
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum CreateSnapshotError {
     /// Cannot get dirty bitmap: {0}
-    DirtyBitmap(VmmError),
+    DirtyBitmap(vmm_sys_util::errno::Error),
     /// Cannot write memory file: {0}
     Memory(MemoryError),
     /// Cannot perform {0} on the memory backing file: {1}
@@ -245,7 +245,7 @@ fn snapshot_memory_to_file(
 
     match snapshot_type {
         SnapshotType::Diff => {
-            let dirty_bitmap = vmm.get_dirty_bitmap().map_err(DirtyBitmap)?;
+            let dirty_bitmap = vmm.vm.get_dirty_bitmap().map_err(DirtyBitmap)?;
             vmm.vm
                 .guest_memory()
                 .dump_dirty(&mut file, &dirty_bitmap)
@@ -254,7 +254,7 @@ fn snapshot_memory_to_file(
         SnapshotType::Full => {
             let dump_res = vmm.vm.guest_memory().dump(&mut file).map_err(Memory);
             if dump_res.is_ok() {
-                vmm.reset_dirty_bitmap();
+                vmm.vm.reset_dirty_bitmap();
                 vmm.vm.guest_memory().reset_dirty();
             }
 
