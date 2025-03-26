@@ -28,6 +28,7 @@ use crate::arch::{BootProtocol, EntryPoint};
 use crate::cpu_config::aarch64::{CpuConfiguration, CpuConfigurationError};
 use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::initrd::InitrdConfig;
+use crate::utils::{align_up, usize_to_u64};
 use crate::vmm_config::machine_config::MachineConfig;
 use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 use crate::vstate::vcpu::KvmVcpuError;
@@ -129,9 +130,11 @@ pub fn get_kernel_start() -> u64 {
 
 /// Returns the memory address where the initrd could be loaded.
 pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> Option<u64> {
-    let round_to_pagesize =
-        |size| (size + (super::GUEST_PAGE_SIZE - 1)) & !(super::GUEST_PAGE_SIZE - 1);
-    match GuestAddress(get_fdt_addr(guest_mem)).checked_sub(round_to_pagesize(initrd_size) as u64) {
+    let rounded_size = align_up(
+        usize_to_u64(initrd_size),
+        usize_to_u64(super::GUEST_PAGE_SIZE),
+    );
+    match GuestAddress(get_fdt_addr(guest_mem)).checked_sub(rounded_size) {
         Some(offset) => {
             if guest_mem.address_in_range(offset) {
                 Some(offset.raw_value())

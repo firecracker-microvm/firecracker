@@ -53,3 +53,15 @@ pub const fn wrap_usize_to_u32(num: usize) -> Wrapping<u32> {
 pub const fn mib_to_bytes(mib: usize) -> usize {
     mib << MIB_TO_BYTES_SHIFT
 }
+
+/// Align address up to the aligment.
+pub const fn align_up(addr: u64, align: u64) -> u64 {
+    debug_assert!(align != 0);
+    (addr + align - 1) & !(align - 1)
+}
+
+/// Align address down to the aligment.
+pub const fn align_down(addr: u64, align: u64) -> u64 {
+    debug_assert!(align != 0);
+    addr & !(align - 1)
+}
