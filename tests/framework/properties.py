@@ -103,6 +103,13 @@ class GlobalProps:
         return tuple(int(x) for x in self.host_linux_version.split("."))
 
     @property
+    def host_linux_version_metrics(self):
+        """Host Linux version to be reported in metrics"""
+        return (
+            "next" if self.host_linux_version_tpl > (6, 12) else self.host_linux_version
+        )
+
+    @property
     def is_ec2(self):
         """Are we running on an EC2 instance?"""
         return self.environment == "ec2"
