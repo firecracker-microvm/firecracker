@@ -7,7 +7,9 @@ use std::time::Duration;
 
 use vmm::builder::build_and_boot_microvm;
 use vmm::devices::virtio::block::CacheType;
-use vmm::persist::{MicrovmState, MicrovmStateError, VmInfo, snapshot_state_sanity_check};
+use vmm::persist::{
+    MicrovmState, MicrovmStateError, RestoreMemoryError, VmInfo, snapshot_state_sanity_check,
+};
 use vmm::resources::VmResources;
 use vmm::rpc_interface::{
     LoadSnapshotError, PrebootApiController, RuntimeApiController, VmmAction, VmmActionError,
@@ -295,8 +297,6 @@ fn test_create_and_load_snapshot() {
 
 #[test]
 fn test_snapshot_load_sanity_checks() {
-    use vmm::persist::SnapShotStateSanityCheckError;
-
     let mut microvm_state = get_microvm_state_from_snapshot();
 
     snapshot_state_sanity_check(&microvm_state).unwrap();
@@ -305,10 +305,10 @@ fn test_snapshot_load_sanity_checks() {
     microvm_state.vm_state.memory.regions.clear();
 
     // Validate sanity checks fail because there is no mem region in state.
-    assert_eq!(
+    assert!(matches!(
         snapshot_state_sanity_check(&microvm_state),
-        Err(SnapShotStateSanityCheckError::NoMemory)
-    );
+        Err(RestoreMemoryError::NoMemory)
+    ));
 }
 
 fn get_microvm_state_from_snapshot() -> MicrovmState {

@@ -30,9 +30,7 @@ use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::initrd::InitrdConfig;
 use crate::utils::{align_up, usize_to_u64};
 use crate::vmm_config::machine_config::MachineConfig;
-use crate::vstate::memory::{
-    Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap,
-};
+use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 use crate::vstate::vcpu::KvmVcpuError;
 use crate::{Vcpu, VcpuConfig, Vmm, logger};
 
@@ -142,7 +140,9 @@ pub fn configure_system_for_boot(
 
     let swiotlb_region = match vmm.vm.swiotlb_regions().num_regions() {
         0 | 1 => vmm.vm.swiotlb_regions().iter().next(),
-        _ => panic!("Firecracker tried to configure more than one swiotlb region. This is a logic bug.")
+        _ => panic!(
+            "Firecracker tried to configure more than one swiotlb region. This is a logic bug."
+        ),
     };
 
     let fdt = fdt::create_fdt(
