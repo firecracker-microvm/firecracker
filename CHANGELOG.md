@@ -44,6 +44,10 @@ and this project adheres to
   the `SendCtrlAltDel` command not working for ACPI-enabled guest kernels, by
   dropping the i8042.nopnp argument from the default kernel command line
   Firecracker constructs.
+- [#5122](https://github.com/firecracker-microvm/firecracker/pull/5122): Keep
+  the UFFD Unix domain socket open to prevent the race condition between the
+  guest memory mappings message and the shutdown event that was sometimes
+  causing arrival of an empty message on the UFFD handler side.
 
 ## [1.11.0]
 
