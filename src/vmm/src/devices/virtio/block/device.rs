@@ -148,6 +148,13 @@ impl VirtioDevice for Block {
         }
     }
 
+    fn force_swiotlb(&mut self) {
+        match self {
+            Block::Virtio(b) => b.force_swiotlb(),
+            Block::VhostUser(b) => b.force_swiotlb(),
+        }
+    }
+
     fn device_type(&self) -> u32 {
         TYPE_BLOCK
     }

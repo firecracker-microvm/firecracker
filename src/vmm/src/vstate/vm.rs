@@ -209,7 +209,7 @@ impl Vm {
     /// have access to. If no I/O regions were registered, return the same as [`Vm::guest_memory`],
     /// otherwise returns the [`GuestMemoryMmap`] describing a specific swiotlb region.
     pub fn io_memory(&self) -> &GuestMemoryMmap {
-        if self.common.swiotlb_regions.num_regions() > 0 {
+        if self.has_swiotlb() {
             &self.common.swiotlb_regions
         } else {
             &self.common.guest_memory
@@ -221,6 +221,11 @@ impl Vm {
     /// [`GuestMemoryMmap`] of normal memory when no swiotlb regions were registered.
     pub fn swiotlb_regions(&self) -> &GuestMemoryMmap {
         &self.common.swiotlb_regions
+    }
+
+    /// Returns `true` iff any io memory regions where registered via [`Vm::register_io_region`].
+    pub fn has_swiotlb(&self) -> bool {
+        self.common.swiotlb_regions.num_regions() > 0
     }
 
     /// Returns an iterator over all regions, normal and swiotlb.
