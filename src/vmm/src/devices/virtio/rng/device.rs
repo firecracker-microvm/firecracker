@@ -13,7 +13,9 @@ use super::metrics::METRICS;
 use super::{RNG_NUM_QUEUES, RNG_QUEUE};
 use crate::devices::DeviceError;
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
-use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
+use crate::devices::virtio::generated::virtio_config::{
+    VIRTIO_F_ACCESS_PLATFORM, VIRTIO_F_VERSION_1,
+};
 use crate::devices::virtio::iov_deque::IovDequeError;
 use crate::devices::virtio::iovec::IoVecBufferMut;
 use crate::devices::virtio::queue::{FIRECRACKER_MAX_QUEUE_SIZE, Queue};
@@ -302,6 +304,10 @@ impl VirtioDevice for Entropy {
         })?;
         self.device_state = DeviceState::Activated(mem);
         Ok(())
+    }
+
+    fn force_swiotlb(&mut self) {
+        self.avail_features |= 1 << VIRTIO_F_ACCESS_PLATFORM;
     }
 }
 

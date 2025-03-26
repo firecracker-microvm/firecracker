@@ -423,6 +423,10 @@ pub(crate) mod tests {
             self.acked_features = acked_features;
         }
 
+        fn force_swiotlb(&mut self) {
+            unimplemented!()
+        }
+
         fn device_type(&self) -> u32 {
             123
         }

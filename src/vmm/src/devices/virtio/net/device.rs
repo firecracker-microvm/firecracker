@@ -16,7 +16,9 @@ use vmm_sys_util::eventfd::EventFd;
 
 use super::NET_QUEUE_MAX_SIZE;
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
-use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
+use crate::devices::virtio::generated::virtio_config::{
+    VIRTIO_F_ACCESS_PLATFORM, VIRTIO_F_VERSION_1,
+};
 use crate::devices::virtio::generated::virtio_net::{
     VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM, VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_TSO6,
     VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_TSO6, VIRTIO_NET_F_HOST_UFO,
@@ -944,6 +946,10 @@ impl VirtioDevice for Net {
 
     fn set_acked_features(&mut self, acked_features: u64) {
         self.acked_features = acked_features;
+    }
+
+    fn force_swiotlb(&mut self) {
+        self.avail_features |= 1 << VIRTIO_F_ACCESS_PLATFORM;
     }
 
     fn device_type(&self) -> u32 {
