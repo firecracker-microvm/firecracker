@@ -98,7 +98,8 @@ pub fn configure_system_for_boot(
     let vcpu_mpidr = vcpus
         .iter_mut()
         .map(|cpu| cpu.kvm_vcpu.get_mpidr())
-        .collect();
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(KvmVcpuError::ConfigureRegisters)?;
     let cmdline = boot_cmdline
         .as_cstring()
         .expect("Cannot create cstring from cmdline string");

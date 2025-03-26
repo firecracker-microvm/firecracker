@@ -140,16 +140,6 @@ pub fn setup_boot_regs(
     Ok(())
 }
 
-/// Read the MPIDR - Multiprocessor Affinity Register.
-pub fn get_mpidr(vcpufd: &VcpuFd) -> Result<u64, VcpuArchError> {
-    // MPIDR register is 64 bit wide on aarch64
-    let mut mpidr = [0_u8; 8];
-    match vcpufd.get_one_reg(MPIDR_EL1, &mut mpidr) {
-        Err(err) => Err(VcpuArchError::GetOneReg(MPIDR_EL1, err)),
-        Ok(_) => Ok(u64::from_le_bytes(mpidr)),
-    }
-}
-
 /// Saves the states of the system registers into `state`.
 ///
 /// # Arguments
@@ -277,7 +267,6 @@ pub struct KvmVcpu {
     pub fd: VcpuFd,
     /// Vcpu peripherals, such as buses
     pub peripherals: Peripherals,
-    mpidr: u64,
     kvi: kvm_vcpu_init,
 }
 
@@ -311,14 +300,18 @@ impl KvmVcpu {
             index,
             fd: kvm_vcpu,
             peripherals: Default::default(),
-            mpidr: 0,
             kvi,
         })
     }
 
-    /// Gets the MPIDR register value.
-    pub fn get_mpidr(&self) -> u64 {
-        self.mpidr
+    /// Read the MPIDR - Multiprocessor Affinity Register.
+    pub fn get_mpidr(&self) -> Result<u64, VcpuArchError> {
+        // MPIDR register is 64 bit wide on aarch64
+        let mut mpidr = [0_u8; 8];
+        match self.fd.get_one_reg(MPIDR_EL1, &mut mpidr) {
+            Err(err) => Err(VcpuArchError::GetOneReg(MPIDR_EL1, err)),
+            Ok(_) => Ok(u64::from_le_bytes(mpidr)),
+        }
     }
 
     /// Configures an aarch64 specific vcpu for booting Linux.
@@ -350,8 +343,6 @@ impl KvmVcpu {
             optional_capabilities,
         )
         .map_err(KvmVcpuError::ConfigureRegisters)?;
-
-        self.mpidr = get_mpidr(&self.fd).map_err(KvmVcpuError::ConfigureRegisters)?;
 
         Ok(())
     }
@@ -393,7 +384,7 @@ impl KvmVcpu {
             ..Default::default()
         };
         get_all_registers(&self.fd, &mut state.regs).map_err(KvmVcpuError::SaveState)?;
-        state.mpidr = get_mpidr(&self.fd).map_err(KvmVcpuError::SaveState)?;
+        state.mpidr = self.get_mpidr().map_err(KvmVcpuError::SaveState)?;
 
         state.kvi = self.kvi;
         // We don't save power off state in a snapshot, because
@@ -757,21 +748,17 @@ mod tests {
 
     #[test]
     fn test_read_mpidr() {
-        let kvm = Kvm::new(vec![]).unwrap();
-        let vm = kvm.fd.create_vm().unwrap();
-        let vcpu = vm.create_vcpu(0).unwrap();
-        let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
-        vm.get_preferred_target(&mut kvi).unwrap();
+        let (_, _, vcpu, _) = setup_vcpu(0x10000);
 
         // Must fail when vcpu is not initialized yet.
-        let res = get_mpidr(&vcpu);
+        let res = vcpu.get_mpidr();
         assert!(matches!(
             res.unwrap_err(),
             VcpuArchError::GetOneReg(MPIDR_EL1, _)
         ));
 
-        vcpu.vcpu_init(&kvi).unwrap();
-        assert_eq!(get_mpidr(&vcpu).unwrap(), 0x8000_0000);
+        vcpu.init_vcpu().unwrap();
+        assert_eq!(vcpu.get_mpidr().unwrap(), 0x8000_0000);
     }
 
     #[test]
