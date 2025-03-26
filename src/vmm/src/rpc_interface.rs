@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use serde_json::Value;
 use utils::time::{ClockType, get_time_us};
 
-use super::builder::build_and_boot_microvm;
+use super::builder::{BuildMicrovmFromSnapshotError, build_and_boot_microvm};
 use super::persist::{create_snapshot, restore_from_snapshot};
 use super::resources::VmResources;
 use super::{Vmm, VmmError};
@@ -16,7 +16,7 @@ use crate::builder::StartMicrovmError;
 use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
 use crate::logger::{LoggerConfig, info, warn, *};
 use crate::mmds::data_store::{self, Mmds};
-use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
+use crate::persist::{CreateSnapshotError, VmInfo};
 use crate::resources::VmmConfig;
 use crate::seccomp::BpfThreadMap;
 use crate::vmm_config::balloon::{
@@ -275,7 +275,7 @@ pub enum LoadSnapshotError {
     /// Loading a microVM snapshot not allowed after configuring boot-specific resources.
     LoadSnapshotNotAllowed,
     /// Failed to restore from snapshot: {0}
-    RestoreFromSnapshot(#[from] RestoreFromSnapshotError),
+    RestoreFromSnapshot(#[from] BuildMicrovmFromSnapshotError),
     /// Failed to resume microVM: {0}
     ResumeMicrovm(#[from] VmmError),
 }
