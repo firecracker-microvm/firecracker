@@ -376,8 +376,9 @@ mod tests {
     use super::*;
     use crate::devices::virtio::block::virtio::device::FileEngineType;
     use crate::devices::virtio::mmio::VIRTIO_MMIO_INT_CONFIG;
+    use crate::devices::virtio::vhost_user::tests::create_mem;
     use crate::test_utils::create_tmp_socket;
-    use crate::vstate::memory::{GuestAddress, GuestMemoryExtension};
+    use crate::vstate::memory::GuestAddress;
 
     #[test]
     fn test_from_config() {
@@ -778,9 +779,7 @@ mod tests {
         let file = TempFile::new().unwrap().into_file();
         file.set_len(region_size as u64).unwrap();
         let regions = vec![(GuestAddress(0x0), region_size)];
-        let guest_memory =
-            GuestMemoryMmap::create(regions.into_iter(), libc::MAP_PRIVATE, Some(file), false)
-                .unwrap();
+        let guest_memory = create_mem(file, &regions);
 
         // During actiavion of the device features, memory and queues should be set and activated.
         vhost_block.activate(guest_memory).unwrap();
