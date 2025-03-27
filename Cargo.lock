@@ -903,7 +903,7 @@ dependencies = [
 [[package]]
 name = "linux-loader"
 version = "0.13.0"
-source = "git+https://github.com/roypat/linux-loader?branch=vm-memory-update#2db0089e4626caa286350a8ecb4d1e203f4cedbc"
+source = "git+https://github.com/roypat/linux-loader?branch=vm-memory-update#39e35699b988b28769114a5eeffbd3e8fd41c272"
 dependencies = [
  "vm-memory",
 ]
@@ -1626,7 +1626,7 @@ checksum = "7e21282841a059bb62627ce8441c491f09603622cd5a21c43bfedc85a2952f23"
 [[package]]
 name = "vm-memory"
 version = "0.16.1"
-source = "git+https://github.com/roypat/vm-memory?branch=generic-region-container#e7d74ea2b8369bb8b9df7f7934e3aa7f638c05f6"
+source = "git+https://github.com/roypat/vm-memory?branch=generic-region-container#f3ce283485b9e89acc48d72956601fe499605cad"
 dependencies = [
  "libc",
  "thiserror 1.0.69",
