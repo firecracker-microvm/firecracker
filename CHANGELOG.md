@@ -22,6 +22,11 @@ and this project adheres to
 
 ### Changed
 
+- [#5118](https://github.com/firecracker-microvm/firecracker/pull/5118): Cleared
+  WAITPKG CPUID bit in CPUID normalization. The feature enables a guest to put a
+  physical processor into an idle state, which is undesirable in a FaaS
+  environment since that is what the host wants to decide.
+
 ### Deprecated
 
 - [#4948](https://github.com/firecracker-microvm/firecracker/pull/4948):

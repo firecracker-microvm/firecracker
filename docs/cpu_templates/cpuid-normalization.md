@@ -35,6 +35,7 @@ See also: [boot protocol settings](boot-protocol.md)
 | Disable frequency selection                                    |                0x6                 |    -    |   ECX    |   3   |
 | Set FDP_EXCPTN_ONLY bit                                        |                0x7                 |   0x0   |   EBX    |   6   |
 | Set "Deprecates FPU CS and FPU DS values" bit                  |                0x7                 |   0x0   |   EBX    |  13   |
+| Disable WAITPKG (UMONITOR / UMWAIT / TPAUSE)                   |                0x7                 |   0x0   |   ECX    |   5   |
 | Disable performance monitoring                                 |                0xa                 |    -    |   all    |  all  |
 | Fill v2 extended topology enumeration leaf                     |                0x1f                |   all   |   all    |  all  |
 | Update brand string to use a default format and real frequency | 0x80000002, 0x80000003, 0x80000004 |    -    |   all    |  all  |

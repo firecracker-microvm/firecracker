@@ -194,6 +194,48 @@ impl super::IntelCpuid {
         set_bit(&mut leaf_7_0.result.ebx, 6, true);
         set_bit(&mut leaf_7_0.result.ebx, 13, true);
 
+        // CPUID.(EAX=07H,ECX=0):ECX[5] (Mnemonic: WAITPKG)
+        //
+        // WAITPKG indicates support of user wait instructions (UMONITOR, UMWAIT and TPAUSE).
+        // - UMONITOR arms address monitoring hardware that checks for store operations on the
+        //   specified address range.
+        // - UMWAIT instructs the processor to enter an implementation-dependent optimized state
+        //   (either a light-weight power/performance optimized state (C0.1 idle state) or an
+        //   improved power/performance optimized state (C0.2 idle state)) while monitoring the
+        //   address range specified in UMONITOR. The instruction wakes up when the time-stamp
+        //   counter reaches or exceeds the implicit EDX:EAX 64-bit input value.
+        // - TPAUSE instructs the processor to enter an implementation-dependent optimized state.
+        //   The instruction wakes up when the time-stamp counter reaches or exceeds the implict
+        //   EDX:EAX 64-bit input value.
+        //
+        // These instructions may be executed at any privilege level. Even when UMWAIT/TPAUSE are
+        // executed within a guest, the *physical* processor enters the requested optimized state.
+        // See Intel SDM vol.3 for more details of the behavior of these instructions in VMX
+        // non-root operation.
+        //
+        // MONITOR/MWAIT instructions are the privileged variant of UMONITOR/UMWAIT and are
+        // unconditionally emulated as NOP by KVM.
+        // https://github.com/torvalds/linux/commit/87c00572ba05aa8c9db118da75c608f47eb10b9e
+        //
+        // When UMONITOR/UMWAIT/TPAUSE were initially introduced, KVM clears the WAITPKG CPUID bit
+        // in KVM_GET_SUPPORTED_CPUID by default, and KVM exposed them to guest only when VMM
+        // explicitly set the bit via KVM_SET_CPUID2 API.
+        // https://github.com/torvalds/linux/commit/e69e72faa3a0709dd23df6a4ca060a15e99168a1
+        // However, since v5.8, if the processor supports "enable user wait and pause" in Intel VMX,
+        // KVM_GET_SUPPORTED_CPUID sets the bit to 1 to let VMM know that it is available. So if the
+        // returned value is passed to KVM_SET_CPUID2 API as it is, guests are able to execute them.
+        // https://github.com/torvalds/linux/commit/0abcc8f65cc23b65bc8d1614cc64b02b1641ed7c
+        //
+        // Similar to MONITOR/MWAIT, we disable the guest's WAITPKG in order to prevent a guest from
+        // executing those instructions and putting a physical processor to an idle state which may
+        // lead to an overhead of waking it up when scheduling another guest on it. By clearing the
+        // WAITPKG bit in KVM_SET_CPUID2 API, KVM does not set the "enable user wait and pause" bit
+        // (bit 26) of the secondary processor-based VM-execution control, which makes guests get
+        // #UD when attempting to executing those instructions.
+        //
+        // Note that the WAITPKG bit is reserved on AMD.
+        set_bit(&mut leaf_7_0.result.ecx, 5, false);
+
         Ok(())
     }
 
@@ -419,6 +461,7 @@ mod tests {
             .unwrap();
         assert!((leaf_7_0.result.ebx & (1 << 6)) > 0);
         assert!((leaf_7_0.result.ebx & (1 << 13)) > 0);
+        assert_eq!((leaf_7_0.result.ecx & (1 << 5)), 0);
     }
 
     #[test]
