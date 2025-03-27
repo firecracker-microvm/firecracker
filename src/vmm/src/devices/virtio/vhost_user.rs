@@ -380,7 +380,7 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
             let vhost_user_net_reg = VhostUserMemoryRegionInfo {
                 guest_phys_addr: region.start_addr().raw_value(),
                 memory_size: region.len(),
-                userspace_addr: region.as_ptr() as u64,
+                userspace_addr: region.inner().userspace_addr,
                 mmap_offset,
                 mmap_handle,
             };
@@ -469,7 +469,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::test_utils::create_tmp_socket;
     use crate::vstate::memory;
-    use crate::vstate::memory::GuestAddress;
+    use crate::vstate::memory::{GuestAddress, KvmRegion};
 
     pub(crate) fn create_mem(file: File, regions: &[(GuestAddress, usize)]) -> GuestMemoryMmap {
         GuestMemoryMmap::from_regions(
@@ -479,7 +479,10 @@ pub(crate) mod tests {
                 Some(file),
                 false,
             )
-            .unwrap(),
+            .unwrap()
+            .into_iter()
+            .map(|region| KvmRegion::from_mmap_region(region, 0))
+            .collect(),
         )
         .unwrap()
     }
@@ -789,7 +792,7 @@ pub(crate) mod tests {
             .map(|region| VhostUserMemoryRegionInfo {
                 guest_phys_addr: region.start_addr().raw_value(),
                 memory_size: region.len(),
-                userspace_addr: region.as_ptr() as u64,
+                userspace_addr: region.inner().userspace_addr,
                 mmap_offset: region.file_offset().unwrap().start(),
                 mmap_handle: region.file_offset().unwrap().file().as_raw_fd(),
             })
