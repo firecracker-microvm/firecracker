@@ -24,7 +24,7 @@ check_ubuntu() {
 tidy_up() {
   # Some cleanup after we are done
   echo "Cleaning up.."
-  popd
+  cd $START_DIR
   rm -rf $TMP_BUILD_DIR
 }
 
@@ -103,7 +103,8 @@ KERNEL_CONFIG_OVERRIDES=$(pwd)/kernel_config_overrides
 
 TMP_BUILD_DIR=$(mktemp -d -t kernel-build-XXXX)
 
-pushd .
+START_DIR=$(pwd)
+
 cd $TMP_BUILD_DIR
 
 echo "Cloning kernel repository into" $TMP_BUILD_DIR
