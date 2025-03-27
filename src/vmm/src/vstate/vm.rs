@@ -11,7 +11,6 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 
-use kvm_bindings::{KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region};
 use kvm_ioctls::VmFd;
 use vmm_sys_util::eventfd::EventFd;
 
@@ -21,7 +20,8 @@ use crate::persist::CreateSnapshotError;
 use crate::utils::u64_to_usize;
 use crate::vmm_config::snapshot::SnapshotType;
 use crate::vstate::memory::{
-    Address, GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap,
+    GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap,
+    KvmRegion,
 };
 use crate::vstate::vcpu::VcpuError;
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
@@ -136,42 +136,42 @@ impl Vm {
         Ok(())
     }
 
-    /// Register a new memory region to this [`Vm`].
-    pub fn register_memory_region(&mut self, region: GuestRegionMmap) -> Result<(), VmError> {
+    fn kvmify_region(&self, region: GuestRegionMmap) -> Result<KvmRegion, VmError> {
         let next_slot = self
             .guest_memory()
             .num_regions()
             .try_into()
             .map_err(|_| VmError::NotEnoughMemorySlots)?;
+
         if next_slot as usize >= self.common.max_memslots {
             return Err(VmError::NotEnoughMemorySlots);
         }
 
-        let flags = if region.bitmap().is_some() {
-            KVM_MEM_LOG_DIRTY_PAGES
-        } else {
-            0
-        };
+        Ok(KvmRegion::from_mmap_region(region, next_slot))
+    }
 
-        let memory_region = kvm_userspace_memory_region {
-            slot: next_slot,
-            guest_phys_addr: region.start_addr().raw_value(),
-            memory_size: region.len(),
-            userspace_addr: region.as_ptr() as u64,
-            flags,
-        };
-
-        let new_guest_memory = self.common.guest_memory.insert_region(Arc::new(region))?;
-
+    fn register_kvm_region(&mut self, region: &KvmRegion) -> Result<(), VmError> {
         // SAFETY: Safe because the fd is a valid KVM file descriptor.
         unsafe {
             self.fd()
-                .set_user_memory_region(memory_region)
+                .set_user_memory_region(*region.inner())
                 .map_err(VmError::SetUserMemoryRegion)?;
         }
 
-        self.common.guest_memory = new_guest_memory;
+        Ok(())
+    }
 
+    /// Register a new memory region to this [`Vm`].
+    pub fn register_memory_region(&mut self, region: GuestRegionMmap) -> Result<(), VmError> {
+        let arcd_region = Arc::new(self.kvmify_region(region)?);
+        let new_guest_memory = self
+            .common
+            .guest_memory
+            .insert_region(Arc::clone(&arcd_region))?;
+
+        self.register_kvm_region(arcd_region.as_ref())?;
+
+        self.common.guest_memory = new_guest_memory;
         Ok(())
     }
 
@@ -187,25 +187,21 @@ impl Vm {
 
     /// Resets the KVM dirty bitmap for each of the guest's memory regions.
     pub fn reset_dirty_bitmap(&self) {
-        self.guest_memory()
-            .iter()
-            .zip(0u32..)
-            .for_each(|(region, slot)| {
-                let _ = self.fd().get_dirty_log(slot, u64_to_usize(region.len()));
-            });
+        self.guest_memory().iter().for_each(|region| {
+            let _ = self
+                .fd()
+                .get_dirty_log(region.inner().slot, u64_to_usize(region.len()));
+        });
     }
 
     /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
     pub fn get_dirty_bitmap(&self) -> Result<DirtyBitmap, vmm_sys_util::errno::Error> {
         let mut bitmap: DirtyBitmap = HashMap::new();
-        self.guest_memory()
-            .iter()
-            .zip(0u32..)
-            .try_for_each(|(region, slot)| {
-                self.fd()
-                    .get_dirty_log(slot, u64_to_usize(region.len()))
-                    .map(|bitmap_region| _ = bitmap.insert(slot, bitmap_region))
-            })?;
+        self.guest_memory().iter().try_for_each(|region| {
+            self.fd()
+                .get_dirty_log(region.inner().slot, u64_to_usize(region.len()))
+                .map(|bitmap_region| _ = bitmap.insert(region.inner().slot, bitmap_region))
+        })?;
         Ok(bitmap)
     }
 
