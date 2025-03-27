@@ -5,9 +5,19 @@
 //!
 //! TODO: To be removed once https://github.com/rust-vmm/vm-memory/pull/312 is merged
 
-use std::sync::Arc;
+#![allow(clippy::cast_possible_truncation)] // vm-memory has different clippy configuration
 
-use vm_memory::{Error, GuestAddress, GuestMemory, GuestMemoryRegion};
+use std::io::{Read, Write};
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
+
+use vm_memory::guest_memory::Result;
+use vm_memory::{
+    Address, AtomicAccess, Bytes, Error, GuestAddress, GuestMemory, GuestMemoryError,
+    GuestMemoryRegion, MemoryRegionAddress,
+};
+
+use crate::vstate::memory::KvmRegion;
 
 /// [`GuestMemory`](trait.GuestMemory.html) implementation based on a homogeneous collection
 /// of [`GuestMemoryRegion`] implementations.
@@ -112,5 +122,144 @@ impl<R: GuestMemoryRegion> GuestMemory for GuestRegionCollection<R> {
 
     fn iter(&self) -> impl Iterator<Item = &Self::R> {
         self.regions.iter().map(AsRef::as_ref)
+    }
+}
+
+// This impl will be subsumed by the default impl in vm-memory#312
+impl Bytes<MemoryRegionAddress> for KvmRegion {
+    type E = GuestMemoryError;
+
+    /// # Examples
+    /// * Write a slice at guest address 0x1200.
+    ///
+    /// ```
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
+    /// #
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # {
+    /// # let start_addr = GuestAddress(0x1000);
+    /// # let mut gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
+    /// #    .expect("Could not create guest memory");
+    /// #
+    /// let res = gm
+    ///     .write(&[1, 2, 3, 4, 5], GuestAddress(0x1200))
+    ///     .expect("Could not write to guest memory");
+    /// assert_eq!(5, res);
+    /// # }
+    /// ```
+    fn write(&self, buf: &[u8], addr: MemoryRegionAddress) -> Result<usize> {
+        let maddr = addr.raw_value() as usize;
+        self.as_volatile_slice()?
+            .write(buf, maddr)
+            .map_err(Into::into)
+    }
+
+    /// # Examples
+    /// * Read a slice of length 16 at guestaddress 0x1200.
+    ///
+    /// ```
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
+    /// #
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # {
+    /// # let start_addr = GuestAddress(0x1000);
+    /// # let mut gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
+    /// #    .expect("Could not create guest memory");
+    /// #
+    /// let buf = &mut [0u8; 16];
+    /// let res = gm
+    ///     .read(buf, GuestAddress(0x1200))
+    ///     .expect("Could not read from guest memory");
+    /// assert_eq!(16, res);
+    /// # }
+    /// ```
+    fn read(&self, buf: &mut [u8], addr: MemoryRegionAddress) -> Result<usize> {
+        let maddr = addr.raw_value() as usize;
+        self.as_volatile_slice()?
+            .read(buf, maddr)
+            .map_err(Into::into)
+    }
+
+    fn write_slice(&self, buf: &[u8], addr: MemoryRegionAddress) -> Result<()> {
+        let maddr = addr.raw_value() as usize;
+        self.as_volatile_slice()?
+            .write_slice(buf, maddr)
+            .map_err(Into::into)
+    }
+
+    fn read_slice(&self, buf: &mut [u8], addr: MemoryRegionAddress) -> Result<()> {
+        let maddr = addr.raw_value() as usize;
+        self.as_volatile_slice()?
+            .read_slice(buf, maddr)
+            .map_err(Into::into)
+    }
+
+    fn store<T: AtomicAccess>(
+        &self,
+        val: T,
+        addr: MemoryRegionAddress,
+        order: Ordering,
+    ) -> Result<()> {
+        self.as_volatile_slice().and_then(|s| {
+            s.store(val, addr.raw_value() as usize, order)
+                .map_err(Into::into)
+        })
+    }
+
+    fn load<T: AtomicAccess>(&self, addr: MemoryRegionAddress, order: Ordering) -> Result<T> {
+        self.as_volatile_slice()
+            .and_then(|s| s.load(addr.raw_value() as usize, order).map_err(Into::into))
+    }
+
+    // All remaining functions are deprecated and have been removed in vm-memory/main.
+    // Firecracker does not use them, so no point in writing out implementations here.
+    fn read_from<F>(
+        &self,
+        _addr: MemoryRegionAddress,
+        _src: &mut F,
+        _count: usize,
+    ) -> std::result::Result<usize, Self::E>
+    where
+        F: Read,
+    {
+        unimplemented!()
+    }
+
+    fn read_exact_from<F>(
+        &self,
+        _addr: MemoryRegionAddress,
+        _src: &mut F,
+        _count: usize,
+    ) -> std::result::Result<(), Self::E>
+    where
+        F: Read,
+    {
+        unimplemented!()
+    }
+
+    fn write_to<F>(
+        &self,
+        _addr: MemoryRegionAddress,
+        _dst: &mut F,
+        _count: usize,
+    ) -> std::result::Result<usize, Self::E>
+    where
+        F: Write,
+    {
+        unimplemented!()
+    }
+
+    fn write_all_to<F>(
+        &self,
+        _addr: MemoryRegionAddress,
+        _dst: &mut F,
+        _count: usize,
+    ) -> std::result::Result<(), Self::E>
+    where
+        F: Write,
+    {
+        unimplemented!()
     }
 }
