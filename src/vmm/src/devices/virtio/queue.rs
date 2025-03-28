@@ -308,6 +308,15 @@ impl Queue {
         Ok(slice.ptr_guard_mut().as_ptr())
     }
 
+    fn log_queue_component_address(component: &'static str, addr: GuestAddress, size: usize) {
+        log::info!(
+            "Placed virt queue {} at [{}, {})",
+            component,
+            addr.0,
+            addr.0 + size as u64
+        );
+    }
+
     /// Set up pointers to the queue objects in the guest memory
     /// and mark memory dirty for those objects
     pub fn initialize<M: GuestMemory>(&mut self, mem: &M) -> Result<(), QueueError> {
@@ -352,6 +361,22 @@ impl Queue {
                 4,
             ));
         }
+
+        Self::log_queue_component_address(
+            "descriptor table",
+            self.desc_table_address,
+            self.desc_table_size(),
+        );
+        Self::log_queue_component_address(
+            "avail ring",
+            self.avail_ring_address,
+            self.avail_ring_size(),
+        );
+        Self::log_queue_component_address(
+            "used ring",
+            self.used_ring_address,
+            self.used_ring_size(),
+        );
 
         Ok(())
     }
