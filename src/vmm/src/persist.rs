@@ -6,6 +6,7 @@
 use std::fmt::Debug;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
+use std::mem::forget;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
@@ -656,6 +657,11 @@ fn send_uffd_handshake(
         // uffd will still be alive but with no one to serve faults, leading to guest freeze.
         uffd.as_raw_fd(),
     )?;
+
+    // We prevent Rust from closing the socket file descriptor to avoid a potential race condition
+    // between the mappings message and the connection shutdown. If the latter arrives at the UFFD
+    // handler first, the handler never sees the mappings.
+    forget(socket);
 
     Ok(())
 }
