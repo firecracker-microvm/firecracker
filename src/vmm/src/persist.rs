@@ -135,13 +135,13 @@ pub enum CreateSnapshotError {
     /// Cannot get dirty bitmap: {0}
     DirtyBitmap(kvm_ioctls::Error),
     /// Cannot write memory file: {0}
-    Memory(MemoryError),
+    Memory(#[from] MemoryError),
     /// Cannot perform {0} on the memory backing file: {1}
     MemoryBackingFile(&'static str, io::Error),
     /// Cannot save the microVM state: {0}
     MicrovmState(MicrovmStateError),
     /// Cannot serialize the microVM state: {0}
-    SerializeMicrovmState(crate::snapshot::SnapshotError),
+    SerializeMicrovmState(#[from] crate::snapshot::SnapshotError),
     /// Cannot perform {0} on the snapshot backing file: {1}
     SnapshotBackingFile(&'static str, io::Error),
 }
@@ -197,9 +197,7 @@ fn snapshot_state_to_file(
         .map_err(|err| SnapshotBackingFile("open", err))?;
 
     let snapshot = Snapshot::new(SNAPSHOT_VERSION);
-    snapshot
-        .save(&mut snapshot_file, microvm_state)
-        .map_err(SerializeMicrovmState)?;
+    snapshot.save(&mut snapshot_file, microvm_state)?;
     snapshot_file
         .flush()
         .map_err(|err| SnapshotBackingFile("flush", err))?;
